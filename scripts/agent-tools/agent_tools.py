@@ -598,7 +598,7 @@ def doctor_rows(skills=None, receipts=None, identity=None, unidentified=None, to
         override = os.environ.get("CLEARCASE_BUN")
         add("FAIL", "bun", f"CLEARCASE_BUN={override} is not an executable file" if override
             else f"not found on PATH ({redact(os.environ.get('PATH', ''))})", install)
-    elif bun_problem or not found:
+    elif not found:  # a failed probe has no version, so bun_problem lands here too
         add("FAIL", "bun", bun_problem or f"`{bun_row['path']} --version` printed {bun_row['version']!r}, not a "
             "version MAJOR.MINOR.PATCH", f"check {bun_row['path']}, which must print its version; or {install}")
     elif have < (*map(int, minimum.split(".")), True):

@@ -10,6 +10,10 @@ Read `docs/product-brief.md`, `docs/delivery-plan.md`, `docs/orchestration.md` a
 - The existing hosted results-import endpoint is unverified. Do not treat client upload APIs as that endpoint.
 - A test that is skipped, mocked at the acceptance boundary or run against a different revision is not release evidence.
 
+## App toolchain
+
+Use Bun for application dependency installation, scripts, builds and the local server. The user selected Bun on 8 October 2026. The verified stable version on this host is 1.4.2. Pin `packageManager` to `bun@1.4.2`, commit `bun.lock`, install with `bun install --frozen-lockfile` and run app scripts with `bun run --bun <script>`. Launch the production entry point with Bun. Verify SQLite and server compatibility under Bun before accepting the pilot. Update Bun with `bun upgrade --stable` and record the installed version before changing its pin. This supersedes older npm/Node toolchain instructions in planning artifacts and spike reports.
+
 ## Agent skills
 
 Linear is the issue tracker. Read `docs/agents/issue-tracker.md`. The glossary is `GLOSSARY.md`; write ADRs under `docs/adr/` only for decisions that earn a permanent record.

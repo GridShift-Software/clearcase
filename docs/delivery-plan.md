@@ -53,7 +53,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Check out the exact reserved local candidate revision. Record `git rev-parse HEAD` and any uncommitted diff digest.
 - [ ] Read the ticket's fixture and input-version identity. Set the documented local fixture path and fixed clock; keep case material outside Git.
-- [ ] Once CC-03 provides the app, install from its lockfile, run the documented local server on loopback and wait for its readiness check. Use `npm run build` and the production preview for performance measurements.
+- [ ] Once CC-03 provides the app, install from its lockfile, run the documented local server on loopback and wait for its readiness check. Use `bun run --bun build` and the production preview for performance measurements.
 - [ ] Use T3 `preview_status`, then `preview_open` if needed, followed by the available navigation and interaction tools. Follow platform fallback rules if the preview is unavailable.
 - [ ] Drive real inputs, save screenshots and logs under `.orchestration/reports/<planning-key>/`, and name the observed pass predicate. CLI units save terminal transcripts; no screenshot is required.
 - [ ] Disable outbound networking for local acceptance. Use synthetic data for committed tests and keep case-bearing receipts ignored.
@@ -152,7 +152,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Own `package.json` for this unit. Reserve shared files before dispatch.
 
-- [ ] Own `package-lock.json` for this unit. Reserve shared files before dispatch.
+- [ ] Own `bun.lock` for this unit. Reserve shared files before dispatch.
 
 - [ ] Own `tsconfig.json` for this unit. Reserve shared files before dispatch.
 
@@ -168,7 +168,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Import produces an immutable candidate and diagnostics. Repeated conversion is deterministic. User notes and registers are not embedded in immutable results. Define the generated-data versus authored-analysis boundary.
 
-- [ ] Establish the minimal npm/TypeScript/Vitest toolchain and npm check, test and measure scripts needed to execute this ticket. CC-03 extends these files only after the package gate passes.
+- [ ] Establish the minimal Bun/TypeScript/Vitest toolchain and Bun check, test and measure scripts needed to execute this ticket. CC-03 extends these files only after the package gate passes.
 
 - [ ] Treat every imported narrative, filename, URL and metadata field as untrusted content, not only manually authored Markdown. Reject unsafe link schemes and define safe rendering rules in the package contract. Verify hostile fixtures cannot execute code.
 
@@ -180,7 +180,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, unit.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Run `npm run check` and `npm run test -- --run tests/case-package` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-02/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
+- [ ] Run `bun run --bun check` and `bun run --bun test --run tests/case-package` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-02/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
@@ -208,7 +208,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Metric. Measure Candidate conversion and validation time, peak memory at the accepted base and candidate where comparable. Name the work newly added by this unit.
 
-- [ ] Probe. Run `npm run measure -- --ticket CC-02 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details. Place this unit's measurement script under its owned scripts/case-package/ directory.
+- [ ] Probe. Run `bun run --bun measure --ticket CC-02 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details. Place this unit's measurement script under its owned scripts/case-package/ directory.
 
 - [ ] Baseline. Record the accepted base's median and p95 first. If the base lacks the feature, record N/A and measure the reference or absolute new behavior without a fabricated ratio.
 
@@ -244,7 +244,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Own `package.json` for this unit. Reserve shared files before dispatch.
 
-- [ ] Own `package-lock.json` for this unit. Reserve shared files before dispatch.
+- [ ] Own `bun.lock` for this unit. Reserve shared files before dispatch.
 
 - [ ] Own `tsconfig.json` for this unit. Reserve shared files before dispatch.
 
@@ -270,7 +270,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Freeze navigation entries and route extension points for all 42 views using the coordinator-owned view inventory. Reserve one feature subtree per worker and define shared component/persistence contracts before fan-out. Unimplemented entries remain explicitly unavailable until their owning issue passes. The coordinator serializes dependency, lockfile, shared layout and configuration changes during M2.
 
-- [ ] Ownership transfer after CC-02 is accepted. Extend package.json, package-lock.json, tsconfig.json, vitest.config.* serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths.
+- [ ] Ownership transfer after CC-02 is accepted. Extend package.json, bun.lock, tsconfig.json, vitest.config.* serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths.
 
 - [ ] Apply the package's safe-rendering and link policy throughout overview, chronology, document details and previews. Active original content must not execute with the application's origin/privileges; isolate supported previews or offer an explicit download. Test hostile narratives, filenames, links and original files without outbound access.
 
@@ -284,7 +284,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, unit.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Run `npm run check` and `npm run test -- --run tests/e2e/pilot` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-03/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
+- [ ] Run `bun run --bun check` and `bun run --bun test --run tests/e2e/pilot` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-03/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
@@ -312,7 +312,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Metric. Measure Cold usable-overview time, warm navigation and original-open latency at the accepted base and candidate where comparable. Name the work newly added by this unit.
 
-- [ ] Probe. Run `npm run measure -- --ticket CC-03 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
+- [ ] Probe. Run `bun run --bun measure --ticket CC-03 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
 
 - [ ] Baseline. Record the accepted base's median and p95 first. If the base lacks the feature, record N/A and measure the reference or absolute new behavior without a fabricated ratio.
 
@@ -362,7 +362,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, unit.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Run `npm run check` and `npm run test -- --run tests/evidence` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-04/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
+- [ ] Run `bun run --bun check` and `bun run --bun test --run tests/evidence` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-04/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
@@ -390,7 +390,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Metric. Measure Search latency and warm evidence navigation at the accepted base and candidate where comparable. Name the work newly added by this unit.
 
-- [ ] Probe. Run `npm run measure -- --ticket CC-04 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
+- [ ] Probe. Run `bun run --bun measure --ticket CC-04 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
 
 - [ ] Baseline. Record the accepted base's median and p95 first. If the base lacks the feature, record N/A and measure the reference or absolute new behavior without a fabricated ratio.
 
@@ -436,7 +436,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, unit.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Run `npm run check` and `npm run test -- --run tests/analysis` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-05/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
+- [ ] Run `bun run --bun check` and `bun run --bun test --run tests/analysis` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-05/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
@@ -464,7 +464,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Metric. Measure Analysis navigation and expanded-detail latency at the accepted base and candidate where comparable. Name the work newly added by this unit.
 
-- [ ] Probe. Run `npm run measure -- --ticket CC-05 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
+- [ ] Probe. Run `bun run --bun measure --ticket CC-05 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
 
 - [ ] Baseline. Record the accepted base's median and p95 first. If the base lacks the feature, record N/A and measure the reference or absolute new behavior without a fabricated ratio.
 
@@ -514,7 +514,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, unit.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Run `npm run check` and `npm run test -- --run tests/calculations` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-06/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
+- [ ] Run `bun run --bun check` and `bun run --bun test --run tests/calculations` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-06/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
@@ -542,7 +542,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Metric. Measure Scenario recalculation and ledger navigation latency at the accepted base and candidate where comparable. Name the work newly added by this unit.
 
-- [ ] Probe. Run `npm run measure -- --ticket CC-06 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
+- [ ] Probe. Run `bun run --bun measure --ticket CC-06 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
 
 - [ ] Baseline. Record the accepted base's median and p95 first. If the base lacks the feature, record N/A and measure the reference or absolute new behavior without a fabricated ratio.
 
@@ -590,7 +590,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, unit.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Run `npm run check` and `npm run test -- --run tests/registers` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-07/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
+- [ ] Run `bun run --bun check` and `bun run --bun test --run tests/registers` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-07/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
@@ -618,7 +618,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Metric. Measure Register save/read latency at the accepted base and candidate where comparable. Name the work newly added by this unit.
 
-- [ ] Probe. Run `npm run measure -- --ticket CC-07 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
+- [ ] Probe. Run `bun run --bun measure --ticket CC-07 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
 
 - [ ] Baseline. Record the accepted base's median and p95 first. If the base lacks the feature, record N/A and measure the reference or absolute new behavior without a fabricated ratio.
 
@@ -664,7 +664,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, unit.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Run `npm run check` and `npm run test -- --run tests/litigation` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-08/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
+- [ ] Run `bun run --bun check` and `bun run --bun test --run tests/litigation` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-08/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
@@ -692,7 +692,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Metric. Measure Preparation navigation and save latency at the accepted base and candidate where comparable. Name the work newly added by this unit.
 
-- [ ] Probe. Run `npm run measure -- --ticket CC-08 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
+- [ ] Probe. Run `bun run --bun measure --ticket CC-08 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
 
 - [ ] Baseline. Record the accepted base's median and p95 first. If the base lacks the feature, record N/A and measure the reference or absolute new behavior without a fabricated ratio.
 
@@ -738,7 +738,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, unit.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Run `npm run check` and `npm run test -- --run tests/bundles` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-09/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
+- [ ] Run `bun run --bun check` and `bun run --bun test --run tests/bundles` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-09/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
@@ -766,7 +766,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Metric. Measure Bundle selection, export and large-document open latency at the accepted base and candidate where comparable. Name the work newly added by this unit.
 
-- [ ] Probe. Run `npm run measure -- --ticket CC-09 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
+- [ ] Probe. Run `bun run --bun measure --ticket CC-09 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
 
 - [ ] Baseline. Record the accepted base's median and p95 first. If the base lacks the feature, record N/A and measure the reference or absolute new behavior without a fabricated ratio.
 
@@ -818,7 +818,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, unit.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Run `npm run check` and `npm run test -- --run tests/system` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-10/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
+- [ ] Run `bun run --bun check` and `bun run --bun test --run tests/system` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-10/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
@@ -846,7 +846,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Metric. Measure Rescan duration, backup/restore duration and peak memory at the accepted base and candidate where comparable. Name the work newly added by this unit.
 
-- [ ] Probe. Run `npm run measure -- --ticket CC-10 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
+- [ ] Probe. Run `bun run --bun measure --ticket CC-10 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
 
 - [ ] Baseline. Record the accepted base's median and p95 first. If the base lacks the feature, record N/A and measure the reference or absolute new behavior without a fabricated ratio.
 
@@ -906,7 +906,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, unit.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Run `npm run check` and `npm run test -- --run tests/e2e/acceptance` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-11/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
+- [ ] Run `bun run --bun check` and `bun run --bun test --run tests/e2e/acceptance` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-11/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
@@ -934,7 +934,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Metric. Measure Cold overview, warm navigation, search and state-write p95 at the accepted base and candidate where comparable. Name the work newly added by this unit.
 
-- [ ] Probe. Run `npm run measure -- --ticket CC-11 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
+- [ ] Probe. Run `bun run --bun measure --ticket CC-11 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
 
 - [ ] Baseline. Record the accepted base's median and p95 first. If the base lacks the feature, record N/A and measure the reference or absolute new behavior without a fabricated ratio.
 
@@ -984,7 +984,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, unit.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Run `npm run check` and `npm run test -- --run tests/compatibility` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-12/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
+- [ ] Run `bun run --bun check` and `bun run --bun test --run tests/compatibility` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-12/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
@@ -1012,7 +1012,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Metric. Measure Import validation, overview load and search latency at the accepted base and candidate where comparable. Name the work newly added by this unit.
 
-- [ ] Probe. Run `npm run measure -- --ticket CC-12 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
+- [ ] Probe. Run `bun run --bun measure --ticket CC-12 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
 
 - [ ] Baseline. Record the accepted base's median and p95 first. If the base lacks the feature, record N/A and measure the reference or absolute new behavior without a fabricated ratio.
 
@@ -1062,7 +1062,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, unit.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Run `npm run check` and `npm run test -- --run tests/authoring` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-13/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
+- [ ] Run `bun run --bun check` and `bun run --bun test --run tests/authoring` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-13/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
@@ -1090,7 +1090,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Metric. Measure Template/parse/validation elapsed time and preview update at the accepted base and candidate where comparable. Name the work newly added by this unit.
 
-- [ ] Probe. Run `npm run measure -- --ticket CC-13 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
+- [ ] Probe. Run `bun run --bun measure --ticket CC-13 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
 
 - [ ] Baseline. Record the accepted base's median and p95 first. If the base lacks the feature, record N/A and measure the reference or absolute new behavior without a fabricated ratio.
 

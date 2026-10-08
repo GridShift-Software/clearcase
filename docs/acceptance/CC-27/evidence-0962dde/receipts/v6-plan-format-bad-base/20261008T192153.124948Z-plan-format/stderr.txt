@@ -1,1 +1,0 @@
-SKIPPED: base 'clearcase-base-does-not-exist' does not resolve to a commit in /tmp/cc27-fresh.DosfQE; pass --base REF, the accepted revision this branch was cut from

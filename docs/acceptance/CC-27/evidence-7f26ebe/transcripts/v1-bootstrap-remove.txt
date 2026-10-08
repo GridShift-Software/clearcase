@@ -1,0 +1,2 @@
+bootstrap: removed ~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/.local/agent-tools/skills, ~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/.local/agent-tools/bootstrap.json, ~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/.local/agent-tools. Global skills untouched.
+receipt: PASS bootstrap-remove exit=0 ~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r8/rerun-7f26ebe/receipts/v1-bootstrap-remove/20261008T200457.242034Z-bootstrap-remove/receipt.json

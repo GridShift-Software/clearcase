@@ -234,7 +234,7 @@ def build(source, pinned=None) -> tuple[dict, dict]:
             ref_rows[row["ref"]].append(row)
         else:
             refless_rows.append(row.get("n"))
-    chron_url = {r.get("ref"): r.get("url") for r in chron}
+    chron_url = {r["ref"]: r.get("url") for r in chron if r.get("ref")}
     ref_inventory = []
     for row in chron:
         res = files.resolve(row.get("url") or "")
@@ -267,9 +267,10 @@ def build(source, pinned=None) -> tuple[dict, dict]:
                 elif res["status"] != "directory":
                     missing.append({"field": path, "ref": (parent or {}).get("ref") if isinstance(parent, dict) else None,
                                     "value": value, "path": res["path"], "status": res["status"]})
-                if isinstance(parent, dict) and key == "url" and parent.get("ref") in chron_url \
-                        and not path.startswith("DATA.chronology") and chron_url[parent["ref"]] != value:
-                    url_mismatch.append({"field": path, "ref": parent["ref"]})
+                parent_ref = parent.get("ref") if isinstance(parent, dict) else None
+                if key == "url" and parent_ref and parent_ref in chron_url \
+                        and not path.startswith("DATA.chronology") and chron_url[parent_ref] != value:
+                    url_mismatch.append({"field": path, "ref": parent_ref})
             elif REF_RE.match(value) and path in BUNDLE_KEY_FIELDS:
                 stat = bundle_keys.setdefault(path, collections.Counter())
                 stat["total"] += 1
@@ -296,11 +297,11 @@ def build(source, pinned=None) -> tuple[dict, dict]:
         elif res["status"] != "directory":
             missing.append({"field": "code", "ref": None, "value": m.group(1), "path": res["path"], "status": res["status"]})
 
-    # duplicates
+    # duplicates; a row without a ref is only reported in chronologyRowsWithoutRef, never as a ref sharing a target
     dup_refs = sorted((ref, [r.get("n") for r in rows]) for ref, rows in ref_rows.items() if len(rows) > 1)
     by_target = collections.defaultdict(list)
     for item in ref_inventory:
-        if item["status"] == "ok":
+        if item["status"] == "ok" and item["ref"]:
             by_target[item["path"]].append(item["ref"])
     shared_targets = sorted((p, refs) for p, refs in by_target.items() if len(refs) > 1)
     by_content = collections.defaultdict(list)

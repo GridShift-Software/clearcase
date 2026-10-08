@@ -269,6 +269,26 @@ class BuildTest(Temp):
         self.assertEqual(inv["duplicates"]["chronologyRowsWithoutRef"], ["5", "6", "7"])
         self.assertEqual(summary["duplicates"]["chronologyRowsWithoutRef"], 3)
 
+    def test_refless_rows_never_share_a_target_or_crash(self):
+        """Lane 3 (r3 regression): bad2dd1 grouped ref-less rows into targetsSharedByRefs and raised KeyError 'ref'
+        when a link object without a ref key sat beside a ref-less row."""
+        letter, invoice = "ORIGINALS/(1) Letter one.pdf", "ORIGINALS/(2) Invoice two.pdf"
+        chron = synth.rows(synth.DEFAULT_ROWS + [("OD-001", letter), ("X", letter), ("X", invoice), ("X", invoice)])
+        chron[4]["ref"] = None
+        del chron[5]["ref"]
+        chron[6]["ref"] = ""
+        extra = {"items": [{"url": chron[0]["url"], "title": "no ref key"}, {"ref": "", "url": "./elsewhere.pdf"},
+                           {"ref": None, "url": chron[1]["url"]}]}
+        inv, summary = self.build_zip(html_entries={"Workspace.html": synth.workspace_html(chron, extra_data=extra)})
+        dup = inv["duplicates"]
+        self.assertEqual(dup["chronologyRowsWithoutRef"], ["5", "6", "7"])
+        self.assertEqual(summary["duplicates"]["chronologyRowsWithoutRef"], 3)
+        self.assertEqual(dup["chronologyRefs"], [{"ref": "OD-001", "rows": ["1", "4"]}])
+        self.assertTrue(all(ref for t in dup["targetsSharedByRefs"] for ref in t["refs"]), dup["targetsSharedByRefs"])
+        self.assertNotIn(invoice, [t["path"] for t in dup["targetsSharedByRefs"]])
+        self.assertEqual(summary["duplicates"]["targetsSharedByRefs"], len(dup["targetsSharedByRefs"]))
+        self.assertEqual(inv["urlMismatches"], [])
+
     def html_roles(self, html_entries, pinned=None):
         src = archive.ZipSource(synth.make_zip(self.path("a.zip"), html_entries=html_entries))
         inv, _summary = build.build(src, pinned) if pinned else build.build(src)

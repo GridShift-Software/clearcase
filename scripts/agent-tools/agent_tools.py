@@ -48,12 +48,16 @@ def now():
     return datetime.datetime.now(datetime.timezone.utc)
 
 
+def excerpt(output):
+    """Command output, bytes, as one line of at most 300 characters."""
+    detail = " ".join(output.decode(errors="backslashreplace").split())
+    return f"{detail[:300]}..." if len(detail) > 300 else detail
+
+
 def ended(argv, code, stderr):
     """How an evidence command that did not succeed ended, for a reason: the command, its exit code and its stderr."""
-    detail = " ".join(stderr.decode(errors="backslashreplace").split())
-    detail = f"{detail[:300]}..." if len(detail) > 300 else detail or "no error output"
     how = f"exited {code}" if code >= 0 else f"was killed by signal {-code}"
-    return f"`{' '.join(redact(part) for part in argv)}` {how}: {detail}"
+    return f"`{' '.join(redact(part) for part in argv)}` {how}: {excerpt(stderr) or 'no error output'}"
 
 
 def failed(error, path):
@@ -61,16 +65,34 @@ def failed(error, path):
     return f"{redact(path)}: {error.strerror or error}"
 
 
-def first_line(argv):
-    """The first line a version probe prints, as (line, problem). problem is None only when it exits 0 and prints."""
+def version_probe(argv):
+    """Run a version probe, as (stdout, stderr, problem). problem is None only when it exits 0 within 30 seconds."""
     try:
         out = subprocess.run(argv, capture_output=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as error:
-        return None, f"`{' '.join(redact(part) for part in argv)}` did not run: {redact(error)}"
-    text = (out.stdout or out.stderr).decode(errors="backslashreplace").strip().splitlines()
-    if out.returncode or not text:
-        return None, ended(argv, out.returncode, out.stderr) if out.returncode else f"`{redact(argv[0])}` printed no version"
+        return b"", b"", f"`{' '.join(redact(part) for part in argv)}` did not run: {redact(error)}"
+    return out.stdout, out.stderr, ended(argv, out.returncode, out.stderr) if out.returncode else None
+
+
+def first_line(argv):
+    """The first line a version probe prints, as (line, problem). problem is None only when it exits 0 and prints."""
+    stdout, stderr, problem = version_probe(argv)
+    text = (stdout or stderr).decode(errors="backslashreplace").strip().splitlines()
+    if problem or not text:
+        return None, problem or f"`{redact(argv[0])}` printed no version"
     return text[0], None
+
+
+def whole_stdout(argv):
+    """All a version probe prints on stdout, stripped but never cut to its first line, as (text, problem), for a
+    caller that requires exactly one version line. Output on stderr is a problem even with exit 0."""
+    stdout, stderr, problem = version_probe(argv)
+    if not problem and stderr.strip():
+        problem = f"`{' '.join(redact(part) for part in argv)}` wrote to stderr: {excerpt(stderr)}"
+    text = stdout.decode(errors="backslashreplace").strip()
+    if problem or not text:
+        return None, problem or f"`{redact(argv[0])}` printed no version on stdout"
+    return text, None
 
 
 def which(name):
@@ -90,17 +112,21 @@ def parse_version(text):
 
 
 def tool_info(name):
-    """A receipt's tools row as (row, problem). problem names a version probe that failed; a missing tool has none."""
+    """A receipt's tools row as (row, problem). problem names a version probe that failed; a missing tool has none.
+    Bun's version is its whole stdout, which the doctor requires to be one version line, and Bun output on stderr is a
+    problem. Other tools give the first line they print."""
     path = which(name)
     if not path:
         return {"name": name, "path": None, "version": None}, None
-    version, problem = first_line([path, "-V" if name == "tmux" else "--version"])
+    argv = [path, "-V" if name == "tmux" else "--version"]
+    version, problem = whole_stdout(argv) if name == "bun" else first_line(argv)
     return {"name": name, "path": redact(path), "version": version}, problem
 
 
-def sha256_file(path):
-    """sha256 of a regular file. Raises OSError when it cannot be read, is not a regular file or changes while it is
-    read, so a fingerprint is always of bytes that were read whole."""
+def file_identity(path):
+    """The identity of a regular file: the sha256 of its bytes and the size, modification time, device and inode of
+    the file they were read from, through one descriptor. Raises OSError when it cannot be read, is not a regular
+    file or changes while it is read, so a fingerprint is always of bytes that were read whole."""
     with open(os.open(path, os.O_RDONLY | os.O_NONBLOCK), "rb") as handle:
         before = os.fstat(handle.fileno())
         if not stat.S_ISREG(before.st_mode):
@@ -112,7 +138,13 @@ def sha256_file(path):
         after = os.fstat(handle.fileno())
     if not size == before.st_size == after.st_size or before.st_mtime_ns != after.st_mtime_ns:
         raise OSError(f"changed while it was read ({before.st_size} bytes by stat, {size} read)")
-    return digest.hexdigest()
+    return {"sha256": digest.hexdigest(), "size": size, "mtimeNs": before.st_mtime_ns, "device": before.st_dev,
+            "inode": before.st_ino}
+
+
+def sha256_file(path):
+    """sha256 of a regular file's bytes, read whole; raises OSError as file_identity() does."""
+    return file_identity(path)["sha256"]
 
 
 def manifest(directory, ignored=IGNORED_PARTS):
@@ -364,26 +396,72 @@ def receipt_folder(receipts, name, started):
 
 
 def fingerprints(paths):
-    """Receipt input rows, each path with the sha256 of its bytes, as (rows, problem). problem names each input that
-    is missing or cannot be read whole, whose sha256 is then null."""
+    """Receipt input rows, each path with the file_identity() of its file, as (rows, problem). problem names each
+    input that is missing or cannot be read whole, whose sha256 and other identity fields are then null."""
     rows, missing, unreadable = [], [], []
     for path in paths:
-        digest = None
+        found = dict.fromkeys(["sha256", "size", "mtimeNs", "device", "inode"])
         if not Path(path).is_file():
             missing.append(redact(path))
         else:
             try:
-                digest = sha256_file(path)
+                found = file_identity(path)
             except OSError as error:
                 unreadable.append(failed(error, path))
-        rows.append({"path": redact(Path(path).resolve()), "sha256": digest})
+        rows.append({"path": redact(Path(path).resolve()), **found})
     return rows, ((missing and f"required input not found: {', '.join(missing)}")
                   or (unreadable and f"input not fingerprinted: {'; '.join(unreadable)}") or None)
 
 
+def inputs_changed(paths, rows):
+    """The second look at the inputs that fingerprints() made rows of before the run: each one that was removed,
+    replaced or changed since, or cannot be read whole now, as a reason, or None. A change undone between the two
+    looks goes unseen; see "What receipts prove" in docs/agent-tooling.md."""
+    problems = []
+    for path, row in zip(paths, rows):
+        try:
+            now = file_identity(path)
+        except OSError as error:
+            problems.append(failed(error, path))
+            continue
+        differ = [f"{key} {str(row[key])[:12]} -> {str(now[key])[:12]}" if key == "sha256" else
+                  f"{key} {row[key]} -> {now[key]}" for key in now if now[key] != row[key]]
+        if differ:
+            problems.append(f"{redact(path)}: {', '.join(differ)}")
+    return "; ".join(problems) or None
+
+
+def revision_changed(root, base_ref, before):
+    """The second look at the revision() fields recorded before the run, as a reason when the head, base, merge base
+    or working-tree state changed since, or cannot be read now, or None."""
+    after, problem = revision(root, base_ref)
+    if problem:
+        return f"the revision cannot be read after the run: {problem}"
+    differ = [f"{key} {before[key]} -> {after[key]}" for key in ("head", "base", "mergeBase", "dirty", "diffSha256")
+              if after[key] != before[key]]
+    return f"the checkout changed during the run: {', '.join(differ)}" if differ else None
+
+
+def capture_lost(capture):
+    """Why a capture file, still open after the run, does not hold at its path all that was written to it, or None.
+    Its descriptor must keep a link and the size written, and its path must still name it."""
+    held = os.fstat(capture.fileno())
+    if held.st_nlink < 1:
+        return f"{redact(capture.name)}: removed during the run"
+    try:
+        named = os.stat(capture.name)
+    except OSError as error:
+        return f"{failed(error, capture.name)}; it was moved during the run"
+    if (named.st_dev, named.st_ino) != (held.st_dev, held.st_ino):
+        return f"{redact(capture.name)}: replaced during the run"
+    if held.st_size != capture.tell():
+        return f"{redact(capture.name)}: holds {held.st_size} bytes, {capture.tell()} were written"
+    return None
+
+
 def run_captured(argv, cwd, folder):
     """Run argv, streaming its output live and capturing it in folder, as (exit code, problem). The code is None when
-    argv did not start; otherwise problem names output that was not captured whole."""
+    argv did not start; otherwise problem names output that was not captured whole, or a capture file that lost it."""
     code, problems = None, []
     try:
         with open(folder / "stdout.txt", "wb") as out_file, open(folder / "stderr.txt", "wb") as err_file:
@@ -395,6 +473,8 @@ def run_captured(argv, cwd, folder):
             code = child.wait()
             for thread in threads:
                 thread.join()
+            if not problems:
+                problems += filter(None, map(capture_lost, (out_file, err_file)))
     except OSError as error:
         if not problems:  # a capture write that failed fails again when its file is closed
             problems.append(failed(error, error.filename or folder))
@@ -431,9 +511,10 @@ def write_receipt(folder, started, name, result, code, reason, argv, cwd, tool_r
 
 def run_with_receipt(name, argv, *, cwd=None, tools=(), inputs=(), receipts=None, base=None, root=None,
                      skip_reason=None):
-    """Collect the evidence first: the revision, each tool's path and version and each input's sha256. Run argv only
-    if all of it was collected, stream and capture its output and write a receipt. Evidence that cannot be collected,
-    before or after the run, is never PASS. Returns the exit code."""
+    """Collect the evidence first: the revision, each tool's path and version and each input's identity. Run argv
+    only if all of it was collected, stream and capture its output, look at the captures, inputs and revision again
+    and write a receipt. Evidence that cannot be collected, or changes during the run, is never PASS. Returns the exit
+    code."""
     root = Path(root or REPO)
     started = now()
     try:
@@ -457,7 +538,7 @@ def run_with_receipt(name, argv, *, cwd=None, tools=(), inputs=(), receipts=None
             unidentified = (f"the command would run in {redact(here)}, outside the checkout {redact(root.resolve())} "
                             "whose revision the receipt records; run it inside that checkout, or pass --root DIR "
                             "naming the checkout it runs in")
-    inputs, unfingerprinted = fingerprints(inputs)
+    rows, unfingerprinted = fingerprints(inputs)
     reason = (skip_reason
               or (missing and f"required tool not found: {', '.join(missing)}; install it or put it on PATH "
                               "(scripts/agent-tools/doctor names the fix)")
@@ -468,10 +549,16 @@ def run_with_receipt(name, argv, *, cwd=None, tools=(), inputs=(), receipts=None
     exited, result, code = None, "SKIPPED", SKIPPED
     if not reason:
         exited, problem = run_captured(argv, cwd or root, folder)
+        moved = None if exited is None else inputs_changed(inputs, rows)
+        shifted = None if exited is None else revision_changed(root, base, identity)
         if exited is None:
             reason = f"the command did not start: {problem}"
         elif problem:
             reason = f"output not captured whole: {problem}; the command exited {exited}"
+            result, code = ("FAIL", exited) if exited else ("SKIPPED", SKIPPED)
+        elif moved or shifted:
+            reason = "; ".join(filter(None, [moved and f"input changed during the run: {moved}", shifted,
+                                             f"the command exited {exited}"]))
             result, code = ("FAIL", exited) if exited else ("SKIPPED", SKIPPED)
         else:
             result, code = "PASS" if exited == 0 else "FAIL", exited
@@ -481,7 +568,7 @@ def run_with_receipt(name, argv, *, cwd=None, tools=(), inputs=(), receipts=None
         if exited is None:
             (folder / "stdout.txt").write_bytes(b"")
             (folder / "stderr.txt").write_text(f"SKIPPED: {redact(reason)}\n")
-        write_receipt(folder, started, name, result, code, reason, argv, cwd or root, tool_rows, inputs, identity)
+        write_receipt(folder, started, name, result, code, reason, argv, cwd or root, tool_rows, rows, identity)
     except OSError as error:
         sys.stderr.write(f"receipt: {name} has no receipt: {failed(error, error.filename or folder)}. The command "
                          f"{'did not run' if exited is None else f'exited {exited}'}; without a receipt this exits "
@@ -687,10 +774,14 @@ def cmd_doctor(args):
     identity, unidentified = revision(REPO, args.base)
     tools = {name: tool_info(name) for name in ("git", "python3", "node", "bun")}
     package = REPO / "package.json"
-    inputs, unfingerprinted = fingerprints([LOCK_PATH, *([package] if os.path.lexists(package) else [])])
+    paths = [LOCK_PATH, *([package] if os.path.lexists(package) else [])]
+    inputs, unfingerprinted = fingerprints(paths)
     rows = doctor_rows(args.skills_dir, args.receipts, identity, unidentified, tools)
     if unfingerprinted:
         rows.append(("FAIL", "receipt-input", redact(unfingerprinted), "make it readable; the receipt records its sha256"))
+    elif moved := inputs_changed(paths, inputs):
+        rows.append(("FAIL", "receipt-input", f"changed during the run: {moved}",
+                     "rerun the doctor while nothing else writes these files"))
     lines = []
     for status, name, detail, fix in rows:
         lines.append(f"{status:<8} {name:<14} {detail}")

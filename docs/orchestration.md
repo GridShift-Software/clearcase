@@ -6,7 +6,7 @@ Use this protocol with pstack's `playbooks/orchestrate.md`. The coordinator owns
 
 Read the latest user instructions, `AGENTS.md`, the product brief, delivery plan, live Linear relations and the coordination checkpoint. Reconcile Git HEAD, branches, worktrees and active delegated task IDs before dispatch.
 
-The planning session has not authorized implementation or commits. The kickoff prompt grants a new agent local V1 execution and local commits when the user actually supplies it as an instruction. It does not grant merges into main, pushes, deployment, production writes or external messages. Never infer a new restriction from an unrelated project's old approvals.
+The planning session has not authorized implementation or commits. The kickoff prompt grants a new agent local V1 execution, local commits, pushes of `dev` and `feature/*` branches and pull requests into `dev` when the user actually supplies it as an instruction. It does not grant merges into main, deployment, production writes or external messages beyond the authorized Linear updates. Never infer a new restriction from an unrelated project's old approvals.
 
 ## Dispatch one pilot before parallel work
 
@@ -39,11 +39,11 @@ Independent gate issues require a reviewer who did not author the implementation
 
 The detailed V1 plan names ten behavioral scenarios per implementation unit. These are coverage lanes, not ten simultaneous writers. Run them in bounded batches or reuse a verifier for independent scenarios. Gates read those receipts and rerun the critical paths. Pure planning/discovery tasks use direct artifact checks; they do not invent UI or performance tests.
 
-Integrate clean, accepted commits serially into the integration branch under the kickoff's local execution authority. Delegate conflict resolution. Keep main unchanged. The remote is `origin`, GitHub `GridShift-Software/clearcase`. Every ticket closes through a pull request from its `feature/<linear-id>-<slug>` branch into `dev`, registered with T3; the user's external reviewer approves before merge, and the coordinator merges only accepted, reviewed PRs. Push feature branches early so a worktree is never the only copy. Do not fabricate PR URLs or require Graphite.
+Integrate clean, accepted commits serially into the integration branch under the kickoff's local execution authority. Delegate conflict resolution. Keep main unchanged. The remote is `origin`, GitHub `GridShift-Software/clearcase`. Every ticket closes through a pull request from its `feature/<linear-id>-<slug>` branch into `dev`, registered with T3; the user's external reviewer approves before merge, and the coordinator merges only accepted, reviewed PRs. Every PR targets `dev`: a dependent ticket's branch may start from its upstream ticket's accepted head, but its PR base is still `dev`, never another feature branch. Push feature branches early so a worktree is never the only copy. Do not fabricate PR URLs or require Graphite.
 
 ## Execution hosts
 
-The coordinator thread runs in T3 on `archlinux`. Workers and verifiers run on the host `puk` (reachable over Tailscale as `puk`) as headless Claude Code or Codex CLI sessions inside tmux, one session per ticket. The `dev` clone on puk is `/home/operator/Work/Active/MX-two/ClearCase/clearcase`; worker worktrees live under `/home/operator/Work/Active/MX-two/ClearCase/worktrees/<branch-slug>`. RAWS is mirrored read-only at the same absolute path on both hosts. The coordinator's ignored `.orchestration/` state lives in the puk `dev` clone. A worker reports by writing its report file; the coordinator reads it over SSH after the tmux session exits.
+The coordinator thread runs in T3 on `puk`. Workers and verifiers run on the host `puk` (reachable over Tailscale as `puk`) as headless Claude Code or Codex CLI sessions inside tmux, one session per ticket. The `dev` clone on puk is `/home/operator/Work/Active/MX-two/ClearCase/clearcase`; worker worktrees live under `/home/operator/Work/Active/MX-two/ClearCase/worktrees/<branch-slug>`. `archlinux` remains a supported developer host; RAWS is mirrored read-only at the same absolute path on both hosts. The coordinator's ignored `.orchestration/` state lives in the puk `dev` clone. A worker reports by writing its report file; the coordinator reads it locally after the tmux session exits.
 
 ## Keep one coordination record
 

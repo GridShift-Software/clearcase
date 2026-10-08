@@ -6,7 +6,7 @@ import { DiagSink } from '../diagnostics.ts';
 import { sha256Hex } from '../hash.ts';
 import { withLimits, type Limits } from '../limits.ts';
 import { capabilityOf, mediaTypeForName, type TextStatus } from '../media.ts';
-import { fingerprintOriginal, openCaseFolder } from '../originals.ts';
+import { fingerprintOriginal, Interrupted, openCaseFolder } from '../originals.ts';
 import { checkRelPath, decodeLegacyLocator } from '../paths.ts';
 import { isRef } from '../refs.ts';
 import { CONVERSION_REPORT, LAYOUT, OPAQUE_SCHEMA, V5_DATASETS, V5_SPLIT_PARENTS } from '../registry.ts';
@@ -91,8 +91,12 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
     datasets.push({ key: d.key, kind: d.kind, schema: d.schema, required: d.required, provenance: prov(d.sourcePath), data: v });
     mapped.add(d.sourcePath);
   }
+  const used = new Set(datasets.map((d) => d.key));
   const residual = (sourcePath: string, v: JsonValue) => {
-    const key = ('v5-residual-' + kebab(sourcePath.replace(/^DATA\./, '').replace(/^window\./, ''))).slice(0, 64).replace(/-$/, '');
+    const base = 'v5-residual-' + kebab(sourcePath.replace(/^DATA\./, '').replace(/^window\./, ''));
+    // distinct source keys can kebab to the same key or be truncated: disambiguate with a digest of the source path
+    const key = base.length <= 64 && !used.has(base) ? base : `${base.slice(0, 50).replace(/-+$/, '')}-${sha256Hex(sourcePath).slice(0, 12)}`;
+    used.add(key);
     sink.add('V5_UNMAPPED_KEY', `${sourcePath} has no mapping; kept as the opaque dataset ${key}`, { file: 'input', subject: sourcePath });
     datasets.push({ key, kind: 'generated', schema: OPAQUE_SCHEMA, required: false, provenance: prov(sourcePath), data: v });
     stats.residual++;
@@ -138,7 +142,20 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
     while (next < jobs.length) {
       const j = jobs[next++]!;
       const pr = j.parentRef !== undefined ? { parentRef: j.parentRef } : {};
-      const fp = checkRelPath(j.path).ok ? await fingerprintOriginal(caseRoot, j.path, { limits: L, signal: opts.signal, deadline, concurrency: 1 }) : { kind: 'escape' as const };
+      type Fp = Awaited<ReturnType<typeof fingerprintOriginal>>;
+      let fp: Fp;
+      try {
+        fp = checkRelPath(j.path).ok ? await fingerprintOriginal(caseRoot, j.path, { limits: L, signal: opts.signal, deadline, concurrency: 1 }) : { kind: 'escape' };
+      } catch (e) {
+        if (e instanceof Interrupted) throw e;
+        fp = { kind: 'unreadable' };
+      }
+      if (fp.kind !== 'file' && fp.kind !== 'missing') {
+        // never downgrade a refused original to "missing": these are errors
+        const code = fp.kind === 'escape' ? 'ORIG_ESCAPE' : fp.kind === 'not-file' ? 'ORIG_NOT_FILE' : fp.kind === 'too-large' ? 'ORIG_TOO_LARGE' : 'ORIG_UNREADABLE';
+        sink.add(code, `the original for ${j.ref} is refused (${fp.kind})`, { file: 'input', subject: j.ref });
+        continue;
+      }
       if (fp.kind !== 'file') {
         assets[j.ref] = { kind: 'missing', path: j.path, mediaType: j.mediaType, textStatus: j.textStatus, ...pr };
         stats.assetsMissing++;
@@ -150,7 +167,13 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
       stats.assetsFile++;
     }
   };
-  await Promise.all(Array.from({ length: Math.max(1, opts.concurrency ?? 4) }, worker));
+  try {
+    await Promise.all(Array.from({ length: Math.max(1, opts.concurrency ?? 4) }, worker));
+  } catch (e) {
+    if (!(e instanceof Interrupted)) throw e;
+    sink.add(e.code, e.code === 'IMPORT_DEADLINE' ? 'conversion did not finish within the deadline' : 'conversion cancelled');
+    return fail();
+  }
   const sortedAssets: Record<string, Asset> = Object.create(null);
   for (const k of Object.keys(assets).sort()) sortedAssets[k] = assets[k]!;
 
@@ -179,5 +202,6 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
     assets: sortedAssets,
   });
   stats.datasets = datasets.length;
-  return { ok: sink.errors === 0, manifest, files, diagnostics: sink.finish(), source: src, stats };
+  if (sink.errors > 0) return fail();
+  return { ok: true, manifest, files, diagnostics: sink.finish(), source: src, stats };
 }

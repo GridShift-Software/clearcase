@@ -258,7 +258,7 @@ export const PACKAGE_CASES: Record<string, PackageCase[]> = {
     pc('extension-ok', 'extensions["x-tool"] is the extension point', (b) => manifest(b, (m) => { m.extensions = { 'x-tool': { note: 'kept, never rendered' } }; }), 'report', []),
     pc('extension-unprefixed', 'extensions key without x- prefix', (b) => manifest(b, (m) => { m.extensions = { tool: 1 }; }), 'reject', ['PKG_MANIFEST_INVALID']),
     pc('dataset-schema-future', 'required dataset with an unknown schema version', (b) => resealFiles(editPackage(b, 'datasets/chronology.json', (v) => { v.schema = 'v5.chronology@2'; }, false), (m) => { m.files.find((f: any) => f.key === 'chronology').schema = 'v5.chronology@2'; }), 'reject', ['DS_SCHEMA_UNSUPPORTED']),
-    pc('optional-schema-unknown', 'optional dataset with an unknown schema (kept, not rendered)', (b) => resealFiles(editPackage(b, 'datasets/conversion-report.json', (v) => { v.schema = 'future.report@3'; }, false), (m) => { m.files.find((f: any) => f.key === 'conversion-report').schema = 'future.report@3'; }), 'report', ['DS_UNKNOWN_SCHEMA']),
+    pc('optional-schema-unknown', 'a registered dataset key may not change its schema, even when optional', (b) => resealFiles(editPackage(b, 'datasets/conversion-report.json', (v) => { v.schema = 'future.report@3'; }, false), (m) => { m.files.find((f: any) => f.key === 'conversion-report').schema = 'future.report@3'; }), 'reject', ['DS_SCHEMA_UNSUPPORTED']),
     pc('envelope-version', 'dataset envelope clearcase.dataset/2', (b) => editPackage(b, W, (v) => { v.envelope = 'clearcase.dataset/2'; }), 'reject', ['DS_ENVELOPE_INVALID']),
   ],
   'manifest-integrity': [
@@ -367,9 +367,9 @@ export const PACKAGE_CASES: Record<string, PackageCase[]> = {
     pc('md-protocol-relative', '[x](//evil.example)', (b) => prose(b, '[x](//evil.example/x)'), 'reject', ['LINK_RELATIVE_UNSAFE']),
     pc('md-traversal', '[x](../../etc/passwd)', (b) => prose(b, '[x](../../etc/passwd)'), 'reject', ['LINK_RELATIVE_UNSAFE']),
     pc('md-https', '[x](https://example.com) is inert', (b) => prose(b, '[x](https://example.com/a)'), 'report', ['LINK_EXTERNAL']),
-    pc('md-entity-scheme', '[x](java&#10;script:...) is not a scheme; literal text', (b) => prose(b, '[x](java&#10;script:alert(1))'), 'report', []),
+    pc('md-entity-scheme', '[x](java&#10;script:...) decodes to a javascript: destination (a Markdown renderer decodes entities; browsers drop the LF)', (b) => prose(b, '[x](java&#10;script:alert(1))'), 'reject', ['LINK_UNSAFE_SCHEME']),
     pc('md-newline-in-target', 'java<LF>script: target is not a link; literal text', (b) => prose(b, '[x](java\nscript:alert(1))'), 'report', []),
-    pc('md-reference-definition', 'reference-style definition stays text', (b) => prose(b, '[x][1]\n\n[1]: javascript:alert(1)'), 'report', []),
+    pc('md-reference-definition', 'an unsafe reference-style link definition is classified like an inline link', (b) => prose(b, '[x][1]\n\n[1]: javascript:alert(1)'), 'reject', ['LINK_UNSAFE_SCHEME']),
     pc('raw-anchor', 'raw <a href="javascript:"> stays text', (b) => prose(b, '<a href="javascript:alert(1)">x</a>'), 'report', []),
   ],
   'text-markup': [
@@ -501,11 +501,11 @@ export const ORIGINAL_CASES: Record<string, OrigCase[]> = {
       await rename(abs(c, OD1), abs(c, `${OD_DIR}/real.pdf`));
       await symlink('real.pdf', abs(c, OD1));
       return c.base;
-    }, 'report', [], { absent: ['ORIG_ESCAPE', 'ORIG_MISSING', 'ORIG_NOT_FILE'], mapping: { 'OD-001': OD1 } }),
+    }, 'report', [], { absent: ['ORIG_ESCAPE', 'ORIG_MISSING', 'ORIG_NOT_FILE'], mapping: { 'OD-001': `${OD_DIR}/real.pdf` } }),
     oc('self-dir-link', 'self -> . used as a path segment stays inside', async (c) => {
       await symlink('.', abs(c, 'self'));
       return setAsset(c.base, 'OD-001', { path: `self/${OD1}` });
-    }, 'report', ['LINK_ASSET_MISMATCH'], { absent: ['ORIG_ESCAPE'], mapping: { 'OD-001': `self/${OD1}` } }),
+    }, 'report', ['LINK_ASSET_MISMATCH'], { absent: ['ORIG_ESCAPE'], mapping: { 'OD-001': OD1 } }),
   ],
   'hardlink-escape': [
     oc('hardlink-outside-inode-match', 'hardlink shares an outside inode; bytes match the index (accepted by policy)', async (c) => {

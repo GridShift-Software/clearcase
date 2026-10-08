@@ -42,6 +42,11 @@ const repo = path.resolve(import.meta.dirname, '../..');
 const cfg = parseStrictJson(await readFile(values['fixture-config'], 'utf8')) as unknown as Config;
 const out = path.resolve(values.out);
 const work = path.resolve(repo, cfg.workDir);
+// the work directory is deleted and rewritten: it must be a subfolder of the worktree's ignored .local/, never a case folder
+if (!work.startsWith(path.join(repo, '.local') + path.sep) || path.resolve(cfg.caseFolder).startsWith(work) || work.startsWith(path.resolve(cfg.caseFolder) + path.sep)) {
+  console.error('workDir must be a subfolder of .local/ in this worktree and must not overlap the case folder');
+  process.exit(2);
+}
 await mkdir(out, { recursive: true });
 await rm(work, { recursive: true, force: true });
 await mkdir(work, { recursive: true });

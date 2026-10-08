@@ -60,7 +60,6 @@ const inside = (root: string, p: string) => p === root || p.startsWith(root.ends
 async function locate(root: string, rel: string): Promise<Located> {
   if (!checkRelPath(rel).ok) return { kind: 'escape' };
   let abs = path.join(root, ...rel.split('/'));
-  let realRel = rel;
   let caseMismatch = false;
   let ls = await lstat(abs).catch((e: NodeJS.ErrnoException) => (e.code === 'ENOENT' || e.code === 'ENOTDIR' ? null : e));
   if (ls instanceof Error) return { kind: 'unreadable' };
@@ -68,7 +67,6 @@ async function locate(root: string, rel: string): Promise<Located> {
     const alt = await findFolded(root, rel);
     if (!alt) return { kind: 'missing' };
     abs = path.join(root, ...alt.split('/'));
-    realRel = alt;
     caseMismatch = true;
   }
   const resolved = await realpath(abs).catch(() => null);
@@ -77,6 +75,8 @@ async function locate(root: string, rel: string): Promise<Located> {
   const rs = await lstat(resolved).catch(() => null);
   if (!rs) return { kind: 'missing' };
   if (!rs.isFile()) return { kind: 'not-file' };
+  // the real on-disk path relative to the case folder (after links inside the folder), never normalised
+  const realRel = path.relative(root, resolved).split(path.sep).join('/');
   return { kind: 'file', real: resolved, rel: realRel, size: rs.size, caseMismatch };
 }
 
@@ -102,7 +102,8 @@ function check(o: VerifyOptions): void {
 
 /** Stream-hash one regular file without following a link swapped in after resolution. */
 async function hashFile(real: string, expectSize: number, o: VerifyOptions, onBytes: (n: number) => void): Promise<{ sha256: string; size: number; head: Uint8Array }> {
-  const fh = await open(real, constants.O_RDONLY | constants.O_NOFOLLOW);
+  // O_NONBLOCK: a FIFO swapped in after the stat cannot block the open; fstat below refuses it
+  const fh = await open(real, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   try {
     const st = await fh.stat();
     if (!st.isFile() || st.size !== expectSize) return { sha256: '', size: st.size, head: new Uint8Array() };

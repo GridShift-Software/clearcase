@@ -42,7 +42,8 @@ export function classifyLink(raw: string): LinkClass {
       if (!u.hostname || u.username || u.password) return { kind: 'rejected', reason: 'https URL without a host or with credentials', scheme };
       return { kind: 'external', href: u.href, scheme: 'https' };
     }
-    if (scheme === 'mailto') return { kind: 'external', href: v, scheme: 'mailto' };
+    // only the address: a query could prefill recipients (cc, bcc) or a body
+    if (scheme === 'mailto') return { kind: 'external', href: v.split('?', 1)[0]!, scheme: 'mailto' };
     return { kind: 'text-only', reason: `scheme ${scheme}: is shown as text and never linked`, scheme };
   }
   if (/^[A-Za-z]\|/.test(v)) return { kind: 'rejected', reason: 'drive-letter path', traversal: true };
@@ -55,6 +56,3 @@ export function classifyLink(raw: string): LinkClass {
   if (v.split(/[/\\]/).includes('..')) return { kind: 'rejected', reason: 'traversing locator', traversal: true };
   return { kind: 'name', reason: 'bare name, not a locator' };
 }
-
-/** Markdown inline links and autolinks inside prose: [label](target) and <scheme:...>. */
-export const MARKDOWN_LINK = /\]\(\s*([^)\s]{1,2048})\s*\)|<([A-Za-z][A-Za-z0-9+.-]{0,31}:[^>\s]{1,2048})>/g;

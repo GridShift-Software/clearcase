@@ -66,6 +66,8 @@ export async function readCentralDirectory(fh: FileHandle, L: Limits): Promise<Z
   if (count === 0xffff || cdSize === 0xffffffff || cdOff === 0xffffffff) throw new ZipError('ARC_UNSUPPORTED', 'zip64 archives are not supported for packages');
   if (count > L.archiveEntries) throw new ZipError('ARC_LIMIT', `archive has ${count} entries (limit ${L.archiveEntries})`);
   if (cdOff + cdSize > size) throw new ZipError('ARC_MALFORMED', 'central directory out of bounds');
+  // bound the directory by what `count` entries can occupy before reading it into memory
+  if (cdSize > count * (46 + L.archiveNameBytes + 2 * 0xffff)) throw new ZipError('ARC_LIMIT', 'central directory larger than its entries can be');
   const cd = await readAt(fh, cdOff, cdSize);
   const out: ZipEntry[] = [];
   const exact = new Set<string>();

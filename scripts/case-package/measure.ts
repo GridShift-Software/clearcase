@@ -51,8 +51,11 @@ async function isolate(rev: string): Promise<string | null> {
   const dir = path.join(base, `rev-${rev.slice(0, 12)}`);
   await rm(dir, { recursive: true, force: true });
   await mkdir(dir, { recursive: true });
-  const archive = spawnSync('sh', ['-c', `git -C "${repo}" archive ${rev} | tar -x -C "${dir}"`]);
-  if (archive.status !== 0) throw new Error(`git archive ${rev} failed`);
+  const tarFile = `${dir}.tar`;
+  const archive = spawnSync('git', ['-C', repo, 'archive', '--format=tar', '-o', tarFile, rev]);
+  const untar = archive.status === 0 ? spawnSync('tar', ['-xf', tarFile, '-C', dir]) : archive;
+  await rm(tarFile, { force: true });
+  if (untar.status !== 0) throw new Error(`git archive ${rev} failed`);
   const lockHere = await readFile(path.join(repo, 'bun.lock'), 'utf8');
   const lockThere = await readFile(path.join(dir, 'bun.lock'), 'utf8').catch(() => '');
   if (lockHere === lockThere) spawnSync('cp', ['-r', '--reflink=auto', path.join(repo, 'node_modules'), path.join(dir, 'node_modules')]);
@@ -110,7 +113,8 @@ const fixed = values['baseline-median'] ? Number(values['baseline-median']) : nu
 const checks = {
   allSamplesExit0: [...cand, ...cold].every((s) => s.exit === 0),
   everyWarmSampleWithin10000ms: Math.max(...ms) <= BUDGET_MS,
-  peakRssWithin1GiB: Math.max(...rss) <= BUDGET_RSS,
+  peakRssMeasured: rss.every((b) => b > 0),
+  peakRssWithin1GiB: rss.every((b) => b > 0) && Math.max(...rss) <= BUDGET_RSS,
   ...(fixed !== null && { medianWithin1_25xFixedBaseline: median(ms) <= 1.25 * fixed }),
 };
 const result = {

@@ -10,6 +10,7 @@ import {
 } from '../../src/lib/case-package/index.ts';
 import { V5_DATASETS } from '../../src/lib/case-package/registry.ts';
 import { sha256Hex } from '../../src/lib/case-package/hash.ts';
+import { canonicalBytes } from '../../src/lib/case-package/canonical.ts';
 import { buildSynth, editManifestOnly, editPackage, resealFiles, type Built } from './fixtures/build.ts';
 import { malform } from './fixtures/malform.ts';
 import { cleanup, synthHtml, synthRoots, tempDir } from './fixtures/synth.ts';
@@ -182,10 +183,18 @@ describe('rejection returns diagnostics and no candidate', () => {
   it('rejects an unknown required schema and preserves an unknown optional one', async () => {
     const b = await built('schema');
     expectReject(await importFiles(resealFiles(editPackage(b.files, 'datasets/people.json', (v) => { v.schema = 'v5.people@2'; }, false), (m) => { m.files.find((f: any) => f.key === 'people').schema = 'v5.people@2'; }), b.caseDir), 'DS_SCHEMA_UNSUPPORTED');
-    const opt = await importFiles(resealFiles(editPackage(b.files, 'datasets/people.json', (v) => { v.schema = 'v6.people@1'; v.required = false; }, false), (m) => { const f = m.files.find((x: any) => x.key === 'people'); f.schema = 'v6.people@1'; f.required = false; }), b.caseDir);
+    // a registered key cannot be relabelled to escape its schema
+    expectReject(await importFiles(resealFiles(editPackage(b.files, 'datasets/chronology.json', (v) => { v.schema = 'opaque@1'; v.required = false; }, false), (m) => { const f = m.files.find((x: any) => x.key === 'chronology'); f.schema = 'opaque@1'; f.required = false; }), b.caseDir), 'DS_SCHEMA_UNSUPPORTED');
+    // a new optional dataset with an unknown schema is preserved but never typed for views
+    const extra = new Map(b.files);
+    const env = { envelope: 'clearcase.dataset/1', key: 'future-notes', kind: 'generated', schema: 'v6.future-notes@1', required: false, count: 1, provenance: { source: 'pipeline', sourcePath: 'X', adapter: 'x@1' }, data: [{ a: 1 }] };
+    const bytes = canonicalBytes(env);
+    extra.set('datasets/future-notes.json', bytes);
+    const opt = await importFiles(resealFiles(extra, (m) => { m.files.push({ path: 'datasets/future-notes.json', role: 'dataset', key: 'future-notes', kind: 'generated', schema: 'v6.future-notes@1', required: false, count: 1, sha256: sha256Hex(bytes), size: bytes.byteLength }); m.files.sort((x: any, y: any) => (x.path < y.path ? -1 : 1)); }), b.caseDir);
     expect(opt.verdict).toBe('report');
     expect(codes(opt)).toContain('DS_UNKNOWN_SCHEMA');
-    expect(opt.candidate!.dataset('people')).not.toBeNull();
+    expect(opt.candidate!.dataset('future-notes')).not.toBeNull();
+    expect(readCandidate(opt.candidate!).dataset('future-notes')).toBeNull();
   });
 
   it('reports an unknown field as preserved but unsupported', async () => {

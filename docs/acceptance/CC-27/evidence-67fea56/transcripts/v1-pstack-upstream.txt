@@ -1,2 +1,0 @@
-pstack-upstream: PASS. 47 pinned pstack skills are byte-identical to https://github.com/backnotprop/pstack at 124f622bcaea (0.15.9, MIT). Upstream skills not installed: benchmark-checklist, correct, principle-explain-the-number.
-receipt: PASS pstack-upstream exit=0 ~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-67fea56/receipts/v1-pstack-upstream/20261008T134843.029379Z-pstack-upstream/receipt.json

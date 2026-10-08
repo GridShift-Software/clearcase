@@ -1,2 +1,0 @@
-Preparing worktree (detached HEAD 67fea56)
-HEAD is now at 67fea56 Document the relock refusal for a path that is not a checkout

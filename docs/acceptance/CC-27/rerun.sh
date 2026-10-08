@@ -2,10 +2,11 @@
 # Rerun CC-27 verification items 1-6 from clean non-interactive shells.
 # Usage: CC27_READBACK=PATH CC27_PSTACK_CHECKOUT=DIR [CC27_EXPORT=PATH] [CC27_OUT=DIR] bash docs/acceptance/CC-27/rerun.sh
 # CC27_PSTACK_CHECKOUT is a clean checkout of the pinned backnotprop/pstack revision (see README.md).
-# Writes receipts/, transcripts/, summary.tsv and identity-audit.txt under CC27_OUT (default .local/cc27-rerun).
-# Exits 1 if any step's exit code differs from the expected one or a receipt fails the identity audit,
-# 3 (INCOMPLETE) if CC27_READBACK or CC27_PSTACK_CHECKOUT is unset because their comparisons were then
-# SKIPPED, otherwise 0.
+# Writes receipts/, transcripts/, summary.tsv and identity-audit.txt under CC27_OUT (default .local/cc27-rerun),
+# first deleting those of an earlier run there. Exits 2 if CC27_OUT holds receipts/ or transcripts/ that
+# rerun.sh did not write, 1 if any step's exit code differs from the expected one or a receipt fails the
+# identity audit, 3 (INCOMPLETE) if CC27_READBACK or CC27_PSTACK_CHECKOUT is unset because their comparisons
+# were then SKIPPED, otherwise 0.
 set -u
 
 WT=$(cd "${BASH_SOURCE[0]%/*}/../../.." && pwd)
@@ -15,8 +16,17 @@ EXPORT=${CC27_EXPORT:-}
 CHECKOUT=${CC27_PSTACK_CHECKOUT:-}
 [[ -d $CHECKOUT ]] && CHECKOUT=$(cd "$CHECKOUT" && pwd)
 CLEAN_PATH=/usr/local/bin:/usr/bin:/bin
+HEADER=$'step\texpected\tactual\tverdict\tcommand'
+# A receipt left by an earlier run must not pass as this run's evidence, so clear an earlier run's outputs.
+if [[ -e $OUT/receipts || -e $OUT/transcripts ]]; then
+	if [[ $(head -n 1 "$OUT/summary.tsv" 2>/dev/null) != "$HEADER" ]]; then
+		echo "rerun.sh: $OUT holds receipts/ or transcripts/ that rerun.sh did not write; set CC27_OUT to a new directory." >&2
+		exit 2
+	fi
+	rm -rf "$OUT/receipts" "$OUT/transcripts" "$OUT/summary.tsv" "$OUT/revision.txt" "$OUT/identity-audit.txt"
+fi
 mkdir -p "$OUT/receipts" "$OUT/transcripts"
-printf 'step\texpected\tactual\tverdict\tcommand\n' >"$OUT/summary.tsv"
+printf '%s\n' "$HEADER" >"$OUT/summary.tsv"
 { git -C "$WT" rev-parse HEAD; git -C "$WT" status --porcelain; } >"$OUT/revision.txt"
 mismatches=0
 
@@ -35,8 +45,7 @@ nonode=$(mktemp -d "${TMPDIR:-/tmp}/cc27-nonode.XXXXXX")
 ln -s /usr/bin/python3 "$nonode/python3"
 ln -s /usr/bin/git "$nonode/git"
 nogit=$(mktemp -d "${TMPDIR:-/tmp}/cc27-nogit.XXXXXX")
-ln -s /usr/bin/python3 "$nogit/python3"
-ln -s /usr/bin/node "$nogit/node"
+for tool in python3 node; do ln -s "$(PATH=$CLEAN_PATH command -v "$tool")" "$nogit/$tool"; done
 readback_args=${READBACK:+--linear-relations "'$READBACK'"}
 readback_expect=$([[ -n $READBACK ]] && echo 0 || echo 3)
 checkout_args=${CHECKOUT:+--checkout "'$CHECKOUT'"}

@@ -211,16 +211,17 @@ def environment():
     }
 
 
-def git(root, *args):
-    """Run the git on PATH in root as (exit code, stdout bytes, problem). problem is None only for exit 0, and
-    otherwise names the command, its exit code and its stderr, in English. Inherited GIT_* variables such as GIT_DIR
-    are dropped, so they cannot redirect it."""
+def git(root, *args, quiet=False):
+    """Run the git on PATH in root as (exit code, stdout bytes, problem). problem is None only for exit 0, and with
+    quiet also only without stderr; otherwise it names the command, its exit code and its stderr, in English.
+    Inherited GIT_* variables such as GIT_DIR are dropped, so they cannot redirect it."""
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")} | {"LC_ALL": "C"}
     try:
         out = subprocess.run([shutil.which("git") or "git", "-C", str(root), *args], capture_output=True, env=env)
     except OSError as error:
         return None, b"", f"`git {' '.join(args)}` did not run: {error}"
-    return out.returncode, out.stdout, ended(["git", *args], out.returncode, out.stderr) if out.returncode else None
+    failed_query = out.returncode or (quiet and out.stderr.strip())
+    return out.returncode, out.stdout, ended(["git", *args], out.returncode, out.stderr) if failed_query else None
 
 
 def commit_of(root, ref):
@@ -242,14 +243,15 @@ def worktree_state(root):
     """(dirty, diffSha256, problem) for root. The digest covers the tracked diff against HEAD, without external diff
     drivers or textconv filters that could hide a change, and each untracked file that is not ignored: its bytes, a
     symlink's target or a nested repository's files. Any of the three outputs makes root dirty, so configuration
-    such as status.showUntrackedFiles cannot hide a change. A Git query that fails or a file that cannot be read is
-    the problem, so a state that was not read is never reported as clean."""
+    such as status.showUntrackedFiles cannot hide a change. A Git query that fails or warns, as it does with exit 0
+    for a directory it cannot open, or a file that cannot be read is the problem, so a state that was not read is
+    never reported as clean."""
     queries = [("status", "--porcelain"),
                ("diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-color", "HEAD"),
                ("ls-files", "-z", "--others", "--exclude-standard")]
     outputs = []
     for args in queries:
-        _, out, problem = git(root, *args)
+        _, out, problem = git(root, *args, quiet=True)
         if problem:
             return None, None, problem
         outputs.append(out)

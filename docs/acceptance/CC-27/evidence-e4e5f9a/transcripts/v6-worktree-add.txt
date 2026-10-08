@@ -1,2 +1,0 @@
-Preparing worktree (detached HEAD e4e5f9a)
-HEAD is now at e4e5f9a Report incomplete reruns and describe the Git-object comparison

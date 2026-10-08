@@ -1,0 +1,56 @@
+{
+  "schema": "clearcase-agent-receipt/1",
+  "name": "plan-graph",
+  "result": "PASS",
+  "exitCode": 0,
+  "reason": null,
+  "command": [
+    "/usr/bin/python3",
+    "/tmp/cc27-fresh-wt.lH0Xxe/scripts/planning/check.py",
+    "--require-linear-ids"
+  ],
+  "cwd": "/tmp/cc27-fresh-wt.lH0Xxe",
+  "tools": [
+    {
+      "name": "python3",
+      "path": "/usr/bin/python3",
+      "version": "Python 3.14.7"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "/tmp/cc27-fresh-wt.lH0Xxe/scripts/planning/check.py",
+      "sha256": "38cb4973cd62146059c195d4f105c87bcd222ccf675c7f0a38027c1c8f2fa4ed"
+    }
+  ],
+  "revision": {
+    "repository": true,
+    "root": "/tmp/cc27-fresh-wt.lH0Xxe",
+    "branch": "HEAD",
+    "head": "b0b83a344486fccf4f93559978d9c93aa080a206",
+    "baseRef": "origin/dev",
+    "base": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "mergeBase": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "dirty": false,
+    "diffSha256": null
+  },
+  "environment": {
+    "os": "CachyOS",
+    "platform": "linux",
+    "kernel": "7.2.2-1-cachyos",
+    "machine": "x86_64",
+    "host": "PUK",
+    "bash": "5.3.20(1)-release",
+    "callerShell": "",
+    "python": "3.14.7",
+    "path": "/usr/local/bin:/usr/bin:/bin"
+  },
+  "startedAt": "2026-10-08T14:08:52.068492+00:00",
+  "finishedAt": "2026-10-08T14:08:52.143426+00:00",
+  "durationSeconds": 0.075,
+  "artifacts": {
+    "receipt": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-b0b83a3/receipts/v6-check-plan/20261008T140852.068492Z-plan-graph/receipt.json",
+    "stdout": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-b0b83a3/receipts/v6-check-plan/20261008T140852.068492Z-plan-graph/stdout.txt",
+    "stderr": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-b0b83a3/receipts/v6-check-plan/20261008T140852.068492Z-plan-graph/stderr.txt"
+  }
+}

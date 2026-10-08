@@ -1,0 +1,56 @@
+CC-01 GRS-9: description differs
+  @@ -16 +16 @@
+  -- [ ] Create `docs/reference/audit-dispositions.md` from the BA-01 to BA-21 disposition table in the delivery plan. Record each finding's owner, applicable fixture/view, correction or disclosure, explicit deferral and evidence requirement. A deferred source repair must not be reported as fixed.
+  +- [ ] Create `docs/reference/audit-dispositions.md` from the BA-01–BA-21 disposition table in the delivery plan. Record each finding's owner, applicable fixture/view, correction or disclosure, explicit deferral and evidence requirement. A deferred source repair must not be reported as fixed.
+CC-02 GRS-10: match
+CC-03 GRS-12: match
+CC-04 GRS-14: match
+CC-05 GRS-15: match
+CC-06 GRS-16: description differs
+  @@ -16 +16 @@
+  -- [ ] Resolve BA-01 to BA-03 through explicit arithmetic/default checks and a differences register. Imported narrative that contradicts its own dates must be visibly flagged or replaced by a reviewed correction; it cannot pass as an unqualified verified conclusion. Preserve original source values and keep approval of legal rules separate.
+  +- [ ] Resolve BA-01–BA-03 through explicit arithmetic/default checks and a differences register. Imported narrative that contradicts its own dates must be visibly flagged or replaced by a reviewed correction; it cannot pass as an unqualified verified conclusion. Preserve original source values and keep approval of legal rules separate.
+CC-07 GRS-17: match
+CC-08 GRS-18: match
+CC-09 GRS-19: match
+CC-10 GRS-20: match
+CC-11 GRS-21: description differs
+  @@ -20 +20 @@
+  -- [ ] Review all BA-01 to BA-21 dispositions against their owning issues. Applicable V1 corrections/disclosures require evidence; V2 and deferred items require an explicit scope decision and visible limitations where relevant. No known misleading conclusion may pass solely because it matches the source.
+  +- [ ] Review all BA-01–BA-21 dispositions against their owning issues. Applicable V1 corrections/disclosures require evidence; V2 and deferred items require an explicit scope decision and visible limitations where relevant. No known misleading conclusion may pass solely because it matches the source.
+CC-12 GRS-22: description differs
+  @@ -16 +16 @@
+  -- [ ] Recheck BA-04, BA-05, BA-07, BA-09 and BA-11 on the newer export. Date basis, classification/identity uncertainty, direct-versus-parent originals and email-subset coverage must be explicit wherever those datasets are presented. An unsupported view/dataset is reported as unsupported, not as a completed feature. Full metadata re-extraction and expanded OCR remain deferred.
+  +- [ ] Recheck BA-04, BA-05, BA-07, BA-09 and BA-11 on the newer export: date basis, classification/identity uncertainty, direct-versus-parent originals and email-subset coverage must be explicit wherever those datasets are presented. An unsupported view/dataset is reported as unsupported, not as a completed feature. Full metadata re-extraction and expanded OCR remain deferred.
+CC-13 GRS-23: match
+CC-14 GRS-25: match
+CC-15 GRS-26: match
+CC-16 GRS-28: match
+CC-17 GRS-29: match
+CC-18 GRS-30: match
+CC-19 GRS-31: match
+CC-20 GRS-32: match
+CC-21 GRS-33: match
+CC-22 GRS-34: match
+CC-23 GRS-11: match
+CC-24 GRS-13: match
+CC-25 GRS-24: match
+CC-26 GRS-27: match
+CC-27 GRS-35: description differs
+  @@ -11,10 +11,3 @@
+  -- `AGENTS.md`
+  -- `docs/plan/**`
+  -- `docs/delivery-plan.md`
+  -- `docs/orchestration.md`
+  -- `docs/context-packet.md`
+  -- `docs/kickoff-prompt.md`
+  -- `scripts/planning/**`
+  -- `AGENTS.md` changes are limited to tooling discovery and invocation instructions.
+  -- The coordinator-owned planning files and `scripts/planning/**` change only for the Linear synchronization step.
+  -- Project-scoped or ignored local agent configuration; reserve any additional shared paths before changing them.
+  +- `AGENTS.md` — tooling discovery and invocation instructions only
+  +- Coordinator-owned planning files: `docs/plan/**`, `docs/delivery-plan.md`, `docs/orchestration.md`, `docs/context-packet.md`, `docs/kickoff-prompt.md`
+  +- Project-scoped or ignored local agent configuration; reserve any additional shared paths before changing them
+CC-28 GRS-36: match
+5 of 28 issue descriptions differ from the export.
+receipt: FAIL description-drift exit=1 ~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-b0b83a3/receipts/v3-description-drift/20261008T140846.648214Z-description-drift/receipt.json

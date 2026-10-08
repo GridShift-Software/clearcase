@@ -6,6 +6,7 @@ set -u
 HERE=$(cd "${BASH_SOURCE[0]%/*}" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)
 TOOLS="$REPO/scripts/agent-tools"
+cd "$REPO" || exit 1
 FIXTURES="$HERE/fixtures"
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/cc27-agent-tools.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
@@ -95,6 +96,10 @@ no_receipt() {
 	if compgen -G "$RECEIPTS/*/receipt.json" >/dev/null; then bad "$1" "unexpected receipt in $RECEIPTS"; else ok "$1"; fi
 }
 
+lacks_in_receipt() {
+	if grep -qF -- "$2" "$RECEIPTS"/*/receipt.json; then bad "$1" "receipt has: $2"; else ok "$1"; fi
+}
+
 # not_run NAME : the wrapped command, which creates $MARKER, did not run
 not_run() {
 	if [[ -e $MARKER ]]; then bad "$1" "the command ran"; rm -f "$MARKER"; else ok "$1"; fi
@@ -163,6 +168,16 @@ has "the bad base is named with the fix" "base 'no-such-base-cc27' does not reso
 receipt_is "bad-base receipt is SKIPPED" SKIPPED 3
 run "an unresolvable CLEARCASE_BASE_REF is not replaced by a default" 3 env CLEARCASE_BASE_REF=no-such-base-cc27 "$TOOLS/receipt" --name bad-env-base -- touch "$MARKER"
 not_run "the command did not run with a bad base"
+run "an empty --base is SKIPPED, not replaced by a default" 3 "$TOOLS/receipt" --name empty-base --base "" -- touch "$MARKER"
+has "the empty base is named" "base '' does not resolve to a commit"
+not_run "the command did not run with an empty --base"
+run "an empty --base is not replaced by CLEARCASE_BASE_REF" 3 env CLEARCASE_BASE_REF="$repo_base" "$TOOLS/receipt" --name empty-over-env --base "" -- true
+run "an empty CLEARCASE_BASE_REF is SKIPPED, not replaced by a default" 3 env CLEARCASE_BASE_REF= "$TOOLS/receipt" --name empty-env-base -- touch "$MARKER"
+not_run "the command did not run with an empty CLEARCASE_BASE_REF"
+run "an inherited GIT_DIR does not change the recorded revision" 0 env GIT_DIR="$WORK/tree-valid/.git" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md"
+receipt_revision "receipt records this checkout despite GIT_DIR" "$repo_head" "$repo_base_ref" "$repo_base" "$repo_fork"
+run "CLEARCASE_GIT does not replace the git that resolves the revision" 0 env CLEARCASE_GIT=/bin/false "$TOOLS/receipt" --name git-override -- true
+lacks_in_receipt "the receipt lists the git on PATH" '"path": "/bin/false"'
 IDREPO="$WORK/identity"
 mkdir -p "$IDREPO/scripts" && cp -r "$TOOLS" "$IDREPO/scripts/"
 git_fixture "$IDREPO"
@@ -171,21 +186,41 @@ git -C "$IDREPO" checkout -q -b feature && echo feature >"$IDREPO/feature.txt" &
 git -C "$IDREPO" checkout -q dev && echo later >"$IDREPO/dev.txt" && commit_all "$IDREPO" "dev moves on"
 git -C "$IDREPO" checkout -q feature
 id_head=$(git -C "$IDREPO" rev-parse HEAD) id_dev=$(git -C "$IDREPO" rev-parse dev)
-run "a receipt in a checkout with dev passes" 0 "$IDREPO/scripts/agent-tools/receipt" --name identity -- true
+run "a receipt in a checkout with dev passes" 0 env -C "$IDREPO" scripts/agent-tools/receipt --name identity -- true
 receipt_is "identity receipt is PASS" PASS 0
 receipt_revision "receipt records HEAD, dev and the fork point" "$id_head" dev "$id_dev" "$fork"
-run "a receipt with --base COMMIT passes" 0 "$IDREPO/scripts/agent-tools/receipt" --name identity --base "$fork" -- true
+run "a receipt with --base COMMIT passes" 0 env -C "$IDREPO" scripts/agent-tools/receipt --name identity --base "$fork" -- true
 receipt_revision "receipt records the explicit base commit" "$id_head" "$fork" "$fork" "$fork"
+run "a receipt whose command runs outside the recorded checkout is SKIPPED" 3 "$IDREPO/scripts/agent-tools/receipt" --name elsewhere -- touch "$MARKER"
+has "names the command's directory and the recorded checkout" "outside the checkout"
+not_run "the command did not run outside the recorded checkout"
+run "--root names the checkout the command runs in" 0 "$IDREPO/scripts/agent-tools/receipt" --name here --root "$REPO" -- true
+receipt_revision "receipt records the checkout the command ran in" "$repo_head" "$repo_base_ref" "$repo_base" "$repo_fork"
+run "a receipt from a subdirectory of the checkout passes" 0 env -C "$IDREPO/scripts" agent-tools/receipt --name subdirectory -- true
+git init -q "$IDREPO/nested"
+run "a receipt from a nested repository is SKIPPED" 3 env -C "$IDREPO/nested" ../scripts/agent-tools/receipt --name nested -- touch "$MARKER"
+not_run "the command did not run in a nested repository"
+echo untracked >"$IDREPO/ä.txt" && echo untracked >"$IDREPO/new"$'\n'"line.txt"
+ln -s /nonexistent-cc27 "$IDREPO/broken-link" && ln -s "$WORK" "$IDREPO/dir-link"
+run "odd untracked files are fingerprinted" 0 env -C "$IDREPO" scripts/agent-tools/receipt --name odd-files -- true
+if python3 -c 'import glob,json,re,sys; r=[json.load(open(f))["revision"] for f in glob.glob(sys.argv[1] + "/*/receipt.json")]; sys.exit(not (r and all(x["dirty"] is True and re.fullmatch("[0-9a-f]{64}", x["diffSha256"] or "") for x in r)))' "$RECEIPTS"; then
+	ok "odd untracked files make the receipt dirty with a diff hash"
+else
+	bad "odd untracked files make the receipt dirty with a diff hash"
+fi
+run "the doctor reports despite odd untracked files" 1 env -C "$IDREPO" scripts/agent-tools/doctor
+has "the doctor's revision row notes the changes" "uncommitted changes"
+rm -rf "$IDREPO/nested" "$IDREPO/ä.txt" "$IDREPO/new"$'\n'"line.txt" "$IDREPO/broken-link" "$IDREPO/dir-link"
 git -C "$IDREPO" checkout -q --orphan unrelated && commit_all "$IDREPO" unrelated && git -C "$IDREPO" checkout -q feature
-run "a base with no shared history is SKIPPED" 3 "$IDREPO/scripts/agent-tools/receipt" --name unrelated --base unrelated -- touch "$MARKER"
+run "a base with no shared history is SKIPPED" 3 env -C "$IDREPO" scripts/agent-tools/receipt --name unrelated --base unrelated -- touch "$MARKER"
 has "names the unrelated base" "shares no history with HEAD"
 not_run "the command did not run with an unrelated base"
 git -C "$IDREPO" branch -q -m dev trunk
-run "no --base and no dev or origin/dev is SKIPPED" 3 "$IDREPO/scripts/agent-tools/receipt" --name no-base -- touch "$MARKER"
+run "no --base and no dev or origin/dev is SKIPPED" 3 env -C "$IDREPO" scripts/agent-tools/receipt --name no-base -- touch "$MARKER"
 has "missing default base asks for --base" "no base revision: neither origin/dev nor dev exists"
 receipt_is "no-base receipt is SKIPPED" SKIPPED 3
 not_run "the command did not run without a base"
-run "--base names the base when there is no default" 0 "$IDREPO/scripts/agent-tools/receipt" --name trunk-base --base trunk -- true
+run "--base names the base when there is no default" 0 env -C "$IDREPO" scripts/agent-tools/receipt --name trunk-base --base trunk -- true
 receipt_revision "receipt records the named base" "$id_head" trunk "$id_dev" "$fork"
 git -C "$IDREPO" branch -q -m trunk dev
 run "a --root below a checkout's top is SKIPPED" 3 "$IDREPO/scripts/agent-tools/receipt" --name subdir --root "$IDREPO/scripts" -- true
@@ -221,6 +256,8 @@ if grep -qF "doctor: PASS" "$RECEIPTS"/*/stdout.txt; then ok "doctor receipt kee
 run "doctor fails on an unresolvable --base" 1 "$TOOLS/doctor" --base no-such-base-cc27
 has "doctor names the bad base" "FAIL     revision       base 'no-such-base-cc27' does not resolve to a commit"
 receipt_is "bad-base doctor receipt is FAIL" FAIL 1
+run "doctor fails on an empty --base" 1 "$TOOLS/doctor" --base ""
+has "doctor names the empty base" "FAIL     revision       base '' does not resolve to a commit"
 run "doctor fails without git" 1 env PATH="$NOGIT" "$TOOLS/doctor"
 has "doctor names git and the fix" "fix: install git"
 receipt_is "no-git doctor receipt is FAIL" FAIL 1

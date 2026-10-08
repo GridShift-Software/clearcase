@@ -51,7 +51,8 @@ def first_line(argv):
 
 
 def which(name):
-    override = os.environ.get(f"CLEARCASE_{name.upper().replace('3', '')}")
+    """Only CLEARCASE_PYTHON and CLEARCASE_NODE override discovery, so the git a receipt lists is the git it used."""
+    override = name in ("python3", "node") and os.environ.get(f"CLEARCASE_{name.upper().replace('3', '')}")
     if override:
         return override if os.access(override, os.X_OK) else None
     if name == "python3":
@@ -160,15 +161,20 @@ def environment():
     }
 
 
-def git(root, *args):
-    out = subprocess.run(["git", "-C", str(root), *args], capture_output=True) if shutil.which("git") else None
-    return out.stdout.decode(errors="replace").strip() if out and out.returncode == 0 else None
+def git(root, *args, raw=False):
+    """Run git in root. Inherited GIT_* variables such as GIT_DIR are dropped, so they cannot redirect it."""
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    out = subprocess.run(["git", "-C", str(root), *args], capture_output=True, env=env) if shutil.which("git") else None
+    if not out or out.returncode:
+        return None
+    return out.stdout if raw else out.stdout.decode(errors="replace").strip()
 
 
 def revision(root, base_ref=None):
     """Git identity of root as (fields, problem). Only a None problem lets a receipt PASS, so every PASS receipt
-    names head, base and mergeBase. An explicit base (--base or CLEARCASE_BASE_REF) never falls back to a default."""
-    explicit = base_ref or os.environ.get("CLEARCASE_BASE_REF") or None
+    names head, base and mergeBase. An explicit base (--base or CLEARCASE_BASE_REF), even an empty one, never falls
+    back to a default."""
+    explicit = base_ref if base_ref is not None else os.environ.get("CLEARCASE_BASE_REF")
     fields = {"repository": False, "root": redact(root), "branch": None, "head": None, "baseRef": explicit,
               "base": None, "mergeBase": None, "dirty": None, "diffSha256": None}
     if not shutil.which("git"):
@@ -182,18 +188,24 @@ def revision(root, base_ref=None):
         return fields, f"no head revision: {redact(root)} has no commit yet"
     status = git(root, "status", "--porcelain") or ""
     digest = hashlib.sha256((git(root, "diff", "HEAD", "--binary") or "").encode())
-    for name in (git(root, "ls-files", "--others", "--exclude-standard") or "").splitlines():
-        digest.update(name.encode() + b"\0" + bytes.fromhex(sha256_file(Path(root) / name)))
+    for name in filter(None, (git(root, "ls-files", "-z", "--others", "--exclude-standard", raw=True) or b"").split(b"\0")):
+        path = Path(root) / os.fsdecode(name)
+        try:
+            content = (os.fsencode(os.readlink(path)) if path.is_symlink()
+                       else bytes.fromhex(sha256_file(path)) if path.is_file() else b"not a regular file")
+        except OSError as error:
+            content = f"unreadable: {error.strerror}".encode()
+        digest.update(name + b"\0" + content)
     fields.update(repository=True, branch=git(root, "rev-parse", "--abbrev-ref", "HEAD"), head=head,
                   dirty=bool(status), diffSha256=digest.hexdigest() if status else None)
     fix = "pass --base REF, the accepted revision this branch was cut from"
-    for ref in [explicit] if explicit else ["origin/dev", "dev"]:
-        base = git(root, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}")
+    for ref in [explicit] if explicit is not None else ["origin/dev", "dev"]:
+        base = git(root, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}") if ref else None
         if base:
             break
     if not base:
-        return fields, (f"base {explicit!r} does not resolve to a commit in {redact(root)}; {fix}" if explicit else
-                        f"no base revision: neither origin/dev nor dev exists in {redact(root)}; {fix}")
+        return fields, (f"base {explicit!r} does not resolve to a commit in {redact(root)}; {fix}" if explicit is not None
+                        else f"no base revision: neither origin/dev nor dev exists in {redact(root)}; {fix}")
     merge_base = git(root, "merge-base", head, base)
     fields.update(baseRef=ref, base=base, mergeBase=merge_base)
     if not merge_base:
@@ -265,6 +277,13 @@ def run_with_receipt(name, argv, *, cwd=None, tools=(), inputs=(), receipts=None
         missing.append(argv[0])
     missing_inputs = [str(path) for path in inputs if not Path(path).is_file()]
     identity, unidentified = revision(root, base)
+    here = Path(cwd or root).resolve()
+    if not unidentified and here != root.resolve():
+        top = git(here, "rev-parse", "--show-toplevel")
+        if not top or Path(top).resolve() != root.resolve():
+            unidentified = (f"the command would run in {redact(here)}, outside the checkout {redact(root.resolve())} "
+                            "whose revision the receipt records; run it inside that checkout, or pass --root DIR "
+                            "naming the checkout it runs in")
     reason = (skip_reason
               or (missing and f"required tool not found: {', '.join(missing)}; install it or put it on PATH "
                               "(scripts/agent-tools/doctor names the fix)")
@@ -587,7 +606,7 @@ def cmd_receipt(args):
     if not argv:
         raise SystemExit("receipt: give the command after --")
     return run_with_receipt(args.name, argv, cwd=Path.cwd(), tools=args.tool, inputs=args.input,
-                            receipts=args.receipts, base=args.base, root=args.root or REPO)
+                            receipts=args.receipts, base=args.base, root=Path(args.root).resolve() if args.root else REPO)
 
 
 # Bootstrap ------------------------------------------------------------------

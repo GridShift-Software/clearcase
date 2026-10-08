@@ -1,0 +1,259 @@
+{
+  "reference": "ESS_DCS_Lawyer_Pack_v5-002.zip :: ESS_DCS_Workspace.html",
+  "builtAt": "2026-08-12 19:30",
+  "documentCount": 1689,
+  "views": [
+    {
+      "id": "overview",
+      "label": "Overview",
+      "group": "Matter",
+      "owner": "CC-03"
+    },
+    {
+      "id": "matter",
+      "label": "Matter & Strategy",
+      "group": "Matter",
+      "owner": "CC-05"
+    },
+    {
+      "id": "timeline",
+      "label": "Timeline",
+      "group": "Matter",
+      "owner": "CC-05"
+    },
+    {
+      "id": "chronology",
+      "label": "Chronology",
+      "group": "Matter",
+      "owner": "CC-03"
+    },
+    {
+      "id": "quantum_tab",
+      "label": "Quantum & Interest",
+      "group": "Matter",
+      "owner": "CC-06"
+    },
+    {
+      "id": "documents",
+      "label": "Documents",
+      "group": "Evidence",
+      "owner": "CC-04"
+    },
+    {
+      "id": "contracts_tab",
+      "label": "Contracts",
+      "group": "Evidence",
+      "owner": "CC-04"
+    },
+    {
+      "id": "filings_tab",
+      "label": "Filings & Affidavits",
+      "group": "Evidence",
+      "owner": "CC-04"
+    },
+    {
+      "id": "search",
+      "label": "Advanced Search",
+      "group": "Evidence",
+      "owner": "CC-04"
+    },
+    {
+      "id": "people",
+      "label": "People",
+      "group": "Evidence",
+      "owner": "CC-04"
+    },
+    {
+      "id": "entity_ledger_tab",
+      "label": "Entities",
+      "group": "Evidence",
+      "owner": "CC-04"
+    },
+    {
+      "id": "hoa_diff_tab",
+      "label": "Document Diff",
+      "group": "Evidence",
+      "owner": "CC-04"
+    },
+    {
+      "id": "invoice_ledger_tab",
+      "label": "Invoice Ledger",
+      "group": "Case management",
+      "owner": "CC-06"
+    },
+    {
+      "id": "disbursements_tab",
+      "label": "Disbursements",
+      "group": "Case management",
+      "owner": "CC-07"
+    },
+    {
+      "id": "timesheet_tab",
+      "label": "Timesheet",
+      "group": "Case management",
+      "owner": "CC-07"
+    },
+    {
+      "id": "deadlines_tab",
+      "label": "Deadlines",
+      "group": "Case management",
+      "owner": "CC-07"
+    },
+    {
+      "id": "discovery_tab",
+      "label": "Discovery Schedule",
+      "group": "Case management",
+      "owner": "CC-09"
+    },
+    {
+      "id": "court_bundle_tab",
+      "label": "Court Bundle",
+      "group": "Case management",
+      "owner": "CC-09"
+    },
+    {
+      "id": "caselines_tab",
+      "label": "CaseLines",
+      "group": "Case management",
+      "owner": "CC-09"
+    },
+    {
+      "id": "contradictions_tab",
+      "label": "Contradiction Tracker",
+      "group": "Analysis",
+      "owner": "CC-05"
+    },
+    {
+      "id": "risk_matrix_tab",
+      "label": "Risk Matrix",
+      "group": "Analysis",
+      "owner": "CC-05"
+    },
+    {
+      "id": "vdm_matrix_tab",
+      "label": "Defence & Rebuttal",
+      "group": "Analysis",
+      "owner": "CC-05"
+    },
+    {
+      "id": "info_required_tab",
+      "label": "Info Required",
+      "group": "Analysis",
+      "owner": "CC-05"
+    },
+    {
+      "id": "witness_tab",
+      "label": "Witnesses",
+      "group": "Analysis",
+      "owner": "CC-05"
+    },
+    {
+      "id": "conflict_tab",
+      "label": "Conflict Check",
+      "group": "Analysis",
+      "owner": "CC-08"
+    },
+    {
+      "id": "enforcement_tab",
+      "label": "Enforcement Roadmap",
+      "group": "Litigation strategy",
+      "owner": "CC-08"
+    },
+    {
+      "id": "legality_tab",
+      "label": "Legality & SIU Risk",
+      "group": "Litigation strategy",
+      "owner": "CC-08"
+    },
+    {
+      "id": "prescription_tab",
+      "label": "Prescription",
+      "group": "Litigation strategy",
+      "owner": "CC-06"
+    },
+    {
+      "id": "interest_calc_tab",
+      "label": "Interest Recalculator",
+      "group": "Litigation strategy",
+      "owner": "CC-06"
+    },
+    {
+      "id": "payments_tab",
+      "label": "Payments & Net Claim",
+      "group": "Litigation strategy",
+      "owner": "CC-06"
+    },
+    {
+      "id": "elements_tab",
+      "label": "Cause of Action",
+      "group": "Litigation strategy",
+      "owner": "CC-08"
+    },
+    {
+      "id": "authorities_tab",
+      "label": "Authorities",
+      "group": "Litigation strategy",
+      "owner": "CC-08"
+    },
+    {
+      "id": "heads_tab",
+      "label": "Heads of Argument",
+      "group": "Litigation strategy",
+      "owner": "CC-08"
+    },
+    {
+      "id": "crossexam_tab",
+      "label": "Cross-Exam Prep",
+      "group": "Litigation strategy",
+      "owner": "CC-08"
+    },
+    {
+      "id": "settlement_tab",
+      "label": "Settlement / BATNA",
+      "group": "Litigation strategy",
+      "owner": "CC-06"
+    },
+    {
+      "id": "privilege_tab",
+      "label": "Privilege Log",
+      "group": "Registers",
+      "owner": "CC-07"
+    },
+    {
+      "id": "popia_tab",
+      "label": "POPIA Register",
+      "group": "Registers",
+      "owner": "CC-07"
+    },
+    {
+      "id": "annotations_tab",
+      "label": "Annotations",
+      "group": "Registers",
+      "owner": "CC-07"
+    },
+    {
+      "id": "transcriptions_tab",
+      "label": "Transcripts",
+      "group": "Registers",
+      "owner": "CC-07"
+    },
+    {
+      "id": "rescan_tab",
+      "label": "Rescan & Update",
+      "group": "System",
+      "owner": "CC-10"
+    },
+    {
+      "id": "backup_tab",
+      "label": "Backup / Restore",
+      "group": "System",
+      "owner": "CC-10"
+    },
+    {
+      "id": "manual",
+      "label": "Manual",
+      "group": "System",
+      "owner": "CC-10"
+    }
+  ]
+}

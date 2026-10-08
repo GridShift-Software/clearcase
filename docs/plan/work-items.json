@@ -1,0 +1,1048 @@
+{
+  "project": {
+    "id": "f473fd2d-c994-4dc6-84e2-b90a68848e48",
+    "name": "ClearCase - Realignment",
+    "url": "https://linear.app/vaper/project/clearcase-realignment-e64366f52809",
+    "team": "Gridshift"
+  },
+  "milestones": [
+    {
+      "key": "M0",
+      "name": "M0 - Reference and package contract",
+      "exit": "The v5 reference is reproducible, all 42 behaviors are inventoried, and a portable candidate package validates.",
+      "linear": {
+        "id": "e990477c-bdba-4cf1-a14a-37c4eafc0385",
+        "name": "M0 - Reference and package contract"
+      }
+    },
+    {
+      "key": "M1",
+      "name": "M1 - Complete local pilot",
+      "exit": "Import, preview, activation, overview, chronology and original-document navigation work locally before fan-out.",
+      "linear": {
+        "id": "25aa3bbf-da48-41bd-bdfe-169648f5711b",
+        "name": "M1 - Complete local pilot"
+      }
+    },
+    {
+      "key": "M2",
+      "name": "M2 - Full v5 local parity",
+      "exit": "All 42 views, user work, exports, offline operation and acceptance evidence pass.",
+      "linear": {
+        "id": "38a14039-ca61-41df-896c-96cb80d0e5e1",
+        "name": "M2 - Full v5 local parity"
+      }
+    },
+    {
+      "key": "M3",
+      "name": "M3 - Newer export and manual authoring",
+      "exit": "The 2,131-document export and one structured Markdown authoring round trip pass without v5 regressions.",
+      "linear": {
+        "id": "ad937e7c-a2a1-4897-b7af-fa684d799303",
+        "name": "M3 - Newer export and manual authoring"
+      }
+    },
+    {
+      "key": "M4",
+      "name": "M4 - Hosted readiness decisions",
+      "exit": "Operator-contract evidence is recorded and client isolation, roles, durable storage and hosting are resolved.",
+      "linear": {
+        "id": "7fac31f7-8e3d-43da-9c35-88dc2f9b64b9",
+        "name": "M4 - Hosted readiness decisions"
+      }
+    },
+    {
+      "key": "M5",
+      "name": "M5 - Hosted manual workflow",
+      "exit": "Client intake through private review and human-approved publication passes staging acceptance.",
+      "linear": {
+        "id": "58d780f9-5863-44ef-bdbf-4faa3525a08c",
+        "name": "M5 - Hosted manual workflow"
+      }
+    },
+    {
+      "key": "M6",
+      "name": "M6 - Future processing automation",
+      "exit": "Deferred Pi Durable design and implementation preserve human publication approval.",
+      "linear": {
+        "id": "37622da5-6163-4a0a-9dc2-beb74a2449fa",
+        "name": "M6 - Future processing automation"
+      }
+    }
+  ],
+  "items": [
+    {
+      "key": "CC-01",
+      "milestone": "M0",
+      "title": "Freeze the v5 fixture and behavior baseline",
+      "depends": [],
+      "outcome": "A new worker can reproduce the sample inventory and identify every expected behavior without relying on chat history.",
+      "scope": [
+        "scripts/fixtures/**",
+        "tests/fixtures/README.md",
+        "docs/reference/**"
+      ],
+      "acceptance": [
+        "Read the original archive without modifying it. Fingerprint the archive and main HTML; record the build date and exactly 1,689 chronology records and 42 navigation entries.",
+        "Produce a local reference-to-path inventory, duplicate and missing-file reports, and a per-view action/export/state checklist. Keep case documents and extracted text outside Git.",
+        "Record literal expected examples for filters, citations, calculations and mutable workflows. Fix the clock for date-sensitive examples. Classify source defects separately from rewrite defects.",
+        "Document a fresh-machine setup and a local fixture location. Capture representative v5 screens safely with networking disabled; no execution of archive processing scripts.",
+        "Record each view's data sources and distinguish imported datasets from user-work stores in docs/reference/view-checklist.md. Propose view-coverage changes for the coordinator; before M2 dispatch, the coordinator resolves consumer dependencies for Invoice Ledger, Conflict Check, Court Bundle and CaseLines from this evidence."
+      ],
+      "liveScenarios": [
+        "Rebuild the inventory twice and compare outputs",
+        "Detect a deliberately missing source file",
+        "Detect duplicate legacy refs in a synthetic fixture",
+        "Resolve paths containing spaces and non-ASCII characters",
+        "Reject paths escaping the case folder",
+        "Separate the main HTML from the bundles-only variant",
+        "Count all 42 view actions without using the stale manual",
+        "Capture a citation and its original file",
+        "Fix the clock for a deadline example",
+        "Keep generated case material out of Git"
+      ],
+      "performanceMetric": "Archive inventory elapsed time and peak memory",
+      "performanceBudget": "Record the first baseline. Fail a repeat above 1.25 times the median baseline on the same unchanged fixture.",
+      "kind": "delivery",
+      "phase": "V1",
+      "linear": {
+        "id": "d39e207b-064a-48a9-b35b-002e8c6c1a0b",
+        "identifier": "GRS-9",
+        "url": "https://linear.app/vaper/issue/GRS-9/freeze-the-v5-fixture-and-behavior-baseline"
+      }
+    },
+    {
+      "key": "CC-02",
+      "milestone": "M0",
+      "title": "Validate and convert a portable results package",
+      "depends": [
+        "CC-01"
+      ],
+      "outcome": "An operator can convert the v5 sample to an inspectable package and obtain actionable validation errors before activation.",
+      "scope": [
+        "src/lib/case-package/**",
+        "scripts/case-package/**",
+        "tests/case-package/**",
+        "docs/results-package.md",
+        "package.json",
+        "package-lock.json",
+        "tsconfig.json",
+        "vitest.config.*"
+      ],
+      "acceptance": [
+        "Specify and implement the v5 adapter with case identity, input revision, results version, manifest, datasets, originals and attachment relationships. Do not execute imported HTML to obtain data.",
+        "Validate all dataset shapes and refs, path containment, duplicate IDs, unsupported versions and ambiguous asset mappings. Use distinct diagnostics for known baseline defects and new structural failures.",
+        "Preserve source values and provenance. Use file fingerprints for asset identity; do not equate legacy refs across independently rebuilt packs.",
+        "Import produces an immutable candidate and diagnostics. Repeated conversion is deterministic. User notes and registers are not embedded in immutable results. Define the generated-data versus authored-analysis boundary.",
+        "Establish the minimal npm/TypeScript/Vitest toolchain and npm check, test and measure scripts needed to execute this ticket. CC-03 extends these files only after the package gate passes."
+      ],
+      "liveScenarios": [
+        "Convert v5 and compare all chronology fields",
+        "Validate a complete candidate",
+        "Reject malformed data without a candidate",
+        "Reject duplicate refs",
+        "Report broken citation targets",
+        "Reject a path traversal asset",
+        "Distinguish unsupported media from missing text",
+        "Resolve an attachment to its parent",
+        "Reconvert with stable output identity",
+        "Reject an unsupported package version"
+      ],
+      "performanceMetric": "Candidate conversion and validation time, peak memory",
+      "performanceBudget": "Set numeric conversion and memory limits from the CC-01 baseline before implementation. Repeat imports must stay within 1.25 times the accepted median.",
+      "kind": "delivery",
+      "phase": "V1",
+      "linear": {
+        "id": "eebbcaac-f801-4ed5-a9ca-f4e7b4f2dab4",
+        "identifier": "GRS-10",
+        "url": "https://linear.app/vaper/issue/GRS-10/validate-and-convert-a-portable-results-package"
+      },
+      "testPath": "tests/case-package"
+    },
+    {
+      "key": "CC-03",
+      "milestone": "M1",
+      "title": "Complete the local import to original-document workflow",
+      "depends": [
+        "CC-23"
+      ],
+      "outcome": "The operator imports a candidate, previews and activates it, then follows a chronology citation to the correct original.",
+      "scope": [
+        "vite.config.*",
+        "src/routes/**",
+        "src/lib/components/**",
+        "src/lib/local-case/**",
+        "tests/e2e/pilot/**",
+        "docs/development.md",
+        "package.json",
+        "package-lock.json",
+        "tsconfig.json",
+        "vitest.config.*",
+        "svelte.config.*",
+        "src/app.*",
+        "static/**",
+        "scripts/measure/**"
+      ],
+      "acceptance": [
+        "Choose and pin the local stack after comparing the minimum viable storage choices. Use the recommended SvelteKit and TypeScript unless a measured constraint justifies a change.",
+        "Implement case-folder selection, validation report, candidate preview, activation, overview, chronology and document detail. Open or download supported original types with explicit unsupported/missing states.",
+        "Keep the active version unchanged on failed import. Keep originals outside Git. Serve only loopback and work with outbound networking disabled.",
+        "Provide history-aware navigation, accessible focus, case-aware titles, citation links and a reproducible boot/verification command. This complete workflow is the pilot before feature fan-out.",
+        "Freeze navigation entries and route extension points for all 42 views using the coordinator-owned view inventory. Reserve one feature subtree per worker and define shared component/persistence contracts before fan-out. Unimplemented entries remain explicitly unavailable until their owning issue passes. The coordinator serializes dependency, lockfile, shared layout and configuration changes during M2.",
+        "Ownership transfer after CC-02 is accepted. Extend package.json, package-lock.json, tsconfig.json, vitest.config.* serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths."
+      ],
+      "liveScenarios": [
+        "Compare the complete import-to-document workflow with the reference",
+        "Import and preview v5 without activation",
+        "Activate and see exactly 1,689 base records",
+        "Sort and filter chronology with fixed expected rows",
+        "Open a cited PDF",
+        "Open or download a non-PDF original",
+        "Show a missing-original state",
+        "Reject a broken candidate while the active version remains usable",
+        "Use keyboard navigation and browser Back",
+        "Restart with networking disabled and recover the active case"
+      ],
+      "performanceMetric": "Cold usable-overview time, warm navigation and original-open latency",
+      "performanceBudget": "Overview <=2,000 ms and warm navigation <=200 ms at p95 on the recorded local machine. Report original-open separately with a numeric budget fixed after CC-01.",
+      "kind": "delivery",
+      "phase": "V1",
+      "linear": {
+        "id": "62cdd4a4-f210-4dc8-972f-efc1e383b7fc",
+        "identifier": "GRS-12",
+        "url": "https://linear.app/vaper/issue/GRS-12/complete-the-local-import-to-original-document-workflow"
+      },
+      "testPath": "tests/e2e/pilot"
+    },
+    {
+      "key": "CC-04",
+      "milestone": "M2",
+      "title": "Browse, search and compare the case evidence",
+      "depends": [
+        "CC-24"
+      ],
+      "outcome": "A reviewer can find a document through filters or search, inspect its people/entities and agreements, and compare available text.",
+      "scope": [
+        "src/routes/evidence/**",
+        "src/lib/evidence/**",
+        "tests/evidence/**"
+      ],
+      "acceptance": [
+        "Cover Documents, Contracts, Filings & Affidavits, Advanced Search, People, Entities and Document Diff with their recorded actions.",
+        "Preserve query/filter/sort/page state through navigation and exports. Distinguish invalid ranges from genuine empty results.",
+        "Disclose indexed-text limits and unsupported files. Do not label a truncated corpus search as full-document search.",
+        "Use literal expected search/diff examples and justified comparison relationships. Keep original links and filing-register edits functional."
+      ],
+      "liveScenarios": [
+        "Compare fixed search results with v5",
+        "Filter by bundle and document type",
+        "Retain a query across pagination",
+        "Reject reversed date and amount intervals",
+        "Show a genuine empty result",
+        "Show truncated or absent text coverage",
+        "Open a contract and its citation",
+        "Inspect a person and entity relationship",
+        "Edit and reload a filing relationship",
+        "Compare two known text versions"
+      ],
+      "performanceMetric": "Search latency and warm evidence navigation",
+      "performanceBudget": "Search <=300 ms and warm navigation <=200 ms at p95; no unexpected whole-corpus reload per filter.",
+      "kind": "delivery",
+      "phase": "V1",
+      "linear": {
+        "id": "4d8b931a-5983-46e9-ab86-b35bf823292e",
+        "identifier": "GRS-14",
+        "url": "https://linear.app/vaper/issue/GRS-14/browse-search-and-compare-the-case-evidence"
+      },
+      "testPath": "tests/evidence"
+    },
+    {
+      "key": "CC-05",
+      "milestone": "M2",
+      "title": "Read the matter narrative and evidence-linked analysis",
+      "depends": [
+        "CC-24"
+      ],
+      "outcome": "A reviewer can read the storyline and timeline, inspect contradictions, risks and defences, and follow supporting citations.",
+      "scope": [
+        "src/routes/analysis/**",
+        "src/lib/analysis/**",
+        "tests/analysis/**"
+      ],
+      "acceptance": [
+        "Cover Matter & Strategy, Timeline, Contradiction Tracker, Risk Matrix, Defence & Rebuttal, Info Required and Witnesses.",
+        "Preserve narratives, groupings, severities and citations from the selected package. Record intentional ordering changes.",
+        "Persist any checklist or witness edits found in the baseline action inventory without changing imported source analysis.",
+        "Provide readable narrow-screen details, print/export behavior from v5, and explicit empty or incomplete states."
+      ],
+      "liveScenarios": [
+        "Compare a fixed narrative section with v5",
+        "Follow an inline reference",
+        "Read the timeline in order",
+        "Print the timeline",
+        "Inspect contradiction categories and their sources",
+        "Read one risk with its mitigation on a narrow screen",
+        "Trace a defence to its evidence",
+        "Change and reload an information-required item",
+        "Inspect a witness and linked document",
+        "Render a package with an empty optional analysis dataset"
+      ],
+      "performanceMetric": "Analysis navigation and expanded-detail latency",
+      "performanceBudget": "Warm navigation <=200 ms at p95; no uncaught error on empty optional datasets.",
+      "kind": "delivery",
+      "phase": "V1",
+      "linear": {
+        "id": "209e2d58-e023-473d-ac32-8816c207b5cf",
+        "identifier": "GRS-15",
+        "url": "https://linear.app/vaper/issue/GRS-15/read-the-matter-narrative-and-evidence-linked-analysis"
+      },
+      "testPath": "tests/analysis"
+    },
+    {
+      "key": "CC-06",
+      "milestone": "M2",
+      "title": "Reconcile quantum and scenario calculations",
+      "depends": [
+        "CC-24"
+      ],
+      "outcome": "A reviewer can reconcile invoices and payments and reproduce financial/date scenarios with visible assumptions.",
+      "scope": [
+        "src/routes/quantum/**",
+        "src/lib/calculations/**",
+        "tests/calculations/**",
+        "docs/reference/calculation-differences.md"
+      ],
+      "acceptance": [
+        "Cover Quantum & Interest, Invoice Ledger, Interest Recalculator, Payments & Net Claim, Prescription and Settlement / BATNA.",
+        "Reconcile source amounts and dates without silently correcting imported figures. Document rounding, time basis, defaults and every deliberate arithmetic fix.",
+        "Use fixed literal checks including R1,000 at 10% simple interest for one year yielding R100, zero and invalid inputs, leap dates and month ends.",
+        "Persist scenario/payment inputs where v5 does; export the intended ledger. Keep legal-rule approval separate from arithmetic verification. Flag unsupported legal conclusions for human review."
+      ],
+      "liveScenarios": [
+        "Compare invoice totals with the reference",
+        "Run the R100 simple-interest example",
+        "Change and restore grace-period defaults",
+        "Exercise month-end and leap-day dates",
+        "Reject invalid or reversed calculation inputs",
+        "Record a payment and reload the net claim",
+        "Export the invoice ledger",
+        "Change a settlement assumption and observe the result",
+        "Distinguish imported legal narrative from computed dates",
+        "Repeat with a fixed clock and obtain identical results"
+      ],
+      "performanceMetric": "Scenario recalculation and ledger navigation latency",
+      "performanceBudget": "Recalculation <=200 ms and warm navigation <=200 ms at p95; zero unexplained numeric differences.",
+      "kind": "delivery",
+      "phase": "V1",
+      "linear": {
+        "id": "5d284b8f-dc6b-4577-9193-5140608afd23",
+        "identifier": "GRS-16",
+        "url": "https://linear.app/vaper/issue/GRS-16/reconcile-quantum-and-scenario-calculations"
+      },
+      "testPath": "tests/calculations"
+    },
+    {
+      "key": "CC-07",
+      "milestone": "M2",
+      "title": "Maintain case registers without losing edits",
+      "depends": [
+        "CC-24"
+      ],
+      "outcome": "A reviewer can maintain case-management records locally and recover them after restart.",
+      "scope": [
+        "src/routes/registers/**",
+        "src/lib/user-work/**",
+        "tests/registers/**"
+      ],
+      "acceptance": [
+        "Cover Disbursements, Timesheet, Deadlines, Privilege Log, POPIA Register, Annotations and Transcripts.",
+        "Implement the create/edit/delete/export actions present in v5 and scope records to the selected case. Keep imported results separate.",
+        "Persist changes through reload and server restart. Make failed writes visible and preserve unsaved input.",
+        "Verify totals, deadline countdown with a fixed clock, calendar export and original-document references with controlled local fixtures."
+      ],
+      "liveScenarios": [
+        "Compare seeded register state with v5",
+        "Create and edit a disbursement",
+        "Record time and verify its value",
+        "Create a deadline and export its calendar entry",
+        "Edit privilege and POPIA records",
+        "Add a document annotation",
+        "Inspect or edit a transcript as supported by v5",
+        "Delete a controlled test record",
+        "Restart and recover every saved entry",
+        "Simulate a failed write without losing unsaved input"
+      ],
+      "performanceMetric": "Register save/read latency and restore time",
+      "performanceBudget": "Save/read <=200 ms at p95 on the acceptance fixture. Set restore budget after CC-10 baseline.",
+      "kind": "delivery",
+      "phase": "V1",
+      "linear": {
+        "id": "52849de3-b0de-4db7-b8b7-d4ac8b824595",
+        "identifier": "GRS-17",
+        "url": "https://linear.app/vaper/issue/GRS-17/maintain-case-registers-without-losing-edits"
+      },
+      "testPath": "tests/registers"
+    },
+    {
+      "key": "CC-08",
+      "milestone": "M2",
+      "title": "Work through litigation preparation tools",
+      "depends": [
+        "CC-24",
+        "CC-05",
+        "CC-07"
+      ],
+      "outcome": "A reviewer can prepare authorities, argument and cross-examination material and track the litigation roadmap.",
+      "scope": [
+        "src/routes/litigation/**",
+        "src/lib/litigation/**",
+        "tests/litigation/**"
+      ],
+      "acceptance": [
+        "Cover Conflict Check, Enforcement Roadmap, Legality & SIU Risk, Cause of Action, Authorities, Heads of Argument and Cross-Exam Prep.",
+        "Preserve the supplied working analysis and cited evidence. Label dataset scope and unverified legal assertions clearly.",
+        "Implement editable statuses, authority entries and preparation notes as identified in the baseline. Persist them in the existing case user-work store.",
+        "Verify export contents and citation targets, including an empty preparation state. Do not present a corpus match as a definitive legal conflict finding."
+      ],
+      "liveScenarios": [
+        "Compare roadmap content with v5",
+        "Change and reload a roadmap status",
+        "Inspect a legality scenario and its evidence",
+        "Trace a cause-of-action element to its witness",
+        "Create and export an authority",
+        "Draft and reload an argument section",
+        "Prepare a witness cross-examination note",
+        "Run a known conflict-search example",
+        "Show an unknown party without claiming clearance",
+        "Export preparation material with valid citations"
+      ],
+      "performanceMetric": "Preparation navigation and save latency",
+      "performanceBudget": "Warm navigation and save <=200 ms at p95 on the acceptance fixture.",
+      "kind": "delivery",
+      "phase": "V1",
+      "linear": {
+        "id": "08e42c1e-ffc4-4848-b26e-73905525f883",
+        "identifier": "GRS-18",
+        "url": "https://linear.app/vaper/issue/GRS-18/work-through-litigation-preparation-tools"
+      },
+      "testPath": "tests/litigation"
+    },
+    {
+      "key": "CC-09",
+      "milestone": "M2",
+      "title": "Prepare discovery schedules and case bundles",
+      "depends": [
+        "CC-24",
+        "CC-07"
+      ],
+      "outcome": "A reviewer can reconcile discovery coverage, select bundle items and use CaseLines references with honest completeness states.",
+      "scope": [
+        "src/routes/bundles/**",
+        "src/lib/bundles/**",
+        "tests/bundles/**"
+      ],
+      "acceptance": [
+        "Cover Discovery Schedule, Court Bundle and CaseLines to the actual v5 capability boundary.",
+        "Reconcile source rows, order, page references and selected items. Preserve draft/incomplete status in exported content.",
+        "Exercise every export present in the reference and inspect the output. Do not assume the old bundle builder physically merges PDFs until the baseline proves it.",
+        "Verify missing-text and missing-source behavior, selection persistence and safe handling of large originals."
+      ],
+      "liveScenarios": [
+        "Compare a discovery schedule with its source",
+        "Inspect an incomplete schedule item",
+        "Select and reorder bundle references",
+        "Reload a saved selection",
+        "Inspect the produced bundle output",
+        "Follow a CaseLines page reference",
+        "Search available page text",
+        "Show missing page text explicitly",
+        "Open the large pleadings original",
+        "Keep incomplete exports visibly incomplete"
+      ],
+      "performanceMetric": "Bundle selection, export and large-document open latency",
+      "performanceBudget": "Selection <=200 ms at p95. Record export and large-document budgets from CC-01 before optimizing or claiming a speedup.",
+      "kind": "delivery",
+      "phase": "V1",
+      "linear": {
+        "id": "dcdf52c1-beee-4304-aa14-89e9bf5556eb",
+        "identifier": "GRS-19",
+        "url": "https://linear.app/vaper/issue/GRS-19/prepare-discovery-schedules-and-case-bundles"
+      },
+      "testPath": "tests/bundles"
+    },
+    {
+      "key": "CC-10",
+      "milestone": "M2",
+      "title": "Rescan local files and restore user work safely",
+      "depends": [
+        "CC-24",
+        "CC-07"
+      ],
+      "outcome": "An operator discovers changed files, queues manual reprocessing and can restore all local work without corrupting the active case.",
+      "scope": [
+        "src/routes/system/**",
+        "src/lib/local-case/rescan/**",
+        "src/lib/user-work/backup/**",
+        "tests/system/**",
+        "docs/user-guide.md"
+      ],
+      "acceptance": [
+        "Cover Rescan & Update, Backup / Restore and Manual.",
+        "A repeat scan is idempotent. Detect additions, removals and changed contents; do not assign duplicate refs or claim analysis is current after a shallow rescan.",
+        "Backup includes user-entered state and required identities/version metadata. State clearly whether binaries are included. Validate restore and scope it to the correct case.",
+        "Corrupt or incompatible backups leave active data unchanged. Verify restoration into a fresh local profile and document startup, import, search coverage and backup behavior."
+      ],
+      "liveScenarios": [
+        "Compare available system actions with v5",
+        "Scan an unchanged folder twice",
+        "Discover multiple same-prefix additions without duplicate refs",
+        "Detect same-name same-size changed content",
+        "Report removed originals",
+        "Keep processing-pending state after rescan",
+        "Export all user-work categories",
+        "Restore into a fresh profile",
+        "Reject a corrupt or wrong-case backup",
+        "Follow the manual with networking disabled"
+      ],
+      "performanceMetric": "Rescan duration, backup/restore duration and peak memory",
+      "performanceBudget": "Record unchanged-scan baseline first and fail regression above 1.25 times median; set numeric backup/restore memory and time budgets before implementation.",
+      "kind": "delivery",
+      "phase": "V1",
+      "linear": {
+        "id": "77652879-4559-4fcc-8bac-816b7f79f52c",
+        "identifier": "GRS-20",
+        "url": "https://linear.app/vaper/issue/GRS-20/rescan-local-files-and-restore-user-work-safely"
+      },
+      "testPath": "tests/system"
+    },
+    {
+      "key": "CC-11",
+      "milestone": "M2",
+      "title": "Verify complete v5 parity and local release readiness",
+      "depends": [
+        "CC-04",
+        "CC-05",
+        "CC-06",
+        "CC-07",
+        "CC-08",
+        "CC-09",
+        "CC-10"
+      ],
+      "outcome": "An independent reviewer can verify the local release against all 42 v5 views and inspect every intentional difference.",
+      "scope": [
+        "tests/e2e/acceptance/**",
+        "scripts/verify/**",
+        "docs/acceptance/CC-11/**",
+        "docs/development.md",
+        "docs/user-guide.md"
+      ],
+      "acceptance": [
+        "Account for all 42 views and their actions with PASS/FAIL/BLOCKED and artifact pointers at the exact reviewed revision. No placeholder view passes.",
+        "Run the complete import-to-original workflow offline, then edit, restart, backup, restore and activate a replacement without losing user work.",
+        "Check keyboard/focus, Back, labels, contrast and layouts at 320, 390, 768 and 1280 pixels. Provide screenshots and a short walkthrough.",
+        "Record interleaved comparable reference/head metrics and absolute local budgets. Independently review known-data defects and corrections. Request user visual review at the concrete merge-ready result; do not merge or publish under this planning task.",
+        "A second reviewer from a different supported model family reviews the acceptance suite, verification scripts and documentation written by this gate owner, then independently reruns critical paths at the exact integrated revision. The author cannot issue their own final PASS.",
+        "Ownership transfer after CC-03 is accepted. Extend docs/development.md serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths.",
+        "Ownership transfer after CC-10 is accepted. Extend docs/user-guide.md serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths."
+      ],
+      "liveScenarios": [
+        "Run the reference and rewrite pilot side by side",
+        "Account for every view and meaningful action",
+        "Exercise all citations and original mappings",
+        "Verify fixed search and numeric examples",
+        "Edit every mutable state category then restart",
+        "Backup and restore into a clean profile",
+        "Keep the previous case active after a failed import",
+        "Operate fully offline",
+        "Inspect keyboard, contrast and four viewport widths",
+        "Review a 30-60 second walkthrough and the differences register"
+      ],
+      "performanceMetric": "Cold overview, warm navigation, search and state-write p95",
+      "performanceBudget": "Cold overview <=2,000 ms; warm navigation/state write <=200 ms; search <=300 ms. Use at least 20 recorded samples per metric after warmup; no ratio across unlike scenarios.",
+      "kind": "gate",
+      "phase": "V1",
+      "linear": {
+        "id": "9c8b3267-fbf1-4821-a6f1-69ff48337884",
+        "identifier": "GRS-21",
+        "url": "https://linear.app/vaper/issue/GRS-21/verify-complete-v5-parity-and-local-release-readiness"
+      },
+      "testPath": "tests/e2e/acceptance"
+    },
+    {
+      "key": "CC-12",
+      "milestone": "M3",
+      "title": "Import and verify the newer 2,131-document export",
+      "depends": [
+        "CC-11"
+      ],
+      "outcome": "The same workspace loads the September export without replacing or weakening the v5 compatibility contract.",
+      "scope": [
+        "src/lib/case-package/adapters/september/**",
+        "src/routes/compatibility/**",
+        "tests/compatibility/**",
+        "docs/compatibility.md"
+      ],
+      "acceptance": [
+        "Identify the source format explicitly and preserve all 2,131 chronology rows, 24 DATA keys and two auxiliary top-level datasets in the observed export. Confirm counts from the source before coding.",
+        "Handle changed shapes such as storyline records and numeric/string row positions through the format adapter, not scattered UI conditionals.",
+        "Document extra dataset presentation or an explicit unsupported state for every new dataset. Preserve attachment sources and disclose the 4,000-character text cap.",
+        "Re-run all v5 gates after adding compatibility. Ref collisions between versions never silently attach old notes to a different original."
+      ],
+      "liveScenarios": [
+        "Re-run the v5 pilot unchanged",
+        "Import exactly 2,131 newer chronology rows",
+        "Account for every top-level dataset",
+        "Convert the changed storyline shape",
+        "Render risks with category owner and refs",
+        "Open an indexed attachment or its parent route",
+        "Display text truncation coverage",
+        "Handle a reused ref with changed file identity",
+        "Reject an unrecognized third format",
+        "Switch versions while preserving correctly scoped user work"
+      ],
+      "performanceMetric": "Import validation, overview load and search latency",
+      "performanceBudget": "Retain the V1 2,000/200/300 ms budgets for overview/navigation/search. Record import/memory baseline for this distinct fixture; do not compare unlike corpus sizes as a speedup.",
+      "kind": "delivery",
+      "phase": "V1",
+      "linear": {
+        "id": "3c0abf63-59db-4f84-b10b-71e35a5162f3",
+        "identifier": "GRS-22",
+        "url": "https://linear.app/vaper/issue/GRS-22/import-and-verify-the-newer-2131-document-export"
+      },
+      "testPath": "tests/compatibility"
+    },
+    {
+      "key": "CC-13",
+      "milestone": "M3",
+      "title": "Round-trip one manually authored analysis through Markdown",
+      "depends": [
+        "CC-12"
+      ],
+      "outcome": "An operator can generate a structured analysis template, edit it and import the validated result into a private local candidate.",
+      "scope": [
+        "scripts/authoring/**",
+        "templates/analysis/**",
+        "src/lib/analysis-authoring/**",
+        "tests/authoring/**",
+        "docs/manual-processing.md"
+      ],
+      "acceptance": [
+        "Use one risk-analysis example to prove metadata/data-to-Markdown generation and edited-Markdown-to-structured-results parsing. Keep the parser distinct from Knap templating.",
+        "Validate required fields, stable analysis IDs, safe rendering and citations against the chosen case version. Reject unknown refs and malformed frontmatter with line-specific feedback.",
+        "Show the resulting risk record in the existing preview with matching values and links. Preserve generated document indexes and machine-derived facts.",
+        "Document the manual prompts/input/results handoff and remaining unsupported analysis forms. A complete Markdown editing app and fresh OCR/AI analysis are not part of this ticket."
+      ],
+      "liveScenarios": [
+        "Generate a risk template from known metadata",
+        "Edit a risk and see it in preview",
+        "Follow its citation to an original",
+        "Reject a missing required field",
+        "Reject an unknown document ref",
+        "Reject malformed frontmatter with a location",
+        "Render hostile markup as safe content",
+        "Keep generated chronology unchanged",
+        "Repeat conversion deterministically",
+        "Document unsupported authoring forms without data loss"
+      ],
+      "performanceMetric": "Template/parse/validation elapsed time and preview update",
+      "performanceBudget": "A single authored record validates and updates preview within 300 ms at p95; bulk authoring remains outside this ticket.",
+      "kind": "delivery",
+      "phase": "V1",
+      "linear": {
+        "id": "3870b97b-8f6a-4c63-b21d-5ce87971dd7f",
+        "identifier": "GRS-23",
+        "url": "https://linear.app/vaper/issue/GRS-23/round-trip-one-manually-authored-analysis-through-markdown"
+      },
+      "testPath": "tests/authoring"
+    },
+    {
+      "key": "CC-14",
+      "milestone": "M4",
+      "title": "Confirm the existing operator results-import contract",
+      "depends": [],
+      "outcome": "The team has a verified operator upload route and payload contract. Until evidence is available, the issue records an explicit unresolved access dependency.",
+      "scope": [
+        "docs/operator-contract.md",
+        "docs/evidence.md"
+      ],
+      "acceptance": [
+        "Inspect only authorized source or operator UI once available. Record the route, role, accepted packaging, validation behavior and publication semantics.",
+        "Do not brute-force paths, bypass roles, upload results, or change production. Client intake endpoints are not the results-import endpoint.",
+        "Record the current firm-admin redirect and checked sources. If access/source is still absent, leave the investigation unresolved and route local work around it.",
+        "Compare any discovered contract with the proposed package and record a migration decision. Do not make V1 depend on inaccessible production internals."
+      ],
+      "liveScenarios": [],
+      "performanceMetric": "Not applicable to this read-only discovery",
+      "performanceBudget": "No performance claim. Completion needs primary evidence or an explicitly unresolved external dependency.",
+      "kind": "discovery",
+      "phase": "V2",
+      "linear": {
+        "id": "dc4d07d1-1866-4d54-9819-06f541b709c6",
+        "identifier": "GRS-25",
+        "url": "https://linear.app/vaper/issue/GRS-25/confirm-the-existing-operator-results-import-contract"
+      }
+    },
+    {
+      "key": "CC-15",
+      "milestone": "M4",
+      "title": "Resolve client isolation, roles and Cloudflare deployment",
+      "depends": [
+        "CC-25"
+      ],
+      "outcome": "The hosted implementation has an approved client boundary and a tested deployment/storage design before client data is introduced.",
+      "scope": [
+        "docs/adr/**",
+        "docs/hosting.md",
+        "deploy/**",
+        "tests/hosting-probe/**"
+      ],
+      "acceptance": [
+        "Resolve whether the client instance represents a firm or individual, client edit permissions, and who may approve publication. Record genuine product choices separately from technical tests.",
+        "Choose Workers or Containers using measured workload and current official docs. Keep durable originals/results/user work outside ephemeral process storage.",
+        "Define identity, admin/client authorization, backups, retention, restore, notification provider and secrets provisioning. Design per-client isolation and access to draft assets.",
+        "Prove an isolated local or disposable staging configuration with synthetic data. Do not deploy publicly or send real notifications without execution authorization and required credentials."
+      ],
+      "liveScenarios": [],
+      "performanceMetric": "Hosted cold-start, upload and data-read latency",
+      "performanceBudget": "Set numeric staging budgets and expected load in the decision record before CC-16 starts.",
+      "kind": "decision",
+      "phase": "V2",
+      "linear": {
+        "id": "42b36cd3-282a-42ee-b4ce-e6b04374cae7",
+        "identifier": "GRS-26",
+        "url": "https://linear.app/vaper/issue/GRS-26/resolve-client-isolation-roles-and-cloudflare-deployment"
+      }
+    },
+    {
+      "key": "CC-16",
+      "milestone": "M5",
+      "title": "Submit and resume client document uploads",
+      "depends": [
+        "CC-26"
+      ],
+      "outcome": "An authenticated client uploads files into its own case and finalizes a durable input revision.",
+      "scope": [
+        "src/routes/client/intake/**",
+        "src/lib/submissions/**",
+        "src/lib/storage/cloud/**",
+        "tests/intake/**"
+      ],
+      "acceptance": [
+        "Support files and folders with preserved relative paths, progress, resume and bounded retries. Reject unsafe paths and unsupported input with clear feedback.",
+        "Finalize an immutable submission manifest with content identity and size. Handle duplicate finalization idempotently; post-finalization additions require a new revision.",
+        "Enforce case/client authorization at every upload and asset endpoint, not only in the UI.",
+        "Exercise interrupted upload, duplicate request, wrong-client access, storage failure and multi-gigabyte sample scale using controlled data."
+      ],
+      "liveScenarios": [],
+      "performanceMetric": "Upload throughput, finalize latency and retry recovery",
+      "performanceBudget": "Use the numeric staging budgets and load envelope fixed by CC-15.",
+      "kind": "delivery",
+      "phase": "V2",
+      "linear": {
+        "id": "29ff2f3f-0e74-4750-951e-c27851e2b166",
+        "identifier": "GRS-28",
+        "url": "https://linear.app/vaper/issue/GRS-28/submit-and-resume-client-document-uploads"
+      }
+    },
+    {
+      "key": "CC-17",
+      "milestone": "M5",
+      "title": "Notify operators and download a complete submission",
+      "depends": [
+        "CC-16"
+      ],
+      "outcome": "An operator learns a submission is ready and can download exactly the files recorded in that revision.",
+      "scope": [
+        "src/lib/operator-notifications/**",
+        "src/routes/admin/submissions/**",
+        "tests/operator-intake/**",
+        "docs/manual-processing.md"
+      ],
+      "acceptance": [
+        "Emit notification only after durable submission finalization. Retry safely without duplicate operator jobs; expose delivery state.",
+        "Provide authorized operator listing and download with the manifest, paths, counts and integrity information.",
+        "Verify downloaded content against the revision manifest and distinguish a partial download from a complete one.",
+        "Use a test notification sink for verification. No live emails or external messages in development. Document the manual processing handoff.",
+        "Ownership transfer after CC-13 is accepted. Extend docs/manual-processing.md serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths."
+      ],
+      "liveScenarios": [],
+      "performanceMetric": "Notification dispatch delay and download throughput",
+      "performanceBudget": "Use CC-15 budgets and an explicit retry/recovery bound; verify with synthetic recipients.",
+      "kind": "delivery",
+      "phase": "V2",
+      "linear": {
+        "id": "e0957bbc-d8e6-4215-8073-65795f406468",
+        "identifier": "GRS-29",
+        "url": "https://linear.app/vaper/issue/GRS-29/notify-operators-and-download-a-complete-submission"
+      }
+    },
+    {
+      "key": "CC-18",
+      "milestone": "M5",
+      "title": "Import processed results into a private hosted preview",
+      "depends": [
+        "CC-17",
+        "CC-13"
+      ],
+      "outcome": "An admin uploads results for an exact input revision and reviews a validated private candidate through the client viewer.",
+      "scope": [
+        "src/routes/admin/results/**",
+        "src/lib/results-review/**",
+        "tests/results-review/**"
+      ],
+      "acceptance": [
+        "Import the versioned package, record provenance and show record counts, unmatched assets and validation errors. Resolve or explicitly waive reviewed nonblocking source defects.",
+        "Reuse the local package validator and viewer. Keep draft and published objects separate and prevent direct client access to draft data or assets.",
+        "Preserve the current publication and user work on malformed uploads, mismatched input revisions and interrupted imports.",
+        "Record an internal review checklist and reviewer identity; candidate changes invalidate any earlier approval."
+      ],
+      "liveScenarios": [],
+      "performanceMetric": "Candidate import and preview navigation latency",
+      "performanceBudget": "Use hosted budgets from CC-15; include complete large-package validation without blocking UI indefinitely.",
+      "kind": "delivery",
+      "phase": "V2",
+      "linear": {
+        "id": "bbd61cf6-18f0-4a4f-a234-e40700eedf51",
+        "identifier": "GRS-30",
+        "url": "https://linear.app/vaper/issue/GRS-30/import-processed-results-into-a-private-hosted-preview"
+      }
+    },
+    {
+      "key": "CC-19",
+      "milestone": "M5",
+      "title": "Sign off and publish an exact results version",
+      "depends": [
+        "CC-18"
+      ],
+      "outcome": "An authorized admin publishes only the reviewed version, and clients see a complete version switch with an audit record.",
+      "scope": [
+        "src/routes/admin/publication/**",
+        "src/lib/publication/**",
+        "tests/publication/**"
+      ],
+      "acceptance": [
+        "Model candidate, validation, review and publication states explicitly. Bind approval to immutable case/input/results identities.",
+        "Publish atomically and idempotently. Reject stale approvals and concurrent conflicting version changes.",
+        "Audit who approved what and when. Keep the previous publication available for deliberate rollback through the same reviewed path.",
+        "Clients cannot publish or retrieve drafts. A failed publish leaves the prior publication readable; later automation cannot approve on a human behalf."
+      ],
+      "liveScenarios": [],
+      "performanceMetric": "Publication switch and rollback latency",
+      "performanceBudget": "Use CC-15 budgets; clients must never observe a mixed or partially written version.",
+      "kind": "delivery",
+      "phase": "V2",
+      "linear": {
+        "id": "07b2f5cd-c6a9-432a-88e0-0c0ff13e69c5",
+        "identifier": "GRS-31",
+        "url": "https://linear.app/vaper/issue/GRS-31/sign-off-and-publish-an-exact-results-version"
+      }
+    },
+    {
+      "key": "CC-20",
+      "milestone": "M5",
+      "title": "Verify hosted isolation, recovery and release readiness",
+      "depends": [
+        "CC-19"
+      ],
+      "outcome": "A reviewer can prove the complete client/operator workflow in staging and assess a concrete release candidate.",
+      "scope": [
+        "tests/e2e/hosted/**",
+        "scripts/verify/hosted/**",
+        "docs/acceptance/hosted/**",
+        "docs/operations.md"
+      ],
+      "acceptance": [
+        "Run client upload, notification sink, operator download, manual package import, private preview, sign-off and client view with controlled data.",
+        "Test two client instances, admin/client roles, unauthenticated requests, direct draft-asset URLs, stale sessions and wrong-case/version identifiers.",
+        "Exercise upload/import/publish retry, backing-store loss and restore, interrupted processes and rollback. Confirm the published version and user work survive recovery.",
+        "Reconcile authorization, performance, audit, support entry points, documentation and remaining risks at the exact release revision. Produce a deployable candidate; live deployment remains a separate authorized action.",
+        "Assign a second independent reviewer for any verification code written by this gate owner. The author cannot approve their own acceptance suite or final verdict."
+      ],
+      "liveScenarios": [],
+      "performanceMetric": "End-to-end completion, recovery time, cold and warm hosted latency",
+      "performanceBudget": "Pass the CC-15 budgets with measured receipts. No release on blocked isolation, publication or restore evidence.",
+      "kind": "gate",
+      "phase": "V2",
+      "linear": {
+        "id": "51458563-33f0-4e38-bbfb-8eef5834a872",
+        "identifier": "GRS-32",
+        "url": "https://linear.app/vaper/issue/GRS-32/verify-hosted-isolation-recovery-and-release-readiness"
+      }
+    },
+    {
+      "key": "CC-21",
+      "milestone": "M6",
+      "title": "Design Pi Durable processing against the proven manual contract",
+      "depends": [
+        "CC-20"
+      ],
+      "outcome": "A later automation project has a recoverable job contract that preserves human publication approval.",
+      "scope": [
+        "docs/automation/**"
+      ],
+      "acceptance": [
+        "Map the actual manual inputs, prompts, outputs, failure modes and package validators after the hosted manual path is proven.",
+        "Define durable job identity, retries, cancellation, progress, provenance, cost limits and recovery checkpoints.",
+        "Retain private candidate output and human sign-off. Do not allow processing completion to publish automatically.",
+        "Research current Pi Durable interfaces from primary sources and produce implementation tickets only after the design is approved."
+      ],
+      "liveScenarios": [],
+      "performanceMetric": "Future processing runtime, recovery and cost envelope",
+      "performanceBudget": "Define during this future design; no execution in the V1 kickoff.",
+      "kind": "future",
+      "phase": "Later",
+      "linear": {
+        "id": "9527fa41-34da-4d69-bcea-234682a2c0dd",
+        "identifier": "GRS-33",
+        "url": "https://linear.app/vaper/issue/GRS-33/design-pi-durable-processing-against-the-proven-manual-contract"
+      }
+    },
+    {
+      "key": "CC-22",
+      "milestone": "M6",
+      "title": "Automate processing with recovery and candidate-only output",
+      "depends": [
+        "CC-21"
+      ],
+      "outcome": "A later worker runs approved processing jobs and returns validated candidates for human review.",
+      "scope": [
+        "Future paths must be fixed by CC-21 before dispatch"
+      ],
+      "acceptance": [
+        "Implement the approved durable job contract and supported processing stages.",
+        "Prove interrupted-job recovery, idempotent retries and artifact provenance.",
+        "Compare automated output with the approved manual acceptance cases; flag unresolved model variability.",
+        "Deliver a private candidate only. Preserve the human sign-off gate. This ticket stays out of the current execution frontier."
+      ],
+      "liveScenarios": [],
+      "performanceMetric": "Metrics and budgets are defined by CC-21",
+      "performanceBudget": "Deferred until the approved automation design exists.",
+      "kind": "future",
+      "phase": "Later",
+      "linear": {
+        "id": "426c9091-31b6-474f-991d-52d575eb3120",
+        "identifier": "GRS-34",
+        "url": "https://linear.app/vaper/issue/GRS-34/automate-processing-with-recovery-and-candidate-only-output"
+      }
+    },
+    {
+      "key": "CC-23",
+      "milestone": "M0",
+      "title": "Gate the reference baseline and package contract",
+      "depends": [
+        "CC-01",
+        "CC-02"
+      ],
+      "outcome": "An independent reviewer gives PASS, HOLD or FAIL on the exact integrated revision with reproducible evidence.",
+      "scope": [
+        "docs/acceptance/CC-23/**",
+        "tests/acceptance/CC-23/**"
+      ],
+      "acceptance": [
+        "A reviewer who did not author the conversion verifies the archive/main-HTML fingerprint, 1,689 records, 42 views and action inventory.",
+        "Re-run conversion and malformed-package cases from a fresh local environment. Inspect the actual outputs and source mappings.",
+        "Confirm data/user-work separation and literal acceptance examples; record unresolved baseline defects without silently correcting them.",
+        "Mark PASS only at the reviewed revision. HOLD blocks the pilot until concrete missing evidence or repairs are resolved."
+      ],
+      "liveScenarios": [],
+      "performanceMetric": "Review existing measurements at the exact integrated revision",
+      "performanceBudget": "No missing, stale or incomparable receipt counts as a pass.",
+      "kind": "gate",
+      "phase": "V1",
+      "linear": {
+        "id": "0cb23722-f91a-41f9-b7bf-f2e9322aba86",
+        "identifier": "GRS-11",
+        "url": "https://linear.app/vaper/issue/GRS-11/gate-the-reference-baseline-and-package-contract"
+      }
+    },
+    {
+      "key": "CC-24",
+      "milestone": "M1",
+      "title": "Gate the complete local pilot before feature fan-out",
+      "depends": [
+        "CC-03"
+      ],
+      "outcome": "An independent reviewer gives PASS, HOLD or FAIL on the exact integrated revision with reproducible evidence.",
+      "scope": [
+        "docs/acceptance/CC-24/**",
+        "tests/acceptance/CC-24/**"
+      ],
+      "acceptance": [
+        "An independent reviewer drives import, preview, activation, overview, chronology, citation and original opening on the integrated local app.",
+        "Verify loopback-only operation, external-network independence, failed-import recovery, browser Back and keyboard focus.",
+        "Check measured cold/warm performance receipts and the frozen package interfaces required by feature workers.",
+        "Record PASS/HOLD/FAIL at the reviewed revision. Reserve shared persistence and layout paths before opening the parallel feature queue.",
+        "Verify all 42 navigation/route extension points and shared-file ownership are ready for feature workers. Confirm view data-source dependencies from CC-01 have been reconciled in Linear and the local graph before M2 dispatch."
+      ],
+      "liveScenarios": [],
+      "performanceMetric": "Review existing measurements at the exact integrated revision",
+      "performanceBudget": "No missing, stale or incomparable receipt counts as a pass.",
+      "kind": "gate",
+      "phase": "V1",
+      "linear": {
+        "id": "0fe685e7-3e37-443e-ac71-0d55b9cabcd5",
+        "identifier": "GRS-13",
+        "url": "https://linear.app/vaper/issue/GRS-13/gate-the-complete-local-pilot-before-feature-fan-out"
+      }
+    },
+    {
+      "key": "CC-25",
+      "milestone": "M3",
+      "title": "Gate newer-export compatibility and the manual authoring contract",
+      "depends": [
+        "CC-12",
+        "CC-13"
+      ],
+      "outcome": "An independent reviewer gives PASS, HOLD or FAIL on the exact integrated revision with reproducible evidence.",
+      "scope": [
+        "docs/acceptance/CC-25/**",
+        "tests/acceptance/CC-25/**"
+      ],
+      "acceptance": [
+        "Independently verify all 2,131 newer rows and dataset accounting, then rerun the 1,689-row v5 acceptance suite.",
+        "Verify the Markdown risk-analysis round trip, unknown-ref rejection and no changes to generated document data.",
+        "Test reused refs across versions against the original-file identity so notes cannot silently move to another document.",
+        "Approve a versioned manual results contract for V2 only after these checks pass at the integrated revision."
+      ],
+      "liveScenarios": [],
+      "performanceMetric": "Review existing measurements at the exact integrated revision",
+      "performanceBudget": "No missing, stale or incomparable receipt counts as a pass.",
+      "kind": "gate",
+      "phase": "V1",
+      "linear": {
+        "id": "12ae502f-2d9b-4910-90f4-a5b8c7d20e71",
+        "identifier": "GRS-24",
+        "url": "https://linear.app/vaper/issue/GRS-24/gate-newer-export-compatibility-and-the-manual-authoring-contract"
+      }
+    },
+    {
+      "key": "CC-26",
+      "milestone": "M4",
+      "title": "Gate the hosted design before client intake implementation",
+      "depends": [
+        "CC-15"
+      ],
+      "outcome": "An independent reviewer gives PASS, HOLD or FAIL on the exact integrated revision with reproducible evidence.",
+      "scope": [
+        "docs/acceptance/CC-26/**",
+        "tests/acceptance/CC-26/**"
+      ],
+      "acceptance": [
+        "Confirm explicit decisions for client boundary, edit permissions, publisher authority, durable storage and recovery.",
+        "Inspect the hosting probe, authentication approach, draft-asset authorization and numeric performance/load budgets.",
+        "Read CC-14. If the legacy endpoint remains inaccessible, record the decision to build against the new package contract and defer legacy migration; do not claim the old contract was verified.",
+        "Freeze the hosted acceptance scenarios and file reservations. Keep credentials/deployment actions outside this gate unless separately authorized."
+      ],
+      "liveScenarios": [],
+      "performanceMetric": "Review existing measurements at the exact integrated revision",
+      "performanceBudget": "No missing, stale or incomparable receipt counts as a pass.",
+      "kind": "gate",
+      "phase": "V2",
+      "linear": {
+        "id": "c99e1ba3-dc84-4bbc-aee5-f8c3c34692f2",
+        "identifier": "GRS-27",
+        "url": "https://linear.app/vaper/issue/GRS-27/gate-the-hosted-design-before-client-intake-implementation"
+      }
+    }
+  ]
+}

@@ -852,6 +852,40 @@ run "remove deletes only local state" 0 "$FRESH/scripts/agent-tools/bootstrap" -
 no_receipt "bootstrap --remove writes no receipt"
 if [[ ! -e $FRESH/.local/agent-tools ]]; then ok "local bootstrap state removed"; else bad "local bootstrap state removed"; fi
 
+echo "# rerun.sh stops or fails when a step's evidence is not recorded whole"
+# The real rerun.sh runs in a copy of this checkout whose suite is a stub, so each run takes seconds and cannot rerun
+# these cases. Faults are planted from the background once the run has written the line they wait for.
+RR="$WORK/rerun-copy"
+mkdir -p "$RR" && tar -C "$REPO" --exclude=./.git --exclude=./.local -cf - . | tar -C "$RR" -xf -
+printf '#!/bin/bash\necho "stub suite of a rerun.sh test: 0 failed"\n' >"$RR/tests/agent-tools/run.sh"
+git_fixture "$RR"
+RERUN=(env CC27_BUN="${CLEARCASE_BUN:-$(command -v bun)}" bash "$RR/docs/acceptance/CC-27/rerun.sh")
+# after FILE PATTERN COMMAND : in the background, once a line of FILE matches PATTERN, run COMMAND; give up after 120 s
+after() {
+	(for ((t = 0; t < 2400; t++)); do grep -q -- "$2" "$1" 2>/dev/null && { eval "$3"; exit; }; sleep 0.05; done) &
+}
+out="$WORK/rerun-unwritable-summary"
+mkdir -p "$out" && echo "synthetic unwritable summary" >"$out/summary.tsv" && chmod 444 "$out/summary.tsv"
+run "rerun.sh stops when it cannot write summary.tsv" 2 env CC27_OUT="$out" "${RERUN[@]}"
+has "names the summary it cannot write" "rerun.sh: cannot write $out/summary.tsv"
+if compgen -G "$out/transcripts/*" >/dev/null; then bad "no step runs without a summary"; else ok "no step runs without a summary"; fi
+out="$WORK/rerun-deleted-receipt"
+after "$out/summary.tsv" $'^v1-doctor\t' 'rm "$out"/receipts/v1-doctor/*/receipt.json'
+after "$out/summary.tsv" $'^v1-bootstrap-remove\t' 'rm "$out"/receipts/v1-bootstrap-remove/*/stdout.txt'
+run "rerun.sh fails when a receipt and an artifact are deleted during the run" 1 env CC27_OUT="$out" "${RERUN[@]}"
+wait
+has "every step of the copy matched its expected exit code" "summary: $out/summary.tsv (0 mismatches)"
+has "the audit finds exactly the two deleted files" "; 2 problems"
+OUT="$out/identity-audit.txt" has "the audit names the step whose receipt is gone" "v1-doctor: receipts [], but the inventory requires ['doctor']"
+OUT="$out/identity-audit.txt" has "the audit names the missing artifact" "-bootstrap-remove: its stdout artifact "
+out="$WORK/rerun-blocked-transcript"
+after "$out/summary.tsv" $'^step\t' 'echo planted >"$out/transcripts/v1-doctor.txt" && chmod 444 "$out/transcripts/v1-doctor.txt"'
+run "rerun.sh stops when it cannot write a step's transcript" 2 env CC27_OUT="$out" "${RERUN[@]}"
+wait
+has "names the transcript it cannot write" "rerun.sh: cannot write $out/transcripts/v1-doctor.txt"
+if grep -q $'^v1-doctor\t' "$out/summary.tsv"; then bad "the blocked step has no result" "$(cat "$out/summary.tsv")"; else ok "the blocked step has no result"; fi
+if [[ $(git -C "$RR" worktree list | wc -l) == 1 ]]; then ok "the stopped run removes its throwaway worktree"; else bad "the stopped run removes its throwaway worktree" "$(git -C "$RR" worktree list)"; fi
+
 echo "# summary"
 echo "$passed passed, $failed failed"
 ((failed == 0))

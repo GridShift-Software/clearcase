@@ -12,6 +12,7 @@ import os
 import platform
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import threading
@@ -24,6 +25,8 @@ HOME = os.environ.get("HOME", "")
 SKIPPED = 3
 MIN_NODE = (18, 0)
 MIN_PYTHON = (3, 10)
+MIN_BASH = (4, 4)
+FULL_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 APP_DEFERRED = (
     "No application exists yet. App, build and browser verification (a project verify-<app> skill "
     "generated with pstack create-verification-skill) is deferred to GRS-12 (CC-03), which establishes "
@@ -41,13 +44,29 @@ def now():
     return datetime.datetime.now(datetime.timezone.utc)
 
 
+def ended(argv, code, stderr):
+    """How an evidence command that did not succeed ended, for a reason: the command, its exit code and its stderr."""
+    detail = " ".join(stderr.decode(errors="backslashreplace").split())
+    detail = f"{detail[:300]}..." if len(detail) > 300 else detail or "no error output"
+    how = f"exited {code}" if code >= 0 else f"was killed by signal {-code}"
+    return f"`{' '.join(redact(part) for part in argv)}` {how}: {detail}"
+
+
+def failed(error, path):
+    """'PATH: why' for an OSError raised while reading path."""
+    return f"{redact(path)}: {error.strerror or error}"
+
+
 def first_line(argv):
+    """The first line a version probe prints, as (line, problem). problem is None only when it exits 0 and prints."""
     try:
-        out = subprocess.run(argv, capture_output=True, text=True, timeout=30)
+        out = subprocess.run(argv, capture_output=True, timeout=30)
     except (OSError, subprocess.TimeoutExpired) as error:
-        return None, str(error)
-    text = (out.stdout or out.stderr).strip().splitlines()
-    return out.returncode, text[0] if text else ""
+        return None, f"`{' '.join(redact(part) for part in argv)}` did not run: {redact(error)}"
+    text = (out.stdout or out.stderr).decode(errors="backslashreplace").strip().splitlines()
+    if out.returncode or not text:
+        return None, ended(argv, out.returncode, out.stderr) if out.returncode else f"`{redact(argv[0])}` printed no version"
+    return text[0], None
 
 
 def which(name):
@@ -66,28 +85,50 @@ def parse_version(text):
 
 
 def tool_info(name):
+    """A receipt's tools row as (row, problem). problem names a version probe that failed; a missing tool has none."""
     path = which(name)
     if not path:
-        return {"name": name, "path": None, "version": None}
-    _, version = first_line([path, "-V" if name == "tmux" else "--version"])
-    return {"name": name, "path": redact(path), "version": version}
+        return {"name": name, "path": None, "version": None}, None
+    version, problem = first_line([path, "-V" if name == "tmux" else "--version"])
+    return {"name": name, "path": redact(path), "version": version}, problem
 
 
 def sha256_file(path):
-    digest = hashlib.sha256()
-    with open(path, "rb") as handle:
+    """sha256 of a regular file. Raises OSError when it cannot be read, is not a regular file or changes while it is
+    read, so a fingerprint is always of bytes that were read whole."""
+    with open(os.open(path, os.O_RDONLY | os.O_NONBLOCK), "rb") as handle:
+        before = os.fstat(handle.fileno())
+        if not stat.S_ISREG(before.st_mode):
+            raise OSError("not a regular file")
+        digest, size = hashlib.sha256(), 0
         for block in iter(lambda: handle.read(1 << 20), b""):
             digest.update(block)
+            size += len(block)
+        after = os.fstat(handle.fileno())
+    if not size == before.st_size == after.st_size or before.st_mtime_ns != after.st_mtime_ns:
+        raise OSError(f"changed while it was read ({before.st_size} bytes by stat, {size} read)")
     return digest.hexdigest()
 
 
-def manifest(directory):
-    """Relative path -> file sha256 (or symlink target) in hashing order, without IGNORED_PARTS."""
+def manifest(directory, ignored=IGNORED_PARTS):
+    """Relative path -> file sha256 (or symlink target) in hashing order, without ignored parts. Raises OSError naming
+    the entry when a directory or file cannot be read, or is not a file, directory or symlink, so no content is left
+    out silently."""
+    def unreadable(error):
+        raise OSError(failed(error, error.filename))
+    found = []
+    for top, dirs, files in os.walk(directory, onerror=unreadable):
+        dirs[:] = [name for name in dirs if name not in ignored]
+        found += [Path(top, name) for name in files] + [Path(top, name) for name in dirs if Path(top, name).is_symlink()]
     rows = {}
-    for path in sorted(p for p in Path(directory).rglob("*") if p.is_file() or p.is_symlink()):
+    for path in sorted(found):
         rel = path.relative_to(directory)
-        if not IGNORED_PARTS.intersection(rel.parts):
-            rows[rel.as_posix()] = os.readlink(path).encode() if path.is_symlink() else bytes.fromhex(sha256_file(path))
+        if ignored.intersection(rel.parts):
+            continue
+        try:
+            rows[rel.as_posix()] = os.fsencode(os.readlink(path)) if path.is_symlink() else bytes.fromhex(sha256_file(path))
+        except OSError as error:
+            raise OSError(failed(error, path)) from None
     return rows
 
 
@@ -104,20 +145,29 @@ def tree_hash(directory):
 
 
 def upstream_tree(checkout, revision):
-    """plugin.json and skill name -> manifest() rows at a pstack revision, read from Git objects, not the working tree."""
+    """plugin.json and skill name -> manifest() rows at a pstack revision, read from Git objects, not the working tree,
+    as (plugin, skills, problem). plugin is None when they cannot be read, and problem then holds Git's message."""
     def run(*args, data=None):
-        return subprocess.run(["git", "--no-replace-objects", "-C", str(checkout), *args], input=data, capture_output=True)
-    listing = (run("ls-tree", "-r", "-z", f"{revision}^{{commit}}", "--", "skills", ".cursor-plugin/plugin.json")
-               if shutil.which("git") else None)
-    if not listing or listing.returncode:
-        return None, {}
+        argv = ["git", "--no-replace-objects", "-C", str(checkout), *args]
+        return argv, subprocess.run(argv, input=data, capture_output=True)
+    if not shutil.which("git"):
+        return None, {}, "git not found on PATH"
+    argv, listing = run("ls-tree", "-r", "-z", f"{revision}^{{commit}}", "--", "skills", ".cursor-plugin/plugin.json")
+    if listing.returncode:
+        return None, {}, ended(argv, listing.returncode, listing.stderr)
     blobs = [(meta.split()[0], meta.split()[2], path.decode()) for meta, path in
              (record.split(b"\t", 1) for record in listing.stdout.split(b"\0") if record) if meta.split()[1] == b"blob"]
-    out = run("cat-file", "--batch", data=b"".join(oid + b"\n" for _, oid, _ in blobs)).stdout
+    argv, batch = run("cat-file", "--batch", data=b"".join(oid + b"\n" for _, oid, _ in blobs))
+    out = batch.stdout
     plugin, skills, pos = None, {}, 0
-    for mode, _, path in blobs:
-        end = out.index(b"\n", pos)
-        size = int(out[pos:end].split()[2])
+    for mode, oid, path in blobs:
+        end = out.find(b"\n", pos)
+        header = out[pos:end].split() if end >= 0 else []
+        if batch.returncode or len(header) != 3 or header[:2] != [oid, b"blob"]:
+            seen = b" ".join(header).decode(errors="replace") or "no object"
+            return None, {}, f"cannot read {path} ({oid.decode()}) from its Git objects: {seen}" + (
+                f"; {ended(argv, batch.returncode, batch.stderr)}" if batch.returncode else "")
+        size = int(header[2])
         content, pos = out[end + 1:end + 1 + size], end + 2 + size
         parts = Path(path).parts
         if path == ".cursor-plugin/plugin.json":
@@ -126,7 +176,7 @@ def upstream_tree(checkout, revision):
             value = content if mode == b"120000" else hashlib.sha256(content).digest()
             skills.setdefault(parts[1], []).append((Path(*parts[2:]), value))
     rows = {name: {rel.as_posix(): value for rel, value in sorted(entries)} for name, entries in skills.items()}
-    return plugin, {name: files for name, files in rows.items() if "SKILL.md" in files}
+    return plugin, {name: files for name, files in rows.items() if "SKILL.md" in files}, None
 
 
 def upstream_diff(theirs, installed):
@@ -161,55 +211,110 @@ def environment():
     }
 
 
-def git(root, *args, raw=False):
-    """Run git in root. Inherited GIT_* variables such as GIT_DIR are dropped, so they cannot redirect it."""
-    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
-    out = subprocess.run(["git", "-C", str(root), *args], capture_output=True, env=env) if shutil.which("git") else None
-    if not out or out.returncode:
-        return None
-    return out.stdout if raw else out.stdout.decode(errors="replace").strip()
+def git(root, *args):
+    """Run the git on PATH in root as (exit code, stdout bytes, problem). problem is None only for exit 0, and
+    otherwise names the command, its exit code and its stderr, in English. Inherited GIT_* variables such as GIT_DIR
+    are dropped, so they cannot redirect it."""
+    env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")} | {"LC_ALL": "C"}
+    try:
+        out = subprocess.run([shutil.which("git") or "git", "-C", str(root), *args], capture_output=True, env=env)
+    except OSError as error:
+        return None, b"", f"`git {' '.join(args)}` did not run: {error}"
+    return out.returncode, out.stdout, ended(["git", *args], out.returncode, out.stderr) if out.returncode else None
+
+
+def commit_of(root, ref):
+    """The full commit ID that ref names in root, as (commit, problem). Both are None only when ref names nothing,
+    the one case in which a caller may try another ref."""
+    code, out, problem = git(root, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}")
+    commit = out.decode(errors="replace").strip()
+    if code == 0:
+        return (commit, None) if FULL_ID.fullmatch(commit) else (None, f"git printed {commit!r} for {ref}, not a commit ID")
+    if code != 1:
+        return None, problem
+    code, out, problem = git(root, "rev-parse", "--verify", "-q", ref)
+    if code == 1:
+        return None, None
+    return None, problem or f"{ref} names {out.decode(errors='replace').strip()}, which is not a commit Git can read"
+
+
+def worktree_state(root):
+    """(dirty, diffSha256, problem) for root. The digest covers the tracked diff against HEAD, without external diff
+    drivers or textconv filters that could hide a change, and each untracked file that is not ignored: its bytes, a
+    symlink's target or a nested repository's files. Any of the three outputs makes root dirty, so configuration
+    such as status.showUntrackedFiles cannot hide a change. A Git query that fails or a file that cannot be read is
+    the problem, so a state that was not read is never reported as clean."""
+    queries = [("status", "--porcelain"),
+               ("diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-color", "HEAD"),
+               ("ls-files", "-z", "--others", "--exclude-standard")]
+    outputs = []
+    for args in queries:
+        _, out, problem = git(root, *args)
+        if problem:
+            return None, None, problem
+        outputs.append(out)
+    status, diff, listing = outputs
+    untracked = [name for name in listing.split(b"\0") if name]
+    digest = hashlib.sha256(diff)
+    for name in untracked:
+        path = Path(root) / os.fsdecode(name)
+        try:
+            content = (os.fsencode(os.readlink(path)) if path.is_symlink()
+                       else bytes.fromhex(rows_hash(manifest(path, frozenset()))) if path.is_dir()
+                       else bytes.fromhex(sha256_file(path)))
+        except OSError as error:
+            return None, None, f"untracked {failed(error, path)} (listed by `git ls-files --others`, then not read)"
+        digest.update(name + b"\0" + content)
+    dirty = bool(status.strip() or diff or untracked)
+    return dirty, digest.hexdigest() if dirty else None, None
 
 
 def revision(root, base_ref=None):
     """Git identity of root as (fields, problem). Only a None problem lets a receipt PASS, so every PASS receipt
-    names head, base and mergeBase. An explicit base (--base or CLEARCASE_BASE_REF), even an empty one, never falls
-    back to a default."""
+    names head, base and mergeBase and a working-copy state that Git reported. An explicit base (--base or
+    CLEARCASE_BASE_REF), even an empty one, never falls back to a default, and neither does a default that names
+    something unreadable."""
     explicit = base_ref if base_ref is not None else os.environ.get("CLEARCASE_BASE_REF")
     fields = {"repository": False, "root": redact(root), "branch": None, "head": None, "baseRef": explicit,
               "base": None, "mergeBase": None, "dirty": None, "diffSha256": None}
     if not shutil.which("git"):
         return fields, "required tool not found: git; install git and put it on PATH"
-    top = git(root, "rev-parse", "--show-toplevel")
+    _, out, problem = git(root, "rev-parse", "--show-toplevel")
+    top = os.fsdecode(out.rstrip(b"\n")) if not problem else None
     if not top or Path(top).resolve() != Path(root).resolve():
-        where = f"{redact(root)} is inside {redact(top)} but is not its top" if top else f"{redact(root)} is not a Git checkout"
+        where = (f"{redact(root)} is inside {redact(top)} but is not its top" if top
+                 else f"Git cannot read {redact(root)} as a checkout ({problem or 'it printed no top level'})")
         return fields, f"no head revision: {where}; run from a ClearCase checkout or worktree, or pass --root DIR at the top of one"
-    head = git(root, "rev-parse", "--verify", "-q", "HEAD^{commit}")
+    head, problem = commit_of(root, "HEAD")
     if not head:
-        return fields, f"no head revision: {redact(root)} has no commit yet"
-    status = git(root, "status", "--porcelain") or ""
-    digest = hashlib.sha256((git(root, "diff", "HEAD", "--binary") or "").encode())
-    for name in filter(None, (git(root, "ls-files", "-z", "--others", "--exclude-standard", raw=True) or b"").split(b"\0")):
-        path = Path(root) / os.fsdecode(name)
-        try:
-            content = (os.fsencode(os.readlink(path)) if path.is_symlink()
-                       else bytes.fromhex(sha256_file(path)) if path.is_file() else b"not a regular file")
-        except OSError as error:
-            content = f"unreadable: {error.strerror}".encode()
-        digest.update(name + b"\0" + content)
-    fields.update(repository=True, branch=git(root, "rev-parse", "--abbrev-ref", "HEAD"), head=head,
-                  dirty=bool(status), diffSha256=digest.hexdigest() if status else None)
+        return fields, f"no head revision: {problem}; check the repository with git fsck" if problem else (
+            f"no head revision: {redact(root)} has no commit yet")
+    _, out, problem = git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    fields.update(repository=True, head=head, branch=None if problem else out.decode(errors="backslashreplace").strip())
+    if problem:
+        return fields, f"branch unknown: {problem}"
+    dirty, digest, problem = worktree_state(root)
+    if problem:
+        return fields, f"working tree state unknown: {problem}"
+    fields.update(dirty=dirty, diffSha256=digest)
     fix = "pass --base REF, the accepted revision this branch was cut from"
     for ref in [explicit] if explicit is not None else ["origin/dev", "dev"]:
-        base = git(root, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}") if ref else None
-        if base:
+        base, problem = commit_of(root, ref) if ref else (None, None)
+        if base or problem:
             break
+    if problem:
+        return fields, f"base {ref!r} does not resolve to a commit in {redact(root)}: {problem}; {fix}"
     if not base:
         return fields, (f"base {explicit!r} does not resolve to a commit in {redact(root)}; {fix}" if explicit is not None
                         else f"no base revision: neither origin/dev nor dev exists in {redact(root)}; {fix}")
-    merge_base = git(root, "merge-base", head, base)
-    fields.update(baseRef=ref, base=base, mergeBase=merge_base)
-    if not merge_base:
+    fields.update(baseRef=ref, base=base)
+    code, out, problem = git(root, "merge-base", head, base)
+    merge_base = out.decode(errors="replace").strip()
+    if code == 1 and not merge_base:
         return fields, f"base {ref} ({base[:12]}) shares no history with HEAD {head[:12]}; {fix}"
+    if problem or not FULL_ID.fullmatch(merge_base):
+        return fields, f"no merge base: {problem or f'git printed {merge_base!r}, not a commit ID'}"
+    fields.update(mergeBase=merge_base)
     return fields, None
 
 
@@ -218,11 +323,24 @@ def receipts_root(explicit=None):
     return Path(chosen).expanduser().resolve()
 
 
-def tee(source, *sinks):
+def tee(source, capture, console, problems):
+    """Copy source to its capture file and the console until EOF, always draining it so the command cannot block.
+    A failed capture write is added to problems and ends the capture. A console that stops accepting output is
+    dropped, because only the capture is evidence."""
     for chunk in iter(lambda: source.read1(65536), b""):
-        for sink in sinks:
-            sink.write(chunk)
-            sink.flush()
+        if capture:
+            try:
+                capture.write(chunk)
+                capture.flush()
+            except OSError as error:
+                problems.append(failed(error, capture.name))
+                capture = None
+        if console:
+            try:
+                console.write(chunk)
+                console.flush()
+            except OSError:
+                console = None
     source.close()
 
 
@@ -232,6 +350,44 @@ def receipt_folder(receipts, name, started):
     return folder
 
 
+def fingerprints(paths):
+    """Receipt input rows, each path with the sha256 of its bytes, as (rows, problem). problem names each input that
+    is missing or cannot be read whole, whose sha256 is then null."""
+    rows, missing, unreadable = [], [], []
+    for path in paths:
+        digest = None
+        if not Path(path).is_file():
+            missing.append(redact(path))
+        else:
+            try:
+                digest = sha256_file(path)
+            except OSError as error:
+                unreadable.append(failed(error, path))
+        rows.append({"path": redact(Path(path).resolve()), "sha256": digest})
+    return rows, ((missing and f"required input not found: {', '.join(missing)}")
+                  or (unreadable and f"input not fingerprinted: {'; '.join(unreadable)}") or None)
+
+
+def run_captured(argv, cwd, folder):
+    """Run argv, streaming its output live and capturing it in folder, as (exit code, problem). The code is None when
+    argv did not start; otherwise problem names output that was not captured whole."""
+    code, problems = None, []
+    try:
+        with open(folder / "stdout.txt", "wb") as out_file, open(folder / "stderr.txt", "wb") as err_file:
+            child = subprocess.Popen(argv, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            threads = [threading.Thread(target=tee, args=(child.stdout, out_file, sys.stdout.buffer, problems)),
+                       threading.Thread(target=tee, args=(child.stderr, err_file, sys.stderr.buffer, problems))]
+            for thread in threads:
+                thread.start()
+            code = child.wait()
+            for thread in threads:
+                thread.join()
+    except OSError as error:
+        if not problems:  # a capture write that failed fails again when its file is closed
+            problems.append(failed(error, error.filename or folder))
+    return code, "; ".join(problems) or None
+
+
 def write_receipt(folder, started, name, result, code, reason, argv, cwd, tool_rows, inputs, identity):
     finished = now()
     receipt = {
@@ -239,14 +395,11 @@ def write_receipt(folder, started, name, result, code, reason, argv, cwd, tool_r
         "name": name,
         "result": result,
         "exitCode": code,
-        "reason": reason,
+        "reason": redact(reason) if reason else None,
         "command": [redact(part) for part in argv],
         "cwd": redact(cwd),
         "tools": tool_rows,
-        "inputs": [
-            {"path": redact(Path(p).resolve()), "sha256": sha256_file(p) if Path(p).is_file() else None}
-            for p in inputs
-        ],
+        "inputs": inputs,
         "revision": identity,
         "environment": environment(),
         "startedAt": started.isoformat(),
@@ -265,50 +418,62 @@ def write_receipt(folder, started, name, result, code, reason, argv, cwd, tool_r
 
 def run_with_receipt(name, argv, *, cwd=None, tools=(), inputs=(), receipts=None, base=None, root=None,
                      skip_reason=None):
-    """Resolve the revision first, then run argv unless git, a tool, an input or the revision is missing.
-    Stream and capture its output and write a receipt. Returns the exit code."""
+    """Collect the evidence first: the revision, each tool's path and version and each input's sha256. Run argv only
+    if all of it was collected, stream and capture its output and write a receipt. Evidence that cannot be collected,
+    before or after the run, is never PASS. Returns the exit code."""
     root = Path(root or REPO)
     started = now()
-    folder = receipt_folder(receipts, name, started)
-    stdout_path, stderr_path = folder / "stdout.txt", folder / "stderr.txt"
-    tool_rows = [tool_info(tool) for tool in dict.fromkeys(["git", *tools])]
+    try:
+        folder = receipt_folder(receipts, name, started)
+    except OSError as error:
+        sys.stderr.write(f"SKIPPED {name}: cannot create its receipt directory: "
+                         f"{failed(error, error.filename or receipts_root(receipts))}; pass --receipts DIR or set "
+                         "CLEARCASE_RECEIPTS_DIR to a writable directory. The command did not run.\n")
+        return SKIPPED
+    probed = [tool_info(tool) for tool in dict.fromkeys(["git", *tools])]
+    tool_rows = [row for row, _ in probed]
+    unprobed = [problem for _, problem in probed if problem]
     missing = [row["name"] for row in tool_rows if row["path"] is None]
     if argv and not missing and not skip_reason and not (shutil.which(argv[0]) or Path(argv[0]).is_file()):
         missing.append(argv[0])
-    missing_inputs = [str(path) for path in inputs if not Path(path).is_file()]
     identity, unidentified = revision(root, base)
     here = Path(cwd or root).resolve()
     if not unidentified and here != root.resolve():
-        top = git(here, "rev-parse", "--show-toplevel")
-        if not top or Path(top).resolve() != root.resolve():
+        _, out, problem = git(here, "rev-parse", "--show-toplevel")
+        if problem or Path(os.fsdecode(out.rstrip(b"\n"))).resolve() != root.resolve():
             unidentified = (f"the command would run in {redact(here)}, outside the checkout {redact(root.resolve())} "
                             "whose revision the receipt records; run it inside that checkout, or pass --root DIR "
                             "naming the checkout it runs in")
+    inputs, unfingerprinted = fingerprints(inputs)
     reason = (skip_reason
               or (missing and f"required tool not found: {', '.join(missing)}; install it or put it on PATH "
                               "(scripts/agent-tools/doctor names the fix)")
+              or (unprobed and f"tool version unknown: {'; '.join(unprobed)}")
               or unidentified
-              or (missing_inputs and f"required input not found: {', '.join(redact(p) for p in missing_inputs)}")
+              or unfingerprinted
               or None)
-    if reason:
-        stdout_path.write_bytes(b"")
-        stderr_path.write_text(f"SKIPPED: {reason}\n")
-        sys.stderr.write(f"SKIPPED {name}: {reason}\n")
-        code, result = SKIPPED, "SKIPPED"
-    else:
-        with open(stdout_path, "wb") as out_file, open(stderr_path, "wb") as err_file:
-            child = subprocess.Popen(argv, cwd=cwd or root, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            threads = [
-                threading.Thread(target=tee, args=(child.stdout, out_file, sys.stdout.buffer)),
-                threading.Thread(target=tee, args=(child.stderr, err_file, sys.stderr.buffer)),
-            ]
-            for thread in threads:
-                thread.start()
-            code = child.wait()
-            for thread in threads:
-                thread.join()
-        result = "PASS" if code == 0 else "FAIL"
-    write_receipt(folder, started, name, result, code, reason, argv, cwd or root, tool_rows, inputs, identity)
+    exited, result, code = None, "SKIPPED", SKIPPED
+    if not reason:
+        exited, problem = run_captured(argv, cwd or root, folder)
+        if exited is None:
+            reason = f"the command did not start: {problem}"
+        elif problem:
+            reason = f"output not captured whole: {problem}; the command exited {exited}"
+            result, code = ("FAIL", exited) if exited else ("SKIPPED", SKIPPED)
+        else:
+            result, code = "PASS" if exited == 0 else "FAIL", exited
+    if result == "SKIPPED":
+        sys.stderr.write(f"SKIPPED {name}: {redact(reason)}\n")
+    try:
+        if exited is None:
+            (folder / "stdout.txt").write_bytes(b"")
+            (folder / "stderr.txt").write_text(f"SKIPPED: {redact(reason)}\n")
+        write_receipt(folder, started, name, result, code, reason, argv, cwd or root, tool_rows, inputs, identity)
+    except OSError as error:
+        sys.stderr.write(f"receipt: {name} has no receipt: {failed(error, error.filename or folder)}. The command "
+                         f"{'did not run' if exited is None else f'exited {exited}'}; without a receipt this exits "
+                         f"{code or SKIPPED}. Pass --receipts DIR or set CLEARCASE_RECEIPTS_DIR to a writable directory.\n")
+        return code or SKIPPED
     return code
 
 
@@ -336,27 +501,38 @@ def check_plan_script(explicit=None):
 
 # Doctor ---------------------------------------------------------------------
 
-def doctor_rows(skills=None, receipts=None, identity=None, unidentified=None):
+def doctor_rows(skills=None, receipts=None, identity=None, unidentified=None, tools=None):
+    """The doctor's (status, name, detail, fix) rows. tools maps git, python3 and node to tool_info()."""
     rows = []
 
     def add(status, name, detail, fix=None):
-        rows.append((status, name, detail, fix))
+        rows.append((status, name, redact(detail), fix))
 
     pretty, os_id = os_release()
     if sys.platform.startswith("linux"):
         add("PASS", "os", f"{pretty} ({os_id}), kernel {platform.release()}")
     else:
         add("FAIL", "os", f"{sys.platform} is unsupported", "use Linux (Arch or CachyOS); see docs/agent-tooling.md")
-    add("PASS", "bash", os.environ.get("CLEARCASE_BASH_VERSION") or "unknown (not launched through a wrapper)")
+    bash = os.environ.get("CLEARCASE_BASH_VERSION")
+    parsed = parse_version(bash)
+    if parsed and parsed[:2] >= MIN_BASH:
+        add("PASS", "bash", bash)
+    else:
+        add("FAIL", "bash", f"{bash or 'unknown'}; the bash that runs the entry points is unknown or older than 4.4",
+            "run the doctor as scripts/agent-tools/doctor, which /bin/bash runs, and install bash >= 4.4 (pacman -S bash)")
     py = sys.version_info[:2]
-    add("PASS" if py >= MIN_PYTHON else "FAIL", "python3", f"{platform.python_version()} at {redact(sys.executable)}",
-        None if py >= MIN_PYTHON else "install Python >= 3.10")
+    _, py_problem = tools["python3"]
+    add("PASS" if py >= MIN_PYTHON and not py_problem else "FAIL", "python3",
+        py_problem or f"{platform.python_version()} at {redact(sys.executable)}",
+        None if py >= MIN_PYTHON and not py_problem else "install Python >= 3.10")
 
-    git_path = shutil.which("git")
-    if git_path:
-        add("PASS", "git", f"{first_line([git_path, '--version'])[1]} at {redact(git_path)}")
-        top = git(REPO, "rev-parse", "--show-toplevel")
-        add("PASS" if top else "FAIL", "repository", redact(top or REPO),
+    git_row, git_problem = tools["git"]
+    if git_row["path"]:
+        add("FAIL" if git_problem else "PASS", "git", git_problem or f"{git_row['version']} at {git_row['path']}",
+            "check the git on PATH: receipts record its --version" if git_problem else None)
+        _, out, problem = git(REPO, "rev-parse", "--show-toplevel")
+        top = None if problem else os.fsdecode(out.rstrip(b"\n"))
+        add("PASS" if top else "FAIL", "repository", top or f"{REPO}: {problem or 'git printed no top level'}",
             None if top else "run the tools from a git checkout or worktree of the ClearCase repository")
         if top and unidentified:
             add("FAIL", "revision", unidentified)
@@ -366,12 +542,11 @@ def doctor_rows(skills=None, receipts=None, identity=None, unidentified=None):
     else:
         add("FAIL", "git", "not found on PATH", "install git (pacman -S git) and put it on PATH")
 
-    node = which("node")
-    if node:
-        _, version = first_line([node, "--version"])
-        parsed = parse_version(version)
+    node_row, node_problem = tools["node"]
+    if node_row["path"]:
+        parsed = parse_version(node_row["version"])
         ok = bool(parsed) and parsed[:2] >= MIN_NODE
-        add("PASS" if ok else "FAIL", "node", f"{version} at {redact(node)}",
+        add("PASS" if ok else "FAIL", "node", node_problem or f"{node_row['version']} at {node_row['path']}",
             None if ok else f"install Node.js >= {MIN_NODE[0]} (pacman -S nodejs)")
     else:
         add("FAIL", "node", f"not found on PATH ({redact(os.environ.get('PATH', ''))})",
@@ -379,16 +554,22 @@ def doctor_rows(skills=None, receipts=None, identity=None, unidentified=None):
             "pstack check-plan.mjs needs it")
 
     for script in ["scripts/planning/check.py", "scripts/planning/generate.py"]:
-        present = (REPO / script).is_file()
-        add("PASS" if present else "FAIL", "planning", script, None if present else "check out the full repository")
+        present = (REPO / script).is_file() and os.access(REPO / script, os.R_OK)
+        add("PASS" if present else "FAIL", "planning", script if present else f"{script} is missing or unreadable",
+            None if present else "check out the full repository with readable files")
 
     base = skills_dir(skills)
-    lock = load_lock()
+    try:
+        lock = load_lock()
+    except (OSError, ValueError) as error:
+        lock = None
+        add("FAIL", "skill-pin", f"cannot read {LOCK_PATH.relative_to(REPO)}: {error}",
+            "restore it with git checkout -- scripts/agent-tools/skills.lock.json")
     if not base or not (base / "poteto-mode/SKILL.md").is_file():
         add("FAIL", "skills-dir", f"pstack bundle not found at {redact(base) if base else 'any default location'} (looked for poteto-mode/SKILL.md)",
             "install the pinned bundle into ~/.agents/skills (see Bootstrap in docs/agent-tooling.md) "
             "or set CLEARCASE_SKILLS_DIR / bootstrap --skills-dir DIR")
-    else:
+    elif lock:
         add("PASS", "skills-dir", redact(base))
         for rel in lock["requiredFiles"]:
             present = (base / rel).is_file()
@@ -402,7 +583,13 @@ def doctor_rows(skills=None, receipts=None, identity=None, unidentified=None):
                 add("FAIL", f"skill:{pinned['group']}", f"{name} missing",
                     f"install {name} into {redact(base)} from the pinned bundle")
                 continue
-            digest, count = tree_hash(path)
+            try:
+                digest, count = tree_hash(path)
+            except OSError as error:
+                drift.append(name)
+                add("FAIL", f"skill:{pinned['group']}", f"{name} cannot be hashed: {error}",
+                    f"make every file of {name} readable, or reinstall it from the pinned bundle")
+                continue
             if digest != pinned["sha256"]:
                 drift.append(name)
                 add("FAIL", f"skill:{pinned['group']}", f"{name} differs from the pin ({count} files, {digest[:12]})",
@@ -432,8 +619,8 @@ def doctor_rows(skills=None, receipts=None, identity=None, unidentified=None):
 
     for name, purpose in [("bun", "pstack orch/watch-pr only; unused here"), ("gh", "pushing and PR checks"),
                           ("tmux", "headless worker sessions")]:
-        info = tool_info(name)
-        add("INFO", "optional", f"{name} {info['version'] or 'absent'} ({purpose})")
+        info, _ = tool_info(name)
+        add("INFO", "optional", f"{name} {info['version'] or ('version unknown' if info['path'] else 'absent')} ({purpose})")
     add("DEFERRED", "app-browser", APP_DEFERRED)
     if (REPO / "package.json").exists():
         add("INFO", "app", "repository package.json present; app checks belong to GRS-10/GRS-12 commands")
@@ -444,28 +631,33 @@ def cmd_doctor(args):
     """Run every check, print the report and write it as a receipt. A missing git, head or base is a FAIL row."""
     started = now()
     identity, unidentified = revision(REPO, args.base)
-    rows = doctor_rows(args.skills_dir, args.receipts, identity, unidentified)
+    tools = {name: tool_info(name) for name in ("git", "python3", "node")}
+    inputs, unfingerprinted = fingerprints([LOCK_PATH])
+    rows = doctor_rows(args.skills_dir, args.receipts, identity, unidentified, tools)
+    if unfingerprinted:
+        rows.append(("FAIL", "receipt-input", redact(unfingerprinted), "make it readable; the receipt records its sha256"))
     lines = []
     for status, name, detail, fix in rows:
         lines.append(f"{status:<8} {name:<14} {detail}")
         if fix:
             lines.append(f"{'':<8} {'':<14} fix: {fix}")
-    failed = [row for row in rows if row[0] == "FAIL"]
+    failures = [f"{name}: {detail}" for status, name, detail, _ in rows if status == "FAIL"]
     passed = [row for row in rows if row[0] == "PASS"]
     deferred = [row[1] for row in rows if row[0] == "DEFERRED"]
-    verdict = "FAIL" if failed else "PASS"
-    lines.append(f"doctor: {verdict}. {len(passed)} required checks passed, {len(failed)} failed. "
+    verdict = "FAIL" if failures else "PASS"
+    lines.append(f"doctor: {verdict}. {len(passed)} required checks passed, {len(failures)} failed. "
                  f"Deferred, not required yet: {', '.join(deferred) or 'none'}.")
     report = "\n".join(lines) + "\n"
     sys.stdout.write(report)
     sys.stdout.flush()
-    code = 1 if failed else 0
+    code = 1 if failures else 0
     try:
         folder = receipt_folder(args.receipts, "doctor", started)
         (folder / "stdout.txt").write_text(report)
         (folder / "stderr.txt").write_text("")
-        write_receipt(folder, started, "doctor", verdict, code, None, [sys.executable, *sys.orig_argv[1:]],
-                      Path.cwd(), [tool_info(tool) for tool in ("git", "python3", "node")], [LOCK_PATH], identity)
+        write_receipt(folder, started, "doctor", verdict, code, "; ".join(failures) or None,
+                      [sys.executable, *sys.orig_argv[1:]], Path.cwd(), [row for row, _ in tools.values()], inputs,
+                      identity)
     except OSError as error:
         sys.stderr.write(f"doctor: FAIL. Receipt not written: {error}\n")
         return 1
@@ -528,10 +720,11 @@ def cmd_compare_upstream(args):
     elif not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", pin["revision"]):
         problem = f"provenance.pstack.revision {pin['revision']!r} is not a full commit ID"
     else:
-        plugin, upstream = upstream_tree(checkout, pin["revision"])
+        plugin, upstream, unread = upstream_tree(checkout, pin["revision"])
         if plugin is None:
-            problem = (f"{redact(checkout)} has no .cursor-plugin/plugin.json at {pin['revision']}; "
-                       f"pass a clone of {pin['upstream']} that contains the pinned revision")
+            problem = (f"{redact(checkout)} has no .cursor-plugin/plugin.json at {pin['revision']}"
+                       f"{f' ({unread})' if unread else ''}; pass a clone of {pin['upstream']} that contains the "
+                       "pinned revision")
     if problem:
         print(f"FAIL     {problem}\npstack-upstream: FAIL. 1 problem against {target}.")
         return 1
@@ -553,7 +746,11 @@ def cmd_compare_upstream(args):
         problems.append(f"upstream skills not installed are {sorted(absent)}, provenance.pstack.notInstalled "
                         f"records {sorted(pin['notInstalled'])}")
     for name in sorted(pinned & installed):
-        diff = upstream_diff(upstream[name], base / name)
+        try:
+            diff = upstream_diff(upstream[name], base / name)
+        except OSError as error:
+            problems.append(f"{name}: installed files cannot be read: {error}")
+            continue
         problems += [f"{name}/{line}" for line in diff]
         if not diff and rows_hash(upstream[name]) != lock["skills"][name]["sha256"]:
             problems.append(f"{name}: installed files match the revision but not the pinned sha256; {relock}")
@@ -612,6 +809,13 @@ def cmd_receipt(args):
 # Bootstrap ------------------------------------------------------------------
 
 def cmd_bootstrap(args):
+    try:
+        return bootstrap(args)
+    except OSError as error:
+        raise SystemExit(f"bootstrap: FAIL. {redact(error)}") from None
+
+
+def bootstrap(args):
     local = REPO / ".local/agent-tools"
     link = local / "skills"
     if args.remove:
@@ -638,11 +842,13 @@ def cmd_bootstrap(args):
         groups = {name: row["group"] for name, row in lock["skills"].items()}
         if args.checkout:
             checkout = Path(args.checkout).expanduser().resolve()
-            head = git(checkout, "rev-parse", "HEAD")
-            plugin, upstream = upstream_tree(checkout, head) if head else (None, {})
+            _, out, unread = git(checkout, "rev-parse", "--verify", "HEAD")
+            head = None if unread else out.decode(errors="replace").strip()
+            plugin, upstream, unread = upstream_tree(checkout, head) if head else (None, {}, unread)
             if plugin is None:
                 raise SystemExit(f"bootstrap --relock: {redact(checkout)} is not a pstack checkout (no Git HEAD with "
-                                 ".cursor-plugin/plugin.json); pass the root of a clone of the pstack upstream")
+                                 ".cursor-plugin/plugin.json); pass the root of a clone of the pstack upstream"
+                                 + (f" ({unread})" if unread else ""))
             installed = {name for name in upstream if (base / name / "SKILL.md").is_file()}
             absent = set(upstream) - installed
             if not installed:

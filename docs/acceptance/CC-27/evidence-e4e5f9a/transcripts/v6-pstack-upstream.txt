@@ -1,2 +1,0 @@
-pstack-upstream: PASS. 47 pinned pstack skills match https://github.com/backnotprop/pstack at 124f622bcaea (0.15.9, MIT) file for file, read from its Git objects; .DS_Store, __pycache__, node_modules are excluded. Upstream skills not installed: benchmark-checklist, correct, principle-explain-the-number.
-receipt: PASS pstack-upstream exit=0 ~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-e4e5f9a/receipts/v6-pstack-upstream/20261008T135742.450657Z-pstack-upstream/receipt.json

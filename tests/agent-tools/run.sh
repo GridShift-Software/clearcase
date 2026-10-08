@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Behavior tests for scripts/agent-tools. Needs only bash, coreutils, git, python3 and node.
+# Behavior tests for scripts/agent-tools. Needs bash, coreutils, git, python3, node and, for the cases where the
+# doctor passes in this environment, Bun >= 1.4.2 on PATH or in CLEARCASE_BUN.
 # Usage: bash tests/agent-tools/run.sh   (exit 0 only when every case passes)
 set -u
 
@@ -519,6 +520,73 @@ has "no-python message is actionable" "fix: install Python >= 3.10"
 no_receipt "doctor without python3 writes no receipt"
 run "doctor fails on a missing skills dir" 1 env CLEARCASE_SKILLS_DIR="$WORK/no-skills" HOME="$WORK/no-home" "$TOOLS/doctor"
 has "missing skills dir is diagnosed" "pstack bundle not found"
+
+echo "# the doctor requires Bun at the app's minimum version"
+# fake_bun NAME TEXT : $WORK/bun-NAME/bun prints TEXT for --version
+fake_bun() { mkdir -p "$WORK/bun-$1" && printf '#!/bin/sh\necho %s\n' "'$2'" >"$WORK/bun-$1/bun" && chmod +x "$WORK/bun-$1/bun"; }
+NOBUN="$WORK/bin-without-bun"
+mkdir -p "$NOBUN"
+for tool in python3 git node; do ln -s "$(command -v "$tool")" "$NOBUN/$tool"; done
+run "doctor fails without bun" 1 env -u CLEARCASE_BUN PATH="$NOBUN" "$TOOLS/doctor"
+has "doctor names the missing bun" "FAIL     bun            not found on PATH ($NOBUN)"
+has "doctor gives the Bun install fix" "fix: install Bun >= 1.4.2 (pacman -S bun"
+has "the missing bun is the only failure" "required checks passed, 1 failed."
+receipt_is "no-bun doctor receipt is FAIL" FAIL 1
+reason_has "the no-bun receipt names bun" "bun: not found on PATH"
+fake_bun old 1.3.9
+run "doctor fails on bun 1.3.9 on PATH" 1 env -u CLEARCASE_BUN PATH="$WORK/bun-old:$PATH" "$TOOLS/doctor"
+has "doctor names the old bun and the minimum" "FAIL     bun            1.3.9 at $WORK/bun-old/bun is older than 1.4.2, the minimum from MIN_BUN"
+has "doctor gives the upgrade fix" "fix: run bun upgrade --stable"
+has "the old bun is the only failure" "required checks passed, 1 failed."
+receipt_check "the old-bun receipt lists the bun it checked" 'any(t["name"] == "bun" and t["path"].endswith("/bun-old/bun") and t["version"] == "1.3.9" for t in r["tools"])'
+fake_bun canary 1.4.2-canary.1+0a1b2c3
+run "doctor fails on a prerelease of the minimum" 1 env -u CLEARCASE_BUN PATH="$WORK/bun-canary:$PATH" "$TOOLS/doctor"
+has "names the prerelease" "1.4.2-canary.1+0a1b2c3 at $WORK/bun-canary/bun is older than 1.4.2"
+fake_bun garbage "bun, version unknown"
+run "doctor fails on a bun whose version cannot be parsed" 1 env -u CLEARCASE_BUN PATH="$WORK/bun-garbage:$PATH" "$TOOLS/doctor"
+has "doctor names what bun printed" "\`$WORK/bun-garbage/bun --version\` printed 'bun, version unknown', not a version MAJOR.MINOR.PATCH"
+fake_bun wrapped "9.9.9 from a wrapper"
+run "doctor fails on a version line with other text" 1 env -u CLEARCASE_BUN PATH="$WORK/bun-wrapped:$PATH" "$TOOLS/doctor"
+has "doctor does not read a version out of other text" "printed '9.9.9 from a wrapper', not a version MAJOR.MINOR.PATCH"
+mkdir -p "$WORK/bun-failing"
+printf '#!/bin/sh\necho "synthetic failure of bun --version" >&2\nexit 1\n' >"$WORK/bun-failing/bun" && chmod +x "$WORK/bun-failing/bun"
+run "a bun whose --version fails fails the doctor" 1 env -u CLEARCASE_BUN PATH="$WORK/bun-failing:$PATH" "$TOOLS/doctor"
+has "the doctor names the failed bun probe" "FAIL     bun            \`$WORK/bun-failing/bun --version\` exited 1: synthetic failure of bun --version"
+fake_bun ok 1.4.2
+run "doctor passes with bun 1.4.2 on PATH" 0 env -u CLEARCASE_BUN PATH="$WORK/bun-ok:$PATH" "$TOOLS/doctor"
+has "the bun row passes at the minimum" "PASS     bun            1.4.2 at $WORK/bun-ok/bun; the app needs >= 1.4.2 (MIN_BUN"
+receipt_is "the passing doctor receipt is PASS" PASS 0
+fake_bun newer 1.10.0
+run "doctor compares Bun versions as numbers" 0 env -u CLEARCASE_BUN PATH="$WORK/bun-newer:$PATH" "$TOOLS/doctor"
+run "CLEARCASE_BUN finds a bun that is not on PATH" 0 env CLEARCASE_BUN="$WORK/bun-ok/bun" PATH="$NOBUN" "$TOOLS/doctor"
+has "the doctor checks the bun CLEARCASE_BUN names" "PASS     bun            1.4.2 at $WORK/bun-ok/bun"
+run "CLEARCASE_BUN wins over the bun on PATH" 1 env CLEARCASE_BUN="$WORK/bun-old/bun" PATH="$WORK/bun-ok:$PATH" "$TOOLS/doctor"
+has "the doctor names the overriding bun" "1.3.9 at $WORK/bun-old/bun is older than 1.4.2"
+run "a CLEARCASE_BUN that is not executable fails" 1 env CLEARCASE_BUN="$WORK/no-such-bun" "$TOOLS/doctor"
+has "the doctor names the override" "FAIL     bun            CLEARCASE_BUN=$WORK/no-such-bun is not an executable file"
+# In the disposable copy: packageManager in package.json replaces MIN_BUN, and a pin that cannot be read fails.
+echo '{"packageManager": "bun@1.5.0"}' >"$EV/package.json"
+run "package.json's packageManager raises the minimum" 1 env -u CLEARCASE_BUN PATH="$WORK/bun-ok:$PATH" "$EVTOOLS/doctor"
+has "names the minimum package.json pins" "1.4.2 at $WORK/bun-ok/bun is older than 1.5.0, the minimum from packageManager in package.json"
+has "the pinned minimum is the only failure" "required checks passed, 1 failed."
+receipt_check "the doctor receipt fingerprints package.json" 'any(i["path"].endswith("/package.json") and i["sha256"] for i in r["inputs"])'
+echo '{"packageManager": "bun@1.3.0+sha512.0a1b2c"}' >"$EV/package.json"
+run "package.json's packageManager replaces MIN_BUN" 0 env -u CLEARCASE_BUN PATH="$WORK/bun-old:$PATH" "$EVTOOLS/doctor"
+has "names package.json as the source" "PASS     bun            1.3.9 at $WORK/bun-old/bun; the app needs >= 1.3.0 (packageManager in package.json)"
+echo '{"packageManager": "npm@10.9.0"}' >"$EV/package.json"
+run "a packageManager that is not bun fails" 1 "$EVTOOLS/doctor"
+has "names the packageManager" "FAIL     bun            package.json packageManager is 'npm@10.9.0', not bun@MAJOR.MINOR.PATCH"
+has "gives the pin fix" 'fix: pin "packageManager": "bun@1.4.2" in package.json'
+echo '{"name": "clearcase"}' >"$EV/package.json"
+run "a package.json without packageManager fails" 1 "$EVTOOLS/doctor"
+has "names the missing pin" "FAIL     bun            package.json packageManager is None"
+echo '{' >"$EV/package.json"
+run "a package.json that is not JSON fails" 1 "$EVTOOLS/doctor"
+has "names the JSON error" "FAIL     bun            package.json is not JSON:"
+rm "$EV/package.json" && ln -s "$WORK/no-such-package.json" "$EV/package.json"
+run "a package.json that cannot be read fails" 1 "$EVTOOLS/doctor"
+has "names the unreadable package.json" "FAIL     bun            cannot read $EV/package.json: No such file or directory"
+rm "$EV/package.json"
 
 echo "# the doctor flags a changed or missing pinned skill"
 SKILLS=${CLEARCASE_SKILLS_DIR:-$HOME/.agents/skills}

@@ -901,21 +901,23 @@ wait
 has "names the transcript it cannot write" "rerun.sh: cannot write $out/transcripts/v1-doctor.txt"
 if grep -q $'^v1-doctor\t' "$out/summary.tsv"; then bad "the blocked step has no result" "$(cat "$out/summary.tsv")"; else ok "the blocked step has no result"; fi
 if [[ $(git -C "$RR" worktree list | wc -l) == 1 ]]; then ok "the stopped run removes its throwaway worktree"; else bad "the stopped run removes its throwaway worktree" "$(git -C "$RR" worktree list)"; fi
-# Seven faults in one run: every step still matches, and the audit must name each fault.
+# Eight faults in one run: every step still matches, and the audit must name each fault.
 out="$WORK/rerun-tampered"
 after "$out/summary.tsv" $'^v1-doctor\t' 'rm "$out"/receipts/v1-doctor/*/receipt.json; printf "v1-doctor\t0\t0\tMATCH\tplanted\nstray\t0\t0\tMATCH\tplanted\n" >>"$out/summary.tsv"; mkdir -p "$out/receipts/stray/planted" && cp "$out"/receipts/v1-bootstrap-first/*-bootstrap-first/receipt.json "$out/receipts/stray/planted/"'
 after "$out/summary.tsv" $'^v1-bootstrap-remove\t' 'rm "$out"/receipts/v1-bootstrap-remove/*/stdout.txt'
 after "$out/summary.tsv" $'^v2-check-plan\t' ': >"$out/transcripts/v2-check-plan.txt"; sed -i "s/$rr_head/$(printf "%040d" 0)/" "$out"/receipts/v2-check-plan/*-plan-graph/receipt.json'
+after "$out/summary.tsv" $'^v5-app-deferred\t' 'sed -i "s/\"head\": \"$rr_head\"/\"head\": null/" "$out"/receipts/v5-app-deferred/*-app/receipt.json'
 run "rerun.sh fails when evidence is deleted or planted during the run" 1 env CC27_OUT="$out" "${RERUN[@]}"
 wait
 has "every step of the copy matched its expected exit code" "summary: $out/summary.tsv (0 mismatches)"
-has "the audit finds exactly the seven faults" "; 7 problems"
+has "the audit finds exactly the eight faults" "; 8 problems"
 for fault in "v1-doctor: summary.tsv does not hold exactly one MATCH row with exit 0" \
 	"stray: summary.tsv row of a step that is not in the inventory" \
 	"v1-doctor: receipts [], but the inventory requires ['doctor']" \
 	"-bootstrap-remove: its stdout artifact " \
 	"v2-check-plan: transcripts/v2-check-plan.txt is missing or empty" \
 	"-plan-graph: head $(printf "%040d" 0) is not the tested head" \
+	"-app: head None is not the tested head" \
 	"receipts/stray/planted/receipt.json: receipt outside the inventoried steps"; do
 	OUT="$out/identity-audit.txt" has "the audit names: $fault" "$fault"
 done

@@ -26,11 +26,15 @@ SKIPPED = 3
 MIN_NODE = (18, 0)
 MIN_PYTHON = (3, 10)
 MIN_BASH = (4, 4)
+# The app's minimum Bun until GRS-10 adds package.json, whose packageManager then replaces it. Move it only in a
+# reviewed commit, after bun upgrade --stable; see docs/agent-tooling.md.
+MIN_BUN = "1.4.2"
+SEMVER = re.compile(r"v?(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?")
 FULL_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
 APP_DEFERRED = (
     "No application exists yet. App, build and browser verification (a project verify-<app> skill "
     "generated with pstack create-verification-skill) is deferred to GRS-12 (CC-03), which establishes "
-    "the app, build and browser commands. GRS-10 (CC-02) owns the npm/TypeScript/Vitest bootstrap."
+    "the app, build and browser commands. GRS-10 (CC-02) owns the Bun/TypeScript/Vitest bootstrap."
 )
 IGNORED_PARTS = {"node_modules", "__pycache__", ".DS_Store"}
 
@@ -70,8 +74,9 @@ def first_line(argv):
 
 
 def which(name):
-    """Only CLEARCASE_PYTHON and CLEARCASE_NODE override discovery, so the git a receipt lists is the git it used."""
-    override = name in ("python3", "node") and os.environ.get(f"CLEARCASE_{name.upper().replace('3', '')}")
+    """Only CLEARCASE_PYTHON, CLEARCASE_NODE and CLEARCASE_BUN override discovery, so the git a receipt lists is the
+    git it used."""
+    override = name in ("python3", "node", "bun") and os.environ.get(f"CLEARCASE_{name.upper().replace('3', '')}")
     if override:
         return override if os.access(override, os.X_OK) else None
     if name == "python3":
@@ -509,8 +514,27 @@ def check_plan_script(explicit=None):
 
 # Doctor ---------------------------------------------------------------------
 
+def bun_minimum():
+    """The app's minimum Bun as (version, source, problem): packageManager in package.json when that file exists,
+    otherwise MIN_BUN. problem names a package.json that cannot be read or pins no bun@MAJOR.MINOR.PATCH."""
+    path = REPO / "package.json"
+    if not os.path.lexists(path):
+        return MIN_BUN, "MIN_BUN in scripts/agent-tools/agent_tools.py, until GRS-10 adds package.json", None
+    try:
+        package = json.loads(path.read_bytes())
+    except OSError as error:
+        return None, None, f"cannot read {failed(error, path)}"
+    except ValueError as error:
+        return None, None, f"package.json is not JSON: {error}"
+    pinned = package.get("packageManager") if isinstance(package, dict) else None
+    match = re.fullmatch(r"bun@(\d+\.\d+\.\d+)(?:\+[0-9A-Za-z.-]+)?", pinned) if isinstance(pinned, str) else None
+    if not match:
+        return None, None, f"package.json packageManager is {pinned!r}, not bun@MAJOR.MINOR.PATCH"
+    return match[1], "packageManager in package.json", None
+
+
 def doctor_rows(skills=None, receipts=None, identity=None, unidentified=None, tools=None):
-    """The doctor's (status, name, detail, fix) rows. tools maps git, python3 and node to tool_info()."""
+    """The doctor's (status, name, detail, fix) rows. tools maps git, python3, node and bun to tool_info()."""
     rows = []
 
     def add(status, name, detail, fix=None):
@@ -560,6 +584,29 @@ def doctor_rows(skills=None, receipts=None, identity=None, unidentified=None, to
         add("FAIL", "node", f"not found on PATH ({redact(os.environ.get('PATH', ''))})",
             "install Node.js >= 18 (pacman -S nodejs) and put it on PATH, or set CLEARCASE_NODE=/path/to/node; "
             "pstack check-plan.mjs needs it")
+
+    bun_row, bun_problem = tools["bun"]
+    minimum, source, unpinned = bun_minimum()
+    install = (f"install Bun >= {minimum} (pacman -S bun, or the installer at https://bun.sh as on puk) and put it on "
+               "PATH, or set CLEARCASE_BUN=/path/to/bun; the app builds and runs with Bun from GRS-10 on")
+    found = SEMVER.fullmatch(bun_row["version"] or "")
+    # (major, minor, patch, released): a prerelease such as 1.4.2-canary.1 sorts before 1.4.2.
+    have = (*map(int, found.groups()[:3]), not found[4]) if found else None
+    if unpinned:
+        add("FAIL", "bun", unpinned, f'pin "packageManager": "bun@{MIN_BUN}" in package.json, as AGENTS.md requires')
+    elif not bun_row["path"]:
+        override = os.environ.get("CLEARCASE_BUN")
+        add("FAIL", "bun", f"CLEARCASE_BUN={override} is not an executable file" if override
+            else f"not found on PATH ({redact(os.environ.get('PATH', ''))})", install)
+    elif bun_problem or not found:
+        add("FAIL", "bun", bun_problem or f"`{bun_row['path']} --version` printed {bun_row['version']!r}, not a "
+            "version MAJOR.MINOR.PATCH", f"check {bun_row['path']}, which must print its version; or {install}")
+    elif have < (*map(int, minimum.split(".")), True):
+        add("FAIL", "bun", f"{bun_row['version']} at {bun_row['path']} is older than {minimum}, the minimum from {source}",
+            f"run bun upgrade --stable (pacman -Syu bun for the distribution package), or set CLEARCASE_BUN to a "
+            f"bun >= {minimum}")
+    else:
+        add("PASS", "bun", f"{bun_row['version']} at {bun_row['path']}; the app needs >= {minimum} ({source})")
 
     for script in ["scripts/planning/check.py", "scripts/planning/generate.py"]:
         present = (REPO / script).is_file() and os.access(REPO / script, os.R_OK)
@@ -625,8 +672,7 @@ def doctor_rows(skills=None, receipts=None, identity=None, unidentified=None, to
         add("FAIL", "receipts", f"cannot write receipts: {error}",
             "set CLEARCASE_RECEIPTS_DIR to a writable ignored directory")
 
-    for name, purpose in [("bun", "pstack orch/watch-pr only; unused here"), ("gh", "pushing and PR checks"),
-                          ("tmux", "headless worker sessions")]:
+    for name, purpose in [("gh", "pushing and PR checks"), ("tmux", "headless worker sessions")]:
         info, _ = tool_info(name)
         add("INFO", "optional", f"{name} {info['version'] or ('version unknown' if info['path'] else 'absent')} ({purpose})")
     add("DEFERRED", "app-browser", APP_DEFERRED)
@@ -639,8 +685,9 @@ def cmd_doctor(args):
     """Run every check, print the report and write it as a receipt. A missing git, head or base is a FAIL row."""
     started = now()
     identity, unidentified = revision(REPO, args.base)
-    tools = {name: tool_info(name) for name in ("git", "python3", "node")}
-    inputs, unfingerprinted = fingerprints([LOCK_PATH])
+    tools = {name: tool_info(name) for name in ("git", "python3", "node", "bun")}
+    package = REPO / "package.json"
+    inputs, unfingerprinted = fingerprints([LOCK_PATH, *([package] if os.path.lexists(package) else [])])
     rows = doctor_rows(args.skills_dir, args.receipts, identity, unidentified, tools)
     if unfingerprinted:
         rows.append(("FAIL", "receipt-input", redact(unfingerprinted), "make it readable; the receipt records its sha256"))

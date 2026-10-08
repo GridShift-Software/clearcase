@@ -334,7 +334,19 @@ two_states "a textconv filter that prints nothing" "echo one >>'$EV/$changed_fil
 rm "$EV/.git/info/attributes" && git -C "$EV" config --remove-section diff.lossy && git -C "$EV" checkout -q -- "$changed_file"
 git init -q "$EV/nested" && echo one >"$EV/nested/file.txt"
 two_states "an untracked nested repository" ":" "echo two >'$EV/nested/file.txt'"
+touch "$EV/nested/$(printf '\377').txt"
+run "a nested repository with a file name that is not UTF-8 is fingerprinted" 0 env -C "$EV" scripts/agent-tools/receipt --name odd-nested -- true
+receipt_check "the odd-name receipt is dirty with a fingerprint" 'r["revision"]["dirty"] is True and re.fullmatch("[0-9a-f]{64}", r["revision"]["diffSha256"] or "")'
 rm -rf "$EV/nested"
+git -C "$EV" update-index --assume-unchanged "$changed_file" && echo hidden >>"$EV/$changed_file"
+run "a changed file marked assume-unchanged is SKIPPED" 3 env -C "$EV" scripts/agent-tools/receipt --name assumed -- touch "$MARKER"
+reason_has "names the file git does not check" "git does not check 1 tracked files marked assume-unchanged or skip-worktree, for example $changed_file"
+not_run "the command did not run with a file git does not check"
+git -C "$EV" update-index --no-assume-unchanged "$changed_file" && git -C "$EV" checkout -q -- "$changed_file"
+git -C "$EV" update-index --skip-worktree "$changed_file" && echo hidden >>"$EV/$changed_file"
+run "a changed file marked skip-worktree is SKIPPED" 3 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+reason_has "names the skip-worktree file" "for example $changed_file"
+git -C "$EV" update-index --no-skip-worktree "$changed_file" && git -C "$EV" checkout -q -- "$changed_file"
 git -C "$EV" config status.showUntrackedFiles no
 run "status.showUntrackedFiles=no does not hide an untracked file" 0 env -C "$EV" scripts/agent-tools/receipt --name hidden-untracked -- true
 receipt_check "the receipt is dirty with a fingerprint" 'r["revision"]["dirty"] is True and re.fullmatch("[0-9a-f]{64}", r["revision"]["diffSha256"] or "")'
@@ -426,11 +438,11 @@ receipt_is "the unreadable-lock doctor receipt is FAIL" FAIL 1
 chmod 644 "$EVTOOLS/skills.lock.json" && git -C "$EV" update-index --no-assume-unchanged scripts/agent-tools/skills.lock.json
 run "the doctor fails when no wrapper reports its bash" 1 env -u CLEARCASE_BASH_VERSION python3 -I -B "$EVTOOLS/agent_tools.py" doctor
 has "the doctor names the unknown bash" "unknown; the bash that runs the entry points is unknown or older than 4.4"
-# assume-unchanged keeps git from rereading the file, so only the doctor's own check can see it is unreadable.
+# assume-unchanged keeps git from rereading the file, so the planning row must find it unreadable on its own.
 git -C "$EV" update-index --assume-unchanged scripts/planning/generate.py && chmod 000 "$EV/scripts/planning/generate.py"
 run "the doctor fails on a planning script it cannot read" 1 "$EVTOOLS/doctor"
 has "the doctor names the unreadable planning script" "FAIL     planning       scripts/planning/generate.py is missing or unreadable"
-lacks "only the planning script fails" "FAIL     revision"
+has "the doctor names the file git does not check" "git does not check 1 tracked files marked assume-unchanged or skip-worktree, for example scripts/planning/generate.py"
 chmod 644 "$EV/scripts/planning/generate.py" && git -C "$EV" update-index --no-assume-unchanged scripts/planning/generate.py
 echo input >"$WORK/unreadable-input.txt" && chmod 000 "$WORK/unreadable-input.txt"
 run "an unreadable --input is SKIPPED" 3 env -C "$EV" scripts/agent-tools/receipt --name unreadable-input --input "$WORK/unreadable-input.txt" -- touch "$MARKER"

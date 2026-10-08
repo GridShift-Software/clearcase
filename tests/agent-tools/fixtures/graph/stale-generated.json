@@ -1,0 +1,14 @@
+{
+  "description": "work-items.json changes after generation",
+  "capability": "plan-graph",
+  "patchAfterGenerate": true,
+  "set": {
+    "CC-03.title": "Renamed without regenerating"
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "Stale generated plans: docs/plan/tickets/CC-03.md"
+    ]
+  }
+}

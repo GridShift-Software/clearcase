@@ -1,0 +1,15 @@
+{
+  "description": "CC-01 depends on its own gate CC-23",
+  "capability": "plan-graph",
+  "set": {
+    "CC-01.depends": [
+      "CC-23"
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "Dependency cycle at"
+    ]
+  }
+}

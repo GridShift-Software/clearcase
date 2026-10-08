@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Rerun CC-27 verification items 1-6 from clean non-interactive shells.
-# Usage: CC27_READBACK=PATH [CC27_EXPORT=PATH] [CC27_OUT=DIR] bash docs/acceptance/CC-27/rerun.sh
+# Usage: CC27_READBACK=PATH CC27_PSTACK_CHECKOUT=DIR [CC27_EXPORT=PATH] [CC27_OUT=DIR] bash docs/acceptance/CC-27/rerun.sh
+# CC27_PSTACK_CHECKOUT is a clean checkout of the pinned backnotprop/pstack revision (see README.md).
 # Writes receipts/, transcripts/ and summary.tsv under CC27_OUT (default .local/cc27-rerun).
 # Exits nonzero if any step's exit code differs from the expected one.
 set -u
@@ -9,9 +10,12 @@ WT=$(cd "${BASH_SOURCE[0]%/*}/../../.." && pwd)
 OUT=$(mkdir -p "${CC27_OUT:-$WT/.local/cc27-rerun}" && cd "${CC27_OUT:-$WT/.local/cc27-rerun}" && pwd)
 READBACK=${CC27_READBACK:-}
 EXPORT=${CC27_EXPORT:-}
+CHECKOUT=${CC27_PSTACK_CHECKOUT:-}
+[[ -d $CHECKOUT ]] && CHECKOUT=$(cd "$CHECKOUT" && pwd)
 CLEAN_PATH=/usr/local/bin:/usr/bin:/bin
 mkdir -p "$OUT/receipts" "$OUT/transcripts"
 printf 'step\texpected\tactual\tverdict\tcommand\n' >"$OUT/summary.tsv"
+{ git -C "$WT" rev-parse HEAD; git -C "$WT" status --porcelain; } >"$OUT/revision.txt"
 mismatches=0
 
 # step NAME EXPECTED DIR COMMAND : run COMMAND in a clean shell inside DIR
@@ -30,11 +34,14 @@ ln -s /usr/bin/python3 "$nonode/python3"
 ln -s /usr/bin/git "$nonode/git"
 readback_args=${READBACK:+--linear-relations "'$READBACK'"}
 readback_expect=$([[ -n $READBACK ]] && echo 0 || echo 3)
+checkout_args=${CHECKOUT:+--checkout "'$CHECKOUT'"}
+checkout_expect=$([[ -n $CHECKOUT ]] && echo 0 || echo 3)
 
-echo "# 1. bootstrap twice, doctor, removal"
+echo "# 1. bootstrap twice, doctor, pstack pin against upstream (exit 3 = SKIPPED without CC27_PSTACK_CHECKOUT), removal"
 step v1-bootstrap-first 0 "$WT" "scripts/agent-tools/receipt --name bootstrap-first -- scripts/agent-tools/bootstrap"
 step v1-bootstrap-repeat 0 "$WT" "scripts/agent-tools/receipt --name bootstrap-repeat -- scripts/agent-tools/bootstrap"
 step v1-doctor 0 "$WT" "scripts/agent-tools/receipt --name doctor -- scripts/agent-tools/doctor"
+step v1-pstack-upstream "$checkout_expect" "$WT" "scripts/agent-tools/verify pstack-upstream $checkout_args"
 step v1-bootstrap-remove 0 "$WT" "scripts/agent-tools/receipt --name bootstrap-remove -- scripts/agent-tools/bootstrap --remove"
 
 echo "# 2. planning checker and pstack check-plan.mjs"
@@ -55,6 +62,7 @@ echo "# 5. verification capability on synthetic fixtures"
 step v5-plan-format-valid 0 "$WT" "scripts/agent-tools/verify plan-format --plan tests/agent-tools/fixtures/plans/valid.md"
 step v5-plan-format-invalid 1 "$WT" "scripts/agent-tools/verify plan-format --plan tests/agent-tools/fixtures/plans/invalid.md"
 step v5-app-deferred 3 "$WT" "scripts/agent-tools/verify app"
+step v5-pstack-upstream-no-checkout 3 "$WT" "scripts/agent-tools/verify pstack-upstream"
 
 echo "# 6. fresh worktree, missing dependency, skipped check"
 fresh=$(mktemp -d "${TMPDIR:-/tmp}/cc27-fresh-wt.XXXXXX")
@@ -63,6 +71,7 @@ git -C "$WT" worktree add --detach "$fresh" HEAD >"$OUT/transcripts/v6-worktree-
 step v6-doctor 0 "$fresh" "scripts/agent-tools/receipt --name doctor -- scripts/agent-tools/doctor"
 step v6-check-plan "$readback_expect" "$fresh" "scripts/agent-tools/check-plan --require-linear-relations $readback_args"
 step v6-fixture-tests 0 "$fresh" "scripts/agent-tools/receipt --name fixture-tests -- bash tests/agent-tools/run.sh"
+step v6-pstack-upstream "$checkout_expect" "$fresh" "scripts/agent-tools/verify pstack-upstream $checkout_args"
 step v6-doctor-without-node 1 "$fresh" "PATH='$nonode' scripts/agent-tools/doctor"
 step v6-plan-format-without-node 3 "$fresh" "PATH='$nonode' scripts/agent-tools/verify plan-format"
 step v6-required-readback-missing 3 "$fresh" "scripts/agent-tools/check-plan --require-linear-relations"

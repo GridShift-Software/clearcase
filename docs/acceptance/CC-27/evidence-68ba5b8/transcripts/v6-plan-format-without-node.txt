@@ -1,2 +1,0 @@
-SKIPPED plan-format: required tool not found: node
-receipt: SKIPPED plan-format exit=3 ~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-68ba5b8/receipts/v6-plan-format-without-node/20261008T134413.197182Z-plan-format/receipt.json

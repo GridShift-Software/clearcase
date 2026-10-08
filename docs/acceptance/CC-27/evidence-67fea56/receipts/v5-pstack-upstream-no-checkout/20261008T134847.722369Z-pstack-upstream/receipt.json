@@ -1,0 +1,58 @@
+{
+  "schema": "clearcase-agent-receipt/1",
+  "name": "pstack-upstream",
+  "result": "SKIPPED",
+  "exitCode": 3,
+  "reason": "no pstack checkout supplied; pass --checkout DIR, a clone of the pinned upstream revision",
+  "command": [
+    "/usr/bin/python3",
+    "-I",
+    "-B",
+    "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/scripts/agent-tools/agent_tools.py",
+    "compare-upstream"
+  ],
+  "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling",
+  "tools": [
+    {
+      "name": "python3",
+      "path": "/usr/bin/python3",
+      "version": "Python 3.14.7"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/scripts/agent-tools/skills.lock.json",
+      "sha256": "f002bcb4fa9db7b343775444fa6cce63110b5fa1cc662d4f2640ed76627fba2a"
+    }
+  ],
+  "revision": {
+    "repository": true,
+    "root": "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling",
+    "branch": "feature/grs-35-agent-tooling",
+    "head": "67fea562cb9228de5fceb9084ceb14abb76ddedd",
+    "baseRef": "origin/dev",
+    "base": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "mergeBase": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "dirty": false,
+    "diffSha256": null
+  },
+  "environment": {
+    "os": "CachyOS",
+    "platform": "linux",
+    "kernel": "7.2.2-1-cachyos",
+    "machine": "x86_64",
+    "host": "PUK",
+    "bash": "5.3.20(1)-release",
+    "callerShell": "",
+    "python": "3.14.7",
+    "path": "/usr/local/bin:/usr/bin:/bin"
+  },
+  "startedAt": "2026-10-08T13:48:47.722369+00:00",
+  "finishedAt": "2026-10-08T13:48:47.723902+00:00",
+  "durationSeconds": 0.002,
+  "artifacts": {
+    "receipt": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-67fea56/receipts/v5-pstack-upstream-no-checkout/20261008T134847.722369Z-pstack-upstream/receipt.json",
+    "stdout": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-67fea56/receipts/v5-pstack-upstream-no-checkout/20261008T134847.722369Z-pstack-upstream/stdout.txt",
+    "stderr": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-67fea56/receipts/v5-pstack-upstream-no-checkout/20261008T134847.722369Z-pstack-upstream/stderr.txt"
+  }
+}

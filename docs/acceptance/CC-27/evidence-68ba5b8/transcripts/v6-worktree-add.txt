@@ -1,2 +1,0 @@
-Preparing worktree (detached HEAD 68ba5b8)
-HEAD is now at 68ba5b8 Rerun the pstack upstream comparison in the CC-27 verification

@@ -1,0 +1,122 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.chronology.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "properties": {
+      "also_in": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "amount": {
+        "pattern": "^(?:-?\\d{1,15}(?:\\.\\d{1,4})?)?$",
+        "type": "string"
+      },
+      "attachments": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "bundle": {
+        "type": "string"
+      },
+      "cc": {
+        "type": "string"
+      },
+      "date": {
+        "pattern": "^(?:\\d{4}-\\d{2}-\\d{2})?$",
+        "type": "string"
+      },
+      "doc_type": {
+        "type": "string"
+      },
+      "excerpt": {
+        "type": "string"
+      },
+      "filename": {
+        "type": "string"
+      },
+      "invoice_no": {
+        "type": "string"
+      },
+      "n": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          }
+        ]
+      },
+      "pr": {
+        "type": "string"
+      },
+      "ref": {
+        "type": "string"
+      },
+      "refs": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "sender": {
+        "type": "string"
+      },
+      "seq": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          }
+        ]
+      },
+      "size": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "subject": {
+        "type": "string"
+      },
+      "text_status": {
+        "type": "string"
+      },
+      "to": {
+        "type": "string"
+      },
+      "url": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "ref",
+      "n",
+      "seq",
+      "date",
+      "filename",
+      "subject",
+      "sender",
+      "to",
+      "cc",
+      "excerpt",
+      "doc_type",
+      "bundle",
+      "amount",
+      "also_in",
+      "text_status",
+      "url",
+      "refs",
+      "invoice_no",
+      "size",
+      "attachments"
+    ],
+    "type": "object"
+  },
+  "title": "data of v5.chronology@1 (generated)",
+  "type": "array"
+}

@@ -1,0 +1,25 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.entities.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "note": {
+        "type": "string"
+      },
+      "role": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "name",
+      "note",
+      "role"
+    ],
+    "type": "object"
+  },
+  "title": "data of v5.entities@1 (generated)",
+  "type": "array"
+}

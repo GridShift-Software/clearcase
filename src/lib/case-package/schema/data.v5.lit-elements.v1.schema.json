@@ -1,0 +1,33 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.lit-elements.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "properties": {
+      "element": {
+        "type": "string"
+      },
+      "evidence": {
+        "type": "string"
+      },
+      "must": {
+        "type": "string"
+      },
+      "tab": {
+        "type": "string"
+      },
+      "witness": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "element",
+      "must",
+      "evidence",
+      "witness",
+      "tab"
+    ],
+    "type": "object"
+  },
+  "title": "data of v5.lit-elements@1 (authored)",
+  "type": "array"
+}

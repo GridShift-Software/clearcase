@@ -1,0 +1,73 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.conversion-report.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "adapter": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version"
+      ],
+      "type": "object"
+    },
+    "diagnostics": {
+      "items": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "subject": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "code",
+          "subject",
+          "message"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "ignoredCodeLiterals": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "sourceLines": {
+      "patternProperties": {
+        "^.*$": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "required": [
+    "adapter",
+    "sourceLines",
+    "ignoredCodeLiterals",
+    "diagnostics"
+  ],
+  "title": "data of v5.conversion-report@1 (generated)",
+  "type": "object"
+}

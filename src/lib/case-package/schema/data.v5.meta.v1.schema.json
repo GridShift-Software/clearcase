@@ -1,0 +1,76 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.meta.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "builtAt": {
+      "type": "string"
+    },
+    "bundles": {
+      "patternProperties": {
+        "^.*$": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "dataFolderName": {
+      "type": "string"
+    },
+    "dateSpan": {
+      "items": {
+        "type": "string"
+      },
+      "maxItems": 2,
+      "type": "array"
+    },
+    "docCount": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "docTypes": {
+      "patternProperties": {
+        "^.*$": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "emails": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "invoices": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "people": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "textNone": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "textPending": {
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "builtAt",
+    "docCount",
+    "dataFolderName",
+    "bundles",
+    "emails",
+    "invoices",
+    "people",
+    "textNone",
+    "textPending",
+    "dateSpan",
+    "docTypes"
+  ],
+  "title": "data of v5.meta@1 (generated)",
+  "type": "object"
+}

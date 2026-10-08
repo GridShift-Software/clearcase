@@ -1,0 +1,53 @@
+{
+  "$id": "https://clearcase.invalid/schema/acknowledgement.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "acknowledgedBy": {
+      "maxLength": 200,
+      "type": "string"
+    },
+    "acknowledgement": {
+      "const": "clearcase.acknowledgement/1",
+      "type": "string"
+    },
+    "at": {
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,3})?)?(?:Z|[+-]\\d{2}:\\d{2})?$",
+      "type": "string"
+    },
+    "diagnosticsSha256": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "manifestSha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "resultsVersion": {
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "type": "string"
+    },
+    "validatorVersion": {
+      "maxLength": 200,
+      "type": "string"
+    },
+    "warningFingerprints": {
+      "items": {
+        "pattern": "^[0-9a-f]{32}$",
+        "type": "string"
+      },
+      "maxItems": 10000000,
+      "type": "array"
+    }
+  },
+  "required": [
+    "acknowledgement",
+    "resultsVersion",
+    "manifestSha256",
+    "diagnosticsSha256",
+    "validatorVersion",
+    "warningFingerprints"
+  ],
+  "title": "ClearCase warning acknowledgement (clearcase.acknowledgement/1)",
+  "type": "object"
+}

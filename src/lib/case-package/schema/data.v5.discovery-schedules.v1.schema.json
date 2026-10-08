@@ -1,0 +1,128 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.discovery-schedules.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "discovery": {
+      "items": {
+        "properties": {
+          "co": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "desc": {
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "properties": {
+                "co": {
+                  "type": "string"
+                },
+                "fn": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "x": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "fn",
+                "url",
+                "co"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "nfiles": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "no": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "no",
+          "date",
+          "desc",
+          "co",
+          "nfiles",
+          "files"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "supplementary": {
+      "items": {
+        "properties": {
+          "co": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string"
+          },
+          "desc": {
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "properties": {
+                "co": {
+                  "type": "string"
+                },
+                "fn": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                },
+                "x": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "fn",
+                "url",
+                "co"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "nfiles": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "no": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "no",
+          "date",
+          "desc",
+          "co",
+          "nfiles",
+          "files"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "discovery",
+    "supplementary"
+  ],
+  "title": "data of v5.discovery-schedules@1 (generated)",
+  "type": "object"
+}

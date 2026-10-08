@@ -1,0 +1,28 @@
+{
+ "schema": "clearcase-v5-profile/1",
+ "archive": {
+  "name": "CASE_Lawyer_Pack_v5-002.zip",
+  "sha256": "ac25b496709d02ceb389a7a48e70ed67097954bd7fb816270d2854792b7380c0",
+  "size": 3257868481,
+  "entries": 1753
+ },
+ "mainHtml": {
+  "path": "ESS_DCS_Workspace.html",
+  "sha256": "c0df43f7653c2feeea73f2634bfc14c379f5ccd07d15a5bb9bea29d4f8277e80",
+  "size": 4494547,
+  "builtAt": "2026-08-12 19:30",
+  "docCount": 1689,
+  "chronologyRows": 1689,
+  "navEntries": 42,
+  "navGroups": 7
+ },
+ "variants": [
+  {
+   "label": "bundles-only",
+   "sha256": "5794156b11ed3a4b903c3bab4aea5ac804016cdac226d168e339a023fafd4f7d",
+   "docCount": 1562
+  }
+ ],
+ "missingLinks": 0,
+ "expectedExamplesSha256": "f23fcdfddffe8ec19b5b71b894f362ac006b01bace0668440fb2d84010d7e931"
+}

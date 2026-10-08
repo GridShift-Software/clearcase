@@ -37,7 +37,7 @@ scripts/agent-tools/check-plan --linear-relations PATH
 
 `check-plan` runs `python3 scripts/planning/check.py --require-linear-ids`, pstack's `check-plan.mjs` against `docs/delivery-plan.md` and, given a readback, the `--linear-relations` comparison, and writes a receipt for each. `docs/agent-tooling.md` documents every entry point.
 
-The repository has no application or remote yet. Commands for app tests and performance in the plan are prospective deliverables. Verify and record their real forms when the first owners establish them.
+The remote `origin` (GitHub `GridShift-Software/clearcase`) exists, but the repository has no application yet. Commands for app tests and performance in the plan are prospective deliverables. Verify and record their real forms when the first owners establish them.
 
 ## Product requirements that do not change
 

@@ -11,6 +11,7 @@ import io
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -552,6 +553,62 @@ class CliTest(Temp):
         self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
         self.assertIn("refusing to promote", r.stderr)
         self.assertFalse(os.path.exists(os.path.join(self.root, "synthetic", "inventory", "zip", "summary.json")))
+
+    def test_profile_must_load_or_be_none(self):
+        """Lane 6 (r3 regression): bad2dd1 ignored a missing or malformed --profile, lost the pins and promoted the
+        pinned bundles-only variant to main with exit 0."""
+        variant = synth.workspace_html(synth.rows(synth.DEFAULT_ROWS[:2]), built="2030-01-02 01:00")
+        zip_path = synth.make_zip(self.path("variant-only.zip"), html_entries={"Workspace (update only).html": variant})
+        prof = json.loads(pathlib.Path(self.profile).read_text())
+        prof["variants"] = [{"label": "update only", "sha256": html.parse(variant).sha256, "docCount": 2}]
+        no_main = dict(prof)
+        del no_main["mainHtml"]
+        bad = {"missing": self.path("nope.json"), "not json": "{not json", "no mainHtml": json.dumps(no_main),
+               "short pin": json.dumps(dict(prof, mainHtml={"sha256": "abc"})), "array": "[]"}
+        summary_out = os.path.join(self.root, "synthetic", "inventory", "zip", "summary.json")
+        for name, content in bad.items():
+            with self.subTest(name):
+                path = content if name == "missing" else self.path("bad-profile.json")
+                if name != "missing":
+                    pathlib.Path(path).write_text(content)
+                r = subprocess.run([sys.executable, CLI, "--archive", zip_path, "--fixture-root", self.root, "--name",
+                                    "synthetic", "--profile", path, "--summary", self.summary], capture_output=True, text=True)
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                self.assertIn("profile", r.stderr)
+                self.assertNotIn("Traceback", r.stderr)
+                self.assertFalse(os.path.exists(summary_out))
+        # Without a profile the main HTML is chosen by content, and an ambiguous choice still stops the build.
+        full = synth.workspace_html(synth.rows(synth.DEFAULT_ROWS))
+        cases = {"content": ({"A.html": full, "B.html": variant}, 0),
+                 "tie": ({"A.html": full, "B.html": synth.workspace_html(synth.rows(synth.DEFAULT_ROWS), built="2030-01-03 00:00")}, 2)}
+        for name, (entries, code) in cases.items():
+            with self.subTest(name):
+                z = synth.make_zip(self.path(name + ".zip"), html_entries=entries)
+                r = subprocess.run([sys.executable, CLI, "--archive", z, "--fixture-root", self.root, "--name", name,
+                                    "--profile", "none", "--summary", self.summary], capture_output=True, text=True)
+                self.assertEqual(r.returncode, code, r.stdout + r.stderr)
+                self.assertIn("--profile none", r.stderr)
+        inv = json.loads(pathlib.Path(self.root, "content", "inventory", "zip", "inventory.json").read_text())
+        self.assertEqual({c["path"]: c["role"] for c in inv["html"]["candidates"]}, {"A.html": "main", "B.html": "variant"})
+        self.assertIn("FAIL  profile given", self.cli("--profile", "none", "--verify").stdout)
+
+    def test_unparsable_root_html_stops_the_build_even_beside_the_pinned_main(self):
+        """Lane 6 (r3 regression): bad2dd1 took the pinned main and ignored an unparsable root HTML (exit 0), and a
+        root HTML whose DATA is a JSON array raised AttributeError (exit 1)."""
+        main = zipfile.ZipFile(self.zip).read("Workspace.html")
+        array_data = re.sub(rb"(?m)^const DATA = .*$", b"const DATA = [1, 2];", main)
+        self.assertNotEqual(array_data, main)
+        summary_out = os.path.join(self.root, "synthetic", "inventory", "zip", "summary.json")
+        for name, other in {"no NAV": b"<html><script>\nconst DATA = {};\nconst META = {};\n</script></html>",
+                            "DATA array": array_data}.items():
+            with self.subTest(name):
+                z = synth.make_zip(self.path("two.zip"), html_entries={"Workspace.html": main, "Other.html": other})
+                r = subprocess.run([sys.executable, CLI, "--archive", z, "--fixture-root", self.root, "--name", "synthetic",
+                                    "--profile", self.profile, "--summary", self.summary], capture_output=True, text=True)
+                self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+                self.assertIn("could not be parsed", r.stderr)
+                self.assertNotIn("Traceback", r.stderr)
+                self.assertFalse(os.path.exists(summary_out))
 
     def test_missing_archive_is_usage_error(self):
         r = subprocess.run([sys.executable, CLI, "--archive", self.path("nope.zip"), "--fixture-root", self.root],

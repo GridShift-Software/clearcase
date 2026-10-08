@@ -540,6 +540,9 @@ def cmd_bootstrap(args):
         if args.checkout:
             checkout = Path(args.checkout).expanduser().resolve()
             installed, absent = pstack_upstream(checkout, base)
+            if not installed:
+                raise SystemExit(f"bootstrap --relock: no installed skill found under {redact(checkout)}/skills; "
+                                 "pass the root of a pstack checkout")
             changed = [f"{name}/{line}" for name in sorted(installed)
                        for line in upstream_diff(checkout / "skills" / name, base / name)]
             if changed:

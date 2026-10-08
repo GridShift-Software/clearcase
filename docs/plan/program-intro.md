@@ -10,7 +10,7 @@ This document is generated from `docs/plan/program-intro.md` and `docs/plan/work
 
 One box is one unit of work. Every box names the evidence that checks it. Check a box only when its evidence exists. Generated boxes represent acceptance obligations; execution status and evidence live in Linear and the coordinator's ledger.
 
-The program runs `/home/vaper/.agents/skills/poteto-mode/playbooks/orchestrate.md` with the local T3 adaptations in `docs/orchestration.md`. The coordinator integrates accepted local work. The user controls main-branch merges and deployment. No remote or PR exists yet.
+The program runs `/home/vaper/.agents/skills/poteto-mode/playbooks/orchestrate.md` with the local T3 adaptations in `docs/orchestration.md`. The coordinator integrates accepted local work. The user controls main-branch merges and deployment. The remote is `origin`; every ticket closes through a PR into `dev`.
 
 Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
@@ -21,7 +21,7 @@ The implementation test commands below are required deliverables, not existing r
 ### Arm the program
 
 - [ ] Treat this session as planning only. Start implementation when the user supplies the kickoff as an execution instruction.
-- [ ] Read the current local skills and record their paths. `git show origin/main:` is not available because this repository has no origin; do not run it or invent trunk versions.
+- [ ] Read the current local skills and record their paths. `origin/dev` is the integration base; use `git show origin/main:<path>` only to compare against the release branch, which changes only through user-approved merges.
 - [ ] Read the orchestration, swarm, verification and relevant implementation skills before each phase. The user's no-Cursor and Opus-high settings override default model choices.
 - [ ] Do not arm `/loop 1h` during planning. If later authorized, use the app scheduler for an hourly audit with a status message only for material changes; T3 task completion already supplies wakeups.
 - [ ] On hold, send every active writer a zero-writes instruction and preserve their artifacts.
@@ -36,7 +36,7 @@ The implementation test commands below are required deliverables, not existing r
 
 ### PR mechanics, for every PR
 
-- [ ] Keep all current work local. No remote, push or PR creation is part of the planning task.
+- [ ] Push each `feature/<linear-id>-<slug>` branch to `origin` and open a PR into `dev` when the ticket's evidence is complete. Register every PR with T3.
 - [ ] When a remote and PR workflow are authorized, use the available forge and register every PR with T3. Do not require `gt` or a nonexistent repository script.
 - [ ] During authorized implementation, run lint/typecheck and relevant behavior tests before each reviewable commit. Cut unnecessary comments and prose before review.
 - [ ] Keep the reviewed base revision stable through a fix round. Delegate conflicts and recheck affected evidence after integration.
@@ -46,7 +46,7 @@ The implementation test commands below are required deliverables, not existing r
 - [ ] Record PASS, HOLD or FAIL with exact revision, commands, exit codes and artifacts. A skipped, stale or mocked acceptance check is not PASS.
 - [ ] Use independent reviewers for CC-23, CC-24, CC-11, CC-25, CC-26 and CC-20. A reviewer must not approve their own implementation.
 - [ ] Reconcile new heads against prior receipts. Run fresh checks for behavior changes and integration conflicts.
-- [ ] Integrate accepted changes serially into `phase-1/local-workspace` only under the kickoff's execution authority. Keep main unchanged.
+- [ ] Merge accepted, externally reviewed PRs serially into `dev` only under the kickoff's execution authority. Keep main unchanged.
 - [ ] Collect screenshots and a video for interaction changes. The user reviews the concrete release candidate before a main merge.
 
 ### Boot recipe, for every live lane

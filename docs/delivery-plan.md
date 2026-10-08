@@ -10,7 +10,7 @@ This document is generated from `docs/plan/program-intro.md` and `docs/plan/work
 
 One box is one unit of work. Every box names the evidence that checks it. Check a box only when its evidence exists. Generated boxes represent acceptance obligations; execution status and evidence live in Linear and the coordinator's ledger.
 
-The program runs `/home/vaper/.agents/skills/poteto-mode/playbooks/orchestrate.md` with the local T3 adaptations in `docs/orchestration.md`. The coordinator integrates accepted local work. The user controls main-branch merges and deployment. No remote or PR exists yet.
+The program runs `/home/vaper/.agents/skills/poteto-mode/playbooks/orchestrate.md` with the local T3 adaptations in `docs/orchestration.md`. The coordinator integrates accepted local work. The user controls main-branch merges and deployment. The remote is `origin`; every ticket closes through a PR into `dev`.
 
 Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
@@ -21,7 +21,7 @@ The implementation test commands below are required deliverables, not existing r
 ### Arm the program
 
 - [ ] Treat this session as planning only. Start implementation when the user supplies the kickoff as an execution instruction.
-- [ ] Read the current local skills and record their paths. `git show origin/main:` is not available because this repository has no origin; do not run it or invent trunk versions.
+- [ ] Read the current local skills and record their paths. `origin/dev` is the integration base; use `git show origin/main:<path>` only to compare against the release branch, which changes only through user-approved merges.
 - [ ] Read the orchestration, swarm, verification and relevant implementation skills before each phase. The user's no-Cursor and Opus-high settings override default model choices.
 - [ ] Do not arm `/loop 1h` during planning. If later authorized, use the app scheduler for an hourly audit with a status message only for material changes; T3 task completion already supplies wakeups.
 - [ ] On hold, send every active writer a zero-writes instruction and preserve their artifacts.
@@ -36,7 +36,7 @@ The implementation test commands below are required deliverables, not existing r
 
 ### PR mechanics, for every PR
 
-- [ ] Keep all current work local. No remote, push or PR creation is part of the planning task.
+- [ ] Push each `feature/<linear-id>-<slug>` branch to `origin` and open a PR into `dev` when the ticket's evidence is complete. Register every PR with T3.
 - [ ] When a remote and PR workflow are authorized, use the available forge and register every PR with T3. Do not require `gt` or a nonexistent repository script.
 - [ ] During authorized implementation, run lint/typecheck and relevant behavior tests before each reviewable commit. Cut unnecessary comments and prose before review.
 - [ ] Keep the reviewed base revision stable through a fix round. Delegate conflicts and recheck affected evidence after integration.
@@ -46,7 +46,7 @@ The implementation test commands below are required deliverables, not existing r
 - [ ] Record PASS, HOLD or FAIL with exact revision, commands, exit codes and artifacts. A skipped, stale or mocked acceptance check is not PASS.
 - [ ] Use independent reviewers for CC-23, CC-24, CC-11, CC-25, CC-26 and CC-20. A reviewer must not approve their own implementation.
 - [ ] Reconcile new heads against prior receipts. Run fresh checks for behavior changes and integration conflicts.
-- [ ] Integrate accepted changes serially into `phase-1/local-workspace` only under the kickoff's execution authority. Keep main unchanged.
+- [ ] Merge accepted, externally reviewed PRs serially into `dev` only under the kickoff's execution authority. Keep main unchanged.
 - [ ] Collect screenshots and a video for interaction changes. The user reviews the concrete release candidate before a main merge.
 
 ### Boot recipe, for every live lane
@@ -92,7 +92,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
-- [ ] Lane 1. Regression lane against the last accepted integration revision. Rebuild the inventory twice and compare outputs. Save `.orchestration/reports/CC-01/lane-01.png` for browser behavior or `.orchestration/reports/CC-01/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use phase-1/local-workspace at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
+- [ ] Lane 1. Regression lane against the last accepted integration revision. Rebuild the inventory twice and compare outputs. Save `.orchestration/reports/CC-01/lane-01.png` for browser behavior or `.orchestration/reports/CC-01/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use dev at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
 
 - [ ] Lane 2. Detect a deliberately missing source file. Save `.orchestration/reports/CC-01/lane-02.png` for browser behavior or `.orchestration/reports/CC-01/lane-02.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
 
@@ -130,7 +130,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. No remote or PR exists today. If one is later authorized, register the PR with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Validate and convert a portable results package (CC-02)
 
@@ -176,7 +176,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
-- [ ] Lane 1. Regression lane against the last accepted integration revision. Convert v5 and compare all chronology fields. Save `.orchestration/reports/CC-02/lane-01.png` for browser behavior or `.orchestration/reports/CC-02/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use phase-1/local-workspace at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
+- [ ] Lane 1. Regression lane against the last accepted integration revision. Convert v5 and compare all chronology fields. Save `.orchestration/reports/CC-02/lane-01.png` for browser behavior or `.orchestration/reports/CC-02/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use dev at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
 
 - [ ] Lane 2. Validate a complete candidate. Save `.orchestration/reports/CC-02/lane-02.png` for browser behavior or `.orchestration/reports/CC-02/lane-02.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
 
@@ -214,7 +214,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. No remote or PR exists today. If one is later authorized, register the PR with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Complete the local import to original-document workflow (CC-03)
 
@@ -274,7 +274,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
-- [ ] Lane 1. Regression lane against the last accepted integration revision. Compare the complete import-to-document workflow with the reference. Save `.orchestration/reports/CC-03/lane-01.png` for browser behavior or `.orchestration/reports/CC-03/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use phase-1/local-workspace at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
+- [ ] Lane 1. Regression lane against the last accepted integration revision. Compare the complete import-to-document workflow with the reference. Save `.orchestration/reports/CC-03/lane-01.png` for browser behavior or `.orchestration/reports/CC-03/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use dev at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
 
 - [ ] Lane 2. Import and preview v5 without activation. Save `.orchestration/reports/CC-03/lane-02.png` for browser behavior or `.orchestration/reports/CC-03/lane-02.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
 
@@ -314,7 +314,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. No remote or PR exists today. If one is later authorized, register the PR with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Browse, search and compare the case evidence (CC-04)
 
@@ -348,7 +348,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
-- [ ] Lane 1. Regression lane against the last accepted integration revision. Compare fixed search results with v5. Save `.orchestration/reports/CC-04/lane-01.png` for browser behavior or `.orchestration/reports/CC-04/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use phase-1/local-workspace at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
+- [ ] Lane 1. Regression lane against the last accepted integration revision. Compare fixed search results with v5. Save `.orchestration/reports/CC-04/lane-01.png` for browser behavior or `.orchestration/reports/CC-04/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use dev at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
 
 - [ ] Lane 2. Filter by bundle and document type. Save `.orchestration/reports/CC-04/lane-02.png` for browser behavior or `.orchestration/reports/CC-04/lane-02.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
 
@@ -388,7 +388,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. No remote or PR exists today. If one is later authorized, register the PR with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Read the matter narrative and evidence-linked analysis (CC-05)
 
@@ -422,7 +422,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
-- [ ] Lane 1. Regression lane against the last accepted integration revision. Compare a fixed narrative section with v5. Save `.orchestration/reports/CC-05/lane-01.png` for browser behavior or `.orchestration/reports/CC-05/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use phase-1/local-workspace at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
+- [ ] Lane 1. Regression lane against the last accepted integration revision. Compare a fixed narrative section with v5. Save `.orchestration/reports/CC-05/lane-01.png` for browser behavior or `.orchestration/reports/CC-05/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use dev at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
 
 - [ ] Lane 2. Follow an inline reference. Save `.orchestration/reports/CC-05/lane-02.png` for browser behavior or `.orchestration/reports/CC-05/lane-02.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
 
@@ -462,7 +462,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. No remote or PR exists today. If one is later authorized, register the PR with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Reconcile quantum and scenario calculations (CC-06)
 
@@ -498,7 +498,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
-- [ ] Lane 1. Regression lane against the last accepted integration revision. Compare invoice totals with the reference. Save `.orchestration/reports/CC-06/lane-01.png` for browser behavior or `.orchestration/reports/CC-06/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use phase-1/local-workspace at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
+- [ ] Lane 1. Regression lane against the last accepted integration revision. Compare invoice totals with the reference. Save `.orchestration/reports/CC-06/lane-01.png` for browser behavior or `.orchestration/reports/CC-06/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use dev at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
 
 - [ ] Lane 2. Run the R100 simple-interest example. Save `.orchestration/reports/CC-06/lane-02.png` for browser behavior or `.orchestration/reports/CC-06/lane-02.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
 
@@ -538,7 +538,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. No remote or PR exists today. If one is later authorized, register the PR with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Maintain case registers without losing edits (CC-07)
 
@@ -572,7 +572,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
-- [ ] Lane 1. Regression lane against the last accepted integration revision. Compare seeded register state with v5. Save `.orchestration/reports/CC-07/lane-01.png` for browser behavior or `.orchestration/reports/CC-07/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use phase-1/local-workspace at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
+- [ ] Lane 1. Regression lane against the last accepted integration revision. Compare seeded register state with v5. Save `.orchestration/reports/CC-07/lane-01.png` for browser behavior or `.orchestration/reports/CC-07/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use dev at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
 
 - [ ] Lane 2. Create and edit a disbursement. Save `.orchestration/reports/CC-07/lane-02.png` for browser behavior or `.orchestration/reports/CC-07/lane-02.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
 
@@ -612,7 +612,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. No remote or PR exists today. If one is later authorized, register the PR with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Work through litigation preparation tools (CC-08)
 
@@ -646,7 +646,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
-- [ ] Lane 1. Regression lane against the last accepted integration revision. Compare roadmap content with v5. Save `.orchestration/reports/CC-08/lane-01.png` for browser behavior or `.orchestration/reports/CC-08/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use phase-1/local-workspace at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
+- [ ] Lane 1. Regression lane against the last accepted integration revision. Compare roadmap content with v5. Save `.orchestration/reports/CC-08/lane-01.png` for browser behavior or `.orchestration/reports/CC-08/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use dev at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
 
 - [ ] Lane 2. Change and reload a roadmap status. Save `.orchestration/reports/CC-08/lane-02.png` for browser behavior or `.orchestration/reports/CC-08/lane-02.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
 
@@ -686,7 +686,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. No remote or PR exists today. If one is later authorized, register the PR with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Prepare discovery schedules and case bundles (CC-09)
 
@@ -720,7 +720,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
-- [ ] Lane 1. Regression lane against the last accepted integration revision. Compare a discovery schedule with its source. Save `.orchestration/reports/CC-09/lane-01.png` for browser behavior or `.orchestration/reports/CC-09/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use phase-1/local-workspace at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
+- [ ] Lane 1. Regression lane against the last accepted integration revision. Compare a discovery schedule with its source. Save `.orchestration/reports/CC-09/lane-01.png` for browser behavior or `.orchestration/reports/CC-09/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use dev at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
 
 - [ ] Lane 2. Inspect an incomplete schedule item. Save `.orchestration/reports/CC-09/lane-02.png` for browser behavior or `.orchestration/reports/CC-09/lane-02.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
 
@@ -760,7 +760,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. No remote or PR exists today. If one is later authorized, register the PR with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Rescan local files and restore user work safely (CC-10)
 
@@ -798,7 +798,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
-- [ ] Lane 1. Regression lane against the last accepted integration revision. Compare available system actions with v5. Save `.orchestration/reports/CC-10/lane-01.png` for browser behavior or `.orchestration/reports/CC-10/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use phase-1/local-workspace at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
+- [ ] Lane 1. Regression lane against the last accepted integration revision. Compare available system actions with v5. Save `.orchestration/reports/CC-10/lane-01.png` for browser behavior or `.orchestration/reports/CC-10/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use dev at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
 
 - [ ] Lane 2. Scan an unchanged folder twice. Save `.orchestration/reports/CC-10/lane-02.png` for browser behavior or `.orchestration/reports/CC-10/lane-02.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
 
@@ -838,7 +838,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. No remote or PR exists today. If one is later authorized, register the PR with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Verify complete v5 parity and local release readiness (CC-11)
 
@@ -882,7 +882,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
-- [ ] Lane 1. Regression lane against the last accepted integration revision. Run the reference and rewrite pilot side by side. Save `.orchestration/reports/CC-11/lane-01.png` for browser behavior or `.orchestration/reports/CC-11/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use phase-1/local-workspace at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
+- [ ] Lane 1. Regression lane against the last accepted integration revision. Run the reference and rewrite pilot side by side. Save `.orchestration/reports/CC-11/lane-01.png` for browser behavior or `.orchestration/reports/CC-11/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use dev at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
 
 - [ ] Lane 2. Account for every view and meaningful action. Save `.orchestration/reports/CC-11/lane-02.png` for browser behavior or `.orchestration/reports/CC-11/lane-02.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
 
@@ -922,7 +922,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. No remote or PR exists today. If one is later authorized, register the PR with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Import and verify the newer 2,131-document export (CC-12)
 
@@ -958,7 +958,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
-- [ ] Lane 1. Regression lane against the last accepted integration revision. Re-run the v5 pilot unchanged. Save `.orchestration/reports/CC-12/lane-01.png` for browser behavior or `.orchestration/reports/CC-12/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use phase-1/local-workspace at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
+- [ ] Lane 1. Regression lane against the last accepted integration revision. Re-run the v5 pilot unchanged. Save `.orchestration/reports/CC-12/lane-01.png` for browser behavior or `.orchestration/reports/CC-12/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use dev at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
 
 - [ ] Lane 2. Import exactly 2,131 newer chronology rows. Save `.orchestration/reports/CC-12/lane-02.png` for browser behavior or `.orchestration/reports/CC-12/lane-02.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
 
@@ -998,7 +998,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. No remote or PR exists today. If one is later authorized, register the PR with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Round-trip one manually authored analysis through Markdown (CC-13)
 
@@ -1036,7 +1036,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
 
-- [ ] Lane 1. Regression lane against the last accepted integration revision. Generate a risk template from known metadata. Save `.orchestration/reports/CC-13/lane-01.png` for browser behavior or `.orchestration/reports/CC-13/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use phase-1/local-workspace at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
+- [ ] Lane 1. Regression lane against the last accepted integration revision. Generate a risk template from known metadata. Save `.orchestration/reports/CC-13/lane-01.png` for browser behavior or `.orchestration/reports/CC-13/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use dev at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
 
 - [ ] Lane 2. Edit a risk and see it in preview. Save `.orchestration/reports/CC-13/lane-02.png` for browser behavior or `.orchestration/reports/CC-13/lane-02.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
 
@@ -1076,7 +1076,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. No remote or PR exists today. If one is later authorized, register the PR with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Close the program
 

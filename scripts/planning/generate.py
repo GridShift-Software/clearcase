@@ -58,7 +58,7 @@ def unit_section(item, by_key):
     lines += [f"**Verify, live.** {RULE} Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision."]
     for n, scenario in enumerate(item["liveScenarios"], 1):
         lead = "Regression lane against the last accepted integration revision. " if n == 1 else ""
-        suffix = " Use phase-1/local-workspace at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result." if n == 1 else ""
+        suffix = " Use dev at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result." if n == 1 else ""
         lines.append(f"- [ ] Lane {n}. {lead}{scenario}. Save `{proof}/lane-{n:02}.png` for browser behavior or `{proof}/lane-{n:02}.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.{suffix}")
     lines += [
         f"**Verify, perf.** {RULE}",
@@ -78,7 +78,7 @@ def unit_section(item, by_key):
         "**Merge.**",
         "- [ ] Obtain an independent clean verdict at the exact candidate revision and record all receipts.",
         "- [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.",
-        "- [ ] Keep main unchanged. No remote or PR exists today. If one is later authorized, register the PR with T3 and apply the same evidence gate to its actual head.",
+        "- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.",
     ]
     return "\n\n".join(lines) + "\n"
 

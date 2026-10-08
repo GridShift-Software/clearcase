@@ -6,15 +6,16 @@ Planning checkpoint, 8 October 2026.
 
 | Item | State |
 | --- | --- |
-| Integration worktree | `/home/vaper/Work/Active/MX-two/ClearCase/worktrees/local-v1` |
-| Integration branch | `phase-1/local-workspace` |
-| Base commit | `6edffe1`, the original README/icon scaffold |
-| Main checkout | `/home/vaper/.t3/projects/clearcase`, unchanged by this planning task |
-| Remote | None configured |
+| Integration branch | `dev`, pushed to `origin` |
+| Execution host | `puk`; `dev` clone `/home/vaper/Work/Active/MX-two/ClearCase/clearcase`, worktrees under `/home/vaper/Work/Active/MX-two/ClearCase/worktrees/` |
+| Coordinator host | `archlinux`; `dev` checkout `/home/vaper/Work/Active/MX-two/ClearCase/worktrees/local-v1` |
+| Base commit | `977dc85`, the planning checkpoint on top of `6edffe1` |
+| Main checkout | `/home/vaper/.t3/projects/clearcase`, unchanged |
+| Remote | `origin`, GitHub `GridShift-Software/clearcase`; PRs into `dev` |
 | App code and runtime | Not implemented; no app dev server is running from this repository |
-| Planning files | Present locally and uncommitted; preserve them on pickup |
-| Linear | 26 issues, seven milestones, six independent gate issues; all begin in Backlog |
-| First executable work | GRS-9, freeze the v5 fixture and behavior baseline |
+| Planning files | Committed on `dev` |
+| Linear | 28 issues, seven milestones, six independent gate issues; all begin in Backlog |
+| First executable work | GRS-35, pstack and verification CLI setup, then GRS-9 |
 | External dependency | GRS-25, the current hosted operator results-import contract remains unverified |
 
 The [Linear master plan](https://linear.app/vaper/document/clearcase-delivery-plan-and-acceptance-gates-518b0c44b87a) links all milestones and issues. The earlier browser audit remains a historical input and now points to that plan.
@@ -47,6 +48,6 @@ Referenced research aids have been preserved under ignored `.local/research/`. T
 
 ## Exact next steps
 
-Run the planning checker and inspect current Git and Linear state. Preserve uncommitted planning artifacts. If the user has supplied the kickoff as an execution instruction, make the authorized local planning commit, initialize the coordinator's ignored state, reserve GRS-9 and dispatch its worker. Otherwise remain in planning mode.
+Run the planning checker and inspect current Git and Linear state. The planning commit exists on `dev`. Under the kickoff, initialize the coordinator's ignored state on `puk`, reserve GRS-35 and dispatch its worker, then GRS-9.
 
 Do not start broad feature work before GRS-11 and GRS-13 pass. Do not start V2 or Pi Durable under the V1 kickoff. Keep main and production unchanged.

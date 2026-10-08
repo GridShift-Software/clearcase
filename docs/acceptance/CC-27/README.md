@@ -1,6 +1,6 @@
 # CC-27 acceptance evidence
 
-CC-27 is [GRS-35](https://linear.app/vaper/issue/GRS-35/set-up-pstack-and-verification-skills-for-agent-cli-access), agent tooling and the Linear plan sync. The receipts in `evidence-0962dde/` were produced at `0962dde70248c2b5a2c9f3e8d6d37055521e16d8` on branch `feature/grs-35-agent-tooling`, base `dev` at `81c3f4b`, on `puk` (CachyOS, bash 5.3, Python 3.14.7, Node 26.10, Bun 1.4.2, git 2.56). Later commits on the branch change only this directory. Run `git diff --stat 0962dde HEAD` to confirm that before accepting these receipts for the reviewed head. They contain no case material, and paths under the home directory appear as `~`.
+CC-27 is [GRS-35](https://linear.app/vaper/issue/GRS-35/set-up-pstack-and-verification-skills-for-agent-cli-access), agent tooling and the Linear plan sync. The receipts in `evidence-7f26ebe/` were produced at `7f26ebe08f7b0824a34eedd501e4c2f489efde24` on branch `feature/grs-35-agent-tooling`, base `dev` at `81c3f4b`, on `puk` (CachyOS, bash 5.3, Python 3.14.7, Node 26.10, Bun 1.4.2, git 2.56). Later commits on the branch change only this directory. Run `git diff --stat 7f26ebe HEAD` to confirm that before accepting these receipts for the reviewed head. They contain no case material, and paths under the home directory appear as `~`.
 
 ## Independent rerun (verification item 7)
 
@@ -24,9 +24,9 @@ The clone must contain the pinned pstack revision from `scripts/agent-tools/skil
 
 It removes its throwaway worktree and temporary directories even when it stops early. Without `CC27_READBACK` the Linear steps, and without `CC27_PSTACK_CHECKOUT` the pstack comparisons, are SKIPPED, and the run exits 3 (INCOMPLETE) instead of 0. If the export changes, `v3-description-drift` may return 0 (no drift) instead of 1. Set `CC27_EXPORT_EXPECT` accordingly and read the transcript.
 
-## Results at 0962dde
+## Results at 7f26ebe
 
-All 27 inventoried steps returned their expected exit code (`evidence-0962dde/summary.tsv`), and `rerun.sh` exited 0. `evidence-0962dde/revision.txt` shows the tested head with a clean worktree. `evidence-0962dde/identity-audit.txt` lists all 37 receipts, 22 PASS, 6 FAIL and 9 SKIPPED, and finds 0 problems: every step has its row, its transcript and exactly its receipts, and every receipt's files exist. Every receipt that names a head names `0962dde` with `dirty: false`, and each PASS receipt also names base `81c3f4b` and merge base `81c3f4b`. The five receipts without a head come from the steps run without git, and none is PASS.
+All 27 inventoried steps returned their expected exit code (`evidence-7f26ebe/summary.tsv`), and `rerun.sh` exited 0. `evidence-7f26ebe/revision.txt` shows the tested head with a clean worktree. `evidence-7f26ebe/identity-audit.txt` lists all 37 receipts, 22 PASS, 6 FAIL and 9 SKIPPED, and finds 0 problems: every step has its row, its transcript and exactly its receipts, and every receipt's files exist. Every receipt that names a head names `7f26ebe` with `dirty: false`, and each PASS receipt also names base `81c3f4b` and merge base `81c3f4b`. The five receipts without a head come from the steps run without git, and none is PASS.
 
 | Item | Step | Expected, actual | Evidence |
 | --- | --- | --- | --- |
@@ -35,14 +35,22 @@ All 27 inventoried steps returned their expected exit code (`evidence-0962dde/su
 | 2 Planning checker and pstack check-plan.mjs | `v2-check-plan`. `check.py --require-linear-ids` reports PASS with 28 issues and 28 Linear mappings. `check-plan.mjs docs/delivery-plan.md` reports 13 PR sections and 0 problems. | 0, 0 | `transcripts/v2-check-plan.txt`, `receipts/v2-check-plan/` |
 | 3 Fresh Linear readback | `v3-linear-relations`, `check.py --linear-relations` against the coordinator's readback read at 2026-10-08T13:04:09Z | 0, 0 | `receipts/v3-linear-relations/*-linear-relations/` |
 | 3 Description drift, informational | `v3-description-drift` against the coordinator's export with the Bun descriptions, read at 2026-10-08T15:57:30Z. 23 of 28 generated briefs match live text. The remaining 5 are listed below. | 1, 1 | `transcripts/v3-description-drift.txt` |
-| 4 Valid and invalid fixtures | `v4-fixture-tests`, `bash tests/agent-tools/run.sh`, 463 passed and 0 failed | 0, 0 | `transcripts/v4-fixture-tests.txt` |
+| 4 Valid and invalid fixtures | `v4-fixture-tests`, `bash tests/agent-tools/run.sh`, 482 passed and 0 failed | 0, 0 | `transcripts/v4-fixture-tests.txt` |
 | 5 Verification capability on synthetic fixtures | `v5-plan-format-valid` (0 problems), `v5-plan-format-invalid` (4 diagnostics, exit 1 preserved), `v5-app-deferred` (SKIPPED, GRS-12), `v5-pstack-upstream-no-checkout` (SKIPPED) | 0, 0. 1, 1. 3, 3. 3, 3 | `receipts/v5-*/` |
 | 6 Fresh worktree, missing dependency, skipped check | `v6-doctor`, `v6-check-plan`, `v6-fixture-tests` and `v6-pstack-upstream` in a new detached worktree. Then `v6-doctor-without-node` (FAIL with fix), `v6-plan-format-without-node` (SKIPPED), `v6-required-readback-missing` (SKIPPED, overall FAIL) and `v6-doctor-empty-path` (no python3, exit 2 with fix). The worktree was clean and removed afterwards. | 0, 0, 0, 0, 1, 3, 3, 2, all matched | `transcripts/v6-*.txt`, `receipts/v6-*/` |
 | 6 Missing or old Bun | `v6-doctor-without-bun` (FAIL, `bun not found on PATH`, `fix: install Bun >= 1.4.2`) and `v6-doctor-old-bun` (FAIL, a bun that reports 1.3.9 `is older than 1.4.2`, `fix: run bun upgrade --stable`). In both, the Bun row is the only failure. | 1, 1. 1, 1 | `transcripts/v6-doctor-*-bun.txt`, `receipts/v6-doctor-*-bun/` |
 | 6 Missing git and an unresolvable base, the independent review's reproductions | `v6-doctor-without-git` (FAIL, `fix: install git`). `v6-plan-format-without-git` and `v6-check-plan-without-git` (every step SKIPPED, `required tool not found: git`, overall FAIL). `v6-plan-format-bad-base` (SKIPPED, `base 'clearcase-base-does-not-exist' does not resolve to a commit`). No command ran. | 1, 1. 3, 3. 3, 3. 3, 3 | `transcripts/v6-*-without-git.txt`, `transcripts/v6-plan-format-bad-base.txt`, `receipts/v6-*/` |
 | 7 Independent rerun | Coordinator-dispatched, different model family | | This README |
 
-The round-7 brief's VERIFY command block was run at the receipts commit. Its transcript, the review reproducers before and after the fixes, and the mutation check stay in the coordinator's round-7 report directory, `.orchestration/reports/CC-27/r7/` in the `puk` `dev` clone, and are not committed here.
+The round-8 brief's VERIFY command block was run at the receipts commit. Its transcript, the review reproducers before and after the fix, and the mutation check stay in the coordinator's round-8 report directory, `.orchestration/reports/CC-27/r8/` in the `puk` `dev` clone, and are not committed here. Round 7's are in `.orchestration/reports/CC-27/r7/`.
+
+## Round 8: independent review 4 at 4d6ebda
+
+The fourth independent review returned FAIL at `4d6ebda` with one major finding, now fixed. A direct `doctor` resolved the revision once, before its checks, and looked again only at its lock and `package.json`. So a tracked file edited or an index broken while it ran still gave a clean PASS receipt (`dirty: false`). In `548c612` the doctor resolves the revision again after its checks with `revision_changed`, as `run_with_receipt` does after the command exits. A revision that cannot be read then, or differs, is a FAIL `revision` row, exit 1, with a rerun fix. The review's reproducer, rerun in a scratch clone, now gives FAIL with exit 1 for both variants, `the checkout changed during the run: dirty False -> True, ...` and `the revision cannot be read after the run: working tree state unknown: ...`, and its normal control still passes. The tests run the doctor entry point with a test `tmux`, which the doctor probes between its two looks: "a tracked file changed during the doctor's run fails the doctor", "an index broken during the doctor's run fails the doctor" and "the doctor passes when the test tmux changes nothing". In "a doctor input that changes during the run fails the doctor" the revision row now joins the input row, because `package.json` is a file of the checkout.
+
+`bb762ad` applies the review's optional hardening. A capture rewritten in place with other bytes of the same size kept its link, inode and size, and its receipt said PASS. `tee` now takes the sha256 of the bytes as it writes them, and before PASS the capture is read back through its descriptor and must have the same sha256. Otherwise the result is `output not captured whole: ...: holds other bytes than were written`, SKIPPED, or FAIL with the command's exit code. Tests: "a capture rewritten with other bytes of the same size is not PASS" (the review's reproducer) and, from `7f26ebe`, "a capture larger than one read-back block is PASS". `09533f8` and `7f26ebe` update `docs/agent-tooling.md`.
+
+A mutation check at `7f26ebe` reverted each new guard in a scratch clone, and all 8 round-8 mutations are killed. Round 7's 40 (one ported to the moved capture code), round 5's 44 and round 6's 18 are all killed too.
 
 ## Round 7: independent review 3 at 745f095
 
@@ -100,7 +108,9 @@ The coordinator can make Linear match the repository with `python3 scripts/plann
 
 ## Earlier evidence
 
-`evidence-0962dde/` supersedes every step of ten earlier sets, which were removed from the tree and remain in Git:
+`evidence-7f26ebe/` supersedes every step of eleven earlier sets, which were removed from the tree and remain in Git:
+
+- `4d6ebda:docs/acceptance/CC-27/evidence-0962dde/`, the round-7 set. The independent review at `4d6ebda` found that a direct doctor did not resolve the revision again after its checks. Round 8 fixes it and compares each capture's bytes with those written (see above). Every step was rerun at `7f26ebe`.
 
 - `745f095:docs/acceptance/CC-27/evidence-aec7466/`, the round-6 set. The independent review at `745f095` found that `rerun.sh` could pass without a required step's evidence, that a receipt could name an input that changed or a capture that was lost during the run, that the doctor read only the first line of `bun --version`, and that the test helpers passed on a crashed validator. Round 7 fixes them (see above). Every step was rerun at `0962dde`.
 

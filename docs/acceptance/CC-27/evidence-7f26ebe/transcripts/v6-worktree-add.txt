@@ -1,0 +1,2 @@
+Preparing worktree (detached HEAD 7f26ebe)
+HEAD is now at 7f26ebe Test a capture larger than one read-back block

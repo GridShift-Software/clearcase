@@ -1,11 +1,11 @@
 # Agent tooling
 
-Implementation and review agents run the project's planning checks and verification capabilities through `scripts/agent-tools/`. Every entry point works from a fresh non-interactive shell in any worktree, needs no GUI or shell profile, and writes a receipt. CC-27 ([GRS-35](https://linear.app/vaper/issue/GRS-35/set-up-pstack-and-verification-skills-for-agent-cli-access)) owns this tooling. It implements no application behavior.
+Implementation and review agents run the project's planning checks and verification capabilities through `scripts/agent-tools/`. Every entry point works from a fresh non-interactive shell in any worktree and needs no GUI or shell profile. Every check writes a receipt; [Receipts](#receipts) lists exactly which commands do. CC-27 ([GRS-35](https://linear.app/vaper/issue/GRS-35/set-up-pstack-and-verification-skills-for-agent-cli-access)) owns this tooling. It implements no application behavior.
 
 ## Quick start
 
 ```sh
-scripts/agent-tools/doctor                      # preflight; nonzero on any missing dependency
+scripts/agent-tools/doctor                      # preflight with a receipt; nonzero on any missing dependency
 scripts/agent-tools/check-plan                  # planning checker + pstack check-plan.mjs
 scripts/agent-tools/check-plan --linear-relations PATH   # also compare a Linear readback
 bash tests/agent-tools/run.sh                   # tooling self-tests
@@ -45,7 +45,7 @@ pstack's `orch` and `watch-pr` scripts need bun and are not used by this project
 
 ## Bootstrap, upgrade and removal
 
-Prerequisites are bash, git, python3 and node on a standard PATH such as `/usr/local/bin:/usr/bin:/bin`, plus the skill bundle in `~/.agents/skills`. On a new Arch-family host:
+Prerequisites are bash, git, python3 and node on a standard PATH such as `/usr/local/bin:/usr/bin:/bin`, plus the skill bundle in `~/.agents/skills`. The checkout needs `origin/dev` or `dev` for the default receipt base; otherwise pass `--base REF` (see [Revision identity](#revision-identity)). On a new Arch-family host:
 
 ```sh
 sudo pacman -S --needed bash git python nodejs
@@ -74,15 +74,15 @@ To remove, run `scripts/agent-tools/bootstrap --remove`. It deletes only `.local
 
 | Command | Runs | Exit codes |
 | --- | --- | --- |
-| `scripts/agent-tools/doctor` | OS and bash, Python, git and repository, Node, planning scripts, skill bundle discovery, required skill files, the content pin, writable receipt directory. Reports the pinned pstack source, optional tools (bun, gh, tmux) and the deferred app/browser dependencies. | 0 all required checks pass, 1 a check failed, 2 unsupported OS, old bash or no python3 |
+| `scripts/agent-tools/doctor` | OS and bash, Python, git and repository, the revision receipts record (head, base and merge base), Node, planning scripts, skill bundle discovery, required skill files, the content pin, writable receipt directory. Reports the pinned pstack source, optional tools (bun, gh, tmux) and the deferred app/browser dependencies. Writes one receipt with the report. | 0 all required checks pass, 1 a check failed, 2 unsupported OS, old bash or no python3 (no receipt, because Python never starts) |
 | `scripts/agent-tools/check-plan [--linear-relations PATH] [--require-linear-relations] [--plan PATH]` | `plan-graph` and `plan-format`, plus `linear-relations` when a readback is given (or `CLEARCASE_LINEAR_READBACK` is set). One receipt per step. | 0 every step passed, otherwise the first failing step's code. A required comparison without a readback exits 3. |
-| `scripts/agent-tools/verify list` | Lists capabilities and whether each is available or deferred. | 0 |
+| `scripts/agent-tools/verify list` | Lists capabilities and whether each is available or deferred. Writes no receipt. | 0 |
 | `scripts/agent-tools/verify CAPABILITY [--readback PATH] [--plan PATH] [--checkout DIR]` | One capability with a receipt. | The wrapped command's own exit code, or 3 when skipped |
-| `scripts/agent-tools/receipt --name NAME [--tool T]... [--input FILE]... -- CMD ARGS...` | Any command with a receipt. A missing `--tool`, `--input` or command is SKIPPED and is not run. | The command's own exit code, or 3 when skipped |
-| `scripts/agent-tools/bootstrap [--relock [--checkout DIR [--allow-drop]] \| --remove]` | See above. | 0 or 1 |
-| `python3 scripts/planning/generate.py --compare-linear EXPORT` | Diffs generated briefs against the descriptions in a full Linear export. | 0 all match, 1 drift |
+| `scripts/agent-tools/receipt --name NAME [--tool T]... [--input FILE]... -- CMD ARGS...` | Any command with a receipt. A missing `--tool`, `--input`, command or revision is SKIPPED and is not run. | The command's own exit code, or 3 when skipped |
+| `scripts/agent-tools/bootstrap [--relock [--checkout DIR [--allow-drop]] \| --remove]` | See above. Plain `bootstrap` runs the doctor, which writes the doctor's receipt. A refused conflicting link, `--relock` and `--remove` write none. | 0 or 1 |
+| `python3 scripts/planning/generate.py --compare-linear EXPORT` | Diffs generated briefs against the descriptions in a full Linear export. Writes no receipt unless wrapped in `receipt`. | 0 all match, 1 drift |
 
-All commands accept `--skills-dir`, `--receipts`, `--base REF` and `--root DIR`. `--root` checks a different planning tree; the tests use it for fixtures.
+All commands accept `--skills-dir`, `--receipts`, `--base REF` and `--root DIR`. `--root` checks a different planning tree, which must be the top of a Git checkout; the tests use it for fixtures. `--base` names the revision that receipts compare against; see [Revision identity](#revision-identity).
 
 Capabilities and the commands they wrap, unchanged:
 
@@ -110,34 +110,53 @@ The entry points use `#!/bin/bash` rather than `#!/usr/bin/env bash`. With an em
 ## Failure behavior
 
 - Wrapped commands keep their stdout, stderr and exit code. Output streams live and is also saved to the receipt.
-- A missing tool, input or command produces result SKIPPED and exit 3. The command does not run. SKIPPED never counts as PASS.
+- A missing tool, input, command or revision produces result SKIPPED and exit 3. git is a required tool of every receipt. The command does not run. SKIPPED never counts as PASS.
 - `check-plan` runs every step, even after a failure, so one run shows all diagnostics. Its summary line names each step's result and anything not run.
 - Without `--linear-relations`, `check-plan` says `NOT RUN: linear-relations`. Local ID checks do not prove agreement with the live Linear graph. Use `--require-linear-relations` where the comparison is mandatory.
 - The doctor's DEFERRED app/browser line is not a pass and not a failure. It becomes a required check when GRS-12 lands its commands.
 
 ## Receipts
 
-Each run writes `<receipts>/<UTC timestamp>-<name>/` with `receipt.json`, `stdout.txt` and `stderr.txt`. The receipt directory is `--receipts DIR`, else `CLEARCASE_RECEIPTS_DIR`, else `.local/agent-receipts/` in the checkout (ignored by Git). Workers point it at `.orchestration/reports/<planning-key>/` in the `dev` clone for machine-local evidence. Committed receipts go under `docs/acceptance/<planning-key>/` and must not contain case material.
+`doctor`, `check-plan` (one receipt per step), `verify CAPABILITY` and `receipt` each write a receipt, and so does the doctor run inside a plain `bootstrap`. `verify list`, `bootstrap --relock`, `bootstrap --remove` and a `bootstrap` that refuses a conflicting link write none; wrap them in `scripts/agent-tools/receipt` when you need a record, as `docs/acceptance/CC-27/rerun.sh` does for `bootstrap`. An entry point that exits 2 before Python starts (unsupported OS, bash older than 4.4, no python3) writes no receipt.
+
+Each receipt is a directory `<receipts>/<UTC timestamp>-<name>/` with `receipt.json`, `stdout.txt` and `stderr.txt`. The receipt directory is `--receipts DIR`, else `CLEARCASE_RECEIPTS_DIR`, else `.local/agent-receipts/` in the checkout (ignored by Git). Workers point it at `.orchestration/reports/<planning-key>/` in the `dev` clone for machine-local evidence. Committed receipts go under `docs/acceptance/<planning-key>/` and must not contain case material.
 
 `receipt.json` (schema `clearcase-agent-receipt/1`) records:
 
 - `name`, `result` (PASS, FAIL or SKIPPED), `exitCode` and `reason` for a skip.
 - `command`, the exact argv, and `cwd`.
-- `tools`, each with path and `--version` output, and `inputs`, each with path and sha256 (for example the checker scripts, the plan and the readback).
-- `revision`, with branch, `head`, `baseRef`, `base`, `mergeBase`, `dirty` and `diffSha256` (tracked diff plus untracked files) when dirty.
+- `tools`, git first and then the command's own tools, each with path and `--version` output. `inputs`, each with path and sha256 (for example the checker scripts, the plan, the readback, or the lock the doctor checks).
+- `revision`, resolved before the command runs: `root`, `branch`, `head`, `baseRef` (as requested, or the default that resolved), `base`, `mergeBase`, `dirty`, and `diffSha256` (tracked diff plus untracked files) when dirty. Every key is present. Null values occur only in SKIPPED or FAIL receipts.
 - `environment`, with OS, kernel, machine, host, bash, caller shell, Python and PATH.
 - `startedAt`, `finishedAt` and `durationSeconds`.
 - `artifacts`, the paths of the receipt, stdout and stderr.
 
 Paths under `$HOME` are written as `~` so receipts carry no machine-specific home directory.
 
+### Revision identity
+
+Before a receipt-producing command runs anything, it resolves the revision it will record. It uses the checkout that holds the tools, or `--root DIR`. A PASS receipt therefore always names `head`, `base` and `mergeBase` as full commit IDs.
+
+| Situation | Result |
+| --- | --- |
+| git is not on PATH | SKIPPED, exit 3: `required tool not found: git`. |
+| The directory is not a Git checkout, `--root` is below a checkout's top, or the checkout has no commit. This includes `receipt` run from a copy of the tools outside any checkout. | SKIPPED, exit 3: `no head revision: ...`. The receipt records the attempt; the command does not run. |
+| `--base REF`, or `CLEARCASE_BASE_REF` when `--base` is absent, does not resolve to a commit | SKIPPED, exit 3, naming the ref. An explicit base never falls back to a default. It is a missing required input, like a missing `--input` file. |
+| No explicit base, and neither `origin/dev` nor `dev` exists | SKIPPED, exit 3: `no base revision`. Pass `--base REF`. |
+| The base shares no history with HEAD | SKIPPED, exit 3. |
+| Otherwise | The command runs. `base` is the base commit and `mergeBase` is `git merge-base HEAD base`. |
+
+The doctor resolves the same revision for its own checkout and `--base`, but still runs all its other checks. It reports any problem from the table as a FAIL `git`, `repository` or `revision` row and exits 1, so its receipt says FAIL. A ticket whose branch was cut from another ticket's head passes that head as `--base REF`, or sets `CLEARCASE_BASE_REF` once for the session.
+
 ## Tests
 
 `bash tests/agent-tools/run.sh` needs bash, coreutils, git, python3 and node. It covers:
 
 - The synthetic plans `tests/agent-tools/fixtures/plans/{valid,invalid}.md` through pstack `check-plan.mjs`.
-- Graph fixtures `tests/agent-tools/fixtures/graph/*.json`. Each one edits a disposable copy of the committed plan (cycle, unmapped issue, scope overlap, stale generated files, Linear readback drift) and carries its expected exit code and diagnostics.
+- Graph fixtures `tests/agent-tools/fixtures/graph/*.json`. Each one edits a disposable Git checkout of the committed plan (cycle, unmapped issue, scope overlap, stale generated files, Linear readback drift) and carries its expected exit code and diagnostics.
 - Deferred and skipped checks, the receipt writer's output and exit-code preservation, the doctor with no node and with no python3, and bootstrap idempotency, conflict refusal and removal in a fresh Git checkout.
+- Revision identity. Receipts record `head`, `baseRef`, `base` and `mergeBase` equal to `git rev-parse` and `git merge-base`, in this checkout and in a synthetic repository whose `dev` moved on after the fork. These cases are SKIPPED, exit 3, and the command does not run: no git (`verify`, `check-plan` and `receipt`), an unresolvable `--base` or `CLEARCASE_BASE_REF`, no default base, an unrelated base, a `--root` below a checkout's top, a checkout without a commit, and a copy of the tools outside any checkout. Every PASS receipt in the suite must list git and name all three commits.
+- Receipts per command. The doctor writes PASS with this checkout's revision and FAIL with a bad base or without git or node. It writes none when python3 is missing. A plain `bootstrap` writes its doctor run's receipt. A refused `bootstrap`, `bootstrap --relock`, `bootstrap --remove` and `verify list` write none.
 - The doctor on a copy of the pinned skills, before and after a planted change and a removed skill.
 - `verify pstack-upstream` and `bootstrap --relock --checkout` against a synthetic upstream Git repository: no checkout and a missing one, mislabelled, unpinned and unlisted skills, a matching pin, a changed installed file, an ignored file in the working tree, a recorded version that differs, a pin the revision lacks, a stale pinned hash, a directory that is not a Git checkout, a skills dir without the checkout's skills, a later upstream HEAD, a replace ref, a recorded revision that is not a commit ID, a clone without the pinned revision, and a relock that removes a pin with and without `--allow-drop`.
 

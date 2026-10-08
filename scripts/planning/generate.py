@@ -53,7 +53,7 @@ def unit_section(item, by_key):
     if key == "CC-01":
         perf_probe = "Run `python3 scripts/fixtures/inventory.py --verify` with elapsed-time and peak-memory reporting. Record the initial baseline and machine details; no interleaved comparison is required."
     else:
-        perf_probe = f"Run `npm run measure -- --ticket {key} --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details."
+        perf_probe = f"Run `bun run --bun measure --ticket {key} --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details."
         if key == "CC-02":
             perf_probe += " Place this unit's measurement script under its owned scripts/case-package/ directory."
     lines = [f"## {item['title']} ({key})", f"**Depends on.** {deps}.", "**Files.**"]
@@ -63,7 +63,7 @@ def unit_section(item, by_key):
     if key == "CC-01":
         lines += ["- [ ] Deliver and run `python3 scripts/fixtures/inventory.py --verify` against the designated local archive. Preserve its JSON inventory and literal fixture assertions in the unit report."]
     else:
-        lines += [f"- [ ] Run `npm run check` and `npm run test -- --run {item['testPath']}` against the literal acceptance examples. Record stdout, stderr and exit codes in `{proof}/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion."]
+        lines += [f"- [ ] Run `bun run --bun check` and `bun run --bun test --run {item['testPath']}` against the literal acceptance examples. Record stdout, stderr and exit codes in `{proof}/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion."]
     lines += [f"**Verify, live.** {RULE} Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision."]
     for n, scenario in enumerate(item["liveScenarios"], 1):
         lead = "Regression lane against the last accepted integration revision. " if n == 1 else ""

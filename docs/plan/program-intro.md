@@ -53,7 +53,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Check out the exact reserved local candidate revision. Record `git rev-parse HEAD` and any uncommitted diff digest.
 - [ ] Read the ticket's fixture and input-version identity. Set the documented local fixture path and fixed clock; keep case material outside Git.
-- [ ] Once CC-03 provides the app, install from its lockfile, run the documented local server on loopback and wait for its readiness check. Use `npm run build` and the production preview for performance measurements.
+- [ ] Once CC-03 provides the app, install from its lockfile, run the documented local server on loopback and wait for its readiness check. Use `bun run --bun build` and the production preview for performance measurements.
 - [ ] Use T3 `preview_status`, then `preview_open` if needed, followed by the available navigation and interaction tools. Follow platform fallback rules if the preview is unavailable.
 - [ ] Drive real inputs, save screenshots and logs under `.orchestration/reports/<planning-key>/`, and name the observed pass predicate. CLI units save terminal transcripts; no screenshot is required.
 - [ ] Disable outbound networking for local acceptance. Use synthetic data for committed tests and keep case-bearing receipts ignored.

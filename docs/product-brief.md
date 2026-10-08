@@ -59,7 +59,7 @@ V1 excludes cloud deployment, authentication, client intake, notifications, bill
 
 ## Proposed implementation and handoff format
 
-Use SvelteKit and TypeScript, with a local Node server initially. SvelteKit provides documented [Node](https://svelte.dev/docs/kit/adapter-node) and [Cloudflare](https://svelte.dev/docs/kit/adapter-cloudflare) deployment adapters. This is a reuse choice, not a claim that the framework alone fixes performance. Keep case rendering and validation independent of filesystem or cloud storage access.
+Use SvelteKit and TypeScript, with Bun for dependencies, builds and the local server. Pin the verified Bun version in `package.json`, commit `bun.lock` and verify the production build and SQLite behavior under Bun. SvelteKit provides documented [Node](https://svelte.dev/docs/kit/adapter-node) and [Cloudflare](https://svelte.dev/docs/kit/adapter-cloudflare) deployment adapters. This is a reuse choice, not a claim that the framework alone fixes performance. Keep case rendering and validation independent of filesystem or cloud storage access.
 
 Define a versioned results package containing a manifest, structured datasets and references to original files or generated attachments. The manifest identifies the case, input revision and results version. Validate reference uniqueness, file mappings and supported data shapes at import. Preserve legacy refs within each fixture; never assume the same ref identifies the same document across independently rebuilt packs.
 

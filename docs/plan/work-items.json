@@ -129,7 +129,7 @@
         "tests/case-package/**",
         "docs/results-package.md",
         "package.json",
-        "package-lock.json",
+        "bun.lock",
         "tsconfig.json",
         "vitest.config.*"
       ],
@@ -138,7 +138,7 @@
         "Validate all dataset shapes and refs, path containment, duplicate IDs, unsupported versions and ambiguous asset mappings. Use distinct diagnostics for known baseline defects and new structural failures.",
         "Preserve source values and provenance. Use file fingerprints for asset identity; do not equate legacy refs across independently rebuilt packs.",
         "Import produces an immutable candidate and diagnostics. Repeated conversion is deterministic. User notes and registers are not embedded in immutable results. Define the generated-data versus authored-analysis boundary.",
-        "Establish the minimal npm/TypeScript/Vitest toolchain and npm check, test and measure scripts needed to execute this ticket. CC-03 extends these files only after the package gate passes.",
+        "Establish the minimal Bun/TypeScript/Vitest toolchain and Bun check, test and measure scripts needed to execute this ticket. CC-03 extends these files only after the package gate passes.",
         "Treat every imported narrative, filename, URL and metadata field as untrusted content, not only manually authored Markdown. Reject unsafe link schemes and define safe rendering rules in the package contract. Verify hostile fixtures cannot execute code.",
         "Define bounded file, record and nesting sizes; if archive extraction is supported, bound expanded size and reject traversal/symlink escapes and malformed archives. Invalid or excessive inputs must fail with actionable diagnostics before activation."
       ],
@@ -181,7 +181,7 @@
         "tests/e2e/pilot/**",
         "docs/development.md",
         "package.json",
-        "package-lock.json",
+        "bun.lock",
         "tsconfig.json",
         "vitest.config.*",
         "svelte.config.*",
@@ -195,7 +195,7 @@
         "Keep the active version unchanged on failed import. Keep originals outside Git. Serve only loopback and work with outbound networking disabled.",
         "Provide history-aware navigation, accessible focus, case-aware titles, citation links and a reproducible boot/verification command. This complete workflow is the pilot before feature fan-out.",
         "Freeze navigation entries and route extension points for all 42 views using the coordinator-owned view inventory. Reserve one feature subtree per worker and define shared component/persistence contracts before fan-out. Unimplemented entries remain explicitly unavailable until their owning issue passes. The coordinator serializes dependency, lockfile, shared layout and configuration changes during M2.",
-        "Ownership transfer after CC-02 is accepted. Extend package.json, package-lock.json, tsconfig.json, vitest.config.* serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths.",
+        "Ownership transfer after CC-02 is accepted. Extend package.json, bun.lock, tsconfig.json, vitest.config.* serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths.",
         "Apply the package's safe-rendering and link policy throughout overview, chronology, document details and previews. Active original content must not execute with the application's origin/privileges; isolate supported previews or offer an explicit download. Test hostile narratives, filenames, links and original files without outbound access.",
         "For dates used in chronology, retain the source value and expose supplied date type/provenance or explicitly mark the basis unknown. Do not silently infer a document issue date from an incidental date. Source metadata re-extraction is deferred (BA-04).",
         "Navigation names must match their destinations and use task names rather than development-priority labels (BA-18)."
@@ -1102,7 +1102,7 @@
         "Provide a preflight/doctor command that checks runtime versions, tool/skill discovery, writable evidence paths and required browser/test dependencies where applicable. Missing dependencies must produce actionable errors and a nonzero exit code.",
         "Use the actual tool commands and supported flags discovered from source/help. Wrap them only as needed; preserve stdout, stderr and exit codes. Verification receipts include command, tool version, base/head revision, environment, result and artifact locations. A skipped check or missing tool cannot produce PASS.",
         "Synchronize this Linear review into canonical `docs/plan/work-items.json`, regenerate ticket briefs and update the delivery/kickoff documents, including CC-27, [GRS-36](https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work) / CC-28 (hosted foundation), audit dispositions and native dependency changes. This Linear update does not imply those repository files are already synchronized.",
-        "Keep the application npm/TypeScript/Vitest bootstrap owned by [GRS-10](https://linear.app/vaper/issue/GRS-10/validate-and-convert-a-portable-results-package). Tooling setup must not claim application tests passed before the application exists. Preserve original archives, production and private case material."
+        "Keep the application Bun/TypeScript/Vitest bootstrap owned by [GRS-10](https://linear.app/vaper/issue/GRS-10/validate-and-convert-a-portable-results-package). Tooling setup must not claim application tests passed before the application exists. Preserve original archives, production and private case material."
       ],
       "verification": [
         "Bootstrap from documented prerequisites in a clean shell; repeat setup without duplicate or conflicting installation.",

@@ -1,4 +1,0 @@
-~/Work/Active/MX-two/ClearCase/clearcase                      81c3f4b [dev]
-~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling aec7466 [feature/grs-35-agent-tooling]
-~/Work/Active/MX-two/ClearCase/worktrees/review-grs-35        c87a040 (detached HEAD)
-~/Work/Active/MX-two/ClearCase/worktrees/review-grs-35-r2     c577bfd (detached HEAD)

@@ -1,0 +1,2 @@
+Preparing worktree (detached HEAD 0962dde)
+HEAD is now at 0962dde Plant a receipt that lost its head in the rerun.sh audit test

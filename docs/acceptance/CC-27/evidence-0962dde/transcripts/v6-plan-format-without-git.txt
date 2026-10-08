@@ -1,0 +1,2 @@
+SKIPPED plan-format: required tool not found: git; install it or put it on PATH (scripts/agent-tools/doctor names the fix)
+receipt: SKIPPED plan-format exit=3 ~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r7/rerun-0962dde/receipts/v6-plan-format-without-git/20261008T192153.012588Z-plan-format/receipt.json

@@ -37,7 +37,7 @@ The lock's `provenance.pstack` block records the same facts. Its reproduce comma
 git clone https://github.com/backnotprop/pstack.git p && git -C p worktree add ../p124 124f622 && for d in p124/skills/*/; do n=$(basename $d); [ -e ~/.agents/skills/$n ] && diff -rq $d ~/.agents/skills/$n; done
 ```
 
-`scripts/agent-tools/verify pstack-upstream --checkout DIR` makes the same comparison against a checkout of the pinned revision, checks the lock as well, and writes a receipt. Install pstack only from this source; do not install a package merely because it is named pstack.
+`scripts/agent-tools/verify pstack-upstream --checkout DIR` makes the same comparison from the pinned revision's Git objects in any clone that contains it, so files in the clone's working tree do not count. Like the pin, and unlike the reproduce command, it skips `node_modules`, `__pycache__` and `.DS_Store`. It also checks the lock and writes a receipt. Install pstack only from this source; do not install a package merely because it is named pstack.
 
 The leaf skills `to-spec`, `to-tickets` and `implement-spec` are absent. The doctor reports them as INFO, and nothing here installs or claims them.
 
@@ -62,7 +62,7 @@ The doctor fails and names each pinned skill whose installed content differs fro
 1. Clone the upstream at that revision: `git clone https://github.com/backnotprop/pstack.git .local/pstack-upstream && git -C .local/pstack-upstream checkout --detach REV`. `.local/` is ignored.
 2. Install the revision's skills on the host one directory per skill, for example `rsync -a --delete .local/pstack-upstream/skills/NAME/ ~/.agents/skills/NAME/`. Never use `--delete` on `~/.agents/skills` itself, because it holds other skills. The tools never write there.
 3. Compare the install with `diff -rq`, as in the reproduce command above. It must print nothing.
-4. Run `scripts/agent-tools/bootstrap --relock --checkout .local/pstack-upstream`. It refuses a path with no installed upstream skill, and an install that differs from the checkout. Otherwise it pins every installed skill of the checkout as group `pstack`, rehashes the other pins, and prints the revision and the upstream skills that are not installed.
+4. Run `scripts/agent-tools/bootstrap --relock --checkout .local/pstack-upstream`. It reads the skills at the checkout's HEAD from Git objects. It refuses a path without a Git HEAD that carries `.cursor-plugin/plugin.json`, a checkout none of whose skills is installed, and an install that differs from HEAD. Otherwise it pins every installed skill of the checkout as group `pstack` and rehashes the other pins. It prints the revision, any pstack pins it removed and the upstream skills that are not installed.
 5. Edit `provenance.pstack` in `skills.lock.json` (revision, its date and subject, version, license, `mirrorOf`, `notInstalled`, `checkedAt` and `checks`) and the table above. Provenance is never written automatically.
 6. Run `scripts/agent-tools/verify pstack-upstream --checkout .local/pstack-upstream` and `scripts/agent-tools/doctor`. Both must pass. Commit the lock and this document through a reviewed pull request into `dev`.
 
@@ -91,7 +91,7 @@ Capabilities and the commands they wrap, unchanged:
 | `plan-graph` | `python3 scripts/planning/check.py --require-linear-ids` | available |
 | `linear-relations` | `python3 scripts/planning/check.py --require-linear-ids --linear-relations READBACK` | available. A readback is a file the coordinator exports from Linear; this command never fetches live data. |
 | `plan-format` | `node ~/.agents/skills/poteto-mode/scripts/check-plan.mjs docs/delivery-plan.md` | available |
-| `pstack-upstream` | `python3 scripts/agent-tools/agent_tools.py compare-upstream --checkout DIR` | available with `--checkout DIR`, a clean checkout of the pinned revision. It checks the checkout's revision and its `plugin.json` version and license against `provenance.pstack`. It requires every installed skill of the checkout to be pinned as `pstack` and no other skill to be. `notInstalled` must list exactly the upstream skills that are not installed. Each pinned skill must match the checkout byte for byte and match its pinned hash. SKIPPED, exit 3, without `--checkout` or when the checkout has no `.cursor-plugin/plugin.json`. |
+| `pstack-upstream` | `python3 scripts/agent-tools/agent_tools.py compare-upstream --checkout DIR` | available with `--checkout DIR`, a clone that contains the pinned revision. It reads that revision's Git objects, not the working tree, and checks its `plugin.json` version and license against `provenance.pstack`. It requires every installed skill of the revision to be pinned as `pstack` and no other skill to be. `notInstalled` must list exactly the upstream skills that are not installed. Each pinned skill must match the revision file for file and match its pinned hash; as in the pin, `node_modules`, `__pycache__` and `.DS_Store` are excluded on both sides. SKIPPED, exit 3, without `--checkout` or when DIR does not exist. FAIL when DIR lacks the pinned revision. |
 | `app` | none yet | deferred. The app, build and browser commands and a project `verify-<app>` skill from pstack `create-verification-skill` arrive with GRS-12 (CC-03). GRS-10 (CC-02) owns the npm/TypeScript/Vitest bootstrap. Always SKIPPED, exit 3. |
 
 pstack's `create-verification-skill` and `maintain-verification-skill` need a runnable app to drive, so neither can run before GRS-12. The doctor checks that both skill files are present.
@@ -139,6 +139,6 @@ Paths under `$HOME` are written as `~` so receipts carry no machine-specific hom
 - Graph fixtures `tests/agent-tools/fixtures/graph/*.json`. Each one edits a disposable copy of the committed plan (cycle, unmapped issue, scope overlap, stale generated files, Linear readback drift) and carries its expected exit code and diagnostics.
 - Deferred and skipped checks, the receipt writer's output and exit-code preservation, the doctor with no node and with no python3, and bootstrap idempotency, conflict refusal and removal in a fresh Git checkout.
 - The doctor on a copy of the pinned skills, before and after a planted change and a removed skill.
-- `verify pstack-upstream` and `bootstrap --relock --checkout` against a synthetic upstream Git repository: no checkout, mislabelled, unpinned and unlisted skills, a matching pin, a changed installed file, a path that is not a checkout, a checkout with local changes and a checkout at another revision.
+- `verify pstack-upstream` and `bootstrap --relock --checkout` against a synthetic upstream Git repository: no checkout and a missing one, mislabelled, unpinned and unlisted skills, a matching pin, a changed installed file, an ignored file in the working tree, a directory that is not a Git checkout, a later upstream HEAD, a clone without the pinned revision, and a relock that removes a pin.
 
 It exits nonzero if any case fails.

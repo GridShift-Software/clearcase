@@ -121,6 +121,70 @@ has "no-python message is actionable" "fix: install Python >= 3.10"
 run "doctor fails on a missing skills dir" 1 env CLEARCASE_SKILLS_DIR="$WORK/no-skills" HOME="$WORK/no-home" "$TOOLS/doctor"
 has "missing skills dir is diagnosed" "pstack bundle not found"
 
+echo "# the doctor flags a changed or missing pinned skill"
+SKILLS=${CLEARCASE_SKILLS_DIR:-$HOME/.agents/skills}
+PLANTED="$WORK/planted-skills"
+mapfile -t pinned < <(python3 -c 'import json,sys; print("\n".join(sorted(json.load(open(sys.argv[1]))["skills"])))' "$TOOLS/skills.lock.json")
+for name in "${pinned[@]}"; do mkdir -p "$PLANTED/$name" && cp -a "$SKILLS/$name/." "$PLANTED/$name/"; done
+run "doctor passes on a copy of the pinned skills" 0 "$TOOLS/doctor" --skills-dir "$PLANTED"
+changed=${pinned[0]} missing=${pinned[-1]}
+echo "planted" >"$PLANTED/$changed/PLANTED.md"
+rm -rf "${PLANTED:?}/$missing"
+run "doctor fails on a changed and a missing pinned skill" 1 "$TOOLS/doctor" --skills-dir "$PLANTED"
+has "doctor names the changed skill" "$changed differs from the pin"
+has "doctor names the missing skill" "$missing missing"
+has "doctor gives the relock fix" "bootstrap --relock"
+
+echo "# pstack-upstream compares the pin with a checkout of the pinned revision"
+UP="$WORK/pstack-checkout"
+INSTALLED="$WORK/pstack-installed"
+PIN="$WORK/pin-copy/scripts/agent-tools"
+mkdir -p "$UP/skills/alpha" "$UP/skills/beta/references" "$UP/skills/gamma" "$UP/.cursor-plugin" "$INSTALLED/local-skill" "${PIN%/*}"
+for skill in alpha beta gamma; do echo "# $skill" >"$UP/skills/$skill/SKILL.md"; done
+echo "reference" >"$UP/skills/beta/references/notes.md"
+echo '{"name": "pstack", "version": "9.9.9", "license": "MIT"}' >"$UP/.cursor-plugin/plugin.json"
+upstream_commit() { git -C "$UP" add -A && git -C "$UP" -c user.name=t -c user.email=t@example.invalid commit -qm "$1"; }
+git -C "$UP" init -q && upstream_commit synthetic
+cp -a "$UP/skills/alpha" "$UP/skills/beta" "$INSTALLED/"
+echo "# local" >"$INSTALLED/local-skill/SKILL.md"
+cp -r "$TOOLS" "${PIN%/*}/"
+# pin_edit CODE : run python CODE with lock and pin (its provenance.pstack) bound, then save the copied lock
+pin_edit() {
+	python3 - "$PIN/skills.lock.json" "$1" <<'EOF'
+import json, sys
+lock = json.load(open(sys.argv[1]))
+pin = lock["provenance"]["pstack"]
+exec(sys.argv[2])
+open(sys.argv[1], "w").write(json.dumps(lock, indent=2) + "\n")
+EOF
+}
+pin_edit "pin.update(revision='$(git -C "$UP" rev-parse HEAD)', version='9.9.9', license='MIT', notInstalled=[]); lock['skills'] = {'alpha': {'group': 'other'}, 'local-skill': {'group': 'other'}}"
+run "pstack-upstream without a checkout is SKIPPED" 3 "$PIN/verify" pstack-upstream --skills-dir "$INSTALLED"
+receipt_is "no-checkout receipt is SKIPPED" SKIPPED 3
+run "mislabelled, unpinned and unlisted upstream skills fail" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
+has "names the mislabelled skill" "alpha is an installed upstream skill but is pinned as other"
+has "names the unpinned skill" "beta is an installed upstream skill but is not pinned"
+has "names the unlisted upstream skill" "upstream skills not installed are ['gamma']"
+receipt_is "mismatch receipt is FAIL" FAIL 1
+run "relock from the checkout pins the installed upstream skills" 0 "$PIN/bootstrap" --relock --checkout "$UP" --skills-dir "$INSTALLED"
+has "relock reports what is not installed" "upstream skills not installed: gamma"
+pin_edit "pin['notInstalled'] = ['gamma']"
+run "pstack-upstream passes on a matching pin and install" 0 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
+has "pass counts the pinned skills" "2 pinned pstack skills are byte-identical"
+receipt_is "matching receipt is PASS" PASS 0
+echo "planted" >>"$INSTALLED/beta/references/notes.md"
+run "a changed installed file fails" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
+has "names the changed file" "beta/references/notes.md differs"
+run "relock refuses an install that differs from the checkout" 1 "$PIN/bootstrap" --relock --checkout "$UP" --skills-dir "$INSTALLED"
+has "refusal names the changed file" "beta/references/notes.md differs"
+cp "$UP/skills/beta/references/notes.md" "$INSTALLED/beta/references/notes.md"
+echo "# alpha 2" >"$UP/skills/alpha/SKILL.md"
+run "a checkout with local changes fails" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
+has "names the local changes" "checkout has local changes"
+upstream_commit "upstream moves on"
+run "a checkout at another revision fails" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
+has "names the revision to check out" "checkout --detach"
+
 echo "# bootstrap is idempotent and removable in a fresh checkout"
 FRESH="$WORK/fresh"
 mkdir -p "$FRESH/scripts" "$FRESH/docs"

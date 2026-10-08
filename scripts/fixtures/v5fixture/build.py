@@ -27,6 +27,8 @@ TEXT_FIELDS = ("window.__CASELINES_IDX__.index",)
 CODE_LINK = re.compile(r"['\"](\.{1,2}/[^'\"\s]+)['\"]")
 REF_RE = re.compile(r"^[A-Z]{2,4}-[0-9]{1,5}[A-Za-z]?$")
 SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
+# A Windows drive letter: WHATWG URL parsing treats 'C|' like 'C:' (file:///C:/...), outside the case folder.
+DRIVE_RE = re.compile(r"^[A-Za-z][:|]")
 OK_STATUSES = ("ok", "directory")
 # WHATWG URL parsing: strip leading/trailing C0 control or space, then remove ASCII tab or newline anywhere.
 C0_OR_SPACE = "".join(map(chr, range(0x21)))
@@ -70,14 +72,15 @@ class FileIndex:
         """Resolve a link value the way a browser resolves a relative href against the HTML's folder.
 
         Like the WHATWG URL parser, first strip leading and trailing C0 controls and spaces and remove every
-        tab, LF and CR, so ' /etc/x.pdf' or '\t/etc/x.pdf' is judged as the absolute path a browser opens."""
+        tab, LF and CR, so ' /etc/x.pdf' or '\t/etc/x.pdf' is judged as the absolute path a browser opens. A
+        leading drive letter, including the 'C|/x' form a browser reads as 'C:/x', escapes the folder."""
         out = {"value": value, "path": None, "status": None}
         value = URL_TAB_NEWLINE.sub("", value.strip(C0_OR_SPACE))
         if SCHEME_RE.match(value):
             out["status"] = "external-scheme"
             return out
         raw = value.split("#", 1)[0].split("?", 1)[0]
-        if raw.startswith("/") or raw.startswith("\\"):
+        if raw.startswith("/") or raw.startswith("\\") or DRIVE_RE.match(raw):
             out["status"] = "escapes"
             return out
         try:

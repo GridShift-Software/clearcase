@@ -51,7 +51,7 @@ The coordinator alone writes `.orchestration/units.tsv`, `.orchestration/ledger.
 
 A ledger row records the issue, exact revision, reviewer, verdict and evidence path. A checkpoint records accepted HEAD, active issues/worktrees/task IDs, blockers, authorization limits, safe shutdown and exact next steps. Keep it short and link detailed reports. Read live Linear relations again on resume.
 
-The local graph checker is `python3 scripts/planning/check.py`. It verifies the plan and coverage; it is not an orchestration daemon. T3 owns agent dispatch and completion delivery. Pstack's `orch` CLI is available in the installed skill bundle but is not used here. Jove's custom runner is not a prerequisite. Add runtime bookkeeping automation only when the repeated work justifies it.
+The local graph checker is `python3 scripts/planning/check.py`. It verifies the plan and coverage; it is not an orchestration daemon. `scripts/agent-tools/check-plan` runs it with pstack's `check-plan.mjs` and writes receipts; `scripts/agent-tools/doctor` is the preflight for every worker and verifier session. T3 owns agent dispatch and completion delivery. Pstack's `orch` CLI is available in the installed skill bundle but is not used here. Jove's custom runner is not a prerequisite. Add runtime bookkeeping automation only when the repeated work justifies it.
 
 No scheduler is armed by this planning task. At execution, an app-owned audit schedule may implement pstack's hourly review if the active user authorization permits ongoing work. Never build a polling watcher or let a timer start V2 or automated processing past a closed gate.
 

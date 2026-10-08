@@ -48,6 +48,6 @@ Referenced research aids have been preserved under ignored `.local/research/`. T
 
 ## Exact next steps
 
-Run the planning checker and inspect current Git and Linear state. The planning commit exists on `dev`. Under the kickoff, initialize the coordinator's ignored state on `puk`, reserve GRS-35 and dispatch its worker, then GRS-9.
+Run `scripts/agent-tools/doctor` and `scripts/agent-tools/check-plan --linear-relations PATH` (see `docs/agent-tooling.md`) and inspect current Git and Linear state. CC-28 (GRS-36) now sits between the hosted design gate GRS-27 and client intake GRS-28. The planning commit exists on `dev`. Under the kickoff, initialize the coordinator's ignored state on `puk`, reserve GRS-35 and dispatch its worker, then GRS-9.
 
 Do not start broad feature work before GRS-11 and GRS-13 pass. Do not start V2 or Pi Durable under the V1 kickoff. Keep main and production unchanged.

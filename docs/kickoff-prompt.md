@@ -67,7 +67,7 @@ Include these numbered standing orders in every worker brief:
 4. Write only in the reserved worktree and paths. Send shared-file requests to the coordinator.
 5. Only the coordinator updates Linear.
 6. Report PASS, HOLD or FAIL at the exact revision, with commands and evidence. Preserve skipped and failed checks.
-7. Do not merge into main, push, deploy, publish or send external messages.
+7. Do not merge into main or dev, do not force-push, do not deploy, publish or send external messages. Push only your own feature branch.
 8. On hold, stop writes and preserve work and the resume checkpoint.
 
 Only you update Linear status. Workers report evidence, not Done. Use T3's task tools for delegation and the collaborative preview for browser work. Do not create unrelated top-level chats, require Graphite or invent an orchestration CLI.

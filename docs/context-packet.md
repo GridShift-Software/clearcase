@@ -8,8 +8,8 @@ Planning checkpoint, 8 October 2026.
 | --- | --- |
 | Integration branch | `dev`, pushed to `origin` |
 | Execution host | `puk`; `dev` clone `/home/vaper/Work/Active/MX-two/ClearCase/clearcase`, worktrees under `/home/vaper/Work/Active/MX-two/ClearCase/worktrees/` |
-| Coordinator host | `archlinux`; `dev` checkout `/home/vaper/Work/Active/MX-two/ClearCase/worktrees/local-v1` |
-| Base commit | `977dc85`, the planning checkpoint on top of `6edffe1` |
+| Coordinator host | T3 on `puk`, using the `dev` clone above |
+| Integration base | `dev` at `81c3f4b`; GRS-35 in review on `feature/grs-35-agent-tooling` |
 | Main checkout | `/home/vaper/.t3/projects/clearcase`, unchanged |
 | Remote | `origin`, GitHub `GridShift-Software/clearcase`; PRs into `dev` |
 | App code and runtime | Not implemented; no app dev server is running from this repository |

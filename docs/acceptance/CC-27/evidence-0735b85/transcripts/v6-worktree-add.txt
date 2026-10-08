@@ -1,0 +1,2 @@
+Preparing worktree (detached HEAD 0735b85)
+HEAD is now at 0735b85 Clear an earlier rerun's outputs before writing new evidence

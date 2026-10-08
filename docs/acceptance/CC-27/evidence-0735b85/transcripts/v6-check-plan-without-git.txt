@@ -1,0 +1,10 @@
+== plan-graph
+SKIPPED plan-graph: required tool not found: git; install it or put it on PATH (scripts/agent-tools/doctor names the fix)
+receipt: SKIPPED plan-graph exit=3 ~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r4/rerun-0735b85/receipts/v6-check-plan-without-git/20261008T150525.641455Z-plan-graph/receipt.json
+== plan-format
+SKIPPED plan-format: required tool not found: git; install it or put it on PATH (scripts/agent-tools/doctor names the fix)
+receipt: SKIPPED plan-format exit=3 ~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r4/rerun-0735b85/receipts/v6-check-plan-without-git/20261008T150525.643105Z-plan-format/receipt.json
+== linear-relations
+SKIPPED linear-relations: required tool not found: git; install it or put it on PATH (scripts/agent-tools/doctor names the fix)
+receipt: SKIPPED linear-relations exit=3 ~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r4/rerun-0735b85/receipts/v6-check-plan-without-git/20261008T150525.649574Z-linear-relations/receipt.json
+check-plan: FAIL. plan-graph=SKIPPED, plan-format=SKIPPED, linear-relations=SKIPPED.

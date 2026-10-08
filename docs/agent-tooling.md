@@ -21,7 +21,8 @@ Run them from the worktree root, or by absolute path from anywhere. `receipt` is
 | `poteto-mode/scripts/check-plan.mjs` | Same bundle. | Pinned with `poteto-mode`. Dependency-free Node ESM. | Same. |
 | Matt Pocock skills (`ask-matt`, `domain-modeling`, `codebase-design`) | `~/.agents/skills/`. The files name no upstream. | Pinned by content hash in the same lock. | Not recorded. |
 | `scripts/planning/check.py`, `generate.py` | This repository. | Git revision. | Repository. |
-| Runtimes | System packages. | bash >= 4.4, Python >= 3.10, Node.js >= 18, git. Tested with bash 5.3, Python 3.14, Node 26.10, git 2.56 on CachyOS. | Distribution packages. |
+| Bun, the app toolchain | The user's choice of 2026-10-08 (`AGENTS.md`, App toolchain). On `puk` it comes from the official installer at <https://bun.sh>, in `~/.bun/bin`, and `bun` and `bunx` are linked into `~/.local/bin`. Arch Linux packages it as `bun` in `extra`. | Stable 1.4.2, the minimum the doctor accepts; see [Bun](#bun). Upgrade with `bun upgrade --stable` (`pacman -Syu bun` for the package). The pin moves only with a reviewed commit. | MIT for Bun's own code; bundled components keep their licenses. Public; no credentials. |
+| Runtimes | System packages. | bash >= 4.4, Python >= 3.10, Node.js >= 18, git, and Bun as above. Tested with bash 5.3, Python 3.14, Node 26.10, git 2.56 and Bun 1.4.2 on CachyOS. | Distribution packages. |
 
 How the pstack pin was established:
 
@@ -41,17 +42,19 @@ git clone https://github.com/backnotprop/pstack.git p && git -C p worktree add .
 
 The leaf skills `to-spec`, `to-tickets` and `implement-spec` are absent. The doctor reports them as INFO, and nothing here installs or claims them.
 
-pstack's `orch` and `watch-pr` scripts need bun and are not used by this project. bun is optional, absent on `puk` and present on `archlinux`; no ClearCase tool needs it.
+pstack's `orch` and `watch-pr` scripts also run on bun, and this project does not use them. The doctor requires Bun for the app, not for them.
 
 ## Bootstrap, upgrade and removal
 
-Prerequisites are bash, git, python3 and node on a standard PATH such as `/usr/local/bin:/usr/bin:/bin`, plus the skill bundle in `~/.agents/skills`. The checkout needs `origin/dev` or `dev` for the default receipt base; otherwise pass `--base REF` (see [Revision identity](#revision-identity)). On a new Arch-family host:
+Prerequisites are bash, git, python3 and node on a standard PATH such as `/usr/local/bin:/usr/bin:/bin`, Bun at the app's minimum version on PATH or named by `CLEARCASE_BUN`, and the skill bundle in `~/.agents/skills`. The checkout needs `origin/dev` or `dev` for the default receipt base; otherwise pass `--base REF` (see [Revision identity](#revision-identity)). On a new Arch-family host:
 
 ```sh
-sudo pacman -S --needed bash git python nodejs
+sudo pacman -S --needed bash git python nodejs bun
 rsync -a puk:.agents/skills/ ~/.agents/skills/   # or another host that holds the pinned bundle
 scripts/agent-tools/bootstrap
 ```
+
+On `puk`, `~/.local/bin/bun` lies outside that standard PATH, so a shell started with only `/usr/local/bin:/usr/bin:/bin` needs `CLEARCASE_BUN=~/.local/bin/bun`. `docs/acceptance/CC-27/rerun.sh` sets it that way.
 
 `bootstrap` runs the doctor, then creates ignored local state only, `.local/agent-tools/skills` (a symlink to the resolved bundle) and `.local/agent-tools/bootstrap.json`. Rerunning it reports `unchanged`. If the link already points somewhere else it refuses with exit 1 instead of creating a second installation. It writes no global files and no tracked files. Bootstrap is optional; without it the tools find `~/.agents/skills` directly.
 
@@ -70,11 +73,22 @@ For a skill with no recorded upstream, such as the Matt Pocock skills, review th
 
 To remove, run `scripts/agent-tools/bootstrap --remove`. It deletes only `.local/agent-tools/`. Receipts in `.local/agent-receipts/` and the global skills stay.
 
+### Bun
+
+Every app ticket from GRS-10 (CC-02) on builds and runs with Bun, so the doctor fails unless `bun --version` prints a version at least the app's minimum. Which minimum applies:
+
+- While the repository has no `package.json`, the minimum is `MIN_BUN`, 1.4.2, in `scripts/agent-tools/agent_tools.py`.
+- Once GRS-10 adds `package.json`, the minimum is its `packageManager` field, `bun@MAJOR.MINOR.PATCH` with an optional `+hash` suffix, and `MIN_BUN` no longer applies. A `package.json` that cannot be read, is not JSON, or pins no `bun@` version fails the doctor. The doctor's receipt then also fingerprints `package.json`.
+
+The doctor uses `CLEARCASE_BUN` when it is set, otherwise the `bun` on PATH. It fails, with a fix, when no bun is found, when `--version` fails or prints anything other than a version such as `1.4.2`, and when the version is older than the minimum. Versions compare as numbers, and a prerelease such as `1.4.2-canary.1` counts as older than `1.4.2`. The row names the bun it checked and where the minimum came from, and the receipt lists that bun's path and version.
+
+To move the pin, run `bun upgrade --stable` (`pacman -Syu bun` for the distribution package) and record the `bun --version` it installs. Then change `MIN_BUN`, or `packageManager` once it exists, in a reviewed commit into `dev`. The tools never upgrade Bun or change the pin themselves.
+
 ## Entry points
 
 | Command | Runs | Exit codes |
 | --- | --- | --- |
-| `scripts/agent-tools/doctor` | OS and bash, Python, git and repository, the revision receipts record (head, base and merge base), Node, planning scripts, skill bundle discovery, required skill files, the content pin, writable receipt directory. Reports the pinned pstack source, optional tools (bun, gh, tmux) and the deferred app/browser dependencies. Writes one receipt with the report. | 0 all required checks pass, 1 a check failed, 2 unsupported OS, old bash or no python3 (no receipt, because Python never starts) |
+| `scripts/agent-tools/doctor` | OS and bash, Python, git and repository, the revision receipts record (head, base and merge base), Node, Bun at the app's minimum version, planning scripts, skill bundle discovery, required skill files, the content pin, writable receipt directory. Reports the pinned pstack source, optional tools (gh, tmux) and the deferred app/browser dependencies. Writes one receipt with the report. | 0 all required checks pass, 1 a check failed, 2 unsupported OS, old bash or no python3 (no receipt, because Python never starts) |
 | `scripts/agent-tools/check-plan [--linear-relations PATH] [--require-linear-relations] [--plan PATH]` | `plan-graph` and `plan-format`, plus `linear-relations` when a readback is given (or `CLEARCASE_LINEAR_READBACK` is set). One receipt per step. | 0 every step passed, otherwise the first failing step's code. A required comparison without a readback exits 3. |
 | `scripts/agent-tools/verify list` | Lists capabilities and whether each is available or deferred. Writes no receipt. | 0 |
 | `scripts/agent-tools/verify CAPABILITY [--readback PATH] [--plan PATH] [--checkout DIR]` | One capability with a receipt. | The wrapped command's own exit code, or 3 when skipped |
@@ -92,7 +106,7 @@ Capabilities and the commands they wrap, unchanged:
 | `linear-relations` | `python3 scripts/planning/check.py --require-linear-ids --linear-relations READBACK` | available. A readback is a file the coordinator exports from Linear; this command never fetches live data. |
 | `plan-format` | `node ~/.agents/skills/poteto-mode/scripts/check-plan.mjs docs/delivery-plan.md` | available |
 | `pstack-upstream` | `python3 scripts/agent-tools/agent_tools.py compare-upstream --checkout DIR` | available with `--checkout DIR`, a clone that contains the pinned revision, which must be recorded as a full commit ID. It reads that commit's Git objects, not the working tree, and ignores replace refs. It checks its `plugin.json` version and license against `provenance.pstack`. It requires every installed skill of the revision to be pinned as `pstack` and no other skill to be. `notInstalled` must list exactly the upstream skills that are not installed. Each pinned skill must match the revision file for file and match its pinned hash; as in the pin, `node_modules`, `__pycache__` and `.DS_Store` are excluded on both sides. SKIPPED, exit 3, without `--checkout` or when DIR does not exist. FAIL when DIR lacks the pinned revision. |
-| `app` | none yet | deferred. The app, build and browser commands and a project `verify-<app>` skill from pstack `create-verification-skill` arrive with GRS-12 (CC-03). GRS-10 (CC-02) owns the npm/TypeScript/Vitest bootstrap. Always SKIPPED, exit 3. |
+| `app` | none yet | deferred. The app, build and browser commands and a project `verify-<app>` skill from pstack `create-verification-skill` arrive with GRS-12 (CC-03). GRS-10 (CC-02) owns the Bun/TypeScript/Vitest bootstrap. Always SKIPPED, exit 3. |
 
 pstack's `create-verification-skill` and `maintain-verification-skill` need a runnable app to drive, so neither can run before GRS-12. The doctor checks that both skill files are present.
 
@@ -101,11 +115,11 @@ pstack's `create-verification-skill` and `maintain-verification-skill` need a ru
 | OS | Shell running the tools | Status |
 | --- | --- | --- |
 | CachyOS (`puk`) | `/bin/bash` 5.x; any caller shell, including fish and `env -i` | Supported and tested |
-| Arch Linux (`archlinux`) | `/bin/bash` 5.x; any caller shell | Supported, same packages. bun present but unused. |
+| Arch Linux (`archlinux`) | `/bin/bash` 5.x; any caller shell | Supported, same packages. Its bun must also meet the minimum; run the doctor. |
 | Other Linux with `/bin/bash` >= 4.4 | any caller shell | Expected to work; run the doctor |
 | macOS, BSD, Windows without WSL | n/a | Unsupported. The tools exit 2 with an "unsupported OS" message. |
 
-The entry points use `#!/bin/bash` rather than `#!/usr/bin/env bash`. With an empty or wrong PATH, `env` cannot find bash and prints only a bare "No such file or directory". `/bin/bash` still starts, so the tools can print an actionable message, for example `FAIL python3 not found (PATH=/nonexistent)` with the fix. `CLEARCASE_PYTHON` and `CLEARCASE_NODE` override interpreter discovery. No other tool has an override; git always comes from PATH.
+The entry points use `#!/bin/bash` rather than `#!/usr/bin/env bash`. With an empty or wrong PATH, `env` cannot find bash and prints only a bare "No such file or directory". `/bin/bash` still starts, so the tools can print an actionable message, for example `FAIL python3 not found (PATH=/nonexistent)` with the fix. `CLEARCASE_PYTHON`, `CLEARCASE_NODE` and `CLEARCASE_BUN` override discovery. No other tool has an override; git always comes from PATH.
 
 ## Failure behavior
 
@@ -126,7 +140,7 @@ Each receipt is a directory `<receipts>/<UTC timestamp>-<name>/` with `receipt.j
 
 - `name`, `result` (PASS, FAIL or SKIPPED), `exitCode`, and `reason`: why it is not PASS when the receipt can say. That is a skip, evidence that could not be collected, or the doctor's FAIL rows. It is null for PASS and for a command's own failure.
 - `command`, the exact argv, and `cwd`.
-- `tools`, git first and then the command's own tools, each with path and the first line of its `--version` output. `inputs`, each with path and the sha256 of its bytes, read before the command runs (for example the checker scripts, the plan, the readback, or the lock the doctor checks).
+- `tools`, git first and then the command's own tools, each with path and the first line of its `--version` output. `inputs`, each with path and the sha256 of its bytes, read before the command runs (for example the checker scripts, the plan, the readback, or the lock and any `package.json` the doctor checks).
 - `revision`, resolved before the command runs: `root`, `branch`, `head`, `baseRef` (as requested, or the default that resolved), `base`, `mergeBase`, `dirty`, and `diffSha256` when dirty. Every key is present. `head`, `base` and `mergeBase` are null only in SKIPPED or FAIL receipts, and so are `dirty` and `diffSha256` when Git could not report the working tree. `diffSha256` is null when the checkout is clean, and `branch` is `HEAD` when it is detached.
 - `dirty` is true when `git status --porcelain`, `git diff HEAD` or the untracked files that are not ignored show anything, so configuration such as `status.showUntrackedFiles=no` cannot hide a change. `diffSha256` hashes the raw `git diff --binary HEAD` output, run with `--no-ext-diff --no-textconv` so a configured diff driver or textconv filter cannot hide a change, and then each untracked file's name with its bytes, a symlink's target or, for a nested repository, all of its files, names hashed as bytes. Ignored files, per `.gitignore`, `.git/info/exclude` and `core.excludesFile`, are not part of it. Git's own change detection is otherwise trusted, for example `core.fileMode`, `core.fsmonitor` and line-ending conversion, and this repository has no submodules.
 - `environment`, with OS, kernel, machine, host, bash, caller shell, Python and PATH.
@@ -169,20 +183,21 @@ A receipt's evidence is its revision, each tool's path and version, each input's
 | The output cannot be captured whole, for example a full disk | The command's exit code and FAIL if it failed. If it exited 0: SKIPPED, exit 3. The reason says `output not captured whole: ...` and gives the command's exit code. |
 | The receipt cannot be written after the command ran | No receipt. The command's exit code if it failed, otherwise exit 3, with a message on stderr. |
 
-The doctor reports the same failures for its own evidence as FAIL rows, `git`, `python3`, `node`, `revision`, `skill-pin` or `receipt-input`, and exits 1. Its receipt's reason lists every FAIL row. It also fails when it is not launched through `scripts/agent-tools/doctor`, because the bash that runs the entry points is then unknown, and when a planning script, the lock or a pinned skill's file or directory cannot be read, or a pinned skill holds something that is not a file, directory or symlink. If it cannot write its receipt, it exits 1 with `doctor: FAIL. Receipt not written`.
+The doctor reports the same failures for its own evidence as FAIL rows, `git`, `python3`, `node`, `bun`, `revision`, `skill-pin` or `receipt-input`, and exits 1. Its receipt's reason lists every FAIL row. It also fails when it is not launched through `scripts/agent-tools/doctor`, because the bash that runs the entry points is then unknown, and when a planning script, the lock or a pinned skill's file or directory cannot be read, or a pinned skill holds something that is not a file, directory or symlink. If it cannot write its receipt, it exits 1 with `doctor: FAIL. Receipt not written`.
 
 No Git query has a time limit; a Git command that hangs blocks the entry point, which then writes no PASS receipt.
 
 ## Tests
 
-`bash tests/agent-tools/run.sh` needs bash, coreutils, git, python3 and node, and a checkout with `origin/dev` or `dev`, because its receipts in this checkout use the default base. It must run as a user without root privileges, because root reads files whose permissions deny reading and several cases depend on that. It covers:
+`bash tests/agent-tools/run.sh` needs bash, coreutils, git, python3 and node, Bun at the minimum (on PATH or in `CLEARCASE_BUN`) for the cases where the doctor and bootstrap pass in this environment, and a checkout with `origin/dev` or `dev`, because its receipts in this checkout use the default base. It must run as a user without root privileges, because root reads files whose permissions deny reading and several cases depend on that. It covers:
 
 - The synthetic plans `tests/agent-tools/fixtures/plans/{valid,invalid}.md` through pstack `check-plan.mjs`.
 - Graph fixtures `tests/agent-tools/fixtures/graph/*.json`. Each one edits a disposable Git checkout of the committed plan (cycle, unmapped issue, scope overlap, stale generated files, Linear readback drift) and carries its expected exit code and diagnostics.
 - Deferred and skipped checks, the receipt writer's output and exit-code preservation, the doctor with no node and with no python3, and bootstrap idempotency, conflict refusal and removal in a fresh Git checkout.
 - Revision identity. Receipts record `head`, `baseRef`, `base` and `mergeBase` equal to `git rev-parse` and `git merge-base`, in this checkout and in a synthetic repository whose `dev` moved on after the fork. These cases are SKIPPED, exit 3, and the command does not run: no git (`verify`, `check-plan` and `receipt`), an unresolvable or empty `--base` or `CLEARCASE_BASE_REF`, no default base, an unrelated base, a `--root` below a checkout's top, a checkout without a commit, a copy of the tools outside any checkout, and a `receipt` run outside its checkout or in a nested repository. An inherited `GIT_DIR`, `CLEARCASE_GIT` and odd untracked files (non-ASCII and newline names, broken and directory symlinks) do not change or break the recorded revision. Every PASS receipt in the suite must list git and name all three commits.
 - Evidence failures, in a disposable copy of the checkout whose Git data the cases damage and restore. A corrupt index makes `verify`, `doctor`, `receipt` and `check-plan` each refuse PASS, naming the failed `git status` and Git's message, while the intact index records the untracked file as dirty with a fingerprint. These are SKIPPED, or FAIL for the doctor: a missing HEAD tree, HEAD commit or changed file's object, an unreadable tracked or untracked file, an untracked directory Git cannot open (Git exits 0 and warns), a changed file marked assume-unchanged or skip-worktree, an `origin/dev` naming a deleted commit, and a test `git` on PATH that fails `status`, `diff`, `ls-files`, `rev-parse --abbrev-ref`, `rev-parse HEAD^{commit}` or `--version`, or prints a false commit ID. So are an untracked file that disappears between listing and reading, git, node and python3 version probes that fail, a `--tool` that prints no version or cannot start, an unreadable `--input` or plan, an input that changes while it is read (`/proc/self/status`), a command without execute permission, an unwritable receipt directory, one that becomes unwritable during the run, and output that cannot be captured under `ulimit -f`. An external diff driver, a textconv filter that prints nothing, a change inside an untracked nested repository and `status.showUntrackedFiles=no` do not hide a change from the fingerprint, and a nested repository with a file name that is not UTF-8 is fingerprinted. A console on `/dev/full` neither stalls the command nor truncates the capture. The doctor fails when it is not launched through its wrapper, and on an unreadable planning script, lock or skill directory, and on a FIFO in a skill. `pstack-upstream` keeps Git's error about a missing revision and fails on an unreadable object or installed file. A relock refuses an unreadable installed file and leaves the lock unchanged.
-- Receipts per command. The doctor writes PASS with this checkout's revision and FAIL with a bad base or without git or node. It writes none when python3 is missing. A plain `bootstrap` writes its doctor run's receipt. A refused `bootstrap`, `bootstrap --relock`, `bootstrap --remove` and `verify list` write none.
+- The doctor's Bun row through its entry point. It fails with no bun on PATH, a fake bun 1.3.9 on PATH, a prerelease of the minimum, output that is not a version or holds other text, and a failing `--version`. It passes with 1.4.2 and with 1.10.0, so versions compare as numbers. `CLEARCASE_BUN` finds a bun outside PATH, wins over the one on PATH and fails when it names no executable. In the disposable copy, a `package.json` whose `packageManager` raises or replaces the minimum decides the result, and one that names another package manager, has no `packageManager`, is not JSON or cannot be read fails. Where a test checks it, the Bun row is the only FAIL row. The receipt lists the bun checked and fingerprints `package.json`.
+- Receipts per command. The doctor writes PASS with this checkout's revision and FAIL with a bad base or without git, node or bun. It writes none when python3 is missing. A plain `bootstrap` writes its doctor run's receipt. A refused `bootstrap`, `bootstrap --relock`, `bootstrap --remove` and `verify list` write none.
 - The doctor on a copy of the pinned skills, before and after a planted change and a removed skill.
 - `verify pstack-upstream` and `bootstrap --relock --checkout` against a synthetic upstream Git repository: no checkout and a missing one, mislabelled, unpinned and unlisted skills, a matching pin, a changed installed file, an ignored file in the working tree, a recorded version that differs, a pin the revision lacks, a stale pinned hash, a directory that is not a Git checkout, a skills dir without the checkout's skills, a later upstream HEAD, a replace ref, a recorded revision that is not a commit ID, a clone without the pinned revision, and a relock that removes a pin with and without `--allow-drop`.
 

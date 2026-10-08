@@ -1,0 +1,65 @@
+{
+  "schema": "clearcase-agent-receipt/1",
+  "name": "plan-format",
+  "result": "PASS",
+  "exitCode": 0,
+  "reason": null,
+  "command": [
+    "/usr/bin/node",
+    "~/.agents/skills/poteto-mode/scripts/check-plan.mjs",
+    "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/docs/delivery-plan.md"
+  ],
+  "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling",
+  "tools": [
+    {
+      "name": "git",
+      "path": "/usr/bin/git",
+      "version": "git version 2.56.0"
+    },
+    {
+      "name": "node",
+      "path": "/usr/bin/node",
+      "version": "v26.10.0"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "~/.agents/skills/poteto-mode/scripts/check-plan.mjs",
+      "sha256": "4f9432d9989880b6afc2bdda503d5b12a9d07d357ecf31936b7ab5e83bc80523"
+    },
+    {
+      "path": "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/docs/delivery-plan.md",
+      "sha256": "21f6fe985cb8acdc28a96c1ccc460741e73233fa9e13c7d070c03f1af06b16f6"
+    }
+  ],
+  "revision": {
+    "repository": true,
+    "root": "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling",
+    "branch": "feature/grs-35-agent-tooling",
+    "head": "aec74668a66f04fa1df1050e976bfb7c7ec1503a",
+    "baseRef": "origin/dev",
+    "base": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "mergeBase": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "dirty": false,
+    "diffSha256": null
+  },
+  "environment": {
+    "os": "CachyOS",
+    "platform": "linux",
+    "kernel": "7.2.2-1-cachyos",
+    "machine": "x86_64",
+    "host": "PUK",
+    "bash": "5.3.20(1)-release",
+    "callerShell": "",
+    "python": "3.14.7",
+    "path": "/usr/local/bin:/usr/bin:/bin"
+  },
+  "startedAt": "2026-10-08T16:43:45.582599+00:00",
+  "finishedAt": "2026-10-08T16:43:45.630428+00:00",
+  "durationSeconds": 0.048,
+  "artifacts": {
+    "receipt": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r6/rerun-aec7466/receipts/v2-check-plan/20261008T164345.582599Z-plan-format/receipt.json",
+    "stdout": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r6/rerun-aec7466/receipts/v2-check-plan/20261008T164345.582599Z-plan-format/stdout.txt",
+    "stderr": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r6/rerun-aec7466/receipts/v2-check-plan/20261008T164345.582599Z-plan-format/stderr.txt"
+  }
+}

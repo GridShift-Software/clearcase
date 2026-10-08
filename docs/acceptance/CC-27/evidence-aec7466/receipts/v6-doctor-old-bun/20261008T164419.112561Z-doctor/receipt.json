@@ -1,0 +1,73 @@
+{
+  "schema": "clearcase-agent-receipt/1",
+  "name": "doctor",
+  "result": "FAIL",
+  "exitCode": 1,
+  "reason": "bun: 1.3.9 at /tmp/cc27-oldbun.i4oXp9/bun is older than 1.4.2, the minimum from MIN_BUN in scripts/agent-tools/agent_tools.py, until GRS-10 adds package.json",
+  "command": [
+    "/usr/bin/python3",
+    "-I",
+    "-B",
+    "/tmp/cc27-fresh-wt.OzI2Qz/scripts/agent-tools/agent_tools.py",
+    "doctor"
+  ],
+  "cwd": "/tmp/cc27-fresh-wt.OzI2Qz",
+  "tools": [
+    {
+      "name": "git",
+      "path": "/usr/bin/git",
+      "version": "git version 2.56.0"
+    },
+    {
+      "name": "python3",
+      "path": "/usr/bin/python3",
+      "version": "Python 3.14.7"
+    },
+    {
+      "name": "node",
+      "path": "/usr/bin/node",
+      "version": "v26.10.0"
+    },
+    {
+      "name": "bun",
+      "path": "/tmp/cc27-oldbun.i4oXp9/bun",
+      "version": "1.3.9"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "/tmp/cc27-fresh-wt.OzI2Qz/scripts/agent-tools/skills.lock.json",
+      "sha256": "4fe010feff5eef3c16bb578a32acfa152ac7fc3836bf0b3caa63a84cd53dbf5a"
+    }
+  ],
+  "revision": {
+    "repository": true,
+    "root": "/tmp/cc27-fresh-wt.OzI2Qz",
+    "branch": "HEAD",
+    "head": "aec74668a66f04fa1df1050e976bfb7c7ec1503a",
+    "baseRef": "origin/dev",
+    "base": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "mergeBase": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "dirty": false,
+    "diffSha256": null
+  },
+  "environment": {
+    "os": "CachyOS",
+    "platform": "linux",
+    "kernel": "7.2.2-1-cachyos",
+    "machine": "x86_64",
+    "host": "PUK",
+    "bash": "5.3.20(1)-release",
+    "callerShell": "",
+    "python": "3.14.7",
+    "path": "/usr/local/bin:/usr/bin:/bin"
+  },
+  "startedAt": "2026-10-08T16:44:19.112561+00:00",
+  "finishedAt": "2026-10-08T16:44:19.185619+00:00",
+  "durationSeconds": 0.073,
+  "artifacts": {
+    "receipt": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r6/rerun-aec7466/receipts/v6-doctor-old-bun/20261008T164419.112561Z-doctor/receipt.json",
+    "stdout": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r6/rerun-aec7466/receipts/v6-doctor-old-bun/20261008T164419.112561Z-doctor/stdout.txt",
+    "stderr": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r6/rerun-aec7466/receipts/v6-doctor-old-bun/20261008T164419.112561Z-doctor/stderr.txt"
+  }
+}

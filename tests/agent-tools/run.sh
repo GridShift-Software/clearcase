@@ -569,6 +569,15 @@ capture_case "a capture replaced during the run is not PASS" 3 'os.link(f, f + "
 reason_has "names the replaced capture" "stdout.txt: replaced during the run"
 capture_case "a capture another process writes to is not PASS" 3 'open(f, "a").write("planted\n")'
 reason_has "names the bytes the capture holds and those written" "stdout.txt: holds 8 bytes, 0 were written"
+# The review's rewrite: the command waits until its line is captured, then overwrites it in place, same size and inode.
+capture_case "a capture rewritten with other bytes of the same size is not PASS" 3 'import time; print("honest synthetic output", flush=True)
+for _ in range(10000):
+    if os.path.getsize(f) >= 24: break
+    time.sleep(0.001)
+else: raise SystemExit("the capture did not arrive")
+open(f, "r+b").write(b"X" * 23 + b"\n")'
+reason_has "names the capture that holds other bytes" "stdout.txt: holds other bytes than were written (sha256 "
+reason_has "the rewritten capture's reason keeps the exit code" "; the command exited 0"
 capture_case "a failing command whose capture is removed keeps its exit code" 4 'os.unlink(f); raise SystemExit(4)'
 receipt_check "the removed-capture receipt of a failing command is FAIL" 'r["result"] == "FAIL" and r["exitCode"] == 4 and "removed during the run" in r["reason"]'
 

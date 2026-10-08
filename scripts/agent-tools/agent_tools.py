@@ -368,15 +368,16 @@ def receipts_root(explicit=None):
     return Path(chosen).expanduser().resolve()
 
 
-def tee(source, capture, console, problems):
+def tee(source, capture, console, problems, written):
     """Copy source to its capture file and the console until EOF, always draining it so the command cannot block.
-    A failed capture write is added to problems and ends the capture. A console that stops accepting output is
-    dropped, because only the capture is evidence."""
+    written, a sha256, takes each chunk the capture file accepted. A failed capture write is added to problems and
+    ends the capture. A console that stops accepting output is dropped, because only the capture is evidence."""
     for chunk in iter(lambda: source.read1(65536), b""):
         if capture:
             try:
                 capture.write(chunk)
                 capture.flush()
+                written.update(chunk)
             except OSError as error:
                 problems.append(failed(error, capture.name))
                 capture = None
@@ -442,9 +443,10 @@ def revision_changed(root, base_ref, before):
     return f"the checkout changed during the run: {', '.join(differ)}" if differ else None
 
 
-def capture_lost(capture):
+def capture_lost(capture, written):
     """Why a capture file, still open after the run, does not hold at its path all that was written to it, or None.
-    Its descriptor must keep a link and the size written, and its path must still name it."""
+    Its descriptor must keep a link and the size written, its path must still name it, and the bytes it holds, read
+    through the descriptor, must have the sha256 written, which tee() took of the bytes as it wrote them."""
     held = os.fstat(capture.fileno())
     if held.st_nlink < 1:
         return f"{redact(capture.name)}: removed during the run"
@@ -456,25 +458,34 @@ def capture_lost(capture):
         return f"{redact(capture.name)}: replaced during the run"
     if held.st_size != capture.tell():
         return f"{redact(capture.name)}: holds {held.st_size} bytes, {capture.tell()} were written"
+    stored, offset = hashlib.sha256(), 0
+    while block := os.pread(capture.fileno(), 1 << 20, offset):
+        stored.update(block)
+        offset += len(block)
+    if stored.digest() != written.digest():
+        return (f"{redact(capture.name)}: holds other bytes than were written (sha256 {stored.hexdigest()[:12]}, "
+                f"written {written.hexdigest()[:12]})")
     return None
 
 
 def run_captured(argv, cwd, folder):
     """Run argv, streaming its output live and capturing it in folder, as (exit code, problem). The code is None when
-    argv did not start; otherwise problem names output that was not captured whole, or a capture file that lost it."""
+    argv did not start; otherwise problem names output that was not captured whole, or a capture file that lost or
+    changed it."""
     code, problems = None, []
     try:
-        with open(folder / "stdout.txt", "wb") as out_file, open(folder / "stderr.txt", "wb") as err_file:
+        with open(folder / "stdout.txt", "w+b") as out_file, open(folder / "stderr.txt", "w+b") as err_file:
             child = subprocess.Popen(argv, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            threads = [threading.Thread(target=tee, args=(child.stdout, out_file, sys.stdout.buffer, problems)),
-                       threading.Thread(target=tee, args=(child.stderr, err_file, sys.stderr.buffer, problems))]
+            written = [hashlib.sha256(), hashlib.sha256()]
+            threads = [threading.Thread(target=tee, args=(child.stdout, out_file, sys.stdout.buffer, problems, written[0])),
+                       threading.Thread(target=tee, args=(child.stderr, err_file, sys.stderr.buffer, problems, written[1]))]
             for thread in threads:
                 thread.start()
             code = child.wait()
             for thread in threads:
                 thread.join()
             if not problems:
-                problems += filter(None, map(capture_lost, (out_file, err_file)))
+                problems += filter(None, map(capture_lost, (out_file, err_file), written))
     except OSError as error:
         if not problems:  # a capture write that failed fails again when its file is closed
             problems.append(failed(error, error.filename or folder))

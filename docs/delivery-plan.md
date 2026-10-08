@@ -10,7 +10,7 @@ This document is generated from `docs/plan/program-intro.md` and `docs/plan/work
 
 One box is one unit of work. Every box names the evidence that checks it. Check a box only when its evidence exists. Generated boxes represent acceptance obligations; execution status and evidence live in Linear and the coordinator's ledger.
 
-The program runs `/home/operator/.agents/skills/poteto-mode/playbooks/orchestrate.md` with the local T3 adaptations in `docs/orchestration.md`. The coordinator integrates accepted local work. The user controls main-branch merges and deployment. The remote is `origin`; every ticket closes through a PR into `dev`.
+The program runs `/home/operator/.agents/skills/poteto-mode/playbooks/orchestrate.md` with the local T3 adaptations in `docs/orchestration.md`. The coordinator integrates accepted local work. The user controls main-branch merges and deployment. The remote is `origin`; every ticket closes through a stacked PR that lands in `dev`.
 
 Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
@@ -36,7 +36,7 @@ The implementation test commands below are required deliverables, not existing r
 
 ### PR mechanics, for every PR
 
-- [ ] Push each `feature/<linear-id>-<slug>` branch to `origin` and open a PR into `dev` when the ticket's evidence is complete. Register every PR with T3.
+- [ ] Push each `feature/<linear-id>-<slug>` branch to `origin` and open its PR when the ticket's evidence is complete, against `dev` at the bottom of the stack or the upstream ticket's branch for a dependent ticket, as `AGENTS.md` describes. Register every PR with T3.
 - [ ] When a remote and PR workflow are authorized, use the available forge and register every PR with T3. Do not require `gt` or a nonexistent repository script.
 - [ ] During authorized implementation, run lint/typecheck and relevant behavior tests before each reviewable commit. Cut unnecessary comments and prose before review.
 - [ ] Keep the reviewed base revision stable through a fix round. Delegate conflicts and recheck affected evidence after integration.

@@ -1,0 +1,2 @@
+Preparing worktree (detached HEAD fa40a1d)
+HEAD is now at fa40a1d Document files git does not check and what the fingerprint trusts

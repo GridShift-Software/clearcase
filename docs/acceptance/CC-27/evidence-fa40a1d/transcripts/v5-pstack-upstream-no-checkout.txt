@@ -1,0 +1,2 @@
+SKIPPED pstack-upstream: no pstack checkout supplied; pass --checkout DIR, a clone holding the pinned upstream revision
+receipt: SKIPPED pstack-upstream exit=3 ~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r5/rerun-fa40a1d/receipts/v5-pstack-upstream-no-checkout/20261008T161639.170078Z-pstack-upstream/receipt.json

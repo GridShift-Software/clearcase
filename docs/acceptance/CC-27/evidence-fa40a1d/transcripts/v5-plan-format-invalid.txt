@@ -1,0 +1,7 @@
+Print a greeting (W-01)  boxes=18  files=1 build=1 you-see=1 verify-unit=1 verify-live=10 verify-perf=3 review-gate=0 merge=1
+1 PR sections, 4 problems
+~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/tests/agent-tools/fixtures/plans/invalid.md:47: long dash
+~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/tests/agent-tools/fixtures/plans/invalid.md:5: How to read this lacks "One box is one unit of work"
+~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/tests/agent-tools/fixtures/plans/invalid.md:57: Print a greeting (W-01): lanes are [1,2,3,4,5,6,7,8,9,11], expected 1 to 10
+~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/tests/agent-tools/fixtures/plans/invalid.md:79: Print a greeting (W-01): perf boxes are [Metric., Probe., Baseline.], expected [Metric., Probe., Baseline., Rule.]
+receipt: FAIL plan-format exit=1 ~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r5/rerun-fa40a1d/receipts/v5-plan-format-invalid/20261008T161639.024479Z-plan-format/receipt.json

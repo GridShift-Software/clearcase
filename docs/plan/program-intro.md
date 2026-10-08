@@ -21,7 +21,7 @@ The implementation test commands below are required deliverables, not existing r
 ### Arm the program
 
 - [ ] Treat this session as planning only. Start implementation when the user supplies the kickoff as an execution instruction.
-- [ ] Read the current local skills and record their paths. `origin/dev` is the integration base; use `git show origin/main:<path>` only to compare against the release branch, which changes only through user-approved merges.
+- [ ] Run `scripts/agent-tools/doctor` and `scripts/agent-tools/check-plan` from the worktree before each dispatch; see `docs/agent-tooling.md`. Read the current local skills and record their paths. `origin/dev` is the integration base; use `git show origin/main:<path>` only to compare against the release branch, which changes only through user-approved merges.
 - [ ] Read the orchestration, swarm, verification and relevant implementation skills before each phase. The user's no-Cursor and Opus-high settings override default model choices.
 - [ ] Do not arm `/loop 1h` during planning. If later authorized, use the app scheduler for an hourly audit with a status message only for material changes; T3 task completion already supplies wakeups.
 - [ ] On hold, send every active writer a zero-writes instruction and preserve their artifacts.
@@ -29,7 +29,7 @@ The implementation test commands below are required deliverables, not existing r
 ### Spawn owners
 
 - [ ] Use one owner per implementation ticket, one worktree per writer and a complete brief. Keep the coordinator responsible for Linear and integration.
-- [ ] Run CC-01 and CC-02, then independent gate CC-23. Run the complete pilot CC-03, then independent gate CC-24 before feature fan-out.
+- [ ] Run CC-27 first; its agent tooling and doctor are the setup prerequisite for CC-01. Then run CC-01 and CC-02, then independent gate CC-23. Run the complete pilot CC-03, then independent gate CC-24 before feature fan-out.
 - [ ] Follow every native Linear blocking edge and reconcile it with the local graph. A gate is not satisfied by a worker's self-report.
 - [ ] Reserve actual file paths before dispatch. Limit initial writers to three; serialize shared config, schemas, navigation and persistence changes.
 - [ ] Retain delegated task IDs. Fix rounds use fresh agents with the original scope, prior report and unresolved findings.

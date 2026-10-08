@@ -1,0 +1,68 @@
+{
+  "schema": "clearcase-agent-receipt/1",
+  "name": "doctor",
+  "result": "PASS",
+  "exitCode": 0,
+  "reason": null,
+  "command": [
+    "/usr/bin/python3",
+    "-I",
+    "-B",
+    "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/scripts/agent-tools/agent_tools.py",
+    "bootstrap"
+  ],
+  "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling",
+  "tools": [
+    {
+      "name": "git",
+      "path": "/usr/bin/git",
+      "version": "git version 2.56.0"
+    },
+    {
+      "name": "python3",
+      "path": "/usr/bin/python3",
+      "version": "Python 3.14.7"
+    },
+    {
+      "name": "node",
+      "path": "/usr/bin/node",
+      "version": "v26.10.0"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/scripts/agent-tools/skills.lock.json",
+      "sha256": "4fe010feff5eef3c16bb578a32acfa152ac7fc3836bf0b3caa63a84cd53dbf5a"
+    }
+  ],
+  "revision": {
+    "repository": true,
+    "root": "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling",
+    "branch": "feature/grs-35-agent-tooling",
+    "head": "fa40a1d3862d5b9c4660841d2d3ce2e6baa600f8",
+    "baseRef": "origin/dev",
+    "base": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "mergeBase": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "dirty": false,
+    "diffSha256": null
+  },
+  "environment": {
+    "os": "CachyOS",
+    "platform": "linux",
+    "kernel": "7.2.2-1-cachyos",
+    "machine": "x86_64",
+    "host": "PUK",
+    "bash": "5.3.20(1)-release",
+    "callerShell": "",
+    "python": "3.14.7",
+    "path": "/usr/local/bin:/usr/bin:/bin"
+  },
+  "startedAt": "2026-10-08T16:16:24.535781+00:00",
+  "finishedAt": "2026-10-08T16:16:24.601284+00:00",
+  "durationSeconds": 0.066,
+  "artifacts": {
+    "receipt": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r5/rerun-fa40a1d/receipts/v1-bootstrap-first/20261008T161624.535781Z-doctor/receipt.json",
+    "stdout": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r5/rerun-fa40a1d/receipts/v1-bootstrap-first/20261008T161624.535781Z-doctor/stdout.txt",
+    "stderr": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r5/rerun-fa40a1d/receipts/v1-bootstrap-first/20261008T161624.535781Z-doctor/stderr.txt"
+  }
+}

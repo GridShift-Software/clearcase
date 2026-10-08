@@ -1,2 +1,0 @@
-Preparing worktree (detached HEAD aec7466)
-HEAD is now at aec7466 Drop a redundant condition from the doctor's Bun row

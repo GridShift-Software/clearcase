@@ -1,0 +1,1 @@
+receipt: PASS doctor exit=0 ~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r7/rerun-0962dde/receipts/v1-bootstrap-first/20261008T192042.678834Z-doctor/receipt.json

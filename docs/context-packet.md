@@ -11,7 +11,7 @@ Planning checkpoint, 8 October 2026.
 | Coordinator host | T3 on `puk`, using the `dev` clone above |
 | Integration base | `dev` at `81c3f4b`; GRS-35 in review on `feature/grs-35-agent-tooling` |
 | Main checkout | `/home/vaper/.t3/projects/clearcase`, unchanged |
-| Remote | `origin`, GitHub `GridShift-Software/clearcase`; PRs into `dev` |
+| Remote | `origin`, GitHub `GridShift-Software/clearcase`; stacked PRs into `dev` |
 | App code and runtime | Not implemented; no app dev server is running from this repository |
 | Planning files | Committed on `dev` |
 | Linear | 28 issues, seven milestones, six independent gate issues; all begin in Backlog |

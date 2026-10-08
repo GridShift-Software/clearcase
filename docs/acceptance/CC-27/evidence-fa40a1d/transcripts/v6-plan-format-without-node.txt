@@ -1,2 +1,0 @@
-SKIPPED plan-format: required tool not found: node; install it or put it on PATH (scripts/agent-tools/doctor names the fix)
-receipt: SKIPPED plan-format exit=3 ~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r5/rerun-fa40a1d/receipts/v6-plan-format-without-node/20261008T161653.028029Z-plan-format/receipt.json

@@ -1,0 +1,1 @@
+SKIPPED: No application exists yet. App, build and browser verification (a project verify-<app> skill generated with pstack create-verification-skill) is deferred to GRS-12 (CC-03), which establishes the app, build and browser commands. GRS-10 (CC-02) owns the Bun/TypeScript/Vitest bootstrap.

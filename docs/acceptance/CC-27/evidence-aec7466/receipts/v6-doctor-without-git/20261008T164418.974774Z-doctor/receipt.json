@@ -1,0 +1,73 @@
+{
+  "schema": "clearcase-agent-receipt/1",
+  "name": "doctor",
+  "result": "FAIL",
+  "exitCode": 1,
+  "reason": "git: not found on PATH",
+  "command": [
+    "/tmp/cc27-nogit.IJvgZB/python3",
+    "-I",
+    "-B",
+    "/tmp/cc27-fresh-wt.OzI2Qz/scripts/agent-tools/agent_tools.py",
+    "doctor"
+  ],
+  "cwd": "/tmp/cc27-fresh-wt.OzI2Qz",
+  "tools": [
+    {
+      "name": "git",
+      "path": null,
+      "version": null
+    },
+    {
+      "name": "python3",
+      "path": "/tmp/cc27-nogit.IJvgZB/python3",
+      "version": "Python 3.14.7"
+    },
+    {
+      "name": "node",
+      "path": "/tmp/cc27-nogit.IJvgZB/node",
+      "version": "v26.10.0"
+    },
+    {
+      "name": "bun",
+      "path": "~/.local/bin/bun",
+      "version": "1.4.2"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "/tmp/cc27-fresh-wt.OzI2Qz/scripts/agent-tools/skills.lock.json",
+      "sha256": "4fe010feff5eef3c16bb578a32acfa152ac7fc3836bf0b3caa63a84cd53dbf5a"
+    }
+  ],
+  "revision": {
+    "repository": false,
+    "root": "/tmp/cc27-fresh-wt.OzI2Qz",
+    "branch": null,
+    "head": null,
+    "baseRef": null,
+    "base": null,
+    "mergeBase": null,
+    "dirty": null,
+    "diffSha256": null
+  },
+  "environment": {
+    "os": "CachyOS",
+    "platform": "linux",
+    "kernel": "7.2.2-1-cachyos",
+    "machine": "x86_64",
+    "host": "PUK",
+    "bash": "5.3.20(1)-release",
+    "callerShell": "",
+    "python": "3.14.7",
+    "path": "/tmp/cc27-nogit.IJvgZB"
+  },
+  "startedAt": "2026-10-08T16:44:18.974774+00:00",
+  "finishedAt": "2026-10-08T16:44:18.989106+00:00",
+  "durationSeconds": 0.014,
+  "artifacts": {
+    "receipt": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r6/rerun-aec7466/receipts/v6-doctor-without-git/20261008T164418.974774Z-doctor/receipt.json",
+    "stdout": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r6/rerun-aec7466/receipts/v6-doctor-without-git/20261008T164418.974774Z-doctor/stdout.txt",
+    "stderr": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r6/rerun-aec7466/receipts/v6-doctor-without-git/20261008T164418.974774Z-doctor/stderr.txt"
+  }
+}

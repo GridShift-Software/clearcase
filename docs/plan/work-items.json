@@ -75,7 +75,9 @@
       "key": "CC-01",
       "milestone": "M0",
       "title": "Freeze the v5 fixture and behavior baseline",
-      "depends": [],
+      "depends": [
+        "CC-27"
+      ],
       "outcome": "A new worker can reproduce the sample inventory and identify every expected behavior without relying on chat history.",
       "scope": [
         "scripts/fixtures/**",
@@ -87,7 +89,9 @@
         "Produce a local reference-to-path inventory, duplicate and missing-file reports, and a per-view action/export/state checklist. Keep case documents and extracted text outside Git.",
         "Record literal expected examples for filters, citations, calculations and mutable workflows. Fix the clock for date-sensitive examples. Classify source defects separately from rewrite defects.",
         "Document a fresh-machine setup and a local fixture location. Capture representative v5 screens safely with networking disabled; no execution of archive processing scripts.",
-        "Record each view's data sources and distinguish imported datasets from user-work stores in docs/reference/view-checklist.md. Propose view-coverage changes for the coordinator; before M2 dispatch, the coordinator resolves consumer dependencies for Invoice Ledger, Conflict Check, Court Bundle and CaseLines from this evidence."
+        "Record each view's data sources and distinguish imported datasets from user-work stores in docs/reference/view-checklist.md. Propose view-coverage changes for the coordinator; before M2 dispatch, the coordinator resolves consumer dependencies for Invoice Ledger, Conflict Check, Court Bundle and CaseLines from this evidence.",
+        "Create `docs/reference/audit-dispositions.md` from the BA-01 to BA-21 disposition table in the delivery plan. Record each finding's owner, applicable fixture/view, correction or disclosure, explicit deferral and evidence requirement. A deferred source repair must not be reported as fixed.",
+        "Map the 42 v5 navigation entries against the production audit's 55 routes without equating the counts. Identify production-only capabilities as V2-owned or explicitly deferred, and list any newer-export dataset that remains unsupported. Browser-agent product behavior is deferred; no browser agent is implied by local parity."
       ],
       "liveScenarios": [
         "Rebuild the inventory twice and compare outputs",
@@ -134,7 +138,9 @@
         "Validate all dataset shapes and refs, path containment, duplicate IDs, unsupported versions and ambiguous asset mappings. Use distinct diagnostics for known baseline defects and new structural failures.",
         "Preserve source values and provenance. Use file fingerprints for asset identity; do not equate legacy refs across independently rebuilt packs.",
         "Import produces an immutable candidate and diagnostics. Repeated conversion is deterministic. User notes and registers are not embedded in immutable results. Define the generated-data versus authored-analysis boundary.",
-        "Establish the minimal npm/TypeScript/Vitest toolchain and npm check, test and measure scripts needed to execute this ticket. CC-03 extends these files only after the package gate passes."
+        "Establish the minimal npm/TypeScript/Vitest toolchain and npm check, test and measure scripts needed to execute this ticket. CC-03 extends these files only after the package gate passes.",
+        "Treat every imported narrative, filename, URL and metadata field as untrusted content, not only manually authored Markdown. Reject unsafe link schemes and define safe rendering rules in the package contract. Verify hostile fixtures cannot execute code.",
+        "Define bounded file, record and nesting sizes; if archive extraction is supported, bound expanded size and reject traversal/symlink escapes and malformed archives. Invalid or excessive inputs must fail with actionable diagnostics before activation."
       ],
       "liveScenarios": [
         "Convert v5 and compare all chronology fields",
@@ -189,7 +195,10 @@
         "Keep the active version unchanged on failed import. Keep originals outside Git. Serve only loopback and work with outbound networking disabled.",
         "Provide history-aware navigation, accessible focus, case-aware titles, citation links and a reproducible boot/verification command. This complete workflow is the pilot before feature fan-out.",
         "Freeze navigation entries and route extension points for all 42 views using the coordinator-owned view inventory. Reserve one feature subtree per worker and define shared component/persistence contracts before fan-out. Unimplemented entries remain explicitly unavailable until their owning issue passes. The coordinator serializes dependency, lockfile, shared layout and configuration changes during M2.",
-        "Ownership transfer after CC-02 is accepted. Extend package.json, package-lock.json, tsconfig.json, vitest.config.* serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths."
+        "Ownership transfer after CC-02 is accepted. Extend package.json, package-lock.json, tsconfig.json, vitest.config.* serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths.",
+        "Apply the package's safe-rendering and link policy throughout overview, chronology, document details and previews. Active original content must not execute with the application's origin/privileges; isolate supported previews or offer an explicit download. Test hostile narratives, filenames, links and original files without outbound access.",
+        "For dates used in chronology, retain the source value and expose supplied date type/provenance or explicitly mark the basis unknown. Do not silently infer a document issue date from an incidental date. Source metadata re-extraction is deferred (BA-04).",
+        "Navigation names must match their destinations and use task names rather than development-priority labels (BA-18)."
       ],
       "liveScenarios": [
         "Compare the complete import-to-document workflow with the reference",
@@ -231,7 +240,9 @@
         "Cover Documents, Contracts, Filings & Affidavits, Advanced Search, People, Entities and Document Diff with their recorded actions.",
         "Preserve query/filter/sort/page state through navigation and exports. Distinguish invalid ranges from genuine empty results.",
         "Disclose indexed-text limits and unsupported files. Do not label a truncated corpus search as full-document search.",
-        "Use literal expected search/diff examples and justified comparison relationships. Keep original links and filing-register edits functional."
+        "Use literal expected search/diff examples and justified comparison relationships. Keep original links and filing-register edits functional.",
+        "Treat imported filing classifications and inferred professional identities as unverified unless supported by review evidence; disclose that status and test the audit's misleading classification/automated-sender cases. Do not present an automated sender as a verified attorney. Preserve raw source data; full extraction/classification rebuild remains deferred (BA-05, BA-07).",
+        "Ensure document ordering labels, active sort, pagination and exported order agree (BA-17)."
       ],
       "liveScenarios": [
         "Compare fixed search results with v5",
@@ -316,7 +327,8 @@
         "Cover Quantum & Interest, Invoice Ledger, Interest Recalculator, Payments & Net Claim, Prescription and Settlement / BATNA.",
         "Reconcile source amounts and dates without silently correcting imported figures. Document rounding, time basis, defaults and every deliberate arithmetic fix.",
         "Use fixed literal checks including R1,000 at 10% simple interest for one year yielding R100, zero and invalid inputs, leap dates and month ends.",
-        "Persist scenario/payment inputs where v5 does; export the intended ledger. Keep legal-rule approval separate from arithmetic verification. Flag unsupported legal conclusions for human review."
+        "Persist scenario/payment inputs where v5 does; export the intended ledger. Keep legal-rule approval separate from arithmetic verification. Flag unsupported legal conclusions for human review.",
+        "Resolve BA-01 to BA-03 through explicit arithmetic/default checks and a differences register. Imported narrative that contradicts its own dates must be visibly flagged or replaced by a reviewed correction; it cannot pass as an unqualified verified conclusion. Preserve original source values and keep approval of legal rules separate."
       ],
       "liveScenarios": [
         "Compare invoice totals with the reference",
@@ -358,7 +370,8 @@
         "Cover Disbursements, Timesheet, Deadlines, Privilege Log, POPIA Register, Annotations and Transcripts.",
         "Implement the create/edit/delete/export actions present in v5 and scope records to the selected case. Keep imported results separate.",
         "Persist changes through reload and server restart. Make failed writes visible and preserve unsaved input.",
-        "Verify totals, deadline countdown with a fixed clock, calendar export and original-document references with controlled local fixtures."
+        "Verify totals, deadline countdown with a fixed clock, calendar export and original-document references with controlled local fixtures.",
+        "Privilege workflows must not turn unverified professional-role inference into a privilege finding. Keep suggestions explicitly unverified; test an automated-sender example without silently rewriting source identities (BA-07)."
       ],
       "liveScenarios": [
         "Compare seeded register state with v5",
@@ -372,8 +385,8 @@
         "Restart and recover every saved entry",
         "Simulate a failed write without losing unsaved input"
       ],
-      "performanceMetric": "Register save/read latency and restore time",
-      "performanceBudget": "Save/read <=200 ms at p95 on the acceptance fixture. Set restore budget after CC-10 baseline.",
+      "performanceMetric": "Register save/read latency",
+      "performanceBudget": "Save/read <=200 ms at p95 on the acceptance fixture. This issue has no dependency on a later restore baseline; CC-10 / [GRS-20](https://linear.app/vaper/issue/GRS-20/rescan-local-files-and-restore-user-work-safely) owns backup/restore time and memory budgets and measurements.",
       "kind": "delivery",
       "phase": "V1",
       "linear": {
@@ -490,7 +503,8 @@
         "Cover Rescan & Update, Backup / Restore and Manual.",
         "A repeat scan is idempotent. Detect additions, removals and changed contents; do not assign duplicate refs or claim analysis is current after a shallow rescan.",
         "Backup includes user-entered state and required identities/version metadata. State clearly whether binaries are included. Validate restore and scope it to the correct case.",
-        "Corrupt or incompatible backups leave active data unchanged. Verify restoration into a fresh local profile and document startup, import, search coverage and backup behavior."
+        "Corrupt or incompatible backups leave active data unchanged. Verify restoration into a fresh local profile and document startup, import, search coverage and backup behavior.",
+        "Own and record backup/restore time and memory budgets before implementing this workflow, then measure them on the accepted fixture. [GRS-17](https://linear.app/vaper/issue/GRS-17/maintain-case-registers-without-losing-edits) completion requires its own register read/write evidence and does not wait for these later measurements."
       ],
       "liveScenarios": [
         "Compare available system actions with v5",
@@ -543,7 +557,9 @@
         "Record interleaved comparable reference/head metrics and absolute local budgets. Independently review known-data defects and corrections. Request user visual review at the concrete merge-ready result; do not merge or publish under this planning task.",
         "A second reviewer from a different supported model family reviews the acceptance suite, verification scripts and documentation written by this gate owner, then independently reruns critical paths at the exact integrated revision. The author cannot issue their own final PASS.",
         "Ownership transfer after CC-03 is accepted. Extend docs/development.md serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths.",
-        "Ownership transfer after CC-10 is accepted. Extend docs/user-guide.md serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths."
+        "Ownership transfer after CC-10 is accepted. Extend docs/user-guide.md serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths.",
+        "Review all BA-01 to BA-21 dispositions against their owning issues. Applicable V1 corrections/disclosures require evidence; V2 and deferred items require an explicit scope decision and visible limitations where relevant. No known misleading conclusion may pass solely because it matches the source.",
+        "Verify hostile imported content and original-preview isolation across the completed viewer. Report the 42-view parity result separately from production-only/deferred capabilities."
       ],
       "liveScenarios": [
         "Run the reference and rewrite pilot side by side",
@@ -586,7 +602,8 @@
         "Identify the source format explicitly and preserve all 2,131 chronology rows, 24 DATA keys and two auxiliary top-level datasets in the observed export. Confirm counts from the source before coding.",
         "Handle changed shapes such as storyline records and numeric/string row positions through the format adapter, not scattered UI conditionals.",
         "Document extra dataset presentation or an explicit unsupported state for every new dataset. Preserve attachment sources and disclose the 4,000-character text cap.",
-        "Re-run all v5 gates after adding compatibility. Ref collisions between versions never silently attach old notes to a different original."
+        "Re-run all v5 gates after adding compatibility. Ref collisions between versions never silently attach old notes to a different original.",
+        "Recheck BA-04, BA-05, BA-07, BA-09 and BA-11 on the newer export. Date basis, classification/identity uncertainty, direct-versus-parent originals and email-subset coverage must be explicit wherever those datasets are presented. An unsupported view/dataset is reported as unsupported, not as a completed feature. Full metadata re-extraction and expanded OCR remain deferred."
       ],
       "liveScenarios": [
         "Re-run the v5 pilot unchanged",
@@ -700,7 +717,9 @@
         "Resolve whether the client instance represents a firm or individual, client edit permissions, and who may approve publication. Record genuine product choices separately from technical tests.",
         "Choose Workers or Containers using measured workload and current official docs. Keep durable originals/results/user work outside ephemeral process storage.",
         "Define identity, admin/client authorization, backups, retention, restore, notification provider and secrets provisioning. Design per-client isolation and access to draft assets.",
-        "Prove an isolated local or disposable staging configuration with synthetic data. Do not deploy publicly or send real notifications without execution authorization and required credentials."
+        "Prove an isolated local or disposable staging configuration with synthetic data. Do not deploy publicly or send real notifications without execution authorization and required credentials.",
+        "Specify implementation contracts for client/case provisioning, session expiry/revocation, hosted user-work persistence, schema upgrades, concurrent edits and identity remapping across publication/rollback. [GRS-36](https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work) owns implementation after the design gate.",
+        "Identify the owner and approved content for public information-handling/support entry points, plus session-establishment recovery behavior (BA-19, BA-20)."
       ],
       "liveScenarios": [],
       "performanceMetric": "Hosted cold-start, upload and data-read latency",
@@ -718,7 +737,7 @@
       "milestone": "M5",
       "title": "Submit and resume client document uploads",
       "depends": [
-        "CC-26"
+        "CC-28"
       ],
       "outcome": "An authenticated client uploads files into its own case and finalizes a durable input revision.",
       "scope": [
@@ -731,7 +750,8 @@
         "Support files and folders with preserved relative paths, progress, resume and bounded retries. Reject unsafe paths and unsupported input with clear feedback.",
         "Finalize an immutable submission manifest with content identity and size. Handle duplicate finalization idempotently; post-finalization additions require a new revision.",
         "Enforce case/client authorization at every upload and asset endpoint, not only in the UI.",
-        "Exercise interrupted upload, duplicate request, wrong-client access, storage failure and multi-gigabyte sample scale using controlled data."
+        "Exercise interrupted upload, duplicate request, wrong-client access, storage failure and multi-gigabyte sample scale using controlled data.",
+        "Reuse the accepted authentication, case provisioning and authorization contracts from [GRS-36](https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work). Take ownership of `src/lib/storage/cloud/**` only after the foundation owner stops writing there; serialize subsequent shared changes through the coordinator."
       ],
       "liveScenarios": [],
       "performanceMetric": "Upload throughput, finalize latency and retry recovery",
@@ -763,7 +783,8 @@
         "Provide authorized operator listing and download with the manifest, paths, counts and integrity information.",
         "Verify downloaded content against the revision manifest and distinguish a partial download from a complete one.",
         "Use a test notification sink for verification. No live emails or external messages in development. Document the manual processing handoff.",
-        "Ownership transfer after CC-13 is accepted. Extend docs/manual-processing.md serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths."
+        "Ownership transfer after CC-13 is accepted. Extend docs/manual-processing.md serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths.",
+        "Document an executable manual recipe that turns a fresh controlled submission into a complete supported results package: required datasets, exact input revision, file identities, original mappings, citations, provenance and validation. List optional/unsupported outputs explicitly. A single edited risk record or a prebuilt sample package does not prove this handoff."
       ],
       "liveScenarios": [],
       "performanceMetric": "Notification dispatch delay and download throughput",
@@ -856,7 +877,9 @@
         "Test two client instances, admin/client roles, unauthenticated requests, direct draft-asset URLs, stale sessions and wrong-case/version identifiers.",
         "Exercise upload/import/publish retry, backing-store loss and restore, interrupted processes and rollback. Confirm the published version and user work survive recovery.",
         "Reconcile authorization, performance, audit, support entry points, documentation and remaining risks at the exact release revision. Produce a deployable candidate; live deployment remains a separate authorized action.",
-        "Assign a second independent reviewer for any verification code written by this gate owner. The author cannot approve their own acceptance suite or final verdict."
+        "Assign a second independent reviewer for any verification code written by this gate owner. The author cannot approve their own acceptance suite or final verdict.",
+        "Prove the complete workflow using a fresh controlled submission that is not either parity fixture. Follow the documented manual recipe to produce every required dataset and original/citation mapping, import and review that exact input/results version, publish it and verify the client view. Existing sample imports and one Markdown risk round trip alone cannot satisfy this criterion.",
+        "Re-run hosted-foundation scenarios for provisioning, concurrent edits, session revocation, user-work identity across replacement publication and rollback, sign-in recovery and logged-out support/information access. Record BA-19/BA-20 evidence or HOLD; automation stays deferred."
       ],
       "liveScenarios": [],
       "performanceMetric": "End-to-end completion, recovery time, cold and warm hosted latency",
@@ -942,7 +965,9 @@
         "A reviewer who did not author the conversion verifies the archive/main-HTML fingerprint, 1,689 records, 42 views and action inventory.",
         "Re-run conversion and malformed-package cases from a fresh local environment. Inspect the actual outputs and source mappings.",
         "Confirm data/user-work separation and literal acceptance examples; record unresolved baseline defects without silently correcting them.",
-        "Mark PASS only at the reviewed revision. HOLD blocks the pilot until concrete missing evidence or repairs are resolved."
+        "Mark PASS only at the reviewed revision. HOLD blocks the pilot until concrete missing evidence or repairs are resolved.",
+        "Verify [GRS-35](https://linear.app/vaper/issue/GRS-35/set-up-pstack-and-verification-skills-for-agent-cli-access) tooling evidence and the complete BA-01\u2013BA-21 disposition register. Confirm the baseline distinguishes 42 v5 navigation entries from 55 audited production routes and records production-only/deferred capabilities.",
+        "Independently rerun hostile-content, unsafe-link, escaping-path and over-limit input fixtures against the package contract."
       ],
       "liveScenarios": [],
       "performanceMetric": "Review existing measurements at the exact integrated revision",
@@ -972,7 +997,8 @@
         "Verify loopback-only operation, external-network independence, failed-import recovery, browser Back and keyboard focus.",
         "Check measured cold/warm performance receipts and the frozen package interfaces required by feature workers.",
         "Record PASS/HOLD/FAIL at the reviewed revision. Reserve shared persistence and layout paths before opening the parallel feature queue.",
-        "Verify all 42 navigation/route extension points and shared-file ownership are ready for feature workers. Confirm view data-source dependencies from CC-01 have been reconciled in Linear and the local graph before M2 dispatch."
+        "Verify all 42 navigation/route extension points and shared-file ownership are ready for feature workers. Confirm view data-source dependencies from CC-01 have been reconciled in Linear and the local graph before M2 dispatch.",
+        "Verify hostile imported content and original previews cannot execute with app privileges or escape the selected case boundary. Confirm failed/over-limit inputs preserve the active case."
       ],
       "liveScenarios": [],
       "performanceMetric": "Review existing measurements at the exact integrated revision",
@@ -1031,7 +1057,8 @@
         "Confirm explicit decisions for client boundary, edit permissions, publisher authority, durable storage and recovery.",
         "Inspect the hosting probe, authentication approach, draft-asset authorization and numeric performance/load budgets.",
         "Read CC-14. If the legacy endpoint remains inaccessible, record the decision to build against the new package contract and defer legacy migration; do not claim the old contract was verified.",
-        "Freeze the hosted acceptance scenarios and file reservations. Keep credentials/deployment actions outside this gate unless separately authorized."
+        "Freeze the hosted acceptance scenarios and file reservations. Keep credentials/deployment actions outside this gate unless separately authorized.",
+        "Freeze the [GRS-36](https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work) foundation contracts and reserve shared auth/storage/configuration paths before implementation. Client intake begins only after the foundation is implemented and independently verified."
       ],
       "liveScenarios": [],
       "performanceMetric": "Review existing measurements at the exact integrated revision",
@@ -1042,6 +1069,107 @@
         "id": "c99e1ba3-dc84-4bbc-aee5-f8c3c34692f2",
         "identifier": "GRS-27",
         "url": "https://linear.app/vaper/issue/GRS-27/gate-the-hosted-design-before-client-intake-implementation"
+      }
+    },
+    {
+      "key": "CC-27",
+      "milestone": "M0",
+      "title": "Set up pstack and verification skills for agent CLI access",
+      "depends": [],
+      "outcome": "A newly started implementation or review agent can use the project-approved pstack and verification skills through a reproducible, non-interactive CLI, with real exit codes and evidence files. This is the setup prerequisite for the local baseline; it does not implement the application.",
+      "scope": [
+        "scripts/agent-tools/**",
+        "tests/agent-tools/**",
+        "docs/agent-tooling.md",
+        "docs/acceptance/CC-27/**",
+        "AGENTS.md",
+        "docs/plan/**",
+        "docs/delivery-plan.md",
+        "docs/orchestration.md",
+        "docs/context-packet.md",
+        "docs/kickoff-prompt.md",
+        "scripts/planning/**"
+      ],
+      "scopeNotes": [
+        "`AGENTS.md` changes are limited to tooling discovery and invocation instructions.",
+        "The coordinator-owned planning files and `scripts/planning/**` change only for the Linear synchronization step.",
+        "Project-scoped or ignored local agent configuration; reserve any additional shared paths before changing them."
+      ],
+      "acceptance": [
+        "Inspect the existing repository instructions and configured pstack/verification skill sources. Record the exact source, version or revision, license/access requirements, supported runtimes and intended commands. Do not install an unrelated package merely because it is named pstack; unresolved source/access details are a HOLD.",
+        "Install or link the approved pstack and required verification skills in the actual execution environment. Document reproducible bootstrap, upgrade and removal steps. Keep credentials and machine-specific paths outside tracked configuration.",
+        "Expose documented CLI entry points for plan validation and each available verification capability. Agents must be able to discover and invoke them from a fresh non-interactive shell and an isolated worktree, without a GUI or an inherited interactive-shell profile. Document supported OS/shell combinations and fail unsupported environments clearly.",
+        "Provide a preflight/doctor command that checks runtime versions, tool/skill discovery, writable evidence paths and required browser/test dependencies where applicable. Missing dependencies must produce actionable errors and a nonzero exit code.",
+        "Use the actual tool commands and supported flags discovered from source/help. Wrap them only as needed; preserve stdout, stderr and exit codes. Verification receipts include command, tool version, base/head revision, environment, result and artifact locations. A skipped check or missing tool cannot produce PASS.",
+        "Synchronize this Linear review into canonical `docs/plan/work-items.json`, regenerate ticket briefs and update the delivery/kickoff documents, including CC-27, [GRS-36](https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work) / CC-28 (hosted foundation), audit dispositions and native dependency changes. This Linear update does not imply those repository files are already synchronized.",
+        "Keep the application npm/TypeScript/Vitest bootstrap owned by [GRS-10](https://linear.app/vaper/issue/GRS-10/validate-and-convert-a-portable-results-package). Tooling setup must not claim application tests passed before the application exists. Preserve original archives, production and private case material."
+      ],
+      "verification": [
+        "Bootstrap from documented prerequisites in a clean shell; repeat setup without duplicate or conflicting installation.",
+        "Run the existing planning checker with `--require-linear-ids`, and run the approved pstack `check-plan.mjs` against `docs/delivery-plan.md` using its verified invocation.",
+        "Compare a fresh Linear dependency readback through the planning checker's supported `--linear-relations PATH` input; local ID checks alone do not prove live graph agreement.",
+        "Run controlled valid and deliberately invalid plan fixtures. Confirm success/failure exit codes and useful diagnostics.",
+        "Invoke an available verification skill through the CLI against a small synthetic fixture; exercise both success and deliberate failure, and inspect its evidence outputs.",
+        "Repeat discovery and invocation in a newly created agent/worktree environment. Confirm a missing dependency and a skipped check cannot be reported as success.",
+        "An independent reviewer reruns the critical smoke checks at the exact reviewed revision. Record PASS, HOLD or FAIL with evidence before releasing [GRS-9](https://linear.app/vaper/issue/GRS-9/freeze-the-v5-fixture-and-behavior-baseline)."
+      ],
+      "handoff": "Use the existing project agent/model policy. Only the coordinator updates Linear and releases dependent work. Do not expose private case material to external services, change production, or embed secrets. Return changed paths, setup commands, pinned sources/versions, tested environments, evidence and unresolved prerequisites. No application implementation or deployment is authorized by completion of this setup ticket.",
+      "liveScenarios": [],
+      "kind": "enablement",
+      "phase": "V1",
+      "linear": {
+        "id": "8f0ca638-7ca4-409b-894c-5a15d4913429",
+        "identifier": "GRS-35",
+        "url": "https://linear.app/vaper/issue/GRS-35/set-up-pstack-and-verification-skills-for-agent-cli-access"
+      }
+    },
+    {
+      "key": "CC-28",
+      "milestone": "M5",
+      "title": "Implement hosted identity, client provisioning and durable user work",
+      "depends": [
+        "CC-26"
+      ],
+      "outcome": "The approved hosted design is implemented: an operator can provision an isolated client and case, users can authenticate with the approved permissions, and case user work persists independently of published results. Client intake has a working foundation.",
+      "scope": [
+        "src/lib/auth/**",
+        "src/lib/tenancy/**",
+        "src/lib/storage/cloud/**",
+        "src/lib/user-work/hosted/**",
+        "src/routes/auth/**",
+        "src/routes/admin/clients/**",
+        "src/routes/admin/cases/**",
+        "tests/hosted-foundation/**",
+        "docs/hosted-foundation.md"
+      ],
+      "scopeNotes": [
+        "Coordinator reserves shared server hooks, deployment/configuration and public information routes before implementation"
+      ],
+      "acceptance": [
+        "Implement the client boundary, provisioning/case creation, identity provider, sessions and admin/client/publisher permissions approved in [GRS-26](https://linear.app/vaper/issue/GRS-26/resolve-client-isolation-roles-and-cloudflare-deployment) and [GRS-27](https://linear.app/vaper/issue/GRS-27/gate-the-hosted-design-before-client-intake-implementation). Product choices remain in the design decision; do not silently invent client editing rights.",
+        "Enforce authorization server-side for case metadata, user-work reads/writes and assets. Deny unauthenticated, wrong-client, wrong-case and expired/revoked-session access.",
+        "Implement durable user-work storage scoped by client, case and stable document identity, separately from immutable results. Define schema upgrades, concurrent-edit conflict handling and restart recovery.",
+        "Test replacement publication and rollback against stable identities. Reused legacy refs must not move annotations to another document; ambiguous, changed or removed targets need an explicit unresolved state. Reject stale writes rather than silently losing edits.",
+        "Implement the foundation's backup/restore primitives and exercise them with synthetic data. End-to-end recovery remains verified by [GRS-32](https://linear.app/vaper/issue/GRS-32/verify-hosted-isolation-recovery-and-release-readiness).",
+        "Handle interrupted sign-in/session establishment with usable retry guidance (BA-19). Provide logged-out support and reviewed information-handling entry points before hosted release (BA-20); obtain approved content through the design owner.",
+        "Transfer `src/lib/storage/cloud/**` to [GRS-28](https://linear.app/vaper/issue/GRS-28/submit-and-resume-client-document-uploads) only after this ticket is accepted; the previous owner stops writing there. The coordinator serializes later shared adapter changes."
+      ],
+      "verification": [
+        "Provision two synthetic clients and cases; verify the full approved role matrix using both UI and direct requests.",
+        "Verify login, session expiry/revocation and interrupted session establishment, with explicit recovery guidance.",
+        "Save user work, restart the process, restore from backup and verify tenant/case isolation.",
+        "Exercise concurrent edits, a reused document ref, a changed/removed original and publication rollback without data loss or silent reassignment.",
+        "Check logged-out support/information links without requiring account creation.",
+        "Record commands, exit codes, exact revision and evidence. An independent reviewer verifies the foundation before [GRS-28](https://linear.app/vaper/issue/GRS-28/submit-and-resume-client-document-uploads) begins. Use the staging budgets approved in [GRS-26](https://linear.app/vaper/issue/GRS-26/resolve-client-isolation-roles-and-cloudflare-deployment)."
+      ],
+      "handoff": "V2 work only; this ticket does not expand the local V1 kickoff. Use controlled data and a local/disposable staging environment. Preserve human publication approval and the existing project execution authority. No live notifications, public deployment or production changes under this planning update. Return changed paths, contracts, evidence and the explicit shared-path handoff.",
+      "liveScenarios": [],
+      "kind": "delivery",
+      "phase": "V2",
+      "linear": {
+        "id": "3ee13f2b-c1b4-44bb-9c43-cd750b3623e5",
+        "identifier": "GRS-36",
+        "url": "https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work"
       }
     }
   ]

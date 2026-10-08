@@ -21,7 +21,7 @@ The implementation test commands below are required deliverables, not existing r
 ### Arm the program
 
 - [ ] Treat this session as planning only. Start implementation when the user supplies the kickoff as an execution instruction.
-- [ ] Read the current local skills and record their paths. `origin/dev` is the integration base; use `git show origin/main:<path>` only to compare against the release branch, which changes only through user-approved merges.
+- [ ] Run `scripts/agent-tools/doctor` and `scripts/agent-tools/check-plan` from the worktree before each dispatch; see `docs/agent-tooling.md`. Read the current local skills and record their paths. `origin/dev` is the integration base; use `git show origin/main:<path>` only to compare against the release branch, which changes only through user-approved merges.
 - [ ] Read the orchestration, swarm, verification and relevant implementation skills before each phase. The user's no-Cursor and Opus-high settings override default model choices.
 - [ ] Do not arm `/loop 1h` during planning. If later authorized, use the app scheduler for an hourly audit with a status message only for material changes; T3 task completion already supplies wakeups.
 - [ ] On hold, send every active writer a zero-writes instruction and preserve their artifacts.
@@ -29,7 +29,7 @@ The implementation test commands below are required deliverables, not existing r
 ### Spawn owners
 
 - [ ] Use one owner per implementation ticket, one worktree per writer and a complete brief. Keep the coordinator responsible for Linear and integration.
-- [ ] Run CC-01 and CC-02, then independent gate CC-23. Run the complete pilot CC-03, then independent gate CC-24 before feature fan-out.
+- [ ] Run CC-27 first; its agent tooling and doctor are the setup prerequisite for CC-01. Then run CC-01 and CC-02, then independent gate CC-23. Run the complete pilot CC-03, then independent gate CC-24 before feature fan-out.
 - [ ] Follow every native Linear blocking edge and reconcile it with the local graph. A gate is not satisfied by a worker's self-report.
 - [ ] Reserve actual file paths before dispatch. Limit initial writers to three; serialize shared config, schemas, navigation and persistence changes.
 - [ ] Retain delegated task IDs. Fix rounds use fresh agents with the original scope, prior report and unresolved findings.
@@ -60,7 +60,7 @@ The implementation test commands below are required deliverables, not existing r
 
 ## Freeze the v5 fixture and behavior baseline (CC-01)
 
-**Depends on.** None.
+**Depends on.** [GRS-35](https://linear.app/vaper/issue/GRS-35/set-up-pstack-and-verification-skills-for-agent-cli-access).
 
 **Files.**
 
@@ -81,6 +81,10 @@ The implementation test commands below are required deliverables, not existing r
 - [ ] Document a fresh-machine setup and a local fixture location. Capture representative v5 screens safely with networking disabled; no execution of archive processing scripts.
 
 - [ ] Record each view's data sources and distinguish imported datasets from user-work stores in docs/reference/view-checklist.md. Propose view-coverage changes for the coordinator; before M2 dispatch, the coordinator resolves consumer dependencies for Invoice Ledger, Conflict Check, Court Bundle and CaseLines from this evidence.
+
+- [ ] Create `docs/reference/audit-dispositions.md` from the BA-01 to BA-21 disposition table in the delivery plan. Record each finding's owner, applicable fixture/view, correction or disclosure, explicit deferral and evidence requirement. A deferred source repair must not be reported as fixed.
+
+- [ ] Map the 42 v5 navigation entries against the production audit's 55 routes without equating the counts. Identify production-only capabilities as V2-owned or explicitly deferred, and list any newer-export dataset that remains unsupported. Browser-agent product behavior is deferred; no browser agent is implied by local parity.
 
 **You see.**
 
@@ -165,6 +169,10 @@ The implementation test commands below are required deliverables, not existing r
 - [ ] Import produces an immutable candidate and diagnostics. Repeated conversion is deterministic. User notes and registers are not embedded in immutable results. Define the generated-data versus authored-analysis boundary.
 
 - [ ] Establish the minimal npm/TypeScript/Vitest toolchain and npm check, test and measure scripts needed to execute this ticket. CC-03 extends these files only after the package gate passes.
+
+- [ ] Treat every imported narrative, filename, URL and metadata field as untrusted content, not only manually authored Markdown. Reject unsafe link schemes and define safe rendering rules in the package contract. Verify hostile fixtures cannot execute code.
+
+- [ ] Define bounded file, record and nesting sizes; if archive extraction is supported, bound expanded size and reject traversal/symlink escapes and malformed archives. Invalid or excessive inputs must fail with actionable diagnostics before activation.
 
 **You see.**
 
@@ -264,6 +272,12 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Ownership transfer after CC-02 is accepted. Extend package.json, package-lock.json, tsconfig.json, vitest.config.* serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths.
 
+- [ ] Apply the package's safe-rendering and link policy throughout overview, chronology, document details and previews. Active original content must not execute with the application's origin/privileges; isolate supported previews or offer an explicit download. Test hostile narratives, filenames, links and original files without outbound access.
+
+- [ ] For dates used in chronology, retain the source value and expose supplied date type/provenance or explicitly mark the basis unknown. Do not silently infer a document issue date from an incidental date. Source metadata re-extraction is deferred (BA-04).
+
+- [ ] Navigation names must match their destinations and use task names rather than development-priority labels (BA-18).
+
 **You see.**
 
 - [ ] The operator imports a candidate, previews and activates it, then follows a chronology citation to the correct original.
@@ -337,6 +351,10 @@ The implementation test commands below are required deliverables, not existing r
 - [ ] Disclose indexed-text limits and unsupported files. Do not label a truncated corpus search as full-document search.
 
 - [ ] Use literal expected search/diff examples and justified comparison relationships. Keep original links and filing-register edits functional.
+
+- [ ] Treat imported filing classifications and inferred professional identities as unverified unless supported by review evidence; disclose that status and test the audit's misleading classification/automated-sender cases. Do not present an automated sender as a verified attorney. Preserve raw source data; full extraction/classification rebuild remains deferred (BA-05, BA-07).
+
+- [ ] Ensure document ordering labels, active sort, pagination and exported order agree (BA-17).
 
 **You see.**
 
@@ -488,6 +506,8 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Persist scenario/payment inputs where v5 does; export the intended ledger. Keep legal-rule approval separate from arithmetic verification. Flag unsupported legal conclusions for human review.
 
+- [ ] Resolve BA-01 to BA-03 through explicit arithmetic/default checks and a differences register. Imported narrative that contradicts its own dates must be visibly flagged or replaced by a reviewed correction; it cannot pass as an unqualified verified conclusion. Preserve original source values and keep approval of legal rules separate.
+
 **You see.**
 
 - [ ] A reviewer can reconcile invoices and payments and reproduce financial/date scenarios with visible assumptions.
@@ -562,6 +582,8 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Verify totals, deadline countdown with a fixed clock, calendar export and original-document references with controlled local fixtures.
 
+- [ ] Privilege workflows must not turn unverified professional-role inference into a privilege finding. Keep suggestions explicitly unverified; test an automated-sender example without silently rewriting source identities (BA-07).
+
 **You see.**
 
 - [ ] A reviewer can maintain case-management records locally and recover them after restart.
@@ -594,13 +616,13 @@ The implementation test commands below are required deliverables, not existing r
 
 **Verify, perf.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
 
-- [ ] Metric. Measure Register save/read latency and restore time at the accepted base and candidate where comparable. Name the work newly added by this unit.
+- [ ] Metric. Measure Register save/read latency at the accepted base and candidate where comparable. Name the work newly added by this unit.
 
 - [ ] Probe. Run `npm run measure -- --ticket CC-07 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
 
 - [ ] Baseline. Record the accepted base's median and p95 first. If the base lacks the feature, record N/A and measure the reference or absolute new behavior without a fabricated ratio.
 
-- [ ] Rule. Save/read <=200 ms at p95 on the acceptance fixture. Set restore budget after CC-10 baseline. Any budget that depends on a baseline must be fixed numerically in the dispatch brief before implementation, then approved by the independent reviewer.
+- [ ] Rule. Save/read <=200 ms at p95 on the acceptance fixture. This issue has no dependency on a later restore baseline; CC-10 / [GRS-20](https://linear.app/vaper/issue/GRS-20/rescan-local-files-and-restore-user-work-safely) owns backup/restore time and memory budgets and measurements. Any budget that depends on a baseline must be fixed numerically in the dispatch brief before implementation, then approved by the independent reviewer.
 
 **Review gate.** The user reviews changed interactions before merge into main. 
 
@@ -788,6 +810,8 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Corrupt or incompatible backups leave active data unchanged. Verify restoration into a fresh local profile and document startup, import, search coverage and backup behavior.
 
+- [ ] Own and record backup/restore time and memory budgets before implementing this workflow, then measure them on the accepted fixture. [GRS-17](https://linear.app/vaper/issue/GRS-17/maintain-case-registers-without-losing-edits) completion requires its own register read/write evidence and does not wait for these later measurements.
+
 **You see.**
 
 - [ ] An operator discovers changed files, queues manual reprocessing and can restore all local work without corrupting the active case.
@@ -872,6 +896,10 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Ownership transfer after CC-10 is accepted. Extend docs/user-guide.md serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths.
 
+- [ ] Review all BA-01 to BA-21 dispositions against their owning issues. Applicable V1 corrections/disclosures require evidence; V2 and deferred items require an explicit scope decision and visible limitations where relevant. No known misleading conclusion may pass solely because it matches the source.
+
+- [ ] Verify hostile imported content and original-preview isolation across the completed viewer. Report the 42-view parity result separately from production-only/deferred capabilities.
+
 **You see.**
 
 - [ ] An independent reviewer can verify the local release against all 42 v5 views and inspect every intentional difference.
@@ -947,6 +975,8 @@ The implementation test commands below are required deliverables, not existing r
 - [ ] Document extra dataset presentation or an explicit unsupported state for every new dataset. Preserve attachment sources and disclose the 4,000-character text cap.
 
 - [ ] Re-run all v5 gates after adding compatibility. Ref collisions between versions never silently attach old notes to a different original.
+
+- [ ] Recheck BA-04, BA-05, BA-07, BA-09 and BA-11 on the newer export. Date basis, classification/identity uncertainty, direct-versus-parent originals and email-subset coverage must be explicit wherever those datasets are presented. An unsupported view/dataset is reported as unsupported, not as a completed feature. Full metadata re-extraction and expanded OCR remain deferred.
 
 **You see.**
 
@@ -1098,7 +1128,7 @@ Reject a direct production rewrite as the initial acceptance target because the 
 
 ## Appendix C. Risks
 
-The original processing scripts and hosted import contract are missing. CC-01/02 preserve observed behavior and CC-14 investigates operator access without blocking V1. Legacy defects need explicit dispositions rather than blind parity. Large files and truncated text require honest states. CC-06 separates arithmetic checks from legal approval. No remote exists; preserve recoverable local state before risky Git operations. V2 deployment and product-role decisions are gated by CC-26.
+The original processing scripts and hosted import contract are missing. CC-01/02 preserve observed behavior and CC-14 investigates operator access without blocking V1. Legacy defects need explicit dispositions rather than blind parity. Large files and truncated text require honest states. CC-06 separates arithmetic checks from legal approval. Push feature branches early and preserve recoverable local state before risky Git operations. V2 deployment and product-role decisions are gated by CC-26, and CC-28 implements the hosted foundation before CC-16 starts client intake.
 
 ## Appendix D. Links and reading list
 
@@ -1110,11 +1140,13 @@ Read [scope](product-brief.md), [evidence](evidence.md), [orchestration](orchest
 
 The v5 reference is reproducible, all 42 behaviors are inventoried, and a portable candidate package validates.
 
-- [GRS-9](https://linear.app/vaper/issue/GRS-9/freeze-the-v5-fixture-and-behavior-baseline) `CC-01`. Freeze the v5 fixture and behavior baseline. Blockers none. [delivery brief](plan/tickets/CC-01.md).
+- [GRS-9](https://linear.app/vaper/issue/GRS-9/freeze-the-v5-fixture-and-behavior-baseline) `CC-01`. Freeze the v5 fixture and behavior baseline. Blockers CC-27. [delivery brief](plan/tickets/CC-01.md).
 
 - [GRS-10](https://linear.app/vaper/issue/GRS-10/validate-and-convert-a-portable-results-package) `CC-02`. Validate and convert a portable results package. Blockers CC-01. [delivery brief](plan/tickets/CC-02.md).
 
 - [GRS-11](https://linear.app/vaper/issue/GRS-11/gate-the-reference-baseline-and-package-contract) `CC-23`. Gate the reference baseline and package contract. Blockers CC-01, CC-02. [gate brief](plan/tickets/CC-23.md).
+
+- [GRS-35](https://linear.app/vaper/issue/GRS-35/set-up-pstack-and-verification-skills-for-agent-cli-access) `CC-27`. Set up pstack and verification skills for agent CLI access. Blockers none. [enablement brief](plan/tickets/CC-27.md).
 
 ### M1 - Complete local pilot
 
@@ -1168,7 +1200,7 @@ Operator-contract evidence is recorded and client isolation, roles, durable stor
 
 Client intake through private review and human-approved publication passes staging acceptance.
 
-- [GRS-28](https://linear.app/vaper/issue/GRS-28/submit-and-resume-client-document-uploads) `CC-16`. Submit and resume client document uploads. Blockers CC-26. [delivery brief](plan/tickets/CC-16.md).
+- [GRS-28](https://linear.app/vaper/issue/GRS-28/submit-and-resume-client-document-uploads) `CC-16`. Submit and resume client document uploads. Blockers CC-28. [delivery brief](plan/tickets/CC-16.md).
 
 - [GRS-29](https://linear.app/vaper/issue/GRS-29/notify-operators-and-download-a-complete-submission) `CC-17`. Notify operators and download a complete submission. Blockers CC-16. [delivery brief](plan/tickets/CC-17.md).
 
@@ -1178,6 +1210,8 @@ Client intake through private review and human-approved publication passes stagi
 
 - [GRS-32](https://linear.app/vaper/issue/GRS-32/verify-hosted-isolation-recovery-and-release-readiness) `CC-20`. Verify hosted isolation, recovery and release readiness. Blockers CC-19. [gate brief](plan/tickets/CC-20.md).
 
+- [GRS-36](https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work) `CC-28`. Implement hosted identity, client provisioning and durable user work. Blockers CC-26. [delivery brief](plan/tickets/CC-28.md).
+
 ### M6 - Future processing automation
 
 Deferred Pi Durable design and implementation preserve human publication approval.
@@ -1186,4 +1220,50 @@ Deferred Pi Durable design and implementation preserve human publication approva
 
 - [GRS-34](https://linear.app/vaper/issue/GRS-34/automate-processing-with-recovery-and-candidate-only-output) `CC-22`. Automate processing with recovery and candidate-only output. Blockers CC-21. [future brief](plan/tickets/CC-22.md).
 
-CC-14 remains open until the old contract is verified. It is not a dependency of V1 or a reason to invent an operator route. CC-26 can explicitly accept the new contract while deferring legacy migration. M6 stays parked. No later-phase implementation starts without a concrete verification recipe and resolved product decisions.
+CC-27 supplies the agent tooling and plan synchronization that CC-01 waits for; it implements no application behavior. CC-14 remains open until the old contract is verified. It is not a dependency of V1 or a reason to invent an operator route. CC-26 can explicitly accept the new contract while deferring legacy migration. M6 stays parked. No later-phase implementation starts without a concrete verification recipe and resolved product decisions.
+
+## Appendix F. Audit dispositions by issue
+
+The browser audit findings BA-01 to BA-21 and their full dispositions live in the [Linear delivery plan](https://linear.app/vaper/document/clearcase-delivery-plan-and-acceptance-gates-518b0c44b87a). CC-01 owns the repository register `docs/reference/audit-dispositions.md`, CC-23 verifies it and CC-11 reviews every finding against its owner. Each line below lists the issues whose acceptance text names that finding.
+
+- BA-01. CC-06.
+
+- BA-02. CC-06.
+
+- BA-03. CC-06.
+
+- BA-04. CC-03, CC-12.
+
+- BA-05. CC-04, CC-12.
+
+- BA-06. No issue names it directly. The CC-01 register assigns its owner and CC-11 reviews it.
+
+- BA-07. CC-04, CC-07, CC-12.
+
+- BA-08. No issue names it directly. The CC-01 register assigns its owner and CC-11 reviews it.
+
+- BA-09. CC-12.
+
+- BA-10. No issue names it directly. The CC-01 register assigns its owner and CC-11 reviews it.
+
+- BA-11. CC-12.
+
+- BA-12. No issue names it directly. The CC-01 register assigns its owner and CC-11 reviews it.
+
+- BA-13. No issue names it directly. The CC-01 register assigns its owner and CC-11 reviews it.
+
+- BA-14. No issue names it directly. The CC-01 register assigns its owner and CC-11 reviews it.
+
+- BA-15. No issue names it directly. The CC-01 register assigns its owner and CC-11 reviews it.
+
+- BA-16. No issue names it directly. The CC-01 register assigns its owner and CC-11 reviews it.
+
+- BA-17. CC-04.
+
+- BA-18. CC-03.
+
+- BA-19. CC-15, CC-20, CC-28.
+
+- BA-20. CC-15, CC-20, CC-28.
+
+- BA-21. No issue names it directly. The CC-01 register assigns its owner and CC-11 reviews it.

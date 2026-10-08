@@ -859,25 +859,40 @@ RR="$WORK/rerun-copy"
 mkdir -p "$RR" && tar -C "$REPO" --exclude=./.git --exclude=./.local -cf - . | tar -C "$RR" -xf -
 printf '#!/bin/bash\necho "stub suite of a rerun.sh test: 0 failed"\n' >"$RR/tests/agent-tools/run.sh"
 git_fixture "$RR"
+rr_head=$(git -C "$RR" rev-parse HEAD)
 RERUN=(env CC27_BUN="${CLEARCASE_BUN:-$(command -v bun)}" bash "$RR/docs/acceptance/CC-27/rerun.sh")
 # after FILE PATTERN COMMAND : in the background, once a line of FILE matches PATTERN, run COMMAND; give up after 120 s
 after() {
-	(for ((t = 0; t < 2400; t++)); do grep -q -- "$2" "$1" 2>/dev/null && { eval "$3"; exit; }; sleep 0.05; done) &
+	(for ((t = 0; t < 12000; t++)); do grep -q -- "$2" "$1" 2>/dev/null && { eval "$3"; exit; }; sleep 0.01; done) &
 }
-out="$WORK/rerun-unwritable-summary"
-mkdir -p "$out" && echo "synthetic unwritable summary" >"$out/summary.tsv" && chmod 444 "$out/summary.tsv"
-run "rerun.sh stops when it cannot write summary.tsv" 2 env CC27_OUT="$out" "${RERUN[@]}"
-has "names the summary it cannot write" "rerun.sh: cannot write $out/summary.tsv"
+# read_only_output NAME FILE : rerun.sh with FILE already in its new CC27_OUT and read-only must stop, exit 2
+read_only_output() {
+	out="$WORK/rerun-$1"
+	mkdir -p "$out" && echo "synthetic read-only output" >"$out/$2" && chmod 444 "$out/$2"
+	run "rerun.sh stops when it cannot write $2" 2 env CC27_OUT="$out" "${RERUN[@]}"
+	has "names the $2 it cannot write" "rerun.sh: cannot write $out/$2"
+}
+read_only_output summary summary.tsv
 if compgen -G "$out/transcripts/*" >/dev/null; then bad "no step runs without a summary"; else ok "no step runs without a summary"; fi
-out="$WORK/rerun-deleted-receipt"
-after "$out/summary.tsv" $'^v1-doctor\t' 'rm "$out"/receipts/v1-doctor/*/receipt.json'
-after "$out/summary.tsv" $'^v1-bootstrap-remove\t' 'rm "$out"/receipts/v1-bootstrap-remove/*/stdout.txt'
-run "rerun.sh fails when a receipt and an artifact are deleted during the run" 1 env CC27_OUT="$out" "${RERUN[@]}"
+read_only_output revision revision.txt
+read_only_output audit identity-audit.txt
+has "the audit is not written after every step ran" "MATCH    v6-plan-format-bad-base"
+out="$WORK/rerun-unredacted"
+mkdir -p "$out/locked" && echo "synthetic output under $HOME" >"$out/locked/note.txt" && chmod 555 "$out/locked"
+run "rerun.sh stops when it cannot replace the home directory in its outputs" 2 env CC27_OUT="$out" "${RERUN[@]}"
+has "names the files it cannot redact" "rerun.sh: cannot replace the home directory in the files under $out"
+chmod 755 "$out/locked"
+run "rerun.sh stops without a temporary directory" 2 env CC27_OUT="$WORK/rerun-no-tmp" TMPDIR="$WORK/no-such-tmp" "${RERUN[@]}"
+has "names the temporary directory" "rerun.sh: cannot create a temporary directory"
+rm -rf "$RR/.git/worktrees" && echo "synthetic block" >"$RR/.git/worktrees"
+run "rerun.sh stops when it cannot add its throwaway worktree" 2 env CC27_OUT="$WORK/rerun-no-worktree" "${RERUN[@]}"
+has "names the worktree it cannot add" "rerun.sh: cannot add the throwaway worktree"
+rm "$RR/.git/worktrees"
+out="$WORK/rerun-summary-locked"
+after "$out/summary.tsv" $'^step\t' 'chmod 444 "$out/summary.tsv"'
+run "rerun.sh stops when summary.tsv becomes unwritable during the run" 2 env CC27_OUT="$out" "${RERUN[@]}"
 wait
-has "every step of the copy matched its expected exit code" "summary: $out/summary.tsv (0 mismatches)"
-has "the audit finds exactly the two deleted files" "; 2 problems"
-OUT="$out/identity-audit.txt" has "the audit names the step whose receipt is gone" "v1-doctor: receipts [], but the inventory requires ['doctor']"
-OUT="$out/identity-audit.txt" has "the audit names the missing artifact" "-bootstrap-remove: its stdout artifact "
+has "names the summary it cannot append to" "rerun.sh: cannot write $out/summary.tsv"
 out="$WORK/rerun-blocked-transcript"
 after "$out/summary.tsv" $'^step\t' 'echo planted >"$out/transcripts/v1-doctor.txt" && chmod 444 "$out/transcripts/v1-doctor.txt"'
 run "rerun.sh stops when it cannot write a step's transcript" 2 env CC27_OUT="$out" "${RERUN[@]}"
@@ -885,6 +900,24 @@ wait
 has "names the transcript it cannot write" "rerun.sh: cannot write $out/transcripts/v1-doctor.txt"
 if grep -q $'^v1-doctor\t' "$out/summary.tsv"; then bad "the blocked step has no result" "$(cat "$out/summary.tsv")"; else ok "the blocked step has no result"; fi
 if [[ $(git -C "$RR" worktree list | wc -l) == 1 ]]; then ok "the stopped run removes its throwaway worktree"; else bad "the stopped run removes its throwaway worktree" "$(git -C "$RR" worktree list)"; fi
+# Seven faults in one run: every step still matches, and the audit must name each fault.
+out="$WORK/rerun-tampered"
+after "$out/summary.tsv" $'^v1-doctor\t' 'rm "$out"/receipts/v1-doctor/*/receipt.json; printf "v1-doctor\t0\t0\tMATCH\tplanted\nstray\t0\t0\tMATCH\tplanted\n" >>"$out/summary.tsv"; mkdir -p "$out/receipts/stray/planted" && cp "$out"/receipts/v1-bootstrap-first/*-bootstrap-first/receipt.json "$out/receipts/stray/planted/"'
+after "$out/summary.tsv" $'^v1-bootstrap-remove\t' 'rm "$out"/receipts/v1-bootstrap-remove/*/stdout.txt'
+after "$out/summary.tsv" $'^v2-check-plan\t' ': >"$out/transcripts/v2-check-plan.txt"; sed -i "s/$rr_head/$(printf "%040d" 0)/" "$out"/receipts/v2-check-plan/*-plan-graph/receipt.json'
+run "rerun.sh fails when evidence is deleted or planted during the run" 1 env CC27_OUT="$out" "${RERUN[@]}"
+wait
+has "every step of the copy matched its expected exit code" "summary: $out/summary.tsv (0 mismatches)"
+has "the audit finds exactly the seven faults" "; 7 problems"
+for fault in "v1-doctor: summary.tsv does not hold exactly one MATCH row with exit 0" \
+	"stray: summary.tsv row of a step that is not in the inventory" \
+	"v1-doctor: receipts [], but the inventory requires ['doctor']" \
+	"-bootstrap-remove: its stdout artifact " \
+	"v2-check-plan: transcripts/v2-check-plan.txt is missing or empty" \
+	"-plan-graph: head $(printf "%040d" 0) is not the tested head" \
+	"receipts/stray/planted/receipt.json: receipt outside the inventoried steps"; do
+	OUT="$out/identity-audit.txt" has "the audit names: $fault" "$fault"
+done
 
 echo "# summary"
 echo "$passed passed, $failed failed"

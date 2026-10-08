@@ -101,6 +101,8 @@ def parse(raw: bytes) -> Workspace:
     for name in REQUIRED:
         if name not in ws.datasets:
             raise HtmlDataError(f"no embedded {name} line found")
+        if not isinstance(ws.datasets[name], dict):
+            raise HtmlDataError(f"{name} on line {ws.dataset_lines[name]} is not a JSON object")
     ws.code = "\n".join(code_lines)
     ws.code_sha256 = sha256(ws.code.encode("utf-8"))
     for name in CODE_LITERALS:

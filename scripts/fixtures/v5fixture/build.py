@@ -158,18 +158,20 @@ def choose_main(cands: list[tuple[htmlmod.Workspace, dict]], errors=(), pinned=N
     is main; if the archive holds a pinned variant but not the pinned main, the main is absent and no variant
     is promoted. Otherwise the main is chosen by content: the one candidate whose chronology refs include every
     other candidate's refs and which has the most rows. Build dates and file names never decide. A root HTML
-    that cannot be parsed, a tie or two candidates with unrelated refs is ambiguous and raises MainHtmlError."""
+    that cannot be parsed (even beside the pinned main), a tie or two candidates with unrelated refs is
+    ambiguous and raises MainHtmlError."""
     if not cands:
         raise MainHtmlError("no readable workspace HTML at the archive root"
                             + (f" ({len(errors)} could not be parsed)" if errors else ""))
+    if errors:
+        raise MainHtmlError(f"{len(errors)} root HTML file(s) could not be parsed, so the main HTML is ambiguous: "
+                            + ", ".join(f"{e['path']} ({e['error']})" for e in errors))
     shas = [info["sha256"] for _ws, info in cands]
     if pinned:
         if pinned.get("main") in shas:
             return shas.index(pinned["main"]), "pinned"
         if any(v in shas for v in pinned.get("variants", [])):
             raise MainHtmlError("the pinned main HTML is absent; refusing to promote the pinned variant")
-    if errors:
-        raise MainHtmlError(f"{len(errors)} root HTML file(s) could not be parsed, so the main HTML is ambiguous")
     refsets = [{r.get("ref") for r in ws.data.get("chronology", []) if r.get("ref")} for ws, _info in cands]
     rows = [info["chronologyRows"] for _ws, info in cands]
     best = [i for i in range(len(cands)) if all(refsets[j] <= refsets[i] for j in range(len(cands)))

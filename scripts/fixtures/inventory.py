@@ -12,8 +12,9 @@ run envelope: timestamps, timings, source details). Everything except run.json i
 and between the zip and tree sources.
 
 The main HTML is the profile's pinned main when the archive holds a pinned file, else the one candidate whose
-chronology contains every other candidate's refs and has the most rows. An absent pinned main, an unparsable
-root HTML or a tie stops the build (exit 2); a variant is never promoted.
+chronology contains every other candidate's refs and has the most rows. A missing or malformed profile, an
+absent pinned main, an unparsable root HTML or a tie stops the build (exit 2); a variant is never promoted.
+`--profile none` drops the pins and chooses by content alone.
 
 Exit codes: 0 success; 1 a verification check failed; 2 bad usage, a missing input or no unambiguous main HTML.
 """
@@ -70,15 +71,32 @@ class Checks:
         return [r for r in self.rows if not r[1]]
 
 
+class ProfileError(ValueError):
+    """The profile named by --profile is missing or malformed."""
+
+
 def pinned_htmls(profile_path: str):
-    """The main and variant HTML sha256 values pinned by the profile; None when the profile is unreadable.
-    A pin only applies to an archive that contains one of the pinned files."""
+    """The main and variant HTML sha256 values pinned by the profile, or None for `--profile none`.
+    A pin only applies to an archive that contains one of the pinned files. A missing or malformed profile
+    raises ProfileError: running without the pins could promote a bundles-only variant to main."""
+    if profile_path == "none":
+        return None
     try:
         with open(profile_path, encoding="utf-8") as fh:
             prof = json.load(fh)
-    except (OSError, ValueError):
-        return None
-    return {"main": prof["mainHtml"]["sha256"], "variants": [v["sha256"] for v in prof.get("variants", [])]}
+    except OSError as exc:
+        raise ProfileError(f"cannot read the profile: {exc}") from None
+    except ValueError as exc:
+        raise ProfileError(f"the profile {profile_path} is not valid JSON: {exc}") from None
+    try:
+        main = prof["mainHtml"]["sha256"]
+        variants = [v["sha256"] for v in prof.get("variants", [])]
+    except (KeyError, TypeError, AttributeError) as exc:
+        raise ProfileError(f"the profile {profile_path} has no usable mainHtml.sha256 or variants[].sha256 "
+                           f"({type(exc).__name__}: {exc})") from None
+    if not all(isinstance(s, str) and len(s) == 64 for s in [main, *variants]):
+        raise ProfileError(f"the profile {profile_path} pins a value that is not a sha256 hex digest")
+    return {"main": main, "variants": variants}
 
 
 def parse_args(argv):
@@ -91,7 +109,9 @@ def parse_args(argv):
     p.add_argument("--source", choices=("zip", "tree"), default="zip", help="read the zip or the extracted tree")
     p.add_argument("--tree", help="extracted tree (default <root>/<name>/tree)")
     p.add_argument("--out", help="output directory (default <root>/<name>/inventory/<source>)")
-    p.add_argument("--profile", default=DEFAULT_PROFILE, help="expected fingerprints and counts for --verify")
+    p.add_argument("--profile", default=DEFAULT_PROFILE,
+                   help="pinned HTML fingerprints and the expected counts for --verify (default %(default)s); "
+                        "'none' chooses the main HTML by content alone and fails --verify")
     p.add_argument("--summary", default=DEFAULT_SUMMARY,
                    help="committed summary that --verify compares with; 'none' skips that check and fails --verify")
     p.add_argument("--examples", help="expected examples (default <root>/<name>/expected/expected-examples.json)")
@@ -111,6 +131,14 @@ def main(argv=None) -> int:
     examples_path = args.examples or os.path.join(fixture, "expected", "expected-examples.json")
     run = {"schema": "clearcase-v5-run/1", "argv": sys.argv[1:] if argv is None else argv, "source": args.source,
            "startedAt": dt.datetime.fromtimestamp(started, dt.timezone.utc).isoformat()}
+    try:
+        pinned = pinned_htmls(args.profile)
+    except ProfileError as exc:
+        print(f"error: {exc}; pass a readable profile, or --profile none to choose the main HTML by content",
+              file=sys.stderr)
+        return 2
+    if pinned is None:
+        print("note: --profile none: no pins; the main HTML is chosen by content alone", file=sys.stderr)
 
     if args.source == "zip" or args.extract:
         if not os.path.isfile(args.archive):
@@ -142,7 +170,7 @@ def main(argv=None) -> int:
         run["tree"] = {"path": tree, "directories": src.directories}
     t_read = time.perf_counter()
     try:
-        inventory, summary = build.build(src, pinned_htmls(args.profile))
+        inventory, summary = build.build(src, pinned)
     except build.MainHtmlError as exc:
         print(f"error: cannot choose the main HTML: {exc}", file=sys.stderr)
         return 2
@@ -191,6 +219,9 @@ def main(argv=None) -> int:
 
 
 def verify(args, src, inventory, summary, checks, run, examples_path):
+    if args.profile == "none":
+        checks.check("profile given", False, "--profile none")
+        return
     try:
         with open(args.profile, encoding="utf-8") as fh:
             prof = json.load(fh)

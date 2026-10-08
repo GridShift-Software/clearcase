@@ -1,0 +1,39 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.lit-prescription.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "properties": {
+      "date": {
+        "pattern": "^(?:\\d{4}-\\d{2}-\\d{2})?$",
+        "type": "string"
+      },
+      "no": {
+        "type": "string"
+      },
+      "prescDate": {
+        "pattern": "^(?:\\d{4}-\\d{2}-\\d{2})?$",
+        "type": "string"
+      },
+      "ref": {
+        "type": "string"
+      },
+      "risk": {
+        "type": "string"
+      },
+      "url": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "no",
+      "ref",
+      "date",
+      "prescDate",
+      "risk",
+      "url"
+    ],
+    "type": "object"
+  },
+  "title": "data of v5.lit-prescription@1 (authored)",
+  "type": "array"
+}

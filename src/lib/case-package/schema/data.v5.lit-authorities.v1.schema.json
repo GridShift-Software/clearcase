@@ -1,0 +1,25 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.lit-authorities.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "properties": {
+      "authority": {
+        "type": "string"
+      },
+      "proposition": {
+        "type": "string"
+      },
+      "topic": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "topic",
+      "authority",
+      "proposition"
+    ],
+    "type": "object"
+  },
+  "title": "data of v5.lit-authorities@1 (authored)",
+  "type": "array"
+}

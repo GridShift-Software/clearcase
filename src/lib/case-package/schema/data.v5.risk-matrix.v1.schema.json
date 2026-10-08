@@ -1,0 +1,29 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.risk-matrix.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "properties": {
+      "impact": {
+        "type": "string"
+      },
+      "issue": {
+        "type": "string"
+      },
+      "likelihood": {
+        "type": "string"
+      },
+      "mitigation": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "issue",
+      "likelihood",
+      "impact",
+      "mitigation"
+    ],
+    "type": "object"
+  },
+  "title": "data of v5.risk-matrix@1 (authored)",
+  "type": "array"
+}

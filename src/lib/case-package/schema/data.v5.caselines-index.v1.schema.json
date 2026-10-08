@@ -1,0 +1,37 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.caselines-index.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "file": {
+      "type": "string"
+    },
+    "index": {
+      "items": {
+        "items": false,
+        "minItems": 2,
+        "prefixItems": [
+          {
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "string"
+          }
+        ],
+        "type": "array"
+      },
+      "type": "array"
+    },
+    "pages": {
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "file",
+    "pages",
+    "index"
+  ],
+  "title": "data of v5.caselines-index@1 (generated)",
+  "type": "object"
+}

@@ -135,7 +135,7 @@ def manifest(directory, ignored=IGNORED_PARTS):
 def rows_hash(rows):
     digest = hashlib.sha256()
     for rel, content in rows.items():
-        digest.update(rel.encode() + b"\0" + content + b"\n")
+        digest.update(os.fsencode(rel) + b"\0" + content + b"\n")
     return digest.hexdigest()
 
 
@@ -244,18 +244,24 @@ def worktree_state(root):
     drivers or textconv filters that could hide a change, and each untracked file that is not ignored: its bytes, a
     symlink's target or a nested repository's files. Any of the three outputs makes root dirty, so configuration
     such as status.showUntrackedFiles cannot hide a change. A Git query that fails or warns, as it does with exit 0
-    for a directory it cannot open, or a file that cannot be read is the problem, so a state that was not read is
-    never reported as clean."""
+    for a directory it cannot open, a tracked file Git is told not to check (assume-unchanged or skip-worktree), or a
+    file that cannot be read is the problem, so a state that was not read is never reported as clean."""
     queries = [("status", "--porcelain"),
                ("diff", "--binary", "--no-ext-diff", "--no-textconv", "--no-color", "HEAD"),
-               ("ls-files", "-z", "--others", "--exclude-standard")]
+               ("ls-files", "-z", "--others", "--exclude-standard"),
+               ("ls-files", "-z", "-v")]
     outputs = []
     for args in queries:
         _, out, problem = git(root, *args, quiet=True)
         if problem:
             return None, None, problem
         outputs.append(out)
-    status, diff, listing = outputs
+    status, diff, listing, tags = outputs
+    unchecked = [entry[2:] for entry in tags.split(b"\0") if entry[:1].islower() or entry[:1] == b"S"]
+    if unchecked:
+        return None, None, (f"git does not check {len(unchecked)} tracked files marked assume-unchanged or "
+                            f"skip-worktree, for example {os.fsdecode(unchecked[0])}; clear the marks with "
+                            "git update-index --no-assume-unchanged or --no-skip-worktree")
     untracked = [name for name in listing.split(b"\0") if name]
     digest = hashlib.sha256(diff)
     for name in untracked:

@@ -514,6 +514,24 @@ cp "$EV/.git/index" "$WORK/index.saved"
 run "a revision that cannot be read after the run is not PASS" 3 env -C "$EV" scripts/agent-tools/receipt --name breaks-index -- bash -c 'printf "broken index\n" >.git/index'
 reason_has "names the git status that failed after the run" "the revision cannot be read after the run: working tree state unknown: $status_failed"
 cp "$WORK/index.saved" "$EV/.git/index"
+# The test tmux runs the shell command CC27_TMUX_DOES. The doctor probes tmux after its first look at the revision and
+# its skill checks, and before it looks at the revision again, so the change lands between the two looks every time.
+mkdir -p "$WORK/bin-tmux-does"
+printf '#!/bin/bash\neval "$CC27_TMUX_DOES"\necho "tmux 3.7"\n' >"$WORK/bin-tmux-does/tmux" && chmod +x "$WORK/bin-tmux-does/tmux"
+run "a tracked file changed during the doctor's run fails the doctor" 1 env PATH="$WORK/bin-tmux-does:$PATH" CC27_TMUX_DOES="echo changed >>'$EV/docs/delivery-plan.md'" "$EVTOOLS/doctor"
+has "the doctor names the working tree that changed" "FAIL     revision       the checkout changed during the run: diffSha256 "
+has "the doctor gives the rerun fix" "fix: rerun the doctor while nothing else changes the checkout or its Git data"
+has "the changed checkout is the doctor's only failure" "required checks passed, 1 failed."
+receipt_is "the changed-checkout doctor receipt is FAIL" FAIL 1
+reason_has "the doctor receipt names the change" "revision: the checkout changed during the run: diffSha256 "
+git -C "$EV" checkout -q -- docs/delivery-plan.md && cp "$EV/.git/index" "$WORK/index.saved"
+run "an index broken during the doctor's run fails the doctor" 1 env PATH="$WORK/bin-tmux-does:$PATH" CC27_TMUX_DOES="printf 'broken index\n' >'$EV/.git/index'" "$EVTOOLS/doctor"
+has "the doctor names the git status that failed after its checks" "FAIL     revision       the revision cannot be read after the run: working tree state unknown: $status_failed"
+has "the broken index is the doctor's only failure" "required checks passed, 1 failed."
+receipt_is "the broken-index doctor receipt is FAIL" FAIL 1
+reason_has "the doctor receipt names the failed git status" "revision: the revision cannot be read after the run: working tree state unknown: $status_failed"
+cp "$WORK/index.saved" "$EV/.git/index"
+run "the doctor passes when the test tmux changes nothing" 0 env PATH="$WORK/bin-tmux-does:$PATH" CC27_TMUX_DOES=: "$EVTOOLS/doctor"
 printf '#!/bin/sh\ntouch "$1"\n' >"$EV/not-executable.sh"
 run "a command that cannot start is SKIPPED" 3 env -C "$EV" scripts/agent-tools/receipt --name no-exec -- ./not-executable.sh "$MARKER"
 reason_has "names the command and the error" "the command did not start: ./not-executable.sh: Permission denied"
@@ -677,7 +695,9 @@ printf '#!/bin/sh\necho >>%q\necho "tmux 3.7"\n' "$EV/package.json" >"$WORK/bin-
 chmod +x "$WORK/bin-tmux-writes-input/tmux"
 run "a doctor input that changes during the run fails the doctor" 1 env PATH="$WORK/bin-tmux-writes-input:$PATH" "$EVTOOLS/doctor"
 has "names the changed input" "FAIL     receipt-input  changed during the run: $EV/package.json: sha256 "
-has "the changed input is the only failure" "required checks passed, 1 failed."
+# package.json is a file of the checkout, so the doctor's second look at the revision sees the change too.
+has "names the checkout the changed input belongs to" "FAIL     revision       the checkout changed during the run: diffSha256 "
+has "the changed input and checkout are the only failures" "required checks passed, 2 failed."
 rm "$EV/package.json"
 
 echo "# the doctor flags a changed or missing pinned skill"

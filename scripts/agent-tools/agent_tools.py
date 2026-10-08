@@ -769,7 +769,8 @@ def doctor_rows(skills=None, receipts=None, identity=None, unidentified=None, to
 
 
 def cmd_doctor(args):
-    """Run every check, print the report and write it as a receipt. A missing git, head or base is a FAIL row."""
+    """Run every check, print the report and write it as a receipt. A missing git, head or base is a FAIL row, and so
+    is a revision that cannot be read, or differs, when the doctor resolves it again after its checks."""
     started = now()
     identity, unidentified = revision(REPO, args.base)
     tools = {name: tool_info(name) for name in ("git", "python3", "node", "bun")}
@@ -782,6 +783,9 @@ def cmd_doctor(args):
     elif moved := inputs_changed(paths, inputs):
         rows.append(("FAIL", "receipt-input", f"changed during the run: {moved}",
                      "rerun the doctor while nothing else writes these files"))
+    if not unidentified and (shifted := revision_changed(REPO, args.base, identity)):
+        rows.append(("FAIL", "revision", redact(shifted),
+                     "rerun the doctor while nothing else changes the checkout or its Git data"))
     lines = []
     for status, name, detail, fix in rows:
         lines.append(f"{status:<8} {name:<14} {detail}")

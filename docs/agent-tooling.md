@@ -11,7 +11,7 @@ scripts/agent-tools/check-plan --linear-relations PATH   # also compare a Linear
 bash tests/agent-tools/run.sh                   # tooling self-tests
 ```
 
-Run them from the worktree root, or by absolute path from anywhere. The caller's shell does not matter; fish, zsh, bash and `env -i` all work because each entry point is an executable script.
+Run them from the worktree root, or by absolute path from anywhere. `receipt` is the exception: it runs its command in the current directory, which must lie in the checkout whose revision it records (see [Revision identity](#revision-identity)). The caller's shell does not matter; fish, zsh, bash and `env -i` all work because each entry point is an executable script.
 
 ## Sources and versions
 
@@ -82,7 +82,7 @@ To remove, run `scripts/agent-tools/bootstrap --remove`. It deletes only `.local
 | `scripts/agent-tools/bootstrap [--relock [--checkout DIR [--allow-drop]] \| --remove]` | See above. Plain `bootstrap` runs the doctor, which writes the doctor's receipt. A refused conflicting link, `--relock` and `--remove` write none. | 0 or 1 |
 | `python3 scripts/planning/generate.py --compare-linear EXPORT` | Diffs generated briefs against the descriptions in a full Linear export. Writes no receipt unless wrapped in `receipt`. | 0 all match, 1 drift |
 
-All commands accept `--skills-dir`, `--receipts`, `--base REF` and `--root DIR`. `--root` checks a different planning tree, which must be the top of a Git checkout; the tests use it for fixtures. `--base` names the revision that receipts compare against; see [Revision identity](#revision-identity).
+All commands accept `--skills-dir`, `--receipts`, `--base REF` and `--root DIR`. `--root` checks a different planning tree, which must be the top of a Git checkout; the tests use it for fixtures. `doctor` and `bootstrap` ignore `--root` and check the checkout that holds the tools. `--base` names the revision that receipts compare against; see [Revision identity](#revision-identity).
 
 Capabilities and the commands they wrap, unchanged:
 
@@ -105,7 +105,7 @@ pstack's `create-verification-skill` and `maintain-verification-skill` need a ru
 | Other Linux with `/bin/bash` >= 4.4 | any caller shell | Expected to work; run the doctor |
 | macOS, BSD, Windows without WSL | n/a | Unsupported. The tools exit 2 with an "unsupported OS" message. |
 
-The entry points use `#!/bin/bash` rather than `#!/usr/bin/env bash`. With an empty or wrong PATH, `env` cannot find bash and prints only a bare "No such file or directory". `/bin/bash` still starts, so the tools can print an actionable message, for example `FAIL python3 not found (PATH=/nonexistent)` with the fix. `CLEARCASE_PYTHON` and `CLEARCASE_NODE` override interpreter discovery.
+The entry points use `#!/bin/bash` rather than `#!/usr/bin/env bash`. With an empty or wrong PATH, `env` cannot find bash and prints only a bare "No such file or directory". `/bin/bash` still starts, so the tools can print an actionable message, for example `FAIL python3 not found (PATH=/nonexistent)` with the fix. `CLEARCASE_PYTHON` and `CLEARCASE_NODE` override interpreter discovery. No other tool has an override; git always comes from PATH.
 
 ## Failure behavior
 
@@ -126,7 +126,7 @@ Each receipt is a directory `<receipts>/<UTC timestamp>-<name>/` with `receipt.j
 - `name`, `result` (PASS, FAIL or SKIPPED), `exitCode` and `reason` for a skip.
 - `command`, the exact argv, and `cwd`.
 - `tools`, git first and then the command's own tools, each with path and `--version` output. `inputs`, each with path and sha256 (for example the checker scripts, the plan, the readback, or the lock the doctor checks).
-- `revision`, resolved before the command runs: `root`, `branch`, `head`, `baseRef` (as requested, or the default that resolved), `base`, `mergeBase`, `dirty`, and `diffSha256` (tracked diff plus untracked files) when dirty. Every key is present. Null values occur only in SKIPPED or FAIL receipts.
+- `revision`, resolved before the command runs: `root`, `branch`, `head`, `baseRef` (as requested, or the default that resolved), `base`, `mergeBase`, `dirty`, and `diffSha256` (tracked diff plus untracked files) when dirty. Every key is present. `head`, `base` and `mergeBase` are null only in SKIPPED or FAIL receipts. `diffSha256` is null when the checkout is clean, and `branch` is `HEAD` when it is detached.
 - `environment`, with OS, kernel, machine, host, bash, caller shell, Python and PATH.
 - `startedAt`, `finishedAt` and `durationSeconds`.
 - `artifacts`, the paths of the receipt, stdout and stderr.
@@ -135,13 +135,14 @@ Paths under `$HOME` are written as `~` so receipts carry no machine-specific hom
 
 ### Revision identity
 
-Before a receipt-producing command runs anything, it resolves the revision it will record. It uses the checkout that holds the tools, or `--root DIR`. A PASS receipt therefore always names `head`, `base` and `mergeBase` as full commit IDs.
+Before a receipt-producing command runs anything, it resolves the revision it will record. It uses the checkout that holds the tools, or `--root DIR`. Inherited `GIT_*` variables such as `GIT_DIR` are ignored. A PASS receipt therefore always names `head`, `base` and `mergeBase` as full commit IDs.
 
 | Situation | Result |
 | --- | --- |
 | git is not on PATH | SKIPPED, exit 3: `required tool not found: git`. |
 | The directory is not a Git checkout, `--root` is below a checkout's top, or the checkout has no commit. This includes `receipt` run from a copy of the tools outside any checkout. | SKIPPED, exit 3: `no head revision: ...`. The receipt records the attempt; the command does not run. |
-| `--base REF`, or `CLEARCASE_BASE_REF` when `--base` is absent, does not resolve to a commit | SKIPPED, exit 3, naming the ref. An explicit base never falls back to a default. It is a missing required input, like a missing `--input` file. |
+| `receipt` is run from a directory outside that checkout, or inside a different repository nested in it | SKIPPED, exit 3. Run it inside the checkout, or pass `--root DIR` naming the checkout the command runs in. |
+| `--base REF`, or `CLEARCASE_BASE_REF` when `--base` is absent, does not resolve to a commit. An empty value counts as given, so `--base "$UNSET"` cannot fall back. | SKIPPED, exit 3, naming the ref. An explicit base never falls back to a default. It is a missing required input, like a missing `--input` file. |
 | No explicit base, and neither `origin/dev` nor `dev` exists | SKIPPED, exit 3: `no base revision`. Pass `--base REF`. |
 | The base shares no history with HEAD | SKIPPED, exit 3. |
 | Otherwise | The command runs. `base` is the base commit and `mergeBase` is `git merge-base HEAD base`. |
@@ -150,12 +151,12 @@ The doctor resolves the same revision for its own checkout and `--base`, but sti
 
 ## Tests
 
-`bash tests/agent-tools/run.sh` needs bash, coreutils, git, python3 and node. It covers:
+`bash tests/agent-tools/run.sh` needs bash, coreutils, git, python3 and node, and a checkout with `origin/dev` or `dev`, because its receipts in this checkout use the default base. It covers:
 
 - The synthetic plans `tests/agent-tools/fixtures/plans/{valid,invalid}.md` through pstack `check-plan.mjs`.
 - Graph fixtures `tests/agent-tools/fixtures/graph/*.json`. Each one edits a disposable Git checkout of the committed plan (cycle, unmapped issue, scope overlap, stale generated files, Linear readback drift) and carries its expected exit code and diagnostics.
 - Deferred and skipped checks, the receipt writer's output and exit-code preservation, the doctor with no node and with no python3, and bootstrap idempotency, conflict refusal and removal in a fresh Git checkout.
-- Revision identity. Receipts record `head`, `baseRef`, `base` and `mergeBase` equal to `git rev-parse` and `git merge-base`, in this checkout and in a synthetic repository whose `dev` moved on after the fork. These cases are SKIPPED, exit 3, and the command does not run: no git (`verify`, `check-plan` and `receipt`), an unresolvable `--base` or `CLEARCASE_BASE_REF`, no default base, an unrelated base, a `--root` below a checkout's top, a checkout without a commit, and a copy of the tools outside any checkout. Every PASS receipt in the suite must list git and name all three commits.
+- Revision identity. Receipts record `head`, `baseRef`, `base` and `mergeBase` equal to `git rev-parse` and `git merge-base`, in this checkout and in a synthetic repository whose `dev` moved on after the fork. These cases are SKIPPED, exit 3, and the command does not run: no git (`verify`, `check-plan` and `receipt`), an unresolvable or empty `--base` or `CLEARCASE_BASE_REF`, no default base, an unrelated base, a `--root` below a checkout's top, a checkout without a commit, a copy of the tools outside any checkout, and a `receipt` run outside its checkout or in a nested repository. An inherited `GIT_DIR`, `CLEARCASE_GIT` and odd untracked files (non-ASCII and newline names, broken and directory symlinks) do not change or break the recorded revision. Every PASS receipt in the suite must list git and name all three commits.
 - Receipts per command. The doctor writes PASS with this checkout's revision and FAIL with a bad base or without git or node. It writes none when python3 is missing. A plain `bootstrap` writes its doctor run's receipt. A refused `bootstrap`, `bootstrap --relock`, `bootstrap --remove` and `verify list` write none.
 - The doctor on a copy of the pinned skills, before and after a planted change and a removed skill.
 - `verify pstack-upstream` and `bootstrap --relock --checkout` against a synthetic upstream Git repository: no checkout and a missing one, mislabelled, unpinned and unlisted skills, a matching pin, a changed installed file, an ignored file in the working tree, a recorded version that differs, a pin the revision lacks, a stale pinned hash, a directory that is not a Git checkout, a skills dir without the checkout's skills, a later upstream HEAD, a replace ref, a recorded revision that is not a commit ID, a clone without the pinned revision, and a relock that removes a pin with and without `--allow-drop`.

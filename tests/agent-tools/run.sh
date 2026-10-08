@@ -9,9 +9,15 @@ TOOLS="$REPO/scripts/agent-tools"
 FIXTURES="$HERE/fixtures"
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/cc27-agent-tools.XXXXXX")
 trap 'rm -rf "$WORK"' EXIT
+MARKER="$WORK/command-ran"
+unset CLEARCASE_BASE_REF
 passed=0
 failed=0
 n=0
+
+commit_all() { git -C "$1" add -A && git -C "$1" -c user.name=t -c user.email=t@example.invalid commit -qm "$2"; }
+# git_fixture DIR : make DIR a Git checkout whose dev branch holds its files, as in a clone of the repository
+git_fixture() { git -C "$1" init -q -b dev && commit_all "$1" fixture; }
 
 ok() { passed=$((passed + 1)); echo "ok   $1"; }
 bad() { failed=$((failed + 1)); echo "FAIL $1"; shift; for line in "$@"; do echo "     $line"; done; }
@@ -40,34 +46,74 @@ lacks() {
 	if grep -qF -- "$2" "$OUT"; then bad "$1" "output has: $2"; else ok "$1"; fi
 }
 
-# receipt_is NAME RESULT EXIT : the single receipt in $RECEIPTS has this result and exit code and every field
+# receipt_is NAME RESULT EXIT : every receipt in $RECEIPTS has this result and exit code and every field.
+# A PASS receipt must also list git and name the head, base and merge-base commits.
 receipt_is() {
-	local file
-	file=$(compgen -G "$RECEIPTS/*/receipt.json" | head -n 1)
-	if [[ -z $file ]]; then bad "$1" "no receipt in $RECEIPTS"; return; fi
 	local verdict
-	verdict=$(python3 - "$file" "$2" "$3" <<'EOF'
-import json, sys
-r = json.load(open(sys.argv[1]))
-problems = []
-if r["result"] != sys.argv[2]: problems.append(f"result {r['result']}")
-if r["exitCode"] != int(sys.argv[3]): problems.append(f"exitCode {r['exitCode']}")
-for field in ["command", "tools", "revision", "environment", "startedAt", "finishedAt", "artifacts"]:
-    if field not in r: problems.append(f"missing {field}")
-for path in r["artifacts"].values():
-    import os
-    if not os.path.isfile(os.path.expanduser(path)): problems.append(f"missing artifact {path}")
-if r["result"] == "PASS" and (r["exitCode"] != 0 or r["reason"]): problems.append("PASS with nonzero exit or skip reason")
+	verdict=$(python3 - "$RECEIPTS" "$2" "$3" <<'EOF'
+import glob, json, os, re, sys
+files = sorted(glob.glob(os.path.join(sys.argv[1], "*", "receipt.json")))
+problems = [] if files else ["no receipt"]
+for file in files:
+    r = json.load(open(file))
+    if r["result"] != sys.argv[2]: problems.append(f"result {r['result']}")
+    if r["exitCode"] != int(sys.argv[3]): problems.append(f"exitCode {r['exitCode']}")
+    for field in ["command", "tools", "revision", "environment", "startedAt", "finishedAt", "artifacts"]:
+        if field not in r: problems.append(f"missing {field}")
+    for path in r["artifacts"].values():
+        if not os.path.isfile(os.path.expanduser(path)): problems.append(f"missing artifact {path}")
+    if r["result"] == "PASS":
+        if r["exitCode"] != 0 or r["reason"]: problems.append("PASS with nonzero exit or skip reason")
+        if not any(tool["name"] == "git" and tool["path"] for tool in r["tools"]): problems.append("PASS without git")
+        for key in ["head", "base", "mergeBase"]:
+            if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", r["revision"].get(key) or ""):
+                problems.append(f"PASS without revision.{key}")
 print("; ".join(problems))
 EOF
 )
-	if [[ -z $verdict ]]; then ok "$1"; else bad "$1" "$verdict" "$file"; fi
+	if [[ -z $verdict ]]; then ok "$1"; else bad "$1" "$verdict" "$RECEIPTS"; fi
+}
+
+# receipt_revision NAME HEAD BASE_REF BASE MERGE_BASE : every receipt in $RECEIPTS records exactly this revision
+receipt_revision() {
+	local verdict
+	verdict=$(python3 - "$RECEIPTS" "${@:2}" <<'EOF'
+import glob, json, os, sys
+files = sorted(glob.glob(os.path.join(sys.argv[1], "*", "receipt.json")))
+problems = [] if files else ["no receipt"]
+for file in files:
+    revision = json.load(open(file))["revision"]
+    for key, value in zip(["head", "baseRef", "base", "mergeBase"], sys.argv[2:]):
+        if revision.get(key) != value: problems.append(f"{key} is {revision.get(key)!r}, expected {value!r}")
+print("; ".join(problems))
+EOF
+)
+	if [[ -z $verdict ]]; then ok "$1"; else bad "$1" "$verdict"; fi
+}
+
+no_receipt() {
+	if compgen -G "$RECEIPTS/*/receipt.json" >/dev/null; then bad "$1" "unexpected receipt in $RECEIPTS"; else ok "$1"; fi
+}
+
+# not_run NAME : the wrapped command, which creates $MARKER, did not run
+not_run() {
+	if [[ -e $MARKER ]]; then bad "$1" "the command ran"; rm -f "$MARKER"; else ok "$1"; fi
 }
 
 echo "# pstack check-plan.mjs fixtures through verify plan-format"
+repo_base_ref=
+for ref in origin/dev dev; do
+	repo_base=$(git -C "$REPO" rev-parse --verify -q "$ref^{commit}") && repo_base_ref=$ref && break
+done
+repo_head=$(git -C "$REPO" rev-parse HEAD)
+repo_fork=$(git -C "$REPO" merge-base HEAD "$repo_base")
 run "valid plan passes" 0 "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md"
 has "valid plan reports zero problems" "1 PR sections, 0 problems"
 receipt_is "valid plan receipt is PASS" PASS 0
+receipt_revision "valid plan receipt records this checkout's head and default base" "$repo_head" "$repo_base_ref" "$repo_base" "$repo_fork"
+short_base=$(git -C "$REPO" rev-parse --short "$repo_base")
+run "valid plan passes with an explicit short --base" 0 "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md" --base "$short_base"
+receipt_revision "explicit --base is recorded as given and resolved to its full commit" "$repo_head" "$short_base" "$repo_base" "$repo_fork"
 run "invalid plan fails with the checker's own exit code" 1 "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/invalid.md"
 for message in "long dash" 'How to read this lacks "One box is one unit of work"' "lanes are [1,2,3,4,5,6,7,8,9,11]" "perf boxes are [Metric., Probe., Baseline.]"; do
 	has "invalid plan diagnoses: $message" "$message"
@@ -79,7 +125,7 @@ echo "# planning graph fixtures through verify plan-graph / linear-relations"
 for fixture in "$FIXTURES"/graph/*.json; do
 	name=$(basename "$fixture" .json)
 	tree="$WORK/tree-$name"
-	python3 "$HERE/make_tree.py" "$REPO" "$tree" "$fixture" || { bad "$name: build fixture tree"; continue; }
+	python3 "$HERE/make_tree.py" "$REPO" "$tree" "$fixture" && git_fixture "$tree" || { bad "$name: build fixture tree"; continue; }
 	read -r capability expected < <(python3 -c 'import json,sys; f=json.load(open(sys.argv[1])); print(f["capability"], f["expect"]["exit"])' "$fixture")
 	args=("$TOOLS/verify" "$capability" --root "$tree")
 	[[ $capability == linear-relations ]] && args+=(--readback "$tree/readback.json")
@@ -99,6 +145,61 @@ has "check-plan overall verdict is FAIL" "check-plan: FAIL"
 run "missing command is SKIPPED, not PASS" 3 "$TOOLS/receipt" --name missing -- definitely-not-a-command-cc27
 receipt_is "missing command receipt" SKIPPED 3
 
+echo "# receipts record the exact revision and never PASS without it"
+NOGIT="$WORK/bin-without-git"
+mkdir -p "$NOGIT"
+for tool in python3 node; do ln -s "$(command -v "$tool")" "$NOGIT/$tool"; done
+run "plan-format without git is SKIPPED" 3 env PATH="$NOGIT" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md" --base "$repo_base"
+has "missing git is named with the fix" "required tool not found: git; install it or put it on PATH"
+receipt_is "no-git plan-format receipt is SKIPPED" SKIPPED 3
+valid_tree="$WORK/tree-readback-valid"
+run "check-plan without git fails with every step SKIPPED" 3 env PATH="$NOGIT" "$TOOLS/check-plan" --root "$valid_tree" --require-linear-relations --linear-relations "$valid_tree/readback.json"
+has "no-git check-plan names each skipped step" "check-plan: FAIL. plan-graph=SKIPPED, plan-format=SKIPPED, linear-relations=SKIPPED."
+receipt_is "no-git check-plan receipts are SKIPPED" SKIPPED 3
+run "receipt without git does not run the command" 3 env PATH="$NOGIT" "$TOOLS/receipt" --name no-git -- python3 -c "open('$MARKER', 'w')"
+not_run "the command did not run without git"
+run "an unresolvable --base is SKIPPED" 3 "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md" --base no-such-base-cc27
+has "the bad base is named with the fix" "base 'no-such-base-cc27' does not resolve to a commit"
+receipt_is "bad-base receipt is SKIPPED" SKIPPED 3
+run "an unresolvable CLEARCASE_BASE_REF is not replaced by a default" 3 env CLEARCASE_BASE_REF=no-such-base-cc27 "$TOOLS/receipt" --name bad-env-base -- touch "$MARKER"
+not_run "the command did not run with a bad base"
+IDREPO="$WORK/identity"
+mkdir -p "$IDREPO/scripts" && cp -r "$TOOLS" "$IDREPO/scripts/"
+git_fixture "$IDREPO"
+fork=$(git -C "$IDREPO" rev-parse HEAD)
+git -C "$IDREPO" checkout -q -b feature && echo feature >"$IDREPO/feature.txt" && commit_all "$IDREPO" feature
+git -C "$IDREPO" checkout -q dev && echo later >"$IDREPO/dev.txt" && commit_all "$IDREPO" "dev moves on"
+git -C "$IDREPO" checkout -q feature
+id_head=$(git -C "$IDREPO" rev-parse HEAD) id_dev=$(git -C "$IDREPO" rev-parse dev)
+run "a receipt in a checkout with dev passes" 0 "$IDREPO/scripts/agent-tools/receipt" --name identity -- true
+receipt_is "identity receipt is PASS" PASS 0
+receipt_revision "receipt records HEAD, dev and the fork point" "$id_head" dev "$id_dev" "$fork"
+run "a receipt with --base COMMIT passes" 0 "$IDREPO/scripts/agent-tools/receipt" --name identity --base "$fork" -- true
+receipt_revision "receipt records the explicit base commit" "$id_head" "$fork" "$fork" "$fork"
+git -C "$IDREPO" checkout -q --orphan unrelated && commit_all "$IDREPO" unrelated && git -C "$IDREPO" checkout -q feature
+run "a base with no shared history is SKIPPED" 3 "$IDREPO/scripts/agent-tools/receipt" --name unrelated --base unrelated -- touch "$MARKER"
+has "names the unrelated base" "shares no history with HEAD"
+not_run "the command did not run with an unrelated base"
+git -C "$IDREPO" branch -q -m dev trunk
+run "no --base and no dev or origin/dev is SKIPPED" 3 "$IDREPO/scripts/agent-tools/receipt" --name no-base -- touch "$MARKER"
+has "missing default base asks for --base" "no base revision: neither origin/dev nor dev exists"
+receipt_is "no-base receipt is SKIPPED" SKIPPED 3
+not_run "the command did not run without a base"
+run "--base names the base when there is no default" 0 "$IDREPO/scripts/agent-tools/receipt" --name trunk-base --base trunk -- true
+receipt_revision "receipt records the named base" "$id_head" trunk "$id_dev" "$fork"
+git -C "$IDREPO" branch -q -m trunk dev
+run "a --root below a checkout's top is SKIPPED" 3 "$IDREPO/scripts/agent-tools/receipt" --name subdir --root "$IDREPO/scripts" -- true
+has "names the checkout's top" "but is not its top"
+mkdir -p "$WORK/unborn" && git -C "$WORK/unborn" init -q -b dev
+run "a checkout without a commit is SKIPPED" 3 "$TOOLS/receipt" --name unborn --root "$WORK/unborn" -- true
+has "names the missing commit" "has no commit yet"
+OUTSIDE="$WORK/outside"
+mkdir -p "$OUTSIDE/scripts" && cp -r "$TOOLS" "$OUTSIDE/scripts/"
+run "receipt outside a Git checkout is SKIPPED" 3 "$OUTSIDE/scripts/agent-tools/receipt" --name outside -- touch "$MARKER"
+has "names the missing checkout" "no head revision:"
+receipt_is "outside receipt is SKIPPED" SKIPPED 3
+not_run "the command did not run outside a checkout"
+
 echo "# receipt writer preserves output and exit codes"
 run "wrapped command keeps exit 7" 7 "$TOOLS/receipt" --name exit7 --tool bash -- bash -c 'echo to-stdout; echo to-stderr >&2; exit 7'
 has "wrapped stdout is streamed" "to-stdout"
@@ -113,15 +214,27 @@ fi
 echo "# doctor and missing dependencies"
 run "doctor passes in this environment" 0 "$TOOLS/doctor"
 has "doctor checks the skill pin" "skills match skills.lock.json"
+has "doctor reports the revision" "PASS     revision       head ${repo_head:0:12}, base $repo_base_ref"
+receipt_is "doctor writes a PASS receipt" PASS 0
+receipt_revision "doctor receipt records this checkout's revision" "$repo_head" "$repo_base_ref" "$repo_base" "$repo_fork"
+if grep -qF "doctor: PASS" "$RECEIPTS"/*/stdout.txt; then ok "doctor receipt keeps the report"; else bad "doctor receipt keeps the report"; fi
+run "doctor fails on an unresolvable --base" 1 "$TOOLS/doctor" --base no-such-base-cc27
+has "doctor names the bad base" "FAIL     revision       base 'no-such-base-cc27' does not resolve to a commit"
+receipt_is "bad-base doctor receipt is FAIL" FAIL 1
+run "doctor fails without git" 1 env PATH="$NOGIT" "$TOOLS/doctor"
+has "doctor names git and the fix" "fix: install git"
+receipt_is "no-git doctor receipt is FAIL" FAIL 1
 NONODE="$WORK/bin-without-node"
 mkdir -p "$NONODE"
 for tool in python3 git; do ln -s "$(command -v "$tool")" "$NONODE/$tool"; done
 run "doctor fails without node" 1 env PATH="$NONODE" "$TOOLS/doctor"
 has "doctor names node and the fix" "fix: install Node.js >= 18"
+receipt_is "no-node doctor receipt is FAIL" FAIL 1
 run "plan-format without node is SKIPPED" 3 env PATH="$NONODE" "$TOOLS/verify" plan-format
 receipt_is "no-node receipt is SKIPPED" SKIPPED 3
 run "doctor without python3 explains the PATH" 2 env PATH=/nonexistent "$TOOLS/doctor"
 has "no-python message is actionable" "fix: install Python >= 3.10"
+no_receipt "doctor without python3 writes no receipt"
 run "doctor fails on a missing skills dir" 1 env CLEARCASE_SKILLS_DIR="$WORK/no-skills" HOME="$WORK/no-home" "$TOOLS/doctor"
 has "missing skills dir is diagnosed" "pstack bundle not found"
 
@@ -152,11 +265,12 @@ for skill in alpha beta gamma; do echo "# $skill" >"$UP/skills/$skill/SKILL.md";
 echo "reference" >"$UP/skills/beta/references/notes.md"
 echo '{"name": "pstack", "version": "9.9.9", "license": "MIT"}' >"$UP/.cursor-plugin/plugin.json"
 echo "*.log" >"$UP/.gitignore"
-upstream_commit() { git -C "$UP" add -A && git -C "$UP" -c user.name=t -c user.email=t@example.invalid commit -qm "$1"; }
+upstream_commit() { commit_all "$UP" "$1"; }
 git -C "$UP" init -q && upstream_commit synthetic
 cp -a "$UP/skills/alpha" "$UP/skills/beta" "$INSTALLED/"
 echo "# local" >"$INSTALLED/local-skill/SKILL.md"
 cp -r "$TOOLS" "${PIN%/*}/"
+git_fixture "$WORK/pin-copy"
 # pin_edit CODE : run python CODE with lock and pin (its provenance.pstack) bound, then save the copied lock
 pin_edit() {
 	python3 - "$PIN/skills.lock.json" "$1" <<'EOF'
@@ -181,6 +295,7 @@ run "relock from the checkout pins the installed upstream skills" 0 "$PIN/bootst
 has "relock reports what is not installed" "Upstream skills not installed: gamma"
 has "relock reports the moved skill" "Moved to pstack: alpha (was other)"
 has "relock reports the added skill" "Added: beta"
+no_receipt "relock writes no receipt"
 pin_edit "pin['notInstalled'] = ['gamma']"
 run "pstack-upstream passes on a matching pin and install" 0 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
 has "pass counts the pinned skills" "2 pinned pstack skills match"
@@ -254,17 +369,22 @@ cp -r "$REPO/scripts/agent-tools" "$REPO/scripts/planning" "$FRESH/scripts/"
 cp -r "$REPO/docs/plan" "$FRESH/docs/"
 cp "$REPO/docs/delivery-plan.md" "$FRESH/docs/"
 cp "$REPO/.gitignore" "$FRESH/"
-git -C "$FRESH" init -q && git -C "$FRESH" add -A && git -C "$FRESH" -c user.name=t -c user.email=t@example.invalid commit -qm fixture
+git_fixture "$FRESH"
 run "first bootstrap links" 0 "$FRESH/scripts/agent-tools/bootstrap"
 has "first bootstrap reports linked" "linked ->"
+receipt_is "bootstrap writes the receipt of its doctor run" PASS 0
+run "verify list prints the capabilities" 0 "$FRESH/scripts/agent-tools/verify" list
+no_receipt "verify list writes no receipt"
 run "second bootstrap is a no-op" 0 "$FRESH/scripts/agent-tools/bootstrap"
 has "second bootstrap reports unchanged" "unchanged ->"
 mkdir -p "$WORK/other-skills"
 ln -s "$(readlink "$FRESH/.local/agent-tools/skills")/poteto-mode" "$WORK/other-skills/poteto-mode"
 run "conflicting bootstrap is refused" 1 "$FRESH/scripts/agent-tools/bootstrap" --skills-dir "$WORK/other-skills"
 has "conflict explains the fix" "bootstrap --remove first"
+no_receipt "a refused bootstrap writes no receipt"
 if [[ -z $(git -C "$FRESH" status --porcelain) ]]; then ok "bootstrap leaves tracked files untouched"; else bad "bootstrap leaves tracked files untouched" "$(git -C "$FRESH" status --porcelain)"; fi
 run "remove deletes only local state" 0 "$FRESH/scripts/agent-tools/bootstrap" --remove
+no_receipt "bootstrap --remove writes no receipt"
 if [[ ! -e $FRESH/.local/agent-tools ]]; then ok "local bootstrap state removed"; else bad "local bootstrap state removed"; fi
 
 echo "# summary"

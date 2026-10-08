@@ -166,26 +166,39 @@ def git(root, *args):
 
 
 def revision(root, base_ref=None):
-    head = git(root, "rev-parse", "HEAD")
-    if head is None:
-        return {"repository": False, "root": redact(root)}
-    refs = [base_ref] if base_ref else [os.environ.get("CLEARCASE_BASE_REF"), "origin/dev", "dev"]
-    base_ref = next((ref for ref in refs if ref and git(root, "rev-parse", "--verify", "-q", ref)), None)
+    """Git identity of root as (fields, problem). Only a None problem lets a receipt PASS, so every PASS receipt
+    names head, base and mergeBase. An explicit base (--base or CLEARCASE_BASE_REF) never falls back to a default."""
+    explicit = base_ref or os.environ.get("CLEARCASE_BASE_REF") or None
+    fields = {"repository": False, "root": redact(root), "branch": None, "head": None, "baseRef": explicit,
+              "base": None, "mergeBase": None, "dirty": None, "diffSha256": None}
+    if not shutil.which("git"):
+        return fields, "required tool not found: git; install git and put it on PATH"
+    top = git(root, "rev-parse", "--show-toplevel")
+    if not top or Path(top).resolve() != Path(root).resolve():
+        where = f"{redact(root)} is inside {redact(top)} but is not its top" if top else f"{redact(root)} is not a Git checkout"
+        return fields, f"no head revision: {where}; run from a ClearCase checkout or worktree, or pass --root DIR at the top of one"
+    head = git(root, "rev-parse", "--verify", "-q", "HEAD^{commit}")
+    if not head:
+        return fields, f"no head revision: {redact(root)} has no commit yet"
     status = git(root, "status", "--porcelain") or ""
     digest = hashlib.sha256((git(root, "diff", "HEAD", "--binary") or "").encode())
     for name in (git(root, "ls-files", "--others", "--exclude-standard") or "").splitlines():
         digest.update(name.encode() + b"\0" + bytes.fromhex(sha256_file(Path(root) / name)))
-    return {
-        "repository": True,
-        "root": redact(root),
-        "branch": git(root, "rev-parse", "--abbrev-ref", "HEAD"),
-        "head": head,
-        "baseRef": base_ref,
-        "base": git(root, "rev-parse", base_ref) if base_ref else None,
-        "mergeBase": git(root, "merge-base", "HEAD", base_ref) if base_ref else None,
-        "dirty": bool(status),
-        "diffSha256": digest.hexdigest() if status else None,
-    }
+    fields.update(repository=True, branch=git(root, "rev-parse", "--abbrev-ref", "HEAD"), head=head,
+                  dirty=bool(status), diffSha256=digest.hexdigest() if status else None)
+    fix = "pass --base REF, the accepted revision this branch was cut from"
+    for ref in [explicit] if explicit else ["origin/dev", "dev"]:
+        base = git(root, "rev-parse", "--verify", "-q", f"{ref}^{{commit}}")
+        if base:
+            break
+    if not base:
+        return fields, (f"base {explicit!r} does not resolve to a commit in {redact(root)}; {fix}" if explicit else
+                        f"no base revision: neither origin/dev nor dev exists in {redact(root)}; {fix}")
+    merge_base = git(root, "merge-base", head, base)
+    fields.update(baseRef=ref, base=base, mergeBase=merge_base)
+    if not merge_base:
+        return fields, f"base {ref} ({base[:12]}) shares no history with HEAD {head[:12]}; {fix}"
+    return fields, None
 
 
 def receipts_root(explicit=None):
@@ -201,24 +214,63 @@ def tee(source, *sinks):
     source.close()
 
 
-def run_with_receipt(name, argv, *, cwd=None, tools=(), inputs=(), receipts=None, base=None, root=None,
-                     skip_reason=None):
-    """Run argv, stream and capture its output, and write a receipt. Returns the exit code."""
-    root = Path(root or REPO)
-    started = now()
+def receipt_folder(receipts, name, started):
     folder = receipts_root(receipts) / f"{started.strftime('%Y%m%dT%H%M%S.%fZ')}-{name}"
     folder.mkdir(parents=True, exist_ok=False)
+    return folder
+
+
+def write_receipt(folder, started, name, result, code, reason, argv, cwd, tool_rows, inputs, identity):
+    finished = now()
+    receipt = {
+        "schema": "clearcase-agent-receipt/1",
+        "name": name,
+        "result": result,
+        "exitCode": code,
+        "reason": reason,
+        "command": [redact(part) for part in argv],
+        "cwd": redact(cwd),
+        "tools": tool_rows,
+        "inputs": [
+            {"path": redact(Path(p).resolve()), "sha256": sha256_file(p) if Path(p).is_file() else None}
+            for p in inputs
+        ],
+        "revision": identity,
+        "environment": environment(),
+        "startedAt": started.isoformat(),
+        "finishedAt": finished.isoformat(),
+        "durationSeconds": round((finished - started).total_seconds(), 3),
+        "artifacts": {
+            "receipt": redact(folder / "receipt.json"),
+            "stdout": redact(folder / "stdout.txt"),
+            "stderr": redact(folder / "stderr.txt"),
+        },
+    }
+    (folder / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
+    sys.stderr.write(f"receipt: {result} {name} exit={code} {redact(folder / 'receipt.json')}\n")
+    sys.stderr.flush()
+
+
+def run_with_receipt(name, argv, *, cwd=None, tools=(), inputs=(), receipts=None, base=None, root=None,
+                     skip_reason=None):
+    """Resolve the revision first, then run argv unless git, a tool, an input or the revision is missing.
+    Stream and capture its output and write a receipt. Returns the exit code."""
+    root = Path(root or REPO)
+    started = now()
+    folder = receipt_folder(receipts, name, started)
     stdout_path, stderr_path = folder / "stdout.txt", folder / "stderr.txt"
-    tool_rows = [tool_info(tool) for tool in tools]
+    tool_rows = [tool_info(tool) for tool in dict.fromkeys(["git", *tools])]
     missing = [row["name"] for row in tool_rows if row["path"] is None]
     if argv and not missing and not skip_reason and not (shutil.which(argv[0]) or Path(argv[0]).is_file()):
         missing.append(argv[0])
     missing_inputs = [str(path) for path in inputs if not Path(path).is_file()]
-    reason = skip_reason or (
-        f"required tool not found: {', '.join(missing)}" if missing
-        else f"required input not found: {', '.join(redact(p) for p in missing_inputs)}" if missing_inputs
-        else None
-    )
+    identity, unidentified = revision(root, base)
+    reason = (skip_reason
+              or (missing and f"required tool not found: {', '.join(missing)}; install it or put it on PATH "
+                              "(scripts/agent-tools/doctor names the fix)")
+              or unidentified
+              or (missing_inputs and f"required input not found: {', '.join(redact(p) for p in missing_inputs)}")
+              or None)
     if reason:
         stdout_path.write_bytes(b"")
         stderr_path.write_text(f"SKIPPED: {reason}\n")
@@ -237,34 +289,7 @@ def run_with_receipt(name, argv, *, cwd=None, tools=(), inputs=(), receipts=None
             for thread in threads:
                 thread.join()
         result = "PASS" if code == 0 else "FAIL"
-    finished = now()
-    receipt = {
-        "schema": "clearcase-agent-receipt/1",
-        "name": name,
-        "result": result,
-        "exitCode": code,
-        "reason": reason,
-        "command": [redact(part) for part in argv],
-        "cwd": redact(cwd or root),
-        "tools": tool_rows,
-        "inputs": [
-            {"path": redact(Path(p).resolve()), "sha256": sha256_file(p) if Path(p).is_file() else None}
-            for p in inputs
-        ],
-        "revision": revision(root, base),
-        "environment": environment(),
-        "startedAt": started.isoformat(),
-        "finishedAt": finished.isoformat(),
-        "durationSeconds": round((finished - started).total_seconds(), 3),
-        "artifacts": {
-            "receipt": redact(folder / "receipt.json"),
-            "stdout": redact(stdout_path),
-            "stderr": redact(stderr_path),
-        },
-    }
-    (folder / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
-    sys.stderr.write(f"receipt: {result} {name} exit={code} {redact(folder / 'receipt.json')}\n")
-    sys.stderr.flush()
+    write_receipt(folder, started, name, result, code, reason, argv, cwd or root, tool_rows, inputs, identity)
     return code
 
 
@@ -292,7 +317,7 @@ def check_plan_script(explicit=None):
 
 # Doctor ---------------------------------------------------------------------
 
-def doctor_rows(skills=None, receipts=None):
+def doctor_rows(skills=None, receipts=None, identity=None, unidentified=None):
     rows = []
 
     def add(status, name, detail, fix=None):
@@ -314,6 +339,11 @@ def doctor_rows(skills=None, receipts=None):
         top = git(REPO, "rev-parse", "--show-toplevel")
         add("PASS" if top else "FAIL", "repository", redact(top or REPO),
             None if top else "run the tools from a git checkout or worktree of the ClearCase repository")
+        if top and unidentified:
+            add("FAIL", "revision", unidentified)
+        elif top:
+            add("PASS", "revision", f"head {identity['head'][:12]}, base {identity['baseRef']} at {identity['base'][:12]}, "
+                f"merge-base {identity['mergeBase'][:12]}{', uncommitted changes' if identity['dirty'] else ''}")
     else:
         add("FAIL", "git", "not found on PATH", "install git (pacman -S git) and put it on PATH")
 
@@ -392,18 +422,35 @@ def doctor_rows(skills=None, receipts=None):
 
 
 def cmd_doctor(args):
-    rows = doctor_rows(args.skills_dir, args.receipts)
+    """Run every check, print the report and write it as a receipt. A missing git, head or base is a FAIL row."""
+    started = now()
+    identity, unidentified = revision(REPO, args.base)
+    rows = doctor_rows(args.skills_dir, args.receipts, identity, unidentified)
+    lines = []
     for status, name, detail, fix in rows:
-        print(f"{status:<8} {name:<14} {detail}")
+        lines.append(f"{status:<8} {name:<14} {detail}")
         if fix:
-            print(f"{'':<8} {'':<14} fix: {fix}")
+            lines.append(f"{'':<8} {'':<14} fix: {fix}")
     failed = [row for row in rows if row[0] == "FAIL"]
     passed = [row for row in rows if row[0] == "PASS"]
     deferred = [row[1] for row in rows if row[0] == "DEFERRED"]
     verdict = "FAIL" if failed else "PASS"
-    print(f"doctor: {verdict}. {len(passed)} required checks passed, {len(failed)} failed. "
-          f"Deferred, not required yet: {', '.join(deferred) or 'none'}.")
-    return 1 if failed else 0
+    lines.append(f"doctor: {verdict}. {len(passed)} required checks passed, {len(failed)} failed. "
+                 f"Deferred, not required yet: {', '.join(deferred) or 'none'}.")
+    report = "\n".join(lines) + "\n"
+    sys.stdout.write(report)
+    sys.stdout.flush()
+    code = 1 if failed else 0
+    try:
+        folder = receipt_folder(args.receipts, "doctor", started)
+        (folder / "stdout.txt").write_text(report)
+        (folder / "stderr.txt").write_text("")
+        write_receipt(folder, started, "doctor", verdict, code, None, [sys.executable, *sys.orig_argv[1:]],
+                      Path.cwd(), [tool_info(tool) for tool in ("git", "python3", "node")], [LOCK_PATH], identity)
+    except OSError as error:
+        sys.stderr.write(f"doctor: FAIL. Receipt not written: {error}\n")
+        return 1
+    return code
 
 
 # Verification capabilities --------------------------------------------------
@@ -645,7 +692,8 @@ def main(argv=None):
     def common(p):
         p.add_argument("--skills-dir", help="pstack bundle directory (default: $CLEARCASE_SKILLS_DIR, bootstrap link, ~/.agents/skills)")
         p.add_argument("--receipts", help="receipt directory (default: $CLEARCASE_RECEIPTS_DIR or .local/agent-receipts)")
-        p.add_argument("--base", help="base ref recorded in receipts (default: origin/dev, then dev)")
+        p.add_argument("--base", help="base ref recorded in receipts; must resolve to a commit "
+                                      "(default: $CLEARCASE_BASE_REF, then origin/dev, then dev)")
         p.add_argument("--root", help="repository root to check (default: this checkout)")
         return p
 

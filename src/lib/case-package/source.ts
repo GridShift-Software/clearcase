@@ -69,7 +69,7 @@ async function snapshotDirectory(root: string, L: Limits, sink: DiagSink): Promi
     const size = present.get(rel);
     if (size === undefined || size > max) return;
     // O_NOFOLLOW: a file swapped for a link after the walk is refused, not followed
-    const fh = await open(path.join(root, ...rel.split('/')), constants.O_RDONLY | constants.O_NOFOLLOW).catch(() => null);
+    const fh = await open(path.join(root, ...rel.split('/')), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK).catch(() => null);
     if (!fh) return;
     try {
       const s = await fh.stat();

@@ -35,6 +35,7 @@ export const CODES = {
   PKG_NONCANONICAL: e('structural', 'file is not canonical JSON', REBUILD),
   PKG_INPUT_REVISION_MISMATCH: e('integrity', 'inputRevision.id is not the digest of its sources', REBUILD),
   PKG_VERSION_MISMATCH: e('integrity', 'resultsVersion is not the digest of the listed content', REBUILD),
+  PKG_UNPROCESSABLE: e('structural', 'the package could not be processed (unexpected failure while reading or validating)', 'Rebuild the package; report the message if it persists. Nothing was stored.'),
   PKG_ROLE_INVALID: e('structural', 'missing or duplicate asset index', REBUILD),
   JSON_BAD_UTF8: e('structural', 'file is not valid UTF-8 or has a byte order mark', REBUILD),
   JSON_MALFORMED: e('structural', 'malformed JSON', REBUILD),
@@ -101,7 +102,7 @@ export const CODES = {
   CITE_BARE_MENTION: i('quality', 'ref mentioned in prose without a [[...]] token (not linked)', 'No action; use [[REF]] to make it a link.'),
   // links and text
   LINK_UNSAFE_SCHEME: e('structural', 'link uses a forbidden URL scheme', 'Remove the link from the source; only https and mailto may be external links.'),
-  LINK_RELATIVE_UNSAFE: e('structural', 'link is absolute, protocol-relative, UNC, a drive path or traversing', 'Use a "./" locator inside the case folder.'),
+  LINK_RELATIVE_UNSAFE: e('structural', 'link is not a safe locator (absolute, protocol-relative, UNC, drive path, traversing or too long)', 'Use a "./" locator inside the case folder.'),
   LINK_EXTERNAL: i('quality', 'external link (rendered inert, never fetched)', 'No action.'),
   LINK_TEXT_ONLY: i('quality', 'link with a scheme that is shown as text only', 'No action.'),
   LINK_ASSET_MISMATCH: w('quality', 'legacy locator disagrees with the indexed original path', 'Review the source locator.'),

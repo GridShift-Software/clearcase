@@ -9,10 +9,10 @@ import { serveModeOf, type ServeMode, type TextStatus } from './media.ts';
 import type { OriginalMapping } from './originals.ts';
 import type { Static } from 'typebox';
 import type * as R from './records.ts';
-import { SEED_DATASETS } from './registry.ts';
+import { KNOWN_SCHEMAS, SEED_DATASETS } from './registry.ts';
 import type { Asset } from './schema.ts';
 import type { SeedRow } from './user-work.ts';
-import { seedRows } from './validate.ts';
+import { seedRows, textOf } from './validate.ts';
 
 export type ChronologyRow = Static<typeof R.V5Chronology>[number];
 
@@ -47,14 +47,16 @@ export interface DerivedCounts {
   attachments: number;
 }
 
+/** Counts keyed by untrusted values: a Map, returned as an object whose keys are all own properties. */
 const tally = (rows: readonly ChronologyRow[], f: keyof ChronologyRow): Record<string, number> => {
-  const out: Record<string, number> = {};
-  for (const r of rows) { const k = String(r[f]); out[k] = (out[k] ?? 0) + 1; }
-  return Object.fromEntries(Object.entries(out).sort(([a], [b]) => (a < b ? -1 : 1)));
+  const out = new Map<string, number>();
+  for (const r of rows) { const k = textOf(r[f]); out.set(k, (out.get(k) ?? 0) + 1); }
+  return Object.fromEntries([...out].sort(([a], [b]) => (a < b ? -1 : 1)));
 };
 
 export function readCandidate(candidate: Candidate) {
-  const data = <T = unknown>(key: string): T | null => (candidate.dataset(key)?.data as T | undefined) ?? null;
+  /** typed access to recognized datasets only; an unknown or opaque dataset is never handed to views */
+  const data = <T = unknown>(key: string): T | null => { const e = candidate.dataset(key); return e && KNOWN_SCHEMAS.has(e.schema) ? (e.data as T) : null; };
   const rows = (data<ChronologyRow[]>('chronology') ?? []) as readonly ChronologyRow[];
   const byRef = new Map(rows.map((r) => [r.ref, r]));
   const assets = new Map(Object.entries(candidate.assets));
@@ -114,8 +116,8 @@ export function readCandidate(candidate: Candidate) {
       byBundle: tally(rows, 'bundle'),
       byTextStatus: tally(rows, 'text_status'),
       byDocType: types,
-      emails: types.email ?? 0,
-      invoices: types.invoice ?? 0,
+      emails: Object.hasOwn(types, 'email') ? types.email! : 0,
+      invoices: Object.hasOwn(types, 'invoice') ? types.invoice! : 0,
       people: Array.isArray(people) ? people.length : null,
       attachments: [...assets.values()].filter((x) => x.parentRef !== undefined).length,
     };

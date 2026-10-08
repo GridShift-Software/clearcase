@@ -42,7 +42,7 @@ export async function importCandidate(source: PackageSource, caseFolder: string,
     check();
     if (snap) {
       options.onProgress?.({ phase: 'validate', done: 0, total: snap.files.size, bytesDone: 0, bytesTotal: 0 });
-      pkg = validateSnapshot(snap, sink, L);
+      pkg = validateSnapshot(snap, sink, L, check);
       check();
     }
     if (pkg && sink.errors === 0) {
@@ -54,8 +54,11 @@ export async function importCandidate(source: PackageSource, caseFolder: string,
     }
     check();
   } catch (e) {
-    if (!(e instanceof Interrupted)) throw e;
-    sink.add(e.code, e.code === 'IMPORT_DEADLINE' ? `validation did not finish within ${L.validationDeadlineMs} ms; nothing was stored` : 'the import was cancelled; nothing was stored');
+    if (!(e instanceof Interrupted)) {
+      // never let crafted input escape as an exception: reject with a diagnostic instead
+      pkg = null;
+      sink.add('PKG_UNPROCESSABLE', `unexpected failure: ${String((e as Error)?.message ?? 'error').slice(0, 200)}`);
+    } else sink.add(e.code, e.code === 'IMPORT_DEADLINE' ? `validation did not finish within ${L.validationDeadlineMs} ms; nothing was stored` : 'the import was cancelled; nothing was stored');
   }
   const diagnostics = sink.finish(new Set(options.trustedBaseline ?? []));
   const counts = Object.fromEntries([...sink.counts].sort(([a], [b]) => (a < b ? -1 : 1)));
@@ -68,9 +71,9 @@ export async function importCandidate(source: PackageSource, caseFolder: string,
     warningFingerprints,
     errorFingerprints: sorted(sink.errorFingerprints),
   };
-  if (!pkg || sink.errors > 0) return { ...base, verdict: 'reject', candidate: null };
+  if (!pkg || sink.errors > 0) return freeze({ ...base, verdict: 'reject', candidate: null });
   const candidate = new Candidate({ ...pkg, originals: mapping, unavailable });
-  return { ...base, verdict: sink.count('warning') > 0 ? 'report' : 'accept', candidate };
+  return freeze({ ...base, verdict: sink.count('warning') > 0 ? 'report' : 'accept', candidate });
 }
 
 /** A cited document whose root original is unavailable stays visibly flagged. */
@@ -88,4 +91,14 @@ function flagCitedUnavailable(pkg: ValidatedPackage, unavailable: Set<string>, s
       sink.add('CITE_TARGET_NO_ORIGINAL', `${c.ref} is cited but its original is unavailable`, { subject: c.ref });
     }
   }
+}
+
+/** The result is immutable: its arrays, counts and diagnostics are frozen (the candidate freezes itself). */
+function freeze<T extends ImportResult>(r: T): T {
+  for (const d of r.diagnostics) Object.freeze(d);
+  Object.freeze(r.diagnostics);
+  Object.freeze(r.counts);
+  Object.freeze(r.warningFingerprints);
+  Object.freeze(r.errorFingerprints);
+  return Object.freeze(r);
 }

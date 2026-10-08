@@ -58,7 +58,8 @@ describe('containment and file types', () => {
     await symlink(path.join(b.caseDir, 'real.pdf'), path.join(b.caseDir, OD1));
     const r = await importCandidate(b.pkgDir, b.caseDir);
     expect(r.verdict).toBe('report');
-    expect(r.candidate!.original('OD-001')!.path).toBe(OD1);
+    // the real on-disk path (after links inside the folder) is recorded and served
+    expect(r.candidate!.original('OD-001')!.path).toBe('real.pdf');
   });
 
   it('refuses a FIFO without hanging', async () => {

@@ -86,3 +86,6 @@ export const SEED_DATASETS: Record<string, { pointer: string; keyFields: readonl
   'filings': { pointer: '/registerSeed', keyFields: ['ref', 'filing'] },
   'lit-crossexam-seed': { pointer: '', keyFields: ['witness', 'topic'] },
 };
+
+/** Registered dataset keys: each must carry its registered schema and required flag. */
+export const KNOWN_KEYS: ReadonlyMap<string, DatasetDef> = new Map([...V5_DATASETS, LAYOUT, CONVERSION_REPORT].map((d) => [d.key, d]));

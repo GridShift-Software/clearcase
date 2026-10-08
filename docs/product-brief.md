@@ -8,7 +8,7 @@ Planning baseline, 8 October 2026. Build a local case workspace that faithfully 
 - The first acceptance baseline is `RAWS/CASE_Lawyer_Pack_v5-002.zip`, specifically its main `ESS_DCS_Workspace.html`, with 1,689 indexed documents. Then test the newer 2,131-document export as a separate compatibility fixture.
 - V2 runs on Cloudflare, with a separate client instance and admin/client roles. An operator checks results privately and signs off before clients can access them.
 - Keep the manual intake, processing and results-import boundaries suitable for later Pi Durable automation.
-- Work on `phase-1/local-workspace` in this separate worktree. Preserve the original archives and production system.
+- Work on `dev` through per-ticket `feature/*` worktrees and pull requests. Preserve the original archives and production system.
 
 ## What matching the sample means
 

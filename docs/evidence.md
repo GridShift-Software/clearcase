@@ -15,7 +15,7 @@ Detailed local research remains available in ignored local storage:
 - [Observed field inventory](/home/operator/Work/Active/MX-two/ClearCase/worktrees/local-v1/.local/research/clearcase-raw-review/schema/field_inventory.json)
 - [Offline merge verification](/home/operator/Work/Active/MX-two/ClearCase/worktrees/local-v1/.local/research/clearcase-transform/merge-verification.json)
 
-These persisted paths are machine-local research aids, not portable project dependencies. Do not commit the case material as application fixtures. The implementation should generate a local fixture inventory from the designated archive.
+The same ignored aids are mirrored on `puk` under `/home/operator/Work/Active/MX-two/ClearCase/clearcase/.local/`. These persisted paths are machine-local research aids, not portable project dependencies. Do not commit the case material as application fixtures. The implementation should generate a local fixture inventory from the designated archive.
 
 ## Existing operator route
 

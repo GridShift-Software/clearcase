@@ -1,0 +1,2 @@
+agent-tools: FAIL python3 not found (PATH=/nonexistent).
+  fix: install Python >= 3.10 (pacman -S python) and put it on PATH, e.g. PATH=/usr/local/bin:/usr/bin:/bin, or set CLEARCASE_PYTHON=/path/to/python3.

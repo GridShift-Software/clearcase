@@ -1,0 +1,1 @@
+bootstrap: removed ~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/.local/agent-tools/skills, ~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/.local/agent-tools/bootstrap.json, ~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/.local/agent-tools. Global skills untouched.

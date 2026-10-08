@@ -1,0 +1,69 @@
+{
+  "schema": "clearcase-agent-receipt/1",
+  "name": "pstack-upstream",
+  "result": "PASS",
+  "exitCode": 0,
+  "reason": null,
+  "command": [
+    "/usr/bin/python3",
+    "-I",
+    "-B",
+    "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/scripts/agent-tools/agent_tools.py",
+    "compare-upstream",
+    "--checkout",
+    "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/.local/pstack-upstream"
+  ],
+  "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling",
+  "tools": [
+    {
+      "name": "python3",
+      "path": "/usr/bin/python3",
+      "version": "Python 3.14.7"
+    },
+    {
+      "name": "git",
+      "path": "/usr/bin/git",
+      "version": "git version 2.56.0"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/scripts/agent-tools/skills.lock.json",
+      "sha256": "f002bcb4fa9db7b343775444fa6cce63110b5fa1cc662d4f2640ed76627fba2a"
+    },
+    {
+      "path": "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/.local/pstack-upstream/.cursor-plugin/plugin.json",
+      "sha256": "c17868a6a39a8f7c109fdedf5df7ebcc4d8cde127a10f40c663a8c46adc4087e"
+    }
+  ],
+  "revision": {
+    "repository": true,
+    "root": "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling",
+    "branch": "feature/grs-35-agent-tooling",
+    "head": "68ba5b87bb730776e8653218e5b38068fa0bb5a2",
+    "baseRef": "origin/dev",
+    "base": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "mergeBase": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "dirty": false,
+    "diffSha256": null
+  },
+  "environment": {
+    "os": "CachyOS",
+    "platform": "linux",
+    "kernel": "7.2.2-1-cachyos",
+    "machine": "x86_64",
+    "host": "PUK",
+    "bash": "5.3.20(1)-release",
+    "callerShell": "",
+    "python": "3.14.7",
+    "path": "/usr/local/bin:/usr/bin:/bin"
+  },
+  "startedAt": "2026-10-08T13:44:04.385153+00:00",
+  "finishedAt": "2026-10-08T13:44:04.455819+00:00",
+  "durationSeconds": 0.071,
+  "artifacts": {
+    "receipt": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-68ba5b8/receipts/v1-pstack-upstream/20261008T134404.385153Z-pstack-upstream/receipt.json",
+    "stdout": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-68ba5b8/receipts/v1-pstack-upstream/20261008T134404.385153Z-pstack-upstream/stdout.txt",
+    "stderr": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-68ba5b8/receipts/v1-pstack-upstream/20261008T134404.385153Z-pstack-upstream/stderr.txt"
+  }
+}

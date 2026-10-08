@@ -1,0 +1,46 @@
+{
+  "schema": "clearcase-agent-receipt/1",
+  "name": "description-drift",
+  "result": "FAIL",
+  "exitCode": 1,
+  "reason": null,
+  "command": [
+    "python3",
+    "scripts/planning/generate.py",
+    "--compare-linear",
+    "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/linear-export.json"
+  ],
+  "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling",
+  "tools": [],
+  "inputs": [],
+  "revision": {
+    "repository": true,
+    "root": "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling",
+    "branch": "feature/grs-35-agent-tooling",
+    "head": "68ba5b87bb730776e8653218e5b38068fa0bb5a2",
+    "baseRef": "origin/dev",
+    "base": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "mergeBase": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "dirty": false,
+    "diffSha256": null
+  },
+  "environment": {
+    "os": "CachyOS",
+    "platform": "linux",
+    "kernel": "7.2.2-1-cachyos",
+    "machine": "x86_64",
+    "host": "PUK",
+    "bash": "5.3.20(1)-release",
+    "callerShell": "",
+    "python": "3.14.7",
+    "path": "/usr/local/bin:/usr/bin:/bin"
+  },
+  "startedAt": "2026-10-08T13:44:05.037192+00:00",
+  "finishedAt": "2026-10-08T13:44:05.071275+00:00",
+  "durationSeconds": 0.034,
+  "artifacts": {
+    "receipt": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-68ba5b8/receipts/v3-description-drift/20261008T134405.037192Z-description-drift/receipt.json",
+    "stdout": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-68ba5b8/receipts/v3-description-drift/20261008T134405.037192Z-description-drift/stdout.txt",
+    "stderr": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-68ba5b8/receipts/v3-description-drift/20261008T134405.037192Z-description-drift/stderr.txt"
+  }
+}

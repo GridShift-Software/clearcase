@@ -1,0 +1,44 @@
+{
+  "schema": "clearcase-agent-receipt/1",
+  "name": "bootstrap-remove",
+  "result": "PASS",
+  "exitCode": 0,
+  "reason": null,
+  "command": [
+    "scripts/agent-tools/bootstrap",
+    "--remove"
+  ],
+  "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling",
+  "tools": [],
+  "inputs": [],
+  "revision": {
+    "repository": true,
+    "root": "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling",
+    "branch": "feature/grs-35-agent-tooling",
+    "head": "68ba5b87bb730776e8653218e5b38068fa0bb5a2",
+    "baseRef": "origin/dev",
+    "base": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "mergeBase": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "dirty": false,
+    "diffSha256": null
+  },
+  "environment": {
+    "os": "CachyOS",
+    "platform": "linux",
+    "kernel": "7.2.2-1-cachyos",
+    "machine": "x86_64",
+    "host": "PUK",
+    "bash": "5.3.20(1)-release",
+    "callerShell": "",
+    "python": "3.14.7",
+    "path": "/usr/local/bin:/usr/bin:/bin"
+  },
+  "startedAt": "2026-10-08T13:44:04.508933+00:00",
+  "finishedAt": "2026-10-08T13:44:04.552609+00:00",
+  "durationSeconds": 0.044,
+  "artifacts": {
+    "receipt": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-68ba5b8/receipts/v1-bootstrap-remove/20261008T134404.508933Z-bootstrap-remove/receipt.json",
+    "stdout": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-68ba5b8/receipts/v1-bootstrap-remove/20261008T134404.508933Z-bootstrap-remove/stdout.txt",
+    "stderr": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-68ba5b8/receipts/v1-bootstrap-remove/20261008T134404.508933Z-bootstrap-remove/stderr.txt"
+  }
+}

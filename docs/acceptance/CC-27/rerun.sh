@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Rerun CC-27 verification items 1-6 from clean non-interactive shells.
-# Usage: CC27_READBACK=PATH CC27_PSTACK_CHECKOUT=DIR [CC27_EXPORT=PATH] [CC27_OUT=DIR] bash docs/acceptance/CC-27/rerun.sh
+# Usage: CC27_READBACK=PATH CC27_PSTACK_CHECKOUT=DIR [CC27_EXPORT=PATH] [CC27_OUT=DIR] [CC27_BUN=PATH] bash docs/acceptance/CC-27/rerun.sh
 # CC27_PSTACK_CHECKOUT is a clean checkout of the pinned backnotprop/pstack revision (see README.md).
+# Each clean shell gets CLEARCASE_BUN=CC27_BUN, by default the bun on the caller's PATH, because the doctor requires
+# Bun and on puk it lives in ~/.local/bin, outside the clean PATH.
 # Writes receipts/, transcripts/, summary.tsv and identity-audit.txt under CC27_OUT (default .local/cc27-rerun),
 # first deleting those of an earlier run there. Exits 2 if CC27_OUT holds receipts/ or transcripts/ that
 # rerun.sh did not write, 1 if any step's exit code differs from the expected one or a receipt fails the
@@ -16,6 +18,7 @@ EXPORT=${CC27_EXPORT:-}
 CHECKOUT=${CC27_PSTACK_CHECKOUT:-}
 [[ -d $CHECKOUT ]] && CHECKOUT=$(cd "$CHECKOUT" && pwd)
 CLEAN_PATH=/usr/local/bin:/usr/bin:/bin
+BUN=${CC27_BUN-$(command -v bun)}
 HEADER=$'step\texpected\tactual\tverdict\tcommand'
 # A receipt left by an earlier run must not pass as this run's evidence, so clear an earlier run's outputs.
 if [[ -e $OUT/receipts || -e $OUT/transcripts ]]; then
@@ -37,7 +40,7 @@ mismatches=0
 # step NAME EXPECTED DIR COMMAND : run COMMAND in a clean shell inside DIR
 step() {
 	local name=$1 expected=$2 dir=$3 command=$4
-	env -i HOME="$HOME" PATH="$CLEAN_PATH" CLEARCASE_RECEIPTS_DIR="$OUT/receipts/$name" \
+	env -i HOME="$HOME" PATH="$CLEAN_PATH" ${BUN:+"CLEARCASE_BUN=$BUN"} CLEARCASE_RECEIPTS_DIR="$OUT/receipts/$name" \
 		bash --noprofile --norc -c "cd '$dir' && $command" >"$OUT/transcripts/$name.txt" 2>&1
 	local actual=$? verdict=MATCH
 	[[ $actual == "$expected" ]] || { verdict=MISMATCH; mismatches=$((mismatches + 1)); }
@@ -50,6 +53,10 @@ ln -s /usr/bin/python3 "$nonode/python3"
 ln -s /usr/bin/git "$nonode/git"
 nogit=$(mktemp -d "${TMPDIR:-/tmp}/cc27-nogit.XXXXXX")
 for tool in python3 node; do ln -s "$(PATH=$CLEAN_PATH command -v "$tool")" "$nogit/$tool"; done
+nobun=$(mktemp -d "${TMPDIR:-/tmp}/cc27-nobun.XXXXXX")
+for tool in python3 git node; do ln -s "$(PATH=$CLEAN_PATH command -v "$tool")" "$nobun/$tool"; done
+oldbun=$(mktemp -d "${TMPDIR:-/tmp}/cc27-oldbun.XXXXXX")
+printf '#!/bin/sh\necho 1.3.9\n' >"$oldbun/bun" && chmod +x "$oldbun/bun"
 readback_args=${READBACK:+--linear-relations "'$READBACK'"}
 readback_expect=$([[ -n $READBACK ]] && echo 0 || echo 3)
 checkout_args=${CHECKOUT:+--checkout "'$CHECKOUT'"}
@@ -95,6 +102,8 @@ step v6-plan-format-without-node 3 "$fresh" "PATH='$nonode' scripts/agent-tools/
 step v6-required-readback-missing 3 "$fresh" "scripts/agent-tools/check-plan --require-linear-relations"
 step v6-doctor-empty-path 2 "$fresh" "PATH=/nonexistent scripts/agent-tools/doctor"
 step v6-doctor-without-git 1 "$fresh" "PATH='$nogit' scripts/agent-tools/doctor"
+step v6-doctor-without-bun 1 "$fresh" "unset CLEARCASE_BUN; PATH='$nobun' scripts/agent-tools/doctor"
+step v6-doctor-old-bun 1 "$fresh" "CLEARCASE_BUN='$oldbun/bun' scripts/agent-tools/doctor"
 step v6-plan-format-without-git 3 "$fresh" "PATH='$nogit' scripts/agent-tools/verify plan-format --base origin/dev --plan tests/agent-tools/fixtures/plans/valid.md"
 step v6-check-plan-without-git 3 "$fresh" "PATH='$nogit' scripts/agent-tools/check-plan --base origin/dev --require-linear-relations $readback_args"
 step v6-plan-format-bad-base 3 "$fresh" "scripts/agent-tools/verify plan-format --base clearcase-base-does-not-exist --plan tests/agent-tools/fixtures/plans/valid.md"
@@ -104,7 +113,7 @@ if ! git -C "$fresh" status --porcelain --untracked-files=normal >"$OUT/transcri
 fi
 git -C "$WT" worktree remove "$fresh" >>"$OUT/transcripts/v6-worktree-add.txt" 2>&1
 git -C "$WT" worktree list >"$OUT/transcripts/v6-worktree-list-after.txt"
-rm -rf "$nonode" "$nogit"
+rm -rf "$nonode" "$nogit" "$nobun" "$oldbun"
 
 # Every receipt that names a head names the tested one; every PASS receipt also names its base and merge base
 # and a working tree that Git reported clean.

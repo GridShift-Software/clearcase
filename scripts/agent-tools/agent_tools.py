@@ -80,16 +80,35 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
-def tree_hash(directory):
-    digest, count = hashlib.sha256(), 0
+def manifest(directory):
+    """Relative path -> file sha256 (or symlink target) in hashing order, without IGNORED_PARTS."""
+    rows = {}
     for path in sorted(p for p in Path(directory).rglob("*") if p.is_file() or p.is_symlink()):
         rel = path.relative_to(directory)
-        if IGNORED_PARTS.intersection(rel.parts):
-            continue
-        content = os.readlink(path).encode() if path.is_symlink() else bytes.fromhex(sha256_file(path))
-        digest.update(rel.as_posix().encode() + b"\0" + content + b"\n")
-        count += 1
-    return digest.hexdigest(), count
+        if not IGNORED_PARTS.intersection(rel.parts):
+            rows[rel.as_posix()] = os.readlink(path).encode() if path.is_symlink() else bytes.fromhex(sha256_file(path))
+    return rows
+
+
+def tree_hash(directory):
+    digest, rows = hashlib.sha256(), manifest(directory)
+    for rel, content in rows.items():
+        digest.update(rel.encode() + b"\0" + content + b"\n")
+    return digest.hexdigest(), len(rows)
+
+
+def upstream_diff(upstream, installed):
+    """diff -rq between an upstream skill directory and its installed copy, with the pin's exclusions."""
+    theirs, ours = manifest(upstream), manifest(installed)
+    return [f"{rel} {'only in the checkout' if rel not in ours else 'only installed' if rel not in theirs else 'differs'}"
+            for rel in sorted(theirs.keys() | ours.keys()) if theirs.get(rel) != ours.get(rel)]
+
+
+def pstack_upstream(checkout, base):
+    """The skills in a pstack checkout, split into installed in base and not installed."""
+    names = {path.parent.name for path in (checkout / "skills").glob("*/SKILL.md")}
+    installed = {name for name in names if (base / name / "SKILL.md").is_file()}
+    return installed, names - installed
 
 
 def os_release():
@@ -294,7 +313,7 @@ def doctor_rows(skills=None, receipts=None):
     lock = load_lock()
     if not base or not (base / "poteto-mode/SKILL.md").is_file():
         add("FAIL", "skills-dir", f"pstack bundle not found at {redact(base) if base else 'any default location'} (looked for poteto-mode/SKILL.md)",
-            "copy the bundle to ~/.agents/skills (rsync -a archlinux:.agents/skills/ ~/.agents/skills/) "
+            "install the pinned bundle into ~/.agents/skills (see Bootstrap in docs/agent-tooling.md) "
             "or set CLEARCASE_SKILLS_DIR / bootstrap --skills-dir DIR")
     else:
         add("PASS", "skills-dir", redact(base))
@@ -315,7 +334,12 @@ def doctor_rows(skills=None, receipts=None):
                 add("FAIL", f"skill:{pinned['group']}", f"{name} differs from the pin ({count} files, {digest[:12]})",
                     "review the installed change, then run scripts/agent-tools/bootstrap --relock and commit skills.lock.json")
         if not drift:
-            add("PASS", "skill-pin", f"{len(lock['skills'])} skills match skills.lock.json")
+            groups = sorted({row["group"] for row in lock["skills"].values()})
+            counts = ", ".join(f"{group} {sum(row['group'] == group for row in lock['skills'].values())}" for group in groups)
+            add("PASS", "skill-pin", f"{len(lock['skills'])} skills match skills.lock.json ({counts})")
+        pin = lock["provenance"]["pstack"]
+        add("INFO", "pstack-source", f"{pin['upstream']} at {pin['revision'][:12]}, version {pin['version']}, "
+            f"{pin['license']}; compare with scripts/agent-tools/verify pstack-upstream --checkout DIR")
         for name in lock.get("knownAbsent", []):
             state = "present" if (base / name / "SKILL.md").is_file() else "absent"
             add("INFO", "leaf-skill", f"{name} {state} (not installed or claimed by this project)")
@@ -376,6 +400,16 @@ def capability_command(name, args):
         script = check_plan_script(args.skills_dir)
         plan = Path(getattr(args, "plan", None) or root / "docs/delivery-plan.md").resolve()
         return [which("node") or "node", str(script), str(plan)], ["node"], [script, plan], None
+    if name == "pstack-upstream":
+        command = [python, "-I", "-B", str(TOOLS_DIR / "agent_tools.py"), "compare-upstream"]
+        if not getattr(args, "checkout", None):
+            return command, ["python3"], [LOCK_PATH], (
+                "no pstack checkout supplied; pass --checkout DIR, a clone of the pinned upstream revision")
+        checkout = Path(args.checkout).expanduser().resolve()
+        command += ["--checkout", str(checkout)]
+        if args.skills_dir:
+            command += ["--skills-dir", str(Path(args.skills_dir).expanduser().resolve())]
+        return command, ["python3", "git"], [LOCK_PATH, checkout / ".cursor-plugin/plugin.json"], None
     if name == "app":
         return ["app"], [], [], APP_DEFERRED
     raise SystemExit(f"unknown capability {name}")
@@ -385,8 +419,54 @@ CAPABILITIES = {
     "plan-graph": "python3 scripts/planning/check.py --require-linear-ids (graph, coverage, Linear ID map, generated files)",
     "linear-relations": "python3 scripts/planning/check.py --require-linear-ids --linear-relations READBACK",
     "plan-format": "node <skills>/poteto-mode/scripts/check-plan.mjs PLAN (pstack multi-phase plan structure)",
+    "pstack-upstream": "installed pstack bundle and skills.lock.json against a checkout of the pinned revision (--checkout DIR)",
     "app": "deferred to GRS-12 (CC-03); always SKIPPED until the app and its verify skill exist",
 }
+
+
+def cmd_compare_upstream(args):
+    """Run by verify pstack-upstream: check the pin's provenance, membership and content against a checkout."""
+    lock, base, checkout = load_lock(), skills_dir(args.skills_dir), Path(args.checkout).resolve()
+    pin = lock["provenance"]["pstack"]
+    if not base:
+        print("pstack-upstream: FAIL. pstack bundle not found; run scripts/agent-tools/doctor.")
+        return 1
+    problems = []
+    head = git(checkout, "rev-parse", "HEAD")
+    if head != pin["revision"]:
+        problems.append(f"checkout is at {head or 'no git revision'}, the pin is {pin['revision']}; "
+                        f"run git -C {redact(checkout)} checkout --detach {pin['revision']}")
+    if git(checkout, "status", "--porcelain", "--", "skills", ".cursor-plugin"):
+        problems.append("checkout has local changes under skills/ or .cursor-plugin/; use a clean checkout")
+    plugin = json.loads((checkout / ".cursor-plugin/plugin.json").read_text())
+    for field in ("version", "license"):
+        if plugin.get(field) != pin[field]:
+            problems.append(f"plugin.json {field} is {plugin.get(field)!r}, provenance.pstack records {pin[field]!r}")
+    installed, absent = pstack_upstream(checkout, base)
+    pinned = {name for name, row in lock["skills"].items() if row["group"] == "pstack"}
+    relock = f"review it, then run scripts/agent-tools/bootstrap --relock --checkout {redact(checkout)}"
+    for name in sorted(installed - pinned):
+        group = lock["skills"].get(name, {}).get("group")
+        problems.append(f"{name} is an installed upstream skill but is {f'pinned as {group}' if group else 'not pinned'}; {relock}")
+    for name in sorted(pinned - installed):
+        problems.append(f"{name} is pinned as pstack but is {'not installed' if name in absent else 'not in the checkout'}")
+    if sorted(absent) != sorted(pin["notInstalled"]):
+        problems.append(f"upstream skills not installed are {sorted(absent)}, provenance.pstack.notInstalled "
+                        f"records {sorted(pin['notInstalled'])}")
+    for name in sorted(pinned & installed):
+        diff = upstream_diff(checkout / "skills" / name, base / name)
+        problems += [f"{name}/{line}" for line in diff]
+        if not diff and tree_hash(checkout / "skills" / name)[0] != lock["skills"][name]["sha256"]:
+            problems.append(f"{name}: installed files match the checkout but not the pinned sha256; {relock}")
+    for problem in problems:
+        print(f"FAIL     {problem}")
+    target = f"{pin['upstream']} at {pin['revision'][:12]} ({pin['version']}, {pin['license']})"
+    if problems:
+        print(f"pstack-upstream: FAIL. {len(problems)} problems against {target}.")
+        return 1
+    print(f"pstack-upstream: PASS. {len(pinned)} pinned pstack skills are byte-identical to {target}. "
+          f"Upstream skills not installed: {', '.join(sorted(absent)) or 'none'}.")
+    return 0
 
 
 def run_capability(name, args):
@@ -450,20 +530,35 @@ def cmd_bootstrap(args):
         print(f"bootstrap: removed {', '.join(removed) or 'nothing (not bootstrapped)'}. Global skills untouched.")
         return 0
     base = skills_dir(args.skills_dir)
+    if args.checkout and not args.relock:
+        raise SystemExit("bootstrap: --checkout is only used with --relock")
     if args.relock:
         if not base:
             raise SystemExit("bootstrap --relock: pstack bundle not found")
         lock = load_lock()
-        names = sorted(set(lock["skills"]) | {p.name for p in base.glob("principle-*") if (p / "SKILL.md").is_file()})
-        missing = [name for name in names if not (base / name / "SKILL.md").is_file()]
+        groups = {name: row["group"] for name, row in lock["skills"].items()}
+        if args.checkout:
+            checkout = Path(args.checkout).expanduser().resolve()
+            installed, absent = pstack_upstream(checkout, base)
+            changed = [f"{name}/{line}" for name in sorted(installed)
+                       for line in upstream_diff(checkout / "skills" / name, base / name)]
+            if changed:
+                raise SystemExit("bootstrap --relock: the installed bundle differs from the checkout, so it is not "
+                                 "that revision:\n  " + "\n  ".join(changed))
+            groups = {name: group for name, group in groups.items() if group != "pstack"} | dict.fromkeys(installed, "pstack")
+        missing = [name for name in sorted(groups) if not (base / name / "SKILL.md").is_file()]
         if missing:
             raise SystemExit(f"bootstrap --relock: missing skills {', '.join(missing)}")
-        for name in names:
+        lock["skills"] = {}
+        for name in sorted(groups):
             digest, count = tree_hash(base / name)
-            group = lock["skills"].get(name, {}).get("group", "pstack")
-            lock["skills"][name] = {"group": group, "files": count, "sha256": digest}
+            lock["skills"][name] = {"group": groups[name], "files": count, "sha256": digest}
         LOCK_PATH.write_text(json.dumps(lock, indent=2) + "\n")
-        print(f"bootstrap: relocked {len(names)} skills from {redact(base)}. Review and commit {LOCK_PATH.relative_to(REPO)}.")
+        print(f"bootstrap: relocked {len(groups)} skills from {redact(base)}. Review and commit {LOCK_PATH.relative_to(REPO)}.")
+        if args.checkout:
+            print(f"bootstrap: {len(installed)} pinned as pstack from {redact(checkout)} at {git(checkout, 'rev-parse', 'HEAD')}; "
+                  f"upstream skills not installed: {', '.join(sorted(absent)) or 'none'}. Update provenance.pstack to match, "
+                  "then run scripts/agent-tools/verify pstack-upstream --checkout DIR.")
         return 0
     current = Path(os.readlink(link)) if link.is_symlink() else link if link.exists() else None
     if current and current != base:
@@ -505,6 +600,7 @@ def main(argv=None):
     mode = boot.add_mutually_exclusive_group()
     mode.add_argument("--relock", action="store_true")
     mode.add_argument("--remove", action="store_true")
+    boot.add_argument("--checkout", help="with --relock: pin every installed skill of this pstack checkout as group pstack")
     boot.set_defaults(func=cmd_bootstrap)
     check = common(sub.add_parser("check-plan"))
     check.add_argument("--linear-relations", metavar="READBACK")
@@ -515,7 +611,11 @@ def main(argv=None):
     verify.add_argument("capability", choices=["list", *CAPABILITIES])
     verify.add_argument("--readback", help="Linear readback JSON for linear-relations")
     verify.add_argument("--plan", help="plan for plan-format (default: docs/delivery-plan.md)")
+    verify.add_argument("--checkout", help="pstack checkout at the pinned revision for pstack-upstream")
     verify.set_defaults(func=cmd_verify)
+    compare = common(sub.add_parser("compare-upstream"))
+    compare.add_argument("--checkout", required=True)
+    compare.set_defaults(func=cmd_compare_upstream)
     receipt = common(sub.add_parser("receipt"))
     receipt.add_argument("--name", required=True)
     receipt.add_argument("--tool", action="append", default=[], help="required tool to version-probe; missing means SKIPPED")

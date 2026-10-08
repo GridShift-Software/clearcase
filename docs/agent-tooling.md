@@ -62,7 +62,7 @@ The doctor fails and names each pinned skill whose installed content differs fro
 1. Clone the upstream at that revision: `git clone https://github.com/backnotprop/pstack.git .local/pstack-upstream && git -C .local/pstack-upstream checkout --detach REV`. `.local/` is ignored.
 2. Install the revision's skills on the host one directory per skill, for example `rsync -a --delete .local/pstack-upstream/skills/NAME/ ~/.agents/skills/NAME/`. Never use `--delete` on `~/.agents/skills` itself, because it holds other skills. The tools never write there.
 3. Compare the install with `diff -rq`, as in the reproduce command above. It must print nothing.
-4. Run `scripts/agent-tools/bootstrap --relock --checkout .local/pstack-upstream`. It refuses if an installed upstream skill differs from the checkout. Otherwise it pins every installed skill of the checkout as group `pstack`, rehashes the other pins, and prints the revision and the upstream skills that are not installed.
+4. Run `scripts/agent-tools/bootstrap --relock --checkout .local/pstack-upstream`. It refuses a path with no installed upstream skill, and an install that differs from the checkout. Otherwise it pins every installed skill of the checkout as group `pstack`, rehashes the other pins, and prints the revision and the upstream skills that are not installed.
 5. Edit `provenance.pstack` in `skills.lock.json` (revision, its date and subject, version, license, `mirrorOf`, `notInstalled`, `checkedAt` and `checks`) and the table above. Provenance is never written automatically.
 6. Run `scripts/agent-tools/verify pstack-upstream --checkout .local/pstack-upstream` and `scripts/agent-tools/doctor`. Both must pass. Commit the lock and this document through a reviewed pull request into `dev`.
 
@@ -139,6 +139,6 @@ Paths under `$HOME` are written as `~` so receipts carry no machine-specific hom
 - Graph fixtures `tests/agent-tools/fixtures/graph/*.json`. Each one edits a disposable copy of the committed plan (cycle, unmapped issue, scope overlap, stale generated files, Linear readback drift) and carries its expected exit code and diagnostics.
 - Deferred and skipped checks, the receipt writer's output and exit-code preservation, the doctor with no node and with no python3, and bootstrap idempotency, conflict refusal and removal in a fresh Git checkout.
 - The doctor on a copy of the pinned skills, before and after a planted change and a removed skill.
-- `verify pstack-upstream` and `bootstrap --relock --checkout` against a synthetic upstream Git repository: no checkout, mislabelled, unpinned and unlisted skills, a matching pin, a changed installed file, a checkout with local changes and a checkout at another revision.
+- `verify pstack-upstream` and `bootstrap --relock --checkout` against a synthetic upstream Git repository: no checkout, mislabelled, unpinned and unlisted skills, a matching pin, a changed installed file, a path that is not a checkout, a checkout with local changes and a checkout at another revision.
 
 It exits nonzero if any case fails.

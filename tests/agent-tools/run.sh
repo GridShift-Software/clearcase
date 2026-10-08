@@ -36,6 +36,10 @@ has() {
 	if grep -qF -- "$2" "$OUT"; then ok "$1"; else bad "$1" "output lacks: $2" "$(tail -n 5 "$OUT")"; fi
 }
 
+lacks() {
+	if grep -qF -- "$2" "$OUT"; then bad "$1" "output has: $2"; else ok "$1"; fi
+}
+
 # receipt_is NAME RESULT EXIT : the single receipt in $RECEIPTS has this result and exit code and every field
 receipt_is() {
 	local file
@@ -134,8 +138,9 @@ run "doctor fails on a changed and a missing pinned skill" 1 "$TOOLS/doctor" --s
 has "doctor names the changed skill" "$changed differs from the pin"
 has "doctor names the missing skill" "$missing missing"
 has "doctor gives the relock fix" "bootstrap --relock"
+lacks "doctor reports no matching pin" "skills match skills.lock.json"
 
-echo "# pstack-upstream compares the pin with a checkout of the pinned revision"
+echo "# pstack-upstream compares the pin with the pinned revision's Git objects"
 UP="$WORK/pstack-checkout"
 INSTALLED="$WORK/pstack-installed"
 PIN="$WORK/pin-copy/scripts/agent-tools"
@@ -143,6 +148,7 @@ mkdir -p "$UP/skills/alpha" "$UP/skills/beta/references" "$UP/skills/gamma" "$UP
 for skill in alpha beta gamma; do echo "# $skill" >"$UP/skills/$skill/SKILL.md"; done
 echo "reference" >"$UP/skills/beta/references/notes.md"
 echo '{"name": "pstack", "version": "9.9.9", "license": "MIT"}' >"$UP/.cursor-plugin/plugin.json"
+echo "*.log" >"$UP/.gitignore"
 upstream_commit() { git -C "$UP" add -A && git -C "$UP" -c user.name=t -c user.email=t@example.invalid commit -qm "$1"; }
 git -C "$UP" init -q && upstream_commit synthetic
 cp -a "$UP/skills/alpha" "$UP/skills/beta" "$INSTALLED/"
@@ -161,16 +167,18 @@ EOF
 pin_edit "pin.update(revision='$(git -C "$UP" rev-parse HEAD)', version='9.9.9', license='MIT', notInstalled=[]); lock['skills'] = {'alpha': {'group': 'other'}, 'local-skill': {'group': 'other'}}"
 run "pstack-upstream without a checkout is SKIPPED" 3 "$PIN/verify" pstack-upstream --skills-dir "$INSTALLED"
 receipt_is "no-checkout receipt is SKIPPED" SKIPPED 3
+run "pstack-upstream with a missing checkout is SKIPPED" 3 "$PIN/verify" pstack-upstream --checkout "$WORK/no-such-checkout" --skills-dir "$INSTALLED"
+has "names the missing checkout" "pstack checkout not found"
 run "mislabelled, unpinned and unlisted upstream skills fail" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
 has "names the mislabelled skill" "alpha is an installed upstream skill but is pinned as other"
 has "names the unpinned skill" "beta is an installed upstream skill but is not pinned"
 has "names the unlisted upstream skill" "upstream skills not installed are ['gamma']"
 receipt_is "mismatch receipt is FAIL" FAIL 1
 run "relock from the checkout pins the installed upstream skills" 0 "$PIN/bootstrap" --relock --checkout "$UP" --skills-dir "$INSTALLED"
-has "relock reports what is not installed" "upstream skills not installed: gamma"
+has "relock reports what is not installed" "Upstream skills not installed: gamma"
 pin_edit "pin['notInstalled'] = ['gamma']"
 run "pstack-upstream passes on a matching pin and install" 0 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
-has "pass counts the pinned skills" "2 pinned pstack skills are byte-identical"
+has "pass counts the pinned skills" "2 pinned pstack skills match"
 receipt_is "matching receipt is PASS" PASS 0
 echo "planted" >>"$INSTALLED/beta/references/notes.md"
 run "a changed installed file fails" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
@@ -178,15 +186,25 @@ has "names the changed file" "beta/references/notes.md differs"
 run "relock refuses an install that differs from the checkout" 1 "$PIN/bootstrap" --relock --checkout "$UP" --skills-dir "$INSTALLED"
 has "refusal names the changed file" "beta/references/notes.md differs"
 cp "$UP/skills/beta/references/notes.md" "$INSTALLED/beta/references/notes.md"
-run "relock refuses a path that is not a pstack checkout" 1 "$PIN/bootstrap" --relock --checkout "$WORK/not-a-checkout" --skills-dir "$INSTALLED"
-has "refusal asks for a pstack checkout" "pass the root of a pstack checkout"
+echo "payload" | tee "$UP/skills/alpha/payload.log" >"$INSTALLED/alpha/payload.log"
+run "an ignored file in the checkout's working tree is not upstream content" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
+has "names the installed-only file" "alpha/payload.log only installed"
+rm "$INSTALLED/alpha/payload.log"
+mkdir -p "$WORK/not-git/skills" && cp -a "$UP/skills/alpha" "$WORK/not-git/skills/"
+run "relock refuses a directory that is not a Git checkout" 1 "$PIN/bootstrap" --relock --checkout "$WORK/not-git" --skills-dir "$INSTALLED"
+has "refusal asks for a pstack checkout" "is not a pstack checkout"
+run "relock refuses a missing path" 1 "$PIN/bootstrap" --relock --checkout "$WORK/no-such-checkout" --skills-dir "$INSTALLED"
 run "the pin survives the refused relocks" 0 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
 echo "# alpha 2" >"$UP/skills/alpha/SKILL.md"
-run "a checkout with local changes fails" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
-has "names the local changes" "checkout has local changes"
 upstream_commit "upstream moves on"
-run "a checkout at another revision fails" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
-has "names the revision to check out" "checkout --detach"
+run "a later upstream HEAD still compares the pinned revision" 0 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
+pin_edit "pin['revision'] = '0' * 40"
+run "a clone without the pinned revision fails" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
+has "names the missing revision" "has no .cursor-plugin/plugin.json at 0000000000000000000000000000000000000000"
+git -C "$UP" rm -rq skills/beta && upstream_commit "upstream drops beta"
+cp "$UP/skills/alpha/SKILL.md" "$INSTALLED/alpha/SKILL.md"
+run "relock follows the checkout's HEAD" 0 "$PIN/bootstrap" --relock --checkout "$UP" --skills-dir "$INSTALLED"
+has "relock names the pins it removes" "Removed pstack pins: beta"
 
 echo "# bootstrap is idempotent and removable in a fresh checkout"
 FRESH="$WORK/fresh"

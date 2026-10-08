@@ -1,0 +1,2 @@
+Preparing worktree (detached HEAD 52a2ec3)
+HEAD is now at 52a2ec3 Add the CC-27 verification rerun script

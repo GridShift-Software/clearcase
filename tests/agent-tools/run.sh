@@ -150,6 +150,7 @@ fails_on "receipt_revision fails on a receipt that is not JSON" '{' JSONDecodeEr
 fails_on "receipt_revision fails on a receipt without a revision" '{}' "KeyError: 'revision'" receipt_revision incomplete a b c d
 fails_on "receipt_check fails on a receipt that is not JSON" '{' JSONDecodeError receipt_check malformed True
 fails_on "lacks_in_receipt fails without a receipt to read" - "no receipt to read" lacks_in_receipt absent anything
+OUT="$WORK/no-such-output" fails_on "lacks fails on output it cannot read" - "cannot read" lacks unreadable anything
 
 echo "# pstack check-plan.mjs fixtures through verify plan-format"
 repo_base_ref=

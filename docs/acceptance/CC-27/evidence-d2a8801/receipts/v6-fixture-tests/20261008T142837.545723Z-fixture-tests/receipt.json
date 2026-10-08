@@ -1,0 +1,44 @@
+{
+  "schema": "clearcase-agent-receipt/1",
+  "name": "fixture-tests",
+  "result": "PASS",
+  "exitCode": 0,
+  "reason": null,
+  "command": [
+    "bash",
+    "tests/agent-tools/run.sh"
+  ],
+  "cwd": "/tmp/cc27-fresh-wt.5gxAZY",
+  "tools": [],
+  "inputs": [],
+  "revision": {
+    "repository": true,
+    "root": "/tmp/cc27-fresh-wt.5gxAZY",
+    "branch": "HEAD",
+    "head": "d2a8801fd9973b281591ea126408915e40572601",
+    "baseRef": "origin/dev",
+    "base": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "mergeBase": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "dirty": false,
+    "diffSha256": null
+  },
+  "environment": {
+    "os": "CachyOS",
+    "platform": "linux",
+    "kernel": "7.2.2-1-cachyos",
+    "machine": "x86_64",
+    "host": "PUK",
+    "bash": "5.3.20(1)-release",
+    "callerShell": "",
+    "python": "3.14.7",
+    "path": "/usr/local/bin:/usr/bin:/bin"
+  },
+  "startedAt": "2026-10-08T14:28:37.545723+00:00",
+  "finishedAt": "2026-10-08T14:28:42.395987+00:00",
+  "durationSeconds": 4.85,
+  "artifacts": {
+    "receipt": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r3/rerun-d2a8801/receipts/v6-fixture-tests/20261008T142837.545723Z-fixture-tests/receipt.json",
+    "stdout": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r3/rerun-d2a8801/receipts/v6-fixture-tests/20261008T142837.545723Z-fixture-tests/stdout.txt",
+    "stderr": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r3/rerun-d2a8801/receipts/v6-fixture-tests/20261008T142837.545723Z-fixture-tests/stderr.txt"
+  }
+}

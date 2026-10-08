@@ -1,2 +1,0 @@
-Preparing worktree (detached HEAD b0b83a3)
-HEAD is now at b0b83a3 Ignore replace refs and gate pin removal in the pstack checks

@@ -1,6 +1,6 @@
 # CC-27 acceptance evidence
 
-CC-27 is [GRS-35](https://linear.app/vaper/issue/GRS-35/set-up-pstack-and-verification-skills-for-agent-cli-access), agent tooling and the Linear plan sync. The receipts in `evidence-b0b83a3/` were produced at `b0b83a344486fccf4f93559978d9c93aa080a206` on branch `feature/grs-35-agent-tooling`, base `dev` at `81c3f4b`, on `puk` (CachyOS, bash 5.3, Python 3.14.7, Node 26.10, git 2.56). Later commits on the branch change only this directory. Run `git diff --stat b0b83a3 HEAD` to confirm that before accepting these receipts for the reviewed head. They contain no case material, and paths under the home directory appear as `~`.
+CC-27 is [GRS-35](https://linear.app/vaper/issue/GRS-35/set-up-pstack-and-verification-skills-for-agent-cli-access), agent tooling and the Linear plan sync. The receipts in `evidence-d2a8801/` were produced at `d2a8801fd9973b281591ea126408915e40572601` on branch `feature/grs-35-agent-tooling`, base `dev` at `81c3f4b`, on `puk` (CachyOS, bash 5.3, Python 3.14.7, Node 26.10, git 2.56). Later commits on the branch change only this directory. Run `git diff --stat d2a8801 HEAD` to confirm that before accepting these receipts for the reviewed head. They contain no case material, and paths under the home directory appear as `~`.
 
 ## Independent rerun (verification item 7)
 
@@ -19,9 +19,9 @@ CC27_OUT=/tmp/cc27-review \
 
 The clone must contain the pinned pstack revision from `scripts/agent-tools/skills.lock.json`; `.local/` is ignored. `rerun.sh` runs every step below in `env -i HOME=$HOME PATH=/usr/local/bin:/usr/bin:/bin bash --noprofile --norc`. It creates and removes a throwaway detached worktree for item 6. Then it writes `summary.tsv`, `revision.txt`, `transcripts/` and `receipts/` under `CC27_OUT`. It exits 1 if any step's exit code differs from the expectation. Without `CC27_READBACK` the Linear steps, and without `CC27_PSTACK_CHECKOUT` the pstack comparisons, are SKIPPED, and the run exits 3 (INCOMPLETE) instead of 0. If the export changes, `v3-description-drift` may return 0 (no drift) instead of 1. Set `CC27_EXPORT_EXPECT` accordingly and read the transcript.
 
-## Results at b0b83a3
+## Results at d2a8801
 
-All 21 steps returned their expected exit code (`evidence-b0b83a3/summary.tsv`). `evidence-b0b83a3/revision.txt` shows the tested head with a clean worktree, and all 26 receipts record that head with `dirty: false`.
+All 21 steps returned their expected exit code (`evidence-d2a8801/summary.tsv`). `evidence-d2a8801/revision.txt` shows the tested head with a clean worktree, and all 26 receipts record that head with `dirty: false`.
 
 | Item | Step | Expected, actual | Evidence |
 | --- | --- | --- | --- |
@@ -35,7 +35,7 @@ All 21 steps returned their expected exit code (`evidence-b0b83a3/summary.tsv`).
 | 6 Fresh worktree, missing dependency, skipped check | `v6-doctor`, `v6-check-plan`, `v6-fixture-tests` and `v6-pstack-upstream` in a new detached worktree. Then `v6-doctor-without-node` (FAIL with fix), `v6-plan-format-without-node` (SKIPPED), `v6-required-readback-missing` (SKIPPED, overall FAIL) and `v6-doctor-empty-path` (no python3, exit 2 with fix). The worktree was clean and removed afterwards. | 0, 0, 0, 0, 1, 3, 3, 2, all matched | `transcripts/v6-*.txt`, `receipts/v6-*/` |
 | 7 Independent rerun | Coordinator-dispatched, different model family | | This README |
 
-`evidence-b0b83a3/verify-block.txt` is the round-2 brief's VERIFY command block, run verbatim at the same revision.
+The round-3 brief's VERIFY command block was run verbatim at the same revision. Every command returned its expected exit code, including exit 3 (INCOMPLETE) from `rerun.sh` run without inputs. That transcript stays in the coordinator's round-3 report directory, `.orchestration/reports/CC-27/r3/` in the `puk` `dev` clone, and is not committed here. The block searches for the replaced PR wording, and a committed copy would contain that search pattern and match it.
 
 `tests/agent-tools/run.sh` also proves that the doctor fails on a planted change and on a missing pinned skill, and covers `verify pstack-upstream` and `bootstrap --relock --checkout` against a synthetic upstream repository.
 
@@ -55,9 +55,10 @@ The coordinator can make Linear match the repository with `python3 scripts/plann
 
 ## Earlier evidence
 
-`evidence-b0b83a3/` supersedes every step of four earlier sets, which were removed from the tree and remain in Git:
+`evidence-d2a8801/` supersedes every step of five earlier sets, which were removed from the tree and remain in Git:
 
 - `eb0e73c:docs/acceptance/CC-27/evidence-52a2ec3/`, round 1, before the pstack provenance and the full-bundle pin.
 - `902793c:docs/acceptance/CC-27/evidence-68ba5b8/`, round 2 before a fix: `bootstrap --relock --checkout` with a path that is not a pstack checkout would have dropped every pstack pin. `bd4b029` makes it refuse, with tests.
 - `028395b:docs/acceptance/CC-27/evidence-67fea56/`, round 2 before review fixes. `verify pstack-upstream` compared the checkout's working tree, where an ignored file could pass as upstream content, and `bootstrap --relock --checkout` accepted a directory that is not a Git checkout. `b8dbbb9` reads the revision's Git objects instead and refuses such a directory, with tests.
 - `f090d40:docs/acceptance/CC-27/evidence-e4e5f9a/`, round 2 before a second review's fixes. A local replace ref could stand in for the pinned commit, the recorded revision was not checked to be a commit ID, and relock could remove pins without an explicit flag. `b0b83a3` fixes these, with tests.
+- `c87a040:docs/acceptance/CC-27/evidence-b0b83a3/`, the final round-2 set. Round 3 changed only documentation. It replaced the PR rule with the stacked-PR git flow and fixed two stale lines. Every step was rerun at `d2a8801`, and the step names and exit codes match this set.

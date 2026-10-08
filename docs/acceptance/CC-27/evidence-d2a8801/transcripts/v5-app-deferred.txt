@@ -1,0 +1,2 @@
+SKIPPED app: No application exists yet. App, build and browser verification (a project verify-<app> skill generated with pstack create-verification-skill) is deferred to GRS-12 (CC-03), which establishes the app, build and browser commands. GRS-10 (CC-02) owns the npm/TypeScript/Vitest bootstrap.
+receipt: SKIPPED app exit=3 ~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r3/rerun-d2a8801/receipts/v5-app-deferred/20261008T142837.003478Z-app/receipt.json

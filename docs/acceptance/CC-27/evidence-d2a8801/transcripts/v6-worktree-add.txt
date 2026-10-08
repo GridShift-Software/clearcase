@@ -1,0 +1,2 @@
+Preparing worktree (detached HEAD d2a8801)
+HEAD is now at d2a8801 State main's rule in the user's words in the Git flow

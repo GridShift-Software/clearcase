@@ -27,7 +27,11 @@ if [[ -e $OUT/receipts || -e $OUT/transcripts ]]; then
 fi
 mkdir -p "$OUT/receipts" "$OUT/transcripts"
 printf '%s\n' "$HEADER" >"$OUT/summary.tsv"
-{ git -C "$WT" rev-parse HEAD; git -C "$WT" status --porcelain; } >"$OUT/revision.txt"
+# A Git query that fails must not read as a clean checkout.
+if ! { git -C "$WT" rev-parse HEAD && git -C "$WT" status --porcelain --untracked-files=normal; } >"$OUT/revision.txt"; then
+	echo "rerun.sh: cannot read the revision and status of $WT; see the git error above." >&2
+	exit 2
+fi
 mismatches=0
 
 # step NAME EXPECTED DIR COMMAND : run COMMAND in a clean shell inside DIR
@@ -94,12 +98,16 @@ step v6-doctor-without-git 1 "$fresh" "PATH='$nogit' scripts/agent-tools/doctor"
 step v6-plan-format-without-git 3 "$fresh" "PATH='$nogit' scripts/agent-tools/verify plan-format --base origin/dev --plan tests/agent-tools/fixtures/plans/valid.md"
 step v6-check-plan-without-git 3 "$fresh" "PATH='$nogit' scripts/agent-tools/check-plan --base origin/dev --require-linear-relations $readback_args"
 step v6-plan-format-bad-base 3 "$fresh" "scripts/agent-tools/verify plan-format --base clearcase-base-does-not-exist --plan tests/agent-tools/fixtures/plans/valid.md"
-git -C "$fresh" status --porcelain >"$OUT/transcripts/v6-fresh-status.txt"
+if ! git -C "$fresh" status --porcelain --untracked-files=normal >"$OUT/transcripts/v6-fresh-status.txt" 2>&1; then
+	echo "MISMATCH git status of the fresh worktree failed: $OUT/transcripts/v6-fresh-status.txt"
+	mismatches=$((mismatches + 1))
+fi
 git -C "$WT" worktree remove "$fresh" >>"$OUT/transcripts/v6-worktree-add.txt" 2>&1
 git -C "$WT" worktree list >"$OUT/transcripts/v6-worktree-list-after.txt"
 rm -rf "$nonode" "$nogit"
 
-# Every receipt that names a head names the tested one; every PASS receipt also names its base and merge base.
+# Every receipt that names a head names the tested one; every PASS receipt also names its base and merge base
+# and a working tree that Git reported clean.
 python3 - "$OUT/receipts" "$(git -C "$WT" rev-parse HEAD)" >"$OUT/identity-audit.txt" <<'EOF' || mismatches=$((mismatches + 1))
 import json, pathlib, re, sys
 rows, problems = [], []
@@ -107,16 +115,18 @@ for path in sorted(pathlib.Path(sys.argv[1]).rglob("receipt.json")):
     receipt, where = json.loads(path.read_text()), path.parent.relative_to(sys.argv[1])
     revision = receipt["revision"]
     rows.append(f"{receipt['result']:<8}{receipt['exitCode']:<3}{where}  head={revision['head']} base={revision['base']} "
-                f"mergeBase={revision['mergeBase']}")
+                f"mergeBase={revision['mergeBase']} dirty={revision['dirty']}")
     if revision["head"] not in (None, sys.argv[2]):
         problems.append(f"{where}: head {revision['head']} is not the tested head")
     full = [re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", revision[key] or "") for key in ("head", "base", "mergeBase")]
     if receipt["result"] == "PASS" and not all(full):
         problems.append(f"{where}: PASS without head, base and merge base")
+    if receipt["result"] == "PASS" and (revision["dirty"] is not False or revision["diffSha256"] is not None):
+        problems.append(f"{where}: PASS without a clean working tree (dirty={revision['dirty']})")
 passed = sum(row.startswith("PASS") for row in rows)
 print("\n".join(rows + problems))
-print(f"identity audit: {len(rows)} receipts, {passed} PASS each with head {sys.argv[2]}, base and merge base; "
-      f"{len(problems)} problems")
+print(f"identity audit: {len(rows)} receipts, {passed} PASS each with head {sys.argv[2]}, base, merge base and a "
+      f"clean working tree; {len(problems)} problems")
 sys.exit(1 if problems else 0)
 EOF
 tail -n 1 "$OUT/identity-audit.txt"

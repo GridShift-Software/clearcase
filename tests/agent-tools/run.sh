@@ -578,6 +578,9 @@ else: raise SystemExit("the capture did not arrive")
 open(f, "r+b").write(b"X" * 23 + b"\n")'
 reason_has "names the capture that holds other bytes" "stdout.txt: holds other bytes than were written (sha256 "
 reason_has "the rewritten capture's reason keeps the exit code" "; the command exited 0"
+run "a capture larger than one read-back block is PASS" 0 env -C "$EV" scripts/agent-tools/receipt --name large-capture -- python3 -c 'import sys; sys.stdout.write("x" * 3000000)'
+receipt_is "the large capture's receipt is PASS" PASS 0
+if [[ $(cat "$RECEIPTS"/*/stdout.txt 2>/dev/null | wc -c) == 3000000 ]]; then ok "the large capture holds all the output"; else bad "the large capture holds all the output"; fi
 capture_case "a failing command whose capture is removed keeps its exit code" 4 'os.unlink(f); raise SystemExit(4)'
 receipt_check "the removed-capture receipt of a failing command is FAIL" 'r["result"] == "FAIL" and r["exitCode"] == 4 and "removed during the run" in r["reason"]'
 

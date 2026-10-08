@@ -44,15 +44,18 @@ has() {
 	if grep -qF -- "$2" "$OUT"; then ok "$1"; else bad "$1" "output lacks: $2" "$(tail -n 5 "$OUT")"; fi
 }
 
+# lacks NAME TEXT : $OUT, which must be readable, does not contain TEXT
 lacks() {
-	if grep -qF -- "$2" "$OUT"; then bad "$1" "output has: $2"; else ok "$1"; fi
+	grep -qF -- "$2" "$OUT"
+	case $? in 1) ok "$1" ;; 0) bad "$1" "output has: $2" ;; *) bad "$1" "cannot read $OUT" ;; esac
 }
 
 # receipt_is NAME RESULT EXIT : every receipt in $RECEIPTS has this result and exit code and every field.
-# A PASS receipt must also list git and name the head, base and merge-base commits.
+# A PASS receipt must also list git and name the head, base and merge-base commits. The check's exit status is the
+# verdict, so a receipt it cannot read fails with Python's error.
 receipt_is() {
 	local verdict
-	verdict=$(python3 - "$RECEIPTS" "$2" "$3" <<'EOF'
+	if verdict=$(python3 - "$RECEIPTS" "$2" "$3" 2>&1 <<'EOF'
 import glob, json, os, re, sys
 files = sorted(glob.glob(os.path.join(sys.argv[1], "*", "receipt.json")))
 problems = [] if files else ["no receipt"]
@@ -70,16 +73,15 @@ for file in files:
         for key in ["head", "base", "mergeBase"]:
             if not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", r["revision"].get(key) or ""):
                 problems.append(f"PASS without revision.{key}")
-print("; ".join(problems))
+sys.exit("; ".join(problems) or None)
 EOF
-)
-	if [[ -z $verdict ]]; then ok "$1"; else bad "$1" "$verdict" "$RECEIPTS"; fi
+	); then ok "$1"; else bad "$1" "${verdict:-the receipt check exited nonzero}" "$RECEIPTS"; fi
 }
 
 # receipt_revision NAME HEAD BASE_REF BASE MERGE_BASE : every receipt in $RECEIPTS records exactly this revision
 receipt_revision() {
 	local verdict
-	verdict=$(python3 - "$RECEIPTS" "${@:2}" <<'EOF'
+	if verdict=$(python3 - "$RECEIPTS" "${@:2}" 2>&1 <<'EOF'
 import glob, json, os, sys
 files = sorted(glob.glob(os.path.join(sys.argv[1], "*", "receipt.json")))
 problems = [] if files else ["no receipt"]
@@ -87,10 +89,9 @@ for file in files:
     revision = json.load(open(file))["revision"]
     for key, value in zip(["head", "baseRef", "base", "mergeBase"], sys.argv[2:]):
         if revision.get(key) != value: problems.append(f"{key} is {revision.get(key)!r}, expected {value!r}")
-print("; ".join(problems))
+sys.exit("; ".join(problems) or None)
 EOF
-)
-	if [[ -z $verdict ]]; then ok "$1"; else bad "$1" "$verdict"; fi
+	); then ok "$1"; else bad "$1" "${verdict:-the receipt check exited nonzero}"; fi
 }
 
 no_receipt() {
@@ -117,14 +118,38 @@ reason_has() {
 	receipt_check "$1" "$(printf '%s in (r["reason"] or "")' "$(python3 -c 'import sys; print(repr(sys.argv[1]))' "$2")")"
 }
 
+# lacks_in_receipt NAME TEXT : the receipts in $RECEIPTS, of which there must be one, do not contain TEXT
 lacks_in_receipt() {
-	if grep -qF -- "$2" "$RECEIPTS"/*/receipt.json; then bad "$1" "receipt has: $2"; else ok "$1"; fi
+	grep -qF -- "$2" "$RECEIPTS"/*/receipt.json
+	case $? in 1) ok "$1" ;; 0) bad "$1" "receipt has: $2" ;; *) bad "$1" "no receipt to read in $RECEIPTS" ;; esac
 }
 
 # not_run NAME : the wrapped command, which creates $MARKER, did not run
 not_run() {
 	if [[ -e $MARKER ]]; then bad "$1" "the command ran"; rm -f "$MARKER"; else ok "$1"; fi
 }
+
+# fails_on NAME TEXT WANT HELPER ARGS... : HELPER ARGS, run in a subshell with $RECEIPTS holding one receipt.json
+# whose content is TEXT, or none for -, counts exactly one failure and shows WANT. So a receipt an assertion cannot
+# read fails it, and the failure keeps the reason.
+fails_on() {
+	local saved=$RECEIPTS verdict
+	RECEIPTS="$WORK/helper-check-$((++n))"
+	mkdir -p "$RECEIPTS/only"
+	[[ $2 == - ]] || printf '%s\n' "$2" >"$RECEIPTS/only/receipt.json"
+	verdict=$("${@:4}" 2>&1; echo "failed=$failed")
+	RECEIPTS=$saved
+	if [[ $verdict == *"failed=$((failed + 1))" && $verdict == *"$3"* ]]; then ok "$1"; else bad "$1" "$verdict"; fi
+}
+
+echo "# the receipt assertions fail on receipts they cannot read"
+RECEIPTS= OUT=/dev/null
+fails_on "receipt_is fails on a receipt that is not JSON" '{' JSONDecodeError receipt_is malformed PASS 0
+fails_on "receipt_is fails on a receipt without its fields" '{}' "KeyError: 'result'" receipt_is incomplete PASS 0
+fails_on "receipt_revision fails on a receipt that is not JSON" '{' JSONDecodeError receipt_revision malformed a b c d
+fails_on "receipt_revision fails on a receipt without a revision" '{}' "KeyError: 'revision'" receipt_revision incomplete a b c d
+fails_on "receipt_check fails on a receipt that is not JSON" '{' JSONDecodeError receipt_check malformed True
+fails_on "lacks_in_receipt fails without a receipt to read" - "no receipt to read" lacks_in_receipt absent anything
 
 echo "# pstack check-plan.mjs fixtures through verify plan-format"
 repo_base_ref=
@@ -136,6 +161,7 @@ repo_fork=$(git -C "$REPO" merge-base HEAD "$repo_base")
 run "valid plan passes" 0 "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md"
 has "valid plan reports zero problems" "1 PR sections, 0 problems"
 receipt_is "valid plan receipt is PASS" PASS 0
+receipt_check "valid plan receipt records each input's identity" 'all(re.fullmatch("[0-9a-f]{64}", i["sha256"]) and all(type(i[key]) is int for key in ("size", "mtimeNs", "device", "inode")) for i in r["inputs"])'
 receipt_revision "valid plan receipt records this checkout's head and default base" "$repo_head" "$repo_base_ref" "$repo_base" "$repo_fork"
 short_base=$(git -C "$REPO" rev-parse --short "$repo_base")
 run "valid plan passes with an explicit short --base" 0 "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md" --base "$short_base"
@@ -455,6 +481,38 @@ reason_has "names the unreadable plan" "input not fingerprinted: $WORK/unreadabl
 run "an input that changes while it is read is SKIPPED" 3 env -C "$EV" scripts/agent-tools/receipt --name changing-input --input /proc/self/status -- touch "$MARKER"
 reason_has "names the changed input" "input not fingerprinted: /proc/self/status: changed while it was read"
 not_run "the command did not run with a changing input"
+# A test node renames a valid plan over the invalid one it is given, then checks it, so the checker passes bytes
+# other than those fingerprinted before the run, as when the review replaced the plan atomically during hashing.
+cp "$FIXTURES/plans/invalid.md" "$WORK/replaced-plan.md" && cp "$FIXTURES/plans/valid.md" "$WORK/replacement-plan.md"
+SWAPNODE="$WORK/node-replacing-the-plan"
+printf '#!/bin/bash\n[[ $1 == --version ]] || mv %q "$2"\nexec %q "$@"\n' "$WORK/replacement-plan.md" "$(command -v node)" >"$SWAPNODE"
+chmod +x "$SWAPNODE"
+invalid_sha=$(sha256sum <"$WORK/replaced-plan.md") && invalid_sha=${invalid_sha%% *}
+run "a plan replaced while the checker runs is not PASS" 3 env CLEARCASE_NODE="$SWAPNODE" "$EVTOOLS/verify" plan-format --plan "$WORK/replaced-plan.md"
+has "the checker passed the replacement" "1 PR sections, 0 problems"
+receipt_is "the replaced-plan receipt is SKIPPED" SKIPPED 3
+reason_has "names the replaced plan and how it changed" "input changed during the run: $WORK/replaced-plan.md: sha256 ${invalid_sha:0:12} -> "
+receipt_check "the receipt keeps the plan's identity from before the run" "any(i['path'].endswith('/replaced-plan.md') and i['sha256'] == '$invalid_sha' for i in r['inputs'])"
+echo input >"$WORK/changed-input.txt"
+run "an input changed in place during the run is not PASS" 5 env -C "$EV" scripts/agent-tools/receipt --name changed-input --input "$WORK/changed-input.txt" -- bash -c 'echo more >>"$1"; exit 5' _ "$WORK/changed-input.txt"
+receipt_is "a failing command whose input changed keeps its FAIL and exit code" FAIL 5
+reason_has "names the changed input" "input changed during the run: $WORK/changed-input.txt: sha256 "
+echo input >"$WORK/relinked-input.txt"
+run "an input replaced by a copy of its bytes during the run is not PASS" 3 env -C "$EV" scripts/agent-tools/receipt --name relinked-input --input "$WORK/relinked-input.txt" -- bash -c 'cp -p "$1" "$1.new" && mv "$1.new" "$1"' _ "$WORK/relinked-input.txt"
+receipt_check "names the new inode of the same bytes" '"relinked-input.txt: " in r["reason"] and "inode " in r["reason"] and "sha256 " not in r["reason"]'
+echo input >"$WORK/removed-input.txt"
+run "an input removed during the run is not PASS" 3 env -C "$EV" scripts/agent-tools/receipt --name removed-input --input "$WORK/removed-input.txt" -- rm "$WORK/removed-input.txt"
+reason_has "names the removed input" "input changed during the run: $WORK/removed-input.txt: No such file or directory"
+run "a tracked file changed during the run is not PASS" 3 env -C "$EV" scripts/agent-tools/receipt --name edits-checkout -- bash -c 'echo changed >>docs/delivery-plan.md'
+reason_has "names the working tree that changed" "the checkout changed during the run: diffSha256 "
+git -C "$EV" checkout -q -- docs/delivery-plan.md
+run "a commit during the run is not PASS" 3 env -C "$EV" scripts/agent-tools/receipt --name commits -- git -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m during
+reason_has "names the head that moved" "the checkout changed during the run: head $(git -C "$EV" rev-parse HEAD~1) -> $(git -C "$EV" rev-parse HEAD)"
+git -C "$EV" reset -q --soft HEAD~1
+cp "$EV/.git/index" "$WORK/index.saved"
+run "a revision that cannot be read after the run is not PASS" 3 env -C "$EV" scripts/agent-tools/receipt --name breaks-index -- bash -c 'printf "broken index\n" >.git/index'
+reason_has "names the git status that failed after the run" "the revision cannot be read after the run: working tree state unknown: $status_failed"
+cp "$WORK/index.saved" "$EV/.git/index"
 printf '#!/bin/sh\ntouch "$1"\n' >"$EV/not-executable.sh"
 run "a command that cannot start is SKIPPED" 3 env -C "$EV" scripts/agent-tools/receipt --name no-exec -- ./not-executable.sh "$MARKER"
 reason_has "names the command and the error" "the command did not start: ./not-executable.sh: Permission denied"
@@ -480,6 +538,20 @@ timeout 20 env -C "$EV" CLEARCASE_RECEIPTS_DIR="$RECEIPTS" scripts/agent-tools/r
 if [[ $? != 124 ]]; then ok "a console that stops accepting output does not stall the command"; else bad "a console that stops accepting output does not stall the command"; fi
 receipt_is "the receipt of a run whose console failed is PASS" PASS 0
 if [[ $(cat "$RECEIPTS"/*/stdout.txt 2>/dev/null | wc -c) == 200001 ]]; then ok "the capture holds all the output the console missed"; else bad "the capture holds all the output the console missed"; fi
+# capture_case NAME EXPECTED PYTHON : receipt runs python3 -c PYTHON, in which f names the run's own stdout.txt
+capture_case() {
+	run "$1" "$2" env -C "$EV" scripts/agent-tools/receipt --name capture -- python3 -c "import glob, os; [f] = glob.glob(os.environ['CLEARCASE_RECEIPTS_DIR'] + '/*/stdout.txt'); $3"
+}
+capture_case "a capture removed during the run is not PASS" 3 'os.unlink(f); print("output whose capture is gone")'
+reason_has "names the removed capture" "stdout.txt: removed during the run; the command exited 0"
+capture_case "a capture moved during the run is not PASS" 3 'os.rename(f, f + ".moved"); print("output")'
+reason_has "names the moved capture" "stdout.txt: No such file or directory; it was moved during the run"
+capture_case "a capture replaced during the run is not PASS" 3 'os.link(f, f + ".kept"); open(f + ".new", "w").close(); os.rename(f + ".new", f); print("output")'
+reason_has "names the replaced capture" "stdout.txt: replaced during the run"
+capture_case "a capture another process writes to is not PASS" 3 'open(f, "a").write("planted\n")'
+reason_has "names the bytes the capture holds and those written" "stdout.txt: holds 8 bytes, 0 were written"
+capture_case "a failing command whose capture is removed keeps its exit code" 4 'os.unlink(f); raise SystemExit(4)'
+receipt_check "the removed-capture receipt of a failing command is FAIL" 'r["result"] == "FAIL" and r["exitCode"] == 4 and "removed during the run" in r["reason"]'
 
 echo "# receipt writer preserves output and exit codes"
 run "wrapped command keeps exit 7" 7 "$TOOLS/receipt" --name exit7 --tool bash -- bash -c 'echo to-stdout; echo to-stderr >&2; exit 7'
@@ -548,6 +620,17 @@ has "doctor names what bun printed" "\`$WORK/bun-garbage/bun --version\` printed
 fake_bun wrapped "9.9.9 from a wrapper"
 run "doctor fails on a version line with other text" 1 env -u CLEARCASE_BUN PATH="$WORK/bun-wrapped:$PATH" "$TOOLS/doctor"
 has "doctor does not read a version out of other text" "printed '9.9.9 from a wrapper', not a version MAJOR.MINOR.PATCH"
+mkdir -p "$WORK/bun-junk" && printf '#!/bin/sh\nprintf "1.4.2\\nthis is not version output\\n"\n' >"$WORK/bun-junk/bun"
+chmod +x "$WORK/bun-junk/bun"
+run "doctor fails on a bun that prints its version and then other lines" 1 env -u CLEARCASE_BUN PATH="$WORK/bun-junk:$PATH" "$TOOLS/doctor"
+has "doctor names all that bun printed" "printed '1.4.2\\nthis is not version output', not a version MAJOR.MINOR.PATCH"
+has "the multiline bun is the only failure" "required checks passed, 1 failed."
+mkdir -p "$WORK/bun-stderr" && printf '#!/bin/sh\necho 1.4.2\necho "synthetic warning" >&2\n' >"$WORK/bun-stderr/bun"
+chmod +x "$WORK/bun-stderr/bun"
+run "doctor fails on a bun that writes to stderr" 1 env -u CLEARCASE_BUN PATH="$WORK/bun-stderr:$PATH" "$TOOLS/doctor"
+has "doctor names bun's stderr" "FAIL     bun            \`$WORK/bun-stderr/bun --version\` wrote to stderr: synthetic warning"
+mkdir -p "$WORK/bun-padded" && printf '#!/bin/sh\nprintf "\\n 1.4.2 \\n\\n"\n' >"$WORK/bun-padded/bun" && chmod +x "$WORK/bun-padded/bun"
+run "doctor accepts one version line with white space around it" 0 env -u CLEARCASE_BUN PATH="$WORK/bun-padded:$PATH" "$TOOLS/doctor"
 mkdir -p "$WORK/bun-failing"
 printf '#!/bin/sh\necho "synthetic failure of bun --version" >&2\nexit 1\n' >"$WORK/bun-failing/bun" && chmod +x "$WORK/bun-failing/bun"
 run "a bun whose --version fails fails the doctor" 1 env -u CLEARCASE_BUN PATH="$WORK/bun-failing:$PATH" "$TOOLS/doctor"
@@ -586,6 +669,14 @@ has "names the JSON error" "FAIL     bun            package.json is not JSON:"
 rm "$EV/package.json" && ln -s "$WORK/no-such-package.json" "$EV/package.json"
 run "a package.json that cannot be read fails" 1 "$EVTOOLS/doctor"
 has "names the unreadable package.json" "FAIL     bun            cannot read $EV/package.json: No such file or directory"
+# The test tmux, which the doctor probes after it has read package.json, appends a line to it.
+rm "$EV/package.json" && echo '{"packageManager": "bun@1.4.2"}' >"$EV/package.json"
+mkdir -p "$WORK/bin-tmux-writes-input"
+printf '#!/bin/sh\necho >>%q\necho "tmux 3.7"\n' "$EV/package.json" >"$WORK/bin-tmux-writes-input/tmux"
+chmod +x "$WORK/bin-tmux-writes-input/tmux"
+run "a doctor input that changes during the run fails the doctor" 1 env PATH="$WORK/bin-tmux-writes-input:$PATH" "$EVTOOLS/doctor"
+has "names the changed input" "FAIL     receipt-input  changed during the run: $EV/package.json: sha256 "
+has "the changed input is the only failure" "required checks passed, 1 failed."
 rm "$EV/package.json"
 
 echo "# the doctor flags a changed or missing pinned skill"

@@ -1,0 +1,2 @@
+Preparing worktree (detached HEAD 75d5d1f)
+HEAD is now at 75d5d1f Document evidence failures and fail closed in rerun.sh

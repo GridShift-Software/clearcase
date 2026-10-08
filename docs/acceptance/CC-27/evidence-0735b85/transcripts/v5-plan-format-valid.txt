@@ -1,3 +1,0 @@
-Print a greeting (W-01)  boxes=19  files=1 build=1 you-see=1 verify-unit=1 verify-live=10 verify-perf=4 review-gate=0 merge=1
-1 PR sections, 0 problems
-receipt: PASS plan-format exit=0 ~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r4/rerun-0735b85/receipts/v5-plan-format-valid/20261008T150516.901312Z-plan-format/receipt.json

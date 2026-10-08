@@ -1,0 +1,65 @@
+{
+  "schema": "clearcase-agent-receipt/1",
+  "name": "plan-format",
+  "result": "SKIPPED",
+  "exitCode": 3,
+  "reason": "required tool not found: git; install it or put it on PATH (scripts/agent-tools/doctor names the fix)",
+  "command": [
+    "/tmp/cc27-nogit.mXWrTi/node",
+    "~/.agents/skills/poteto-mode/scripts/check-plan.mjs",
+    "/tmp/cc27-fresh-wt.MDGtNl/tests/agent-tools/fixtures/plans/valid.md"
+  ],
+  "cwd": "/tmp/cc27-fresh-wt.MDGtNl",
+  "tools": [
+    {
+      "name": "git",
+      "path": null,
+      "version": null
+    },
+    {
+      "name": "node",
+      "path": "/tmp/cc27-nogit.mXWrTi/node",
+      "version": "v26.10.0"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "~/.agents/skills/poteto-mode/scripts/check-plan.mjs",
+      "sha256": "4f9432d9989880b6afc2bdda503d5b12a9d07d357ecf31936b7ab5e83bc80523"
+    },
+    {
+      "path": "/tmp/cc27-fresh-wt.MDGtNl/tests/agent-tools/fixtures/plans/valid.md",
+      "sha256": "6431fc9bfd2a96b7df605c8276ba8e82bdbeecbebeb2387e08409e02a85530d7"
+    }
+  ],
+  "revision": {
+    "repository": false,
+    "root": "/tmp/cc27-fresh-wt.MDGtNl",
+    "branch": null,
+    "head": null,
+    "baseRef": "origin/dev",
+    "base": null,
+    "mergeBase": null,
+    "dirty": null,
+    "diffSha256": null
+  },
+  "environment": {
+    "os": "CachyOS",
+    "platform": "linux",
+    "kernel": "7.2.2-1-cachyos",
+    "machine": "x86_64",
+    "host": "PUK",
+    "bash": "5.3.20(1)-release",
+    "callerShell": "",
+    "python": "3.14.7",
+    "path": "/tmp/cc27-nogit.mXWrTi"
+  },
+  "startedAt": "2026-10-08T16:07:04.420970+00:00",
+  "finishedAt": "2026-10-08T16:07:04.427549+00:00",
+  "durationSeconds": 0.007,
+  "artifacts": {
+    "receipt": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r5/rerun-75d5d1f/receipts/v6-plan-format-without-git/20261008T160704.420970Z-plan-format/receipt.json",
+    "stdout": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r5/rerun-75d5d1f/receipts/v6-plan-format-without-git/20261008T160704.420970Z-plan-format/stdout.txt",
+    "stderr": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r5/rerun-75d5d1f/receipts/v6-plan-format-without-git/20261008T160704.420970Z-plan-format/stderr.txt"
+  }
+}

@@ -1,0 +1,29 @@
+PASS     os             CachyOS (cachyos), kernel 7.2.2-1-cachyos
+PASS     bash           5.3.20(1)-release
+PASS     python3        3.14.7 at /usr/bin/python3
+PASS     git            git version 2.56.0 at /usr/bin/git
+PASS     repository     ~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling
+PASS     revision       head 75d5d1f2e925, base origin/dev at 81c3f4bc486b, merge-base 81c3f4bc486b
+PASS     node           v26.10.0 at /usr/bin/node
+PASS     planning       scripts/planning/check.py
+PASS     planning       scripts/planning/generate.py
+PASS     skills-dir     ~/.agents/skills
+PASS     skill-file     poteto-mode/SKILL.md
+PASS     skill-file     poteto-mode/playbooks/orchestrate.md
+PASS     skill-file     poteto-mode/playbooks/multi-phase-plan.md
+PASS     skill-file     poteto-mode/scripts/check-plan.mjs
+PASS     skill-file     create-verification-skill/SKILL.md
+PASS     skill-file     maintain-verification-skill/SKILL.md
+PASS     skill-file     setup-pstack/SKILL.md
+PASS     skill-file     swarm/SKILL.md
+PASS     skill-pin      50 skills match skills.lock.json (matt-pocock 3, pstack 47)
+INFO     pstack-source  https://github.com/backnotprop/pstack at 124f622bcaea, version 0.15.9, MIT; compare with scripts/agent-tools/verify pstack-upstream --checkout DIR
+INFO     leaf-skill     to-spec absent (not installed or claimed by this project)
+INFO     leaf-skill     to-tickets absent (not installed or claimed by this project)
+INFO     leaf-skill     implement-spec absent (not installed or claimed by this project)
+PASS     receipts       ~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r5/rerun-75d5d1f/receipts/v1-bootstrap-repeat writable
+INFO     optional       bun absent (pstack orch/watch-pr only; unused here)
+INFO     optional       gh gh version 2.102.0 (2026-09-30) (pushing and PR checks)
+INFO     optional       tmux tmux 3.7c (headless worker sessions)
+DEFERRED app-browser    No application exists yet. App, build and browser verification (a project verify-<app> skill generated with pstack create-verification-skill) is deferred to GRS-12 (CC-03), which establishes the app, build and browser commands. GRS-10 (CC-02) owns the npm/TypeScript/Vitest bootstrap.
+doctor: PASS. 20 required checks passed, 0 failed. Deferred, not required yet: app-browser.

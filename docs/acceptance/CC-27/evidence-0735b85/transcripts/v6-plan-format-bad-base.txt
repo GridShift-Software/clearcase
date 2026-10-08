@@ -1,2 +1,0 @@
-SKIPPED plan-format: base 'clearcase-base-does-not-exist' does not resolve to a commit in /tmp/cc27-fresh-wt.N8MR3C; pass --base REF, the accepted revision this branch was cut from
-receipt: SKIPPED plan-format exit=3 ~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r4/rerun-0735b85/receipts/v6-plan-format-bad-base/20261008T150525.693902Z-plan-format/receipt.json

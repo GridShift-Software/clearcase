@@ -2,7 +2,7 @@
 
 Both readers yield the same `Entry` records, so an inventory built from either is identical.
 Entry names are validated before use: absolute paths, `..` components, backslashes,
-drive letters, NUL bytes, symlinks and duplicate names are rejected as unsafe.
+drive letters (`C:` and the URL form `C|`), NUL bytes, symlinks and duplicate names are rejected as unsafe.
 """
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ def check_relpath(name: str) -> str:
         raise UnsafePath(f"backslash in path: {name!r}")
     if name.startswith("/"):
         raise UnsafePath(f"absolute path: {name!r}")
-    if len(name) >= 2 and name[1] == ":" and name[0].isalpha():
+    if len(name) >= 2 and name[1] in ":|" and name[0].isalpha():
         raise UnsafePath(f"drive-letter path: {name!r}")
     parts = name.rstrip("/").split("/")
     for part in parts:

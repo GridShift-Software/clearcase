@@ -289,6 +289,30 @@ class BuildTest(Temp):
         self.assertEqual(summary["duplicates"]["targetsSharedByRefs"], len(dup["targetsSharedByRefs"]))
         self.assertEqual(inv["urlMismatches"], [])
 
+    def test_drive_pipe_links_escape_and_entries_are_refused(self):
+        """Lane 5 (r3 regression): a browser resolves 'C|/etc/x.pdf' to file:///C:/etc/x.pdf, outside the case folder.
+        bad2dd1 resolved it to a same-named zip entry, reported it as ok and extracted that entry."""
+        files = dict(synth.DEFAULT_FILES)
+        files["C|/etc/x.pdf"] = b"%PDF-1.4 decoy\n"
+        chron = synth.rows(synth.DEFAULT_ROWS)
+        chron[1]["url"] = "C|/etc/x.pdf"
+        z = synth.make_zip(self.path("a.zip"), files=files, html_entries={"Workspace.html": synth.workspace_html(chron)})
+        src = archive.ZipSource(z)
+        self.assertIn("C|/etc/x.pdf", [u["path"] for u in src.unsafe])
+        inv, summary = build.build(src)
+        row = next(r for r in inv["refs"] if r["ref"] == "OD-002")
+        self.assertEqual((row["status"], row["path"]), ("escapes", None))
+        self.assertEqual(summary["missing"]["byStatus"], {"escapes": 1})
+        archive.extract(src, self.path("tree"))
+        self.assertFalse(os.path.lexists(self.path("tree", "C|")))
+        index = build.FileIndex(src.entries, [])
+        for value in ("C|/etc/x.pdf", "c|\\x.pdf", "C|", " z|/x", "C\t|/x", "C|/x#a", "C:/x"):
+            with self.subTest(value=value):
+                self.assertIn(index.resolve(value)["status"], ("escapes", "external-scheme"))
+        for bad in ("C|/x", "c|x", "C|"):
+            with self.subTest(bad=bad), self.assertRaises(archive.UnsafePath):
+                archive.check_relpath(bad)
+
     def html_roles(self, html_entries, pinned=None):
         src = archive.ZipSource(synth.make_zip(self.path("a.zip"), html_entries=html_entries))
         inv, _summary = build.build(src, pinned) if pinned else build.build(src)

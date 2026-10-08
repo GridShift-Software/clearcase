@@ -1,0 +1,62 @@
+{
+  "schema": "clearcase-agent-receipt/1",
+  "name": "linear-relations",
+  "result": "PASS",
+  "exitCode": 0,
+  "reason": null,
+  "command": [
+    "/usr/bin/python3",
+    "/tmp/cc27-fresh-wt.dhXVaA/scripts/planning/check.py",
+    "--require-linear-ids",
+    "--linear-relations",
+    "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/linear-readback.json"
+  ],
+  "cwd": "/tmp/cc27-fresh-wt.dhXVaA",
+  "tools": [
+    {
+      "name": "python3",
+      "path": "/usr/bin/python3",
+      "version": "Python 3.14.7"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "/tmp/cc27-fresh-wt.dhXVaA/scripts/planning/check.py",
+      "sha256": "38cb4973cd62146059c195d4f105c87bcd222ccf675c7f0a38027c1c8f2fa4ed"
+    },
+    {
+      "path": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/linear-readback.json",
+      "sha256": "f682830ef4e97bf426c18fc4a014c5b85a6cc008bb42b1a76ab75a43a566e455"
+    }
+  ],
+  "revision": {
+    "repository": true,
+    "root": "/tmp/cc27-fresh-wt.dhXVaA",
+    "branch": "HEAD",
+    "head": "67fea562cb9228de5fceb9084ceb14abb76ddedd",
+    "baseRef": "origin/dev",
+    "base": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "mergeBase": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "dirty": false,
+    "diffSha256": null
+  },
+  "environment": {
+    "os": "CachyOS",
+    "platform": "linux",
+    "kernel": "7.2.2-1-cachyos",
+    "machine": "x86_64",
+    "host": "PUK",
+    "bash": "5.3.20(1)-release",
+    "callerShell": "",
+    "python": "3.14.7",
+    "path": "/usr/local/bin:/usr/bin:/bin"
+  },
+  "startedAt": "2026-10-08T13:48:48.066228+00:00",
+  "finishedAt": "2026-10-08T13:48:48.140027+00:00",
+  "durationSeconds": 0.074,
+  "artifacts": {
+    "receipt": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-67fea56/receipts/v6-check-plan/20261008T134848.066228Z-linear-relations/receipt.json",
+    "stdout": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-67fea56/receipts/v6-check-plan/20261008T134848.066228Z-linear-relations/stdout.txt",
+    "stderr": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r2/rerun-67fea56/receipts/v6-check-plan/20261008T134848.066228Z-linear-relations/stderr.txt"
+  }
+}

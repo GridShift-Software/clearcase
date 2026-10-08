@@ -87,7 +87,7 @@ def unit_section(item, by_key):
         "**Merge.**",
         "- [ ] Obtain an independent clean verdict at the exact candidate revision and record all receipts.",
         "- [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.",
-        "- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.",
+        "- [ ] Keep main unchanged. Open the PR in the stack as `AGENTS.md` describes, register it with T3 and apply the same evidence gate to its actual head.",
     ]
     return "\n\n".join(lines) + "\n"
 

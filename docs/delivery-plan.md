@@ -134,7 +134,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR in the stack as `AGENTS.md` describes, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Validate and convert a portable results package (CC-02)
 
@@ -222,7 +222,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR in the stack as `AGENTS.md` describes, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Complete the local import to original-document workflow (CC-03)
 
@@ -328,7 +328,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR in the stack as `AGENTS.md` describes, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Browse, search and compare the case evidence (CC-04)
 
@@ -406,7 +406,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR in the stack as `AGENTS.md` describes, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Read the matter narrative and evidence-linked analysis (CC-05)
 
@@ -480,7 +480,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR in the stack as `AGENTS.md` describes, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Reconcile quantum and scenario calculations (CC-06)
 
@@ -558,7 +558,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR in the stack as `AGENTS.md` describes, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Maintain case registers without losing edits (CC-07)
 
@@ -634,7 +634,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR in the stack as `AGENTS.md` describes, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Work through litigation preparation tools (CC-08)
 
@@ -708,7 +708,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR in the stack as `AGENTS.md` describes, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Prepare discovery schedules and case bundles (CC-09)
 
@@ -782,7 +782,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR in the stack as `AGENTS.md` describes, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Rescan local files and restore user work safely (CC-10)
 
@@ -862,7 +862,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR in the stack as `AGENTS.md` describes, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Verify complete v5 parity and local release readiness (CC-11)
 
@@ -950,7 +950,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR in the stack as `AGENTS.md` describes, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Import and verify the newer 2,131-document export (CC-12)
 
@@ -1028,7 +1028,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR in the stack as `AGENTS.md` describes, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Round-trip one manually authored analysis through Markdown (CC-13)
 
@@ -1106,7 +1106,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
 
-- [ ] Keep main unchanged. Open the PR into `dev`, register it with T3 and apply the same evidence gate to its actual head.
+- [ ] Keep main unchanged. Open the PR in the stack as `AGENTS.md` describes, register it with T3 and apply the same evidence gate to its actual head.
 
 ## Close the program
 

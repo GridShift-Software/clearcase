@@ -22,7 +22,7 @@
         "2026-10-08T15:36:24+02:00, CC-27 round-2 worker on puk: the reproduce command rerun from a fresh clone printed no differences."
       ],
       "reproduce": "git clone https://github.com/backnotprop/pstack.git p && git -C p worktree add ../p124 124f622 && for d in p124/skills/*/; do n=$(basename $d); [ -e ~/.agents/skills/$n ] && diff -rq $d ~/.agents/skills/$n; done",
-      "verify": "scripts/agent-tools/verify pstack-upstream --checkout DIR, where DIR is a clean checkout of the revision above",
+      "verify": "scripts/agent-tools/verify pstack-upstream --checkout DIR, where DIR is any clone that contains the revision above",
       "installedAt": "$HOME/.agents/skills, verified on puk; ~/.claude/skills entries are symlinks into it",
       "copiedFrom": "archlinux:~/.agents/skills by rsync"
     },

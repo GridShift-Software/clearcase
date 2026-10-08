@@ -3,7 +3,8 @@
 # Usage: CC27_READBACK=PATH CC27_PSTACK_CHECKOUT=DIR [CC27_EXPORT=PATH] [CC27_OUT=DIR] bash docs/acceptance/CC-27/rerun.sh
 # CC27_PSTACK_CHECKOUT is a clean checkout of the pinned backnotprop/pstack revision (see README.md).
 # Writes receipts/, transcripts/ and summary.tsv under CC27_OUT (default .local/cc27-rerun).
-# Exits nonzero if any step's exit code differs from the expected one.
+# Exits 1 if any step's exit code differs from the expected one, 3 (INCOMPLETE) if CC27_READBACK or
+# CC27_PSTACK_CHECKOUT is unset because their comparisons were then SKIPPED, otherwise 0.
 set -u
 
 WT=$(cd "${BASH_SOURCE[0]%/*}/../../.." && pwd)
@@ -84,4 +85,11 @@ rm -rf "$nonode"
 # Committed evidence must not carry the home directory.
 find "$OUT" -type f -exec sed -i "s#$HOME#~#g" {} +
 echo "summary: $OUT/summary.tsv ($mismatches mismatches)"
-((mismatches == 0))
+((mismatches == 0)) || exit 1
+unset_inputs=()
+[[ -n $READBACK ]] || unset_inputs+=(CC27_READBACK)
+[[ -n $CHECKOUT ]] || unset_inputs+=(CC27_PSTACK_CHECKOUT)
+if ((${#unset_inputs[@]})); then
+	echo "INCOMPLETE: ${unset_inputs[*]} not set, so those comparisons were SKIPPED. A skipped check is not a pass."
+	exit 3
+fi

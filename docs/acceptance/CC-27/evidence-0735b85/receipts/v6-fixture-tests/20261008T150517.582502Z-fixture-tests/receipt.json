@@ -1,0 +1,50 @@
+{
+  "schema": "clearcase-agent-receipt/1",
+  "name": "fixture-tests",
+  "result": "PASS",
+  "exitCode": 0,
+  "reason": null,
+  "command": [
+    "bash",
+    "tests/agent-tools/run.sh"
+  ],
+  "cwd": "/tmp/cc27-fresh-wt.N8MR3C",
+  "tools": [
+    {
+      "name": "git",
+      "path": "/usr/bin/git",
+      "version": "git version 2.56.0"
+    }
+  ],
+  "inputs": [],
+  "revision": {
+    "repository": true,
+    "root": "/tmp/cc27-fresh-wt.N8MR3C",
+    "branch": "HEAD",
+    "head": "0735b854ef5dde0388df00443ef950f7ee8ad0cf",
+    "baseRef": "origin/dev",
+    "base": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "mergeBase": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "dirty": false,
+    "diffSha256": null
+  },
+  "environment": {
+    "os": "CachyOS",
+    "platform": "linux",
+    "kernel": "7.2.2-1-cachyos",
+    "machine": "x86_64",
+    "host": "PUK",
+    "bash": "5.3.20(1)-release",
+    "callerShell": "",
+    "python": "3.14.7",
+    "path": "/usr/local/bin:/usr/bin:/bin"
+  },
+  "startedAt": "2026-10-08T15:05:17.582502+00:00",
+  "finishedAt": "2026-10-08T15:05:25.057921+00:00",
+  "durationSeconds": 7.475,
+  "artifacts": {
+    "receipt": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r4/rerun-0735b85/receipts/v6-fixture-tests/20261008T150517.582502Z-fixture-tests/receipt.json",
+    "stdout": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r4/rerun-0735b85/receipts/v6-fixture-tests/20261008T150517.582502Z-fixture-tests/stdout.txt",
+    "stderr": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r4/rerun-0735b85/receipts/v6-fixture-tests/20261008T150517.582502Z-fixture-tests/stderr.txt"
+  }
+}

@@ -25,15 +25,17 @@ Read these files in order:
 Use the Gridshift team's ClearCase - Realignment project, UUID `f473fd2d-c994-4dc6-84e2-b90a68848e48`:
 https://linear.app/vaper/project/clearcase-realignment-e64366f52809
 
-Read the live milestones, issues and blocking relations through Linear MCP. Reconcile them with the local plan instead of overwriting newer changes. The local --require-linear-ids flag checks mappings only. Export the live readback using the schema in .audit/linear-readback.json and run check.py --linear-relations PATH to compare relations and milestones. Run:
+Read the live milestones, issues and blocking relations through Linear MCP. Reconcile them with the local plan instead of overwriting newer changes. The local --require-linear-ids flag checks mappings only. Export the live readback using the schema in .audit/linear-readback.json and run check.py --linear-relations PATH to compare relations and milestones. With a full export that includes descriptions, `python3 scripts/planning/generate.py --compare-linear EXPORT` lists description drift. Run:
 
 ```sh
 git status --short --branch
 git worktree list
 git remote -v
-python3 scripts/planning/check.py --require-linear-ids
-node /home/vaper/.agents/skills/poteto-mode/scripts/check-plan.mjs docs/delivery-plan.md
+scripts/agent-tools/doctor
+scripts/agent-tools/check-plan --linear-relations PATH
 ```
+
+`check-plan` runs `python3 scripts/planning/check.py --require-linear-ids`, pstack's `check-plan.mjs` against `docs/delivery-plan.md` and, given a readback, the `--linear-relations` comparison, and writes a receipt for each. `docs/agent-tooling.md` documents every entry point.
 
 The repository has no application or remote yet. Commands for app tests and performance in the plan are prospective deliverables. Verify and record their real forms when the first owners establish them.
 
@@ -72,13 +74,13 @@ Only you update Linear status. Workers report evidence, not Done. Use T3's task 
 
 ## Execute in dependency order
 
-Start with GRS-9, then GRS-10. Pass the independent reference/package gate GRS-11.
+Start with GRS-35, the agent tooling setup that GRS-9 waits for. Then run GRS-9, then GRS-10. Pass the independent reference/package gate GRS-11.
 
 Build the complete local pilot in GRS-12. Pass independent pilot gate GRS-13 before feature fan-out. This path must import, preview, activate, show overview and chronology, follow a citation and open the correct original.
 
 Then work the ready frontier across GRS-14 through GRS-20, respecting all native dependencies and path reservations. Pass the complete v5 gate GRS-21. Do not call a placeholder route feature-complete.
 
-Run newer-export compatibility GRS-22 and the Markdown round trip GRS-23. Pass independent compatibility gate GRS-24. Stop V1 execution there and hand back a reviewable local release candidate. Keep GRS-25 through GRS-34 behind their V2/later scope restrictions.
+Run newer-export compatibility GRS-22 and the Markdown round trip GRS-23. Pass independent compatibility gate GRS-24. Stop V1 execution there and hand back a reviewable local release candidate. Keep GRS-25 through GRS-34 and the hosted foundation GRS-36 behind their V2/later scope restrictions.
 
 ## Verify the real result
 

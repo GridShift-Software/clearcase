@@ -31,11 +31,10 @@ MIN_BASH = (4, 4)
 MIN_BUN = "1.4.2"
 SEMVER = re.compile(r"v?(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?")
 FULL_ID = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
-APP_DEFERRED = (
-    "No application exists yet. App, build and browser verification (a project verify-<app> skill "
-    "generated with pstack create-verification-skill) is deferred to GRS-12 (CC-03), which establishes "
-    "the app, build and browser commands. GRS-10 (CC-02) owns the Bun/TypeScript/Vitest bootstrap."
-)
+# The project verification skill (GRS-12): its runner drives the built app offline in Chromium. The doctor checks its
+# prerequisites before any install or build; verify app runs it. See docs/agent-tooling.md, App verification.
+APP_RUNNER = Path(".agents/skills/verify-clearcase/bin/verify-clearcase")
+SYSTEM_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 IGNORED_PARTS = {"node_modules", "__pycache__", ".DS_Store"}
 
 
@@ -631,6 +630,48 @@ def bun_minimum():
     return match[1], "packageManager in package.json", None
 
 
+def system_tool(name):
+    """A system tool from PATH, else from the standard system directories, where ip often lives (/usr/sbin)."""
+    return shutil.which(name) or shutil.which(name, path=SYSTEM_PATH)
+
+
+def chromium():
+    """The Chromium the app skill drives: CLEARCASE_CHROMIUM, else the Playwright build the e2e harness uses."""
+    return os.environ.get("CLEARCASE_CHROMIUM") or str(Path(HOME or "~", ".cache/ms-playwright/chromium-1223/chrome-linux64/chrome"))
+
+
+def app_rows(add):
+    """The app/browser prerequisites of verify app: no install, no build and no listener needed. Bun has its own row."""
+    purpose = "verify-clearcase runs the app and Chromium in a network namespace of their own"
+    for name, probe, package in [("unshare", "--version", "util-linux"), ("ip", "-V", "iproute2")]:
+        path = system_tool(name)
+        fix = f"install {package} (pacman -S {package}); {purpose}"
+        if not path:
+            add("FAIL", f"app-{name}", f"{name} not found on PATH or in {SYSTEM_PATH}", fix)
+            continue
+        version, problem = first_line([path, probe])
+        if not problem and name == "unshare":
+            _, _, denied = version_probe([path, "-rn", system_tool("true") or "/bin/true"])
+            if denied:
+                problem = f"{denied}; unprivileged user and network namespaces are unavailable"
+                fix = "allow unprivileged user namespaces (sysctl kernel.unprivileged_userns_clone=1)"
+        add("FAIL" if problem else "PASS", f"app-{name}", problem or f"{version} at {path}" + (
+            "; unshare -rn works" if name == "unshare" else ""), fix if problem else None)
+    chrome = chromium()
+    fix = ("set CLEARCASE_CHROMIUM to a Chromium binary, or install the Playwright build at "
+           "~/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome")
+    if not (os.path.isfile(chrome) and os.access(chrome, os.X_OK)):
+        add("FAIL", "app-chromium", f"{chrome} is not an executable file", fix)
+    else:
+        version, problem = first_line([chrome, "--version"])
+        add("FAIL" if problem else "PASS", "app-chromium", problem or f"{version} at {chrome}", fix if problem else None)
+    runner = REPO / APP_RUNNER
+    ready = runner.is_file() and os.access(runner, os.X_OK)
+    add("PASS" if ready else "FAIL", "app-runner", f"{APP_RUNNER} is executable" if ready else
+        f"{APP_RUNNER} is missing or not executable", None if ready else
+        f"restore .agents/skills/verify-clearcase from the repository (git checkout -- .agents) and chmod +x {APP_RUNNER}")
+
+
 def doctor_rows(skills=None, receipts=None, identity=None, unidentified=None, tools=None):
     """The doctor's (status, name, detail, fix) rows. tools maps git, python3, node and bun to tool_info()."""
     rows = []
@@ -773,9 +814,7 @@ def doctor_rows(skills=None, receipts=None, identity=None, unidentified=None, to
     for name, purpose in [("gh", "pushing and PR checks"), ("tmux", "headless worker sessions")]:
         info, _ = tool_info(name)
         add("INFO", "optional", f"{name} {info['version'] or ('version unknown' if info['path'] else 'absent')} ({purpose})")
-    add("DEFERRED", "app-browser", APP_DEFERRED)
-    if (REPO / "package.json").exists():
-        add("INFO", "app", "repository package.json present; app checks belong to GRS-10/GRS-12 commands")
+    app_rows(add)
     return rows
 
 
@@ -857,7 +896,11 @@ def capability_command(name, args):
         missing = None if checkout.is_dir() else f"pstack checkout not found: {redact(checkout)}"
         return command, ["python3", "git"], [LOCK_PATH], missing
     if name == "app":
-        return ["app"], [], [], APP_DEFERRED
+        runner = root / APP_RUNNER
+        sources = sorted(runner.parent.parent.glob("lib/*.mjs")) if runner.is_file() else []
+        missing = None if runner.is_file() and os.access(runner, os.X_OK) else (
+            f"{redact(runner)} is missing or not executable; scripts/agent-tools/doctor names the fix")
+        return [str(runner), "run"], ["bun"], [runner, *sources, root / "package.json", root / "bun.lock"], missing
     raise SystemExit(f"unknown capability {name}")
 
 
@@ -866,7 +909,7 @@ CAPABILITIES = {
     "linear-relations": "python3 scripts/planning/check.py --require-linear-ids --linear-relations READBACK",
     "plan-format": "node <skills>/poteto-mode/scripts/check-plan.mjs PLAN (pstack multi-phase plan structure)",
     "pstack-upstream": "installed pstack bundle and skills.lock.json against a checkout of the pinned revision (--checkout DIR)",
-    "app": "deferred to GRS-12 (CC-03); always SKIPPED until the app and its verify skill exist",
+    "app": "verify-clearcase run: isolated build of HEAD, offline boot under Bun, live doctor, Chromium drive, cleanup",
 }
 
 
@@ -936,7 +979,7 @@ def run_capability(name, args):
 def cmd_verify(args):
     if args.capability == "list":
         for name, text in CAPABILITIES.items():
-            print(f"{name:<17} {'deferred ' if name == 'app' else 'available'} {text}")
+            print(f"{name:<17} available {text}")
         return 0
     return run_capability(args.capability, args)
 

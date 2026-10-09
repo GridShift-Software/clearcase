@@ -3,18 +3,6 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-004",
-      "view": "documents",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-14",
-      "reason": "The app does not implement Documents yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
       "id": "IDR-005",
       "view": "contracts_tab",
       "field": "*",
@@ -180,6 +168,107 @@
       "source": "S-meta-counts",
       "reason": "The register sweep ends on the overview tiles; the app counts rows without text from the register (as the overview does, IDR-049), v5 shows META.textNone.",
       "productVisible": false,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-106",
+      "view": "filings_tab",
+      "field": [
+        "export.export_csv.name",
+        "export.export_register_csv.name"
+      ],
+      "when": {
+        "v5": {
+          "re": "^ess_dcs_filing(s|_register)\\.csv$"
+        },
+        "app": {
+          "re": "^filing(s|-register)\\.csv$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-hardcoded-case",
+      "reason": "v5 names its exports with the case abbreviation hard-coded in the renderer; the app uses neutral names, as the chronology does (IDR-064). The view-content map has no export-name field (shared-file request in the CC-04 report).",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-108",
+      "view": "documents",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation the app focuses the page heading (BA-14), as the pilot views do; v5 leaves focus on the navigation link.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-109",
+      "view": "documents",
+      "field": "text.page.1",
+      "when": {
+        "v5": "<absent>",
+        "app": "Ordered by type, then date (undated first). Types are imported classifications and have not been verified."
+      },
+      "type": "improvement",
+      "source": "BA-17",
+      "reason": "BA-17: the list states its order; BA-05: document types are imported classifications without a verification state.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-110",
+      "view": "documents",
+      "field": "control.button:Additional (#)",
+      "when": {
+        "v5": "<absent>",
+        "app": "1"
+      },
+      "type": "defect-fix",
+      "source": "S-documents-1",
+      "reason": "S-bundle4 and S-documents-1: v5 hard-codes four bundle buttons, so the Additional bundle cannot be shown; the app offers a button for every imported bundle.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-111",
+      "view": "documents",
+      "field": "sweep.bundle_filter.*",
+      "when": {
+        "v5": "no-option"
+      },
+      "type": "defect-fix",
+      "source": "S-documents-1",
+      "reason": "S-bundle4 and S-documents-1: combinations with a bundle v5 offers no button for (no-option) show that bundle's rows in the app.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-107",
+      "view": "documents",
+      "field": [
+        "table.table_1.order",
+        "sweep.bundle_filter.*.order"
+      ],
+      "type": "improvement",
+      "source": "BA-17",
+      "reason": "BA-17 and S-documents-3: v5 sorts by the type and date concatenated without a separator, so a type that prefixes another interleaves with it by date; the app orders by type, then date, undated first, as its ordering note says. The rows shown are the same (the table cells and the sweep set values still compare); only the order within such types differs. The value is a sequence of refs, so no when can pin it.",
+      "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
       "approvedBy": null,
       "approvedOn": null

@@ -9,6 +9,7 @@ import { writePackageDir } from '../../../../src/lib/case-package/writer.ts';
 import { editPackage } from '../../../case-package/fixtures/build.ts';
 import { frameEvaluator } from '../lib/cdp.mjs';
 import { vpath } from '../lib/client.mjs';
+import { expectedSlot, filledSlots, firstUnimplemented, implementedViews, modeSummary, observedSlot, registryOf, slotsFromHtml } from '../lib/implemented.mjs';
 import { attrById, decode, nextDownload, originalsGet, pageTargets, pathOf, popup } from './browser.mjs';
 import { digestFile, listeners, REPO, treeStamp } from './env.mjs';
 import { convert, examplesOfKind, expectOf, readPackage } from './fixture.mjs';
@@ -525,22 +526,38 @@ export async function checkRegistry(C, L) {
 	const nav = await P.evaluate(`[...document.querySelectorAll('nav.views a[data-view]')].map((a) => { const c = a.cloneNode(true); c.querySelectorAll('.visually-hidden').forEach((x) => x.remove()); return { id: a.dataset.view, label: c.textContent.trim(), group: a.closest('section').querySelector('h2').textContent.trim(), status: a.dataset.status, href: a.getAttribute('href') }; })`);
 	const want = cov.views.map((v) => ({ id: v.id, label: v.label, group: v.group, status: v.owner === 'CC-03' ? 'available' : `unavailable-until:${linearOf(v.owner)}`, href: `${vpath(rv)}${v.owner === 'CC-03' ? `/${v.id}` : `/${OWNER_CATEGORY[v.owner]}/${v.id}`}` }));
 	L.check('navigation: all 42 entries in inventory order with id, task label, group, status and route', want, nav);
-	let ok = 0;
+	// a view whose owner route exists in the build's tree is implemented: heading = label, data-ready="<id>", no
+	// unavailable state, aria-current on its entry; every other M2 view keeps the unavailable state and its owner
+	const reg = await registryOf(C.build.root);
+	const implemented = implementedViews(C.build.root, reg.views);
+	L.note(`tree under test: ${JSON.stringify(modeSummary(reg.views, implemented, filledSlots(C.build.root, reg.slots)))}`);
+	let ok = 0, implOk = 0, unavailOk = 0;
 	for (const v of want) {
 		const r = await C.c.get(v.href);
 		const h1 = decode(/<h1[^>]*data-page-heading[^>]*>([^<]*)</.exec(r.text)?.[1] ?? '');
 		const title = decode(/<title>([^<]*)<\/title>/.exec(r.text)?.[1] ?? '');
 		const owner = /data-unavailable="([^"]+)" data-owner="([^"]+)"/.exec(r.text);
+		if (implemented.has(v.id)) {
+			const navTag = new RegExp(`<a [^>]*id="nav-${v.id}"[^>]*>`).exec(r.text)?.[0] ?? '';
+			const got = { status: r.status, heading: h1, ready: /<main[^>]*data-ready="([^"]*)"/.exec(r.text)?.[1] ?? null, unavailable: /data-unavailable=/.test(r.text), current: /aria-current="page"/.test(navTag) };
+			if (L.check(`${v.id}: implemented (owner route present): heading matches the label (BA-18), data-ready, no unavailable state, aria-current`, { status: 200, heading: v.label, ready: v.id, unavailable: false, current: true }, got)) { ok++; implOk++; }
+			continue;
+		}
 		const avail = v.status === 'available';
 		const exp = { status: 200, heading: v.label, title: expectedTitle({ section: v.label, caseName: C.titleName, status: avail ? null : 'not yet available' }), unavailable: avail ? null : [v.id, v.status.split(':')[1]] };
-		if (L.check(`${v.id}: destination heading matches the label (BA-18), title, unavailable state and owner`, exp, { status: r.status, heading: h1, title, unavailable: owner ? [owner[1], owner[2]] : null })) ok++;
+		if (L.check(`${v.id}: destination heading matches the label (BA-18), title, unavailable state and owner`, exp, { status: r.status, heading: h1, title, unavailable: owner ? [owner[1], owner[2]] : null })) { ok++; if (!avail) unavailOk++; }
 	}
-	L.note(`${ok}/42 destinations agree`);
-	const first = want.find((v) => v.status !== 'available');
-	const len0 = await P.evaluate('history.length');
-	await P.click(`#nav-${first.id}`);
-	await P.waitFor(ready(`view:${first.id}`));
-	L.check('clicking an unavailable entry is a real navigation with its own history entry', { path: first.href, grew: true }, { path: await P.evaluate('location.pathname'), grew: (await P.evaluate('history.length')) > len0 });
+	L.note(`${ok}/42 destinations agree (${implOk} implemented, ${unavailOk} unavailable)`);
+	L.check('implemented plus unavailable views outside the pilot: 40', 40, implOk + unavailOk);
+	const ex = firstUnimplemented(reg.views, implemented);
+	const first = ex && want.find((v) => v.id === ex.id);
+	if (!first) L.note('clicking an unavailable entry: none left (every M2 view has its owner route)');
+	else {
+		const len0 = await P.evaluate('history.length');
+		await P.click(`#nav-${first.id}`);
+		await P.waitFor(ready(`view:${first.id}`));
+		L.check('clicking an unavailable entry is a real navigation with its own history entry', { path: first.href, grew: true }, { path: await P.evaluate('location.pathname'), grew: (await P.evaluate('history.length')) > len0 });
+	}
 	await P.shot(L.file(join(C.out, 'check-registry.png')));
 }
 
@@ -680,17 +697,21 @@ export async function checkIsolation(C, L) {
 // ---- the overview's widget slots (M2 extension point): unfilled slots name their owner, never look finished --------
 export async function checkSlots(C, L) {
 	const rv = C.fx.accepted.resultsVersion;
-	const { OVERVIEW_SLOTS } = await import('../../../../src/lib/components/overview-slots.ts');
+	// the slot declaration and the filled slots of the build's tree: a slot its owner's overview-widgets.ts fills must
+	// render filled under its heading; every other one stays unfilled and names its owning issue
+	const { slots: OVERVIEW_SLOTS } = await registryOf(C.build.root);
+	const filled = filledSlots(C.build.root, OVERVIEW_SLOTS);
 	L.need('the slot declaration lists at least one slot', true, OVERVIEW_SLOTS.length > 0);
-	const want = OVERVIEW_SLOTS.map((s) => ({ id: s.id, status: 'unavailable', heading: s.title, text: `Not yet available — owned by ${s.linear} (${s.owner}).` }));
+	L.note(`filled slots in the tree under test: ${JSON.stringify([...filled])}`);
+	const want = OVERVIEW_SLOTS.map((s) => expectedSlot(s, filled));
 	L.cmd(`GET ${vpath(rv)}/overview (server-rendered slots)`);
 	const html = (await C.c.get(`${vpath(rv)}/overview`)).text;
-	const ssr = [...html.matchAll(/<section class="card" aria-labelledby="slot-([a-z-]+)" data-slot="([a-z-]+)" data-slot-status="([a-z]+)">\s*<h2 id="slot-[a-z-]+">([^<]*)<\/h2>\s*(?:<!--[^>]*-->)*\s*<p>([^<]*)<\/p>/g)].map((m) => ({ id: m[2], status: m[3], heading: decode(m[4]), text: decode(m[5]) }));
-	L.check('server-rendered overview: every declared slot, in order, unfilled with its owning issue', want, ssr);
+	const ssr = slotsFromHtml(html, decode).map((o) => observedSlot(o, filled));
+	L.check('server-rendered overview: every declared slot, in order, filled by its owner or unfilled with its owning issue', want, ssr);
 	const P = C.P;
 	L.cmd(`browser: ${vpath(rv)}/overview, read section[data-slot]`);
 	await P.goto(`${C.origin}${vpath(rv)}/overview`, ready('overview'));
-	const dom = await P.settled(`[...document.querySelectorAll('section[data-slot]')].map((s) => ({ id: s.dataset.slot, status: s.dataset.slotStatus, heading: s.querySelector('h2')?.textContent.trim() ?? null, text: s.querySelector('p')?.textContent.trim() ?? null }))`);
+	const dom = (await P.settled(`[...document.querySelectorAll('section[data-slot]')].map((s) => ({ id: s.dataset.slot, status: s.dataset.slotStatus, heading: s.querySelector('h2')?.textContent.trim() ?? null, text: s.querySelector('p')?.textContent.trim() ?? null }))`)).map((o) => observedSlot(o, filled));
 	L.check('hydrated overview: the same slots and states (GRS-17 registers, GRS-20 system)', want, dom);
 	L.check('slot owners are the issues the brief names (GRS-17, GRS-20)', ['GRS-17', 'GRS-20'], [...new Set(OVERVIEW_SLOTS.map((s) => s.linear))].sort());
 	await P.evaluate(`document.querySelector('section[data-slot]')?.scrollIntoView()`);

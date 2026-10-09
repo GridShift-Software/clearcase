@@ -9,7 +9,7 @@
 // and activation is in the main file at COMMIT: no -wal sidecar that can be truncated, lost, or replayed onto a
 // restored backup. synchronous=FULL on both, set per schema AFTER the ATTACH.
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { error } from '@sveltejs/kit';
 
@@ -116,6 +116,11 @@ export const isBusy = (e: unknown) => {
 	const x = e as { errcode?: number; code?: string; message?: string };
 	return x?.errcode === 5 || x?.errcode === 6 || /database is locked|SQLITE_BUSY|database table is locked/i.test(String(x?.message ?? ''));
 };
+const diskFull = (e: unknown) => { const x = e as { errcode?: number; message?: string }; return (x?.errcode !== undefined && (x.errcode & 0xff) === 13) || /database or disk is full/i.test(String(x?.message ?? '')); };
+/** Kernel start time of a live process (/proc/<pid>/stat field 22, clock ticks since boot), or null (gone, not Linux). */
+const procStart = (pid: number): string | null => {
+	try { const s = readFileSync(`/proc/${pid}/stat`, 'utf8'); return s.slice(s.lastIndexOf(')') + 2).split(' ')[19] ?? null; } catch { return null; }
+};
 const BUSY = 'The ClearCase store is locked by another process; nothing was written. Try again in a moment.';
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -126,6 +131,8 @@ export class Storage {
 	readonly workFile: string;
 	#db: DatabaseSync | null = null;
 	#lock: DatabaseSync | null = null;
+	/** this process's instance.pid record while it holds the lock (removed again on release if still ours) */
+	#owner: string | null = null;
 	#pragmas: Pragmas | null = null;
 	/** inode of each store file as opened; a different (or no) file at the path means it was removed or replaced */
 	#opened: { results: number; work: number } | null = null;
@@ -189,25 +196,35 @@ export class Storage {
 	/**
 	 * Exclusive instance lock on the data directory, taken before startup touches anything. It is a SQLite file held
 	 * in EXCLUSIVE locking mode: the kernel releases it when the process dies (no stale lock files), and a second
-	 * process on the same directory fails at once instead of pruning, sweeping or writing.
+	 * process on the same directory fails at once instead of pruning, sweeping or writing. The owner is also recorded
+	 * in instance.pid as pid plus kernel start time: if instance.lock is unlinked under a running owner, a new
+	 * instance.lock carries no lock, so a live recorded owner (same pid AND same start time, i.e. not a reused pid)
+	 * refuses the second process too. That check only reads, so a refused process writes nothing.
 	 */
 	acquireInstanceLock(): { ok: true } | { ok: false; reason: string } {
 		if (this.#lock) return { ok: true };
+		const pidFile = path.join(this.dataDir, 'instance.pid');
+		const recorded = () => { try { return readFileSync(pidFile, 'utf8').trim().split(/\s+/); } catch { return []; } };
+		const [pid, start] = recorded();
+		if (pid && Number(pid) !== process.pid && start && procStart(Number(pid)) === start)
+			return { ok: false, reason: `another ClearCase process (pid ${pid}) is using the data directory ${this.dataDir}: it is still running, although its instance.lock is gone` };
 		mkdirSync(this.dataDir, { recursive: true, mode: 0o700 });
-		const l = new DatabaseSync(path.join(this.dataDir, 'instance.lock'));
+		let l: DatabaseSync | null = null;
 		try {
+			l = new DatabaseSync(path.join(this.dataDir, 'instance.lock'));
 			l.exec(`PRAGMA busy_timeout=0; PRAGMA journal_mode=DELETE; PRAGMA locking_mode=EXCLUSIVE;
 				BEGIN EXCLUSIVE; CREATE TABLE IF NOT EXISTS owner(pid INTEGER, started_at TEXT);
 				DELETE FROM owner; COMMIT;`);
 			l.prepare('INSERT INTO owner VALUES (?, ?)').run(process.pid, new Date().toISOString()); // keeps the EXCLUSIVE lock
 			this.#lock = l;
-			try { writeFileSync(path.join(this.dataDir, 'instance.pid'), `${process.pid}\n`); } catch { /* informational only */ }
+			this.#owner = `${process.pid} ${procStart(process.pid) ?? ''}`.trim();
+			try { writeFileSync(pidFile, `${this.#owner}\n`); } catch { /* the SQLite lock still holds */ }
 			return { ok: true };
 		} catch (e) {
-			try { l.close(); } catch { /* not ours */ }
-			let other = '';
-			try { other = ` (pid ${readFileSync(path.join(this.dataDir, 'instance.pid'), 'utf8').trim()})`; } catch { /* unknown */ }
-			return { ok: false, reason: `another ClearCase process${other} is using the data directory ${this.dataDir}: ${(e as Error).message}` };
+			try { l?.close(); } catch { /* not ours */ }
+			if (!isBusy(e)) return { ok: false, reason: `ClearCase cannot take the instance lock in the data directory ${this.dataDir}: ${(e as Error).message}${diskFull(e) ? ' (the disk holding it is full: free some space and start again)' : ''}` };
+			const other = recorded()[0];
+			return { ok: false, reason: `another ClearCase process${other ? ` (pid ${other})` : ''} is using the data directory ${this.dataDir}: ${(e as Error).message}` };
 		}
 	}
 
@@ -216,6 +233,9 @@ export class Storage {
 		try { this.#lock?.exec('PRAGMA locking_mode=NORMAL; SELECT count(*) FROM owner;'); } catch { /* not held */ }
 		try { this.#lock?.close(); } catch { /* exiting */ }
 		this.#lock = null;
+		const pidFile = path.join(this.dataDir, 'instance.pid');
+		try { if (this.#owner && readFileSync(pidFile, 'utf8').trim() === this.#owner) rmSync(pidFile, { force: true }); } catch { /* gone */ }
+		this.#owner = null;
 	}
 
 	/**

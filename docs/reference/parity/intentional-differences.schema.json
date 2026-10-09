@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "clearcase:parity/intentional-differences.schema.json",
+  "title": "ClearCase parity intentional-differences register",
+  "description": "Every intended difference between the v5 reference and the app, by view and field. No case values: fields are path globs over UI structure, and value conditions name UI wording or markers only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "entries"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1 },
+    "entries": { "type": "array", "items": { "$ref": "#/$defs/entry" } }
+  },
+  "$defs": {
+    "glob": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "valueCondition": {
+      "oneOf": [
+        { "type": "string", "maxLength": 120 },
+        { "type": "object", "additionalProperties": false, "required": ["re"], "properties": { "re": { "type": "string", "maxLength": 200 } } }
+      ]
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "view", "field", "type", "reason", "productVisible", "author", "approvedBy", "approvedOn"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^IDR-[0-9]{3,}$" },
+        "view": { "type": "string", "pattern": "^[a-z_]+$" },
+        "field": {
+          "description": "Glob (or list of globs) over snapshot paths: * matches any run of characters, ? one character.",
+          "oneOf": [
+            { "$ref": "#/$defs/glob" },
+            { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/glob" } }
+          ]
+        },
+        "when": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": { "v5": { "$ref": "#/$defs/valueCondition" }, "app": { "$ref": "#/$defs/valueCondition" } }
+        },
+        "type": { "enum": ["improvement", "defect-fix", "data-correction-deferred-to-pipeline", "not-yet-implemented", "known-gap"] },
+        "source": { "type": "string", "pattern": "^(S-[A-Za-z0-9_]+(-[A-Za-z0-9_]+)*|BA-[0-9]+|GRS-[0-9]+)$" },
+        "owner": { "type": "string", "pattern": "^GRS-[0-9]+$" },
+        "reason": { "type": "string", "minLength": 10, "maxLength": 600 },
+        "productVisible": { "type": "boolean" },
+        "author": { "type": "string", "minLength": 2 },
+        "approvedBy": { "type": ["string", "null"], "minLength": 2 },
+        "approvedOn": { "type": ["string", "null"], "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}$" }
+      },
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "defect-fix" } } }, "then": { "required": ["source"], "properties": { "source": { "pattern": "^S-" } } } },
+        { "if": { "properties": { "type": { "const": "not-yet-implemented" } } }, "then": { "required": ["owner"] } }
+      ]
+    }
+  }
+}

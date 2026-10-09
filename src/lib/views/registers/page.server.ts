@@ -79,7 +79,7 @@ export function registerLoad(view: RegisterView) {
 const statusOf = (e: unknown): number => { const s = (e as { status?: unknown })?.status; return typeof s === 'number' && s >= 400 && s < 600 ? s : 500; };
 const failure = (e: unknown, what: string) => {
 	const status = statusOf(e);
-	const why = status === 503 ? 'the store is busy or unavailable' : (e as { code?: string })?.code === 'invalid' ? 'the entry is too large or not valid' : 'the store refused the write';
+	const why = status === 503 ? 'the store is busy or unavailable' : (e as { code?: string })?.code === 'invalid' ? 'the entry is larger than the 64 KiB a register entry can hold, or not valid' : 'the store refused the write';
 	return { status: status === 500 && (e as { code?: string })?.code === 'invalid' ? 400 : status, message: `${what} was not saved: ${why}. Nothing was changed; try again.` };
 };
 

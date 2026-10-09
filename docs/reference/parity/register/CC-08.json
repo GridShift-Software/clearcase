@@ -1,0 +1,90 @@
+{
+  "$schema": "../intentional-differences.schema.json",
+  "version": 1,
+  "entries": [
+    {
+      "id": "IDR-023",
+      "view": "conflict_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-18",
+      "reason": "The app does not implement Conflict Check yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-024",
+      "view": "enforcement_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-18",
+      "reason": "The app does not implement Enforcement Roadmap yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-025",
+      "view": "legality_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-18",
+      "reason": "The app does not implement Legality & SIU Risk yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-029",
+      "view": "elements_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-18",
+      "reason": "The app does not implement Cause of Action yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-030",
+      "view": "authorities_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-18",
+      "reason": "The app does not implement Authorities yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-031",
+      "view": "heads_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-18",
+      "reason": "The app does not implement Heads of Argument yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-032",
+      "view": "crossexam_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-18",
+      "reason": "The app does not implement Cross-Exam Prep yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    }
+  ]
+}

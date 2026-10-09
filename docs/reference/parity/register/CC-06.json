@@ -1,0 +1,78 @@
+{
+  "$schema": "../intentional-differences.schema.json",
+  "version": 1,
+  "entries": [
+    {
+      "id": "IDR-003",
+      "view": "quantum_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-16",
+      "reason": "The app does not implement Quantum & Interest yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-011",
+      "view": "invoice_ledger_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-16",
+      "reason": "The app does not implement Invoice Ledger yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-026",
+      "view": "prescription_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-16",
+      "reason": "The app does not implement Prescription yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-027",
+      "view": "interest_calc_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-16",
+      "reason": "The app does not implement Interest Recalculator yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-028",
+      "view": "payments_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-16",
+      "reason": "The app does not implement Payments & Net Claim yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-033",
+      "view": "settlement_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-16",
+      "reason": "The app does not implement Settlement / BATNA yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    }
+  ]
+}

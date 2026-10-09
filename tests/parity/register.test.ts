@@ -1,21 +1,25 @@
 // The committed register: valid, no self-approval, every unimplemented view registered with its owner, and the
 // pilot's own views never blanket-registered.
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
-import { REGISTER, REPO, registryOwners, validateRegister, viewIds } from '../../scripts/parity/lib/register.mjs';
+import { loadRegister, REPO, registryKeys, registryOwners, validateRegister, viewIds } from '../../scripts/parity/lib/register.mjs';
 import { VIEWS } from '../../src/lib/components/view-registry';
 
-const doc = JSON.parse(readFileSync(REGISTER, 'utf8'));
 const owners = Object.fromEntries(VIEWS.map((v) => [v.id, v.linear]));
+const keys = Object.fromEntries(VIEWS.map((v) => [v.id, v.owner]));
+// the main file and its owners' fragments, as the runner loads them
+const loaded = loadRegister(undefined, { owners, keys });
+const doc: { version: number; entries: any[] } = { version: 1, entries: loaded.entries };
 const adapters = readdirSync(join(REPO, 'scripts', 'parity', 'adapters', 'app')).filter((f) => f.endsWith('.mjs') && !f.startsWith('_')).map((f) => f.replace(/\.mjs$/, ''));
 const good = { id: 'IDR-999', view: 'chronology', field: 'text.subtitle', type: 'improvement', reason: 'A synthetic reason long enough.', productVisible: false, author: 'worker', approvedBy: null, approvedOn: null };
 const check = (e: object) => validateRegister({ version: 1, entries: [{ ...good, ...e }] }, { owners });
 
 describe('committed register', () => {
-	test('validates against its schema and rules', () => {
+	test('validates against its schema and rules, fragments included', () => {
+		expect(loaded.problems).toEqual([]);
 		expect(validateRegister(doc, { owners })).toEqual([]);
 	});
 	test('the 42 views are the v5 navigation ids', () => {
@@ -52,6 +56,12 @@ describe('rules', () => {
 	])('the approver must not be the author, %s', (_, approver) => {
 		expect(check({ approvedBy: approver, approvedOn: '2026-10-09' }).join()).toMatch(/approver must not be the author/);
 	});
+	test.each([['?'], ['**'], ['*?'], ['?*'], [['*']], [['?']], [['text.*', '*']]])('a whole-view waiver other than exactly "*" is refused: %j', (field) => {
+		expect(check({ view: 'people', field, type: 'not-yet-implemented', owner: 'GRS-1' }).join()).toMatch(/would match the whole view; a whole-view entry uses exactly "\*"/);
+	});
+	test('a narrow glob is not mistaken for a whole-view waiver', () => {
+		expect(check({ field: ['text.*', 'control.button:*', 'table.table_1.row.*.date'] })).toEqual([]);
+	});
 	test('a different approver passes', () => expect(check({ approvedBy: 'coordinator', approvedOn: '2026-10-09' })).toEqual([]));
 	test('approvedBy and approvedOn go together', () => expect(check({ approvedBy: 'coordinator' }).join()).toMatch(/go together/));
 	test('a defect fix names its S- source defect', () => {
@@ -76,8 +86,9 @@ describe('rules', () => {
 });
 
 describe('runner', () => {
-	test('owners come from the generated view registry', async () => {
+	test('owners and planning keys come from the generated view registry', async () => {
 		expect(await registryOwners()).toEqual(owners);
+		expect(await registryKeys()).toEqual(keys);
 	});
 	test('a whole-view entry with the wrong owner is a register error: exit 2 before anything starts', () => {
 		const dir = mkdtempSync(join(tmpdir(), 'parity-register-'));

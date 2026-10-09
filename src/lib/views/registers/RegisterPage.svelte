@@ -38,7 +38,7 @@
 	onMount(() => { ready = true; });
 
 	// the request may or may not have reached the app, so the message does not claim either
-	const lost = (what: string) => `${what}: the app could not be reached. Your input is kept; check the list, then try again.`;
+	const lost = (what: string, status?: number) => `${what}: ${status ? `the app reported an error (${status})` : 'the app could not be reached'}. Your input is kept; check the list, then try again.`;
 
 	const save: SubmitFunction = ({ cancel }) => {
 		// v5 ignores an Add with nothing to save (every field empty, or a deadline without title or date), silently
@@ -55,7 +55,7 @@
 					editing = null;
 				} else if (result.type === 'failure') error = String(result.data?.message ?? 'The entry was not saved. Your input is kept; try again.');
 				else if (result.type === 'redirect') await applyAction(result);
-				else error = lost(editing ? 'The change may not have been saved' : 'The entry may not have been saved');
+				else error = lost(editing ? 'The change may not have been saved' : 'The entry may not have been saved', result.status);
 			} finally { busy = false; }
 		};
 	};
@@ -68,7 +68,7 @@
 				await invalidateAll();
 			} else if (result.type === 'failure') error = String(result.data?.message ?? 'The deletion did not happen; try again.');
 			else if (result.type === 'redirect') await applyAction(result);
-			else error = lost('The deletion may not have happened');
+			else error = lost('The deletion may not have happened', result.status);
 		};
 	};
 

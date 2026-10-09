@@ -50,44 +50,92 @@ const freeze = <T>(v: T): T => {
 	return v;
 };
 
-export interface DocumentRowsResult { rows: readonly DocumentRow[]; dropped: { source: DocumentSource; ref: string; reason: string }[] }
+export interface DocumentRowsResult {
+	rows: readonly DocumentRow[];
+	dropped: { source: DocumentSource; ref: string; reason: string }[];
+	/** providers whose rows() threw: their rows are left out and the readers show a degraded state */
+	failed: { source: DocumentSource; owner: string; reason: string }[];
+}
+
+/** Provider rows in registration order, minus refs already taken (imported refs first); a provider that throws is isolated. */
+function fromProviders(caseId: string, resultsVersion: string, taken: (ref: string) => boolean) {
+	const rows: { source: DocumentSource; x: ProviderRow }[] = [];
+	const dropped: DocumentRowsResult['dropped'] = [];
+	const failed: DocumentRowsResult['failed'] = [];
+	const seen = new Set<string>();
+	for (const p of providers.values()) {
+		const source = `provider:${p.id}` as const;
+		let xs: readonly ProviderRow[];
+		try {
+			xs = p.rows({ caseId, resultsVersion });
+			if (!Array.isArray(xs)) throw new Error('rows() did not return an array');
+		} catch (e) {
+			failed.push({ source, owner: p.owner, reason: String((e as Error)?.message ?? e).slice(0, 200) });
+			continue;
+		}
+		for (const x of xs) {
+			if (seen.has(x.ref) || taken(x.ref)) { dropped.push({ source, ref: x.ref, reason: 'the ref already names a document of this version' }); continue; }
+			seen.add(x.ref);
+			rows.push({ source, x });
+		}
+	}
+	return { rows, dropped, failed };
+}
 
 /** Every document row of a stored version: the imported register in source order, then provider rows. */
 export function documentRows(store: CaseStore, resultsVersion: string): DocumentRowsResult {
 	const v = store.getVersion(resultsVersion);
-	if (!v) return { rows: [], dropped: [] };
+	if (!v) return { rows: [], dropped: [], failed: [] };
 	const list = JSON.parse(store.chronologyJson(resultsVersion) ?? '[]') as ChronologyListRow[];
 	const byRef = new Map(store.projectionRows(resultsVersion).documents.map((d) => [d.ref, d]));
 	const rows: DocumentRow[] = list.map((l) => {
 		const d = byRef.get(l.ref)!;
 		return freeze({ ref: l.ref, ord: l.ord, source: 'results' as const, row: JSON.parse(d.row_json), list: l, state: JSON.parse(d.state_json) });
 	});
-	const dropped: DocumentRowsResult['dropped'] = [];
-	const seen = new Set(rows.map((r) => r.ref));
+	const p = fromProviders(v.case_id, resultsVersion, (ref) => byRef.has(ref));
 	let ord = rows.length;
-	for (const p of providers.values()) {
-		const source = `provider:${p.id}` as const;
-		for (const x of p.rows({ caseId: v.case_id, resultsVersion })) {
-			if (seen.has(x.ref)) { dropped.push({ source, ref: x.ref, reason: 'the ref already names a document of this version' }); continue; }
-			seen.add(x.ref);
-			rows.push(freeze({ ref: x.ref, ord, source, row: { ...x.row }, list: { ...x.list, ord }, state: x.state }));
-			ord++;
-		}
-	}
-	return { rows, dropped };
+	for (const { source, x } of p.rows) { rows.push(freeze({ ref: x.ref, ord, source, row: { ...x.row }, list: { ...x.list, ord }, state: x.state })); ord++; }
+	return { rows, dropped: p.dropped, failed: p.failed };
 }
 
-/** The chronology list JSON and its ETag: the stored list as-is when no provider publishes rows. */
-export function listJson(store: CaseStore, resultsVersion: string): { json: string; etag: string } | null {
+/** One document row by ref through the same contract (an imported ref always wins), or null. */
+export function documentRow(store: CaseStore, resultsVersion: string, ref: string): DocumentRow | null {
+	if (!store.getVersion(resultsVersion)) return null;
+	const d = store.document(resultsVersion, ref);
+	if (d) {
+		const list = (JSON.parse(store.chronologyJson(resultsVersion) ?? '[]') as ChronologyListRow[]).find((l) => l.ref === ref)!;
+		return freeze({ ref, ord: d.ord, source: 'results', row: JSON.parse(d.row_json), list, state: JSON.parse(d.state_json) });
+	}
+	if (providers.size === 0) return null;
+	return documentRows(store, resultsVersion).rows.find((r) => r.ref === ref) ?? null;
+}
+
+/** How many document rows documentRows() returns, without parsing the register: imported plus accepted provider rows. */
+export function documentCounts(store: CaseStore, resultsVersion: string): { total: number; imported: number; provided: number; failed: DocumentRowsResult['failed'] } {
+	const v = store.getVersion(resultsVersion);
+	if (!v) return { total: 0, imported: 0, provided: 0, failed: [] };
+	const imported = store.documentCount(resultsVersion);
+	if (providers.size === 0) return { total: imported, imported, provided: 0, failed: [] };
+	const p = fromProviders(v.case_id, resultsVersion, (ref) => !!store.document(resultsVersion, ref));
+	return { total: imported + p.rows.length, imported, provided: p.rows.length, failed: p.failed };
+}
+
+/** The chronology list JSON and its ETag: the stored list as-is when no provider publishes rows. `failed` names the
+ *  providers left out because they threw (the list is then degraded, and its ETag says so). */
+export function listJson(store: CaseStore, resultsVersion: string): { json: string; etag: string; failed: DocumentRowsResult['failed'] } | null {
 	const v = store.getVersion(resultsVersion);
 	if (!v) return null;
-	if (providers.size === 0) return { json: store.chronologyJson(resultsVersion)!, etag: `"${v.read_model_sha256}"` };
-	const revs = [...providers.values()].map((p) => `${p.id}=${p.revision({ caseId: v.case_id, resultsVersion })}`).join(';');
-	return { json: JSON.stringify(documentRows(store, resultsVersion).rows.map((r) => r.list)), etag: `"${v.read_model_sha256}|${revs}"` };
+	if (providers.size === 0) return { json: store.chronologyJson(resultsVersion)!, etag: `"${v.read_model_sha256}"`, failed: [] };
+	const revs = [...providers.values()].map((p) => {
+		try { return `${p.id}=${p.revision({ caseId: v.case_id, resultsVersion })}`; } catch { return `${p.id}=!`; }
+	}).join(';');
+	const { rows, failed } = documentRows(store, resultsVersion);
+	const tag = failed.length ? `|failed=${failed.map((f) => f.source).join(',')}` : '';
+	return { json: JSON.stringify(rows.map((r) => r.list)), etag: `"${v.read_model_sha256}|${revs}${tag}"`, failed };
 }
 
 /** The active version's document rows for a case (what v5's allRows() returned), or none when nothing is active. */
 export function activeDocumentRows(lc: { store: CaseStore; effectiveActive(caseId: string): string | undefined }, caseId: string): DocumentRowsResult & { resultsVersion: string | null } {
 	const vid = lc.effectiveActive(caseId) ?? null;
-	return vid ? { resultsVersion: vid, ...documentRows(lc.store, vid) } : { resultsVersion: null, rows: [], dropped: [] };
+	return vid ? { resultsVersion: vid, ...documentRows(lc.store, vid) } : { resultsVersion: null, rows: [], dropped: [], failed: [] };
 }

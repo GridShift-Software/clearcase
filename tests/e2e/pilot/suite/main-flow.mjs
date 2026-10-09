@@ -1,6 +1,7 @@
 // Main-flow scenarios on app server A: UI import and preview (S1/S1b), activation through the UI, the chronology in
 // the browser (filters, sorts, Back; S25), citations to originals in the real viewer, keyboard and Back (BA-14),
 // titles (BA-16), the 42 extension points (BA-18), source routes (BA-09) and date basis (BA-04).
+import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DISABLED_FEATURES, frameEvaluator, launch } from '../lib/cdp.mjs';
 import { nextPopup, openPage, sleep } from './browser.mjs';
@@ -404,12 +405,37 @@ export async function sourceRoutes(ctx) {
 	const present = await A.o(`/o/${main.resultsVersion}/${neg.goneRef}/${name}?download=1`);
 	await p.goto(`${A.v(neg.resultsVersion)}/overview`, ready('overview'));
 	const counts = await p.evaluate(`({ missing: document.querySelector('#count-missing')?.textContent.trim(), candidate: !!document.querySelector('#candidate-banner') })`);
+	// An original removed AFTER activation (the active main case): the document page checks the file when it renders
+	// and shows the missing state without links, the originals site answers 410, and restoring the file (the
+	// documented recovery) brings the links back.
+	const docState = `({ file: document.querySelector('section.original')?.dataset.originalState ?? null, onDisk: document.querySelector('section.original')?.dataset.onDisk ?? null,
+		route: document.querySelector('#original-state [data-route]')?.dataset.route ?? null, path: document.querySelector('#original-state code')?.title ?? null,
+		state: document.querySelector('#original-state')?.textContent.replace(/\\s+/g, ' ').trim() ?? null, open: !!document.querySelector('#open-original'), download: !!document.querySelector('#download-original'),
+		anyOriginalsLink: [...document.querySelectorAll('main a[href]')].filter((a) => a.href.startsWith(${J(A.orig)})).length })`;
+	const postDoc = `${A.v(main.resultsVersion)}/doc/OD-002`;
+	await p.goto(postDoc, docReady('OD-002'));
+	const post = { before: await p.evaluate(docState) };
+	const postFile = join(main.caseDir, ...post.before.path.split('/'));
+	const postBytes = readFileSync(postFile);
+	rmSync(postFile);
+	try {
+		await p.goto(postDoc, docReady('OD-002'));
+		post.removed = await p.evaluate(docState);
+		const r = await A.o(`/o/${main.resultsVersion}/OD-002/${encodeURIComponent(post.before.path.split('/').pop())}`);
+		post.originals = { status: r.status, text: r.text.slice(0, 80) };
+	} finally { writeFileSync(postFile, postBytes); }
+	await p.goto(postDoc, docReady('OD-002'));
+	post.restored = await p.evaluate(docState);
+	const postOk = post.before.file === 'present' && post.before.open && post.before.download && post.before.onDisk === null &&
+		post.removed.file === 'missing' && post.removed.onDisk === 'unavailable' && post.removed.route === 'unavailable' && /missing on disk/.test(post.removed.state) &&
+		!post.removed.open && !post.removed.download && post.removed.anyOriginalsLink === 0 && post.originals.status === 410 && post.originals.text === 'original not available: missing on disk' &&
+		post.restored.file === 'present' && post.restored.open && post.restored.download && post.restored.onDisk === null;
 	const ok = em.route === 'direct' && /^Direct original/.test(em.state) && em.presentation === 'text' && em.open?.startsWith(`${A.orig}/o/${main.resultsVersion}/EM-0001/`) &&
 		em.attachments.length === 3 && em.attachments.every((x) => x.route === 'parent' && x.href === em.open) &&
 		opened.origin === A.orig && opened.contentType === 'text/plain' && /^From: a@example\.invalid/.test(opened.text ?? '') &&
 		rep.verdict === 'report' && rep.codes.ORIG_MISSING === 'warning' && miss.route === 'unavailable' && /^Original missing/.test(miss.state) && miss.file === 'missing' && !miss.download && !miss.open && miss.anyOriginalsLink === 0 &&
-		o410.status === 410 && /^original not available/.test(o410.text) && present.status === 200 && counts.missing === '1' && counts.candidate;
-	return { pass: ok, evidence: { email: em, openedParent: opened, negative: { report: { verdict: rep.verdict, ORIG_MISSING: rep.codes.ORIG_MISSING }, doc: miss, originalsStatus: o410.status, originalsBody: o410.text.slice(0, 80), sameRefInMainCase: present.status, overview: counts } } };
+		o410.status === 410 && /^original not available/.test(o410.text) && present.status === 200 && counts.missing === '1' && counts.candidate && postOk;
+	return { pass: ok, evidence: { email: em, openedParent: opened, negative: { report: { verdict: rep.verdict, ORIG_MISSING: rep.codes.ORIG_MISSING }, doc: miss, originalsStatus: o410.status, originalsBody: o410.text.slice(0, 80), sameRefInMainCase: present.status, overview: counts }, removedAfterActivation: post } };
 }
 
 /**

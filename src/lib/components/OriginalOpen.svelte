@@ -5,7 +5,8 @@
 	// browsing context without opener or referrer; they carry the server's link capability.
 	import { displayFilename } from '../case-package/browser.ts';
 	import type { DocumentStateRow, OriginalLinks } from '../local-case/model.ts';
-	let { state, links, page = null, parentHref = null }: { state: DocumentStateRow; links: OriginalLinks; page?: number | null; parentHref?: string | null } = $props();
+	// onDisk: why an original that was present at import cannot be served now (checked when the page renders), or null
+	let { state, links, onDisk = null, page = null, parentHref = null }: { state: DocumentStateRow; links: OriginalLinks; onDisk?: string | null; page?: number | null; parentHref?: string | null } = $props();
 	const o = $derived(state.original);
 	const label = $derived(
 		links.presentation === 'viewer' ? 'PDF, shown in the isolated ClearCase viewer (scripts in the file never run)'
@@ -15,9 +16,13 @@
 	);
 </script>
 
-<section class="original" aria-labelledby="original-heading" data-original-state={state.file} data-presentation={links.presentation ?? 'none'}>
+<section class="original" aria-labelledby="original-heading" data-original-state={onDisk && state.file === 'present' ? 'missing' : state.file} data-on-disk={onDisk ? 'unavailable' : null} data-presentation={links.presentation ?? 'none'}>
 	<h2 id="original-heading">Original</h2>
-	{#if state.file === 'present' && o}
+	{#if state.file === 'present' && o && onDisk}
+		<p class="missing" id="original-state"><span class="route" data-route="unavailable">Original missing on disk</span>:
+			<code class="wrap" title={o.path}>{displayFilename(o.path, 160)}</code> was verified when this results version was imported, but it is not available now ({onDisk}), so it is not served.
+			Restore the file at that path in the case folder, or import a new results package.</p>
+	{:else if state.file === 'present' && o}
 		<p id="original-state">
 			<span class="route" data-route="direct">Direct original</span>:
 			<code class="wrap" title={o.path}>{displayFilename(o.path, 160)}</code>

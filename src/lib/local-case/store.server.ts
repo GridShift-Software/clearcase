@@ -235,6 +235,9 @@ export class CaseStore {
 	document(id: string, ref: string): DocumentRowW | undefined {
 		return this.d.prepare('SELECT ref, ord, row_json, state_json, attachments_json FROM document WHERE version_id = ? AND ref = ?').get(id, ref) as DocumentRowW | undefined;
 	}
+	documentCount(id: string): number {
+		return (this.d.prepare('SELECT count(*) AS n FROM document WHERE version_id = ?').get(id) as { n: number }).n;
+	}
 	/** Which of `refs` are documents of the version (for citation resolution). */
 	existingRefs(id: string, refs: readonly string[]): Set<string> {
 		const rows = this.d.prepare('SELECT ref FROM document WHERE version_id = ? AND ref IN (SELECT value FROM json_each(?))').all(id, JSON.stringify(refs)) as { ref: string }[];

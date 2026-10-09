@@ -1,6 +1,7 @@
 import { error, fail } from '@sveltejs/kit';
 import { app, originals } from '$lib/local-case/app.server';
-import type { AttachmentRow, DocumentStateRow, OriginalLinks } from '$lib/local-case/model';
+import { documentRow } from '$lib/local-case/documents.server';
+import type { AttachmentRow, OriginalLinks } from '$lib/local-case/model';
 import { OriginalsServer } from '$lib/local-case/originals.server';
 import { UserWorkError } from '$lib/local-case/user-work.server';
 import type { Actions, PageServerLoad } from './$types';
@@ -11,23 +12,32 @@ export const load: PageServerLoad = async ({ params, parent, url }) => {
 	const { version } = await parent();
 	const a = app();
 	const o = originals();
-	const d = a.store.document(version.id, params.ref);
-	if (!d) error(404, `No document ${params.ref.slice(0, 40)} in this results version`);
-	const row = JSON.parse(d.row_json) as Record<string, unknown>;
-	const state = JSON.parse(d.state_json) as DocumentStateRow;
+	// through the document-row contract: an imported ref is always the imported document; provider rows have pages too
+	const r = documentRow(a.store, version.id, params.ref);
+	if (!r) error(404, `No document ${params.ref.slice(0, 40)} in this results version`);
+	const d = r.source === 'results' ? a.store.document(version.id, r.ref)! : null;
+	const row = r.row;
+	const state = r.state;
 	const pageNo = Number(url.searchParams.get('page'));
-	const linksFor = (key: string): OriginalLinks => {
+	// Links only to an original that is on disk now: the same cheap check the originals site makes before hashing
+	// (folder, existence, links, size). An original removed after import shows its missing state, not dead links.
+	const NONE: OriginalLinks = { presentation: null, open: null, download: null, viewer: null };
+	const linksFor = async (key: string): Promise<{ links: OriginalLinks; onDisk: string | null }> => {
 		const asset = a.store.assetForServe(version.id, key);
-		if (!asset?.real_path || (asset.status !== 'verified' && asset.status !== 'case-mismatch')) return { presentation: null, open: null, download: null, viewer: null };
+		if (!asset?.real_path || asset.size === null || (asset.status !== 'verified' && asset.status !== 'case-mismatch')) return { links: NONE, onDisk: null };
+		const gone = await OriginalsServer.availability({ ...asset, real_path: asset.real_path, size: asset.size });
+		if (gone) return { links: NONE, onDisk: gone.reason };
 		const name = asset.real_path.slice(asset.real_path.lastIndexOf('/') + 1);
-		return { presentation: OriginalsServer.presentation(asset), open: o.originalHref(version.id, key, name), download: o.downloadHref(version.id, key, name), viewer: o.viewerHref(version.id, key) };
+		return { links: { presentation: OriginalsServer.presentation(asset), open: o.originalHref(version.id, key, name), download: o.downloadHref(version.id, key, name), viewer: o.viewerHref(version.id, key) }, onDisk: null };
 	};
-	const attachments = (JSON.parse(d.attachments_json) as AttachmentRow[]).map((x) => ({ ...x, hasDocument: !!a.store.document(version.id, x.key), links: x.route === 'direct' ? linksFor(x.key) : null }));
+	const attachments = d ? await Promise.all((JSON.parse(d.attachments_json) as AttachmentRow[]).map(async (x) => ({ ...x, hasDocument: !!a.store.document(version.id, x.key), links: x.route === 'direct' ? (await linksFor(x.key)).links : null }))) : [];
+	const own = d ? await linksFor(d.ref) : { links: NONE, onDisk: null };
 	const refs = Array.isArray(row.refs) ? row.refs.map(str) : [];
 	const parentRef = state.self?.parentRef ?? (typeof row.pr === 'string' ? row.pr : null);
 	const existing = a.store.existingRefs(version.id, [...refs, ...(parentRef ? [parentRef] : [])]);
 	return {
-		ref: d.ref,
+		ref: r.ref,
+		source: r.source,
 		fields: {
 			date: str(row.date), dateType: typeof row.date_type === 'string' ? row.date_type : null, dateSource: typeof row.date_source === 'string' ? row.date_source : null,
 			subject: str(row.subject), filename: str(row.filename), docType: str(row.doc_type), bundle: str(row.bundle), sender: str(row.sender), to: str(row.to), cc: str(row.cc),
@@ -35,13 +45,14 @@ export const load: PageServerLoad = async ({ params, parent, url }) => {
 			alsoIn: Array.isArray(row.also_in) ? row.also_in.map(str) : [], attachmentNames: Array.isArray(row.attachments) ? row.attachments.map(str) : [], excerpt: str(row.excerpt),
 		},
 		state,
-		links: linksFor(d.ref),
+		links: own.links,
+		onDisk: own.onDisk,
 		page: Number.isInteger(pageNo) && pageNo > 0 && pageNo < 1e6 ? pageNo : null,
 		attachments,
-		children: a.store.childDocuments(version.id, d.ref).map((c) => c.ref),
+		children: d ? a.store.childDocuments(version.id, d.ref).map((c) => c.ref) : [],
 		related: refs.map((r) => ({ ref: r, exists: existing.has(r) })),
 		parent: parentRef ? { ref: parentRef, exists: existing.has(parentRef) } : null,
-		notes: a.userWork.notesFor(version.caseId, version.id, d.ref),
+		notes: a.userWork.notesFor(version.caseId, version.id, r.ref),
 	};
 };
 

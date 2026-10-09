@@ -4,6 +4,7 @@
 	import OverviewSlots from '$lib/components/OverviewSlots.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import CitationLink from '$lib/components/CitationLink.svelte';
+	import DegradedRows from '$lib/components/DegradedRows.svelte';
 	import { money, plural } from '$lib/components/format';
 	import { grouped, viewHref, blockedBy } from '$lib/components/views';
 	let { data, form } = $props();
@@ -20,6 +21,7 @@
 
 <main id="main" tabindex="-1" data-ready={ready ? 'overview' : null}>
 	<PageHeader heading="Overview" section="Overview" caseName={data.version.caseName} subtitle={o.matter?.title || data.version.caseName} />
+	<DegradedRows failed={data.documents.failed} />
 	<p>Results version <code class="wrap">{vid}</code>, produced {o.created} by {o.producer} from {o.inputKind} input.</p>
 	{#if data.previous}
 		<form method="POST" action="?/rollback" id="rollback-form">
@@ -32,8 +34,8 @@
 
 	<div class="grid">
 		<section class="card" aria-labelledby="kpi-docs"><h2 id="kpi-docs">Documents indexed</h2>
-			<p class="num" id="count-documents" data-count={c.documents}>{c.documents.toLocaleString('en')}</p>
-			<p><small>Counted from the validated register{claim('docCount') !== null ? `; the source claims ${claim('docCount')}` : ''}. {plural(t.byBundle.length, 'bundle')}.</small></p></section>
+			<p class="num" id="count-documents" data-count={data.documents.total}>{data.documents.total.toLocaleString('en')}</p>
+			<p><small>Counted from the validated register{data.documents.provided ? ` (${data.documents.imported.toLocaleString('en')}) plus ${plural(data.documents.provided, 'row')} from document-row providers` : ''}{claim('docCount') !== null ? `; the source claims ${claim('docCount')}` : ''}. {plural(t.byBundle.length, 'bundle')}.</small></p></section>
 		<section class="card" aria-labelledby="kpi-due"><h2 id="kpi-due">Amount due (to date)</h2>
 			{#if o.quantum}<p class="num" id="amount-due">{money(o.quantum.headlineDue) || '—'}</p><p><small>{o.quantum.headlineRef}{o.quantum.headlineDate ? ` · as at ${o.quantum.headlineDate}` : ''} (source value)</small></p>{:else}<p>Not in this package.</p>{/if}</section>
 		<section class="card" aria-labelledby="kpi-inv"><h2 id="kpi-inv">Invoices</h2><p class="num" id="count-invoices">{(o.quantum?.invoiceCount ?? c.invoices).toLocaleString('en')}</p><p><small>{c.invoices.toLocaleString('en')} register rows of type invoice</small></p></section>

@@ -638,7 +638,7 @@ receipt_is "no-bun doctor receipt is FAIL" FAIL 1
 reason_has "the no-bun receipt names bun" "bun: not found on PATH"
 fake_bun old 1.3.9
 run "doctor fails on bun 1.3.9 on PATH" 1 env -u CLEARCASE_BUN PATH="$WORK/bun-old:$PATH" "$TOOLS/doctor"
-has "doctor names the old bun and the minimum" "FAIL     bun            1.3.9 at $WORK/bun-old/bun is older than 1.4.2, the minimum from MIN_BUN"
+has "doctor names the old bun and the minimum" "FAIL     bun            1.3.9 at $WORK/bun-old/bun is older than 1.4.2, the minimum from packageManager in package.json"
 has "doctor gives the upgrade fix" "fix: run bun upgrade --stable"
 has "the old bun is the only failure" "required checks passed, 1 failed."
 receipt_check "the old-bun receipt lists the bun it checked" 'any(t["name"] == "bun" and t["path"].endswith("/bun-old/bun") and t["version"] == "1.3.9" for t in r["tools"])'
@@ -668,7 +668,7 @@ run "a bun whose --version fails fails the doctor" 1 env -u CLEARCASE_BUN PATH="
 has "the doctor names the failed bun probe" "FAIL     bun            \`$WORK/bun-failing/bun --version\` exited 1: synthetic failure of bun --version"
 fake_bun ok 1.4.2
 run "doctor passes with bun 1.4.2 on PATH" 0 env -u CLEARCASE_BUN PATH="$WORK/bun-ok:$PATH" "$TOOLS/doctor"
-has "the bun row passes at the minimum" "PASS     bun            1.4.2 at $WORK/bun-ok/bun; the app needs >= 1.4.2 (MIN_BUN"
+has "the bun row passes at the minimum" "PASS     bun            1.4.2 at $WORK/bun-ok/bun; the app needs >= 1.4.2 (packageManager in package.json)"
 receipt_is "the passing doctor receipt is PASS" PASS 0
 fake_bun newer 1.10.0
 run "doctor compares Bun versions as numbers" 0 env -u CLEARCASE_BUN PATH="$WORK/bun-newer:$PATH" "$TOOLS/doctor"

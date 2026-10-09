@@ -100,3 +100,32 @@ describe('SSR readers with a degraded document-row provider', () => {
 		});
 	});
 });
+
+describe('SSR pages: import-time and parent-original states', () => {
+	it('labels the overview originals counts as checked at import, with the import time', async () => {
+		const ov = await get(`${v()}/overview`);
+		const storedAt = lc.store.getVersion(rv)!.stored_at;
+		expect(ov.text).toMatch(new RegExp(`id="originals-checked"[^]*?Checked when this version was imported[^]*?<time datetime="${storedAt.replace(/[.+]/g, '\\$&')}"`));
+	});
+
+	it('a container whose original is missing on disk says its embedded attachments are unavailable', async () => {
+		const page = `${v()}/doc/EM-0001`;
+		const before = (await get(page)).text;
+		expect(before).toMatch(/data-route="parent"[^]*?the parent original<\/a> to reach it/);
+		const { original } = JSON.parse(lc.store.document(rv, 'EM-0001')!.state_json) as DocumentStateRow;
+		const file = path.join(caseDir, ...original!.path.split('/'));
+		const bytes = readFileSync(file);
+		rmSync(file);
+		try {
+			const after = await get(page);
+			expect(after.status).toBe(200);
+			const rows = [...after.text.matchAll(/<li data-attachment="[^"]*" data-route="parent">([^]*?)<\/li>/g)].map((m) => m[1]!);
+			expect(rows.length).toBeGreaterThan(0);
+			for (const r of rows) {
+				expect(r).toContain('data-parent="unavailable"');
+				expect(r).toContain('the parent original is unavailable');
+				expect(r).not.toContain('to reach it');
+			}
+		} finally { writeFileSync(file, bytes); }
+	});
+});

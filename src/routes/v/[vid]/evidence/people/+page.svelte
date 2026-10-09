@@ -21,7 +21,7 @@
 				{#each ps as x, i (i)}
 					<tr data-automated={looksAutomated(x.email) ? 'true' : null}>
 						<td>{x.name}</td>
-						<td class="mono">{x.email}{#if looksAutomated(x.email)}<small class="hint"> automated address</small>{/if}</td>
+						<td class="mono"><span class="addr">{x.email}</span>{#if looksAutomated(x.email)}<small class="hint">automated address</small>{/if}</td>
 						<td>{x.org || '—'}</td>
 						{#if showRole}<td>{x.role}</td>{/if}
 						<td class="num">{x.sent}</td><td class="num">{x.received}</td><td class="num">{x.total}</td>

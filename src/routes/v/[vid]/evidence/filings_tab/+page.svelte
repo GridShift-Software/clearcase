@@ -21,7 +21,7 @@
 	const message = $derived(transportError ?? failed?.message ?? null);
 	// A failure keeps the form as typed (no reset); a lost connection does not replace the page with an error page.
 	const keep: SubmitFunction = () => async ({ result, update }) => {
-		if (result.type === 'error') { transportError = 'The register could not be saved: the app did not answer. Your entry is kept below; try again.'; return; }
+		if (result.type === 'error') { transportError = `The register could not be saved: ${result.status ? 'the app reported an error' : 'the app did not answer'}. Your entry is kept below; try again.`; return; }
 		transportError = null;
 		await update({ reset: result.type === 'success' || result.type === 'redirect' });
 	};

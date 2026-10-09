@@ -11,7 +11,9 @@ export function loadersFrom(mods: Record<string, Record<string, unknown>>): Read
 }
 const registered = loadersFrom(modules);
 
-/** How long the overview waits for one slot loader before showing that slot's error state. */
+/** How long the overview waits for one slot loader before showing that slot's error state. It bounds waiting on a
+ *  pending promise only: a loader that computes synchronously (node:sqlite reads are synchronous) blocks the server
+ *  until it returns, so loaders must stay within the overview budget themselves. */
 export const SLOT_LOADER_TIMEOUT_MS = 5_000;
 /** How deeply slot data may nest (devalue, SvelteKit's serializer, recurses and overflows the stack far deeper). */
 export const MAX_SLOT_DATA_DEPTH = 100;

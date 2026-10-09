@@ -618,4 +618,25 @@ describe('gate round 2: explicit table scope and typed restore failures (HARDEN-
 		expect(await code(uw.defineTable({ name: 'oob5', owner: 'GRS-17', description: '', columns: [{ name: 'x', type: 'BLOB' }], primaryKey: ['x'] }))).toBe('table-conflict');
 		expect(uw.tables().filter((t) => t.name.toLowerCase() === 'oob5').map((t) => [t.name, t.kind])).toEqual([['Oob5', 'unregistered']]);
 	});
+
+	it('R2-6 providers: the validated row is the copied one, a thrown unprintable value stays isolated, refs are well-formed', async () => {
+		const { lc, c } = await setup('r2prov');
+		let reads = 0;
+		const stateful = { ref: 'RS-900', row: {}, state: providerState, get list() { return providerList(reads++ === 0 ? 'RS-900' : 'OD-001'); } };
+		undo.push(registerDocumentRowProvider({ id: 'getter', owner: 'GRS-20', revision: () => 'g', rows: () => { reads = 0; return [stateful as never]; } }));
+		const unprintable = Object.create(null);
+		const throwsOnRead = { ref: 'RS-910', row: {}, list: providerList('RS-910'), state: providerState };
+		Object.defineProperty(throwsOnRead, 'row', { enumerable: true, get() { throw unprintable; } });
+		undo.push(registerDocumentRowProvider({ id: 'rows', owner: 'GRS-20', revision: () => 'r', rows: () => [throwsOnRead as never, { ref: 'RS-911', row: {}, list: providerList('RS-911'), state: providerState }, { ref: 'RS-\ud800', row: {}, list: providerList('RS-\ud800'), state: providerState }] }));
+		undo.push(registerDocumentRowProvider({ id: 'broken', owner: 'GRS-20', revision: () => { throw unprintable; }, rows: () => [] }));
+		const r = documentRows(lc.store, c.resultsVersion);
+		expect(r.rows.filter((x) => x.source !== 'results').map((x) => [x.ref, x.list.ref])).toEqual([['RS-900', 'RS-900'], ['RS-911', 'RS-911']]);
+		expect((JSON.parse(listJson(lc.store, c.resultsVersion)!.json) as ChronologyListRow[]).filter((x) => x.ref === 'OD-001')).toHaveLength(1);
+		expect(r.dropped).toEqual([
+			{ source: 'provider:rows', ref: 'RS-910', reason: 'malformed row: a value that cannot be shown as text was thrown' },
+			{ source: 'provider:rows', ref: '#2', reason: 'malformed row: ref is not well-formed Unicode' },
+		]);
+		expect(r.failed).toEqual([{ source: 'provider:broken', owner: 'GRS-20', reason: expect.any(String) }]);
+		expect(documentCounts(lc.store, c.resultsVersion)).toMatchObject({ provided: 2 });
+	});
 });

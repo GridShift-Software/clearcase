@@ -17,8 +17,10 @@
 // covered by the register), or an isolation breach (a v5 or app network request, a canary hit, a changed fixture
 // tree). 2: setup error (arguments, fixture locator, register, including a whole-view owner that is not the view
 // registry's, an --out overlapping a fixture input or holding a symlink where it writes, build, offline proof, and a
-// stale build: one whose stamp is not HEAD's, or made from or run on a tree with modified tracked files, unless
-// --allow-stale-build, which runs it with `evidence: false` in the scorecard; tests/e2e/pilot/lib/fresh-build.ts).
+// stale build: one whose stamp is not HEAD's, not made in this repository's own build/ (an --app-root build is never
+// evidence), or made from or run on a tree with modified or untracked (not ignored) files, unless --allow-stale-build,
+// which runs it with `evidence: false` in the scorecard and NOT EVIDENCE in the final status line;
+// tests/e2e/pilot/lib/fresh-build.ts).
 //
 // Isolation: outside the network namespace the runner re-execs itself through tests/e2e/pilot/offline.sh under
 // `unshare -rn` (tests/e2e/pilot/v5/env.mjs ensureOffline); inside, it proves that only loopback exists before it
@@ -56,9 +58,9 @@ if (rawLocator) try { checkOutput(out, locatorInputs(rawLocator, { appV5Html }),
 // files (exit 2 otherwise, unless --allow-stale-build); a missing build is the setup error further down
 const appRoot = resolve(opt('app-root') ?? REPO);
 const buildDir = join(appRoot, 'build');
-const { allowStale, evidenceRecord, freshLine, freshness, refusal } = await import('../../tests/e2e/pilot/lib/fresh-build.ts');
+const { allowStale, evidenceRecord, evidenceSuffix, freshLine, freshness, refusal } = await import('../../tests/e2e/pilot/lib/fresh-build.ts');
 const stampFile = join(buildDir, 'clearcase-build.json');
-const fresh = freshness(REPO, existsSync(stampFile) ? JSON.parse(readFileSync(stampFile, 'utf8')) : null);
+const fresh = freshness(REPO, existsSync(stampFile) ? JSON.parse(readFileSync(stampFile, 'utf8')) : null, { buildDir });
 const allowedStale = allowStale(argv);
 if (existsSync(stampFile) && !fresh.fresh && !allowedStale) setup(refusal('parity', fresh).replace(/^parity: /, ''));
 
@@ -90,6 +92,10 @@ if (!existsSync(join(buildDir, 'handler.js')) || !existsSync(join(buildDir, 'cle
 const stamp = JSON.parse(readFileSync(join(buildDir, 'clearcase-build.json'), 'utf8'));
 const { VIEWS } = await import(join(appRoot, 'src', 'lib', 'components', 'view-registry.ts'));
 const registry = Object.fromEntries(VIEWS.map((v) => [v.id, v]));
+// a view whose owner route exists in the app tree is implemented, whatever the registry status says (it flips only
+// after the owner's gate): it must have an adapter that extracts it
+const { implementedViews } = await import('../../tests/e2e/pilot/lib/implemented.mjs');
+const implemented = implementedViews(appRoot, VIEWS);
 const adapters = {};
 for (const f of readdirSync(join(import.meta.dirname, 'adapters', 'app')).filter((f) => f.endsWith('.mjs') && !f.startsWith('_'))) {
 	const a = (await import(join(import.meta.dirname, 'adapters', 'app', f))).default;
@@ -147,8 +153,8 @@ try {
 		} else if (a) {
 			try { sa = await a.extract(app, ctx); for (const sw of Object.keys(s5.sweeps)) if (!sa.sweeps[sw]) sa.sweeps[sw] = a.sweeps?.[sw] ? await a.sweeps[sw](app, ctx) : undefined; for (const k of Object.keys(sa.sweeps)) if (sa.sweeps[k] === undefined) delete sa.sweeps[k]; }
 			catch (e) { sa = { ...emptySnapshot(view, 'app', 'error'), error: String(e.stack ?? e).slice(0, 800) }; }
-			sa = appFromAdapter(view, registry, sa);
-		} else sa = appWithoutAdapter(view, registry);
+			sa = appFromAdapter(view, registry, sa, implemented);
+		} else sa = appWithoutAdapter(view, registry, implemented);
 		const r = classify(view, diff(s5, sa), reg.entries, { approvedOnly: flag('approved-only') });
 		perView[view] = { ...r, v5Status: s5.status, appStatus: sa.status, ms: Math.round(performance.now() - tv) };
 		details[view] = { view, v5Status: s5.status, v5Error: s5.error ?? null, appStatus: sa.status, appError: sa.error ?? null, owner: sa.owner ?? null, compared: r.compared, matched: r.matched, unregistered: r.unregistered, registered: r.registered };
@@ -201,5 +207,5 @@ writeFileSync(at('scorecard.md'), [
 	'| View | Status | Compared | Matched | Registered | Pending approval | Unregistered |', '| --- | --- | --: | --: | --: | --: | --: |',
 	...Object.entries(sc.views).map(([v, x]) => `| ${v} | ${x.status} | ${x.compared} | ${x.matched} | ${Object.values(x.registered).reduce((a, b) => a + b, 0)} | ${x.pendingApproval} | ${x.unregistered} |`), '',
 ].join('\n'));
-console.log(`parity: ${sc.result} (exit ${exitCode})${sc.evidence ? '' : ' [evidence: false, stale build]'}: ${T.views} views, ${T.compared} values compared, ${T.matched} matched, ${Object.values(T.registered).reduce((a, b) => a + b, 0)} registered, ${T.unregistered} unregistered; ${sc.seconds} s -> ${out}`);
+console.log(`parity: ${sc.result} (exit ${exitCode})${evidenceSuffix(sc)}: ${T.views} views, ${T.compared} values compared, ${T.matched} matched, ${Object.values(T.registered).reduce((a, b) => a + b, 0)} registered, ${T.unregistered} unregistered; ${sc.seconds} s -> ${out}`);
 process.exit(exitCode);

@@ -1,9 +1,10 @@
 // Overview tiles and slot plug-ins (scripts/parity/adapters/app/_shell.mjs, overview.mjs): readOverviewTiles returns
-// the seven tiles under v5's labels; a filled slot with a plug-in (adapters/app/slots/<slot-id>.mjs) is read by it;
-// the overview's seeded_user_work sweep seeds through every plug-in, reads the tiles and cleans up, also on failure.
-// Without a plug-in the output is what the adapter produced before. A fake page and fake plug-ins in a temp folder;
-// nothing touches the repository.
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+// the seven tiles under v5's labels; a filled slot is read by its plug-in (adapters/app/slots/<slot-id>.mjs), which
+// must leave the page on the overview, and a filled slot without one is an error; the overview's seeded_user_work
+// sweep seeds through every plug-in, reads the tiles and runs every cleanup, also on failure, and the tiles after
+// cleanup must equal those before seeding. Without a plug-in the output is what the adapter produced before. A fake
+// page and fake plug-ins in a temp folder; nothing touches the repository.
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
@@ -23,12 +24,14 @@ function fakePage(status: Record<string, string> = {}) {
 	const p = {
 		visits,
 		goto: async (url: string) => { visits.push(url); },
+		/** where the page is: the last goto */
+		at: () => visits.at(-1) ?? '',
 		settled: async () => {},
 		extract: async () => ({
 			h1: ['Overview'], tables: [], paragraphs: [], lists: [], controls: [],
 			kpis: [kpi('Documents indexed', '12', 'synthetic'), kpi('Amount due (to date)', 'R 1.00', 'a'), kpi('Invoices', '2', 'b'), kpi('Contradiction flags', '0', 'c'), kpi('Without extracted text', '1', 'd')],
 		}),
-		evaluate: async () => [
+		evaluate: async (expr: string) => expr.startsWith('location.pathname') ? p.at().endsWith('/overview') : [
 			{ id: 'deadlines', status: status.deadlines ?? 'unavailable', label: 'Open deadlines', text: status.deadlines === 'filled' ? '4 widget' : UNFILLED('GRS-17', 'CC-07') },
 			{ id: 'unbilled-time', status: status['unbilled-time'] ?? 'unavailable', label: 'Unbilled time', text: UNFILLED('GRS-17', 'CC-07') },
 			{ id: 'rescan-freshness', status: status['rescan-freshness'] ?? 'unavailable', label: 'Freshness', text: UNFILLED('GRS-20', 'CC-10') },
@@ -39,14 +42,14 @@ function fakePage(status: Record<string, string> = {}) {
 const ctxWith = (plugins: Map<string, SlotPlugin>) => ({ base: '/v/x', clock: CLOCK, slotPlugins: plugins });
 
 /** A fake deadlines plug-in recording its calls; `rows` is what the seed received. */
-function fakeDeadlines({ failRead = false } = {}) {
+function fakeDeadlines({ failRead = false, leak = false, failCleanup = false, navigate = false } = {}) {
 	const log: string[] = [];
 	const state = { rows: 0 };
 	const pl: SlotPlugin & { log: string[]; state: typeof state } = {
 		log, state,
 		seed: async (_p, _c, rows) => { log.push('seed'); state.rows = (rows as ReturnType<typeof seededUserWork>).ess_dcs_deadlines_v1.length; },
-		read: async () => { log.push('read'); if (failRead) throw new Error('synthetic read failure'); return { value: String(state.rows), sub: 'synthetic caption' }; },
-		cleanup: async () => { log.push('cleanup'); state.rows = 0; },
+		read: async (p) => { log.push('read'); if (failRead && state.rows) throw new Error('synthetic read failure'); if (navigate) await (p as ReturnType<typeof fakePage>).goto('/v/x/deadlines'); return { value: String(state.rows), sub: 'synthetic caption' }; },
+		cleanup: async () => { log.push('cleanup'); if (failCleanup) throw new Error('synthetic cleanup failure'); if (!leak) state.rows = 0; },
 	};
 	return pl;
 }
@@ -67,6 +70,12 @@ describe('readOverviewTiles', () => {
 		expect((await readOverviewTiles(fakePage(), ctxWith(new Map([['deadlines', pl]]))))['Open deadlines']).toEqual({ value: UNFILLED('GRS-17', 'CC-07'), sub: '' });
 		expect(pl.log).toEqual(['read']);
 	});
+	test('a filled slot without a plug-in is an error naming the plug-in to add', async () => {
+		await expect(readOverviewTiles(fakePage({ deadlines: 'filled' }), ctxWith(new Map()))).rejects.toThrow('overview slot deadlines is filled but has no parity plug-in: add scripts/parity/adapters/app/slots/deadlines.mjs');
+	});
+	test("a plug-in's read() that leaves the overview is an error", async () => {
+		await expect(readOverviewTiles(fakePage({ deadlines: 'filled' }), ctxWith(new Map([['deadlines', fakeDeadlines({ navigate: true })]])))).rejects.toThrow(/slot plug-in deadlines left the overview/);
+	});
 });
 
 describe('the seeded_user_work sweep', () => {
@@ -80,10 +89,10 @@ describe('the seeded_user_work sweep', () => {
 		});
 		expect(Object.keys(out)[0]).toBe('Documents indexed.value');
 	});
-	test("with a plug-in: seed with seededUserWork(clock), read the tiles, then clean up", async () => {
+	test("with a plug-in: read the tiles, seed with seededUserWork(clock), read them, clean up and read them again", async () => {
 		const pl = fakeDeadlines();
 		const out = await overview.sweeps.seeded_user_work(fakePage({ deadlines: 'filled' }), ctxWith(new Map([['deadlines', pl]])));
-		expect(pl.log).toEqual(['seed', 'read', 'cleanup']);
+		expect(pl.log).toEqual(['read', 'seed', 'read', 'cleanup', 'read']);
 		expect(out['Open deadlines.value']).toBe(String(seededUserWork(CLOCK).ess_dcs_deadlines_v1.length));
 		expect(out['Open deadlines.sub']).toBe('synthetic caption');
 		expect(pl.state.rows).toBe(0);
@@ -91,7 +100,21 @@ describe('the seeded_user_work sweep', () => {
 	test('cleanup runs even when the read fails', async () => {
 		const pl = fakeDeadlines({ failRead: true });
 		await expect(overview.sweeps.seeded_user_work(fakePage({ deadlines: 'filled' }), ctxWith(new Map([['deadlines', pl]])))).rejects.toThrow(/synthetic read failure/);
-		expect(pl.log).toEqual(['seed', 'read', 'cleanup']);
+		expect(pl.log).toEqual(['read', 'seed', 'read', 'cleanup']);
+	});
+	test('a cleanup that leaves seeded work behind fails the sweep', async () => {
+		const pl = fakeDeadlines({ leak: true });
+		await expect(overview.sweeps.seeded_user_work(fakePage({ deadlines: 'filled' }), ctxWith(new Map([['deadlines', pl]])))).rejects.toThrow(/tiles after cleanup differ from those before seeding .*make each slot plug-in's cleanup/);
+	});
+	test('every cleanup runs in its own try, and the first error is rethrown', async () => {
+		const first = fakeDeadlines({ failCleanup: true }), second = fakeDeadlines({ failCleanup: true });
+		const third = fakeDeadlines();
+		const plugins = new Map([['deadlines', first], ['unbilled-time', second], ['rescan-freshness', third]]);
+		const err = await overview.sweeps.seeded_user_work(fakePage({ deadlines: 'filled', 'unbilled-time': 'filled', 'rescan-freshness': 'filled' }), ctxWith(plugins)).catch((e: Error) => e);
+		expect(String(err)).toMatch(/synthetic cleanup failure/);
+		// cleanups run in reverse seeding order; the failing ones do not stop the others
+		for (const pl of [first, second, third]) expect(pl.log.filter((x) => x === 'cleanup')).toEqual(['cleanup']);
+		expect(third.state.rows).toBe(0);
 	});
 });
 
@@ -108,8 +131,20 @@ describe('loadSlotPlugins', () => {
 		await expect(loadSlotPlugins(dir({ 'deadline.mjs': plugin }))).rejects.toThrow(/deadline is not an overview slot/);
 		await expect(loadSlotPlugins(dir({ 'deadlines.mjs': 'export default { read() {}, seed() {} };\n' }))).rejects.toThrow(/must export read\(p, ctx\), seed\(p, ctx, rows\) and cleanup\(p, ctx\)/);
 	});
-	test('the committed tree has no plug-in yet, so the overview behaves as before', async () => {
-		expect((await loadSlotPlugins(SLOTS_DIR)).size).toBe(0);
+	/** Every plug-in file in `d` loads (the plug-in shape, a declared slot); returns the slot ids. */
+	const checkPlugins = async (d: string) => {
+		const files = (() => { try { return readdirSync(d).filter((f) => f.endsWith('.mjs') && !f.startsWith('_')).sort(); } catch { return []; } })();
+		const m = await loadSlotPlugins(d);
+		expect([...m.keys()].sort()).toEqual(files.map((f) => f.slice(0, -'.mjs'.length)).sort());
+		for (const pl of m.values()) for (const fn of ['read', 'seed', 'cleanup'] as const) expect(typeof pl[fn]).toBe('function');
+		return [...m.keys()];
+	};
+	test("the committed tree: every plug-in file present has the plug-in shape and names a declared slot", async () => {
+		await checkPlugins(SLOTS_DIR);
 		expect((await loadSlotPlugins(join(root, 'no-such-dir'))).size).toBe(0);
+	});
+	test('the same check on a synthetic tree with a plug-in for a filled slot', async () => {
+		expect(await checkPlugins(dir({ 'deadlines.mjs': plugin }))).toEqual(['deadlines']);
+		await expect(checkPlugins(dir({ 'deadline.mjs': plugin }))).rejects.toThrow(/not an overview slot/);
 	});
 });

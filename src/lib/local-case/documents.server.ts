@@ -86,6 +86,8 @@ const validOriginal = (o: Record<string, unknown>) => typeof o.path === 'string'
 function malformed(x: unknown): string | null {
 	if (!isObject(x)) return 'not an object';
 	if (typeof x.ref !== 'string' || !x.ref) return 'ref is not a non-empty string';
+	// a lone surrogate survives the JSON copy but not encodeURIComponent, so a page linking to it would answer 500
+	if (!x.ref.isWellFormed()) return 'ref is not well-formed Unicode';
 	if (!isObject(x.row)) return 'row is not an object';
 	const l = x.list, s = x.state;
 	if (isObject(l) && l.ref !== x.ref) return 'the list entry names another ref';
@@ -96,17 +98,20 @@ function malformed(x: unknown): string | null {
 	return null;
 }
 
-const message = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 200);
+/** A thrown value as report text; total, so a value that cannot be stringified never escapes provider isolation. */
+const message = (e: unknown) => {
+	try { return String((e as Error)?.message ?? e).slice(0, 200); } catch { return 'a value that cannot be shown as text was thrown'; }
+};
 
 /** Reads a provider row's ref for a report without letting a throwing getter escape. */
 function refOf(x: unknown, i: number): string {
-	try { const ref = (x as { ref?: unknown } | null)?.ref; if (typeof ref === 'string') return ref.slice(0, 200); } catch { /* reported by index */ }
+	try { const ref = (x as { ref?: unknown } | null)?.ref; if (typeof ref === 'string' && ref.isWellFormed()) return ref.slice(0, 200); } catch { /* reported by index */ }
 	return `#${i}`;
 }
 
 /** Provider rows in registration order, minus refs already taken (imported refs first) and malformed rows; a provider
- *  whose rows() or revision() throws, or whose row list cannot be read, is isolated. Rows are copied as JSON, so
- *  readers get plain data only. */
+ *  whose rows() or revision() throws, or whose row list cannot be read, is isolated. Each row is copied as JSON first
+ *  and the copy is validated and used, so every property is read once and readers get plain, checked data only. */
 function fromProviders(caseId: string, resultsVersion: string, taken: (ref: string) => boolean) {
 	const rows: { source: DocumentSource; x: ProviderRow }[] = [];
 	const dropped: DocumentRowsResult['dropped'] = [];
@@ -126,16 +131,17 @@ function fromProviders(caseId: string, resultsVersion: string, taken: (ref: stri
 			if (!Array.isArray(xs)) throw new Error('rows() did not return an array');
 			for (let i = 0; i < xs.length; i++) {
 				let x: ProviderRow;
-				let item: unknown;
+				let item: unknown, copy: unknown;
 				try {
 					item = xs[i];
-					const bad = malformed(item);
+					if (!isObject(item)) throw new Error('not an object');
+					copy = JSON.parse(JSON.stringify({ ref: item.ref, row: item.row, list: item.list, state: item.state }));
+					const bad = malformed(copy);
 					if (bad) throw new Error(bad);
-					const { ref, row, list, state } = item as ProviderRow;
-					x = JSON.parse(JSON.stringify({ ref, row, list, state })) as ProviderRow;
+					x = copy as ProviderRow;
 				} catch (e) {
 					const m = message(e);
-					drops.push({ source, ref: refOf(item, i), reason: m === 'the list entry names another ref' ? m : `malformed row: ${m}` });
+					drops.push({ source, ref: refOf(copy ?? item, i), reason: m === 'the list entry names another ref' ? m : `malformed row: ${m}` });
 					continue;
 				}
 				if (seen.has(x.ref) || refs.has(x.ref) || taken(x.ref)) { drops.push({ source, ref: x.ref, reason: 'the ref already names a document of this version' }); continue; }

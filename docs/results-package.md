@@ -2,7 +2,7 @@
 
 GRS-10 (CC-02). A results package is the versioned, inspectable output of processing one case: datasets, an index of the originals they cite, and identities that bind both. This page is the contract. GRS-12 (CC-03) builds the local app on the library exports named in [Library API](#library-api), and GRS-11 (CC-23) gates it. Words follow [GLOSSARY.md](../GLOSSARY.md).
 
-The v5 sample (1,689 documents) converts to 36 files: 34 datasets, `assets.json` and `manifest.json`, 6.2 MB in total (largest file 1.8 MB). Originals are never copied into a package. They stay in the operator's case folder and are matched by relative path, sha256 and size.
+The v5 sample (1,689 documents) converts to 37 files: 35 datasets, `assets.json` and `manifest.json`, 6.2 MB in total (largest file 1.8 MB). Originals are never copied into a package. They stay in the operator's case folder and are matched by relative path, sha256 and size.
 
 ## Layout
 
@@ -87,7 +87,7 @@ Each dataset file is an envelope (schema `dataset-envelope.schema.json`):
 
 ### Generated data and authored analysis
 
-**Generated** datasets are reproducible from the originals by the pipeline: the document register, people, entities, quantum series, contracts and filings registers, bundles, schedules, the CaseLines page index, the build report and source metadata. They change only by re-running the pipeline, which makes a new results version. **Authored** datasets are analysis written by people: matter, risk matrix, defence matrix, info required, witnesses, contradictions, timeline events and phases, and every `lit.*` table. The split follows the raw-review field inventory (`machine_built` against the hand-authored overlay the v5 app merges at runtime).
+**Generated** datasets are reproducible from the originals by the pipeline: the document register, people, entities, quantum series, contracts and filings registers, bundles, schedules, the CaseLines page index, the build report and source metadata. Code-embedded view content (`view-content`, [below](#view-content-code-embedded-case-content)) is generated too. They change only by re-running the pipeline, which makes a new results version. **Authored** datasets are analysis written by people: matter, risk matrix, defence matrix, info required, witnesses, contradictions, timeline events and phases, and every `lit.*` table. The split follows the raw-review field inventory (`machine_built` against the hand-authored overlay the v5 app merges at runtime).
 
 Only authored datasets carry inline citation tokens (`[[REF]]`, `[[REF#p<page>]]`), bare-mention detection (`CITE_BARE_MENTION`, info) and, later, Markdown editing. The Markdown round trip (GRS-23) emits a new package with `parent` = the base `resultsVersion` and `inputRevision.kind = markdown-roundtrip`, copies generated datasets and `assets.json` byte for byte, and refuses edits whose base is not the active version. Both kinds are immutable results once imported, and neither may contain user work.
 
@@ -112,9 +112,36 @@ Only authored datasets carry inline citation tokens (`[[REF]]`, `[[REF#p<page>]]
 | `timeline-type-by-year` | `DATA.timeline.typeByYear` | generated | `source-layout` | key order of the v5 roots | generated |
 | `contracts` | `DATA.contracts` | generated | `conversion-report` | adapter diagnostics, payload line numbers, ignored code literals (optional) | generated |
 | `filings` | `DATA.filings` | generated | `v5-residual-<path>` | any unmapped `DATA` key (`V5_UNMAPPED_KEY`), schema `opaque@1`, optional | generated |
-| `contradictions` | `DATA.contradictions` | authored | | | |
+| `contradictions` | `DATA.contradictions` | authored | `view-content` | literals in the viewer code, read statically ([below](#view-content-code-embedded-case-content)), optional | generated |
 
-Every v5 dataset schema is `v5.<key>@1` and `required: true`, except `conversion-report` and residual datasets. Court-bundle item keys (`bundles.list[].items`, `rows[].key`, `catalogue` keys such as `OD-10`) are a separate namespace and are never resolved as document refs. App code literals (`NAV`, `IC`, `STORE_KEYS`, `ENF_OPTS`, `CBK`, `CBPH`, `CBHF`) are viewer code, not results; they are listed as ignored in `conversion-report`.
+Every v5 dataset schema is `v5.<key>@1` and `required: true`, except `conversion-report`, `view-content` and residual datasets. Court-bundle item keys (`bundles.list[].items`, `rows[].key`, `catalogue` keys such as `OD-10`) are a separate namespace and are never resolved as document refs. App code literals (`NAV`, `IC`, `STORE_KEYS`, `ENF_OPTS`, `CBK`, `CBPH`, `CBHF`) are viewer code, not results; they are listed as ignored in `conversion-report`. The case content inside viewer code (for example `CBHF`'s example values or the discovery caption `CAP`) is carried by `view-content`.
+
+### View content: code-embedded case content
+
+GRS-38. In the v5 sample, 23 of the 42 views show case content that the renderers hard-code instead of reading `DATA`: subtitles, KPI captions, narrative paragraphs, the case caption, deed titles and schedule ranges, file names, the CaseLines file's name, path and fallback page count, form examples and defaults. GRS-9 catalogued each item in `docs/reference/view-checklist.md`. The sample was generated by an AI pipeline, so in the real pipeline this content is pipeline output: ClearCase imports it as the dataset `view-content` (schema `v5.view-content@1`, kind `generated`, `required: false`, provenance `sourcePath` `(view-code)`) and the views render it from imported data.
+
+- **Classification.** Generated: reproducible from the case material by the pipeline like the other generated datasets, never edited by people, without inline citation tokens. A later pipeline writes it directly; for v5 the adapter reads it from the viewer code.
+- **Shape.** `data` maps a view id (the v5 navigation id, or `_shell` for the page title and brand) to named fields. A field value is plain text, a number, a list of texts, or a template `{"template": [text | {"param": name}]}` whose params the view fills from imported data (for example `docCount` from the derived document count). View ids match `^_?[a-z][a-z0-9_]{0,63}$`, field ids and param names `^[a-z][A-Za-z0-9]{0,63}$`. Every string is untrusted text: put it in a text node, or pass a narrative through `renderNarrative()`. Markup in the v5 literals is reduced to text at conversion (tags dropped, entities decoded, paragraphs separated by a blank line, the `renderNarrative` convention). Field ids that the validator treats specially keep their checks: `url` is link-checked like any other link field, in every form: a string, each list item, and a template's literal text with every param left empty. `readViewContent` applies the same link policy and never returns a value the policy rejects, also after filling a template. Hidden characters (C0 and C1 controls, every default-ignorable code point and the interlinear annotation controls) give `TEXT_CONTROL_CHARS` and are revealed by `revealInvisible`, as in every dataset.
+- **Extraction (v5).** The adapter reads the HTML as text and never executes it. `v5/js-scan.ts` tokenizes the script blocks (strings, templates, regex literals, numbers, identifiers, punctuators; the four payload lines are cut out first) and `v5/view-content.ts` applies the declarative map in `v5/view-content-map.ts`. Each map entry names a view id, a field id, its checklist evidence (`S-<view>-N` ids and v5 line numbers), a scope found by code shape (`RENDER.<view>`, a named function, a constant, or the static page markup), a selector (call argument, array or object literal path, `return` value, `x \|\| <default>`, a structural pattern over literals, or an element, attribute or element list in the markup the scope builds), the value kind, the expected template params with the source expression each must read, and whether the field is required. Anchors never match case text, and the committed map holds ids, anchors and checklist references only.
+- **Missing or ambiguous anchors** are never guessed. A required field whose anchor is absent, or whose value has another shape (code where text is expected, a different number of interpolations, an interpolation that is not exactly the expected source expression, token for token) is `V5_VIEW_CONTENT_MISSING` (warning); an anchor that matches more than once is `V5_VIEW_CONTENT_AMBIGUOUS` (warning). A function or constant scope defined more than once, or an object key given twice, is ambiguous; A `RENDER.<view>` renderer must be proven live, even when it is assigned once: every assignment must be a whole statement (after `;`, `}` or the start of its script or block, ending at `;`, `}` or the end of its script) that runs unconditionally, at top level or at the top level of an immediately invoked function whose wrapper is itself such a statement, with no `return` or `throw` before it in its block. Unbraced control flow (`if (…) RENDER.x = …`, `else`, loop heads, labels), short circuits (`c && (RENDER.x = …)`), ternaries and commas count as conditional. `RENDER.<view>` then takes its last assignment, the live renderer (v5 assigns `discovery_tab` twice, the second in an IIFE). A single assignment that may never run is missing; a repeated `RENDER.<view>` with any such assignment, or with a later assignment that is not a function body (`RENDER.x = other`, `&&=`), is ambiguous. No value is guessed from either. A template needs literal text, and a value holding a reserved private-use character (U+E000 to U+E004, the extractor's markers) is refused, whichever selector read it. The scan is linear in the size of the HTML; viewer code over 8 Mi characters (an HTML over 16 Mi), or extraction past a 20 s deadline, stops it: `V5_VIEW_CONTENT_LIMIT` (warning) and an empty `view-content` (fails closed). Either leaves the field out, and the view shows it as unavailable. An HTML without viewer code yields a `view-content` holding only the page title.
+- **Coverage.** The map extracts 83 fields from 23 views and the shell; nine catalogued items are recorded as deliberate omissions with a reason (`VIEW_CONTENT_OMISSIONS`). Every renderer of the 42 views and every mapped scope is audited for prose literals (8 words or more) that no entry consumed. They are listed by scope and line, never by text, in the `viewContent` member of the `convert --report` file, not as diagnostics, so the other datasets of a known HTML stay byte-identical. On the v5 sample 40 remain, all reviewed as UI chrome or app documentation.
+- **Identity.** Adding the dataset changed no other file of the v5 sample: the manifest without the `view-content` entry gives the accepted GRS-10 `resultsVersion` `sha256:acc6faf6dc67d3d5093a32e327ee303802d891c7541bd79f4feefb5afca8c63a`; with it, the v5 sample's `resultsVersion` is `sha256:5cc89c8b0d1440ec7c834747da0fd4e8df874be8c38706693f9f9732c398ba5e` (`inputRevision.id` unchanged). `verify:package` lane 11 checks this.
+
+#### Adding a view (M2 owners)
+
+Read code-embedded content from the dataset, never from literals in the app:
+
+```ts
+import { readViewContent, renderNarrative } from '$lib/case-package/browser';
+const vc = readViewContent(datasetOf(store, resultsVersion, 'view-content'));
+const subtitle = vc.fill('timeline', 'subtitle', { docCount: derived.documents }); // {text, missing} or null
+const narrative = vc.text('settlement_tab', 'narrative');                           // string or null
+```
+
+- `readViewContent(data)` gives `views()`, `fields(view)`, `value`, `text`, `number`, `list`, `params(view, field)` and `fill(view, field, params)`. Absent or malformed data reads as `null`; show the field as unavailable rather than falling back to a v5 literal.
+- Fill template params from imported data (derived counts, `meta`, `quantum`, …), never from constants. The map documents each param's v5 source (`expect`). `fill()` reports the params you did not supply.
+- Render values as text. A narrative paragraph goes through `renderNarrative()`.
+- The field list per view is in `v5/view-content-map.ts`. A new code-embedded value is a map entry with a code-shape anchor and its checklist reference, plus a synthetic anchor in `tests/case-package/fixtures/view-code.synthetic.js.txt`.
 
 ### The v5 adapter
 
@@ -245,7 +272,7 @@ A `.zip` of the package layout is read without extraction. The central directory
 
 ## Library API
 
-Module paths are relative to `src/lib/case-package/`. `index.ts` is the Node entry point and re-exports everything below. `browser.ts` re-exports only browser-safe modules: `render.ts`, `links.ts`, `refs.ts`, `canonical.ts`, `strict-json.ts`, `codes.ts`, `media.ts`, `paths.ts` and `user-work.ts` (their only other import is `limits.ts`); none of them imports filesystem code or a Node built-in (checked by a test that walks the import graph and bundles `browser.ts` for the browser). The library has no global state and writes only through `writePackageDir` to an explicit, empty output directory.
+Module paths are relative to `src/lib/case-package/`. `index.ts` is the Node entry point and re-exports everything below. `browser.ts` re-exports only browser-safe modules: `render.ts`, `links.ts`, `refs.ts`, `canonical.ts`, `strict-json.ts`, `codes.ts`, `media.ts`, `paths.ts`, `user-work.ts` and `view-content.ts` (their only other import is `limits.ts`); none of them imports filesystem code or a Node built-in (checked by a test that walks the import graph and bundles `browser.ts` for the browser). The library has no global state and writes only through `writePackageDir` to an explicit, empty output directory.
 
 | Export (module) | Signature and contract |
 | --- | --- |
@@ -258,7 +285,8 @@ Module paths are relative to `src/lib/case-package/`. `index.ts` is the Node ent
 | `canActivate` (`policy.ts`) | `(result: ImportResult, acknowledgement: Acknowledgement \| null, trustedBaselineFingerprints?: Iterable<string>) => {ok, reasons, newWarnings}`. Also `acknowledge(result, fingerprints, by?)`, `acceptedWarnings(result, ack, trusted)`, `newWarningFingerprints(result, trusted)`. |
 | `Acknowledgement` (`schema.ts`) | `{acknowledgement: 'clearcase.acknowledgement/1', resultsVersion, manifestSha256, diagnosticsSha256, validatorVersion, warningFingerprints[], acknowledgedBy?, at?}` |
 | `DocumentAnchor`, `SeedRow`, `SeedOverlay`, `matchAnchor`, `viewSeeds` (`user-work.ts`, browser) | Types and pure rules for user work ([User work](#user-work-seeds-and-anchors)). |
-| `convertV5` (`v5/adapter.ts`), `reassembleV5` (`v5/reassemble.ts`) | `({html: Uint8Array, htmlName, caseFolder, caseId, caseLabel?, created?, concurrency?, limits?, signal?}) => Promise<{ok, manifest, files: Map<path, bytes>, diagnostics, source, stats}>`; `reassembleV5(datasets)` rebuilds the four v5 roots. |
+| `readViewContent` (`view-content.ts`, browser) | `(data: unknown) => {views(), fields(view), value(view, field), text(…), number(…), list(…), params(…), fill(view, field, params?) => {text, missing} \| null}` over the `view-content` data ([View content](#view-content-code-embedded-case-content)). Also `VIEW_CONTENT_KEY`, `isViewValue`, `isViewTemplate` and the `ViewValue` types. |
+| `convertV5` (`v5/adapter.ts`), `reassembleV5` (`v5/reassemble.ts`) | `({html: Uint8Array, htmlName, caseFolder, caseId, caseLabel?, created?, concurrency?, limits?, signal?}) => Promise<{ok, manifest, files: Map<path, bytes>, diagnostics, source, viewContent, stats}>`; `viewContent` is the view-content coverage (`fields` with a status per map entry, `unmapped` prose literal locations). `reassembleV5(datasets)` rebuilds the four v5 roots (`view-content` and the other `(…)` datasets are not part of them). |
 | `buildPackage`, `writePackageDir` (`writer.ts`) | Shared producer: spec to exact bytes; bytes to an explicit empty directory (never overwrites). |
 | `canonicalJson`, `canonicalText` (`canonical.ts`, browser); `inputRevisionId`, `resultsVersionOf` (`hash.ts`) | The encodings and identity digests above. |
 
@@ -275,13 +303,13 @@ All app scripts run with Bun: `bun install --frozen-lockfile`, then `bun run --b
 | `convert` | `--html FILE --case-folder DIR --case-id ID --out DIR [--case-label TEXT] [--report FILE] [--concurrency N] [--no-validate]`: converts a v5 workspace HTML into a new package directory and then validates it in full against the case folder |
 | `validate` | `--package DIR\|ZIP --case-folder DIR [--report FILE] [--baseline FILE] [--activation-check [--ack FILE]] [--concurrency N] [--deadline-ms MS]` |
 | `measure` | `--ticket CC-02 --baseline REV --candidate REV [--samples 20] [--warmup 2] [--cold 3] [--baseline-median MS] [--out DIR]` |
-| `verify:package` | `--fixture-config .local/v5-verification.json --out DIR [--lanes 1,2,…]`: the ten verification lanes against the local v5 fixture |
+| `verify:package` | `--fixture-config .local/v5-verification.json --out DIR [--lanes 1,2,…]`: the eleven verification lanes against the local v5 fixture (lane 11: view content, and the accepted identity of every other file, which the fixture configuration's `accepted.resultsVersion` names) |
 
 `bun scripts/case-package/cli.ts acknowledge --report FILE --out FILE [--baseline FILE] [--by NAME]` writes an acknowledgement of a report's new warnings.
 
 - `--case-id` must match `^[a-z0-9][a-z0-9._-]{0,63}$`; it is the operator's case identity and enters `resultsVersion`. The source file name never does.
 - `--out` and `--report` may not be inside the case folder, and `--out` must not exist or be empty.
-- `--report` writes `clearcase.validation-report/1`: verdict, case id, `resultsVersion`, `manifestSha256`, `inputRevisionId`, `validatorVersion`, `diagnosticsSha256`, counts, all warning and error fingerprints and the listed diagnostics (with `--activation-check`, the decision). `--baseline` is a JSON array of trusted fingerprints.
+- `--report` writes `clearcase.validation-report/1`: verdict, case id, `resultsVersion`, `manifestSha256`, `inputRevisionId`, `validatorVersion`, `diagnosticsSha256`, counts, all warning and error fingerprints and the listed diagnostics (with `--activation-check`, the decision). For `convert` it adds `conversion` (the adapter diagnostics) and `viewContent`: fields extracted (total and per view), fields not extracted with their status, and unmapped prose literals by scope, line and word count, never their text. `--baseline` is a JSON array of trusted fingerprints.
 - **Exit codes**: `0` a candidate (verdict `accept` or `report`; with `--activation-check`, also activatable); `1` rejected, no candidate (including conversion failure, deadline and cancellation); `2` usage or input error (missing flag, bad case id, unreadable HTML, missing case folder, output inside the case folder or not empty); `3` a candidate that `--activation-check` refuses (for example unacknowledged new warnings).
 
 ## Performance
@@ -393,5 +421,8 @@ Budget on puk (decision 8, fixed from the GRS-9 baseline before implementation):
 | `V5_PAYLOAD_ENCODED` | error | structural | v5 data line is encoded or computed (refused, never evaluated) |
 | `V5_UNMAPPED_KEY` | warning | quality | source key has no mapping; preserved as an opaque dataset |
 | `V5_SIZE_CLAIM_MISMATCH` | warning | quality | source size field differs from the original on disk |
+| `V5_VIEW_CONTENT_MISSING` | warning | quality | a required view-content field was not found in the v5 viewer code (not extracted, never guessed) |
+| `V5_VIEW_CONTENT_AMBIGUOUS` | warning | quality | a view-content anchor matches more than once in the v5 viewer code (not extracted, never guessed) |
+| `V5_VIEW_CONTENT_LIMIT` | warning | quality | the v5 viewer code is too large or too slow to read; no view content was extracted (fails closed) |
 | `V5_META_COUNT_DISAGREEMENT` | warning | quality | source META count disagrees with the count derived from the records |
 | `DIAG_TRUNCATED` | info | quality | more instances of a code than listed |

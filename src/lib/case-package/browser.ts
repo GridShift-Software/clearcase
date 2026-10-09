@@ -9,3 +9,4 @@ export { CODES, type Code, type Diagnostic, type Severity, type DiagClass } from
 export { servePolicy, serveModeOf, mediaTypeForName, type ServeMode, type TextStatus } from './media.ts';
 export { checkRelPath, decodeLegacyLocator } from './paths.ts';
 export { matchAnchor, viewSeeds, type DocumentAnchor, type AnchorMatch, type SeedRow, type SeedOverlay, type SeedView } from './user-work.ts';
+export { readViewContent, isViewValue, isViewTemplate, VIEW_CONTENT_KEY, type ViewContentReader, type ViewValue, type ViewTemplate, type ViewTemplatePart, type FilledText } from './view-content.ts';

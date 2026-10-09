@@ -1,0 +1,162 @@
+// Synthetic v5-shaped viewer code for the view-content tests. Every value is invented; the
+// shapes mirror the v5 renderers so that every entry of the view-content map has an anchor.
+// It is read as text and never executed (the guard in the first script would show it).
+function pageHead(title,meta,action){return '<div class="pagehead"><div><h1>'+esc(title)+'</h1>'+(meta?'<div class="meta">'+meta+'</div>':'')+'</div>'+(action?'<div>'+action+'</div>':'')+'</div>';}
+const RENDER={};
+RENDER.overview=function(el){
+  const q=DATA.quantum;
+  const kpis=[
+    ['Documents indexed',META.docCount.toLocaleString(),'across 2 invented bundles'],
+    ['Amount due',money(q.headline_due),q.headline_ref+' · as at '+q.headline_date],
+    ['Invoices',q.invoiceCount,'SYN-series in the ledger'],
+  ];
+  let h=pageHead('Overview','Synthetic Holdings Ltd v Example Department');
+  kpis.forEach(k=>h+='<div class="kpi"><div class="k">'+esc(k[0])+'</div><div class="v">'+k[1]+'</div><div class="s">'+esc(k[2])+'</div></div>');
+  el.innerHTML=h;
+};
+RENDER.timeline=function(el){
+  const T=DATA.timeline,Q=DATA.quantum,B=META.bundles;
+  let h=pageHead('Timeline','SYN v ORG — an invented write-up built from '+META.docCount.toLocaleString()+' invented documents');
+  h+='<div class="card narr"><h3>Synopsis</h3>'+
+    '<p>Drawn from '+META.docCount.toLocaleString()+
+      ' documents (Original '+B.Original+', Supplementary '+B.Supplementary+', Correspondence '+B.Correspondence+'), spanning <b>'+esc(META.dateSpan[0])+'</b> to <b>'+esc(META.dateSpan[1])+'</b>.</p>'+
+    '<p>An invented supplier &amp; an invented customer disagree about &ldquo;invented&rdquo; invoices.</p>'+
+    '<div><b>Due:</b> '+esc(money(Q.headline_due))+' (as at '+esc(Q.headline_date)+', ref '+esc(Q.headline_ref)+'). '+
+      '<span class="tag">'+Q.invoiceCount+' SYN-series invoices.</span> '+docLink(Q.headline_url,'source')+'</div></div>';
+  h+='<div class="card"><h3>By year</h3></div>';
+  h+='<div class="card"><h3>Phases</h3><div class="tl">';
+  T.phases.forEach(ph=>{
+    if(ph.n)h+='<div class="ev"><span class="d">'+esc(ph.title)+'</span>'+(ph.note?'<div class="ex">'+esc(ph.note)+'</div>':'')+'</div>';
+    else h+='<div class="ev"><span class="ex">Nothing invented happened in this phase.</span></div>';
+  });
+  h+='</div></div>';
+  h+='<div class="card"><h3>Quantum</h3><p>The invented balance reaches <b>'+esc(money(Q.headline_due))+'</b> as at '+esc(Q.headline_date)+'.</p>'+quantumChart(Q.amountDueSeries)+'</div>';
+  h+='<div class="card"><h3>Correspondents</h3><p>Mostly invented attorneys.</p></div>';
+  h+='<div class="card narr"><h3>Notes</h3><p>About <b>'+META.textNone+'</b> invented scans lack text.</p>'+
+    '<p class="tag">Working notes only.</p></div>';
+  el.innerHTML=h;
+};
+RENDER.quantum_tab=function(el){
+  const q=DATA.quantum;
+  let h=pageHead('Quantum','What the invented customer owes');
+  [['Amount due',money(q.headline_due),q.headline_ref],
+   ['Latest',docLinkText(q.headline_url,'Open'),'Invented computation title'],
+   ['Invoices',q.invoiceCount,'SYN-series tax invoices']
+  ].forEach(k=>h+='<div class="kpi">'+esc(k[0])+'</div>');
+  el.innerHTML=h;
+};
+RENDER.invoice_ledger_tab=function(el){const L=DATA.quantum.invoiceLedger;let h=pageHead('Ledger',L.length+' SYN-series invoices','<button class="btn">Export</button>');el.innerHTML=h;};
+function exportICS(){let ics='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//SYN v ORG//Workspace//EN\r\n';ics+='END:VCALENDAR';dl('syn.ics',ics,'text/calendar');}
+RENDER.contracts_tab=function(el){
+  const C=DATA.contracts;
+  let h=pageHead('Contracts','The invented agreements behind the invented claim','<button class="btn">CSV</button>');
+  h+='<div class="grid g12">'+
+    '<div class="kpi"><div class="k">Contract documents</div><div class="v">'+C.count+'</div><div class="s">across '+C.groups.length+' groups</div></div>'+
+    '<div class="kpi"><div class="k">Spine</div><div class="v">Invented supply agreement</div><div class="s">supported by invented addenda</div></div>'+
+    '<div class="kpi"><div class="k">Watch</div><div class="v">Invented addendum unsigned</div><div class="s">confirm before relying on it</div></div></div>';
+  C.groups.forEach(g=>{h+='<div class="card pad0"><div class="chead">'+esc(g.key)+'</div></div>';});
+  h+='<div class="card narr"><h3>Why</h3><p>An invented counsel note.</p></div>';
+  el.innerHTML=h;
+};
+RENDER.filings_tab=function(el){let h=pageHead('Filings','Invented filings and affidavits');h+='<div class="card narr"><h3>Orientation</h3><p>An invented orientation paragraph.</p></div>';el.innerHTML=h;};
+(function(){
+  const ST={mode:'discovery'};
+  const CAP = {
+    court:'IN THE INVENTED COURT',
+    div:'(INVENTED DIVISION)',
+    cnum:'CASE NUMBER: 0000/2001',
+    plaintiff:'SYNTHETIC HOLDINGS LTD',
+    plaintiffCite:'SYNTHETIC HOLDINGS LTD\n[Invented registration]',
+    plaintiffRole:'PLAINTIFF',
+    defendant:'EXAMPLE DEPARTMENT',
+    defendantCite:'EXAMPLE\nDEPARTMENT',
+    defendantRole:'DEFENDANT'
+  };
+  function meta(m){ m=m||ST.mode;
+    return m==='discovery'
+      ? {key:'discovery', deed:"PLAINTIFF'S INVENTED AFFIDAVIT", sched:'SCHEDULE ONE', range:'Items 1 – 3',
+         items:SCHED.discovery, file:'Invented affidavit (cover)'}
+      : {key:'supplementary', deed:"PLAINTIFF'S INVENTED SUPPLEMENTARY AFFIDAVIT", sched:'SCHEDULE ONE A', range:'Items 1 – 2',
+         items:SCHED.supplementary, file:'Invented supplementary affidavit (cover)'};
+  }
+  RENDER.discovery_tab = function(el){
+    const md=meta();
+    let h = pageHead('Discovery Schedule',
+      'Each invented schedule');
+    h += '<div class="ds-switch">'
+      + `<button class="${ST.mode==='discovery'?'on':''}" data-act="mode" data-mode="discovery">Invented Affidavit (1–3)</button>`
+      + `<button class="${ST.mode==='supplementary'?'on':''}" data-act="mode" data-mode="supplementary">Invented Supplementary (1–2)</button>`
+      + '</div>';
+    el.innerHTML=h+md.key;
+  };
+  function bundleFile(){ return 'SYN v ORG - Court Bundle Index'; }
+})();
+const CBB=(DATA.bundles||{});
+const CBHF=[['court','Court line','e.g. IN THE INVENTED COURT'],
+  ['judge','Division line','e.g. (INVENTED DIVISION)'],
+  ['intro','Introductory line','In the matter between:'],
+  ['caseNo','Case number','0000/2001']];
+function cbKpi(k,v,s){return '<div class="kpi"><div class="k">'+esc(k)+'</div><div class="v">'+esc(v)+'</div><div class="s">'+esc(s)+'</div></div>';}
+function cbListView(){
+  const bs=cbBundles();
+  let h=pageHead('Court Bundle',bs.length+' bundles');
+  h+='<div class="grid g12">'+
+     cbKpi('Bundles',bs.length,'as per INVENTED BUNDLE LIST')+
+     cbKpi('Index items',1,'listed')+
+     cbKpi('Pages',2,'numbered')+
+     cbKpi('Extracts',4,'invented extracts')+'</div>';
+  h+='<div class="card"><h3>How</h3><div class="narr">'+
+     '<p>Invented pages 10 to 20 of the invented bundle go into the bundle.</p>'+
+     '<p>Generic.</p>'+
+     '<p class="tag">Composition follows '+esc(CBB.source||'INVENTED LIST.docx')+'; the layout follows '+esc(CBB.indexSource||'Invented index.docx')+'.</p></div></div>';
+  return h;
+}
+function cbDocx(bundles,filename){
+  const core='<cp:coreProperties>'+
+    '<dc:title>'+cbX(filename)+'</dc:title><dc:creator>SYN v ORG Workspace</dc:creator>'+
+    '</cp:coreProperties>';
+  return core;
+}
+function cbIndexAllDocx(){const bs=cbBundles();if(!bs.length)return;
+  cbDocx(bs,'SYN_ORG_Indexes.docx');}
+(function(){
+  const BUNDLE = { name:'INVENTED BUNDLE.pdf',
+    url:'./INVENTED%20FOLDER/INVENTED%20BUNDLE.pdf',
+    pages:(window.__CASELINES_IDX__&&window.__CASELINES_IDX__.pages)||12 };
+  RENDER.caselines_tab = function(el){
+    let h = pageHead('CaseLines',
+      'The invented bundle (Invented &amp; Folder)');
+    h += '<div class="cl-hero"><div>'
+      + '<div class="t">'+A(BUNDLE.name)+'</div>'
+      + '<div class="m">Invented bundle · '+BUNDLE.pages.toLocaleString()+' pages (XX-001)</div></div></div>';
+    el.innerHTML=h;
+  };
+})();
+RENDER.contradictions_tab=function(el){let h=pageHead('Contradictions','');h+='<div class="card narr"><h3>How</h3><p>Flags compare all '+META.docCount.toLocaleString()+' invented items.</p></div>';el.innerHTML=h;};
+RENDER.vdm_matrix_tab=function(el){
+  let h=pageHead('Defence','Each ORG point mapped to SYN evidence','<button class="btn">CSV</button>');
+  h+='<div class="card pad0"><table class="tbl"><thead><tr><th>ORG point</th><th>Documents</th><th>SYN rebuttal</th></tr></thead><tbody>';
+  DATA.defenceMatrix.forEach(r=>{h+='<tr><td>'+esc(r.point)+'</td></tr>';});
+  h+='</tbody></table></div>';
+  el.innerHTML=h;
+};
+RENDER.conflict_tab=function(el){let h=pageHead('Conflict','');h+='<div class="card"><input class="in" id="confq" placeholder="e.g. Invented Ltd, person@example.invalid"></div>';el.innerHTML=h;};
+RENDER.enforcement_tab=function(el){let h=pageHead('Enforcement','How SYN collects from ORG');h+='<div class="card narr"><h3>Why</h3><p>An invented enforcement path.</p></div>';el.innerHTML=h;};
+RENDER.legality_tab=function(el){let h=pageHead('Legality','Could an invented review change the claim?');el.innerHTML=h;};
+RENDER.interest_calc_tab=function(el){let h=pageHead('Interest','');h+='<div class="card"><input class="in" id="ic_r" value="7.25"></div>';el.innerHTML=h;};
+RENDER.payments_tab=function(el){let h=pageHead('Payments','Credit what ORG has paid','<button class="btn">x</button>');el.innerHTML=h;};
+RENDER.elements_tab=function(el){let h=pageHead('Cause of Action','Each element SYN must prove');h+='<div class="card pad0"><table class="tbl"><thead><tr><th>Element</th><th>What SYN must prove</th></tr></thead></table></div>';el.innerHTML=h;};
+function exportHeads(){let out='HEADS OF ARGUMENT — SYN v ORG\n\n';dl('syn.txt',out,'text/plain');}
+RENDER.crossexam_tab=function(el){let h=pageHead('Cross-examination','');h+='<p class="tag">Tip: use the invented contradictions.</p>';el.innerHTML=h;};
+RENDER.settlement_tab=function(el){
+  let h=pageHead('Settlement','Risk-adjusted value of an invented claim');
+  h+='<div class="card narr"><p>An invented settlement narrative.</p></div>';
+  h+='<div class="card"><div class="row">'+
+    '<input class="in" id="se_p" value="60">'+
+    '<input class="in" id="se_y" value="3">'+
+    '<input class="in" id="se_d" value="8">'+
+    '<input class="in" id="se_c" value="1000"></div></div>';
+  el.innerHTML=h;
+};
+async function rescanNow(){const fn='x.pdf';return /syn\d{4,6}/i.test(fn)?'invoice':'other';}
+function verifyLinks(){let h='<table class="tbl"></table><p class="tag" style="margin-top:6px">3 invented links were checked at build time.</p>';document.getElementById('noneList').innerHTML=h;}

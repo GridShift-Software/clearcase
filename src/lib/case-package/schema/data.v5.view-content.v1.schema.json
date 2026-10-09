@@ -1,0 +1,62 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.view-content.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "patternProperties": {
+    "^_?[a-z][a-z0-9_]{0,63}$": {
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[a-z][A-Za-z0-9]{0,63}$": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "properties": {
+                "template": {
+                  "items": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "properties": {
+                          "param": {
+                            "pattern": "^[a-z][A-Za-z0-9]{0,63}$",
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "param"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  },
+                  "minItems": 1,
+                  "type": "array"
+                }
+              },
+              "required": [
+                "template"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    }
+  },
+  "title": "data of v5.view-content@1 (generated)",
+  "type": "object"
+}

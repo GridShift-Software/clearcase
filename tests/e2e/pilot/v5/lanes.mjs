@@ -48,7 +48,7 @@ export async function lane2(C, L) {
 	L.need('GRS-10 conversion of the main HTML exits 0', 0, pkgRun.exit);
 	const conv = pkgRun.report;
 	L.check('conversion verdict', 'report', conv?.verdict);
-	L.check('conversion resultsVersion equals GRS-10\'s accepted identity', fx.accepted.resultsVersion, conv?.resultsVersion);
+	L.check('conversion resultsVersion equals the accepted identity (GRS-38\'s with view-content, else GRS-10\'s)', fx.accepted.resultsVersion, conv?.resultsVersion);
 	L.check('conversion diagnosticsSha256 equals GRS-10\'s accepted identity', fx.accepted.diagnosticsSha256, conv?.diagnosticsSha256);
 	L.note(`conversion counts: ${JSON.stringify(conv.counts)}`);
 	const P = C.P;
@@ -554,9 +554,11 @@ export async function checkDates(C, L) {
 	L.note(`rows with a supplied date type or provenance: ${withType}`);
 	const P = C.P;
 	await P.goto(`${C.origin}${vpath(rv)}/chronology`, ready('chronology'), 60000);
-	const g = await P.settled(`(() => { const rows = [...document.querySelectorAll('.grid-table .grid-row[data-ref]')]; const b = rows.map((r) => r.querySelector('[data-date-basis]')); const by = {}; for (const x of b) by[x.dataset.dateBasis] = (by[x.dataset.dateBasis] ?? 0) + 1; return { by, undatedText: rows.filter((r) => r.querySelector('[role=cell]').textContent.trim() === 'undated').length, unknownLabel: b.filter((x) => x.dataset.dateBasis === 'unknown' && x.textContent.trim() === 'unknown' && /basis unknown/.test(x.title)).length }; })()`);
+	const g = await P.settled(`(() => { const rows = [...document.querySelectorAll('.grid-table .grid-row[data-ref]')]; const b = rows.map((r) => r.querySelector('[data-date-basis]')).filter(Boolean); const by = {}; for (const x of b) by[x.dataset.dateBasis] = (by[x.dataset.dateBasis] ?? 0) + 1; return { column: [...document.querySelectorAll('.grid-table [role=columnheader]')].some((h) => h.textContent.trim() === 'Date basis'), by, undatedText: rows.filter((r) => r.querySelector('[role=cell]').textContent.trim() === 'undated').length, unknownLabel: b.filter((x) => x.dataset.dateBasis === 'unknown' && x.textContent.trim() === 'unknown' && /basis unknown/.test(x.title)).length }; })()`);
 	const dated = C.pkg.chronology.length - undated;
-	L.check('chronology: every dated row says basis unknown, every undated row says undated (none inferred)', { by: sortObj({ undated, unknown: dated - withType, ...(withType ? { supplied: withType } : {}) }), undatedText: undated, unknownLabel: dated - withType }, { ...g, by: sortObj(g.by) });
+	// the Date basis column is shown only when some row has a supplied basis; the Date column says 'undated' either way
+	const want = withType ? { column: true, by: sortObj({ undated, unknown: dated - withType, supplied: withType }), undatedText: undated, unknownLabel: dated - withType } : { column: false, by: {}, undatedText: undated, unknownLabel: 0 };
+	L.check(withType ? 'chronology: every dated row says basis unknown, every undated row says undated (none inferred)' : 'chronology: no row has a supplied basis, so the Date basis column is hidden; every undated row says undated', want, { ...g, by: sortObj(g.by) });
 	const ov = (await C.c.get(`${vpath(rv)}/overview`)).text;
 	L.check('overview date span states the undated count and that the basis is not supplied', true, new RegExp(`${undated.toLocaleString('en')} documents? undated\\. Dates are shown as the source gives them; their basis`).test(ov));
 	const d1 = C.pkg.chronology.find((r) => r.date !== '');

@@ -101,9 +101,10 @@ type NoteDb = { id: string; case_id: string; anchor_sha256: string | null; ref_a
  * Why a user-work call was refused. `invalid`: bad input (a note, field, store, table or cell shape, a missing scope,
  * a table not defined through defineTable), or a write that failed for another reason (nothing was written);
  * `restore-state`: a restore carried activation or import-state tables; `restore-key`: a restore or table row has an
- * empty, non-integer or repeated key; `restore-key-collision`: a restore row, or a putTableRow row, of a case table has
+ * empty, non-integer or repeated key (repeated as SQLite compares it); `restore-key-collision`: a restore row, or a putTableRow row, of a case table has
  * the key of another case's row here; `table-conflict`: defineTable on an existing table of another schema, scope or
- * owner, or with a non-BINARY collation on a key or case_id column, or a table-row write by another owner;
+ * owner, or with a non-BINARY collation on a key or case_id column (also on a restore into it), or a table-row write by
+ * another owner;
  * `table-built-in`: defineTable or a table-row call on a built-in table. Messages name tables and columns, never row
  * values.
  */
@@ -310,7 +311,9 @@ export class UserWork {
 		const wrong = scopeProblem(def, def.scope, true);
 		if (wrong) throw new UserWorkError(`table ${def.name}: ${wrong}`);
 		await this.write(() => `defining table ${def.name}`, (d) => {
-			const coll = existing && collationProblem(d, def);
+			// a table catalogued with this owner and scope was created or adopted by the API, so it is BINARY: only the
+			// primary-key index is read, without the probe index
+			const coll = existing && collationProblem(d, def, existing.kind !== 'user-work');
 			if (coll) throw new UserWorkError(`table ${def.name}: ${coll}`, 'table-conflict');
 			createTable(d, def, true, def.scope);
 		});
@@ -343,8 +346,9 @@ export class UserWork {
 	}
 
 	/**
-	 * Insert or replace one row of a defined table, by primary key (an upsert), as `owner`. Cells are checked as in a
-	 * restore (a missing cell is NULL); a case table's row needs a text `case_id`, and its key may not be held by
+	 * Insert or replace one whole row of a defined table, by primary key, as `owner` (a missing cell is NULL, so read,
+	 * spread and put back to change one field). Cells are checked as in a restore, and a number in a TEXT column is
+	 * refused (SQLite would store 7 as '7.0'); a case table's row needs a text `case_id`, and its key may not be held by
 	 * another case's row (`restore-key-collision`). One transaction; schedules the work.sqlite backup like putRow.
 	 */
 	async putTableRow(table: string, row: Record<string, TableCell>, opts: { owner: string }): Promise<void> {
@@ -355,7 +359,7 @@ export class UserWork {
 		if (extra !== undefined) throw new UserWorkError(`table ${t.name}: the row has a column the table lacks${TABLE.test(extra) ? ` (${extra})` : ''}`);
 		// each cell is read once, so what is checked is what is written
 		const r = Object.fromEntries(def.columns.map((c) => [c.name, cellOf(row, c.name)])) as Record<string, Cell>;
-		const bad = rowsProblem(def, t.scope, [r]);
+		const bad = rowsProblem(this.d, def, t.scope, [r]) ?? numberInText(def, r);
 		if (bad) throw new UserWorkError(`table ${t.name}: ${bad.message}; nothing was written`, bad.code);
 		const cols = def.columns.map((c) => c.name);
 		const rest = cols.filter((c) => !def.primaryKey.includes(c));
@@ -380,9 +384,9 @@ export class UserWork {
 		const extra = Object.keys(key).find((k) => !by.includes(k));
 		if (extra !== undefined) throw new UserWorkError(`table ${t.name}: a key has the columns (${by.join(', ')})`);
 		const k = Object.fromEntries(by.map((c) => [c, cellOf(key, c)])) as Record<string, Cell>;
-		const bad = Object.values(k).every(isCell) ? keyProblem(def, k) : { code: 'invalid' as const, message: 'a key cell is not a string, finite number, null, {$b64} or 64-bit {$int}' };
-		if (bad) throw new UserWorkError(`table ${t.name}: ${bad.message}`, bad.code);
 		if (t.scope === 'case' && typeof k[CASE_COLUMN] !== 'string') throw new UserWorkError(`table ${t.name}: a key of a case-scoped table names its ${CASE_COLUMN} as text`);
+		const bad = Object.values(k).every(isCell) ? numberInText(def, k) ?? keyProblem(def, k) : { code: 'invalid' as const, message: 'a key cell is not a string, finite number, null, {$b64} or 64-bit {$int}' };
+		if (bad) throw new UserWorkError(`table ${t.name}: ${bad.message}`, bad.code);
 		const n = await this.write(() => `deleting a row of table ${t.name}`, (d) => Number(d.prepare(`DELETE FROM work.${q(t.name)} WHERE ${by.map((c) => `${q(c)} = ?`).join(' AND ')}`).run(...(by.map((c) => fromCell(k[c])) as never[])).changes));
 		if (n) this.onWrite();
 		return n > 0;
@@ -404,7 +408,7 @@ export class UserWork {
 			const select = this.d.prepare(`SELECT * FROM work.${q(t.name)} ORDER BY ${def.primaryKey.map(q).join(', ')}`);
 			select.setReadBigInts(true);
 			const rows = (select.all() as Record<string, unknown>[]).map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, toCell(v)])));
-			const bad = rowsProblem(def, t.scope, rows);
+			const bad = rowsProblem(this.d, def, t.scope, rows);
 			if (bad) { excluded.push({ name: t.name, kind: t.kind, rows: rows.length, reason: bad.message }); continue; }
 			tables.push({ ...t, rows });
 		}
@@ -418,7 +422,9 @@ export class UserWork {
 	 * Refused before anything is written, each with a UserWorkError code (see UserWorkErrorCode): a malformed, repeated
 	 * or index-named table entry, an existing table of another schema or scope (nothing is coerced), activation or
 	 * import-state tables, a cell that is not a string, finite number, null, `{$b64}` or `{$int}` in the 64-bit range,
-	 * an empty, non-integer or repeated key, and (case scope) a row whose key another case's row holds here.
+	 * an empty, non-integer or repeated key (repeated as SQLite compares it in the column: 7 and '7.0' are one TEXT
+	 * key), an existing table with a non-BINARY key or case_id collation, and (case scope) a row whose key another
+	 * case's row holds here. A table it creates with a case_id TEXT NOT NULL column (catalogued) is a case table.
 	 *  * Case scope (default, `replace: 'cases'`): the snapshot's cases are the case_id values of its case tables' rows.
 	 *    A case table's rows of those cases are replaced; other cases' rows are kept. A store table is merged by
 	 *    primary key: snapshot rows replace same-key rows, other rows are kept. `replace: 'tables'` replaces every
@@ -448,14 +454,19 @@ export class UserWork {
 			const differs = h && (schemaDifference(definitionOf(h), def) ?? (h.name !== def.name ? 'a table of that name in another letter case exists here' : null));
 			if (differs) throw new UserWorkError(`table ${def.name}: ${differs}; nothing was restored (restore into a store whose table matches the backup, or migrate the table first)`);
 			// a snapshot written before scopes were recorded carries none: an existing table keeps its own, and a new one
-			// is a store table, as a table without a recorded scope is here (tablesOf)
-			const scope = (t.scope === undefined ? h?.scope ?? 'store' : t.scope) as TableScope;
+			// is a store table, as a table without a recorded scope is here (tablesOf), unless the restore catalogues it
+			// and it has a case_id TEXT NOT NULL column: then it is a case table, as its owner's defineTable says, and an
+			// explicit 'store' is refused, so a restore never creates a table its owner cannot adopt
+			const catalogued = !h && t.kind !== 'unregistered';
+			const caseShaped = catalogued && !scopeProblem(def, 'case', false);
+			const scope = (t.scope === undefined ? h?.scope ?? (caseShaped ? 'case' : 'store') : t.scope) as TableScope;
 			const kind = h?.kind ?? t.kind;
 			const wrong = scopeProblem(def, scope, false) ?? (h && h.scope !== scope ? `it is ${h.scope}-scoped here and ${scope}-scoped in the backup` : null)
-				?? (kind === 'unregistered' && scope !== 'store' ? 'an unregistered table is store-scoped' : null);
+				?? (kind === 'unregistered' && scope !== 'store' ? 'an unregistered table is store-scoped' : null)
+				?? (caseShaped && scope === 'store' ? `a table with a ${CASE_COLUMN} TEXT NOT NULL column is case-scoped (declare scope 'case', as defineTable does)` : null);
 			if (wrong) throw new UserWorkError(`table ${def.name}: ${wrong}; nothing was restored`);
 			const rows = t.rows as Record<string, Cell>[];
-			const rowBad = def.name === TRUST ? null : rowsProblem(def, scope, rows);
+			const rowBad = def.name === TRUST ? null : rowsProblem(this.d, def, scope, rows);
 			if (rowBad) throw new UserWorkError(`table ${def.name}: ${rowBad.message}; nothing was restored`, rowBad.code);
 			plans.push({ def, scope, rows, create: !h, catalogue: t.kind !== 'unregistered' });
 		}
@@ -466,6 +477,14 @@ export class UserWork {
 		let rows = 0;
 		let current = '';
 		await this.write(() => `restoring table ${current}`, (d) => {
+			// before any write: an existing table must match keys and cases byte for byte, or a merge or a case
+			// replacement would also hit rows that differ only in letter case or trailing spaces
+			for (const p of plans) {
+				if (p.create || BUILT_IN.has(p.def.name)) continue;
+				current = p.def.name;
+				const coll = collationProblem(d, p.def, true);
+				if (coll) throw new UserWorkError(`table ${p.def.name}: ${coll}; nothing was restored`, 'table-conflict');
+			}
 			// before any write: in case scope a case table keeps other cases' rows, so a snapshot key they hold would clash
 			if (replace === 'cases') for (const p of plans) {
 				if (p.scope !== 'case' || p.create || p.def.name === TRUST || p.def.primaryKey.includes(CASE_COLUMN)) continue;
@@ -620,8 +639,28 @@ function keyProblem(def: Shape, r: Record<string, unknown>): Problem | null {
 	}
 	return null;
 }
-function rowsProblem(def: Shape, scope: TableScope, rows: Record<string, unknown>[]): Problem | null {
+/** A table-row write refuses a number in a TEXT column: SQLite stores it as REAL text (7 as '7.0', and a large
+ *  integer rounded), a key that text '7' never matches. A restore accepts it (exportAll never writes one). */
+function numberInText(def: Shape, r: Record<string, unknown>): Problem | null {
+	const c = def.columns.find((x) => x.type === 'TEXT' && typeof cellOf(r, x.name) === 'number');
+	return c ? { code: 'invalid', message: `column ${c.name} is TEXT and a cell is a number; pass text` } : null;
+}
+/** Text SQLite reads as a number in a REAL column (its affinity converts it): a decimal or exponent literal. */
+const NUMERIC_TEXT = /^[ \t\n\v\f\r]*[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?[ \t\n\v\f\r]*$/;
+/** A key cell (checked by isCell) as SQLite holds it in a column of `type`, so two cells SQLite stores as one key
+ *  collide: TEXT turns a number into SQLite's own text for it and `{$int}` into its decimal, REAL turns every number,
+ *  `{$int}` and numeric text into a number, and a BLOB is compared by its bytes. */
+function keyIdentity(d: ReturnType<Storage['db']>, type: string, v: Cell): string {
+	if (v === null) return 'null';
+	if (typeof v === 'object' && '$b64' in v) return `b${Buffer.from(v.$b64, 'base64').toString('base64')}`;
+	const n = typeof v === 'object' ? BigInt(v.$int) : v;
+	if (type === 'TEXT') return `s${typeof n === 'number' ? (d.prepare('SELECT CAST(? AS TEXT) AS t').get(n) as { t: string }).t : String(n)}`;
+	if (typeof n === 'string') return type === 'REAL' && NUMERIC_TEXT.test(n) ? `n${Number(n)}` : `s${n}`;
+	return `n${type === 'REAL' ? Number(n) : n}`;
+}
+function rowsProblem(d: ReturnType<Storage['db']>, def: Shape, scope: TableScope, rows: Record<string, unknown>[]): Problem | null {
 	const keys = new Set<string>();
+	const types = def.primaryKey.map((k) => def.columns.find((c) => c.name === k)!.type);
 	for (const r of rows) {
 		for (const c of def.columns) {
 			const v = cellOf(r, c.name);
@@ -629,8 +668,7 @@ function rowsProblem(def: Shape, scope: TableScope, rows: Record<string, unknown
 		}
 		const keyBad = keyProblem(def, r);
 		if (keyBad) return keyBad;
-		const key = def.primaryKey.map((k) => cellOf(r, k) as Cell);
-		const id = JSON.stringify(key.map((v) => (typeof v === 'string' ? `s${v}` : typeof v === 'number' ? `n${v}` : '$int' in v! ? `n${BigInt(v.$int)}` : `b${(v as { $b64: string }).$b64}`)));
+		const id = JSON.stringify(def.primaryKey.map((k, i) => keyIdentity(d, types[i]!, cellOf(r, k) as Cell)));
 		if (keys.has(id)) return { code: 'restore-key', message: `a primary key (${def.primaryKey.join(', ')}) appears twice` };
 		keys.add(id);
 		const missing = def.columns.find((c) => c.notNull && cellOf(r, c.name) === null);
@@ -652,15 +690,18 @@ function createTable(d: ReturnType<Storage['db']>, def: Shape, catalogue: boolea
 }
 /**
  * Why an existing table's key or case_id columns would not compare byte for byte, or null. SQLite reports no column
- * collation directly: an index on the columns (created and dropped inside the caller's transaction) inherits each
- * column's own, and the primary-key index carries any collation its PRIMARY KEY clause adds.
+ * collation directly: with `probe`, an index on the columns (created and dropped inside the caller's transaction)
+ * inherits each column's own; the primary-key index carries the key columns' own and any its PRIMARY KEY clause adds.
  */
-function collationProblem(d: ReturnType<Storage['db']>, def: Shape): string | null {
+function collationProblem(d: ReturnType<Storage['db']>, def: Shape, probe: boolean): string | null {
 	const cols = [...new Set([...def.primaryKey, ...def.columns.filter((c) => c.name === CASE_COLUMN).map((c) => c.name)])];
 	type Xinfo = { name: string | null; coll: string; key: number };
-	d.exec(`CREATE INDEX work.${q(PROBE)} ON ${q(def.name)}(${cols.map(q).join(', ')})`);
-	const own = d.prepare(`PRAGMA work.index_xinfo(${q(PROBE)})`).all() as Xinfo[];
-	d.exec(`DROP INDEX work.${q(PROBE)}`);
+	let own: Xinfo[] = [];
+	if (probe) {
+		d.exec(`CREATE INDEX work.${q(PROBE)} ON ${q(def.name)}(${cols.map(q).join(', ')})`);
+		own = d.prepare(`PRAGMA work.index_xinfo(${q(PROBE)})`).all() as Xinfo[];
+		d.exec(`DROP INDEX work.${q(PROBE)}`);
+	}
 	const pk = (d.prepare(`PRAGMA work.index_list(${q(def.name)})`).all() as { name: string; origin: string }[]).filter((i) => i.origin === 'pk')
 		.flatMap((i) => d.prepare(`PRAGMA work.index_xinfo(${q(i.name)})`).all() as Xinfo[]);
 	const bad = [...own, ...pk].find((x) => x.key && x.name !== null && cols.includes(x.name) && x.coll.toUpperCase() !== 'BINARY');

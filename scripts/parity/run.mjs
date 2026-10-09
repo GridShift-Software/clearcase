@@ -52,6 +52,15 @@ const CHILDREN = ['views', 'scorecard.json', 'scorecard.md', 'register-usage.jso
 // path-only check against the raw locator, before loadConfig reads or hashes anything (it runs again on the loaded one)
 const rawLocator = (() => { try { return JSON.parse(readFileSync(resolve(opt('fixture-config')), 'utf8')); } catch { return null; } })();
 if (rawLocator) try { checkOutput(out, locatorInputs(rawLocator, { appV5Html }), CHILDREN); } catch (e) { setup(e.message); }
+// fresh-build evidence, before anything starts: the build must be HEAD's, from and on a tree without modified tracked
+// files (exit 2 otherwise, unless --allow-stale-build); a missing build is the setup error further down
+const appRoot = resolve(opt('app-root') ?? REPO);
+const buildDir = join(appRoot, 'build');
+const { allowStale, evidenceRecord, freshLine, freshness, refusal } = await import('../../tests/e2e/pilot/lib/fresh-build.ts');
+const stampFile = join(buildDir, 'clearcase-build.json');
+const fresh = freshness(REPO, existsSync(stampFile) ? JSON.parse(readFileSync(stampFile, 'utf8')) : null);
+const allowedStale = allowStale(argv);
+if (existsSync(stampFile) && !fresh.fresh && !allowedStale) setup(refusal('parity', fresh).replace(/^parity: /, ''));
 
 ensureOffline(import.meta.filename);
 
@@ -72,20 +81,13 @@ const clock = opt('clock') ?? '2026-10-08T09:00:00Z';
 const timezone = opt('timezone') ?? 'UTC';
 if ((out + '/').startsWith(REPO + '/') && !(out + '/').startsWith(join(REPO, '.local') + '/')) setup(`--out ${out} lies in the repository outside .local/: per-view diffs carry case values and must stay out of Git`);
 for (const v of views) if (!ALL.includes(v)) setup(`unknown view ${v} (one of the 42 v5 navigation ids)`);
-const appRoot = resolve(opt('app-root') ?? REPO);
 
 const proof = await proveOffline();
 if (!proof.pass) setup(`offline proof failed: ${JSON.stringify(proof)}`);
 let fx;
 try { fx = await loadConfig(resolve(opt('fixture-config'))); } catch (e) { setup(e instanceof ConfigError ? e.message : String(e)); }
-const buildDir = join(appRoot, 'build');
 if (!existsSync(join(buildDir, 'handler.js')) || !existsSync(join(buildDir, 'clearcase-build.json'))) setup(`no production build at ${buildDir} (run bun run --bun build there)`);
 const stamp = JSON.parse(readFileSync(join(buildDir, 'clearcase-build.json'), 'utf8'));
-// fresh-build evidence: the build must be HEAD's, from and on a tree without modified tracked files (exit 2 otherwise)
-const { allowStale, evidenceRecord, freshLine, freshness, refusal } = await import('../../tests/e2e/pilot/lib/fresh-build.ts');
-const fresh = freshness(REPO, stamp);
-const allowedStale = allowStale(argv);
-if (!fresh.fresh && !allowedStale) setup(refusal('parity', fresh).replace(/^parity: /, ''));
 const { VIEWS } = await import(join(appRoot, 'src', 'lib', 'components', 'view-registry.ts'));
 const registry = Object.fromEntries(VIEWS.map((v) => [v.id, v]));
 const adapters = {};

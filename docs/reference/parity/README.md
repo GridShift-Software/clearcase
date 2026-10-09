@@ -90,7 +90,7 @@ A changed word or marker is **never** normalized away: `—` against `undated` i
   - The Title / subject cell stacks up to four parts: the title, the sender tag, the excerpt (ending in `…`) and the `also in:` tag. The adapter splits them into the `title_subject`, `sender`, `excerpt` and `also_in` columns, so each is compared. A part is the excerpt when it is the first to end in `…`, the also-in tag when it starts with `also in: `, and otherwise a sender part. Empty cells are compared too: a column the app lacks differs on every row, empty or not.
   - `filter_sort_ui`: about 100 filter and sort combinations through the controls, reading every row's ref on every page.
   - `filter_sort_engine`: the parity trial's 22,500-combination grid, run at library level with v5's own `chronFiltered`.
-- **Overview**: `seeded_user_work`, the tiles with synthetic deadlines and timesheet rows relative to the clock.
+- **Overview**: `seeded_user_work`, the tiles with synthetic deadlines and timesheet rows relative to the clock. The app adapter reads the same seven tiles under v5's labels; it seeds nothing until the app has deadline and timesheet registers (GRS-17), so the two tiles those registers fill are registered as not yet implemented and the other five are compared like the unseeded tiles.
 
 Combination keys are index-coded (`b2.t0.s1.q0.ref.desc`) over the sorted options of the converted package, so no case value appears in a key. Exports are compared by content: CSV and ICS as rows; JSON with its keys sorted; DOCX and PDF as text; TXT and print captures as normalized text.
 

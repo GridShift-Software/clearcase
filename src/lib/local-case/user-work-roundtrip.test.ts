@@ -2,7 +2,9 @@
 // store tables, NULL cells, 64-bit integers, BLOBs and Unicode, exportAll() -> JSON -> importAll() is lossless into the
 // same store after edits (case tables replace the snapshot's cases, store tables merge by key) and into a fresh store,
 // and it never changes the active case or trust. Defined tables are written through putTableRow/deleteTableRow (round
-// 3), and every definition must declare its scope. Synthetic data only.
+// 3), and every definition must declare its scope. Out-of-band tables (NOCASE or RTRIM collations, NUMERIC columns,
+// non-finite and numeric-text cells written through raw SQL, PRFIX-12) never make an export a restore refuses: each is
+// exported and restores, or is excluded with a reason. Synthetic data only.
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildCase } from '../../../tests/e2e/pilot/lib/fixtures.ts';
@@ -146,6 +148,59 @@ describe('user-work backup round trip (property, seeded)', () => {
 			// and the restored store's own backup restores into itself
 			await lc2.userWork.importAll(json(back));
 			expect(json(lc2.userWork.exportAll()).tables).toEqual(back.tables);
+		});
+	}
+
+	// numeric text written through raw SQL: SQLite's affinity makes some of it a non-finite or a large number
+	const EDGE = ['1e999', '-1e999', 'NaN', 'Infinity', '-Infinity', ' 1e999 ', '1e308', '99999999999999999999', `1${'0'.repeat(400)}`, '7', '7.0', '-0', '0x10'];
+	for (const seed of [3, 11, 99, 2027]) {
+		it(`seed ${seed}: out-of-band collations and numeric edge cells: the export restores here and fresh, and each exclusion says why`, async () => {
+			const r = rng(seed);
+			const { lc } = await fresh(`oob${seed}`);
+			const uw = lc.userWork;
+			const db = lc.storage.db();
+			await uw.defineTable({ name: 'gauge', owner: 'GRS-17', description: 'API-written edge cells', scope: 'store', columns: [{ name: 'id', type: 'TEXT' }, { name: 'r', type: 'REAL' }, { name: 'n', type: 'INTEGER' }, { name: 'b', type: 'BLOB' }], primaryKey: ['id'] });
+			// the API refuses an edge cell SQLite would store as a non-finite number, and keeps every other row exportable
+			for (let i = 0; i < 12; i++) {
+				const row = { id: `g${i}`, r: r.next() < 0.5 ? r.pick(EDGE) : r.next(), n: r.next() < 0.5 ? r.pick(EDGE) : r.int(1e6), b: r.pick(EDGE) };
+				try { await uw.putTableRow('gauge', row, GRS17); } catch (e) { expect(e).toBeInstanceOf(UserWorkError); expect((e as UserWorkError).code).toBe('invalid'); }
+			}
+			const COLL = ['', '', '', ' COLLATE NOCASE', ' COLLATE RTRIM', ' COLLATE BINARY'];
+			const keyColl = () => (r.next() < 0.3 ? r.pick(COLL) : '');
+			const TYPES = ['TEXT', 'INTEGER', 'REAL', 'BLOB', 'TEXT', 'INTEGER', 'REAL', 'BLOB', 'NUMERIC'];
+			for (let t = 0; t < 12; t++) {
+				const name = `oob_${seed}_${t}`;
+				const caseCol = r.next() < 0.3;
+				const cols = [{ name: 'id', type: r.pick(['TEXT', 'TEXT', 'INTEGER', 'REAL']), coll: keyColl() }, ...(caseCol ? [{ name: 'case_id', type: 'TEXT NOT NULL', coll: keyColl() }] : []),
+					...Array.from({ length: r.int(3) + 1 }, (_, i) => ({ name: `c${i}`, type: r.pick(TYPES), coll: r.pick(COLL) }))];
+				const keyInClause = r.next() < 0.5;
+				const pkColl = keyInClause ? keyColl() : '';
+				db.exec(`CREATE TABLE work.${name}(${cols.map((c, i) => `${c.name} ${c.type}${c.coll}${i === 0 && !keyInClause ? ' PRIMARY KEY NOT NULL' : i === 0 ? ' NOT NULL' : ''}`).join(', ')}${keyInClause ? `, PRIMARY KEY(id${pkColl})) WITHOUT ROWID` : ')'}`);
+				// some are catalogued by hand, as a table a later ticket adopted (a case table needs a recorded scope)
+				if (r.next() < 0.4) {
+					db.prepare("INSERT INTO work.userwork_catalog(name, kind, owner, description) VALUES (?, 'user-work', 'GRS-18', '')").run(name);
+					if (caseCol && r.next() < 0.5) db.prepare("INSERT INTO work.userwork_catalog_scope(name, scope) VALUES (?, 'case')").run(name);
+				}
+				const value = () => r.next() < 0.08 ? r.pick(EDGE) : r.next() < 0.5 ? r.text(4) : r.next() < 0.5 ? r.int(1000) : null;
+				const ins = db.prepare(`INSERT OR IGNORE INTO work.${name} VALUES (${cols.map(() => '?').join(', ')})`);
+				// SQLite refuses some generated rows itself (a non-integer INTEGER PRIMARY KEY): those are skipped
+				for (let i = r.int(6); i >= 0; i--) try { ins.run(...(cols.map((c) => (c.name === 'id' ? (r.next() < 0.05 ? r.pick(EDGE) : r.pick(['a', 'A', 'a ', `k${i}`, `${i}`])) : c.name === 'case_id' ? r.pick(['A', 'a', 'B']) : value())) as never[])); } catch (e) { expect(String(e)).toMatch(/datatype mismatch/); }
+			}
+			const snap = json(uw.exportAll());
+			for (const x of snap.excluded!) expect(x.reason, x.name).toMatch(/\w/);
+			expect(snap.tables.length + snap.excluded!.length).toBe(uw.tables().filter((t) => t.kind !== 'activation').length);
+			// into the same store, in both modes: nothing throws and the export is unchanged
+			for (const replace of ['cases', 'tables'] as const) {
+				await uw.importAll(json(snap), { replace });
+				expect(sortedRows(json(uw.exportAll()))).toEqual(sortedRows(snap));
+			}
+			// into a fresh store: every exported table and row comes back (trust is never created)
+			const { lc: lc2 } = await fresh(`oob${seed}b`);
+			await lc2.userWork.importAll(json(snap));
+			const back = json(lc2.userWork.exportAll());
+			expect(back.excluded).toEqual([]);
+			expect(sortedRows(back)).toEqual(new Map([...sortedRows(snap)].map(([n, rows]) => [n, n === 'trusted_warning' ? [] : rows])));
+			await lc2.userWork.importAll(json(back));
 		});
 	}
 });

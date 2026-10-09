@@ -25,8 +25,11 @@ bun run --bun parity -- --view chronology,overview --fixture-config .local/v5-ve
 | `--keep-snapshots` | Also write both sides' full snapshots per view (`views/<view>.snapshots.json`). |
 | `--app-root DIR` | Use another checkout's build and modules (the mutation proof). |
 | `--app-v5-html FILE` | Self-parity: the app side is the v5 adapter on another copy of the v5 HTML. |
+| `--allow-stale-build` | Run on a stale build (below) anyway. The scorecard then says `evidence: false` and why. `CLEARCASE_ALLOW_STALE_BUILD=1` does the same. |
 
-Exit codes: **0** no unregistered difference; **1** at least one unregistered difference, a view that did not extract on either side (an app adapter that threw, an available view without one, and an available view whose adapter returns any status but `ok` included; the register never covers it), an unused register entry under `--strict-register`, or any isolation breach: a v5 network request, an app request that is not loopback, a canary hit other than a browser service, or a changed fixture tree; **2** setup error (arguments, locator, register, an `--out` overlapping the fixture or holding a symlink or hard link where the runner writes, build, conversion, import or the offline proof). The register is checked first, before the runner re-executes offline or reads the locator, and a whole-view entry whose owner is not the view registry's owner is a register error.
+**Fresh-build evidence.** The runner records the build stamp (`build/clearcase-build.json`: the revision the build was made from and whether tracked files were modified then), HEAD, and whether tracked files are modified now (`git status --untracked-files=no`, as the stamp uses). If the build is not HEAD's, or either tree is dirty, it refuses with exit 2 before it writes anything. Commit, then build, then run. With `--allow-stale-build` it runs, and `scorecard.json` has `evidence: false`, `evidenceNote` and `freshBuild` (the reasons); `scorecard.md` says so in its second line. `mutate.mjs` passes the flag to its own runs, since a mutant is by design not HEAD's build. The same rule, in `tests/e2e/pilot/lib/fresh-build.ts`, guards `test:e2e` and `measure`.
+
+Exit codes: **0** no unregistered difference; **1** at least one unregistered difference, a view that did not extract on either side (an app adapter that threw, an available view without one, and an available view whose adapter returns any status but `ok` included; the register never covers it), an unused register entry under `--strict-register`, or any isolation breach: a v5 network request, an app request that is not loopback, a canary hit other than a browser service, or a changed fixture tree; **2** setup error (arguments, locator, register, an `--out` overlapping the fixture or holding a symlink or hard link where the runner writes, build, conversion, import, the offline proof, or a stale build without `--allow-stale-build`). The register is checked first, before the runner re-executes offline or reads the locator, and a whole-view entry whose owner is not the view registry's owner is a register error.
 
 A full run takes about 100 seconds on this host, most of it the chronology sweeps.
 
@@ -136,6 +139,29 @@ Combination keys are index-coded (`b2.t0.s1.q0.ref.desc`) over the sorted option
 3. In your register fragment, `register/CC-NN.json`, delete your view's whole-view `not-yet-implemented` entry. The suite fails while a view with an adapter keeps one.
 4. Run the view. Fix real differences, and propose a register entry for each intended one (below). Then run `bun run --bun test`, which includes the parity suite.
 5. A v5 state the generic adapter does not reach, such as a sub-tab, a dialog or a second mode, belongs in your view's own spec module, `scripts/parity/adapters/v5/specs/<view-id>.mjs`, as a sweep with a `v5` driver. Implement the same sweep id in your app adapter.
+6. A sweep that ends on the overview tiles, as v5's `register_edit` does (`overview.<v5 tile label>` = the tile's value), reads the app's tiles with `readOverviewTiles(p, ctx)` from `_shell.mjs`. It opens the overview and returns `{ '<v5 tile label>': {value, sub} }` for the seven tiles (`Documents indexed`, `Amount due (to date)`, `Invoices`, `Open deadlines`, `Unbilled time`, `Contradiction flags`, `Scanned (need OCR)`), slot plug-ins included. Use the `value`s.
+
+### Overview slot plug-ins
+
+The overview's widget slots stand where v5 shows the `Open deadlines` and `Unbilled time` tiles and the freshness card. The overview adapter (`overview.mjs`, CC-03's) does not change when a slot fills. Instead the slot's owner adds one module, `scripts/parity/adapters/app/slots/<slot-id>.mjs`: CC-07 adds `deadlines.mjs` and `unbilled-time.mjs`, CC-10 adds `rescan-freshness.mjs`.
+
+```js
+export default {
+	/** The overview is open and the slot is filled: read it, without navigating, as v5's tile reads. */
+	async read(p, ctx) { return { value: '…', sub: '…' }; },
+	/** Enter the rows this slot needs from `rows` = seededUserWork(ctx.clock), through the owner's own UI. */
+	async seed(p, ctx, rows) {},
+	/** Remove every row seed entered, and check the register is empty again. */
+	async cleanup(p, ctx) {},
+};
+```
+
+- `readOverviewSnapshot` and `readOverviewTiles` call `read` only for a slot whose `data-slot-status` is `filled`. A tile slot's result becomes `kpi.open_deadlines` or `kpi.unbilled_time` as `{value, sub}`. The freshness slot's becomes `text.freshness.1`, plus `text.freshness.2` when `sub` is not empty. An unfilled slot, or one without a plug-in, is read as before: its wording as the value and an empty caption.
+- The overview's `seeded_user_work` sweep calls every plug-in's `seed` in slot order, reads the tiles, then calls every `cleanup` in reverse order, also when the read fails. With no plug-in nothing is seeded and its output is unchanged.
+- The app keeps user work for the whole run while v5 starts each sweep with empty storage, so `cleanup` must leave nothing behind.
+- A file name that is not a declared slot (`OVERVIEW_SLOTS`), or a module without the three functions, is an error. Files starting with `_` are skipped. Named exports work too.
+- When your slot fills, delete its `not-yet-implemented` entries from your fragment: IDR-050 and IDR-067 (CC-07), IDR-051 and IDR-068 (CC-10).
+- `tests/parity/slot-plugins.test.ts` covers the tiles, the sweep and the loader with a fake plug-in.
 
 ### Per-view v5 specs
 
@@ -171,7 +197,7 @@ Parallel M2 owners do not edit the main file. Owner CC-NN keeps its entries in `
 - A whole-view entry (field `*`) in a fragment is for one of its owner's views in the view registry, and, as everywhere, a `not-yet-implemented` one names that view's Linear owner.
 - A fragment's problems are reported with its file name. `register-usage.json` gives each entry's file under `files`.
 
-The main file keeps the pilot views' entries (overview and chronology), including those owned by other tickets. Each owner's whole-view `not-yet-implemented` entries moved into its fragment with their ids. `tests/parity/fragments.test.ts` covers loading and the rules.
+The main file keeps the pilot views' entries (overview and chronology) that no M2 ticket owns. Each owner's whole-view `not-yet-implemented` entries moved into its fragment with their ids, and so did the overview slot entries: IDR-050 and IDR-067 (GRS-17) into `CC-07.json`, IDR-051 and IDR-068 (GRS-20) into `CC-10.json`. A fragment entry is for one of its owner's views or names its owner as `owner`. `tests/parity/fragments.test.ts` covers loading and the rules.
 
 ### Unused entries
 
@@ -182,6 +208,7 @@ An improvement that reverts to v5 behaviour makes the app match v5, so no differ
 `scorecard.json` holds counts only: no path, no value and no case name. `tests/parity/compare.test.ts` checks this.
 
 - `result`, `exit`, `command`, `revision`, `build` (id, revision, root), `clock`, `timezone` and `seconds`.
+- `evidence` (false unless the build is a fresh build of clean HEAD), `freshBuild` (build revision and dirtiness, HEAD, tracked files modified, the reasons, whether `--allow-stale-build` was given) and, when stale, `evidenceNote`.
 - `register`: entries, approved, used and unused, and whether `--approved-only` and `--strict-register` were on.
 - `isolation`: the offline proof, v5 network and browser-internal request counts, app non-loopback requests, canary hits and whether the fixture tree is unchanged.
 - `total`:

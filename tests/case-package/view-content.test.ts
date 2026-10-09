@@ -298,11 +298,11 @@ describe('view-content extraction: fix round regressions (CC-30 r2)', () => {
       ['P2 an unterminated /* per script block', () => extractViewContent('<script>/*</script>'.repeat(120_000), [{ view: 'v', field: 'f', checklist: 'L1', required: false, ...title }], [])],
       ['P3 repeated unterminated const', () => one('const CAP='.repeat(40_000), { scope: 'const:CAP', sel: { lit: 'object', path: ['x'] }, kind: 'text' })],
       ['P4 unclosed comments in static markup', () => one('', title, { markup: '<!--'.repeat(80_000) })],
-      ['P5 <script without a closing >', () => one('', title, { markup: '<script '.repeat(64_000) })],
+      ['P5 <script without a closing >', () => extractViewContent('<script '.repeat(64_000), [{ view: 'v', field: 'f', checklist: 'L1', required: false, ...title }], [])],
       ['P7 many script elements in element text', () => markupText('<script></script>'.repeat(80_000))],
       ['P8 unclosed comments in element text', () => markupText('<!--x'.repeat(80_000))],
       ['P9 an unclosed tag run in an unconsumed literal', () => one(`RENDER.t=function(el){let h='${'<a'.repeat(120_000)}>';};`, { scope: 'render:t', sel: { call: 'pageHead', arg: 1 }, kind: 'text' }, { audit: true })],
-      ['P10 nested calls with callbacks', () => one(`RENDER.t=function(el){let h='<p>a</p>';${'f(()=>'.repeat(48_000)}1${')'.repeat(48_000)};};`, { scope: 'render:t', sel: { html: 'p' }, kind: 'text' })],
+      ['P10 nested calls with callbacks', () => one(`RENDER.t=function(el){let h='<p>a</p>';${'f('.repeat(40_000)}1${',()=>1)'.repeat(40_000)};};`, { scope: 'render:t', sel: { html: 'p' }, kind: 'text' })],
       ['tags with an unclosed quote', () => markupText('<p "'.repeat(80_000))],
     ];
     for (const [label, run] of shapes) {

@@ -9,6 +9,15 @@ const uniq = (obj, id) => { let k = id, i = 2; while (Object.hasOwn(obj, k)) k =
 
 export const emptySnapshot = (view, side, status = 'ok') => ({ view, side, status, title: undefined, texts: {}, kpis: {}, counts: {}, tables: {}, lists: {}, controls: {}, sweeps: {}, exports: {}, focus: {} });
 
+/**
+ * The app side of a view without an app adapter: not implemented when the view registry says so, else an extraction
+ * error (the registry marks it available, so a missing adapter is a harness gap, never an accepted absence).
+ */
+export function appWithoutAdapter(view, registry) {
+	if (registry[view]?.status === 'available') return { ...emptySnapshot(view, 'app', 'error'), error: `the registry marks ${view} available but no app adapter exists (scripts/parity/adapters/app/${view}.mjs)` };
+	return { ...emptySnapshot(view, 'app', 'not-implemented'), owner: registry[view]?.linear ?? null };
+}
+
 /** A table from raw: columns are slugs of the header labels (sort arrows removed), cells are parts joined ' / '. */
 export function tableFromRaw(t, { key = 'ref' } = {}) {
 	const columns = [];

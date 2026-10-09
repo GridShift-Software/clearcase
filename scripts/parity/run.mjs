@@ -13,9 +13,10 @@
 // unregistered. Writes DIR/views/<view>.json (paths and values: case-bearing, local only) and DIR/scorecard.json
 // plus DIR/scorecard.md (counts only).
 //
-// Exit 0: no unregistered difference. 1: an unregistered difference, a v5 view that did not extract, or an isolation
-// breach (a v5 or app network request, a canary hit, a changed fixture tree). 2: setup error (arguments, fixture
-// locator, register, including a whole-view owner that is not the view registry's, build, offline proof).
+// Exit 0: no unregistered difference. 1: an unregistered difference, a view that did not extract on either side (never
+// covered by the register), or an isolation breach (a v5 or app network request, a canary hit, a changed fixture
+// tree). 2: setup error (arguments, fixture locator, register, including a whole-view owner that is not the view
+// registry's, build, offline proof).
 //
 // Isolation: outside the network namespace the runner re-execs itself through tests/e2e/pilot/offline.sh under
 // `unshare -rn` (tests/e2e/pilot/v5/env.mjs ensureOffline); inside, it proves that only loopback exists before it
@@ -32,7 +33,7 @@ const argv = process.argv.slice(2);
 const flag = (n) => argv.includes(`--${n}`);
 const opt = (n) => { const i = argv.findIndex((a) => a === `--${n}` || a.startsWith(`--${n}=`)); if (i < 0) return undefined; return argv[i].includes('=') ? argv[i].slice(argv[i].indexOf('=') + 1) : argv[i + 1]; };
 const setup = (msg) => { console.error(`parity: setup error: ${msg}`); process.exit(2); };
-if (flag('help')) { console.log(readFileSync(import.meta.filename, 'utf8').split('\n').slice(1, 23).map((l) => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
+if (flag('help')) { console.log(readFileSync(import.meta.filename, 'utf8').split('\n').slice(1, 24).map((l) => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
 if (!opt('fixture-config')) setup('--fixture-config FILE is required');
 if (!opt('out')) setup('--out DIR is required');
 if (!flag('all') && !opt('view')) setup('pass --all or --view ID');
@@ -52,7 +53,7 @@ const { v5Page, appPage } = await import('./lib/browser.mjs');
 const { classify, diff, runFailures, scorecard, TYPES } = await import('./lib/compare.mjs');
 const { chronologyDims } = await import('./lib/sweeps.mjs');
 const { extractV5View, v5Nav } = await import('./adapters/v5/index.mjs');
-const { emptySnapshot } = await import('./lib/snapshot.mjs');
+const { appWithoutAdapter, emptySnapshot } = await import('./lib/snapshot.mjs');
 
 const t0 = performance.now();
 const clock = opt('clock') ?? '2026-10-08T09:00:00Z';
@@ -127,8 +128,7 @@ try {
 		} else if (a) {
 			try { sa = await a.extract(app, ctx); for (const sw of Object.keys(s5.sweeps)) if (!sa.sweeps[sw]) sa.sweeps[sw] = a.sweeps?.[sw] ? await a.sweeps[sw](app, ctx) : undefined; for (const k of Object.keys(sa.sweeps)) if (sa.sweeps[k] === undefined) delete sa.sweeps[k]; }
 			catch (e) { sa = { ...emptySnapshot(view, 'app', 'error'), error: String(e.stack ?? e).slice(0, 800) }; }
-		} else if (registry[view]?.status === 'available') sa = { ...emptySnapshot(view, 'app', 'error'), error: `the registry marks ${view} available but no app adapter exists (scripts/parity/adapters/app/${view}.mjs)` };
-		else sa = { ...emptySnapshot(view, 'app', 'not-implemented'), owner: registry[view]?.linear ?? null };
+		} else sa = appWithoutAdapter(view, registry);
 		const r = classify(view, diff(s5, sa), reg.entries, { approvedOnly: flag('approved-only') });
 		perView[view] = { ...r, v5Status: s5.status, appStatus: sa.status, ms: Math.round(performance.now() - tv) };
 		details[view] = { view, v5Status: s5.status, v5Error: s5.error ?? null, appStatus: sa.status, appError: sa.error ?? null, owner: sa.owner ?? null, compared: r.compared, matched: r.matched, unregistered: r.unregistered, registered: r.registered };
@@ -173,7 +173,7 @@ const T = sc.total;
 writeFileSync(join(out, 'scorecard.md'), [
 	`# Parity scorecard`, '',
 	`Result **${sc.result}** (exit ${exitCode}) at ${git.head}${git.dirty ? ' (dirty)' : ''}; build ${stamp.buildId} from ${stamp.revision}; clock ${clock} ${timezone}; ${sc.seconds} s.`, '',
-	`Views ${T.views}: v5 extracted ${T.viewsExtractedV5}, app compared ${T.viewsComparedApp}, not yet implemented ${T.viewsNotImplemented}, failed ${T.viewsFailed}. Values: v5 ${T.v5Values}, app ${T.appValues}, compared ${T.compared}, matched ${T.matched}. Registered differences: ${TYPES.map((t) => `${t} ${T.registered[t]}`).join(', ')} (${T.pendingApproval} on entries awaiting approval). Unregistered: ${T.unregistered}.`, '',
+	`Views ${T.views}: v5 extracted ${T.viewsExtractedV5}, app compared ${T.viewsComparedApp}, not yet implemented ${T.viewsNotImplemented}, extraction errors ${T.viewsExtractError}, failed ${T.viewsFailed}. Values: v5 ${T.v5Values}, app ${T.appValues}, compared ${T.compared}, matched ${T.matched}. Registered differences: ${TYPES.map((t) => `${t} ${T.registered[t]}`).join(', ')} (${T.pendingApproval} on entries awaiting approval). Unregistered: ${T.unregistered}.`, '',
 	`Register: ${reg.entries.length} entries (${sc.register.approved} approved); ${used.size} covered a difference, ${unused.length} unused in the views run${flag('strict-register') ? ' (strict: unused fails)' : ''}.`, '',
 	`Isolation: offline ${proof.pass}, v5 non-file network requests ${nonFile} (browser-internal viewer requests ${sc.isolation.v5BrowserInternalRequests}), app non-loopback requests ${sc.isolation.appNonLoopbackRequests}, canary hits ${otherHits} (browser-service ${serviceHits.length}), fixture tree unchanged ${treeBefore === treeAfter}.`, '',
 	'| View | Status | Compared | Matched | Registered | Pending approval | Unregistered |', '| --- | --- | --: | --: | --: | --: | --: |',

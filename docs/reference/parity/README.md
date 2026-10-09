@@ -25,7 +25,7 @@ bun run --bun parity -- --view chronology,overview --fixture-config .local/v5-ve
 | `--app-root DIR` | Use another checkout's build and modules (the mutation proof). |
 | `--app-v5-html FILE` | Self-parity: the app side is the v5 adapter on another copy of the v5 HTML. |
 
-Exit codes: **0** no unregistered difference; **1** at least one unregistered difference, a v5 view that did not extract, an unused register entry under `--strict-register`, or any isolation breach: a v5 network request, an app request that is not loopback, a canary hit other than a browser service, or a changed fixture tree; **2** setup error (arguments, locator, register, build, conversion, import or the offline proof). The register is checked first, before the runner re-executes offline or reads the locator, and a whole-view entry whose owner is not the view registry's owner is a register error.
+Exit codes: **0** no unregistered difference; **1** at least one unregistered difference, a view that did not extract on either side (an app adapter that threw, or an available view without one, included; the register never covers it), an unused register entry under `--strict-register`, or any isolation breach: a v5 network request, an app request that is not loopback, a canary hit other than a browser service, or a changed fixture tree; **2** setup error (arguments, locator, register, build, conversion, import or the offline proof). The register is checked first, before the runner re-executes offline or reads the locator, and a whole-view entry whose owner is not the view registry's owner is a register error.
 
 A full run takes about 100 seconds on this host, most of it the chronology sweeps.
 
@@ -136,7 +136,7 @@ Each entry in `intentional-differences.json` follows `intentional-differences.sc
 | --- | --- |
 | `id` | `IDR-<n>`, unique. |
 | `view` | A v5 navigation id. |
-| `field` | A glob, or a list of globs, over snapshot paths: `*` matches any run of characters and `?` one character. A field of exactly `*` means the whole view is absent and covers only that view-level difference, never a value. |
+| `field` | A glob, or a list of globs, over snapshot paths: `*` matches any run of characters and `?` one character. A field of exactly `*` means the whole view is absent and covers only that view-level difference (kind `view-not-implemented`), never a value and never an extraction error. |
 | `when` | Optional: `{ "v5": …, "app": … }`, each an exact normalized value, `"<absent>"` or `{ "re": "…" }`. Use it to pin the difference: for example `{ "v5": "nav-link", "app": "heading" }` registers BA-14 focus but not focus lost to the body. A side left out of `when` matches any value. An entry with no `when` covers every difference at the paths its field matches, whatever the two values: a changed value, a value on one side only (`<absent>`) and an order difference alike. The first entry in register order that covers a difference is the one reported. |
 | `type` | `improvement`; `defect-fix` (with `source` `S-…`); `data-correction-deferred-to-pipeline`; `not-yet-implemented` (with `owner` `GRS-…`; for a whole view, the owner in the generated view registry, `src/lib/components/view-registry.ts`, which every run checks); or `known-gap`. |
 | `source` | The `S-…` source defect, `BA-…` finding or `GRS-…` ticket behind it. |
@@ -159,7 +159,7 @@ An improvement that reverts to v5 behaviour makes the app match v5, so no differ
 - `register`: entries, approved, used and unused, and whether `--approved-only` and `--strict-register` were on.
 - `isolation`: the offline proof, v5 network and browser-internal request counts, app non-loopback requests, canary hits and whether the fixture tree is unchanged.
 - `total`:
-  - views, then `viewsExtractedV5`, `viewsComparedApp`, `viewsNotImplemented` and `viewsFailed`;
+  - views, then `viewsExtractedV5`, `viewsComparedApp`, `viewsNotImplemented`, `viewsExtractError` (either side did not extract) and `viewsFailed`;
   - `v5Values`, `appValues`, `compared` and `matched`;
   - `registered` counts by type, `pendingApproval` and `unregistered`.
 - `views.<id>`: the same counts per view, its time, and a status. The status is `PASS`, `PASS-with-notes` (only registered differences), `NOT-YET-IMPLEMENTED` or `FAIL`.

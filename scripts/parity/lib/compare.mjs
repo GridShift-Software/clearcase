@@ -80,7 +80,7 @@ export function diff(v5, app) {
 	return { compared: paths.size, matched, v5Values: a.size, appValues: b.size, diffs };
 }
 
-const globRe = (g) => new RegExp(`^${g.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`, 's');
+export const globRe = (g) => new RegExp(`^${g.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`, 's');
 const valueMatches = (want, got) => want === undefined || (typeof want === 'string' ? want === got : new RegExp(want.re, 's').test(got));
 
 /** The register entry that covers a difference, or null. Proposed (unapproved) entries apply unless approvedOnly. */
@@ -88,8 +88,9 @@ export function covering(entries, view, d, { approvedOnly = false } = {}) {
 	for (const e of entries) {
 		if (e.view !== view || d.kind === 'extract-error' || d.path.startsWith('!')) continue;
 		if (approvedOnly && !e.approvedBy) continue;
-		// a field of exactly '*' means the whole view is absent: it covers only the app's view-not-implemented difference
-		if (![e.field].flat().some((f) => (f === '*' ? d.path === '*' && d.kind === 'view-not-implemented' : globRe(f).test(d.path)))) continue;
+		// a field of exactly the string '*' means the whole view is absent: it alone covers the app's view-not-implemented
+		// difference, and covers nothing else (no other glob, '?', '**' or ['*'], stands for the whole view)
+		if (d.path === '*' ? !(e.field === '*' && d.kind === 'view-not-implemented') : ![e.field].flat().some((f) => f !== '*' && globRe(f).test(d.path))) continue;
 		if (e.when && !(valueMatches(e.when.v5, d.v5) && valueMatches(e.when.app, d.app))) continue;
 		return e;
 	}
@@ -117,7 +118,7 @@ export function scorecard(perView, meta = {}) {
 		const reg = Object.fromEntries(TYPES.map((t) => [t, 0]));
 		for (const d of r.registered) reg[d.type]++;
 		const pending = r.registered.filter((d) => !d.approved).length;
-		const extractError = r.v5Status !== 'ok' || r.appStatus === 'error';
+		const extractError = r.v5Status !== 'ok' || (r.appStatus !== 'ok' && r.appStatus !== 'not-implemented');
 		const status = r.unregistered.length || extractError ? 'FAIL' : r.appStatus === 'not-implemented' ? 'NOT-YET-IMPLEMENTED' : r.registered.length ? 'PASS-with-notes' : 'PASS';
 		views[view] = { status, v5: r.v5Status, app: r.appStatus, v5Values: r.v5Values, appValues: r.appValues, compared: r.compared, matched: r.matched, registered: reg, pendingApproval: pending, unregistered: r.unregistered.length, ms: r.ms ?? null };
 		total.views++;

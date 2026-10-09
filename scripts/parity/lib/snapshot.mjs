@@ -18,6 +18,16 @@ export function appWithoutAdapter(view, registry) {
 	return { ...emptySnapshot(view, 'app', 'not-implemented'), owner: registry[view]?.linear ?? null };
 }
 
+/**
+ * The app side of a view with an app adapter, as the runner scores it: for a view the registry marks available, any
+ * status other than 'ok' is an extraction error (an adapter cannot declare an available view not implemented and so
+ * fall under a whole-view waiver); otherwise the adapter's snapshot as returned.
+ */
+export function appFromAdapter(view, registry, sa) {
+	if (registry[view]?.status !== 'available' || sa?.status === 'ok' || sa?.status === 'error') return sa;
+	return { ...emptySnapshot(view, 'app', 'error'), error: `the registry marks ${view} available but its app adapter returned status ${JSON.stringify(sa?.status)}` };
+}
+
 /** A table from raw: columns are slugs of the header labels (sort arrows removed), cells are parts joined ' / '. */
 export function tableFromRaw(t, { key = 'ref' } = {}) {
 	const columns = [];

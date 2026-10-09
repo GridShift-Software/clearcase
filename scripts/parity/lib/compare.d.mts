@@ -9,6 +9,7 @@ export interface Result { compared: number; matched: number; v5Values: number; a
 export interface Classified extends Result { registered: (Difference & { register: string; type: DiffType; approved: boolean })[]; unregistered: Difference[] }
 export function flatten(s: Snapshot): Map<string, string>;
 export function diff(v5: Snapshot, app: Snapshot): Result;
+export function globRe(glob: string): RegExp;
 export function covering(entries: readonly Entry[], view: string, d: { path: string; v5?: string; app?: string; kind?: string }, opts?: { approvedOnly?: boolean }): Entry | null;
 export function classify(view: string, result: Result, entries: readonly Entry[], opts?: { approvedOnly?: boolean }): Classified;
 export function scorecard(perView: Record<string, Classified & { v5Status: string; appStatus: string; ms?: number }>, meta?: Record<string, unknown>): any;

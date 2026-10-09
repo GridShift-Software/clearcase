@@ -16,18 +16,29 @@ bun run --bun parity -- --view chronology,overview --fixture-config .local/v5-ve
 | --- | --- |
 | `--all` or `--view ID[,ID…]` | The views to compare, by v5 navigation id. |
 | `--fixture-config FILE` | The local fixture locator (`.local/v5-verification.json`, the same file `verify:pilot:v5` uses). Its main HTML and expected-examples hashes are checked against the committed profile. |
-| `--out DIR` | Output directory, inside `.local/` or outside the repository. |
+| `--out DIR` | Output directory, inside `.local/` or outside the repository. See [The output directory](#the-output-directory). |
 | `--clock ISO`, `--timezone TZ` | The fixed clock (default `2026-10-08T09:00:00Z`) and timezone (default `UTC`) for both sides. |
 | `--approved-only` | Only approved register entries cover differences. The CC-11 gate uses this. |
 | `--strict-register` | Fail when a register entry covered nothing in the views run (see [Unused entries](#unused-entries)). |
 | `--no-sweeps`, `--no-exports` | Skip the interaction sweeps or the export capture (quick checks while writing an adapter). |
+| `--keep-work` | Keep this run's working directory `DIR/.work-<pid>-XXXXXX` (the converted package, the server's data and log, the browser profile: case-bearing, local only) instead of removing it on exit. Later runs never sweep a kept directory: remove it by hand. |
 | `--keep-snapshots` | Also write both sides' full snapshots per view (`views/<view>.snapshots.json`). |
 | `--app-root DIR` | Use another checkout's build and modules (the mutation proof). |
 | `--app-v5-html FILE` | Self-parity: the app side is the v5 adapter on another copy of the v5 HTML. |
 
-Exit codes: **0** no unregistered difference; **1** at least one unregistered difference, a v5 view that did not extract, an unused register entry under `--strict-register`, or any isolation breach: a v5 network request, an app request that is not loopback, a canary hit other than a browser service, or a changed fixture tree; **2** setup error (arguments, locator, register, build, conversion, import or the offline proof). The register is checked first, before the runner re-executes offline or reads the locator, and a whole-view entry whose owner is not the view registry's owner is a register error.
+Exit codes: **0** no unregistered difference; **1** at least one unregistered difference, a view that did not extract on either side (an app adapter that threw, an available view without one, and an available view whose adapter returns any status but `ok` included; the register never covers it), an unused register entry under `--strict-register`, or any isolation breach: a v5 network request, an app request that is not loopback, a canary hit other than a browser service, or a changed fixture tree; **2** setup error (arguments, locator, register, an `--out` overlapping the fixture or holding a symlink or hard link where the runner writes, build, conversion, import or the offline proof). The register is checked first, before the runner re-executes offline or reads the locator, and a whole-view entry whose owner is not the view registry's owner is a register error.
 
 A full run takes about 100 seconds on this host, most of it the chronology sweeps.
+
+### The output directory
+
+The runner never writes or deletes inside the read-only fixture. Before it creates, removes or writes anything:
+
+- **Overlap.** `--out` must not overlap a read-only input in either direction. The inputs are the case folder; the v5 main HTML, the bundles-only HTML, the expected examples, the inventory, the summary and the source archive (`archive.path`), each with its folder; the locator's `fixtureRoot` when it gives one (then anything under it is refused); a reused package; and an `--app-v5-html` copy (the file only, because the mutation proof writes that copy beside its output). Paths are compared by realpath: symlinks, aliases and dangling links are followed, a dangling relative link resolved against the real folder that holds it. The check runs twice: on the raw locator, path only, before the locator's hashes are checked, and again on the loaded locator.
+- **No link below the output.** Every path the runner writes below `--out` (`views/`, `views/<view>.json`, `views/<view>.snapshots.json`, the scorecards, `register-usage.json`, `v5-requests.json`, `canary-hits.json`) must resolve to itself. A symlink at or above it inside the output, dangling or not, is refused, and so is an existing file with more than one hard link. The known children are checked up front, and each write is checked again.
+- Either refusal is a setup error (exit 2), and nothing in the output or the fixture changes.
+
+Each run works in a fresh `DIR/.work-<pid>-XXXXXX` (`mkdtemp`), so an existing `DIR/.work` or any other entry is left alone. It holds the converted, case-bearing package, the server's data and the browser profile. It is removed on every exit, a setup error included, and on SIGINT, SIGTERM and SIGHUP, after which the runner exits 130, 143 or 129 (the browser and server it started are killed by their own exit handlers). `--keep-work` keeps it. SIGKILL cannot be handled, so a run killed that way leaves its working directory behind. On creation each run writes a marker, `.parity-work.json`, into its working directory: `{"tool": "clearcase-parity", "pid", "startedAt", "keep"}`, plus `pidStartTime` (field 22 of `/proc/<pid>/stat`) where it can be read. The next run in the same `--out` sweeps such leftovers after the checks above, recognising them by that marker and never by name alone. It removes an entry directly in `--out` only when it is a real directory (never a symlink) named `.work-<pid>-XXXXXX`, holding a marker that parses, names this tool, records `keep: false` and the same pid as the name, and that process is gone or has a different start time (its pid was reused). Anything else stays: a directory of your own, even one named like `.work-backup`; an unmarked or unparsable one; one kept with `--keep-work` (`keep: true`), which you remove by hand; and a live run's. The outer process that re-executes the runner under `unshare` does not forward signals: a signal sent to it alone does not reach the runner inside the namespace.
 
 ### What runs, and how it is isolated
 
@@ -126,7 +137,7 @@ Combination keys are index-coded (`b2.t0.s1.q0.ref.desc`) over the sorted option
 4. Run the view. Fix real differences, and propose a register entry for each intended one (below). Then run `bun run --bun test`, which includes the parity suite.
 5. A v5 state the generic adapter does not reach, such as a sub-tab, a dialog or a second mode, belongs in `scripts/parity/adapters/v5/specs.mjs` as a sweep with a `v5` driver. Implement the same sweep id in your app adapter.
 
-When the registry marks a view `available` and no app adapter exists, the run reports an error for that view, and the error is unregistered.
+When the registry marks a view `available` and no app adapter exists, or its adapter returns any status but `ok` (`not-implemented` included), the run reports an extraction error for that view, and the error is unregistered.
 
 ## Register an intended difference
 
@@ -136,7 +147,7 @@ Each entry in `intentional-differences.json` follows `intentional-differences.sc
 | --- | --- |
 | `id` | `IDR-<n>`, unique. |
 | `view` | A v5 navigation id. |
-| `field` | A glob, or a list of globs, over snapshot paths: `*` matches any run of characters and `?` one character. A field of exactly `*` means the whole view is absent and covers only that view-level difference, never a value. |
+| `field` | A glob, or a list of globs, over snapshot paths: `*` matches any run of characters and `?` one character. A field of exactly `*` means the whole view is absent and covers only that view-level difference (kind `view-not-implemented`), never a value and never an extraction error. It must be exactly the string `*`: any other field that would match the path `*` (`?`, `**`, `*?`, `["*"]`, …) is refused by the validator, and no other field covers a whole view. |
 | `when` | Optional: `{ "v5": …, "app": … }`, each an exact normalized value, `"<absent>"` or `{ "re": "…" }`. Use it to pin the difference: for example `{ "v5": "nav-link", "app": "heading" }` registers BA-14 focus but not focus lost to the body. A side left out of `when` matches any value. An entry with no `when` covers every difference at the paths its field matches, whatever the two values: a changed value, a value on one side only (`<absent>`) and an order difference alike. The first entry in register order that covers a difference is the one reported. |
 | `type` | `improvement`; `defect-fix` (with `source` `S-…`); `data-correction-deferred-to-pipeline`; `not-yet-implemented` (with `owner` `GRS-…`; for a whole view, the owner in the generated view registry, `src/lib/components/view-registry.ts`, which every run checks); or `known-gap`. |
 | `source` | The `S-…` source defect, `BA-…` finding or `GRS-…` ticket behind it. |
@@ -159,7 +170,7 @@ An improvement that reverts to v5 behaviour makes the app match v5, so no differ
 - `register`: entries, approved, used and unused, and whether `--approved-only` and `--strict-register` were on.
 - `isolation`: the offline proof, v5 network and browser-internal request counts, app non-loopback requests, canary hits and whether the fixture tree is unchanged.
 - `total`:
-  - views, then `viewsExtractedV5`, `viewsComparedApp`, `viewsNotImplemented` and `viewsFailed`;
+  - views, then `viewsExtractedV5`, `viewsComparedApp`, `viewsNotImplemented`, `viewsExtractError` (either side did not extract) and `viewsFailed`;
   - `v5Values`, `appValues`, `compared` and `matched`;
   - `registered` counts by type, `pendingApproval` and `unregistered`.
 - `views.<id>`: the same counts per view, its time, and a status. The status is `PASS`, `PASS-with-notes` (only registered differences), `NOT-YET-IMPLEMENTED` or `FAIL`.
@@ -172,10 +183,13 @@ On the real sample, `bun scripts/parity/mutate.mjs --fixture-config .local/v5-ve
 
 - It archives `HEAD`, makes exactly one text replacement, reflinks `node_modules`, builds, and runs `parity --app-root` on the affected views.
 - The pilot has no register yet, so register CRUD runs v5 against a scratch copy of the v5 HTML with a planted delete defect. An unmutated copy is the self-parity control and must show no difference.
+- Before it creates, removes (`<out>/<id>` is recreated for each mutant) or writes anything, it checks `--out` like the runner: no overlap with an input the locator names, and no symlink or hard link at `<out>/<id>`, `<out>/<id>/src`, `<out>/<id>/v5-copy.html` or `mutation-proof.json`. `--out` must also lie inside `.local/` with symlinks resolved. A refusal exits 2.
 
 Results stay in `--out/mutation-proof.json` (local).
 
 ## Limits
+
+- The output checks compare realpaths. A bind mount of the fixture elsewhere is not visible to realpath and is not detected, and a symlink swapped in between a check and the write that follows it (a race) is not guarded.
 
 - The generic v5 adapter reads each view's first state. Sub-tabs, dialogs and modes need a sweep in `specs.mjs`; the view's owner adds it.
 - The engine sweep compares the libraries, not the UI. The UI sweep is the behavioural evidence, and the engine sweep adds breadth.

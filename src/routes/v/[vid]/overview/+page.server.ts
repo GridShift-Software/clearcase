@@ -1,6 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { citedRefs } from '$lib/components/cite';
 import { app } from '$lib/local-case/app.server';
+import { slotStates } from '$lib/local-case/overview-widgets.server';
 import { versionPath, type OverviewModel } from '$lib/local-case/model';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -16,6 +17,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 		known: narrative ? [...a.store.existingRefs(v.id, citedRefs([narrative]))] : [],
 		notes: a.userWork.summary(v.case_id, v.id),
 		previous: isActive ? a.previousVersion(v.case_id) : null,
+		slots: await slotStates({ app: a, caseId: v.case_id, caseName: version.caseName, resultsVersion: v.id }),
 	};
 };
 

@@ -50,7 +50,8 @@
 				<tr><td>Missing</td><td class="num" id="count-missing">{o.originals.missing}</td></tr>
 				<tr><td>Inside a parent e-mail</td><td class="num">{o.originals.embedded}</td></tr>
 				<tr><td>Download only (content contradicts type)</td><td class="num">{o.originals.downloadOnly}</td></tr>
-			</tbody></table></section>
+			</tbody></table>
+			<p id="originals-checked"><small>Checked when this version was imported, <time datetime={data.originalsCheckedAt}>{data.originalsCheckedAt}</time>. A document page checks its original again when it is opened.</small></p></section>
 		<section class="card" aria-labelledby="kpi-notes"><h2 id="kpi-notes">My notes</h2>
 			<p id="notes-total">{plural(data.notes.total, 'note')} for this case: {data.notes.here + data.notes.exact} on documents of this version{data.notes.ambiguous ? `, ${data.notes.ambiguous} ambiguous` : ''}{data.notes.missing + data.notes.unanchored ? `, ${data.notes.missing + data.notes.unanchored} detached (their document is not in this version)` : ''}.</p>
 			<ul>{#each data.notes.byRef.slice(0, 20) as n (n.ref)}<li><CitationLink resultsVersion={vid} ref={n.ref} />: {n.n}{n.status === 'ambiguous' ? ' (ambiguous)' : ''}</li>{/each}</ul></section>

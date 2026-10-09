@@ -58,7 +58,7 @@ export function readViewContent(data: unknown): ViewContentReader {
   return {
     views: () => Object.keys(root).filter((v) => isRecord(root[v])).sort(),
     fields: (view) => Object.keys(fieldsOf(view)).filter((f) => isViewValue(fieldsOf(view)[f])).sort(),
-    value,
+    value: (view, field) => { const v = value(view, field); return v !== null && typeof v === 'object' ? structuredClone(v) : v; },
     text: (view, field) => { const v = value(view, field); return typeof v === 'string' ? v : null; },
     number: (view, field) => { const v = value(view, field); return typeof v === 'number' ? v : null; },
     list: (view, field) => { const v = value(view, field); return Array.isArray(v) ? [...v] : null; },

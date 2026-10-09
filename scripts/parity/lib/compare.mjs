@@ -87,7 +87,8 @@ export function covering(entries, view, d, { approvedOnly = false } = {}) {
 	for (const e of entries) {
 		if (e.view !== view || d.path === '!v5') continue;
 		if (approvedOnly && !e.approvedBy) continue;
-		if (![e.field].flat().some((f) => globRe(f).test(d.path))) continue;
+		// a field of exactly '*' means the whole view is absent: it covers only the view-level difference
+		if (![e.field].flat().some((f) => (f === '*' ? d.path === '*' : globRe(f).test(d.path)))) continue;
 		if (e.when && !(valueMatches(e.when.v5, d.v5) && valueMatches(e.when.app, d.app))) continue;
 		return e;
 	}

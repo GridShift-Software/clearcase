@@ -16,6 +16,9 @@ export const clockScript = (iso) => `(() => { const T = Date.parse(${JSON.string
   D.parse = R.parse; D.UTC = R.UTC; globalThis.Date = D; })();`;
 
 const LOCAL = /^(file|data|blob|about|chrome-error|devtools):/;
+// Chromium's own pages and extensions (the built-in PDF viewer that renders a local PDF a v5 view embeds) are served
+// from inside the browser; they are counted apart from network requests, which always fail the run.
+export const BROWSER_INTERNAL = /^(chrome-extension|chrome|chrome-untrusted):/;
 
 async function common(b, p, timezone) {
 	await p.s('Emulation.setTimezoneOverride', { timezoneId: timezone });
@@ -56,7 +59,15 @@ export async function v5Page(b, { html, clock, timezone }) {
 	const url = pathToFileURL(resolve(html)).href;
 	p.url = url;
 	p.nonFile = [];
-	b.on((m) => { if (m.sessionId === p.sessionId && m.method === 'Network.requestWillBeSent' && !LOCAL.test(m.params.request.url)) p.nonFile.push(m.params.request.url); });
+	p.internal = [];
+	p.view = null;
+	b.on((m) => {
+		if (m.method !== 'Network.requestWillBeSent' || LOCAL.test(m.params.request.url)) return;
+		const u = m.params.request.url;
+		// the page's own session and any frame or viewer it opened (auto-attached children report their parent)
+		if (m.sessionId !== p.sessionId && b.sessions.get(m.sessionId)?.parentSession !== p.sessionId) return;
+		(BROWSER_INTERNAL.test(u) ? p.internal : p.nonFile).push({ view: p.view, url: u });
+	});
 	// downloads (Blob anchors) and print are captured in the page: the harness reads content, never bytes on disk
 	const hooks = `(() => { window.__parity = { downloads: [], prints: 0, opened: [] };
 		const C = URL.createObjectURL.bind(URL); const blobs = new Map();
@@ -77,7 +88,7 @@ export async function v5Page(b, { html, clock, timezone }) {
 		await p.navigate(url, { timeout: 60000 });
 		await p.waitFor(`typeof go === 'function' && typeof RENDER === 'object' && !!document.getElementById('main')`, 60000);
 	};
-	p.go = async (view) => { await p.evaluate(`go(${JSON.stringify(view)})`); await sleep(30); };
+	p.go = async (view) => { p.view = view; await p.evaluate(`go(${JSON.stringify(view)})`); await sleep(30); };
 	/** Downloads captured since the last call, read as text (CSV, ICS, JSON, TXT) or base64 (DOCX, PDF). */
 	p.takeDownloads = () => p.evaluate(`Promise.all(window.__parity.downloads.splice(0).map(async (d) => { const buf = new Uint8Array(await d.blob.arrayBuffer()); let bin = ''; for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000)); return { name: d.name, type: d.type, size: buf.length, base64: btoa(bin) }; }))`);
 	p.takePrint = () => p.evaluate(`(() => { const r = { prints: window.__parity.prints, text: window.__parity.printed ?? null }; window.__parity.prints = 0; window.__parity.printed = null; return r; })()`);

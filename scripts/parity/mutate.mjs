@@ -11,7 +11,7 @@
 // (`parity --app-v5-html`), because the pilot has no register yet; its unmutated copy is the self-parity control.
 // Exit 0 when every mutant is caught and the control passes; 1 otherwise; 2 on setup errors.
 import { execFileSync, spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
@@ -27,8 +27,8 @@ const cfg = JSON.parse(readFileSync(cfgFile, 'utf8'));
 const MUTANTS = [
 	{ id: 'filter-sort', category: 'filter/sort', views: 'chronology', expect: /^sweep\.filter_sort_(ui|engine)\./, what: 'chronology sorts compare with localeCompare instead of code units (the parity trial mutation)',
 		edits: [['src/lib/local-case/chronology.ts', '(a[sort] < b[sort] ? -1 : a[sort] > b[sort] ? 1 : 0)', 'String(a[sort]).localeCompare(String(b[sort]))']] },
-	{ id: 'calculation', category: 'calculation', views: 'overview', expect: /^kpi\.invoices\.value$/, what: 'the Invoices tile counts register rows of type invoice instead of the quantum invoice count',
-		edits: [['src/routes/v/[vid]/overview/+page.svelte', '{(o.quantum?.invoiceCount ?? c.invoices).toLocaleString(\'en\')}', '{c.invoices.toLocaleString(\'en\')}']] },
+	{ id: 'calculation', category: 'calculation', views: 'overview', expect: /^kpi\.contradiction_flags\.value$/, what: 'the Contradiction flags tile subtracts the high-severity flags from the total',
+		edits: [['src/routes/v/[vid]/overview/+page.svelte', '<p class="num">{o.contradictions.total}</p>', '<p class="num">{o.contradictions.total - o.contradictions.highCount}</p>']] },
 	{ id: 'export', category: 'export', views: 'chronology', expect: /^export\.export_csv\.row\.\d+\.to$/, what: 'the chronology CSV writes the sender into the to column',
 		edits: [['src/routes/v/[vid]/chronology/+page.svelte', 'r.subject, r.sender, r.to, r.docType', 'r.subject, r.sender, r.sender, r.docType']] },
 	{ id: 'navigation-focus', category: 'navigation/focus', views: 'overview,chronology', expect: /^focus\.after_nav$/, what: 'after navigation focus goes to the main region instead of the page heading',
@@ -57,8 +57,8 @@ for (const m of MUTANTS.filter((x) => !only || only.includes(x.id))) {
 	const args = [join(REPO, 'scripts', 'parity', 'run.mjs'), '--view', m.views, '--fixture-config', cfgFile, '--out', join(dir, 'out')];
 	if (m.v5) {
 		const html = join(dir, 'v5-copy.html');
-		copyFileSync(cfg.mainHtml.path, html);
-		let text = readFileSync(html, 'utf8');
+		// read the fixture (read-only) and write a fresh, writable copy; the fixture itself is never touched
+		let text = readFileSync(cfg.mainHtml.path, 'utf8');
 		for (const [find, repl] of m.edits) text = replaceOnce(text, find, repl, 'v5 HTML');
 		writeFileSync(html, text);
 		args.push('--app-v5-html', html, '--no-exports');

@@ -118,7 +118,7 @@ try {
 	// warm navigation through the seven views, from each to the next by its navigation link
 	console.log('warm navigation ...');
 	await P.navigate(`${origin}${V(VIEWS[0])}`);
-	await P.waitFor(`document.querySelector('main#main')?.dataset.ready === ${JSON.stringify(VIEWS[0])}`, 60000);
+	await P.waitFor(`document.querySelector('main#main')?.dataset.ready === ${JSON.stringify(VIEWS[0])} && !!document.querySelector('main#main[data-hydrated]')`, 60000);
 	const warm = [];
 	for (let i = 0; i < WARMUP + SAMPLES; i++) {
 		const to = VIEWS[(i + 1) % VIEWS.length];
@@ -133,7 +133,7 @@ try {
 	const links = [];
 	for (const [view, sel] of SOURCES) {
 		await P.navigate(`${origin}${V(view)}`);
-		await P.waitFor(`document.querySelector('main#main')?.dataset.ready === ${JSON.stringify(view)}`, 60000);
+		await P.waitFor(`document.querySelector('main#main')?.dataset.ready === ${JSON.stringify(view)} && !!document.querySelector('main#main[data-hydrated]')`, 60000);
 		const n = await P.evaluate(`document.querySelectorAll(${JSON.stringify(sel)}).length`);
 		for (let k = 0; k < n; k++) links.push({ view, sel, k });
 	}
@@ -144,7 +144,7 @@ try {
 	const detail = [];
 	for (const [i, l] of order.slice(0, WARMUP + SAMPLES).entries()) {
 		await P.navigate(`${origin}${V(l.view)}`);
-		await P.waitFor(`document.querySelector('main#main')?.dataset.ready === ${JSON.stringify(l.view)}`, 60000);
+		await P.waitFor(`document.querySelector('main#main')?.dataset.ready === ${JSON.stringify(l.view)} && !!document.querySelector('main#main[data-hydrated]')`, 60000);
 		const ref = await P.evaluate(`(() => { const a = document.querySelectorAll(${JSON.stringify(l.sel)})[${l.k}]; a.setAttribute('data-cc05', '1'); return decodeURIComponent(a.getAttribute('href').replace(/^.*\\/doc\\//, '').replace(/\\?.*$/, '')); })()`);
 		const t = await timed(`detail${i}`, '[data-cc05]', `doc:${ref}`, `/doc/${encodeURIComponent(ref)}`);
 		detail.push({ i, warmup: i < WARMUP, from: l.view, ref, ...t });

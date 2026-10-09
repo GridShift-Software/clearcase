@@ -101,7 +101,8 @@ export function viewContentText(sc, view, field) {
 	return typeof v === 'string' && v.trim() ? v : null;
 }
 
-export const ready = (view) => `document.querySelector('main#main')?.dataset.ready === ${JSON.stringify(view)}`;
+/** A view is ready when its main says so; an analysis view (data-analysis) also after hydration, so clicks are handled. */
+export const ready = (view) => `(() => { const m = document.querySelector('main#main'); return m?.dataset.ready === ${JSON.stringify(view)} && (!m.hasAttribute('data-analysis') || m.hasAttribute('data-hydrated')); })()`;
 
 /**
  * A page on the app origin with the parity harness's capture hooks: Blob downloads and window.print are recorded in

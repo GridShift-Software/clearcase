@@ -10,5 +10,6 @@ export const TILE_LABEL: Readonly<Record<string, string>>;
 export const SLOTS_DIR: string;
 export function loadSlotPlugins(dir?: string, root?: string): Promise<Map<string, SlotPlugin>>;
 export function slotPlugins(ctx: { slotPlugins?: Map<string, SlotPlugin>; appRoot?: string }): Promise<Map<string, SlotPlugin>>;
+export function assertOverview(p: unknown, who: string): Promise<void>;
 export function readOverviewSnapshot(p: unknown, ctx: unknown): Promise<any>;
 export function readOverviewTiles(p: unknown, ctx: unknown): Promise<Record<string, { value: string; sub: string }>>;

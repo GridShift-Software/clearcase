@@ -11,10 +11,11 @@
 //  * Activation never writes here. Every write schedules a work.sqlite backup.
 //  * Enumerable: tables() lists every work.sqlite table (from SQLite itself, labelled by work.userwork_catalog), and
 //    exportAll()/importAll() round-trip them generically, including tables later tickets add with defineTable(). A
-//    backup or restore feature never needs per-table code.
+//    backup or restore feature never needs per-table code. A defined table's rows are read and written with
+//    listTableRows/putTableRow/deleteTableRow, which validate like a restore and schedule the backup like putRow.
 //  * A restore never writes activation or import state (refused) and never creates trust (trusted_warning rows are
-//    dropped and reported). Every table has a declared scope: in a case table it replaces only the snapshot's cases,
-//    and it merges a store table by primary key; whole-table replacement only when asked for.
+//    dropped and reported). Every defined table declares its scope: in a case table a restore replaces only the
+//    snapshot's cases, and it merges a store table by primary key; whole-table replacement only when asked for.
 import { createHash, randomUUID } from 'node:crypto';
 import { isHttpError } from '@sveltejs/kit';
 import { now } from '../components/clock.ts';
@@ -59,6 +60,8 @@ const ACTIVATION = new Set(['active', 'activation_log']);
 const TRUST = 'trusted_warning';
 /** The column of a case-scoped table that names its case; a restore replaces only the snapshot's cases there. */
 const CASE_COLUMN = 'case_id';
+/** A transient index defineTable creates (and drops) to read a column's collation; under the reserved prefix. */
+const PROBE = 'userwork_catalog_probe';
 export const USER_WORK_EXPORT = 'clearcase.user-work/1';
 
 export type TableKind = 'user-work' | 'activation' | 'unregistered';
@@ -73,12 +76,13 @@ export interface TableDefinition {
 	name: string; owner: string; description: string;
 	columns: { name: string; type: 'TEXT' | 'INTEGER' | 'REAL' | 'BLOB'; notNull?: boolean }[];
 	primaryKey: string[];
-	/** default `'store'`; a table with a `case_id` column must declare `'case'` */
-	scope?: TableScope;
+	/** required: `'case'` needs a `case_id TEXT NOT NULL` column, `'store'` must not have one */
+	scope: TableScope;
 }
 /** A cell of an export: BLOBs as base64, INTEGERs beyond the JS safe range as decimal text (both lossless). Numbers
  *  are finite; `$int` is in the 64-bit range. */
-type Cell = string | number | null | { $b64: string } | { $int: string };
+export type TableCell = string | number | null | { $b64: string } | { $int: string };
+type Cell = TableCell;
 export interface UserWorkExport {
 	format: typeof USER_WORK_EXPORT;
 	exportedAt: string;
@@ -94,12 +98,14 @@ const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 type NoteDb = { id: string; case_id: string; anchor_sha256: string | null; ref_at_creation: string; results_version: string; body: string; body_sha256: string; created_at: string };
 
 /**
- * Why a user-work call was refused. `invalid`: bad input (a note, field, store, table or cell shape), or a write that
- * failed for another reason (nothing was written); `restore-state`: a restore carried activation or import-state
- * tables; `restore-key`: a restore row has an empty, non-integer or repeated key; `restore-key-collision`: a restore row
- * of a case table has the key of another case's row here; `table-conflict`: defineTable on an existing table of another
- * schema, scope or owner; `table-built-in`: defineTable on a built-in table. Messages name tables and columns, never
- * row values.
+ * Why a user-work call was refused. `invalid`: bad input (a note, field, store, table or cell shape, a missing scope,
+ * a table not defined through defineTable), or a write that failed for another reason (nothing was written);
+ * `restore-state`: a restore carried activation or import-state tables; `restore-key`: a restore or table row has an
+ * empty, non-integer or repeated key; `restore-key-collision`: a restore row, or a putTableRow row, of a case table has
+ * the key of another case's row here; `table-conflict`: defineTable on an existing table of another schema, scope or
+ * owner, or with a non-BINARY collation on a key or case_id column, or a table-row write by another owner;
+ * `table-built-in`: defineTable or a table-row call on a built-in table. Messages name tables and columns, never row
+ * values.
  */
 export type UserWorkErrorCode = 'invalid' | 'restore-state' | 'restore-key' | 'restore-key-collision' | 'table-conflict' | 'table-built-in';
 export class UserWorkError extends Error {
@@ -120,8 +126,11 @@ export interface ImportOptions { replace?: 'cases' | 'tables' }
  * (`replace: 'tables'`); `dropped`: never written (trusted_warning).
  */
 export type TableRestore = 'replaced-for-cases' | 'no-cases' | 'merged' | 'replaced' | 'dropped';
-/** `rows`: snapshot rows written; `deleted`: rows removed before writing (merged rows are not counted). */
-export interface TableRestoreReport { name: string; scope: TableScope; action: TableRestore; rows: number; deleted: number }
+/** `rows`: snapshot rows written; `deleted`: rows removed before writing (merged rows are not counted). Only on
+ *  `merged`: `inserted` (rows with a key new here) and `replaced` (rows whose key was already here; their row is now
+ *  the snapshot's), which add up to `rows`. Only on `replaced-for-cases`: `cases`, the snapshot's cases this table had
+ *  rows of here or gets rows of (sorted). */
+export interface TableRestoreReport { name: string; scope: TableScope; action: TableRestore; rows: number; deleted: number; inserted?: number; replaced?: number; cases?: string[] }
 /** What importAll restored. `cases`: the snapshot's cases (the case_id values of its case-table rows, outside
  *  trusted_warning); `restored`: one report per snapshot table, in snapshot order; `dropped` (present only when rows
  *  were dropped) names rows a restore never writes. */
@@ -281,25 +290,102 @@ export class UserWork {
 
 	/**
 	 * Define a user-work table for a later ticket (idempotent): it lives in work.sqlite, is enumerated, backed up and
-	 * restored like the built-in ones. A primary key of stable ids is required, and the scope is explicit: `'case'`
-	 * needs a `case_id TEXT NOT NULL` column; `'store'` (the default) must not have a `case_id` column. A built-in table
-	 * is refused, and so is an existing table (by any letter case) of another schema (columns, types, NOT NULL, ordered
-	 * primary key) or another owner. (The scope follows from the schema, so it cannot change while the schema stays.)
+	 * restored like the built-in ones. A primary key of stable ids and a scope are required: `'case'` needs a
+	 * `case_id TEXT NOT NULL` column; `'store'` must not have a `case_id` column. A built-in table is refused, and so is
+	 * an existing table (by any letter case) of another schema (columns, types, NOT NULL, ordered primary key), owner or
+	 * scope (a table without a recorded scope counts as `'store'`, so the scope never changes once a table exists), or
+	 * with a non-BINARY collation on a key or case_id column (a restore matches cases and keys byte for byte).
 	 */
 	async defineTable(def: TableDefinition): Promise<void> {
-		const bad = definitionProblem(def);
+		const bad = definitionProblem(def) ?? (def.scope === 'case' || def.scope === 'store' ? null : "scope is required: 'case' or 'store'");
 		if (bad) throw new UserWorkError(bad);
 		if (BUILT_IN.has(def.name) || this.stateTables().has(def.name)) throw new UserWorkError(`table ${def.name} is built in and cannot be redefined`, 'table-built-in');
-		const scope = def.scope ?? 'store';
-		const wrong = scopeProblem(def, scope, true);
-		if (wrong) throw new UserWorkError(`table ${def.name}: ${wrong}`);
 		const existing = this.tables().find((t) => t.name.toLowerCase() === def.name);
 		if (existing) {
 			const differs = schemaDifference(definitionOf(existing), def) ?? (existing.name !== def.name ? 'a table of that name in another letter case exists' : null);
 			if (differs) throw new UserWorkError(`table ${def.name} already exists with another shape: ${differs}`, 'table-conflict');
 			if (existing.kind !== 'unregistered' && existing.owner !== def.owner) throw new UserWorkError(`table ${def.name} is owned by ${existing.owner}`, 'table-conflict');
+			if (existing.scope !== def.scope) throw new UserWorkError(`table ${def.name} is ${existing.scope}-scoped here; a table's scope cannot change`, 'table-conflict');
 		}
-		await this.write(() => `defining table ${def.name}`, (d) => createTable(d, def, true, scope));
+		const wrong = scopeProblem(def, def.scope, true);
+		if (wrong) throw new UserWorkError(`table ${def.name}: ${wrong}`);
+		await this.write(() => `defining table ${def.name}`, (d) => {
+			const coll = existing && collationProblem(d, def);
+			if (coll) throw new UserWorkError(`table ${def.name}: ${coll}`, 'table-conflict');
+			createTable(d, def, true, def.scope);
+		});
+	}
+
+	// ---- rows of defined tables -------------------------------------------------------------------------------------
+
+	/** A table defined through defineTable (catalogued, not built in), checked against `owner` for a write. */
+	private definedTable(table: unknown, owner?: unknown): UserWorkTable {
+		if (typeof table !== 'string') throw new UserWorkError('a table name is text');
+		if (BUILT_IN.has(table.toLowerCase()) || this.stateTables().has(table.toLowerCase())) throw new UserWorkError(`table ${table.slice(0, 80)} is built in: use its own API`, 'table-built-in');
+		const t = tablesOf(this.d, table);
+		if (!t || t.kind !== 'user-work') throw new UserWorkError(`no table ${table.slice(0, 80)} defined through defineTable`);
+		if (owner === undefined) return t;
+		if (typeof owner !== 'string') throw new UserWorkError('owner is text');
+		if (owner !== t.owner) throw new UserWorkError(`table ${t.name} is owned by ${t.owner}`, 'table-conflict');
+		return t;
+	}
+
+	/** One defined table's rows (cells as in exportAll), in primary-key order; a case table's for `caseId` only. */
+	listTableRows(table: string, opts: { caseId?: string } = {}): Record<string, TableCell>[] {
+		const t = this.definedTable(table);
+		const caseId = opts?.caseId;
+		if (t.scope === 'case' ? typeof caseId !== 'string' : caseId !== undefined) throw new UserWorkError(`table ${t.name} is ${t.scope}-scoped: ${t.scope === 'case' ? 'caseId is required' : 'it has no cases'}`);
+		const def = definitionOf(t);
+		const select = this.d.prepare(`SELECT * FROM work.${q(t.name)}${t.scope === 'case' ? ` WHERE ${q(CASE_COLUMN)} = ?` : ''} ORDER BY ${def.primaryKey.map(q).join(', ')}`);
+		select.setReadBigInts(true);
+		const rows = (t.scope === 'case' ? select.all(caseId!) : select.all()) as Record<string, unknown>[];
+		return rows.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, toCell(v)])));
+	}
+
+	/**
+	 * Insert or replace one row of a defined table, by primary key (an upsert), as `owner`. Cells are checked as in a
+	 * restore (a missing cell is NULL); a case table's row needs a text `case_id`, and its key may not be held by
+	 * another case's row (`restore-key-collision`). One transaction; schedules the work.sqlite backup like putRow.
+	 */
+	async putTableRow(table: string, row: Record<string, TableCell>, opts: { owner: string }): Promise<void> {
+		const t = this.definedTable(table, opts?.owner ?? null);
+		const def = definitionOf(t);
+		if (!isRecord(row)) throw new UserWorkError(`table ${t.name}: a row is an object`);
+		const extra = Object.keys(row).find((k) => !def.columns.some((c) => c.name === k));
+		if (extra !== undefined) throw new UserWorkError(`table ${t.name}: the row has a column the table lacks${TABLE.test(extra) ? ` (${extra})` : ''}`);
+		// each cell is read once, so what is checked is what is written
+		const r = Object.fromEntries(def.columns.map((c) => [c.name, cellOf(row, c.name)])) as Record<string, Cell>;
+		const bad = rowsProblem(def, t.scope, [r]);
+		if (bad) throw new UserWorkError(`table ${t.name}: ${bad.message}; nothing was written`, bad.code);
+		const cols = def.columns.map((c) => c.name);
+		const rest = cols.filter((c) => !def.primaryKey.includes(c));
+		// a case table keyed without case_id: never move another case's row into this case
+		const guard = t.scope === 'case' && !def.primaryKey.includes(CASE_COLUMN);
+		const upsert = rest.length ? `UPDATE SET ${rest.map((c) => `${q(c)} = excluded.${q(c)}`).join(', ')}${guard ? ` WHERE ${q(CASE_COLUMN)} = excluded.${q(CASE_COLUMN)}` : ''}` : 'NOTHING';
+		await this.write(() => `writing a row of table ${t.name}`, (d) => {
+			const n = d.prepare(`INSERT INTO work.${q(t.name)}(${cols.map(q).join(', ')}) VALUES (${cols.map(() => '?').join(', ')}) ON CONFLICT(${def.primaryKey.map(q).join(', ')}) DO ${upsert}`)
+				.run(...(cols.map((c) => fromCell(r[c])) as never[])).changes;
+			if (guard && !Number(n)) throw new UserWorkError(`table ${t.name}: the row's primary key (${def.primaryKey.join(', ')}) is held by a row of another case here; nothing was written`, 'restore-key-collision');
+		});
+		this.onWrite();
+	}
+
+	/** Delete one row of a defined table by its primary key, as `owner`; a case table's key also names its `case_id`.
+	 *  Returns whether a row was deleted; a deletion schedules the work.sqlite backup like deleteRow. */
+	async deleteTableRow(table: string, key: Record<string, TableCell>, opts: { owner: string }): Promise<boolean> {
+		const t = this.definedTable(table, opts?.owner ?? null);
+		const def = definitionOf(t);
+		const by = t.scope === 'case' && !def.primaryKey.includes(CASE_COLUMN) ? [...def.primaryKey, CASE_COLUMN] : def.primaryKey;
+		if (!isRecord(key)) throw new UserWorkError(`table ${t.name}: a key is an object`);
+		const extra = Object.keys(key).find((k) => !by.includes(k));
+		if (extra !== undefined) throw new UserWorkError(`table ${t.name}: a key has the columns (${by.join(', ')})`);
+		const k = Object.fromEntries(by.map((c) => [c, cellOf(key, c)])) as Record<string, Cell>;
+		const bad = Object.values(k).every(isCell) ? keyProblem(def, k) : { code: 'invalid' as const, message: 'a key cell is not a string, finite number, null, {$b64} or 64-bit {$int}' };
+		if (bad) throw new UserWorkError(`table ${t.name}: ${bad.message}`, bad.code);
+		if (t.scope === 'case' && typeof k[CASE_COLUMN] !== 'string') throw new UserWorkError(`table ${t.name}: a key of a case-scoped table names its ${CASE_COLUMN} as text`);
+		const n = await this.write(() => `deleting a row of table ${t.name}`, (d) => Number(d.prepare(`DELETE FROM work.${q(t.name)} WHERE ${by.map((c) => `${q(c)} = ?`).join(' AND ')}`).run(...(by.map((c) => fromCell(k[c])) as never[])).changes));
+		if (n) this.onWrite();
+		return n > 0;
 	}
 
 	/** Every row of the selected kinds of tables (default: user work), in primary-key order. */
@@ -347,7 +433,7 @@ export class UserWork {
 		const here = new Map(this.tables().map((t) => [t.name.toLowerCase(), t]));
 		const state = this.stateTables();
 		const others = new Set((this.d.prepare("SELECT name FROM work.sqlite_master WHERE type != 'table'").all() as { name: string }[]).map((r) => r.name.toLowerCase()));
-		const plans: { def: TableDefinition; scope: TableScope; rows: Record<string, Cell>[]; create: boolean; catalogue: boolean }[] = [];
+		const plans: { def: Shape; scope: TableScope; rows: Record<string, Cell>[]; create: boolean; catalogue: boolean }[] = [];
 		for (const [i, t] of (snapshot.tables as unknown[]).entries()) {
 			if (!isRecord(t)) throw new UserWorkError(`table entry ${i} is not a table; nothing was restored`);
 			const raw = t.name;
@@ -361,8 +447,9 @@ export class UserWork {
 			const h = here.get(def.name);
 			const differs = h && (schemaDifference(definitionOf(h), def) ?? (h.name !== def.name ? 'a table of that name in another letter case exists here' : null));
 			if (differs) throw new UserWorkError(`table ${def.name}: ${differs}; nothing was restored (restore into a store whose table matches the backup, or migrate the table first)`);
-			// a snapshot written before scopes were recorded carries none: an existing table keeps its own
-			const scope = (t.scope ?? h?.scope) as TableScope;
+			// a snapshot written before scopes were recorded carries none: an existing table keeps its own, and a new one
+			// is a store table, as a table without a recorded scope is here (tablesOf)
+			const scope = (t.scope === undefined ? h?.scope ?? 'store' : t.scope) as TableScope;
 			const kind = h?.kind ?? t.kind;
 			const wrong = scopeProblem(def, scope, false) ?? (h && h.scope !== scope ? `it is ${h.scope}-scoped here and ${scope}-scoped in the backup` : null)
 				?? (kind === 'unregistered' && scope !== 'store' ? 'an unregistered table is store-scoped' : null);
@@ -398,6 +485,9 @@ export class UserWork {
 				}
 				const action: TableRestore = replace === 'tables' ? 'replaced' : scope === 'store' ? 'merged' : cases.length ? 'replaced-for-cases' : 'no-cases';
 				if (action === 'no-cases') { restored.push({ name: def.name, scope, action, rows: 0, deleted: 0 }); continue; }
+				const count = () => Number((d.prepare(`SELECT count(*) AS n FROM work.${q(def.name)}`).get() as { n: number }).n);
+				const before = action === 'merged' ? count() : 0;
+				const touched = action !== 'replaced-for-cases' ? [] : (d.prepare(`SELECT DISTINCT ${q(CASE_COLUMN)} AS c FROM work.${q(def.name)} WHERE ${q(CASE_COLUMN)} IN (SELECT value FROM json_each(?))`).all(json) as { c: string }[]).map((x) => x.c);
 				const deleted = action === 'replaced' ? Number(d.prepare(`DELETE FROM work.${q(def.name)}`).run().changes)
 					: action === 'replaced-for-cases' ? Number(d.prepare(`DELETE FROM work.${q(def.name)} WHERE ${q(CASE_COLUMN)} IN (SELECT value FROM json_each(?))`).run(json).changes) : 0;
 				const cols = def.columns.map((c) => c.name);
@@ -406,7 +496,11 @@ export class UserWork {
 				const ins = d.prepare(`INSERT INTO work.${q(def.name)}(${cols.map(q).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})${merge}`);
 				for (const r of p.rows) ins.run(...(cols.map((c) => fromCell(cellOf(r, c))) as never[]));
 				rows += p.rows.length;
-				restored.push({ name: def.name, scope, action, rows: p.rows.length, deleted });
+				const report: TableRestoreReport = { name: def.name, scope, action, rows: p.rows.length, deleted };
+				// a merge never deletes, so the rows it added are the growth of the table
+				if (action === 'merged') { const inserted = count() - before; Object.assign(report, { inserted, replaced: p.rows.length - inserted }); }
+				if (action === 'replaced-for-cases') report.cases = [...new Set([...touched, ...p.rows.map((x) => cellOf(x, CASE_COLUMN) as string)])].sort();
+				restored.push(report);
 			}
 		});
 		this.onWrite();
@@ -430,13 +524,16 @@ function scopesOf(d: ReturnType<Storage['db']>): Map<string, TableScope> {
 	if (!d.prepare("SELECT 1 FROM work.sqlite_master WHERE type = 'table' AND name = ?").get(SCOPE_TABLE)) return new Map();
 	return new Map((d.prepare(`SELECT name, scope FROM work.${SCOPE_TABLE}`).all() as { name: string; scope: TableScope }[]).map((r) => [r.name, r.scope]));
 }
-/** Generic catalogue and round trip of work.sqlite; mixed into UserWork below. */
-function tablesOf(d: ReturnType<Storage['db']>): UserWorkTable[] {
+/** Generic catalogue and round trip of work.sqlite; mixed into UserWork below. With `only`, that one table or null. */
+function tablesOf(d: ReturnType<Storage['db']>): UserWorkTable[];
+function tablesOf(d: ReturnType<Storage['db']>, only: string): UserWorkTable | null;
+function tablesOf(d: ReturnType<Storage['db']>, only?: string): UserWorkTable[] | UserWorkTable | null {
 	// SQLite's own tables are sqlite_*; in LIKE '_' is a wildcard, so the prefixes are compared literally
-	const names = (d.prepare(`SELECT name FROM work.sqlite_master WHERE type = 'table' AND substr(name, 1, 7) != 'sqlite_' AND substr(name, 1, ${CATALOGUE.length}) != '${CATALOGUE}' ORDER BY name`).all() as { name: string }[]).map((r) => r.name);
+	const names = (d.prepare(`SELECT name FROM work.sqlite_master WHERE type = 'table' AND substr(name, 1, 7) != 'sqlite_' AND substr(name, 1, ${CATALOGUE.length}) != '${CATALOGUE}' ORDER BY name`).all() as { name: string }[]).map((r) => r.name)
+		.filter((n) => only === undefined || n === only);
 	const cat = new Map((d.prepare('SELECT name, kind, owner, description FROM work.userwork_catalog').all() as { name: string; kind: TableKind; owner: string; description: string }[]).map((r) => [r.name, r]));
 	const scopes = scopesOf(d);
-	return names.map((name) => {
+	const all = names.map((name): UserWorkTable => {
 		const c = cat.get(name);
 		const columns = (d.prepare(`PRAGMA work.table_info(${q(name)})`).all() as { name: string; type: string; notnull: number; pk: number }[]).map((x) => ({ name: x.name, type: x.type, notNull: x.notnull === 1, pk: x.pk }));
 		// built-in tables are case-scoped; a table without a recorded scope (unregistered, or defined before scopes were
@@ -444,9 +541,12 @@ function tablesOf(d: ReturnType<Storage['db']>): UserWorkTable[] {
 		const scope: TableScope = BUILT_IN.has(name) ? 'case' : c ? scopes.get(name) ?? 'store' : 'store';
 		return { name, kind: c?.kind ?? 'unregistered', scope, owner: c?.owner ?? 'unknown', description: c?.description ?? 'not in the user-work catalogue', columns };
 	});
+	return only === undefined ? all : all[0] ?? null;
 }
+/** A table's shape: a definition without its scope. */
+type Shape = Omit<TableDefinition, 'scope'>;
 /** The definition importAll() would create a table from (its listed columns, primary key in key order). */
-const definitionOf = (t: Pick<UserWorkTable, 'name' | 'owner' | 'description' | 'columns'>): TableDefinition => {
+const definitionOf = (t: Pick<UserWorkTable, 'name' | 'owner' | 'description' | 'columns'>): Shape => {
 	const columns = (Array.isArray(t.columns) ? t.columns : []).map((c) => (isRecord(c) ? c : {}) as Partial<TableColumn>);
 	return {
 		name: t.name, owner: t.owner, description: t.description,
@@ -459,10 +559,10 @@ const definitionOf = (t: Pick<UserWorkTable, 'name' | 'owner' | 'description' | 
  * case-insensitively, as SQLite does), NOT NULL and the ordered primary key. A key column counts as NOT NULL either
  * way: a restore creates it so, and exportAll() never writes a NULL key.
  */
-function schemaDifference(here: TableDefinition, backup: TableDefinition): string | null {
-	const cols = (d: TableDefinition) => d.columns.map((c) => c.name).join(', ');
+function schemaDifference(here: Shape, backup: Shape): string | null {
+	const cols = (d: Shape) => d.columns.map((c) => c.name).join(', ');
 	if (here.columns.length !== backup.columns.length || here.columns.some((c, i) => c.name !== backup.columns[i]!.name)) return `its columns here are (${cols(here)}), the backup's are (${cols(backup)})`;
-	const notNull = (d: TableDefinition, c: TableDefinition['columns'][number]) => !!c.notNull || d.primaryKey.includes(c.name);
+	const notNull = (d: Shape, c: Shape['columns'][number]) => !!c.notNull || d.primaryKey.includes(c.name);
 	for (const [i, c] of here.columns.entries()) {
 		const b = backup.columns[i]!;
 		if (c.type !== b.type) return `column ${c.name} is ${c.type || 'untyped'} here and ${b.type} in the backup`;
@@ -472,7 +572,7 @@ function schemaDifference(here: TableDefinition, backup: TableDefinition): strin
 	return null;
 }
 /** Why a table of this shape cannot be defined or restored, or null. */
-function definitionProblem(def: TableDefinition): string | null {
+function definitionProblem(def: Shape): string | null {
 	if (!isRecord(def)) return 'a table definition is an object';
 	if (typeof def.name !== 'string' || !TABLE.test(def.name) || RESERVED(def.name)) return `invalid table name ${String(def.name).slice(0, 80)} (lower-case letters, digits and _, not starting with sqlite or ${CATALOGUE})`;
 	if (typeof def.owner !== 'string' || typeof def.description !== 'string') return 'owner and description must be text';
@@ -484,7 +584,7 @@ function definitionProblem(def: TableDefinition): string | null {
 }
 /** Why a table cannot have this scope, or null. `defining`: defineTable also refuses a case_id column in a store
  *  table (an owner who wants per-case rows must say so); a restore accepts one, as a table without a recorded scope. */
-function scopeProblem(def: TableDefinition, scope: unknown, defining: boolean): string | null {
+function scopeProblem(def: Shape, scope: unknown, defining: boolean): string | null {
 	if (scope !== 'case' && scope !== 'store') return "scope is 'case' or 'store'";
 	const c = def.columns.find((x) => x.name === CASE_COLUMN);
 	if (scope === 'case' && !(c && c.type === 'TEXT' && (c.notNull || def.primaryKey.includes(CASE_COLUMN)))) return `a case-scoped table needs a ${CASE_COLUMN} TEXT NOT NULL column`;
@@ -510,20 +610,26 @@ function isCell(v: unknown): boolean {
  * export never holds what a restore refuses. Checks every cell's shape, empty, non-integer or repeated keys, NULL in a
  * NOT NULL column and, in a case table, a case_id that is not text. Messages name columns, never values.
  */
-function rowsProblem(def: TableDefinition, scope: TableScope, rows: Record<string, unknown>[]): { code: UserWorkErrorCode; message: string } | null {
-	const ints = new Set(def.columns.filter((c) => c.type === 'INTEGER').map((c) => c.name));
+type Problem = { code: UserWorkErrorCode; message: string };
+/** Why a row's key (its cells already checked by isCell) is empty or, in an INTEGER key column, not an integer. */
+function keyProblem(def: Shape, r: Record<string, unknown>): Problem | null {
+	for (const k of def.primaryKey) {
+		const v = cellOf(r, k) as Cell;
+		const integer = typeof v === 'number' ? Number.isSafeInteger(v) : isRecord(v) && '$int' in v;
+		if (v === null || (def.columns.find((c) => c.name === k)!.type === 'INTEGER' && !integer)) return { code: 'restore-key', message: `a primary-key cell (${k}) is empty or not an integer` };
+	}
+	return null;
+}
+function rowsProblem(def: Shape, scope: TableScope, rows: Record<string, unknown>[]): Problem | null {
 	const keys = new Set<string>();
 	for (const r of rows) {
 		for (const c of def.columns) {
 			const v = cellOf(r, c.name);
 			if (!isCell(v)) return { code: def.primaryKey.includes(c.name) && isRecord(v) && '$int' in v ? 'restore-key' : 'invalid', message: `a cell of column ${c.name} is not a string, finite number, null, {$b64} or 64-bit {$int}` };
 		}
+		const keyBad = keyProblem(def, r);
+		if (keyBad) return keyBad;
 		const key = def.primaryKey.map((k) => cellOf(r, k) as Cell);
-		for (const [i, k] of def.primaryKey.entries()) {
-			const v = key[i]!;
-			const integer = typeof v === 'number' ? Number.isSafeInteger(v) : isRecord(v) && '$int' in v;
-			if (v === null || (ints.has(k) && !integer)) return { code: 'restore-key', message: `a primary-key cell (${k}) is empty or not an integer` };
-		}
 		const id = JSON.stringify(key.map((v) => (typeof v === 'string' ? `s${v}` : typeof v === 'number' ? `n${v}` : '$int' in v! ? `n${BigInt(v.$int)}` : `b${(v as { $b64: string }).$b64}`)));
 		if (keys.has(id)) return { code: 'restore-key', message: `a primary key (${def.primaryKey.join(', ')}) appears twice` };
 		keys.add(id);
@@ -535,7 +641,7 @@ function rowsProblem(def: TableDefinition, scope: TableScope, rows: Record<strin
 }
 /** Create a defined table (inside the caller's transaction) and, unless it stays unregistered, catalogue it and its
  *  scope. */
-function createTable(d: ReturnType<Storage['db']>, def: TableDefinition, catalogue: boolean, scope: TableScope) {
+function createTable(d: ReturnType<Storage['db']>, def: Shape, catalogue: boolean, scope: TableScope) {
 	const cols = def.columns.map((c) => `${q(c.name)} ${c.type}${c.notNull || def.primaryKey.includes(c.name) ? ' NOT NULL' : ''}`).join(', ');
 	d.exec(`CREATE TABLE IF NOT EXISTS work.${q(def.name)} (${cols}, PRIMARY KEY(${def.primaryKey.map(q).join(', ')})) WITHOUT ROWID`);
 	if (!catalogue) return;
@@ -543,6 +649,22 @@ function createTable(d: ReturnType<Storage['db']>, def: TableDefinition, catalog
 		ON CONFLICT(name) DO UPDATE SET owner = excluded.owner, description = excluded.description`).run(def.name, def.owner, def.description);
 	d.exec(`CREATE TABLE IF NOT EXISTS work.${SCOPE_TABLE}(name TEXT PRIMARY KEY, scope TEXT NOT NULL CHECK (scope IN ('case', 'store'))) WITHOUT ROWID`);
 	d.prepare(`INSERT INTO work.${SCOPE_TABLE}(name, scope) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET scope = excluded.scope`).run(def.name, scope);
+}
+/**
+ * Why an existing table's key or case_id columns would not compare byte for byte, or null. SQLite reports no column
+ * collation directly: an index on the columns (created and dropped inside the caller's transaction) inherits each
+ * column's own, and the primary-key index carries any collation its PRIMARY KEY clause adds.
+ */
+function collationProblem(d: ReturnType<Storage['db']>, def: Shape): string | null {
+	const cols = [...new Set([...def.primaryKey, ...def.columns.filter((c) => c.name === CASE_COLUMN).map((c) => c.name)])];
+	type Xinfo = { name: string | null; coll: string; key: number };
+	d.exec(`CREATE INDEX work.${q(PROBE)} ON ${q(def.name)}(${cols.map(q).join(', ')})`);
+	const own = d.prepare(`PRAGMA work.index_xinfo(${q(PROBE)})`).all() as Xinfo[];
+	d.exec(`DROP INDEX work.${q(PROBE)}`);
+	const pk = (d.prepare(`PRAGMA work.index_list(${q(def.name)})`).all() as { name: string; origin: string }[]).filter((i) => i.origin === 'pk')
+		.flatMap((i) => d.prepare(`PRAGMA work.index_xinfo(${q(i.name)})`).all() as Xinfo[]);
+	const bad = [...own, ...pk].find((x) => x.key && x.name !== null && cols.includes(x.name) && x.coll.toUpperCase() !== 'BINARY');
+	return bad ? `column ${bad.name} has the collation ${bad.coll}; a key or ${CASE_COLUMN} column must compare byte for byte (BINARY)` : null;
 }
 const toCell = (v: unknown): Cell =>
 	v instanceof Uint8Array ? { $b64: Buffer.from(v).toString('base64') } : typeof v === 'bigint' ? (Number.isSafeInteger(Number(v)) ? Number(v) : { $int: v.toString() }) : (v as Cell);

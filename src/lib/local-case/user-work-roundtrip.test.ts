@@ -1,13 +1,14 @@
 // Round-trip property of the user-work backup (GRS-13 gate round 2): for seeded random multi-case stores with case and
 // store tables, NULL cells, 64-bit integers, BLOBs and Unicode, exportAll() -> JSON -> importAll() is lossless into the
 // same store after edits (case tables replace the snapshot's cases, store tables merge by key) and into a fresh store,
-// and it never changes the active case or trust. Synthetic data only.
+// and it never changes the active case or trust. Defined tables are written through putTableRow/deleteTableRow (round
+// 3), and every definition must declare its scope. Synthetic data only.
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildCase } from '../../../tests/e2e/pilot/lib/fixtures.ts';
 import type { LocalCase } from './service.server.ts';
 import { ackFor, cleanup, service, tempRoot } from './test-support.ts';
-import type { UserWorkExport } from './user-work.server.ts';
+import { UserWorkError, type TableCell, type UserWorkExport } from './user-work.server.ts';
 
 const roots: string[] = [];
 const open: LocalCase[] = [];
@@ -42,6 +43,11 @@ type Snap = UserWorkExport;
 type Row = Snap['tables'][number]['rows'][number];
 const keyOf = (t: Snap['tables'][number], r: Row) => JSON.stringify(t.columns.filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk).map((c) => r[c.name]));
 const json = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
+/** A generated value as a table cell: BigInts beyond the safe range as `$int`, bytes as `$b64` (as exportAll writes). */
+const cell = (v: bigint | Uint8Array | string | number | null): TableCell =>
+	typeof v === 'bigint' ? (Number.isSafeInteger(Number(v)) ? Number(v) : { $int: String(v) }) : v instanceof Uint8Array ? { $b64: Buffer.from(v).toString('base64') } : v;
+const GRS17 = { owner: 'GRS-17' };
+const GRS18 = { owner: 'GRS-18' };
 
 /** What a default ('cases') restore of `snap` into a store whose export was `edited` must leave. */
 function expected(snap: Snap, edited: Snap): Map<string, Row[]> {
@@ -60,20 +66,20 @@ const sortedRows = (x: Snap) => new Map(x.tables.map((t) => [t.name, [...t.rows]
 
 async function populate(lc: LocalCase, r: ReturnType<typeof rng>, rv: string, cases: string[], tag: string) {
 	const uw = lc.userWork;
-	const db = lc.storage.db();
 	for (const caseId of cases) {
 		for (let i = r.int(3); i >= 0; i--) await uw.addNote(caseId, rv, 'OD-001', `${r.text()} note`);
 		for (let i = r.int(4); i >= 0; i--) await uw.putRow(caseId, r.pick(['deadlines', 'privilege-log', 'time']), null, { title: r.text(), n: r.int(1000), done: r.next() < 0.5, empty: null });
 		await uw.putSeedOverlay({ caseId, datasetKey: 'ds', seedId: `${tag}-${caseId}`, baseSeedSha256: 'a'.repeat(64), fields: { label: r.text() } });
 		for (let i = r.int(6); i >= 0; i--) {
-			db.prepare('INSERT OR REPLACE INTO work.entry VALUES (?, ?, ?, ?, ?, ?)').run(caseId, `${tag}-e${i}-${r.text(3)}`, r.maybe(() => r.next() * 1e6 - 5e5), r.maybe(r.big), r.maybe(r.bytes), r.maybe(r.text));
-			db.prepare('INSERT OR REPLACE INTO work.ledger VALUES (?, ?, ?, ?)').run(`${tag}-${caseId}-l${i}`, caseId, r.maybe(r.big), r.maybe(r.text));
+			await uw.putTableRow('entry', { case_id: caseId, entry_id: `${tag}-e${i}-${r.text(3)}`, hours: r.maybe(() => r.next() * 1e6 - 5e5), big: cell(r.maybe(r.big)), blob: cell(r.maybe(r.bytes)), memo: r.maybe(r.text) }, GRS17);
+			await uw.putTableRow('ledger', { id: `${tag}-${caseId}-l${i}`, case_id: caseId, amount: cell(r.maybe(r.big)), memo: r.maybe(r.text) }, GRS17);
 		}
-		db.prepare('INSERT OR REPLACE INTO work.trusted_warning VALUES (?, ?, ?)').run(caseId, `fp-${tag}-${r.int(1e6)}`, '2030-01-01T00:00:00Z');
+		// trust has no write API here (activation writes it); a restore must never create it
+		lc.storage.db().prepare('INSERT OR REPLACE INTO work.trusted_warning VALUES (?, ?, ?)').run(caseId, `fp-${tag}-${r.int(1e6)}`, '2030-01-01T00:00:00Z');
 	}
 	for (let i = r.int(6); i >= 0; i--) {
-		db.prepare('INSERT OR REPLACE INTO work.pref VALUES (?, ?, ?)').run(`${tag}-${r.text(4)}`, r.maybe(r.text), r.maybe(() => r.next()));
-		db.prepare('INSERT OR REPLACE INTO work.tally VALUES (?, ?, ?)').run(r.big(), r.maybe(r.big), r.maybe(r.bytes));
+		await uw.putTableRow('pref', { k: `${tag}-${r.text(4)}`, v: r.maybe(r.text), n: r.maybe(() => r.next()) }, GRS18);
+		await uw.putTableRow('tally', { n: cell(r.big()), big: cell(r.maybe(r.big)), b: cell(r.maybe(r.bytes)) }, GRS18);
 	}
 }
 
@@ -86,10 +92,14 @@ describe('user-work backup round trip (property, seeded)', () => {
 			const imp = await lc.importPackage(c.caseDir, c.pkgDir);
 			expect(await lc.activate(c.resultsVersion, ackFor(lc, imp.importId))).toBeNull();
 			const uw = lc.userWork;
+			// the scope is required: an owner cannot get a store table by forgetting it
+			const loose = { name: 'loose', owner: 'GRS-17', description: '', columns: [{ name: 'id', type: 'TEXT' }, { name: 'case_key', type: 'TEXT' }], primaryKey: ['id'] };
+			await expect(uw.defineTable(loose as never)).rejects.toSatisfy((e) => e instanceof UserWorkError && e.code === 'invalid');
+			expect(uw.tables().some((t) => t.name === 'loose')).toBe(false);
 			await uw.defineTable({ name: 'entry', owner: 'GRS-17', description: 'per-case, composite key', scope: 'case', columns: [{ name: 'case_id', type: 'TEXT' }, { name: 'entry_id', type: 'TEXT' }, { name: 'hours', type: 'REAL' }, { name: 'big', type: 'INTEGER' }, { name: 'blob', type: 'BLOB' }, { name: 'memo', type: 'TEXT' }], primaryKey: ['case_id', 'entry_id'] });
 			await uw.defineTable({ name: 'ledger', owner: 'GRS-17', description: 'per-case, single key', scope: 'case', columns: [{ name: 'id', type: 'TEXT' }, { name: 'case_id', type: 'TEXT', notNull: true }, { name: 'amount', type: 'INTEGER' }, { name: 'memo', type: 'TEXT' }], primaryKey: ['id'] });
-			await uw.defineTable({ name: 'pref', owner: 'GRS-18', description: 'store-wide', columns: [{ name: 'k', type: 'TEXT' }, { name: 'v', type: 'TEXT' }, { name: 'n', type: 'REAL' }], primaryKey: ['k'] });
-			await uw.defineTable({ name: 'tally', owner: 'GRS-18', description: 'store-wide, 64-bit key', columns: [{ name: 'n', type: 'INTEGER' }, { name: 'big', type: 'INTEGER' }, { name: 'b', type: 'BLOB' }], primaryKey: ['n'] });
+			await uw.defineTable({ name: 'pref', owner: 'GRS-18', description: 'store-wide', columns: [{ name: 'k', type: 'TEXT' }, { name: 'v', type: 'TEXT' }, { name: 'n', type: 'REAL' }], primaryKey: ['k'], scope: 'store' });
+			await uw.defineTable({ name: 'tally', owner: 'GRS-18', description: 'store-wide, 64-bit key', columns: [{ name: 'n', type: 'INTEGER' }, { name: 'big', type: 'INTEGER' }, { name: 'b', type: 'BLOB' }], primaryKey: ['n'], scope: 'store' });
 			const cases = ['e2e-case', 'case-β', `case-${r.int(100)}`];
 			await populate(lc, r, c.resultsVersion, cases, 's');
 			const active = lc.effectiveActive('e2e-case');
@@ -97,12 +107,16 @@ describe('user-work backup round trip (property, seeded)', () => {
 			const snap = json(uw.exportAll());
 			expect(snap.excluded).toEqual([]);
 			expect(snap.tables.find((t) => t.name === 'tally')!.rows.some((x) => typeof x.n === 'object')).toBe(true); // 64-bit keys present
+			// listTableRows reads back exactly what the export holds: one case's rows of a case table, all of a store table
+			for (const name of ['entry', 'ledger']) for (const caseId of cases) expect(uw.listTableRows(name, { caseId })).toEqual(snap.tables.find((t) => t.name === name)!.rows.filter((x) => x.case_id === caseId));
+			for (const name of ['pref', 'tally']) expect(uw.listTableRows(name)).toEqual(snap.tables.find((t) => t.name === name)!.rows);
 
 			// edits after the backup: changed, deleted and added rows in the snapshot's cases, a new case, store-wide rows
-			const db = lc.storage.db();
-			db.prepare("UPDATE work.entry SET memo = 'edited', blob = NULL WHERE case_id = ?").run(cases[0]!);
-			db.prepare('DELETE FROM work.ledger WHERE id IN (SELECT id FROM work.ledger LIMIT 1)').run();
-			db.exec("UPDATE work.pref SET v = 'edited'; DELETE FROM work.tally WHERE n IN (SELECT n FROM work.tally LIMIT 1)");
+			for (const row of uw.listTableRows('entry', { caseId: cases[0]! })) await uw.putTableRow('entry', { ...row, memo: 'edited', blob: null }, GRS17);
+			const gone = uw.listTableRows('ledger', { caseId: cases[0]! })[0]!;
+			expect(await uw.deleteTableRow('ledger', { id: gone.id!, case_id: cases[0]! }, GRS17)).toBe(true);
+			for (const row of uw.listTableRows('pref')) await uw.putTableRow('pref', { ...row, v: 'edited' }, GRS18);
+			expect(await uw.deleteTableRow('tally', { n: uw.listTableRows('tally')[0]!.n! }, GRS18)).toBe(true);
 			await populate(lc, r, c.resultsVersion, [cases[1]!, 'case-new'], 'p');
 			const edited = json(uw.exportAll());
 			const trustOf = (l: LocalCase) => Object.fromEntries([...cases, 'case-new'].map((x) => [x, [...l.trustedFor(x)].sort()]));

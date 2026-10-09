@@ -9,10 +9,14 @@
 // installed node_modules reflinked, `bun run --bun build` there, then `parity --app-root` on the affected views. The
 // register CRUD category runs v5 against a scratch copy of the v5 HTML with a planted register defect
 // (`parity --app-v5-html`), because the pilot has no register yet; its unmutated copy is the self-parity control.
-// Exit 0 when every mutant is caught and the control passes; 1 otherwise; 2 on setup errors.
+// Exit 0 when every mutant is caught and the control passes; 1 otherwise; 2 on setup errors. Before it creates,
+// removes or writes anything, --out is checked as the runner checks its own (scripts/parity/lib/outdir.mjs): by
+// realpath, it must not overlap a fixture input the locator names, it must lie inside .local/, and every path written
+// below it (<id>/, mutation-proof.json) must resolve to itself, so no symlink there leads a removal into the fixture.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
+import { canonical, checkOutput, locatorInputs } from './lib/outdir.mjs';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
 const argv = process.argv.slice(2);
@@ -20,8 +24,8 @@ const opt = (n) => { const i = argv.indexOf(`--${n}`); return i < 0 ? undefined 
 const die = (m) => { console.error(`mutate: ${m}`); process.exit(2); };
 const cfgFile = resolve(opt('fixture-config') ?? die('--fixture-config FILE is required'));
 const out = resolve(opt('out') ?? die('--out DIR is required'));
-if (!(out + '/').startsWith(join(REPO, '.local') + '/')) die(`--out must lie inside ${join(REPO, '.local')}/ (mutants and diffs are local evidence)`);
-const cfg = JSON.parse(readFileSync(cfgFile, 'utf8'));
+let cfg;
+try { cfg = JSON.parse(readFileSync(cfgFile, 'utf8')); } catch (e) { die(`cannot read the fixture locator ${cfgFile}: ${e.message}`); }
 
 /** Each mutant: category, files to change (exact find -> replace), views to run, and the path family that must fail. */
 const MUTANTS = [
@@ -43,6 +47,11 @@ const MUTANTS = [
 ];
 
 const only = opt('only')?.split(',');
+const selected = MUTANTS.filter((x) => !only || only.includes(x.id));
+let at;
+try { at = checkOutput(out, locatorInputs(cfg), ['mutation-proof.json', ...selected.map((m) => m.id)]); } catch (e) { die(`setup error: ${e.message}`); }
+const local = canonical(join(REPO, '.local')), rel = relative(local, canonical(out));
+if (!(out + '/').startsWith(join(REPO, '.local') + '/') || rel === '..' || rel.startsWith('../') || isAbsolute(rel)) die(`--out must lie inside ${join(REPO, '.local')}/, symlinks resolved (mutants and diffs are local evidence)`);
 const results = [];
 const run = (args, cwd = REPO) => spawnSync(process.execPath, args, { cwd, encoding: 'utf8', maxBuffer: 1 << 26, env: process.env });
 const replaceOnce = (text, find, repl, where) => {
@@ -51,21 +60,21 @@ const replaceOnce = (text, find, repl, where) => {
 	return text.replace(find, repl);
 };
 mkdirSync(out, { recursive: true });
-for (const m of MUTANTS.filter((x) => !only || only.includes(x.id))) {
-	const dir = join(out, m.id);
+for (const m of selected) {
+	const dir = at(m.id);
 	rmSync(dir, { recursive: true, force: true });
 	mkdirSync(dir, { recursive: true });
 	const t0 = performance.now();
 	const args = [join(REPO, 'scripts', 'parity', 'run.mjs'), '--view', m.views, '--fixture-config', cfgFile, '--out', join(dir, 'out')];
 	if (m.v5) {
-		const html = join(dir, 'v5-copy.html');
+		const html = at(m.id, 'v5-copy.html');
 		// read the fixture (read-only) and write a fresh, writable copy; the fixture itself is never touched
 		let text = readFileSync(cfg.mainHtml.path, 'utf8');
 		for (const [find, repl] of m.edits) text = replaceOnce(text, find, repl, 'v5 HTML');
 		writeFileSync(html, text);
 		args.push('--app-v5-html', html, '--no-exports');
 	} else {
-		const src = join(dir, 'src');
+		const src = at(m.id, 'src');
 		mkdirSync(src);
 		execFileSync('bash', ['-c', 'git -C "$0" archive --format=tar HEAD | tar -x -C "$1"', REPO, src]);
 		for (const [file, find, repl] of m.edits) writeFileSync(join(src, file), replaceOnce(readFileSync(join(src, file), 'utf8'), find, repl, file));
@@ -88,9 +97,9 @@ for (const m of MUTANTS.filter((x) => !only || only.includes(x.id))) {
 	results.push({ id: m.id, category: m.category, what: m.what, views: m.views, exit: r.status, unregistered: hits.length, unusedEntries: usage.unused.length, matchingPaths: m.expect ? hits.filter((p) => m.expect.test(p)).length : 0, caught, seconds: Math.round((performance.now() - t0) / 1000), compared: sc?.total.compared ?? null });
 	console.log(`${caught ? 'CAUGHT' : 'MISSED'} ${m.id.padEnd(17)} ${m.category.padEnd(17)} exit ${r.status} unregistered ${hits.length}${m.control ? ' (control)' : m.strict ? `, unused register entries ${usage.unused.length} (strict)` : `, ${results.at(-1).matchingPaths} on ${m.expect}`} ${results.at(-1).seconds} s`);
 	if (r.status === 2) console.error(r.stderr.slice(-1500));
-	if (!argv.includes('--keep')) for (const x of ['src', 'v5-copy.html']) rmSync(join(dir, x), { recursive: true, force: true });
+	if (!argv.includes('--keep')) for (const x of ['src', 'v5-copy.html']) rmSync(at(m.id, x), { recursive: true, force: true });
 }
 const ok = results.length > 0 && results.every((x) => x.caught);
-writeFileSync(join(out, 'mutation-proof.json'), JSON.stringify({ ok, revision: execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), results }, null, 1) + '\n');
+writeFileSync(at('mutation-proof.json'), JSON.stringify({ ok, revision: execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), results }, null, 1) + '\n');
 console.log(`mutate: ${ok ? 'PASS' : 'FAIL'}: ${results.filter((x) => x.caught).length}/${results.length} caught -> ${join(out, 'mutation-proof.json')}`);
 process.exit(ok ? 0 : 1);

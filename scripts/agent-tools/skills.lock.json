@@ -3,28 +3,24 @@
   "provenance": {
     "pstack": {
       "upstream": "https://github.com/backnotprop/pstack",
-      "revision": "124f622bcaeac490e7e9dac6af83f3ef9611d554",
-      "revisionDate": "2026-10-04T08:01:26-07:00",
-      "revisionSubject": "Sync upstream cursor/plugins/pstack @ e43c7ee (0.15.9)",
-      "version": "0.15.9",
+      "revision": "3a604672c46cd8187d2b19980eae0a34f9f91138",
+      "revisionDate": "2026-10-07T18:39:16-07:00",
+      "revisionSubject": "Use kebab-case names for poteto-mode and make-bot-ui",
+      "version": "0.15.15",
       "license": "MIT",
       "copyright": "Copyright (c) 2026 Lauren Tan",
-      "mirrorOf": "cursor/plugins/pstack@e43c7ee26e0038c6c1fa8380dd34ce86ff94cb2a",
+      "mirrorOf": "cursor/plugins/pstack@ccb5507 (short ID as recorded by the mirror's upstream commit 4aed5afa251ea30ebcd694f894687301ee8bc1b3; main merges it in 1edf0a5cf2337f69ca81cc65cbdcac7a4ffe29dd, then adds 3a604672c46c)",
       "about": "The user designated backnotprop/pstack as the pstack source on 2026-10-08. It is an MIT-licensed, harness-neutral mirror of cursor/plugins/pstack by Lauren Tan. Per its MIRROR.md, branch upstream holds Cursor's files verbatim and main is upstream plus the mirror's harness-neutral edits.",
-      "notInstalled": [
-        "benchmark-checklist",
-        "correct",
-        "principle-explain-the-number"
-      ],
-      "checkedAt": "2026-10-08",
+      "notInstalled": [],
+      "checkedAt": "2026-10-09",
       "checks": [
-        "2026-10-08T15:28:36+02:00, coordinator on puk: the 47 skills present in both the revision's skills/ and ~/.agents/skills are byte-identical (diff -rq). backnotprop/pstack main was then 3a604672c46cd8187d2b19980eae0a34f9f91138 (0.15.15).",
-        "2026-10-08T15:36:24+02:00, CC-27 round-2 worker on puk: the reproduce command rerun from a fresh clone printed no differences."
+        "2026-10-08T15:28:36+02:00, coordinator on puk: the previous pin 124f622bcaeac490e7e9dac6af83f3ef9611d554 (0.15.9) matched 47 installed skills byte for byte (diff -rq).",
+        "2026-10-09, relock worker on puk after the host bundle changed at 2026-10-09T07:20+02:00: diff -rq of every skill in both the revision's skills/ and ~/.agents/skills against all 18 commits of backnotprop/pstack main and upstream (no tags exist). Only 3a604672c46c (main HEAD) matches: all 51 upstream skills are installed and byte-identical. 1edf0a5 differs in 2 skills, 124f622 in 10, older revisions in more. Record: .orchestration/reports/CC-27/pstack-provenance-20261009.txt."
       ],
-      "reproduce": "git clone https://github.com/backnotprop/pstack.git p && git -C p worktree add ../p124 124f622 && for d in p124/skills/*/; do n=$(basename $d); [ -e ~/.agents/skills/$n ] && diff -rq $d ~/.agents/skills/$n; done",
+      "reproduce": "git clone https://github.com/backnotprop/pstack.git p && git -C p worktree add ../p3a6 3a60467 && for d in p3a6/skills/*/; do n=$(basename $d); [ -e ~/.agents/skills/$n ] && diff -rq $d ~/.agents/skills/$n; done",
       "verify": "scripts/agent-tools/verify pstack-upstream --checkout DIR, where DIR is any clone that contains the revision above",
       "installedAt": "$HOME/.agents/skills, verified on puk; ~/.claude/skills entries are symlinks into it",
-      "copiedFrom": "archlinux:~/.agents/skills by rsync"
+      "copiedFrom": "host bundle updated in place on puk at 2026-10-09T07:20+02:00 (installer not recorded); previously archlinux:~/.agents/skills by rsync"
     },
     "matt-pocock": {
       "upstream": null,
@@ -57,12 +53,12 @@
     "architect": {
       "group": "pstack",
       "files": 4,
-      "sha256": "e18d8d0fd3b09db2dd1a6f65972749a45929d863828c06b9ed9793f1586e657b"
+      "sha256": "3e8c7a02231f7f3a4c85307c853f92621cb9e4d0075407aeb617b69a862886ef"
     },
     "arena": {
       "group": "pstack",
       "files": 1,
-      "sha256": "cd67186d4d946ab2249d3a62e9dd5a11158a72c19f94c2b39620f9dc1a60c7bd"
+      "sha256": "8eb9fb9e3b46b07c8ea2a7fad8121daa417ec06d7d85fa432da55e9f2f88e5cb"
     },
     "ask-matt": {
       "group": "matt-pocock",
@@ -74,10 +70,15 @@
       "files": 1,
       "sha256": "d001891d64802be718a858948d59fb8ebcd12070f2cd79eb28a9b5686530384f"
     },
+    "benchmark-checklist": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "14e689a8d52d76238a63dd278ffe3f268a962570d3feaad3b2ea9c1f38bffc31"
+    },
     "blast-radius": {
       "group": "pstack",
       "files": 1,
-      "sha256": "3b7e5797e88eedc3590b931be07425833940b890ed85e6c397db72764456f0ac"
+      "sha256": "5d90bfbe5f300281bfdd952246f0a01a043161eefc13bf5a2e663a5b4ae09af6"
     },
     "bro": {
       "group": "pstack",
@@ -88,6 +89,11 @@
       "group": "matt-pocock",
       "files": 4,
       "sha256": "4cb1dde9ff3be21db5722e2974343d29c759c3584d0f523adcfee5d418270f23"
+    },
+    "correct": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "837bab3bbaa735113577025e169810945c5637d5e384655967b9e93f3f99ce1c"
     },
     "create-verification-skill": {
       "group": "pstack",
@@ -107,12 +113,12 @@
     "how": {
       "group": "pstack",
       "files": 3,
-      "sha256": "e5af16b91bfd4281ca5351aa5447c0b945012991c9706fabf00f138b0a4f9b3a"
+      "sha256": "5f40e5c386b21d47921862694bf79bbcfcd0a9da2aef306649f9da5fb382f0ff"
     },
     "interrogate": {
       "group": "pstack",
       "files": 5,
-      "sha256": "42e4e12d19c194a492ab615a8d2898098d571d7dc0730f9c3f6beeb603fbfdf4"
+      "sha256": "49cd543b8b87a24ba83571128fb7dd06494ddba43e5447f3c2ed5f593ac3a6d1"
     },
     "maintain-verification-skill": {
       "group": "pstack",
@@ -122,17 +128,22 @@
     "make-bot-ui": {
       "group": "pstack",
       "files": 1,
-      "sha256": "09beb493a7960147e9b28dc82f957481f16cf2619aafbb3e0983fa099680de74"
+      "sha256": "c6ee5a317efb3ae220d33eb6624cf6ab87e9e0c6aeceb9e67e3ed52362b3d778"
     },
     "no-comments": {
       "group": "pstack",
       "files": 2,
       "sha256": "67b670d8f115c262ca9de6e089d2281aa53b8b8829a766604ab1cd40477d624d"
     },
+    "poteto-help": {
+      "group": "pstack",
+      "files": 3,
+      "sha256": "7df231648fcd5ad3a1c51575d61a44ed837b24007b4a7c396ff8eecc857cce1a"
+    },
     "poteto-mode": {
       "group": "pstack",
       "files": 45,
-      "sha256": "fce8cea00095013120fdbbb0f400dc6861a5a11ca34ed04959fd922fecaf641a"
+      "sha256": "eafa51147c738f81c6aa690929cab40e6b320b55d66db2a7cd87403e956763ad"
     },
     "principle-attack-the-premise": {
       "group": "pstack",
@@ -163,6 +174,11 @@
       "group": "pstack",
       "files": 1,
       "sha256": "53af6c2d37e1fe9951b12371eb755e3b0f0af4236e1b87d73c584aa217fc1fc5"
+    },
+    "principle-explain-the-number": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "5ec02ebd13cc98a465970a7ed90dc0386dd59be66d43b36cdf9c6c04bd1f13ea"
     },
     "principle-fix-root-causes": {
       "group": "pstack",
@@ -257,12 +273,12 @@
     "reflect": {
       "group": "pstack",
       "files": 5,
-      "sha256": "45674caadfdfeb4446d64480452d8e5f3cbd71c74208ab290724357054e0ad51"
+      "sha256": "5b1ce53df57a0291cb8534e4aa12b3573da96d39dde1647772320193493e80fa"
     },
     "setup-pstack": {
       "group": "pstack",
       "files": 1,
-      "sha256": "e25d3ee7f810b9e8ff53a2c1a9ba548a3690e0e8dcf8ccf0912981c4889c4e6c"
+      "sha256": "1a4c10c090606ced08b34f656696d15ef5305c6fa38bfea87121bae910a440ed"
     },
     "show-me-your-work": {
       "group": "pstack",
@@ -302,7 +318,7 @@
     "why": {
       "group": "pstack",
       "files": 13,
-      "sha256": "ec6f9b61d7389bb207206758c6b10358e9f33e148b476640a5db4f4fab7aa62d"
+      "sha256": "57ccd1c11eddc5aa07d88e8d2438b5800bafedfb1e44ca4f8b35226e8cee7782"
     }
   }
 }

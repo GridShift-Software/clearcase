@@ -4,6 +4,8 @@ import adapter from '@sveltejs/adapter-node';
 export default {
 	kit: {
 		adapter: adapter(),
+		// a build of one exported revision gets that revision as its version name, so its client assets are reproducible
+		...(process.env.CLEARCASE_SOURCE_REVISION ? { version: { name: process.env.CLEARCASE_SOURCE_REVISION } } : {}),
 		// Strict CSP on the app origin; SvelteKit adds nonces/hashes for its own bootstrap script.
 		csp: {
 			mode: 'auto',

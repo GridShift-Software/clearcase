@@ -212,6 +212,8 @@ export class Storage {
 	}
 
 	releaseInstanceLock() {
+		// Bun keeps an EXCLUSIVE lock past close() unless the mode is dropped and the file touched first.
+		try { this.#lock?.exec('PRAGMA locking_mode=NORMAL; SELECT count(*) FROM owner;'); } catch { /* not held */ }
 		try { this.#lock?.close(); } catch { /* exiting */ }
 		this.#lock = null;
 	}

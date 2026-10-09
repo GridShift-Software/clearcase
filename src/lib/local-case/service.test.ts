@@ -64,6 +64,19 @@ describe('import', () => {
 		expect(await lc.activate(c.resultsVersion, ackFor(lc, imp.importId))).toBeNull();
 	});
 
+	it('a package with files its manifest does not list imports and activates; the ignored files are reported', async () => {
+		const { root, lc } = await setup('unlisted');
+		const c = await buildCase(path.join(root, 'c'));
+		await writeFile(path.join(c.pkgDir, 'notes.txt'), 'not part of the package');
+		const imp = await lc.importPackage(c.caseDir, c.pkgDir);
+		expect(imp.kind).toBe('stored');
+		const r = importOf(lc, imp.importId);
+		expect(r.app).toEqual([expect.objectContaining({ code: 'APP_UNLISTED_IGNORED', severity: 'info' })]);
+		expect(r.counts.PKG_UNLISTED_FILE).toBeUndefined(); // the stored report is the stored snapshot's
+		expect([...lc.store.packageFiles(c.resultsVersion).keys()]).not.toContain('notes.txt');
+		expect(await lc.activate(c.resultsVersion, ackFor(lc, imp.importId))).toBeNull();
+	});
+
 	it('a rejected import writes only its attempt row and leaves the active version unchanged', async () => {
 		const { root, lc } = await setup('reject');
 		const good = await buildCase(path.join(root, 'good'));

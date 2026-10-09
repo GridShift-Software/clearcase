@@ -21,7 +21,7 @@
 		return async ({ result, update }) => {
 			if (result.type === 'success') { await update({ reset: false }); delete choice[key]; }
 			else if (result.type === 'failure') failed = { key, done, message: String(result.data?.message ?? 'Not saved.') };
-			else if (result.type === 'error') failed = { key, done, message: 'Not saved: ClearCase could not be reached. Your choice is kept; retry when it is running.' };
+			else if (result.type === 'error') failed = { key, done, message: result.status ? `Not saved: ClearCase answered ${result.status}. Your choice is kept; retry.` : 'Not saved: ClearCase could not be reached. Your choice is kept; retry when it is running.' };
 			else await update();
 		};
 	};
@@ -35,7 +35,7 @@
 	{#if problem}
 		<div class="an-error" role="alert" id="info-error">
 			<span>{problem.message} ({problem.done ? 'done' : 'not done'}: {itemOf(problem.key)})</span>
-			<form method="POST" action="?/toggle" use:enhance={submit} class="no-print" style="display:inline">
+			<form method="POST" action="?/toggle" use:enhance={submit} class="no-print retry">
 				<input type="hidden" name="key" value={problem.key} />
 				<input type="hidden" name="done" value={String(problem.done)} />
 				<button id="info-retry">Retry</button>
@@ -73,4 +73,5 @@
 
 <style>
 	.struck { text-decoration: line-through; color: #888; }
+	.retry { display: inline; margin-left: .5rem; }
 </style>

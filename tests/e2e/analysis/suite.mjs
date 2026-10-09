@@ -94,6 +94,7 @@ try {
 
 	await scenario('AN-01', 'matter', 'Scenario 1: a fixed narrative section reads as the package has it (headings and paragraphs in data order)', async () => {
 		const nav = await arrive(p, vid, 'matter', name);
+		await p.shot(join(SCREENS, 'matter-desktop.png'));
 		const got = await p.evaluate(`[...document.querySelectorAll('#matter-storyline-card h3, #matter-strategy-card h3')].map((h) => [h.textContent.trim(), h.nextElementSibling?.textContent.replace(/\\s+/g, ' ').trim()])`);
 		const want = [['Start', 'The agreement OD-001 began the relationship; see also ZZ-404.'], ['Second step', 'A second invented paragraph.'], ['Plan', 'Rely on OD-002 p.2.']];
 		const subtitle = await p.evaluate(`document.querySelector('.page-head .subtitle')?.textContent ?? null`);
@@ -116,6 +117,7 @@ try {
 
 	await scenario('AN-03', 'timeline', 'Scenario 3: the timeline reads in order: phases, their events by date, titles shown once, the empty phase and events outside every phase', async () => {
 		const nav = await arrive(p, vid, 'timeline', name);
+		await p.shot(join(SCREENS, 'timeline-desktop.png'));
 		const phases = await p.evaluate(`[...document.querySelectorAll('#phases .ph')].map((ph) => ({ title: ph.querySelector('h3')?.textContent.trim(), events: [...ph.querySelectorAll('.ev')].map((e) => ({ date: e.querySelector('.d')?.textContent ?? null, link: e.querySelector('a.cite')?.textContent.trim() ?? null, href: e.querySelector('a.cite')?.getAttribute('href') ?? null, ex: e.querySelector('.ex')?.textContent ?? null })) }))`);
 		const want = [
 			{ title: 'Phase one', dates: ['2001-02-03', '2001-03-01'], links: ['Agreement & schedule <signed> ↗', 'First invoice ↗'] },
@@ -148,6 +150,7 @@ try {
 
 	await scenario('AN-05', 'contradictions_tab', 'Scenario 5: contradiction categories with their severities, item counts and source chips; a chip opens its document; Export CSV has v5 columns', async () => {
 		const nav = await arrive(p, vid, 'contradictions_tab', name);
+		await p.shot(join(SCREENS, 'contradictions_tab-desktop.png'));
 		const cats = await p.evaluate(`[...document.querySelectorAll('section.category')].map((s) => ({ sev: s.querySelector('.chead .badge').textContent, title: s.querySelector('.ctitle').textContent, count: s.querySelector('.count').textContent, chips: [...s.querySelectorAll('.chips a.cite')].map((a) => [a.textContent.trim(), a.getAttribute('href').replace(/^.*\\/doc\\//, '')]) }))`);
 		const kpis = await p.evaluate(`[...document.querySelectorAll('.an-kpis .kpi')].map((k) => k.querySelector('.v').textContent)`);
 		const checks = await p.evaluate(`[...document.querySelectorAll('#checks-table tbody tr')].map((r) => ['b-ok', 'b-dang', 'b-warn', 'b-info', 'b-mut'].find((c) => r.querySelector('.badge')?.classList.contains(c)) ?? 'text')`);
@@ -192,6 +195,7 @@ try {
 
 	await scenario('AN-07', 'vdm_matrix_tab', 'Scenario 7: trace a defence to its evidence: document chips open their documents; the free-text refs are shown and exported after v5 columns (S-vdm_matrix_tab-1)', async () => {
 		const nav = await arrive(p, vid, 'vdm_matrix_tab', name);
+		await p.shot(join(SCREENS, 'vdm_matrix_tab-desktop.png'));
 		const rows = await p.evaluate(`[...document.querySelectorAll('#defence-table tbody tr')].map((r) => ({ chips: [...r.querySelectorAll('.chips a.cite')].map((a) => a.textContent.trim()), dash: r.cells[3].textContent.trim(), refs: r.cells[5]?.textContent.trim() ?? null }))`);
 		const heads = await p.evaluate(`[...document.querySelectorAll('#defence-table thead th')].map((t) => t.textContent.trim())`);
 		await p.click('#export-csv');
@@ -211,6 +215,7 @@ try {
 
 	await scenario('AN-08', 'info_required_tab', 'Scenario 8: check an information-required item, reload: it stays checked and struck through; the flag is one row keyed by the item, not its position; unchecking persists too', async () => {
 		const nav = await arrive(p, vid, 'info_required_tab', name);
+		await p.shot(join(SCREENS, 'info_required_tab-desktop.png'));
 		await p.click('#info-table tbody tr:nth-child(2) input[type=checkbox]');
 		await saved();
 		await p.goto(V(vid, 'info_required_tab'), L.ready('info_required_tab'));
@@ -291,6 +296,7 @@ try {
 
 	await scenario('AN-09', 'witness_tab', 'Scenario 9: a will-say [[REF]] links to its document through Narrative.svelte; a missing ref renders broken; names and bare refs are never turned into links', async () => {
 		const nav = await arrive(p, vid, 'witness_tab', name);
+		await p.shot(join(SCREENS, 'witness_tab-desktop.png'));
 		const rows = await p.evaluate(`[...document.querySelectorAll('#witness-table tbody tr')].map((r) => ({ nameLinks: r.cells[0].querySelectorAll('a').length, links: [...r.cells[2].querySelectorAll('a.cite')].map((a) => a.getAttribute('href').replace(/^.*\\/doc\\//, '')), broken: [...r.cells[2].querySelectorAll('.cite-broken')].map((e) => e.textContent.replace(/[\\[\\]]/g, '').trim()) }))`);
 		await p.click('#witness-table a.cite');
 		await p.waitFor(`location.pathname.endsWith('/doc/OD-001') && document.querySelector('main#main')?.dataset.ready === 'doc:OD-001'`, 30000);

@@ -16,6 +16,8 @@ describe('contradiction tracker', () => {
 		expect(rateCells(rateItem)).toEqual({ bid: 'R 10.00', old: 'R 12.00', next: 'R 15.00', spread: 'R 5.00' });
 		expect(chipLabel(rateItem.refs[0]!)).toBe('OD-1 · R 100.00');
 		expect(chipLabel({ ref: 'OD-2', amount: '', filename: '' })).toBe('OD-2');
+		expect(chipLabel({ ref: 'OD-2', amount: 0, filename: '' })).toBe('OD-2');
+		expect(chipLabel({ ref: 'OD-2', amount: '0', filename: '' })).toBe('OD-2 · R 0.00');
 	});
 	it("falls back to 'NEW RATE' and leaves absent rates empty", () => {
 		expect(rateCells({ ...rateItem, rates: { 'NEW RATE': '9' }, spread: undefined })).toEqual({ bid: '', old: '', next: 'R 9.00', spread: '' });

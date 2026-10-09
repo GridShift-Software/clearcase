@@ -233,9 +233,12 @@
       ],
       "outcome": "A reviewer can find a document through filters or search, inspect its people/entities and agreements, and compare available text.",
       "scope": [
-        "src/routes/evidence/**",
+        "src/routes/v/[vid]/evidence/**",
         "src/lib/evidence/**",
-        "tests/evidence/**"
+        "tests/evidence/**",
+        "src/lib/views/evidence/**",
+        "tests/e2e/evidence/**",
+        ".agents/skills/verify-clearcase/features/evidence-*.md"
       ],
       "acceptance": [
         "Cover Documents, Contracts, Filings & Affidavits, Advanced Search, People, Entities and Document Diff with their recorded actions.",
@@ -278,9 +281,12 @@
       ],
       "outcome": "A reviewer can read the storyline and timeline, inspect contradictions, risks and defences, and follow supporting citations.",
       "scope": [
-        "src/routes/analysis/**",
+        "src/routes/v/[vid]/analysis/**",
         "src/lib/analysis/**",
-        "tests/analysis/**"
+        "tests/analysis/**",
+        "src/lib/views/analysis/**",
+        "tests/e2e/analysis/**",
+        ".agents/skills/verify-clearcase/features/analysis-*.md"
       ],
       "acceptance": [
         "Cover Matter & Strategy, Timeline, Contradiction Tracker, Risk Matrix, Defence & Rebuttal, Info Required and Witnesses.",
@@ -321,10 +327,13 @@
       ],
       "outcome": "A reviewer can reconcile invoices and payments and reproduce financial/date scenarios with visible assumptions.",
       "scope": [
-        "src/routes/quantum/**",
+        "src/routes/v/[vid]/quantum/**",
         "src/lib/calculations/**",
         "tests/calculations/**",
-        "docs/reference/calculation-differences.md"
+        "docs/reference/calculation-differences.md",
+        "src/lib/views/quantum/**",
+        "tests/e2e/quantum/**",
+        ".agents/skills/verify-clearcase/features/quantum-*.md"
       ],
       "acceptance": [
         "Cover Quantum & Interest, Invoice Ledger, Interest Recalculator, Payments & Net Claim, Prescription and Settlement / BATNA.",
@@ -365,9 +374,12 @@
       ],
       "outcome": "A reviewer can maintain case-management records locally and recover them after restart.",
       "scope": [
-        "src/routes/registers/**",
+        "src/routes/v/[vid]/registers/**",
         "src/lib/user-work/**",
-        "tests/registers/**"
+        "tests/registers/**",
+        "src/lib/views/registers/**",
+        "tests/e2e/registers/**",
+        ".agents/skills/verify-clearcase/features/registers-*.md"
       ],
       "acceptance": [
         "Cover Disbursements, Timesheet, Deadlines, Privilege Log, POPIA Register, Annotations and Transcripts.",
@@ -409,9 +421,12 @@
       ],
       "outcome": "A reviewer can prepare authorities, argument and cross-examination material and track the litigation roadmap.",
       "scope": [
-        "src/routes/litigation/**",
+        "src/routes/v/[vid]/litigation/**",
         "src/lib/litigation/**",
-        "tests/litigation/**"
+        "tests/litigation/**",
+        "src/lib/views/litigation/**",
+        "tests/e2e/litigation/**",
+        ".agents/skills/verify-clearcase/features/litigation-*.md"
       ],
       "acceptance": [
         "Cover Conflict Check, Enforcement Roadmap, Legality & SIU Risk, Cause of Action, Authorities, Heads of Argument and Cross-Exam Prep.",
@@ -452,9 +467,12 @@
       ],
       "outcome": "A reviewer can reconcile discovery coverage, select bundle items and use CaseLines references with honest completeness states.",
       "scope": [
-        "src/routes/bundles/**",
+        "src/routes/v/[vid]/bundles/**",
         "src/lib/bundles/**",
-        "tests/bundles/**"
+        "tests/bundles/**",
+        "src/lib/views/bundles/**",
+        "tests/e2e/bundles/**",
+        ".agents/skills/verify-clearcase/features/bundles-*.md"
       ],
       "acceptance": [
         "Cover Discovery Schedule, Court Bundle and CaseLines to the actual v5 capability boundary.",
@@ -496,11 +514,14 @@
       ],
       "outcome": "An operator discovers changed files, queues manual reprocessing and can restore all local work without corrupting the active case.",
       "scope": [
-        "src/routes/system/**",
+        "src/routes/v/[vid]/system/**",
         "src/lib/local-case/rescan/**",
         "src/lib/user-work/backup/**",
         "tests/system/**",
-        "docs/user-guide.md"
+        "docs/user-guide.md",
+        "src/lib/views/system/**",
+        "tests/e2e/system/**",
+        ".agents/skills/verify-clearcase/features/system-*.md"
       ],
       "acceptance": [
         "Cover Rescan & Update, Backup / Restore and Manual.",
@@ -1006,7 +1027,8 @@
         "Check measured cold/warm performance receipts and the frozen package interfaces required by feature workers.",
         "Record PASS/HOLD/FAIL at the reviewed revision. Reserve shared persistence and layout paths before opening the parallel feature queue.",
         "Verify all 42 navigation/route extension points and shared-file ownership are ready for feature workers. Confirm view data-source dependencies from CC-01 have been reconciled in Linear and the local graph before M2 dispatch.",
-        "Verify hostile imported content and original previews cannot execute with app privileges or escape the selected case boundary. Confirm failed/over-limit inputs preserve the active case."
+        "Verify hostile imported content and original previews cannot execute with app privileges or escape the selected case boundary. Confirm failed/over-limit inputs preserve the active case.",
+        "Before M2 dispatch, the coordinator records the per-owner reservations and the coordinator-serialized shared files listed in docs/development.md 'Adding a view', and releases CC-03's broad route reservation."
       ],
       "liveScenarios": [],
       "performanceMetric": "Review existing measurements at the exact integrated revision",

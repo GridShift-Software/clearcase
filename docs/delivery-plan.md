@@ -338,11 +338,17 @@ The implementation test commands below are required deliverables, not existing r
 
 **Files.**
 
-- [ ] Own `src/routes/evidence/**` for this unit. Reserve shared files before dispatch.
+- [ ] Own `src/routes/v/[vid]/evidence/**` for this unit. Reserve shared files before dispatch.
 
 - [ ] Own `src/lib/evidence/**` for this unit. Reserve shared files before dispatch.
 
 - [ ] Own `tests/evidence/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `src/lib/views/evidence/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `tests/e2e/evidence/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `.agents/skills/verify-clearcase/features/evidence-*.md` for this unit. Reserve shared files before dispatch.
 
 **Build.**
 
@@ -418,11 +424,17 @@ The implementation test commands below are required deliverables, not existing r
 
 **Files.**
 
-- [ ] Own `src/routes/analysis/**` for this unit. Reserve shared files before dispatch.
+- [ ] Own `src/routes/v/[vid]/analysis/**` for this unit. Reserve shared files before dispatch.
 
 - [ ] Own `src/lib/analysis/**` for this unit. Reserve shared files before dispatch.
 
 - [ ] Own `tests/analysis/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `src/lib/views/analysis/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `tests/e2e/analysis/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `.agents/skills/verify-clearcase/features/analysis-*.md` for this unit. Reserve shared files before dispatch.
 
 **Build.**
 
@@ -494,13 +506,19 @@ The implementation test commands below are required deliverables, not existing r
 
 **Files.**
 
-- [ ] Own `src/routes/quantum/**` for this unit. Reserve shared files before dispatch.
+- [ ] Own `src/routes/v/[vid]/quantum/**` for this unit. Reserve shared files before dispatch.
 
 - [ ] Own `src/lib/calculations/**` for this unit. Reserve shared files before dispatch.
 
 - [ ] Own `tests/calculations/**` for this unit. Reserve shared files before dispatch.
 
 - [ ] Own `docs/reference/calculation-differences.md` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `src/lib/views/quantum/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `tests/e2e/quantum/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `.agents/skills/verify-clearcase/features/quantum-*.md` for this unit. Reserve shared files before dispatch.
 
 **Build.**
 
@@ -572,11 +590,17 @@ The implementation test commands below are required deliverables, not existing r
 
 **Files.**
 
-- [ ] Own `src/routes/registers/**` for this unit. Reserve shared files before dispatch.
+- [ ] Own `src/routes/v/[vid]/registers/**` for this unit. Reserve shared files before dispatch.
 
 - [ ] Own `src/lib/user-work/**` for this unit. Reserve shared files before dispatch.
 
 - [ ] Own `tests/registers/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `src/lib/views/registers/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `tests/e2e/registers/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `.agents/skills/verify-clearcase/features/registers-*.md` for this unit. Reserve shared files before dispatch.
 
 **Build.**
 
@@ -650,11 +674,17 @@ The implementation test commands below are required deliverables, not existing r
 
 **Files.**
 
-- [ ] Own `src/routes/litigation/**` for this unit. Reserve shared files before dispatch.
+- [ ] Own `src/routes/v/[vid]/litigation/**` for this unit. Reserve shared files before dispatch.
 
 - [ ] Own `src/lib/litigation/**` for this unit. Reserve shared files before dispatch.
 
 - [ ] Own `tests/litigation/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `src/lib/views/litigation/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `tests/e2e/litigation/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `.agents/skills/verify-clearcase/features/litigation-*.md` for this unit. Reserve shared files before dispatch.
 
 **Build.**
 
@@ -726,11 +756,17 @@ The implementation test commands below are required deliverables, not existing r
 
 **Files.**
 
-- [ ] Own `src/routes/bundles/**` for this unit. Reserve shared files before dispatch.
+- [ ] Own `src/routes/v/[vid]/bundles/**` for this unit. Reserve shared files before dispatch.
 
 - [ ] Own `src/lib/bundles/**` for this unit. Reserve shared files before dispatch.
 
 - [ ] Own `tests/bundles/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `src/lib/views/bundles/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `tests/e2e/bundles/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `.agents/skills/verify-clearcase/features/bundles-*.md` for this unit. Reserve shared files before dispatch.
 
 **Build.**
 
@@ -802,7 +838,7 @@ The implementation test commands below are required deliverables, not existing r
 
 **Files.**
 
-- [ ] Own `src/routes/system/**` for this unit. Reserve shared files before dispatch.
+- [ ] Own `src/routes/v/[vid]/system/**` for this unit. Reserve shared files before dispatch.
 
 - [ ] Own `src/lib/local-case/rescan/**` for this unit. Reserve shared files before dispatch.
 
@@ -811,6 +847,12 @@ The implementation test commands below are required deliverables, not existing r
 - [ ] Own `tests/system/**` for this unit. Reserve shared files before dispatch.
 
 - [ ] Own `docs/user-guide.md` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `src/lib/views/system/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `tests/e2e/system/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `.agents/skills/verify-clearcase/features/system-*.md` for this unit. Reserve shared files before dispatch.
 
 **Build.**
 

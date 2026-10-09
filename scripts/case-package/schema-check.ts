@@ -97,6 +97,14 @@ try {
   const cl = clone(files.get('datasets/caselines-index.json').data);
   cl.index[0] = ['1', 'text'];
   expect(byTitle('data.v5.caselines-index'), cl, false, 'caselines-index: page number as text');
+  const vc = files.get('datasets/view-content.json').data;
+  const v = (edit: (x: any) => void, label: string) => { const x = clone(vc); edit(x); expect(byTitle('data.v5.view-content'), x, false, `view-content: ${label}`); };
+  v((x) => { x['Bad View'] = {}; }, 'view id grammar');
+  v((x) => { x.overview['bad-field'] = 'x'; }, 'field id grammar');
+  v((x) => { x.overview.subtitle = true; }, 'boolean value');
+  v((x) => { x.vdm_matrix_tab.columns = ['a', 1]; }, 'list with a number');
+  v((x) => { x.timeline.synopsis = { template: [] }; }, 'empty template');
+  v((x) => { x.timeline.synopsis = { template: ['a', { param: 'Not Valid' }] }; }, 'param name grammar');
 } finally {
   await cleanup(built.root);
 }

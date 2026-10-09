@@ -7,7 +7,7 @@ import { createServer as httpServer, type Server } from 'node:http';
 import { createServer as netServer } from 'node:net';
 import path from 'node:path';
 import { createServer, type ViteDevServer } from 'vite';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildCase } from '../../../tests/e2e/pilot/lib/fixtures.ts';
 import type * as Documents from './documents.server.ts';
 import type { ChronologyListRow, DocumentStateRow } from './model.ts';
@@ -127,5 +127,47 @@ describe('SSR pages: import-time and parent-original states', () => {
 				expect(r).not.toContain('</a>');
 			}
 		} finally { writeFileSync(file, bytes); }
+	});
+});
+
+describe('hooks.server.ts: loopback clients only, and a disk-full diagnostic', () => {
+	type Hooks = typeof import('../../hooks.server.ts');
+	const event = (addr: string | (() => string)) => {
+		const url = new URL(`${origin}/api/health`);
+		return { url, isSubRequest: false, request: new Request(url, { headers: { host: url.host } }), getClientAddress: typeof addr === 'string' ? () => addr : addr } as never;
+	};
+	const handle = async (addr: string | (() => string)) => {
+		const { handle } = (await vite.ssrLoadModule('/src/hooks.server.ts')) as Hooks;
+		let resolved = false;
+		const res = await handle({ event: event(addr), resolve: async () => { resolved = true; return new Response('routed'); } });
+		return { status: res.status, resolved, text: await res.text() };
+	};
+
+	it('refuses a request from a non-loopback client address with 403 before routing', async () => {
+		for (const addr of ['10.99.0.1', '192.168.1.20', '::ffff:10.99.0.1', 'fe80::1', '2001:db8::1', '0.0.0.0', '128.0.0.1', '']) {
+			const r = await handle(addr);
+			expect([addr, r.status, r.resolved]).toEqual([addr, 403, false]);
+			expect(r.text).toMatch(/loopback/);
+		}
+		const unknown = await handle(() => { throw new Error('no address'); });
+		expect([unknown.status, unknown.resolved]).toEqual([403, false]);
+	});
+
+	it('routes a request from a loopback client address (127.0.0.0/8, ::1, ::ffff:127.x)', async () => {
+		for (const addr of ['127.0.0.1', '127.1.2.3', '::1', '::ffff:127.0.0.1']) {
+			const r = await handle(addr);
+			expect([addr, r.status, r.resolved]).toEqual([addr, 200, true]);
+		}
+	});
+
+	it('names a full disk instead of a generic internal error', async () => {
+		const { handleError } = (await vite.ssrLoadModule('/src/hooks.server.ts')) as Hooks;
+		const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+		const msg = (error: unknown) => (handleError({ error, event: event('127.0.0.1'), status: 500, message: 'Internal Error' }) as { message: string }).message;
+		try {
+			expect(msg(Object.assign(new Error('database or disk is full'), { errcode: 13 }))).toMatch(/disk holding the ClearCase data directory is full/);
+			expect(msg(Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' }))).toMatch(/is full/);
+			expect(msg(new Error('something else'))).toBe('Internal error');
+		} finally { err.mockRestore(); }
 	});
 });

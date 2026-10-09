@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 // Postbuild: bundle the pinned pdf.js and our viewer into build/pdfjs/ (served ONLY by the originals listener), and
-// stamp build/clearcase-build.json with the source revision the build was made from (read by the live doctor).
+// stamp build/clearcase-build.json with the source revision the build was made from (read by the live doctor), and
+// replace adapter-node's build/index.js, which binds 0.0.0.0 unless HOST is set and skips the exact-Host check, with
+// a stub that refuses to start: scripts/pilot/start.ts is the only supported entry.
 // The pdf.js scripting sandbox (pdf.sandbox*.mjs), its QuickJS evaluator and the wasm binaries are NOT copied.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -29,6 +31,11 @@ for (const f of ['openjpeg_nowasm_fallback.js', 'jbig2_nowasm_fallback.js']) cop
 copy('LICENSE', 'LICENSE');
 const viewer = join(root, 'src', 'lib', 'local-case', 'viewer');
 for (const f of ['viewer.mjs', 'viewer.css', 'wrapper.mjs', 'frame.html']) cpSync(join(viewer, f), join(out, f));
+
+writeFileSync(join(build, 'index.js'), `// Not a ClearCase entry: start the pilot with \`bun run --bun start\` (scripts/pilot/start.ts).
+console.error('FATAL: build/index.js is not a supported ClearCase entry (it would listen on every network interface). Start the pilot with \`bun run --bun start\` (scripts/pilot/start.ts), which listens on 127.0.0.1 only.');
+process.exit(1);
+`);
 
 const files: Record<string, string> = {};
 const walk = (d: string) => { for (const n of readdirSync(d)) { const p = join(d, n); if (statSync(p).isDirectory()) walk(p); else files[relative(out, p)] = createHash('sha256').update(readFileSync(p)).digest('hex'); } };

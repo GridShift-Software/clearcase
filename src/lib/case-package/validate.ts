@@ -17,6 +17,7 @@ import {
 } from './registry.ts';
 import { Asset, AssetIndex, ASSET_INDEX, DatasetEnvelope, FORMAT, FORMAT_VERSION, Manifest } from './schema.ts';
 import type { Snapshot } from './source.ts';
+import { isViewTemplate, templateLinkText } from './view-content.ts';
 import { cutText, decodeUtf8Strict, escapePointer, isObject, parseStrictJson, StrictJsonError, type JsonObject, type JsonValue } from './strict-json.ts';
 
 export interface CitationHit { ref: string; file: string; pointer: string; inline: boolean }
@@ -333,8 +334,10 @@ function checkAssets(assets: Record<string, Asset>, register: Set<string>, sink:
 
 interface ScanContext { sink: DiagSink; file: string; targets: Set<string>; citations: CitationHit[]; check: () => void }
 
-// C0 except TAB/LF/CR, DEL, C1, soft hyphen, bidi embeddings, overrides and isolates, zero-width and directional marks, BOM
-const BAD_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f­؜᠎​-‏‪-‮⁠-⁩﻿]/;
+// C0 except TAB/LF/CR, DEL, C1, every default-ignorable code point (soft hyphen, bidi embeddings, overrides and
+// isolates, zero-width and directional marks, invisible operators, variation selectors, fillers, tags, BOM) and
+// the interlinear annotation controls
+const BAD_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\p{Default_Ignorable_Code_Point}\ufff9-\ufffb]/u;
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
 function isCalendarDate(s: string): boolean {
@@ -513,6 +516,9 @@ function scanDataset(env: DatasetEnvelope, ctx: ScanContext): void {
       return;
     }
     if (isObject(v)) {
+      // a template-form link (view-content) is checked as the link its literal text spells, params empty
+      const tpl: unknown = v;
+      if (key !== undefined && LINK_FIELDS.has(key) && isViewTemplate(tpl)) { here = null; checkLink(templateLinkText(tpl), key); }
       for (const k of Object.keys(v)) {
         here = null;
         if (STORE_KEY.test(k)) sink.add('DS_USERWORK_EMBEDDED', 'a browser user-work store key is embedded in results', at(k.slice(0, 64)));

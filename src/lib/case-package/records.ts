@@ -183,5 +183,15 @@ export const V5ConversionReport = Obj({
   ignoredCodeLiterals: StrArr,
   diagnostics: Type.Array(Obj({ code: Str, subject: Type.Union([Str, Type.Null()]), message: Str })),
 });
+/**
+ * Code-embedded view content (GRS-38): per view id, named fields. A value is plain text, a
+ * number, a list of texts, or a template whose parts are text or a named param that the view
+ * fills from imported data. Every string is untrusted text.
+ */
+export const VIEW_ID = '^_?[a-z][a-z0-9_]{0,63}$';
+export const VIEW_FIELD_ID = '^[a-z][A-Za-z0-9]{0,63}$';
+export const V5ViewTemplate = Obj({ template: Type.Array(Type.Union([Str, Obj({ param: Type.String({ pattern: VIEW_FIELD_ID }) })]), { minItems: 1 }) });
+export const V5ViewValue = Type.Union([Str, Type.Number(), StrArr, V5ViewTemplate]);
+export const V5ViewContent = Type.Record(Type.String({ pattern: VIEW_ID }), Type.Record(Type.String({ pattern: VIEW_FIELD_ID }), V5ViewValue, { additionalProperties: false }), { additionalProperties: false });
 /** residual or unknown data: preserved, bounded by the parser, never rendered */
 export const Opaque = Type.Unknown();

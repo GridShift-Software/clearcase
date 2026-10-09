@@ -11,7 +11,7 @@
     "check": "svelte-kit sync && tsc --noEmit -p . && bun scripts/case-package/export-schemas.ts --check && bun scripts/case-package/schema-check.ts && bun scripts/pilot/generate-view-registry.ts --check && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
     "build": "vite build && bun scripts/pilot/copy-pdfjs.ts",
     "test": "vitest run",
-    "test:e2e": "bun tests/e2e/pilot/run.ts",
+    "test:e2e": "bun tests/e2e/pilot/run.mjs",
     "verify:pilot:v5": "bun tests/e2e/pilot/v5-lanes.ts",
     "measure": "bun scripts/measure/index.ts",
     "start": "bun scripts/pilot/start.ts",

@@ -9,7 +9,7 @@ import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, open, readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
-import type { DiagSink } from './diagnostics.ts';
+import type { At, DiagSink } from './diagnostics.ts';
 import type { Limits } from './limits.ts';
 import { contentContradictsType } from './media.ts';
 import { checkRelPath, foldPath, isReservedPath } from './paths.ts';
@@ -143,6 +143,15 @@ async function hashFile(real: string, expectSize: number, o: VerifyOptions, onBy
 }
 
 /**
+ * Where a diagnostic about an original points. Refs are package-local aliases, so the
+ * fingerprint also binds the indexed sha256, size and path: an acknowledgement of one
+ * document's defect never covers a different document that later carries the same ref.
+ */
+function assetAt(ref: string, a: FileAsset): At {
+  return { file: 'assets.json', pointer: `/assets/${escapePointer(ref)}/path`, subject: ref, identity: `${a.sha256}\u0000${a.size}\u0000${a.path}` };
+}
+
+/**
  * Verify every `file` asset. Returns the verified mapping, the refs whose root original is
  * unavailable, and whether verification completed. Throws Interrupted on deadline or abort.
  */
@@ -161,7 +170,7 @@ export async function verifyOriginals(root: string, assets: Record<string, Asset
     check(o);
     const loc = await locate(root, a.path);
     located.set(ref, loc);
-    const at = { file: 'assets.json', pointer: `/assets/${escapePointer(ref)}/path`, subject: ref };
+    const at = assetAt(ref, a);
     if (loc.kind === 'missing') { unavailable.add(ref); sink.add('ORIG_MISSING', 'original not found in the selected case folder; the document stays flagged as missing', at); }
     else if (loc.kind === 'escape') { unavailable.add(ref); sink.add('ORIG_ESCAPE', 'original resolves outside the case folder; refused', at); }
     else if (loc.kind === 'reserved') { unavailable.add(ref); sink.add('ASSET_PATH_RESERVED', 'original resolves into the reserved .clearcase/ area; refused', at); }
@@ -197,7 +206,7 @@ export async function verifyOriginals(root: string, assets: Record<string, Asset
       const loc = located.get(ref) as Extract<Located, { kind: 'file' }>;
       let p = digests.get(loc.real);
       if (!p) { p = hashFile(loc.real, loc.size, o, onBytes); digests.set(loc.real, p); }
-      const at = { file: 'assets.json', pointer: `/assets/${escapePointer(ref)}/path`, subject: ref };
+      const at = assetAt(ref, a);
       let fp: { sha256: string; size: number; head: Uint8Array };
       try {
         fp = await p;

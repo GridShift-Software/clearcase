@@ -18,13 +18,16 @@
 		const s = p.toString();
 		goto(`${page.url.pathname}${s ? `?${s}` : ''}`, { replaceState: true, keepFocus: true, noScroll: true });
 	}
+	// the data is complete when the page renders (data-ready, also in the server's HTML); data-hydrated marks the
+	// moment its controls respond
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'documents' : null} data-busy={navigating.to ? 'true' : null} data-page={m.page.page} data-bundle={m.bundle} data-q={m.q}>
+<main id="main" tabindex="-1" data-ready="documents" data-hydrated={ready ? '1' : null} data-busy={navigating.to ? 'true' : null} data-page={m.page.page} data-bundle={m.bundle} data-q={m.q}>
 	<PageHeader heading="Documents" section="Documents" caseName={data.version.titleName} subtitle="{n(data.total)} documents · by bundle then type" />
 	<DegradedRows failed={data.failed} />
+	{#if m.unknownBundle}<p class="warning" id="unknown-bundle">The requested bundle is not in this results version; the first bundle is shown.</p>{/if}
 	<div class="toolbar" role="group" aria-label="Bundle and filter">
 		{#each m.bundles as b (b.name)}
 			<button type="button" class={b.name === m.bundle ? 'primary' : 'sec'} aria-pressed={b.name === m.bundle} onclick={() => go({ bundle: b.name, page: 1 })}>{b.name} ({b.count})</button>

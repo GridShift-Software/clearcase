@@ -3,7 +3,8 @@
 import { fromRaw } from '../../lib/snapshot.mjs';
 import { seqValue } from '../../lib/sweeps.mjs';
 import { PAIRS, comparisonValue, readComparison } from '../v5/specs/hoa_diff_tab.mjs';
-import { navFocus, open } from './_shell.mjs';
+import { openHydrated } from '../../../../tests/e2e/evidence/lib/parity-app.mjs';
+import { navFocus } from './_shell.mjs';
 
 const VIEW = 'hoa_diff_tab';
 
@@ -11,7 +12,7 @@ export default {
 	view: VIEW,
 	async extract(p, ctx) {
 		const nav = await navFocus(p, ctx, { from: '/overview', fromView: 'overview', view: VIEW });
-		await open(p, ctx, ctx.registry[VIEW].route, VIEW);
+		await openHydrated(p, ctx, ctx.registry[VIEW].route, VIEW);
 		const s = fromRaw(VIEW, 'app', await p.extract('#main'));
 		s.focus.after_nav = nav.focus;
 		s.texts['shell.crumb'] = nav.crumb;
@@ -21,7 +22,7 @@ export default {
 		async compare_pair(p, ctx) {
 			const out = {};
 			for (const c of PAIRS) {
-				await open(p, ctx, ctx.registry[VIEW].route, VIEW);
+				await openHydrated(p, ctx, ctx.registry[VIEW].route, VIEW);
 				for (const [sel, i] of [['#diffA', c.a], ['#diffB', c.b]]) if (i) await p.select(sel, await p.evaluate(`document.querySelector('${sel}').options[${i}]?.value ?? ''`));
 				await p.select('#diffmode', c.mode);
 				await p.click('#diff-run');

@@ -27,11 +27,13 @@
 	};
 	const exportFilings = () => download('filings.csv', toCSV(filingsCsvRows(data.groups ?? [])));
 	const exportRegister = () => download('filing-register.csv', toCSV(registerCsvRows(data.entries)));
+	// the data is complete when the page renders (data-ready, also in the server's HTML); data-hydrated marks the
+	// moment its controls respond
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'filings_tab' : null}>
+<main id="main" tabindex="-1" data-ready="filings_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Filings & Affidavits" section="Filings & Affidavits" caseName={data.version.titleName} subtitle={data.content.subtitle}>
 		{#snippet actions()}<button type="button" id="export-filings" onclick={exportFilings} disabled={!data.groups}>Export CSV</button>{/snippet}
 	</PageHeader>

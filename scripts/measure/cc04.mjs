@@ -124,7 +124,7 @@ try {
 	// search: one warm tab on Advanced Search, each sample another submitted probe
 	console.log('search ...');
 	await P.navigate(`${base}/evidence/search`);
-	await P.waitFor(`document.querySelector('main#main')?.dataset.ready === 'search'`, 30000);
+	await P.waitFor(`document.querySelector('main#main')?.dataset.ready === 'search' && document.querySelector('main#main')?.dataset.hydrated === '1'`, 30000);
 	const bundles = await P.evaluate(`[...document.getElementById('sb').options].map((o) => o.value).filter(Boolean)`);
 	const combos = [];
 	for (const bundle of ['', bundles[0] ?? '']) for (const q of PROBES) combos.push({ q, bundle });
@@ -148,7 +148,7 @@ try {
 	// warm navigation: one unmeasured lap loads every evidence view's code, then click from view to view
 	console.log('warm navigation ...');
 	await P.navigate(`${base}/evidence/documents`);
-	await P.waitFor(`document.querySelector('main#main')?.dataset.ready === 'documents'`, 30000);
+	await P.waitFor(`document.querySelector('main#main')?.dataset.ready === 'documents' && document.querySelector('main#main')?.dataset.hydrated === '1'`, 30000);
 	const lap = [];
 	let at = 0;
 	for (let k = 1; k <= VIEWS.length; k++) {

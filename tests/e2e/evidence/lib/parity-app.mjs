@@ -4,6 +4,7 @@ import { sleep } from '../../pilot/lib/cdp.mjs';
 import { domExtract } from '../../../../scripts/parity/lib/dom.mjs';
 import { tableFromRaw } from '../../../../scripts/parity/lib/snapshot.mjs';
 import { syntheticInput } from '../../../../scripts/parity/lib/sweeps.mjs';
+import { open } from '../../../../scripts/parity/adapters/app/_shell.mjs';
 
 /** The rows of the first table under #main as joined cell text (the v5 register sweep's reading). */
 export async function firstTableRows(p) {
@@ -84,4 +85,11 @@ export async function refsThroughPages(p, { pager, rows }) {
 		refs.push(...(await p.evaluate(`[...document.querySelectorAll(${JSON.stringify(rows)})].map((r) => r.dataset.ref)`)));
 	}
 	return refs;
+}
+
+/** Open an evidence view and wait until its controls respond: data-ready is in the server's HTML, data-hydrated
+ *  follows when the page has mounted. */
+export async function openHydrated(p, ctx, route, view) {
+	await open(p, ctx, route, view);
+	await p.waitFor(`document.querySelector('main#main')?.dataset.hydrated === '1'`, 60000);
 }

@@ -1,7 +1,7 @@
 // The committed JSON Schema 2020-12 documents: package-level schemas plus one per recognized
 // dataset's `data`. Shared by export-schemas.ts (writes or checks the files) and schema-check.ts.
 import type { TSchema } from 'typebox';
-import { CONVERSION_REPORT, LAYOUT, V5_DATASETS } from '../../src/lib/case-package/registry.ts';
+import { CONVERSION_REPORT, LAYOUT, V5_DATASETS, VIEW_CONTENT } from '../../src/lib/case-package/registry.ts';
 import { Acknowledgement, AssetIndex, DatasetEnvelope, Manifest } from '../../src/lib/case-package/schema.ts';
 
 export const SCHEMA_DIR = 'src/lib/case-package/schema';
@@ -27,6 +27,6 @@ export function schemaDocs(): SchemaDoc[] {
     doc('dataset-envelope.schema.json', 'ClearCase dataset envelope (clearcase.dataset/1)', DatasetEnvelope),
     doc('assets.schema.json', 'ClearCase asset index (clearcase.assets/1)', AssetIndex),
     doc('acknowledgement.schema.json', 'ClearCase warning acknowledgement (clearcase.acknowledgement/1)', Acknowledgement),
-    ...[...V5_DATASETS, LAYOUT, CONVERSION_REPORT].map((d) => doc(`data.${d.schema.replace('@', '.v')}.schema.json`, `data of ${d.schema} (${d.kind})`, d.data, d.key)),
+    ...[...V5_DATASETS, LAYOUT, CONVERSION_REPORT, VIEW_CONTENT].map((d) => doc(`data.${d.schema.replace('@', '.v')}.schema.json`, `data of ${d.schema} (${d.kind})`, d.data, d.key)),
   ];
 }

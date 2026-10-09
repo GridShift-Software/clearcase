@@ -223,7 +223,8 @@ async function tabTo(p, id, { shift = false, max = 90 } = {}) {
 
 /**
  * BA-14: skip link first; Tab + Enter on nav links; focus on the page heading after each navigation and after Back,
- * including Back to the entry where the skip link was used and Back across a document boundary (a full load).
+ * including Back to the entry where the skip link was used, Back across a document boundary (a full load) and Back
+ * from an in-page fragment link to the page's own entry.
  */
 export async function keyboard(ctx) {
 	const { A, p, main } = ctx;
@@ -285,11 +286,24 @@ export async function keyboard(ctx) {
 	await p.waitFor(ready('overview'));
 	steps.push({ step: 'Back', headingFocused: await heading('Overview'), ...(await at()), wantHistory: h0 + 2 });
 	const want = [`${vpath(main.resultsVersion)}/chronology`, `${vpath(main.resultsVersion)}/analysis/timeline`, `${vpath(main.resultsVersion)}/chronology`, `${vpath(main.resultsVersion)}/overview`];
+	// Back from an in-page fragment entry (the validation report's #code-<CODE> links) to the page's own entry: a
+	// same-page traversal SvelteKit handles without a navigation; the heading must still take focus.
+	await p.goto(`${A.origin}${ctx.mainImport.path}`, `document.querySelectorAll('main a[href^="#code-"]').length > 0`);
+	const hFrag = await p.evaluate('history.length');
+	await p.evaluate(`document.querySelector('main a[href^="#code-"]').focus(); true`);
+	await p.key('Enter');
+	await p.waitFor(`location.hash.startsWith('#code-')`);
+	const fragHash = await p.evaluate('location.hash');
+	await p.evaluate('history.back(); true');
+	await p.waitFor(`location.hash === ''`);
+	await sleep(400);
+	const fragBack = { hash: fragHash, added: (await p.evaluate('history.length')) - hFrag, ...(await p.evaluate(`({ path: location.pathname, focus: ${focusNow} })`)) };
 	const ok = first.cls === 'skip' && first.href === '#main' && first.left >= 0 && first.w > 0 && afterSkip.hash === '' && afterSkip.added === 0 && afterSkip.focused === 'main' &&
 		freshFocus === 'BODY' && skipBack.path === `${vpath(main.resultsVersion)}/overview` && skipBack.focus === 'heading:Overview' &&
 		crossBack.path === `${vpath(main.resultsVersion)}/chronology` && crossBack.newDocument && crossBack.nav === 'back_forward' && crossBack.focus === 'heading:Chronology' &&
-		steps.every((s, i) => s.headingFocused && s.sameDocument && s.history === s.wantHistory && s.path === want[i]);
-	return { pass: ok, evidence: { firstTab: first, freshFocus, afterSkip, skipBack, crossBack, steps } };
+		steps.every((s, i) => s.headingFocused && s.sameDocument && s.history === s.wantHistory && s.path === want[i]) &&
+		fragBack.path === ctx.mainImport.path && fragBack.added === 1 && /^heading:/.test(fragBack.focus ?? '');
+	return { pass: ok, evidence: { firstTab: first, freshFocus, afterSkip, skipBack, crossBack, steps, fragBack } };
 }
 
 /** BA-16: titles name the document, section and case: '<document> · <section> · <case> · ClearCase'. */

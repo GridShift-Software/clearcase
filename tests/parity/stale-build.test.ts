@@ -15,7 +15,7 @@ const app = join(root, 'app');
 mkdirSync(join(app, 'build'), { recursive: true });
 writeFileSync(join(app, 'build', 'handler.js'), '');
 writeFileSync(join(app, 'build', 'clearcase-build.json'), JSON.stringify({ revision: '0'.repeat(40), dirty: true, buildId: 'synthetic' }));
-const parity = (...extra: string[]) => spawnSync(BUN, [join(REPO, 'scripts', 'parity', 'run.mjs'), '--view', 'overview', '--fixture-config', join(root, 'absent.json'), '--out', join(root, 'out'), '--app-root', app, ...extra], { encoding: 'utf8', timeout: 60_000, env: { ...process.env, CLEARCASE_ALLOW_STALE_BUILD: '' } });
+const parity = (...extra: string[]) => spawnSync(BUN, [join(REPO, 'scripts', 'parity', 'run.mjs'), '--view', 'overview', '--fixture-config', join(root, 'absent.json'), '--out', join(root, 'out'), '--app-root', app, ...extra], { encoding: 'utf8', timeout: 60_000, env: { ...process.env, CANARY_PORT: '43899', CLEARCASE_ALLOW_STALE_BUILD: '' } });
 
 describe('parity refuses a stale build', () => {
 	test('exit 2 naming the reasons, before anything is written', () => {
@@ -26,7 +26,7 @@ describe('parity refuses a stale build', () => {
 		expect(() => readFileSync(join(root, 'out', 'scorecard.json'))).toThrow();
 	});
 	test('--allow-stale-build gets past the refusal', () => {
-		for (const r of [parity('--allow-stale-build'), spawnSync(BUN, [join(REPO, 'scripts', 'parity', 'run.mjs'), '--view', 'overview', '--fixture-config', join(root, 'absent.json'), '--out', join(root, 'out'), '--app-root', app], { encoding: 'utf8', timeout: 60_000, env: { ...process.env, CLEARCASE_ALLOW_STALE_BUILD: '1' } })]) {
+		for (const r of [parity('--allow-stale-build'), spawnSync(BUN, [join(REPO, 'scripts', 'parity', 'run.mjs'), '--view', 'overview', '--fixture-config', join(root, 'absent.json'), '--out', join(root, 'out'), '--app-root', app], { encoding: 'utf8', timeout: 60_000, env: { ...process.env, CANARY_PORT: '43899', CLEARCASE_ALLOW_STALE_BUILD: '1' } })]) {
 			expect(r.stderr).not.toMatch(/refusing a stale build/);
 			expect(r.stderr).toMatch(/absent\.json/);
 		}

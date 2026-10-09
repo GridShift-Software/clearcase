@@ -6,7 +6,8 @@ import { canonicalJson, importCandidate, type ImportResult } from '../case-packa
 import { buildCase, type SynthCase } from '../../../tests/e2e/pilot/lib/fixtures.ts';
 import type { AttachmentRow, ChronologyListRow, DocumentStateRow, OverviewModel } from './model.ts';
 import { project, readModelDigest, type Projection } from './project.server.ts';
-import { cleanup, tempRoot } from './test-support.ts';
+import { datasetKeys, datasetOf } from './results.server.ts';
+import { cleanup, service, tempRoot } from './test-support.ts';
 
 let root: string, c: SynthCase, result: ImportResult & { verdict: 'report' | 'accept' }, p: Projection;
 beforeAll(async () => {
@@ -68,5 +69,21 @@ describe('projection', () => {
 		expect(d(tampered)).not.toBe(d(p));
 		const reordered = { ...p, assets: [...p.assets].reverse() };
 		expect(d(reordered)).toBe(d(p)); // row order in storage does not matter, content does
+	});
+});
+
+describe('dataset access for views', () => {
+	it('reads recognized datasets from the stored bytes, frozen, and never opaque ones', async () => {
+		const lc = service(path.join(root, 'data'));
+		try {
+			await lc.startup();
+			await lc.importPackage(c.caseDir, c.pkgDir);
+			const people = datasetOf<{ name: string }[]>(lc.store, c.resultsVersion, 'people');
+			expect(people?.[0]?.name).toBe('Ann Lee');
+			expect(Object.isFrozen(people)).toBe(true);
+			expect(datasetOf(lc.store, c.resultsVersion, 'no-such-dataset')).toBeNull();
+			expect(datasetKeys(lc.store, c.resultsVersion)).toContain('chronology');
+			expect(datasetOf(lc.store, 'sha256:' + '0'.repeat(64), 'people')).toBeNull();
+		} finally { lc.shutdown(); }
 	});
 });

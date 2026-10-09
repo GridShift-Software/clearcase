@@ -497,6 +497,10 @@ describe('gate round 2: explicit table scope and typed restore failures (HARDEN-
 		// tables created outside the API (or before scopes existed) with a nullable or INTEGER case_id
 		db.exec("CREATE TABLE work.saved_view(view_id TEXT PRIMARY KEY, case_id TEXT, json TEXT); INSERT INTO work.saved_view VALUES ('v-null', NULL, '{}'), ('v-a', 'e2e-case', '{}')");
 		db.exec("CREATE TABLE work.tally(id TEXT PRIMARY KEY, case_id INTEGER); INSERT INTO work.tally VALUES ('t-1', 7)");
+		const own = JSON.parse(JSON.stringify(uw.exportAll()));
+		const ownRows = rowsOf(lc);
+		expect(await code(uw.importAll(own))).toBe('accepted');
+		expect(rowsOf(lc)).toBe(ownRows);
 		// defineTable no longer makes such a table: a case_id column needs scope 'case', and that needs it NOT NULL
 		const nullable = { name: 'bookmark_v', owner: 'GRS-17', description: '', columns: [{ name: 'id', type: 'TEXT' as const }, { name: 'case_id', type: 'TEXT' as const }], primaryKey: ['id'] };
 		expect(await code(uw.defineTable(nullable))).toBe('invalid');
@@ -519,22 +523,22 @@ describe('gate round 2: explicit table scope and typed restore failures (HARDEN-
 		const db = lc.storage.db();
 		await uw.defineTable({ name: 'bookmark', owner: 'GRS-17', description: '', columns: [{ name: 'id', type: 'TEXT' }, { name: 'case_key', type: 'TEXT' }], primaryKey: ['id'] });
 		await uw.defineTable({ name: 'ledger', owner: 'GRS-17', description: '', columns: [{ name: 'id', type: 'TEXT' }, { name: 'case_id', type: 'TEXT', notNull: true }, { name: 'v', type: 'TEXT' }], primaryKey: ['id'], scope: 'case' });
-		expect(Object.fromEntries(uw.tables().map((t) => [t.name, t.scope]))).toEqual({ active: 'case', activation_log: 'case', bookmark: 'store', ledger: 'case', note: 'case', register_row: 'case', seed_overlay: 'case', trusted_warning: 'case' });
 		db.exec("INSERT INTO work.bookmark VALUES ('b-a', 'A'); INSERT INTO work.ledger VALUES ('k1', 'A', 'snap'), ('k2', 'A', 'snap')");
 		await uw.putRow('A', 'deadlines', 'a-1', { title: 'in the snapshot' });
 		const snap = JSON.parse(JSON.stringify(uw.exportAll()));
-		expect(snap.tables.map((t: { name: string; scope: string }) => [t.name, t.scope])).toEqual([['bookmark', 'store'], ['ledger', 'case'], ['note', 'case'], ['register_row', 'case'], ['seed_overlay', 'case'], ['trusted_warning', 'case']]);
 		// after the backup: another case's rows in both tables, and an edit of a snapshot row
 		db.exec("INSERT INTO work.bookmark VALUES ('b-b', 'B'); INSERT INTO work.ledger VALUES ('k3', 'B', 'later'); UPDATE work.ledger SET v = 'edited' WHERE id = 'k1'");
 		const r = await uw.importAll(snap);
+		expect(db.prepare('SELECT id FROM work.bookmark ORDER BY id').all().map((x) => x.id)).toEqual(['b-a', 'b-b']);
+		expect(snap.tables.map((t: { name: string; scope: string }) => [t.name, t.scope])).toEqual([['bookmark', 'store'], ['ledger', 'case'], ['note', 'case'], ['register_row', 'case'], ['seed_overlay', 'case'], ['trusted_warning', 'case']]);
 		expect(r.cases).toEqual(['A']);
 		expect(r.restored.filter((x) => x.rows || x.deleted)).toEqual([
 			{ name: 'bookmark', scope: 'store', action: 'merged', rows: 1, deleted: 0 },
 			{ name: 'ledger', scope: 'case', action: 'replaced-for-cases', rows: 2, deleted: 2 },
 			{ name: 'register_row', scope: 'case', action: 'replaced-for-cases', rows: 1, deleted: 1 },
 		]);
-		expect(db.prepare('SELECT id FROM work.bookmark ORDER BY id').all().map((x) => x.id)).toEqual(['b-a', 'b-b']);
 		expect(db.prepare('SELECT id, v FROM work.ledger ORDER BY id').all().map((x) => [x.id, x.v])).toEqual([['k1', 'snap'], ['k2', 'snap'], ['k3', 'later']]);
+		expect(Object.fromEntries(uw.tables().map((t) => [t.name, t.scope]))).toEqual({ active: 'case', activation_log: 'case', bookmark: 'store', ledger: 'case', note: 'case', register_row: 'case', seed_overlay: 'case', trusted_warning: 'case' });
 		// a snapshot key held by another case here is a typed refusal before any write, naming no value
 		db.exec("DELETE FROM work.ledger WHERE id = 'k2'; INSERT INTO work.ledger VALUES ('k2', 'B', 'SECRET-B-ROW')");
 		const before = rowsOf(lc);

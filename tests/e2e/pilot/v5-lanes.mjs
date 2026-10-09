@@ -96,7 +96,7 @@ const pkgDir = pkgRun.dir;
 const pkg = pkgRun.exit === 0 || existsSync(join(pkgDir, 'manifest.json')) ? readPackage(pkgDir) : null;
 const caseName = pkg ? (pkg.manifest.case?.label || pkg.manifest.case?.id) : fx.caseId;
 // the case part of page titles under /v/ (BA-16): the package's view-content _shell.documentTitle, else the case name
-const titleName = (() => { try { const v = pkg?.dataset('view-content')?._shell?.documentTitle; return typeof v === 'string' && v.trim() ? v : caseName; } catch { return caseName; } })();
+const titleName = (() => { try { const v = pkg?.dataset('view-content')?.data?._shell?.documentTitle; return typeof v === 'string' && v.trim() ? v : caseName; } catch { return caseName; } })();
 
 const port = PORTS.first, origPort = PORTS.first + 1;
 const dataDir = join(work, 'data');

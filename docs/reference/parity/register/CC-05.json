@@ -27,18 +27,6 @@
       "approvedOn": "2026-10-09"
     },
     {
-      "id": "IDR-020",
-      "view": "vdm_matrix_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-15",
-      "reason": "The app does not implement Defence & Rebuttal yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
       "id": "IDR-150",
       "view": "info_required_tab",
       "field": "title",
@@ -113,6 +101,113 @@
       "type": "improvement",
       "source": "BA-14",
       "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-155",
+      "view": "vdm_matrix_tab",
+      "field": "title",
+      "when": {
+        "v5": "Defence & Rebuttal Matrix",
+        "app": "Defence & Rebuttal"
+      },
+      "type": "improvement",
+      "source": "BA-18",
+      "reason": "The page heading is the navigation label (BA-18), so the destination names the task the operator chose; v5 adds Matrix to its heading only.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-156",
+      "view": "vdm_matrix_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-157",
+      "view": "vdm_matrix_tab",
+      "field": [
+        "table.table_1.columns",
+        "export.export_csv.columns"
+      ],
+      "when": {
+        "v5": {
+          "re": "^[a-z_]+( \\| [a-z_]+){4}$"
+        },
+        "app": {
+          "re": "^[a-z_]+( \\| [a-z_]+){4} \\| refs$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-vdm_matrix_tab-1",
+      "reason": "v5 never shows or exports the defence matrix free-text refs; the app adds them as a last column of the table and of the CSV, after v5 columns in v5 order.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-158",
+      "view": "vdm_matrix_tab",
+      "field": "table.table_1.col.refs",
+      "when": {
+        "v5": "<absent>",
+        "app": "Refs"
+      },
+      "type": "defect-fix",
+      "source": "S-vdm_matrix_tab-1",
+      "reason": "The heading of the refs column v5 never shows.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-159",
+      "view": "vdm_matrix_tab",
+      "field": [
+        "table.table_1.row.*.refs",
+        "export.export_csv.row.*.refs"
+      ],
+      "when": {
+        "v5": "<absent>"
+      },
+      "type": "defect-fix",
+      "source": "S-vdm_matrix_tab-1",
+      "reason": "Each row shows and exports its imported free-text refs unchanged (empty where the row has none); v5 drops them.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-160",
+      "view": "vdm_matrix_tab",
+      "field": "export.export_csv.name",
+      "when": {
+        "v5": {
+          "re": "^[a-z]+_[a-z]+_defence_rebuttal\\.csv$"
+        },
+        "app": "defence_rebuttal.csv"
+      },
+      "type": "known-gap",
+      "source": "S-hardcoded-case",
+      "reason": "v5 names the export after the parties in code; the view-content map carries no export file name, so the app uses a neutral name until the map does (shared-file request in the CC-05 report).",
       "productVisible": true,
       "author": "CC-05 worker (GRS-15)",
       "approvedBy": null,

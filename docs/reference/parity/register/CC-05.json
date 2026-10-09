@@ -3,18 +3,6 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-001",
-      "view": "matter",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-15",
-      "reason": "The app does not implement Matter & Strategy yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
       "id": "IDR-002",
       "view": "timeline",
       "field": "*",
@@ -39,36 +27,12 @@
       "approvedOn": "2026-10-09"
     },
     {
-      "id": "IDR-019",
-      "view": "risk_matrix_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-15",
-      "reason": "The app does not implement Risk Matrix yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
       "id": "IDR-020",
       "view": "vdm_matrix_tab",
       "field": "*",
       "type": "not-yet-implemented",
       "owner": "GRS-15",
       "reason": "The app does not implement Defence & Rebuttal yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-022",
-      "view": "witness_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-15",
-      "reason": "The app does not implement Witnesses yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
       "productVisible": false,
       "author": "CC-29 worker (GRS-37)",
       "approvedBy": "coordinator",
@@ -93,6 +57,54 @@
     {
       "id": "IDR-151",
       "view": "info_required_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-152",
+      "view": "matter",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-153",
+      "view": "risk_matrix_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-154",
+      "view": "witness_tab",
       "field": "focus.after_nav",
       "when": {
         "v5": "nav-link",

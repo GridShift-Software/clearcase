@@ -1,0 +1,854 @@
+{
+  "$schema": "./intentional-differences.schema.json",
+  "version": 1,
+  "entries": [
+    {
+      "id": "IDR-001",
+      "view": "matter",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-15",
+      "reason": "The app does not implement Matter & Strategy yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-002",
+      "view": "timeline",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-15",
+      "reason": "The app does not implement Timeline yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-003",
+      "view": "quantum_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-16",
+      "reason": "The app does not implement Quantum & Interest yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-004",
+      "view": "documents",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-14",
+      "reason": "The app does not implement Documents yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-005",
+      "view": "contracts_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-14",
+      "reason": "The app does not implement Contracts yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-006",
+      "view": "filings_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-14",
+      "reason": "The app does not implement Filings & Affidavits yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-007",
+      "view": "search",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-14",
+      "reason": "The app does not implement Advanced Search yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-008",
+      "view": "people",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-14",
+      "reason": "The app does not implement People yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-009",
+      "view": "entity_ledger_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-14",
+      "reason": "The app does not implement Entities yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-010",
+      "view": "hoa_diff_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-14",
+      "reason": "The app does not implement Document Diff yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-011",
+      "view": "invoice_ledger_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-16",
+      "reason": "The app does not implement Invoice Ledger yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-012",
+      "view": "disbursements_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-17",
+      "reason": "The app does not implement Disbursements yet; GRS-17 (CC-07) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-013",
+      "view": "timesheet_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-17",
+      "reason": "The app does not implement Timesheet yet; GRS-17 (CC-07) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-014",
+      "view": "deadlines_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-17",
+      "reason": "The app does not implement Deadlines yet; GRS-17 (CC-07) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-015",
+      "view": "discovery_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-19",
+      "reason": "The app does not implement Discovery Schedule yet; GRS-19 (CC-09) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-016",
+      "view": "court_bundle_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-19",
+      "reason": "The app does not implement Court Bundle yet; GRS-19 (CC-09) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-017",
+      "view": "caselines_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-19",
+      "reason": "The app does not implement CaseLines yet; GRS-19 (CC-09) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-018",
+      "view": "contradictions_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-15",
+      "reason": "The app does not implement Contradiction Tracker yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-019",
+      "view": "risk_matrix_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-15",
+      "reason": "The app does not implement Risk Matrix yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-020",
+      "view": "vdm_matrix_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-15",
+      "reason": "The app does not implement Defence & Rebuttal yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-021",
+      "view": "info_required_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-15",
+      "reason": "The app does not implement Info Required yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-022",
+      "view": "witness_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-15",
+      "reason": "The app does not implement Witnesses yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-023",
+      "view": "conflict_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-18",
+      "reason": "The app does not implement Conflict Check yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-024",
+      "view": "enforcement_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-18",
+      "reason": "The app does not implement Enforcement Roadmap yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-025",
+      "view": "legality_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-18",
+      "reason": "The app does not implement Legality & SIU Risk yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-026",
+      "view": "prescription_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-16",
+      "reason": "The app does not implement Prescription yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-027",
+      "view": "interest_calc_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-16",
+      "reason": "The app does not implement Interest Recalculator yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-028",
+      "view": "payments_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-16",
+      "reason": "The app does not implement Payments & Net Claim yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-029",
+      "view": "elements_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-18",
+      "reason": "The app does not implement Cause of Action yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-030",
+      "view": "authorities_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-18",
+      "reason": "The app does not implement Authorities yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-031",
+      "view": "heads_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-18",
+      "reason": "The app does not implement Heads of Argument yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-032",
+      "view": "crossexam_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-18",
+      "reason": "The app does not implement Cross-Exam Prep yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-033",
+      "view": "settlement_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-16",
+      "reason": "The app does not implement Settlement / BATNA yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-034",
+      "view": "privilege_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-17",
+      "reason": "The app does not implement Privilege Log yet; GRS-17 (CC-07) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-035",
+      "view": "popia_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-17",
+      "reason": "The app does not implement POPIA Register yet; GRS-17 (CC-07) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-036",
+      "view": "annotations_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-17",
+      "reason": "The app does not implement Annotations yet; GRS-17 (CC-07) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-037",
+      "view": "transcriptions_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-17",
+      "reason": "The app does not implement Transcripts yet; GRS-17 (CC-07) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-038",
+      "view": "rescan_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-20",
+      "reason": "The app does not implement Rescan & Update yet; GRS-20 (CC-10) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-039",
+      "view": "backup_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-20",
+      "reason": "The app does not implement Backup / Restore yet; GRS-20 (CC-10) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-040",
+      "view": "manual",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-20",
+      "reason": "The app does not implement Manual yet; GRS-20 (CC-10) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-041",
+      "view": "chronology",
+      "field": [
+        "text.table_1.pager",
+        "control.button:Prev",
+        "control.button:Next"
+      ],
+      "type": "improvement",
+      "source": "GRS-12",
+      "reason": "The pilot renders the whole filtered list incrementally (DataGrid) instead of v5 pages of 60 with Prev and Next; every row is compared, so only the pager wording and buttons differ.",
+      "productVisible": true,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-042",
+      "view": "overview",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
+      "productVisible": true,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-043",
+      "view": "chronology",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
+      "productVisible": true,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-044",
+      "view": "overview",
+      "field": [
+        "control.button:*",
+        "control.link:Open Matter & Strategy*"
+      ],
+      "when": {
+        "app": "<absent>"
+      },
+      "type": "improvement",
+      "source": "BA-18",
+      "reason": "The quick-link buttons and the narrative card link became the Go to list: real links named like their destinations (BA-18).",
+      "productVisible": true,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-045",
+      "view": "overview",
+      "field": "control.link:*",
+      "when": {
+        "v5": "<absent>"
+      },
+      "type": "improvement",
+      "source": "BA-18",
+      "reason": "Go to list entries are links labelled with the registry task names of their destinations (BA-18).",
+      "productVisible": true,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-046",
+      "view": "overview",
+      "field": "kpi.amount_due_to_date.sub",
+      "when": {
+        "app": {
+          "re": "\\(source value\\)$"
+        }
+      },
+      "type": "improvement",
+      "source": "GRS-12",
+      "reason": "The headline amount is labelled as the source value (provenance), with the same reference and date.",
+      "productVisible": true,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-047",
+      "view": "overview",
+      "field": "kpi.documents_indexed.sub",
+      "type": "defect-fix",
+      "source": "S-overview-3",
+      "reason": "v5 hard-codes the bundle count in this caption; the app states the counted source and the actual number of bundles.",
+      "productVisible": true,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-048",
+      "view": "overview",
+      "field": "kpi.invoices.sub",
+      "type": "defect-fix",
+      "source": "S-hardcoded-case",
+      "reason": "v5 hard-codes a case party in this caption; the app states what was counted from the register.",
+      "productVisible": true,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-049",
+      "view": "overview",
+      "field": "kpi.scanned_need_ocr.*",
+      "type": "defect-fix",
+      "source": "S-overview-2",
+      "reason": "v5 shows the build metadata count of documents without text, which disagrees with the rows; the app counts the register rows, names the tile for what it counts and shows the source claim beside it.",
+      "productVisible": true,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-050",
+      "view": "overview",
+      "field": [
+        "kpi.open_deadlines.*",
+        "kpi.unbilled_time.*",
+        "sweep.seeded_user_work.*"
+      ],
+      "type": "not-yet-implemented",
+      "owner": "GRS-17",
+      "reason": "The deadline and unbilled-time tiles are overview widget slots owned by the registers ticket; until it fills them the slot says so.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-051",
+      "view": "overview",
+      "field": "text.freshness.*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-20",
+      "reason": "The freshness card is an overview widget slot owned by the system ticket (rescan); until it fills it the slot says so.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-052",
+      "view": "overview",
+      "field": "text.the_matter_in_one_paragraph.2",
+      "type": "not-yet-implemented",
+      "owner": "GRS-15",
+      "reason": "v5 links the narrative card to Matter & Strategy; that destination belongs to the analysis ticket, and the Go to list already links to it.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-053",
+      "view": "overview",
+      "field": [
+        "text.page.*",
+        "text.my_notes.*",
+        "list.my_notes.*",
+        "list.go_to.*",
+        "table.originals.*",
+        "table.by_bundle.*",
+        "table.by_type.*",
+        "table.by_text_status.*"
+      ],
+      "when": {
+        "v5": "<absent>"
+      },
+      "type": "improvement",
+      "source": "GRS-12",
+      "reason": "Pilot overview additions without a v5 counterpart: the results version line, originals states, tallies by bundle, type and text status, the notes summary and the Go to list.",
+      "productVisible": true,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-054",
+      "view": "chronology",
+      "field": "text.subtitle",
+      "type": "defect-fix",
+      "source": "S-chronology-4",
+      "reason": "v5 says the list is sorted by date whatever the sort; the app subtitle describes the source order and the date policy instead.",
+      "productVisible": true,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-055",
+      "view": "chronology",
+      "field": "list.select.all_bundles.*",
+      "type": "defect-fix",
+      "source": "S-chronology-1",
+      "reason": "The bundle filter offers every imported bundle, sorted, instead of v5's four hard-coded options (the Additional bundle could not be selected).",
+      "productVisible": true,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-056",
+      "view": "chronology",
+      "field": "sweep.filter_sort_ui.*",
+      "when": {
+        "v5": "no-option"
+      },
+      "type": "defect-fix",
+      "source": "S-chronology-1",
+      "reason": "Combinations that choose a bundle v5 does not offer: v5 cannot select it, the app filters to it.",
+      "productVisible": true,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-057",
+      "view": "chronology",
+      "field": "list.select.any_text_status.*",
+      "type": "defect-fix",
+      "source": "S-chronology-5",
+      "reason": "The text-status filter offers the statuses present in the data; v5 offers an ocr status that no row has.",
+      "productVisible": true,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-058",
+      "view": "chronology",
+      "field": "sweep.filter_sort_ui.*",
+      "when": {
+        "v5": {
+          "re": "^0\\|"
+        },
+        "app": "no-option"
+      },
+      "type": "defect-fix",
+      "source": "S-chronology-5",
+      "reason": "Combinations that choose a text status no row has: v5 offers it and shows no rows, the app does not offer it.",
+      "productVisible": true,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-059",
+      "view": "chronology",
+      "field": "table.table_1.row.*.date",
+      "when": {
+        "v5": "—",
+        "app": "undated"
+      },
+      "type": "improvement",
+      "source": "BA-04",
+      "reason": "An undated row says undated instead of a dash (BA-04 date provenance).",
+      "productVisible": true,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-060",
+      "view": "chronology",
+      "field": [
+        "table.table_1.col.date_basis",
+        "table.table_1.row.*.date_basis"
+      ],
+      "when": {
+        "v5": "<absent>"
+      },
+      "type": "improvement",
+      "source": "BA-04",
+      "reason": "A Date basis column shows the date type or that the basis is unknown or undated (BA-04).",
+      "productVisible": true,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-061",
+      "view": "chronology",
+      "field": [
+        "control.row:link:Doc",
+        "control.row:link:Ref",
+        "table.table_1.col.doc",
+        "table.table_1.row.*.doc"
+      ],
+      "when": {
+        "v5": {
+          "re": "^(open ↗|Doc|1|<absent>)$"
+        },
+        "app": {
+          "re": "^(open|download|missing|blocked|Original|1|<absent>)$"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-09",
+      "reason": "Originals open from the document page (BA-09 routes, S-_shell-1 isolation): the row links its ref to the document and the Original column shows the original state (open, download only, missing) instead of a direct link.",
+      "productVisible": true,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-062",
+      "view": "chronology",
+      "field": [
+        "control.button:Export CSV",
+        "control.button:Export CSV (# rows)"
+      ],
+      "type": "improvement",
+      "source": "GRS-12",
+      "reason": "The export button states how many filtered rows it exports (v5 exports every filtered row too, which its label did not say).",
+      "productVisible": true,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-063",
+      "view": "chronology",
+      "field": [
+        "control.input:text:Filter text / ref / filename",
+        "control.input:text:Text, ref or filename"
+      ],
+      "type": "improvement",
+      "source": "GRS-12",
+      "reason": "The text filter has a visible label in a labelled search form instead of a placeholder only; it searches the same fields.",
+      "productVisible": true,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-064",
+      "view": "chronology",
+      "field": "export.export_csv.name",
+      "type": "defect-fix",
+      "source": "S-hardcoded-case",
+      "reason": "v5 prefixes the export file name with case-specific initials; the app uses a neutral name. The exported columns and rows are compared and equal.",
+      "productVisible": true,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": null,
+      "approvedOn": null
+    }
+  ]
+}

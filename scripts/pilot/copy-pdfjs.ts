@@ -36,6 +36,8 @@ walk(out);
 writeFileSync(join(out, 'manifest.json'), JSON.stringify({ pdfjsVersion: version, files }, null, 1));
 
 const git = (...a: string[]) => { try { return execFileSync('git', a, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return null; } };
-const stamp = { revision: git('rev-parse', 'HEAD'), dirty: git('status', '--porcelain', '--untracked-files=no') !== '', builtAt: new Date().toISOString(), bun: process.versions.bun ?? null, pdfjs: version, buildId: createHash('sha256').update(readFileSync(join(build, 'handler.js'))).digest('hex').slice(0, 16) };
+// An isolated build from `git archive` has no .git: its caller names the revision it exported.
+const exported = process.env.CLEARCASE_SOURCE_REVISION ?? null;
+const stamp = { revision: exported ?? git('rev-parse', 'HEAD'), dirty: exported ? false : git('status', '--porcelain', '--untracked-files=no') !== '', exported: exported !== null, builtAt: new Date().toISOString(), bun: process.versions.bun ?? null, pdfjs: version, buildId: createHash('sha256').update(readFileSync(join(build, 'handler.js'))).digest('hex').slice(0, 16) };
 writeFileSync(join(build, 'clearcase-build.json'), JSON.stringify(stamp, null, 1) + '\n');
 console.log(`pdf.js ${version} bundled: ${Object.keys(files).length} files -> ${relative(root, out)}; build ${stamp.buildId} from ${stamp.revision?.slice(0, 12) ?? 'unknown'}${stamp.dirty ? ' (dirty)' : ''}`);

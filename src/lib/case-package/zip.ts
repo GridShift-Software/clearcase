@@ -28,7 +28,8 @@ export interface ZipEntry {
   isDirectory: boolean;
 }
 
-const utf8 = new TextDecoder('utf-8', { fatal: true });
+// ignoreBOM keeps a leading U+FEFF: member names stay byte-exact ("\uFEFFassets.json" is not assets.json)
+const utf8 = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 const CP437_HIGH = 'ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜ¢£¥₧ƒáíóúñÑªº¿⌐¬½¼¡«»░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀αßΓπΣσµτΦΘΩδ∞φε∩≡±≥≤⌠⌡÷≈°∙·√ⁿ²■ ';
 
 /** Many writers store UTF-8 names without the UTF-8 flag; try UTF-8 first, then CP437. */

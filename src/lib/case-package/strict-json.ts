@@ -213,3 +213,10 @@ export function parseStrictJson(text: string, limits: Partial<StrictJsonLimits> 
 }
 
 export const isObject = (v: unknown): v is JsonObject => v !== null && typeof v === 'object' && !Array.isArray(v);
+
+/** At most `n` UTF-16 units of `s`, never ending inside a surrogate pair. */
+export function cutText(s: string, n: number): string {
+  const t = s.slice(0, n);
+  const last = t.charCodeAt(t.length - 1);
+  return last >= 0xd800 && last <= 0xdbff ? t.slice(0, -1) : t;
+}

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import Narrative from '$lib/components/Narrative.svelte';
+	import OverviewSlots from '$lib/components/OverviewSlots.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import CitationLink from '$lib/components/CitationLink.svelte';
 	import { money, plural } from '$lib/components/format';
@@ -38,7 +39,7 @@
 			{#if o.contradictions}<p class="num">{o.contradictions.total}</p><p><small>{o.contradictions.highCount} high-severity</small></p>{:else}<p>Not in this package.</p>{/if}</section>
 		<section class="card" aria-labelledby="kpi-scan"><h2 id="kpi-scan">Without extracted text</h2><p class="num" id="count-text-none">{(c.byTextStatus['none'] ?? 0).toLocaleString('en')}</p>
 			<p><small>Register rows with text status none{claim('textNone') !== null ? `; the source claims ${claim('textNone')}` : ''}.</small></p></section>
-		<section class="card" aria-labelledby="kpi-work"><h2 id="kpi-work">Deadlines and unbilled time</h2><p>Not yet available — owned by {blockedBy({ status: 'unavailable-until:GRS-17' })} (user-work registers).</p></section>
+		<OverviewSlots slots={data.slots} ctx={{ caseId: data.version.caseId, caseName: data.version.caseName, resultsVersion: vid }} />
 		<section class="card" aria-labelledby="kpi-orig"><h2 id="kpi-orig">Originals</h2>
 			<table><tbody>
 				<tr><td>Verified in the case folder</td><td class="num" id="count-verified">{o.originals.verified + o.originals.caseMismatch}</td></tr>

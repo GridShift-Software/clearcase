@@ -80,11 +80,24 @@ To build one:
 2. Wrap the page in `<main id="main" tabindex="-1">` and start it with `PageHeader` (`heading` = the registry label, `section` = the label, `caseName` from the layout data); put export controls in its `actions` snippet.
 3. Read results with `datasetOf(app().store, version.id, '<dataset key>')` from `$lib/local-case/results.server`; the `/v/[vid]` layout has already verified the version. Use `readCandidate`-equivalent semantics: recognized datasets only, values untrusted.
 4. Put every imported value into text nodes. Render authored narrative only with `Narrative.svelte` (citations resolve against the version's refs from `app().store.existingRefs`). Link documents with `CitationLink.svelte` or `docPath`; open originals with `OriginalOpen.svelte` and links built on the server by `originals()`.
-5. Keep user work in `app().userWork`: `putRow`/`listRows`/`deleteRow` for registers (store name `^[a-z][a-z0-9-]{0,63}$`, flat fields, stable UUID row ids, optional `DocumentAnchor`), `putSeedOverlay`/`seedViews` for seeded registers, `addNote`/`notesFor` for notes. Never key user work by array index, display position or ref alone.
-6. Add tests next to your code and a feature file in the verification skill (`features/`), and drive the view in your browser tests.
-7. When your ticket passes its gate, the coordinator adds the view id to `AVAILABLE` in the generator and regenerates the registry.
+5. Read document rows through the document-row contract, never from the chronology dataset directly (see below).
+6. Keep user work in `app().userWork`: `putRow`/`listRows`/`deleteRow` for registers (store name `^[a-z][a-z0-9-]{0,63}$`, flat fields, stable UUID row ids, optional `DocumentAnchor`), `putSeedOverlay`/`seedViews` for seeded registers, `addNote`/`notesFor` for notes. Never key user work by array index, display position or ref alone.
+7. Add tests next to your code and a feature file in the verification skill (`features/`), and drive the view in your browser tests.
+8. When your ticket passes its gate, the coordinator adds the view id to `AVAILABLE` in the generator and regenerates the registry.
 
-**Paths a view owner may write:** `src/routes/v/[vid]/<category>/**` for their own category, and the owner-specific paths the coordinator reserves at dispatch (proposed: `src/lib/views/<category>/**`, `tests/e2e/<category>/**`, and their own feature files under `.agents/skills/verify-clearcase/features/`).
+### Document-row read contract
+
+`documentRows(store, resultsVersion)` and `activeDocumentRows(app(), caseId)` in `$lib/local-case/documents.server` return every document row of a version: the imported register in source order, then rows from registered providers (the equivalent of v5's `allRows()`). Each `DocumentRow` is frozen and carries `ref`, `ord`, `source` (`'results'` or `'provider:<id>'`), the raw source `row` unchanged, its list projection `list` (`ChronologyListRow`) and its `state` (`DocumentStateRow`). `listJson` is the chronology list and its ETag as served by `/api/v/[vid]/chronology`. GRS-20's rescan publishes rescanned rows with `registerDocumentRowProvider({id: 'rescan', owner: 'GRS-20', rows, revision})`; readers do not change. A provider row whose ref already names an imported document is dropped and reported in `dropped`, never shadowing the register.
+
+### Enumerable user-work persistence
+
+Every `work.sqlite` table is enumerable: `app().userWork.tables()` introspects SQLite and labels each table from `work.userwork_catalog` as `user-work`, `activation` or `unregistered` (a table created outside the API is still listed). `exportAll({kinds?})` returns a `clearcase.user-work/1` snapshot of every row (BLOBs as base64) and `importAll(snapshot)` restores it in one transaction, creating any table the snapshot defines. A ticket that needs its own table calls `defineTable({name, owner, description, columns, primaryKey})` (lower-case names, `TEXT`/`INTEGER`/`REAL`/`BLOB`, a primary key of stable ids; idempotent), and GRS-20's backup round-trips it with no per-table code. `registerStores(caseId)` lists the register stores in `register_row`.
+
+### Overview widget slots
+
+The overview has typed widget slots declared in `src/lib/components/overview-slots.ts`: `deadlines` and `unbilled-time` (GRS-17, category `registers`) and `rescan-freshness` (GRS-20, category `system`). An owner fills its slots from its own subtree: `src/lib/views/<category>/overview-widgets.ts` exports `widgets: OverviewWidget[]` (`{slot, component}`, a Svelte component receiving `{data, ctx}`) and `src/lib/views/<category>/overview-widgets.server.ts` exports `loaders: OverviewWidgetLoader[]` (`{slot, load(ctx)}`, with `ctx.app` the server's `LocalCase`). Both are discovered with `import.meta.glob`; the category in the path must be the slot owner's, a slot may be filled once, and a loader that throws marks only its slot. Until a slot is filled the overview shows "Not yet available — owned by GRS-nn". New slots are added to `OVERVIEW_SLOTS` by the coordinator.
+
+**Paths a view owner may write:** `src/routes/v/[vid]/<category>/**` for their own category, and the owner-specific paths the coordinator reserves at dispatch (including `src/lib/views/<category>/**` (overview widgets live there), `tests/e2e/<category>/**`, and their own feature files under `.agents/skills/verify-clearcase/features/`).
 
 **Coordinator-serialized files** (one writer at a time, through the coordinator): `package.json`, `bun.lock`, `tsconfig.json`, `vitest.config.ts`, `svelte.config.js`, `vite.config.ts`, `src/app.*`, `src/hooks.server.ts`, `static/**`, `src/routes/+layout.*`, `src/routes/+error.svelte`, `src/routes/v/[vid]/+layout.*`, `src/routes/v/[vid]/[category]/[view]/**`, `src/lib/components/**` (shared contracts and the registry), `src/lib/local-case/**` (storage, persistence API, originals), `scripts/pilot/**`, `tests/e2e/pilot/lib/**`, and the skill's `SKILL.md` and runner.
 
@@ -103,6 +116,9 @@ To build one:
 | Export | `csv.ts` | `toCSV` (quotes on `"` `,` CR LF), `userCell` neutralises formulas in user-entered cells |
 | User work | `user-work.server.ts` | notes, seed overlays and register rows in `work.sqlite`, keyed by stable ids |
 | Results data | `results.server.ts` | `datasetOf`, `datasetKeys` over the verified stored bytes |
+| Document rows | `documents.server.ts` | `documentRows`, `activeDocumentRows`, `listJson`, `registerDocumentRowProvider` |
+| User-work enumeration | `user-work.server.ts` | `tables`, `defineTable`, `exportAll`, `importAll`, `registerStores` |
+| Overview slots | `overview-slots.ts`, `OverviewSlots.svelte`, `overview-widgets.server.ts` | widget slots filled from `src/lib/views/<category>/` |
 
 ## Verification
 

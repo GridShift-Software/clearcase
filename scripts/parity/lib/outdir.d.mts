@@ -6,6 +6,8 @@ export function fixtureInputs(fx: { caseFolder: string; cfg?: any; summaryPath?:
 export function overlap(out: string, inputs: Inputs): string | null;
 export function checkOutput(out: string, inputs: Inputs, children?: readonly string[]): (...parts: string[]) => string;
 export function sweepStaleWork(out: string, at: (...parts: string[]) => string): string[];
-export function prepareOutput(out: string, inputs: Inputs, children?: readonly string[]): { at: (...parts: string[]) => string; views: string; work: string; swept: string[] };
+export const WORK_MARKER: string;
+export function pidStartTime(pid: number): number | null;
+export function prepareOutput(out: string, inputs: Inputs, children?: readonly string[], opts?: { keep?: boolean }): { at: (...parts: string[]) => string; views: string; work: string; swept: string[] };
 export const SIGNALS: { SIGHUP: number; SIGINT: number; SIGTERM: number };
 export function removeOnExit(dir: string): void;

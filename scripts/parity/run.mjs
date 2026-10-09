@@ -91,7 +91,7 @@ for (const f of readdirSync(join(import.meta.dirname, 'adapters', 'app')).filter
 // nothing is written before this: an output overlapping the fixture or holding a symlinked child is refused, working
 // directories of killed runs are swept, and this run's is fresh
 let at, work;
-try { ({ at, work } = prepareOutput(out, fixtureInputs(fx, { appV5Html }), CHILDREN)); } catch (e) { setup(e.message); }
+try { ({ at, work } = prepareOutput(out, fixtureInputs(fx, { appV5Html }), CHILDREN, { keep: flag('keep-work') })); } catch (e) { setup(e.message); }
 // removed on every exit, a later setup error and SIGINT/SIGTERM/SIGHUP included, so failed runs do not pile up
 // case-bearing working directories
 if (!flag('keep-work')) removeOnExit(work);

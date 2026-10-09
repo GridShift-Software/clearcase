@@ -11,9 +11,10 @@ import { CITATION_TOKEN, parseCitationToken } from './refs.ts';
 const HTML_ESC: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
 export const escapeHtml = (s: string): string => s.replace(/[&<>"']/g, (c) => HTML_ESC[c]!);
 
-// C0 except TAB and LF, DEL, C1, soft hyphen, Arabic letter mark, zero-width and directional
-// marks, bidi embeddings, overrides and isolates, invisible operators, BOM.
-const INVISIBLE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f­؜᠎​-‏‪-‮⁠-⁩﻿]/g;
+// C0 except TAB and LF, DEL, C1, every default-ignorable code point (soft hyphen, Arabic letter
+// mark, zero-width and directional marks, bidi embeddings, overrides and isolates, invisible
+// operators, variation selectors, fillers, tags, BOM) and the interlinear annotation controls.
+const INVISIBLE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\p{Default_Ignorable_Code_Point}\ufff9-\ufffb]/gu;
 
 /** Shows hidden characters as ⟨U+XXXX⟩, e.g. a right-to-left override in a filename. */
 export const revealInvisible = (s: string): string =>

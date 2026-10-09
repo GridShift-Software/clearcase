@@ -7,3 +7,7 @@ __pycache__/
 .env
 .env.*
 !.env.example
+
+# SvelteKit build output (GRS-12)
+.svelte-kit/
+build/

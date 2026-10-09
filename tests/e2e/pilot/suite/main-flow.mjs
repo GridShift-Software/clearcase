@@ -166,7 +166,7 @@ export async function s25(ctx) {
 	const r2 = await A.c.get(url, { headers: { 'if-none-match': r1.headers.etag } });
 	const r3 = await A.c.get(url, { headers: { 'if-none-match': '"sha256:0000"' } });
 	const cc = r1.headers['cache-control'] ?? '';
-	const ok = dom.tablesInMain === 0 && dom.tableTag === 'DIV' && dom.rowTag === 'DIV' && dom.contentVisibility === 'auto' && dom.display === 'grid' && dom.gridColumns === 9 &&
+	const ok = dom.tablesInMain === 0 && dom.tableTag === 'DIV' && dom.rowTag === 'DIV' && dom.contentVisibility === 'auto' && dom.display === 'grid' && dom.gridColumns === (main.chronology.some((r) => r.date_type) ? 9 : 8) &&
 		cc === 'private, no-cache' && r1.headers.etag === `"${stored.rm}"` && r2.status === 304 && r3.status === 200 && r1.text === stored.cj && JSON.parse(r1.text).length === main.chronology.length;
 	return { pass: ok, evidence: { dom, cacheControl: cc, etag: r1.headers.etag, readModel: stored.rm, conditional: r2.status, wrongEtag: r3.status, bodyEqualsStored: r1.text === stored.cj } };
 }
@@ -306,17 +306,21 @@ export async function keyboard(ctx) {
 	return { pass: ok, evidence: { firstTab: first, freshFocus, afterSkip, skipBack, crossBack, steps, fragBack } };
 }
 
-/** BA-16: titles name the document, section and case: '<document> · <section> · <case> · ClearCase'. */
+/**
+ * BA-16: titles name the document, section and case: '<document> · <section> · <case> · ClearCase'. The case part is
+ * the package's view-content _shell.documentTitle, else the case name; the brand above the view navigation is
+ * _shell.brandName, else the case name.
+ */
 export async function titles(ctx) {
 	const { A, p, main } = ctx;
 	const V = A.v(main.resultsVersion);
-	const kase = ctx.caseName(main);
+	const kase = ctx.titleName(main);
 	const want = {
 		overview: `Overview · ${kase} · ClearCase`, chronology: `Chronology · ${kase} · ClearCase`,
 		document: `OD-002 Synthetic subject OD-002 · Document · ${kase} · ClearCase`, unavailable: `Timeline (not yet available) · ${kase} · ClearCase`,
 	};
 	const got = {};
-	await p.goto(`${V}/overview`, ready('overview')); got.overview = await p.evaluate('document.title');
+	await p.goto(`${V}/overview`, ready('overview')); got.overview = await p.evaluate('document.title'); got.brand = await p.evaluate(`document.getElementById('case-brand')?.textContent.trim() ?? null`);
 	await p.goto(`${V}/chronology`, ready('chronology')); got.chronology = await p.evaluate('document.title');
 	await p.goto(`${V}/doc/OD-002`, docReady('OD-002')); got.document = await p.evaluate('document.title');
 	await p.goto(`${V}/analysis/timeline`, ready('view:timeline')); got.unavailable = await p.evaluate('document.title');
@@ -327,9 +331,10 @@ export async function titles(ctx) {
 	await p.click('#nav-chronology');
 	await p.waitFor(`${ready('chronology')} && document.title === ${J(want.chronology)}`, 8000).catch(() => null);
 	got.chronologyAfterClientNav = await p.evaluate('document.title');
-	const ok = got.overview === want.overview && got.chronology === want.chronology && got.document === want.document && got.unavailable === want.unavailable &&
+	want.brand = ctx.brandName(main);
+	const ok = got.brand === want.brand && got.overview === want.overview && got.chronology === want.chronology && got.document === want.document && got.unavailable === want.unavailable &&
 		got.overviewAfterClientNav === want.overview && got.chronologyAfterClientNav === want.chronology;
-	return { pass: ok, evidence: { want, got, caseName: kase } };
+	return { pass: ok, evidence: { want, got, caseName: ctx.caseName(main), titleName: kase } };
 }
 
 /** BA-18 + the 42 extension points. */

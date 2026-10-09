@@ -790,8 +790,8 @@ describe('gate round 3: required scope, table rows, restore edges (HARDEN-M2 r3)
 		const uw = lc.userWork;
 		await uw.defineTable(pref);
 		await uw.defineTable(timesheet);
-		await uw.putTableRow('pref', { k: 'theme', v: 'plain' }, own);
-		await uw.putTableRow('timesheet', { id: 't1', case_id: 'A', hours: 1 }, own);
+		// raw writes in setup, so the test fails at the base revision on the old-snapshot defect, not on the row API
+		lc.storage.db().exec("INSERT INTO work.pref VALUES ('theme', 'plain'); INSERT INTO work.timesheet(id, case_id, hours) VALUES ('t1', 'A', 1)");
 		await uw.putRow('A', 'deadlines', 'a-1', { title: 'kept' });
 		const old = json(uw.exportAll()) as unknown as { tables: Record<string, unknown>[] };
 		for (const t of old.tables) delete t.scope;
@@ -836,18 +836,14 @@ describe('gate round 3: required scope, table rows, restore edges (HARDEN-M2 r3)
 		await uw.defineTable(pref);
 		await uw.defineTable(timesheet);
 		await uw.defineTable({ name: 'tag', owner: 'GRS-17', description: 'all-key table', scope: 'store', columns: [{ name: 'k', type: 'TEXT' }], primaryKey: ['k'] });
-		for (const k of ['k1', 'k2']) await uw.putTableRow('pref', { k, v: 'snap' }, own);
-		await uw.putTableRow('tag', { k: '1' }, own);
-		await uw.putTableRow('timesheet', { id: 't1', case_id: 'A' }, own);
+		// raw writes, so the test fails at the base revision on the result shape, not on the row API
+		const db = lc.storage.db();
+		db.exec("INSERT INTO work.pref VALUES ('k1', 'snap'), ('k2', 'snap'); INSERT INTO work.tag VALUES ('1'); INSERT INTO work.timesheet(id, case_id) VALUES ('t1', 'A')");
 		await uw.putRow('A', 'deadlines', 'a-1', { title: 'a' });
 		await uw.putRow('B', 'deadlines', 'b-1', { title: 'b' });
 		const snap = json(uw.exportAll());
 		// after the backup: k1 deleted, k2 edited, k3 added; case B gains a timesheet row, case C appears
-		await uw.deleteTableRow('pref', { k: 'k1' }, own);
-		await uw.putTableRow('pref', { k: 'k2', v: 'later' }, own);
-		await uw.putTableRow('pref', { k: 'k3', v: 'later' }, own);
-		await uw.putTableRow('timesheet', { id: 't9', case_id: 'B' }, own);
-		await uw.putTableRow('timesheet', { id: 't8', case_id: 'C' }, own);
+		db.exec("DELETE FROM work.pref WHERE k = 'k1'; UPDATE work.pref SET v = 'later' WHERE k = 'k2'; INSERT INTO work.pref VALUES ('k3', 'later'); INSERT INTO work.timesheet(id, case_id) VALUES ('t9', 'B'), ('t8', 'C')");
 		// an all-key table merges with DO NOTHING: a key already here counts as replaced
 		snap.tables.find((t) => t.name === 'tag')!.rows.push({ k: '2' });
 		const r = await uw.importAll(snap);

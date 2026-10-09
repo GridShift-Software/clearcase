@@ -71,6 +71,13 @@ describe('register rows', () => {
 		expect(new Set(Object.values(REGISTERS).map((d) => d.store)).size).toBe(7);
 	});
 
+	it('refuse an entry larger than 64 KiB and store nothing (a transcript body that large is shown as a failed save)', async () => {
+		const { lc } = await fresh();
+		const def = REGISTERS.transcriptions_tab;
+		await expect(addEntry(lc.userWork, CASE, def, { title: 'Synthetic', date: '', source: '', body: 'x'.repeat(70_000) })).rejects.toMatchObject({ code: 'invalid' });
+		expect(listRegister(lc.userWork, CASE, def)).toEqual([]);
+	});
+
 	it('survive a restart of the store', async () => {
 		const { dir, lc } = await fresh();
 		const def = REGISTERS.transcriptions_tab;

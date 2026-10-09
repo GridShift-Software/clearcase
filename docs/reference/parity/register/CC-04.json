@@ -1,0 +1,90 @@
+{
+  "$schema": "../intentional-differences.schema.json",
+  "version": 1,
+  "entries": [
+    {
+      "id": "IDR-004",
+      "view": "documents",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-14",
+      "reason": "The app does not implement Documents yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-005",
+      "view": "contracts_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-14",
+      "reason": "The app does not implement Contracts yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-006",
+      "view": "filings_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-14",
+      "reason": "The app does not implement Filings & Affidavits yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-007",
+      "view": "search",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-14",
+      "reason": "The app does not implement Advanced Search yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-008",
+      "view": "people",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-14",
+      "reason": "The app does not implement People yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-009",
+      "view": "entity_ledger_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-14",
+      "reason": "The app does not implement Entities yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-010",
+      "view": "hoa_diff_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-14",
+      "reason": "The app does not implement Document Diff yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    }
+  ]
+}

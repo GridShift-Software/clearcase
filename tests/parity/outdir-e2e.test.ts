@@ -58,6 +58,16 @@ describe('run.mjs refuses an --out overlapping the synthetic fixture, before loa
 		expect(r.status).toBe(2);
 		expect(treeHash(root)).toBe(before);
 	});
+	test('a locator that carries acceptedViewContent (GRS-38) is pre-checked the same way', () => {
+		const withViewContent = join(root, 'locator-view-content.json');
+		writeFileSync(withViewContent, JSON.stringify({ ...JSON.parse(readFileSync(locator, 'utf8')), acceptedViewContent: { resultsVersion: id } }));
+		const before = treeHash(root);
+		const r = tool('run.mjs', ['--view', 'overview', '--fixture-config', withViewContent, '--out', join(caseFolder, 'out')]);
+		expect(r.stderr).toMatch(/parity: setup error: .*read-only case folder.*choose an output directory apart from it/);
+		expect(r.status).toBe(2);
+		expect(treeHash(root)).toBe(before);
+		rmSync(withViewContent);
+	});
 	test('a separate --out whose views folder is a planted symlink to the case folder', () => {
 		const out = join(root, 'planted-run');
 		mkdirSync(out);

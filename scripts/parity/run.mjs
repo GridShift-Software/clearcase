@@ -9,8 +9,8 @@
 // frozen at the clock, timezone fixed, every non-file request counted and fatal) and what the app shows (the
 // production build under Bun with CLEARCASE_FIXED_NOW at the same clock, the converted v5 package imported and
 // activated), normalizes both into one snapshot shape and compares them value by value. Each difference is either
-// covered by the intentional-differences register (docs/reference/parity/intentional-differences.json) or
-// unregistered. Writes DIR/views/<view>.json (paths and values: case-bearing, local only) and DIR/scorecard.json
+// covered by the intentional-differences register (docs/reference/parity/intentional-differences.json, then the owners'
+// fragments in its register/ folder; --register FILE reads FILE and FILE's register/ folder) or unregistered. Writes DIR/views/<view>.json (paths and values: case-bearing, local only) and DIR/scorecard.json
 // plus DIR/scorecard.md (counts only).
 //
 // Exit 0: no unregistered difference. 1: an unregistered difference, a view that did not extract on either side (never
@@ -37,8 +37,8 @@ if (flag('help')) { console.log(readFileSync(import.meta.filename, 'utf8').split
 if (!opt('fixture-config')) setup('--fixture-config FILE is required');
 if (!opt('out')) setup('--out DIR is required');
 if (!flag('all') && !opt('view')) setup('pass --all or --view ID');
-const { loadRegister, registryOwners, viewIds } = await import('./lib/register.mjs');
-const reg = loadRegister(opt('register') ? resolve(opt('register')) : undefined, { owners: await registryOwners() });
+const { loadRegister, registryKeys, registryOwners, unusedEntries, viewIds } = await import('./lib/register.mjs');
+const reg = loadRegister(opt('register') ? resolve(opt('register')) : undefined, { owners: await registryOwners(), keys: await registryKeys() });
 if (reg.problems.length) setup(`register invalid:\n  ${reg.problems.join('\n  ')}`);
 const { checkOutput, fixtureInputs, locatorInputs, prepareOutput, removeOnExit } = await import('./lib/outdir.mjs');
 const out = resolve(opt('out'));
@@ -165,9 +165,9 @@ const SERVICE = /(^|\.)(google\.com|googleapis\.com|gstatic\.com|gvt1\.com|gvt2\
 const serviceHits = canary.hits.filter((h) => SERVICE.test(String(h.sni ?? h.host ?? '').replace(/:\d+$/, '')));
 const otherHits = canary.hits.length - serviceHits.length;
 const used = new Set(Object.values(perView).flatMap((r) => r.registered.map((d) => d.register)));
-const unused = reg.entries.filter((e) => views.includes(e.view) && perView[e.view] && !used.has(e.id)).map((e) => e.id);
+const unused = unusedEntries(reg.entries, Object.keys(perView), used);
 writeFileSync(at('canary-hits.json'), JSON.stringify(canary.hits, null, 1) + '\n');
-writeFileSync(at('register-usage.json'), JSON.stringify({ used: [...used].sort(), unused }, null, 1) + '\n');
+writeFileSync(at('register-usage.json'), JSON.stringify({ used: [...used].sort(), unused, files: reg.files }, null, 1) + '\n');
 const nonFile = details.__requests?.v5NonFile ?? null;
 const sc = scorecard(perView, {
 	command: `bun run --bun parity -- ${argv.join(' ')}`, revision: git.head, dirty: git.dirty, build: { id: stamp.buildId, revision: stamp.revision, dirty: !!stamp.dirty, root: relative(REPO, appRoot) || '.' },

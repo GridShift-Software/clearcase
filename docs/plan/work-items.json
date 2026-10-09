@@ -443,7 +443,7 @@
         "Preserve the supplied working analysis and cited evidence. Label dataset scope and unverified legal assertions clearly.",
         "Implement editable statuses, authority entries and preparation notes as identified in the baseline. Persist them through the CC-03 user-work persistence contract, in CC-08's own subtree.",
         "Verify export contents and citation targets, including an empty preparation state. Do not present a corpus match as a definitive legal conflict finding.",
-        "Conflict Check reads only the package's people and entities data. Its input hint must not reproduce v5 source defect S-conflict_tab-1, a real organisation name and e-mail address hard-coded in the placeholder; show generic guidance with no case personal data in code or markup."
+        "Conflict Check reads only the package's people and entities data. Its input hint must not reproduce v5 source defect S-conflict_tab-1, a hard-coded third-party contact in the placeholder; show generic guidance with no personal data in code or markup."
       ],
       "liveScenarios": [
         "Compare roadmap content with v5",
@@ -1011,7 +1011,7 @@
         "Re-run conversion and malformed-package cases from a fresh local environment. Inspect the actual outputs and source mappings.",
         "Confirm data/user-work separation and literal acceptance examples; record unresolved baseline defects without silently correcting them.",
         "Mark PASS only at the reviewed revision. HOLD blocks the pilot until concrete missing evidence or repairs are resolved.",
-        "Verify [GRS-35](https://linear.app/vaper/issue/GRS-35/set-up-pstack-and-verification-skills-for-agent-cli-access) tooling evidence and the complete BA-01\u2013BA-21 disposition register. Confirm the baseline distinguishes 42 v5 navigation entries from 55 audited production routes and records production-only/deferred capabilities.",
+        "Verify [GRS-35](https://linear.app/vaper/issue/GRS-35/set-up-pstack-and-verification-skills-for-agent-cli-access) tooling evidence and the complete BA-01–BA-21 disposition register. Confirm the baseline distinguishes 42 v5 navigation entries from 55 audited production routes and records production-only/deferred capabilities.",
         "Independently rerun hostile-content, unsafe-link, escaping-path and over-limit input fixtures against the package contract."
       ],
       "liveScenarios": [],

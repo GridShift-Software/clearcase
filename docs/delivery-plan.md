@@ -696,7 +696,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Verify export contents and citation targets, including an empty preparation state. Do not present a corpus match as a definitive legal conflict finding.
 
-- [ ] Conflict Check reads only the package's people and entities data. Its input hint must not reproduce v5 source defect S-conflict_tab-1, a real organisation name and e-mail address hard-coded in the placeholder; show generic guidance with no case personal data in code or markup.
+- [ ] Conflict Check reads only the package's people and entities data. Its input hint must not reproduce v5 source defect S-conflict_tab-1, a hard-coded third-party contact in the placeholder; show generic guidance with no personal data in code or markup.
 
 **You see.**
 

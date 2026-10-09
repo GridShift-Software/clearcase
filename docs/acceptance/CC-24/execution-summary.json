@@ -1,0 +1,418 @@
+{
+  "reviewedRevision": "5aa7b91c3011ded3af57c3c14a23096d64712786",
+  "verdict": "HOLD",
+  "runtimeBun": "1.4.2",
+  "offline": true,
+  "baseDocuments": 1689,
+  "navigationViews": 42,
+  "explicitUnavailableViews": 40,
+  "syntheticGateChecks": 15,
+  "servedHostilePayloads": 31,
+  "independentCorpusPayloads": 24,
+  "receipts": [
+    {
+      "name": "gate-doctor",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T075129.161649Z-gate-doctor/receipt.json",
+      "receiptSha256": "6deeb81cb6f907bb830c587edc5e46be6b4cb764af5bd81093c2f93dbc51001c",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "doctor",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T075129.222769Z-doctor/receipt.json",
+      "receiptSha256": "7413021a0838a7faff3f38f434daf421dec88e72c902741dca68f65267a47bef",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-install",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T075129.415906Z-gate-install/receipt.json",
+      "receiptSha256": "40b82ff3d648a9bd53af4d2897efe1a479a4df6f5d5ccf0dcf9ac4fe9c1893c6",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-check",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T075137.247990Z-gate-check/receipt.json",
+      "receiptSha256": "65c83e3cde35c98eeb739e5c46ac5a3714faf2907f9f420f8156b15e3c9489d3",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-test-offline",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T075156.988573Z-gate-test-offline/receipt.json",
+      "receiptSha256": "7b79a1590aecb13d7fc39f6c505ff5f1286df2460ad22be84071418dff415f23",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-build",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T075244.815033Z-gate-build/receipt.json",
+      "receiptSha256": "61c3814ff87675734a43f2745a49c3dca12bcd90c51f8af807e230c2bad6d934",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-e2e",
+      "result": "FAIL",
+      "exitCode": 1,
+      "receipt": "receipts/20261009T075305.193172Z-gate-e2e/receipt.json",
+      "receiptSha256": "b3536efa216214feb38ad337642e0fb48a0f11211897165f6f29b5ad6b595c60",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-plan",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T075317.034733Z-gate-plan/receipt.json",
+      "receiptSha256": "85a6ca20c36c939e1e3f6bbf8cde17634d930012c7fc8c5827896440a7e37e4c",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "plan-graph",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T075317.094124Z-plan-graph/receipt.json",
+      "receiptSha256": "f1cab3f892e8345045ed4d89289394582b41eac1642cdbb403efe43948514b3b",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "plan-format",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T075317.208120Z-plan-format/receipt.json",
+      "receiptSha256": "a8c541ea94d2d3b77df63c6af26ac001183a2c0628c989f7b510a35f540ea984",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "linear-relations",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T075317.338422Z-linear-relations/receipt.json",
+      "receiptSha256": "5ef5174f9d9cc245e730d36ee660a970c5ec5cd2aa6e90d77aa114c585330a27",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "fresh-doctor",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T075358.030332Z-fresh-doctor/receipt.json",
+      "receiptSha256": "93cab91dd432799cf78f03f59c3801b689542e0fc622a888e7ab37f774958d57",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "doctor",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T075358.088592Z-doctor/receipt.json",
+      "receiptSha256": "397d03ad1c4b76d5a38fd6a8bf064d8aa4b00a57abbe6423f6ce49a06d5eb345",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "fresh-install",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T075358.314335Z-fresh-install/receipt.json",
+      "receiptSha256": "ee211191193224af7b1fb237bee83d94ee6c78a8ef9dbeb05af4888c1ee762d2",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "fresh-check",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T075358.468264Z-fresh-check/receipt.json",
+      "receiptSha256": "aca0a9a5b37556e397c44f2625e477d303b450b7ac9bb5c8df99813cbc17f63d",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "fresh-test-offline",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T075448.910560Z-fresh-test-offline/receipt.json",
+      "receiptSha256": "cc8ba7f0b788169b8ab4c2051037ff8881b48787f3f03932a588b494e82fdd4d",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "fresh-build",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T075455.030215Z-fresh-build/receipt.json",
+      "receiptSha256": "2e5911de05989e41bf27646a53f32b0d86c7e0e48efa07880e794e61e67e2504",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "fresh-e2e-remapped",
+      "result": "FAIL",
+      "exitCode": 1,
+      "receipt": "receipts/20261009T075458.135201Z-fresh-e2e-remapped/receipt.json",
+      "receiptSha256": "2867b91ff877af22e1cc822ca066cd18ed5ac519546c32107e5c1de83ab12718",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-history-leak-scan",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T075527.265638Z-gate-history-leak-scan/receipt.json",
+      "receiptSha256": "b89eedf510e7e9122115b4d2170503ae5f0c313c516e32c3477fae2502a39632",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "fresh-e2e-nested-offline",
+      "result": "FAIL",
+      "exitCode": 1,
+      "receipt": "receipts/20261009T075817.990083Z-fresh-e2e-nested-offline/receipt.json",
+      "receiptSha256": "fba19a6a40f17bfd80da3e7054de8eff116986b990c05c50a06236ab05c9041c",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-v5-critical-drive",
+      "result": "FAIL",
+      "exitCode": 1,
+      "receipt": "receipts/20261009T075819.151090Z-gate-v5-critical-drive/receipt.json",
+      "receiptSha256": "cf3dfff079b0b245e6802a23fbd83f053a28760457b97eb60e230d817dfff2b0",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-synthetic-and-independent-hostile",
+      "result": "FAIL",
+      "exitCode": 1,
+      "receipt": "receipts/20261009T075841.062154Z-gate-synthetic-and-independent-hostile/receipt.json",
+      "receiptSha256": "b0a6efad17addcc160ed87998bf6b227f009feca36e8d3bd5d373f1a00aab785",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-hostile-corrected",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T075944.502491Z-gate-hostile-corrected/receipt.json",
+      "receiptSha256": "6881e69a0a4640131a499def5169afd141bb4e5b3b658c69b3b1e2c171d28a85",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-v5-short-chrome-temp",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T080018.453422Z-gate-v5-short-chrome-temp/receipt.json",
+      "receiptSha256": "fa7d214974ed8cf856a6603083e3801ff5b325b9e15822e8623aa62607839f65",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-measure-A-B",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T080120.900160Z-gate-measure-A-B/receipt.json",
+      "receiptSha256": "adb0be7c3a017397f200b197d2ad5652bf9a6addcbef31c7d98f36487c34345a",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "fresh-e2e-short-chrome-temp",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T080122.070529Z-fresh-e2e-short-chrome-temp/receipt.json",
+      "receiptSha256": "91dd55db6abf9acfb747ba6b79c96b98e474c581718932581b66a407076d4e8f",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "app",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T080150.758748Z-app/receipt.json",
+      "receiptSha256": "8147a9af012e93cd156f63bda4421b6252ff166d9681ccd62b03fcf92c359a08",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-extension-oracle",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T080453.378417Z-gate-extension-oracle/receipt.json",
+      "receiptSha256": "83ff0fb1394dffbbb500c8b72b3a921142f81f6684d677229d7611d039a6641f",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-measure-B-A",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T080505.910215Z-gate-measure-B-A/receipt.json",
+      "receiptSha256": "2f3c6c1d6fbe55f173fc6ccc6275cb3db91bf470853554293cb2fd17adc30e64",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-final-hostile",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T080924.536361Z-gate-final-hostile/receipt.json",
+      "receiptSha256": "2ca9b8fe293a21ec1a9306f83f93c3cb0c87a4c4043d3cba666685175a24f16d",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-ownership-readiness",
+      "result": "FAIL",
+      "exitCode": 1,
+      "receipt": "receipts/20261009T081030.662256Z-gate-ownership-readiness/receipt.json",
+      "receiptSha256": "283c3975eb472210b5987d9d25e19b93ded8232c2f2a68b9bb3f789374f57959",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-tooling-tests",
+      "result": "FAIL",
+      "exitCode": 1,
+      "receipt": "receipts/20261009T081030.789011Z-gate-tooling-tests/receipt.json",
+      "receiptSha256": "1bf08ef10333db4753d53a404cb2a7c09b8d6cbceebd0a52e639d6e577a221bf",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-committed-synthetic",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T081211.745057Z-gate-committed-synthetic/receipt.json",
+      "receiptSha256": "d946da8907b553404a9f103727d731545f0bd0a71fe403d2a19fdcdaeed703d0",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-adversarial-contract-confirm",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T081302.155250Z-gate-adversarial-contract-confirm/receipt.json",
+      "receiptSha256": "73229ad5ceac29c3e9f15efc6e4c9b9fe663caa042b452fc2602df8c1abc9a97",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-final-corpus",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T081303.301087Z-gate-final-corpus/receipt.json",
+      "receiptSha256": "5aa971ace56946d9c5ec45a36cb7488d13a4e278750b28889c1d9f69eb1c273f",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-identity-evidence-audit",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T081407.717163Z-gate-identity-evidence-audit/receipt.json",
+      "receiptSha256": "64523f237f68aa5b070113800fe510009f7d36bc934668da635e6d24771ae9b7",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-m0-boundary-regressions",
+      "result": "FAIL",
+      "exitCode": 1,
+      "receipt": "receipts/20261009T081705.113263Z-gate-m0-boundary-regressions/receipt.json",
+      "receiptSha256": "6fc34ca6606cae00d18cf3f940fb52b9aac07d2da32dc1140c13d8abbfbf3329",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-m0-boundary-headless-shell",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T081840.364282Z-gate-m0-boundary-headless-shell/receipt.json",
+      "receiptSha256": "9d4681b1c7d8dbab42f66a26432b584e59b2e0b42bae20e8bfff8d7e45983fb9",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-identity-audit-final-inputs",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T082439.067706Z-gate-identity-audit-final-inputs/receipt.json",
+      "receiptSha256": "031ed2d0dd840bd510780be76b4fe7c411d4cc8857acc4e4b1a440e40adef98a",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-newer-extract",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T082553.320703Z-gate-newer-extract/receipt.json",
+      "receiptSha256": "9a287ecc203f288279de1cd3e87a0bcb50916e99ae5156b92f9fad515bac3e56",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-newer-smoke",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T082706.932579Z-gate-newer-smoke/receipt.json",
+      "receiptSha256": "ca2dc766a099e6fb948133d294110adf5c8f20e17d7f9c4ae9af5e37118a8b5f",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-pre-tests-commit-leak-scan",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T083343.644539Z-gate-pre-tests-commit-leak-scan/receipt.json",
+      "receiptSha256": "9169a825ea4e6e2e7f5558e92cfbf9318e1c06ffe270dc500f1cb09deb48b8d3",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-post-tests-commit-leak-scan",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T083444.498106Z-gate-post-tests-commit-leak-scan/receipt.json",
+      "receiptSha256": "d72ce98ffac35e872be5eae3b320da447144b1c52ea3443185f527770881e31a",
+      "recordedHead": "c6b337314d196444a5073ead744f25e62867c95e"
+    },
+    {
+      "name": "gate-served-findings-confirm",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T084157.329565Z-gate-served-findings-confirm/receipt.json",
+      "receiptSha256": "99129e4478cf18d5d595d3818066fb56bf2a1fc8be0b72d622189a690e638ddf",
+      "recordedHead": "5aa7b91c3011ded3af57c3c14a23096d64712786"
+    },
+    {
+      "name": "gate-adversarial-completeness",
+      "result": "FAIL",
+      "exitCode": 1,
+      "receipt": "receipts/20261009T084353.314501Z-gate-adversarial-completeness/receipt.json",
+      "receiptSha256": "aac70563594c1c42b0ef04a7367a4dea6915b85167b8f9d790e65f27978b101c",
+      "recordedHead": "c6b337314d196444a5073ead744f25e62867c95e"
+    },
+    {
+      "name": "gate-final-ownership",
+      "result": "FAIL",
+      "exitCode": 1,
+      "receipt": "receipts/20261009T084353.443129Z-gate-final-ownership/receipt.json",
+      "receiptSha256": "61bdd9cff6347117dd6af6a6f345e96930e3d9dc4b7d87259ed6736ec390f410",
+      "recordedHead": "c6b337314d196444a5073ead744f25e62867c95e"
+    },
+    {
+      "name": "gate-final-registry-oracle",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T084430.325499Z-gate-final-registry-oracle/receipt.json",
+      "receiptSha256": "0527cf249cb3b672b69bb2a12b6a7e83dc1078821d6e23a1154abaf7b674ef5a",
+      "recordedHead": "c6b337314d196444a5073ead744f25e62867c95e"
+    },
+    {
+      "name": "gate-final-evidence-audit",
+      "result": "PASS",
+      "exitCode": 0,
+      "receipt": "receipts/20261009T084430.444343Z-gate-final-evidence-audit/receipt.json",
+      "receiptSha256": "25c5b9e6717a23e978c88e75c51962347b32da8b907e6e0a236e348e1f70486e",
+      "recordedHead": "c6b337314d196444a5073ead744f25e62867c95e"
+    }
+  ],
+  "blockers": [
+    "Coordinator ownership transfer and M2 reservations absent",
+    "Required durability-network adversarial report missing"
+  ],
+  "acceptance": [
+    "PASS",
+    "PASS",
+    "PASS",
+    "HOLD",
+    "HOLD",
+    "PASS"
+  ],
+  "availableAdversarialReports": [
+    "m2-contracts",
+    "served-hostile"
+  ],
+  "missingAdversarialReports": [
+    "durability-network"
+  ],
+  "snapshotAt": "2026-10-09T08:47:36.069939+00:00"
+}

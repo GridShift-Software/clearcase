@@ -1,0 +1,58 @@
+{
+  "reviewedRevision": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+  "input": "Synthetic https destination containing 100,000 repeated ASCII characters",
+  "observations": [
+    {
+      "name": "long-inline",
+      "verdict": "accept",
+      "candidate": true,
+      "counts": {
+        "LINK_EXTERNAL": 1,
+        "TEXT_PENDING": 1
+      },
+      "errorFingerprints": 0,
+      "ms": 10.269220000000004
+    },
+    {
+      "name": "long-reference",
+      "verdict": "accept",
+      "candidate": true,
+      "counts": {
+        "LINK_EXTERNAL": 1,
+        "TEXT_PENDING": 1
+      },
+      "errorFingerprints": 0,
+      "ms": 3.265810000000002
+    },
+    {
+      "name": "long-angle",
+      "verdict": "reject",
+      "candidate": false,
+      "counts": {
+        "LINK_EXTERNAL": 1,
+        "LINK_RELATIVE_UNSAFE": 1,
+        "TEXT_PENDING": 1
+      },
+      "errorFingerprints": 1,
+      "ms": 1.721488000000008
+    },
+    {
+      "name": "long-url-field",
+      "verdict": "reject",
+      "candidate": false,
+      "counts": {
+        "LINK_RELATIVE_UNSAFE": 1,
+        "TEXT_PENDING": 1
+      },
+      "errorFingerprints": 1,
+      "ms": 1.3300859999999943
+    },
+    {
+      "name": "truncated-targets",
+      "lengths": [
+        2048,
+        2048
+      ]
+    }
+  ]
+}

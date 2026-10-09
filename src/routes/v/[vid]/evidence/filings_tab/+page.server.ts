@@ -1,4 +1,4 @@
-import { fail, isHttpError } from '@sveltejs/kit';
+import { fail, isHttpError, redirect } from '@sveltejs/kit';
 import { app } from '$lib/local-case/app.server';
 import { datasetOf, viewContentOf, viewText } from '$lib/local-case/results.server';
 import { evidenceRows } from '$lib/views/evidence/rows.server';
@@ -55,7 +55,7 @@ export const actions: Actions = {
 		const rows = a.userWork.listRows(v.case_id, REGISTER_STORE);
 		return (await write(typed.values, () => a.userWork.putRow(v.case_id, REGISTER_STORE, null, { seq: nextSeq(rows), ...typed.values, status: '' }))) ?? { saved: true };
 	},
-	save: async ({ params, request }) => {
+	save: async ({ params, request, url }) => {
 		const a = app();
 		const v = a.store.getVersion(params.vid);
 		if (!v) return fail(404, { values: {}, message: 'Unknown results version' });
@@ -78,7 +78,9 @@ export const actions: Actions = {
 				await a.userWork.putSeedOverlay({ caseId: v.case_id, datasetKey: SEED_DATASET, seedId, baseSeedSha256: base, fields: { ...asFields(kept), deleted: false } });
 			}
 		});
-		return res ?? { saved: true };
+		if (res) return res;
+		// saved: back to the register without the row in the form
+		redirect(303, url.pathname);
 	},
 	delete: async ({ params, request }) => {
 		const a = app();

@@ -37,7 +37,8 @@
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 
-	const lost = (what: string) => `${what}: the app could not be reached. Nothing was changed; your input is kept. Try again.`;
+	// the request may or may not have reached the app, so the message does not claim either
+	const lost = (what: string) => `${what}: the app could not be reached. Your input is kept; check the list, then try again.`;
 
 	const save: SubmitFunction = ({ cancel }) => {
 		// v5 ignores an Add with nothing to save (every field empty, or a deadline without title or date), silently
@@ -45,15 +46,17 @@
 		busy = true;
 		error = null;
 		return async ({ result }) => {
-			busy = false;
-			if (result.type === 'success') {
-				const keep = editing ? {} : Object.fromEntries(reg.keepAfterAdd.map((k) => [k, values[k]!]));
-				values = { ...blank(), ...keep };
-				editing = null;
-				await invalidateAll();
-			} else if (result.type === 'failure') error = String(result.data?.message ?? 'The entry was not saved. Your input is kept; try again.');
-			else if (result.type === 'redirect') await applyAction(result);
-			else error = lost(editing ? 'The change was not saved' : 'The entry was not saved');
+			try {
+				if (result.type === 'success') {
+					// the form clears once the saved row is on the page
+					await invalidateAll();
+					const keep = editing ? {} : Object.fromEntries(reg.keepAfterAdd.map((k) => [k, values[k]!]));
+					values = { ...blank(), ...keep };
+					editing = null;
+				} else if (result.type === 'failure') error = String(result.data?.message ?? 'The entry was not saved. Your input is kept; try again.');
+				else if (result.type === 'redirect') await applyAction(result);
+				else error = lost(editing ? 'The change may not have been saved' : 'The entry may not have been saved');
+			} finally { busy = false; }
 		};
 	};
 	const remove: SubmitFunction = ({ formData }) => {
@@ -65,7 +68,7 @@
 				await invalidateAll();
 			} else if (result.type === 'failure') error = String(result.data?.message ?? 'The deletion did not happen; try again.');
 			else if (result.type === 'redirect') await applyAction(result);
-			else error = lost('The deletion did not happen');
+			else error = lost('The deletion may not have happened');
 		};
 	};
 

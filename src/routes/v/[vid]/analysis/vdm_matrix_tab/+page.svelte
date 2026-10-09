@@ -16,7 +16,7 @@
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'vdm_matrix_tab' : null}>
+<main id="main" tabindex="-1" data-analysis data-ready={ready ? 'vdm_matrix_tab' : null}>
 	<PageHeader heading="Defence & Rebuttal" section="Defence & Rebuttal" caseName={data.version.titleName} subtitle={data.subtitle}>
 		{#snippet actions()}<button type="button" onclick={exportCsv} id="export-csv" disabled={data.rows.length === 0}>Export CSV</button>{/snippet}
 	</PageHeader>
@@ -29,12 +29,12 @@
 				<tbody>
 					{#each data.rows as r, i (i)}
 						<tr>
-							<td data-label={h[0]} class="wrap"><b>{r.point}</b></td>
-							<td data-label={h[1]} class="wrap">{r.dcs}</td>
-							<td data-label={h[2]} class="wrap">{r.evidence}</td>
+							<td data-label={h[0]}><b>{r.point}</b></td>
+							<td data-label={h[1]}>{r.dcs}</td>
+							<td data-label={h[2]}>{r.evidence}</td>
 							<td data-label={h[3]}>{#if r.docs.length}<span class="chips">{#each r.docs as d, j (j)}{#if j}{' '}{/if}<CitationLink resultsVersion={vid} ref={d.ref} exists={known.has(d.ref)} />{/each}</span>{:else}<span class="an-tag">—</span>{/if}</td>
-							<td data-label={h[4]} class="wrap">{r.rebuttal}</td>
-							{#if showRefs}<td data-label={REFS_HEADING} class="wrap">{r.refs}</td>{/if}
+							<td data-label={h[4]}>{r.rebuttal}</td>
+							{#if showRefs}<td data-label={REFS_HEADING}>{r.refs}</td>{/if}
 						</tr>
 					{/each}
 				</tbody>

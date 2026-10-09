@@ -10,7 +10,7 @@
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'matter' : null}>
+<main id="main" tabindex="-1" data-analysis data-ready={ready ? 'matter' : null}>
 	<PageHeader heading="Matter & Strategy" section="Matter & Strategy" caseName={data.version.titleName} subtitle={m?.title || null} />
 	{#if !m}
 		<div class="an-card"><div class="an-empty" id="matter-empty">No matter narrative in this results version.</div></div>

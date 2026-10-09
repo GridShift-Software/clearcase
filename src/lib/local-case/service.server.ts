@@ -25,8 +25,9 @@ import { project, readModelDigest } from './project.server.ts';
 import { CaseStore, type Verification } from './store.server.ts';
 import { UserWork } from './user-work.server.ts';
 
-export type AppCode = 'APP_INPUT_INVALID' | 'APP_CASE_FOLDER_OVERLAPS_DATA' | 'APP_VERSION_CONFLICT' | 'APP_VERSION_RETIRED' | 'APP_CASE_FOLDER_DIFFERS';
-export interface AppDiagnostic { code: AppCode; severity: 'error'; message: string; hint: string }
+export type AppCode = 'APP_INPUT_INVALID' | 'APP_CASE_FOLDER_OVERLAPS_DATA' | 'APP_VERSION_CONFLICT' | 'APP_VERSION_RETIRED' | 'APP_CASE_FOLDER_DIFFERS' | 'APP_UNLISTED_IGNORED';
+/** App-level findings next to GRS-10's diagnostics; only errors reject. */
+export interface AppDiagnostic { code: AppCode; severity: 'error' | 'info'; message: string; hint: string }
 
 export const IMPORT_REPORT = 'clearcase.pilot.import-report/1';
 export interface ImportReport {
@@ -231,12 +232,23 @@ export class LocalCase {
 		const abort = new AbortController();
 		this.#current = { packageSource, startedAt: at, progress: null, abort };
 		try {
-			const result = await importCandidate(packageSource, inputs.caseRoot.path, { signal: abort.signal, onProgress: (p) => { if (this.#current) this.#current.progress = p; }, concurrency: 4 });
-			const report = toReport(result, [], result.candidate ? this.trustedFor(result.candidate.caseId) : new Set(), performance.now() - t0);
+			const progress = { signal: abort.signal, onProgress: (p: Progress) => { if (this.#current) this.#current.progress = p; }, concurrency: 4 };
+			let result = await importCandidate(packageSource, inputs.caseRoot.path, progress);
+			const app: AppDiagnostic[] = [];
+			// Files the manifest does not list are reported and never read (PKG_UNLISTED_FILE). What is stored is the
+			// snapshot without them, and activation revalidates exactly that, so the candidate's report is the snapshot's:
+			// the same diagnostics and digest activation will reproduce. The ignored files stay visible as an info line.
+			const unlisted = result.diagnostics.filter((d) => d.code === 'PKG_UNLISTED_FILE');
+			if (result.candidate && unlisted.length) {
+				const snap = new Map([...result.candidate.snapshot()].map(({ path: p, bytes }) => [p, bytes]));
+				app.push({ code: 'APP_UNLISTED_IGNORED', severity: 'info', message: `${result.counts.PKG_UNLISTED_FILE ?? unlisted.length} file(s) in the package are not in its manifest and were ignored: ${unlisted.slice(0, 5).map((d) => d.subject).join(', ')}${unlisted.length > 5 ? ', …' : ''}`, hint: 'Nothing of them was read or stored. Remove them from the package, or list them in the manifest, if they belong to it.' });
+				result = await importCandidate({ files: snap }, inputs.caseRoot.path, progress);
+			}
+			const report = toReport(result, app, result.candidate ? this.trustedFor(result.candidate.caseId) : new Set(), performance.now() - t0);
 			if (result.verdict === 'reject') return reject(report);
 			const c = result.candidate;
 			const existing = this.store.getVersion(c.resultsVersion);
-			const conflict = (code: AppCode, message: string, hint: string) => reject({ ...report, verdict: 'reject', app: [{ code, severity: 'error', message, hint }] });
+			const conflict = (code: AppCode, message: string, hint: string) => reject({ ...report, verdict: 'reject', app: [...report.app, { code, severity: 'error', message, hint }] });
 			if (existing && existing.manifest_sha256 !== c.manifestSha256)
 				return conflict('APP_VERSION_CONFLICT', `${c.resultsVersion} is already stored (import #${existing.import_id}) with a different manifest`, 'Results versions are immutable. Export the changed package as a new results version.');
 			if (existing && existing.case_root !== inputs.caseRoot.path)
@@ -403,7 +415,7 @@ function toReport(result: ImportResult, app: AppDiagnostic[], trusted: Set<strin
 	const c = result.candidate;
 	return {
 		report: IMPORT_REPORT,
-		verdict: app.length ? 'reject' : result.verdict,
+		verdict: app.some((d) => d.severity === 'error') ? 'reject' : result.verdict,
 		caseId: c?.caseId ?? null, caseLabel: c?.manifest.case.label ?? null, resultsVersion: c?.resultsVersion ?? null, manifestSha256: c?.manifestSha256 ?? null,
 		diagnosticsSha256: result.diagnosticsSha256, validatorVersion: result.validatorVersion, counts: { ...result.counts },
 		warningFingerprints: [...result.warningFingerprints], errorFingerprints: [...result.errorFingerprints],

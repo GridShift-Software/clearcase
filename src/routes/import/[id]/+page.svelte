@@ -62,7 +62,7 @@
 
 	{#if r.app.length}
 		<h2>Import checks</h2>
-		<ul id="app-diagnostics">{#each r.app as d (d.code + d.message)}<li><strong>{d.code}</strong> (error): {d.message}. <em>{d.hint}</em></li>{/each}</ul>
+		<ul id="app-diagnostics">{#each r.app as d (d.code + d.message)}<li><strong>{d.code}</strong> ({d.severity}): {d.message}. <em>{d.hint}</em></li>{/each}</ul>
 	{/if}
 
 	<h2>Diagnostics</h2>

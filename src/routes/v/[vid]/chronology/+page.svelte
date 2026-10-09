@@ -10,7 +10,9 @@
 	import { docPath, type ChronologyListRow } from '$lib/local-case/model';
 	let { data } = $props();
 	const vid = $derived(data.version.id);
-	let query = $state<ChronologyQuery>(queryFromParams(page.url.searchParams));
+	// replaceState is shallow routing: page.url keeps the URL the page was loaded with, and Back restores that entry's
+	// state, so the filters also travel in page.state and comparisons use the address bar.
+	let query = $state<ChronologyQuery>(queryFromParams(new URLSearchParams(page.state.chronology ?? page.url.search)));
 	const rows = $derived(queryRows(data.rows, query));
 	const bundles = $derived(optionsOf(data.rows, 'bundle'));
 	const types = $derived(optionsOf(data.rows, 'docType'));
@@ -18,7 +20,7 @@
 	// Filters live in the URL (replaced, not pushed), so Back from a document returns to the same filtered list.
 	const sync = () => {
 		const p = paramsFromQuery(query).toString();
-		if (p !== page.url.searchParams.toString()) replaceState(`${page.url.pathname}${p ? `?${p}` : ''}`, {});
+		if (p !== new URLSearchParams(location.search).toString()) replaceState(`${page.url.pathname}${p ? `?${p}` : ''}`, { chronology: p });
 	};
 	const set = (k: 'q' | 'bundle' | 'type' | 'status', v: string) => { query = { ...query, [k]: v }; sync(); };
 	const sortBy = (k: string) => { query = query.sort === k ? { ...query, dir: query.dir === 1 ? -1 : 1 } : { ...query, sort: k as SortKey, dir: 1 }; sync(); };

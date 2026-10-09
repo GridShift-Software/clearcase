@@ -10,9 +10,16 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const a = app();
 	const v = a.store.getVersion(version.id)!;
 	const overview = JSON.parse(v.overview) as OverviewModel;
+	// Values from the package (bundle and type names, META keys) never become object keys in page data: a key such as
+	// '__proto__' is refused by the serializer. Tallies and claims travel as [key, value] entries.
+	const entries = <T>(m: Record<string, T>) => Object.entries(m);
+	const tallies = { byBundle: entries(overview.counts.byBundle), byDocType: entries(overview.counts.byDocType), byTextStatus: entries(overview.counts.byTextStatus), claims: entries(overview.sourceClaims) };
+	const { byBundle: _b, byDocType: _t, byTextStatus: _s, ...counts } = overview.counts;
+	const { sourceClaims: _c, ...rest } = overview;
 	const narrative = overview.matter?.storyline[0]?.t ?? null;
 	return {
-		overview,
+		overview: { ...rest, counts },
+		tallies,
 		narrative,
 		known: narrative ? [...a.store.existingRefs(v.id, citedRefs([narrative]))] : [],
 		notes: a.userWork.summary(v.case_id, v.id),

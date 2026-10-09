@@ -24,7 +24,7 @@
 // data directory, so links survive a restart), and never into a frame/embed/object. Anything else gets one
 // constant 403 before any lookup: no existence oracle, no forced download.
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { chmodSync, createReadStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { open, rm, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import path from 'node:path';
@@ -212,17 +212,23 @@ export class OriginalsServer {
 				res.once('close', () => abort.abort());
 				if (!(await snapshotVerified(o, a.sha256, snapshot, abort.signal))) { snapshot = null; return res.destroyed ? undefined : changed(); }
 			} finally { this.#largeInFlight--; }
-			const head = Buffer.alloc(1024);
+			// Stream from the verified snapshot through its descriptor; its name is removed first, so nothing is left
+			// behind even if the process dies while streaming (startup also clears serve-tmp).
 			const fh = await open(snapshot, 'r');
-			try { await fh.read(head, 0, 1024, 0); } finally { await fh.close(); }
-			res.writeHead(200, headers(head));
-			if (req.method === 'HEAD') return void res.end();
-			await new Promise<void>((resolve) => {
-				const s = createReadStream(snapshot!);
-				s.on('error', () => { res.destroy(); resolve(); });
-				res.on('close', () => { s.destroy(); resolve(); });
-				s.pipe(res);
-			});
+			await rm(snapshot, { force: true });
+			snapshot = null;
+			try {
+				const head = Buffer.alloc(1024);
+				await fh.read(head, 0, 1024, 0);
+				res.writeHead(200, headers(head));
+				if (req.method === 'HEAD') return void res.end();
+				await new Promise<void>((resolve) => {
+					const s = fh.createReadStream({ start: 0, autoClose: false });
+					s.on('error', () => { res.destroy(); resolve(); });
+					res.on('close', () => { s.destroy(); resolve(); });
+					s.pipe(res);
+				});
+			} finally { await fh.close().catch(() => {}); }
 		} catch (e) {
 			if (!res.headersSent) send(500, 'read error'); else res.destroy(e as Error);
 		} finally {

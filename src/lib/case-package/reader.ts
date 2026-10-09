@@ -141,7 +141,7 @@ export function readCandidate(candidate: Candidate) {
   return {
     caseId: candidate.caseId,
     resultsVersion: candidate.resultsVersion,
-    /** typed access; unknown or opaque datasets are returned as stored and must not be rendered */
+    /** typed access to recognized datasets; null for unknown or opaque ones (use candidate.dataset() for the stored envelope) */
     dataset: data,
     chronology: rows,
     /** raw source META, never corrected; display derivedCounts() instead */

@@ -371,21 +371,28 @@ export function markdownLinkTargets(s: string): string[] {
   /** Reads one destination at `from`; returns where scanning may resume (never before `from`). */
   const take = (from: number): number => {
     let i = from;
-    while (i < s.length && i - from < 16 && isSpace(s[i])) i++;
+    while (s[i] === ' ' || s[i] === '\t') i++;
+    if (s[i] === '\r' && s[i + 1] === '\n') i += 2; else if (s[i] === '\n' || s[i] === '\r') i++;
+    while (s[i] === ' ' || s[i] === '\t') i++;
     if (s[i] === '<') {
       const close = s.indexOf('>', i + 1);
       const end = close < 0 || close - i > 2049 ? Math.min(s.length, i + 2049) : close;
-      out.push(decodeEntities(s.slice(i + 1, end)));
+      out.push(unescapeDest(s.slice(i + 1, end)));
       return end;
     }
     let end = i;
     while (end < s.length && end - i < 2048 && !isSpace(s[end]) && s[end] !== ')') end++;
-    if (end > i) out.push(decodeEntities(s.slice(i, end)));
+    if (end > i) out.push(unescapeDest(s.slice(i, end)));
     return end;
   };
   // each search resumes after the previous destination, so the scan stays linear in the text length
   for (let i = s.indexOf(']('); i >= 0; ) i = s.indexOf('](', Math.max(i + 2, take(i + 2)));
-  for (let i = s.indexOf(']:'); i >= 0; ) i = s.indexOf(']:', Math.max(i + 2, take(i + 2)));
+  // reference definitions: "[label]: dest" only where the label opens a line (at most 3 spaces of indent)
+  for (let i = s.indexOf(']:'); i >= 0; ) {
+    const lineStart = s.lastIndexOf('\n', i) + 1;
+    const isDefinition = i - lineStart <= 1003 && /^ {0,3}\[(?:[^\[\]\\]|\\.){1,999}\]$/.test(s.slice(lineStart, i + 1));
+    i = s.indexOf(']:', isDefinition ? Math.max(i + 2, take(i + 2)) : i + 2);
+  }
   for (let i = s.indexOf('<'); i >= 0; ) {
     let j = i + 1;
     while (j < s.length && j - i <= 33 && /[A-Za-z0-9+.\-]/.test(s[j]!)) j++;
@@ -401,16 +408,29 @@ export function markdownLinkTargets(s: string): string[] {
   return out;
 }
 
-const elementIds = new WeakMap<object, string>();
-/** Stable identity of an array element: its ref, else a digest of its canonical content. */
-function elementId(el: unknown): string {
-  if (isObject(el) && typeof el.ref === 'string' && el.ref !== '') return 'ref:' + el.ref;
-  if (el !== null && typeof el === 'object') {
-    let id = elementIds.get(el);
-    if (!id) { id = '#' + short(textOf(el)); elementIds.set(el, id); }
-    return id;
+/** Markdown destination text: backslash escapes of ASCII punctuation removed, then character references decoded. */
+const unescapeDest = (d: string): string => decodeEntities(d.replace(/\\([!-\/:-@\[-`{-~])/g, '$1'));
+
+const arrayIds = new WeakMap<unknown[], string[]>();
+/**
+ * Stable identities of an array's elements, computed once per array: the element's own id when
+ * `idField` names the record key (the register's ref), otherwise a digest of its canonical
+ * content plus its occurrence number among equal elements. Independent of the array's order.
+ */
+function elementIds(arr: unknown[], idField: string | null): string[] {
+  let ids = arrayIds.get(arr);
+  if (!ids) {
+    const seen = new Map<string, number>();
+    ids = arr.map((el) => {
+      if (idField && isObject(el) && typeof el[idField] === 'string' && el[idField] !== '') return `${idField}:${el[idField]}`;
+      const d = short(textOf(el));
+      const n = (seen.get(d) ?? 0) + 1;
+      seen.set(d, n);
+      return n === 1 ? `#${d}` : `#${d}~${n}`;
+    });
+    arrayIds.set(arr, ids);
   }
-  return '#' + short(textOf(el));
+  return ids;
 }
 
 function scanDataset(env: DatasetEnvelope, ctx: ScanContext): void {
@@ -424,8 +444,15 @@ function scanDataset(env: DatasetEnvelope, ctx: ScanContext): void {
   let visited = 0;
   const ptr = () => '/data' + path.map((p) => '/' + escapePointer(p)).join('');
   /** The pointer with each array index replaced by the element's stable identity (fingerprints). */
-  const stable = () => '/data' + path.map((p, i) => '/' + (Array.isArray(parents[i]) ? elementId((parents[i] as unknown[])[Number(p)]) : escapePointer(p))).join('');
-  const at = (subject: string) => ({ file, pointer: ptr(), stablePointer: stable(), subject });
+  // only the register's own top-level rows are identified by ref; elsewhere a ref is a citation, not an identity
+  const idField = (level: number) => (level === 0 && nonCite?.has('ref') ? 'ref' : null);
+  const stable = () => '/data' + path.map((p, i) => '/' + (Array.isArray(parents[i]) ? elementIds(parents[i] as unknown[], idField(i))[Number(p)] : escapePointer(p))).join('');
+  // pointers are computed at most once per visited value, however many diagnostics it yields
+  let here: { pointer: string; stablePointer: string } | null = null;
+  const at = (subject: string) => {
+    here ??= { pointer: ptr(), stablePointer: stable() };
+    return { file, ...here, subject };
+  };
   const cite = (ref: string, inline: boolean) => {
     const pointer = ptr();
     ctx.citations.push({ ref, file, pointer, inline });
@@ -441,6 +468,7 @@ function scanDataset(env: DatasetEnvelope, ctx: ScanContext): void {
   };
   const visitString = (s: string, key: string | undefined, parentKey: string | undefined, inArray: boolean) => {
     if (++visited % 4096 === 0) ctx.check();
+    here = null;
     let structured = false;
     if (!opaque) {
       if (!inArray && key !== undefined && nonCite?.has(key) && path.length === 2) structured = true;
@@ -469,18 +497,21 @@ function scanDataset(env: DatasetEnvelope, ctx: ScanContext): void {
   const walk = (v: unknown, key: string | undefined, parentKey: string | undefined, inArray: boolean) => {
     if (typeof v === 'string') return visitString(v, key, parentKey, inArray);
     if (Array.isArray(v)) {
-      for (let k = 0; k < v.length; k++) { parents.push(v); path.push(String(k)); walk(v[k], undefined, key ?? parentKey, true); path.pop(); parents.pop(); }
+      for (let k = 0; k < v.length; k++) { parents.push(v); path.push(String(k)); here = null; walk(v[k], undefined, key ?? parentKey, true); path.pop(); parents.pop(); here = null; }
       return;
     }
     if (isObject(v)) {
       for (const k of Object.keys(v)) {
+        here = null;
         if (STORE_KEY.test(k)) sink.add('DS_USERWORK_EMBEDDED', 'a browser user-work store key is embedded in results', at(k.slice(0, 64)));
         if (BAD_TEXT.test(k)) sink.add('TEXT_CONTROL_CHARS', 'control or bidirectional characters in a key', at(`key:${short(k)}`));
         parents.push(v);
         path.push(k);
+        here = null;
         walk(v[k], k, key, false);
         path.pop();
         parents.pop();
+        here = null;
       }
     }
   };

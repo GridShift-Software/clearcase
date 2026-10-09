@@ -88,8 +88,11 @@ async function snapshotDirectory(root: string, L: Limits, sink: DiagSink): Promi
 }
 
 async function snapshotZip(file: string, L: Limits, sink: DiagSink): Promise<Snapshot | null> {
-  const fh = await open(file, 'r');
+  // O_NOFOLLOW | O_NONBLOCK: a link or FIFO swapped in after the lstat is refused, never followed or waited on
+  const fh = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK).catch(() => null);
+  if (!fh) { sink.add('PKG_SOURCE_INVALID', 'the package file cannot be opened as a regular file'); return null; }
   try {
+    if (!(await fh.stat()).isFile()) { sink.add('PKG_SOURCE_INVALID', 'the package file is not a regular file'); return null; }
     const entries = await readCentralDirectory(fh, L);
     const byName = new Map(entries.map((e) => [e.name, e]));
     const present = new Map(entries.map((e) => [e.name, e.uncompressedSize]));

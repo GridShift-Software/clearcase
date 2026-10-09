@@ -33,6 +33,8 @@ const MUTANTS = [
 		edits: [['src/routes/v/[vid]/chronology/+page.svelte', 'r.subject, r.sender, r.to, r.docType', 'r.subject, r.sender, r.sender, r.docType']] },
 	{ id: 'navigation-focus', category: 'navigation/focus', views: 'overview,chronology', expect: /^focus\.after_nav$/, what: 'after navigation focus goes to the main region instead of the page heading',
 		edits: [['src/routes/+layout.svelte', "document.querySelector<HTMLElement>('[data-page-heading]')?.focus({ preventScroll })", "document.querySelector<HTMLElement>('#main')?.focus({ preventScroll })"]] },
+	{ id: 'revert-ba14', category: 'navigation/focus', views: 'overview', strict: true, what: 'focus is no longer moved after navigation, as in v5: it matches v5, so only --strict-register catches the unused BA-14 entry',
+		edits: [['src/routes/+layout.svelte', "document.querySelector<HTMLElement>('[data-page-heading]')?.focus({ preventScroll })", "document.querySelector<HTMLElement>('[data-no-such-heading]')?.focus({ preventScroll })"]] },
 	{ id: 'rendered-text', category: 'rendered text', views: 'overview', expect: /^kpi\.documents_(indexed|counted)\./, what: 'the Documents indexed tile is relabelled',
 		edits: [['src/routes/v/[vid]/overview/+page.svelte', '<h2 id="kpi-docs">Documents indexed</h2>', '<h2 id="kpi-docs">Documents counted</h2>']] },
 	{ id: 'register-crud', category: 'register CRUD', views: 'deadlines_tab', v5: true, expect: /^sweep\.register_edit\./, what: 'deleting a deadline removes the row after the chosen one (v5 copy; the pilot has no register yet)',
@@ -73,6 +75,7 @@ for (const m of MUTANTS.filter((x) => !only || only.includes(x.id))) {
 		if (b.status !== 0) die(`${m.id}: build failed:\n${(b.stdout + b.stderr).slice(-2000)}`);
 		args.push('--app-root', src);
 	}
+	if (m.strict) args.push('--strict-register');
 	const r = run(args);
 	const sc = existsSync(join(dir, 'out', 'scorecard.json')) ? JSON.parse(readFileSync(join(dir, 'out', 'scorecard.json'), 'utf8')) : null;
 	const hits = [];
@@ -80,9 +83,10 @@ for (const m of MUTANTS.filter((x) => !only || only.includes(x.id))) {
 		const f = join(dir, 'out', 'views', `${v}.json`);
 		if (existsSync(f)) for (const d of JSON.parse(readFileSync(f, 'utf8')).unregistered) hits.push(d.path);
 	}
-	const caught = m.control ? r.status === 0 && hits.length === 0 : r.status === 1 && hits.some((p) => m.expect.test(p));
-	results.push({ id: m.id, category: m.category, what: m.what, views: m.views, exit: r.status, unregistered: hits.length, matchingPaths: m.control ? 0 : hits.filter((p) => m.expect.test(p)).length, caught, seconds: Math.round((performance.now() - t0) / 1000), compared: sc?.total.compared ?? null });
-	console.log(`${caught ? 'CAUGHT' : 'MISSED'} ${m.id.padEnd(17)} ${m.category.padEnd(17)} exit ${r.status} unregistered ${hits.length}${m.control ? ' (control)' : `, ${results.at(-1).matchingPaths} on ${m.expect}`} ${results.at(-1).seconds} s`);
+	const usage = existsSync(join(dir, 'out', 'register-usage.json')) ? JSON.parse(readFileSync(join(dir, 'out', 'register-usage.json'), 'utf8')) : { unused: [] };
+	const caught = m.control ? r.status === 0 && hits.length === 0 : m.strict ? r.status === 1 && usage.unused.length > 0 : r.status === 1 && hits.some((p) => m.expect.test(p));
+	results.push({ id: m.id, category: m.category, what: m.what, views: m.views, exit: r.status, unregistered: hits.length, unusedEntries: usage.unused.length, matchingPaths: m.expect ? hits.filter((p) => m.expect.test(p)).length : 0, caught, seconds: Math.round((performance.now() - t0) / 1000), compared: sc?.total.compared ?? null });
+	console.log(`${caught ? 'CAUGHT' : 'MISSED'} ${m.id.padEnd(17)} ${m.category.padEnd(17)} exit ${r.status} unregistered ${hits.length}${m.control ? ' (control)' : m.strict ? `, unused register entries ${usage.unused.length} (strict)` : `, ${results.at(-1).matchingPaths} on ${m.expect}`} ${results.at(-1).seconds} s`);
 	if (r.status === 2) console.error(r.stderr.slice(-1500));
 	if (!argv.includes('--keep')) for (const x of ['src', 'v5-copy.html']) rmSync(join(dir, x), { recursive: true, force: true });
 }

@@ -17,6 +17,7 @@ export interface Raw {
 }
 export function stripArrow(s: string): string;
 export function emptySnapshot(view: string, side: 'v5' | 'app', status?: Snapshot['status']): Snapshot;
+export function appWithoutAdapter(view: string, registry: Record<string, { status?: string; linear?: string | null } | undefined>): Snapshot;
 export function tableFromRaw(t: Pick<RawTable, 'header' | 'rows'>, opts?: { key?: string }): Table & { sorted: string | null };
 export function fromRaw(view: string, side: 'v5' | 'app', raw: Raw, opts?: { tableKey?: string }): Snapshot;
 export function remap(s: Snapshot, map: Record<string, string>): Snapshot;

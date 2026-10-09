@@ -4,7 +4,7 @@
   "expect": {
     "exit": 0,
     "output": [
-      "PASS: 28 issues"
+      "PASS: 30 issues"
     ]
   }
 }

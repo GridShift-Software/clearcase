@@ -38,7 +38,7 @@ Start the pilot only with `bun run --bun start` (`scripts/pilot/start.ts`). It b
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `CLEARCASE_DATA_DIR` | `${XDG_DATA_HOME:-~/.local/share}/clearcase` | data directory, always resolved to an absolute path; a relative `XDG_DATA_HOME` is ignored. Holds `results.sqlite`, `work.sqlite`, `backups/`, `serve-tmp/`, `link-key`, `instance.lock` |
+| `CLEARCASE_DATA_DIR` | `${XDG_DATA_HOME:-~/.local/share}/clearcase` | data directory, always resolved to an absolute path; a relative `XDG_DATA_HOME` is ignored. Holds `results.sqlite`, `work.sqlite`, `backups/`, `serve-tmp/`, `link-key`, `instance.lock`, `instance.pid` (the owner's pid and kernel start time: a live owner refuses a second instance even if `instance.lock` was removed) |
 | `PORT` | 41101 | app origin `http://127.0.0.1:$PORT` |
 | `ORIGINALS_PORT` | `PORT`+1 | originals site, bound to 127.0.0.1 |
 | `ORIGINALS_HOSTNAME` | `clearcase-originals.localhost` | the originals site's host name: its own site and cookie jar |

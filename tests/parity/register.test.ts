@@ -52,6 +52,12 @@ describe('rules', () => {
 	])('the approver must not be the author, %s', (_, approver) => {
 		expect(check({ approvedBy: approver, approvedOn: '2026-10-09' }).join()).toMatch(/approver must not be the author/);
 	});
+	test.each([['?'], ['**'], ['*?'], ['?*'], [['*']], [['?']], [['text.*', '*']]])('a whole-view waiver other than exactly "*" is refused: %j', (field) => {
+		expect(check({ view: 'people', field, type: 'not-yet-implemented', owner: 'GRS-1' }).join()).toMatch(/would match the whole view; a whole-view entry uses exactly "\*"/);
+	});
+	test('a narrow glob is not mistaken for a whole-view waiver', () => {
+		expect(check({ field: ['text.*', 'control.button:*', 'table.table_1.row.*.date'] })).toEqual([]);
+	});
 	test('a different approver passes', () => expect(check({ approvedBy: 'coordinator', approvedOn: '2026-10-09' })).toEqual([]));
 	test('approvedBy and approvedOn go together', () => expect(check({ approvedBy: 'coordinator' }).join()).toMatch(/go together/));
 	test('a defect fix names its S- source defect', () => {

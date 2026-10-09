@@ -53,7 +53,7 @@ const { v5Page, appPage } = await import('./lib/browser.mjs');
 const { classify, diff, runFailures, scorecard, TYPES } = await import('./lib/compare.mjs');
 const { chronologyDims } = await import('./lib/sweeps.mjs');
 const { extractV5View, v5Nav } = await import('./adapters/v5/index.mjs');
-const { appWithoutAdapter, emptySnapshot } = await import('./lib/snapshot.mjs');
+const { appFromAdapter, appWithoutAdapter, emptySnapshot } = await import('./lib/snapshot.mjs');
 const { fixtureInputs, prepareOutput } = await import('./lib/outdir.mjs');
 
 const t0 = performance.now();
@@ -130,6 +130,7 @@ try {
 		} else if (a) {
 			try { sa = await a.extract(app, ctx); for (const sw of Object.keys(s5.sweeps)) if (!sa.sweeps[sw]) sa.sweeps[sw] = a.sweeps?.[sw] ? await a.sweeps[sw](app, ctx) : undefined; for (const k of Object.keys(sa.sweeps)) if (sa.sweeps[k] === undefined) delete sa.sweeps[k]; }
 			catch (e) { sa = { ...emptySnapshot(view, 'app', 'error'), error: String(e.stack ?? e).slice(0, 800) }; }
+			sa = appFromAdapter(view, registry, sa);
 		} else sa = appWithoutAdapter(view, registry);
 		const r = classify(view, diff(s5, sa), reg.entries, { approvedOnly: flag('approved-only') });
 		perView[view] = { ...r, v5Status: s5.status, appStatus: sa.status, ms: Math.round(performance.now() - tv) };

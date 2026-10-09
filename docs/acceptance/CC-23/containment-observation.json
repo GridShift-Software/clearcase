@@ -1,0 +1,63 @@
+{
+  "reviewedRevision": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+  "receipt": "20261009T010814.226795Z-outside-directory-kernel-audit",
+  "receiptCheckoutDirty": false,
+  "observations": [
+    {
+      "outsideMatchingNamePresent": true,
+      "result": {
+        "verdict": "reject",
+        "counts": {
+          "ORIG_ESCAPE": 1,
+          "TEXT_PENDING": 1
+        },
+        "candidate": false,
+        "original": null
+      },
+      "outsideDirectoryEvents": [
+        {
+          "mask": "0x40000020",
+          "name": ""
+        },
+        {
+          "mask": "0x40000001",
+          "name": ""
+        },
+        {
+          "mask": "0x40000010",
+          "name": ""
+        }
+      ]
+    },
+    {
+      "outsideMatchingNamePresent": false,
+      "result": {
+        "verdict": "report",
+        "counts": {
+          "ORIG_MISSING": 1,
+          "TEXT_PENDING": 1
+        },
+        "candidate": true,
+        "original": null
+      },
+      "outsideDirectoryEvents": [
+        {
+          "mask": "0x40000020",
+          "name": ""
+        },
+        {
+          "mask": "0x40000001",
+          "name": ""
+        },
+        {
+          "mask": "0x40000010",
+          "name": ""
+        }
+      ]
+    }
+  ],
+  "directoryAccessOutsideCaseConfirmed": true,
+  "outsideFileBytesReadOrServed": false,
+  "fixtures": "synthetic only",
+  "watcher": "Linux inotify; IN_OPEN=0x20, IN_ACCESS=0x1, IN_ISDIR=0x40000000"
+}

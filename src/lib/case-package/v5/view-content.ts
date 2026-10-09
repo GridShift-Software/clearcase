@@ -5,7 +5,7 @@
 // render it from imported data. Nothing is executed: every value is a literal found by a
 // code-shape anchor. A missing or ambiguous anchor is reported and never guessed.
 import type { DiagSink } from '../diagnostics.ts';
-import { Code, decodeEntities, findScope, markupStream, markupText, parseHtml, partsOf, poison, POISON, scriptRegions, select, SENT_CLOSE, SENT_OPEN, type El, type Part, type Range, type ScopeSpec, type Stream } from './js-scan.ts';
+import { Code, decodeEntities, findScope, hasReserved, markupStream, markupText, parseHtml, partsOf, poison, scriptRegions, select, SENT_CLOSE, SENT_OPEN, tokenize, type El, type Part, type Range, type ScopeSpec, type Stream } from './js-scan.ts';
 
 import type { ViewValue } from '../view-content.ts';
 
@@ -26,7 +26,7 @@ export type Selector =
   /** an element of the scope's reconstructed markup (selector subset in js-scan.ts): its text, an attribute, or every match as a list */
   | { html: string; attr?: string; all?: boolean };
 
-export interface Param { name: string; /** source expression the code run must contain */ expect: string }
+export interface Param { name: string; /** the source expression the code run must be, token for token */ expect: string }
 
 export interface Entry {
   view: string;
@@ -63,6 +63,9 @@ export const PROSE_MIN_WORDS = 8;
 const WORD = /\p{L}[\p{L}\p{M}'’-]+/gu;
 const NUMBER_TEXT = /^-?\d+(?:\.\d+)?$/;
 const PARAM_NAME = /^[a-z][A-Za-z0-9]{0,63}$/;
+/** Bounds on hostile input: viewer code larger than this, or extraction slower than this, yields no view content. */
+export const VIEW_CODE_MAX_CHARS = 8 * 1024 * 1024;
+export const VIEW_CONTENT_DEADLINE_MS = 20_000;
 
 class Miss extends Error {
   readonly status: 'missing' | 'ambiguous' | 'shape';
@@ -81,9 +84,11 @@ const pick = <T>(xs: T[], nth: number | undefined, what: string): T => {
 
 export class ViewCodeReader {
   readonly code: Code;
-  private readonly scopes = new Map<string, { range: Range; count: number } | null>();
+  private readonly scopes = new Map<string, { range: Range; count: number; conditional: boolean } | null>();
   private readonly streams = new Map<string, { s: Stream; root: El }>();
   private readonly markupEnd: number;
+  /** characters of viewer code read (script regions after the payload cuts) */
+  readonly size: number;
   constructor(html: string, skipLines: number[] = []) {
     // payload lines (DATA, META, ...) are data, already parsed by extract.ts: cut them out of the script regions
     const starts: number[] = [0];
@@ -95,6 +100,7 @@ export class ViewCodeReader {
       for (const [c, d] of cuts) if (c >= from && c < b) { if (c > from) regions.push([from, c]); from = Math.max(from, d); }
       if (from < b) regions.push([from, b]);
     }
+    this.size = regions.reduce((n, [a, b]) => n + b - a, 0);
     this.code = new Code(html, regions);
     const firstScript = html.search(/<script\b/i);
     this.markupEnd = firstScript < 0 ? html.length : firstScript;
@@ -116,14 +122,17 @@ export class ViewCodeReader {
   }
 
   /**
-   * A scope that exists exactly once. RENDER.<view> may be assigned more than once; the last
-   * assignment is the live renderer (v5 redefines discovery_tab in a later script). A function or
-   * constant defined more than once is ambiguous: nested helpers and block constants share names.
+   * A scope that exists exactly once. RENDER.<view> may be assigned more than once where every
+   * assignment runs unconditionally (top level, or the top level of an immediately invoked
+   * function); the last is the live renderer (v5 redefines discovery_tab in a later IIFE). A
+   * repeated RENDER.<view> with any assignment in a branch, loop or plain function (which may
+   * never run), or a function or constant defined more than once, is ambiguous: nested helpers
+   * and block constants share names.
    */
   private live(spec: ScopeSpec): { range: Range; count: number } {
     const sc = this.scope(spec);
     if (!sc) throw new Miss('missing', `scope ${spec} not found`);
-    if (sc.count > 1 && !spec.startsWith('render:')) throw new Miss('ambiguous', `scope ${spec} is defined ${sc.count} times`);
+    if (sc.count > 1 && (!spec.startsWith('render:') || sc.conditional)) throw new Miss('ambiguous', `scope ${spec} is defined ${sc.count} times${sc.conditional ? ', not all unconditionally' : ''}`);
     return sc;
   }
 
@@ -203,7 +212,7 @@ export class ViewCodeReader {
         const t = T[k]!;
         if (sel.on === 're' ? t.t !== 're' : t.t !== 'str' && t.t !== 'tpl') continue;
         const m = re.exec(t.v as string);
-        if (m && m[1] !== undefined) hits.push({ k, v: m[1] });
+        if (m && m[1] !== undefined) hits.push({ k, v: poison(m[1]) });
       }
       const h = pick(hits, sel.nth, `pattern /${sel.pattern}/`);
       return { parts: [{ text: h.v, toks: [h.k] }], toks: [h.k], line: C.line(T[h.k]!.s) };
@@ -266,7 +275,7 @@ export class ViewCodeReader {
           const codes = p.filter((x): x is { code: Range } => 'code' in x);
           const want = e.params ?? [];
           if (s.list || codes.length !== want.length) throw new Miss('shape', `expected ${want.length} interpolations, found ${codes.length}`);
-          codes.forEach((c, i) => { if (!this.code.text(c.code.a, c.code.b).includes(want[i]!.expect)) throw new Miss('shape', `interpolation ${i + 1} does not read ${want[i]!.expect}`); });
+          codes.forEach((c, i) => { if (!sameTokens(this.code, c.code, want[i]!.expect)) throw new Miss('shape', `interpolation ${i + 1} does not read ${want[i]!.expect}`); });
           if (!p.some((x) => 'text' in x && x.text.trim())) throw new Miss('shape', 'template without literal text');
           let n = 0;
           value = { template: p.filter((x) => !('text' in x) || x.text.length > 0).map((x) => ('text' in x ? x.text : { param: want[n++]!.name })) };
@@ -304,7 +313,7 @@ export class ViewCodeReader {
         }
       }
       const strings = typeof value === 'string' ? [value] : Array.isArray(value) ? value : typeof value === 'object' ? value.template.filter((x): x is string => typeof x === 'string') : [];
-      if (strings.some((x) => x.includes(POISON))) throw new Miss('shape', 'the literal holds a reserved private-use character');
+      if (strings.some(hasReserved)) throw new Miss('shape', 'the literal holds a reserved private-use character');
       return { value, status: { ...base, status: 'extracted', line: s.line }, toks: s.toks };
     } catch (err) {
       if (!(err instanceof Miss)) throw err;
@@ -315,6 +324,17 @@ export class ViewCodeReader {
 
 const C_is = (T: Code['toks'], j: number, v: string) => T[j]?.t === 'p' && T[j]!.v === v;
 
+/** True when the code run is exactly the expression `expect`, token for token (white space and comments aside). */
+function sameTokens(C: Code, r: Range, expect: string): boolean {
+  // a markup code run keeps the `+` joining it to the literals around it
+  let { a, b } = r;
+  while (a < b && C.is(a, 'p', '+')) a++;
+  while (b > a && C.is(b - 1, 'p', '+')) b--;
+  const want = tokenize(expect);
+  if (want.length !== b - a) return false;
+  return want.every((w, i) => { const t = C.toks[a + i]!; return t.t === w.t && t.v === w.v; });
+}
+
 /** True when an opening bracket after token k starts a literal (not an index or a call). */
 function isExprStart(C: Code, k: number): boolean {
   const t = C.toks[k];
@@ -322,6 +342,14 @@ function isExprStart(C: Code, k: number): boolean {
   if (t.t === 'id') return /^(?:return|case|in|of|typeof|void|yield|await)$/.test(t.v);
   if (t.t === 'p') return t.v !== ')' && t.v !== ']' && t.v !== '}';
   return false;
+}
+
+/** Drop an unclosed tag at the end of a literal (`<x...` with no later '>'), in linear time. */
+function dropOpenTail(s: string): string {
+  const re = /<[A-Za-z!]/g;
+  re.lastIndex = s.lastIndexOf('>') + 1;
+  const m = re.exec(s);
+  return m ? s.slice(0, m.index) : s;
 }
 
 /** Text with sentinels -> parts; sentinel n is code run n. */
@@ -366,13 +394,24 @@ export function checkMap(entries: readonly Entry[], omissions: readonly Omission
  * Extract view content from the workspace HTML. `skipLines` are the payload lines (1-based)
  * already read as data. `audit` lists the scopes checked for unconsumed prose literals.
  */
-export function extractViewContent(html: string, entries: readonly Entry[], omissions: readonly Omission[], opts: { skipLines?: number[]; audit?: readonly ScopeSpec[]; sink?: DiagSink } = {}): ViewContentResult {
+export function extractViewContent(html: string, entries: readonly Entry[], omissions: readonly Omission[], opts: { skipLines?: number[]; audit?: readonly ScopeSpec[]; sink?: DiagSink; maxChars?: number; deadlineMs?: number } = {}): ViewContentResult {
   checkMap(entries, omissions);
+  const started = Date.now();
+  const maxChars = opts.maxChars ?? VIEW_CODE_MAX_CHARS, deadlineMs = opts.deadlineMs ?? VIEW_CONTENT_DEADLINE_MS;
+  // fail closed on hostile size or time: no view content at all, every field reported, one diagnostic
+  const stop = (why: string): ViewContentResult => {
+    opts.sink?.add('V5_VIEW_CONTENT_LIMIT', `view-content extraction stopped: ${why}; no view content extracted`, { file: 'input', subject: 'view-content' });
+    return { data: {}, fields: entries.map((e) => ({ view: e.view, field: e.field, status: 'missing', line: null, detail: why })), unmapped: [] };
+  };
+  if (html.length > maxChars * 2) return stop(`the HTML exceeds ${maxChars * 2} characters`);
   const reader = new ViewCodeReader(html, opts.skipLines);
+  if (reader.size > maxChars) return stop(`the viewer code exceeds ${maxChars} characters`);
+  const late = () => Date.now() - started > deadlineMs;
   const data: ViewContent = {};
   const fields: FieldStatus[] = [];
   const consumed = new Set<number>();
   for (const e of entries) {
+    if (late()) return stop(`the ${deadlineMs} ms deadline passed`);
     const r = reader.extract(e);
     fields.push(r.status);
     r.toks.forEach((k) => consumed.add(k));
@@ -384,11 +423,12 @@ export function extractViewContent(html: string, entries: readonly Entry[], omis
   }
   const unmapped: ViewContentResult['unmapped'] = [];
   for (const spec of opts.audit ?? []) {
+    if (late()) return stop(`the ${deadlineMs} ms deadline passed`);
     for (const k of reader.literalTokens(spec)) {
       if (consumed.has(k)) continue;
       const t = reader.code.toks[k]!;
       // a literal may hold the head or tail of a tag split by code: drop those fragments before counting
-      const visible = markupText((t.v as string).replace(/^[^<]*?(?:"|')\s*\/?>/, '').replace(/<[A-Za-z!][^>]*$/, ''));
+      const visible = markupText(dropOpenTail((t.v as string).replace(/^[^<]*?(?:"|')\s*\/?>/, '')));
       const words = (visible.match(WORD) ?? []).length;
       if (words < PROSE_MIN_WORDS) continue;
       const line = reader.code.line(t.s);

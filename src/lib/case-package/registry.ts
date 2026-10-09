@@ -76,8 +76,7 @@ export const USERWORK_SOURCES = new Set(['user-work', 'local-storage', 'backup',
 /** v5 browser store key shape, e.g. ess_dcs_deadlines_v1, at any nesting depth */
 export const STORE_KEY = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+_v\d+$/;
 
-/** Fields whose string values are link locators (kept as data, never used as href). */
-export const LINK_FIELDS = new Set(['url', 'href', 'link', 'headline_url', 'sliceUrl', 'file', 'indexFile', 'planFile', 'folder', 'caselinesSrc', 'extracts', 'src_url']);
+export { LINK_FIELDS } from './links.ts';
 
 /** Per-schema citation fields beyond the generic ref / headline_ref / refs[] / also_in[] rule. */
 export const EXTRA_CITATION_ARRAYS: Record<string, ReadonlySet<string>> = {

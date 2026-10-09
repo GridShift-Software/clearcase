@@ -367,13 +367,17 @@ export async function views42(ctx) {
 	return { pass: ok, evidence: { registryOrderAndLabels: order, navCount: nav.length, unavailableCount, failed: per.filter((x) => !x.ok), unknown, searchRedirect: { status: search.status, location: search.location }, searchBrowser } };
 }
 
-/** BA-04: the date basis is shown only as supplied; dated rows 'unknown', undated 'undated'; supplied values shown (v2). */
+/**
+ * BA-04: the date basis is shown only as supplied. v1 supplies none, so the Date basis column is hidden and undated rows
+ * say 'undated' in the Date column; v2 supplies some, so the column shows dated rows 'unknown', undated 'undated' and
+ * supplied values as supplied.
+ */
 export async function dateBasis(ctx) {
 	const { A, p, main } = ctx;
-	const basisOf = `[...document.querySelectorAll('[role=row][data-ref]')].map((r) => { const s = r.querySelector('[data-date-basis]'); return { ref: r.dataset.ref, basis: s?.dataset.dateBasis ?? null, text: s?.textContent.trim() ?? null, title: s?.title ?? null }; })`;
+	const basisOf = `[...document.querySelectorAll('[role=row][data-ref]')].map((r) => { const s = r.querySelector('[data-date-basis]'); return { ref: r.dataset.ref, date: r.querySelector('[role=cell]')?.textContent.trim() ?? null, basis: s?.dataset.dateBasis ?? null, text: s?.textContent.trim() ?? null, title: s?.title ?? null }; })`;
 	await p.goto(`${A.v(main.resultsVersion)}/chronology`, `${ready('chronology')} && ${ROWS}.length > 0`);
 	const v1 = await p.evaluate(basisOf);
-	const v1ok = v1.length === main.chronology.length && v1.every((r) => { const d = main.chronology.find((x) => x.ref === r.ref).date; return d ? r.basis === 'unknown' && r.text === 'unknown' : r.basis === 'undated' && r.text === 'undated'; });
+	const v1ok = v1.length === main.chronology.length && v1.every((r) => r.basis === null && r.date === (main.chronology.find((x) => x.ref === r.ref).date || 'undated'));
 	const docDate = async (rv, ref) => { await p.goto(`${A.v(rv)}/doc/${ref}`, docReady(ref)); return p.evaluate(`document.querySelector('#doc-date')?.textContent.replace(/\\s+/g, ' ').trim() ?? null`); };
 	const docs = { dated: await docDate(main.resultsVersion, 'OD-002'), undated: await docDate(main.resultsVersion, 'OD-003') };
 	// v2 of the same case: rows that carry date_type/date_source (via the fixture edit), previewed as a candidate

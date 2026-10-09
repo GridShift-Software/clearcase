@@ -1,6 +1,5 @@
 // App adapter: Chronology (the pilot's view, GRS-12). The grid is read cell by cell from the rendered rows; the
-// Title / subject cell is split like v5's (title, sender), the Text and Original columns take v5's Status and Doc
-// ids, and the ref cell's "in <parent>" note becomes its own column. Sweeps drive the same filters and sorts.
+// Title / subject cell is split like v5's (title, sender, excerpt, also in), the Original column takes v5's Doc id, and the ref cell's "in <parent>" note becomes its own column. Sweeps drive the same filters and sorts.
 import { join } from 'node:path';
 import { sleep } from '../../../../tests/e2e/pilot/lib/cdp.mjs';
 import { parseDownload } from '../../lib/exports.mjs';
@@ -9,7 +8,7 @@ import { SORTS, engineCombos, seqValue, uiCombos } from '../../lib/sweeps.mjs';
 import { navFocus, open, pressAndCapture } from './_shell.mjs';
 
 const ROUTE = '/chronology';
-const COLUMN = { date: 'date', 'date basis': 'date_basis', ref: 'ref', 'title / subject': 'title_subject', type: 'type', bundle: 'bundle', amount: 'amount', text: 'status', original: 'doc' };
+const COLUMN = { date: 'date', 'date basis': 'date_basis', ref: 'ref', 'title / subject': 'title_subject', type: 'type', bundle: 'bundle', amount: 'amount', status: 'status', original: 'doc' };
 
 /** Every rendered row: cell texts by column, with the title and ref cells split into their parts. */
 const readGrid = (p) => p.evaluate(`(() => {
@@ -21,7 +20,7 @@ const readGrid = (p) => p.evaluate(`(() => {
 		const o = {};
 		head.forEach((h, i) => {
 			const c = cells[i];
-			if (/^Title/.test(h)) { const clip = c.querySelector('.clip'); const small = clip?.querySelector('small'); o[h] = [...(clip?.childNodes ?? [])].filter((n) => n.nodeType === 3 || (n.nodeType === 1 && n !== small)).map((n) => n.textContent).join('').replace(/\\s+/g, ' ').trim(); o.Sender = t(small).replace(/^—\\s*/, ''); }
+			if (/^Title/.test(h)) { const clip = c.querySelector('.clip'); const small = clip?.querySelector('small'); o[h] = [...(clip?.childNodes ?? [])].filter((n) => n.nodeType === 3 || (n.nodeType === 1 && n !== small)).map((n) => n.textContent).join('').replace(/\\s+/g, ' ').trim(); o.Sender = t(small).replace(/^—\\s*/, ''); o.Excerpt = t(c.querySelector('.excerpt')); o.Also = t(c.querySelector('.also-in')).replace(/^also in:\\s*/, ''); }
 			else if (h === 'Ref') { const small = c.querySelector('small'); o.Ref = t(c.querySelector('a')); o.Parent = t(small).replace(/^in\\s+/, ''); }
 			else o[h] = t(c);
 		});
@@ -30,6 +29,9 @@ const readGrid = (p) => p.evaluate(`(() => {
 	const sorted = [...g.querySelectorAll('[role=columnheader][aria-sort]')].map((h) => h.textContent.replace(/\\s*[▲▼]\\s*$/, '').trim() + ' ' + (h.getAttribute('aria-sort') === 'ascending' ? 'asc' : 'desc'))[0] ?? null;
 	return { head, rows, sorted, count: document.getElementById('row-count')?.dataset.count ?? null };
 })()`);
+
+/** Columns read from a part of another cell (the split Title / subject cell and the ref cell's parent note). */
+const PART = { sender: 'Sender', excerpt: 'Excerpt', also_in: 'Also', parent: 'Parent' };
 
 const APP_SORT_LABEL = { date: 'Date', ref: 'Ref', docType: 'Type', bundle: 'Bundle', amount: 'Amount' };
 
@@ -58,11 +60,11 @@ export default {
 		for (const h of grid.head) {
 			const id = COLUMN[h.toLowerCase()] ?? h.toLowerCase();
 			columns.push({ id, label: h });
-			if (id === 'title_subject') columns.push({ id: 'sender', label: 'Sender' });
+			if (id === 'title_subject') columns.push({ id: 'sender', label: 'Sender' }, { id: 'excerpt', label: 'Excerpt' }, { id: 'also_in', label: 'Also in' });
 			if (id === 'ref' && hasParent) columns.push({ id: 'parent', label: 'Parent' });
 		}
 		const byLabel = Object.fromEntries(columns.map((c) => [c.id, c.label]));
-		s.tables = { table_1: { columns, key: 'ref', rows: grid.rows.map((r) => Object.fromEntries(columns.map((c) => [c.id, c.id === 'sender' ? r.Sender : c.id === 'parent' ? r.Parent : r[byLabel[c.id]] ?? '']))) } };
+		s.tables = { table_1: { columns, key: 'ref', rows: grid.rows.map((r) => Object.fromEntries(columns.map((c) => [c.id, PART[c.id] ? r[PART[c.id]] : r[byLabel[c.id]] ?? '']))) } };
 		delete s.texts['chronology.sorted'];
 		if (grid.sorted) s.texts['table_1.sorted'] = `${COLUMN[grid.sorted.split(' ').slice(0, -1).join(' ').toLowerCase()]} ${grid.sorted.split(' ').pop()}`;
 		s.counts['table_1.total'] = grid.count;

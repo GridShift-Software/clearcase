@@ -153,4 +153,62 @@ describe('enumerable user work', () => {
 		await expect(uw.importAll(bad)).rejects.toBeInstanceOf(UserWorkError);
 		await expect(uw.importAll({ format: 'other' } as never)).rejects.toBeInstanceOf(UserWorkError);
 	});
+
+	it('enumerates tables whose names start with sqlite (no LIKE wildcard) and refuses that prefix in defineTable', async () => {
+		const { lc } = await setup('sqliteprefix');
+		const uw = lc.userWork;
+		const db = lc.storage.db();
+		db.exec('CREATE TABLE work.sqlite1(id TEXT PRIMARY KEY, v TEXT)');
+		db.exec('CREATE TABLE work.sqlitebackup(id TEXT PRIMARY KEY, v TEXT)');
+		db.exec("INSERT INTO work.sqlite1 VALUES ('a', 'kept')");
+		expect(uw.tables().map((t) => t.name)).toEqual(expect.arrayContaining(['sqlite1', 'sqlitebackup']));
+		await expect(uw.defineTable({ name: 'sqlitebackup', owner: 'GRS-20', description: '', columns: [{ name: 'id', type: 'TEXT' }], primaryKey: ['id'] })).rejects.toBeInstanceOf(UserWorkError);
+		await expect(uw.defineTable({ name: 'sqlite_x', owner: 'GRS-20', description: '', columns: [{ name: 'id', type: 'TEXT' }], primaryKey: ['id'] })).rejects.toBeInstanceOf(UserWorkError);
+		// listed by the export, as excluded with the reason (a restore could not recreate a reserved name)
+		const snap = uw.exportAll();
+		expect(snap.tables.map((t) => t.name)).not.toContain('sqlite1');
+		expect(snap.excluded).toEqual(expect.arrayContaining([{ name: 'sqlite1', kind: 'unregistered', rows: 1, reason: expect.stringContaining('sqlite') }, { name: 'sqlitebackup', kind: 'unregistered', rows: 0, reason: expect.stringContaining('sqlite') }]));
+	});
+
+	it('always restores its own export: unrestorable tables are excluded with a reason, never a refused restore', async () => {
+		const { lc } = await setup('symmetric');
+		const uw = lc.userWork;
+		const db = lc.storage.db();
+		await uw.putRow('e2e-case', 'deadlines', null, { title: 'Synthetic' });
+		db.exec('CREATE TABLE work.stray_nopk(a TEXT, b TEXT)');
+		db.exec("INSERT INTO work.stray_nopk VALUES ('x', 'y')");
+		db.exec('CREATE TABLE work.stray_datetime(id TEXT PRIMARY KEY, at DATETIME)');
+		db.exec('CREATE TABLE work.stray_nullkey(id TEXT PRIMARY KEY, v TEXT)');
+		db.exec("INSERT INTO work.stray_nullkey VALUES (NULL, 'rowid tables allow it')");
+		db.exec('CREATE TABLE work.stray_ok(id TEXT PRIMARY KEY, v text)');
+		db.exec("INSERT INTO work.stray_ok VALUES ('k', 'kept')");
+		const snap = JSON.parse(JSON.stringify(uw.exportAll()));
+		expect(snap.excluded.map((x: { name: string }) => x.name).sort()).toEqual(['stray_datetime', 'stray_nopk', 'stray_nullkey']);
+		expect(snap.excluded.every((x: { reason: string }) => x.reason.length > 0)).toBe(true);
+		const root2 = await tempRoot('symmetric2');
+		roots.push(root2);
+		const lc2 = service(path.join(root2, 'data'));
+		open.push(lc2);
+		await lc2.startup();
+		expect(await lc2.userWork.importAll(snap)).toEqual({ tables: snap.tables.length, rows: 2 });
+		const back = lc2.userWork.exportAll();
+		expect(back.tables.map((t) => [t.name, t.kind, t.rows])).toEqual(snap.tables.map((t: { name: string; kind: string; rows: unknown }) => [t.name, t.kind, t.rows]));
+		// and the restored store's own export restores into itself
+		expect(await lc2.userWork.importAll(JSON.parse(JSON.stringify(back)))).toEqual({ tables: back.tables.length, rows: 2 });
+	});
+
+	it('restores atomically: a refused restore creates no table, and a failure while writing rows rolls the tables back', async () => {
+		const { lc } = await setup('atomic');
+		const uw = lc.userWork;
+		const before = uw.tables().map((t) => t.name);
+		const col = (name: string, type: string, pk = 0) => ({ name, type, notNull: pk > 0, pk });
+		const table = (name: string, columns: ReturnType<typeof col>[], rows: Record<string, unknown>[] = []) => ({ name, kind: 'user-work', owner: 'GRS-20', description: '', columns, rows });
+		const refused = { format: 'clearcase.user-work/1', exportedAt: '2030-01-01T00:00:00Z', tables: [table('alpha_new', [col('id', 'TEXT', 1)]), table('beta_bad', [col('id', 'TEXT', 1), col('at', 'DATETIME')])] };
+		await expect(uw.importAll(refused as never)).rejects.toBeInstanceOf(UserWorkError);
+		expect(uw.tables().map((t) => t.name)).toEqual(before);
+		// valid shapes, but a row that breaks its NOT NULL key: the created table goes with the rolled-back transaction
+		const failing = { format: 'clearcase.user-work/1', exportedAt: '2030-01-01T00:00:00Z', tables: [table('gamma_new', [col('id', 'TEXT', 1)], [{ id: 'ok' }, { id: null }])] };
+		await expect(uw.importAll(failing as never)).rejects.toThrow();
+		expect(uw.tables().map((t) => t.name)).toEqual(before);
+	});
 });

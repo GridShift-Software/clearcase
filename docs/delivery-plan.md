@@ -334,7 +334,7 @@ The implementation test commands below are required deliverables, not existing r
 
 ## Browse, search and compare the case evidence (CC-04)
 
-**Depends on.** [GRS-13](https://linear.app/vaper/issue/GRS-13/gate-the-complete-local-pilot-before-feature-fan-out).
+**Depends on.** [GRS-13](https://linear.app/vaper/issue/GRS-13/gate-the-complete-local-pilot-before-feature-fan-out), [GRS-37](https://linear.app/vaper/issue/GRS-37/prove-view-by-view-parity-with-the-v5-sample), [GRS-38](https://linear.app/vaper/issue/GRS-38/carry-v5s-code-embedded-view-content-into-the-results-package).
 
 **Files.**
 
@@ -420,7 +420,7 @@ The implementation test commands below are required deliverables, not existing r
 
 ## Read the matter narrative and evidence-linked analysis (CC-05)
 
-**Depends on.** [GRS-13](https://linear.app/vaper/issue/GRS-13/gate-the-complete-local-pilot-before-feature-fan-out).
+**Depends on.** [GRS-13](https://linear.app/vaper/issue/GRS-13/gate-the-complete-local-pilot-before-feature-fan-out), [GRS-37](https://linear.app/vaper/issue/GRS-37/prove-view-by-view-parity-with-the-v5-sample), [GRS-38](https://linear.app/vaper/issue/GRS-38/carry-v5s-code-embedded-view-content-into-the-results-package).
 
 **Files.**
 
@@ -502,7 +502,7 @@ The implementation test commands below are required deliverables, not existing r
 
 ## Reconcile quantum and scenario calculations (CC-06)
 
-**Depends on.** [GRS-13](https://linear.app/vaper/issue/GRS-13/gate-the-complete-local-pilot-before-feature-fan-out).
+**Depends on.** [GRS-13](https://linear.app/vaper/issue/GRS-13/gate-the-complete-local-pilot-before-feature-fan-out), [GRS-37](https://linear.app/vaper/issue/GRS-37/prove-view-by-view-parity-with-the-v5-sample), [GRS-38](https://linear.app/vaper/issue/GRS-38/carry-v5s-code-embedded-view-content-into-the-results-package).
 
 **Files.**
 
@@ -586,7 +586,7 @@ The implementation test commands below are required deliverables, not existing r
 
 ## Maintain case registers without losing edits (CC-07)
 
-**Depends on.** [GRS-13](https://linear.app/vaper/issue/GRS-13/gate-the-complete-local-pilot-before-feature-fan-out).
+**Depends on.** [GRS-13](https://linear.app/vaper/issue/GRS-13/gate-the-complete-local-pilot-before-feature-fan-out), [GRS-37](https://linear.app/vaper/issue/GRS-37/prove-view-by-view-parity-with-the-v5-sample), [GRS-38](https://linear.app/vaper/issue/GRS-38/carry-v5s-code-embedded-view-content-into-the-results-package).
 
 **Files.**
 
@@ -670,7 +670,7 @@ The implementation test commands below are required deliverables, not existing r
 
 ## Work through litigation preparation tools (CC-08)
 
-**Depends on.** [GRS-13](https://linear.app/vaper/issue/GRS-13/gate-the-complete-local-pilot-before-feature-fan-out).
+**Depends on.** [GRS-13](https://linear.app/vaper/issue/GRS-13/gate-the-complete-local-pilot-before-feature-fan-out), [GRS-37](https://linear.app/vaper/issue/GRS-37/prove-view-by-view-parity-with-the-v5-sample), [GRS-38](https://linear.app/vaper/issue/GRS-38/carry-v5s-code-embedded-view-content-into-the-results-package).
 
 **Files.**
 
@@ -752,7 +752,7 @@ The implementation test commands below are required deliverables, not existing r
 
 ## Prepare discovery schedules and case bundles (CC-09)
 
-**Depends on.** [GRS-13](https://linear.app/vaper/issue/GRS-13/gate-the-complete-local-pilot-before-feature-fan-out).
+**Depends on.** [GRS-13](https://linear.app/vaper/issue/GRS-13/gate-the-complete-local-pilot-before-feature-fan-out), [GRS-37](https://linear.app/vaper/issue/GRS-37/prove-view-by-view-parity-with-the-v5-sample), [GRS-38](https://linear.app/vaper/issue/GRS-38/carry-v5s-code-embedded-view-content-into-the-results-package).
 
 **Files.**
 
@@ -834,7 +834,7 @@ The implementation test commands below are required deliverables, not existing r
 
 ## Rescan local files and restore user work safely (CC-10)
 
-**Depends on.** [GRS-13](https://linear.app/vaper/issue/GRS-13/gate-the-complete-local-pilot-before-feature-fan-out), [GRS-17](https://linear.app/vaper/issue/GRS-17/maintain-case-registers-without-losing-edits).
+**Depends on.** [GRS-13](https://linear.app/vaper/issue/GRS-13/gate-the-complete-local-pilot-before-feature-fan-out), [GRS-17](https://linear.app/vaper/issue/GRS-17/maintain-case-registers-without-losing-edits), [GRS-37](https://linear.app/vaper/issue/GRS-37/prove-view-by-view-parity-with-the-v5-sample), [GRS-38](https://linear.app/vaper/issue/GRS-38/carry-v5s-code-embedded-view-content-into-the-results-package).
 
 **Files.**
 
@@ -871,6 +871,8 @@ The implementation test commands below are required deliverables, not existing r
 - [ ] Rescan publishes its rows through CC-03's document-row read contract, so readers need no dependency on CC-10.
 
 - [ ] Wire the overview's rescan freshness stamp through the overview extension point that CC-03 provides, from CC-10's own subtree.
+
+- [ ] Keep a documented, tested extension point for importing v5 browser-stored work (backup files, including the four legacy keys) later; the import itself is not part of V1.
 
 **You see.**
 
@@ -963,6 +965,8 @@ The implementation test commands below are required deliverables, not existing r
 - [ ] Verify the audit findings that docs/reference/audit-dispositions.md assigns to this gate. Check non-overlapping headings and export controls at narrow widths for every view with page actions (BA-12), shared contrast and focus, hover and active states (BA-13), navigation semantics, focus and Back across all 42 views (BA-14), and risk and detail readability at 320 and 390 pixels (BA-21).
 
 - [ ] Verify a backup-and-restore round trip for each store named in CC-10's coverage checklist, once its owning ticket has passed.
+
+- [ ] Every v5 source defect in docs/reference/defects.md has a disposition in the parity register. Defects in imported data are never silently corrected in the app; they are tagged data-correction-deferred-to-pipeline for the document-processing pipeline sprint.
 
 **You see.**
 
@@ -1172,6 +1176,164 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Keep main unchanged. Open the PR in the stack as `AGENTS.md` describes, register it with T3 and apply the same evidence gate to its actual head.
 
+## Prove view-by-view parity with the v5 sample (CC-29)
+
+**Depends on.** [GRS-12](https://linear.app/vaper/issue/GRS-12/complete-the-local-import-to-original-document-workflow).
+
+**Files.**
+
+- [ ] Own `scripts/parity/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `tests/parity/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `docs/reference/parity/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `package.json` for this unit. Reserve shared files before dispatch.
+
+**Build.**
+
+- [ ] Render v5 (sandboxed headless Chromium, no network, fixed clock, read-only fixture) and the app (Bun production build, same clock) on the same data; extract normalized tables, KPIs, lists, text blocks, counts and the action inventory per view.
+
+- [ ] Interaction sweeps cover filter/sort combinations, register edit sequences on synthetic seeded user work, and parsed export content (CSV, DOCX, PDF, print).
+
+- [ ] v5-side adapters for all 42 views; app-side adapters for the pilot's overview and chronology; M2 owners add theirs.
+
+- [ ] An intentional-differences register (schema-validated, no case values) typed `improvement`, `defect-fix`, `data-correction-deferred-to-pipeline`, `not-yet-implemented` or `known-gap`, each approved by someone other than its author. Genuine improvements are registered and never fail; only unregistered differences fail.
+
+- [ ] As mutation proof, a planted regression in each category (filter/sort, calculation, register CRUD, export, navigation/focus, rendered text) is caught.
+
+- [ ] Case-bearing diffs stay local; only harness code, synthetic tests, the register and counts-only scorecards are committed.
+
+**You see.**
+
+- [ ] An automated, offline parity harness shows, value by value, that each of the 42 views behaves like the v5 sample on the same input data, and produces a counts-only scorecard for stakeholders.
+
+**Verify, unit.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
+
+- [ ] Run `bun run --bun check` and `bun run --bun test --run tests/parity` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-29/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
+
+**Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
+
+- [ ] Lane 1. Regression lane against the last accepted integration revision. Render v5 and the app offline on the same fixture with the same fixed clock. Save `.orchestration/reports/CC-29/lane-01.png` for browser behavior or `.orchestration/reports/CC-29/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use dev at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
+
+- [ ] Lane 2. Extract and compare the overview and chronology value by value. Save `.orchestration/reports/CC-29/lane-02.png` for browser behavior or `.orchestration/reports/CC-29/lane-02.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
+
+- [ ] Lane 3. Run the v5-side adapters for all 42 views. Save `.orchestration/reports/CC-29/lane-03.png` for browser behavior or `.orchestration/reports/CC-29/lane-03.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
+
+- [ ] Lane 4. Sweep filter and sort combinations on a pilot view. Save `.orchestration/reports/CC-29/lane-04.png` for browser behavior or `.orchestration/reports/CC-29/lane-04.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
+
+- [ ] Lane 5. Replay a register edit sequence on synthetic seeded user work. Save `.orchestration/reports/CC-29/lane-05.png` for browser behavior or `.orchestration/reports/CC-29/lane-05.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
+
+- [ ] Lane 6. Compare parsed CSV, DOCX, PDF and print export content. Save `.orchestration/reports/CC-29/lane-06.png` for browser behavior or `.orchestration/reports/CC-29/lane-06.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
+
+- [ ] Lane 7. Pass a registered improvement without a failure. Save `.orchestration/reports/CC-29/lane-07.png` for browser behavior or `.orchestration/reports/CC-29/lane-07.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
+
+- [ ] Lane 8. Fail an unregistered difference. Save `.orchestration/reports/CC-29/lane-08.png` for browser behavior or `.orchestration/reports/CC-29/lane-08.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
+
+- [ ] Lane 9. Catch a planted regression in each of the six categories. Save `.orchestration/reports/CC-29/lane-09.png` for browser behavior or `.orchestration/reports/CC-29/lane-09.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
+
+- [ ] Lane 10. Confirm the committed register and scorecard carry counts only, with no case values. Save `.orchestration/reports/CC-29/lane-10.png` for browser behavior or `.orchestration/reports/CC-29/lane-10.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
+
+**Verify, perf.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
+
+- [ ] Metric. Measure Wall time and peak memory of a full 42-view parity run at the accepted base and candidate where comparable. Name the work newly added by this unit.
+
+- [ ] Probe. Run `bun run --bun measure --ticket CC-29 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
+
+- [ ] Baseline. Record the accepted base's median and p95 first. If the base lacks the feature, record N/A and measure the reference or absolute new behavior without a fabricated ratio.
+
+- [ ] Rule. Record the first full-run baseline on the accepted fixture; fail a regression above 1.25 times the median. Any budget that depends on a baseline must be fixed numerically in the dispatch brief before implementation, then approved by the independent reviewer.
+
+**Review gate.** The user reviews changed interactions before merge into main. 
+
+- [ ] Save a screenshot and a 30 to 60 second video under `.orchestration/reports/CC-29/review/`. Post the concrete result for the user's visual review, called operator review in pstack, before requesting a main-branch merge.
+
+**Merge.**
+
+- [ ] Obtain an independent clean verdict at the exact candidate revision and record all receipts.
+
+- [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
+
+- [ ] Keep main unchanged. Open the PR in the stack as `AGENTS.md` describes, register it with T3 and apply the same evidence gate to its actual head.
+
+## Carry v5's code-embedded view content into the results package (CC-30)
+
+**Depends on.** [GRS-12](https://linear.app/vaper/issue/GRS-12/complete-the-local-import-to-original-document-workflow).
+
+**Files.**
+
+- [ ] Own `src/lib/case-package/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `scripts/case-package/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `tests/case-package/**` for this unit. Reserve shared files before dispatch.
+
+- [ ] Own `docs/results-package.md` for this unit. Reserve shared files before dispatch.
+
+**Build.**
+
+- [ ] Static, declarative extraction of every code-embedded value catalogued in docs/reference/view-checklist.md (titles, subtitles, KPI captions, narrative paragraphs, the case caption, deed titles, schedule ranges, file names and the bundle details for CaseLines). No execution of the v5 HTML; anchors on code structure only, never on case text.
+
+- [ ] A new dataset `view-content` (`v5.view-content@1`) with a JSON Schema, a typed reader and untrusted-text rendering rules. It is classified as generated because the future pipeline produces it.
+
+- [ ] Missing or ambiguous anchors raise diagnostics and are never guessed. Unmapped code literals are reported. A committed coverage inventory lists field and checklist IDs only, with no values.
+
+- [ ] Every existing dataset stays byte-identical on the real sample. The identity change is recorded. verify:package passes, with coverage for the new dataset.
+
+- [ ] docs/results-package.md documents the dataset and tells M2 owners to read the content from data, never from literals in app code.
+
+**You see.**
+
+- [ ] The v5 converter carries the case content that v5 hard-codes in its view renderers into the results package as a schema-validated dataset, so that every V1 view renders it from imported data.
+
+**Verify, unit.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
+
+- [ ] Run `bun run --bun check` and `bun run --bun test --run tests/case-package` against the literal acceptance examples. Record stdout, stderr and exit codes in `.orchestration/reports/CC-30/unit.txt`. The owner must provide these planned test paths and scripts before claiming completion.
+
+**Verify, live.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked. Ten lanes on `claude-opus-5-5 high or a different supported verifier family` at the PR head. Run in bounded batches, never ten simultaneous writers. Before a PR exists, use the exact local candidate revision.
+
+- [ ] Lane 1. Regression lane against the last accepted integration revision. Convert the v5 sample and extract every catalogued code-embedded value. Save `.orchestration/reports/CC-30/lane-01.png` for browser behavior or `.orchestration/reports/CC-30/lane-01.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria. Use dev at its accepted base revision. If that base lacks the feature, compare the designated v5 reference or record an absolute baseline without inventing a result.
+
+- [ ] Lane 2. Validate view-content against its JSON Schema. Save `.orchestration/reports/CC-30/lane-02.png` for browser behavior or `.orchestration/reports/CC-30/lane-02.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
+
+- [ ] Lane 3. Read view-content through the typed reader. Save `.orchestration/reports/CC-30/lane-03.png` for browser behavior or `.orchestration/reports/CC-30/lane-03.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
+
+- [ ] Lane 4. Render hostile view-content text as untrusted text. Save `.orchestration/reports/CC-30/lane-04.png` for browser behavior or `.orchestration/reports/CC-30/lane-04.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
+
+- [ ] Lane 5. Raise a diagnostic for a missing anchor without guessing. Save `.orchestration/reports/CC-30/lane-05.png` for browser behavior or `.orchestration/reports/CC-30/lane-05.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
+
+- [ ] Lane 6. Raise a diagnostic for an ambiguous anchor without guessing. Save `.orchestration/reports/CC-30/lane-06.png` for browser behavior or `.orchestration/reports/CC-30/lane-06.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
+
+- [ ] Lane 7. Report unmapped code literals. Save `.orchestration/reports/CC-30/lane-07.png` for browser behavior or `.orchestration/reports/CC-30/lane-07.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
+
+- [ ] Lane 8. Check that the coverage inventory holds field and checklist IDs only. Save `.orchestration/reports/CC-30/lane-08.png` for browser behavior or `.orchestration/reports/CC-30/lane-08.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
+
+- [ ] Lane 9. Keep every existing dataset byte-identical on the real sample. Save `.orchestration/reports/CC-30/lane-09.png` for browser behavior or `.orchestration/reports/CC-30/lane-09.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
+
+- [ ] Lane 10. Pass verify:package with coverage for the new dataset. Save `.orchestration/reports/CC-30/lane-10.png` for browser behavior or `.orchestration/reports/CC-30/lane-10.txt` for a CLI transcript. Pass when the named scenario satisfies this unit's literal baseline and acceptance criteria.
+
+**Verify, perf.** Tests alone are not sufficient verification. A PR is verified only when its unit, live, and perf boxes are all checked.
+
+- [ ] Metric. Measure Conversion time and peak memory on the v5 sample at the accepted base and candidate where comparable. Name the work newly added by this unit.
+
+- [ ] Probe. Run `bun run --bun measure --ticket CC-30 --baseline BASE --candidate HEAD` after the owner supplies the measured scenario. Alternate baseline and candidate with identical inputs and clock; retain at least 20 samples, warmup policy and machine details.
+
+- [ ] Baseline. Record the accepted base's median and p95 first. If the base lacks the feature, record N/A and measure the reference or absolute new behavior without a fabricated ratio.
+
+- [ ] Rule. Record the pre-change conversion baseline first; fail a regression above 1.25 times the median. Any budget that depends on a baseline must be fixed numerically in the dispatch brief before implementation, then approved by the independent reviewer.
+
+**Review gate.** The user reviews changed interactions before merge into main. 
+
+- [ ] Save a screenshot and a 30 to 60 second video under `.orchestration/reports/CC-30/review/`. Post the concrete result for the user's visual review, called operator review in pstack, before requesting a main-branch merge.
+
+**Merge.**
+
+- [ ] Obtain an independent clean verdict at the exact candidate revision and record all receipts.
+
+- [ ] Integrate serially into the local integration branch only when the kickoff grants that authority. Recheck behavior affected by integration.
+
+- [ ] Keep main unchanged. Open the PR in the stack as `AGENTS.md` describes, register it with T3 and apply the same evidence gate to its actual head.
+
 ## Close the program
 
 - [ ] Reconcile all spawned tasks and receipts. Verify the V1 parity and compatibility gates at the integrated revision.
@@ -1220,23 +1382,27 @@ Import, preview, activation, overview, chronology and original-document navigati
 
 - [GRS-13](https://linear.app/vaper/issue/GRS-13/gate-the-complete-local-pilot-before-feature-fan-out) `CC-24`. Gate the complete local pilot before feature fan-out. Blockers CC-03. [gate brief](plan/tickets/CC-24.md).
 
+- [GRS-37](https://linear.app/vaper/issue/GRS-37/prove-view-by-view-parity-with-the-v5-sample) `CC-29`. Prove view-by-view parity with the v5 sample. Blockers CC-03. [delivery brief](plan/tickets/CC-29.md).
+
+- [GRS-38](https://linear.app/vaper/issue/GRS-38/carry-v5s-code-embedded-view-content-into-the-results-package) `CC-30`. Carry v5's code-embedded view content into the results package. Blockers CC-03. [delivery brief](plan/tickets/CC-30.md).
+
 ### M2 - Full v5 local parity
 
 All 42 views, user work, exports, offline operation and acceptance evidence pass.
 
-- [GRS-14](https://linear.app/vaper/issue/GRS-14/browse-search-and-compare-the-case-evidence) `CC-04`. Browse, search and compare the case evidence. Blockers CC-24. [delivery brief](plan/tickets/CC-04.md).
+- [GRS-14](https://linear.app/vaper/issue/GRS-14/browse-search-and-compare-the-case-evidence) `CC-04`. Browse, search and compare the case evidence. Blockers CC-24, CC-29, CC-30. [delivery brief](plan/tickets/CC-04.md).
 
-- [GRS-15](https://linear.app/vaper/issue/GRS-15/read-the-matter-narrative-and-evidence-linked-analysis) `CC-05`. Read the matter narrative and evidence-linked analysis. Blockers CC-24. [delivery brief](plan/tickets/CC-05.md).
+- [GRS-15](https://linear.app/vaper/issue/GRS-15/read-the-matter-narrative-and-evidence-linked-analysis) `CC-05`. Read the matter narrative and evidence-linked analysis. Blockers CC-24, CC-29, CC-30. [delivery brief](plan/tickets/CC-05.md).
 
-- [GRS-16](https://linear.app/vaper/issue/GRS-16/reconcile-quantum-and-scenario-calculations) `CC-06`. Reconcile quantum and scenario calculations. Blockers CC-24. [delivery brief](plan/tickets/CC-06.md).
+- [GRS-16](https://linear.app/vaper/issue/GRS-16/reconcile-quantum-and-scenario-calculations) `CC-06`. Reconcile quantum and scenario calculations. Blockers CC-24, CC-29, CC-30. [delivery brief](plan/tickets/CC-06.md).
 
-- [GRS-17](https://linear.app/vaper/issue/GRS-17/maintain-case-registers-without-losing-edits) `CC-07`. Maintain case registers without losing edits. Blockers CC-24. [delivery brief](plan/tickets/CC-07.md).
+- [GRS-17](https://linear.app/vaper/issue/GRS-17/maintain-case-registers-without-losing-edits) `CC-07`. Maintain case registers without losing edits. Blockers CC-24, CC-29, CC-30. [delivery brief](plan/tickets/CC-07.md).
 
-- [GRS-18](https://linear.app/vaper/issue/GRS-18/work-through-litigation-preparation-tools) `CC-08`. Work through litigation preparation tools. Blockers CC-24. [delivery brief](plan/tickets/CC-08.md).
+- [GRS-18](https://linear.app/vaper/issue/GRS-18/work-through-litigation-preparation-tools) `CC-08`. Work through litigation preparation tools. Blockers CC-24, CC-29, CC-30. [delivery brief](plan/tickets/CC-08.md).
 
-- [GRS-19](https://linear.app/vaper/issue/GRS-19/prepare-discovery-schedules-and-case-bundles) `CC-09`. Prepare discovery schedules and case bundles. Blockers CC-24. [delivery brief](plan/tickets/CC-09.md).
+- [GRS-19](https://linear.app/vaper/issue/GRS-19/prepare-discovery-schedules-and-case-bundles) `CC-09`. Prepare discovery schedules and case bundles. Blockers CC-24, CC-29, CC-30. [delivery brief](plan/tickets/CC-09.md).
 
-- [GRS-20](https://linear.app/vaper/issue/GRS-20/rescan-local-files-and-restore-user-work-safely) `CC-10`. Rescan local files and restore user work safely. Blockers CC-24, CC-07. [delivery brief](plan/tickets/CC-10.md).
+- [GRS-20](https://linear.app/vaper/issue/GRS-20/rescan-local-files-and-restore-user-work-safely) `CC-10`. Rescan local files and restore user work safely. Blockers CC-24, CC-07, CC-29, CC-30. [delivery brief](plan/tickets/CC-10.md).
 
 - [GRS-21](https://linear.app/vaper/issue/GRS-21/verify-complete-v5-parity-and-local-release-readiness) `CC-11`. Verify complete v5 parity and local release readiness. Blockers CC-04, CC-05, CC-06, CC-07, CC-08, CC-09, CC-10. [gate brief](plan/tickets/CC-11.md).
 

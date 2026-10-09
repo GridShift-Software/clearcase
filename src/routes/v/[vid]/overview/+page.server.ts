@@ -1,6 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { citedRefs } from '$lib/components/cite';
 import { app } from '$lib/local-case/app.server';
+import { documentCounts } from '$lib/local-case/documents.server';
 import { slotStates } from '$lib/local-case/overview-widgets.server';
 import { versionPath, type OverviewModel } from '$lib/local-case/model';
 import type { Actions, PageServerLoad } from './$types';
@@ -20,6 +21,8 @@ export const load: PageServerLoad = async ({ parent }) => {
 	return {
 		overview: { ...rest, counts },
 		tallies,
+		// the document count of the document-row contract (imported register plus provider rows), as the chronology lists them
+		documents: documentCounts(a.store, v.id),
 		narrative,
 		known: narrative ? [...a.store.existingRefs(v.id, citedRefs([narrative]))] : [],
 		notes: a.userWork.summary(v.case_id, v.id),

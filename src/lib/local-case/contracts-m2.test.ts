@@ -3,7 +3,7 @@
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildCase } from '../../../tests/e2e/pilot/lib/fixtures.ts';
-import { activeDocumentRows, documentRows, listJson, registerDocumentRowProvider } from './documents.server.ts';
+import { activeDocumentRows, documentCounts, documentRow, documentRows, listJson, registerDocumentRowProvider } from './documents.server.ts';
 import type { ChronologyListRow, DocumentStateRow } from './model.ts';
 import type { LocalCase } from './service.server.ts';
 import { ackFor, cleanup, service, tempRoot } from './test-support.ts';
@@ -28,10 +28,13 @@ async function setup(tag: string) {
 	return { root, lc, c, imp };
 }
 
+const providerState: DocumentStateRow = { file: 'missing', preview: 'none', text: 'pending', mediaType: null, flags: ['rescan'], original: null, self: null };
+const providerList = (ref: string): Omit<ChronologyListRow, 'ord'> => ({ ref, date: '', dateType: null, dateSource: null, docType: 'other', bundle: 'Rescan', subject: 'new file', filename: 'new.pdf', sender: '', to: '', excerpt: '', amount: '', alsoIn: [], url: '', textStatus: 'pending', parentRef: null, file: 'missing', preview: 'none', attachments: 0 });
+
 describe('document rows', () => {
 	it('returns the imported register in source order with raw rows, list entries and states', async () => {
 		const { lc, c, imp } = await setup('rows');
-		expect(activeDocumentRows(lc, 'e2e-case')).toEqual({ resultsVersion: null, rows: [], dropped: [] });
+		expect(activeDocumentRows(lc, 'e2e-case')).toEqual({ resultsVersion: null, rows: [], dropped: [], failed: [] });
 		expect(await lc.activate(c.resultsVersion, ackFor(lc, imp.importId))).toBeNull();
 		const { resultsVersion, rows, dropped } = activeDocumentRows(lc, 'e2e-case');
 		expect(resultsVersion).toBe(c.resultsVersion);
@@ -60,6 +63,48 @@ describe('document rows', () => {
 		expect(withProvider.etag).not.toBe(plain.etag);
 		rev = 'r2';
 		expect(listJson(lc.store, c.resultsVersion)!.etag).not.toBe(withProvider.etag);
+	});
+
+	it('every reader honours the contract: one row by ref (imported refs unshadowed) and the overview count', async () => {
+		const { lc, c } = await setup('reader');
+		const imported = documentRows(lc.store, c.resultsVersion).rows.length;
+		expect(documentCounts(lc.store, c.resultsVersion)).toEqual({ total: imported, imported, provided: 0, failed: [] });
+		expect(documentRow(lc.store, c.resultsVersion, 'RS-001')).toBeNull();
+		undo.push(registerDocumentRowProvider({ id: 'rescan', owner: 'GRS-20', revision: () => 'r1', rows: () => [
+			{ ref: 'RS-001', row: { ref: 'RS-001', subject: 'rescanned' }, list: providerList('RS-001'), state: providerState },
+			{ ref: 'OD-001', row: { ref: 'OD-001', subject: 'SHADOW' }, list: providerList('OD-001'), state: providerState },
+			{ ref: 'RS-001', row: { ref: 'RS-001', subject: 'duplicate' }, list: providerList('RS-001'), state: providerState },
+		] }));
+		const all = documentRows(lc.store, c.resultsVersion);
+		// the detail reader finds the provider row, and an imported ref is always the imported document
+		expect(documentRow(lc.store, c.resultsVersion, 'RS-001')).toEqual(all.rows.find((r) => r.ref === 'RS-001'));
+		expect(documentRow(lc.store, c.resultsVersion, 'RS-001')).toMatchObject({ source: 'provider:rescan', row: { subject: 'rescanned' } });
+		const od = documentRow(lc.store, c.resultsVersion, 'OD-001')!;
+		expect(od).toEqual(all.rows.find((r) => r.ref === 'OD-001'));
+		expect([od.source, od.row.subject]).toEqual(['results', 'Synthetic subject OD-001']);
+		expect(documentRow(lc.store, c.resultsVersion, 'ZZ-404')).toBeNull();
+		// the overview count is the contract's row count
+		expect(documentCounts(lc.store, c.resultsVersion)).toEqual({ total: all.rows.length, imported, provided: 1, failed: [] });
+		expect(all.rows.length).toBe(imported + 1);
+		expect((JSON.parse(listJson(lc.store, c.resultsVersion)!.json) as unknown[]).length).toBe(all.rows.length);
+	});
+
+	it('isolates a provider that throws: its rows are left out and reported, the list and counts still answer', async () => {
+		const { lc, c } = await setup('throw');
+		const plain = documentRows(lc.store, c.resultsVersion).rows.length;
+		undo.push(registerDocumentRowProvider({ id: 'broken', owner: 'GRS-20', revision: () => { throw new Error('revision down'); }, rows: () => { throw new Error('rescan index unreadable'); } }));
+		undo.push(registerDocumentRowProvider({ id: 'rescan', owner: 'GRS-20', revision: () => 'r1', rows: () => [{ ref: 'RS-001', row: {}, list: providerList('RS-001'), state: providerState }] }));
+		const failed = [{ source: 'provider:broken', owner: 'GRS-20', reason: 'rescan index unreadable' }];
+		const r = documentRows(lc.store, c.resultsVersion);
+		expect(r.failed).toEqual(failed);
+		expect(r.rows.map((x) => x.source).filter((x) => x !== 'results')).toEqual(['provider:rescan']);
+		expect(r.rows.length).toBe(plain + 1);
+		const list = listJson(lc.store, c.resultsVersion)!;
+		expect(list.failed).toEqual(failed);
+		expect((JSON.parse(list.json) as unknown[]).length).toBe(plain + 1);
+		expect(list.etag).toContain('failed=provider:broken');
+		expect(documentCounts(lc.store, c.resultsVersion)).toEqual({ total: plain + 1, imported: plain, provided: 1, failed });
+		expect(documentRow(lc.store, c.resultsVersion, 'RS-001')?.source).toBe('provider:rescan');
 	});
 });
 

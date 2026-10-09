@@ -68,7 +68,7 @@ try {
 	await step('BA-18', '42 nav entries in registry order with inventory labels; each heading equals its label; 40 unavailable views name their GRS owner; unknown views 404', () => flow.views42(ctx));
 	await step('SLOTS', "overview widget slots: deadlines, unbilled-time and rescan-freshness render data-slot-status=unavailable naming GRS-17/GRS-20; the old combined card is gone", () => flow.overviewSlots(ctx));
 	await step('BA-04', "date basis: 'unknown' for dated and 'undated' for undated rows; supplied date_type/date_source shown as supplied", () => flow.dateBasis(ctx));
-	await step('BA-09', 'source routes: e-mail original direct, attachments through the parent; a deleted original is unavailable, has no link and is 410', () => flow.sourceRoutes(ctx));
+	await step('BA-09', 'source routes: e-mail original direct, attachments through the parent; an original deleted before import, or after activation, is unavailable, has no link and is 410; restoring it brings the links back', () => flow.sourceRoutes(ctx));
 	await step('S4', 'a note added through the document page form appears without a reload, renders as text and persists', () => state.notesUi(ctx));
 	await step('S28', 'viewer containment: script in the sandboxed pdf.js frame cannot navigate, open popups, read originals, set cookies or reach the wrapper', () => sec.s28(ctx));
 	await step('S29', '/_pdfjs allowlist: inherited keys and malformed escapes 404 with CSP; listed files 200', () => sec.s29(ctx));

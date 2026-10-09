@@ -21,6 +21,9 @@ export const REJECTED_SCHEMES = new Set([
 
 export const MAX_LINK = 2048;
 
+/** Fields whose string values are link locators (kept as data, never used as href). */
+export const LINK_FIELDS: ReadonlySet<string> = new Set(['url', 'href', 'link', 'headline_url', 'sliceUrl', 'file', 'indexFile', 'planFile', 'folder', 'caselinesSrc', 'extracts', 'src_url']);
+
 export function normaliseForScheme(raw: string): string {
   return raw.replace(/[\t\n\r]/g, '').replace(/^[\u0000- ]+/, '').replace(/[\u0000- ]+$/, '');
 }

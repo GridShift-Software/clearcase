@@ -114,6 +114,9 @@ export const CODES = {
   V5_PAYLOAD_ENCODED: e('structural', 'v5 data line is encoded or computed (refused, never evaluated)', 'Select a v5 workspace HTML with plain JSON data lines.'),
   V5_UNMAPPED_KEY: w('quality', 'source key has no mapping; preserved as an opaque dataset', 'Review the residual dataset; a later converter may map it.'),
   V5_SIZE_CLAIM_MISMATCH: w('quality', 'source size field differs from the original on disk', 'Review the source; the on-disk size is indexed.'),
+  V5_VIEW_CONTENT_MISSING: w('quality', 'a required view-content field was not found in the v5 viewer code (not extracted, never guessed)', 'Review the view-content map against this HTML; the view shows the field as unavailable.'),
+  V5_VIEW_CONTENT_AMBIGUOUS: w('quality', 'a view-content anchor matches more than once in the v5 viewer code (not extracted, never guessed)', 'Review the view-content map against this HTML; the view shows the field as unavailable.'),
+  V5_VIEW_CONTENT_LIMIT: w('quality', 'the v5 viewer code is too large or too slow to read; no view content was extracted (fails closed)', 'Review the v5 HTML; the views show code-embedded content as unavailable.'),
   V5_META_COUNT_DISAGREEMENT: w('quality', 'source META count disagrees with the count derived from the records', 'Displayed counts come from the records; acknowledge the source discrepancy.'),
   DIAG_TRUNCATED: i('quality', 'more instances of a code than listed', 'See the counts; every instance is fingerprinted.'),
 } as const satisfies Record<string, CodeDef>;

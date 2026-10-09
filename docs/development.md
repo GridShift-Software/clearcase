@@ -106,7 +106,7 @@ The overview has typed widget slots declared in `src/lib/components/overview-slo
 | Contract | Where | Use |
 | --- | --- | --- |
 | Registry and navigation | `views.ts`, `view-registry.ts`, `ViewNav.svelte` | `VIEWS`, `viewHref`, `viewAt`, `blockedBy`; nav marks the current view with `aria-current` |
-| Page header and titles | `PageHeader.svelte`, `titles.ts` | `<document> · <section> · <case> · ClearCase` (BA-16); the `[data-page-heading]` h1 receives focus after navigation (BA-14) |
+| Page header and titles | `PageHeader.svelte`, `titles.ts` | `<document> · <section> · <case> · ClearCase` (BA-16); the `[data-page-heading]` h1 receives focus after navigation, Back and Forward, including a full load reached by Back (BA-14); the skip link focuses `#main` without a history entry |
 | Citation link | `CitationLink.svelte`, `cite.ts` | `/v/<rv>/doc/<ref>?page=N` via GRS-10 `documentRoute`; missing refs render broken |
 | Narrative | `Narrative.svelte` | the only `{@html}`: `renderNarrative` output |
 | Original open | `OriginalOpen.svelte`, `OriginalLinks` in `model.ts` | direct, parent-route and unavailable states (BA-09); labels from the verified mapping |

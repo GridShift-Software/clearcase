@@ -365,16 +365,17 @@ export async function lane9(C, L) {
 	try {
 		L.cmd('browser (fresh context): overview, Tab to the skip link, Enter');
 		await Q.goto(`${C.origin}/`, ready('overview'));
+		const h0 = await Q.evaluate('history.length');
 		await Q.key('Tab');
 		await Q.key('Enter');
-		L.check('Enter on the skip link moves focus to the main content (fragment #main)', { id: 'main', hash: '#main' }, await Q.settled(`({ id: document.activeElement?.id ?? null, hash: location.hash })`));
+		L.check('Enter on the skip link moves focus to the main content without a history entry', { id: 'main', hash: '', added: 0 }, await Q.settled(`({ id: document.activeElement?.id ?? null, hash: location.hash, added: history.length - ${h0} })`));
 		await Q.click('#nav-chronology');
 		await Q.waitFor(ready('chronology'));
 		await Q.back();
 		await Q.waitFor(`location.pathname.endsWith('/overview') && ${ready('overview')}`, 60000);
 		await new Promise((r) => setTimeout(r, 300));
 		const f = await Q.evaluate(`({ id: document.activeElement?.id ?? null, heading: !!document.activeElement?.hasAttribute('data-page-heading'), hash: location.hash })`);
-		L.note(`observation (not gated): the skip link adds a history entry ending in #main; Back to that entry focuses ${f.heading ? 'the page heading' : `#${f.id} (the fragment target, SvelteKit's fragment focus rule), not the page heading`}`);
+		L.check('Back to the overview after using the skip link: focus on its heading', { heading: true, hash: '' }, { heading: f.heading, hash: f.hash });
 	} finally { await Q.close(); }
 }
 

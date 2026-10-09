@@ -3,7 +3,7 @@
 //
 //   bun run --bun parity -- [--view ID[,ID...] | --all] --fixture-config .local/v5-verification.json --out DIR
 //       [--clock ISO] [--timezone TZ] [--approved-only] [--no-sweeps] [--no-exports] [--app-root DIR]
-//       [--register FILE] [--keep-work]
+//       [--register FILE] [--strict-register] [--keep-work] [--keep-snapshots] [--app-v5-html FILE]
 //
 // For each view it extracts what v5 shows (the main HTML opened read-only from the fixture tree as a file: URL, Date
 // frozen at the clock, timezone fixed, every non-file request counted and fatal) and what the app shows (the
@@ -19,6 +19,10 @@
 // Isolation: outside the network namespace the runner re-execs itself through tests/e2e/pilot/offline.sh under
 // `unshare -rn` (tests/e2e/pilot/v5/env.mjs ensureOffline); inside, it proves that only loopback exists before it
 // starts anything. One browser runs at a time. --app-root points at another checkout's build (the mutation proof).
+// --app-v5-html replaces the app side with the v5 adapter on another copy of the v5 HTML (self-parity: the control and
+// the register-edit mutation, where the pilot has no register yet). Register entries that covered nothing in the run
+// are reported as unused; --strict-register fails on them (an improvement that reverted to v5 behaviour matches v5,
+// so only its unused entry shows it).
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { ensureOffline, gitIdentity, PORTS, REPO, treeStamp } from '../../tests/e2e/pilot/v5/env.mjs';
@@ -104,6 +108,7 @@ try {
 	b = await launch({ profileRoot: join(work, 'profiles') });
 	const v5 = await v5Page(b, { html: fx.cfg.mainHtml.path, clock, timezone });
 	const app = await appPage(b, { origin: c.origin, timezone });
+	const selfV5 = opt('app-v5-html') ? await v5Page(b, { html: resolve(opt('app-v5-html')), clock, timezone }) : null;
 	const ctx = { clock, timezone, dims, vid, base: vpath(vid), origin: c.origin, appRoot, pkg, sweeps: !flag('no-sweeps'), exports: !flag('no-exports'), registry };
 	await v5.load({});
 	ctx.v5Nav = await v5Nav(v5);
@@ -113,7 +118,10 @@ try {
 		try { s5 = await extractV5View(v5, view, ctx); if (view === 'overview') s5.lists.navigation = ctx.v5Nav; }
 		catch (e) { s5 = { ...emptySnapshot(view, 'v5', 'error'), error: String(e.message ?? e).slice(0, 500) }; }
 		const a = adapters[view];
-		if (a) {
+		if (selfV5) {
+			try { sa = { ...(await extractV5View(selfV5, view, ctx)), side: 'app' }; if (view === 'overview') sa.lists.navigation = await v5Nav(selfV5); }
+			catch (e) { sa = { ...emptySnapshot(view, 'app', 'error'), error: String(e.message ?? e).slice(0, 500) }; }
+		} else if (a) {
 			try { sa = await a.extract(app, ctx); for (const sw of Object.keys(s5.sweeps)) if (!sa.sweeps[sw]) sa.sweeps[sw] = a.sweeps?.[sw] ? await a.sweeps[sw](app, ctx) : undefined; for (const k of Object.keys(sa.sweeps)) if (sa.sweeps[k] === undefined) delete sa.sweeps[k]; }
 			catch (e) { sa = { ...emptySnapshot(view, 'app', 'error'), error: String(e.stack ?? e).slice(0, 800) }; }
 		} else if (registry[view]?.status === 'available') sa = { ...emptySnapshot(view, 'app', 'error'), error: `the registry marks ${view} available but no app adapter exists (scripts/parity/adapters/app/${view}.mjs)` };
@@ -126,7 +134,7 @@ try {
 		const reg2 = TYPES.map((t) => [t, r.registered.filter((d) => d.type === t).length]).filter(([, n]) => n).map(([t, n]) => `${t} ${n}`).join(', ');
 		console.log(`  ${view.padEnd(20)} v5 ${s5.status.padEnd(6)} app ${sa.status.padEnd(15)} compared ${String(r.compared).padStart(6)} matched ${String(r.matched).padStart(6)} registered ${r.registered.length}${reg2 ? ` (${reg2})` : ''} unregistered ${r.unregistered.length} ${perView[view].ms} ms`);
 	}
-	details.__requests = { v5NonFile: v5.nonFile.length, appNonLoopback: app.requests.filter((u) => !/^(https?:\/\/(127\.0\.0\.1|[a-z0-9-]+\.localhost)(:\d+)?\/|data:|blob:|about:)/.test(u)).length };
+	details.__requests = { v5NonFile: v5.nonFile.length + (selfV5?.nonFile.length ?? 0), appNonLoopback: app.requests.filter((u) => !/^(https?:\/\/(127\.0\.0\.1|[a-z0-9-]+\.localhost)(:\d+)?\/|data:|blob:|about:)/.test(u)).length };
 } catch (e) {
 	console.error(`parity: ${e.setup ? 'setup error' : 'run aborted'}: ${e.stack ?? e}`);
 	exitCode = 2;
@@ -136,15 +144,19 @@ try {
 	await canary.close().catch(() => {});
 }
 const treeAfter = treeStamp(fx.caseFolder);
+const used = new Set(Object.values(perView).flatMap((r) => r.registered.map((d) => d.register)));
+const unused = reg.entries.filter((e) => views.includes(e.view) && perView[e.view] && !used.has(e.id)).map((e) => e.id);
+writeFileSync(join(out, 'register-usage.json'), JSON.stringify({ used: [...used].sort(), unused }, null, 1) + '\n');
 const nonFile = details.__requests?.v5NonFile ?? null;
 const sc = scorecard(perView, {
 	command: `bun run --bun parity -- ${argv.join(' ')}`, revision: git.head, dirty: git.dirty, build: { id: stamp.buildId, revision: stamp.revision, dirty: !!stamp.dirty, root: relative(REPO, appRoot) || '.' },
-	clock, timezone, register: { entries: reg.entries.length, approved: reg.entries.filter((e) => e.approvedBy).length, approvedOnly: flag('approved-only') },
+	clock, timezone, register: { entries: reg.entries.length, approved: reg.entries.filter((e) => e.approvedBy).length, approvedOnly: flag('approved-only'), used: used.size, unused: unused.length, strict: flag('strict-register') },
+	appSide: selfV5 ? 'v5 self-parity copy' : 'app build',
 	isolation: { offline: proof.pass, links: proof.links, v5NonFileRequests: nonFile, appNonLoopbackRequests: details.__requests?.appNonLoopback ?? null, canaryHits: canary.hits.length, fixtureUnchanged: treeBefore === treeAfter },
 	seconds: Math.round((performance.now() - t0) / 100) / 10,
 });
 if (exitCode === 0) {
-	if (sc.total.unregistered || nonFile !== 0 || canary.hits.length || treeBefore !== treeAfter || sc.total.viewsExtractedV5 !== views.length) { exitCode = 1; sc.result = 'FAIL'; }
+	if (sc.total.unregistered || (flag('strict-register') && unused.length) || nonFile !== 0 || canary.hits.length || treeBefore !== treeAfter || sc.total.viewsExtractedV5 !== views.length) { exitCode = 1; sc.result = 'FAIL'; }
 }
 sc.exit = exitCode;
 writeFileSync(join(out, 'scorecard.json'), JSON.stringify(sc, null, 1) + '\n');
@@ -153,6 +165,7 @@ writeFileSync(join(out, 'scorecard.md'), [
 	`# Parity scorecard`, '',
 	`Result **${sc.result}** (exit ${exitCode}) at ${git.head}${git.dirty ? ' (dirty)' : ''}; build ${stamp.buildId} from ${stamp.revision}; clock ${clock} ${timezone}; ${sc.seconds} s.`, '',
 	`Views ${T.views}: v5 extracted ${T.viewsExtractedV5}, app compared ${T.viewsComparedApp}, not yet implemented ${T.viewsNotImplemented}, failed ${T.viewsFailed}. Values: v5 ${T.v5Values}, app ${T.appValues}, compared ${T.compared}, matched ${T.matched}. Registered differences: ${TYPES.map((t) => `${t} ${T.registered[t]}`).join(', ')} (${T.pendingApproval} on entries awaiting approval). Unregistered: ${T.unregistered}.`, '',
+	`Register: ${reg.entries.length} entries (${sc.register.approved} approved); ${used.size} covered a difference, ${unused.length} unused in the views run${flag('strict-register') ? ' (strict: unused fails)' : ''}.`, '',
 	`Isolation: offline ${proof.pass}, v5 non-file requests ${nonFile}, app non-loopback requests ${sc.isolation.appNonLoopbackRequests}, canary hits ${canary.hits.length}, fixture tree unchanged ${treeBefore === treeAfter}.`, '',
 	'| View | Status | Compared | Matched | Registered | Pending approval | Unregistered |', '| --- | --- | --: | --: | --: | --: | --: |',
 	...Object.entries(sc.views).map(([v, x]) => `| ${v} | ${x.status} | ${x.compared} | ${x.matched} | ${Object.values(x.registered).reduce((a, b) => a + b, 0)} | ${x.pendingApproval} | ${x.unregistered} |`), '',

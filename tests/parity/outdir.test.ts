@@ -2,7 +2,8 @@
 // containing it, the output is refused before anything is created or removed, and the fixture's bytes are unchanged.
 // A fresh working directory leaves an unrelated existing .work in the output alone. A symlink or hard link planted
 // below a separate output never leads a write into the fixture, the folders of the fixture's files are protected too,
-// and the working directory is removed on SIGINT, SIGTERM and SIGHUP or swept by a later run. Synthetic trees only.
+// and the working directory is removed on SIGINT, SIGTERM and SIGHUP or swept by a later run, which removes only
+// directories the runner marked as its own, unkept and of a process that is gone. Synthetic trees only.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
@@ -10,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 import { canonical, checkOutput, fixtureInputs, locatorInputs, overlap, prepareOutput, SIGNALS } from '../../scripts/parity/lib/outdir.mjs';
+import * as outdir from '../../scripts/parity/lib/outdir.mjs';
 import { REPO } from '../../scripts/parity/lib/register.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'parity-outdir-'));
@@ -147,20 +149,89 @@ describe('canonical() resolves a dangling relative symlink as the kernel does', 
 });
 
 describe('working directories', () => {
-	test('a later run sweeps the stale ones of killed runs, never a live run\'s, a symlink or another entry', () => {
-		const out = join(root, 'sweep-out');
-		const dead = spawnSync('true').pid;
-		const live = `.work-${process.pid}-LiveAA`, stale = `.work-${dead}-StaleA`, legacy = '.work-OldAbc';
-		for (const d of [live, stale, legacy, '.work', 'keep']) put(join(out, d, 'x'), 'x');
-		put(join(out, '.work-Filexx'), 'a file');
-		symlinkSync(join(caseFolder, 'sub'), join(out, `.work-${dead}-LinkAA`));
+	const dead = () => spawnSync('true').pid as number;
+	const marker = (dir: string, m: object) => put(join(dir, '.parity-work.json'), JSON.stringify(m));
+	const ours = (pid: number, extra: object = {}) => ({ tool: 'clearcase-parity', pid, startedAt: 1, keep: false, ...extra });
+	/** A run in a fresh output holding `entries`; returns what it swept and which entries survived. */
+	const run = (name: string, make: (out: string) => string[]) => {
+		const out = join(root, name);
+		mkdirSync(out, { recursive: true });
+		const names = make(out);
 		const before = treeHash(caseFolder);
 		const r = prepareOutput(out, inputs);
-		expect(r.swept.sort()).toEqual([stale, legacy].sort());
-		for (const d of [live, '.work', 'keep', '.work-Filexx', `.work-${dead}-LinkAA`]) expect(existsSync(join(out, d)), d).toBe(true);
-		expect(r.work).toMatch(new RegExp(`/\\.work-${process.pid}-[A-Za-z0-9]{6}$`));
 		expect(treeHash(caseFolder)).toBe(before);
 		rmSync(r.work, { recursive: true });
+		return { swept: r.swept, kept: names.filter((n) => existsSync(join(out, n))), out };
+	};
+	test('a user directory named like a working directory survives, with its files', () => {
+		const { swept, kept, out } = run('sweep-user', (o) => { put(join(o, '.work-backup', 'notes.txt'), 'synthetic user file'); put(join(o, '.work', 'x'), 'x'); return ['.work-backup', '.work']; });
+		expect(swept).toEqual([]);
+		expect(kept).toEqual(['.work-backup', '.work']);
+		expect(readFileSync(join(out, '.work-backup', 'notes.txt'), 'utf8')).toBe('synthetic user file');
+	});
+	test('an unmarked or unparsable directory of a dead pid survives', () => {
+		const p = dead();
+		const { swept, kept } = run('sweep-unmarked', (o) => {
+			put(join(o, `.work-${p}-abcdef`, 'x'), 'x');
+			put(join(o, `.work-${p}-garbag`, '.parity-work.json'), '{not json');
+			marker(join(o, `.work-${p}-othert`), { ...ours(p), tool: 'something-else' });
+			return [`.work-${p}-abcdef`, `.work-${p}-garbag`, `.work-${p}-othert`];
+		});
+		expect(swept).toEqual([]);
+		expect(kept).toHaveLength(3);
+	});
+	test('a directory kept with --keep-work survives later runs', () => {
+		const p = dead();
+		const { swept, kept } = run('sweep-keep', (o) => { marker(join(o, `.work-${p}-KeptAA`), ours(p, { keep: true })); return [`.work-${p}-KeptAA`]; });
+		expect(swept).toEqual([]);
+		expect(kept).toEqual([`.work-${p}-KeptAA`]);
+	});
+	test('a live run\'s marked directory survives', () => {
+		const { swept, kept } = run('sweep-live', (o) => { marker(join(o, `.work-${process.pid}-LiveAA`), ours(process.pid, { pidStartTime: outdir.pidStartTime?.(process.pid) })); return [`.work-${process.pid}-LiveAA`]; });
+		expect(swept).toEqual([]);
+		expect(kept).toEqual([`.work-${process.pid}-LiveAA`]);
+	});
+	test('a marked directory of a dead pid, or of a live pid with another start time (reused), is removed', () => {
+		const p = dead(), reused = `.work-${process.pid}-ReusAA`;
+		const { swept, kept } = run('sweep-stale', (o) => {
+			marker(join(o, `.work-${p}-StaleA`), ours(p));
+			put(join(o, `.work-${p}-StaleA`, 'pkg'), 'synthetic');
+			marker(join(o, reused), ours(process.pid, { pidStartTime: -1 }));
+			return [`.work-${p}-StaleA`, reused];
+		});
+		expect(swept.sort()).toEqual([`.work-${p}-StaleA`, reused].sort());
+		expect(kept).toEqual([]);
+	});
+	test('a symlink named like a working directory is never followed or removed', () => {
+		const p = dead(), target = join(root, 'link-target');
+		marker(target, ours(p));
+		put(join(target, 'synthetic.txt'), 'synthetic');
+		const { swept, kept } = run('sweep-link', (o) => { symlinkSync(target, join(o, `.work-${p}-LinkAA`)); return [`.work-${p}-LinkAA`]; });
+		expect(swept).toEqual([]);
+		expect(kept).toEqual([`.work-${p}-LinkAA`]);
+		expect(readdirSync(target).sort()).toEqual(['.parity-work.json', 'synthetic.txt']);
+	});
+	test('a marker naming another pid than its directory is not removed', () => {
+		const p = dead(), q = dead();
+		const { swept, kept } = run('sweep-mismatch', (o) => { marker(join(o, `.work-${p}-MisAAA`), ours(q)); return [`.work-${p}-MisAAA`]; });
+		expect(swept).toEqual([]);
+		expect(kept).toEqual([`.work-${p}-MisAAA`]);
+	});
+	test('each run marks its own working directory, recording --keep-work', () => {
+		const out = join(root, 'sweep-mark');
+		for (const keep of [false, true]) {
+			const r = prepareOutput(out, inputs, [], { keep });
+			expect(r.work).toMatch(new RegExp(`/\\.work-${process.pid}-[A-Za-z0-9]{6}$`));
+			const m = JSON.parse(readFileSync(join(r.work, '.parity-work.json'), 'utf8'));
+			expect(m).toMatchObject({ tool: 'clearcase-parity', pid: process.pid, keep });
+			expect(typeof m.startedAt).toBe('number');
+			expect(m.pidStartTime).toBe(outdir.pidStartTime(process.pid));
+			expect(Number.isSafeInteger(m.pidStartTime)).toBe(true);
+			rmSync(r.work, { recursive: true });
+		}
+	});
+	test('the runner records --keep-work in the marker', () => {
+		expect(readFileSync(join(REPO, 'scripts', 'parity', 'run.mjs'), 'utf8')).toMatch(/prepareOutput\(out, fixtureInputs\(fx, \{ appV5Html \}\), CHILDREN, \{ keep: flag\('keep-work'\) \}\)/);
 	});
 	for (const [sig, code] of Object.entries(SIGNALS)) test(`${sig} removes this run's working directory and exits ${code}`, async () => {
 		const out = join(root, `sig-${sig}`);

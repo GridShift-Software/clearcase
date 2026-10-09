@@ -30,7 +30,7 @@
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'info_required_tab' : null}>
+<main id="main" tabindex="-1" data-analysis data-ready={ready ? 'info_required_tab' : null}>
 	<PageHeader heading="Info Required" section="Info Required" caseName={data.version.titleName} subtitle="Checklist of outstanding items" />
 	{#if problem}
 		<div class="an-error" role="alert" id="info-error">
@@ -59,7 +59,7 @@
 									<noscript><button>Save</button></noscript>
 								</form>
 							</td>
-							<td data-label="Item" class="wrap" class:struck={shown(r)}>{r.item}</td>
+							<td data-label="Item" class:struck={shown(r)}>{r.item}</td>
 							<td data-label="Status"><span class="badge {infoTone(r.status)}">{r.status}</span></td>
 							<td data-label="Owner">{r.owner}</td>
 						</tr>

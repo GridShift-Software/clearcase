@@ -24,7 +24,7 @@
 	<span class="chips">{#each refs as r, j (j)}{#if j}{' '}{/if}<CitationLink resultsVersion={vid} ref={r.ref} exists={known.has(r.ref)} label={chipLabel(r)} />{/each}</span>
 {/snippet}
 
-<main id="main" tabindex="-1" data-ready={ready ? 'contradictions_tab' : null}>
+<main id="main" tabindex="-1" data-analysis data-ready={ready ? 'contradictions_tab' : null}>
 	<PageHeader heading="Contradiction Tracker" section="Contradiction Tracker" caseName={data.version.titleName} subtitle={c ? 'Inconsistencies computed automatically across the corpus at build time — no searching required' : null}>
 		{#snippet actions()}{#if c}<button type="button" onclick={exportCsv} id="export-csv">Export CSV</button>{/if}{/snippet}
 	</PageHeader>
@@ -41,9 +41,10 @@
 			<h2 id="checks-heading">Consistency checks</h2>
 			<div class="an-scroll"><table class="an-table an-stack" id="checks-table">
 				<thead><tr><th>Check</th><th>Result</th></tr></thead>
-				<tbody>{#each c.checks as x, i (i)}{@const tone = checkTone(x.result)}<tr><td data-label="Check" class="wrap">{x.check}</td><td data-label="Result">{#if tone}<span class="badge {tone}">{x.result}</span>{:else}{x.result}{/if}</td></tr>{/each}</tbody>
+				<tbody>{#each c.checks as x, i (i)}{@const tone = checkTone(x.result)}<tr><td data-label="Check">{x.check}</td><td data-label="Result">{#if tone}<span class="badge {tone}">{x.result}</span>{:else}{x.result}{/if}</td></tr>{/each}</tbody>
 			</table></div>
 		</section>
+		{#if c.categories.length === 0}<div class="an-card"><div class="an-empty" id="contradictions-none">No contradiction categories in this results version.</div></div>{/if}
 		{#each c.categories as k, ci (ci)}
 			{@const sev = severityBadge(k.severity)}
 			<section class="an-card pad0 category" data-category={ci}>
@@ -67,7 +68,7 @@
 							<thead><tr><th>Item</th><th>Detail</th><th>Sources</th></tr></thead>
 							<tbody>{#each k.items as it, i (i)}<tr>
 								<td data-label="Item"><b>{it.label}</b></td>
-								<td data-label="Detail" class="wrap">{it.detail}{#if it.spread}{' '}<b class="an-danger">Δ {money(it.spread)}</b>{/if}</td>
+								<td data-label="Detail">{it.detail}{#if it.spread}{' '}<b class="an-danger">Δ {money(it.spread)}</b>{/if}</td>
 								<td data-label="Sources">{@render chips(it.refs)}</td>
 							</tr>{/each}</tbody>
 						</table>

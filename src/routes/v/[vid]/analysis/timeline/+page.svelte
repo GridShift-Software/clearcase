@@ -20,7 +20,7 @@
 	<div class="ev" role="listitem"><span class="d">{e.date}</span> · <span class="badge b-mut">{e.kind}</span> <span class="mono">{e.ref}</span> <CitationLink resultsVersion={vid} ref={e.ref} exists={known.has(e.ref)} label="{cleanName(e.title)} ↗" />{#if e.note}<div class="ex">{e.note}</div>{/if}</div>
 {/snippet}
 
-<main id="main" tabindex="-1" data-ready={ready ? 'timeline' : null}>
+<main id="main" tabindex="-1" data-analysis data-ready={ready ? 'timeline' : null}>
 	<PageHeader heading="Timeline" section="Timeline" caseName={data.version.titleName} subtitle={c.subtitle}>
 		{#snippet actions()}<button type="button" onclick={() => window.print()} id="print">Print / PDF</button> <button type="button" onclick={() => goto(href('chronology'))} id="full-chronology">Full chronology</button>{/snippet}
 	</PageHeader>
@@ -39,7 +39,7 @@
 	<div class="card tl-card" id="years">
 		<h2>Documents by year</h2>
 		{#if data.years.length}
-			<div class="years">{#each data.years as y (y.year)}<div class="year"><div class="bar" title="{y.year}: {y.count}" style:height="{y.height}px"></div><div class="an-tag">{y.label}</div><div class="an-tag">{y.count}</div></div>{/each}</div>
+			<div class="years">{#each data.years as y (y.year)}<div class="year"><svg class="bar" viewBox="0 0 10 100" preserveAspectRatio="none" role="img" aria-label="{y.year}: {y.count}" data-height={y.height}><title>{y.year}: {y.count}</title><rect x="0" y={100 - y.height} width="10" height={y.height} /></svg><div class="an-tag">{y.label}</div><div class="an-tag">{y.count}</div></div>{/each}</div>
 		{:else}
 			<p class="an-empty">No documents-by-year counts in this results version.</p>
 		{/if}
@@ -110,7 +110,7 @@
 	.callout { background: #f3f6fa; border: 1px solid #1e3a5f; border-radius: 6px; padding: .6rem .9rem; margin-top: .5rem; }
 	.years { display: flex; align-items: flex-end; gap: 6px; height: 140px; }
 	.year { flex: 1; text-align: center; min-width: 0; }
-	.bar { background: #1e3a5f; border-radius: 3px 3px 0 0; }
+	.bar { display: block; width: 100%; height: 100px; fill: #1e3a5f; }
 	.ph { border-left: 3px solid #1e3a5f; padding: .2rem 0 .6rem .9rem; margin-bottom: .6rem; }
 	.ph h3 { margin: .1rem 0; font-size: 1rem; }
 	.yr { font-weight: 700; color: #1e3a5f; }

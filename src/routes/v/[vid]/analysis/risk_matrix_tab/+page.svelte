@@ -8,7 +8,7 @@
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'risk_matrix_tab' : null}>
+<main id="main" tabindex="-1" data-analysis data-ready={ready ? 'risk_matrix_tab' : null}>
 	<PageHeader heading="Risk Matrix" section="Risk Matrix" caseName={data.version.titleName} subtitle="Issue · likelihood · impact · mitigation" />
 	{#if data.risks.length === 0}
 		<div class="an-card"><div class="an-empty" id="risk-empty">No risk matrix in this results version.</div></div>
@@ -19,10 +19,10 @@
 				<tbody>
 					{#each data.risks as r, i (i)}
 						<tr>
-							<td data-label="Issue" class="wrap">{r.issue}</td>
+							<td data-label="Issue">{r.issue}</td>
 							<td data-label="Likelihood"><span class="badge {riskTone(r.likelihood)}">{r.likelihood}</span></td>
 							<td data-label="Impact"><span class="badge {riskTone(r.impact)}">{r.impact}</span></td>
-							<td data-label="Mitigation" class="wrap">{r.mitigation}</td>
+							<td data-label="Mitigation">{r.mitigation}</td>
 						</tr>
 					{/each}
 				</tbody>

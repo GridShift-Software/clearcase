@@ -1,0 +1,498 @@
+{
+  "reviewRound": 2,
+  "reviewedRevision": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+  "mergedRepairRevision": "adf4fa9108dea063e6da9ce41f1c6142788ad2e4",
+  "baseRevision": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+  "verdict": "PASS",
+  "blockingFindings": [],
+  "previousRound": {
+    "verdict": "FAIL",
+    "reviewedRevision": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+    "gateEvidenceRevision": "bf13435677ebf26211560d7048d7bf159ed841d7",
+    "blockingFindings": [
+      "G1",
+      "G2"
+    ],
+    "independentGateTests": {
+      "passed": 25,
+      "failed": 4,
+      "skipped": 0
+    }
+  },
+  "upstreamTests": {
+    "passed": 751,
+    "failed": 0,
+    "skipped": 0
+  },
+  "independentGateTests": {
+    "passed": 29,
+    "failed": 0,
+    "skipped": 0,
+    "receipt": "r2-gate-tests"
+  },
+  "toolingSelfTests": {
+    "passed": 482,
+    "failed": 0,
+    "result": "PASS"
+  },
+  "fixtureCounts": {
+    "chronologyRecords": 1689,
+    "navEntries": 42,
+    "attachmentsResolved": 1308,
+    "attachmentsTotal": 1308,
+    "chronologyValues": 33780,
+    "chronologyMismatches": 0,
+    "unresolvedCatalogueRefs": 20
+  },
+  "packageVerification": {
+    "lanesPassed": 10,
+    "lanesFailed": 0,
+    "lanesSkipped": 0,
+    "fixtureCaseFolderUnchanged": true,
+    "runtimeRevision": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+    "trackedRuntimeFilesCompared": 351,
+    "trackedRuntimeFileMismatches": 0
+  },
+  "G1": {
+    "result": "PASS",
+    "outsideNamePresent": {
+      "verdict": "reject",
+      "candidate": false,
+      "ORIG_ESCAPE": 1,
+      "IN_OPEN": 0,
+      "IN_ACCESS": 0
+    },
+    "outsideNameAbsent": {
+      "verdict": "reject",
+      "candidate": false,
+      "ORIG_ESCAPE": 1,
+      "IN_OPEN": 0,
+      "IN_ACCESS": 0
+    },
+    "identicalObservedResults": true
+  },
+  "G2": {
+    "result": "PASS",
+    "rawDestinationLength": 100024,
+    "inline": {
+      "verdict": "reject",
+      "candidate": false,
+      "LINK_RELATIVE_UNSAFE": 1
+    },
+    "referenceDefinition": {
+      "verdict": "reject",
+      "candidate": false,
+      "LINK_RELATIVE_UNSAFE": 1
+    }
+  },
+  "followupFixes": {
+    "N1": "PASS",
+    "N2": "PASS",
+    "N3": "PASS",
+    "N4": "PASS",
+    "N10": "PASS"
+  },
+  "regressions": [],
+  "newBlockingFindings": [],
+  "newNonBlockingFindings": [],
+  "conversionOutputs": {
+    "filesCompared": 36,
+    "packageDiffExitCode": 0,
+    "validationReportDiffExitCode": 0,
+    "byteIdenticalToBase": true
+  },
+  "conversionBudget": {
+    "warmSamples": 20,
+    "discardedWarmups": 2,
+    "medianMs": 2479,
+    "p95Ms": 2496,
+    "maxMs": 2499,
+    "peakRssMiB": 347.6,
+    "measuredBaseMedianMs": 2500,
+    "recordedBaselineMedianMs": 2495,
+    "repeatLimitMs": 3118.75,
+    "absoluteLimitMs": 10000,
+    "rssLimitMiB": 1024,
+    "pass": true
+  },
+  "historyScan": {
+    "range": "81c3f4b..HEAD",
+    "commits": 82,
+    "paths": 1643,
+    "distinctBlobs": 1147,
+    "exitCode": 0,
+    "result": "CLEAN"
+  },
+  "exactHeadReceipts": [
+    {
+      "name": "doctor",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-11-gate-reference-package",
+      "receiptSha256": "af512e93e1f4b8a461e2455a362eae3fddd9d850965ddaa4d2ddca44c16e9b9f",
+      "stdoutSha256": "a2d3c2524f34f14ebe2bd35660da90392af76471acf8a16cfd4caafe143cd1d6",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "localReceiptDirectory": "20261009T015447.076537Z-doctor"
+    },
+    {
+      "name": "r2-install",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-11-gate-reference-package",
+      "receiptSha256": "cc02e9a0be6273210072e8ff753ccc0582755e9315471654e3ef0a2ec2d24001",
+      "stdoutSha256": "702219362f4a806dfe337886980baf40770db6d746dfe091af55bf6e36aaace7",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "localReceiptDirectory": "20261009T015502.947962Z-r2-install"
+    },
+    {
+      "name": "r2-test",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-11-gate-reference-package",
+      "receiptSha256": "bea6145b01e6765df9e4c42d54028f5451ca4eaedf3c5ac64eab2cf75f99a831",
+      "stdoutSha256": "9913571ae7aa83d86d99db532371e7f8c60e089d91b62bd6db94768943eae7d8",
+      "stderrSha256": "cb7efe2ed065b3202856f854f1645179984b659249d4ea99dde8467ed4a4b173",
+      "localReceiptDirectory": "20261009T015519.462972Z-r2-test"
+    },
+    {
+      "name": "r2-check",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-11-gate-reference-package",
+      "receiptSha256": "bcff0842e304c1ace2e0ada25a8f2eeae3a7aa029fc00ab689e659c5485372b1",
+      "stdoutSha256": "198ab9fe49c36286361c323bb119545e93609789e99cfc4a1d8adaf1f5187876",
+      "stderrSha256": "f1a5785fd9b691293c533641c4626fd8f66a6cd6211d8dd03da63c3426e3b69f",
+      "localReceiptDirectory": "20261009T015519.463018Z-r2-check"
+    },
+    {
+      "name": "r2-tooling-tests",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-11-gate-reference-package",
+      "receiptSha256": "c671e1b76c3613309ae537659831bd2aa1a4c6031dfc868dee0492be78e9adb6",
+      "stdoutSha256": "a8be82289d2f34c78aec5c6f205ce8b01c416c544d93992d735d17238a5aeb32",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "localReceiptDirectory": "20261009T015519.463332Z-r2-tooling-tests"
+    },
+    {
+      "name": "r2-inventory",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-11-gate-reference-package",
+      "receiptSha256": "aaa8ec72ca69d9cca72d2e90d5860bd8ebcd7bc60ffa8419eeb598a4e3228c2d",
+      "stdoutSha256": "618f192a8fc69546d9ae569ca88375e487a9a9f3f948a7265f87b8e032609041",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "localReceiptDirectory": "20261009T015643.025591Z-r2-inventory"
+    },
+    {
+      "name": "r2-gate-tests",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-11-gate-reference-package",
+      "receiptSha256": "d93096313938a67fba8dc0f69d8c762c39b2194a232c251a8ad8a2f525585c3a",
+      "stdoutSha256": "303a261750ecde0f88d36307732f1ab92a85b8d382773359f4e78ff0d483158f",
+      "stderrSha256": "97846ab9d1e2b29186037d8e7357d9ba708550f1ba13ecbca87d6f3769771949",
+      "localReceiptDirectory": "20261009T015643.025598Z-r2-gate-tests"
+    },
+    {
+      "name": "plan-graph",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-11-gate-reference-package",
+      "receiptSha256": "7014a06c9ffcb98ca443f93775486cc7722a250a5991a12957a2a1051df02671",
+      "stdoutSha256": "d09cedd7622ba1d3e34475e397cf5cbfdda9412f47960d4ca22b8a73b70642b2",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "localReceiptDirectory": "20261009T015643.025707Z-plan-graph"
+    },
+    {
+      "name": "plan-format",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-11-gate-reference-package",
+      "receiptSha256": "e0e5f9d46ec9d77f028d80472ca04b68d12793533b8c2e6821578dc824ba9f8a",
+      "stdoutSha256": "ef80a239a844b63e9e63d945318ae10063728ec962080af335a89ec6ad03a6d2",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "localReceiptDirectory": "20261009T015643.126794Z-plan-format"
+    },
+    {
+      "name": "linear-relations",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-11-gate-reference-package",
+      "receiptSha256": "47127d7bf1ded09dde75d87cc2dd5c966d7c03b343650ea25f70fb6f38ad70a5",
+      "stdoutSha256": "61b8a0d76395f4a478e1ba278d913274ae713f7ff43fb32c72dd6b6db47e8578",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "localReceiptDirectory": "20261009T015643.199528Z-linear-relations"
+    },
+    {
+      "name": "r2-gate-typecheck",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-11-gate-reference-package",
+      "receiptSha256": "f41be3ac8179a616d4960aeca6b44e5c0aa18cb0bd6042eb444a5b891402a9bf",
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "localReceiptDirectory": "20261009T015725.931068Z-r2-gate-typecheck"
+    },
+    {
+      "name": "r2-runtime-prepare",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-11-gate-reference-package",
+      "receiptSha256": "0a0b1b662716c4c32a352973e8aff0d013f60bb51308b8f13f629e0d80a0d1c1",
+      "stdoutSha256": "7e0d77328372c76fcebff93aa5895ef48cf7cb24a3c18bffd283096f67b143e8",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "localReceiptDirectory": "20261009T015725.931757Z-r2-runtime-prepare"
+    },
+    {
+      "name": "r2-history-leak-scan",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-11-gate-reference-package",
+      "receiptSha256": "205cd1fcd8d0dabf63a8ea4d03e485267efcd4c772c74e5ed0fa2bd8b49037c4",
+      "stdoutSha256": "3914f94ec7bc49df79e530695dd4128f61457ddd0233673e868cbff0ac8b7dd4",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "localReceiptDirectory": "20261009T015736.824499Z-r2-history-leak-scan"
+    },
+    {
+      "name": "doctor",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-23/r2/runtime",
+      "receiptSha256": "a3ae1612e7a7fb55287178d32f8413d6f61d659b4b226cd372f0d739fe2be8ae",
+      "stdoutSha256": "478e0ccaa4a802154efa970e1b647927c1b1a2bf2223b1fe571edc468097855f",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "localReceiptDirectory": "20261009T015736.831886Z-doctor"
+    },
+    {
+      "name": "r2-package-ten-lanes",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-23/r2/runtime",
+      "receiptSha256": "b0d1940bce9204dd9aacef72902cc37bd9e074ea80478659c05cb253c2a63880",
+      "stdoutSha256": "1b871af3695681e05d01c4c93b16a861a0b2f5032b6891b596c7398bdf788633",
+      "stderrSha256": "14bba6b65a8a001c07dc80b63d637f07b588a69dfd7df5468ce90b8b9504d801",
+      "localReceiptDirectory": "20261009T015800.383989Z-r2-package-ten-lanes"
+    },
+    {
+      "name": "r2-g1-observation",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-11-gate-reference-package",
+      "receiptSha256": "281083cf169bb70f161b50bc5a514537c65645040c96b5c5582376af7a673425",
+      "stdoutSha256": "8e9285f5f812d332861ceda0a06a356042f15ee0a6f777f086a049dfdfac12a2",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "localReceiptDirectory": "20261009T015813.910186Z-r2-g1-observation"
+    },
+    {
+      "name": "r2-measure",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-23/r2/runtime",
+      "receiptSha256": "0c4f02fcc1bbec12177fa13e607f59f0c38cd5b477692bbfa8a7c9092bfbc9b7",
+      "stdoutSha256": "9b721a0527582110941229c74df6f77800ddc52a6456aa31ae21adaf26f98c82",
+      "stderrSha256": "b09810d3686a4be9f316ec69727520c1e7b01d6bd72c911eb171dd3a457a531a",
+      "localReceiptDirectory": "20261009T015939.272862Z-r2-measure"
+    },
+    {
+      "name": "r2-g2-followups-observation-final",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-11-gate-reference-package",
+      "receiptSha256": "4499e1be286fa7b0ca8091860be95ddd8b2e19ce79d959e1d6d53639fcbedd2b",
+      "stdoutSha256": "27fef859dc6b2c5580d2e0d1febd8f1ee78f92756c3d6161ac31c669bac7886d",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "localReceiptDirectory": "20261009T015954.687451Z-r2-g2-followups-observation-final"
+    },
+    {
+      "name": "r2-history-patch",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-11-gate-reference-package",
+      "receiptSha256": "d1c742ef9cc41ae56d12977fbb16a4b9f1ebc152fbc6bf156a0130fda6e1805e",
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "localReceiptDirectory": "20261009T020055.254037Z-r2-history-patch"
+    },
+    {
+      "name": "r2-retained-conversion",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-11-gate-reference-package",
+      "receiptSha256": "7a442eaf0e71478d8269b3291504a8b99d0544e4baac485061bbee0b5c311028",
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderrSha256": "79439a69fbb7768eafb995cd873dcd7c068b40df70070c32ec2c39791e2ac448",
+      "localReceiptDirectory": "20261009T020150.067968Z-r2-retained-conversion"
+    },
+    {
+      "name": "r2-pre-evidence-state",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-11-gate-reference-package",
+      "receiptSha256": "cd1afaf8226a1b0be6a2a4224d6745d39f11ea4defda8f487a0720ceb538f620",
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "localReceiptDirectory": "20261009T020231.567351Z-r2-pre-evidence-state"
+    },
+    {
+      "name": "r2-conversion-report-diff",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-11-gate-reference-package",
+      "receiptSha256": "74f7571b2cf337c8abd67f7f277e7601356d34761e185884508e4614bf35a79a",
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "localReceiptDirectory": "20261009T020231.567720Z-r2-conversion-report-diff"
+    },
+    {
+      "name": "r2-conversion-output-diff-final",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-11-gate-reference-package",
+      "receiptSha256": "43e23f70343907f80d2e4a688f0b15ffd899702bd9f93566d522bfe72257b15d",
+      "stdoutSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stderrSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "localReceiptDirectory": "20261009T020231.570761Z-r2-conversion-output-diff-final"
+    }
+  ],
+  "localArtifactHashes": {
+    "g1-observation.json": "8e9285f5f812d332861ceda0a06a356042f15ee0a6f777f086a049dfdfac12a2",
+    "g2-followups-observation.json": "27fef859dc6b2c5580d2e0d1febd8f1ee78f92756c3d6161ac31c669bac7886d",
+    "runtime-provenance.json": "3223e4e247d128001b437212fb2fd069ee17c4630bf764657869fb8505f06cbf",
+    "measure/measure-CC-23.json": "ef98fdfcb2c856f41bc03af4cf0b0f2b25694c64d37c776c2088c1b82f0364f6",
+    "conversion-report.json": "3003870d9c37f93a232545eeae589e1056c08607e6d59b9e26a153439fa90d17",
+    "verify/verify-package-summary.txt": "329044e376ef6b41d96be32ff42b7e01bc2962d3ba1244a00b3939cbbd61e4f6",
+    "inventory/run.json": "e06b4b3603fc873c5ad612696f51b091b6debc074662b38296ec90822da3068a",
+    "history.patch": "cbb71d565c07b2edfcc5079f8f9b38e40b40527b5a26c85c84262f29621f0863",
+    "verify/lane-01.txt": "a6c17181bc4ac58456aa7ab929c23858cd45629fbcc20f0f4e1f695ab46b43d8",
+    "verify/lane-02.txt": "4424995479b918a33448a84b1a4acb00fc435602a64459fd104f9d743961d879",
+    "verify/lane-03.txt": "c7b698efaf19fda8a109e0c42eb6067241d65c8ddeff90f764f45dd28f7c2181",
+    "verify/lane-04.txt": "5d8f800a940927462d314b31ad343b22f8da36216a97c0b4dae15fa49ad6d05e",
+    "verify/lane-05.txt": "8ea5f59a7a936f0ee3fb062da5a508c407209ff0b889810ee3f170c2ee389886",
+    "verify/lane-06.txt": "4c4e1e0cf12e65ff4ec8ecbd3c951029a78596ae929ab95083049b057491047c",
+    "verify/lane-07.txt": "b2116b67edb3f668a8d9508f3d1da577d747e9e43ce38d60959d78756bf69883",
+    "verify/lane-08.txt": "5ca4f7a152aa21d11ccd0b69e04f74523f742820f954fdf2b4b7ff0ec69e7ed2",
+    "verify/lane-09.txt": "871b739d1ca1228ab1192ff64b8d160262bf83802d03af3f78770c62ec45816e",
+    "verify/lane-10.txt": "8b9370f4cbfff2e2f36f52730f997e387c8d78f721ee6dc1fbcb58b36328e0c2"
+  },
+  "nonReleaseCommandReceipts": [
+    {
+      "name": "r2-merge",
+      "result": "SKIPPED",
+      "exitCode": 3,
+      "head": "bf13435677ebf26211560d7048d7bf159ed841d7",
+      "dirty": false,
+      "receiptSha256": "e2cfc16333f51c6513212a84f3e7408c7d114e8b6b71e4b11540dd3a03919f0a",
+      "localReceiptDirectory": "20261009T015435.526193Z-r2-merge",
+      "command": [
+        "git",
+        "merge",
+        "--no-ff",
+        "adf4fa9108dea063e6da9ce41f1c6142788ad2e4",
+        "-m",
+        "Merge repaired package contract into the gate"
+      ],
+      "reason": "the checkout changed during the run: head bf13435677ebf26211560d7048d7bf159ed841d7 -> ca46a49189b6aee69b2c536dc71589daceac5ac0; the command exited 0"
+    },
+    {
+      "name": "r2-g2-followups-observation",
+      "result": "FAIL",
+      "exitCode": 1,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "receiptSha256": "6ae9f1678ed67c4947cdca10bc46c2bd51a50c650a7dde64bed762eada519bc1",
+      "localReceiptDirectory": "20261009T015914.094141Z-r2-g2-followups-observation",
+      "command": [
+        "unshare",
+        "-rn",
+        "bun",
+        "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-23/r2/g2-followups-observe.ts"
+      ],
+      "reason": null
+    },
+    {
+      "name": "r2-conversion-output-diff",
+      "result": "FAIL",
+      "exitCode": 2,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "receiptSha256": "8534e3657e98206cbbc21a6015cff742c2c30ed742757923f4fe5bc2869fb26c",
+      "localReceiptDirectory": "20261009T015939.272136Z-r2-conversion-output-diff",
+      "command": [
+        "diff",
+        "-r",
+        "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-23/package-1",
+        "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-23/r2/runtime/.local/verify-work/pkg-main"
+      ],
+      "reason": null
+    },
+    {
+      "name": "r2-prepare-report-writer",
+      "result": "FAIL",
+      "exitCode": 1,
+      "head": "ca46a49189b6aee69b2c536dc71589daceac5ac0",
+      "dirty": false,
+      "receiptSha256": "db0c7c4e60fd58f9743eacd94830246938690de6de9b534e50fb591bfe1f0bfc",
+      "localReceiptDirectory": "20261009T020546.225310Z-r2-prepare-report-writer",
+      "command": [
+        "python3",
+        "-"
+      ],
+      "reason": null
+    }
+  ],
+  "localReport": "/home/vaper/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-23/r2/report.md",
+  "limits": [
+    "The reviewed head is the clean merge revision. The later evidence commit changes acceptance documentation only.",
+    "Six GRS-9 and six GRS-10 follow-ups and N5-N9, N11, N12 remain non-blocking.",
+    "The first gate 52-of-55 route sub-item remains HOLD under the brief.",
+    "No newer-export, implemented HTTP server, SQLite pilot, or cold-cache acceptance is claimed.",
+    "Package verification and measurement use a byte-identical local copy at the same reviewed revision, keeping hard-coded scratch output inside the reserved r2 directory."
+  ]
+}

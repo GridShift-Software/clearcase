@@ -29,7 +29,8 @@
 		{#if data.parent}<tr><th scope="row">Attachment of</th><td><CitationLink resultsVersion={vid} ref={data.parent.ref} exists={data.parent.exists} /></td></tr>{/if}
 	</tbody></table>
 
-	<OriginalOpen state={data.state} links={data.links} page={data.page} parentHref={data.parent?.exists ? docPath(vid, data.parent.ref) : null} />
+	{#if data.source !== 'results'}<p id="doc-source" data-source={data.source}>This document comes from the document-row provider <code>{data.source.replace(/^provider:/, '')}</code>, not from the imported results.</p>{/if}
+	<OriginalOpen state={data.state} links={data.links} onDisk={data.onDisk} page={data.page} parentHref={data.parent?.exists ? docPath(vid, data.parent.ref) : null} />
 
 	{#if data.attachments.length || f.attachmentNames.length}
 		<section aria-labelledby="att-heading" id="attachments"><h2 id="att-heading">Attachments</h2>

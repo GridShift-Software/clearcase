@@ -66,6 +66,8 @@ Both listeners bind 127.0.0.1 only. A case folder that equals, contains or lies 
 
 **Startup** never crashes: it removes its own leftovers, runs `quick_check`, verifies every active pointer against the activation log and falls back to the newest verified activation with a banner. A store that cannot be opened becomes a 503 page with restore instructions.
 
+**An original removed or changed after import.** The document page checks its original when it renders, with the same cheap test the originals site makes before hashing (`OriginalsServer.availability`: the case folder recorded at import, the file opens inside it as a single-link regular file, the size is unchanged). If that fails, the page shows "Original missing on disk" with the reason and no Open or Download link, and the originals site answers 410; a same-size content change is still caught by the serve-time hash (410). Nothing is written and the version stays active. The operator recovers in one of two ways: restore the file at the path the page shows, byte for byte as imported (the links return on the next page load; the originals site re-hashes it against the imported sha256), or, if the case folder really changed, run the converter again, import the new results package and activate it (a still-missing original is then reported as `ORIG_MISSING` and acknowledged at activation).
+
 **Security.** The app origin sends a nonce CSP, `Referrer-Policy: same-origin`, COOP, CORP and `no-store`, checks the exact Host (the production listener also covers static assets) and relies on SvelteKit's Origin check for forms, which works without JavaScript. Imported values reach the DOM only as text, except GRS-10's `renderNarrative` output in `Narrative.svelte`. Originals are served only from the separate site, only through the verified mapping, only as verified bytes (else 410), with `servePolicy` headers; PDFs render only in pdf.js inside `<iframe sandbox="allow-scripts">` with scripting disabled. Cross-site or framed requests without the link capability get one constant 403.
 
 ## Adding a view
@@ -87,7 +89,7 @@ To build one:
 
 ### Document-row read contract
 
-`documentRows(store, resultsVersion)` and `activeDocumentRows(app(), caseId)` in `$lib/local-case/documents.server` return every document row of a version: the imported register in source order, then rows from registered providers (the equivalent of v5's `allRows()`). Each `DocumentRow` is frozen and carries `ref`, `ord`, `source` (`'results'` or `'provider:<id>'`), the raw source `row` unchanged, its list projection `list` (`ChronologyListRow`) and its `state` (`DocumentStateRow`). `listJson` is the chronology list and its ETag as served by `/api/v/[vid]/chronology`. GRS-20's rescan publishes rescanned rows with `registerDocumentRowProvider({id: 'rescan', owner: 'GRS-20', rows, revision})`; readers do not change. A provider row whose ref already names an imported document is dropped and reported in `dropped`, never shadowing the register.
+`documentRows(store, resultsVersion)` and `activeDocumentRows(app(), caseId)` in `$lib/local-case/documents.server` return every document row of a version: the imported register in source order, then rows from registered providers (the equivalent of v5's `allRows()`). Each `DocumentRow` is frozen and carries `ref`, `ord`, `source` (`'results'` or `'provider:<id>'`), the raw source `row` unchanged, its list projection `list` (`ChronologyListRow`) and its `state` (`DocumentStateRow`). `listJson` is the chronology list and its ETag as served by `/api/v/[vid]/chronology`; `documentRow(store, rv, ref)` is one row by ref (the document page reads it, so provider rows have pages); `documentCounts(store, rv)` is the row count the overview shows. GRS-20's rescan publishes rescanned rows with `registerDocumentRowProvider({id: 'rescan', owner: 'GRS-20', rows, revision})`; readers do not change. A provider row whose ref already names an imported document (or one the provider already gave) is dropped and reported in `dropped`, never shadowing the register. A provider whose `rows()` throws is isolated: its rows are left out, it is reported in `failed`, the chronology API still answers 200 (with an `x-clearcase-degraded` header and a distinct ETag), and the chronology and overview say "Some documents are not shown" (`DegradedRows.svelte`).
 
 ### Enumerable user-work persistence
 
@@ -109,14 +111,14 @@ The overview has typed widget slots declared in `src/lib/components/overview-slo
 | Page header and titles | `PageHeader.svelte`, `titles.ts` | `<document> · <section> · <case> · ClearCase` (BA-16); the `[data-page-heading]` h1 receives focus after navigation, Back and Forward, including a full load reached by Back (BA-14); the skip link focuses `#main` without a history entry |
 | Citation link | `CitationLink.svelte`, `cite.ts` | `/v/<rv>/doc/<ref>?page=N` via GRS-10 `documentRoute`; missing refs render broken |
 | Narrative | `Narrative.svelte` | the only `{@html}`: `renderNarrative` output |
-| Original open | `OriginalOpen.svelte`, `OriginalLinks` in `model.ts` | direct, parent-route and unavailable states (BA-09); labels from the verified mapping |
+| Original open | `OriginalOpen.svelte`, `OriginalLinks` in `model.ts` | direct, parent-route and unavailable states (BA-09), and "missing on disk" when an imported original cannot be served now; labels from the verified mapping |
 | Table and grid | `DataGrid.svelte` | div grid with ARIA table roles, `content-visibility`, sortable headers with `aria-sort`, rows keyed by stable id |
 | Dates | `DateValue.svelte`, `format.ts` `dateBasis` | the source value with its supplied type and provenance, or "basis unknown" (BA-04) |
 | Unavailable view | `UnavailableView.svelte` | the explicit state for a registry entry whose owner has not passed |
 | Export | `csv.ts` | `toCSV` (quotes on `"` `,` CR LF), `userCell` neutralises formulas in user-entered cells |
 | User work | `user-work.server.ts` | notes, seed overlays and register rows in `work.sqlite`, keyed by stable ids |
 | Results data | `results.server.ts` | `datasetOf`, `datasetKeys` over the verified stored bytes |
-| Document rows | `documents.server.ts` | `documentRows`, `activeDocumentRows`, `listJson`, `registerDocumentRowProvider` |
+| Document rows | `documents.server.ts`, `DegradedRows.svelte` | `documentRows`, `documentRow`, `documentCounts`, `activeDocumentRows`, `listJson`, `registerDocumentRowProvider`; the degraded state when a provider fails |
 | User-work enumeration | `user-work.server.ts` | `tables`, `defineTable`, `exportAll`, `importAll`, `registerStores` |
 | Overview slots | `overview-slots.ts`, `OverviewSlots.svelte`, `overview-widgets.server.ts` | widget slots filled from `src/lib/views/<category>/` |
 

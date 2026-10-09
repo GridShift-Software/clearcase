@@ -3,6 +3,7 @@
 	import { page } from '$app/state';
 	import { replaceState } from '$app/navigation';
 	import DataGrid, { type Column } from '$lib/components/DataGrid.svelte';
+	import DegradedRows from '$lib/components/DegradedRows.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { download, toCSV } from '$lib/components/csv';
 	import { dateBasis, money } from '$lib/components/format';
@@ -48,6 +49,7 @@
 	<PageHeader heading="Chronology" section="Chronology" caseName={data.version.caseName} subtitle="{data.rows.length.toLocaleString('en')} documents in source order of the register; dates as the source gives them">
 		{#snippet actions()}<button type="button" onclick={exportCsv} id="export-csv">Export CSV ({rows.length.toLocaleString('en')} rows)</button>{/snippet}
 	</PageHeader>
+	<DegradedRows failed={data.failed} />
 	<form class="filters" role="search" aria-label="Filter the chronology" onsubmit={(e) => e.preventDefault()}>
 		<label>Text, ref or filename<br /><input id="f-q" value={query.q} oninput={(e) => set('q', e.currentTarget.value)} /></label>
 		<label>Bundle<br /><select id="f-bundle" value={query.bundle} onchange={(e) => set('bundle', e.currentTarget.value)}><option value="">All bundles</option>{#each bundles as b (b)}<option value={b}>{b}</option>{/each}</select></label>

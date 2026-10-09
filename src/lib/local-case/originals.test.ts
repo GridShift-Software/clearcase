@@ -98,6 +98,25 @@ describe('serving', () => {
 		await writeFile(file, original);
 	});
 
+	it('reports on-disk availability with the same reasons the serve path answers 410 with, without hashing', async () => {
+		const file = path.join(caseDir, 'DISCOVERY B', 'SD-001 Statement.pdf');
+		const href = rel(o.originalHref(rv, 'SD-001', name('SD-001')));
+		const asset = () => { const a = lc.store.assetForServe(rv, 'SD-001')!; return { ...a, real_path: a.real_path!, size: a.size! }; };
+		const original = Buffer.from(await (await get(href)).arrayBuffer());
+		expect(await OriginalsServer.availability(asset())).toBeNull();
+		await rm(file); // removed after activation
+		expect(await OriginalsServer.availability(asset())).toEqual({ refused: 'missing', reason: 'missing on disk' });
+		const r = await get(href);
+		expect([r.status, await r.text()]).toEqual([410, 'original not available: missing on disk']);
+		await writeFile(file, Buffer.concat([original, Buffer.from('x')]));
+		expect(await OriginalsServer.availability(asset())).toEqual({ refused: 'size', reason: 'changed since import (size differs)' });
+		await writeFile(file, Buffer.from(original).fill(0x42, 12, 14)); // same size, other bytes: only the serve-time hash catches it
+		expect(await OriginalsServer.availability(asset())).toBeNull();
+		await writeFile(file, original);
+		expect(await OriginalsServer.availability(asset())).toBeNull();
+		expect((await get(href)).status).toBe(200);
+	});
+
 	it('streams large originals only from a verified private snapshot and removes it', async () => {
 		const href = rel(o.originalHref(rv, 'HX-001', name('HX-001'))); // > 64 bytes: the snapshot path
 		const r = await get(href);

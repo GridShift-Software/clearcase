@@ -257,3 +257,38 @@ export function slotPlugin(slot, view, key) {
 		},
 	};
 }
+
+// ---- the doc ref sweep (S-privilege_tab-1, S-annotations_tab-1) ------------------------------------------------------
+
+/** A ref that names no document of any version (synthetic). */
+export const MISSING_REF = 'Synthetic missing ref';
+/** Each row's typed ref cell: whether it is a link, and the row's text. */
+const refCells = (rows) => Object.fromEntries(rows.flatMap((r, i) => [[`${i}.ref`, r.link ? 'link' : 'text'], [`${i}.row`, r.text]]));
+
+/**
+ * v5: two entries with only a Doc ref, the first naming the first document the chronology shows, the second naming
+ * nothing; then whether each row's ref is a link. The ref is read from the chronology, never written into a key.
+ */
+export async function v5DocRefLink(p, ctx, view, refField) {
+	await p.load({});
+	await p.go('chronology');
+	const first = await p.evaluate(`document.querySelector('#chronWrap tbody tr')?.cells[1]?.textContent.trim() ?? ''`);
+	await p.go(view);
+	for (const ref of [first, MISSING_REF]) await v5Add(p, { [refField]: ref });
+	return refCells(await p.evaluate(`[...document.querySelectorAll('#main table tbody tr')].map((r) => ({ link: !!r.cells[0]?.querySelector('a'), text: [...r.cells].map((c) => c.textContent.replace(/\\s+/g, ' ').trim()).join(' | ') }))`));
+}
+
+/** The app: the same two entries through the app's form, the same reading, then every row is deleted again. */
+export async function appDocRefLink(p, ctx, view) {
+	await p.goto(`${ctx.base}/chronology`, ready('chronology'));
+	await p.settled();
+	const first = await p.evaluate(`document.querySelector('#main [role=row][data-ref]')?.dataset.ref ?? ''`);
+	await openRegister(p, ctx, view);
+	await requireEmpty(p, view);
+	try {
+		for (const ref of [first, MISSING_REF]) await addEntry(p, { ref });
+		return refCells(await p.evaluate(`[...document.querySelectorAll('#register-table tbody tr[data-row-id]')].map((r) => ({ link: !!r.cells[0]?.querySelector('a'), text: [...r.cells].map((c) => { const k = c.cloneNode(true); k.querySelectorAll('[data-edit]').forEach((e) => e.remove()); return k.textContent.replace(/\\s+/g, ' ').trim(); }).join(' | ') }))`));
+	} finally {
+		await clearRegister(p, ctx, view);
+	}
+}

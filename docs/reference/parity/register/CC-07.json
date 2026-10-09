@@ -3,66 +3,6 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-012",
-      "view": "disbursements_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-17",
-      "reason": "The app does not implement Disbursements yet; GRS-17 (CC-07) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-034",
-      "view": "privilege_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-17",
-      "reason": "The app does not implement Privilege Log yet; GRS-17 (CC-07) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-035",
-      "view": "popia_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-17",
-      "reason": "The app does not implement POPIA Register yet; GRS-17 (CC-07) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-036",
-      "view": "annotations_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-17",
-      "reason": "The app does not implement Annotations yet; GRS-17 (CC-07) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-037",
-      "view": "transcriptions_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-17",
-      "reason": "The app does not implement Transcripts yet; GRS-17 (CC-07) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
       "id": "IDR-250",
       "view": "overview",
       "field": "sweep.seeded_user_work.Unbilled time.value",
@@ -74,6 +14,57 @@
       "source": "S-overview-1",
       "owner": "GRS-17",
       "reason": "The Unbilled time tile counts every time entry not billed 'yes'. v5 tested the Billed? text for truthiness, so an entry marked 'no' counted as billed and only entries left at the placeholder were summed; on the seeded entries v5 shows 2.5 h and the app 3.5 h (S-overview-1, S-timesheet_tab-1).",
+      "productVisible": true,
+      "author": "CC-07 worker (GRS-17)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-251",
+      "view": "disbursements_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
+      "productVisible": true,
+      "author": "CC-07 worker (GRS-17)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-258",
+      "view": "disbursements_tab",
+      "field": "sweep.register_edit.overview.Scanned (need OCR)",
+      "when": {
+        "v5": {
+          "re": "^[\\d,]+$"
+        },
+        "app": {
+          "re": "^[\\d,]+$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-meta-counts",
+      "reason": "The register sweep ends on the overview tiles. The documents-without-text tile counts the register rows instead of the build metadata figure (S-meta-counts, as on the overview, IDR-049); this register does not change it.",
+      "productVisible": true,
+      "author": "CC-07 worker (GRS-17)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-265",
+      "view": "disbursements_tab",
+      "field": "export.export_csv.name",
+      "when": {
+        "app": "disbursements.csv"
+      },
+      "type": "defect-fix",
+      "source": "S-hardcoded-case",
+      "reason": "v5 names the export after its browser storage key, which carries case-specific initials; the app uses a neutral name. The exported columns and rows are compared and equal.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
       "approvedBy": null,
@@ -172,6 +163,210 @@
       "field": "export.export_ics.name",
       "when": {
         "app": "deadlines.ics"
+      },
+      "type": "defect-fix",
+      "source": "S-hardcoded-case",
+      "reason": "v5 names the export after its browser storage key, which carries case-specific initials; the app uses a neutral name. The exported columns and rows are compared and equal.",
+      "productVisible": true,
+      "author": "CC-07 worker (GRS-17)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-254",
+      "view": "privilege_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
+      "productVisible": true,
+      "author": "CC-07 worker (GRS-17)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-261",
+      "view": "privilege_tab",
+      "field": "sweep.register_edit.overview.Scanned (need OCR)",
+      "when": {
+        "v5": {
+          "re": "^[\\d,]+$"
+        },
+        "app": {
+          "re": "^[\\d,]+$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-meta-counts",
+      "reason": "The register sweep ends on the overview tiles. The documents-without-text tile counts the register rows instead of the build metadata figure (S-meta-counts, as on the overview, IDR-049); this register does not change it.",
+      "productVisible": true,
+      "author": "CC-07 worker (GRS-17)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-268",
+      "view": "privilege_tab",
+      "field": "export.export_csv.name",
+      "when": {
+        "app": "privilege.csv"
+      },
+      "type": "defect-fix",
+      "source": "S-hardcoded-case",
+      "reason": "v5 names the export after its browser storage key, which carries case-specific initials; the app uses a neutral name. The exported columns and rows are compared and equal.",
+      "productVisible": true,
+      "author": "CC-07 worker (GRS-17)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-255",
+      "view": "popia_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
+      "productVisible": true,
+      "author": "CC-07 worker (GRS-17)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-262",
+      "view": "popia_tab",
+      "field": "sweep.register_edit.overview.Scanned (need OCR)",
+      "when": {
+        "v5": {
+          "re": "^[\\d,]+$"
+        },
+        "app": {
+          "re": "^[\\d,]+$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-meta-counts",
+      "reason": "The register sweep ends on the overview tiles. The documents-without-text tile counts the register rows instead of the build metadata figure (S-meta-counts, as on the overview, IDR-049); this register does not change it.",
+      "productVisible": true,
+      "author": "CC-07 worker (GRS-17)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-269",
+      "view": "popia_tab",
+      "field": "export.export_csv.name",
+      "when": {
+        "app": "popia.csv"
+      },
+      "type": "defect-fix",
+      "source": "S-hardcoded-case",
+      "reason": "v5 names the export after its browser storage key, which carries case-specific initials; the app uses a neutral name. The exported columns and rows are compared and equal.",
+      "productVisible": true,
+      "author": "CC-07 worker (GRS-17)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-256",
+      "view": "annotations_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
+      "productVisible": true,
+      "author": "CC-07 worker (GRS-17)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-263",
+      "view": "annotations_tab",
+      "field": "sweep.register_edit.overview.Scanned (need OCR)",
+      "when": {
+        "v5": {
+          "re": "^[\\d,]+$"
+        },
+        "app": {
+          "re": "^[\\d,]+$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-meta-counts",
+      "reason": "The register sweep ends on the overview tiles. The documents-without-text tile counts the register rows instead of the build metadata figure (S-meta-counts, as on the overview, IDR-049); this register does not change it.",
+      "productVisible": true,
+      "author": "CC-07 worker (GRS-17)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-270",
+      "view": "annotations_tab",
+      "field": "export.export_csv.name",
+      "when": {
+        "app": "annotations.csv"
+      },
+      "type": "defect-fix",
+      "source": "S-hardcoded-case",
+      "reason": "v5 names the export after its browser storage key, which carries case-specific initials; the app uses a neutral name. The exported columns and rows are compared and equal.",
+      "productVisible": true,
+      "author": "CC-07 worker (GRS-17)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-257",
+      "view": "transcriptions_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
+      "productVisible": true,
+      "author": "CC-07 worker (GRS-17)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-264",
+      "view": "transcriptions_tab",
+      "field": "sweep.register_edit.overview.Scanned (need OCR)",
+      "when": {
+        "v5": {
+          "re": "^[\\d,]+$"
+        },
+        "app": {
+          "re": "^[\\d,]+$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-meta-counts",
+      "reason": "The register sweep ends on the overview tiles. The documents-without-text tile counts the register rows instead of the build metadata figure (S-meta-counts, as on the overview, IDR-049); this register does not change it.",
+      "productVisible": true,
+      "author": "CC-07 worker (GRS-17)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-271",
+      "view": "transcriptions_tab",
+      "field": "export.export_csv.name",
+      "when": {
+        "app": "transcripts.csv"
       },
       "type": "defect-fix",
       "source": "S-hardcoded-case",
@@ -286,6 +481,70 @@
       "type": "defect-fix",
       "source": "S-deadlines_tab-2",
       "reason": "Commas, semicolons and backslashes in a deadline's title and note are escaped as RFC 5545 text, so the calendar shows them as typed; v5 replaced commas and semicolons with spaces and left backslashes unescaped (S-deadlines_tab-2, S-ics).",
+      "productVisible": true,
+      "author": "CC-07 worker (GRS-17)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-278",
+      "view": "popia_tab",
+      "field": "title",
+      "when": {
+        "v5": "POPIA Data-Processing Register",
+        "app": "POPIA Register"
+      },
+      "type": "improvement",
+      "source": "BA-18",
+      "reason": "The page heading is the navigation label, POPIA Register (BA-18), instead of v5's longer page title.",
+      "productVisible": true,
+      "author": "CC-07 worker (GRS-17)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-279",
+      "view": "annotations_tab",
+      "field": "title",
+      "when": {
+        "v5": "Counsel Annotations",
+        "app": "Annotations"
+      },
+      "type": "improvement",
+      "source": "BA-18",
+      "reason": "The page heading is the navigation label, Annotations (BA-18), instead of v5's page title Counsel Annotations.",
+      "productVisible": true,
+      "author": "CC-07 worker (GRS-17)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-280",
+      "view": "privilege_tab",
+      "field": "sweep.doc_ref_link.*.ref",
+      "when": {
+        "v5": "text",
+        "app": "link"
+      },
+      "type": "defect-fix",
+      "source": "S-privilege_tab-1",
+      "reason": "A Doc ref that names a document of the imported version links to that document's page (its anchor is kept with the entry); the ref is stored and shown as typed. v5 showed it as plain text. A ref that names nothing still renders as text, marked as not in this results version, and is never matched loosely.",
+      "productVisible": true,
+      "author": "CC-07 worker (GRS-17)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-281",
+      "view": "annotations_tab",
+      "field": "sweep.doc_ref_link.*.ref",
+      "when": {
+        "v5": "text",
+        "app": "link"
+      },
+      "type": "defect-fix",
+      "source": "S-annotations_tab-1",
+      "reason": "A Doc ref that names a document of the imported version links to that document's page (its anchor is kept with the entry); the ref is stored and shown as typed. v5 showed it as plain text. A ref that names nothing still renders as text, marked as not in this results version, and is never matched loosely.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
       "approvedBy": null,

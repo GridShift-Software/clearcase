@@ -1,6 +1,6 @@
 # Parity harness: v5 versus the app, view by view
 
-The harness shows that the app **behaves like** the v5 sample on the same input, not only that it holds the same data. For each of the 42 v5 views it renders the v5 workspace and the app with one fixed clock, reads what each shows through the UI, normalizes both into one snapshot shape and compares them value by value. Every intended difference is on the [intentional-differences register](intentional-differences.json); a registered difference passes with a note, and only an unregistered difference fails.
+The harness shows that the app **behaves like** the v5 sample on the same input, not only that it holds the same data. For each of the 42 v5 views it renders the v5 workspace and the app with one fixed clock, reads what each shows through the UI, normalizes both into one snapshot shape and compares them value by value. Every intended difference is on the [intentional-differences register](intentional-differences.json) or one of its per-owner [fragments](register/); a registered difference passes with a note, and only an unregistered difference fails.
 
 Owner: CC-29 ([GRS-37](https://linear.app/vaper/issue/GRS-37)). M2 owners add the app side of their views; the CC-11 gate runs it over all 42.
 
@@ -16,18 +16,32 @@ bun run --bun parity -- --view chronology,overview --fixture-config .local/v5-ve
 | --- | --- |
 | `--all` or `--view ID[,ID…]` | The views to compare, by v5 navigation id. |
 | `--fixture-config FILE` | The local fixture locator (`.local/v5-verification.json`, the same file `verify:pilot:v5` uses). Its main HTML and expected-examples hashes are checked against the committed profile. |
-| `--out DIR` | Output directory, inside `.local/` or outside the repository. |
+| `--out DIR` | Output directory, inside `.local/` or outside the repository. See [The output directory](#the-output-directory). |
 | `--clock ISO`, `--timezone TZ` | The fixed clock (default `2026-10-08T09:00:00Z`) and timezone (default `UTC`) for both sides. |
 | `--approved-only` | Only approved register entries cover differences. The CC-11 gate uses this. |
 | `--strict-register` | Fail when a register entry covered nothing in the views run (see [Unused entries](#unused-entries)). |
 | `--no-sweeps`, `--no-exports` | Skip the interaction sweeps or the export capture (quick checks while writing an adapter). |
+| `--keep-work` | Keep this run's working directory `DIR/.work-<pid>-XXXXXX` (the converted package, the server's data and log, the browser profile: case-bearing, local only) instead of removing it on exit. Later runs never sweep a kept directory: remove it by hand. |
 | `--keep-snapshots` | Also write both sides' full snapshots per view (`views/<view>.snapshots.json`). |
 | `--app-root DIR` | Use another checkout's build and modules (the mutation proof). |
 | `--app-v5-html FILE` | Self-parity: the app side is the v5 adapter on another copy of the v5 HTML. |
+| `--allow-stale-build` | Run on a stale build (below) anyway. The scorecard then says `evidence: false` and why. `CLEARCASE_ALLOW_STALE_BUILD=1` does the same. |
 
-Exit codes: **0** no unregistered difference; **1** at least one unregistered difference, a v5 view that did not extract, an unused register entry under `--strict-register`, or any isolation breach: a v5 network request, an app request that is not loopback, a canary hit other than a browser service, or a changed fixture tree; **2** setup error (arguments, locator, register, build, conversion, import or the offline proof). The register is checked first, before the runner re-executes offline or reads the locator, and a whole-view entry whose owner is not the view registry's owner is a register error.
+**Fresh-build evidence.** The runner records the build stamp (`build/clearcase-build.json`: the revision the build was made from and whether tracked files were modified then), HEAD, and whether tracked files are modified now (`git status --untracked-files=no`, as the stamp uses). If the build is not HEAD's, or either tree is dirty, it refuses with exit 2 before it goes offline, reads the locator or writes anything. Commit, then build, then run. With `--allow-stale-build` it runs, and `scorecard.json` has `evidence: false`, `evidenceNote` and `freshBuild` (the reasons); `scorecard.md` says so in its second line. `mutate.mjs` passes the flag to its own runs, since a mutant is by design not HEAD's build, and stamps each mutant build `mutant:<id>@<HEAD>`, so its scorecard says `evidence: false`. The same rule, in `tests/e2e/pilot/lib/fresh-build.ts`, guards `test:e2e` and `measure`.
+
+Exit codes: **0** no unregistered difference; **1** at least one unregistered difference, a view that did not extract on either side (an app adapter that threw, an available view without one, and an available view whose adapter returns any status but `ok` included; the register never covers it), an unused register entry under `--strict-register`, or any isolation breach: a v5 network request, an app request that is not loopback, a canary hit other than a browser service, or a changed fixture tree; **2** setup error (arguments, locator, register, an `--out` overlapping the fixture or holding a symlink or hard link where the runner writes, build, conversion, import, the offline proof, or a stale build without `--allow-stale-build`). The register is checked first, before the runner re-executes offline or reads the locator, and a whole-view entry whose owner is not the view registry's owner is a register error.
 
 A full run takes about 100 seconds on this host, most of it the chronology sweeps.
+
+### The output directory
+
+The runner never writes or deletes inside the read-only fixture. Before it creates, removes or writes anything:
+
+- **Overlap.** `--out` must not overlap a read-only input in either direction. The inputs are the case folder; the v5 main HTML, the bundles-only HTML, the expected examples, the inventory, the summary and the source archive (`archive.path`), each with its folder; the locator's `fixtureRoot` when it gives one (then anything under it is refused); a reused package; and an `--app-v5-html` copy (the file only, because the mutation proof writes that copy beside its output). Paths are compared by realpath: symlinks, aliases and dangling links are followed, a dangling relative link resolved against the real folder that holds it. The check runs twice: on the raw locator, path only, before the locator's hashes are checked, and again on the loaded locator.
+- **No link below the output.** Every path the runner writes below `--out` (`views/`, `views/<view>.json`, `views/<view>.snapshots.json`, the scorecards, `register-usage.json`, `v5-requests.json`, `canary-hits.json`) must resolve to itself. A symlink at or above it inside the output, dangling or not, is refused, and so is an existing file with more than one hard link. The known children are checked up front, and each write is checked again.
+- Either refusal is a setup error (exit 2), and nothing in the output or the fixture changes.
+
+Each run works in a fresh `DIR/.work-<pid>-XXXXXX` (`mkdtemp`), so an existing `DIR/.work` or any other entry is left alone. It holds the converted, case-bearing package, the server's data and the browser profile. It is removed on every exit, a setup error included, and on SIGINT, SIGTERM and SIGHUP, after which the runner exits 130, 143 or 129 (the browser and server it started are killed by their own exit handlers). `--keep-work` keeps it. SIGKILL cannot be handled, so a run killed that way leaves its working directory behind. On creation each run writes a marker, `.parity-work.json`, into its working directory: `{"tool": "clearcase-parity", "pid", "startedAt", "keep"}`, plus `pidStartTime` (field 22 of `/proc/<pid>/stat`) where it can be read. The next run in the same `--out` sweeps such leftovers after the checks above, recognising them by that marker and never by name alone. It removes an entry directly in `--out` only when it is a real directory (never a symlink) named `.work-<pid>-XXXXXX`, holding a marker that parses, names this tool, records `keep: false` and the same pid as the name, and that process is gone or has a different start time (its pid was reused). Anything else stays: a directory of your own, even one named like `.work-backup`; an unmarked or unparsable one; one kept with `--keep-work` (`keep: true`), which you remove by hand; and a live run's. The outer process that re-executes the runner under `unshare` does not forward signals: a signal sent to it alone does not reach the runner inside the namespace.
 
 ### What runs, and how it is isolated
 
@@ -44,7 +58,7 @@ A full run takes about 100 seconds on this host, most of it the chronology sweep
 | `scorecard.json`, `scorecard.md` | Counts only: see [Scorecard](#scorecard). | Counts may be quoted in reports. |
 | `views/<view>.json` | Every unregistered and registered difference with its path and both values. | **Never**: case values. |
 | `views/<view>.snapshots.json` | Both snapshots (with `--keep-snapshots`). | **Never**. |
-| `register-usage.json` | Register entry ids that covered something, and the unused ones. | Ids only. |
+| `register-usage.json` | Register entry ids that covered something, the unused ones, and `files`: each entry's register file. | Ids and repository paths only. |
 | `v5-requests.json`, `canary-hits.json` | Isolation evidence. | Local. |
 
 ## The snapshot
@@ -122,21 +136,48 @@ Combination keys are index-coded (`b2.t0.s1.q0.ref.desc`) over the sorted option
    - `remap` cannot drop an id. App content without a v5 counterpart stays in the snapshot and shows as app-only.
    - Watch for framework comment nodes (Svelte writes `<!--[-1]-->` markers): the shared extractor ignores them, and custom cell readers must too.
    - `chronology.mjs` shows a hand-built table, an export capture and both sweep kinds.
-3. In the register, delete your view's whole-view `not-yet-implemented` entry. The suite fails while a view with an adapter keeps one.
+3. In your register fragment, `register/CC-NN.json`, delete your view's whole-view `not-yet-implemented` entry. The suite fails while a view with an adapter keeps one.
 4. Run the view. Fix real differences, and propose a register entry for each intended one (below). Then run `bun run --bun test`, which includes the parity suite.
-5. A v5 state the generic adapter does not reach, such as a sub-tab, a dialog or a second mode, belongs in `scripts/parity/adapters/v5/specs.mjs` as a sweep with a `v5` driver. Implement the same sweep id in your app adapter.
+5. A v5 state the generic adapter does not reach, such as a sub-tab, a dialog or a second mode, belongs in your view's own spec module, `scripts/parity/adapters/v5/specs/<view-id>.mjs`, as a sweep with a `v5` driver. Implement the same sweep id in your app adapter.
+6. A sweep that ends on the overview tiles, as v5's `register_edit` does (`overview.<v5 tile label>` = the tile's value), reads the app's tiles with `readOverviewTiles(p, ctx)` from `_shell.mjs`. It opens the overview and returns `{ '<v5 tile label>': {value, sub} }` for the seven tiles (`Documents indexed`, `Amount due (to date)`, `Invoices`, `Open deadlines`, `Unbilled time`, `Contradiction flags`, `Scanned (need OCR)`), slot plug-ins included. Use the `value`s.
 
-When the registry marks a view `available` and no app adapter exists, the run reports an error for that view, and the error is unregistered.
+### Overview slot plug-ins
+
+The overview's widget slots stand where v5 shows the `Open deadlines` and `Unbilled time` tiles and the freshness card. The overview adapter (`overview.mjs`, CC-03's) does not change when a slot fills. Instead the slot's owner adds one module, `scripts/parity/adapters/app/slots/<slot-id>.mjs`: CC-07 adds `deadlines.mjs` and `unbilled-time.mjs`, CC-10 adds `rescan-freshness.mjs`.
+
+```js
+export default {
+	/** The overview is open and the slot is filled: read it, without navigating, as v5's tile reads. */
+	async read(p, ctx) { return { value: '…', sub: '…' }; },
+	/** Enter the rows this slot needs from `rows` = seededUserWork(ctx.clock), through the owner's own UI. */
+	async seed(p, ctx, rows) {},
+	/** Remove every row seed entered, and check the register is empty again. */
+	async cleanup(p, ctx) {},
+};
+```
+
+- `readOverviewSnapshot` and `readOverviewTiles` call `read` only for a slot whose `data-slot-status` is `filled`. A tile slot's result becomes `kpi.open_deadlines` or `kpi.unbilled_time` as `{value, sub}`. The freshness slot's becomes `text.freshness.1`, plus `text.freshness.2` when `sub` is not empty. An unfilled slot, or one without a plug-in, is read as before: its wording as the value and an empty caption.
+- The overview's `seeded_user_work` sweep calls every plug-in's `seed` in slot order, reads the tiles, then calls every `cleanup` in reverse order, also when the read fails. With no plug-in nothing is seeded and its output is unchanged.
+- The app keeps user work for the whole run while v5 starts each sweep with empty storage, so `cleanup` must leave nothing behind.
+- A file name that is not a declared slot (`OVERVIEW_SLOTS`), or a module without the three functions, is an error. Files starting with `_` are skipped. Named exports work too.
+- When your slot fills, delete its `not-yet-implemented` entries from your fragment: IDR-050 and IDR-067 (CC-07), IDR-051 and IDR-068 (CC-10).
+- `tests/parity/slot-plugins.test.ts` covers the tiles, the sweep and the loader with a fake plug-in.
+
+### Per-view v5 specs
+
+`specs.mjs` keeps the overview and chronology specs. Every other view's spec is a module of its own, `specs/<view-id>.mjs`, whose default export has the shape of one `SPECS` entry: `{ key?, postRaw?, storage?, sweeps? }`, each sweep `{ id, v5 }` with `v5` an async driver returning `{ comboKey: value }`. `loadSpecs()` finds the modules by dynamic import over the folder, in file-name order, so no owner edits `specs.mjs`. A module may import helpers such as `registerSweep` from `../specs.mjs` or `../../../lib/*.mjs`, and files starting with `_` are skipped, so shared helpers can live there. A file name that is not a v5 navigation id, a view whose spec stays in `specs.mjs`, an unknown key or a sweep without a `v5` function is an error; the v5 adapter then fails every view, so the run fails. `tests/parity/specs.test.ts` covers discovery.
+
+When the registry marks a view `available` and no app adapter exists, or its adapter returns any status but `ok` (`not-implemented` included), the run reports an extraction error for that view, and the error is unregistered.
 
 ## Register an intended difference
 
-Each entry in `intentional-differences.json` follows `intentional-differences.schema.json`:
+The register is `intentional-differences.json` plus one fragment per M2 owner in `register/` (see [Fragments](#fragments)). Each entry follows `intentional-differences.schema.json`:
 
 | Field | Rule |
 | --- | --- |
-| `id` | `IDR-<n>`, unique. |
+| `id` | `IDR-<n>`, unique across the main file and every fragment. A fragment's new ids lie in its owner's range. |
 | `view` | A v5 navigation id. |
-| `field` | A glob, or a list of globs, over snapshot paths: `*` matches any run of characters and `?` one character. A field of exactly `*` means the whole view is absent and covers only that view-level difference, never a value. |
+| `field` | A glob, or a list of globs, over snapshot paths: `*` matches any run of characters and `?` one character. A field of exactly `*` means the whole view is absent and covers only that view-level difference (kind `view-not-implemented`), never a value and never an extraction error. It must be exactly the string `*`: any other field that would match the path `*` (`?`, `**`, `*?`, `["*"]`, …) is refused by the validator, and no other field covers a whole view. |
 | `when` | Optional: `{ "v5": …, "app": … }`, each an exact normalized value, `"<absent>"` or `{ "re": "…" }`. Use it to pin the difference: for example `{ "v5": "nav-link", "app": "heading" }` registers BA-14 focus but not focus lost to the body. A side left out of `when` matches any value. An entry with no `when` covers every difference at the paths its field matches, whatever the two values: a changed value, a value on one side only (`<absent>`) and an order difference alike. The first entry in register order that covers a difference is the one reported. |
 | `type` | `improvement`; `defect-fix` (with `source` `S-…`); `data-correction-deferred-to-pipeline`; `not-yet-implemented` (with `owner` `GRS-…`; for a whole view, the owner in the generated view registry, `src/lib/components/view-registry.ts`, which every run checks); or `known-gap`. |
 | `source` | The `S-…` source defect, `BA-…` finding or `GRS-…` ticket behind it. |
@@ -147,6 +188,17 @@ Each entry in `intentional-differences.json` follows `intentional-differences.sc
 - **Make entries narrow.** An entry without `when` covers any value of its field, so a later regression in that field would pass unnoticed. Prefer `when`, and keep the field list short.
 - **Approval.** Commit proposed entries with the adapter. The coordinator reviews them, sets `approvedBy` and `approvedOn`, and lists the `productVisible` improvements for the user. Proposed entries cover differences in an ordinary run and count under *pending approval*. With `--approved-only` (the gate) they do not.
 
+### Fragments
+
+Parallel M2 owners do not edit the main file. Owner CC-NN keeps its entries in `register/CC-NN.json`, which has the main file's shape and schema (`"$schema": "../intentional-differences.schema.json"`). The runner loads the main file first, then the fragments by file name, as one register; `--register FILE` reads `FILE` and the fragments in `FILE`'s folder's `register/`. Every rule above applies to every file, and the validator adds these:
+
+- A fragment is named after an M2 owner, `CC-04.json` to `CC-10.json`; any other `.json` in `register/` is an error.
+- A new id lies in its owner's range: CC-04 `IDR-100`–`IDR-149`, CC-05 `150`–`199`, CC-06 `200`–`249`, CC-07 `250`–`299`, CC-08 `300`–`349`, CC-09 `350`–`399`, CC-10 `400`–`449`. A fragment also keeps the legacy ids moved into it from the main file (`LEGACY` in `scripts/parity/lib/register.mjs`). The main file may use no owner's range.
+- A whole-view entry (field `*`) in a fragment is for one of its owner's views in the view registry, and, as everywhere, a `not-yet-implemented` one names that view's Linear owner.
+- A fragment's problems are reported with its file name. `register-usage.json` gives each entry's file under `files`.
+
+The main file keeps the pilot views' entries (overview and chronology) that no M2 ticket owns. Each owner's whole-view `not-yet-implemented` entries moved into its fragment with their ids, and so did the overview slot entries: IDR-050 and IDR-067 (GRS-17) into `CC-07.json`, IDR-051 and IDR-068 (GRS-20) into `CC-10.json`. A fragment entry is for one of its owner's views or names its owner as `owner`. `tests/parity/fragments.test.ts` covers loading and the rules.
+
 ### Unused entries
 
 An improvement that reverts to v5 behaviour makes the app match v5, so no difference is left to fail. Instead, its register entry covers nothing. Every run lists such entries in `register-usage.json` and counts them in the scorecard. `--strict-register` fails on them. The CC-11 gate should use it together with `--approved-only`.
@@ -156,10 +208,11 @@ An improvement that reverts to v5 behaviour makes the app match v5, so no differ
 `scorecard.json` holds counts only: no path, no value and no case name. `tests/parity/compare.test.ts` checks this.
 
 - `result`, `exit`, `command`, `revision`, `build` (id, revision, root), `clock`, `timezone` and `seconds`.
+- `evidence` (false unless the build is a fresh build of clean HEAD), `freshBuild` (build revision and dirtiness, HEAD, tracked files modified, the reasons, whether `--allow-stale-build` was given) and, when stale, `evidenceNote`.
 - `register`: entries, approved, used and unused, and whether `--approved-only` and `--strict-register` were on.
 - `isolation`: the offline proof, v5 network and browser-internal request counts, app non-loopback requests, canary hits and whether the fixture tree is unchanged.
 - `total`:
-  - views, then `viewsExtractedV5`, `viewsComparedApp`, `viewsNotImplemented` and `viewsFailed`;
+  - views, then `viewsExtractedV5`, `viewsComparedApp`, `viewsNotImplemented`, `viewsExtractError` (either side did not extract) and `viewsFailed`;
   - `v5Values`, `appValues`, `compared` and `matched`;
   - `registered` counts by type, `pendingApproval` and `unregistered`.
 - `views.<id>`: the same counts per view, its time, and a status. The status is `PASS`, `PASS-with-notes` (only registered differences), `NOT-YET-IMPLEMENTED` or `FAIL`.
@@ -172,11 +225,14 @@ On the real sample, `bun scripts/parity/mutate.mjs --fixture-config .local/v5-ve
 
 - It archives `HEAD`, makes exactly one text replacement, reflinks `node_modules`, builds, and runs `parity --app-root` on the affected views.
 - The pilot has no register yet, so register CRUD runs v5 against a scratch copy of the v5 HTML with a planted delete defect. An unmutated copy is the self-parity control and must show no difference.
+- Before it creates, removes (`<out>/<id>` is recreated for each mutant) or writes anything, it checks `--out` like the runner: no overlap with an input the locator names, and no symlink or hard link at `<out>/<id>`, `<out>/<id>/src`, `<out>/<id>/v5-copy.html` or `mutation-proof.json`. `--out` must also lie inside `.local/` with symlinks resolved. A refusal exits 2.
 
 Results stay in `--out/mutation-proof.json` (local).
 
 ## Limits
 
-- The generic v5 adapter reads each view's first state. Sub-tabs, dialogs and modes need a sweep in `specs.mjs`; the view's owner adds it.
+- The output checks compare realpaths. A bind mount of the fixture elsewhere is not visible to realpath and is not detected, and a symlink swapped in between a check and the write that follows it (a race) is not guarded.
+
+- The generic v5 adapter reads each view's first state. Sub-tabs, dialogs and modes need a sweep in `specs/<view-id>.mjs`; the view's owner adds it.
 - The engine sweep compares the libraries, not the UI. The UI sweep is the behavioural evidence, and the engine sweep adds breadth.
 - An entry without `when` masks any later change in its field (see [Make entries narrow](#register-an-intended-difference)).

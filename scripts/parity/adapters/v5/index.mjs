@@ -1,13 +1,14 @@
 // The v5 side for all 42 views. One generic adapter drives the workspace UI the way a user does: open the view
 // from a clean load, read what is shown, page through every pager with its Next button, press every export or print
 // control and capture the content, and record where focus lands after navigating with the sidebar. Per-view specs
-// (./specs.mjs) add parameterized interaction sweeps on top. Nothing here reads DATA or other page internals except
-// where a spec says so (the chronology engine sweep, which reuses the parity trial's library-level driving).
+// (./specs.mjs and ./specs/<view-id>.mjs) add parameterized interaction sweeps on top. Nothing here reads DATA or
+// other page internals except where a spec says so (the chronology engine sweep, which reuses the parity trial's
+// library-level driving).
 import { sleep } from '../../../../tests/e2e/pilot/lib/cdp.mjs';
 import { parseDownload } from '../../lib/exports.mjs';
 import { fromRaw, tableFromRaw } from '../../lib/snapshot.mjs';
 import { slug } from '../../lib/normalize.mjs';
-import { SPECS, registerSweep } from './specs.mjs';
+import { loadSpecs, registerSweep } from './specs.mjs';
 
 export const EXPORT_CONTROL = /export|download|\bcsv\b|\.ics|\bics\b|print|\bpdf\b|backup/i;
 const NOT_EXPORT = /import|restore|upload/i;
@@ -51,7 +52,7 @@ const exportControls = (p) => p.evaluate(`[...document.querySelectorAll('#main b
 const pressControl = (p, i) => p.evaluate(`(() => { const e = [...document.querySelectorAll('#main button, #main a[download], #main [role=button]')].filter((e) => e.getClientRects().length && !e.closest('tbody tr'))[${i}]; if (!e) return false; e.setAttribute('data-parity-press', '1'); return true; })()`).then((ok) => ok && p.click('[data-parity-press]'));
 
 export async function extractV5View(p, view, ctx) {
-	const spec = SPECS[view] ?? {};
+	const spec = (await loadSpecs())[view] ?? {};
 	const storage = spec.storage ?? {};
 	const t0 = performance.now();
 	await p.load(storage);

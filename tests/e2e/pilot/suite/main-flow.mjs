@@ -1,9 +1,11 @@
 // Main-flow scenarios on app server A: UI import and preview (S1/S1b), activation through the UI, the chronology in
 // the browser (filters, sorts, Back; S25), citations to originals in the real viewer, keyboard and Back (BA-14),
-// titles (BA-16), the 42 extension points (BA-18), source routes (BA-09) and date basis (BA-04).
+// titles (BA-16), the 42 extension points (BA-18), source routes (BA-09) and date basis (BA-04). The extension-point
+// checks know which M2 views and overview slots the tree under test implements (lib/implemented.mjs).
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { DISABLED_FEATURES, frameEvaluator, launch } from '../lib/cdp.mjs';
+import { destinationOk, expectedSlot, filledSlots, firstUnimplemented, implementedViews, modeSummary, observedSlot, readyKind, registryOf } from '../lib/implemented.mjs';
 import { nextPopup, openPage, sleep } from './browser.mjs';
 import { ODD_BUNDLE, missingCase, mainCase } from './cases.mjs';
 import { readJson, vpath } from './context.mjs';
@@ -12,6 +14,17 @@ const J = JSON.stringify;
 export const ROWS = `[...document.querySelectorAll('[role=table] [role=row][data-ref]')].map((r) => r.dataset.ref)`;
 export const ready = (kind) => `document.querySelector('main#main')?.dataset.ready === ${J(kind)}`;
 const docReady = (ref) => ready(`doc:${ref}`);
+
+/** The registry, the implemented views and filled slots of the tree under test, and the example unavailable view. */
+async function modes(ctx) {
+	if (!ctx.modes) {
+		const r = await registryOf(ctx.ROOT);
+		const implemented = implementedViews(ctx.ROOT, r.views);
+		const filled = filledSlots(ctx.ROOT, r.slots);
+		ctx.modes = { ...r, implemented, filled, example: firstUnimplemented(r.views, implemented), summary: modeSummary(r.views, implemented, filled) };
+	}
+	return ctx.modes;
+}
 
 // ---- independent re-implementation of the chronology predicates (v5 chronFiltered/sortChron as revised) ----------
 const num = (s) => { const n = parseFloat(s); return Number.isNaN(n) ? 0 : n; };
@@ -275,17 +288,23 @@ export async function keyboard(ctx) {
 	await p.key('Enter');
 	await p.waitFor(ready('chronology'));
 	steps.push({ step: 'Tab to Chronology + Enter', presses: t1.presses, headingFocused: await heading('Chronology'), ...(await at()), wantHistory: h0 + 1 });
-	const t2 = await tabTo(p, 'nav-timeline', { shift: true });
-	await p.key('Enter');
-	await p.waitFor(ready('view:timeline'));
-	steps.push({ step: 'Shift+Tab to Timeline + Enter', presses: t2.presses, headingFocused: await heading('Timeline'), ...(await at()), wantHistory: h0 + 2 });
-	await p.evaluate('history.back(); true');
-	await p.waitFor(ready('chronology'));
-	steps.push({ step: 'Back', headingFocused: await heading('Chronology'), ...(await at()), wantHistory: h0 + 2 });
+	// the example: the first registry view without an owner route (an unavailable one); 'none left' once all exist
+	const { views, example: ex } = await modes(ctx);
+	if (ex) {
+		const before = views.findIndex((v) => v.id === ex.id) < views.findIndex((v) => v.id === 'chronology');
+		const t2 = await tabTo(p, `nav-${ex.id}`, { shift: before });
+		await p.key('Enter');
+		await p.waitFor(ready(`view:${ex.id}`));
+		steps.push({ step: `${before ? 'Shift+Tab' : 'Tab'} to ${ex.label} + Enter`, presses: t2.presses, headingFocused: await heading(ex.label), ...(await at()), wantHistory: h0 + 2 });
+		await p.evaluate('history.back(); true');
+		await p.waitFor(ready('chronology'));
+		steps.push({ step: 'Back', headingFocused: await heading('Chronology'), ...(await at()), wantHistory: h0 + 2 });
+	}
 	await p.evaluate('history.back(); true');
 	await p.waitFor(ready('overview'));
-	steps.push({ step: 'Back', headingFocused: await heading('Overview'), ...(await at()), wantHistory: h0 + 2 });
-	const want = [`${vpath(main.resultsVersion)}/chronology`, `${vpath(main.resultsVersion)}/analysis/timeline`, `${vpath(main.resultsVersion)}/chronology`, `${vpath(main.resultsVersion)}/overview`];
+	steps.push({ step: 'Back', headingFocused: await heading('Overview'), ...(await at()), wantHistory: h0 + (ex ? 2 : 1) });
+	const V = vpath(main.resultsVersion);
+	const want = ex ? [`${V}/chronology`, `${V}${ex.route}`, `${V}/chronology`, `${V}/overview`] : [`${V}/chronology`, `${V}/overview`];
 	// Back from an in-page fragment entry (the validation report's #code-<CODE> links) to the page's own entry: a
 	// same-page traversal SvelteKit handles without a navigation; the heading must still take focus.
 	await p.goto(`${A.origin}${ctx.mainImport.path}`, `document.querySelectorAll('main a[href^="#code-"]').length > 0`);
@@ -301,29 +320,32 @@ export async function keyboard(ctx) {
 	const ok = first.cls === 'skip' && first.href === '#main' && first.left >= 0 && first.w > 0 && afterSkip.hash === '' && afterSkip.added === 0 && afterSkip.focused === 'main' &&
 		freshFocus === 'BODY' && skipBack.path === `${vpath(main.resultsVersion)}/overview` && skipBack.focus === 'heading:Overview' &&
 		crossBack.path === `${vpath(main.resultsVersion)}/chronology` && crossBack.newDocument && crossBack.nav === 'back_forward' && crossBack.focus === 'heading:Chronology' &&
-		steps.every((s, i) => s.headingFocused && s.sameDocument && s.history === s.wantHistory && s.path === want[i]) &&
+		steps.length === want.length && steps.every((s, i) => s.headingFocused && s.sameDocument && s.history === s.wantHistory && s.path === want[i]) &&
 		fragBack.path === ctx.mainImport.path && fragBack.added === 1 && /^heading:/.test(fragBack.focus ?? '');
-	return { pass: ok, evidence: { firstTab: first, freshFocus, afterSkip, skipBack, crossBack, steps, fragBack } };
+	return { pass: ok, evidence: { example: ex?.id ?? 'none left', firstTab: first, freshFocus, afterSkip, skipBack, crossBack, steps, fragBack } };
 }
 
 /**
  * BA-16: titles name the document, section and case: '<document> · <section> · <case> · ClearCase'. The case part is
  * the package's view-content _shell.documentTitle, else the case name; the brand above the view navigation is
- * _shell.brandName, else the case name.
+ * _shell.brandName, else the case name. The unavailable example is the first registry view without an owner route;
+ * when every view has one, it is recorded as 'none left'.
  */
 export async function titles(ctx) {
 	const { A, p, main } = ctx;
 	const V = A.v(main.resultsVersion);
 	const kase = ctx.titleName(main);
+	const { example: ex } = await modes(ctx);
 	const want = {
 		overview: `Overview · ${kase} · ClearCase`, chronology: `Chronology · ${kase} · ClearCase`,
-		document: `OD-002 Synthetic subject OD-002 · Document · ${kase} · ClearCase`, unavailable: `Timeline (not yet available) · ${kase} · ClearCase`,
+		document: `OD-002 Synthetic subject OD-002 · Document · ${kase} · ClearCase`, unavailable: ex ? `${ex.label} (not yet available) · ${kase} · ClearCase` : 'none left',
 	};
 	const got = {};
 	await p.goto(`${V}/overview`, ready('overview')); got.overview = await p.evaluate('document.title'); got.brand = await p.evaluate(`document.getElementById('case-brand')?.textContent.trim() ?? null`);
 	await p.goto(`${V}/chronology`, ready('chronology')); got.chronology = await p.evaluate('document.title');
 	await p.goto(`${V}/doc/OD-002`, docReady('OD-002')); got.document = await p.evaluate('document.title');
-	await p.goto(`${V}/analysis/timeline`, ready('view:timeline')); got.unavailable = await p.evaluate('document.title');
+	if (ex) { await p.goto(`${V}${ex.route}`, ready(`view:${ex.id}`)); got.unavailable = await p.evaluate('document.title'); }
+	else got.unavailable = 'none left';
 	// after client-side navigation the title follows
 	await p.click('#nav-overview');
 	await p.waitFor(`${ready('overview')} && document.title === ${J(want.overview)}`, 8000).catch(() => null);
@@ -334,13 +356,19 @@ export async function titles(ctx) {
 	want.brand = ctx.brandName(main);
 	const ok = got.brand === want.brand && got.overview === want.overview && got.chronology === want.chronology && got.document === want.document && got.unavailable === want.unavailable &&
 		got.overviewAfterClientNav === want.overview && got.chronologyAfterClientNav === want.chronology;
-	return { pass: ok, evidence: { want, got, caseName: ctx.caseName(main), titleName: kase } };
+	return { pass: ok, evidence: { example: ex?.id ?? 'none left', want, got, caseName: ctx.caseName(main), titleName: kase } };
 }
 
-/** BA-18 + the 42 extension points. */
+/**
+ * BA-18 + the 42 extension points. A view whose owner route exists in the tree under test must render its label as
+ * the heading, data-ready="<id>", no unavailable state and aria-current on its entry; every other M2 view keeps the
+ * unavailable state naming its owner. Implemented plus unavailable is 40.
+ */
 export async function views42(ctx) {
 	const { A, p, main, ROOT } = ctx;
 	const rv = main.resultsVersion;
+	const m = await modes(ctx);
+	const byId = new Map(m.views.map((v) => [v.id, v]));
 	const inv = readJson(join(ROOT, 'docs', 'plan', 'view-coverage.json')).views;
 	const plan = new Map(readJson(join(ROOT, 'docs', 'plan', 'work-items.json')).items.map((i) => [i.key, i.linear?.identifier ?? null]));
 	await p.goto(`${A.v(rv)}/overview`, ready('overview'));
@@ -349,27 +377,28 @@ export async function views42(ctx) {
 	const per = [];
 	for (const v of inv) {
 		const owner = v.owner === 'CC-03' ? null : plan.get(v.owner);
-		const kind = v.id === 'overview' ? 'overview' : v.id === 'chronology' ? 'chronology' : `view:${v.id}`;
+		const kind = byId.has(v.id) ? readyKind(byId.get(v.id), m.implemented) : `view:${v.id}`;
 		await p.click(`#nav-${v.id}`);
 		await p.waitFor(`${ready(kind)} && document.querySelector('[data-page-heading]')?.textContent.trim() === ${J(v.label)}`, 10000).catch(() => null);
 		const s = await p.evaluate(`({ path: location.pathname, h1: document.querySelector('[data-page-heading]')?.textContent.trim() ?? null, ready: document.querySelector('main#main')?.dataset.ready ?? null,
 			unavailable: document.querySelector('[data-unavailable]')?.dataset.unavailable ?? null, owner: document.querySelector('[data-unavailable]')?.dataset.owner ?? null,
 			text: document.querySelector('[data-unavailable]')?.textContent.replace(/\\s+/g, ' ').trim().slice(0, 160) ?? null, current: document.querySelector('nav.views a[aria-current="page"]')?.id ?? null })`);
 		const n = nav.find((x) => x.id === v.id);
-		const ok = s.h1 === v.label && s.ready === kind && s.current === `nav-${v.id}` && (owner
-			? s.unavailable === v.id && s.owner === owner && s.text.includes(owner) && n?.status === `unavailable-until:${owner}`
-			: s.unavailable === null && n?.status === 'available');
-		per.push({ id: v.id, ok, owner, ...s });
+		const implemented = m.implemented.has(v.id);
+		const ok = byId.has(v.id) && destinationOk({ ...byId.get(v.id), label: v.label }, s, { owner, implemented: m.implemented, navStatus: n?.status });
+		per.push({ id: v.id, ok, owner, implemented, ...s });
 	}
 	const unknown = {};
 	for (const path of ['/analysis/no_such_view', '/no_such_category/matter', '/quantum/matter', '/evidence/chronology']) unknown[path] = (await A.c.get(`${vpath(rv)}${path}`)).status;
 	const search = await A.c.get(`${vpath(rv)}/search`);
-	await p.goto(`${A.v(rv)}/search`, ready('view:search'));
+	const searchImplemented = m.implemented.has('search');
+	await p.goto(`${A.v(rv)}/search`, ready(searchImplemented ? 'search' : 'view:search'));
 	const searchBrowser = await p.evaluate(`({ path: location.pathname, unavailable: document.querySelector('[data-unavailable]')?.dataset.unavailable ?? null })`);
 	const unavailableCount = per.filter((x) => x.unavailable).length;
-	const ok = order && per.every((x) => x.ok) && unavailableCount === 40 && Object.values(unknown).every((s) => s === 404) &&
-		[307, 308].includes(search.status) && search.location === `${vpath(rv)}/evidence/search` && searchBrowser.path === `${vpath(rv)}/evidence/search` && searchBrowser.unavailable === 'search';
-	return { pass: ok, evidence: { registryOrderAndLabels: order, navCount: nav.length, unavailableCount, failed: per.filter((x) => !x.ok), unknown, searchRedirect: { status: search.status, location: search.location }, searchBrowser } };
+	const implementedCount = per.filter((x) => x.implemented && x.unavailable === null).length;
+	const ok = order && per.every((x) => x.ok) && implementedCount + unavailableCount === 40 && Object.values(unknown).every((s) => s === 404) &&
+		[307, 308].includes(search.status) && search.location === `${vpath(rv)}/evidence/search` && searchBrowser.path === `${vpath(rv)}/evidence/search` && searchBrowser.unavailable === (searchImplemented ? null : 'search');
+	return { pass: ok, evidence: { registryOrderAndLabels: order, navCount: nav.length, implementedCount, unavailableCount, modes: m.summary, failed: per.filter((x) => !x.ok), unknown, searchRedirect: { status: search.status, location: search.location }, searchBrowser } };
 }
 
 /**
@@ -462,8 +491,9 @@ export async function sourceRoutes(ctx) {
 }
 
 /**
- * Overview widget slots (M2 extension point): exactly three, in order, each rendered unavailable and naming its owner
- * issue (GRS-17 for deadlines and unbilled time, GRS-20 for rescan freshness); the retired combined card is gone.
+ * Overview widget slots (M2 extension point): exactly three, in order. A slot its owner's overview-widgets.ts fills
+ * renders data-slot-status=filled under its heading; every other one renders unavailable and names its owner issue
+ * (GRS-17 for deadlines and unbilled time, GRS-20 for rescan freshness); the retired combined card is gone.
  * The owners are cross-checked against docs/plan/work-items.json (CC-07 -> GRS-17, CC-10 -> GRS-20).
  */
 export async function overviewSlots(ctx) {
@@ -478,10 +508,12 @@ export async function overviewSlots(ctx) {
 	const got = await p.evaluate(`({ slots: [...document.querySelectorAll('main section[data-slot]')].map((s) => ({ id: s.dataset.slot, status: s.dataset.slotStatus, h2: s.querySelector('h2')?.textContent.trim() ?? null,
 		labelledBy: s.getAttribute('aria-labelledby'), text: s.querySelector('p')?.textContent.replace(/\\s+/g, ' ').trim() ?? null })),
 		oldCard: [...document.querySelectorAll('main h2')].some((h) => /Deadlines and unbilled time/i.test(h.textContent)) })`);
+	const { slots, filled } = await modes(ctx);
 	const ok = got.slots.length === 3 && !got.oldCard && want.every((w, i) => {
 		const s = got.slots[i];
-		return s.id === w.id && s.status === 'unavailable' && s.h2 === w.title && s.labelledBy === `slot-${w.id}` && plan.get(w.owner) === w.linear &&
-			s.text === `Not yet available — owned by ${w.linear} (${w.owner}).`;
+		const decl = slots.find((d) => d.id === w.id);
+		return s.id === w.id && !!decl && s.labelledBy === `slot-${w.id}` && plan.get(w.owner) === w.linear &&
+			JSON.stringify(observedSlot({ id: s.id, status: s.status, heading: s.h2, text: s.text }, filled)) === JSON.stringify(expectedSlot(decl, filled));
 	});
-	return { pass: ok, evidence: { got, want, planOwners: Object.fromEntries(want.map((w) => [w.owner, plan.get(w.owner)])) } };
+	return { pass: ok, evidence: { got, want, filled: [...filled], planOwners: Object.fromEntries(want.map((w) => [w.owner, plan.get(w.owner)])) } };
 }

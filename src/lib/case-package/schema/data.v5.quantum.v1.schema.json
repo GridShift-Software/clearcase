@@ -1,0 +1,183 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.quantum.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "amountDueSeries": {
+      "items": {
+        "properties": {
+          "amount": {
+            "pattern": "^(?:-?\\d{1,15}(?:\\.\\d{1,4})?)?$",
+            "type": "string"
+          },
+          "date": {
+            "pattern": "^(?:\\d{4}-\\d{2}-\\d{2})?$",
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "date",
+          "filename",
+          "ref",
+          "url"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "chargingCount": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "grossInvoiced": {
+      "pattern": "^(?:-?\\d{1,15}(?:\\.\\d{1,4})?)?$",
+      "type": "string"
+    },
+    "headline_date": {
+      "pattern": "^(?:\\d{4}-\\d{2}-\\d{2})?$",
+      "type": "string"
+    },
+    "headline_due": {
+      "pattern": "^(?:-?\\d{1,15}(?:\\.\\d{1,4})?)?$",
+      "type": "string"
+    },
+    "headline_ref": {
+      "type": "string"
+    },
+    "headline_url": {
+      "type": "string"
+    },
+    "interestSeries": {
+      "items": {
+        "properties": {
+          "amount": {
+            "pattern": "^(?:-?\\d{1,15}(?:\\.\\d{1,4})?)?$",
+            "type": "string"
+          },
+          "date": {
+            "pattern": "^(?:\\d{4}-\\d{2}-\\d{2})?$",
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "date",
+          "filename",
+          "ref",
+          "url"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "invoiceCount": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "invoiceLedger": {
+      "items": {
+        "properties": {
+          "amount": {
+            "pattern": "^(?:-?\\d{1,15}(?:\\.\\d{1,4})?)?$",
+            "type": "string"
+          },
+          "bundle": {
+            "type": "string"
+          },
+          "date": {
+            "pattern": "^(?:\\d{4}-\\d{2}-\\d{2})?$",
+            "type": "string"
+          },
+          "no": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "text_status": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "bundle",
+          "date",
+          "no",
+          "ref",
+          "text_status",
+          "url"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "statementSeries": {
+      "items": {
+        "properties": {
+          "amount": {
+            "pattern": "^(?:-?\\d{1,15}(?:\\.\\d{1,4})?)?$",
+            "type": "string"
+          },
+          "date": {
+            "pattern": "^(?:\\d{4}-\\d{2}-\\d{2})?$",
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "amount",
+          "date",
+          "filename",
+          "ref",
+          "url"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "amountDueSeries",
+    "statementSeries",
+    "interestSeries",
+    "invoiceLedger",
+    "chargingCount",
+    "invoiceCount",
+    "grossInvoiced",
+    "headline_date",
+    "headline_due",
+    "headline_ref",
+    "headline_url"
+  ],
+  "title": "data of v5.quantum@1 (generated)",
+  "type": "object"
+}

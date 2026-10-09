@@ -1,0 +1,521 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.bundles.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "caselinesSections": {
+      "patternProperties": {
+        "^.*$": {
+          "properties": {
+            "from": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "title": {
+              "type": "string"
+            },
+            "to": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "from",
+            "to",
+            "title"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "caselinesSrc": {
+      "type": "string"
+    },
+    "catCount": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "catalogue": {
+      "patternProperties": {
+        "^.*$": {
+          "properties": {
+            "blank": {
+              "type": "boolean"
+            },
+            "caselines": {
+              "anyOf": [
+                {
+                  "type": "null"
+                },
+                {
+                  "properties": {
+                    "basis": {
+                      "type": "string"
+                    },
+                    "confidence": {
+                      "type": "string"
+                    },
+                    "from": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "stamps": {
+                      "type": "string"
+                    },
+                    "to": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "from",
+                    "to",
+                    "basis",
+                    "confidence",
+                    "stamps"
+                  ],
+                  "type": "object"
+                }
+              ]
+            },
+            "co": {
+              "type": "string"
+            },
+            "date": {
+              "type": "string"
+            },
+            "desc": {
+              "type": "string"
+            },
+            "docs": {
+              "items": {
+                "properties": {
+                  "ext": {
+                    "type": "string"
+                  },
+                  "from": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "pages": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "ref": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "url": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "ref",
+                  "name",
+                  "ext",
+                  "pages",
+                  "url"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "item": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "key": {
+              "type": "string"
+            },
+            "missing": {
+              "type": "boolean"
+            },
+            "nDocs": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "needsExtent": {
+              "type": "boolean"
+            },
+            "pages": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "parts": {
+              "items": {
+                "properties": {
+                  "from": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "n": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "rel": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "url": {
+                    "type": "string"
+                  },
+                  "whole": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "name",
+                  "rel",
+                  "url",
+                  "from",
+                  "to"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "review": {
+              "type": "boolean"
+            },
+            "src": {
+              "type": "string"
+            },
+            "srcName": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key",
+            "item",
+            "src",
+            "srcName",
+            "co",
+            "date",
+            "desc",
+            "missing",
+            "nDocs",
+            "pages",
+            "docs",
+            "parts"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "count": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "extracts": {
+      "type": "string"
+    },
+    "folder": {
+      "type": "string"
+    },
+    "headerDefaults": {
+      "properties": {
+        "caseNo": {
+          "type": "string"
+        },
+        "claimant": {
+          "type": "string"
+        },
+        "claimantRole": {
+          "type": "string"
+        },
+        "court": {
+          "type": "string"
+        },
+        "defendant": {
+          "type": "string"
+        },
+        "defendantRole": {
+          "type": "string"
+        },
+        "intro": {
+          "type": "string"
+        },
+        "judge": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "caseNo",
+        "claimant",
+        "claimantRole",
+        "court",
+        "defendant",
+        "defendantRole",
+        "intro",
+        "judge"
+      ],
+      "type": "object"
+    },
+    "indexSource": {
+      "type": "string"
+    },
+    "list": {
+      "items": {
+        "properties": {
+          "bundlePages": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "file": {
+            "type": "string"
+          },
+          "filePages": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "indexFile": {
+            "type": "string"
+          },
+          "indexPages": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "items": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "nDocs": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nItems": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nMissing": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nNeedsExtent": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "nReview": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "no": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "pages": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "planFile": {
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "properties": {
+                "blank": {
+                  "type": "boolean"
+                },
+                "caselines": {
+                  "properties": {
+                    "basis": {
+                      "type": "string"
+                    },
+                    "confidence": {
+                      "type": "string"
+                    },
+                    "from": {
+                      "minimum": 0,
+                      "type": "integer"
+                    },
+                    "stamps": {
+                      "type": "string"
+                    },
+                    "to": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "from",
+                    "to",
+                    "basis",
+                    "confidence",
+                    "stamps"
+                  ],
+                  "type": "object"
+                },
+                "co": {
+                  "type": "string"
+                },
+                "date": {
+                  "type": "string"
+                },
+                "desc": {
+                  "type": "string"
+                },
+                "from": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "key": {
+                  "type": "string"
+                },
+                "n": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "pages": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "parts": {
+                  "items": {
+                    "properties": {
+                      "from": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "n": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "rel": {
+                        "type": "string"
+                      },
+                      "to": {
+                        "minimum": 0,
+                        "type": "integer"
+                      },
+                      "url": {
+                        "type": "string"
+                      },
+                      "whole": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "rel",
+                      "url",
+                      "from",
+                      "to"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "slice": {
+                  "type": "string"
+                },
+                "sliceUrl": {
+                  "type": "string"
+                },
+                "to": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "key",
+                "n",
+                "desc",
+                "from",
+                "to",
+                "pages",
+                "parts"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "slug": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "no",
+          "name",
+          "slug",
+          "title",
+          "note",
+          "file",
+          "indexFile",
+          "planFile",
+          "pages",
+          "bundlePages",
+          "filePages",
+          "indexPages",
+          "nDocs",
+          "nItems",
+          "nMissing",
+          "nNeedsExtent",
+          "nReview",
+          "items",
+          "rows"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "source": {
+      "type": "string"
+    },
+    "totalDocs": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "totalItems": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "totalPages": {
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "source",
+    "indexSource",
+    "folder",
+    "extracts",
+    "caselinesSrc",
+    "count",
+    "catCount",
+    "totalDocs",
+    "totalItems",
+    "totalPages",
+    "headerDefaults",
+    "caselinesSections",
+    "catalogue",
+    "list"
+  ],
+  "title": "data of v5.bundles@1 (generated)",
+  "type": "object"
+}

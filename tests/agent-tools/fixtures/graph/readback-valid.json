@@ -1,0 +1,12 @@
+{
+  "description": "Readback derived from the plan",
+  "capability": "linear-relations",
+  "readback": {},
+  "expect": {
+    "exit": 0,
+    "output": [
+      "Compared Linear snapshot",
+      "PASS: 28 issues"
+    ]
+  }
+}

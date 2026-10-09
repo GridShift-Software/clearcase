@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Capture v5 screens with networking disabled: the browser runs in a new user and network namespace
+# (`unshare -rn`), which has no usable interface at all. Screens are private case material: write them
+# outside Git, for example under .orchestration/reports/CC-01/screens/.
+#
+#   scripts/fixtures/capture-screens PLAN.json OUT_DIR [HTML]
+#
+# HTML defaults to <fixture root>/v5-002/tree/ESS_DCS_Workspace.html. CLEARCASE_CHROME overrides the browser.
+set -euo pipefail
+here=$(cd "${BASH_SOURCE[0]%/*}" && pwd)
+plan=${1:?usage: capture-screens PLAN.json OUT_DIR [HTML]}
+out=${2:?usage: capture-screens PLAN.json OUT_DIR [HTML]}
+root=${CLEARCASE_FIXTURE_ROOT:-/home/operator/Work/Active/MX-two/ClearCase/fixtures}
+html=${3:-$root/v5-002/tree/ESS_DCS_Workspace.html}
+chrome=${CLEARCASE_CHROME:-$HOME/.cache/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-linux64/chrome-headless-shell}
+[[ -x $chrome ]] || { echo "browser not found: $chrome" >&2; exit 2; }
+[[ -f $html ]] || { echo "workspace HTML not found: $html" >&2; exit 2; }
+command -v unshare >/dev/null || { echo "unshare not found" >&2; exit 2; }
+mkdir -p "$out"
+echo "network namespace interfaces:"
+unshare -rn cat /proc/net/dev | tail -n +3 | awk '{print "  " $1}'
+exec unshare -rn node "$here/capture-screens.mjs" --chrome "$chrome" --html "$html" --out "$out" --plan "$plan"

@@ -10,6 +10,10 @@ Read `docs/product-brief.md`, `docs/delivery-plan.md`, `docs/orchestration.md` a
 - The existing hosted results-import endpoint is unverified. Do not treat client upload APIs as that endpoint.
 - A test that is skipped, mocked at the acceptance boundary or run against a different revision is not release evidence.
 
+## App toolchain
+
+Use Bun for application dependency installation, scripts, builds and the local server. The user selected Bun on 8 October 2026. The verified stable version on this host is 1.4.2. Pin `packageManager` to `bun@1.4.2`, commit `bun.lock`, install with `bun install --frozen-lockfile` and run app scripts with `bun run --bun <script>`. Launch the production entry point with Bun. Verify SQLite and server compatibility under Bun before accepting the pilot. Update Bun with `bun upgrade --stable` and record the installed version before changing its pin. This supersedes older npm/Node toolchain instructions in planning artifacts and spike reports.
+
 ## Agent skills
 
 Linear is the issue tracker. Read `docs/agents/issue-tracker.md`. The glossary is `GLOSSARY.md`; write ADRs under `docs/adr/` only for decisions that earn a permanent record.
@@ -18,9 +22,13 @@ Apply the installed Matt Pocock skill principles to the spec, task graph, domain
 
 Use the current user instructions ahead of defaults. No Cursor agents. Every Opus agent uses high reasoning effort. Other supported model families remain available for independent review; the user did not require every role to use Opus.
 
+## Agent tooling
+
+Start every worker or verifier session with `scripts/agent-tools/doctor`. Check the plan with `scripts/agent-tools/check-plan`, adding `--linear-relations PATH` when a Linear readback exists. Run any other check through `scripts/agent-tools/verify` or `scripts/agent-tools/receipt` so it leaves a receipt. These commands work from a clean non-interactive shell in any worktree and exit nonzero on a failure or a skipped required check. `docs/agent-tooling.md` documents sources, flags, exit codes and receipts.
+
 ## Git flow
 
-`main` is release-only. `dev` is the integration branch. Each ticket is one `feature/<linear-id>-<slug>` branch in its own worktree, based on the accepted `dev` revision, and closes through a pull request into `dev` that an external reviewer approves. Workers commit and push their feature branch; the coordinator opens or checks the PR, links it to Linear and T3, and merges only after review. Nobody pushes to `main`.
+Nothing merges into `main`, which is release-only and changes only through the user. `dev` is the integration branch, and everything lands there. Each ticket is one `feature/<linear-id>-<slug>` branch in its own worktree and closes through a pull request that an external reviewer approves. Workers commit and push their feature branch; the coordinator opens or checks the PR, links it to Linear and T3, and merges only after review. Pull requests form a stack on GitHub: the bottom branch is based on the accepted `dev` revision and its PR targets `dev`; a dependent ticket's branch is cut from its upstream ticket's accepted head and its PR targets that upstream branch, so each layer is reviewed separately. GitHub retargets a layer to `dev` when the layer below merges. The coordinator links the layers with `gh stack link --base dev` (the official `github/gh-stack` extension) and never runs commands that rebase or force-push, such as `gh stack sync` or `gh stack rebase`; when a lower layer changes, it merges the updated upstream branch into the layers above and reruns affected checks. Nothing merges into `dev` before the external reviewer approves. Nobody pushes to `main`.
 
 ## Coordination
 

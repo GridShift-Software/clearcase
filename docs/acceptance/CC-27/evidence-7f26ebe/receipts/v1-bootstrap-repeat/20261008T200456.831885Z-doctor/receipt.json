@@ -1,0 +1,77 @@
+{
+  "schema": "clearcase-agent-receipt/1",
+  "name": "doctor",
+  "result": "PASS",
+  "exitCode": 0,
+  "reason": null,
+  "command": [
+    "/usr/bin/python3",
+    "-I",
+    "-B",
+    "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/scripts/agent-tools/agent_tools.py",
+    "bootstrap"
+  ],
+  "cwd": "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling",
+  "tools": [
+    {
+      "name": "git",
+      "path": "/usr/bin/git",
+      "version": "git version 2.56.0"
+    },
+    {
+      "name": "python3",
+      "path": "/usr/bin/python3",
+      "version": "Python 3.14.7"
+    },
+    {
+      "name": "node",
+      "path": "/usr/bin/node",
+      "version": "v26.10.0"
+    },
+    {
+      "name": "bun",
+      "path": "~/.local/bin/bun",
+      "version": "1.4.2"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling/scripts/agent-tools/skills.lock.json",
+      "sha256": "4fe010feff5eef3c16bb578a32acfa152ac7fc3836bf0b3caa63a84cd53dbf5a",
+      "size": 11333,
+      "mtimeNs": 1791467831271546851,
+      "device": 54,
+      "inode": 19364117
+    }
+  ],
+  "revision": {
+    "repository": true,
+    "root": "~/Work/Active/MX-two/ClearCase/worktrees/grs-35-agent-tooling",
+    "branch": "feature/grs-35-agent-tooling",
+    "head": "7f26ebe08f7b0824a34eedd501e4c2f489efde24",
+    "baseRef": "origin/dev",
+    "base": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "mergeBase": "81c3f4bc486bf89b1b6b0afce327d2492698acd3",
+    "dirty": false,
+    "diffSha256": null
+  },
+  "environment": {
+    "os": "CachyOS",
+    "platform": "linux",
+    "kernel": "7.2.2-1-cachyos",
+    "machine": "x86_64",
+    "host": "PUK",
+    "bash": "5.3.20(1)-release",
+    "callerShell": "",
+    "python": "3.14.7",
+    "path": "/usr/local/bin:/usr/bin:/bin"
+  },
+  "startedAt": "2026-10-08T20:04:56.831885+00:00",
+  "finishedAt": "2026-10-08T20:04:56.910431+00:00",
+  "durationSeconds": 0.079,
+  "artifacts": {
+    "receipt": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r8/rerun-7f26ebe/receipts/v1-bootstrap-repeat/20261008T200456.831885Z-doctor/receipt.json",
+    "stdout": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r8/rerun-7f26ebe/receipts/v1-bootstrap-repeat/20261008T200456.831885Z-doctor/stdout.txt",
+    "stderr": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r8/rerun-7f26ebe/receipts/v1-bootstrap-repeat/20261008T200456.831885Z-doctor/stderr.txt"
+  }
+}

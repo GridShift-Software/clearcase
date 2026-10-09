@@ -1,0 +1,1951 @@
+{
+ "schema": "clearcase-v5-summary/1",
+ "files": {
+  "count": 1753,
+  "bytes": 3257531147,
+  "topLevelFolders": 7,
+  "rootFiles": 10,
+  "unsafeEntries": 0,
+  "nonAsciiNames": 2,
+  "nonNfcNames": 0,
+  "namesWithSpaces": 1285,
+  "unreferencedFiles": 5
+ },
+ "mainHtml": {
+  "sha256": "c0df43f7653c2feeea73f2634bfc14c379f5ccd07d15a5bb9bea29d4f8277e80",
+  "size": 4494547,
+  "lines": 3649,
+  "codeSha256": "64599494e8b0327bd4ab463e622d65502acbd5126ccafba4a742268f730d0259",
+  "builtAt": "2026-08-12 19:30",
+  "docCount": 1689,
+  "chronologyRows": 1689,
+  "navEntries": 42,
+  "datasetLines": {
+   "DATA": 175,
+   "META": 176,
+   "window.__SCHED__": 3175,
+   "window.__CASELINES_IDX__": 3178
+  }
+ },
+ "htmlCandidates": [
+  {
+   "sha256": "5794156b11ed3a4b903c3bab4aea5ac804016cdac226d168e339a023fafd4f7d",
+   "size": 4355150,
+   "role": "variant",
+   "docCount": 1562,
+   "chronologyRows": 1562,
+   "codeSha256": "64599494e8b0327bd4ab463e622d65502acbd5126ccafba4a742268f730d0259"
+  },
+  {
+   "sha256": "c0df43f7653c2feeea73f2634bfc14c379f5ccd07d15a5bb9bea29d4f8277e80",
+   "size": 4494547,
+   "role": "main",
+   "docCount": 1689,
+   "chronologyRows": 1689,
+   "codeSha256": "64599494e8b0327bd4ab463e622d65502acbd5126ccafba4a742268f730d0259"
+  }
+ ],
+ "variantDiffs": [
+  {
+   "sameAppCode": true,
+   "builtAtEarlier": true,
+   "docCount": [
+    1689,
+    1562
+   ],
+   "chronologyRows": [
+    1689,
+    1562
+   ],
+   "refsOnlyInMain": 127,
+   "refsOnlyInVariant": 0,
+   "refPrefixesOnlyInMain": {
+    "AD": 2,
+    "VDM": 125
+   },
+   "commonRefOrderPreserved": true,
+   "metaBundlesOnlyInMain": [
+    "Additional"
+   ],
+   "differingDatasets": [
+    "DATA",
+    "META"
+   ],
+   "differingDataKeys": [
+    "chronology",
+    "defenceMatrix",
+    "matter"
+   ],
+   "arrayLengths": {
+    "chronology": [
+     1689,
+     1562
+    ],
+    "defenceMatrix": [
+     8,
+     6
+    ],
+    "matter": [
+     null,
+     null
+    ]
+   }
+  }
+ ],
+ "meta": {
+  "keys": [
+   "builtAt",
+   "docCount",
+   "dataFolderName",
+   "bundles",
+   "emails",
+   "invoices",
+   "people",
+   "textNone",
+   "textPending",
+   "dateSpan",
+   "docTypes"
+  ],
+  "docCount": 1689,
+  "builtAt": "2026-08-12 19:30",
+  "bundles": {
+   "Original": 605,
+   "Supplementary": 481,
+   "Correspondence": 475,
+   "Pleadings": 1,
+   "Additional": 127
+  },
+  "docTypeCount": 14,
+  "textNone": 237,
+  "textPending": 6,
+  "emails": 469,
+  "people": 42
+ },
+ "derivedCounts": {
+  "chronologyByBundle": {
+   "Additional": 127,
+   "Correspondence": 475,
+   "Original": 605,
+   "Pleadings": 1,
+   "Supplementary": 481
+  },
+  "chronologyByRefPrefix": {
+   "AD": 2,
+   "EM": 475,
+   "OD": 605,
+   "PN": 1,
+   "SD": 481,
+   "VDM": 125
+  },
+  "chronologyByTextStatus": {
+   "extracted": 1428,
+   "none": 255,
+   "pending": 6
+  },
+  "chronologyEmailRows": 629,
+  "chronologyWithDate": 1416,
+  "attachmentNames": 1308
+ },
+ "nav": {
+  "entries": 42,
+  "groups": 7,
+  "items": [
+   {
+    "group": "Matter",
+    "id": "overview",
+    "label": "Overview"
+   },
+   {
+    "group": "Matter",
+    "id": "matter",
+    "label": "Matter & Strategy"
+   },
+   {
+    "group": "Matter",
+    "id": "timeline",
+    "label": "Timeline"
+   },
+   {
+    "group": "Matter",
+    "id": "chronology",
+    "label": "Chronology"
+   },
+   {
+    "group": "Matter",
+    "id": "quantum_tab",
+    "label": "Quantum & Interest"
+   },
+   {
+    "group": "Evidence",
+    "id": "documents",
+    "label": "Documents"
+   },
+   {
+    "group": "Evidence",
+    "id": "contracts_tab",
+    "label": "Contracts"
+   },
+   {
+    "group": "Evidence",
+    "id": "filings_tab",
+    "label": "Filings & Affidavits"
+   },
+   {
+    "group": "Evidence",
+    "id": "search",
+    "label": "Advanced Search"
+   },
+   {
+    "group": "Evidence",
+    "id": "people",
+    "label": "People"
+   },
+   {
+    "group": "Evidence",
+    "id": "entity_ledger_tab",
+    "label": "Entities"
+   },
+   {
+    "group": "Evidence",
+    "id": "hoa_diff_tab",
+    "label": "Document Diff"
+   },
+   {
+    "group": "Case management",
+    "id": "invoice_ledger_tab",
+    "label": "Invoice Ledger"
+   },
+   {
+    "group": "Case management",
+    "id": "disbursements_tab",
+    "label": "Disbursements"
+   },
+   {
+    "group": "Case management",
+    "id": "timesheet_tab",
+    "label": "Timesheet"
+   },
+   {
+    "group": "Case management",
+    "id": "deadlines_tab",
+    "label": "Deadlines"
+   },
+   {
+    "group": "Case management",
+    "id": "discovery_tab",
+    "label": "Discovery Schedule"
+   },
+   {
+    "group": "Case management",
+    "id": "court_bundle_tab",
+    "label": "Court Bundle"
+   },
+   {
+    "group": "Case management",
+    "id": "caselines_tab",
+    "label": "CaseLines"
+   },
+   {
+    "group": "Analysis",
+    "id": "contradictions_tab",
+    "label": "Contradiction Tracker"
+   },
+   {
+    "group": "Analysis",
+    "id": "risk_matrix_tab",
+    "label": "Risk Matrix"
+   },
+   {
+    "group": "Analysis",
+    "id": "vdm_matrix_tab",
+    "label": "Defence & Rebuttal"
+   },
+   {
+    "group": "Analysis",
+    "id": "info_required_tab",
+    "label": "Info Required"
+   },
+   {
+    "group": "Analysis",
+    "id": "witness_tab",
+    "label": "Witnesses"
+   },
+   {
+    "group": "Analysis",
+    "id": "conflict_tab",
+    "label": "Conflict Check"
+   },
+   {
+    "group": "Litigation strategy",
+    "id": "enforcement_tab",
+    "label": "Enforcement Roadmap"
+   },
+   {
+    "group": "Litigation strategy",
+    "id": "legality_tab",
+    "label": "Legality & SIU Risk"
+   },
+   {
+    "group": "Litigation strategy",
+    "id": "prescription_tab",
+    "label": "Prescription"
+   },
+   {
+    "group": "Litigation strategy",
+    "id": "interest_calc_tab",
+    "label": "Interest Recalculator"
+   },
+   {
+    "group": "Litigation strategy",
+    "id": "payments_tab",
+    "label": "Payments & Net Claim"
+   },
+   {
+    "group": "Litigation strategy",
+    "id": "elements_tab",
+    "label": "Cause of Action"
+   },
+   {
+    "group": "Litigation strategy",
+    "id": "authorities_tab",
+    "label": "Authorities"
+   },
+   {
+    "group": "Litigation strategy",
+    "id": "heads_tab",
+    "label": "Heads of Argument"
+   },
+   {
+    "group": "Litigation strategy",
+    "id": "crossexam_tab",
+    "label": "Cross-Exam Prep"
+   },
+   {
+    "group": "Litigation strategy",
+    "id": "settlement_tab",
+    "label": "Settlement / BATNA"
+   },
+   {
+    "group": "Registers",
+    "id": "privilege_tab",
+    "label": "Privilege Log"
+   },
+   {
+    "group": "Registers",
+    "id": "popia_tab",
+    "label": "POPIA Register"
+   },
+   {
+    "group": "Registers",
+    "id": "annotations_tab",
+    "label": "Annotations"
+   },
+   {
+    "group": "Registers",
+    "id": "transcriptions_tab",
+    "label": "Transcripts"
+   },
+   {
+    "group": "System",
+    "id": "rescan_tab",
+    "label": "Rescan & Update"
+   },
+   {
+    "group": "System",
+    "id": "backup_tab",
+    "label": "Backup / Restore"
+   },
+   {
+    "group": "System",
+    "id": "manual",
+    "label": "Manual"
+   }
+  ]
+ },
+ "codeLiterals": {
+  "CBHF": 8,
+  "CBK": 5,
+  "CBPH": 8,
+  "ENF_OPTS": 5,
+  "NAV": 7,
+  "STORE_KEYS": 20
+ },
+ "storeKeys": [
+  "ess_dcs_deadlines_v1",
+  "ess_dcs_timesheet_v1",
+  "ess_dcs_disbursements_v1",
+  "ess_dcs_privilege_v1",
+  "ess_dcs_popia_v1",
+  "ess_dcs_annotations_v1",
+  "ess_dcs_transcripts_v1",
+  "ess_dcs_rescan_v1",
+  "ess_dcs_courtbundle_v1",
+  "ess_dcs_bundle_header_v1",
+  "ess_dcs_bundle_extents_v1",
+  "ess_dcs_custom_bundles_v1",
+  "ess_dcs_bundle_overrides_v1",
+  "ess_dcs_info_done_v1",
+  "ess_dcs_filings_v1",
+  "ess_dcs_payments_v1",
+  "ess_dcs_heads_v1",
+  "ess_dcs_crossexam_v1",
+  "ess_dcs_authorities_v1",
+  "ess_dcs_enf_status_v1"
+ ],
+ "datasets": {
+  "DATA": {
+   "kind": "object",
+   "count": 17
+  },
+  "META": {
+   "kind": "object",
+   "count": 11
+  },
+  "window.__CASELINES_IDX__": {
+   "kind": "object",
+   "count": 3
+  },
+  "window.__SCHED__": {
+   "kind": "object",
+   "count": 2
+  }
+ },
+ "dataKeys": {
+  "chronology": {
+   "kind": "array",
+   "count": 1689
+  },
+  "people": {
+   "kind": "array",
+   "count": 42
+  },
+  "entities": {
+   "kind": "array",
+   "count": 22
+  },
+  "matter": {
+   "kind": "object",
+   "count": 5
+  },
+  "quantum": {
+   "kind": "object",
+   "count": 11
+  },
+  "riskMatrix": {
+   "kind": "array",
+   "count": 6
+  },
+  "defenceMatrix": {
+   "kind": "array",
+   "count": 8
+  },
+  "infoRequired": {
+   "kind": "array",
+   "count": 6
+  },
+  "witnesses": {
+   "kind": "array",
+   "count": 3
+  },
+  "buildReport": {
+   "kind": "object",
+   "count": 3
+  },
+  "linkSample": {
+   "kind": "array",
+   "count": 18
+  },
+  "timeline": {
+   "kind": "object",
+   "count": 4
+  },
+  "contracts": {
+   "kind": "object",
+   "count": 2
+  },
+  "filings": {
+   "kind": "object",
+   "count": 3
+  },
+  "contradictions": {
+   "kind": "object",
+   "count": 5
+  },
+  "lit": {
+   "kind": "object",
+   "count": 10
+  },
+  "bundles": {
+   "kind": "object",
+   "count": 14
+  }
+ },
+ "fields": {
+  "DATA": {
+   "DATA.buildReport.generatedFrom": 1,
+   "DATA.buildReport.pending[].bundle": 6,
+   "DATA.buildReport.pending[].filename": 6,
+   "DATA.buildReport.pending[].ref": 6,
+   "DATA.buildReport.textNone[].bundle": 237,
+   "DATA.buildReport.textNone[].filename": 237,
+   "DATA.buildReport.textNone[].ref": 237,
+   "DATA.bundles.caselinesSections{*}.from": 19,
+   "DATA.bundles.caselinesSections{*}.title": 19,
+   "DATA.bundles.caselinesSections{*}.to": 19,
+   "DATA.bundles.caselinesSrc": 1,
+   "DATA.bundles.catCount": 1,
+   "DATA.bundles.catalogue{*}.blank": 469,
+   "DATA.bundles.catalogue{*}.caselines": 3,
+   "DATA.bundles.catalogue{*}.caselines.basis": 9,
+   "DATA.bundles.catalogue{*}.caselines.confidence": 9,
+   "DATA.bundles.catalogue{*}.caselines.from": 9,
+   "DATA.bundles.catalogue{*}.caselines.stamps": 9,
+   "DATA.bundles.catalogue{*}.caselines.to": 9,
+   "DATA.bundles.catalogue{*}.co": 481,
+   "DATA.bundles.catalogue{*}.date": 481,
+   "DATA.bundles.catalogue{*}.desc": 481,
+   "DATA.bundles.catalogue{*}.docs[].ext": 1111,
+   "DATA.bundles.catalogue{*}.docs[].from": 9,
+   "DATA.bundles.catalogue{*}.docs[].name": 1111,
+   "DATA.bundles.catalogue{*}.docs[].pages": 1111,
+   "DATA.bundles.catalogue{*}.docs[].ref": 1111,
+   "DATA.bundles.catalogue{*}.docs[].to": 9,
+   "DATA.bundles.catalogue{*}.docs[].url": 1111,
+   "DATA.bundles.catalogue{*}.item": 481,
+   "DATA.bundles.catalogue{*}.key": 481,
+   "DATA.bundles.catalogue{*}.missing": 481,
+   "DATA.bundles.catalogue{*}.nDocs": 481,
+   "DATA.bundles.catalogue{*}.needsExtent": 12,
+   "DATA.bundles.catalogue{*}.pages": 481,
+   "DATA.bundles.catalogue{*}.parts[].from": 1111,
+   "DATA.bundles.catalogue{*}.parts[].n": 1111,
+   "DATA.bundles.catalogue{*}.parts[].name": 1111,
+   "DATA.bundles.catalogue{*}.parts[].rel": 1111,
+   "DATA.bundles.catalogue{*}.parts[].to": 1111,
+   "DATA.bundles.catalogue{*}.parts[].url": 1111,
+   "DATA.bundles.catalogue{*}.parts[].whole": 1111,
+   "DATA.bundles.catalogue{*}.review": 12,
+   "DATA.bundles.catalogue{*}.src": 481,
+   "DATA.bundles.catalogue{*}.srcName": 481,
+   "DATA.bundles.count": 1,
+   "DATA.bundles.extracts": 1,
+   "DATA.bundles.folder": 1,
+   "DATA.bundles.headerDefaults.caseNo": 1,
+   "DATA.bundles.headerDefaults.claimant": 1,
+   "DATA.bundles.headerDefaults.claimantRole": 1,
+   "DATA.bundles.headerDefaults.court": 1,
+   "DATA.bundles.headerDefaults.defendant": 1,
+   "DATA.bundles.headerDefaults.defendantRole": 1,
+   "DATA.bundles.headerDefaults.intro": 1,
+   "DATA.bundles.headerDefaults.judge": 1,
+   "DATA.bundles.indexSource": 1,
+   "DATA.bundles.list[].bundlePages": 14,
+   "DATA.bundles.list[].file": 14,
+   "DATA.bundles.list[].filePages": 14,
+   "DATA.bundles.list[].indexFile": 14,
+   "DATA.bundles.list[].indexPages": 14,
+   "DATA.bundles.list[].items[]": 655,
+   "DATA.bundles.list[].nDocs": 14,
+   "DATA.bundles.list[].nItems": 14,
+   "DATA.bundles.list[].nMissing": 14,
+   "DATA.bundles.list[].nNeedsExtent": 14,
+   "DATA.bundles.list[].nReview": 14,
+   "DATA.bundles.list[].name": 14,
+   "DATA.bundles.list[].no": 14,
+   "DATA.bundles.list[].note": 14,
+   "DATA.bundles.list[].pages": 14,
+   "DATA.bundles.list[].planFile": 14,
+   "DATA.bundles.list[].rows[].blank": 1,
+   "DATA.bundles.list[].rows[].caselines.basis": 9,
+   "DATA.bundles.list[].rows[].caselines.confidence": 9,
+   "DATA.bundles.list[].rows[].caselines.from": 9,
+   "DATA.bundles.list[].rows[].caselines.stamps": 9,
+   "DATA.bundles.list[].rows[].caselines.to": 9,
+   "DATA.bundles.list[].rows[].co": 491,
+   "DATA.bundles.list[].rows[].date": 588,
+   "DATA.bundles.list[].rows[].desc": 655,
+   "DATA.bundles.list[].rows[].from": 655,
+   "DATA.bundles.list[].rows[].key": 655,
+   "DATA.bundles.list[].rows[].n": 655,
+   "DATA.bundles.list[].rows[].pages": 655,
+   "DATA.bundles.list[].rows[].parts[].from": 1292,
+   "DATA.bundles.list[].rows[].parts[].n": 128,
+   "DATA.bundles.list[].rows[].parts[].name": 1292,
+   "DATA.bundles.list[].rows[].parts[].rel": 1292,
+   "DATA.bundles.list[].rows[].parts[].to": 1292,
+   "DATA.bundles.list[].rows[].parts[].url": 1292,
+   "DATA.bundles.list[].rows[].slice": 9,
+   "DATA.bundles.list[].rows[].sliceUrl": 9,
+   "DATA.bundles.list[].rows[].to": 655,
+   "DATA.bundles.list[].slug": 14,
+   "DATA.bundles.list[].title": 14,
+   "DATA.bundles.source": 1,
+   "DATA.bundles.totalDocs": 1,
+   "DATA.bundles.totalItems": 1,
+   "DATA.bundles.totalPages": 1,
+   "DATA.chronology[].amount": 1689,
+   "DATA.chronology[].attachments[]": 1308,
+   "DATA.chronology[].bundle": 1689,
+   "DATA.chronology[].cc": 1689,
+   "DATA.chronology[].date": 1689,
+   "DATA.chronology[].doc_type": 1689,
+   "DATA.chronology[].excerpt": 1689,
+   "DATA.chronology[].filename": 1689,
+   "DATA.chronology[].invoice_no": 1689,
+   "DATA.chronology[].n": 1689,
+   "DATA.chronology[].ref": 1689,
+   "DATA.chronology[].sender": 1689,
+   "DATA.chronology[].seq": 1689,
+   "DATA.chronology[].size": 1689,
+   "DATA.chronology[].subject": 1689,
+   "DATA.chronology[].text_status": 1689,
+   "DATA.chronology[].to": 1689,
+   "DATA.chronology[].url": 1689,
+   "DATA.contracts.count": 1,
+   "DATA.contracts.groups[].items[].date": 22,
+   "DATA.contracts.groups[].items[].doc_type": 22,
+   "DATA.contracts.groups[].items[].note": 22,
+   "DATA.contracts.groups[].items[].party": 22,
+   "DATA.contracts.groups[].items[].ref": 22,
+   "DATA.contracts.groups[].items[].role": 22,
+   "DATA.contracts.groups[].items[].text_status": 22,
+   "DATA.contracts.groups[].items[].title": 22,
+   "DATA.contracts.groups[].items[].url": 22,
+   "DATA.contracts.groups[].key": 4,
+   "DATA.contradictions.byCat.dupamt": 1,
+   "DATA.contradictions.byCat.rate": 1,
+   "DATA.contradictions.byCat.recovery": 1,
+   "DATA.contradictions.byCat.units": 1,
+   "DATA.contradictions.categories[].explain": 4,
+   "DATA.contradictions.categories[].items[].detail": 33,
+   "DATA.contradictions.categories[].items[].label": 33,
+   "DATA.contradictions.categories[].items[].rates{*}": 16,
+   "DATA.contradictions.categories[].items[].refs[].amount": 64,
+   "DATA.contradictions.categories[].items[].refs[].filename": 64,
+   "DATA.contradictions.categories[].items[].refs[].ref": 64,
+   "DATA.contradictions.categories[].items[].refs[].url": 64,
+   "DATA.contradictions.categories[].items[].spread": 6,
+   "DATA.contradictions.categories[].key": 4,
+   "DATA.contradictions.categories[].severity": 4,
+   "DATA.contradictions.categories[].title": 4,
+   "DATA.contradictions.checks[].check": 2,
+   "DATA.contradictions.checks[].n": 2,
+   "DATA.contradictions.checks[].result": 2,
+   "DATA.contradictions.highCount": 1,
+   "DATA.contradictions.total": 1,
+   "DATA.defenceMatrix[].dcs": 8,
+   "DATA.defenceMatrix[].docs[].date": 51,
+   "DATA.defenceMatrix[].docs[].doc_type": 51,
+   "DATA.defenceMatrix[].docs[].filename": 51,
+   "DATA.defenceMatrix[].docs[].ref": 51,
+   "DATA.defenceMatrix[].docs[].url": 51,
+   "DATA.defenceMatrix[].evidence": 8,
+   "DATA.defenceMatrix[].point": 8,
+   "DATA.defenceMatrix[].rebuttal": 8,
+   "DATA.defenceMatrix[].refs": 8,
+   "DATA.entities[].name": 22,
+   "DATA.entities[].note": 22,
+   "DATA.entities[].role": 22,
+   "DATA.filings.count": 1,
+   "DATA.filings.groups[].items[].date": 13,
+   "DATA.filings.groups[].items[].doc_type": 13,
+   "DATA.filings.groups[].items[].note": 13,
+   "DATA.filings.groups[].items[].party": 13,
+   "DATA.filings.groups[].items[].ref": 13,
+   "DATA.filings.groups[].items[].role": 13,
+   "DATA.filings.groups[].items[].text_status": 13,
+   "DATA.filings.groups[].items[].title": 13,
+   "DATA.filings.groups[].items[].url": 13,
+   "DATA.filings.groups[].key": 4,
+   "DATA.filings.groups[].note": 4,
+   "DATA.filings.registerSeed[].fdate": 3,
+   "DATA.filings.registerSeed[].filing": 3,
+   "DATA.filings.registerSeed[].fparty": 3,
+   "DATA.filings.registerSeed[].rdate": 3,
+   "DATA.filings.registerSeed[].ref": 3,
+   "DATA.filings.registerSeed[].response": 3,
+   "DATA.filings.registerSeed[].status": 3,
+   "DATA.infoRequired[].item": 6,
+   "DATA.infoRequired[].owner": 6,
+   "DATA.infoRequired[].status": 6,
+   "DATA.linkSample[].bundle": 18,
+   "DATA.linkSample[].filename": 18,
+   "DATA.linkSample[].ref": 18,
+   "DATA.linkSample[].url": 18,
+   "DATA.lit.authorities[].authority": 11,
+   "DATA.lit.authorities[].proposition": 11,
+   "DATA.lit.authorities[].topic": 11,
+   "DATA.lit.crossexam_seed[].docs": 4,
+   "DATA.lit.crossexam_seed[].put": 4,
+   "DATA.lit.crossexam_seed[].topic": 4,
+   "DATA.lit.crossexam_seed[].witness": 4,
+   "DATA.lit.elements[].element": 6,
+   "DATA.lit.elements[].evidence": 6,
+   "DATA.lit.elements[].must": 6,
+   "DATA.lit.elements[].tab": 6,
+   "DATA.lit.elements[].witness": 6,
+   "DATA.lit.enforcement[].basis": 7,
+   "DATA.lit.enforcement[].note": 7,
+   "DATA.lit.enforcement[].phase": 7,
+   "DATA.lit.enforcement[].status": 7,
+   "DATA.lit.enforcement[].step": 7,
+   "DATA.lit.interestBasis.award_date": 1,
+   "DATA.lit.interestBasis.first_invoice_date": 1,
+   "DATA.lit.interestBasis.headline_date": 1,
+   "DATA.lit.interestBasis.headline_due": 1,
+   "DATA.lit.interestBasis.note": 1,
+   "DATA.lit.legality.docs[].date": 8,
+   "DATA.lit.legality.docs[].ref": 8,
+   "DATA.lit.legality.docs[].title": 8,
+   "DATA.lit.legality.docs[].url": 8,
+   "DATA.lit.legality.factors[].factor": 4,
+   "DATA.lit.legality.factors[].note": 4,
+   "DATA.lit.legality.intro": 1,
+   "DATA.lit.legality.scenarios[].action": 3,
+   "DATA.lit.legality.scenarios[].effect": 3,
+   "DATA.lit.legality.scenarios[].prob": 3,
+   "DATA.lit.legality.scenarios[].scenario": 3,
+   "DATA.lit.prescSummary.awardDate": 1,
+   "DATA.lit.prescSummary.note": 1,
+   "DATA.lit.prescSummary.reliesOnInterruption": 1,
+   "DATA.lit.prescSummary.total": 1,
+   "DATA.lit.prescription[].date": 306,
+   "DATA.lit.prescription[].no": 306,
+   "DATA.lit.prescription[].prescDate": 306,
+   "DATA.lit.prescription[].ref": 306,
+   "DATA.lit.prescription[].risk": 306,
+   "DATA.lit.prescription[].url": 306,
+   "DATA.lit.recon[].amountdue[]": 54,
+   "DATA.lit.recon[].charging[]": 19,
+   "DATA.lit.recon[].invoice[]": 306,
+   "DATA.lit.recon[].month": 135,
+   "DATA.lit.recon[].statement[]": 93,
+   "DATA.lit.recon[].supporting[]": 89,
+   "DATA.lit.settlement.claim": 1,
+   "DATA.lit.settlement.claimDate": 1,
+   "DATA.matter.forum": 1,
+   "DATA.matter.short": 1,
+   "DATA.matter.storyline[].h": 6,
+   "DATA.matter.storyline[].t": 6,
+   "DATA.matter.strategy[].h": 5,
+   "DATA.matter.strategy[].t": 5,
+   "DATA.matter.title": 1,
+   "DATA.people[].email": 42,
+   "DATA.people[].name": 42,
+   "DATA.people[].org": 42,
+   "DATA.people[].received": 42,
+   "DATA.people[].role": 42,
+   "DATA.people[].sent": 42,
+   "DATA.people[].total": 42,
+   "DATA.quantum.amountDueSeries[].amount": 55,
+   "DATA.quantum.amountDueSeries[].date": 55,
+   "DATA.quantum.amountDueSeries[].filename": 55,
+   "DATA.quantum.amountDueSeries[].ref": 55,
+   "DATA.quantum.amountDueSeries[].url": 55,
+   "DATA.quantum.chargingCount": 1,
+   "DATA.quantum.grossInvoiced": 1,
+   "DATA.quantum.headline_date": 1,
+   "DATA.quantum.headline_due": 1,
+   "DATA.quantum.headline_ref": 1,
+   "DATA.quantum.headline_url": 1,
+   "DATA.quantum.interestSeries[].amount": 110,
+   "DATA.quantum.interestSeries[].date": 110,
+   "DATA.quantum.interestSeries[].filename": 110,
+   "DATA.quantum.interestSeries[].ref": 110,
+   "DATA.quantum.interestSeries[].url": 110,
+   "DATA.quantum.invoiceCount": 1,
+   "DATA.quantum.invoiceLedger[].amount": 307,
+   "DATA.quantum.invoiceLedger[].bundle": 307,
+   "DATA.quantum.invoiceLedger[].date": 307,
+   "DATA.quantum.invoiceLedger[].no": 307,
+   "DATA.quantum.invoiceLedger[].ref": 307,
+   "DATA.quantum.invoiceLedger[].text_status": 307,
+   "DATA.quantum.invoiceLedger[].url": 307,
+   "DATA.quantum.statementSeries[].amount": 182,
+   "DATA.quantum.statementSeries[].date": 182,
+   "DATA.quantum.statementSeries[].filename": 182,
+   "DATA.quantum.statementSeries[].ref": 182,
+   "DATA.quantum.statementSeries[].url": 182,
+   "DATA.riskMatrix[].impact": 6,
+   "DATA.riskMatrix[].issue": 6,
+   "DATA.riskMatrix[].likelihood": 6,
+   "DATA.riskMatrix[].mitigation": 6,
+   "DATA.timeline.events[].date": 81,
+   "DATA.timeline.events[].kind": 81,
+   "DATA.timeline.events[].note": 81,
+   "DATA.timeline.events[].ref": 81,
+   "DATA.timeline.events[].title": 81,
+   "DATA.timeline.events[].url": 81,
+   "DATA.timeline.phases[][]": 21,
+   "DATA.timeline.typeByYear{*}.SLA": 5,
+   "DATA.timeline.typeByYear{*}.email": 10,
+   "DATA.timeline.typeByYear{*}.invoice": 13,
+   "DATA.timeline.typeByYear{*}.other": 10,
+   "DATA.timeline.typeByYear{*}.report": 4,
+   "DATA.timeline.typeByYear{*}.schedule": 3,
+   "DATA.timeline.typeByYear{*}.statement": 12,
+   "DATA.timeline.typeByYear{*}{*}": 14,
+   "DATA.timeline.yearCounts{*}": 16,
+   "DATA.witnesses[].name": 3,
+   "DATA.witnesses[].role": 3,
+   "DATA.witnesses[].willsay": 3
+  },
+  "META": {
+   "META.builtAt": 1,
+   "META.bundles.Additional": 1,
+   "META.bundles.Correspondence": 1,
+   "META.bundles.Original": 1,
+   "META.bundles.Pleadings": 1,
+   "META.bundles.Supplementary": 1,
+   "META.dataFolderName": 1,
+   "META.dateSpan[]": 2,
+   "META.docCount": 1,
+   "META.docTypes.SLA": 1,
+   "META.docTypes.affidavit": 1,
+   "META.docTypes.correspondence": 1,
+   "META.docTypes.email": 1,
+   "META.docTypes.invoice": 1,
+   "META.docTypes.other": 1,
+   "META.docTypes.report": 1,
+   "META.docTypes.schedule": 1,
+   "META.docTypes.statement": 1,
+   "META.docTypes{*}": 5,
+   "META.emails": 1,
+   "META.invoices": 1,
+   "META.people": 1,
+   "META.textNone": 1,
+   "META.textPending": 1
+  },
+  "window.__SCHED__": {
+   "window.__SCHED__.discovery[].co": 233,
+   "window.__SCHED__.discovery[].date": 233,
+   "window.__SCHED__.discovery[].desc": 233,
+   "window.__SCHED__.discovery[].files[].co": 621,
+   "window.__SCHED__.discovery[].files[].fn": 621,
+   "window.__SCHED__.discovery[].files[].url": 621,
+   "window.__SCHED__.discovery[].files[].x": 1,
+   "window.__SCHED__.discovery[].nfiles": 233,
+   "window.__SCHED__.discovery[].no": 233,
+   "window.__SCHED__.supplementary[].co": 234,
+   "window.__SCHED__.supplementary[].date": 234,
+   "window.__SCHED__.supplementary[].desc": 234,
+   "window.__SCHED__.supplementary[].files[].co": 480,
+   "window.__SCHED__.supplementary[].files[].fn": 480,
+   "window.__SCHED__.supplementary[].files[].url": 480,
+   "window.__SCHED__.supplementary[].files[].x": 2,
+   "window.__SCHED__.supplementary[].nfiles": 234,
+   "window.__SCHED__.supplementary[].no": 234
+  }
+ },
+ "links": {
+  "DATA.chronology[].url": {
+   "ok": 1689,
+   "total": 1689
+  },
+  "DATA.quantum.headline_url": {
+   "ok": 1,
+   "total": 1
+  },
+  "DATA.quantum.amountDueSeries[].url": {
+   "ok": 55,
+   "total": 55
+  },
+  "DATA.quantum.statementSeries[].url": {
+   "ok": 182,
+   "total": 182
+  },
+  "DATA.quantum.interestSeries[].url": {
+   "ok": 110,
+   "total": 110
+  },
+  "DATA.quantum.invoiceLedger[].url": {
+   "ok": 307,
+   "total": 307
+  },
+  "DATA.defenceMatrix[].docs[].url": {
+   "ok": 51,
+   "total": 51
+  },
+  "DATA.linkSample[].url": {
+   "ok": 18,
+   "total": 18
+  },
+  "DATA.timeline.events[].url": {
+   "ok": 81,
+   "total": 81
+  },
+  "DATA.contracts.groups[].items[].url": {
+   "ok": 22,
+   "total": 22
+  },
+  "DATA.filings.groups[].items[].url": {
+   "ok": 13,
+   "total": 13
+  },
+  "DATA.contradictions.categories[].items[].refs[].url": {
+   "ok": 64,
+   "total": 64
+  },
+  "DATA.lit.legality.docs[].url": {
+   "ok": 8,
+   "total": 8
+  },
+  "DATA.lit.prescription[].url": {
+   "ok": 306,
+   "total": 306
+  },
+  "DATA.bundles.list[].file": {
+   "ok": 14,
+   "total": 14
+  },
+  "DATA.bundles.list[].indexFile": {
+   "ok": 14,
+   "total": 14
+  },
+  "DATA.bundles.list[].rows[].parts[].url": {
+   "ok": 1292,
+   "total": 1292
+  },
+  "DATA.bundles.list[].rows[].sliceUrl": {
+   "ok": 9,
+   "total": 9
+  },
+  "DATA.bundles.catalogue{*}.docs[].url": {
+   "ok": 1111,
+   "total": 1111
+  },
+  "DATA.bundles.catalogue{*}.parts[].url": {
+   "ok": 1111,
+   "total": 1111
+  },
+  "DATA.bundles.folder": {
+   "directory": 1,
+   "total": 1
+  },
+  "DATA.bundles.caselinesSrc": {
+   "ok": 1,
+   "total": 1
+  },
+  "DATA.bundles.extracts": {
+   "directory": 1,
+   "total": 1
+  },
+  "window.__SCHED__.discovery[].files[].url": {
+   "ok": 621,
+   "total": 621
+  },
+  "window.__SCHED__.supplementary[].files[].url": {
+   "ok": 480,
+   "total": 480
+  }
+ },
+ "linkStatusTotals": {
+  "directory": 2,
+  "ok": 7560
+ },
+ "citations": {
+  "DATA.quantum.headline_ref": {
+   "resolved": 1,
+   "total": 1
+  },
+  "DATA.quantum.amountDueSeries[].ref": {
+   "resolved": 55,
+   "total": 55
+  },
+  "DATA.quantum.statementSeries[].ref": {
+   "resolved": 182,
+   "total": 182
+  },
+  "DATA.quantum.interestSeries[].ref": {
+   "resolved": 110,
+   "total": 110
+  },
+  "DATA.quantum.invoiceLedger[].ref": {
+   "resolved": 307,
+   "total": 307
+  },
+  "DATA.defenceMatrix[].docs[].ref": {
+   "resolved": 51,
+   "total": 51
+  },
+  "DATA.defenceMatrix[].refs": {
+   "resolved": 1,
+   "total": 1
+  },
+  "DATA.buildReport.textNone[].ref": {
+   "resolved": 237,
+   "total": 237
+  },
+  "DATA.buildReport.pending[].ref": {
+   "resolved": 6,
+   "total": 6
+  },
+  "DATA.linkSample[].ref": {
+   "resolved": 18,
+   "total": 18
+  },
+  "DATA.timeline.events[].ref": {
+   "resolved": 81,
+   "total": 81
+  },
+  "DATA.contracts.groups[].items[].ref": {
+   "resolved": 22,
+   "total": 22
+  },
+  "DATA.filings.groups[].items[].ref": {
+   "resolved": 13,
+   "total": 13
+  },
+  "DATA.filings.registerSeed[].ref": {
+   "resolved": 3,
+   "total": 3
+  },
+  "DATA.contradictions.categories[].items[].refs[].ref": {
+   "resolved": 64,
+   "total": 64
+  },
+  "DATA.lit.legality.docs[].ref": {
+   "resolved": 8,
+   "total": 8
+  },
+  "DATA.lit.prescription[].ref": {
+   "resolved": 306,
+   "total": 306
+  },
+  "DATA.lit.recon[].invoice[]": {
+   "resolved": 306,
+   "total": 306
+  },
+  "DATA.lit.recon[].supporting[]": {
+   "resolved": 89,
+   "total": 89
+  },
+  "DATA.lit.recon[].charging[]": {
+   "resolved": 19,
+   "total": 19
+  },
+  "DATA.lit.recon[].statement[]": {
+   "resolved": 93,
+   "total": 93
+  },
+  "DATA.lit.recon[].amountdue[]": {
+   "resolved": 54,
+   "total": 54
+  },
+  "DATA.bundles.catalogue{*}.docs[].ref": {
+   "resolved": 1091,
+   "total": 1111,
+   "unresolved": 20
+  }
+ },
+ "bundleItemKeys": {
+  "DATA.bundles.list[].items[]": {
+   "equalsChronologyRef": 443,
+   "otherNamespace": 212,
+   "total": 655
+  },
+  "DATA.bundles.list[].rows[].key": {
+   "equalsChronologyRef": 443,
+   "otherNamespace": 212,
+   "total": 655
+  },
+  "DATA.bundles.catalogue{*}.key": {
+   "equalsChronologyRef": 271,
+   "otherNamespace": 210,
+   "total": 481
+  }
+ },
+ "codeLinks": {
+  "directory": 1,
+  "ok": 1
+ },
+ "unresolvedRefPrefixes": {
+  "AF": 3,
+  "XD": 17
+ },
+ "urlMismatches": 0,
+ "missing": {
+  "total": 0,
+  "byField": {},
+  "byStatus": {}
+ },
+ "duplicates": {
+  "chronologyRefs": [],
+  "chronologyRowsWithoutRef": 0,
+  "targetsSharedByRefs": 0,
+  "sameSizeAndCrc32Groups": 78,
+  "sameSizeAndCrc32Files": 162,
+  "sameBasenameGroups": 4,
+  "caseFoldCollisions": 0
+ },
+ "views": {
+  "count": 42,
+  "defined": 42,
+  "handlerSitesTotal": 152,
+  "navigationSitesTotal": 7,
+  "perView": {
+   "overview": {
+    "liveLine": 316,
+    "definitions": [
+     316
+    ],
+    "handlerSites": 0,
+    "navigationSites": 3,
+    "exportCalls": 0,
+    "downloadAnchors": 0,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_deadlines_v1",
+     "ess_dcs_rescan_v1",
+     "ess_dcs_timesheet_v1"
+    ],
+    "datasets": [
+     "DATA.chronology",
+     "DATA.contradictions",
+     "DATA.matter",
+     "DATA.quantum",
+     "META.builtAt",
+     "META.dateSpan",
+     "META.docCount",
+     "META.emails",
+     "META.people",
+     "META.textNone"
+    ]
+   },
+   "matter": {
+    "liveLine": 348,
+    "definitions": [
+     348
+    ],
+    "handlerSites": 0,
+    "navigationSites": 0,
+    "exportCalls": 0,
+    "downloadAnchors": 0,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [],
+    "datasets": [
+     "DATA.matter"
+    ]
+   },
+   "timeline": {
+    "liveLine": 359,
+    "definitions": [
+     359
+    ],
+    "handlerSites": 2,
+    "navigationSites": 1,
+    "exportCalls": 0,
+    "downloadAnchors": 0,
+    "exportFiles": [],
+    "printCalls": 1,
+    "stores": [],
+    "datasets": [
+     "DATA.people",
+     "DATA.quantum",
+     "DATA.timeline",
+     "META.bundles",
+     "META.dateSpan",
+     "META.docCount",
+     "META.textNone"
+    ]
+   },
+   "chronology": {
+    "liveLine": 407,
+    "definitions": [
+     407
+    ],
+    "handlerSites": 6,
+    "navigationSites": 0,
+    "exportCalls": 2,
+    "downloadAnchors": 1,
+    "exportFiles": [
+     "ess_dcs_chronology.csv"
+    ],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_rescan_v1"
+    ],
+    "datasets": [
+     "DATA.chronology"
+    ]
+   },
+   "quantum_tab": {
+    "liveLine": 540,
+    "definitions": [
+     540
+    ],
+    "handlerSites": 2,
+    "navigationSites": 1,
+    "exportCalls": 2,
+    "downloadAnchors": 1,
+    "exportFiles": [
+     "ess_dcs_invoices.csv"
+    ],
+    "printCalls": 0,
+    "stores": [],
+    "datasets": [
+     "DATA.quantum"
+    ]
+   },
+   "documents": {
+    "liveLine": 449,
+    "definitions": [
+     449
+    ],
+    "handlerSites": 6,
+    "navigationSites": 0,
+    "exportCalls": 0,
+    "downloadAnchors": 0,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_caselines_docs_v1",
+     "ess_dcs_rescan_v1"
+    ],
+    "datasets": [
+     "DATA.chronology",
+     "META.bundles",
+     "META.docCount"
+    ]
+   },
+   "contracts_tab": {
+    "liveLine": 2588,
+    "definitions": [
+     2588
+    ],
+    "handlerSites": 1,
+    "navigationSites": 0,
+    "exportCalls": 2,
+    "downloadAnchors": 1,
+    "exportFiles": [
+     "ess_dcs_contracts.csv"
+    ],
+    "printCalls": 0,
+    "stores": [],
+    "datasets": [
+     "DATA.contracts"
+    ]
+   },
+   "filings_tab": {
+    "liveLine": 2610,
+    "definitions": [
+     2610
+    ],
+    "handlerSites": 4,
+    "navigationSites": 0,
+    "exportCalls": 3,
+    "downloadAnchors": 1,
+    "exportFiles": [
+     "ess_dcs_filing_register.csv",
+     "ess_dcs_filings.csv"
+    ],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_filings_v1",
+     "ess_dcs_rescan_v1"
+    ],
+    "datasets": [
+     "DATA.chronology",
+     "DATA.filings"
+    ]
+   },
+   "search": {
+    "liveLine": 474,
+    "definitions": [
+     474
+    ],
+    "handlerSites": 6,
+    "navigationSites": 0,
+    "exportCalls": 2,
+    "downloadAnchors": 1,
+    "exportFiles": [
+     "ess_dcs_search.csv"
+    ],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_rescan_v1"
+    ],
+    "datasets": [
+     "DATA.chronology"
+    ]
+   },
+   "people": {
+    "liveLine": 526,
+    "definitions": [
+     526
+    ],
+    "handlerSites": 0,
+    "navigationSites": 0,
+    "exportCalls": 0,
+    "downloadAnchors": 0,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [],
+    "datasets": [
+     "DATA.people"
+    ]
+   },
+   "entity_ledger_tab": {
+    "liveLine": 533,
+    "definitions": [
+     533
+    ],
+    "handlerSites": 0,
+    "navigationSites": 0,
+    "exportCalls": 0,
+    "downloadAnchors": 0,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [],
+    "datasets": [
+     "DATA.entities"
+    ]
+   },
+   "hoa_diff_tab": {
+    "liveLine": 2759,
+    "definitions": [
+     2759
+    ],
+    "handlerSites": 2,
+    "navigationSites": 0,
+    "exportCalls": 0,
+    "downloadAnchors": 0,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_rescan_v1"
+    ],
+    "datasets": [
+     "DATA.chronology"
+    ]
+   },
+   "invoice_ledger_tab": {
+    "liveLine": 576,
+    "definitions": [
+     576
+    ],
+    "handlerSites": 1,
+    "navigationSites": 0,
+    "exportCalls": 2,
+    "downloadAnchors": 1,
+    "exportFiles": [
+     "ess_dcs_invoices.csv"
+    ],
+    "printCalls": 0,
+    "stores": [],
+    "datasets": [
+     "DATA.quantum"
+    ]
+   },
+   "disbursements_tab": {
+    "liveLine": 617,
+    "definitions": [
+     617
+    ],
+    "handlerSites": 4,
+    "navigationSites": 0,
+    "exportCalls": 2,
+    "downloadAnchors": 1,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_disbursements_v1",
+     "ess_dcs_rescan_v1"
+    ],
+    "datasets": [
+     "META.builtAt",
+     "META.docCount"
+    ]
+   },
+   "timesheet_tab": {
+    "liveLine": 619,
+    "definitions": [
+     619
+    ],
+    "handlerSites": 4,
+    "navigationSites": 0,
+    "exportCalls": 2,
+    "downloadAnchors": 1,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_rescan_v1",
+     "ess_dcs_timesheet_v1"
+    ],
+    "datasets": [
+     "META.builtAt",
+     "META.docCount"
+    ]
+   },
+   "deadlines_tab": {
+    "liveLine": 632,
+    "definitions": [
+     632
+    ],
+    "handlerSites": 4,
+    "navigationSites": 0,
+    "exportCalls": 2,
+    "downloadAnchors": 1,
+    "exportFiles": [
+     "ess_dcs_deadlines.ics"
+    ],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_deadlines_v1",
+     "ess_dcs_rescan_v1"
+    ],
+    "datasets": [
+     "META.builtAt",
+     "META.docCount"
+    ]
+   },
+   "discovery_tab": {
+    "liveLine": 3220,
+    "definitions": [
+     658,
+     3220
+    ],
+    "handlerSites": 10,
+    "navigationSites": 0,
+    "exportCalls": 4,
+    "downloadAnchors": 1,
+    "exportFiles": [],
+    "printCalls": 1,
+    "stores": [
+     "ess_dcs_schedule_co_v1",
+     "ess_dcs_schedule_mode_v1",
+     "ess_dcs_schedule_sel_v1"
+    ],
+    "datasets": [
+     "window.__SCHED__"
+    ]
+   },
+   "court_bundle_tab": {
+    "liveLine": 1942,
+    "definitions": [
+     1942
+    ],
+    "handlerSites": 40,
+    "navigationSites": 0,
+    "exportCalls": 0,
+    "downloadAnchors": 2,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_bundle_header_v2",
+     "ess_dcs_custom_bundles_v1"
+    ],
+    "datasets": [
+     "DATA.bundles"
+    ]
+   },
+   "caselines_tab": {
+    "liveLine": 3523,
+    "definitions": [
+     3523
+    ],
+    "handlerSites": 11,
+    "navigationSites": 0,
+    "exportCalls": 0,
+    "downloadAnchors": 0,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_caselines_docs_v1",
+     "ess_dcs_rescan_v1"
+    ],
+    "datasets": [
+     "DATA.chronology",
+     "window.__CASELINES_IDX__"
+    ]
+   },
+   "contradictions_tab": {
+    "liveLine": 2662,
+    "definitions": [
+     2662
+    ],
+    "handlerSites": 1,
+    "navigationSites": 0,
+    "exportCalls": 2,
+    "downloadAnchors": 1,
+    "exportFiles": [
+     "ess_dcs_contradictions.csv"
+    ],
+    "printCalls": 0,
+    "stores": [],
+    "datasets": [
+     "DATA.contradictions",
+     "META.docCount"
+    ]
+   },
+   "risk_matrix_tab": {
+    "liveLine": 2704,
+    "definitions": [
+     2704
+    ],
+    "handlerSites": 0,
+    "navigationSites": 0,
+    "exportCalls": 0,
+    "downloadAnchors": 0,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [],
+    "datasets": [
+     "DATA.riskMatrix"
+    ]
+   },
+   "vdm_matrix_tab": {
+    "liveLine": 2710,
+    "definitions": [
+     2710
+    ],
+    "handlerSites": 1,
+    "navigationSites": 0,
+    "exportCalls": 2,
+    "downloadAnchors": 1,
+    "exportFiles": [
+     "ess_dcs_defence_rebuttal.csv"
+    ],
+    "printCalls": 0,
+    "stores": [],
+    "datasets": [
+     "DATA.defenceMatrix"
+    ]
+   },
+   "info_required_tab": {
+    "liveLine": 2722,
+    "definitions": [
+     2722
+    ],
+    "handlerSites": 1,
+    "navigationSites": 0,
+    "exportCalls": 0,
+    "downloadAnchors": 0,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_info_done_v1"
+    ],
+    "datasets": [
+     "DATA.infoRequired"
+    ]
+   },
+   "witness_tab": {
+    "liveLine": 2730,
+    "definitions": [
+     2730
+    ],
+    "handlerSites": 0,
+    "navigationSites": 0,
+    "exportCalls": 0,
+    "downloadAnchors": 0,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [],
+    "datasets": [
+     "DATA.witnesses"
+    ]
+   },
+   "conflict_tab": {
+    "liveLine": 2735,
+    "definitions": [
+     2735
+    ],
+    "handlerSites": 2,
+    "navigationSites": 0,
+    "exportCalls": 0,
+    "downloadAnchors": 0,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [],
+    "datasets": [
+     "DATA.entities",
+     "DATA.people"
+    ]
+   },
+   "enforcement_tab": {
+    "liveLine": 2872,
+    "definitions": [
+     2872
+    ],
+    "handlerSites": 1,
+    "navigationSites": 0,
+    "exportCalls": 0,
+    "downloadAnchors": 0,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_enf_status_v1"
+    ],
+    "datasets": [
+     "DATA.lit"
+    ]
+   },
+   "legality_tab": {
+    "liveLine": 2891,
+    "definitions": [
+     2891
+    ],
+    "handlerSites": 0,
+    "navigationSites": 0,
+    "exportCalls": 0,
+    "downloadAnchors": 0,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [],
+    "datasets": [
+     "DATA.lit"
+    ]
+   },
+   "prescription_tab": {
+    "liveLine": 2909,
+    "definitions": [
+     2909
+    ],
+    "handlerSites": 5,
+    "navigationSites": 0,
+    "exportCalls": 2,
+    "downloadAnchors": 1,
+    "exportFiles": [
+     "ess_dcs_prescription.csv"
+    ],
+    "printCalls": 0,
+    "stores": [],
+    "datasets": [
+     "DATA.lit"
+    ]
+   },
+   "interest_calc_tab": {
+    "liveLine": 2932,
+    "definitions": [
+     2932
+    ],
+    "handlerSites": 2,
+    "navigationSites": 0,
+    "exportCalls": 0,
+    "downloadAnchors": 0,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [],
+    "datasets": [
+     "DATA.lit"
+    ]
+   },
+   "payments_tab": {
+    "liveLine": 2962,
+    "definitions": [
+     2962
+    ],
+    "handlerSites": 3,
+    "navigationSites": 0,
+    "exportCalls": 2,
+    "downloadAnchors": 1,
+    "exportFiles": [
+     "ess_dcs_payments.csv"
+    ],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_payments_v1"
+    ],
+    "datasets": [
+     "DATA.lit"
+    ]
+   },
+   "elements_tab": {
+    "liveLine": 2993,
+    "definitions": [
+     2993
+    ],
+    "handlerSites": 0,
+    "navigationSites": 1,
+    "exportCalls": 0,
+    "downloadAnchors": 0,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [],
+    "datasets": [
+     "DATA.lit"
+    ]
+   },
+   "authorities_tab": {
+    "liveLine": 3001,
+    "definitions": [
+     3001
+    ],
+    "handlerSites": 2,
+    "navigationSites": 0,
+    "exportCalls": 2,
+    "downloadAnchors": 1,
+    "exportFiles": [
+     "ess_dcs_authorities.csv"
+    ],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_authorities_v1"
+    ],
+    "datasets": [
+     "DATA.lit"
+    ]
+   },
+   "heads_tab": {
+    "liveLine": 3017,
+    "definitions": [
+     3017
+    ],
+    "handlerSites": 3,
+    "navigationSites": 0,
+    "exportCalls": 2,
+    "downloadAnchors": 1,
+    "exportFiles": [
+     "ess_dcs_heads_of_argument.txt"
+    ],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_heads_v1"
+    ],
+    "datasets": []
+   },
+   "crossexam_tab": {
+    "liveLine": 3039,
+    "definitions": [
+     3039
+    ],
+    "handlerSites": 3,
+    "navigationSites": 0,
+    "exportCalls": 0,
+    "downloadAnchors": 0,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_crossexam_v1"
+    ],
+    "datasets": [
+     "DATA.lit"
+    ]
+   },
+   "settlement_tab": {
+    "liveLine": 3060,
+    "definitions": [
+     3060
+    ],
+    "handlerSites": 1,
+    "navigationSites": 0,
+    "exportCalls": 0,
+    "downloadAnchors": 0,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [],
+    "datasets": [
+     "DATA.lit"
+    ]
+   },
+   "privilege_tab": {
+    "liveLine": 622,
+    "definitions": [
+     622
+    ],
+    "handlerSites": 4,
+    "navigationSites": 0,
+    "exportCalls": 2,
+    "downloadAnchors": 1,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_privilege_v1",
+     "ess_dcs_rescan_v1"
+    ],
+    "datasets": [
+     "META.builtAt",
+     "META.docCount"
+    ]
+   },
+   "popia_tab": {
+    "liveLine": 624,
+    "definitions": [
+     624
+    ],
+    "handlerSites": 4,
+    "navigationSites": 0,
+    "exportCalls": 2,
+    "downloadAnchors": 1,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_popia_v1",
+     "ess_dcs_rescan_v1"
+    ],
+    "datasets": [
+     "META.builtAt",
+     "META.docCount"
+    ]
+   },
+   "annotations_tab": {
+    "liveLine": 626,
+    "definitions": [
+     626
+    ],
+    "handlerSites": 4,
+    "navigationSites": 0,
+    "exportCalls": 2,
+    "downloadAnchors": 1,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_annotations_v1",
+     "ess_dcs_rescan_v1"
+    ],
+    "datasets": [
+     "META.builtAt",
+     "META.docCount"
+    ]
+   },
+   "transcriptions_tab": {
+    "liveLine": 628,
+    "definitions": [
+     628
+    ],
+    "handlerSites": 4,
+    "navigationSites": 0,
+    "exportCalls": 2,
+    "downloadAnchors": 1,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_rescan_v1",
+     "ess_dcs_transcripts_v1"
+    ],
+    "datasets": [
+     "META.builtAt",
+     "META.docCount"
+    ]
+   },
+   "rescan_tab": {
+    "liveLine": 2778,
+    "definitions": [
+     2778
+    ],
+    "handlerSites": 4,
+    "navigationSites": 0,
+    "exportCalls": 2,
+    "downloadAnchors": 1,
+    "exportFiles": [
+     "ess_dcs_rescan_v1.json"
+    ],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_rescan_v1"
+    ],
+    "datasets": [
+     "DATA.chronology",
+     "META.builtAt",
+     "META.docCount"
+    ]
+   },
+   "backup_tab": {
+    "liveLine": 2830,
+    "definitions": [
+     2830
+    ],
+    "handlerSites": 2,
+    "navigationSites": 0,
+    "exportCalls": 2,
+    "downloadAnchors": 1,
+    "exportFiles": [
+     "ess_dcs_backup.json"
+    ],
+    "printCalls": 0,
+    "stores": [
+     "ess_dcs_annotations_v1",
+     "ess_dcs_authorities_v1",
+     "ess_dcs_bundle_extents_v1",
+     "ess_dcs_bundle_header_v1",
+     "ess_dcs_bundle_overrides_v1",
+     "ess_dcs_courtbundle_v1",
+     "ess_dcs_crossexam_v1",
+     "ess_dcs_custom_bundles_v1",
+     "ess_dcs_deadlines_v1",
+     "ess_dcs_disbursements_v1",
+     "ess_dcs_enf_status_v1",
+     "ess_dcs_filings_v1",
+     "ess_dcs_heads_v1",
+     "ess_dcs_info_done_v1",
+     "ess_dcs_payments_v1",
+     "ess_dcs_popia_v1",
+     "ess_dcs_privilege_v1",
+     "ess_dcs_rescan_v1",
+     "ess_dcs_timesheet_v1",
+     "ess_dcs_transcripts_v1"
+    ],
+    "datasets": [
+     "META.builtAt",
+     "META.docCount"
+    ]
+   },
+   "manual": {
+    "liveLine": 2843,
+    "definitions": [
+     2843
+    ],
+    "handlerSites": 2,
+    "navigationSites": 1,
+    "exportCalls": 0,
+    "downloadAnchors": 0,
+    "exportFiles": [],
+    "printCalls": 0,
+    "stores": [],
+    "datasets": [
+     "DATA.buildReport",
+     "DATA.linkSample",
+     "DATA.quantum",
+     "META.docCount",
+     "META.emails",
+     "META.people",
+     "META.textNone",
+     "META.textPending"
+    ]
+   }
+  },
+  "redefinedViews": [
+   "discovery_tab"
+  ],
+  "storeKeysInCode": [
+   "ess_dcs_annotations_v1",
+   "ess_dcs_authorities_v1",
+   "ess_dcs_bundle_extents_v1",
+   "ess_dcs_bundle_header_v1",
+   "ess_dcs_bundle_header_v2",
+   "ess_dcs_bundle_overrides_v1",
+   "ess_dcs_caselines_docs_v1",
+   "ess_dcs_courtbundle_v1",
+   "ess_dcs_crossexam_v1",
+   "ess_dcs_custom_bundles_v1",
+   "ess_dcs_deadlines_v1",
+   "ess_dcs_disbursements_v1",
+   "ess_dcs_enf_status_v1",
+   "ess_dcs_filings_v1",
+   "ess_dcs_heads_v1",
+   "ess_dcs_info_done_v1",
+   "ess_dcs_payments_v1",
+   "ess_dcs_popia_v1",
+   "ess_dcs_privilege_v1",
+   "ess_dcs_rescan_v1",
+   "ess_dcs_schedule_co_v1",
+   "ess_dcs_schedule_mode_v1",
+   "ess_dcs_schedule_sel_v1",
+   "ess_dcs_timesheet_v1",
+   "ess_dcs_transcripts_v1"
+  ],
+  "storeKeysNotInBackup": [
+   "ess_dcs_bundle_header_v2",
+   "ess_dcs_caselines_docs_v1",
+   "ess_dcs_schedule_co_v1",
+   "ess_dcs_schedule_mode_v1",
+   "ess_dcs_schedule_sel_v1"
+  ],
+  "backupKeysUnusedElsewhere": [
+   "ess_dcs_bundle_header_v1"
+  ]
+ }
+}

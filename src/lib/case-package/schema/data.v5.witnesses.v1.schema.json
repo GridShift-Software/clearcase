@@ -1,0 +1,25 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.witnesses.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "role": {
+        "type": "string"
+      },
+      "willsay": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "name",
+      "role",
+      "willsay"
+    ],
+    "type": "object"
+  },
+  "title": "data of v5.witnesses@1 (authored)",
+  "type": "array"
+}

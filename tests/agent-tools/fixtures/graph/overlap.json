@@ -1,0 +1,13 @@
+{
+  "description": "CC-04 claims a file inside concurrent CC-05's scope",
+  "capability": "plan-graph",
+  "append": {
+    "CC-04.scope": "src/lib/analysis/summary.ts"
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "Concurrent scopes overlap: CC-04 src/lib/analysis/summary.ts; CC-05"
+    ]
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.info-required.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "properties": {
+      "item": {
+        "type": "string"
+      },
+      "owner": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "item",
+      "owner",
+      "status"
+    ],
+    "type": "object"
+  },
+  "title": "data of v5.info-required@1 (authored)",
+  "type": "array"
+}

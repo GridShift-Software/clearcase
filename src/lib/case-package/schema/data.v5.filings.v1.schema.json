@@ -1,0 +1,121 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.filings.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "count": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "groups": {
+      "items": {
+        "properties": {
+          "items": {
+            "items": {
+              "properties": {
+                "date": {
+                  "pattern": "^(?:\\d{4}-\\d{2}-\\d{2})?$",
+                  "type": "string"
+                },
+                "doc_type": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                },
+                "party": {
+                  "type": "string"
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "role": {
+                  "type": "string"
+                },
+                "text_status": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "url": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "date",
+                "doc_type",
+                "note",
+                "party",
+                "ref",
+                "role",
+                "text_status",
+                "title",
+                "url"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "key": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "note",
+          "items"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "registerSeed": {
+      "items": {
+        "properties": {
+          "fdate": {
+            "type": "string"
+          },
+          "filing": {
+            "type": "string"
+          },
+          "fparty": {
+            "type": "string"
+          },
+          "rdate": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "response": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "fdate",
+          "filing",
+          "fparty",
+          "rdate",
+          "ref",
+          "response",
+          "status"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "count",
+    "groups",
+    "registerSeed"
+  ],
+  "title": "data of v5.filings@1 (generated)",
+  "type": "object"
+}

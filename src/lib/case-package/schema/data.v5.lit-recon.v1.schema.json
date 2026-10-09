@@ -1,0 +1,59 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.lit-recon.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "properties": {
+      "amountdue": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "charging": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "invoice": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "month": {
+        "type": "string"
+      },
+      "pod": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "statement": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "supporting": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "month",
+      "invoice",
+      "statement",
+      "supporting",
+      "charging",
+      "amountdue",
+      "pod"
+    ],
+    "type": "object"
+  },
+  "title": "data of v5.lit-recon@1 (authored)",
+  "type": "array"
+}

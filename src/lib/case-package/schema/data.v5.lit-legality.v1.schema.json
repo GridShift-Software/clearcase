@@ -1,0 +1,88 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.lit-legality.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "docs": {
+      "items": {
+        "properties": {
+          "date": {
+            "pattern": "^(?:\\d{4}-\\d{2}-\\d{2})?$",
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "date",
+          "ref",
+          "title",
+          "url"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "factors": {
+      "items": {
+        "properties": {
+          "factor": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "factor",
+          "note"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "intro": {
+      "type": "string"
+    },
+    "scenarios": {
+      "items": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "effect": {
+            "type": "string"
+          },
+          "prob": {
+            "type": "string"
+          },
+          "scenario": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scenario",
+          "prob",
+          "effect",
+          "action"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "intro",
+    "docs",
+    "factors",
+    "scenarios"
+  ],
+  "title": "data of v5.lit-legality@1 (authored)",
+  "type": "object"
+}

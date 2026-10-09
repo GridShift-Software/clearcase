@@ -1,0 +1,10 @@
+{
+  "description": "Unmodified copy of the committed plan",
+  "capability": "plan-graph",
+  "expect": {
+    "exit": 0,
+    "output": [
+      "PASS: 28 issues"
+    ]
+  }
+}

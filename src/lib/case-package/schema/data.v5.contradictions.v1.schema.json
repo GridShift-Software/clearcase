@@ -1,0 +1,139 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.contradictions.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "byCat": {
+      "patternProperties": {
+        "^.*$": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "categories": {
+      "items": {
+        "properties": {
+          "explain": {
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "properties": {
+                "detail": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "rates": {
+                  "patternProperties": {
+                    "^.*$": {
+                      "type": "string"
+                    }
+                  },
+                  "type": "object"
+                },
+                "refs": {
+                  "items": {
+                    "properties": {
+                      "amount": {
+                        "pattern": "^(?:-?\\d{1,15}(?:\\.\\d{1,4})?)?$",
+                        "type": "string"
+                      },
+                      "filename": {
+                        "type": "string"
+                      },
+                      "ref": {
+                        "type": "string"
+                      },
+                      "url": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "amount",
+                      "filename",
+                      "ref",
+                      "url"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "spread": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "label",
+                "detail",
+                "refs"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "key": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "title",
+          "severity",
+          "explain",
+          "items"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "checks": {
+      "items": {
+        "properties": {
+          "check": {
+            "type": "string"
+          },
+          "n": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "result": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "check",
+          "n",
+          "result"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "highCount": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "total": {
+      "minimum": 0,
+      "type": "integer"
+    }
+  },
+  "required": [
+    "byCat",
+    "categories",
+    "checks",
+    "highCount",
+    "total"
+  ],
+  "title": "data of v5.contradictions@1 (authored)",
+  "type": "object"
+}

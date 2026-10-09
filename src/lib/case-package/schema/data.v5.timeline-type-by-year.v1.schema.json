@@ -1,0 +1,17 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.timeline-type-by-year.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "patternProperties": {
+    "^.*$": {
+      "patternProperties": {
+        "^.*$": {
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "title": "data of v5.timeline-type-by-year@1 (generated)",
+  "type": "object"
+}

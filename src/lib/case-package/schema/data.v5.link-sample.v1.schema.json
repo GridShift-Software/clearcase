@@ -1,0 +1,29 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.link-sample.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "properties": {
+      "bundle": {
+        "type": "string"
+      },
+      "filename": {
+        "type": "string"
+      },
+      "ref": {
+        "type": "string"
+      },
+      "url": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "bundle",
+      "filename",
+      "ref",
+      "url"
+    ],
+    "type": "object"
+  },
+  "title": "data of v5.link-sample@1 (generated)",
+  "type": "array"
+}

@@ -1,0 +1,1 @@
+SKIPPED: required tool not found: git; install it or put it on PATH (scripts/agent-tools/doctor names the fix)

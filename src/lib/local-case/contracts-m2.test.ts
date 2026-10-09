@@ -155,6 +155,49 @@ describe('enumerable user work', () => {
 		await expect(uw.importAll({ format: 'other' } as never)).rejects.toBeInstanceOf(UserWorkError);
 	});
 
+	it('refuses a restore into an existing table of another schema (type, NOT NULL, key order) and leaves every table and row unchanged', async () => {
+		const { lc } = await setup('schema');
+		// [source table, existing target table, a row already in the target]
+		const cases: [string, string, string][] = [
+			['(id TEXT PRIMARY KEY, value TEXT)', '(id TEXT PRIMARY KEY, value INTEGER)', "('k0', 7)"],
+			['(id TEXT PRIMARY KEY, value TEXT)', '(id TEXT PRIMARY KEY, value TEXT NOT NULL)', "('k0', 'kept')"],
+			['(a TEXT, b TEXT, PRIMARY KEY(a, b))', '(a TEXT, b TEXT, PRIMARY KEY(b, a))', "('x', 'y')"],
+			['(a TEXT, b TEXT, PRIMARY KEY(a, b))', '(a TEXT PRIMARY KEY, b TEXT)', "('x', 'y')"],
+		];
+		const db = lc.storage.db();
+		for (const [i, [src]] of cases.entries()) {
+			db.exec(`CREATE TABLE work.shape_${i}${src}`);
+			db.exec(`INSERT INTO work.shape_${i} VALUES ${src.startsWith('(id') ? "('k1', '001')" : "('a1', 'b1')"}`);
+		}
+		const snap = JSON.parse(JSON.stringify(lc.userWork.exportAll()));
+		const root2 = await tempRoot('schema2');
+		roots.push(root2);
+		const lc2 = service(path.join(root2, 'data'));
+		open.push(lc2);
+		await lc2.startup();
+		const db2 = lc2.storage.db();
+		await lc2.userWork.putRow('e2e-case', 'deadlines', null, { title: 'kept' });
+		for (const [i, [, target, existing]] of cases.entries()) { db2.exec(`CREATE TABLE work.shape_${i}${target}`); db2.exec(`INSERT INTO work.shape_${i} VALUES ${existing}`); }
+		const before = JSON.stringify(lc2.userWork.exportAll().tables);
+		for (const i of cases.keys()) {
+			const one = { ...snap, tables: snap.tables.filter((t: { name: string }) => !t.name.startsWith('shape_') || t.name === `shape_${i}`) };
+			await expect(lc2.userWork.importAll(one)).rejects.toThrow(new RegExp(`^table shape_${i}: .*nothing was restored`));
+			expect(JSON.stringify(lc2.userWork.exportAll().tables)).toBe(before);
+		}
+		// the reviewer's case: the existing row survives and nothing was coerced
+		expect(db2.prepare('SELECT id, value, typeof(value) AS t FROM work.shape_0').all().map((r) => ({ ...r }))).toEqual([{ id: 'k0', value: 7, t: 'integer' }]);
+		// a compatible existing table restores losslessly: declared types compare case-insensitively, and a key column
+		// counts as NOT NULL either way (a restore creates it so, and an export never carries a NULL key)
+		db.exec('CREATE TABLE work.shape_ok(id TEXT PRIMARY KEY, value TEXT)');
+		db.exec("INSERT INTO work.shape_ok VALUES ('k1', '001')");
+		const ok = JSON.parse(JSON.stringify(lc.userWork.exportAll()));
+		const okTable = ok.tables.find((t: { name: string }) => t.name === 'shape_ok');
+		okTable.columns[0].notNull = true; // as a restored (WITHOUT ROWID) store exports it
+		db2.exec("CREATE TABLE work.shape_ok(id text PRIMARY KEY, value text); INSERT INTO work.shape_ok VALUES ('k0', 'gone')");
+		expect(await lc2.userWork.importAll({ ...ok, tables: ok.tables.filter((t: { name: string }) => t.name === 'shape_ok') })).toEqual({ tables: 1, rows: 1 });
+		expect(db2.prepare('SELECT id, value, typeof(value) AS t FROM work.shape_ok').all().map((r) => ({ ...r }))).toEqual([{ id: 'k1', value: '001', t: 'text' }]);
+	});
+
 	it('enumerates tables whose names start with sqlite (no LIKE wildcard) and refuses that prefix in defineTable', async () => {
 		const { lc } = await setup('sqliteprefix');
 		const uw = lc.userWork;

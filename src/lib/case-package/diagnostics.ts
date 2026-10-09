@@ -6,16 +6,19 @@ import { CODES, type Code, type Diagnostic, type Severity } from './codes.ts';
 import { LIMITS } from './limits.ts';
 import { cutText } from './strict-json.ts';
 
-export interface At { file?: string; pointer?: string; subject?: string; stablePointer?: string }
+/** `identity` binds the fingerprint to what the subject names (an original's indexed sha256, size and path); it is never listed. */
+export interface At { file?: string; pointer?: string; subject?: string; stablePointer?: string; identity?: string }
 
 /**
  * sha256 over code, file, the pointer with array indexes replaced by "*" (or a caller-built
- * stable pointer that names the containing record) and the subject. Reordering records
- * does not change it; a different record (subject) does.
+ * stable pointer that names the containing record), the subject and, when given, the
+ * identity. Reordering records does not change it; a different record (subject) or a
+ * different document under the same package-local ref (identity) does.
  */
 export function fingerprint(code: string, at: At): string {
   const pointer = at.stablePointer ?? (at.pointer ?? '').replace(/\/\d+(?=\/|$)/g, '/*');
-  return createHash('sha256').update(`${code}\u0000${at.file ?? ''}\u0000${pointer}\u0000${at.subject ?? ''}`).digest('hex').slice(0, 32);
+  const identity = at.identity === undefined ? '' : `\u0000${at.identity}`;
+  return createHash('sha256').update(`${code}\u0000${at.file ?? ''}\u0000${pointer}\u0000${at.subject ?? ''}${identity}`).digest('hex').slice(0, 32);
 }
 
 type Pending = Omit<Diagnostic, 'baseline'>;

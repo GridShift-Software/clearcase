@@ -23,15 +23,15 @@
 	const set = (k: 'q' | 'bundle' | 'type' | 'status', v: string) => { query = { ...query, [k]: v }; sync(); };
 	const sortBy = (k: string) => { query = query.sort === k ? { ...query, dir: query.dir === 1 ? -1 : 1 } : { ...query, sort: k as SortKey, dir: 1 }; sync(); };
 	const columns: Column[] = [
-		{ key: 'date', label: 'Date', width: '6.5em', sortable: true },
-		{ key: 'basis', label: 'Date basis', width: '7em' },
-		{ key: 'ref', label: 'Ref', width: '7.5em', sortable: true },
-		{ key: 'title', label: 'Title / subject', width: 'minmax(0, 1fr)' },
-		{ key: 'docType', label: 'Type', width: '9em', sortable: true },
-		{ key: 'bundle', label: 'Bundle', width: '8em', sortable: true },
-		{ key: 'amount', label: 'Amount', width: '8em', sortable: true, align: 'end' },
-		{ key: 'text', label: 'Text', width: '6em' },
-		{ key: 'original', label: 'Original', width: '6em' },
+		{ key: 'date', label: 'Date', sortable: true },
+		{ key: 'basis', label: 'Date basis' },
+		{ key: 'ref', label: 'Ref', sortable: true },
+		{ key: 'title', label: 'Title / subject' },
+		{ key: 'docType', label: 'Type', sortable: true },
+		{ key: 'bundle', label: 'Bundle', sortable: true },
+		{ key: 'amount', label: 'Amount', sortable: true, align: 'end' },
+		{ key: 'text', label: 'Text' },
+		{ key: 'original', label: 'Original' },
 	];
 	const cleanName = (s: string) => s.replace(/^\(\d+\)\s*/, '').replace(/\.(pdf|eml|msg)$/i, '');
 	const exportCsv = () => {
@@ -54,7 +54,7 @@
 		<span id="row-count" role="status" aria-live="polite" data-count={rows.length}>{rows.length.toLocaleString('en')} of {data.rows.length.toLocaleString('en')} documents</span>
 	</form>
 	<div class="chrono">
-		<DataGrid {columns} {rows} rowKey={(r: ChronologyListRow) => r.ref} label="Chronology" sort={{ key: query.sort, dir: query.dir }} onsort={sortBy} rowAttrs={(r: ChronologyListRow) => ({ 'data-ref': r.ref })}>
+		<DataGrid {columns} {rows} rowKey={(r: ChronologyListRow) => r.ref} label="Chronology" gridClass="chrono-grid" sort={{ key: query.sort, dir: query.dir }} onsort={sortBy} rowAttrs={(r: ChronologyListRow) => ({ 'data-ref': r.ref })}>
 			{#snippet cell(r: ChronologyListRow, c: Column)}
 				{#if c.key === 'date'}{r.date || 'undated'}
 				{:else if c.key === 'basis'}<span title={dateBasis(r)} data-date-basis={r.dateType ? 'supplied' : r.date ? 'unknown' : 'undated'}>{r.dateType ?? (r.date ? 'unknown' : 'undated')}</span>

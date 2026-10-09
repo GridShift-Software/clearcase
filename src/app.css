@@ -43,8 +43,8 @@ td, th { padding: 2px 8px; border-bottom: 1px solid #eee; text-align: left; vert
 .basis { color: #666; }
 .route { font-weight: 600; }
 .unavailable-view { background: #f2f2f2; border: 1px dashed #999; padding: .8rem 1rem; border-radius: 6px; max-width: 60rem; }
-.grid-table { --cols: auto; }
-.grid-row { display: grid; grid-template-columns: var(--cols); gap: 0 8px; padding: 2px 8px; border-bottom: 1px solid #eee; }
+.grid-row { display: grid; gap: 0 8px; padding: 2px 8px; border-bottom: 1px solid #eee; }
+.chrono-grid .grid-row { grid-template-columns: 6.5em 7em 7.5em minmax(0, 1fr) 9em 8em 8em 6em 6em; }
 .grid-row:not(.grid-head) { content-visibility: auto; contain-intrinsic-size: auto 22px; }
 .grid-head { position: sticky; top: 0; background: #fff; font-weight: 600; z-index: 1; }
 .grid-head button { font: inherit; background: none; border: 0; padding: 0; cursor: pointer; color: #0b4f9c; }

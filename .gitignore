@@ -8,6 +8,10 @@ __pycache__/
 .env.*
 !.env.example
 
+# SvelteKit build output (GRS-12)
+.svelte-kit/
+build/
+
 # Privacy rules (history remediation, 21 October 2026): case material, prompts and credentials never enter Git.
 # Synthetic fixtures stay tracked; add a file of one of these formats only with a reviewed `git add -f`.
 RAWS/

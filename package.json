@@ -8,9 +8,13 @@
     "bun": ">=1.4.2"
   },
   "scripts": {
-    "check": "tsc --noEmit -p . && bun scripts/case-package/export-schemas.ts --check && bun scripts/case-package/schema-check.ts",
+    "check": "svelte-kit sync && tsc --noEmit -p . && bun scripts/case-package/export-schemas.ts --check && bun scripts/case-package/schema-check.ts && bun scripts/pilot/generate-view-registry.ts --check && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
+    "build": "vite build && bun scripts/pilot/copy-pdfjs.ts",
     "test": "vitest run",
-    "measure": "bun scripts/case-package/measure.ts",
+    "test:e2e": "bun tests/e2e/pilot/run.mjs",
+    "verify:pilot:v5": "bun tests/e2e/pilot/v5-lanes.mjs",
+    "measure": "bun scripts/measure/index.ts",
+    "start": "bun scripts/pilot/start.ts",
     "convert": "bun scripts/case-package/cli.ts convert",
     "validate": "bun scripts/case-package/cli.ts validate",
     "verify:package": "bun scripts/case-package/verify-package.ts"
@@ -20,8 +24,15 @@
   },
   "devDependencies": {
     "@cfworker/json-schema": "4.1.1",
+    "@sveltejs/adapter-node": "5.5.7",
+    "@sveltejs/kit": "2.70.3",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
     "@types/node": "26.6.4",
+    "pdfjs-dist": "6.4.299",
+    "svelte": "5.57.2",
+    "svelte-check": "4.7.6",
     "typescript": "6.0.3",
+    "vite": "8.3.4",
     "vitest": "5.0.3"
   }
 }

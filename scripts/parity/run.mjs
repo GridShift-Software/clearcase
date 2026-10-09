@@ -3,19 +3,22 @@
 //
 //   bun run --bun parity -- [--view ID[,ID...] | --all] --fixture-config .local/v5-verification.json --out DIR
 //       [--clock ISO] [--timezone TZ] [--approved-only] [--no-sweeps] [--no-exports] [--app-root DIR]
-//       [--register FILE] [--strict-register] [--keep-work] [--keep-snapshots] [--app-v5-html FILE]
+//       [--register FILE] [--strict-register] [--keep-work] [--keep-snapshots] [--app-v5-html FILE] [--allow-stale-build]
 //
 // For each view it extracts what v5 shows (the main HTML opened read-only from the fixture tree as a file: URL, Date
 // frozen at the clock, timezone fixed, every non-file request counted and fatal) and what the app shows (the
 // production build under Bun with CLEARCASE_FIXED_NOW at the same clock, the converted v5 package imported and
 // activated), normalizes both into one snapshot shape and compares them value by value. Each difference is either
-// covered by the intentional-differences register (docs/reference/parity/intentional-differences.json) or
-// unregistered. Writes DIR/views/<view>.json (paths and values: case-bearing, local only) and DIR/scorecard.json
+// covered by the intentional-differences register (docs/reference/parity/intentional-differences.json, then the owners'
+// fragments in its register/ folder; --register FILE reads FILE and FILE's register/ folder) or unregistered. Writes DIR/views/<view>.json (paths and values: case-bearing, local only) and DIR/scorecard.json
 // plus DIR/scorecard.md (counts only).
 //
-// Exit 0: no unregistered difference. 1: an unregistered difference, a v5 view that did not extract, or an isolation
-// breach (a v5 or app network request, a canary hit, a changed fixture tree). 2: setup error (arguments, fixture
-// locator, register, including a whole-view owner that is not the view registry's, build, offline proof).
+// Exit 0: no unregistered difference. 1: an unregistered difference, a view that did not extract on either side (never
+// covered by the register), or an isolation breach (a v5 or app network request, a canary hit, a changed fixture
+// tree). 2: setup error (arguments, fixture locator, register, including a whole-view owner that is not the view
+// registry's, an --out overlapping a fixture input or holding a symlink where it writes, build, offline proof, and a
+// stale build: one whose stamp is not HEAD's, or made from or run on a tree with modified tracked files, unless
+// --allow-stale-build, which runs it with `evidence: false` in the scorecard; tests/e2e/pilot/lib/fresh-build.ts).
 //
 // Isolation: outside the network namespace the runner re-execs itself through tests/e2e/pilot/offline.sh under
 // `unshare -rn` (tests/e2e/pilot/v5/env.mjs ensureOffline); inside, it proves that only loopback exists before it
@@ -24,7 +27,7 @@
 // the register-edit mutation, where the pilot has no register yet). Register entries that covered nothing in the run
 // are reported as unused; --strict-register fails on them (an improvement that reverted to v5 behaviour matches v5,
 // so only its unused entry shows it).
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { ensureOffline, gitIdentity, PORTS, REPO, treeStamp } from '../../tests/e2e/pilot/v5/env.mjs';
 
@@ -32,13 +35,32 @@ const argv = process.argv.slice(2);
 const flag = (n) => argv.includes(`--${n}`);
 const opt = (n) => { const i = argv.findIndex((a) => a === `--${n}` || a.startsWith(`--${n}=`)); if (i < 0) return undefined; return argv[i].includes('=') ? argv[i].slice(argv[i].indexOf('=') + 1) : argv[i + 1]; };
 const setup = (msg) => { console.error(`parity: setup error: ${msg}`); process.exit(2); };
-if (flag('help')) { console.log(readFileSync(import.meta.filename, 'utf8').split('\n').slice(1, 23).map((l) => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
+if (flag('help')) { const lines = readFileSync(import.meta.filename, 'utf8').split('\n').slice(1); console.log(lines.slice(0, lines.findIndex((l) => !l.startsWith('//'))).map((l) => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
 if (!opt('fixture-config')) setup('--fixture-config FILE is required');
 if (!opt('out')) setup('--out DIR is required');
 if (!flag('all') && !opt('view')) setup('pass --all or --view ID');
-const { loadRegister, registryOwners, viewIds } = await import('./lib/register.mjs');
-const reg = loadRegister(opt('register') ? resolve(opt('register')) : undefined, { owners: await registryOwners() });
+const { loadRegister, registryKeys, registryOwners, unusedEntries, viewIds } = await import('./lib/register.mjs');
+const reg = loadRegister(opt('register') ? resolve(opt('register')) : undefined, { owners: await registryOwners(), keys: await registryKeys() });
 if (reg.problems.length) setup(`register invalid:\n  ${reg.problems.join('\n  ')}`);
+const { checkOutput, fixtureInputs, locatorInputs, prepareOutput, removeOnExit } = await import('./lib/outdir.mjs');
+const out = resolve(opt('out'));
+const ALL = viewIds();
+const views = flag('all') ? ALL : String(opt('view')).split(',');
+const appV5Html = opt('app-v5-html') && resolve(opt('app-v5-html'));
+// every path the runner writes below --out; each must resolve to itself (no symlink planted in the output)
+const CHILDREN = ['views', 'scorecard.json', 'scorecard.md', 'register-usage.json', 'canary-hits.json', 'v5-requests.json', ...views.flatMap((v) => [`views/${v}.json`, `views/${v}.snapshots.json`])];
+// path-only check against the raw locator, before loadConfig reads or hashes anything (it runs again on the loaded one)
+const rawLocator = (() => { try { return JSON.parse(readFileSync(resolve(opt('fixture-config')), 'utf8')); } catch { return null; } })();
+if (rawLocator) try { checkOutput(out, locatorInputs(rawLocator, { appV5Html }), CHILDREN); } catch (e) { setup(e.message); }
+// fresh-build evidence, before anything starts: the build must be HEAD's, from and on a tree without modified tracked
+// files (exit 2 otherwise, unless --allow-stale-build); a missing build is the setup error further down
+const appRoot = resolve(opt('app-root') ?? REPO);
+const buildDir = join(appRoot, 'build');
+const { allowStale, evidenceRecord, freshLine, freshness, refusal } = await import('../../tests/e2e/pilot/lib/fresh-build.ts');
+const stampFile = join(buildDir, 'clearcase-build.json');
+const fresh = freshness(REPO, existsSync(stampFile) ? JSON.parse(readFileSync(stampFile, 'utf8')) : null);
+const allowedStale = allowStale(argv);
+if (existsSync(stampFile) && !fresh.fresh && !allowedStale) setup(refusal('parity', fresh).replace(/^parity: /, ''));
 
 ensureOffline(import.meta.filename);
 
@@ -52,23 +74,18 @@ const { v5Page, appPage } = await import('./lib/browser.mjs');
 const { classify, diff, runFailures, scorecard, TYPES } = await import('./lib/compare.mjs');
 const { chronologyDims } = await import('./lib/sweeps.mjs');
 const { extractV5View, v5Nav } = await import('./adapters/v5/index.mjs');
-const { emptySnapshot } = await import('./lib/snapshot.mjs');
+const { appFromAdapter, appWithoutAdapter, emptySnapshot } = await import('./lib/snapshot.mjs');
 
 const t0 = performance.now();
 const clock = opt('clock') ?? '2026-10-08T09:00:00Z';
 const timezone = opt('timezone') ?? 'UTC';
-const out = resolve(opt('out'));
 if ((out + '/').startsWith(REPO + '/') && !(out + '/').startsWith(join(REPO, '.local') + '/')) setup(`--out ${out} lies in the repository outside .local/: per-view diffs carry case values and must stay out of Git`);
-const ALL = viewIds();
-const views = flag('all') ? ALL : String(opt('view')).split(',');
 for (const v of views) if (!ALL.includes(v)) setup(`unknown view ${v} (one of the 42 v5 navigation ids)`);
-const appRoot = resolve(opt('app-root') ?? REPO);
 
 const proof = await proveOffline();
 if (!proof.pass) setup(`offline proof failed: ${JSON.stringify(proof)}`);
 let fx;
 try { fx = await loadConfig(resolve(opt('fixture-config'))); } catch (e) { setup(e instanceof ConfigError ? e.message : String(e)); }
-const buildDir = join(appRoot, 'build');
 if (!existsSync(join(buildDir, 'handler.js')) || !existsSync(join(buildDir, 'clearcase-build.json'))) setup(`no production build at ${buildDir} (run bun run --bun build there)`);
 const stamp = JSON.parse(readFileSync(join(buildDir, 'clearcase-build.json'), 'utf8'));
 const { VIEWS } = await import(join(appRoot, 'src', 'lib', 'components', 'view-registry.ts'));
@@ -80,14 +97,17 @@ for (const f of readdirSync(join(import.meta.dirname, 'adapters', 'app')).filter
 	adapters[a.view] = a;
 }
 
-mkdirSync(join(out, 'views'), { recursive: true });
-const work = join(out, '.work');
-rmSync(work, { recursive: true, force: true });
-mkdirSync(work, { recursive: true });
+// nothing is written before this: an output overlapping the fixture or holding a symlinked child is refused, working
+// directories of killed runs are swept, and this run's is fresh
+let at, work;
+try { ({ at, work } = prepareOutput(out, fixtureInputs(fx, { appV5Html }), CHILDREN, { keep: flag('keep-work') })); } catch (e) { setup(e.message); }
+// removed on every exit, a later setup error and SIGINT/SIGTERM/SIGHUP included, so failed runs do not pile up
+// case-bearing working directories
+if (!flag('keep-work')) removeOnExit(work);
 const treeBefore = treeStamp(fx.caseFolder);
 const git = gitIdentity();
 
-console.log(`parity: ${views.length} view(s); clock ${clock} ${timezone}; app ${relative(REPO, appRoot) || '.'} build ${stamp.buildId} from ${stamp.revision?.slice(0, 12)}${stamp.dirty ? ' (dirty)' : ''}; HEAD ${git.head.slice(0, 12)}`);
+console.log(`parity: ${views.length} view(s); clock ${clock} ${timezone}; app ${relative(REPO, appRoot) || '.'} build ${stamp.buildId} from ${stamp.revision?.slice(0, 12)}${stamp.dirty ? ' (dirty)' : ''}; HEAD ${git.head.slice(0, 12)}; ${freshLine(fresh)}`);
 const pkgRun = v5Package(fx, join(work, 'pkg-v5'));
 if (pkgRun.exit !== 0 && !existsSync(join(pkgRun.dir, 'manifest.json'))) setup(`v5 conversion failed: ${pkgRun.stderr}`);
 const pkg = readPackage(pkgRun.dir);
@@ -127,17 +147,17 @@ try {
 		} else if (a) {
 			try { sa = await a.extract(app, ctx); for (const sw of Object.keys(s5.sweeps)) if (!sa.sweeps[sw]) sa.sweeps[sw] = a.sweeps?.[sw] ? await a.sweeps[sw](app, ctx) : undefined; for (const k of Object.keys(sa.sweeps)) if (sa.sweeps[k] === undefined) delete sa.sweeps[k]; }
 			catch (e) { sa = { ...emptySnapshot(view, 'app', 'error'), error: String(e.stack ?? e).slice(0, 800) }; }
-		} else if (registry[view]?.status === 'available') sa = { ...emptySnapshot(view, 'app', 'error'), error: `the registry marks ${view} available but no app adapter exists (scripts/parity/adapters/app/${view}.mjs)` };
-		else sa = { ...emptySnapshot(view, 'app', 'not-implemented'), owner: registry[view]?.linear ?? null };
+			sa = appFromAdapter(view, registry, sa);
+		} else sa = appWithoutAdapter(view, registry);
 		const r = classify(view, diff(s5, sa), reg.entries, { approvedOnly: flag('approved-only') });
 		perView[view] = { ...r, v5Status: s5.status, appStatus: sa.status, ms: Math.round(performance.now() - tv) };
 		details[view] = { view, v5Status: s5.status, v5Error: s5.error ?? null, appStatus: sa.status, appError: sa.error ?? null, owner: sa.owner ?? null, compared: r.compared, matched: r.matched, unregistered: r.unregistered, registered: r.registered };
-		writeFileSync(join(out, 'views', `${view}.json`), JSON.stringify(details[view], null, 1));
-		if (flag('keep-snapshots')) writeFileSync(join(out, 'views', `${view}.snapshots.json`), JSON.stringify({ v5: s5, app: sa }));
+		writeFileSync(at('views', `${view}.json`), JSON.stringify(details[view], null, 1));
+		if (flag('keep-snapshots')) writeFileSync(at('views', `${view}.snapshots.json`), JSON.stringify({ v5: s5, app: sa }));
 		const reg2 = TYPES.map((t) => [t, r.registered.filter((d) => d.type === t).length]).filter(([, n]) => n).map(([t, n]) => `${t} ${n}`).join(', ');
 		console.log(`  ${view.padEnd(20)} v5 ${s5.status.padEnd(6)} app ${sa.status.padEnd(15)} compared ${String(r.compared).padStart(6)} matched ${String(r.matched).padStart(6)} registered ${r.registered.length}${reg2 ? ` (${reg2})` : ''} unregistered ${r.unregistered.length} ${perView[view].ms} ms`);
 	}
-	writeFileSync(join(out, 'v5-requests.json'), JSON.stringify({ network: [...v5.nonFile, ...(selfV5?.nonFile ?? [])], browserInternal: [...v5.internal, ...(selfV5?.internal ?? [])] }, null, 1) + '\n');
+	writeFileSync(at('v5-requests.json'), JSON.stringify({ network: [...v5.nonFile, ...(selfV5?.nonFile ?? [])], browserInternal: [...v5.internal, ...(selfV5?.internal ?? [])] }, null, 1) + '\n');
 	details.__requests = { v5BrowserInternal: v5.internal.length + (selfV5?.internal.length ?? 0), v5NonFile: v5.nonFile.length + (selfV5?.nonFile.length ?? 0), appNonLoopback: app.requests.filter((u) => !/^(https?:\/\/(127\.0\.0\.1|[a-z0-9-]+\.localhost)(:\d+)?\/|data:|blob:|about:)/.test(u)).length };
 } catch (e) {
 	console.error(`parity: ${e.setup ? 'setup error' : 'run aborted'}: ${e.stack ?? e}`);
@@ -154,12 +174,13 @@ const SERVICE = /(^|\.)(google\.com|googleapis\.com|gstatic\.com|gvt1\.com|gvt2\
 const serviceHits = canary.hits.filter((h) => SERVICE.test(String(h.sni ?? h.host ?? '').replace(/:\d+$/, '')));
 const otherHits = canary.hits.length - serviceHits.length;
 const used = new Set(Object.values(perView).flatMap((r) => r.registered.map((d) => d.register)));
-const unused = reg.entries.filter((e) => views.includes(e.view) && perView[e.view] && !used.has(e.id)).map((e) => e.id);
-writeFileSync(join(out, 'canary-hits.json'), JSON.stringify(canary.hits, null, 1) + '\n');
-writeFileSync(join(out, 'register-usage.json'), JSON.stringify({ used: [...used].sort(), unused }, null, 1) + '\n');
+const unused = unusedEntries(reg.entries, Object.keys(perView), used);
+writeFileSync(at('canary-hits.json'), JSON.stringify(canary.hits, null, 1) + '\n');
+writeFileSync(at('register-usage.json'), JSON.stringify({ used: [...used].sort(), unused, files: reg.files }, null, 1) + '\n');
 const nonFile = details.__requests?.v5NonFile ?? null;
 const sc = scorecard(perView, {
 	command: `bun run --bun parity -- ${argv.join(' ')}`, revision: git.head, dirty: git.dirty, build: { id: stamp.buildId, revision: stamp.revision, dirty: !!stamp.dirty, root: relative(REPO, appRoot) || '.' },
+	...evidenceRecord(fresh, allowedStale),
 	clock, timezone, register: { entries: reg.entries.length, approved: reg.entries.filter((e) => e.approvedBy).length, approvedOnly: flag('approved-only'), used: used.size, unused: unused.length, strict: flag('strict-register') },
 	appSide: opt('app-v5-html') ? 'v5 self-parity copy' : 'app build',
 	isolation: { offline: proof.pass, links: proof.links, v5NonFileRequests: nonFile, v5BrowserInternalRequests: details.__requests?.v5BrowserInternal ?? null, appNonLoopbackRequests: details.__requests?.appNonLoopback ?? null, canaryHits: otherHits, canaryBrowserServiceHits: serviceHits.length, fixtureUnchanged: treeBefore === treeAfter },
@@ -168,17 +189,17 @@ const sc = scorecard(perView, {
 const failures = exitCode === 0 ? runFailures(sc, { views: views.length, unused: unused.length, strict: flag('strict-register') }) : [];
 if (failures.length) { exitCode = 1; sc.result = 'FAIL'; console.error(`parity: FAIL: ${failures.join('; ')}`); }
 sc.exit = exitCode;
-writeFileSync(join(out, 'scorecard.json'), JSON.stringify(sc, null, 1) + '\n');
+writeFileSync(at('scorecard.json'), JSON.stringify(sc, null, 1) + '\n');
 const T = sc.total;
-writeFileSync(join(out, 'scorecard.md'), [
+writeFileSync(at('scorecard.md'), [
 	`# Parity scorecard`, '',
 	`Result **${sc.result}** (exit ${exitCode}) at ${git.head}${git.dirty ? ' (dirty)' : ''}; build ${stamp.buildId} from ${stamp.revision}; clock ${clock} ${timezone}; ${sc.seconds} s.`, '',
-	`Views ${T.views}: v5 extracted ${T.viewsExtractedV5}, app compared ${T.viewsComparedApp}, not yet implemented ${T.viewsNotImplemented}, failed ${T.viewsFailed}. Values: v5 ${T.v5Values}, app ${T.appValues}, compared ${T.compared}, matched ${T.matched}. Registered differences: ${TYPES.map((t) => `${t} ${T.registered[t]}`).join(', ')} (${T.pendingApproval} on entries awaiting approval). Unregistered: ${T.unregistered}.`, '',
+	`Evidence: ${sc.evidence ? 'yes (a fresh build of clean HEAD)' : `**no**: ${sc.evidenceNote}`}.`, '',
+	`Views ${T.views}: v5 extracted ${T.viewsExtractedV5}, app compared ${T.viewsComparedApp}, not yet implemented ${T.viewsNotImplemented}, extraction errors ${T.viewsExtractError}, failed ${T.viewsFailed}. Values: v5 ${T.v5Values}, app ${T.appValues}, compared ${T.compared}, matched ${T.matched}. Registered differences: ${TYPES.map((t) => `${t} ${T.registered[t]}`).join(', ')} (${T.pendingApproval} on entries awaiting approval). Unregistered: ${T.unregistered}.`, '',
 	`Register: ${reg.entries.length} entries (${sc.register.approved} approved); ${used.size} covered a difference, ${unused.length} unused in the views run${flag('strict-register') ? ' (strict: unused fails)' : ''}.`, '',
 	`Isolation: offline ${proof.pass}, v5 non-file network requests ${nonFile} (browser-internal viewer requests ${sc.isolation.v5BrowserInternalRequests}), app non-loopback requests ${sc.isolation.appNonLoopbackRequests}, canary hits ${otherHits} (browser-service ${serviceHits.length}), fixture tree unchanged ${treeBefore === treeAfter}.`, '',
 	'| View | Status | Compared | Matched | Registered | Pending approval | Unregistered |', '| --- | --- | --: | --: | --: | --: | --: |',
 	...Object.entries(sc.views).map(([v, x]) => `| ${v} | ${x.status} | ${x.compared} | ${x.matched} | ${Object.values(x.registered).reduce((a, b) => a + b, 0)} | ${x.pendingApproval} | ${x.unregistered} |`), '',
 ].join('\n'));
-if (!flag('keep-work')) rmSync(work, { recursive: true, force: true });
-console.log(`parity: ${sc.result} (exit ${exitCode}): ${T.views} views, ${T.compared} values compared, ${T.matched} matched, ${Object.values(T.registered).reduce((a, b) => a + b, 0)} registered, ${T.unregistered} unregistered; ${sc.seconds} s -> ${out}`);
+console.log(`parity: ${sc.result} (exit ${exitCode})${sc.evidence ? '' : ' [evidence: false, stale build]'}: ${T.views} views, ${T.compared} values compared, ${T.matched} matched, ${Object.values(T.registered).reduce((a, b) => a + b, 0)} registered, ${T.unregistered} unregistered; ${sc.seconds} s -> ${out}`);
 process.exit(exitCode);

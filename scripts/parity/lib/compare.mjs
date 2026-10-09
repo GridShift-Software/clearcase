@@ -60,10 +60,11 @@ function firstDivergence(a, b) {
  * Order paths compare whole sequences; their diff carries the first divergence.
  */
 export function diff(v5, app) {
-	// a v5 view that does not extract is never covered by the register: the reference itself is missing
+	// a view that does not extract, on either side, is never covered by the register: '!v5' means the reference itself
+	// is missing, '!app' an adapter that threw or is missing for an available view; neither is an accepted absence
 	if (v5.status === 'ok' && app.status === 'not-implemented') return { compared: 0, matched: 0, v5Values: flatten(v5).size, appValues: 0, diffs: [{ path: '*', kind: 'view-not-implemented', v5: 'view', app: ABSENT }] };
 	if (v5.status !== 'ok') return { compared: 0, matched: 0, v5Values: 0, appValues: 0, diffs: [{ path: '!v5', kind: 'extract-error', v5: v5.error ?? v5.status, app: app.status }] };
-	if (app.status !== 'ok') return { compared: 0, matched: 0, v5Values: v5.status === 'ok' ? flatten(v5).size : 0, appValues: app.status === 'ok' ? flatten(app).size : 0, diffs: [{ path: '*', kind: 'extract-error', v5: v5.error ?? v5.status, app: app.error ?? app.status }] };
+	if (app.status !== 'ok') return { compared: 0, matched: 0, v5Values: v5.status === 'ok' ? flatten(v5).size : 0, appValues: app.status === 'ok' ? flatten(app).size : 0, diffs: [{ path: '!app', kind: 'extract-error', v5: v5.error ?? v5.status, app: app.error ?? app.status }] };
 	const a = flatten(v5), b = flatten(app);
 	const paths = new Set([...a.keys(), ...b.keys()]);
 	const diffs = [];
@@ -79,16 +80,17 @@ export function diff(v5, app) {
 	return { compared: paths.size, matched, v5Values: a.size, appValues: b.size, diffs };
 }
 
-const globRe = (g) => new RegExp(`^${g.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`, 's');
+export const globRe = (g) => new RegExp(`^${g.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.')}$`, 's');
 const valueMatches = (want, got) => want === undefined || (typeof want === 'string' ? want === got : new RegExp(want.re, 's').test(got));
 
 /** The register entry that covers a difference, or null. Proposed (unapproved) entries apply unless approvedOnly. */
 export function covering(entries, view, d, { approvedOnly = false } = {}) {
 	for (const e of entries) {
-		if (e.view !== view || d.path === '!v5') continue;
+		if (e.view !== view || d.kind === 'extract-error' || d.path.startsWith('!')) continue;
 		if (approvedOnly && !e.approvedBy) continue;
-		// a field of exactly '*' means the whole view is absent: it covers only the view-level difference
-		if (![e.field].flat().some((f) => (f === '*' ? d.path === '*' : globRe(f).test(d.path)))) continue;
+		// a field of exactly the string '*' means the whole view is absent: it alone covers the app's view-not-implemented
+		// difference, and covers nothing else (no other glob, '?', '**' or ['*'], stands for the whole view)
+		if (d.path === '*' ? !(e.field === '*' && d.kind === 'view-not-implemented') : ![e.field].flat().some((f) => f !== '*' && globRe(f).test(d.path))) continue;
 		if (e.when && !(valueMatches(e.when.v5, d.v5) && valueMatches(e.when.app, d.app))) continue;
 		return e;
 	}
@@ -111,28 +113,31 @@ export const TYPES = ['improvement', 'defect-fix', 'data-correction-deferred-to-
 /** Counts-only scorecard: no paths, no values. Safe to commit or paste into a report. */
 export function scorecard(perView, meta = {}) {
 	const views = {};
-	const total = { views: 0, viewsExtractedV5: 0, viewsComparedApp: 0, viewsNotImplemented: 0, viewsFailed: 0, v5Values: 0, appValues: 0, compared: 0, matched: 0, registered: Object.fromEntries(TYPES.map((t) => [t, 0])), pendingApproval: 0, unregistered: 0 };
+	const total = { views: 0, viewsExtractedV5: 0, viewsComparedApp: 0, viewsNotImplemented: 0, viewsExtractError: 0, viewsFailed: 0, v5Values: 0, appValues: 0, compared: 0, matched: 0, registered: Object.fromEntries(TYPES.map((t) => [t, 0])), pendingApproval: 0, unregistered: 0 };
 	for (const [view, r] of Object.entries(perView)) {
 		const reg = Object.fromEntries(TYPES.map((t) => [t, 0]));
 		for (const d of r.registered) reg[d.type]++;
 		const pending = r.registered.filter((d) => !d.approved).length;
-		const status = r.unregistered.length ? 'FAIL' : r.appStatus === 'not-implemented' ? 'NOT-YET-IMPLEMENTED' : r.registered.length ? 'PASS-with-notes' : 'PASS';
+		const extractError = r.v5Status !== 'ok' || (r.appStatus !== 'ok' && r.appStatus !== 'not-implemented');
+		const status = r.unregistered.length || extractError ? 'FAIL' : r.appStatus === 'not-implemented' ? 'NOT-YET-IMPLEMENTED' : r.registered.length ? 'PASS-with-notes' : 'PASS';
 		views[view] = { status, v5: r.v5Status, app: r.appStatus, v5Values: r.v5Values, appValues: r.appValues, compared: r.compared, matched: r.matched, registered: reg, pendingApproval: pending, unregistered: r.unregistered.length, ms: r.ms ?? null };
 		total.views++;
 		if (r.v5Status === 'ok') total.viewsExtractedV5++;
 		if (r.appStatus === 'ok') total.viewsComparedApp++;
 		if (r.appStatus === 'not-implemented') total.viewsNotImplemented++;
+		if (extractError) total.viewsExtractError++;
 		if (status === 'FAIL') total.viewsFailed++;
 		for (const k of ['v5Values', 'appValues', 'compared', 'matched']) total[k] += r[k];
 		for (const t of TYPES) total.registered[t] += reg[t];
 		total.pendingApproval += pending;
 		total.unregistered += r.unregistered.length;
 	}
-	return { ...meta, result: total.unregistered ? 'FAIL' : 'PASS', total, views };
+	return { ...meta, result: total.unregistered || total.viewsExtractError ? 'FAIL' : 'PASS', total, views };
 }
 
 /**
- * Why a completed run fails (exit 1); empty when it passes. Every isolation breach fails: a v5 network request, an
+ * Why a completed run fails (exit 1); empty when it passes. A view that did not extract on either side fails, as does
+ * every unregistered difference. Every isolation breach fails: a v5 network request, an
  * app request that is not loopback, a canary hit other than a browser service, or a changed fixture tree. Browser-
  * internal viewer requests and browser-service canary hits are counted apart and do not fail.
  */
@@ -141,6 +146,7 @@ export function runFailures(sc, { views, unused = 0, strict = false }) {
 	return [
 		t.unregistered && `${t.unregistered} unregistered difference(s)`,
 		t.viewsExtractedV5 !== views && `v5 extracted ${t.viewsExtractedV5} of ${views} view(s)`,
+		t.viewsExtractError && `${t.viewsExtractError} view(s) with an extraction error`,
 		strict && unused && `${unused} unused register entr${unused === 1 ? 'y' : 'ies'} (--strict-register)`,
 		iso.v5NonFileRequests !== 0 && `v5 non-file requests ${iso.v5NonFileRequests}`,
 		iso.appNonLoopbackRequests !== 0 && `app non-loopback requests ${iso.appNonLoopbackRequests}`,

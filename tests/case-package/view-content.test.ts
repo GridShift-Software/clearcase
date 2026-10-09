@@ -435,6 +435,41 @@ describe('view-content extraction: a renderer must be proven live (PR #8 review)
     }
   });
 
+  it('refuses a redefinition after a braced early return in an immediately invoked function (PR #8 round 2 probe)', () => {
+    const probe = 'RENDER.overview = function () { pageHead("Overview", "LIVE"); }; (function () { if (true) { return; } RENDER.overview = function () { pageHead("Overview", "DEAD"); }; })();';
+    refused(probe, 'ambiguous');
+    refused('(function () { if (true) { return; } RENDER.overview = function () { pageHead("Overview", "DEAD"); }; })();', 'missing');
+  });
+
+  it('propagates a return or throw in any nested block of the same function, however deep', () => {
+    const wraps = [
+      `(function(){try{return;}catch(e){}${DEAD}})();`, `(function(){try{f();}catch(e){return;}${DEAD}})();`, `(function(){try{f();}finally{return;}${DEAD}})();`,
+      `(function(){switch(x){case 1:return;default:}${DEAD}})();`, `(function(){switch(x){case 1:{if(y){return;}}}${DEAD}})();`,
+      `(function(){out:{if(x){return;}break out;}${DEAD}})();`, `(function(){for(;;){return;}${DEAD}})();`, `(function(){while(x){if(y){return;}}${DEAD}})();`,
+      `(function(){do{return;}while(x);${DEAD}})();`, `(async function(){for await(const a of b){return;}${DEAD}})();`, `(function(){{return;}${DEAD}})();`,
+      `(function(){if(x){}else{return;}${DEAD}})();`, `(function(){if(x){throw 0;}${DEAD}})();`, `(()=>{if(x){return;}${DEAD}})();`,
+      `(function(){if(x){return;}(function(){${DEAD}})();})();`, `if(x){throw 0;}${DEAD}`,
+    ];
+    for (const w of wraps) {
+      refused(w, 'missing');
+      refused(LIVE + w, 'ambiguous');
+    }
+    // a labelled break only leaves its block; an assignment inside that block after it stays refused
+    refused(`(function(){out:{if(true){break out;}${DEAD}}})();`, 'missing');
+  });
+
+  it('keeps a renderer after nested functions that return or throw, and after break or continue', () => {
+    for (const s of [
+      `(function(){function helper(){if(x){return 1;}return 2;}${LIVE}})();`, `(function(){var h=function(){try{return 1;}catch(e){throw e;}};${LIVE}})();`,
+      `(function(){var h=()=>{if(x){return;}};${LIVE}})();`, `(function(){var o={m(){if(x){return;}},get g(){return 1;}};${LIVE}})();`,
+      `(function(){[1].forEach(function(a){if(a){return;}});${LIVE}})();`, `if(x){f(function(){throw 0;});}${LIVE}`,
+      `class C{m(){if(x){return;}}}${LIVE}`, `function helper(){for(const a of b){if(a){return a;}}}${LIVE}`,
+      `(function(){out:{if(x){break out;}}for(const a of b){if(a){continue;}break;}${LIVE}})();`,
+    ]) {
+      expect(run(s), s).toEqual({ value: 'LIVE', status: 'extracted', codes: [] });
+    }
+  });
+
   it('refuses a function renderer that a later assignment replaces', () => {
     for (const w of ['RENDER.overview=other;', 'RENDER.overview=null;', 'RENDER.overview&&=other;', 'RENDER.overview||=other;']) expect(run(LIVE + w).value, w).toBeUndefined();
   });

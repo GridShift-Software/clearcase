@@ -23,12 +23,14 @@ Exact pins are in `package.json` (`packageManager: bun@1.4.2`); the lock is `bun
 | Script | What it does |
 | --- | --- |
 | `check` | `svelte-kit sync`, `tsc` over the whole project, GRS-10's schema export and independent schema check, the view-registry drift check, `svelte-check` (warnings fail) |
-| `build` | `vite build` (adapter-node) into `build/`, then `scripts/pilot/copy-pdfjs.ts` bundles pdf.js and the viewer into `build/pdfjs/` and stamps `build/clearcase-build.json` with the source revision |
+| `build` | `vite build` (adapter-node) into `build/`, then `scripts/pilot/copy-pdfjs.ts` bundles pdf.js and the viewer into `build/pdfjs/` and stamps `build/clearcase-build.json` with the source revision; it also replaces adapter-node's `build/index.js` with a stub that exits 1, because that entry would listen on every interface (HOST unset) without the exact-Host check |
 | `test` | Vitest: GRS-10's package suite and the pilot's unit tests (`src/lib/**/*.test.ts`); run it offline as `unshare -rn env OUTER_UID="$(id -u)" OUTER_GID="$(id -g)" tests/e2e/pilot/offline.sh bun run --bun test` |
 | `test:e2e` | `tests/e2e/pilot/run.mjs`: the browser and durability suites against `./build`, each in its own network namespace, then the loopback bind check |
 | `verify:pilot:v5` | the ten lanes on the real v5 sample, configured by the ignored `.local/v5-verification.json`, writing `lane-NN.txt` and `.png` to `$CLEARCASE_REPORT_DIR` |
 | `measure` | `--ticket CC-02` runs GRS-10's measurement unchanged; `--ticket CC-03` measures the pilot budgets |
-| `start` | `scripts/pilot/start.ts`: the production entry under Bun; refuses to run without a build and never installs or builds |
+| `start` | `scripts/pilot/start.ts`: the production entry under Bun, and the only supported one; refuses to run without a build and never installs or builds |
+
+Start the pilot only with `bun run --bun start` (`scripts/pilot/start.ts`). It binds both listeners to 127.0.0.1 whatever `HOST` says and checks the exact Host before static assets. `bun build/index.js` refuses to start. If the handler is served some other way, `hooks.server.ts` still answers 403 to any client address outside 127.0.0.0/8, `::1` and `::ffff:127.x`.
 
 `scripts/agent-tools/verify app` runs the project verification skill (`.agents/skills/verify-clearcase/`): a fresh build of the committed revision in an isolated copy, an offline Bun boot, the live doctor, a drive through import, activation and a citation to the original, and cleanup.
 
@@ -36,7 +38,7 @@ Exact pins are in `package.json` (`packageManager: bun@1.4.2`); the lock is `bun
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `CLEARCASE_DATA_DIR` | `${XDG_DATA_HOME:-~/.local/share}/clearcase` | data directory, always resolved to an absolute path; a relative `XDG_DATA_HOME` is ignored. Holds `results.sqlite`, `work.sqlite`, `backups/`, `serve-tmp/`, `link-key`, `instance.lock` |
+| `CLEARCASE_DATA_DIR` | `${XDG_DATA_HOME:-~/.local/share}/clearcase` | data directory, always resolved to an absolute path; a relative `XDG_DATA_HOME` is ignored. Holds `results.sqlite`, `work.sqlite`, `backups/`, `serve-tmp/`, `link-key`, `instance.lock`, `instance.pid` (the owner's pid and kernel start time: a live owner refuses a second instance even if `instance.lock` was removed) |
 | `PORT` | 41101 | app origin `http://127.0.0.1:$PORT` |
 | `ORIGINALS_PORT` | `PORT`+1 | originals site, bound to 127.0.0.1 |
 | `ORIGINALS_HOSTNAME` | `clearcase-originals.localhost` | the originals site's host name: its own site and cookie jar |

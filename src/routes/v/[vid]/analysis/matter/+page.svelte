@@ -6,11 +6,11 @@
 	let { data } = $props();
 	const m = $derived(data.matter);
 	const vid = $derived(data.version.id);
-	let ready = $state(false);
-	onMount(() => { ready = true; });
+	let hydrated = $state(false);
+	onMount(() => { hydrated = true; });
 </script>
 
-<main id="main" tabindex="-1" data-analysis data-ready={ready ? 'matter' : null}>
+<main id="main" tabindex="-1" data-analysis data-ready="matter" data-hydrated={hydrated ? '' : null}>
 	<PageHeader heading="Matter & Strategy" section="Matter & Strategy" caseName={data.version.titleName} subtitle={m?.title || null} />
 	{#if !m}
 		<div class="an-card"><div class="an-empty" id="matter-empty">No matter narrative in this results version.</div></div>

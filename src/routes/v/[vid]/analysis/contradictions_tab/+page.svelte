@@ -16,15 +16,15 @@
 		categories: data.c.categories.map((cat) => ({ ...cat, items: cat.items.map((it) => ({ ...it, rates: it.rates ? Object.fromEntries(it.rates) : undefined })) })),
 	} : null);
 	const exportCsv = () => { if (c) download(CONTRADICTIONS_CSV_NAME, contradictionsCsv(c)); };
-	let ready = $state(false);
-	onMount(() => { ready = true; });
+	let hydrated = $state(false);
+	onMount(() => { hydrated = true; });
 </script>
 
 {#snippet chips(refs: readonly { ref: string; amount: string | number; filename: string }[])}
 	<span class="chips">{#each refs as r, j (j)}{#if j}{' '}{/if}<CitationLink resultsVersion={vid} ref={r.ref} exists={known.has(r.ref)} label={chipLabel(r)} />{/each}</span>
 {/snippet}
 
-<main id="main" tabindex="-1" data-analysis data-ready={ready ? 'contradictions_tab' : null}>
+<main id="main" tabindex="-1" data-analysis data-ready="contradictions_tab" data-hydrated={hydrated ? '' : null}>
 	<PageHeader heading="Contradiction Tracker" section="Contradiction Tracker" caseName={data.version.titleName} subtitle={c ? 'Inconsistencies computed automatically across the corpus at build time — no searching required' : null}>
 		{#snippet actions()}{#if c}<button type="button" onclick={exportCsv} id="export-csv">Export CSV</button>{/if}{/snippet}
 	</PageHeader>

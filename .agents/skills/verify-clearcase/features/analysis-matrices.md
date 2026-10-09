@@ -32,3 +32,4 @@ Preconditions:
 - The KPIs are the package's own figures (`total`, `highCount`, `byCat`), as v5 shows them; they are not recounted.
 - An empty `contradictions.categories` shows `#contradictions-none`; a package without the dataset shows `#contradictions-empty`.
 - Chip labels end in an amount only when the ref has one.
+- `main[data-ready=<view-id>]` is already in the server-rendered HTML, because the data is complete there. Wait for `main[data-hydrated]` as well before clicking a control (checkbox, Export CSV, Print / PDF), or the click may land before the page handles it.

@@ -7,12 +7,15 @@ import { navFocus, open } from './_shell.mjs';
 import { sleep } from '../../../../tests/e2e/pilot/lib/cdp.mjs';
 
 const VIEW = 'timeline';
+/** The server-rendered page is ready to read at once; wait for hydration before clicking its controls. */
+const hydrated = (p) => p.waitFor(`document.querySelector('main#main[data-hydrated]') !== null`, 30000);
 
 export default {
 	view: VIEW,
 	async extract(p, ctx) {
 		const nav = await navFocus(p, ctx, { from: '/overview', fromView: 'overview', view: VIEW });
 		await open(p, ctx, ctx.registry[VIEW].route, VIEW);
+		await hydrated(p);
 		const s = fromRaw(VIEW, 'app', await p.extract('#main'));
 		if (ctx.exports) {
 			await p.takePrint();
@@ -28,6 +31,7 @@ export default {
 	sweeps: {
 		async timeline_events(p, ctx) {
 			await open(p, ctx, ctx.registry[VIEW].route, VIEW);
+		await hydrated(p);
 			return eventValues(await p.evaluate(PHASES_JS));
 		},
 	},

@@ -26,11 +26,11 @@
 		};
 	};
 	const itemOf = (key: string) => data.rows.find((r) => r.key === key)?.item ?? '';
-	let ready = $state(false);
-	onMount(() => { ready = true; });
+	let hydrated = $state(false);
+	onMount(() => { hydrated = true; });
 </script>
 
-<main id="main" tabindex="-1" data-analysis data-ready={ready ? 'info_required_tab' : null}>
+<main id="main" tabindex="-1" data-analysis data-ready="info_required_tab" data-hydrated={hydrated ? '' : null}>
 	<PageHeader heading="Info Required" section="Info Required" caseName={data.version.titleName} subtitle="Checklist of outstanding items" />
 	{#if problem}
 		<div class="an-error" role="alert" id="info-error">

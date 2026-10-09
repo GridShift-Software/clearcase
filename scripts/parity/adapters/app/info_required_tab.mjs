@@ -5,6 +5,8 @@ import { fromRaw } from '../../lib/snapshot.mjs';
 import { navFocus, open, ready } from './_shell.mjs';
 
 const VIEW = 'info_required_tab';
+/** The server-rendered page is ready to read at once; wait for hydration before clicking its controls. */
+const hydrated = (p) => p.waitFor(`document.querySelector('main#main[data-hydrated]') !== null`, 30000);
 const struck = (p) => p.evaluate(`[...document.querySelectorAll('#info-table tbody tr')].map((r, i) => r.cells[1]?.classList.contains('struck') ? i : null).filter((x) => x !== null).join(',')`);
 const checked = (p) => p.evaluate(`[...document.querySelectorAll('#info-table tbody tr input[type=checkbox]')].map((c) => (c.checked ? 1 : 0)).join('')`);
 const saved = (p) => p.waitFor(`!document.querySelector('#info-table [aria-busy="true"]')`, 30000);
@@ -21,6 +23,7 @@ export default {
 	async extract(p, ctx) {
 		const nav = await navFocus(p, ctx, { from: '/overview', fromView: 'overview', view: VIEW });
 		await open(p, ctx, ctx.registry[VIEW].route, VIEW);
+		await hydrated(p);
 		const s = fromRaw(VIEW, 'app', await p.extract('#main'));
 		s.focus.after_nav = nav.focus;
 		s.texts['shell.crumb'] = nav.crumb;
@@ -31,14 +34,17 @@ export default {
 			const route = ctx.registry[VIEW].route;
 			const out = {};
 			await open(p, ctx, route, VIEW);
+		await hydrated(p);
 			out.initial = await state(p);
 			await toggle(p, 1);
 			out.check_1 = await state(p);
 			await p.goto(`${ctx.base}${route}`, ready(VIEW));
+			await hydrated(p);
 			out.reload = await state(p);
 			await toggle(p, 1);
 			out.uncheck_1 = await state(p);
 			await p.goto(`${ctx.base}${route}`, ready(VIEW));
+			await hydrated(p);
 			out.reload_after_uncheck = await state(p);
 			return out;
 		},

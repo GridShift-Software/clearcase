@@ -4,11 +4,11 @@
 	import { riskTone } from '$lib/views/analysis/tone';
 	import '$lib/views/analysis/analysis.css';
 	let { data } = $props();
-	let ready = $state(false);
-	onMount(() => { ready = true; });
+	let hydrated = $state(false);
+	onMount(() => { hydrated = true; });
 </script>
 
-<main id="main" tabindex="-1" data-analysis data-ready={ready ? 'risk_matrix_tab' : null}>
+<main id="main" tabindex="-1" data-analysis data-ready="risk_matrix_tab" data-hydrated={hydrated ? '' : null}>
 	<PageHeader heading="Risk Matrix" section="Risk Matrix" caseName={data.version.titleName} subtitle="Issue · likelihood · impact · mitigation" />
 	{#if data.risks.length === 0}
 		<div class="an-card"><div class="an-empty" id="risk-empty">No risk matrix in this results version.</div></div>

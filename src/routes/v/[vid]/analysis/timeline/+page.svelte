@@ -11,8 +11,8 @@
 	const known = $derived(new Set(data.known));
 	const c = $derived(data.content);
 	const href = (id: string) => viewHref(vid, viewById(id)!);
-	let ready = $state(false);
-	onMount(() => { ready = true; });
+	let hydrated = $state(false);
+	onMount(() => { hydrated = true; });
 </script>
 
 {#snippet event(e: TimelineEvent)}
@@ -20,7 +20,7 @@
 	<div class="ev" role="listitem"><span class="d">{e.date}</span> · <span class="badge b-mut">{e.kind}</span> <span class="mono">{e.ref}</span> <CitationLink resultsVersion={vid} ref={e.ref} exists={known.has(e.ref)} label="{cleanName(e.title)} ↗" />{#if e.note}<div class="ex">{e.note}</div>{/if}</div>
 {/snippet}
 
-<main id="main" tabindex="-1" data-analysis data-ready={ready ? 'timeline' : null}>
+<main id="main" tabindex="-1" data-analysis data-ready="timeline" data-hydrated={hydrated ? '' : null}>
 	<PageHeader heading="Timeline" section="Timeline" caseName={data.version.titleName} subtitle={c.subtitle}>
 		{#snippet actions()}<button type="button" onclick={() => window.print()} id="print">Print / PDF</button> <button type="button" onclick={() => goto(href('chronology'))} id="full-chronology">Full chronology</button>{/snippet}
 	</PageHeader>

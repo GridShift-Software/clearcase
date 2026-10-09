@@ -33,3 +33,4 @@ Preconditions:
 - Case wording (subtitle, synopsis, narrative, notes) comes only from the package's `view-content`; without it those paragraphs are absent, not replaced by other text.
 - Year bars are SVG (`.bar rect`), because the app's CSP refuses inline styles. Read heights from `rect`, not `style.height`.
 - The amount-due note's `source ↗` is a citation of `quantum.headline_ref`, built from the template parts.
+- `main[data-ready=<view-id>]` is already in the server-rendered HTML, because the data is complete there. Wait for `main[data-hydrated]` as well before clicking a control (checkbox, Export CSV, Print / PDF), or the click may land before the page handles it.

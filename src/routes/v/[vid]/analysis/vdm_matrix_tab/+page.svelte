@@ -12,11 +12,11 @@
 	// S-vdm_matrix_tab-1: the free-text refs v5 never shows; the column is left out when no row has any
 	const showRefs = $derived(data.rows.some((r) => r.refs.trim()));
 	const exportCsv = () => download(DEFENCE_CSV_NAME, defenceCsv(data.rows));
-	let ready = $state(false);
-	onMount(() => { ready = true; });
+	let hydrated = $state(false);
+	onMount(() => { hydrated = true; });
 </script>
 
-<main id="main" tabindex="-1" data-analysis data-ready={ready ? 'vdm_matrix_tab' : null}>
+<main id="main" tabindex="-1" data-analysis data-ready="vdm_matrix_tab" data-hydrated={hydrated ? '' : null}>
 	<PageHeader heading="Defence & Rebuttal" section="Defence & Rebuttal" caseName={data.version.titleName} subtitle={data.subtitle}>
 		{#snippet actions()}<button type="button" onclick={exportCsv} id="export-csv" disabled={data.rows.length === 0}>Export CSV</button>{/snippet}
 	</PageHeader>

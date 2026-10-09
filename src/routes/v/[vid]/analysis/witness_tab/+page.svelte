@@ -4,11 +4,11 @@
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import '$lib/views/analysis/analysis.css';
 	let { data } = $props();
-	let ready = $state(false);
-	onMount(() => { ready = true; });
+	let hydrated = $state(false);
+	onMount(() => { hydrated = true; });
 </script>
 
-<main id="main" tabindex="-1" data-analysis data-ready={ready ? 'witness_tab' : null}>
+<main id="main" tabindex="-1" data-analysis data-ready="witness_tab" data-hydrated={hydrated ? '' : null}>
 	<PageHeader heading="Witnesses" section="Witnesses" caseName={data.version.titleName} subtitle="Will-say / witness statement index" />
 	{#if data.witnesses.length === 0}
 		<div class="an-card"><div class="an-empty" id="witness-empty">No witnesses in this results version.</div></div>

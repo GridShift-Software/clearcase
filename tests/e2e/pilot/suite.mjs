@@ -39,6 +39,12 @@ if (!offline.pass || CANARY_PORT !== PORTS.CANARY) {
 }
 
 const tmp = mkdtempSync(join(tmpdir(), 'cc-e2e-suite-'));
+/** One plain-text _shell field of a synthetic package's view-content dataset, or null. */
+const shellText = (sc, field) => {
+	const f = sc.files.get('datasets/view-content.json');
+	const v = f ? JSON.parse(new TextDecoder().decode(f)).data?._shell?.[field] : undefined;
+	return typeof v === 'string' && v.trim() ? v : null;
+};
 // An interrupted run still removes its temp root (servers and Chromium are killed by the libs' exit hooks).
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { rmSync(tmp, { recursive: true, force: true }); process.exit(1); });
 const ctx = {
@@ -46,6 +52,9 @@ const ctx = {
 	A: appServer({ name: 'a', root: ROOT, buildDir: BUILD, port: PORTS.A, origPort: PORTS.A_ORIG, dir: tmp }),
 	B: appServer({ name: 'b', root: ROOT, buildDir: BUILD, port: PORTS.B, origPort: PORTS.B_ORIG, dir: tmp }),
 	caseName: (sc) => { const m = JSON.parse(new TextDecoder().decode(sc.files.get('manifest.json'))); return m.case.label || m.case.id; },
+	/** a _shell field of the package's view-content dataset, else the case name (the app's neutral fallback) */
+	titleName: (sc) => shellText(sc, 'documentTitle') ?? ctx.caseName(sc),
+	brandName: (sc) => shellText(sc, 'brandName') ?? ctx.caseName(sc),
 };
 let canary, b, sites;
 try {
@@ -64,7 +73,7 @@ try {
 	await step('S25', 'chronology grid: div rows with content-visibility:auto; per-version JSON private, no-cache, ETag = read-model digest, 304', () => flow.s25(ctx));
 	await step('CITE', 'citations: [[REF]] and [[REF#p2]] are client-side app links; Open shows the PDF in the sandboxed viewer, at page 2 for #p2', () => flow.citations(ctx));
 	await step('BA-14', 'keyboard: skip link first (no history entry), Tab + Enter on nav links, heading focused after each navigation and after Back (also after the skip link, across a full load and from an in-page #code- fragment link), one history entry each', () => flow.keyboard(ctx));
-	await step('BA-16', "titles: '<document> · <section> · <case> · ClearCase' for overview, chronology, a document and an unavailable view", () => flow.titles(ctx));
+	await step('BA-16', "titles: '<document> · <section> · <case> · ClearCase' for overview, chronology, a document and an unavailable view; the case part and the navigation brand from the package's view-content _shell, else the case name", () => flow.titles(ctx));
 	await step('BA-18', '42 nav entries in registry order with inventory labels; each heading equals its label; 40 unavailable views name their GRS owner; unknown views 404', () => flow.views42(ctx));
 	await step('SLOTS', "overview widget slots: deadlines, unbilled-time and rescan-freshness render data-slot-status=unavailable naming GRS-17/GRS-20; the old combined card is gone", () => flow.overviewSlots(ctx));
 	await step('BA-04', "date basis column hidden while no row has a basis ('undated' in the Date column); with supplied date_type/date_source, 'unknown', 'undated' and the supplied values", () => flow.dateBasis(ctx));

@@ -333,7 +333,7 @@ export async function lane9(C, L) {
 		await P.waitFor(`location.pathname.endsWith('/chronology') && ${ready('chronology')}`, 60000);
 		const f1 = await P.waitFor(`document.activeElement?.hasAttribute('data-page-heading') ? document.activeElement.textContent.trim() : null`, 5000).catch(() => null);
 		L.check('after Enter: chronology, focus on its page heading', 'Chronology', f1);
-		L.check('chronology title', expectedTitle({ section: 'Chronology', caseName: C.caseName }), await P.evaluate('document.title'));
+		L.check('chronology title', expectedTitle({ section: 'Chronology', caseName: C.titleName }), await P.evaluate('document.title'));
 		let t2 = 0;
 		for (; t2 < 80; t2++) { await P.key('Tab'); if (await P.evaluate(`!!document.activeElement?.closest?.('.grid-table .grid-row[data-ref]') && document.activeElement.tagName === 'A'`)) break; }
 		const ref = await P.evaluate(`document.activeElement?.closest?.('.grid-row[data-ref]')?.dataset.ref ?? null`);
@@ -345,7 +345,7 @@ export async function lane9(C, L) {
 		const row = C.pkg.chronology.find((r) => r.ref === ref);
 		const f2 = await P.waitFor(`document.activeElement?.hasAttribute('data-page-heading') ? document.activeElement.textContent.trim() : null`, 5000).catch(() => null);
 		L.check('after Enter: the document, focus on its heading', `${ref} ${docTitle(row)}`.trim(), f2);
-		L.check('document title names document, section and case', expectedTitle({ section: 'Document', caseName: C.caseName, document: `${ref} ${docTitle(row)}` }), await P.evaluate('document.title'));
+		L.check('document title names document, section and case', expectedTitle({ section: 'Document', caseName: C.titleName, document: `${ref} ${docTitle(row)}` }), await P.evaluate('document.title'));
 		await P.shot(L.file(join(C.out, 'lane-09.png')));
 		const hist = await P.s('Page.getNavigationHistory');
 		const paths = hist.entries.slice(0, hist.currentIndex + 1).map((e) => { try { return new URL(e.url).pathname; } catch { return e.url; } });
@@ -354,12 +354,12 @@ export async function lane9(C, L) {
 		await P.back();
 		await P.waitFor(`location.pathname.endsWith('/chronology') && ${ready('chronology')}`, 60000);
 		L.check('Back 1: chronology, focus on its heading', 'Chronology', await P.waitFor(`document.activeElement?.hasAttribute('data-page-heading') ? document.activeElement.textContent.trim() : null`, 5000).catch(() => null));
-		L.check('Back 1: chronology title', expectedTitle({ section: 'Chronology', caseName: C.caseName }), await P.evaluate('document.title'));
+		L.check('Back 1: chronology title', expectedTitle({ section: 'Chronology', caseName: C.titleName }), await P.evaluate('document.title'));
 		L.cmd('browser Back');
 		await P.back();
 		await P.waitFor(`location.pathname.endsWith('/overview') && ${ready('overview')}`, 60000);
 		L.check('Back 2: overview, focus on its heading', 'Overview', await P.waitFor(`document.activeElement?.hasAttribute('data-page-heading') ? document.activeElement.textContent.trim() : null`, 5000).catch(() => null));
-		L.check('Back 2: overview title', expectedTitle({ section: 'Overview', caseName: C.caseName }), await P.evaluate('document.title'));
+		L.check('Back 2: overview title', expectedTitle({ section: 'Overview', caseName: C.titleName }), await P.evaluate('document.title'));
 	} finally { await P.close(); }
 	const Q = await openPage(b, { fresh: true });
 	try {
@@ -532,7 +532,7 @@ export async function checkRegistry(C, L) {
 		const title = decode(/<title>([^<]*)<\/title>/.exec(r.text)?.[1] ?? '');
 		const owner = /data-unavailable="([^"]+)" data-owner="([^"]+)"/.exec(r.text);
 		const avail = v.status === 'available';
-		const exp = { status: 200, heading: v.label, title: expectedTitle({ section: v.label, caseName: C.caseName, status: avail ? null : 'not yet available' }), unavailable: avail ? null : [v.id, v.status.split(':')[1]] };
+		const exp = { status: 200, heading: v.label, title: expectedTitle({ section: v.label, caseName: C.titleName, status: avail ? null : 'not yet available' }), unavailable: avail ? null : [v.id, v.status.split(':')[1]] };
 		if (L.check(`${v.id}: destination heading matches the label (BA-18), title, unavailable state and owner`, exp, { status: r.status, heading: h1, title, unavailable: owner ? [owner[1], owner[2]] : null })) ok++;
 	}
 	L.note(`${ok}/42 destinations agree`);

@@ -95,6 +95,8 @@ const pkgRun = v5Package(fx, join(work, 'pkg-v5'));
 const pkgDir = pkgRun.dir;
 const pkg = pkgRun.exit === 0 || existsSync(join(pkgDir, 'manifest.json')) ? readPackage(pkgDir) : null;
 const caseName = pkg ? (pkg.manifest.case?.label || pkg.manifest.case?.id) : fx.caseId;
+// the case part of page titles under /v/ (BA-16): the package's view-content _shell.documentTitle, else the case name
+const titleName = (() => { try { const v = pkg?.dataset('view-content')?._shell?.documentTitle; return typeof v === 'string' && v.trim() ? v : caseName; } catch { return caseName; } })();
 
 const port = PORTS.first, origPort = PORTS.first + 1;
 const dataDir = join(work, 'data');
@@ -102,7 +104,7 @@ const logFile = join(work, 'server.log');
 const serverCommand = `PORT=${port} ORIGINALS_PORT=${origPort} CLEARCASE_DATA_DIR=${dataDir} BUILD_DIR=${build.buildDir} ${process.execPath} ${join(build.root, 'scripts', 'pilot', 'start.ts')}`;
 const canary = await startCanary();
 const C = {
-	fx, pkg, pkgDir, pkgRun, caseName, out, work, port, origPort, dataDir, build, bun, proof, canary, treeBefore, serverCommand,
+	fx, pkg, pkgDir, pkgRun, caseName, titleName, out, work, port, origPort, dataDir, build, bun, proof, canary, treeBefore, serverCommand,
 	origin: `http://127.0.0.1:${port}`, c: client(port), S: {}, lanes: new Map(), cleanup: [],
 };
 const start = async () => { C.srv = await startServer({ root: build.root, port, origPort, dataDir, buildDir: build.buildDir, logFile }); C.orig = C.srv.health.instance.originalsOrigin; return C.srv; };

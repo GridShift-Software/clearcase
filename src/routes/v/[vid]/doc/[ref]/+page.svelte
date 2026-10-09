@@ -39,7 +39,7 @@
 					<li data-attachment={x.key} data-route={x.route}>
 						<code>{x.key}</code> {x.member ? displayFilename(x.member) : ''} <small>({x.mediaType})</small>:
 						{#if x.route === 'direct'}{#if x.hasDocument}<a href={docPath(vid, x.key)}>its own original</a>{:else if x.links?.download}<a href={x.links.download} rel="noopener noreferrer" download>download its own original</a>{:else}its own original{/if}
-						{:else if x.route === 'parent'}inside this {x.via === data.ref ? 'message' : `container ${x.via}`}; open {#if data.links.open || data.links.download}<a href={data.links.open ?? data.links.download} rel="noopener noreferrer" target="_blank">the parent original</a>{:else}the parent original{/if} to reach it
+						{:else if x.route === 'parent'}inside this {x.via === data.ref ? 'message' : `container ${x.via}`}; {#if data.links.open || data.links.download}open <a href={data.links.open ?? data.links.download} rel="noopener noreferrer" target="_blank">the parent original</a> to reach it{:else}<span class="unresolved" data-parent="unavailable">the parent original is unavailable{data.onDisk ? ` (${data.onDisk})` : ''}, so this attachment cannot be reached now</span>{/if}
 						{:else}<span class="unresolved">unavailable ({x.reason})</span>{/if}
 					</li>
 				{/each}</ul>

@@ -63,7 +63,7 @@ try {
 	await step('CHRON', 'chronology in the browser: filters (incl. a non-standard bundle, type, status, text), stable sorts (date asc/desc, amount with empty = 0), row count', () => flow.chronology(ctx));
 	await step('S25', 'chronology grid: div rows with content-visibility:auto; per-version JSON private, no-cache, ETag = read-model digest, 304', () => flow.s25(ctx));
 	await step('CITE', 'citations: [[REF]] and [[REF#p2]] are client-side app links; Open shows the PDF in the sandboxed viewer, at page 2 for #p2', () => flow.citations(ctx));
-	await step('BA-14', 'keyboard: skip link first (no history entry), Tab + Enter on nav links, heading focused after each navigation and after Back (also after the skip link and across a full load), one history entry each', () => flow.keyboard(ctx));
+	await step('BA-14', 'keyboard: skip link first (no history entry), Tab + Enter on nav links, heading focused after each navigation and after Back (also after the skip link, across a full load and from an in-page #code- fragment link), one history entry each', () => flow.keyboard(ctx));
 	await step('BA-16', "titles: '<document> · <section> · <case> · ClearCase' for overview, chronology, a document and an unavailable view", () => flow.titles(ctx));
 	await step('BA-18', '42 nav entries in registry order with inventory labels; each heading equals its label; 40 unavailable views name their GRS owner; unknown views 404', () => flow.views42(ctx));
 	await step('SLOTS', "overview widget slots: deadlines, unbilled-time and rescan-freshness render data-slot-status=unavailable naming GRS-17/GRS-20; the old combined card is gone", () => flow.overviewSlots(ctx));

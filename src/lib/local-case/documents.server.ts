@@ -52,40 +52,85 @@ const freeze = <T>(v: T): T => {
 
 export interface DocumentRowsResult {
 	rows: readonly DocumentRow[];
+	/** provider rows left out: a ref already taken, or a malformed row (not the ProviderRow shape, or not plain data) */
 	dropped: { source: DocumentSource; ref: string; reason: string }[];
-	/** providers whose rows() threw: their rows are left out and the readers show a degraded state */
+	/** providers whose rows() or revision() threw (or returned the wrong type): their rows are left out and the
+	 *  readers show a degraded state */
 	failed: { source: DocumentSource; owner: string; reason: string }[];
 }
 
-/** Provider rows in registration order, minus refs already taken (imported refs first); a provider that throws is isolated. */
+const LIST_TEXT = ['date', 'docType', 'bundle', 'subject', 'filename', 'sender', 'to', 'excerpt', 'amount', 'url', 'textStatus', 'preview'] as const;
+const LIST_NULLABLE = ['dateType', 'dateSource', 'parentRef'] as const;
+const FILE = new Set(['present', 'missing', 'blocked']);
+const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
+const isText = (v: unknown) => typeof v === 'string';
+const isTextOrNull = (v: unknown) => v === null || typeof v === 'string';
+
+/** Why a provider row cannot be shown (null when it is a well-formed ProviderRow). */
+function malformed(x: unknown): string | null {
+	if (!isObject(x)) return 'not an object';
+	if (typeof x.ref !== 'string' || !x.ref) return 'ref is not a non-empty string';
+	if (!isObject(x.row)) return 'row is not an object';
+	const l = x.list, s = x.state;
+	if (!isObject(l) || !LIST_TEXT.every((k) => isText(l[k])) || !LIST_NULLABLE.every((k) => isTextOrNull(l[k])) || !FILE.has(l.file as string) ||
+		!Array.isArray(l.alsoIn) || !l.alsoIn.every(isText) || !Number.isFinite(l.attachments)) return 'list is not a chronology list entry';
+	if (!isObject(s) || !FILE.has(s.file as string) || !isText(s.preview) || !isText(s.text) || !isTextOrNull(s.mediaType) || !Array.isArray(s.flags) ||
+		!(s.original === null || isObject(s.original)) || !(s.self === null || isObject(s.self))) return 'state is not a document state';
+	return null;
+}
+
+const message = (e: unknown) => String((e as Error)?.message ?? e).slice(0, 200);
+
+/** Provider rows in registration order, minus refs already taken (imported refs first) and malformed rows; a provider
+ *  whose rows() or revision() throws is isolated. Rows are copied as JSON, so readers get plain data only. */
 function fromProviders(caseId: string, resultsVersion: string, taken: (ref: string) => boolean) {
 	const rows: { source: DocumentSource; x: ProviderRow }[] = [];
 	const dropped: DocumentRowsResult['dropped'] = [];
 	const failed: DocumentRowsResult['failed'] = [];
+	const revisions: string[] = [];
 	const seen = new Set<string>();
 	for (const p of providers.values()) {
 		const source = `provider:${p.id}` as const;
-		let xs: readonly ProviderRow[];
+		let xs: readonly unknown[];
 		try {
+			const rev = p.revision({ caseId, resultsVersion });
+			if (typeof rev !== 'string') throw new Error('revision() did not return a string');
+			revisions.push(`${p.id}=${rev}`);
 			xs = p.rows({ caseId, resultsVersion });
 			if (!Array.isArray(xs)) throw new Error('rows() did not return an array');
 		} catch (e) {
-			failed.push({ source, owner: p.owner, reason: String((e as Error)?.message ?? e).slice(0, 200) });
+			failed.push({ source, owner: p.owner, reason: message(e) });
+			revisions.push(`${p.id}=!`);
 			continue;
 		}
-		for (const x of xs) {
+		for (let i = 0; i < xs.length; i++) {
+			let x: ProviderRow;
+			try {
+				const bad = malformed(xs[i]);
+				if (bad) throw new Error(bad);
+				const { ref, row, list, state } = xs[i] as ProviderRow;
+				x = JSON.parse(JSON.stringify({ ref, row, list, state })) as ProviderRow;
+			} catch (e) {
+				const ref = (xs[i] as { ref?: unknown } | null)?.ref;
+				dropped.push({ source, ref: typeof ref === 'string' ? ref.slice(0, 200) : `#${i}`, reason: `malformed row: ${message(e)}` });
+				continue;
+			}
 			if (seen.has(x.ref) || taken(x.ref)) { dropped.push({ source, ref: x.ref, reason: 'the ref already names a document of this version' }); continue; }
 			seen.add(x.ref);
 			rows.push({ source, x });
 		}
 	}
-	return { rows, dropped, failed };
+	return { rows, dropped, failed, revisions };
 }
 
 /** Every document row of a stored version: the imported register in source order, then provider rows. */
 export function documentRows(store: CaseStore, resultsVersion: string): DocumentRowsResult {
+	const { rows, dropped, failed } = collect(store, resultsVersion);
+	return { rows, dropped, failed };
+}
+function collect(store: CaseStore, resultsVersion: string): DocumentRowsResult & { revisions: string[] } {
 	const v = store.getVersion(resultsVersion);
-	if (!v) return { rows: [], dropped: [], failed: [] };
+	if (!v) return { rows: [], dropped: [], failed: [], revisions: [] };
 	const list = JSON.parse(store.chronologyJson(resultsVersion) ?? '[]') as ChronologyListRow[];
 	const byRef = new Map(store.projectionRows(resultsVersion).documents.map((d) => [d.ref, d]));
 	const rows: DocumentRow[] = list.map((l) => {
@@ -95,7 +140,7 @@ export function documentRows(store: CaseStore, resultsVersion: string): Document
 	const p = fromProviders(v.case_id, resultsVersion, (ref) => byRef.has(ref));
 	let ord = rows.length;
 	for (const { source, x } of p.rows) { rows.push(freeze({ ref: x.ref, ord, source, row: { ...x.row }, list: { ...x.list, ord }, state: x.state })); ord++; }
-	return { rows, dropped: p.dropped, failed: p.failed };
+	return { rows, dropped: p.dropped, failed: p.failed, revisions: p.revisions };
 }
 
 /** One document row by ref through the same contract (an imported ref always wins), or null. */
@@ -121,17 +166,14 @@ export function documentCounts(store: CaseStore, resultsVersion: string): { tota
 }
 
 /** The chronology list JSON and its ETag: the stored list as-is when no provider publishes rows. `failed` names the
- *  providers left out because they threw (the list is then degraded, and its ETag says so). */
+ *  providers left out because rows() or revision() threw (the list is then degraded, and its ETag says so). */
 export function listJson(store: CaseStore, resultsVersion: string): { json: string; etag: string; failed: DocumentRowsResult['failed'] } | null {
 	const v = store.getVersion(resultsVersion);
 	if (!v) return null;
 	if (providers.size === 0) return { json: store.chronologyJson(resultsVersion)!, etag: `"${v.read_model_sha256}"`, failed: [] };
-	const revs = [...providers.values()].map((p) => {
-		try { return `${p.id}=${p.revision({ caseId: v.case_id, resultsVersion })}`; } catch { return `${p.id}=!`; }
-	}).join(';');
-	const { rows, failed } = documentRows(store, resultsVersion);
+	const { rows, failed, revisions } = collect(store, resultsVersion);
 	const tag = failed.length ? `|failed=${failed.map((f) => f.source).join(',')}` : '';
-	return { json: JSON.stringify(rows.map((r) => r.list)), etag: `"${v.read_model_sha256}|${revs}${tag}"`, failed };
+	return { json: JSON.stringify(rows.map((r) => r.list)), etag: `"${v.read_model_sha256}|${revisions.join(';')}${tag}"`, failed };
 }
 
 /** The active version's document rows for a case (what v5's allRows() returned), or none when nothing is active. */

@@ -1,7 +1,8 @@
 // Read-only verification of referenced originals in the operator-selected case folder.
 // Only paths named by the asset index are touched: no scanning, no hashing of unrelated
-// files and no writes. Each path is resolved with realpath and must stay under the case
-// folder (catching symlinks at any depth), must be a regular file and must match the
+// files and no writes. Each path is resolved segment by segment and every segment must stay
+// under the case folder (catching symlinks at any depth) before anything below it is listed or
+// opened; the result must be a regular file outside .clearcase/ and must match the
 // indexed size and sha256. Size bounds apply before any byte is hashed; hashing streams in
 // bounded chunks and honours the deadline and the abort signal.
 import { createHash } from 'node:crypto';
@@ -11,7 +12,7 @@ import path from 'node:path';
 import type { DiagSink } from './diagnostics.ts';
 import type { Limits } from './limits.ts';
 import { contentContradictsType } from './media.ts';
-import { checkRelPath, foldPath } from './paths.ts';
+import { checkRelPath, foldPath, isReservedPath } from './paths.ts';
 import type { Asset, FileAsset } from './schema.ts';
 import { escapePointer } from './strict-json.ts';
 
@@ -47,7 +48,7 @@ export class Interrupted extends Error {
 
 type Located =
   | { kind: 'file'; real: string; rel: string; size: number; caseMismatch: boolean }
-  | { kind: 'missing' } | { kind: 'escape' } | { kind: 'not-file' } | { kind: 'unreadable' };
+  | { kind: 'missing' } | { kind: 'escape' } | { kind: 'reserved' } | { kind: 'not-file' } | { kind: 'unreadable' };
 
 export async function openCaseFolder(dir: string, sink: DiagSink): Promise<string | null> {
   const st = await stat(dir).catch(() => null);
@@ -57,42 +58,56 @@ export async function openCaseFolder(dir: string, sink: DiagSink): Promise<strin
 
 const inside = (root: string, p: string) => p === root || p.startsWith(root.endsWith(path.sep) ? root : root + path.sep);
 
+const notFound = (e: NodeJS.ErrnoException) => (e.code === 'ENOENT' || e.code === 'ENOTDIR' ? null : e);
+
+/**
+ * Walk the indexed path one segment at a time from the resolved case folder. Each segment is
+ * resolved, and must stay inside the case folder and outside .clearcase/, before the walk
+ * descends into it, so the case- and normalisation-insensitive fallback only ever lists a
+ * directory already known to be inside: a link out of the folder is ORIG_ESCAPE whether or not
+ * the name exists beyond it, and nothing outside is opened or listed.
+ */
 async function locate(root: string, rel: string): Promise<Located> {
   if (!checkRelPath(rel).ok) return { kind: 'escape' };
-  let abs = path.join(root, ...rel.split('/'));
+  const segs = rel.split('/');
+  let cur = root; // resolved, inside the case folder
   let caseMismatch = false;
-  let ls = await lstat(abs).catch((e: NodeJS.ErrnoException) => (e.code === 'ENOENT' || e.code === 'ENOTDIR' ? null : e));
-  if (ls instanceof Error) return { kind: 'unreadable' };
-  if (!ls) {
-    const alt = await findFolded(root, rel);
-    if (!alt) return { kind: 'missing' };
-    abs = path.join(root, ...alt.split('/'));
-    caseMismatch = true;
+  for (let i = 0; i < segs.length; i++) {
+    let name = segs[i]!;
+    let ls = await lstat(path.join(cur, name)).catch(notFound);
+    if (ls instanceof Error) return { kind: 'unreadable' };
+    if (!ls) {
+      // ambiguity counts as missing
+      const want = foldPath(name);
+      const hits = (await readdir(cur).catch(() => [] as string[])).filter((n) => foldPath(n) === want);
+      if (hits.length !== 1) return { kind: 'missing' };
+      name = hits[0]!;
+      caseMismatch = true;
+      ls = await lstat(path.join(cur, name)).catch(notFound);
+      if (ls instanceof Error) return { kind: 'unreadable' };
+      if (!ls) return { kind: 'missing' };
+    }
+    let next = path.join(cur, name);
+    if (ls.isSymbolicLink()) {
+      const resolved = await realpath(next).catch(() => null);
+      if (!resolved) return { kind: 'missing' }; // dangling or looping link
+      if (!inside(root, resolved)) return { kind: 'escape' };
+      next = resolved;
+      ls = await lstat(next).catch(() => null);
+      if (!ls) return { kind: 'missing' };
+    }
+    // the real on-disk path relative to the case folder (after links inside the folder), never normalised
+    const realRel = path.relative(root, next).split(path.sep).join('/');
+    if (isReservedPath(realRel)) return { kind: 'reserved' };
+    if (i < segs.length - 1) {
+      if (!ls.isDirectory()) return { kind: 'missing' };
+      cur = next;
+      continue;
+    }
+    if (!ls.isFile()) return { kind: 'not-file' };
+    return { kind: 'file', real: next, rel: realRel, size: ls.size, caseMismatch };
   }
-  const resolved = await realpath(abs).catch(() => null);
-  if (!resolved) return { kind: 'missing' }; // dangling link
-  if (!inside(root, resolved)) return { kind: 'escape' };
-  const rs = await lstat(resolved).catch(() => null);
-  if (!rs) return { kind: 'missing' };
-  if (!rs.isFile()) return { kind: 'not-file' };
-  // the real on-disk path relative to the case folder (after links inside the folder), never normalised
-  const realRel = path.relative(root, resolved).split(path.sep).join('/');
-  return { kind: 'file', real: resolved, rel: realRel, size: rs.size, caseMismatch };
-}
-
-/** Case- and normalisation-insensitive lookup along the indexed path only; ambiguity counts as missing. */
-async function findFolded(root: string, rel: string): Promise<string | null> {
-  let cur = root;
-  const out: string[] = [];
-  for (const seg of rel.split('/')) {
-    const names = await readdir(cur).catch(() => null);
-    if (!names) return null;
-    const hits = names.filter((n) => foldPath(n) === foldPath(seg));
-    if (hits.length !== 1) return null;
-    out.push(hits[0]!);
-    cur = path.join(cur, hits[0]!);
-  }
-  return out.join('/');
+  return { kind: 'missing' };
 }
 
 function check(o: VerifyOptions): void {
@@ -149,6 +164,7 @@ export async function verifyOriginals(root: string, assets: Record<string, Asset
     const at = { file: 'assets.json', pointer: `/assets/${escapePointer(ref)}/path`, subject: ref };
     if (loc.kind === 'missing') { unavailable.add(ref); sink.add('ORIG_MISSING', 'original not found in the selected case folder; the document stays flagged as missing', at); }
     else if (loc.kind === 'escape') { unavailable.add(ref); sink.add('ORIG_ESCAPE', 'original resolves outside the case folder; refused', at); }
+    else if (loc.kind === 'reserved') { unavailable.add(ref); sink.add('ASSET_PATH_RESERVED', 'original resolves into the reserved .clearcase/ area; refused', at); }
     else if (loc.kind === 'not-file') { unavailable.add(ref); sink.add('ORIG_NOT_FILE', 'original is not a regular file; refused', at); }
     else if (loc.kind === 'unreadable') { unavailable.add(ref); sink.add('ORIG_UNREADABLE', 'original cannot be read', at); }
     else {
@@ -208,7 +224,7 @@ export async function verifyOriginals(root: string, assets: Record<string, Asset
 /** Locate and fingerprint one referenced original (used by converters). Read-only. */
 export async function fingerprintOriginal(root: string, rel: string, o: VerifyOptions): Promise<
   | { kind: 'file'; rel: string; sha256: string; size: number; caseMismatch: boolean }
-  | { kind: 'missing' | 'escape' | 'not-file' | 'unreadable' | 'too-large' }> {
+  | { kind: 'missing' | 'escape' | 'reserved' | 'not-file' | 'unreadable' | 'too-large' }> {
   const loc = await locate(root, rel);
   if (loc.kind !== 'file') return { kind: loc.kind };
   if (loc.size > o.limits.originalBytes) return { kind: 'too-large' };

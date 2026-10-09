@@ -60,10 +60,25 @@ export async function importCandidate(source: PackageSource, caseFolder: string,
       sink.add('PKG_UNPROCESSABLE', `unexpected failure: ${String((e as Error)?.message ?? 'error').slice(0, 200)}`);
     } else sink.add(e.code, e.code === 'IMPORT_DEADLINE' ? `validation did not finish within ${L.validationDeadlineMs} ms; nothing was stored` : 'the import was cancelled; nothing was stored');
   }
-  const diagnostics = sink.finish(new Set(options.trustedBaseline ?? []));
+  let base: ReturnType<typeof summarise>;
+  try {
+    base = summarise(sink, options.trustedBaseline);
+  } catch (e) {
+    // the diagnostics themselves cannot be digested: reject with that failure alone
+    const failed = new DiagSink(L.diagnosticsPerCode);
+    failed.add('PKG_UNPROCESSABLE', `unexpected failure: ${String((e as Error)?.message ?? 'error').slice(0, 200)}`);
+    return freeze({ ...summarise(failed, []), verdict: 'reject', candidate: null });
+  }
+  if (!pkg || sink.errors > 0) return freeze({ ...base, verdict: 'reject', candidate: null });
+  const candidate = new Candidate({ ...pkg, originals: mapping, unavailable });
+  return freeze({ ...base, verdict: sink.count('warning') > 0 ? 'report' : 'accept', candidate });
+}
+
+function summarise(sink: DiagSink, trustedBaseline: Iterable<string> | undefined) {
+  const diagnostics = sink.finish(new Set(trustedBaseline ?? []));
   const counts = Object.fromEntries([...sink.counts].sort(([a], [b]) => (a < b ? -1 : 1)));
   const warningFingerprints = sorted(sink.warningFingerprints);
-  const base = {
+  return {
     diagnostics,
     diagnosticsSha256: diagnosticsDigest(VALIDATOR_VERSION, diagnostics, counts, warningFingerprints),
     validatorVersion: VALIDATOR_VERSION,
@@ -71,9 +86,6 @@ export async function importCandidate(source: PackageSource, caseFolder: string,
     warningFingerprints,
     errorFingerprints: sorted(sink.errorFingerprints),
   };
-  if (!pkg || sink.errors > 0) return freeze({ ...base, verdict: 'reject', candidate: null });
-  const candidate = new Candidate({ ...pkg, originals: mapping, unavailable });
-  return freeze({ ...base, verdict: sink.count('warning') > 0 ? 'report' : 'accept', candidate });
 }
 
 /** A cited document whose root original is unavailable stays visibly flagged. */

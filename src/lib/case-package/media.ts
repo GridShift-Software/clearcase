@@ -6,6 +6,8 @@
 // "Unsupported media" (no extractor) and "missing text" (extractor ran, nothing came out)
 // are different findings. Browser-safe: no Node built-ins.
 
+import { cutText } from './strict-json.ts';
+
 export type TextStatus = 'extracted' | 'ocr' | 'none' | 'pending' | 'unsupported';
 export const TEXT_STATUSES: readonly TextStatus[] = ['extracted', 'ocr', 'none', 'pending', 'unsupported'];
 export type Capability = 'text' | 'ocr' | 'none';
@@ -77,7 +79,8 @@ export function textStatusConsistent(mediaType: string, s: TextStatus): boolean 
 export function servePolicy(mediaType: string, filename: string, contentMismatch = false): { mode: ServeMode; headers: Record<string, string> } {
   const d = def(mediaType);
   const mode: ServeMode = contentMismatch ? 'download' : d.serve;
-  const name = filename.slice(filename.lastIndexOf('/') + 1).replace(/[\u0000-\u001f\u007f-\u009f"\\‪-‮⁦-⁩]/g, '_').slice(0, 200) || 'original';
+  // cut on a code-point boundary and made well-formed: encodeURIComponent throws on a lone surrogate
+  const name = cutText(filename.slice(filename.lastIndexOf('/') + 1).replace(/[\u0000-\u001f\u007f-\u009f"\\‪-‮⁦-⁩]/g, '_'), 200).toWellFormed() || 'original';
   const ascii = name.replace(/[^\x20-\x7e]/g, '_').replace(/[%;]/g, '_');
   const utf8 = encodeURIComponent(name).replace(/['()*]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase());
   const cd = (kind: string) => `${kind}; filename="${ascii}"; filename*=UTF-8''${utf8}`;

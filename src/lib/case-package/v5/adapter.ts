@@ -9,11 +9,13 @@ import { capabilityOf, mediaTypeForName, type TextStatus } from '../media.ts';
 import { fingerprintOriginal, Interrupted, openCaseFolder } from '../originals.ts';
 import { checkRelPath, decodeLegacyLocator } from '../paths.ts';
 import { isRef } from '../refs.ts';
-import { CONVERSION_REPORT, LAYOUT, OPAQUE_SCHEMA, V5_DATASETS, V5_SPLIT_PARENTS } from '../registry.ts';
+import { CONVERSION_REPORT, LAYOUT, OPAQUE_SCHEMA, V5_DATASETS, V5_SPLIT_PARENTS, VIEW_CONTENT } from '../registry.ts';
 import type { Asset, Manifest } from '../schema.ts';
-import { isObject, type JsonObject, type JsonValue } from '../strict-json.ts';
+import { decodeUtf8Strict, isObject, type JsonObject, type JsonValue } from '../strict-json.ts';
 import { buildPackage, type DatasetSpec } from '../writer.ts';
 import { extractV5, V5_ROOTS, type V5Root, type V5Source } from './extract.ts';
+import { extractViewContent, type FieldStatus, type ViewContentResult } from './view-content.ts';
+import { VIEW_CONTENT_AUDIT, VIEW_CONTENT_MAP, VIEW_CONTENT_OMISSIONS } from './view-content-map.ts';
 import type { Diagnostic } from '../codes.ts';
 
 /** Producer identity. Only the major mapping id enters dataset bytes, so a patch release keeps resultsVersion. */
@@ -40,6 +42,8 @@ export interface ConvertResult {
   files: Map<string, Uint8Array> | null;
   diagnostics: Diagnostic[];
   source: V5Source | null;
+  /** view-content coverage: per-field status and unmapped prose literals (locations only, never text) */
+  viewContent: { fields: FieldStatus[]; unmapped: ViewContentResult['unmapped'] } | null;
   stats: { datasets: number; chronology: number; assetsFile: number; assetsEmbedded: number; assetsMissing: number; residual: number; bytesHashed: number };
 }
 
@@ -74,7 +78,8 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   const L = withLimits(opts.limits);
   const sink = new DiagSink(L.diagnosticsPerCode);
   const stats = { datasets: 0, chronology: 0, assetsFile: 0, assetsEmbedded: 0, assetsMissing: 0, residual: 0, bytesHashed: 0 };
-  const fail = (): ConvertResult => ({ ok: false, manifest: null, files: null, diagnostics: sink.finish(), source: null, stats });
+  let viewContent: ConvertResult['viewContent'] = null;
+  const fail = (): ConvertResult => ({ ok: false, manifest: null, files: null, diagnostics: sink.finish(), source: null, viewContent, stats });
   const src = extractV5(opts.html, sink);
   if (!src) return fail();
   const roots = src.roots;
@@ -112,6 +117,11 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   const layout: Record<string, string[]> = { roots: V5_ROOTS.filter((r) => roots[r] !== undefined), DATA: Object.keys(DATA) };
   for (const sp of V5_SPLIT_PARENTS) { const v = getAt(roots, sp); if (isObject(v)) layout[sp] = Object.keys(v); }
   datasets.push({ key: LAYOUT.key, kind: LAYOUT.kind, schema: LAYOUT.schema, required: LAYOUT.required, provenance: prov(LAYOUT.sourcePath), data: layout });
+
+  // view content: code-embedded case content read statically from the viewer code (payload lines skipped)
+  const vc = extractViewContent(decodeUtf8Strict(src.html.bom ? opts.html.subarray(3) : opts.html), VIEW_CONTENT_MAP, VIEW_CONTENT_OMISSIONS, { skipLines: Object.values(src.lines), audit: VIEW_CONTENT_AUDIT, sink });
+  viewContent = { fields: vc.fields, unmapped: vc.unmapped };
+  datasets.push({ key: VIEW_CONTENT.key, kind: VIEW_CONTENT.kind, schema: VIEW_CONTENT.schema, required: VIEW_CONTENT.required, provenance: prov(VIEW_CONTENT.sourcePath), data: vc.data });
 
   // asset index: originals by path + fingerprint; embedded attachments by parent
   const caseRoot = await openCaseFolder(opts.caseFolder, sink);
@@ -204,5 +214,5 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   });
   stats.datasets = datasets.length;
   if (sink.errors > 0) return fail();
-  return { ok: true, manifest, files, diagnostics: sink.finish(), source: src, stats };
+  return { ok: true, manifest, files, diagnostics: sink.finish(), source: src, viewContent, stats };
 }

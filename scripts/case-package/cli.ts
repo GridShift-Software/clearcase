@@ -14,7 +14,7 @@ import { importCandidate } from '../../src/lib/case-package/import.ts';
 import { acknowledge, canActivate } from '../../src/lib/case-package/policy.ts';
 import { ACKNOWLEDGEMENT, CASE_ID, type Acknowledgement } from '../../src/lib/case-package/schema.ts';
 import { parseStrictJson } from '../../src/lib/case-package/strict-json.ts';
-import { convertV5 } from '../../src/lib/case-package/v5/adapter.ts';
+import { convertV5, type ConvertResult } from '../../src/lib/case-package/v5/adapter.ts';
 import { writePackageDir } from '../../src/lib/case-package/writer.ts';
 
 class UsageError extends Error {}
@@ -71,6 +71,19 @@ function summary(result: ImportResult): string {
   return `verdict: ${result.verdict}${c ? ` resultsVersion: ${c.resultsVersion}` : ''}\n${counts}`;
 }
 
+/** View-content coverage for the convert report: ids, counts and source lines only, never values. */
+function viewContentSummary(v: ConvertResult['viewContent']) {
+  const fields = v?.fields ?? [];
+  const perView: Record<string, number> = {};
+  for (const f of fields) if (f.status === 'extracted') perView[f.view] = (perView[f.view] ?? 0) + 1;
+  return {
+    extracted: fields.filter((f) => f.status === 'extracted').length,
+    perView,
+    notExtracted: fields.filter((f) => f.status !== 'extracted').map((f) => ({ view: f.view, field: f.field, status: f.status })),
+    unmapped: v?.unmapped ?? [],
+  };
+}
+
 async function convert(argv: string[]): Promise<number> {
   const { values } = parseArgs({ args: argv, options: {
     html: { type: 'string' }, 'case-folder': { type: 'string' }, 'case-id': { type: 'string' }, 'case-label': { type: 'string' },
@@ -89,15 +102,17 @@ async function convert(argv: string[]): Promise<number> {
   const conv = await convertV5({ html: bytes, htmlName: path.basename(html), caseFolder, caseId, caseLabel: values['case-label'], concurrency });
   if (!conv.files) {
     say('conversion failed: ' + conv.diagnostics.filter((d) => d.severity === 'error').map((d) => `${d.code} ${d.message}`).join('; '));
-    if (values.report) await writeFile(values.report, canonicalText({ report: 'clearcase.validation-report/1', command: 'convert', verdict: 'reject', conversion: conv.diagnostics }));
+    if (values.report) await writeFile(values.report, canonicalText({ report: 'clearcase.validation-report/1', command: 'convert', verdict: 'reject', conversion: conv.diagnostics, viewContent: viewContentSummary(conv.viewContent) }));
     return 1;
   }
   await writePackageDir(out, conv.files);
   say(`converted: ${conv.files.size} files, ${conv.stats.chronology} documents, ${conv.stats.assetsFile} originals fingerprinted`);
+  const vc = viewContentSummary(conv.viewContent);
+  say(`view content: ${vc.extracted} fields extracted from ${Object.keys(vc.perView).length} views; ${vc.notExtracted.length} not extracted; ${vc.unmapped.length} unmapped prose literals`);
   if (values['no-validate']) return conv.ok ? 0 : 1;
   const result = await importCandidate(out, caseFolder, { concurrency });
   say(summary(result));
-  if (values.report) await writeFile(values.report, canonicalText(reportOf('convert', result, { conversion: conv.diagnostics })));
+  if (values.report) await writeFile(values.report, canonicalText(reportOf('convert', result, { conversion: conv.diagnostics, viewContent: vc })));
   return result.verdict === 'reject' ? 1 : 0;
 }
 

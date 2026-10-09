@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Executable verification of the package contract against the local v5 fixture: ten lanes, each
+// Executable verification of the package contract against the local v5 fixture: eleven lanes, each
 // writing lane-NN.txt (counts and codes only, no case values) to --out. Exits 1 when any required
 // lane fails or is skipped, 2 on a usage or configuration error.
 //
@@ -14,11 +14,13 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { canonicalJson, canonicalText } from '../../src/lib/case-package/canonical.ts';
 import type { ImportResult } from '../../src/lib/case-package/candidate.ts';
-import { sha256Hex } from '../../src/lib/case-package/hash.ts';
+import { resultsVersionOf, sha256Hex } from '../../src/lib/case-package/hash.ts';
 import { importCandidate } from '../../src/lib/case-package/import.ts';
 import { acceptedWarnings, acknowledge, canActivate } from '../../src/lib/case-package/policy.ts';
 import { readCandidate } from '../../src/lib/case-package/reader.ts';
-import { KNOWN_SCHEMAS, V5_DATASETS } from '../../src/lib/case-package/registry.ts';
+import { KNOWN_SCHEMAS, V5_DATASETS, VIEW_CONTENT } from '../../src/lib/case-package/registry.ts';
+import { readViewContent } from '../../src/lib/case-package/view-content.ts';
+import { VIEW_CONTENT_MAP } from '../../src/lib/case-package/v5/view-content-map.ts';
 import { decodeLegacyLocator } from '../../src/lib/case-package/paths.ts';
 import { parseStrictJson } from '../../src/lib/case-package/strict-json.ts';
 import { ADAPTER, convertV5, type ConvertResult } from '../../src/lib/case-package/v5/adapter.ts';
@@ -34,6 +36,8 @@ interface Config {
   references: { inventory: string; summary: string };
   caseId: string;
   workDir: string;
+  /** the accepted GRS-10 identity of the main HTML conversion, before view-content existed */
+  accepted?: { resultsVersion: string };
 }
 
 const { values } = parseArgs({ options: { 'fixture-config': { type: 'string' }, out: { type: 'string' }, lanes: { type: 'string' } }, strict: true });
@@ -269,6 +273,29 @@ lane(10, 'Reject an unsupported package version', async (log) => {
     const errs = r.diagnostics.filter((d) => d.severity === 'error');
     check(log, r.verdict === 'reject' && r.candidate === null && errs.length === 1 && errs[0]!.code === 'VER_UNSUPPORTED', `${label}: one error ${errs.map((d) => d.code).join(',')}; hint: ${errs[0]?.hint}`);
   }
+});
+
+lane(11, 'Carry code-embedded view content as data; every other file keeps the accepted identity', async (log) => {
+  const vc = main.viewContent!;
+  const extracted = vc.fields.filter((f) => f.status === 'extracted');
+  const perView = new Map<string, number>();
+  for (const f of extracted) perView.set(f.view, (perView.get(f.view) ?? 0) + 1);
+  for (const [v, n] of [...perView].sort()) log(`  ${v}: ${n} fields`);
+  check(log, extracted.length === VIEW_CONTENT_MAP.length, `map fields extracted: ${extracted.length} of ${VIEW_CONTENT_MAP.length} from ${perView.size} views (23 v5 views and the shell expected: ${perView.size === 24})`);
+  check(log, perView.size === 24, 'fields come from 23 v5 views and the shared shell');
+  const conv = main.diagnostics.filter((d) => d.code.startsWith('V5_VIEW_CONTENT_'));
+  check(log, conv.length === 0, `view-content conversion diagnostics: ${conv.length}`);
+  log(`unmapped prose literals in audited scopes (locations in the convert report, reviewed as UI chrome): ${vc.unmapped.length}`);
+  const env = full.candidate!.dataset(VIEW_CONTENT.key);
+  check(log, !!env && env.schema === VIEW_CONTENT.schema && env.kind === 'generated' && env.required === false && env.provenance.sourcePath === '(view-code)', `dataset ${VIEW_CONTENT.key}: ${env?.schema}, ${env?.kind}, required ${env?.required}, source ${env?.provenance.sourcePath}`);
+  check(log, full.diagnostics.filter((d) => d.file === `datasets/${VIEW_CONTENT.key}.json`).length === 0, 'validated against v5.view-content@1 with no diagnostics on its file');
+  const rd = readViewContent(env!.data);
+  const templates = rd.views().flatMap((v) => rd.fields(v).filter((f) => (rd.params(v, f) ?? []).length > 0));
+  check(log, rd.views().length === 24 && rd.views().reduce((n, v) => n + rd.fields(v).length, 0) === VIEW_CONTENT_MAP.length, `typed reader: ${rd.views().length} views, ${templates.length} templates with params`);
+  const files = main.manifest!.files.filter((f) => f.path !== `datasets/${VIEW_CONTENT.key}.json`);
+  const without = resultsVersionOf({ formatVersion: main.manifest!.formatVersion, caseId: main.manifest!.case.id, inputRevisionId: main.manifest!.inputRevision.id, files });
+  check(log, !!cfg.accepted, 'the fixture configuration names the accepted pre-view-content identity');
+  check(log, without === cfg.accepted!.resultsVersion, `every other file byte-identical: the manifest without view-content gives ${without} (accepted ${cfg.accepted!.resultsVersion}); with it: ${main.manifest!.resultsVersion}`);
 });
 
 // ---- run ------------------------------------------------------------------------------------

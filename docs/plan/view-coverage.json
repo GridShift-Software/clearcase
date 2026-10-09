@@ -7,253 +7,495 @@
       "id": "overview",
       "label": "Overview",
       "group": "Matter",
-      "owner": "CC-03"
+      "owner": "CC-03",
+      "reads": {
+        "datasets": ["chronology", "contradictions", "matter", "quantum", "META.builtAt", "META.dateSpan", "META.docCount", "META.emails", "META.people", "META.textNone"],
+        "stores": ["ess_dcs_deadlines_v1", "ess_dcs_rescan_v1", "ess_dcs_timesheet_v1"]
+      },
+      "dependsOn": []
     },
     {
       "id": "matter",
       "label": "Matter & Strategy",
       "group": "Matter",
-      "owner": "CC-05"
+      "owner": "CC-05",
+      "reads": {
+        "datasets": ["matter"],
+        "stores": []
+      },
+      "dependsOn": []
     },
     {
       "id": "timeline",
       "label": "Timeline",
       "group": "Matter",
-      "owner": "CC-05"
+      "owner": "CC-05",
+      "reads": {
+        "datasets": ["people", "quantum", "timeline", "META.bundles", "META.dateSpan", "META.docCount", "META.textNone"],
+        "stores": []
+      },
+      "dependsOn": []
     },
     {
       "id": "chronology",
       "label": "Chronology",
       "group": "Matter",
-      "owner": "CC-03"
+      "owner": "CC-03",
+      "reads": {
+        "datasets": ["chronology"],
+        "stores": ["ess_dcs_rescan_v1"]
+      },
+      "dependsOn": []
     },
     {
       "id": "quantum_tab",
       "label": "Quantum & Interest",
       "group": "Matter",
-      "owner": "CC-06"
+      "owner": "CC-06",
+      "reads": {
+        "datasets": ["quantum"],
+        "stores": []
+      },
+      "dependsOn": []
     },
     {
       "id": "documents",
       "label": "Documents",
       "group": "Evidence",
-      "owner": "CC-04"
+      "owner": "CC-04",
+      "reads": {
+        "datasets": ["chronology", "META.bundles", "META.docCount"],
+        "stores": ["ess_dcs_caselines_docs_v1", "ess_dcs_rescan_v1"]
+      },
+      "dependsOn": ["CC-09"],
+      "readsNote": "Checklist inconsistency: the summary and store tables list ess_dcs_caselines_docs_v1 for this view, but its section lists only ess_dcs_rescan_v1 and notes that the CaseLines drawDocs (line 3623) is closure-scoped and does not override this view's drawDocs. The CC-09 read is probably misattributed; recorded as the summary states."
     },
     {
       "id": "contracts_tab",
       "label": "Contracts",
       "group": "Evidence",
-      "owner": "CC-04"
+      "owner": "CC-04",
+      "reads": {
+        "datasets": ["contracts"],
+        "stores": []
+      },
+      "dependsOn": []
     },
     {
       "id": "filings_tab",
       "label": "Filings & Affidavits",
       "group": "Evidence",
-      "owner": "CC-04"
+      "owner": "CC-04",
+      "reads": {
+        "datasets": ["chronology", "filings"],
+        "stores": ["ess_dcs_filings_v1", "ess_dcs_rescan_v1"]
+      },
+      "dependsOn": []
     },
     {
       "id": "search",
       "label": "Advanced Search",
       "group": "Evidence",
-      "owner": "CC-04"
+      "owner": "CC-04",
+      "reads": {
+        "datasets": ["chronology"],
+        "stores": ["ess_dcs_rescan_v1"]
+      },
+      "dependsOn": []
     },
     {
       "id": "people",
       "label": "People",
       "group": "Evidence",
-      "owner": "CC-04"
+      "owner": "CC-04",
+      "reads": {
+        "datasets": ["people"],
+        "stores": []
+      },
+      "dependsOn": []
     },
     {
       "id": "entity_ledger_tab",
       "label": "Entities",
       "group": "Evidence",
-      "owner": "CC-04"
+      "owner": "CC-04",
+      "reads": {
+        "datasets": ["entities"],
+        "stores": []
+      },
+      "dependsOn": []
     },
     {
       "id": "hoa_diff_tab",
       "label": "Document Diff",
       "group": "Evidence",
-      "owner": "CC-04"
+      "owner": "CC-04",
+      "reads": {
+        "datasets": ["chronology"],
+        "stores": ["ess_dcs_rescan_v1"]
+      },
+      "dependsOn": []
     },
     {
       "id": "invoice_ledger_tab",
       "label": "Invoice Ledger",
       "group": "Case management",
-      "owner": "CC-06"
+      "owner": "CC-06",
+      "reads": {
+        "datasets": ["quantum"],
+        "stores": []
+      },
+      "dependsOn": []
     },
     {
       "id": "disbursements_tab",
       "label": "Disbursements",
       "group": "Case management",
-      "owner": "CC-07"
+      "owner": "CC-07",
+      "reads": {
+        "datasets": ["META.builtAt", "META.docCount"],
+        "stores": ["ess_dcs_disbursements_v1", "ess_dcs_rescan_v1"]
+      },
+      "dependsOn": []
     },
     {
       "id": "timesheet_tab",
       "label": "Timesheet",
       "group": "Case management",
-      "owner": "CC-07"
+      "owner": "CC-07",
+      "reads": {
+        "datasets": ["META.builtAt", "META.docCount"],
+        "stores": ["ess_dcs_rescan_v1", "ess_dcs_timesheet_v1"]
+      },
+      "dependsOn": []
     },
     {
       "id": "deadlines_tab",
       "label": "Deadlines",
       "group": "Case management",
-      "owner": "CC-07"
+      "owner": "CC-07",
+      "reads": {
+        "datasets": ["META.builtAt", "META.docCount"],
+        "stores": ["ess_dcs_deadlines_v1", "ess_dcs_rescan_v1"]
+      },
+      "dependsOn": []
     },
     {
       "id": "discovery_tab",
       "label": "Discovery Schedule",
       "group": "Case management",
-      "owner": "CC-09"
+      "owner": "CC-09",
+      "reads": {
+        "datasets": ["window.__SCHED__"],
+        "stores": ["ess_dcs_schedule_co_v1", "ess_dcs_schedule_mode_v1", "ess_dcs_schedule_sel_v1"]
+      },
+      "dependsOn": []
     },
     {
       "id": "court_bundle_tab",
       "label": "Court Bundle",
       "group": "Case management",
-      "owner": "CC-09"
+      "owner": "CC-09",
+      "reads": {
+        "datasets": ["bundles"],
+        "stores": ["ess_dcs_bundle_header_v2", "ess_dcs_custom_bundles_v1"]
+      },
+      "dependsOn": []
     },
     {
       "id": "caselines_tab",
       "label": "CaseLines",
       "group": "Case management",
-      "owner": "CC-09"
+      "owner": "CC-09",
+      "reads": {
+        "datasets": ["chronology", "window.__CASELINES_IDX__"],
+        "stores": ["ess_dcs_caselines_docs_v1", "ess_dcs_rescan_v1"]
+      },
+      "dependsOn": []
     },
     {
       "id": "contradictions_tab",
       "label": "Contradiction Tracker",
       "group": "Analysis",
-      "owner": "CC-05"
+      "owner": "CC-05",
+      "reads": {
+        "datasets": ["contradictions", "META.docCount"],
+        "stores": []
+      },
+      "dependsOn": []
     },
     {
       "id": "risk_matrix_tab",
       "label": "Risk Matrix",
       "group": "Analysis",
-      "owner": "CC-05"
+      "owner": "CC-05",
+      "reads": {
+        "datasets": ["riskMatrix"],
+        "stores": []
+      },
+      "dependsOn": []
     },
     {
       "id": "vdm_matrix_tab",
       "label": "Defence & Rebuttal",
       "group": "Analysis",
-      "owner": "CC-05"
+      "owner": "CC-05",
+      "reads": {
+        "datasets": ["defenceMatrix"],
+        "stores": []
+      },
+      "dependsOn": []
     },
     {
       "id": "info_required_tab",
       "label": "Info Required",
       "group": "Analysis",
-      "owner": "CC-05"
+      "owner": "CC-05",
+      "reads": {
+        "datasets": ["infoRequired"],
+        "stores": ["ess_dcs_info_done_v1"]
+      },
+      "dependsOn": []
     },
     {
       "id": "witness_tab",
       "label": "Witnesses",
       "group": "Analysis",
-      "owner": "CC-05"
+      "owner": "CC-05",
+      "reads": {
+        "datasets": ["witnesses"],
+        "stores": []
+      },
+      "dependsOn": []
     },
     {
       "id": "conflict_tab",
       "label": "Conflict Check",
       "group": "Analysis",
-      "owner": "CC-08"
+      "owner": "CC-08",
+      "reads": {
+        "datasets": ["entities", "people"],
+        "stores": []
+      },
+      "dependsOn": []
     },
     {
       "id": "enforcement_tab",
       "label": "Enforcement Roadmap",
       "group": "Litigation strategy",
-      "owner": "CC-08"
+      "owner": "CC-08",
+      "reads": {
+        "datasets": ["lit"],
+        "stores": ["ess_dcs_enf_status_v1"]
+      },
+      "dependsOn": []
     },
     {
       "id": "legality_tab",
       "label": "Legality & SIU Risk",
       "group": "Litigation strategy",
-      "owner": "CC-08"
+      "owner": "CC-08",
+      "reads": {
+        "datasets": ["lit"],
+        "stores": []
+      },
+      "dependsOn": []
     },
     {
       "id": "prescription_tab",
       "label": "Prescription",
       "group": "Litigation strategy",
-      "owner": "CC-06"
+      "owner": "CC-06",
+      "reads": {
+        "datasets": ["lit"],
+        "stores": []
+      },
+      "dependsOn": []
     },
     {
       "id": "interest_calc_tab",
       "label": "Interest Recalculator",
       "group": "Litigation strategy",
-      "owner": "CC-06"
+      "owner": "CC-06",
+      "reads": {
+        "datasets": ["lit"],
+        "stores": []
+      },
+      "dependsOn": []
     },
     {
       "id": "payments_tab",
       "label": "Payments & Net Claim",
       "group": "Litigation strategy",
-      "owner": "CC-06"
+      "owner": "CC-06",
+      "reads": {
+        "datasets": ["lit"],
+        "stores": ["ess_dcs_payments_v1"]
+      },
+      "dependsOn": []
     },
     {
       "id": "elements_tab",
       "label": "Cause of Action",
       "group": "Litigation strategy",
-      "owner": "CC-08"
+      "owner": "CC-08",
+      "reads": {
+        "datasets": ["lit"],
+        "stores": []
+      },
+      "dependsOn": [],
+      "readsNote": "Its 'open' links navigate to CC-04 and CC-06 views through data-tab; navigation entries are frozen by CC-03, so this is not a store or code read."
     },
     {
       "id": "authorities_tab",
       "label": "Authorities",
       "group": "Litigation strategy",
-      "owner": "CC-08"
+      "owner": "CC-08",
+      "reads": {
+        "datasets": ["lit"],
+        "stores": ["ess_dcs_authorities_v1"]
+      },
+      "dependsOn": []
     },
     {
       "id": "heads_tab",
       "label": "Heads of Argument",
       "group": "Litigation strategy",
-      "owner": "CC-08"
+      "owner": "CC-08",
+      "reads": {
+        "datasets": [],
+        "stores": ["ess_dcs_heads_v1"]
+      },
+      "dependsOn": [],
+      "readsNote": "Checklist inconsistency: the summary table lists no dataset or rescan read, but the view section says evidence refs resolve through allRows(), which includes ess_dcs_rescan_v1 (CC-10). Recorded as the summary states."
     },
     {
       "id": "crossexam_tab",
       "label": "Cross-Exam Prep",
       "group": "Litigation strategy",
-      "owner": "CC-08"
+      "owner": "CC-08",
+      "reads": {
+        "datasets": ["lit"],
+        "stores": ["ess_dcs_crossexam_v1"]
+      },
+      "dependsOn": []
     },
     {
       "id": "settlement_tab",
       "label": "Settlement / BATNA",
       "group": "Litigation strategy",
-      "owner": "CC-06"
+      "owner": "CC-06",
+      "reads": {
+        "datasets": ["lit"],
+        "stores": []
+      },
+      "dependsOn": []
     },
     {
       "id": "privilege_tab",
       "label": "Privilege Log",
       "group": "Registers",
-      "owner": "CC-07"
+      "owner": "CC-07",
+      "reads": {
+        "datasets": ["META.builtAt", "META.docCount"],
+        "stores": ["ess_dcs_privilege_v1", "ess_dcs_rescan_v1"]
+      },
+      "dependsOn": []
     },
     {
       "id": "popia_tab",
       "label": "POPIA Register",
       "group": "Registers",
-      "owner": "CC-07"
+      "owner": "CC-07",
+      "reads": {
+        "datasets": ["META.builtAt", "META.docCount"],
+        "stores": ["ess_dcs_popia_v1", "ess_dcs_rescan_v1"]
+      },
+      "dependsOn": []
     },
     {
       "id": "annotations_tab",
       "label": "Annotations",
       "group": "Registers",
-      "owner": "CC-07"
+      "owner": "CC-07",
+      "reads": {
+        "datasets": ["META.builtAt", "META.docCount"],
+        "stores": ["ess_dcs_annotations_v1", "ess_dcs_rescan_v1"]
+      },
+      "dependsOn": []
     },
     {
       "id": "transcriptions_tab",
       "label": "Transcripts",
       "group": "Registers",
-      "owner": "CC-07"
+      "owner": "CC-07",
+      "reads": {
+        "datasets": ["META.builtAt", "META.docCount"],
+        "stores": ["ess_dcs_rescan_v1", "ess_dcs_transcripts_v1"]
+      },
+      "dependsOn": []
     },
     {
       "id": "rescan_tab",
       "label": "Rescan & Update",
       "group": "System",
-      "owner": "CC-10"
+      "owner": "CC-10",
+      "reads": {
+        "datasets": ["chronology", "META.builtAt", "META.docCount"],
+        "stores": ["ess_dcs_rescan_v1"]
+      },
+      "dependsOn": []
     },
     {
       "id": "backup_tab",
       "label": "Backup / Restore",
       "group": "System",
-      "owner": "CC-10"
+      "owner": "CC-10",
+      "reads": {
+        "datasets": ["META.builtAt", "META.docCount"],
+        "stores": ["ess_dcs_annotations_v1", "ess_dcs_authorities_v1", "ess_dcs_bundle_extents_v1", "ess_dcs_bundle_header_v1", "ess_dcs_bundle_overrides_v1", "ess_dcs_courtbundle_v1", "ess_dcs_crossexam_v1", "ess_dcs_custom_bundles_v1", "ess_dcs_deadlines_v1", "ess_dcs_disbursements_v1", "ess_dcs_enf_status_v1", "ess_dcs_filings_v1", "ess_dcs_heads_v1", "ess_dcs_info_done_v1", "ess_dcs_payments_v1", "ess_dcs_popia_v1", "ess_dcs_privilege_v1", "ess_dcs_rescan_v1", "ess_dcs_timesheet_v1", "ess_dcs_transcripts_v1"]
+      },
+      "dependsOn": ["CC-07"]
     },
     {
       "id": "manual",
       "label": "Manual",
       "group": "System",
-      "owner": "CC-10"
+      "owner": "CC-10",
+      "reads": {
+        "datasets": ["buildReport", "linkSample", "quantum", "META.docCount", "META.emails", "META.people", "META.textNone", "META.textPending"],
+        "stores": []
+      },
+      "dependsOn": []
     }
-  ]
+  ],
+  "readsSource": "docs/reference/view-checklist.md summary table (head c54a10e of CC-01). 'reads.datasets' are package datasets and code constants; 'reads.stores' are v5 user-work localStorage keys. 'dependsOn' lists the other tickets this view depends on for a store it reads, after the contract rules in readsNote; 'reads' keeps every store the view reads. A store's owner is the owner of the view that writes it (storeOwners). These are view-level facts; ticket dependencies in work-items.json follow the coordinator's decisions in .orchestration/reports/PLAN-M2/r2/report.md.",
+  "readsNote": "Three cross-ticket reads are carried by contracts instead of dependencies. (1) Rescanned rows: ess_dcs_rescan_v1 (CC-10) reaches other views only through allRows() or the freshness stamp; CC-10 publishes those rows through CC-03's document-row read contract, so those views do not depend on CC-10. (2) Backup: backup_tab's backup and restore operate generically over CC-03's user-work persistence contract, so it depends only on CC-07, whose src/lib/user-work/** subtree contains CC-10's backup scope and whose stores it restores; CC-11 verifies a round trip for each named store once its owner has passed. (3) Overview: CC-03 shows the deadline and timesheet summary and the freshness stamp as unavailable until CC-07 and CC-10 wire them through CC-03's overview extension point from their own subtrees.",
+  "storeOwners": {
+    "ess_dcs_annotations_v1": "CC-07",
+    "ess_dcs_authorities_v1": "CC-08",
+    "ess_dcs_bundle_extents_v1": "CC-10",
+    "ess_dcs_bundle_header_v1": "CC-10",
+    "ess_dcs_bundle_header_v2": "CC-09",
+    "ess_dcs_bundle_overrides_v1": "CC-10",
+    "ess_dcs_caselines_docs_v1": "CC-09",
+    "ess_dcs_courtbundle_v1": "CC-10",
+    "ess_dcs_crossexam_v1": "CC-08",
+    "ess_dcs_custom_bundles_v1": "CC-09",
+    "ess_dcs_deadlines_v1": "CC-07",
+    "ess_dcs_disbursements_v1": "CC-07",
+    "ess_dcs_enf_status_v1": "CC-08",
+    "ess_dcs_filings_v1": "CC-04",
+    "ess_dcs_heads_v1": "CC-08",
+    "ess_dcs_info_done_v1": "CC-05",
+    "ess_dcs_payments_v1": "CC-06",
+    "ess_dcs_popia_v1": "CC-07",
+    "ess_dcs_privilege_v1": "CC-07",
+    "ess_dcs_rescan_v1": "CC-10",
+    "ess_dcs_schedule_co_v1": "CC-09",
+    "ess_dcs_schedule_mode_v1": "CC-09",
+    "ess_dcs_schedule_sel_v1": "CC-09",
+    "ess_dcs_timesheet_v1": "CC-07",
+    "ess_dcs_transcripts_v1": "CC-07"
+  }
 }

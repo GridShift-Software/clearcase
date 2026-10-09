@@ -18,7 +18,7 @@ Run them from the worktree root, or by absolute path from anywhere. `receipt` is
 
 | Component | Source | Version or revision | Access and license |
 | --- | --- | --- | --- |
-| pstack skill bundle: `poteto-mode` and 46 companion skills | [`backnotprop/pstack`](https://github.com/backnotprop/pstack), designated by the user on 2026-10-08. It is a harness-neutral mirror of [`cursor/plugins/pstack`](https://github.com/cursor/plugins/tree/main/pstack). Installed in `~/.agents/skills/`; `~/.claude/skills/*` are symlinks into it. | 0.15.9, revision `124f622bcaeac490e7e9dac6af83f3ef9611d554` (2026-10-04), which mirrors `cursor/plugins@e43c7ee26e0038c6c1fa8380dd34ce86ff94cb2a`. Pinned per skill by content hash in `scripts/agent-tools/skills.lock.json`. | MIT, Copyright (c) 2026 Lauren Tan. Public; no credentials. |
+| pstack skill bundle: `poteto-mode` and 50 companion skills | [`backnotprop/pstack`](https://github.com/backnotprop/pstack), designated by the user on 2026-10-08. It is a harness-neutral mirror of [`cursor/plugins/pstack`](https://github.com/cursor/plugins/tree/main/pstack). Installed in `~/.agents/skills/`; `~/.claude/skills/*` are symlinks into it. | 0.15.15, revision `3a604672c46cd8187d2b19980eae0a34f9f91138` (2026-10-07), which mirrors `cursor/plugins/pstack@ccb5507` (short ID as the mirror records it; upstream-branch commit `4aed5afa251ea30ebcd694f894687301ee8bc1b3`, merged on `main` in `1edf0a5cf2337f69ca81cc65cbdcac7a4ffe29dd`). Pinned per skill by content hash in `scripts/agent-tools/skills.lock.json`. | MIT, Copyright (c) 2026 Lauren Tan. Public; no credentials. |
 | `poteto-mode/scripts/check-plan.mjs` | Same bundle. | Pinned with `poteto-mode`. Dependency-free Node ESM. | Same. |
 | Matt Pocock skills (`ask-matt`, `domain-modeling`, `codebase-design`) | `~/.agents/skills/`. The files name no upstream. | Pinned by content hash in the same lock. | Not recorded. |
 | `scripts/planning/check.py`, `generate.py` | This repository. | Git revision. | Repository. |
@@ -27,16 +27,16 @@ Run them from the worktree root, or by absolute path from anywhere. `receipt` is
 
 How the pstack pin was established:
 
-- At the pinned revision, `.cursor-plugin/plugin.json` names `pstack` 0.15.9 by Lauren Tan under the MIT license, and `LICENSE` is the MIT license. `MIRROR.md` explains the mirror: branch `upstream` holds Cursor's files verbatim, and `main` is `upstream` plus the mirror's harness-neutral edits.
-- The 47 skills present both in the revision's `skills/` and in `~/.agents/skills/` are byte-identical. The coordinator compared them with `diff -rq` on 2026-10-08 at 15:28 SAST, and the CC-27 round-2 worker reran the comparison from a fresh clone at 15:36 SAST.
-- Three upstream skills at that revision are not installed and not pinned: `benchmark-checklist`, `correct` and `principle-explain-the-number`.
+- At the pinned revision, `.cursor-plugin/plugin.json` names `pstack` 0.15.15 by Lauren Tan under the MIT license, and `LICENSE` is the MIT license. `MIRROR.md` explains the mirror: branch `upstream` holds Cursor's files verbatim, and `main` is `upstream` plus the mirror's harness-neutral edits.
+- All 51 skills in the revision's `skills/` are installed in `~/.agents/skills/` and byte-identical. The relock worker compared them with `diff -rq` from a fresh clone on 2026-10-09, after the host bundle changed in place at 07:20 SAST, and checked every commit of `main` and `upstream`: only `3a604672c46c` matches. The record is `.orchestration/reports/CC-27/pstack-provenance-20261009.txt`.
+- Every upstream skill at that revision is installed and pinned. The relock added `benchmark-checklist`, `correct` and `principle-explain-the-number`, which the earlier pin left uninstalled, and `poteto-help`, new in 0.15.15.
 - `tdd` belongs to pstack, not to the Matt Pocock skills.
-- `backnotprop/pstack` `main` had reached 0.15.15 (`3a604672c46c`) by 2026-10-08. The pin records the installed 0.15.9 snapshot.
+- The previous pin was 0.15.9, revision `124f622bcaeac490e7e9dac6af83f3ef9611d554`, which matched 47 installed skills on 2026-10-08. `3a604672c46c` was `main` HEAD when the relock worker checked it.
 
 The lock's `provenance.pstack` block records the same facts. Its reproduce command prints nothing when the install matches:
 
 ```sh
-git clone https://github.com/backnotprop/pstack.git p && git -C p worktree add ../p124 124f622 && for d in p124/skills/*/; do n=$(basename $d); [ -e ~/.agents/skills/$n ] && diff -rq $d ~/.agents/skills/$n; done
+git clone https://github.com/backnotprop/pstack.git p && git -C p worktree add ../p3a6 3a60467 && for d in p3a6/skills/*/; do n=$(basename $d); [ -e ~/.agents/skills/$n ] && diff -rq $d ~/.agents/skills/$n; done
 ```
 
 `scripts/agent-tools/verify pstack-upstream --checkout DIR` makes the same comparison from the pinned revision's Git objects in any clone that contains it, so files in the clone's working tree do not count. Like the pin, and unlike the reproduce command, it skips `node_modules`, `__pycache__` and `.DS_Store`. It also checks the lock and writes a receipt. Install pstack only from this source; do not install a package merely because it is named pstack.

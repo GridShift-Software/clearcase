@@ -52,10 +52,17 @@ export const V5_DATASETS: readonly DatasetDef[] = [
 export const V5_SPLIT_PARENTS = ['DATA.timeline', 'DATA.lit'] as const;
 export const LAYOUT: DatasetDef = { key: 'source-layout', sourcePath: '(layout)', kind: 'generated', schema: 'v5.source-layout@1', data: R.V5SourceLayout, required: true };
 export const CONVERSION_REPORT: DatasetDef = { key: 'conversion-report', sourcePath: '(adapter)', kind: 'generated', schema: 'v5.conversion-report@1', data: R.V5ConversionReport, required: false };
+/**
+ * Code-embedded view content (GRS-38). Generated: v5 hard-coded it in the renderers, but the
+ * sample was produced by an AI pipeline, so in the real pipeline this content is pipeline
+ * output, reproducible from the case material like the other generated datasets, and carries
+ * no inline citation tokens. Optional: a reader that does not know it can still show the case.
+ */
+export const VIEW_CONTENT: DatasetDef = { key: 'view-content', sourcePath: '(view-code)', kind: 'generated', schema: 'v5.view-content@1', data: R.V5ViewContent, required: false };
 /** Unknown source keys: preserved, bounded, explicitly unsupported (not rendered). */
 export const OPAQUE_SCHEMA = 'opaque@1';
 
-export const KNOWN_SCHEMAS: ReadonlyMap<string, DatasetDef> = new Map([...V5_DATASETS, LAYOUT, CONVERSION_REPORT].map((d) => [d.schema, d]));
+export const KNOWN_SCHEMAS: ReadonlyMap<string, DatasetDef> = new Map([...V5_DATASETS, LAYOUT, CONVERSION_REPORT, VIEW_CONTENT].map((d) => [d.schema, d]));
 export const REQUIRED_DATASETS = ['chronology'];
 
 /** Dataset keys reserved for user work; they never appear in immutable results. */
@@ -69,8 +76,7 @@ export const USERWORK_SOURCES = new Set(['user-work', 'local-storage', 'backup',
 /** v5 browser store key shape, e.g. ess_dcs_deadlines_v1, at any nesting depth */
 export const STORE_KEY = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+_v\d+$/;
 
-/** Fields whose string values are link locators (kept as data, never used as href). */
-export const LINK_FIELDS = new Set(['url', 'href', 'link', 'headline_url', 'sliceUrl', 'file', 'indexFile', 'planFile', 'folder', 'caselinesSrc', 'extracts', 'src_url']);
+export { LINK_FIELDS } from './links.ts';
 
 /** Per-schema citation fields beyond the generic ref / headline_ref / refs[] / also_in[] rule. */
 export const EXTRA_CITATION_ARRAYS: Record<string, ReadonlySet<string>> = {
@@ -88,4 +94,4 @@ export const SEED_DATASETS: Record<string, { pointer: string; keyFields: readonl
 };
 
 /** Registered dataset keys: each must carry its registered schema and required flag. */
-export const KNOWN_KEYS: ReadonlyMap<string, DatasetDef> = new Map([...V5_DATASETS, LAYOUT, CONVERSION_REPORT].map((d) => [d.key, d]));
+export const KNOWN_KEYS: ReadonlyMap<string, DatasetDef> = new Map([...V5_DATASETS, LAYOUT, CONVERSION_REPORT, VIEW_CONTENT].map((d) => [d.key, d]));

@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { canonicalJson } from './canonical.ts';
 import { CODES, type Code, type Diagnostic, type Severity } from './codes.ts';
 import { LIMITS } from './limits.ts';
+import { cutText } from './strict-json.ts';
 
 export interface At { file?: string; pointer?: string; subject?: string; stablePointer?: string }
 
@@ -40,10 +41,11 @@ export class DiagSink {
     if (!list) { list = []; this.byCode.set(code, list); }
     list.push({
       code, severity: def.severity, cls: def.cls,
-      ...(at.file !== undefined && { file: at.file }),
-      ...(at.pointer !== undefined && { pointer: at.pointer }),
-      ...(at.subject !== undefined && { subject: at.subject.slice(0, 200) }),
-      message, hint: def.hint, fingerprint: fp,
+      // stored text is always well-formed, so the canonical diagnostics digest cannot fail on a cut value
+      ...(at.file !== undefined && { file: at.file.toWellFormed() }),
+      ...(at.pointer !== undefined && { pointer: at.pointer.toWellFormed() }),
+      ...(at.subject !== undefined && { subject: cutText(at.subject, 200).toWellFormed() }),
+      message: message.toWellFormed(), hint: def.hint, fingerprint: fp,
     });
     if (list.length >= 2 * this.cap) { list.sort(compareDiagnostics); list.length = this.cap; }
   }

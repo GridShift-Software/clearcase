@@ -19,7 +19,7 @@ export const REJECTED_SCHEMES = new Set([
   'intent', 'jar', 'view-source', 'ws', 'wss', 'ftp', 'livescript', 'mocha', 'ms-its', 'mhtml', 'res', 'resource',
 ]);
 
-const MAX_LINK = 2048;
+export const MAX_LINK = 2048;
 
 export function normaliseForScheme(raw: string): string {
   return raw.replace(/[\t\n\r]/g, '').replace(/^[\u0000- ]+/, '').replace(/[\u0000- ]+$/, '');

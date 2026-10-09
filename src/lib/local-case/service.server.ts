@@ -241,7 +241,10 @@ export class LocalCase {
 				return conflict('APP_VERSION_CONFLICT', `${c.resultsVersion} is already stored (import #${existing.import_id}) with a different manifest`, 'Results versions are immutable. Export the changed package as a new results version.');
 			if (existing && existing.case_root !== inputs.caseRoot.path)
 				return conflict('APP_CASE_FOLDER_DIFFERS', `${c.resultsVersion} was imported against the case folder ${existing.case_root}; this import names ${inputs.caseRoot.path}`, 'Import it against the same case folder, or export a new results version for the other folder.');
-			if (existing && this.verify(existing.id, true).ok) return { kind: 'identical', importId: existing.import_id };
+			if (existing && this.verify(existing.id, true).ok) {
+				if (existing.case_dev !== inputs.caseRoot.dev || existing.case_ino !== inputs.caseRoot.ino) await this.store.rebindCaseRoot(existing.id, inputs.caseRoot.dev, inputs.caseRoot.ino);
+				return { kind: 'identical', importId: existing.import_id };
+			}
 			const files = [...c.snapshot()].map(({ path: p, bytes }) => ({ path: p, bytes, size: bytes.byteLength, sha256: sha256Hex(bytes) }));
 			const write = {
 				attempt: { at, case_folder: caseFolder, package_source: packageSource, case_id: c.caseId, results_version: c.resultsVersion, manifest_sha256: c.manifestSha256, verdict: result.verdict, report: JSON.stringify(report) },

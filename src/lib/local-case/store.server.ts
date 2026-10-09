@@ -99,6 +99,14 @@ export class CaseStore {
 		});
 	}
 
+	/**
+	 * The case folder at the recorded path was replaced (restored, re-created): a fresh import of the same package has
+	 * just verified every original there, so the version is bound to the folder's new identity.
+	 */
+	rebindCaseRoot(id: string, dev: string, ino: string): Promise<void> {
+		return this.storage.tx((d) => { d.prepare('UPDATE version SET case_dev = ?, case_ino = ? WHERE id = ?').run(dev, ino, id); });
+	}
+
 	/** The exact stored package bytes (manifest plus listed files), as importCandidate({files}) takes them. */
 	packageFiles(id: string): Map<string, Uint8Array> {
 		const rows = this.d.prepare('SELECT path, bytes FROM package_file WHERE version_id = ? ORDER BY path').all(id) as { path: string; bytes: Uint8Array }[];

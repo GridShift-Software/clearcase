@@ -13,6 +13,7 @@
 //    exportAll()/importAll() round-trip them generically, including tables later tickets add with defineTable(). A
 //    backup or restore feature never needs per-table code.
 import { createHash, randomUUID } from 'node:crypto';
+import { now } from '../components/clock.ts';
 import { matchAnchor, viewSeeds, type DocumentAnchor, type SeedOverlay, type SeedRow, type SeedView } from '../case-package/index.ts';
 import type { Storage } from './db.server.ts';
 import type { CaseStore } from './store.server.ts';
@@ -130,7 +131,7 @@ export class UserWork {
 		if (!text.trim() || text.length > MAX_NOTE) throw new UserWorkError(`A note needs 1 to ${MAX_NOTE.toLocaleString('en')} characters.`);
 		if (!this.store.document(resultsVersion, ref)) throw new UserWorkError('No such document in this results version.');
 		const anchor = this.anchorFor(caseId, resultsVersion, ref);
-		const at = new Date().toISOString();
+		const at = now().toISOString();
 		const row: NoteDb = { id: randomUUID(), case_id: caseId, anchor_sha256: anchor.sha256, ref_at_creation: ref, results_version: resultsVersion, body: text, body_sha256: sha(text), created_at: at };
 		await this.storage.tx((d) => d.prepare('INSERT INTO work.note(id, case_id, anchor_sha256, ref_at_creation, results_version, body, body_sha256, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?)')
 			.run(row.id, row.case_id, row.anchor_sha256, row.ref_at_creation, row.results_version, row.body, row.body_sha256, at, at));
@@ -163,7 +164,7 @@ export class UserWork {
 		const fields = checkFields(o.fields);
 		await this.storage.tx((d) => d.prepare(`INSERT INTO work.seed_overlay(case_id, dataset_key, seed_id, base_seed_sha256, fields, updated_at) VALUES (?,?,?,?,?,?)
 			ON CONFLICT(case_id, dataset_key, seed_id) DO UPDATE SET base_seed_sha256 = excluded.base_seed_sha256, fields = excluded.fields, updated_at = excluded.updated_at`)
-			.run(o.caseId, o.datasetKey, o.seedId, o.baseSeedSha256, fields, new Date().toISOString()));
+			.run(o.caseId, o.datasetKey, o.seedId, o.baseSeedSha256, fields, now().toISOString()));
 		this.onWrite();
 	}
 
@@ -180,7 +181,7 @@ export class UserWork {
 		checkStore(store);
 		const json = checkFields(fields);
 		const id = rowId ?? randomUUID();
-		const at = new Date().toISOString();
+		const at = now().toISOString();
 		await this.storage.tx((d) => d.prepare(`INSERT INTO work.register_row(case_id, store, row_id, anchor, fields, fields_sha256, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?)
 			ON CONFLICT(case_id, store, row_id) DO UPDATE SET anchor = excluded.anchor, fields = excluded.fields, fields_sha256 = excluded.fields_sha256, updated_at = excluded.updated_at`)
 			.run(caseId, store, id, anchor ? JSON.stringify(anchor) : null, json, sha(json), at, at));
@@ -230,7 +231,7 @@ export class UserWork {
 				.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, toCell(v)])));
 			return { ...t, rows };
 		});
-		return { format: USER_WORK_EXPORT, exportedAt: new Date().toISOString(), tables, excluded };
+		return { format: USER_WORK_EXPORT, exportedAt: now().toISOString(), tables, excluded };
 	}
 
 	/**

@@ -43,6 +43,7 @@ Exact pins are in `package.json` (`packageManager: bun@1.4.2`); the lock is `bun
 | `CLEARCASE_KEEP_CANDIDATES` / `CLEARCASE_KEEP_BACKUPS` | 3 / 10 | retention of never-activated candidates per case, and of `work.sqlite` backups |
 | `CLEARCASE_BUFFER_MAX_BYTES` | 32 MiB | originals up to this size are verified in memory; larger ones through a private snapshot |
 | `BUILD_DIR` | `./build` | the build `start` serves |
+| `CLEARCASE_FIXED_NOW` | unset (the real clock) | tests and verification only: fixes `now()` (see "Adding a view") to an ISO-8601 date or date-time with an offset |
 
 Both listeners bind 127.0.0.1 only. A case folder that equals, contains or lies inside the data directory is refused; nothing is ever written into a case folder.
 
@@ -81,11 +82,12 @@ To build one:
 1. Create `src/routes/v/[vid]/<category>/<view-id>/+page.svelte` (and `+page.server.ts`). SvelteKit prefers this static route to the extension point, so nothing else changes.
 2. Wrap the page in `<main id="main" tabindex="-1">` and start it with `PageHeader` (`heading` = the registry label, `section` = the label, `caseName` from the layout data); put export controls in its `actions` snippet.
 3. Read results with `datasetOf(app().store, version.id, '<dataset key>')` from `$lib/local-case/results.server`; the `/v/[vid]` layout has already verified the version. Use `readCandidate`-equivalent semantics: recognized datasets only, values untrusted.
-4. Put every imported value into text nodes. Render authored narrative only with `Narrative.svelte` (citations resolve against the version's refs from `app().store.existingRefs`). Link documents with `CitationLink.svelte` or `docPath`; open originals with `OriginalOpen.svelte` and links built on the server by `originals()`.
-5. Read document rows through the document-row contract, never from the chronology dataset directly (see below).
-6. Keep user work in `app().userWork`: `putRow`/`listRows`/`deleteRow` for registers (store name `^[a-z][a-z0-9-]{0,63}$`, flat fields, stable UUID row ids, optional `DocumentAnchor`), `putSeedOverlay`/`seedViews` for seeded registers, `addNote`/`notesFor` for notes. Never key user work by array index, display position or ref alone.
-7. Add tests next to your code and a feature file in the verification skill (`features/`), and drive the view in your browser tests.
-8. When your ticket passes its gate, the coordinator adds the view id to `AVAILABLE` in the generator and regenerates the registry.
+4. Read the current time only through `now()` from `$lib/components/clock` (a `Date`), never `new Date()` or `Date.now()`, for anything shown or stamped: deadline countdowns, "today", ages. It is the real clock unless `CLEARCASE_FIXED_NOW` is set (for example `CLEARCASE_FIXED_NOW=2030-01-31T09:00:00Z`), which tests and the verification skill use to make date-sensitive views deterministic; an invalid value throws rather than falling back. The root layout passes the setting to the browser, so `now()` agrees on both sides. Timers, timeouts and lock stamps keep the real clock.
+5. Put every imported value into text nodes. Render authored narrative only with `Narrative.svelte` (citations resolve against the version's refs from `app().store.existingRefs`). Link documents with `CitationLink.svelte` or `docPath`; open originals with `OriginalOpen.svelte` and links built on the server by `originals()`.
+6. Read document rows through the document-row contract, never from the chronology dataset directly (see below).
+7. Keep user work in `app().userWork`: `putRow`/`listRows`/`deleteRow` for registers (store name `^[a-z][a-z0-9-]{0,63}$`, flat fields, stable UUID row ids, optional `DocumentAnchor`), `putSeedOverlay`/`seedViews` for seeded registers, `addNote`/`notesFor` for notes. Never key user work by array index, display position or ref alone.
+8. Add tests next to your code and a feature file in the verification skill (`features/`), and drive the view in your browser tests.
+9. When your ticket passes its gate, the coordinator adds the view id to `AVAILABLE` in the generator and regenerates the registry.
 
 ### Document-row read contract
 
@@ -109,6 +111,7 @@ The overview has typed widget slots declared in `src/lib/components/overview-slo
 | --- | --- | --- |
 | Registry and navigation | `views.ts`, `view-registry.ts`, `ViewNav.svelte` | `VIEWS`, `viewHref`, `viewAt`, `blockedBy`; nav marks the current view with `aria-current` |
 | Page header and titles | `PageHeader.svelte`, `titles.ts` | `<document> · <section> · <case> · ClearCase` (BA-16); the `[data-page-heading]` h1 receives focus after navigation, Back and Forward, including a full load reached by Back (BA-14); the skip link focuses `#main` without a history entry |
+| Clock | `clock.ts` | `now()`: the real clock, or `CLEARCASE_FIXED_NOW` in tests and verification |
 | Citation link | `CitationLink.svelte`, `cite.ts` | `/v/<rv>/doc/<ref>?page=N` via GRS-10 `documentRoute`; missing refs render broken |
 | Narrative | `Narrative.svelte` | the only `{@html}`: `renderNarrative` output |
 | Original open | `OriginalOpen.svelte`, `OriginalLinks` in `model.ts` | direct, parent-route and unavailable states (BA-09), and "missing on disk" when an imported original cannot be served now; labels from the verified mapping |

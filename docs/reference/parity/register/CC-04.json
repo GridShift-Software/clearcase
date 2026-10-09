@@ -3,48 +3,12 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-005",
-      "view": "contracts_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-14",
-      "reason": "The app does not implement Contracts yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
       "id": "IDR-007",
       "view": "search",
       "field": "*",
       "type": "not-yet-implemented",
       "owner": "GRS-14",
       "reason": "The app does not implement Advanced Search yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-008",
-      "view": "people",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-14",
-      "reason": "The app does not implement People yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-009",
-      "view": "entity_ledger_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-14",
-      "reason": "The app does not implement Entities yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
       "productVisible": false,
       "author": "CC-29 worker (GRS-37)",
       "approvedBy": "coordinator",
@@ -268,6 +232,122 @@
       "type": "improvement",
       "source": "BA-17",
       "reason": "BA-17 and S-documents-3: v5 sorts by the type and date concatenated without a separator, so a type that prefixes another interleaves with it by date; the app orders by type, then date, undated first, as its ordering note says. The rows shown are the same (the table cells and the sweep set values still compare); only the order within such types differs. The value is a sequence of refs, so no when can pin it.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-112",
+      "view": "people",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation the app focuses the page heading (BA-14), as the pilot views do; v5 leaves focus on the navigation link.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-113",
+      "view": "people",
+      "field": "text.page.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Names, organisations and roles are inferred from e-mail headers and have not been checked; no professional identity shown here is confirmed\\.$"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-07",
+      "reason": "BA-07: the people list is inferred from e-mail headers; the view says no identity is confirmed, so an automated sender is never presented as a verified attorney.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-114",
+      "view": "entity_ledger_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation the app focuses the page heading (BA-14), as the pilot views do; v5 leaves focus on the navigation link.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-115",
+      "view": "entity_ledger_tab",
+      "field": "text.page.1",
+      "when": {
+        "v5": "<absent>",
+        "app": "Roles and notes are imported from processing and have not been verified."
+      },
+      "type": "improvement",
+      "source": "BA-07",
+      "reason": "BA-07: entity roles are imported inferences without a verification state; the view says so.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-116",
+      "view": "contracts_tab",
+      "field": "export.export_csv.name",
+      "when": {
+        "v5": "ess_dcs_contracts.csv",
+        "app": "contracts.csv"
+      },
+      "type": "defect-fix",
+      "source": "S-hardcoded-case",
+      "reason": "v5 names its export with the case abbreviation hard-coded in the renderer; the app uses a neutral name, as the chronology does (IDR-064). The view-content map has no export-name field (shared-file request in the CC-04 report).",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-117",
+      "view": "contracts_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation the app focuses the page heading (BA-14), as the pilot views do; v5 leaves focus on the navigation link.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-118",
+      "view": "contracts_tab",
+      "field": "text.classification_status.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Contract groups and the Signed marker are derived from imported titles and notes; they have not been verified\\.$"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-05",
+      "reason": "BA-05: contract groups and the Signed marker are imported or heuristic classifications without a verification state; the view says so.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
       "approvedBy": null,

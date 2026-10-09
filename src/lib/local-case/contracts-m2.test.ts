@@ -410,3 +410,64 @@ describe('gate follow-ups: overview slots (CC-24 F2, F3)', () => {
 		expect(s[0]).toEqual({ slot: OVERVIEW_SLOTS[0], status: 'error', message: 'This summary could not be loaded.' });
 	}, 3_000);
 });
+
+describe('gate follow-ups: document-row providers (CC-24 F4-F6, F11)', () => {
+	it('F4 refuses a provider row whose list entry names another ref: no duplicate, no misdirected list entry', async () => {
+		const { lc, c } = await setup('f4');
+		const imported = documentRows(lc.store, c.resultsVersion).rows.length;
+		undo.push(registerDocumentRowProvider({ id: 'rescan', owner: 'GRS-20', revision: () => 'r1', rows: () => [{ ref: 'RS-900', row: {}, list: providerList('OD-001'), state: providerState }, { ref: 'RS-901', row: {}, list: providerList('RS-901'), state: providerState }] }));
+		const r = documentRows(lc.store, c.resultsVersion);
+		expect(r.rows.map((x) => x.list.ref).filter((x) => x === 'OD-001')).toEqual(['OD-001']);
+		expect(r.rows.every((x) => x.list.ref === x.ref)).toBe(true);
+		expect(r.dropped).toEqual([{ source: 'provider:rescan', ref: 'RS-900', reason: 'the list entry names another ref' }]);
+		expect(documentRow(lc.store, c.resultsVersion, 'RS-900')).toBeNull();
+		expect((JSON.parse(listJson(lc.store, c.resultsVersion)!.json) as ChronologyListRow[]).filter((x) => x.ref === 'OD-001')).toHaveLength(1);
+		expect(documentCounts(lc.store, c.resultsVersion)).toMatchObject({ total: imported + 1, provided: 1 });
+	});
+
+	it('F5 isolates a provider row whose property read throws, and a provider whose row list cannot be read', async () => {
+		const { lc, c } = await setup('f5');
+		const plain = documentRows(lc.store, c.resultsVersion).rows.length;
+		const bad: Record<string, unknown> = {};
+		Object.defineProperty(bad, 'ref', { enumerable: true, get() { throw new Error('getter boom'); } });
+		undo.push(registerDocumentRowProvider({ id: 'getter', owner: 'GRS-20', revision: () => 'g', rows: () => [bad as never, { ref: 'RS-001', row: {}, list: providerList('RS-001'), state: providerState }] }));
+		const unreadable = new Proxy([{ ref: 'RS-002', row: {}, list: providerList('RS-002'), state: providerState }], { get(t, k) { if (k === 'length') throw new Error('length boom'); return Reflect.get(t, k); } });
+		undo.push(registerDocumentRowProvider({ id: 'proxy', owner: 'GRS-20', revision: () => 'p', rows: () => unreadable }));
+		const r = documentRows(lc.store, c.resultsVersion);
+		expect(r.rows.filter((x) => x.source !== 'results').map((x) => [x.source, x.ref])).toEqual([['provider:getter', 'RS-001']]);
+		expect(r.dropped).toEqual([{ source: 'provider:getter', ref: '#0', reason: expect.stringMatching(/^malformed row: /) }]);
+		expect(r.failed).toEqual([{ source: 'provider:proxy', owner: 'GRS-20', reason: 'length boom' }]);
+		expect(listJson(lc.store, c.resultsVersion)!.etag).toContain('failed=provider:proxy');
+		expect(documentCounts(lc.store, c.resultsVersion)).toMatchObject({ total: plain + 1, provided: 1 });
+		expect(activeDocumentRows({ store: lc.store, effectiveActive: () => c.resultsVersion }, 'e2e-case').rows).toHaveLength(plain + 1);
+	});
+
+	it('F6 a present original without a valid path, size, sha256 or media type becomes absent, with a diagnostic', async () => {
+		const { lc, c } = await setup('f6');
+		const good = { path: 'rescan/new.pdf', sha256: 'a'.repeat(64), size: 3, mediaType: 'application/pdf', status: 'verified', downloadOnly: false };
+		const originals = [{}, { ...good, path: '' }, { ...good, size: -1 }, { ...good, size: '3' }, { ...good, sha256: 'not-a-digest' }, { ...good, mediaType: undefined }];
+		const present = (ref: string, original: unknown) => ({ ref, row: {}, list: { ...providerList(ref), file: 'present' as const }, state: { ...providerState, file: 'present' as const, flags: [], original: original as DocumentStateRow['original'] } });
+		undo.push(registerDocumentRowProvider({ id: 'rescan', owner: 'GRS-20', revision: () => 'r1', rows: () => [...originals.map((o, i) => present(`RS-90${i}`, o)), present('RS-999', good)] }));
+		const r = documentRows(lc.store, c.resultsVersion);
+		expect(r.rows.filter((x) => x.source !== 'results').map((x) => [x.ref, x.state.original])).toEqual([...originals.map((_, i) => [`RS-90${i}`, null]), ['RS-999', good]]);
+		expect(r.dropped).toEqual(originals.map((_, i) => ({ source: 'provider:rescan', ref: `RS-90${i}`, reason: expect.stringMatching(/^the original was left out/) })));
+		expect(documentRow(lc.store, c.resultsVersion, 'RS-900')!.state.original).toBeNull();
+	});
+
+	it('F11 a provider revision that is not a safe ETag token marks the provider failed; the list ETag stays a valid header', async () => {
+		const { lc, c } = await setup('f11');
+		let rev = 'x\ny';
+		undo.push(registerDocumentRowProvider({ id: 'rescan', owner: 'GRS-20', revision: () => rev, rows: () => [{ ref: 'RS-001', row: {}, list: providerList('RS-001'), state: providerState }] }));
+		for (const bad of ['x\ny', 'x"y', 'a b', '', 'x'.repeat(129), 'é']) {
+			rev = bad;
+			const l = listJson(lc.store, c.resultsVersion)!;
+			expect(l.failed).toEqual([{ source: 'provider:rescan', owner: 'GRS-20', reason: 'revision() did not return a safe ETag token' }]);
+			expect(() => new Response(l.json, { headers: { etag: l.etag } })).not.toThrow();
+			expect(documentRow(lc.store, c.resultsVersion, 'RS-001')).toBeNull();
+		}
+		rev = 'sha256:AbC+/=_.-1';
+		const ok = listJson(lc.store, c.resultsVersion)!;
+		expect([ok.failed, ok.etag.endsWith(`|rescan=${rev}"`)]).toEqual([[], true]);
+		expect(new Response(ok.json, { headers: { etag: ok.etag } }).headers.get('etag')).toBe(ok.etag);
+	});
+});

@@ -31,7 +31,7 @@ const route = (id) => VIEWS.find((v) => v.id === id).route;
 const J = JSON.stringify;
 
 const scenarios = [];
-/** Time windows of the failed-write and restart scenarios, whose failed requests the browser logs on purpose. */
+/** Time windows of the failed-write and restart scenarios: only there may the browser log failed requests (nothing else). */
 const noisy = [];
 async function scenario(id, view, title, fn, { expectsFailures = false } = {}) {
 	const t0 = Date.now();
@@ -334,7 +334,7 @@ try {
 	});
 
 	await scenario('AN-NET', 'all', 'no canary hit, no request off the loopback app origin, and no page error, console error or CSP violation outside the failed-write scenarios, during the whole run', async () => {
-		const errors = b.events.console.filter((c) => c.at >= t0 && (c.kind === 'exception' || /error/i.test(c.kind)) && !noisy.some((w) => c.at >= w.from && c.at <= w.to));
+		const errors = b.events.console.filter((c) => c.at >= t0 && (c.kind === 'exception' || /error/i.test(c.kind)) && !(noisy.some((w) => c.at >= w.from && c.at <= w.to) && /Failed to load resource|net::ERR_/.test(c.text)));
 		const reqs = b.events.requests.filter((r) => r.at >= t0).filter((r) => { try { const u = new URL(r.url); return /^(https?|wss?):$/.test(u.protocol) && !['127.0.0.1', 'localhost', 'clearcase-originals.localhost'].includes(u.hostname); } catch { return false; } });
 		const hits = canary.hits.filter((h) => h.at >= t0 && !/(^|\.)(google\.com|gvt1\.com|googleapis\.com|gstatic\.com)$/i.test(h.host?.replace(/:\d+$/, '') ?? h.sni ?? ''));
 		return { pass: reqs.length === 0 && hits.length === 0 && errors.length === 0, evidence: { offline, offOrigin: reqs.map((r) => r.url.slice(0, 120)), canaryHits: hits.length, errors: errors.map((e) => `${e.kind}: ${e.text.slice(0, 200)}`) } };

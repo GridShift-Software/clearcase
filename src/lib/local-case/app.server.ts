@@ -14,7 +14,9 @@ function create(): Instance {
 	const app = new LocalCase(configFromEnv());
 	let build: Record<string, unknown> | null = null;
 	try { build = JSON.parse(readFileSync(path.join(process.env.CLEARCASE_BUILD_DIR ?? 'build', 'clearcase-build.json'), 'utf8')); } catch { /* development server */ }
-	return { app, originals: new OriginalsServer(app), id: randomUUID(), startedAt: new Date().toISOString(), build };
+	// The originals server writes link-key: built on first use, i.e. after initApp holds the instance lock.
+	let originals: OriginalsServer | null = null;
+	return { app, get originals() { return (originals ??= new OriginalsServer(app)); }, id: randomUUID(), startedAt: new Date().toISOString(), build };
 }
 
 export const instance = (): Instance => (g.__clearcase ??= create());
@@ -32,12 +34,13 @@ export async function initApp(): Promise<void> {
 		console.error(`FATAL: ${(e as Error).message}. Unset it to use the real clock. Exiting without touching the data directory.`);
 		process.exit(1);
 	}
-	const { app: a, originals: o } = instance();
+	const a = app();
 	const lock = a.storage.acquireInstanceLock();
 	if (!lock.ok) {
 		console.error(`FATAL: ${lock.reason}. This instance exits without touching the data directory.`);
 		process.exit(1);
 	}
+	const o = originals();
 	try {
 		await o.start();
 	} catch (e) {

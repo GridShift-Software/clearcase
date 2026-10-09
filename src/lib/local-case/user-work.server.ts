@@ -12,6 +12,8 @@
 //  * Enumerable: tables() lists every work.sqlite table (from SQLite itself, labelled by work.userwork_catalog), and
 //    exportAll()/importAll() round-trip them generically, including tables later tickets add with defineTable(). A
 //    backup or restore feature never needs per-table code.
+//  * A restore never writes activation or import state (refused) and never creates trust (trusted_warning rows are
+//    dropped and reported); it replaces only the snapshot's cases unless whole-table replacement is asked for.
 import { createHash, randomUUID } from 'node:crypto';
 import { now } from '../components/clock.ts';
 import { matchAnchor, viewSeeds, type DocumentAnchor, type SeedOverlay, type SeedRow, type SeedView } from '../case-package/index.ts';
@@ -43,6 +45,14 @@ const TABLE = /^[a-z][a-z0-9_]{0,62}$/;
 const COLUMN_TYPES = new Set(['TEXT', 'INTEGER', 'REAL', 'BLOB']);
 /** SQLite reserves sqlite_*; ClearCase refuses the whole sqlite prefix for tables it defines or restores. */
 const RESERVED = (name: string) => name.startsWith('sqlite') || name === 'userwork_catalog';
+/** The tables db.server.ts creates in work.sqlite; defineTable never redefines or re-owns them. */
+const BUILT_IN = new Set(['note', 'seed_overlay', 'register_row', 'trusted_warning', 'active', 'activation_log']);
+/** Activation state: the active pointer and the activation log. A restore that carries either is refused. */
+const ACTIVATION = new Set(['active', 'activation_log']);
+/** Operator-accepted warnings. A restore never writes them (that would waive an acknowledgement): rows are dropped. */
+const TRUST = 'trusted_warning';
+/** The column that scopes a row to a case; a restore replaces only the snapshot's cases in tables that have it. */
+const CASE_COLUMN = 'case_id';
 export const USER_WORK_EXPORT = 'clearcase.user-work/1';
 
 export type TableKind = 'user-work' | 'activation' | 'unregistered';
@@ -65,7 +75,25 @@ const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
 type NoteDb = { id: string; case_id: string; anchor_sha256: string | null; ref_at_creation: string; results_version: string; body: string; body_sha256: string; created_at: string };
 
-export class UserWorkError extends Error {}
+/**
+ * Why a user-work call was refused. `invalid`: bad input (a note, field, store or table shape); `restore-state`: a
+ * restore carried activation or import-state tables; `restore-key`: a restore row has an empty or non-integer key;
+ * `table-conflict`: defineTable on an existing table of another schema or owner; `table-built-in`: defineTable on a
+ * built-in table. Messages name tables and columns, never row values.
+ */
+export type UserWorkErrorCode = 'invalid' | 'restore-state' | 'restore-key' | 'table-conflict' | 'table-built-in';
+export class UserWorkError extends Error {
+	readonly code: UserWorkErrorCode;
+	constructor(message: string, code: UserWorkErrorCode = 'invalid') {
+		super(message);
+		this.code = code;
+	}
+}
+/** importAll options. `replace: 'cases'` (default) keeps rows of cases the snapshot does not hold; `'tables'` replaces
+ *  every snapshot table wholesale, deleting other cases' rows too (a full restore of one store into another). */
+export interface ImportOptions { replace?: 'cases' | 'tables' }
+/** What importAll restored; `dropped` (present only when rows were dropped) names rows a restore never writes. */
+export interface ImportResult { tables: number; rows: number; dropped?: { name: string; rows: number; reason: 'a restore never creates trust: accepted warnings are acknowledged again' }[] }
 
 export class UserWork {
 	private readonly storage: Storage;
@@ -194,6 +222,11 @@ export class UserWork {
 	/** Every work.sqlite table with its kind, owner and columns (introspected, so nothing is missed). */
 	tables(): UserWorkTable[] { return tablesOf(this.d); }
 
+	/** Names a restore never writes: the activation tables and every results.sqlite (import state) table. */
+	private stateTables(): Set<string> {
+		return new Set([...ACTIVATION, ...(this.d.prepare("SELECT name FROM main.sqlite_master WHERE type = 'table'").all() as { name: string }[]).map((r) => r.name)]);
+	}
+
 	/** The distinct register stores in use for a case (register_row is one table holding many stores). */
 	registerStores(caseId?: string): string[] {
 		const rows = (caseId ? this.d.prepare('SELECT DISTINCT store FROM work.register_row WHERE case_id = ? ORDER BY store').all(caseId) : this.d.prepare('SELECT DISTINCT store FROM work.register_row ORDER BY store').all()) as { store: string }[];
@@ -202,15 +235,18 @@ export class UserWork {
 
 	/**
 	 * Define a user-work table for a later ticket (idempotent): it lives in work.sqlite, is enumerated, backed up and
-	 * restored like the built-in ones. A primary key of stable ids is required; a different existing shape is refused.
+	 * restored like the built-in ones. A primary key of stable ids is required. A built-in table is refused, and so is
+	 * an existing table of another schema (columns, types, NOT NULL, ordered primary key) or another owner.
 	 */
 	async defineTable(def: TableDefinition): Promise<void> {
 		const bad = definitionProblem(def);
 		if (bad) throw new UserWorkError(bad);
+		if (BUILT_IN.has(def.name) || this.stateTables().has(def.name)) throw new UserWorkError(`table ${def.name} is built in and cannot be redefined`, 'table-built-in');
 		const existing = this.tables().find((t) => t.name === def.name);
 		if (existing) {
-			const same = existing.columns.length === def.columns.length && def.columns.every((c, i) => existing.columns[i]?.name === c.name && existing.columns[i]?.type === c.type);
-			if (!same) throw new UserWorkError(`table ${def.name} already exists with another shape`);
+			const differs = schemaDifference(definitionOf(existing), def);
+			if (differs) throw new UserWorkError(`table ${def.name} already exists with another shape: ${differs}`, 'table-conflict');
+			if (existing.kind !== 'unregistered' && existing.owner !== def.owner) throw new UserWorkError(`table ${def.name} is owned by ${existing.owner}`, 'table-conflict');
 		}
 		await this.storage.tx((d) => createTable(d, def, true));
 	}
@@ -220,10 +256,12 @@ export class UserWork {
 		const kinds = new Set(opts.kinds ?? ['user-work', 'unregistered']);
 		const selected = this.tables().filter((t) => kinds.has(t.kind));
 		// Only what importAll() can restore is exported; anything else is named in `excluded`, never silently dropped.
+		// Activation tables are listed there too when asked for: a restore never writes them.
+		const state = this.stateTables();
 		const excluded = selected.flatMap((t) => {
 			const def = definitionOf(t);
 			// a rowid table may hold NULL in a declared key column; the restored table keys rows by it, so it is not restorable
-			const reason = definitionProblem(def) ?? (this.d.prepare(`SELECT 1 FROM work.${q(t.name)} WHERE ${def.primaryKey.map((k) => `${q(k)} IS NULL`).join(' OR ')} LIMIT 1`).get() ? 'a primary-key column holds empty values' : null);
+			const reason = (state.has(t.name) || t.kind === 'activation' ? 'a restore never writes activation or import state' : null) ?? definitionProblem(def) ?? (this.d.prepare(`SELECT 1 FROM work.${q(t.name)} WHERE ${def.primaryKey.map((k) => `${q(k)} IS NULL`).join(' OR ')} LIMIT 1`).get() ? 'a primary-key column holds empty values' : null);
 			return reason ? [{ name: t.name, kind: t.kind, rows: (this.d.prepare(`SELECT count(*) AS n FROM work.${q(t.name)}`).get() as { n: number }).n, reason }] : [];
 		});
 		const tables = selected.filter((t) => !excluded.some((x) => x.name === t.name)).map((t) => {
@@ -239,37 +277,67 @@ export class UserWork {
 	}
 
 	/**
-	 * Restore an export in one transaction: each table in it is replaced by its rows. A table the export defines but
-	 * this store lacks is created from the export's columns inside that same transaction (catalogued unless it was
-	 * unregistered), so a refused or failed restore leaves no table behind. Everything exportAll() writes restores;
-	 * an existing table whose schema differs from the export's (schemaDifference), or a shape exportAll() could not
-	 * have written, refuses the whole restore before any row is touched: nothing is coerced into another schema.
+	 * Restore an export in one transaction. A table the export defines but this store lacks is created from the
+	 * export's columns inside that same transaction (catalogued unless it was unregistered), so a refused or failed
+	 * restore leaves no table behind. Everything exportAll() writes restores; an existing table whose schema differs
+	 * from the export's (schemaDifference), or a shape exportAll() could not have written, refuses the whole restore
+	 * before any row is touched: nothing is coerced into another schema. Also refused, before anything is written:
+	 * activation or import-state tables (`restore-state`; activation is never restored) and a row whose primary-key
+	 * cell is empty, or not an integer in an INTEGER key column (`restore-key`).
+	 *  * Case scope (default, `replace: 'cases'`): the snapshot's cases are the case_id values of its rows. In a table
+	 *    with a case_id column only those cases' rows are replaced; other cases' rows are kept. A table without a
+	 *    case_id column holds no per-case rows and is replaced as a whole. `replace: 'tables'` replaces every snapshot
+	 *    table as a whole (other cases' rows are deleted).
+	 *  * trusted_warning is never written: its rows are dropped and reported in `dropped`, and this store's accepted
+	 *    warnings are kept, so a restored case asks for its warnings' acknowledgement again.
 	 */
-	async importAll(snapshot: UserWorkExport): Promise<{ tables: number; rows: number }> {
+	async importAll(snapshot: UserWorkExport, opts: ImportOptions = {}): Promise<ImportResult> {
 		if (snapshot?.format !== USER_WORK_EXPORT || !Array.isArray(snapshot.tables)) throw new UserWorkError(`not a ${USER_WORK_EXPORT} export`);
+		const replace = opts.replace ?? 'cases';
+		if (replace !== 'cases' && replace !== 'tables') throw new UserWorkError("replace is 'cases' or 'tables'");
 		const here = new Map(this.tables().map((t) => [t.name, t]));
+		const state = this.stateTables();
 		const create: { def: TableDefinition; catalogue: boolean }[] = [];
 		for (const t of snapshot.tables) {
+			const name = String(t?.name).slice(0, 80);
+			if (state.has(t?.name) || t?.kind === 'activation' || here.get(t?.name)?.kind === 'activation') throw new UserWorkError(`table ${name}: a restore never writes activation or import state; nothing was restored`, 'restore-state');
 			const def = definitionOf(t);
-			const bad = definitionProblem(def);
-			if (bad) throw new UserWorkError(`table ${String(t.name).slice(0, 80)}: ${bad}; nothing was restored`);
+			const bad = definitionProblem(def) ?? (Array.isArray(t.rows) && t.rows.every((r) => r !== null && typeof r === 'object' && !Array.isArray(r)) ? null : 'rows must be a list of objects');
+			if (bad) throw new UserWorkError(`table ${name}: ${bad}; nothing was restored`);
 			const h = here.get(t.name);
 			const differs = h && schemaDifference(definitionOf(h), def);
 			if (differs) throw new UserWorkError(`table ${t.name}: ${differs}; nothing was restored (restore into a store whose table matches the backup, or migrate the table first)`);
+			// a rowid table (note, or one created outside the API) accepts a NULL key that the next export cannot carry
+			const ints = new Set(def.columns.filter((c) => c.type === 'INTEGER').map((c) => c.name));
+			for (const r of t.rows) {
+				for (const k of def.primaryKey) {
+					const v = r[k] ?? null;
+					const integer = typeof v === 'number' ? Number.isSafeInteger(v) : v !== null && typeof v === 'object' && '$int' in v && typeof v.$int === 'string' && /^-?\d{1,20}$/.test(v.$int);
+					if (v === null || (ints.has(k) && !integer)) throw new UserWorkError(`table ${t.name}: a primary-key cell (${k}) is empty or not an integer; nothing was restored`, 'restore-key');
+				}
+			}
 			if (!h) create.push({ def, catalogue: t.kind !== 'unregistered' });
 		}
+		const hasCase = (t: UserWorkExport['tables'][number]) => t.columns.some((c) => c.name === CASE_COLUMN);
+		const cases = [...new Set(snapshot.tables.filter((t) => t.name !== TRUST && hasCase(t)).flatMap((t) => t.rows.map((r) => r[CASE_COLUMN]).filter((v): v is string => typeof v === 'string')))];
+		const dropped: NonNullable<ImportResult['dropped']> = [];
 		let rows = 0;
 		await this.storage.tx((d) => {
 			for (const c of create) createTable(d, c.def, c.catalogue);
 			for (const t of snapshot.tables) {
-				d.exec(`DELETE FROM work.${q(t.name)}`);
+				if (t.name === TRUST) {
+					if (t.rows.length) dropped.push({ name: TRUST, rows: t.rows.length, reason: 'a restore never creates trust: accepted warnings are acknowledged again' });
+					continue;
+				}
+				if (replace === 'tables' || !hasCase(t)) d.exec(`DELETE FROM work.${q(t.name)}`);
+				else d.prepare(`DELETE FROM work.${q(t.name)} WHERE ${q(CASE_COLUMN)} IN (SELECT value FROM json_each(?))`).run(JSON.stringify(cases));
 				const cols = t.columns.map((c) => c.name);
 				const ins = d.prepare(`INSERT INTO work.${q(t.name)}(${cols.map(q).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`);
 				for (const r of t.rows) { ins.run(...(cols.map((c) => fromCell(r[c] ?? null)) as never[])); rows++; }
 			}
 		});
 		this.onWrite();
-		return { tables: snapshot.tables.length, rows };
+		return dropped.length ? { tables: snapshot.tables.length, rows, dropped } : { tables: snapshot.tables.length, rows };
 	}
 
 	async deleteRow(caseId: string, store: string, rowId: string): Promise<boolean> {

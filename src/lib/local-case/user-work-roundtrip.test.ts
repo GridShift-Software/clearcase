@@ -113,9 +113,9 @@ describe('user-work backup round trip (property, seeded)', () => {
 			expect(sortedRows(edited)).not.toEqual(expected(snap, edited));
 			expect(['entry', 'ledger', 'note'].map((n) => expected(snap, edited).get(n)!.some((x) => x.case_id === 'case-new'))).toEqual([true, true, true]);
 			const res = await uw.importAll(json(snap));
-			expect(res.cases).toEqual([...cases].sort());
 			const after = json(uw.exportAll());
 			expect(sortedRows(after)).toEqual(expected(snap, edited));
+			expect(res.cases).toEqual([...cases].sort());
 			// restoring again changes nothing
 			await uw.importAll(json(snap));
 			expect(json(uw.exportAll()).tables).toEqual(after.tables);

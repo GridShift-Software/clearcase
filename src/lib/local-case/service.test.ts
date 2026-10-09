@@ -225,6 +225,39 @@ describe('activation', () => {
 		expect(await lc.activate(c.resultsVersion, ackFor(lc, imp.importId))).toBeNull();
 	});
 
+	it('a re-import after an original went missing reports the current diagnostics and how to recover, never the stored report', async () => {
+		const { root, lc } = await setup('stale');
+		const c = await buildCase(path.join(root, 'c'));
+		const imp = await lc.importPackage(c.caseDir, c.pkgDir);
+		expect(importOf(lc, imp.importId).counts.ORIG_MISSING).toBeUndefined();
+		const pdf = path.join(c.caseDir, 'DISCOVERY A', 'OD-002 Invoice 1001.pdf');
+		const original = await readFile(pdf);
+		await rm(pdf);
+		const guidance = (message: string | undefined) => {
+			expect(message).not.toMatch(/import the package again/i);
+			expect(message).toMatch(/byte for byte/);
+			expect(message).toMatch(/new results version/);
+		};
+		const refused = await lc.activate(c.resultsVersion, ackFor(lc, imp.importId));
+		expect(refused?.message).toMatch(/no longer matches what was previewed/);
+		guidance(refused?.message);
+		// the re-import is a new attempt with the fresh diagnostics, not the first import returned as identical
+		const again = await lc.importPackage(c.caseDir, c.pkgDir);
+		expect(again.kind).toBe('rejected');
+		expect(again.importId).not.toBe(imp.importId);
+		const r = importOf(lc, again.importId);
+		expect(r.counts.ORIG_MISSING).toBeGreaterThan(0);
+		expect(r.diagnostics.map((d: { code: string }) => d.code)).toContain('ORIG_MISSING');
+		expect(r.app.map((d: { code: string }) => d.code)).toEqual(['APP_ORIGINALS_CHANGED']);
+		guidance(`${r.app[0].message}. ${r.app[0].hint}`);
+		guidance((await lc.activate(c.resultsVersion, ackFor(lc, imp.importId)))?.message);
+		expect(lc.verify(c.resultsVersion, true).ok).toBe(true); // the stored version is unchanged
+		// restoring the original byte for byte makes the same package identical again, and it activates
+		await writeFile(pdf, original);
+		expect(await lc.importPackage(c.caseDir, c.pkgDir)).toEqual({ kind: 'identical', importId: imp.importId });
+		expect(await lc.activate(c.resultsVersion, ackFor(lc, imp.importId))).toBeNull();
+	});
+
 	it('rollback checks the expected active version and target; a stale form changes nothing', async () => {
 		const { root, lc } = await setup('rollback');
 		const v1 = await buildCase(path.join(root, 'v1'));

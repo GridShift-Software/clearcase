@@ -1,12 +1,15 @@
 // The runner's output directory never overlaps the read-only fixture: equal, nested, aliased through a symlink, or
 // containing it, the output is refused before anything is created or removed, and the fixture's bytes are unchanged.
-// A fresh working directory leaves an unrelated existing .work in the output alone. Synthetic trees only.
+// A fresh working directory leaves an unrelated existing .work in the output alone. A symlink or hard link planted
+// below a separate output never leads a write into the fixture, the folders of the fixture's files are protected too,
+// and the working directory is removed on SIGINT, SIGTERM and SIGHUP or swept by a later run. Synthetic trees only.
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
-import { fixtureInputs, overlap, prepareOutput } from '../../scripts/parity/lib/outdir.mjs';
+import { canonical, checkOutput, fixtureInputs, locatorInputs, overlap, prepareOutput, SIGNALS } from '../../scripts/parity/lib/outdir.mjs';
 import { REPO } from '../../scripts/parity/lib/register.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'parity-outdir-'));
@@ -82,7 +85,109 @@ describe('a separate output', () => {
 	});
 });
 
+describe('a symlink or hard link planted below a separate output is refused, with the fixture unchanged', () => {
+	const planted: [string, (out: string) => void, string[]][] = [
+		['views -> the case folder', (o) => symlinkSync(caseFolder, join(o, 'views')), ['views/overview.json']],
+		['scorecard.json -> the inventory', (o) => symlinkSync(join(root, 'refs', 'inventory.json'), join(o, 'scorecard.json')), ['scorecard.json']],
+		['views/overview.json -> a case file, inside a real views folder', (o) => { mkdirSync(join(o, 'views')); symlinkSync(join(caseFolder, 'synthetic-a.txt'), join(o, 'views', 'overview.json')); }, ['views/overview.json']],
+		['a dangling views -> a new case subfolder', (o) => symlinkSync(join(caseFolder, 'planted'), join(o, 'views')), ['views/overview.json']],
+		['register-usage.json hard-linked to a case file', (o) => linkSync(join(caseFolder, 'synthetic-a.txt'), join(o, 'register-usage.json')), ['register-usage.json']],
+		['a mutant folder -> the case folder (mutate.mjs)', (o) => symlinkSync(join(caseFolder, 'sub'), join(o, 'register-crud')), ['register-crud']],
+	];
+	for (const [what, plant, children] of planted) test(what, () => {
+		const out = mkdtempSync(join(root, 'planted-'));
+		plant(out);
+		const before = treeHash(caseFolder), refs = treeHash(join(root, 'refs'));
+		expect(overlap(out, inputs)).toBeNull();
+		expect(() => checkOutput(out, inputs, children)).toThrow(/symlink below --out|hard links/);
+		expect(() => prepareOutput(out, inputs, children)).toThrow(/symlink below --out|hard links/);
+		const at = checkOutput(out, inputs);
+		expect(() => at(...children[0].split('/'))).toThrow(/symlink below --out|hard links/);
+		expect(treeHash(caseFolder)).toBe(before);
+		expect(treeHash(join(root, 'refs'))).toBe(refs);
+		expect(readdirSync(out).filter((n) => n.startsWith('.work'))).toEqual([]);
+	});
+	test('a real child resolves to itself and is handed out', () => {
+		const out = join(root, 'plain-out');
+		const at = checkOutput(out, inputs, ['views/overview.json', 'scorecard.json']);
+		expect(at('views', 'overview.json')).toBe(join(out, 'views', 'overview.json'));
+	});
+});
+
+describe('the folders of the fixture files, the archive and a fixture root are read-only too', () => {
+	const fxRoot = join(root, 'fxroot');
+	put(join(fxRoot, 'expected', 'expected-examples.json'), '{}');
+	put(join(fxRoot, 'inventory', 'tree', 'inventory.json'), '{}');
+	put(join(fxRoot, 'raws', 'pack.zip'), 'synthetic zip');
+	const locator = { caseFolder, mainHtml: { path: join(root, 'v5', 'main.html') }, expectedExamples: { path: join(fxRoot, 'expected', 'expected-examples.json') }, references: { inventory: join(fxRoot, 'inventory', 'tree', 'inventory.json') }, archive: { path: join(fxRoot, 'raws', 'pack.zip') } };
+	test.each([
+		['inside the expected-examples folder', join(fxRoot, 'expected', 'o'), /expected examples folder/],
+		['inside the inventory folder', join(fxRoot, 'inventory', 'tree', 'o'), /inventory folder/],
+		['inside the source archive folder', join(fxRoot, 'raws', 'o'), /source archive folder/],
+	])('%s', (_, out, why) => {
+		expect(overlap(out, locatorInputs(locator))).toMatch(why);
+		expect(overlap(out, fixtureInputs({ caseFolder, cfg: locator }))).toMatch(why);
+	});
+	test('a sibling folder under a given fixture root', () => {
+		expect(overlap(join(fxRoot, 'scratch'), locatorInputs(locator))).toBeNull();
+		expect(overlap(join(fxRoot, 'scratch'), locatorInputs({ ...locator, fixtureRoot: fxRoot }))).toMatch(/fixture root/);
+	});
+});
+
+describe('canonical() resolves a dangling relative symlink as the kernel does', () => {
+	test('a link under a symlinked folder resolves against the real folder', () => {
+		const t = join(root, 'kern');
+		mkdirSync(join(t, 'real', 'case'), { recursive: true });
+		mkdirSync(join(t, 'real', 'deep'));
+		symlinkSync('../case/newdir', join(t, 'real', 'deep', 'dl'));
+		symlinkSync(join(t, 'real', 'deep'), join(t, 'deepalias'));
+		expect(canonical(join(t, 'deepalias', 'dl'))).toBe(join(canonical(t), 'real', 'case', 'newdir'));
+		expect(overlap(join(t, 'deepalias', 'dl'), [['case folder', join(t, 'real', 'case')]])).toMatch(/inside the read-only case folder/);
+	});
+});
+
+describe('working directories', () => {
+	test('a later run sweeps the stale ones of killed runs, never a live run\'s, a symlink or another entry', () => {
+		const out = join(root, 'sweep-out');
+		const dead = spawnSync('true').pid;
+		const live = `.work-${process.pid}-LiveAA`, stale = `.work-${dead}-StaleA`, legacy = '.work-OldAbc';
+		for (const d of [live, stale, legacy, '.work', 'keep']) put(join(out, d, 'x'), 'x');
+		put(join(out, '.work-Filexx'), 'a file');
+		symlinkSync(join(caseFolder, 'sub'), join(out, `.work-${dead}-LinkAA`));
+		const before = treeHash(caseFolder);
+		const r = prepareOutput(out, inputs);
+		expect(r.swept.sort()).toEqual([stale, legacy].sort());
+		for (const d of [live, '.work', 'keep', '.work-Filexx', `.work-${dead}-LinkAA`]) expect(existsSync(join(out, d)), d).toBe(true);
+		expect(r.work).toMatch(new RegExp(`/\\.work-${process.pid}-[A-Za-z0-9]{6}$`));
+		expect(treeHash(caseFolder)).toBe(before);
+		rmSync(r.work, { recursive: true });
+	});
+	for (const [sig, code] of Object.entries(SIGNALS)) test(`${sig} removes this run's working directory and exits ${code}`, async () => {
+		const out = join(root, `sig-${sig}`);
+		const script = `const m = await import(${JSON.stringify(join(REPO, 'scripts', 'parity', 'lib', 'outdir.mjs'))}); const { work } = m.prepareOutput(${JSON.stringify(out)}, []); require('node:fs').writeFileSync(work + '/pkg', 'synthetic'); m.removeOnExit(work); console.log(work); setInterval(() => {}, 1000);`;
+		const p = spawn(process.execPath, ['-e', script], { stdio: ['ignore', 'pipe', 'inherit'] });
+		const work = await new Promise<string>((res) => p.stdout.once('data', (d) => res(String(d).trim())));
+		expect(existsSync(join(work, 'pkg'))).toBe(true);
+		const done = new Promise<[number | null, string | null]>((res) => p.on('exit', (c, s) => res([c, s])));
+		p.kill(sig as NodeJS.Signals);
+		expect(await done).toEqual([code, null]);
+		expect(existsSync(work)).toBe(false);
+		expect(existsSync(join(out, 'views'))).toBe(true);
+	});
+});
+
 describe('the runner', () => {
+	test('writes every output file through the checked path, and cleans up on signals', () => {
+		const src = readFileSync(join(REPO, 'scripts', 'parity', 'run.mjs'), 'utf8');
+		expect(src.match(/writeFileSync\(/g)?.length).toBeGreaterThan(5);
+		expect(src.match(/writeFileSync\((?!at\()/g)).toBeNull();
+		expect(src).toMatch(/removeOnExit\(work\)/);
+		expect(src).not.toMatch(/process\.on\('exit'/);
+		const mut = readFileSync(join(REPO, 'scripts', 'parity', 'mutate.mjs'), 'utf8');
+		expect(mut.indexOf('checkOutput(out')).toBeLessThan(mut.indexOf('mkdirSync('));
+		for (const v of ['dir', 'html', 'src']) expect(mut, v).toMatch(new RegExp(`const ${v} = at\\(m\\.id`));
+		expect(mut).not.toMatch(/(writeFileSync|rmSync|mkdirSync)\(join\((out|dir),/);
+	});
 	test('checks the output before its first write, and never clears a fixed .work', () => {
 		const src = readFileSync(join(REPO, 'scripts', 'parity', 'run.mjs'), 'utf8');
 		const guard = src.indexOf('prepareOutput(out, fixtureInputs(fx');

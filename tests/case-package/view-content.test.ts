@@ -276,7 +276,8 @@ describe('view-content extraction: fix round regressions (CC-30 r2)', () => {
     expect(one(iife + "(function(){RENDER.t=function(el){pageHead('T','live');};})();", sel).value).toBe('live');
     expect(one(iife + "(function(){RENDER.t=function(el){pageHead('T','live');};}());", sel).value).toBe('live');
     expect(one(iife + "(()=>{(function(){RENDER.t=function(el){pageHead('T','live');};})();})();", sel).value).toBe('live');
-    expect(one("if(x){RENDER.t=function(el){pageHead('T','only');};}", sel).value).toBe('only');
+    // a single renderer must be proven live too (PR #8 review): one inside a branch is not
+    expect(one("if(x){RENDER.t=function(el){pageHead('T','only');};}", sel)).toMatchObject({ value: undefined, status: 'missing', codes: ['V5_VIEW_CONTENT_MISSING'] });
   });
 
   it('flags invisible and zero-width characters in view content and reveals them, as in every dataset', async () => {
@@ -396,5 +397,57 @@ describe('view-content map', () => {
     for (const e of [...VIEW_CONTENT_MAP, ...VIEW_CONTENT_OMISSIONS]) expect(e.checklist).toMatch(/S-[a-z_]+-\d+|L\d+/);
     for (const o of VIEW_CONTENT_OMISSIONS) expect(o.reason.length).toBeGreaterThan(10);
     expect(() => checkMap([...VIEW_CONTENT_MAP, VIEW_CONTENT_MAP[0]!], [])).toThrow(/duplicate/);
+  });
+});
+
+describe('view-content extraction: a renderer must be proven live (PR #8 review)', () => {
+  const subtitle = entry('overview', 'subtitle')[0]!;
+  const run = (script: string) => {
+    const sink = new DiagSink();
+    const r = extractViewContent(`<script>${script}</script>`, [subtitle], [], { sink });
+    return { value: r.data.overview?.subtitle, status: r.fields[0]!.status, codes: sink.finish().map((d) => d.code) };
+  };
+  const LIVE = "RENDER.overview=function(el){pageHead('Overview','LIVE')};";
+  const DEAD = "RENDER.overview=function(){pageHead('Overview','DEAD')};";
+  const refused = (script: string, status: 'missing' | 'ambiguous') =>
+    expect(run(script), script).toEqual({ value: undefined, status, codes: [status === 'missing' ? 'V5_VIEW_CONTENT_MISSING' : 'V5_VIEW_CONTENT_AMBIGUOUS'] });
+
+  it('refuses a single renderer assigned inside a function that is never called (reviewer probe 1)', () => {
+    refused(`function neverCalled(){ ${DEAD} }`, 'missing');
+  });
+
+  it('refuses a live renderer followed by an unbraced if(false) redefinition (reviewer probe 2)', () => {
+    refused(`${LIVE}if(false) ${DEAD}`, 'ambiguous');
+  });
+
+  it('treats unbraced control flow, short circuits, ternaries, loops and dead code as conditional', () => {
+    const dead = DEAD.slice(0, -1);
+    const wraps = [
+      `if(false) ${DEAD}`, `if(x);else ${DEAD}`, `if(x)\n${DEAD}`, `while(false) ${DEAD}`, `for(;false;) ${DEAD}`, `for(const k of []) ${DEAD}`,
+      `do ${DEAD} while(false);`, `x && (${dead});`, `x || (${dead});`, `x ? ${dead} : 0;`, `x, ${DEAD}`, `l: ${DEAD}`,
+      `if(false) (function(){${DEAD}})();`, `x && (function(){${DEAD}})();`, `(function(){return; ${DEAD}})();`, `(function(){if(x) return; ${DEAD}})();`,
+      `throw 0; ${DEAD}`, `(function(){${DEAD}});`, `(function*(){${DEAD}})();`, `{ ${DEAD} }`, `try { ${DEAD} } catch (e) {}`,
+      `${dead}?0:0;`, `${dead}(0);`, `${dead}&&f;`, `${dead}\n.call(0);`,
+    ];
+    for (const w of wraps) {
+      refused(w, 'missing');
+      refused(LIVE + w, 'ambiguous');
+    }
+  });
+
+  it('refuses a function renderer that a later assignment replaces', () => {
+    for (const w of ['RENDER.overview=other;', 'RENDER.overview=null;', 'RENDER.overview&&=other;', 'RENDER.overview||=other;']) expect(run(LIVE + w).value, w).toBeUndefined();
+  });
+
+  it('keeps renderers that provably run: top level, statement starts, and immediately invoked chains', () => {
+    for (const s of [LIVE, `x();\n${LIVE}`, `if(x){}\n${LIVE}`, `if(x) y();${LIVE}`, `if(x);${LIVE}`, `;(function(){${LIVE}})();`, `(function(){var a=1;${LIVE}}());`,
+      `(()=>{${LIVE}})();`, `(async function(){${LIVE}})();`, `(function(){(()=>{${LIVE}})();})();`, `${DEAD}(function(){${LIVE}})();`, `${DEAD}${LIVE}`,
+      `(function(){function inner(){return 1;}${LIVE}})();`, `RENDER.overview=null;${LIVE}`]) {
+      expect(run(s), s).toEqual({ value: 'LIVE', status: 'extracted', codes: [] });
+    }
+    // separate script blocks: the last block's top-level renderer is live
+    const sink = new DiagSink();
+    const r = extractViewContent(`<script>${DEAD}</script><script>${LIVE}</script>`, [subtitle], [], { sink });
+    expect(r.data.overview?.subtitle).toBe('LIVE');
   });
 });

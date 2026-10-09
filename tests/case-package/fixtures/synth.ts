@@ -1,6 +1,7 @@
 // Synthetic v5-shaped fixture: a workspace HTML with the four data lines and a case folder of
 // invented originals. Every value is made up (names, dates, amounts); nothing comes from a case.
 // Used by the tests, the schema check and the synthetic verification lanes.
+import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -123,10 +124,18 @@ export function synthRoots(): SynthRoots {
 /** One-line JSON as the v5 builder writes it (not the canonical form). */
 const line = (v: unknown) => JSON.stringify(v);
 
-/** v5-shaped workspace HTML. The script blocks would mark the page if anything executed them. */
-export function synthHtml(r: SynthRoots, extraLines: string[] = []): Uint8Array {
+/** Invented v5-shaped viewer code with an anchor for every view-content map entry. */
+export const SYNTH_VIEW_CODE = readFileSync(path.join(import.meta.dirname, 'view-code.synthetic.js.txt'), 'utf8');
+
+/**
+ * v5-shaped workspace HTML. The script blocks would mark the page if anything executed them.
+ * `viewCode` replaces the synthetic viewer code (false: none, as in a data-only export).
+ */
+export function synthHtml(r: SynthRoots, extraLines: string[] = [], opts: { viewCode?: string | false } = {}): Uint8Array {
+  const code = opts.viewCode ?? SYNTH_VIEW_CODE;
   const html = [
-    '<!DOCTYPE html>', '<html><head><meta charset="utf-8"><title>Synthetic workspace</title></head><body>', '<script>',
+    '<!DOCTYPE html>', '<html><head><meta charset="utf-8"><title>SYN v ORG — Synthetic workspace</title></head><body>',
+    ...(code === false ? [] : ['<div class="brand"><div class="nm">SYN v ORG</div><div class="sb">Synthetic workspace</div></div>']), '<script>',
     "globalThis.__executed = true; document.title = 'EXECUTED';",
     "const NAV = [{ id: 'overview', label: 'Overview' }];",
     "const STORE_KEYS = ['syn_case_deadlines_v1'];",
@@ -137,7 +146,7 @@ export function synthHtml(r: SynthRoots, extraLines: string[] = []): Uint8Array 
     `window.__SCHED__ = ${line(r.SCHED)};`,
     '</script>', '<script>',
     `window.__CASELINES_IDX__ = ${line(r.CASELINES)};`,
-    '</script>', ...extraLines, '</body></html>', '',
+    '</script>', ...(code === false ? [] : ['<script>', code, '</script>']), ...extraLines, '</body></html>', '',
   ].join('\n');
   return new TextEncoder().encode(html);
 }

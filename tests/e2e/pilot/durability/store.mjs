@@ -1,5 +1,5 @@
-// Store durability and recovery scenarios: S22, S43-S49, S51-S55, S59, S61 (each in its own data directory).
-import { copyFileSync, cpSync, rmSync, truncateSync, writeFileSync, mkdirSync } from 'node:fs';
+// Store durability and recovery scenarios: S22, S43-S49 (and S43b), S51-S55, S59, S61 (each in its own data directory).
+import { copyFileSync, cpSync, rmSync, statSync, truncateSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { editManifestOnly } from '../../../case-package/fixtures/build.ts';
@@ -123,6 +123,27 @@ export default async function storeScenarios(ctx) {
 			nothingWritten: JSON.stringify(before) === JSON.stringify(after), tempBackupKept: L.exists(tmp), snapshotKept: L.exists(snap),
 			aStillServes: (await s.c.get('/')).status === 307 && h.instance.pid === s.pid,
 		}, { same: cut(same), other: cut(other), before: before.counts });
+	});
+
+	await S('S43b', 'instance.lock unlinked under a running instance: a second instance is still refused, and a refused instance leaves link-key alone (PRFIX-6b)', async () => {
+		const data = join(sub('s43b'), 'data');
+		const s = await pool.up(data, { name: 's43b-A' });
+		await baseline(s);
+		const key = join(data, 'link-key');
+		const keyBefore = statSync(key);
+		rmSync(join(data, 'instance.lock'));
+		const b = await pool.spawnExpectExit(data, { name: 's43b-B' });
+		const keyAfter = statSync(key);
+		rmSync(key);
+		const b2 = await pool.spawnExpectExit(data, { name: 's43b-B2' });
+		const h = await s.c.health();
+		const cut = (x) => ({ exitedOnItsOwn: x.exitedOnItsOwn, exit: x.exit, message: x.log.split('\n').filter((l) => /FATAL|listening/.test(l)).slice(0, 2).map((l) => l.slice(0, 240)) });
+		return verdict({
+			bRefused: b.exitedOnItsOwn && b.exit.code !== 0 && /another ClearCase process/.test(b.log) && !/app listening/.test(b.log),
+			b2Refused: b2.exitedOnItsOwn && b2.exit.code !== 0 && /another ClearCase process/.test(b2.log),
+			linkKeyCtimeKept: keyAfter.ctimeMs === keyBefore.ctimeMs, missingLinkKeyNotRecreated: !L.exists(key),
+			aStillServes: (await s.c.get('/')).status === 307 && h.instance.pid === s.pid,
+		}, { b: cut(b), b2: cut(b2) });
 	});
 
 	await S('S44', 'store files removed while running: writes answer 503 and are never acknowledged; a restart with work.sqlite missing shows the work-missing banner', async () => {

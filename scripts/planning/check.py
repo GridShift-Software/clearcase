@@ -9,7 +9,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 # Bump only together with a reconciled Linear readback.
-EXPECTED_ISSUES = 28
+EXPECTED_ISSUES = 30
 parser = argparse.ArgumentParser()
 parser.add_argument("--require-linear-ids", action="store_true")
 parser.add_argument("--linear-relations", type=Path)

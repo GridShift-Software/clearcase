@@ -1,12 +1,13 @@
 #!/usr/bin/env bun
 // Postbuild: bundle the pinned pdf.js and our viewer into build/pdfjs/ (served ONLY by the originals listener), and
-// stamp build/clearcase-build.json with the source revision the build was made from (read by the live doctor), and
+// stamp build/clearcase-build.json with the source revision the build was made from (read by the live doctor and the
+// fresh-build guard, tests/e2e/pilot/lib/fresh-build.ts), and
 // replace adapter-node's build/index.js, which binds 0.0.0.0 unless HOST is set and skips the exact-Host check, with
 // a stub that refuses to start: scripts/pilot/start.ts is the only supported entry.
 // The pdf.js scripting sandbox (pdf.sandbox*.mjs), its QuickJS evaluator and the wasm binaries are NOT copied.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -43,8 +44,15 @@ walk(out);
 writeFileSync(join(out, 'manifest.json'), JSON.stringify({ pdfjsVersion: version, files }, null, 1));
 
 const git = (...a: string[]) => { try { return execFileSync('git', a, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return null; } };
-// An isolated build from `git archive` has no .git: its caller names the revision it exported.
+const real = (p: string) => { try { return realpathSync(p); } catch { return p; } };
+// git describes this tree only when the tree is its own checkout: a copy inside another worktree (say under .local/)
+// would otherwise borrow the enclosing worktree's HEAD and status. A copy's revision is unknown (null) unless its
+// caller exported it (an isolated build from `git archive` names the revision in CLEARCASE_SOURCE_REVISION).
+// `dirty` counts modified and untracked, not ignored, files (the default git status) whenever git works here, the
+// exported revision notwithstanding.
+const top = git('rev-parse', '--show-toplevel');
+const atRoot = top !== null && real(top) === real(root);
 const exported = process.env.CLEARCASE_SOURCE_REVISION ?? null;
-const stamp = { revision: exported ?? git('rev-parse', 'HEAD'), dirty: exported ? false : git('status', '--porcelain', '--untracked-files=no') !== '', exported: exported !== null, builtAt: new Date().toISOString(), bun: process.versions.bun ?? null, pdfjs: version, buildId: createHash('sha256').update(readFileSync(join(build, 'handler.js'))).digest('hex').slice(0, 16) };
+const stamp = { revision: exported ?? (atRoot ? git('rev-parse', 'HEAD') : null), dirty: atRoot ? git('status', '--porcelain') !== '' : false, exported: exported !== null, builtAt: new Date().toISOString(), bun: process.versions.bun ?? null, pdfjs: version, buildId: createHash('sha256').update(readFileSync(join(build, 'handler.js'))).digest('hex').slice(0, 16) };
 writeFileSync(join(build, 'clearcase-build.json'), JSON.stringify(stamp, null, 1) + '\n');
 console.log(`pdf.js ${version} bundled: ${Object.keys(files).length} files -> ${relative(root, out)}; build ${stamp.buildId} from ${stamp.revision?.slice(0, 12) ?? 'unknown'}${stamp.dirty ? ' (dirty)' : ''}`);

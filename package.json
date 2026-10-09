@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:e2e": "bun tests/e2e/pilot/run.mjs",
     "verify:pilot:v5": "bun tests/e2e/pilot/v5-lanes.mjs",
+    "parity": "bun scripts/parity/run.mjs",
     "measure": "bun scripts/measure/index.ts",
     "start": "bun scripts/pilot/start.ts",
     "convert": "bun scripts/case-package/cli.ts convert",

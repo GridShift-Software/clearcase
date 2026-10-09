@@ -229,7 +229,9 @@
       "milestone": "M2",
       "title": "Browse, search and compare the case evidence",
       "depends": [
-        "CC-24"
+        "CC-24",
+        "CC-29",
+        "CC-30"
       ],
       "outcome": "A reviewer can find a document through filters or search, inspect its people/entities and agreements, and compare available text.",
       "scope": [
@@ -277,7 +279,9 @@
       "milestone": "M2",
       "title": "Read the matter narrative and evidence-linked analysis",
       "depends": [
-        "CC-24"
+        "CC-24",
+        "CC-29",
+        "CC-30"
       ],
       "outcome": "A reviewer can read the storyline and timeline, inspect contradictions, risks and defences, and follow supporting citations.",
       "scope": [
@@ -323,7 +327,9 @@
       "milestone": "M2",
       "title": "Reconcile quantum and scenario calculations",
       "depends": [
-        "CC-24"
+        "CC-24",
+        "CC-29",
+        "CC-30"
       ],
       "outcome": "A reviewer can reconcile invoices and payments and reproduce financial/date scenarios with visible assumptions.",
       "scope": [
@@ -370,7 +376,9 @@
       "milestone": "M2",
       "title": "Maintain case registers without losing edits",
       "depends": [
-        "CC-24"
+        "CC-24",
+        "CC-29",
+        "CC-30"
       ],
       "outcome": "A reviewer can maintain case-management records locally and recover them after restart.",
       "scope": [
@@ -417,7 +425,9 @@
       "milestone": "M2",
       "title": "Work through litigation preparation tools",
       "depends": [
-        "CC-24"
+        "CC-24",
+        "CC-29",
+        "CC-30"
       ],
       "outcome": "A reviewer can prepare authorities, argument and cross-examination material and track the litigation roadmap.",
       "scope": [
@@ -463,7 +473,9 @@
       "milestone": "M2",
       "title": "Prepare discovery schedules and case bundles",
       "depends": [
-        "CC-24"
+        "CC-24",
+        "CC-29",
+        "CC-30"
       ],
       "outcome": "A reviewer can reconcile discovery coverage, select bundle items and use CaseLines references with honest completeness states.",
       "scope": [
@@ -510,7 +522,9 @@
       "title": "Rescan local files and restore user work safely",
       "depends": [
         "CC-24",
-        "CC-07"
+        "CC-07",
+        "CC-29",
+        "CC-30"
       ],
       "outcome": "An operator discovers changed files, queues manual reprocessing and can restore all local work without corrupting the active case.",
       "scope": [
@@ -531,7 +545,8 @@
         "Own and record backup/restore time and memory budgets before implementing this workflow, then measure them on the accepted fixture. [GRS-17](https://linear.app/vaper/issue/GRS-17/maintain-case-registers-without-losing-edits) completion requires its own register read/write evidence and does not wait for these later measurements.",
         "Backup and restore operate generically over CC-03's user-work persistence contract and cover every user-work table that contract holds, including tables that later M2 tickets add. The coverage checklist is the app's persisted equivalent of each live user-work store in the store table of docs/reference/view-checklist.md. These are ess_dcs_annotations_v1, ess_dcs_authorities_v1, ess_dcs_bundle_header_v2, ess_dcs_caselines_docs_v1, ess_dcs_crossexam_v1, ess_dcs_custom_bundles_v1, ess_dcs_deadlines_v1, ess_dcs_disbursements_v1, ess_dcs_enf_status_v1, ess_dcs_filings_v1, ess_dcs_heads_v1, ess_dcs_info_done_v1, ess_dcs_payments_v1, ess_dcs_popia_v1, ess_dcs_privilege_v1, ess_dcs_rescan_v1, ess_dcs_schedule_co_v1, ess_dcs_schedule_mode_v1, ess_dcs_schedule_sel_v1, ess_dcs_timesheet_v1 and ess_dcs_transcripts_v1. This includes the bundle header, the CaseLines documents and the three discovery-schedule stores that v5's own backup omits (S-backup_tab-1).",
         "Rescan publishes its rows through CC-03's document-row read contract, so readers need no dependency on CC-10.",
-        "Wire the overview's rescan freshness stamp through the overview extension point that CC-03 provides, from CC-10's own subtree."
+        "Wire the overview's rescan freshness stamp through the overview extension point that CC-03 provides, from CC-10's own subtree.",
+        "Keep a documented, tested extension point for importing v5 browser-stored work (backup files, including the four legacy keys) later; the import itself is not part of V1."
       ],
       "liveScenarios": [
         "Compare available system actions with v5",
@@ -588,7 +603,8 @@
         "Review all BA-01 to BA-21 dispositions against their owning issues. Applicable V1 corrections/disclosures require evidence; V2 and deferred items require an explicit scope decision and visible limitations where relevant. No known misleading conclusion may pass solely because it matches the source.",
         "Verify hostile imported content and original-preview isolation across the completed viewer. Report the 42-view parity result separately from production-only/deferred capabilities.",
         "Verify the audit findings that docs/reference/audit-dispositions.md assigns to this gate. Check non-overlapping headings and export controls at narrow widths for every view with page actions (BA-12), shared contrast and focus, hover and active states (BA-13), navigation semantics, focus and Back across all 42 views (BA-14), and risk and detail readability at 320 and 390 pixels (BA-21).",
-        "Verify a backup-and-restore round trip for each store named in CC-10's coverage checklist, once its owning ticket has passed."
+        "Verify a backup-and-restore round trip for each store named in CC-10's coverage checklist, once its owning ticket has passed.",
+        "Every v5 source defect in docs/reference/defects.md has a disposition in the parity register. Defects in imported data are never silently corrected in the app; they are tagged data-correction-deferred-to-pipeline for the document-processing pipeline sprint."
       ],
       "liveScenarios": [
         "Run the reference and rewrite pilot side by side",
@@ -1201,6 +1217,98 @@
         "identifier": "GRS-36",
         "url": "https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work"
       }
+    },
+    {
+      "key": "CC-29",
+      "milestone": "M1",
+      "title": "Prove view-by-view parity with the v5 sample",
+      "depends": [
+        "CC-03"
+      ],
+      "outcome": "An automated, offline parity harness shows, value by value, that each of the 42 views behaves like the v5 sample on the same input data, and produces a counts-only scorecard for stakeholders.",
+      "scope": [
+        "scripts/parity/**",
+        "tests/parity/**",
+        "docs/reference/parity/**",
+        "package.json"
+      ],
+      "scopeNotes": [
+        "`package.json` takes one `parity` script entry and is coordinator-serialized"
+      ],
+      "acceptance": [
+        "Render v5 (sandboxed headless Chromium, no network, fixed clock, read-only fixture) and the app (Bun production build, same clock) on the same data; extract normalized tables, KPIs, lists, text blocks, counts and the action inventory per view.",
+        "Interaction sweeps cover filter/sort combinations, register edit sequences on synthetic seeded user work, and parsed export content (CSV, DOCX, PDF, print).",
+        "v5-side adapters for all 42 views; app-side adapters for the pilot's overview and chronology; M2 owners add theirs.",
+        "An intentional-differences register (schema-validated, no case values) typed `improvement`, `defect-fix`, `data-correction-deferred-to-pipeline`, `not-yet-implemented` or `known-gap`, each approved by someone other than its author. Genuine improvements are registered and never fail; only unregistered differences fail.",
+        "As mutation proof, a planted regression in each category (filter/sort, calculation, register CRUD, export, navigation/focus, rendered text) is caught.",
+        "Case-bearing diffs stay local; only harness code, synthetic tests, the register and counts-only scorecards are committed."
+      ],
+      "liveScenarios": [
+        "Render v5 and the app offline on the same fixture with the same fixed clock",
+        "Extract and compare the overview and chronology value by value",
+        "Run the v5-side adapters for all 42 views",
+        "Sweep filter and sort combinations on a pilot view",
+        "Replay a register edit sequence on synthetic seeded user work",
+        "Compare parsed CSV, DOCX, PDF and print export content",
+        "Pass a registered improvement without a failure",
+        "Fail an unregistered difference",
+        "Catch a planted regression in each of the six categories",
+        "Confirm the committed register and scorecard carry counts only, with no case values"
+      ],
+      "performanceMetric": "Wall time and peak memory of a full 42-view parity run",
+      "performanceBudget": "Record the first full-run baseline on the accepted fixture; fail a regression above 1.25 times the median.",
+      "kind": "delivery",
+      "phase": "V1",
+      "linear": {
+        "id": "36617753-147f-4224-b9d6-51dde4359acf",
+        "identifier": "GRS-37",
+        "url": "https://linear.app/vaper/issue/GRS-37/prove-view-by-view-parity-with-the-v5-sample"
+      },
+      "testPath": "tests/parity"
+    },
+    {
+      "key": "CC-30",
+      "milestone": "M1",
+      "title": "Carry v5's code-embedded view content into the results package",
+      "depends": [
+        "CC-03"
+      ],
+      "outcome": "The v5 converter carries the case content that v5 hard-codes in its view renderers into the results package as a schema-validated dataset, so that every V1 view renders it from imported data.",
+      "scope": [
+        "src/lib/case-package/**",
+        "scripts/case-package/**",
+        "tests/case-package/**",
+        "docs/results-package.md"
+      ],
+      "acceptance": [
+        "Static, declarative extraction of every code-embedded value catalogued in docs/reference/view-checklist.md (titles, subtitles, KPI captions, narrative paragraphs, the case caption, deed titles, schedule ranges, file names and the bundle details for CaseLines). No execution of the v5 HTML; anchors on code structure only, never on case text.",
+        "A new dataset `view-content` (`v5.view-content@1`) with a JSON Schema, a typed reader and untrusted-text rendering rules. It is classified as generated because the future pipeline produces it.",
+        "Missing or ambiguous anchors raise diagnostics and are never guessed. Unmapped code literals are reported. A committed coverage inventory lists field and checklist IDs only, with no values.",
+        "Every existing dataset stays byte-identical on the real sample. The identity change is recorded. verify:package passes, with coverage for the new dataset.",
+        "docs/results-package.md documents the dataset and tells M2 owners to read the content from data, never from literals in app code."
+      ],
+      "liveScenarios": [
+        "Convert the v5 sample and extract every catalogued code-embedded value",
+        "Validate view-content against its JSON Schema",
+        "Read view-content through the typed reader",
+        "Render hostile view-content text as untrusted text",
+        "Raise a diagnostic for a missing anchor without guessing",
+        "Raise a diagnostic for an ambiguous anchor without guessing",
+        "Report unmapped code literals",
+        "Check that the coverage inventory holds field and checklist IDs only",
+        "Keep every existing dataset byte-identical on the real sample",
+        "Pass verify:package with coverage for the new dataset"
+      ],
+      "performanceMetric": "Conversion time and peak memory on the v5 sample",
+      "performanceBudget": "Record the pre-change conversion baseline first; fail a regression above 1.25 times the median.",
+      "kind": "delivery",
+      "phase": "V1",
+      "linear": {
+        "id": "e9c8ec5a-550b-462e-80d3-2cfc2c7a5fd7",
+        "identifier": "GRS-38",
+        "url": "https://linear.app/vaper/issue/GRS-38/carry-v5s-code-embedded-view-content-into-the-results-package"
+      },
+      "testPath": "tests/case-package"
     }
   ]
 }

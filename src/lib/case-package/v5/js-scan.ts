@@ -156,6 +156,8 @@ export function scriptRegions(html: string): [number, number][] {
 const OPEN = new Set(['(', '[', '{']);
 const ASSIGN = new Set(['=', '&&=', '||=', '??=']);
 const CLOSE: Record<string, string> = { ')': '(', ']': '[', '}': '{' };
+/** keywords whose parenthesized head is followed by a block of the same function */
+const STATEMENT_HEAD = new Set(['if', 'for', 'while', 'switch', 'catch', 'with']);
 
 /** A tokenized document: tokens of every script region plus line lookup. */
 export class Code {
@@ -170,7 +172,7 @@ export class Code {
   private readonly callbacks: Int32Array;
   /** 1 for the first token of each script region */
   private readonly first: Uint8Array;
-  /** 1 when a `return` or `throw` precedes token k at the level of its own block (k may never run) */
+  /** 1 when a `return` or `throw` precedes token k in its block or a nested block of the same function (k may never run) */
   private readonly exited: Uint8Array;
   private readonly lineStarts: number[];
   readonly src: string;
@@ -207,6 +209,8 @@ export class Code {
           stack.pop();
           this.match[o] = k;
           this.match[k] = o;
+          // a block that may return or throw may end its enclosing block too, up to a function body
+          if (exits.has(o) && !this.functionBody(o)) exits.add(this.parent[o]!);
         }
       });
       base += toks.length;
@@ -221,7 +225,8 @@ export class Code {
    * function, `(function () { ... })()` or `(function () { ... }())`, whose wrapper is itself such
    * a statement. Inside any other bracket (a branch, a loop, a plain function, an object or call),
    * after an unbraced `if`, `else`, loop head, label, `&&`, `?` or `,`, or after a `return` or
-   * `throw` in its block, it may never run. Memoized per bracket, so linear over a document.
+   * `throw` in its block or a block nested in it (not in a nested function), it may never run.
+   * Memoized per bracket, so linear over a document.
    */
   unconditional(k: number): boolean {
     if (!this.statementStart(k)) return false;
@@ -241,9 +246,9 @@ export class Code {
   /**
    * True when token k begins a statement that nothing before it in its block skips: the first
    * token of its script, or right after a `;`, a block's closing `}` or the `{` that opens its
-   * own block, with no `return` or `throw` earlier in that block. Anything else (`)` of an
-   * unbraced `if` or loop head, `else`, `do`, a label, an operator, a line break with no
-   * semicolon) is refused; real v5 always ends a statement with `;` or `}`.
+   * own block, with no `return` or `throw` earlier in that block or a block nested in it.
+   * Anything else (`)` of an unbraced `if` or loop head, `else`, `do`, a label, an operator, a
+   * line break with no semicolon) is refused; real v5 always ends a statement with `;` or `}`.
    */
   private statementStart(k: number): boolean {
     if (this.exited[k]) return false;
@@ -253,6 +258,22 @@ export class Code {
   /** True when token j ends the statement that starts at token k: a `;`, the end of its script, or the `}` closing its block. */
   statementEnd(j: number, k: number): boolean {
     return j >= this.toks.length || !!this.first[j] || this.is(j, 'p', ';') || (this.is(j, 'p', '}') && this.parent[k]! >= 0 && this.match[j] === this.parent[k]);
+  }
+  /**
+   * True when the `{` at token o opens a function body: after `=>`, or after a `)` whose `(` does
+   * not follow a statement keyword (`function f(...)`, a method `m(...)`, a getter or setter).
+   * Any other bracket (`if`, loop, `switch`, `catch`, `try`, `else`, a label, a plain block, an
+   * object or a call) is part of the same function, so a `return` or `throw` in it leaves that
+   * function. `break` and `continue` never leave a function and are not tracked.
+   */
+  private functionBody(o: number): boolean {
+    if (!this.is(o, 'p', '{') || this.first[o]) return false;
+    if (this.is(o - 1, 'p', '=>')) return true;
+    if (!this.is(o - 1, 'p', ')')) return false;
+    const open = this.match[o - 1]!;
+    if (open < 0) return false;
+    const head = this.is(open - 1, 'id', 'await') ? open - 2 : open - 1; // for await (...)
+    return !(this.is(head, 'id') && STATEMENT_HEAD.has(this.toks[head]!.v as string));
   }
   /** For a `{` that is the body of an immediately invoked function, the wrapping `(`; else -1. */
   private iifeWrapper(o: number): number {

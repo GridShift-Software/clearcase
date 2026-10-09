@@ -94,7 +94,8 @@ describe('document rows', () => {
 		const plain = documentRows(lc.store, c.resultsVersion).rows.length;
 		undo.push(registerDocumentRowProvider({ id: 'broken', owner: 'GRS-20', revision: () => { throw new Error('revision down'); }, rows: () => { throw new Error('rescan index unreadable'); } }));
 		undo.push(registerDocumentRowProvider({ id: 'rescan', owner: 'GRS-20', revision: () => 'r1', rows: () => [{ ref: 'RS-001', row: {}, list: providerList('RS-001'), state: providerState }] }));
-		const failed = [{ source: 'provider:broken', owner: 'GRS-20', reason: 'rescan index unreadable' }];
+		// revision() is asked first: its failure is the one reported (rows() is not asked then)
+		const failed = [{ source: 'provider:broken', owner: 'GRS-20', reason: 'revision down' }];
 		const r = documentRows(lc.store, c.resultsVersion);
 		expect(r.failed).toEqual(failed);
 		expect(r.rows.map((x) => x.source).filter((x) => x !== 'results')).toEqual(['provider:rescan']);

@@ -1,8 +1,11 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { enhance } from '$app/forms';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	let { data, form } = $props();
 	let busy = $state(false);
+	let ready = $state(false);
+	onMount(() => { ready = true; });
 	let progress = $state('');
 	const mb = (n: number) => (n / 1e6).toFixed(1);
 	// With JS: poll validation progress while the import request runs. Without JS the plain form post works the same.
@@ -17,7 +20,7 @@
 	};
 </script>
 
-<main id="main" tabindex="-1" data-ready="import">
+<main id="main" tabindex="-1" data-ready={ready ? 'import' : null}>
 	<PageHeader heading="Import a results package" section="Import results" />
 	<form method="POST" action="?/import" use:enhance={track} id="import-form">
 		<p><label for="caseFolder">Case folder (the folder with the originals)</label><br /><input id="caseFolder" name="caseFolder" size="100" value={form?.caseFolder ?? ''} required autocomplete="off" /></p>

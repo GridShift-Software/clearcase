@@ -10,8 +10,10 @@
 	const o = $derived(data.overview);
 	const c = $derived(o.counts);
 	const vid = $derived(data.version.id);
-	const sorted = (m: Record<string, number>) => Object.entries(m).sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
-	const claim = (k: string) => (Object.hasOwn(o.sourceClaims, k) ? o.sourceClaims[k] : null);
+	const t = $derived(data.tallies);
+	const sorted = (m: [string, number][]) => [...m].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
+	const claim = (k: string) => t.claims.find(([x]) => x === k)?.[1] ?? null;
+	const count = (m: [string, number][], k: string) => m.find(([x]) => x === k)?.[1] ?? 0;
 	let ready = $state(false);
 	onMount(() => { ready = true; performance.mark('cc-ready'); });
 </script>
@@ -31,13 +33,13 @@
 	<div class="grid">
 		<section class="card" aria-labelledby="kpi-docs"><h2 id="kpi-docs">Documents indexed</h2>
 			<p class="num" id="count-documents" data-count={c.documents}>{c.documents.toLocaleString('en')}</p>
-			<p><small>Counted from the validated register{claim('docCount') !== null ? `; the source claims ${claim('docCount')}` : ''}. {plural(Object.keys(c.byBundle).length, 'bundle')}.</small></p></section>
+			<p><small>Counted from the validated register{claim('docCount') !== null ? `; the source claims ${claim('docCount')}` : ''}. {plural(t.byBundle.length, 'bundle')}.</small></p></section>
 		<section class="card" aria-labelledby="kpi-due"><h2 id="kpi-due">Amount due (to date)</h2>
 			{#if o.quantum}<p class="num" id="amount-due">{money(o.quantum.headlineDue) || '—'}</p><p><small>{o.quantum.headlineRef}{o.quantum.headlineDate ? ` · as at ${o.quantum.headlineDate}` : ''} (source value)</small></p>{:else}<p>Not in this package.</p>{/if}</section>
 		<section class="card" aria-labelledby="kpi-inv"><h2 id="kpi-inv">Invoices</h2><p class="num" id="count-invoices">{(o.quantum?.invoiceCount ?? c.invoices).toLocaleString('en')}</p><p><small>{c.invoices.toLocaleString('en')} register rows of type invoice</small></p></section>
 		<section class="card" aria-labelledby="kpi-contra"><h2 id="kpi-contra">Contradiction flags</h2>
 			{#if o.contradictions}<p class="num">{o.contradictions.total}</p><p><small>{o.contradictions.highCount} high-severity</small></p>{:else}<p>Not in this package.</p>{/if}</section>
-		<section class="card" aria-labelledby="kpi-scan"><h2 id="kpi-scan">Without extracted text</h2><p class="num" id="count-text-none">{(c.byTextStatus['none'] ?? 0).toLocaleString('en')}</p>
+		<section class="card" aria-labelledby="kpi-scan"><h2 id="kpi-scan">Without extracted text</h2><p class="num" id="count-text-none">{count(t.byTextStatus, 'none').toLocaleString('en')}</p>
 			<p><small>Register rows with text status none{claim('textNone') !== null ? `; the source claims ${claim('textNone')}` : ''}.</small></p></section>
 		<OverviewSlots slots={data.slots} ctx={{ caseId: data.version.caseId, caseName: data.version.caseName, resultsVersion: vid }} />
 		<section class="card" aria-labelledby="kpi-orig"><h2 id="kpi-orig">Originals</h2>
@@ -60,9 +62,9 @@
 		<p id="date-span">Source dates from {o.dates.min ?? '—'} to {o.dates.max ?? '—'}; {plural(o.dates.undated, 'document')} undated. Dates are shown as the source gives them; their basis (issue, sent, received) is not supplied by this package.</p></section>
 
 	<div class="grid">
-		{#each [['By bundle', c.byBundle], ['By type', c.byDocType], ['By text status', c.byTextStatus]] as [title, m] (title)}
+		{#each [['By bundle', t.byBundle], ['By type', t.byDocType], ['By text status', t.byTextStatus]] as const as [title, m] (title)}
 			<section class="card"><h2>{title}</h2><table><tbody>
-				{#each sorted(m as Record<string, number>) as [k, n] (k)}<tr><td>{k || '(empty)'}</td><td class="num">{n}</td></tr>{/each}
+				{#each sorted(m) as [k, n] (k)}<tr><td>{k || '(empty)'}</td><td class="num">{n}</td></tr>{/each}
 			</tbody></table></section>
 		{/each}
 	</div>

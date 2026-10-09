@@ -1,6 +1,6 @@
 # Parity harness: v5 versus the app, view by view
 
-The harness shows that the app **behaves like** the v5 sample on the same input, not only that it holds the same data. For each of the 42 v5 views it renders the v5 workspace and the app with one fixed clock, reads what each shows through the UI, normalizes both into one snapshot shape and compares them value by value. Every intended difference is on the [intentional-differences register](intentional-differences.json); a registered difference passes with a note, and only an unregistered difference fails.
+The harness shows that the app **behaves like** the v5 sample on the same input, not only that it holds the same data. For each of the 42 v5 views it renders the v5 workspace and the app with one fixed clock, reads what each shows through the UI, normalizes both into one snapshot shape and compares them value by value. Every intended difference is on the [intentional-differences register](intentional-differences.json) or one of its per-owner [fragments](register/); a registered difference passes with a note, and only an unregistered difference fails.
 
 Owner: CC-29 ([GRS-37](https://linear.app/vaper/issue/GRS-37)). M2 owners add the app side of their views; the CC-11 gate runs it over all 42.
 
@@ -55,7 +55,7 @@ Each run works in a fresh `DIR/.work-<pid>-XXXXXX` (`mkdtemp`), so an existing `
 | `scorecard.json`, `scorecard.md` | Counts only: see [Scorecard](#scorecard). | Counts may be quoted in reports. |
 | `views/<view>.json` | Every unregistered and registered difference with its path and both values. | **Never**: case values. |
 | `views/<view>.snapshots.json` | Both snapshots (with `--keep-snapshots`). | **Never**. |
-| `register-usage.json` | Register entry ids that covered something, and the unused ones. | Ids only. |
+| `register-usage.json` | Register entry ids that covered something, the unused ones, and `files`: each entry's register file. | Ids and repository paths only. |
 | `v5-requests.json`, `canary-hits.json` | Isolation evidence. | Local. |
 
 ## The snapshot
@@ -133,19 +133,23 @@ Combination keys are index-coded (`b2.t0.s1.q0.ref.desc`) over the sorted option
    - `remap` cannot drop an id. App content without a v5 counterpart stays in the snapshot and shows as app-only.
    - Watch for framework comment nodes (Svelte writes `<!--[-1]-->` markers): the shared extractor ignores them, and custom cell readers must too.
    - `chronology.mjs` shows a hand-built table, an export capture and both sweep kinds.
-3. In the register, delete your view's whole-view `not-yet-implemented` entry. The suite fails while a view with an adapter keeps one.
+3. In your register fragment, `register/CC-NN.json`, delete your view's whole-view `not-yet-implemented` entry. The suite fails while a view with an adapter keeps one.
 4. Run the view. Fix real differences, and propose a register entry for each intended one (below). Then run `bun run --bun test`, which includes the parity suite.
-5. A v5 state the generic adapter does not reach, such as a sub-tab, a dialog or a second mode, belongs in `scripts/parity/adapters/v5/specs.mjs` as a sweep with a `v5` driver. Implement the same sweep id in your app adapter.
+5. A v5 state the generic adapter does not reach, such as a sub-tab, a dialog or a second mode, belongs in your view's own spec module, `scripts/parity/adapters/v5/specs/<view-id>.mjs`, as a sweep with a `v5` driver. Implement the same sweep id in your app adapter.
+
+### Per-view v5 specs
+
+`specs.mjs` keeps the overview and chronology specs. Every other view's spec is a module of its own, `specs/<view-id>.mjs`, whose default export has the shape of one `SPECS` entry: `{ key?, postRaw?, storage?, sweeps? }`, each sweep `{ id, v5 }` with `v5` an async driver returning `{ comboKey: value }`. `loadSpecs()` finds the modules by dynamic import over the folder, in file-name order, so no owner edits `specs.mjs`. A module may import helpers such as `registerSweep` from `../specs.mjs` or `../../../lib/*.mjs`, and files starting with `_` are skipped, so shared helpers can live there. A file name that is not a v5 navigation id, a view whose spec stays in `specs.mjs`, an unknown key or a sweep without a `v5` function is an error; the v5 adapter then fails every view, so the run fails. `tests/parity/specs.test.ts` covers discovery.
 
 When the registry marks a view `available` and no app adapter exists, or its adapter returns any status but `ok` (`not-implemented` included), the run reports an extraction error for that view, and the error is unregistered.
 
 ## Register an intended difference
 
-Each entry in `intentional-differences.json` follows `intentional-differences.schema.json`:
+The register is `intentional-differences.json` plus one fragment per M2 owner in `register/` (see [Fragments](#fragments)). Each entry follows `intentional-differences.schema.json`:
 
 | Field | Rule |
 | --- | --- |
-| `id` | `IDR-<n>`, unique. |
+| `id` | `IDR-<n>`, unique across the main file and every fragment. A fragment's new ids lie in its owner's range. |
 | `view` | A v5 navigation id. |
 | `field` | A glob, or a list of globs, over snapshot paths: `*` matches any run of characters and `?` one character. A field of exactly `*` means the whole view is absent and covers only that view-level difference (kind `view-not-implemented`), never a value and never an extraction error. It must be exactly the string `*`: any other field that would match the path `*` (`?`, `**`, `*?`, `["*"]`, …) is refused by the validator, and no other field covers a whole view. |
 | `when` | Optional: `{ "v5": …, "app": … }`, each an exact normalized value, `"<absent>"` or `{ "re": "…" }`. Use it to pin the difference: for example `{ "v5": "nav-link", "app": "heading" }` registers BA-14 focus but not focus lost to the body. A side left out of `when` matches any value. An entry with no `when` covers every difference at the paths its field matches, whatever the two values: a changed value, a value on one side only (`<absent>`) and an order difference alike. The first entry in register order that covers a difference is the one reported. |
@@ -157,6 +161,17 @@ Each entry in `intentional-differences.json` follows `intentional-differences.sc
 - **No case values.** A field names structure and a `when` names UI wording or markers. The validator refuses digit runs of four or more and `@`. Refer to a row by a glob (`table.table_1.row.*.date`), never by its ref.
 - **Make entries narrow.** An entry without `when` covers any value of its field, so a later regression in that field would pass unnoticed. Prefer `when`, and keep the field list short.
 - **Approval.** Commit proposed entries with the adapter. The coordinator reviews them, sets `approvedBy` and `approvedOn`, and lists the `productVisible` improvements for the user. Proposed entries cover differences in an ordinary run and count under *pending approval*. With `--approved-only` (the gate) they do not.
+
+### Fragments
+
+Parallel M2 owners do not edit the main file. Owner CC-NN keeps its entries in `register/CC-NN.json`, which has the main file's shape and schema (`"$schema": "../intentional-differences.schema.json"`). The runner loads the main file first, then the fragments by file name, as one register; `--register FILE` reads `FILE` and the fragments in `FILE`'s folder's `register/`. Every rule above applies to every file, and the validator adds these:
+
+- A fragment is named after an M2 owner, `CC-04.json` to `CC-10.json`; any other `.json` in `register/` is an error.
+- A new id lies in its owner's range: CC-04 `IDR-100`–`IDR-149`, CC-05 `150`–`199`, CC-06 `200`–`249`, CC-07 `250`–`299`, CC-08 `300`–`349`, CC-09 `350`–`399`, CC-10 `400`–`449`. A fragment also keeps the legacy ids moved into it from the main file (`LEGACY` in `scripts/parity/lib/register.mjs`). The main file may use no owner's range.
+- A whole-view entry (field `*`) in a fragment is for one of its owner's views in the view registry, and, as everywhere, a `not-yet-implemented` one names that view's Linear owner.
+- A fragment's problems are reported with its file name. `register-usage.json` gives each entry's file under `files`.
+
+The main file keeps the pilot views' entries (overview and chronology), including those owned by other tickets. Each owner's whole-view `not-yet-implemented` entries moved into its fragment with their ids. `tests/parity/fragments.test.ts` covers loading and the rules.
 
 ### Unused entries
 
@@ -191,6 +206,6 @@ Results stay in `--out/mutation-proof.json` (local).
 
 - The output checks compare realpaths. A bind mount of the fixture elsewhere is not visible to realpath and is not detected, and a symlink swapped in between a check and the write that follows it (a race) is not guarded.
 
-- The generic v5 adapter reads each view's first state. Sub-tabs, dialogs and modes need a sweep in `specs.mjs`; the view's owner adds it.
+- The generic v5 adapter reads each view's first state. Sub-tabs, dialogs and modes need a sweep in `specs/<view-id>.mjs`; the view's owner adds it.
 - The engine sweep compares the libraries, not the UI. The UI sweep is the behavioural evidence, and the engine sweep adds breadth.
 - An entry without `when` masks any later change in its field (see [Make entries narrow](#register-an-intended-difference)).

@@ -81,7 +81,7 @@ describe('review regressions', () => {
   });
 
   it('classifies Markdown destinations in angle brackets, with entities and in reference definitions, in linear time', async () => {
-    expect(new Set(markdownLinkTargets('[x](<javascript:a>) [y](java&#58;b) [z]: vbscript:c <data:text/html,x>'))).toEqual(new Set(['javascript:a', 'java:b', 'vbscript:c', 'data:text/html,x']));
+    expect(new Set(markdownLinkTargets('[x](<javascript:a>) [y](java&#58;b)\n[z]: vbscript:c <data:text/html,x>'))).toEqual(new Set(['javascript:a', 'java:b', 'vbscript:c', 'data:text/html,x']));
     const t = performance.now();
     markdownLinkTargets(']('.repeat(1) + '](x'.repeat(300_000));
     markdownLinkTargets('<a'.repeat(300_000));
@@ -146,5 +146,38 @@ describe('review regressions', () => {
     const b = await built('typed');
     const r = await importCandidate(b.pkgDir, b.caseDir);
     expect(readCandidate(r.candidate!).dataset('people')).not.toBeNull();
+  });
+
+  it('stays linear for a string with very many diagnostics', async () => {
+    const b = await built('many-diags');
+    const text = 'AB-1 '.repeat(200_000);
+    const t = performance.now();
+    const r = await importCandidate({ files: editPackage(b.files, 'datasets/timeline-phases.json', (v) => { v.data = [[text]]; v.count = 1; }) }, b.caseDir, { limits: { validationDeadlineMs: 20_000 } });
+    expect(performance.now() - t).toBeLessThan(5000);
+    expect(r.counts.CITE_BARE_MENTION).toBeGreaterThanOrEqual(200_000);
+  });
+
+  it('does not use a cited ref as record identity outside the register', async () => {
+    const one = await built('fk1', (r) => { (r.DATA.timeline as any).events[0].note = 'See [[ZZ-999]].'; });
+    const two = await built('fk2', (r) => { const ev = (r.DATA.timeline as any).events; ev[0].note = 'See [[ZZ-999]].'; ev.push({ ...ev[0], title: 'Another event' }); });
+    const r1 = await importCandidate(one.pkgDir, one.caseDir);
+    const trusted = acceptedWarnings(r1, acknowledge(r1, r1.warningFingerprints), []);
+    const r2 = await importCandidate(two.pkgDir, two.caseDir);
+    expect(canActivate(r2, null, trusted).newWarnings.length).toBeGreaterThan(0);
+  });
+
+  it('treats "[label]:" as a reference definition only at the start of a line', () => {
+    expect(markdownLinkTargets('[[OD-001]]: File: the agreement. Annex [A]: Data: five invoices.')).toEqual([]);
+    expect(markdownLinkTargets('text\n   [a]: javascript:x')).toEqual(['javascript:x']);
+    expect(markdownLinkTargets('[x](' + ' '.repeat(40) + 'javascript:y)')).toEqual(['javascript:y']);
+    expect(markdownLinkTargets('[x](javascript\\:z)')).toEqual(['javascript:z']);
+  });
+
+  it('keeps residual keys unique even against a crafted digest-suffixed key', async () => {
+    const crafted = 'foo-bar-' + (await import('../../src/lib/case-package/hash.ts')).sha256Hex('DATA.foo_bar').slice(0, 12);
+    const b = await built('collide2', (r) => { r.DATA.fooBar = [1]; r.DATA[crafted] = [2]; r.DATA.foo_bar = [3]; });
+    const keys = [...b.files.keys()].filter((p) => p.includes('v5-residual'));
+    expect(new Set(keys).size).toBe(3);
+    expect((await importCandidate(b.pkgDir, b.caseDir)).verdict).toBe('report');
   });
 });

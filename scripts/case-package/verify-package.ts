@@ -9,7 +9,7 @@
 // work on in-memory package bytes or on a disposable reflink copy of the case folder under the work
 // directory, never on the fixture's extracted folder. Nothing is written inside a case folder.
 import { spawnSync } from 'node:child_process';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { canonicalJson, canonicalText } from '../../src/lib/case-package/canonical.ts';
@@ -43,7 +43,8 @@ const cfg = parseStrictJson(await readFile(values['fixture-config'], 'utf8')) as
 const out = path.resolve(values.out);
 const work = path.resolve(repo, cfg.workDir);
 // the work directory is deleted and rewritten: it must be a subfolder of the worktree's ignored .local/, never a case folder
-if (!work.startsWith(path.join(repo, '.local') + path.sep) || path.resolve(cfg.caseFolder).startsWith(work) || work.startsWith(path.resolve(cfg.caseFolder) + path.sep)) {
+const localReal = await realpath(path.join(repo, '.local')).catch(() => '');
+if (localReal !== path.join(await realpath(repo), '.local') || !work.startsWith(path.join(repo, '.local') + path.sep) || path.resolve(cfg.caseFolder).startsWith(work) || work.startsWith(path.resolve(cfg.caseFolder) + path.sep)) {
   console.error('workDir must be a subfolder of .local/ in this worktree and must not overlap the case folder');
   process.exit(2);
 }

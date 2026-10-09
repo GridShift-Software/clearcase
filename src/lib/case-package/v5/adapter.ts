@@ -95,7 +95,8 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   const residual = (sourcePath: string, v: JsonValue) => {
     const base = 'v5-residual-' + kebab(sourcePath.replace(/^DATA\./, '').replace(/^window\./, ''));
     // distinct source keys can kebab to the same key or be truncated: disambiguate with a digest of the source path
-    const key = base.length <= 64 && !used.has(base) ? base : `${base.slice(0, 50).replace(/-+$/, '')}-${sha256Hex(sourcePath).slice(0, 12)}`;
+    let key = base.length <= 64 && !used.has(base) ? base : `${base.slice(0, 50).replace(/-+$/, '')}-${sha256Hex(sourcePath).slice(0, 12)}`;
+    for (let n = 2; used.has(key); n++) key = `${base.slice(0, 50).replace(/-+$/, '')}-${sha256Hex(sourcePath).slice(0, 8)}-${n}`;
     used.add(key);
     sink.add('V5_UNMAPPED_KEY', `${sourcePath} has no mapping; kept as the opaque dataset ${key}`, { file: 'input', subject: sourcePath });
     datasets.push({ key, kind: 'generated', schema: OPAQUE_SCHEMA, required: false, provenance: prov(sourcePath), data: v });

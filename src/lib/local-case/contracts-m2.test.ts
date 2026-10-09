@@ -3,8 +3,10 @@
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildCase } from '../../../tests/e2e/pilot/lib/fixtures.ts';
+import { OVERVIEW_SLOTS, type OverviewWidgetLoader, type SlotId } from '../components/overview-slots.ts';
 import { activeDocumentRows, documentCounts, documentRow, documentRows, listJson, registerDocumentRowProvider } from './documents.server.ts';
 import type { ChronologyListRow, DocumentStateRow } from './model.ts';
+import { MAX_SLOT_DATA_DEPTH, notPlainData, slotStates } from './overview-widgets.server.ts';
 import type { LocalCase } from './service.server.ts';
 import { ackFor, cleanup, service, tempRoot } from './test-support.ts';
 import { USER_WORK_EXPORT, UserWorkError } from './user-work.server.ts';
@@ -381,4 +383,30 @@ describe('gate follow-ups: user-work restore and defineTable (CC-24 F1, F7-F10)'
 		expect(await code(uw.defineTable({ name: 'document', owner: 'GRS-17', description: '', columns, primaryKey: ['entry_id'] }))).toBe('table-built-in');
 		expect(uw.tables().map((t) => [t.name, t.owner, t.kind])).toEqual(before.map((t) => [t.name, t.owner, t.kind]));
 	});
+});
+
+describe('gate follow-ups: overview slots (CC-24 F2, F3)', () => {
+	it('F2 slot data with an own __proto__, constructor or prototype key, or nested too deep, marks only its slot', async () => {
+		const deep = (n: number) => { let o: Record<string, unknown> = { leaf: true }; for (let i = 0; i < n; i++) o = { c: o }; return o; };
+		const thenableMap = Object.assign(new Map(), { then: () => {} });
+		const bad = [JSON.parse('{"__proto__": {"x": 1}, "ok": 1}'), JSON.parse('{"constructor": {"prototype": {}}}'), { list: [{ prototype: 1 }] }, Object.assign(Object.create(null), JSON.parse('{"__proto__": 1}')), deep(MAX_SLOT_DATA_DEPTH + 1), thenableMap];
+		for (const v of bad) expect(notPlainData(v)).toEqual(expect.any(String));
+		expect(notPlainData(deep(MAX_SLOT_DATA_DEPTH - 1))).toBeNull();
+		expect(notPlainData(new Map([['__proto__', 1]]))).toBeNull(); // a Map key is data, not a property
+		// the reason names the problem, never the value
+		expect(notPlainData({ constructor: 'Synthetic secret' })).not.toContain('Synthetic secret');
+		for (const v of bad) {
+			const loaders = new Map<SlotId, OverviewWidgetLoader>([['deadlines', { slot: 'deadlines', load: () => v }], ['unbilled-time', { slot: 'unbilled-time', load: () => ({ hours: 1 }) }]]);
+			expect((await slotStates({ app: null, caseId: 'c', caseName: 'Case', resultsVersion: 'r' }, loaders)).map((x) => x.status)).toEqual(['error', 'filled', 'unavailable']);
+		}
+	});
+
+	it('F3 a slot loader that never settles times out to its error state; the other slots render', async () => {
+		const loaders = new Map<SlotId, OverviewWidgetLoader>([['deadlines', { slot: 'deadlines', load: () => new Promise(() => {}) }], ['unbilled-time', { slot: 'unbilled-time', load: async () => ({ hours: 1 }) }]]);
+		const started = Date.now();
+		const s = await slotStates({ app: null, caseId: 'c', caseName: 'Case', resultsVersion: 'r' }, loaders, new Set(loaders.keys()), 50);
+		expect(Date.now() - started).toBeLessThan(2_000);
+		expect(s.map((x) => [x.slot.id, x.status])).toEqual(OVERVIEW_SLOTS.map((x, i) => [x.id, ['error', 'filled', 'unavailable'][i]]));
+		expect(s[0]).toEqual({ slot: OVERVIEW_SLOTS[0], status: 'error', message: 'This summary could not be loaded.' });
+	}, 3_000);
 });

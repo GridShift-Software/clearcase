@@ -1,15 +1,20 @@
 // The register's per-owner fragments (docs/reference/parity/register/CC-NN.json): loaded after the main file in
 // file-name order, ids unique across all files, each owner's new ids in its own range (its moved legacy ids kept), a
 // whole-view entry only for the owner's own views and with the view's real owner, and --strict-register counting
-// fragment entries like any other. Synthetic registers in a temp folder; the committed fragments are checked too.
+// fragment entries like any other. Synthetic registers in a temp folder; the committed fragments are checked too,
+// against the tree: a fragment holds any subset of its owner's legacy ids plus new ids in its range (owners delete
+// whole-view entries as adapters land), and an overview slot's unfilled-state entries are present exactly while the
+// slot is unfilled (filledSlots, tests/e2e/pilot/lib/implemented.mjs).
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 import { classify, diff, runFailures, scorecard } from '../../scripts/parity/lib/compare.mjs';
-import { LEGACY, loadRegister, RANGES, REGISTER, unusedEntries } from '../../scripts/parity/lib/register.mjs';
+import { LEGACY, loadRegister, RANGES, REGISTER, REPO, unusedEntries } from '../../scripts/parity/lib/register.mjs';
 import * as snap from '../../scripts/parity/lib/snapshot.mjs';
+import { OVERVIEW_SLOTS } from '../../src/lib/components/overview-slots';
 import { VIEWS } from '../../src/lib/components/view-registry';
+import { filledSlots } from '../e2e/pilot/lib/implemented.mjs';
 import { base } from './fixtures';
 
 const owners = Object.fromEntries(VIEWS.map((v) => [v.id, v.linear]));
@@ -103,6 +108,49 @@ describe('strict register over fragments', () => {
 	});
 });
 
+/** The ids a fragment may hold that break the subset-plus-range rule. */
+const foreignIds = (key: string, ids: string[]) => ids.filter((id) => !LEGACY[key].includes(id) && !(Number(id.slice(4)) >= RANGES[key][0] && Number(id.slice(4)) <= RANGES[key][1]));
+/** Each slot owner's unfilled-state entries and the slots they stand for. */
+const UNFILLED_ENTRIES: Record<string, { ids: string[]; slots: string[] }> = { 'CC-07': { ids: ['IDR-050', 'IDR-067'], slots: ['deadlines', 'unbilled-time'] }, 'CC-10': { ids: ['IDR-051', 'IDR-068'], slots: ['rescan-freshness'] } };
+/**
+ * What is wrong with the unfilled-state entries, given each fragment's ids and the filled slots: while none of the
+ * owner's slots is filled they must all be present; once one is filled they must all be gone (the owner registers
+ * what still differs under new ids in its range).
+ */
+function unfilledProblems(idsOf: Record<string, string[]>, filled: Set<string>) {
+	const out: string[] = [];
+	for (const [key, { ids, slots }] of Object.entries(UNFILLED_ENTRIES)) {
+		const any = slots.filter((s) => filled.has(s));
+		for (const id of ids) {
+			const has = (idsOf[key] ?? []).includes(id);
+			if (any.length && has) out.push(`${key}: ${id} must be deleted: slot ${any.join(', ')} is filled`);
+			if (!any.length && !has) out.push(`${key}: ${id} must stay while ${slots.join(', ')} is unfilled`);
+		}
+	}
+	return out;
+}
+
+describe('fragment rules that follow the tree (synthetic)', () => {
+	test("a fragment may hold any subset of its owner's legacy ids plus new ids in its range, nothing else", () => {
+		expect(foreignIds('CC-07', ['IDR-012', 'IDR-250', 'IDR-299'])).toEqual([]);
+		expect(foreignIds('CC-07', [])).toEqual([]);
+		expect(foreignIds('CC-07', ['IDR-004', 'IDR-300', 'IDR-249', 'IDR-051'])).toEqual(['IDR-004', 'IDR-300', 'IDR-249', 'IDR-051']);
+	});
+	test('unfilled-state entries: required while the slot is unfilled, refused once a synthetic tree fills it', () => {
+		const tree = mkdtempSync(join(root, 'tree-'));
+		const none = filledSlots(tree, OVERVIEW_SLOTS);
+		expect(none.size).toBe(0);
+		expect(unfilledProblems({ 'CC-07': ['IDR-050', 'IDR-067'], 'CC-10': ['IDR-051', 'IDR-068'] }, none)).toEqual([]);
+		expect(unfilledProblems({ 'CC-07': ['IDR-050'], 'CC-10': ['IDR-051', 'IDR-068'] }, none)).toEqual(['CC-07: IDR-067 must stay while deadlines, unbilled-time is unfilled']);
+		mkdirSync(join(tree, 'src', 'lib', 'views', 'registers'), { recursive: true });
+		writeFileSync(join(tree, 'src', 'lib', 'views', 'registers', 'overview-widgets.ts'), "export const widgets = [{ slot: 'deadlines', component: null }];\n");
+		const filled = filledSlots(tree, OVERVIEW_SLOTS);
+		expect([...filled]).toEqual(['deadlines']);
+		expect(unfilledProblems({ 'CC-07': ['IDR-050', 'IDR-067', 'IDR-250'], 'CC-10': ['IDR-051', 'IDR-068'] }, filled)).toEqual(['CC-07: IDR-050 must be deleted: slot deadlines is filled', 'CC-07: IDR-067 must be deleted: slot deadlines is filled']);
+		expect(unfilledProblems({ 'CC-07': ['IDR-250'], 'CC-10': ['IDR-051', 'IDR-068'] }, filled)).toEqual([]);
+	});
+});
+
 describe('the committed fragments', () => {
 	const dir = join(REGISTER, '..', 'register');
 	const names = readdirSync(dir).filter((f) => f.endsWith('.json')).sort();
@@ -111,17 +159,19 @@ describe('the committed fragments', () => {
 		expect(names).toEqual(Object.keys(RANGES).map((k) => `${k}.json`));
 		expect(problems).toEqual([]);
 	});
-	test("each holds exactly its owner's moved entries, each for the owner's own views or owned by it (its overview slots)", () => {
+	const idsOf = Object.fromEntries(names.map((name) => [name.replace(/\.json$/, ''), JSON.parse(readFileSync(join(dir, name), 'utf8')).entries.map((e: any) => e.id)]));
+	test("each holds a subset of its owner's legacy entries plus new ids in its range, each for the owner's own views or owned by it (its overview slots)", () => {
 		for (const name of names) {
 			const key = name.replace(/\.json$/, '');
 			const linear = VIEWS.find((v) => v.owner === key)!.linear;
 			const doc = JSON.parse(readFileSync(join(dir, name), 'utf8'));
-			expect(doc.entries.map((e: any) => e.id).sort(), key).toEqual([...LEGACY[key]].sort());
+			expect(foreignIds(key, idsOf[key]), key).toEqual([]);
 			for (const e of doc.entries) expect(keys[e.view] === key || e.owner === linear, e.id).toBe(true);
 		}
 	});
-	test('the overview slot entries sit with their slot owners: IDR-050/067 in CC-07, IDR-051/068 in CC-10', () => {
-		expect([files['IDR-050'], files['IDR-067'], files['IDR-051'], files['IDR-068']]).toEqual(['CC-07', 'CC-07', 'CC-10', 'CC-10'].map((k) => `docs/reference/parity/register/${k}.json`));
+	test("the overview slots' unfilled-state entries are present exactly while their slot is unfilled in this tree, and sit with their slot owners", () => {
+		expect(unfilledProblems(idsOf, filledSlots(REPO, OVERVIEW_SLOTS))).toEqual([]);
+		for (const [key, { ids }] of Object.entries(UNFILLED_ENTRIES)) for (const id of ids) if (files[id]) expect(files[id], id).toBe(`docs/reference/parity/register/${key}.json`);
 	});
 	test("the main file holds no entry for an M2 owner's view or owned by an M2 ticket, and every entry has a file", () => {
 		const main = JSON.parse(readFileSync(REGISTER, 'utf8'));

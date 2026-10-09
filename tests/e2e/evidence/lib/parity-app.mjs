@@ -72,3 +72,16 @@ export async function pageThroughApp(p, { pager, table, rows }) {
 		rows.push(...t.rows);
 	}
 }
+
+/** Every data-ref of a server-paged table, page by page through its pager's Next button. */
+export async function refsThroughPages(p, { pager, rows }) {
+	const refs = await p.evaluate(`[...document.querySelectorAll(${JSON.stringify(rows)})].map((r) => r.dataset.ref)`);
+	for (let i = 0; i < 400; i++) {
+		const st = await p.evaluate(`(() => { const b = [...document.querySelectorAll(${JSON.stringify(pager)} + ' button')].find((x) => /next/i.test(x.textContent)); if (!b || b.disabled) return null; b.setAttribute('data-parity-next', '1'); return document.getElementById('main').dataset.page; })()`);
+		if (st === null) return refs;
+		await p.click('[data-parity-next]');
+		await p.waitFor(`document.getElementById('main').dataset.page === ${JSON.stringify(String(+st + 1))} && !document.getElementById('main').dataset.busy`, 20000);
+		refs.push(...(await p.evaluate(`[...document.querySelectorAll(${JSON.stringify(rows)})].map((r) => r.dataset.ref)`)));
+	}
+	return refs;
+}

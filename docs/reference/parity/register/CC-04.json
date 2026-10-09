@@ -3,18 +3,6 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-007",
-      "view": "search",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-14",
-      "reason": "The app does not implement Advanced Search yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
       "id": "IDR-010",
       "view": "hoa_diff_tab",
       "field": "*",
@@ -348,6 +336,149 @@
       "type": "improvement",
       "source": "BA-05",
       "reason": "BA-05: contract groups and the Signed marker are imported or heuristic classifications without a verification state; the view says so.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-119",
+      "view": "search",
+      "field": "text.subtitle",
+      "when": {
+        "v5": "Cross-corpus search over every field, with filters and action-item extraction",
+        "app": "Cross-corpus search over document details and indexed text excerpts, with filters and action-item extraction"
+      },
+      "type": "improvement",
+      "source": "BA-08",
+      "reason": "BA-08: v5 claims a search over every field, but it reads metadata and a short excerpt only; the app says what it searches.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-120",
+      "view": "search",
+      "field": "list.select.all.count",
+      "when": {
+        "v5": "5",
+        "app": "6"
+      },
+      "type": "defect-fix",
+      "source": "S-search-4",
+      "reason": "S-bundle4 and S-search-4: v5 hard-codes four bundle options; the app offers every imported bundle (one more on this package).",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-121",
+      "view": "search",
+      "field": [
+        "list.select.all.item.3",
+        "list.select.all.item.4",
+        "list.select.all.item.5"
+      ],
+      "when": {
+        "v5": {
+          "re": "^(Correspondence|Pleadings|<absent>)$"
+        },
+        "app": {
+          "re": "^(Additional|Correspondence|Pleadings)$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-search-4",
+      "reason": "S-bundle4 and S-search-4: the bundle options are every imported bundle in order of first appearance, so the Additional bundle comes third and the later options move down one.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-122",
+      "view": "search",
+      "field": "sweep.search_filters.*",
+      "when": {
+        "v5": "no-option"
+      },
+      "type": "defect-fix",
+      "source": "S-search-4",
+      "reason": "S-bundle4 and S-search-4: combinations with a bundle v5 offers no option for (no-option) search that bundle in the app.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-123",
+      "view": "search",
+      "field": [
+        "sweep.search_filters.d3.*",
+        "sweep.search_filters.m3.*",
+        "sweep.search_filters.m4.*"
+      ],
+      "when": {
+        "v5": {
+          "re": "^0\\|"
+        },
+        "app": "rejected"
+      },
+      "type": "improvement",
+      "source": "BA-15",
+      "reason": "BA-15 (and S-search-5 for a bound that is not a number): a reversed date or amount interval is rejected with a message instead of an empty result; a valid search that matches nothing still shows the empty result (combinations d4, m5, p2 compare equal).",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-124",
+      "view": "search",
+      "field": "export.export_csv.name",
+      "when": {
+        "v5": "ess_dcs_search.csv",
+        "app": "search.csv"
+      },
+      "type": "defect-fix",
+      "source": "S-hardcoded-case",
+      "reason": "v5 names its export with the case abbreviation hard-coded in the renderer; the app uses a neutral name, as the chronology does (IDR-064). The view-content map has no export-name field (shared-file request in the CC-04 report).",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-125",
+      "view": "search",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation the app focuses the page heading (BA-14), as the pilot views do; v5 leaves focus on the navigation link.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-126",
+      "view": "search",
+      "field": "text.page.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Search reads file names, refs, subjects, senders, recipients and the indexed text excerpt .+, not the full text\\. .+$"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-08",
+      "reason": "BA-08: the view discloses what search covers and how much text is absent, with counts derived from the rows, never from summary metadata.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
       "approvedBy": null,

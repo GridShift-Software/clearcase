@@ -9,6 +9,9 @@
 //  * Seed overlays follow viewSeeds: seed, edited, conflict (the seed changed since the edit; both are shown) or
 //    orphaned (the seed is gone; the edit is kept).
 //  * Activation never writes here. Every write schedules a work.sqlite backup.
+//  * Enumerable: tables() lists every work.sqlite table (from SQLite itself, labelled by work.userwork_catalog), and
+//    exportAll()/importAll() round-trip them generically, including tables later tickets add with defineTable(). A
+//    backup or restore feature never needs per-table code.
 import { createHash, randomUUID } from 'node:crypto';
 import { matchAnchor, viewSeeds, type DocumentAnchor, type SeedOverlay, type SeedRow, type SeedView } from '../case-package/index.ts';
 import type { Storage } from './db.server.ts';
@@ -35,6 +38,17 @@ export interface RegisterRow { rowId: string; store: string; anchor: DocumentAnc
 export type RegisterValue = string | number | boolean | null;
 
 const STORE = /^[a-z][a-z0-9-]{0,63}$/;
+const TABLE = /^[a-z][a-z0-9_]{0,62}$/;
+const COLUMN_TYPES = new Set(['TEXT', 'INTEGER', 'REAL', 'BLOB']);
+export const USER_WORK_EXPORT = 'clearcase.user-work/1';
+
+export type TableKind = 'user-work' | 'activation' | 'unregistered';
+export interface TableColumn { name: string; type: string; notNull: boolean; pk: number }
+export interface UserWorkTable { name: string; kind: TableKind; owner: string; description: string; columns: TableColumn[] }
+export interface TableDefinition { name: string; owner: string; description: string; columns: { name: string; type: 'TEXT' | 'INTEGER' | 'REAL' | 'BLOB'; notNull?: boolean }[]; primaryKey: string[] }
+type Cell = string | number | null | { $b64: string };
+export interface UserWorkExport { format: typeof USER_WORK_EXPORT; exportedAt: string; tables: (UserWorkTable & { rows: Record<string, Cell>[] })[] }
+const q = (id: string) => `"${id.replaceAll('"', '""')}"`;
 const MAX_NOTE = 20_000;
 const MAX_FIELDS_JSON = 64 * 1024;
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -165,6 +179,78 @@ export class UserWork {
 		this.onWrite();
 		return id;
 	}
+	// ---- enumeration -----------------------------------------------------------------------------------------------
+
+	/** Every work.sqlite table with its kind, owner and columns (introspected, so nothing is missed). */
+	tables(): UserWorkTable[] { return tablesOf(this.d); }
+
+	/** The distinct register stores in use for a case (register_row is one table holding many stores). */
+	registerStores(caseId?: string): string[] {
+		const rows = (caseId ? this.d.prepare('SELECT DISTINCT store FROM work.register_row WHERE case_id = ? ORDER BY store').all(caseId) : this.d.prepare('SELECT DISTINCT store FROM work.register_row ORDER BY store').all()) as { store: string }[];
+		return rows.map((r) => r.store);
+	}
+
+	/**
+	 * Define a user-work table for a later ticket (idempotent): it lives in work.sqlite, is enumerated, backed up and
+	 * restored like the built-in ones. A primary key of stable ids is required; a different existing shape is refused.
+	 */
+	async defineTable(def: TableDefinition): Promise<void> {
+		if (!TABLE.test(def.name) || def.name === 'userwork_catalog') throw new UserWorkError(`invalid table name ${def.name.slice(0, 80)}`);
+		if (!def.columns.length || def.columns.some((c) => !TABLE.test(c.name) || !COLUMN_TYPES.has(c.type))) throw new UserWorkError('columns need lower-case names and a TEXT, INTEGER, REAL or BLOB type');
+		if (!def.primaryKey.length || def.primaryKey.some((k) => !def.columns.some((c) => c.name === k))) throw new UserWorkError('a primary key of stable ids is required');
+		const existing = this.tables().find((t) => t.name === def.name);
+		if (existing) {
+			const same = existing.columns.length === def.columns.length && def.columns.every((c, i) => existing.columns[i]?.name === c.name && existing.columns[i]?.type === c.type);
+			if (!same) throw new UserWorkError(`table ${def.name} already exists with another shape`);
+		}
+		const cols = def.columns.map((c) => `${q(c.name)} ${c.type}${c.notNull || def.primaryKey.includes(c.name) ? ' NOT NULL' : ''}`).join(', ');
+		await this.storage.tx((d) => {
+			d.exec(`CREATE TABLE IF NOT EXISTS work.${q(def.name)} (${cols}, PRIMARY KEY(${def.primaryKey.map(q).join(', ')})) WITHOUT ROWID`);
+			d.prepare(`INSERT INTO work.userwork_catalog(name, kind, owner, description) VALUES (?, 'user-work', ?, ?)
+				ON CONFLICT(name) DO UPDATE SET owner = excluded.owner, description = excluded.description`).run(def.name, def.owner, def.description);
+		});
+	}
+
+	/** Every row of the selected kinds of tables (default: user work), in primary-key order. */
+	exportAll(opts: { kinds?: TableKind[] } = {}): UserWorkExport {
+		const kinds = new Set(opts.kinds ?? ['user-work', 'unregistered']);
+		const tables = this.tables().filter((t) => kinds.has(t.kind)).map((t) => {
+			const pk = t.columns.filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk).map((c) => q(c.name));
+			const rows = (this.d.prepare(`SELECT * FROM work.${q(t.name)}${pk.length ? ` ORDER BY ${pk.join(', ')}` : ''}`).all() as Record<string, unknown>[])
+				.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, toCell(v)])));
+			return { ...t, rows };
+		});
+		return { format: USER_WORK_EXPORT, exportedAt: new Date().toISOString(), tables };
+	}
+
+	/**
+	 * Restore an export in one transaction: each table in it is replaced by its rows. A table the export defines but
+	 * this store lacks is created from the export's columns first; a column mismatch refuses the whole restore.
+	 */
+	async importAll(snapshot: UserWorkExport): Promise<{ tables: number; rows: number }> {
+		if (snapshot?.format !== USER_WORK_EXPORT || !Array.isArray(snapshot.tables)) throw new UserWorkError(`not a ${USER_WORK_EXPORT} export`);
+		const here = new Map(this.tables().map((t) => [t.name, t]));
+		for (const t of snapshot.tables) {
+			if (!TABLE.test(t.name) || t.name === 'userwork_catalog') throw new UserWorkError(`invalid table name ${String(t.name).slice(0, 80)}`);
+			const h = here.get(t.name);
+			if (h && (h.columns.length !== t.columns.length || t.columns.some((c, i) => h.columns[i]?.name !== c.name))) throw new UserWorkError(`table ${t.name} has other columns here; nothing was restored`);
+			if (!h && !t.columns.some((c) => c.pk > 0)) throw new UserWorkError(`table ${t.name} has no primary key; nothing was restored`);
+		}
+		for (const t of snapshot.tables) if (!here.has(t.name))
+			await this.defineTable({ name: t.name, owner: t.owner, description: t.description, columns: t.columns.map((c) => ({ name: c.name, type: c.type as 'TEXT', notNull: c.notNull })), primaryKey: t.columns.filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk).map((c) => c.name) });
+		let rows = 0;
+		await this.storage.tx((d) => {
+			for (const t of snapshot.tables) {
+				d.exec(`DELETE FROM work.${q(t.name)}`);
+				const cols = t.columns.map((c) => c.name);
+				const ins = d.prepare(`INSERT INTO work.${q(t.name)}(${cols.map(q).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`);
+				for (const r of t.rows) { ins.run(...(cols.map((c) => fromCell(r[c] ?? null)) as never[])); rows++; }
+			}
+		});
+		this.onWrite();
+		return { tables: snapshot.tables.length, rows };
+	}
+
 	async deleteRow(caseId: string, store: string, rowId: string): Promise<boolean> {
 		checkStore(store);
 		const n = await this.storage.tx((d) => Number(d.prepare('DELETE FROM work.register_row WHERE case_id = ? AND store = ? AND row_id = ?').run(caseId, store, rowId).changes));
@@ -172,6 +258,21 @@ export class UserWork {
 		return n > 0;
 	}
 }
+
+// ---- enumeration and generic round trip -------------------------------------------------------------------------
+
+/** Generic catalogue and round trip of work.sqlite; mixed into UserWork below. */
+function tablesOf(d: ReturnType<Storage['db']>): UserWorkTable[] {
+	const names = (d.prepare("SELECT name FROM work.sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'userwork_catalog' ORDER BY name").all() as { name: string }[]).map((r) => r.name);
+	const cat = new Map((d.prepare('SELECT name, kind, owner, description FROM work.userwork_catalog').all() as { name: string; kind: TableKind; owner: string; description: string }[]).map((r) => [r.name, r]));
+	return names.map((name) => {
+		const c = cat.get(name);
+		const columns = (d.prepare(`PRAGMA work.table_info(${q(name)})`).all() as { name: string; type: string; notnull: number; pk: number }[]).map((x) => ({ name: x.name, type: x.type, notNull: x.notnull === 1, pk: x.pk }));
+		return { name, kind: c?.kind ?? 'unregistered', owner: c?.owner ?? 'unknown', description: c?.description ?? 'not in the user-work catalogue', columns };
+	});
+}
+const toCell = (v: unknown): Cell => (v instanceof Uint8Array ? { $b64: Buffer.from(v).toString('base64') } : typeof v === 'bigint' ? Number(v) : (v as Cell));
+const fromCell = (v: Cell): unknown => (v !== null && typeof v === 'object' ? new Uint8Array(Buffer.from(v.$b64, 'base64')) : v);
 
 function checkStore(store: string) {
 	if (!STORE.test(store)) throw new UserWorkError(`invalid register store name: ${store.slice(0, 80)}`);

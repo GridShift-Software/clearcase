@@ -29,7 +29,7 @@ describe('measure dispatcher', () => {
 	put(join(copy, 'tests', 'e2e', 'pilot', 'lib', 'fresh-build.ts'), readFileSync(join(REPO, 'tests', 'e2e', 'pilot', 'lib', 'fresh-build.ts'), 'utf8'));
 	// the copy is no git checkout, so its build is never fresh: the dispatch tests run with the documented override
 	const run = (env: Record<string, string>, args: string[]) => spawnSync(BUN, [join(copy, 'scripts', 'measure', 'index.ts'), ...args], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, CLEARCASE_REPORT_DIR: join(copy, 'report'), ...env } });
-	const measure = (...args: string[]) => run({ CLEARCASE_ALLOW_STALE_BUILD: '1' }, args);
+	const measure = (...args: string[]) => run({}, [...args, '--allow-stale-build']);
 
 	test('CC-NN runs scripts/measure/ccNN.mjs with every argument, and returns its exit code', () => {
 		const r = measure('--ticket', 'CC-99', '--baseline', 'a', '--candidate', 'b');
@@ -55,19 +55,22 @@ describe('measure dispatcher', () => {
 	describe('fresh-build evidence', () => {
 		const evidence = (t = 'CC-99') => JSON.parse(readFileSync(join(copy, 'report', 'measure', `build-evidence-${t}.json`), 'utf8'));
 		test('a stale revision under test is refused with exit 2 before the runner starts', () => {
-			const r = run({ CLEARCASE_ALLOW_STALE_BUILD: '' }, ['--ticket', 'CC-99', '--candidate', 'HEAD']);
+			const r = run({}, ['--ticket', 'CC-99', '--candidate', 'HEAD']);
 			expect(r.status).toBe(2);
 			expect(r.stdout).toBe('');
-			expect(r.stderr).toMatch(/measure: refusing a stale build \(.*not a git checkout/);
+			expect(r.stderr).toMatch(/measure: stale build \(.*not a git checkout/);
 			expect(evidence()).toMatchObject({ ticket: 'CC-99', evidence: false, freshBuild: { fresh: false, allowStaleBuild: false } });
 		});
 		test('--allow-stale-build runs it with evidence: false, and the runner never sees the flag', () => {
-			const r = run({ CLEARCASE_ALLOW_STALE_BUILD: '' }, ['--ticket', 'CC-99', '--allow-stale-build', '--candidate', 'HEAD']);
+			const r = run({}, ['--ticket', 'CC-99', '--allow-stale-build', '--candidate', 'HEAD']);
 			expect(r.status).toBe(7);
 			expect(JSON.parse(r.stdout).args).toEqual(['--ticket', 'CC-99', '--candidate', 'HEAD']);
 			expect(r.stderr).toMatch(/evidence=false/);
 			expect(evidence()).toMatchObject({ evidence: false, underTest: '--candidate HEAD', freshBuild: { allowStaleBuild: true } });
 			expect(evidence().evidenceNote).toMatch(/^NOT release evidence/);
+			expect(r.stderr.trim().split('\n').at(-1)).toMatch(/^measure: CC-99 exit 7 — NOT EVIDENCE \(NOT release evidence/);
+			// the environment form is gone: an exported CLEARCASE_ALLOW_STALE_BUILD=1 is still refused
+			expect(run({ CLEARCASE_ALLOW_STALE_BUILD: '1' }, ['--ticket', 'CC-99', '--candidate', 'HEAD']).status).toBe(2);
 		});
 		test("in a clean checkout, --candidate HEAD or a build stamped with HEAD is fresh; another revision or a modified tracked file is not", () => {
 			const repo = join(root, 'measure-git');
@@ -79,7 +82,7 @@ describe('measure dispatcher', () => {
 			git(repo, 'add', '.');
 			git(repo, 'commit', '-q', '-m', 'synthetic');
 			const first = git(repo, 'rev-parse', 'HEAD');
-			const go = (...args: string[]) => spawnSync(BUN, [join(repo, 'scripts', 'measure', 'index.ts'), '--ticket', 'CC-99', ...args], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, CLEARCASE_REPORT_DIR: join(repo, 'report'), CLEARCASE_ALLOW_STALE_BUILD: '' } });
+			const go = (...args: string[]) => spawnSync(BUN, [join(repo, 'scripts', 'measure', 'index.ts'), '--ticket', 'CC-99', ...args], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, CLEARCASE_REPORT_DIR: join(repo, 'report') } });
 			const cand = go('--candidate', 'HEAD');
 			expect(cand.status, cand.stderr).toBe(7);
 			expect(cand.stderr).toMatch(/evidence=true/);
@@ -93,7 +96,7 @@ describe('measure dispatcher', () => {
 			writeFileSync(join(repo, 'scripts', 'measure', 'cc99.mjs'), echo('cc99') + '// modified\n');
 			const dirty = go();
 			expect(dirty.status).toBe(2);
-			expect(dirty.stderr).toMatch(/tracked files are modified: scripts\/measure\/cc99\.mjs/);
+			expect(dirty.stderr).toMatch(/files are modified or untracked: scripts\/measure\/cc99\.mjs/);
 		});
 	});
 });
@@ -120,7 +123,7 @@ describe('browser e2e categories', () => {
 		const src = readFileSync(join(REPO, 'tests', 'e2e', 'pilot', 'run.mjs'), 'utf8');
 		expect(src).toMatch(/\['loopback bind check \(host namespace\)', \[process\.execPath, \[join\(here, 'netcheck\.mjs'\)\]\]\],\n\t\t\.\.\.categorySteps\(\),\n\t\];/);
 		expect(src).toMatch(/const offline = \(file\) => offlineStep\(join\(here, file\)\);/);
-		expect(src).toMatch(/results\.push\(\{ name, rc: r\.status, ms: Date\.now\(\) - t0 \}\)/);
+		expect(src).toMatch(/const res = \{ name, rc: r\.status, ms: Date\.now\(\) - t0 \};/);
 	});
 });
 

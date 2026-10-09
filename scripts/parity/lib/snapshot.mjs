@@ -9,23 +9,29 @@ const uniq = (obj, id) => { let k = id, i = 2; while (Object.hasOwn(obj, k)) k =
 
 export const emptySnapshot = (view, side, status = 'ok') => ({ view, side, status, title: undefined, texts: {}, kpis: {}, counts: {}, tables: {}, lists: {}, controls: {}, sweeps: {}, exports: {}, focus: {} });
 
+/** A view counts as available when the registry says so or its owner route exists (`implemented`, a set of ids). */
+const isAvailable = (view, registry, implemented) => registry[view]?.status === 'available' || !!implemented?.has(view);
+const why = (view, registry) => (registry[view]?.status === 'available' ? `the registry marks ${view} available` : `${view}'s owner route exists`);
+
 /**
- * The app side of a view without an app adapter: not implemented when the view registry says so, else an extraction
- * error (the registry marks it available, so a missing adapter is a harness gap, never an accepted absence).
+ * The app side of a view without an app adapter: not implemented while the view is unavailable, else an extraction
+ * error (the registry marks it available or its owner route exists, so a missing adapter is a harness gap, never an
+ * accepted absence, and no whole-view waiver covers it). `implemented` is implementedViews(appRoot, VIEWS)
+ * (tests/e2e/pilot/lib/implemented.mjs).
  */
-export function appWithoutAdapter(view, registry) {
-	if (registry[view]?.status === 'available') return { ...emptySnapshot(view, 'app', 'error'), error: `the registry marks ${view} available but no app adapter exists (scripts/parity/adapters/app/${view}.mjs)` };
+export function appWithoutAdapter(view, registry, implemented) {
+	if (isAvailable(view, registry, implemented)) return { ...emptySnapshot(view, 'app', 'error'), error: `${why(view, registry)} but no app adapter exists: add scripts/parity/adapters/app/${view}.mjs` };
 	return { ...emptySnapshot(view, 'app', 'not-implemented'), owner: registry[view]?.linear ?? null };
 }
 
 /**
- * The app side of a view with an app adapter, as the runner scores it: for a view the registry marks available, any
- * status other than 'ok' is an extraction error (an adapter cannot declare an available view not implemented and so
- * fall under a whole-view waiver); otherwise the adapter's snapshot as returned.
+ * The app side of a view with an app adapter, as the runner scores it: for an available view (the registry says so or
+ * its owner route exists), any status other than 'ok' is an extraction error (an adapter cannot declare an
+ * implemented view not implemented and so fall under a whole-view waiver); otherwise the adapter's snapshot as returned.
  */
-export function appFromAdapter(view, registry, sa) {
-	if (registry[view]?.status !== 'available' || sa?.status === 'ok' || sa?.status === 'error') return sa;
-	return { ...emptySnapshot(view, 'app', 'error'), error: `the registry marks ${view} available but its app adapter returned status ${JSON.stringify(sa?.status)}` };
+export function appFromAdapter(view, registry, sa, implemented) {
+	if (!isAvailable(view, registry, implemented) || sa?.status === 'ok' || sa?.status === 'error') return sa;
+	return { ...emptySnapshot(view, 'app', 'error'), error: `${why(view, registry)} but its app adapter returned status ${JSON.stringify(sa?.status)}: make it extract the view (status 'ok')` };
 }
 
 /** A table from raw: columns are slugs of the header labels (sort arrows removed), cells are parts joined ' / '. */

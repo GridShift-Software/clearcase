@@ -5,11 +5,15 @@
 // $CLEARCASE_REPORT_DIR (default .local/v5-report). Exit 0 only if every lane and check passes; 2 on a
 // configuration or prerequisite error.
 //
-//   bun tests/e2e/pilot/v5-lanes.mjs [--isolated[=REV]] [--config FILE]
+//   bun tests/e2e/pilot/v5-lanes.mjs [--isolated[=REV]] [--config FILE] [--allow-stale-build]
 //
 // Build under test: E2E_ROOT / E2E_BUILD_DIR when set, else the worktree's ./build (so running it after
 // `bun run --bun build` tests the current build); --isolated builds REV (default HEAD) in a disposable copy with
-// tests/e2e/pilot/lib/isolated-build.mjs. The build stamp is recorded either way.
+// tests/e2e/pilot/lib/isolated-build.mjs. The build stamp is recorded either way. Fresh-build evidence
+// (lib/fresh-build.ts): without --isolated the build must be HEAD's, made in <repo>/build, from and on a tree without
+// modified or untracked (not ignored) files, else exit 2 before any lane, unless --allow-stale-build, which runs it
+// with `evidence: false` in lanes-v5.json and NOT EVIDENCE in the final status line. An --isolated build is recorded
+// as evidence when it is of HEAD and the worktree is clean.
 //
 // Isolation: outside the namespace the runner re-execs itself as
 //   unshare -rn env OUTER_UID=$(id -u) OUTER_GID=$(id -g) tests/e2e/pilot/offline.sh bun <self> <args>
@@ -23,7 +27,16 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
+import { allowStale, evidenceRecord, evidenceSuffix, freshLine, freshness, refusal } from './lib/fresh-build.ts';
 import { buildFromEnv, bunIdentity, chromiumIdentity, ensureOffline, gitIdentity, hostIdentity, PORTS, REPO, sha256Bytes, treeStamp } from './v5/env.mjs';
+
+// fresh-build evidence, before anything starts (a missing build is the setup error further down)
+const allowedStale = allowStale(process.argv.slice(2));
+if (!process.argv.slice(2).some((a) => a === '--isolated' || a.startsWith('--isolated='))) {
+	const b = buildFromEnv();
+	const f = b.stamp ? freshness(REPO, b.stamp, { buildDir: b.buildDir }) : null;
+	if (f && !f.fresh && !allowedStale) { console.error(refusal('verify:pilot:v5', f)); process.exit(2); }
+}
 
 ensureOffline(import.meta.filename);
 
@@ -62,18 +75,22 @@ const treeBefore = treeStamp(fx.caseFolder);
 const runnerFiles = ['tests/e2e/pilot/v5-lanes.mjs', 'tests/e2e/pilot/v5/env.mjs', 'tests/e2e/pilot/v5/fixture.mjs', 'tests/e2e/pilot/v5/browser.mjs', 'tests/e2e/pilot/v5/record.mjs', 'tests/e2e/pilot/v5/lanes.mjs'];
 const runner = Object.fromEntries(runnerFiles.map((f) => [f, sha256Bytes(readFileSync(join(REPO, f))).slice(0, 16)]));
 
-let build;
+let build, fresh;
 const iso = arg('isolated');
 if (iso) {
 	const rev = iso === true ? 'HEAD' : String(iso);
 	console.log(`isolated build of ${rev} ...`);
-	try { const r = isolatedBuild({ repo: REPO, rev, dir: join(work, 'iso'), log: (m) => console.log(m) }); build = { root: r.src, buildDir: r.buildDir, stamp: r.stamp, mode: `isolated copy of ${r.revision} (git archive + reflinked node_modules, bun run --bun build, ${Math.round(r.buildMs)} ms)`, revision: r.revision }; }
+	try { const r = isolatedBuild({ repo: REPO, rev, dir: join(work, 'iso'), log: (m) => console.log(m) }); build = { root: r.src, buildDir: r.buildDir, stamp: r.stamp, mode: `isolated copy of ${r.revision} (git archive + reflinked node_modules, bun run --bun build, ${Math.round(r.buildMs)} ms)`, revision: r.revision }; fresh = freshness(REPO, r.stamp, { buildDir: r.buildDir, isolated: r }); }
 	catch (e) { die(1, `isolated build failed: ${e.message}`); }
 } else {
 	const b = buildFromEnv();
 	if (b.problem) die(2, b.problem);
 	build = { ...b, mode: process.env.E2E_BUILD_DIR || process.env.E2E_ROOT ? 'E2E_ROOT/E2E_BUILD_DIR' : 'worktree ./build', revision: b.stamp.revision };
+	fresh = freshness(REPO, b.stamp, { buildDir: b.buildDir });
+	if (!fresh.fresh && !allowedStale) die(2, refusal('verify:pilot:v5', fresh).replace(/^verify:pilot:v5: /, '')); // refused above; the tree changed since
 }
+const evidence = evidenceRecord(fresh, allowedStale);
+console.log(`verify:pilot:v5: ${freshLine(fresh)}`);
 const buildMatchesHead = build.stamp?.revision === git.head && !build.stamp?.dirty;
 // When the stamp names another commit, list what differs between it and HEAD (an app-equivalence note, not a pass).
 const buildDelta = (() => {
@@ -114,7 +131,7 @@ const header = () => [
 	`revision: ${git.head} on ${git.branch}${git.dirty ? ` (worktree dirty: ${git.dirtyPaths.slice(0, 12).join(', ')}${git.dirtyPaths.length > 12 ? ', …' : ''})` : ' (clean)'}`,
 	`runner: ${Object.entries(runner).map(([f, h]) => `${f} sha256 ${h}…`).join('; ')}`,
 	`build under test: ${build.mode}; root ${build.root}; build dir ${build.buildDir}`,
-	`build stamp: ${JSON.stringify(build.stamp)}; stamp revision equals HEAD and clean: ${buildMatchesHead ? 'yes' : 'NO (evidence is for the stamped build, not for HEAD)'}${buildDelta ? `; stamp..HEAD changed ${JSON.stringify(buildDelta.paths ?? buildDelta.error)}, app sources changed: ${JSON.stringify(buildDelta.appPaths ?? null)}, package.json scripts-only: ${buildDelta.packageJsonScriptsOnly}, app-equivalent: ${buildDelta.appEquivalent ? 'yes' : 'NO'}` : ''}${build.stamp?.dirty ? '; stamp dirty = tracked files modified at build time (copy-pdfjs.ts uses git status --untracked-files=no)' : ''}`,
+	`build stamp: ${JSON.stringify(build.stamp)}; stamp revision equals HEAD and clean: ${buildMatchesHead ? 'yes' : 'NO (evidence is for the stamped build, not for HEAD)'}${buildDelta ? `; stamp..HEAD changed ${JSON.stringify(buildDelta.paths ?? buildDelta.error)}, app sources changed: ${JSON.stringify(buildDelta.appPaths ?? null)}, package.json scripts-only: ${buildDelta.packageJsonScriptsOnly}, app-equivalent: ${buildDelta.appEquivalent ? 'yes' : 'NO'}` : ''}${build.stamp?.dirty ? '; stamp dirty = files modified or untracked (not ignored) at build time (copy-pdfjs.ts uses the default git status)' : ''}`,
 	`bun: ${bun.version} (${bun.revision}) at ${bun.path}; server started as: ${serverCommand}`,
 	`chromium: ${chromium.version} at ${chromium.path}`,
 	`host: ${host.hostname}, ${host.cpu} x${host.logicalCpus}, ${host.memoryGiB} GiB, ${host.kernel}`,
@@ -207,11 +224,12 @@ const CRITERIA = [
 ];
 const matrix = CRITERIA.map(([id, text, ids]) => ({ criterion: id, text, evidence: ev(ids), files: ids.map((x) => files[x]).filter(Boolean), status: ids.every((x) => st(x) === 'PASS') ? 'PASS' : 'FAIL' }));
 const ok = [...C.lanes.values()].every((l) => l.status === 'PASS') && C.lanes.size === order.length;
-const meta = { ok, revision: git, build: { mode: build.mode, root: build.root, buildDir: build.buildDir, stamp: build.stamp, matchesHead: buildMatchesHead, deltaToHead: buildDelta }, bun, chromium, host, fixture: fx.sha256, offline: proof, canaryHits: canary.hits.length, command: `bun tests/e2e/pilot/v5-lanes.mjs ${argv.join(' ')}`, reportDir: out };
+const meta = { ok, ...evidence, revision: git, build: { mode: build.mode, root: build.root, buildDir: build.buildDir, stamp: build.stamp, matchesHead: buildMatchesHead, deltaToHead: buildDelta }, bun, chromium, host, fixture: fx.sha256, offline: proof, canaryHits: canary.hits.length, command: `bun tests/e2e/pilot/v5-lanes.mjs ${argv.join(' ')}`, reportDir: out };
 writeFileSync(join(out, 'criteria.json'), JSON.stringify({ ...meta, matrix }, null, 1));
 writeFileSync(join(out, 'criteria.md'), [
 	'# GRS-12 (CC-03) real-v5 criteria matrix', '',
 	`Result: **${ok ? 'PASS' : 'FAIL'}** at ${git.head}${git.dirty ? ' (worktree dirty)' : ''}; build ${build.stamp?.buildId} from ${build.stamp?.revision}${build.stamp?.dirty ? ' (dirty)' : ''} (${build.mode}; matches HEAD: ${buildMatchesHead ? 'yes' : `no${buildDelta ? `, app-equivalent to HEAD: ${buildDelta.appEquivalent ? 'yes' : 'NO'} (changed: ${(buildDelta.paths ?? []).join(', ')})` : ''}`}); Bun ${bun.version}; ${chromium.version}; offline namespace ${proof.netns}.`, '',
+	`Evidence: ${evidence.evidence ? 'yes' : `**NOT EVIDENCE**: ${evidence.evidenceNote}`}.`, '',
 	`Command: \`bun tests/e2e/pilot/v5-lanes.mjs ${argv.join(' ')}\` (exit ${ok ? 0 : 1}). Lanes 07 and 08 are negative controls on disposable copies.`, '',
 	'| Criterion | Requirement | Evidence (command results) | Files | Status |', '| --- | --- | --- | --- | --- |',
 	...matrix.map((m) => `| ${m.criterion} | ${m.text} | ${m.evidence.join('; ')} | ${m.files.join(', ')} | ${m.status} |`), '',
@@ -222,5 +240,5 @@ writeFileSync(join(out, 'criteria.md'), [
 writeFileSync(join(out, 'lanes-v5.json'), JSON.stringify({ ...meta, lanes: [...C.lanes.values()].map((l) => ({ id: l.id, title: l.title, negativeControl: l.negativeControl, status: l.status, ms: l.ms, commands: l.commands, checks: l.checks, files: l.files, error: l.error })) }, null, 1));
 for (const d of C.cleanup) rmSync(d, { recursive: true, force: true });
 if (!process.env.CLEARCASE_KEEP_WORK) rmSync(work, { recursive: true, force: true });
-console.log(`\nverify:pilot:v5: ${ok ? 'PASS' : 'FAIL'} (${[...C.lanes.values()].filter((l) => l.status === 'PASS').length}/${C.lanes.size} lanes and checks) -> ${out}`);
+console.log(`\nverify:pilot:v5: ${ok ? 'PASS' : 'FAIL'} (${[...C.lanes.values()].filter((l) => l.status === 'PASS').length}/${C.lanes.size} lanes and checks)${evidenceSuffix(evidence)} -> ${out}`);
 process.exit(ok ? 0 : 1);

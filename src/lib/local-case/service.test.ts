@@ -2,7 +2,7 @@
 // cases converted by GRS-10's adapter. Behaviour under test is observable state: stored rows, the active pointer,
 // the activation log, and what activation refuses.
 import { DatabaseSync } from 'node:sqlite';
-import { readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { canonicalBytes } from '../case-package/canonical.ts';
@@ -51,6 +51,17 @@ describe('import', () => {
 		expect(lc.verify(v.id, true)).toMatchObject({ ok: true });
 		expect(lc.store.projectionRows(v.id).documents).toHaveLength(7);
 		expect(lc.currentActive()).toBeUndefined(); // importing never activates
+	});
+
+	it('a case folder restored at the same path is re-bound by importing the same package again', async () => {
+		const { root, lc } = await setup('rebind');
+		const c = await buildCase(path.join(root, 'c'));
+		const imp = await lc.importPackage(c.caseDir, c.pkgDir);
+		await rename(c.caseDir, `${c.caseDir}.old`);
+		await cp(`${c.caseDir}.old`, c.caseDir, { recursive: true }); // same path, new inode
+		expect((await lc.activate(c.resultsVersion, ackFor(lc, imp.importId)))?.message).toMatch(/moved or replaced/);
+		expect(await lc.importPackage(c.caseDir, c.pkgDir)).toEqual({ kind: 'identical', importId: imp.importId });
+		expect(await lc.activate(c.resultsVersion, ackFor(lc, imp.importId))).toBeNull();
 	});
 
 	it('a rejected import writes only its attempt row and leaves the active version unchanged', async () => {

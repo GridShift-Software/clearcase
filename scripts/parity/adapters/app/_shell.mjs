@@ -75,11 +75,18 @@ export async function slotPlugins(ctx) {
 	return ctx.slotPlugins;
 }
 
+/** Throw unless the page is still the overview (a plug-in's read() must not navigate away). */
+export async function assertOverview(p, who) {
+	const ok = await p.evaluate(`location.pathname.endsWith('/overview') && !!${ready('overview')}`);
+	if (ok !== true) throw new Error(`${who} left the overview: read() must read the overview page in place, without navigating`);
+}
+
 /**
  * Open the overview and read it as a v5-shaped snapshot. The widget slots stand where v5 shows the deadline and
- * unbilled-time tiles and the freshness card: a filled slot with a plug-in is read by the plug-in's read(p, ctx) as
- * {value, sub} (the freshness slot as text.freshness.1 and, when sub is not empty, .2); any other slot is recorded with
- * its wording, so it compares as a value and not as a missing tile.
+ * unbilled-time tiles and the freshness card: a filled slot is read by its plug-in's read(p, ctx) as {value, sub}
+ * (the freshness slot as text.freshness.1 and, when sub is not empty, .2), after which the page must still be the
+ * overview; a filled slot without a plug-in is an error. An unfilled slot is recorded with its wording, so it
+ * compares as a value and not as a missing tile.
  */
 export async function readOverviewSnapshot(p, ctx) {
 	await open(p, ctx, '/overview', 'overview');
@@ -90,7 +97,9 @@ export async function readOverviewSnapshot(p, ctx) {
 	for (const sl of slots) {
 		for (const k of Object.keys(s.texts)) if (k.startsWith(`${sl.label.toLowerCase().replace(/[^a-z0-9]+/g, '_')}.`)) delete s.texts[k];
 		const pl = sl.status === 'filled' ? plugins.get(sl.id) : undefined;
+		if (sl.status === 'filled' && !pl) throw new Error(`overview slot ${sl.id} is filled but has no parity plug-in: add scripts/parity/adapters/app/slots/${sl.id}.mjs`);
 		const got = pl ? await pl.read(p, ctx) : { value: sl.text, sub: '' };
+		if (pl) await assertOverview(p, `slot plug-in ${sl.id}`);
 		if (SLOT_TILE[sl.id]) s.kpis[SLOT_TILE[sl.id]] = { label: sl.label, value: got.value, sub: got.sub };
 		else {
 			s.texts[`${sl.id === 'rescan-freshness' ? 'freshness' : sl.id}.1`] = got.value;

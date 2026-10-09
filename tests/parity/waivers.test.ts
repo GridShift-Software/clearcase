@@ -73,7 +73,7 @@ describe('extraction errors are never waived', () => {
 		expect(snap.appFromAdapter('people', registry, absent)).toBe(absent);
 	});
 	test('the runner passes every app adapter snapshot through appFromAdapter', () => {
-		expect(readFileSync(join(REPO, 'scripts', 'parity', 'run.mjs'), 'utf8')).toMatch(/sa = appFromAdapter\(view, registry, sa\)/);
+		expect(readFileSync(join(REPO, 'scripts', 'parity', 'run.mjs'), 'utf8')).toMatch(/sa = appFromAdapter\(view, registry, sa, implemented\)/);
 	});
 	test('a whole-view absence is covered only by a field of exactly the string *, not by ?, **, *? or [*]', () => {
 		const d = { path: '*', kind: 'view-not-implemented', v5: 'view', app: '<absent>' };

@@ -16,7 +16,7 @@
 // Exit 0: no unregistered difference. 1: an unregistered difference, a view that did not extract on either side (never
 // covered by the register), or an isolation breach (a v5 or app network request, a canary hit, a changed fixture
 // tree). 2: setup error (arguments, fixture locator, register, including a whole-view owner that is not the view
-// registry's, build, offline proof).
+// registry's, an --out overlapping a fixture input, build, offline proof).
 //
 // Isolation: outside the network namespace the runner re-execs itself through tests/e2e/pilot/offline.sh under
 // `unshare -rn` (tests/e2e/pilot/v5/env.mjs ensureOffline); inside, it proves that only loopback exists before it
@@ -25,7 +25,7 @@
 // the register-edit mutation, where the pilot has no register yet). Register entries that covered nothing in the run
 // are reported as unused; --strict-register fails on them (an improvement that reverted to v5 behaviour matches v5,
 // so only its unused entry shows it).
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { ensureOffline, gitIdentity, PORTS, REPO, treeStamp } from '../../tests/e2e/pilot/v5/env.mjs';
 
@@ -54,6 +54,7 @@ const { classify, diff, runFailures, scorecard, TYPES } = await import('./lib/co
 const { chronologyDims } = await import('./lib/sweeps.mjs');
 const { extractV5View, v5Nav } = await import('./adapters/v5/index.mjs');
 const { appWithoutAdapter, emptySnapshot } = await import('./lib/snapshot.mjs');
+const { fixtureInputs, prepareOutput } = await import('./lib/outdir.mjs');
 
 const t0 = performance.now();
 const clock = opt('clock') ?? '2026-10-08T09:00:00Z';
@@ -81,10 +82,9 @@ for (const f of readdirSync(join(import.meta.dirname, 'adapters', 'app')).filter
 	adapters[a.view] = a;
 }
 
-mkdirSync(join(out, 'views'), { recursive: true });
-const work = join(out, '.work');
-rmSync(work, { recursive: true, force: true });
-mkdirSync(work, { recursive: true });
+// nothing is written before this: an output overlapping the fixture is refused, and the working directory is fresh
+let work;
+try { ({ work } = prepareOutput(out, fixtureInputs(fx, { appV5Html: opt('app-v5-html') && resolve(opt('app-v5-html')) }))); } catch (e) { setup(e.message); }
 const treeBefore = treeStamp(fx.caseFolder);
 const git = gitIdentity();
 

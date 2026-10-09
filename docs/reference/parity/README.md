@@ -16,7 +16,7 @@ bun run --bun parity -- --view chronology,overview --fixture-config .local/v5-ve
 | --- | --- |
 | `--all` or `--view ID[,ID…]` | The views to compare, by v5 navigation id. |
 | `--fixture-config FILE` | The local fixture locator (`.local/v5-verification.json`, the same file `verify:pilot:v5` uses). Its main HTML and expected-examples hashes are checked against the committed profile. |
-| `--out DIR` | Output directory, inside `.local/` or outside the repository. |
+| `--out DIR` | Output directory, inside `.local/` or outside the repository. It must not overlap a read-only fixture input (the case folder, the v5 main HTML and its folder, the expected examples, inventory and summary, a reused package, an `--app-v5-html` copy file) in either direction, compared by realpath with symlinks followed; an overlap is a setup error before anything is written. Each run works in a fresh `DIR/.work-XXXXXX`, so an existing `DIR/.work` is left alone. |
 | `--clock ISO`, `--timezone TZ` | The fixed clock (default `2026-10-08T09:00:00Z`) and timezone (default `UTC`) for both sides. |
 | `--approved-only` | Only approved register entries cover differences. The CC-11 gate uses this. |
 | `--strict-register` | Fail when a register entry covered nothing in the views run (see [Unused entries](#unused-entries)). |
@@ -25,7 +25,7 @@ bun run --bun parity -- --view chronology,overview --fixture-config .local/v5-ve
 | `--app-root DIR` | Use another checkout's build and modules (the mutation proof). |
 | `--app-v5-html FILE` | Self-parity: the app side is the v5 adapter on another copy of the v5 HTML. |
 
-Exit codes: **0** no unregistered difference; **1** at least one unregistered difference, a view that did not extract on either side (an app adapter that threw, or an available view without one, included; the register never covers it), an unused register entry under `--strict-register`, or any isolation breach: a v5 network request, an app request that is not loopback, a canary hit other than a browser service, or a changed fixture tree; **2** setup error (arguments, locator, register, build, conversion, import or the offline proof). The register is checked first, before the runner re-executes offline or reads the locator, and a whole-view entry whose owner is not the view registry's owner is a register error.
+Exit codes: **0** no unregistered difference; **1** at least one unregistered difference, a view that did not extract on either side (an app adapter that threw, or an available view without one, included; the register never covers it), an unused register entry under `--strict-register`, or any isolation breach: a v5 network request, an app request that is not loopback, a canary hit other than a browser service, or a changed fixture tree; **2** setup error (arguments, locator, register, an `--out` overlapping the fixture, build, conversion, import or the offline proof). The register is checked first, before the runner re-executes offline or reads the locator, and a whole-view entry whose owner is not the view registry's owner is a register error.
 
 A full run takes about 100 seconds on this host, most of it the chronology sweeps.
 

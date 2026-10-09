@@ -29,8 +29,9 @@ describe('info required flags', () => {
 		const key = itemKeys(items)[1]!;
 		expect(await saveDone(lc.userWork, 'case-1', 'rv-1', items, key, true)).toBe(true);
 		expect(infoRows(lc.userWork, 'case-1', items).rows.map((r) => r.done)).toEqual([false, true, false]);
-		const reordered = [items[2]!, items[1]!, items[0]!];
-		expect(infoRows(lc.userWork, 'case-1', reordered).rows.map((r) => [r.item, r.done])).toEqual([['Invented item C', false], ['Invented item B', true], ['Invented item A', false]]);
+		// a later version moves the item to another position: the flag follows the item, not the position
+		const reordered = [items[1]!, items[2]!, items[0]!];
+		expect(infoRows(lc.userWork, 'case-1', reordered).rows.map((r) => [r.item, r.done])).toEqual([['Invented item B', true], ['Invented item C', false], ['Invented item A', false]]);
 		// the stored row names the item and the version it was set against, not a position
 		const [row] = lc.userWork.listRows('case-1', INFO_STORE);
 		expect(row!.rowId).toBe(key);

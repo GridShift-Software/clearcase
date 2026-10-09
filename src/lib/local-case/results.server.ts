@@ -5,6 +5,7 @@
 // values are cached per (version, key) and deep-frozen.
 import { decodeUtf8Strict, parseStrictJson } from '../case-package/index.ts';
 import { KNOWN_SCHEMAS } from '../case-package/registry.ts';
+import { readViewContent, VIEW_CONTENT_KEY, type ViewContentReader } from '../case-package/view-content.ts';
 import type { CaseStore } from './store.server.ts';
 
 const MAX_CACHED = 64;
@@ -34,4 +35,17 @@ export function datasetOf<T = unknown>(store: CaseStore, resultsVersion: string,
 export function datasetKeys(store: CaseStore, resultsVersion: string): string[] {
 	return (store.storage.db().prepare("SELECT path FROM package_file WHERE version_id = ? AND path LIKE 'datasets/%.json' ORDER BY path").all(resultsVersion) as { path: string }[])
 		.map((r) => r.path.slice('datasets/'.length, -'.json'.length));
+}
+
+/** The version's `view-content` dataset (GRS-38) through the typed reader; absent or malformed data reads as empty. */
+export const viewContentOf = (store: CaseStore, resultsVersion: string): ViewContentReader => readViewContent(datasetOf(store, resultsVersion, VIEW_CONTENT_KEY));
+
+/**
+ * One view-content field as text, a template filled from `params` (imported data). Null when the field is absent,
+ * is not text or a template, or names a param the caller cannot fill: the view then uses its neutral layout, never a
+ * half-filled sentence or a literal.
+ */
+export function viewText(vc: ViewContentReader, view: string, field: string, params: Readonly<Record<string, string | number>> = {}): string | null {
+	const f = vc.fill(view, field, params);
+	return f && f.missing.length === 0 && f.text.trim() ? f.text : null;
 }

@@ -21,7 +21,7 @@
 </script>
 
 <main id="main" tabindex="-1" data-ready={ready ? `doc:${data.ref}` : null}>
-	<PageHeader heading="{data.ref} {title}" section="Document" caseName={data.version.caseName} document="{data.ref} {title}" />
+	<PageHeader heading="{data.ref} {title}" section="Document" caseName={data.version.titleName} document="{data.ref} {title}" />
 	<table class="fields"><tbody>
 		<tr><th scope="row">Date</th><td id="doc-date"><DateValue date={f.date} dateType={f.dateType} dateSource={f.dateSource} /></td></tr>
 		<tr><th scope="row">Filename (source)</th><td class="wrap">{displayFilename(f.filename, 200)}</td></tr>

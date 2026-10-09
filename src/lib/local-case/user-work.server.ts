@@ -40,6 +40,8 @@ export type RegisterValue = string | number | boolean | null;
 const STORE = /^[a-z][a-z0-9-]{0,63}$/;
 const TABLE = /^[a-z][a-z0-9_]{0,62}$/;
 const COLUMN_TYPES = new Set(['TEXT', 'INTEGER', 'REAL', 'BLOB']);
+/** SQLite reserves sqlite_*; ClearCase refuses the whole sqlite prefix for tables it defines or restores. */
+const RESERVED = (name: string) => name.startsWith('sqlite') || name === 'userwork_catalog';
 export const USER_WORK_EXPORT = 'clearcase.user-work/1';
 
 export type TableKind = 'user-work' | 'activation' | 'unregistered';
@@ -47,7 +49,13 @@ export interface TableColumn { name: string; type: string; notNull: boolean; pk:
 export interface UserWorkTable { name: string; kind: TableKind; owner: string; description: string; columns: TableColumn[] }
 export interface TableDefinition { name: string; owner: string; description: string; columns: { name: string; type: 'TEXT' | 'INTEGER' | 'REAL' | 'BLOB'; notNull?: boolean }[]; primaryKey: string[] }
 type Cell = string | number | null | { $b64: string };
-export interface UserWorkExport { format: typeof USER_WORK_EXPORT; exportedAt: string; tables: (UserWorkTable & { rows: Record<string, Cell>[] })[] }
+export interface UserWorkExport {
+	format: typeof USER_WORK_EXPORT;
+	exportedAt: string;
+	tables: (UserWorkTable & { rows: Record<string, Cell>[] })[];
+	/** tables of the selected kinds left out because importAll() could not recreate them, each with the reason */
+	excluded?: { name: string; kind: TableKind; rows: number; reason: string }[];
+}
 const q = (id: string) => `"${id.replaceAll('"', '""')}"`;
 const MAX_NOTE = 20_000;
 const MAX_FIELDS_JSON = 64 * 1024;
@@ -195,51 +203,57 @@ export class UserWork {
 	 * restored like the built-in ones. A primary key of stable ids is required; a different existing shape is refused.
 	 */
 	async defineTable(def: TableDefinition): Promise<void> {
-		if (!TABLE.test(def.name) || def.name === 'userwork_catalog') throw new UserWorkError(`invalid table name ${def.name.slice(0, 80)}`);
-		if (!def.columns.length || def.columns.some((c) => !TABLE.test(c.name) || !COLUMN_TYPES.has(c.type))) throw new UserWorkError('columns need lower-case names and a TEXT, INTEGER, REAL or BLOB type');
-		if (!def.primaryKey.length || def.primaryKey.some((k) => !def.columns.some((c) => c.name === k))) throw new UserWorkError('a primary key of stable ids is required');
+		const bad = definitionProblem(def);
+		if (bad) throw new UserWorkError(bad);
 		const existing = this.tables().find((t) => t.name === def.name);
 		if (existing) {
 			const same = existing.columns.length === def.columns.length && def.columns.every((c, i) => existing.columns[i]?.name === c.name && existing.columns[i]?.type === c.type);
 			if (!same) throw new UserWorkError(`table ${def.name} already exists with another shape`);
 		}
-		const cols = def.columns.map((c) => `${q(c.name)} ${c.type}${c.notNull || def.primaryKey.includes(c.name) ? ' NOT NULL' : ''}`).join(', ');
-		await this.storage.tx((d) => {
-			d.exec(`CREATE TABLE IF NOT EXISTS work.${q(def.name)} (${cols}, PRIMARY KEY(${def.primaryKey.map(q).join(', ')})) WITHOUT ROWID`);
-			d.prepare(`INSERT INTO work.userwork_catalog(name, kind, owner, description) VALUES (?, 'user-work', ?, ?)
-				ON CONFLICT(name) DO UPDATE SET owner = excluded.owner, description = excluded.description`).run(def.name, def.owner, def.description);
-		});
+		await this.storage.tx((d) => createTable(d, def, true));
 	}
 
 	/** Every row of the selected kinds of tables (default: user work), in primary-key order. */
 	exportAll(opts: { kinds?: TableKind[] } = {}): UserWorkExport {
 		const kinds = new Set(opts.kinds ?? ['user-work', 'unregistered']);
-		const tables = this.tables().filter((t) => kinds.has(t.kind)).map((t) => {
+		const selected = this.tables().filter((t) => kinds.has(t.kind));
+		// Only what importAll() can restore is exported; anything else is named in `excluded`, never silently dropped.
+		const excluded = selected.flatMap((t) => {
+			const def = definitionOf(t);
+			// a rowid table may hold NULL in a declared key column; the restored table keys rows by it, so it is not restorable
+			const reason = definitionProblem(def) ?? (this.d.prepare(`SELECT 1 FROM work.${q(t.name)} WHERE ${def.primaryKey.map((k) => `${q(k)} IS NULL`).join(' OR ')} LIMIT 1`).get() ? 'a primary-key column holds empty values' : null);
+			return reason ? [{ name: t.name, kind: t.kind, rows: (this.d.prepare(`SELECT count(*) AS n FROM work.${q(t.name)}`).get() as { n: number }).n, reason }] : [];
+		});
+		const tables = selected.filter((t) => !excluded.some((x) => x.name === t.name)).map((t) => {
 			const pk = t.columns.filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk).map((c) => q(c.name));
 			const rows = (this.d.prepare(`SELECT * FROM work.${q(t.name)}${pk.length ? ` ORDER BY ${pk.join(', ')}` : ''}`).all() as Record<string, unknown>[])
 				.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, toCell(v)])));
 			return { ...t, rows };
 		});
-		return { format: USER_WORK_EXPORT, exportedAt: new Date().toISOString(), tables };
+		return { format: USER_WORK_EXPORT, exportedAt: new Date().toISOString(), tables, excluded };
 	}
 
 	/**
 	 * Restore an export in one transaction: each table in it is replaced by its rows. A table the export defines but
-	 * this store lacks is created from the export's columns first; a column mismatch refuses the whole restore.
+	 * this store lacks is created from the export's columns inside that same transaction (catalogued unless it was
+	 * unregistered), so a refused or failed restore leaves no table behind. Everything exportAll() writes restores;
+	 * a column mismatch with an existing table, or a shape it could not have written, refuses the whole restore.
 	 */
 	async importAll(snapshot: UserWorkExport): Promise<{ tables: number; rows: number }> {
 		if (snapshot?.format !== USER_WORK_EXPORT || !Array.isArray(snapshot.tables)) throw new UserWorkError(`not a ${USER_WORK_EXPORT} export`);
 		const here = new Map(this.tables().map((t) => [t.name, t]));
+		const create: { def: TableDefinition; catalogue: boolean }[] = [];
 		for (const t of snapshot.tables) {
-			if (!TABLE.test(t.name) || t.name === 'userwork_catalog') throw new UserWorkError(`invalid table name ${String(t.name).slice(0, 80)}`);
+			const def = definitionOf(t);
+			const bad = definitionProblem(def);
+			if (bad) throw new UserWorkError(`table ${String(t.name).slice(0, 80)}: ${bad}; nothing was restored`);
 			const h = here.get(t.name);
 			if (h && (h.columns.length !== t.columns.length || t.columns.some((c, i) => h.columns[i]?.name !== c.name))) throw new UserWorkError(`table ${t.name} has other columns here; nothing was restored`);
-			if (!h && !t.columns.some((c) => c.pk > 0)) throw new UserWorkError(`table ${t.name} has no primary key; nothing was restored`);
+			if (!h) create.push({ def, catalogue: t.kind !== 'unregistered' });
 		}
-		for (const t of snapshot.tables) if (!here.has(t.name))
-			await this.defineTable({ name: t.name, owner: t.owner, description: t.description, columns: t.columns.map((c) => ({ name: c.name, type: c.type as 'TEXT', notNull: c.notNull })), primaryKey: t.columns.filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk).map((c) => c.name) });
 		let rows = 0;
 		await this.storage.tx((d) => {
+			for (const c of create) createTable(d, c.def, c.catalogue);
 			for (const t of snapshot.tables) {
 				d.exec(`DELETE FROM work.${q(t.name)}`);
 				const cols = t.columns.map((c) => c.name);
@@ -263,13 +277,34 @@ export class UserWork {
 
 /** Generic catalogue and round trip of work.sqlite; mixed into UserWork below. */
 function tablesOf(d: ReturnType<Storage['db']>): UserWorkTable[] {
-	const names = (d.prepare("SELECT name FROM work.sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name != 'userwork_catalog' ORDER BY name").all() as { name: string }[]).map((r) => r.name);
+	// SQLite's own tables are sqlite_*; in LIKE '_' is a wildcard, so the prefix is compared literally
+	const names = (d.prepare("SELECT name FROM work.sqlite_master WHERE type = 'table' AND substr(name, 1, 7) != 'sqlite_' AND name != 'userwork_catalog' ORDER BY name").all() as { name: string }[]).map((r) => r.name);
 	const cat = new Map((d.prepare('SELECT name, kind, owner, description FROM work.userwork_catalog').all() as { name: string; kind: TableKind; owner: string; description: string }[]).map((r) => [r.name, r]));
 	return names.map((name) => {
 		const c = cat.get(name);
 		const columns = (d.prepare(`PRAGMA work.table_info(${q(name)})`).all() as { name: string; type: string; notnull: number; pk: number }[]).map((x) => ({ name: x.name, type: x.type, notNull: x.notnull === 1, pk: x.pk }));
 		return { name, kind: c?.kind ?? 'unregistered', owner: c?.owner ?? 'unknown', description: c?.description ?? 'not in the user-work catalogue', columns };
 	});
+}
+/** The definition importAll() would create a table from (its listed columns, primary key in key order). */
+const definitionOf = (t: Pick<UserWorkTable, 'name' | 'owner' | 'description' | 'columns'>): TableDefinition => ({
+	name: t.name, owner: t.owner, description: t.description,
+	columns: (Array.isArray(t.columns) ? t.columns : []).map((c) => ({ name: c.name, type: String(c.type).toUpperCase() as 'TEXT', notNull: c.notNull })),
+	primaryKey: (Array.isArray(t.columns) ? t.columns : []).filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk).map((c) => c.name),
+});
+/** Why a table of this shape cannot be defined or restored, or null. */
+function definitionProblem(def: TableDefinition): string | null {
+	if (typeof def.name !== 'string' || !TABLE.test(def.name) || RESERVED(def.name)) return `invalid table name ${String(def.name).slice(0, 80)} (lower-case letters, digits and _, not starting with sqlite)`;
+	if (!def.columns.length || def.columns.some((c) => typeof c.name !== 'string' || !TABLE.test(c.name) || !COLUMN_TYPES.has(c.type))) return 'columns need lower-case names and a TEXT, INTEGER, REAL or BLOB type';
+	if (!def.primaryKey.length || def.primaryKey.some((k) => !def.columns.some((c) => c.name === k))) return 'a primary key of stable ids is required';
+	return null;
+}
+/** Create a defined table (inside the caller's transaction) and, unless it stays unregistered, catalogue it. */
+function createTable(d: ReturnType<Storage['db']>, def: TableDefinition, catalogue: boolean) {
+	const cols = def.columns.map((c) => `${q(c.name)} ${c.type}${c.notNull || def.primaryKey.includes(c.name) ? ' NOT NULL' : ''}`).join(', ');
+	d.exec(`CREATE TABLE IF NOT EXISTS work.${q(def.name)} (${cols}, PRIMARY KEY(${def.primaryKey.map(q).join(', ')})) WITHOUT ROWID`);
+	if (catalogue) d.prepare(`INSERT INTO work.userwork_catalog(name, kind, owner, description) VALUES (?, 'user-work', ?, ?)
+		ON CONFLICT(name) DO UPDATE SET owner = excluded.owner, description = excluded.description`).run(def.name, def.owner, def.description);
 }
 const toCell = (v: unknown): Cell => (v instanceof Uint8Array ? { $b64: Buffer.from(v).toString('base64') } : typeof v === 'bigint' ? Number(v) : (v as Cell));
 const fromCell = (v: Cell): unknown => (v !== null && typeof v === 'object' ? new Uint8Array(Buffer.from(v.$b64, 'base64')) : v);

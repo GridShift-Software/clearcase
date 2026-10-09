@@ -99,6 +99,16 @@ describe('CC-23 independent package acceptance', () => {
     expect(result.diagnostics.map((d) => d.code)).toContain('LINK_UNSAFE_SCHEME');
   });
 
+  it.each(['inline', 'reference-definition'])('rejects a long %s destination without truncating it into a valid URL', async (form) => {
+    const destination = `https://example.invalid/${'a'.repeat(100_000)}`;
+    const text = form === 'inline' ? `[Invented link](${destination})` : `[Invented link]: ${destination}`;
+    const files = miniPackage({ docs: [{ ref: 'GT-001', path: 'source.pdf', bytes: original }], prose: [text] });
+    const result = await importCandidate({ files }, root);
+    expect(result.verdict).toBe('reject');
+    expect(result.candidate).toBeNull();
+    expect(result.diagnostics.map((d) => d.code)).toContain('LINK_RELATIVE_UNSAFE');
+  });
+
   it('binds acknowledgements to the reviewed manifest even if the results identity is unchanged', async () => {
     const files = miniPackage({ docs: [{ ref: 'GT-001', path: 'source.pdf', bytes: original }], prose: ['[[ZZ-999]]'] });
     const first = await importCandidate({ files }, root);

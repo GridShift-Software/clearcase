@@ -6,6 +6,9 @@
 //  * A candidate is stored in ONE BEGIN IMMEDIATE transaction: exactly candidate.snapshot() into package_file plus
 //    the projection (project.server.ts). The same resultsVersion with the same manifest is a no-op when the stored
 //    copy verifies and a repair when it does not; a different manifest, a retired id or another case folder rejects.
+//    The no-op holds only while the fresh validation reproduces the stored diagnostics and read model: once the
+//    originals changed, the re-import rejects with the current diagnostics (APP_ORIGINALS_CHANGED), because a stored
+//    version never changes and only restoring the originals or a new results version can be activated.
 //  * Activation, in order: stored bytes (verifyCandidateBytes); revalidation of the originals by importCandidate on
 //    the stored bytes; the fresh projection must equal the stored read model; canActivate on that fresh result with
 //    the operator's acknowledgement and the case's trusted baseline; then the pointer swap and the bound
@@ -26,7 +29,7 @@ import { project, readModelDigest } from './project.server.ts';
 import { CaseStore, type Verification } from './store.server.ts';
 import { UserWork } from './user-work.server.ts';
 
-export type AppCode = 'APP_INPUT_INVALID' | 'APP_CASE_FOLDER_OVERLAPS_DATA' | 'APP_VERSION_CONFLICT' | 'APP_VERSION_RETIRED' | 'APP_CASE_FOLDER_DIFFERS' | 'APP_UNLISTED_IGNORED';
+export type AppCode = 'APP_INPUT_INVALID' | 'APP_CASE_FOLDER_OVERLAPS_DATA' | 'APP_VERSION_CONFLICT' | 'APP_VERSION_RETIRED' | 'APP_CASE_FOLDER_DIFFERS' | 'APP_ORIGINALS_CHANGED' | 'APP_UNLISTED_IGNORED';
 /** App-level findings next to GRS-10's diagnostics; only errors reject. */
 export interface AppDiagnostic { code: AppCode; severity: 'error' | 'info'; message: string; hint: string }
 
@@ -255,6 +258,10 @@ export class LocalCase {
 			if (existing && existing.case_root !== inputs.caseRoot.path)
 				return conflict('APP_CASE_FOLDER_DIFFERS', `${c.resultsVersion} was imported against the case folder ${existing.case_root}; this import names ${inputs.caseRoot.path}`, 'Import it against the same case folder, or export a new results version for the other folder.');
 			if (existing && this.verify(existing.id, true).ok) {
+				// the stored report is only still true while this fresh validation reproduces it; otherwise show the fresh one
+				const proj = project(c, result.counts);
+				if (result.diagnosticsSha256 !== existing.diagnostics_sha256 || readModelDigest({ ...proj, expect: JSON.stringify(proj.expect) }) !== existing.read_model_sha256)
+					return conflict('APP_ORIGINALS_CHANGED', `the case folder no longer matches what was validated when ${c.resultsVersion} was stored (import #${existing.import_id}); the diagnostics below are the current ones`, `A stored results version never changes, so importing this package again cannot update it. Restore the changed or missing originals byte for byte and activate import #${existing.import_id} again, or convert the case folder and import the package as a new results version.`);
 				if (existing.case_dev !== inputs.caseRoot.dev || existing.case_ino !== inputs.caseRoot.ino) await this.store.rebindCaseRoot(existing.id, inputs.caseRoot.dev, inputs.caseRoot.ino);
 				return { kind: 'identical', importId: existing.import_id };
 			}
@@ -331,7 +338,7 @@ export class LocalCase {
 		const proj = project(fresh.candidate, fresh.counts);
 		const digest = readModelDigest({ ...proj, expect: JSON.stringify(proj.expect) });
 		if (digest !== v.read_model_sha256)
-			return { message: `Activation refused: the case folder no longer matches what was previewed for ${vid} (originals changed, moved or became unavailable). Import the package again to review the new state. Nothing was changed.` };
+			return { message: `Activation refused: the case folder no longer matches what was previewed for ${vid} (originals changed, moved or became unavailable). Restore the originals byte for byte and activate again, or convert the case folder and import a new results version: a stored version never changes, so importing this package again only shows the current diagnostics. Nothing was changed.` };
 		// 3. the activation policy over the fresh result
 		const ack: Acknowledgement | null = ackInput ? {
 			acknowledgement: 'clearcase.acknowledgement/1', resultsVersion: ackInput.resultsVersion, manifestSha256: ackInput.manifestSha256,

@@ -111,7 +111,7 @@ describe('SSR pages: import-time and parent-original states', () => {
 	it('a container whose original is missing on disk says its embedded attachments are unavailable', async () => {
 		const page = `${v()}/doc/EM-0001`;
 		const before = (await get(page)).text;
-		expect(before).toMatch(/data-route="parent"[^]*?the parent original<\/a> to reach it/);
+		expect(before).toMatch(/data-route="parent"[^]*?>the parent original<\/a>/);
 		const { original } = JSON.parse(lc.store.document(rv, 'EM-0001')!.state_json) as DocumentStateRow;
 		const file = path.join(caseDir, ...original!.path.split('/'));
 		const bytes = readFileSync(file);
@@ -124,7 +124,7 @@ describe('SSR pages: import-time and parent-original states', () => {
 			for (const r of rows) {
 				expect(r).toContain('data-parent="unavailable"');
 				expect(r).toContain('the parent original is unavailable');
-				expect(r).not.toContain('to reach it');
+				expect(r).not.toContain('</a>');
 			}
 		} finally { writeFileSync(file, bytes); }
 	});

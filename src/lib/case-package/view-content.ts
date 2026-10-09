@@ -2,7 +2,9 @@
 // that v5 hard-coded in its renderers and ClearCase imports as data. Views read it here, never
 // from literals in the app. Every value is untrusted text: put it in a text node, or pass a
 // narrative through renderNarrative(). Template params are filled from imported data, which is
-// untrusted too. Browser-safe: no Node built-ins.
+// untrusted too. A link field (`url`, ...) in any form passes the package link policy: a value
+// the policy rejects is never returned. Browser-safe: no Node built-ins.
+import { classifyLink, LINK_FIELDS } from './links.ts';
 
 export const VIEW_CONTENT_KEY = 'view-content';
 
@@ -38,6 +40,18 @@ export function isViewTemplate(v: unknown): v is ViewTemplate {
     v.template.every((p) => typeof p === 'string' || (isRecord(p) && typeof p.param === 'string'));
 }
 
+/** The link a template-form link field spells, every param left empty (the import-time check). */
+export const templateLinkText = (v: ViewTemplate): string => v.template.map((p) => (typeof p === 'string' ? p : '')).join('');
+
+const safeLink = (s: string) => classifyLink(s).kind !== 'rejected';
+
+/** False when `field` is a link field and its value, in any form, is a link the policy rejects. */
+function linkAllowed(field: string, v: ViewValue): boolean {
+  if (!LINK_FIELDS.has(field) || typeof v === 'number') return true;
+  if (typeof v === 'string') return safeLink(v);
+  return Array.isArray(v) ? v.every(safeLink) : safeLink(templateLinkText(v));
+}
+
 export function isViewValue(v: unknown): v is ViewValue {
   return typeof v === 'string' || (typeof v === 'number' && Number.isFinite(v)) || (Array.isArray(v) && v.every((x) => typeof x === 'string')) || isViewTemplate(v);
 }
@@ -53,11 +67,11 @@ export function readViewContent(data: unknown): ViewContentReader {
   const value = (view: string, field: string): ViewValue | null => {
     const f = fieldsOf(view);
     const v = Object.hasOwn(f, field) ? f[field] : undefined;
-    return isViewValue(v) ? v : null;
+    return isViewValue(v) && linkAllowed(field, v) ? v : null;
   };
   return {
     views: () => Object.keys(root).filter((v) => isRecord(root[v])).sort(),
-    fields: (view) => Object.keys(fieldsOf(view)).filter((f) => isViewValue(fieldsOf(view)[f])).sort(),
+    fields: (view) => Object.keys(fieldsOf(view)).filter((f) => value(view, f) !== null).sort(),
     value: (view, field) => { const v = value(view, field); return v !== null && typeof v === 'object' ? structuredClone(v) : v; },
     text: (view, field) => { const v = value(view, field); return typeof v === 'string' ? v : null; },
     number: (view, field) => { const v = value(view, field); return typeof v === 'number' ? v : null; },
@@ -78,6 +92,8 @@ export function readViewContent(data: unknown): ViewContentReader {
         missing.push(p.param);
         return '';
       }).join('');
+      // params come from imported data: the filled link is checked again
+      if (LINK_FIELDS.has(field) && !safeLink(text)) return null;
       return { text, missing };
     },
   };

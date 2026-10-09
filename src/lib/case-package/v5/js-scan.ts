@@ -21,6 +21,7 @@ const ID_START = /[\p{ID_Start}$_]/u;
 const ID_REST = /[\p{ID_Continue}$‌‍]*/uy;
 const NUMBER = /(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d+)?)n?/y;
 
+const CODE_POINT_ESC = /([0-9a-fA-F]{1,6})\}/y;
 const SIMPLE_ESC: Record<string, string> = { n: '\n', r: '\r', t: '\t', b: '\b', f: '\f', v: '\v', 0: '\0' };
 
 /** Tokenize one script region [from, to) of `src`. Malformed input never throws: the token stops at the line end. */
@@ -48,9 +49,10 @@ export function tokenize(src: string, from = 0, to = src.length): Tok[] {
         const n = src[j + 1] ?? '';
         if (n === 'x' && /^[0-9a-fA-F]{2}$/.test(src.slice(j + 2, j + 4))) { v += String.fromCharCode(parseInt(src.slice(j + 2, j + 4), 16)); j += 4; continue; }
         if (n === 'u' && src[j + 2] === '{') {
-          const close = src.indexOf('}', j + 3);
-          const cp = close > 0 ? parseInt(src.slice(j + 3, close), 16) : NaN;
-          if (Number.isInteger(cp) && cp <= 0x10ffff) { v += String.fromCodePoint(cp); j = close + 1; continue; }
+          CODE_POINT_ESC.lastIndex = j + 3;
+          const m = CODE_POINT_ESC.exec(src);
+          const cp = m ? parseInt(m[1]!, 16) : NaN;
+          if (Number.isInteger(cp) && cp <= 0x10ffff) { v += String.fromCodePoint(cp); j = CODE_POINT_ESC.lastIndex; continue; }
         }
         if (n === 'u' && /^[0-9a-fA-F]{4}$/.test(src.slice(j + 2, j + 6))) { v += String.fromCharCode(parseInt(src.slice(j + 2, j + 6), 16)); j += 6; continue; }
         if (n === '\r' && src[j + 2] === '\n') { j += 3; continue; }
@@ -79,7 +81,7 @@ export function tokenize(src: string, from = 0, to = src.length): Tok[] {
     const c = src[i]!;
     if (c === ' ' || c === '\t' || c === '\n' || c === '\r' || c === '\f' || c === '\v' || c === ' ' || c === '﻿' || c === ' ' || c === ' ') { i++; continue; }
     if (c === '/' && src[i + 1] === '/') { while (i < to && src[i] !== '\n') i++; continue; }
-    if (c === '/' && src[i + 1] === '*') { const e = src.indexOf('*/', i + 2); i = e < 0 || e >= to ? to : e + 2; continue; }
+    if (c === '/' && src[i + 1] === '*') { let e = i + 2; while (e + 1 < to && !(src[e] === '*' && src[e + 1] === '/')) e++; i = e + 1 < to ? e + 2 : to; continue; }
     if (c === '<' && src.startsWith('<!--', i)) { while (i < to && src[i] !== '\n') i++; continue; }
     if (c === '"' || c === "'") {
       const [v, j, term] = readChars(i + 1, [c]);
@@ -136,15 +138,17 @@ export function tokenize(src: string, from = 0, to = src.length): Tok[] {
 /** Script element contents [start, end) in document order; external scripts (src=) are skipped. */
 export function scriptRegions(html: string): [number, number][] {
   const out: [number, number][] = [];
-  const open = /<script\b([^>]*)>/gi;
   const lower = html.toLowerCase();
-  let m: RegExpExecArray | null;
-  while ((m = open.exec(html))) {
-    const start = m.index + m[0].length;
+  // linear: each `<script` is found once and its tag ends at the first '>' (no '>' left: no more script elements)
+  for (let i = lower.indexOf('<script'); i >= 0; i = lower.indexOf('<script', i)) {
+    if (/[\w]/.test(html[i + 7] ?? '')) { i += 7; continue; }
+    const gt = html.indexOf('>', i + 7);
+    if (gt < 0) break;
+    const start = gt + 1;
     const close = lower.indexOf('</script', start);
     const end = close < 0 ? html.length : close;
-    if (!/\bsrc\s*=/i.test(m[1]!)) out.push([start, end]);
-    open.lastIndex = end;
+    if (!/\bsrc\s*=/i.test(html.slice(i + 7, gt))) out.push([start, end]);
+    i = end;
   }
   return out;
 }
@@ -157,6 +161,12 @@ export class Code {
   readonly toks: Tok[];
   /** index of the matching bracket for every bracket token (templates count as brackets) */
   private readonly match: Int32Array;
+  /** the innermost open bracket enclosing each token within its script region, or -1 at top level */
+  private readonly parent: Int32Array;
+  /** per opening bracket: 0 unknown, 1 runs unconditionally, 2 may not run */
+  private readonly runs: Int8Array;
+  /** callbacks[k]: number of `=>` and `function` tokens before token k */
+  private readonly callbacks: Int32Array;
   private readonly lineStarts: number[];
   readonly src: string;
   constructor(src: string, regions: [number, number][]) {
@@ -164,12 +174,17 @@ export class Code {
     const perRegion = regions.map(([a, b]) => tokenize(src, a, b));
     this.toks = perRegion.flat();
     this.match = new Int32Array(this.toks.length).fill(-1);
+    this.parent = new Int32Array(this.toks.length).fill(-1);
+    this.runs = new Int8Array(this.toks.length);
+    this.callbacks = new Int32Array(this.toks.length + 1);
+    this.toks.forEach((t, k) => { this.callbacks[k + 1] = this.callbacks[k]! + ((t.t === 'p' && t.v === '=>') || (t.t === 'id' && t.v === 'function') ? 1 : 0); });
     // brackets match within one script region and only with their own kind; a stray closer is ignored
     let base = 0;
     for (const toks of perRegion) {
       const stack: number[] = [];
       toks.forEach((t, i) => {
         const k = base + i;
+        this.parent[k] = stack.length ? stack[stack.length - 1]! : -1;
         if ((t.t === 'p' && OPEN.has(t.v)) || (t.t === 'tpl' && t.part === 'head')) stack.push(k);
         else if ((t.t === 'p' && CLOSE[t.v]) || (t.t === 'tpl' && t.part === 'tail')) {
           const o = stack[stack.length - 1];
@@ -188,6 +203,52 @@ export class Code {
     for (let k = 0; k < src.length; k++) if (src.charCodeAt(k) === 10) this.lineStarts.push(k + 1);
   }
   matchOf(k: number): number { return this.match[k]!; }
+  /**
+   * True when token k runs whenever its script runs: it is at top level, or at the top level of
+   * an immediately invoked function, `(function () { ... })()` or `(function () { ... }())`,
+   * itself unconditional. Inside any other bracket (a branch, a loop, a plain function, an
+   * object or call) it may never run. Memoized per bracket, so linear over a document.
+   */
+  unconditional(k: number): boolean {
+    const chain: number[] = [];
+    let ok = true;
+    for (let o = this.parent[k]!; o >= 0;) {
+      if (this.runs[o]) { ok = this.runs[o] === 1; break; }
+      chain.push(o);
+      const wrap = this.iifeWrapper(o);
+      if (wrap < 0) { ok = false; break; }
+      o = this.parent[wrap]!;
+    }
+    for (const o of chain) this.runs[o] = 2;
+    if (ok) for (const o of chain) this.runs[o] = 1;
+    return ok;
+  }
+  /** For a `{` that is the body of an immediately invoked function, the wrapping `(`; else -1. */
+  private iifeWrapper(o: number): number {
+    if (!this.is(o, 'p', '{')) return -1;
+    const close = this.match[o]!;
+    let q = o - 1;
+    const arrow = this.is(q, 'p', '=>');
+    if (arrow) q--;
+    let start: number;
+    if (this.is(q, 'p', ')')) {
+      const open = this.match[q]!;
+      if (open < 0) return -1;
+      start = open;
+      if (!arrow) { if (this.is(start - 1, 'id') && this.is(start - 2, 'id', 'function')) start -= 2; else if (this.is(start - 1, 'id', 'function')) start -= 1; else return -1; }
+    } else if (arrow && this.is(q, 'id')) start = q;
+    else return -1;
+    if (this.is(start - 1, 'id', 'async')) start--;
+    const wrap = start - 1;
+    if (!this.is(wrap, 'p', '(') || close < 0) return -1;
+    const end = this.match[wrap]!;
+    // (f)() : the wrapper closes right after the body and a call follows; (f()) : the call sits inside the wrapper
+    if (end === close + 1 && this.is(end + 1, 'p', '(')) return wrap;
+    if (this.is(close + 1, 'p', '(') && this.match[close + 1] === end - 1) return wrap;
+    return -1;
+  }
+  /** True when tokens [a, b) hold an arrow or a function keyword (a callback). */
+  hasCallback(a: number, b: number): boolean { return a < b && this.callbacks[b]! - this.callbacks[a]! > 0; }
   line(offset: number): number {
     let lo = 0, hi = this.lineStarts.length - 1;
     while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (this.lineStarts[mid]! <= offset) lo = mid; else hi = mid - 1; }
@@ -234,9 +295,10 @@ export type ScopeSpec = `render:${string}` | `function:${string}` | `const:${str
  * Find a scope by code shape. RENDER.<id> and functions take the last definition, which is the
  * live one in a classic script; `count` reports how many definitions were seen.
  */
-export function findScope(code: Code, spec: ScopeSpec): { range: Range; count: number } | null {
+export function findScope(code: Code, spec: ScopeSpec): { range: Range; count: number; conditional: boolean } | null {
   const T = code.toks;
   const hits: Range[] = [];
+  let conditional = false;
   const [kind, name] = spec.split(':') as [string, string];
   const bodyAfter = (k: number): Range | null => {
     // function ( params ) {   |   ( params ) => {   |   ident => {
@@ -255,17 +317,20 @@ export function findScope(code: Code, spec: ScopeSpec): { range: Range; count: n
   for (let k = 0; k < T.length; k++) {
     if (kind === 'render' && code.is(k, 'id', 'RENDER') && code.is(k + 1, 'p', '.') && code.is(k + 2, 'id', name) && code.is(k + 3, 'p', '=')) {
       const r = bodyAfter(k + 4);
-      if (r) hits.push(r);
+      if (r) { hits.push(r); if (!code.unconditional(k)) conditional = true; }
     } else if (kind === 'function' && code.is(k, 'id', 'function') && code.is(k + 1, 'id', name) && !code.is(k - 1, 'p', '.')) {
       const r = bodyAfter(k);
       if (r) hits.push(r);
     } else if (kind === 'const' && (code.is(k, 'id', 'const') || code.is(k, 'id', 'let') || code.is(k, 'id', 'var')) && code.is(k + 1, 'id', name) && code.is(k + 2, 'p', '=')) {
-      const e = code.exprEnd(k + 3, T.length);
-      if (e > k + 3) hits.push({ a: k + 3, b: e });
+      // a non-empty initializer; its end is computed for the last definition only (linear on repeats)
+      const f = T[k + 3];
+      if (f && !(f.t === 'p' && (f.v === ',' || f.v === ';' || CLOSE[f.v]))) hits.push({ a: k + 3, b: -1 });
     }
   }
   if (!hits.length) return null;
-  return { range: hits[hits.length - 1]!, count: hits.length };
+  const last = hits[hits.length - 1]!;
+  if (last.b < 0) last.b = code.exprEnd(last.a, T.length);
+  return { range: last, count: hits.length, conditional };
 }
 
 // ---- expressions -------------------------------------------------------------------------------
@@ -275,6 +340,8 @@ const WHOLE_CODE = new Set(['?', '||', '&&', '??', '-', '*', '/', '%', '**', '<'
 
 /** Private-use code points reserved for markers; a literal holding one is refused (never read as a marker). */
 export const RESERVED = /[\ue000-\ue004]/g;
+/** True when text holds any reserved code point; extracted values must not. */
+export const hasReserved = (s: string): boolean => /[\ue000-\ue004]/.test(s);
 export const POISON = '\ue004';
 export const poison = (s: string): string => s.replace(RESERVED, POISON);
 
@@ -376,7 +443,7 @@ export function markupStream(code: Code, r: Range): Stream {
     // a plain call's arguments are code (esc(x), docLink(u, 'label')); a call with a callback body may build markup
     if (t.t === 'id' && code.is(k + 1, 'p', '(') && !/^(?:if|for|while|switch|catch|function|return)$/.test(t.v)) {
       const close = code.matchOf(k + 1);
-      if (close > k && close < r.b && !hasCallback(code, k + 2, close)) { for (let j = k; j <= close; j++) run.push(j); k = close; continue; }
+      if (close > k && close < r.b && !code.hasCallback(k + 2, close)) { for (let j = k; j <= close; j++) run.push(j); k = close; continue; }
     }
     if (t.t === 'str' || t.t === 'tpl') {
       if (t.t === 'tpl' && t.part !== 'head') { run.push(k); }
@@ -392,10 +459,6 @@ export function markupStream(code: Code, r: Range): Stream {
   return s;
 }
 
-function hasCallback(code: Code, a: number, b: number): boolean {
-  for (let j = a; j < b; j++) if (code.is(j, 'p', '=>') || code.is(j, 'id', 'function')) return true;
-  return false;
-}
 
 // ---- minimal HTML tree over a markup stream ------------------------------------------------------
 
@@ -406,7 +469,7 @@ const RAW_TEXT = new Set(['script', 'style']);
 const IMPLIED = new Set(['li', 'p', 'td', 'th', 'tr', 'option', 'dt', 'dd']);
 const BLOCK = new Set(['p', 'div', 'table', 'ul', 'ol', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'section', 'blockquote']);
 // quoted attribute values never span a '<', so a malformed tag costs at most the distance to the next one
-const TAG = /<(\/?)([A-Za-z][\w:-]*)((?:[^<>"']|"[^"<]*"|'[^'<]*')*)>|<!--[\s\S]*?-->/g;
+const TAG = /<(\/?)([A-Za-z][\w:-]*)((?:[^<>"']|"[^"<]*"|'[^'<]*')*)>|<!--/g;
 const ATTR = /([^\s=/>"']+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"']+)))?/g;
 
 export function parseHtml(text: string): El {
@@ -427,7 +490,13 @@ export function parseHtml(text: string): El {
   TAG.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = TAG.exec(text))) {
-    if (m[0].startsWith('<!--')) continue;
+    if (m[0] === '<!--') {
+      // a comment ends at the first -->; an unclosed one runs to the end of the markup
+      const e = text.indexOf('-->', m.index + 4);
+      if (e < 0) break;
+      TAG.lastIndex = e + 3;
+      continue;
+    }
     const tag = m[2]!.toLowerCase();
     if (m[1]) {
       if (!openCount.get(tag)) continue;
@@ -534,9 +603,11 @@ export function decodeEntities(s: string): string {
 function dropRawText(s: string): string {
   const lower = s.toLowerCase();
   let out = '';
-  let i = 0;
+  let i = 0, sc = -2, st = -2;
   for (;;) {
-    const sc = lower.indexOf('<script', i), st = lower.indexOf('<style', i);
+    // reuse a found position until the scan passes it, so every search covers new text only
+    if (sc !== -1 && sc < i) sc = lower.indexOf('<script', i);
+    if (st !== -1 && st < i) st = lower.indexOf('<style', i);
     const at = sc < 0 ? st : st < 0 ? sc : Math.min(sc, st);
     if (at < 0) return out + s.slice(i);
     const tag = at === sc ? 'script' : 'style';
@@ -548,6 +619,19 @@ function dropRawText(s: string): string {
   }
 }
 
+/** Remove <!-- --> comments in one linear pass; an unclosed comment runs to the end, as in a browser. */
+function dropComments(s: string): string {
+  let out = '';
+  let i = 0;
+  for (let at = s.indexOf('<!--'); at >= 0; at = s.indexOf('<!--', i)) {
+    out += s.slice(i, at);
+    const e = s.indexOf('-->', at + 4);
+    if (e < 0) return out;
+    i = e + 3;
+  }
+  return out + s.slice(i);
+}
+
 const BREAK = '\ue002';
 const PARA = '\ue003';
 
@@ -557,11 +641,11 @@ const PARA = '\ue003';
  * paragraphs with a blank line (the renderNarrative convention). Sentinels pass through.
  */
 export function markupText(fragment: string): string {
-  const t = dropRawText(fragment)
-    .replace(/<!--[\s\S]*?-->/g, '')
+  const t = dropComments(dropRawText(fragment))
     .replace(/<br\s*\/?>/gi, BREAK)
-    .replace(/<\/(?:p|div|h[1-6]|li|tr|table|ul|ol|section|blockquote)\s*>|<(?:p|div|h[1-6]|li|tr|table|ul|ol|section|blockquote)\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi, PARA)
-    .replace(/<\/?[A-Za-z][\w:-]*(?:[^>"']|"[^"]*"|'[^']*')*>/g, '');
+    // as in parseHtml, a tag never spans a '<', so a malformed tag costs at most the distance to the next one
+    .replace(/<\/(?:p|div|h[1-6]|li|tr|table|ul|ol|section|blockquote)\s*>|<(?:p|div|h[1-6]|li|tr|table|ul|ol|section|blockquote)\b(?:[^<>"']|"[^"<]*"|'[^'<]*')*>/gi, PARA)
+    .replace(/<\/?[A-Za-z][\w:-]*(?:[^<>"']|"[^"<]*"|'[^'<]*')*>/g, '');
   return decodeEntities(t.replace(/[ \t\r\n\f]+/g, ' '))
     .split(PARA)
     .map((p) => p.split(BREAK).map((l) => l.trim()).join('\n').trim())

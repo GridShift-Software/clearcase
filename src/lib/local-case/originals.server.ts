@@ -32,7 +32,7 @@ import { fileURLToPath } from 'node:url';
 import { mediaTypeForName, servePolicy } from '../case-package/browser.ts';
 import { contentContradictsType } from '../case-package/media.ts';
 import { originalsHost, originalsOrigin } from './config.server.ts';
-import { openInside, readAllFd, snapshotVerified } from './fsafe.server.ts';
+import { openInside, readAllFd, snapshotVerified, type Opened, type Refusal } from './fsafe.server.ts';
 import type { LocalCase } from './service.server.ts';
 import type { AssetServeRow } from './store.server.ts';
 
@@ -85,6 +85,7 @@ function findPdfjs(): string | null {
 }
 
 export type Presentation = 'viewer' | 'inline' | 'text' | 'download';
+export type OnDiskRefusal = Refusal | 'case-folder' | 'size';
 
 export class OriginalsServer {
 	readonly origin: string;
@@ -180,16 +181,36 @@ export class OriginalsServer {
 		return this.#serveOriginal(req, res, a as AssetServeRow & { real_path: string; sha256: string; size: number }, name, mode, url, send);
 	}
 
-	/** Serve-time re-check and verified delivery, all from one descriptor. */
-	async #serveOriginal(req: IncomingMessage, res: ServerResponse, a: AssetServeRow & { real_path: string; sha256: string; size: number }, name: string, mode: Presentation, url: URL, send: (s: number, b: string, h?: Record<string, string | number>) => void) {
+	/**
+	 * The cheap part of the serve-time re-check, without hashing: the case folder is the one recorded at import, and the
+	 * original opens inside it as a single-link regular file of the imported size. Returns the open descriptor (the
+	 * caller closes it) or the refusal the originals site answers with 410.
+	 */
+	static async openChecked(a: AssetServeRow & { real_path: string; size: number }): Promise<{ o: Opened } | { refused: OnDiskRefusal; reason: string }> {
 		const root = a.case_root;
 		const rst = await stat(root, { bigint: true }).catch(() => null);
-		if (!rst || String(rst.dev) !== a.case_dev || String(rst.ino) !== a.case_ino) return send(410, 'original not available: the case folder is missing, or was moved or replaced since import');
+		if (!rst || String(rst.dev) !== a.case_dev || String(rst.ino) !== a.case_ino) return { refused: 'case-folder', reason: 'the case folder is missing, or was moved or replaced since import' };
 		const o = await openInside(path.join(root, ...a.real_path.split('/')), root);
-		if ('refused' in o) return send(410, `original not available: ${({ escape: 'outside the case folder', hardlink: 'the file has other hard links', 'not-regular': 'not a regular file', missing: 'missing on disk' } as const)[o.refused]}`);
+		if ('refused' in o) return { refused: o.refused, reason: ({ escape: 'outside the case folder', hardlink: 'the file has other hard links', 'not-regular': 'not a regular file', missing: 'missing on disk' } as const)[o.refused] };
+		if (o.id.size !== a.size) { await o.fh.close().catch(() => {}); return { refused: 'size', reason: 'changed since import (size differs)' }; }
+		return { o };
+	}
+
+	/** On-disk availability of a verified original now (existence, folder, links and size; no re-hash): null when available. */
+	static async availability(a: AssetServeRow & { real_path: string; size: number }): Promise<{ refused: OnDiskRefusal; reason: string } | null> {
+		const c = await OriginalsServer.openChecked(a);
+		if ('refused' in c) return c;
+		await c.o.fh.close().catch(() => {});
+		return null;
+	}
+
+	/** Serve-time re-check and verified delivery, all from one descriptor. */
+	async #serveOriginal(req: IncomingMessage, res: ServerResponse, a: AssetServeRow & { real_path: string; sha256: string; size: number }, name: string, mode: Presentation, url: URL, send: (s: number, b: string, h?: Record<string, string | number>) => void) {
+		const c = await OriginalsServer.openChecked(a);
+		if ('refused' in c) return send(410, `original not available: ${c.reason}`);
+		const { o } = c;
 		let snapshot: string | null = null;
 		try {
-			if (o.id.size !== a.size) return send(410, 'original not available: changed since import (size differs)');
 			const changed = () => send(410, 'original not available: changed since import (its content differs from the sha256 recorded at import)');
 			const headers = (head: Uint8Array) => {
 				const forceDownload = url.searchParams.get('download') === '1' || mode === 'download' || mode === 'viewer' || contentContradictsType(a.media_type, head);

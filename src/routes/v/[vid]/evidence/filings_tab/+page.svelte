@@ -25,8 +25,8 @@
 		transportError = null;
 		await update({ reset: result.type === 'success' || result.type === 'redirect' });
 	};
-	const exportFilings = () => download('ess_dcs_filings.csv', toCSV(filingsCsvRows(data.groups ?? [])));
-	const exportRegister = () => download('ess_dcs_filing_register.csv', toCSV(registerCsvRows(data.entries)));
+	const exportFilings = () => download('filings.csv', toCSV(filingsCsvRows(data.groups ?? [])));
+	const exportRegister = () => download('filing-register.csv', toCSV(registerCsvRows(data.entries)));
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>

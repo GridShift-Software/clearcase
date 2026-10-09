@@ -53,3 +53,22 @@ export async function registerEdit(p, ctx, { count, out = {} }) {
 	if (del) { await p.click('[data-parity-del]'); await p.waitFor(`(${count}) !== ${JSON.stringify(before)}`, 20000).catch(() => {}); await sleep(20); await record('delete'); } else out.delete = 'no-delete-control';
 	return out;
 }
+
+/** The pager's wording, as v5's adapter reads it (innerText, white space collapsed). */
+export const pagerText = (p, pager) => p.evaluate(`document.querySelector(${JSON.stringify(pager)})?.innerText.replace(/\\s+/g, ' ').trim() ?? null`);
+
+/**
+ * Every page of a server-paged table through its Next button, as v5's adapter pages: the rows of pages 2.. are
+ * appended to `table` (raw extractor rows). The page waits for #main's data-page to advance and its navigation to end.
+ */
+export async function pageThroughApp(p, { pager, table, rows }) {
+	for (let i = 0; i < 400; i++) {
+		const st = await p.evaluate(`(() => { const b = [...document.querySelectorAll(${JSON.stringify(pager)} + ' button')].find((x) => /next/i.test(x.textContent)); if (!b || b.disabled) return null; b.setAttribute('data-parity-next', '1'); return document.getElementById('main').dataset.page; })()`);
+		if (st === null) return;
+		await p.click('[data-parity-next]');
+		await p.waitFor(`document.getElementById('main').dataset.page === ${JSON.stringify(String(+st + 1))} && !document.getElementById('main').dataset.busy`, 20000);
+		const t = (await p.extract(table))?.tables?.[0];
+		if (!t) return;
+		rows.push(...t.rows);
+	}
+}

@@ -154,6 +154,7 @@ export function scriptRegions(html: string): [number, number][] {
 }
 
 const OPEN = new Set(['(', '[', '{']);
+const ASSIGN = new Set(['=', '&&=', '||=', '??=']);
 const CLOSE: Record<string, string> = { ')': '(', ']': '[', '}': '{' };
 
 /** A tokenized document: tokens of every script region plus line lookup. */
@@ -167,6 +168,10 @@ export class Code {
   private readonly runs: Int8Array;
   /** callbacks[k]: number of `=>` and `function` tokens before token k */
   private readonly callbacks: Int32Array;
+  /** 1 for the first token of each script region */
+  private readonly first: Uint8Array;
+  /** 1 when a `return` or `throw` precedes token k at the level of its own block (k may never run) */
+  private readonly exited: Uint8Array;
   private readonly lineStarts: number[];
   readonly src: string;
   constructor(src: string, regions: [number, number][]) {
@@ -177,14 +182,21 @@ export class Code {
     this.parent = new Int32Array(this.toks.length).fill(-1);
     this.runs = new Int8Array(this.toks.length);
     this.callbacks = new Int32Array(this.toks.length + 1);
+    this.first = new Uint8Array(this.toks.length);
+    this.exited = new Uint8Array(this.toks.length);
     this.toks.forEach((t, k) => { this.callbacks[k + 1] = this.callbacks[k]! + ((t.t === 'p' && t.v === '=>') || (t.t === 'id' && t.v === 'function') ? 1 : 0); });
     // brackets match within one script region and only with their own kind; a stray closer is ignored
     let base = 0;
     for (const toks of perRegion) {
       const stack: number[] = [];
+      const exits = new Set<number>();
+      if (toks.length) this.first[base] = 1;
       toks.forEach((t, i) => {
         const k = base + i;
-        this.parent[k] = stack.length ? stack[stack.length - 1]! : -1;
+        const p = stack.length ? stack[stack.length - 1]! : -1;
+        this.parent[k] = p;
+        if (exits.has(p)) this.exited[k] = 1;
+        if (t.t === 'id' && (t.v === 'return' || t.v === 'throw') && !(i > 0 && toks[i - 1]!.t === 'p' && (toks[i - 1]!.v === '.' || toks[i - 1]!.v === '?.'))) exits.add(p);
         if ((t.t === 'p' && OPEN.has(t.v)) || (t.t === 'tpl' && t.part === 'head')) stack.push(k);
         else if ((t.t === 'p' && CLOSE[t.v]) || (t.t === 'tpl' && t.part === 'tail')) {
           const o = stack[stack.length - 1];
@@ -204,24 +216,43 @@ export class Code {
   }
   matchOf(k: number): number { return this.match[k]!; }
   /**
-   * True when token k runs whenever its script runs: it is at top level, or at the top level of
-   * an immediately invoked function, `(function () { ... })()` or `(function () { ... }())`,
-   * itself unconditional. Inside any other bracket (a branch, a loop, a plain function, an
-   * object or call) it may never run. Memoized per bracket, so linear over a document.
+   * True when the statement starting at token k runs whenever its script runs: k starts a
+   * statement (see `statementStart`) at top level, or at the top level of an immediately invoked
+   * function, `(function () { ... })()` or `(function () { ... }())`, whose wrapper is itself such
+   * a statement. Inside any other bracket (a branch, a loop, a plain function, an object or call),
+   * after an unbraced `if`, `else`, loop head, label, `&&`, `?` or `,`, or after a `return` or
+   * `throw` in its block, it may never run. Memoized per bracket, so linear over a document.
    */
   unconditional(k: number): boolean {
+    if (!this.statementStart(k)) return false;
     const chain: number[] = [];
     let ok = true;
     for (let o = this.parent[k]!; o >= 0;) {
       if (this.runs[o]) { ok = this.runs[o] === 1; break; }
       chain.push(o);
       const wrap = this.iifeWrapper(o);
-      if (wrap < 0) { ok = false; break; }
+      if (wrap < 0 || !this.statementStart(wrap)) { ok = false; break; }
       o = this.parent[wrap]!;
     }
     for (const o of chain) this.runs[o] = 2;
     if (ok) for (const o of chain) this.runs[o] = 1;
     return ok;
+  }
+  /**
+   * True when token k begins a statement that nothing before it in its block skips: the first
+   * token of its script, or right after a `;`, a block's closing `}` or the `{` that opens its
+   * own block, with no `return` or `throw` earlier in that block. Anything else (`)` of an
+   * unbraced `if` or loop head, `else`, `do`, a label, an operator, a line break with no
+   * semicolon) is refused; real v5 always ends a statement with `;` or `}`.
+   */
+  private statementStart(k: number): boolean {
+    if (this.exited[k]) return false;
+    if (this.first[k]) return true;
+    return this.is(k - 1, 'p', ';') || (this.is(k - 1, 'p', '}') && this.match[k - 1]! >= 0) || (this.is(k - 1, 'p', '{') && this.parent[k] === k - 1);
+  }
+  /** True when token j ends the statement that starts at token k: a `;`, the end of its script, or the `}` closing its block. */
+  statementEnd(j: number, k: number): boolean {
+    return j >= this.toks.length || !!this.first[j] || this.is(j, 'p', ';') || (this.is(j, 'p', '}') && this.parent[k]! >= 0 && this.match[j] === this.parent[k]);
   }
   /** For a `{` that is the body of an immediately invoked function, the wrapping `(`; else -1. */
   private iifeWrapper(o: number): number {
@@ -293,12 +324,17 @@ export type ScopeSpec = `render:${string}` | `function:${string}` | `const:${str
 
 /**
  * Find a scope by code shape. RENDER.<id> and functions take the last definition, which is the
- * live one in a classic script; `count` reports how many definitions were seen.
+ * live one in a classic script; `count` reports how many definitions were seen. For RENDER.<id>,
+ * `conditional` is set when any assignment (`=` or a logical `&&=`, `||=`, `??=`) is not proven
+ * to run (`Code.unconditional`; a function body must also end its statement), or when any
+ * assignment that is not a function body follows a function body, which it may replace.
  */
 export function findScope(code: Code, spec: ScopeSpec): { range: Range; count: number; conditional: boolean } | null {
   const T = code.toks;
   const hits: Range[] = [];
   let conditional = false;
+  /** RENDER.<id> assignments that are not a function body */
+  let count = 0;
   const [kind, name] = spec.split(':') as [string, string];
   const bodyAfter = (k: number): Range | null => {
     // function ( params ) {   |   ( params ) => {   |   ident => {
@@ -315,9 +351,12 @@ export function findScope(code: Code, spec: ScopeSpec): { range: Range; count: n
     return close > j ? { a: j + 1, b: close } : null;
   };
   for (let k = 0; k < T.length; k++) {
-    if (kind === 'render' && code.is(k, 'id', 'RENDER') && code.is(k + 1, 'p', '.') && code.is(k + 2, 'id', name) && code.is(k + 3, 'p', '=')) {
-      const r = bodyAfter(k + 4);
-      if (r) { hits.push(r); if (!code.unconditional(k)) conditional = true; }
+    if (kind === 'render' && code.is(k, 'id', 'RENDER') && code.is(k + 1, 'p', '.') && code.is(k + 2, 'id', name) && ASSIGN.has(code.is(k + 3, 'p') ? T[k + 3]!.v as string : '')) {
+      const r = code.is(k + 3, 'p', '=') ? bodyAfter(k + 4) : null;
+      if (r) hits.push(r);
+      else count++;
+      // an assignment that is not a function body replaces, or may replace, any body before it
+      if (!code.unconditional(k) || (r ? !code.statementEnd(r.b + 1, k) : hits.length > 0)) conditional = true;
     } else if (kind === 'function' && code.is(k, 'id', 'function') && code.is(k + 1, 'id', name) && !code.is(k - 1, 'p', '.')) {
       const r = bodyAfter(k);
       if (r) hits.push(r);
@@ -330,7 +369,7 @@ export function findScope(code: Code, spec: ScopeSpec): { range: Range; count: n
   if (!hits.length) return null;
   const last = hits[hits.length - 1]!;
   if (last.b < 0) last.b = code.exprEnd(last.a, T.length);
-  return { range: last, count: hits.length, conditional };
+  return { range: last, count: hits.length + count, conditional };
 }
 
 // ---- expressions -------------------------------------------------------------------------------

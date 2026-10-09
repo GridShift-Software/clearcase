@@ -122,17 +122,20 @@ export class ViewCodeReader {
   }
 
   /**
-   * A scope that exists exactly once. RENDER.<view> may be assigned more than once where every
-   * assignment runs unconditionally (top level, or the top level of an immediately invoked
-   * function); the last is the live renderer (v5 redefines discovery_tab in a later IIFE). A
-   * repeated RENDER.<view> with any assignment in a branch, loop or plain function (which may
-   * never run), or a function or constant defined more than once, is ambiguous: nested helpers
-   * and block constants share names.
+   * A scope that exists exactly once. A RENDER.<view> must be proven live, even when assigned
+   * once: every assignment is a whole statement that runs unconditionally (top level, or the top
+   * level of an immediately invoked function), and the last is the live renderer (v5 redefines
+   * discovery_tab in a later IIFE). One assignment that may never run (in a branch, loop, plain
+   * function, after an unbraced `if`, `&&` or `?`) is missing; a repeated RENDER.<view> with any
+   * such assignment, or a function or constant defined more than once, is ambiguous: nested
+   * helpers and block constants share names.
    */
   private live(spec: ScopeSpec): { range: Range; count: number } {
     const sc = this.scope(spec);
     if (!sc) throw new Miss('missing', `scope ${spec} not found`);
-    if (sc.count > 1 && (!spec.startsWith('render:') || sc.conditional)) throw new Miss('ambiguous', `scope ${spec} is defined ${sc.count} times${sc.conditional ? ', not all unconditionally' : ''}`);
+    const render = spec.startsWith('render:');
+    if (render && sc.conditional && sc.count === 1) throw new Miss('missing', `scope ${spec} is not proven to run`);
+    if (sc.count > 1 && (!render || sc.conditional)) throw new Miss('ambiguous', `scope ${spec} is defined ${sc.count} times${sc.conditional ? ', not all unconditionally' : ''}`);
     return sc;
   }
 

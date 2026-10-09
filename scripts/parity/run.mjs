@@ -13,8 +13,9 @@
 // unregistered. Writes DIR/views/<view>.json (paths and values: case-bearing, local only) and DIR/scorecard.json
 // plus DIR/scorecard.md (counts only).
 //
-// Exit 0: no unregistered difference. 1: at least one unregistered difference (or a v5 view did not extract, or the
-// v5 page made a non-file request). 2: setup error (arguments, fixture locator, register, build, offline proof).
+// Exit 0: no unregistered difference. 1: an unregistered difference, a v5 view that did not extract, or an isolation
+// breach (a v5 or app network request, a canary hit, a changed fixture tree). 2: setup error (arguments, fixture
+// locator, register, including a whole-view owner that is not the view registry's, build, offline proof).
 //
 // Isolation: outside the network namespace the runner re-execs itself through tests/e2e/pilot/offline.sh under
 // `unshare -rn` (tests/e2e/pilot/v5/env.mjs ensureOffline); inside, it proves that only loopback exists before it
@@ -31,10 +32,13 @@ const argv = process.argv.slice(2);
 const flag = (n) => argv.includes(`--${n}`);
 const opt = (n) => { const i = argv.findIndex((a) => a === `--${n}` || a.startsWith(`--${n}=`)); if (i < 0) return undefined; return argv[i].includes('=') ? argv[i].slice(argv[i].indexOf('=') + 1) : argv[i + 1]; };
 const setup = (msg) => { console.error(`parity: setup error: ${msg}`); process.exit(2); };
-if (flag('help')) { console.log(readFileSync(import.meta.filename, 'utf8').split('\n').slice(1, 22).map((l) => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
+if (flag('help')) { console.log(readFileSync(import.meta.filename, 'utf8').split('\n').slice(1, 23).map((l) => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
 if (!opt('fixture-config')) setup('--fixture-config FILE is required');
 if (!opt('out')) setup('--out DIR is required');
 if (!flag('all') && !opt('view')) setup('pass --all or --view ID');
+const { loadRegister, registryOwners, viewIds } = await import('./lib/register.mjs');
+const reg = loadRegister(opt('register') ? resolve(opt('register')) : undefined, { owners: await registryOwners() });
+if (reg.problems.length) setup(`register invalid:\n  ${reg.problems.join('\n  ')}`);
 
 ensureOffline(import.meta.filename);
 
@@ -45,8 +49,7 @@ const { client, vpath } = await import('../../tests/e2e/pilot/lib/client.mjs');
 const { startServer } = await import('../../tests/e2e/pilot/lib/server.mjs');
 const { ConfigError, loadConfig, v5Package, readPackage } = await import('../../tests/e2e/pilot/v5/fixture.mjs');
 const { v5Page, appPage } = await import('./lib/browser.mjs');
-const { classify, diff, scorecard, TYPES } = await import('./lib/compare.mjs');
-const { loadRegister, viewIds } = await import('./lib/register.mjs');
+const { classify, diff, runFailures, scorecard, TYPES } = await import('./lib/compare.mjs');
 const { chronologyDims } = await import('./lib/sweeps.mjs');
 const { extractV5View, v5Nav } = await import('./adapters/v5/index.mjs');
 const { emptySnapshot } = await import('./lib/snapshot.mjs');
@@ -65,8 +68,6 @@ const proof = await proveOffline();
 if (!proof.pass) setup(`offline proof failed: ${JSON.stringify(proof)}`);
 let fx;
 try { fx = await loadConfig(resolve(opt('fixture-config'))); } catch (e) { setup(e instanceof ConfigError ? e.message : String(e)); }
-const reg = loadRegister(opt('register') ? resolve(opt('register')) : undefined, { owners: null });
-if (reg.problems.length) setup(`register invalid:\n  ${reg.problems.join('\n  ')}`);
 const buildDir = join(appRoot, 'build');
 if (!existsSync(join(buildDir, 'handler.js')) || !existsSync(join(buildDir, 'clearcase-build.json'))) setup(`no production build at ${buildDir} (run bun run --bun build there)`);
 const stamp = JSON.parse(readFileSync(join(buildDir, 'clearcase-build.json'), 'utf8'));
@@ -164,9 +165,8 @@ const sc = scorecard(perView, {
 	isolation: { offline: proof.pass, links: proof.links, v5NonFileRequests: nonFile, v5BrowserInternalRequests: details.__requests?.v5BrowserInternal ?? null, appNonLoopbackRequests: details.__requests?.appNonLoopback ?? null, canaryHits: otherHits, canaryBrowserServiceHits: serviceHits.length, fixtureUnchanged: treeBefore === treeAfter },
 	seconds: Math.round((performance.now() - t0) / 100) / 10,
 });
-if (exitCode === 0) {
-	if (sc.total.unregistered || (flag('strict-register') && unused.length) || nonFile !== 0 || otherHits || treeBefore !== treeAfter || sc.total.viewsExtractedV5 !== views.length) { exitCode = 1; sc.result = 'FAIL'; }
-}
+const failures = exitCode === 0 ? runFailures(sc, { views: views.length, unused: unused.length, strict: flag('strict-register') }) : [];
+if (failures.length) { exitCode = 1; sc.result = 'FAIL'; console.error(`parity: FAIL: ${failures.join('; ')}`); }
 sc.exit = exitCode;
 writeFileSync(join(out, 'scorecard.json'), JSON.stringify(sc, null, 1) + '\n');
 const T = sc.total;

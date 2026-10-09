@@ -164,6 +164,59 @@ describe('view-content extraction', () => {
   });
 });
 
+describe('view-content extraction: review regressions', () => {
+  const one = (script: string, e: Partial<Entry> & Pick<Entry, 'scope' | 'sel' | 'kind'>, markup = '') => {
+    const sink = new DiagSink();
+    const r = extractViewContent(`${markup}<script>${script}</script>`, [{ view: 'v', field: 'f', checklist: 'L1', required: true, ...e }], [], { sink });
+    return { value: r.data.v?.f, status: r.fields[0]!.status, detail: r.fields[0]!.detail, codes: sink.finish().map((d) => d.code) };
+  };
+  it('refuses a literal that forges a code marker instead of crashing or borrowing a run', () => {
+    for (const forged of ['&#xE000;0&#xE001;', '\\uE0000\\uE001', '\\uE002']) {
+      const r = one(`RENDER.t=function(el){let h='<p>a ${forged} b '+META.docCount+'</p>';}`, { scope: 'render:t', sel: { html: 'p' }, kind: 'template', params: [{ name: 'docCount', expect: 'META.docCount' }] });
+      expect([r.status, r.value]).toEqual(['shape', undefined]);
+    }
+  });
+  it('joins markup only through the accumulator; another += or declaration is code', () => {
+    const r = one("RENDER.t=function(el){let h='';h+='<p>Real';csv+=' FOREIGN';h+=' text</p>';h+='';}", { scope: 'render:t', sel: { html: 'p' }, kind: 'text' });
+    expect([r.status, r.value]).toEqual(['shape', undefined]);
+    const ok = one("RENDER.t=function(el){let h='';h+='<p>Real';h+=' text</p>';}", { scope: 'render:t', sel: { html: 'p' }, kind: 'text' });
+    expect(ok.value).toBe('Real text');
+  });
+  it('reports a function or constant defined twice as ambiguous; RENDER keeps its live (last) definition', () => {
+    const fn = one("function a(){function meta(){return {deed:'A'};}} function b(){function meta(){return {deed:'B'};}}", { scope: 'function:meta', sel: { lit: 'object', nth: 0, path: ['deed'] }, kind: 'text' });
+    expect([fn.status, fn.codes]).toEqual(['ambiguous', ['V5_VIEW_CONTENT_AMBIGUOUS']]);
+    const render = one("RENDER.t=function(el){pageHead('T','old');};RENDER.t=function(el){pageHead('T','live');};", { scope: 'render:t', sel: { call: 'pageHead', arg: 1 }, kind: 'text' });
+    expect(render.value).toBe('live');
+  });
+  it('keeps array positions across holes and reports duplicate object keys', () => {
+    expect(one("const X=['a', , 'c'];", { scope: 'const:X', sel: { lit: 'array', path: [2] }, kind: 'text' }).value).toBe('c');
+    expect(one("const X=['a', , 'c'];", { scope: 'const:X', sel: { lit: 'array', path: [1] }, kind: 'text' }).status).toBe('shape');
+    expect(one("const X={court:'first',court:'second'};", { scope: 'const:X', sel: { lit: 'object', path: ['court'] }, kind: 'text' }).status).toBe('ambiguous');
+  });
+  it('closes implied elements, reads ?? defaults and legacy octal, and keeps lower-precedence operators as code', () => {
+    expect(one("RENDER.t=function(el){let h='<ul><li>one<li>two</ul>';}", { scope: 'render:t', sel: { html: 'li', all: true }, kind: 'list' }).value).toEqual(['one', 'two']);
+    expect(one("const B={pages:(X&&X.pages)??42};", { scope: 'const:B', sel: { lit: 'object', path: ['pages'] }, kind: 'number', fallback: true }).value).toBe(42);
+    expect(one("const B={pages:010};", { scope: 'const:B', sel: { lit: 'object', path: ['pages'] }, kind: 'number' }).value).toBe(8);
+    expect(one("function f(){return 'T '+n-1;}", { scope: 'function:f', sel: { ret: 0 }, kind: 'template', params: [{ name: 'n', expect: 'n' }] }).status).toBe('shape');
+  });
+  it('stays linear on hostile markup and code', () => {
+    const N = 20_000;
+    const cases: [string, string, string][] = [
+      ['many scripts', '', '<script>x</script>'.repeat(N)],
+      ['many styles in static markup', '<style>a{}</style>'.repeat(N), ''],
+      ['unterminated attribute', '<a '.repeat(N) + '"', ''],
+      ['unmatched end tags', '<div>'.repeat(N) + '</span>'.repeat(N), ''],
+      ['unclosed raw text', '<script '.repeat(N), ''],
+    ];
+    for (const [label, markup, script] of cases) {
+      const t0 = performance.now();
+      extractViewContent(`${markup}<script>${script}</script>`, [{ view: 'v', field: 'f', checklist: 'L1', scope: 'markup', sel: { html: 'title' }, kind: 'text', required: false }], []);
+      markupText(markup);
+      expect(performance.now() - t0, label).toBeLessThan(1500);
+    }
+  });
+});
+
 describe('view-content dataset', () => {
   it('is a generated, optional, schema-validated dataset that reassembly ignores', async () => {
     const dir = await caseDir('vc-pkg');

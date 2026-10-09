@@ -102,7 +102,8 @@ export function tokenize(src: string, from = 0, to = src.length): Tok[] {
       const m = NUMBER.exec(src);
       const raw = m ? m[0] : c;
       const clean = raw.replace(/_/g, '');
-      out.push({ t: 'num', v: clean.endsWith('n') ? Number(clean.slice(0, -1)) : Number(clean), s: i, e: i + raw.length });
+      const v = /^0[0-7]+$/.test(clean) ? parseInt(clean, 8) : clean.endsWith('n') ? Number(clean.slice(0, -1)) : Number(clean);
+      out.push({ t: 'num', v, s: i, e: i + raw.length });
       i += raw.length;
       continue;
     }
@@ -136,10 +137,11 @@ export function tokenize(src: string, from = 0, to = src.length): Tok[] {
 export function scriptRegions(html: string): [number, number][] {
   const out: [number, number][] = [];
   const open = /<script\b([^>]*)>/gi;
+  const lower = html.toLowerCase();
   let m: RegExpExecArray | null;
   while ((m = open.exec(html))) {
     const start = m.index + m[0].length;
-    const close = html.toLowerCase().indexOf('</script', start);
+    const close = lower.indexOf('</script', start);
     const end = close < 0 ? html.length : close;
     if (!/\bsrc\s*=/i.test(m[1]!)) out.push([start, end]);
     open.lastIndex = end;
@@ -159,17 +161,29 @@ export class Code {
   readonly src: string;
   constructor(src: string, regions: [number, number][]) {
     this.src = src;
-    this.toks = regions.flatMap(([a, b]) => tokenize(src, a, b));
+    const perRegion = regions.map(([a, b]) => tokenize(src, a, b));
+    this.toks = perRegion.flat();
     this.match = new Int32Array(this.toks.length).fill(-1);
-    const stack: number[] = [];
-    this.toks.forEach((t, k) => {
-      if ((t.t === 'p' && OPEN.has(t.v)) || (t.t === 'tpl' && t.part === 'head')) stack.push(k);
-      else if (t.t === 'tpl' && t.part === 'mid') { /* stays inside the template */ }
-      else if ((t.t === 'p' && CLOSE[t.v]) || (t.t === 'tpl' && t.part === 'tail')) {
-        const o = stack.pop();
-        if (o !== undefined) { this.match[o] = k; this.match[k] = o; }
-      }
-    });
+    // brackets match within one script region and only with their own kind; a stray closer is ignored
+    let base = 0;
+    for (const toks of perRegion) {
+      const stack: number[] = [];
+      toks.forEach((t, i) => {
+        const k = base + i;
+        if ((t.t === 'p' && OPEN.has(t.v)) || (t.t === 'tpl' && t.part === 'head')) stack.push(k);
+        else if ((t.t === 'p' && CLOSE[t.v]) || (t.t === 'tpl' && t.part === 'tail')) {
+          const o = stack[stack.length - 1];
+          if (o === undefined) return;
+          const ot = this.toks[o]!;
+          const want = t.t === 'tpl' ? ot.t === 'tpl' : ot.t === 'p' && ot.v === CLOSE[t.v as string];
+          if (!want) return;
+          stack.pop();
+          this.match[o] = k;
+          this.match[k] = o;
+        }
+      });
+      base += toks.length;
+    }
     this.lineStarts = [0];
     for (let k = 0; k < src.length; k++) if (src.charCodeAt(k) === 10) this.lineStarts.push(k + 1);
   }
@@ -202,7 +216,7 @@ export class Code {
     let j = k + 1;
     while (j < close) {
       const e = this.exprEnd(j, close);
-      if (e > j) out.push([j, e]);
+      out.push([j, e]); // a hole (`[a, , c]`) is an empty element, so later indexes keep their position
       j = e + 1;
     }
     return out;
@@ -256,6 +270,14 @@ export function findScope(code: Code, spec: ScopeSpec): { range: Range; count: n
 
 // ---- expressions -------------------------------------------------------------------------------
 
+/** Top-level operators that bind looser than `+` or are not concatenation: the whole expression is code. */
+const WHOLE_CODE = new Set(['?', '||', '&&', '??', '-', '*', '/', '%', '**', '<', '>', '<=', '>=', '==', '===', '!=', '!==', '<<', '>>', '>>>', '&', '|', '^', '=', '=>', ',', '+=', '-=']);
+
+/** Private-use code points reserved for markers; a literal holding one is refused (never read as a marker). */
+export const RESERVED = /[\ue000-\ue004]/g;
+export const POISON = '\ue004';
+export const poison = (s: string): string => s.replace(RESERVED, POISON);
+
 /** A value read from code: literal text runs and code runs (token ranges), in order. */
 export type Part = { text: string; toks: number[] } | { code: Range };
 
@@ -268,7 +290,8 @@ export function partsOf(code: Code, r: Range): Part[] {
   const T = code.toks;
   for (let j = r.a; j < r.b; j++) {
     const t = T[j]!;
-    if (t.t === 'p' && (t.v === '?' || t.v === '||' || t.v === '&&' || t.v === '??')) return [{ code: r }];
+    if (t.t === 'p' && WHOLE_CODE.has(t.v)) return [{ code: r }];
+    if (t.t === 'id' && (t.v === 'in' || t.v === 'instanceof')) return [{ code: r }];
     if ((t.t === 'p' && OPEN.has(t.v)) || (t.t === 'tpl' && t.part === 'head')) { const m = code.matchOf(j); if (m > j) j = m; }
   }
   const operands: Range[] = [];
@@ -280,7 +303,8 @@ export function partsOf(code: Code, r: Range): Part[] {
   }
   if (start < r.b) operands.push({ a: start, b: r.b });
   const out: Part[] = [];
-  const text = (s: string, k: number) => {
+  const text = (raw: string, k: number) => {
+    const s = poison(raw);
     const last = out[out.length - 1];
     if (last && 'text' in last) { last.text += s; last.toks.push(k); } else out.push({ text: s, toks: [k] });
   };
@@ -313,8 +337,8 @@ export function partsOf(code: Code, r: Range): Part[] {
 // ---- markup stream -----------------------------------------------------------------------------
 
 /** Private-use sentinels marking a code run inside reconstructed markup. */
-export const SENT_OPEN = '';
-export const SENT_CLOSE = '';
+export const SENT_OPEN = '\ue000';
+export const SENT_CLOSE = '\ue001';
 
 export interface Stream {
   text: string;
@@ -332,11 +356,15 @@ export interface Stream {
 export function markupStream(code: Code, r: Range): Stream {
   const T = code.toks;
   const s: Stream = { text: '', segs: [], runs: [] };
+  // the accumulator is the identifier most often extended with `+=` (v5: h); only it joins markup
+  const plusEq = new Map<string, number>();
+  for (let k = r.a; k + 1 < r.b; k++) { const t = T[k]!; if (t.t === 'id' && code.is(k + 1, 'p', '+=')) plusEq.set(t.v, (plusEq.get(t.v) ?? 0) + 1); }
+  const acc = [...plusEq].sort((x, y) => y[1] - x[1] || (x[0] < y[0] ? -1 : 1))[0]?.[0];
   let run: number[] = [];
   const flush = () => {
     if (!run.length) return;
-    const shape = run.map((k) => { const t = T[k]!; return t.t === 'id' ? (/^(?:let|const|var)$/.test(t.v) ? 'D' : 'I') : t.t === 'p' ? t.v : '#'; }).join('');
-    const join = /^(?:\+|;|I\+=|DI=)*$/.test(shape);
+    const shape = run.map((k) => { const t = T[k]!; return t.t === 'id' ? (/^(?:let|const|var)$/.test(t.v) ? 'D' : t.v === acc ? 'A' : 'I') : t.t === 'p' ? t.v : '#'; }).join('');
+    const join = /^(?:\+|;|A\+=|DA=)*$/.test(shape);
     if (s.text.length && !join) {
       s.text += SENT_OPEN + s.runs.length + SENT_CLOSE;
       s.runs.push({ a: run[0]!, b: run[run.length - 1]! + 1 });
@@ -354,7 +382,7 @@ export function markupStream(code: Code, r: Range): Stream {
       if (t.t === 'tpl' && t.part !== 'head') { run.push(k); }
       flush();
       s.segs.push({ from: s.text.length, to: s.text.length + t.v.length, tok: k });
-      s.text += t.v;
+      s.text += poison(t.v);
       if (t.t === 'tpl' && t.part !== 'tail') run.push(k);
       continue;
     }
@@ -375,27 +403,41 @@ export interface El { tag: string; attrs: Map<string, string>; start: number; in
 
 const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'source', 'track', 'wbr']);
 const RAW_TEXT = new Set(['script', 'style']);
-const TAG = /<(\/?)([A-Za-z][\w:-]*)((?:[^>"']|"[^"]*"|'[^']*')*)>|<!--[\s\S]*?-->/g;
+const IMPLIED = new Set(['li', 'p', 'td', 'th', 'tr', 'option', 'dt', 'dd']);
+const BLOCK = new Set(['p', 'div', 'table', 'ul', 'ol', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'section', 'blockquote']);
+// quoted attribute values never span a '<', so a malformed tag costs at most the distance to the next one
+const TAG = /<(\/?)([A-Za-z][\w:-]*)((?:[^<>"']|"[^"<]*"|'[^'<]*')*)>|<!--[\s\S]*?-->/g;
 const ATTR = /([^\s=/>"']+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"']+)))?/g;
 
 export function parseHtml(text: string): El {
   const root: El = { tag: '#root', attrs: new Map(), start: 0, innerStart: 0, innerEnd: text.length, end: text.length, parent: null, children: [] };
   let cur = root;
+  const lower = text.toLowerCase();
+  /** open elements per tag name, so an unmatched end tag is ignored without walking the stack */
+  const openCount = new Map<string, number>();
+  const closeTo = (el: El, at: number, end: number) => {
+    for (let c: El | null = cur; c && c !== el.parent; c = c.parent) {
+      if (c !== el) { c.innerEnd = at; c.end = at; }
+      openCount.set(c.tag, openCount.get(c.tag)! - 1);
+    }
+    el.innerEnd = at;
+    el.end = end;
+    cur = el.parent!;
+  };
   TAG.lastIndex = 0;
   let m: RegExpExecArray | null;
   while ((m = TAG.exec(text))) {
     if (m[0].startsWith('<!--')) continue;
     const tag = m[2]!.toLowerCase();
     if (m[1]) {
-      let el: El | null = cur;
-      while (el && el.tag !== tag) el = el.parent;
-      if (!el || el === root) continue;
-      for (let c: El | null = cur; c && c !== el; c = c.parent) { c.innerEnd = m.index; c.end = m.index; }
-      el.innerEnd = m.index;
-      el.end = m.index + m[0].length;
-      cur = el.parent!;
+      if (!openCount.get(tag)) continue;
+      let el: El = cur;
+      while (el.tag !== tag) el = el.parent!;
+      closeTo(el, m.index, m.index + m[0].length);
       continue;
     }
+    // implicit end tags: a new li/p/td/... closes an open one of the same kind; a block closes an open p
+    if ((IMPLIED.has(tag) && cur.tag === tag) || (cur.tag === 'p' && BLOCK.has(tag))) closeTo(cur, m.index, m.index);
     const attrs = new Map<string, string>();
     ATTR.lastIndex = 0;
     let a: RegExpExecArray | null;
@@ -405,7 +447,7 @@ export function parseHtml(text: string): El {
     cur.children.push(el);
     if (VOID.has(tag) || m[3]!.trimEnd().endsWith('/')) continue;
     if (RAW_TEXT.has(tag)) {
-      const close = text.toLowerCase().indexOf(`</${tag}`, end);
+      const close = lower.indexOf(`</${tag}`, end);
       el.innerEnd = close < 0 ? text.length : close;
       const gt = close < 0 ? -1 : text.indexOf('>', close);
       el.end = gt < 0 ? text.length : gt + 1;
@@ -413,6 +455,7 @@ export function parseHtml(text: string): El {
       continue;
     }
     cur = el;
+    openCount.set(tag, (openCount.get(tag) ?? 0) + 1);
   }
   for (let c: El | null = cur; c && c !== root; c = c.parent) { c.innerEnd = text.length; c.end = text.length; }
   return root;
@@ -480,14 +523,33 @@ export function decodeEntities(s: string): string {
   return s.replace(/&(#[xX][0-9a-fA-F]{1,6}|#\d{1,7}|[A-Za-z][A-Za-z0-9]{1,31});/g, (m, e: string) => {
     if (e[0] === '#') {
       const cp = e[1] === 'x' || e[1] === 'X' ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+      if (cp >= 0xe000 && cp <= 0xe004) return POISON;
       return cp > 0 && cp <= 0x10ffff && !(cp >= 0xd800 && cp <= 0xdfff) ? String.fromCodePoint(cp) : m;
     }
     return ENTITIES[e] ?? m;
   });
 }
 
-const BREAK = '';
-const PARA = '';
+/** Remove <script> and <style> elements with their content in one linear pass (an unclosed one runs to the end). */
+function dropRawText(s: string): string {
+  const lower = s.toLowerCase();
+  let out = '';
+  let i = 0;
+  for (;;) {
+    const sc = lower.indexOf('<script', i), st = lower.indexOf('<style', i);
+    const at = sc < 0 ? st : st < 0 ? sc : Math.min(sc, st);
+    if (at < 0) return out + s.slice(i);
+    const tag = at === sc ? 'script' : 'style';
+    out += s.slice(i, at);
+    const close = lower.indexOf(`</${tag}`, at);
+    if (close < 0) return out;
+    const gt = lower.indexOf('>', close);
+    i = gt < 0 ? s.length : gt + 1;
+  }
+}
+
+const BREAK = '\ue002';
+const PARA = '\ue003';
 
 /**
  * Visible text of a markup fragment as narrative text: tags removed, entities decoded, white
@@ -495,9 +557,8 @@ const PARA = '';
  * paragraphs with a blank line (the renderNarrative convention). Sentinels pass through.
  */
 export function markupText(fragment: string): string {
-  const t = fragment
+  const t = dropRawText(fragment)
     .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<(script|style)\b[\s\S]*?<\/\1\s*>/gi, '')
     .replace(/<br\s*\/?>/gi, BREAK)
     .replace(/<\/(?:p|div|h[1-6]|li|tr|table|ul|ol|section|blockquote)\s*>|<(?:p|div|h[1-6]|li|tr|table|ul|ol|section|blockquote)\b(?:[^>"']|"[^"]*"|'[^']*')*>/gi, PARA)
     .replace(/<\/?[A-Za-z][\w:-]*(?:[^>"']|"[^"]*"|'[^']*')*>/g, '');

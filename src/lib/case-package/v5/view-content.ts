@@ -5,7 +5,7 @@
 // render it from imported data. Nothing is executed: every value is a literal found by a
 // code-shape anchor. A missing or ambiguous anchor is reported and never guessed.
 import type { DiagSink } from '../diagnostics.ts';
-import { Code, decodeEntities, findScope, markupStream, markupText, parseHtml, partsOf, scriptRegions, select, SENT_CLOSE, SENT_OPEN, type El, type Part, type Range, type ScopeSpec, type Stream } from './js-scan.ts';
+import { Code, decodeEntities, findScope, markupStream, markupText, parseHtml, partsOf, poison, POISON, scriptRegions, select, SENT_CLOSE, SENT_OPEN, type El, type Part, type Range, type ScopeSpec, type Stream } from './js-scan.ts';
 
 import type { ViewValue } from '../view-content.ts';
 
@@ -73,7 +73,7 @@ class Miss extends Error {
 interface Sel { parts: Part[]; toks: number[]; line: number; range?: Range; list?: Part[][] }
 
 const pick = <T>(xs: T[], nth: number | undefined, what: string): T => {
-  if (nth !== undefined) { if (!xs[nth]) throw new Miss('missing', `${what}: ${xs.length} found, #${nth} wanted`); return xs[nth]!; }
+  if (nth !== undefined) { if (nth >= xs.length) throw new Miss('missing', `${what}: ${xs.length} found, #${nth} wanted`); return xs[nth]!; }
   if (xs.length === 0) throw new Miss('missing', `${what}: not found`);
   if (xs.length > 1) throw new Miss('ambiguous', `${what}: ${xs.length} candidates`);
   return xs[0]!;
@@ -108,11 +108,23 @@ export class ViewCodeReader {
   private stream(spec: ScopeSpec): { s: Stream; root: El } | null {
     if (this.streams.has(spec)) return this.streams.get(spec)!;
     let s: Stream;
-    if (spec === 'markup') s = { text: this.code.src.slice(0, this.markupEnd), segs: [], runs: [] };
-    else { const sc = this.scope(spec); if (!sc) return null; s = markupStream(this.code, sc.range); }
+    if (spec === 'markup') s = { text: poison(this.code.src.slice(0, this.markupEnd)), segs: [], runs: [] };
+    else { const sc = this.live(spec); s = markupStream(this.code, sc.range); }
     const v = { s, root: parseHtml(s.text) };
     this.streams.set(spec, v);
     return v;
+  }
+
+  /**
+   * A scope that exists exactly once. RENDER.<view> may be assigned more than once; the last
+   * assignment is the live renderer (v5 redefines discovery_tab in a later script). A function or
+   * constant defined more than once is ambiguous: nested helpers and block constants share names.
+   */
+  private live(spec: ScopeSpec): { range: Range; count: number } {
+    const sc = this.scope(spec);
+    if (!sc) throw new Miss('missing', `scope ${spec} not found`);
+    if (sc.count > 1 && !spec.startsWith('render:')) throw new Miss('ambiguous', `scope ${spec} is defined ${sc.count} times`);
+    return sc;
   }
 
   /** Literal tokens of a scope (for the unmapped-prose audit). */
@@ -128,8 +140,7 @@ export class ViewCodeReader {
     const C = this.code;
     const T = C.toks;
     if ('html' in sel) {
-      const st = this.stream(scope);
-      if (!st) throw new Miss('missing', `scope ${scope} not found`);
+      const st = this.stream(scope)!;
       let els: El[];
       try { els = select(st.root, sel.html); } catch (e) { throw new Miss('shape', (e as Error).message); }
       const one = (el: El): { parts: Part[]; toks: number[] } => {
@@ -153,9 +164,7 @@ export class ViewCodeReader {
       const el = pick(els, undefined, sel.html);
       return { ...one(el), line: line(el) };
     }
-    const sc = this.scope(scope);
-    if (!sc) throw new Miss('missing', `scope ${scope} not found`);
-    const { a, b } = sc.range;
+    const { a, b } = this.live(scope).range;
     const fromRange = (r: Range): Sel => {
       const parts = partsOf(C, r);
       return { parts, toks: parts.flatMap((p) => ('text' in p ? p.toks : [])), line: C.line(T[r.a]!.s), range: r };
@@ -225,8 +234,8 @@ export class ViewCodeReader {
         if (!els[step]) throw new Miss('missing', `element ${step} not present`);
         r = { a: els[step]![0], b: els[step]![1] };
       } else {
-        const prop = els.find(([x]) => (C.is(x, 'id', step) || C.is(x, 'str', step)) && C.is(x + 1, 'p', ':'));
-        if (!prop) throw new Miss('missing', `property ${step} not present`);
+        const props = els.filter(([x]) => (C.is(x, 'id', step) || C.is(x, 'str', step)) && C.is(x + 1, 'p', ':'));
+        const prop = pick(props, undefined, `property ${step}`);
         r = { a: prop[0] + 2, b: prop[1] };
       }
     }
@@ -258,6 +267,7 @@ export class ViewCodeReader {
           const want = e.params ?? [];
           if (s.list || codes.length !== want.length) throw new Miss('shape', `expected ${want.length} interpolations, found ${codes.length}`);
           codes.forEach((c, i) => { if (!this.code.text(c.code.a, c.code.b).includes(want[i]!.expect)) throw new Miss('shape', `interpolation ${i + 1} does not read ${want[i]!.expect}`); });
+          if (!p.some((x) => 'text' in x && x.text.trim())) throw new Miss('shape', 'template without literal text');
           let n = 0;
           value = { template: p.filter((x) => !('text' in x) || x.text.length > 0).map((x) => ('text' in x ? x.text : { param: want[n++]!.name })) };
           break;
@@ -269,7 +279,7 @@ export class ViewCodeReader {
             if (e.fallback) {
               const T = this.code.toks;
               let last = -1;
-              for (let j = r.a; j < r.b; j++) { if (C_is(T, j, '||')) last = j; const t = T[j]!; if (t.t === 'p' && (t.v === '(' || t.v === '[' || t.v === '{')) j = this.code.matchOf(j); }
+              for (let j = r.a; j < r.b; j++) { if (C_is(T, j, '||') || C_is(T, j, '??')) last = j; const t = T[j]!; if (t.t === 'p' && (t.v === '(' || t.v === '[' || t.v === '{') && this.code.matchOf(j) > j) j = this.code.matchOf(j); }
               if (last < 0) throw new Miss('shape', 'no default operand');
               r = { a: last + 1, b: r.b };
             }
@@ -293,6 +303,8 @@ export class ViewCodeReader {
           break;
         }
       }
+      const strings = typeof value === 'string' ? [value] : Array.isArray(value) ? value : typeof value === 'object' ? value.template.filter((x): x is string => typeof x === 'string') : [];
+      if (strings.some((x) => x.includes(POISON))) throw new Miss('shape', 'the literal holds a reserved private-use character');
       return { value, status: { ...base, status: 'extracted', line: s.line }, toks: s.toks };
     } catch (err) {
       if (!(err instanceof Miss)) throw err;
@@ -319,7 +331,9 @@ function sentinelParts(text: string, runs: Range[]): Part[] {
   let last = 0;
   for (const m of text.matchAll(re)) {
     if (m.index! > last) out.push({ text: text.slice(last, m.index), toks: [] });
-    out.push({ code: runs[Number(m[1])]! });
+    const run = runs[Number(m[1])];
+    if (!run) throw new Miss('shape', 'marker without a code run');
+    out.push({ code: run });
     last = m.index! + m[0].length;
   }
   if (last < text.length) out.push({ text: text.slice(last), toks: [] });

@@ -278,7 +278,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Navigation names must match their destinations and use task names rather than development-priority labels (BA-18).
 
-- [ ] The history-aware navigation, accessible focus and case-aware titles required above are this workflow's share of audit findings BA-14 and BA-16, as docs/reference/audit-dispositions.md assigns them.
+- [ ] Address audit findings BA-09 (distinguish a direct original, the parent-email route and an unavailable source), BA-14 (navigation semantics match keyboard behaviour; focus and browser Back work) and BA-16 (case-, section- and document-aware titles and history entries), as docs/reference/audit-dispositions.md assigns them.
 
 **You see.**
 
@@ -590,6 +590,8 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Privilege workflows must not turn unverified professional-role inference into a privilege finding. Keep suggestions explicitly unverified; test an automated-sender example without silently rewriting source identities (BA-07).
 
+- [ ] Wire the overview's deadline and timesheet summary through the overview extension point that CC-03 provides, from CC-07's own subtree.
+
 **You see.**
 
 - [ ] A reviewer can maintain case-management records locally and recover them after restart.
@@ -660,7 +662,7 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Preserve the supplied working analysis and cited evidence. Label dataset scope and unverified legal assertions clearly.
 
-- [ ] Implement editable statuses, authority entries and preparation notes as identified in the baseline. Persist them in the existing case user-work store.
+- [ ] Implement editable statuses, authority entries and preparation notes as identified in the baseline. Persist them through the CC-03 user-work persistence contract, in CC-08's own subtree.
 
 - [ ] Verify export contents and citation targets, including an empty preparation state. Do not present a corpus match as a definitive legal conflict finding.
 
@@ -822,7 +824,11 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Own and record backup/restore time and memory budgets before implementing this workflow, then measure them on the accepted fixture. [GRS-17](https://linear.app/vaper/issue/GRS-17/maintain-case-registers-without-losing-edits) completion requires its own register read/write evidence and does not wait for these later measurements.
 
-- [ ] Backup and restore cover the app's persisted equivalent of every live user-work store in the store table of docs/reference/view-checklist.md. These are ess_dcs_annotations_v1, ess_dcs_authorities_v1, ess_dcs_bundle_header_v2, ess_dcs_caselines_docs_v1, ess_dcs_crossexam_v1, ess_dcs_custom_bundles_v1, ess_dcs_deadlines_v1, ess_dcs_disbursements_v1, ess_dcs_enf_status_v1, ess_dcs_filings_v1, ess_dcs_heads_v1, ess_dcs_info_done_v1, ess_dcs_payments_v1, ess_dcs_popia_v1, ess_dcs_privilege_v1, ess_dcs_rescan_v1, ess_dcs_schedule_co_v1, ess_dcs_schedule_mode_v1, ess_dcs_schedule_sel_v1, ess_dcs_timesheet_v1 and ess_dcs_transcripts_v1. This includes the bundle header, the CaseLines documents and the three discovery-schedule stores that v5's own backup omits (S-backup_tab-1).
+- [ ] Backup and restore operate generically over CC-03's user-work persistence contract and cover every user-work table that contract holds, including tables that later M2 tickets add. The coverage checklist is the app's persisted equivalent of each live user-work store in the store table of docs/reference/view-checklist.md. These are ess_dcs_annotations_v1, ess_dcs_authorities_v1, ess_dcs_bundle_header_v2, ess_dcs_caselines_docs_v1, ess_dcs_crossexam_v1, ess_dcs_custom_bundles_v1, ess_dcs_deadlines_v1, ess_dcs_disbursements_v1, ess_dcs_enf_status_v1, ess_dcs_filings_v1, ess_dcs_heads_v1, ess_dcs_info_done_v1, ess_dcs_payments_v1, ess_dcs_popia_v1, ess_dcs_privilege_v1, ess_dcs_rescan_v1, ess_dcs_schedule_co_v1, ess_dcs_schedule_mode_v1, ess_dcs_schedule_sel_v1, ess_dcs_timesheet_v1 and ess_dcs_transcripts_v1. This includes the bundle header, the CaseLines documents and the three discovery-schedule stores that v5's own backup omits (S-backup_tab-1).
+
+- [ ] Rescan publishes its rows through CC-03's document-row read contract, so readers need no dependency on CC-10.
+
+- [ ] Wire the overview's rescan freshness stamp through the overview extension point that CC-03 provides, from CC-10's own subtree.
 
 **You see.**
 
@@ -913,6 +919,8 @@ The implementation test commands below are required deliverables, not existing r
 - [ ] Verify hostile imported content and original-preview isolation across the completed viewer. Report the 42-view parity result separately from production-only/deferred capabilities.
 
 - [ ] Verify the audit findings that docs/reference/audit-dispositions.md assigns to this gate. Check non-overlapping headings and export controls at narrow widths for every view with page actions (BA-12), shared contrast and focus, hover and active states (BA-13), navigation semantics, focus and Back across all 42 views (BA-14), and risk and detail readability at 320 and 390 pixels (BA-21).
+
+- [ ] Verify a backup-and-restore round trip for each store named in CC-10's coverage checklist, once its owning ticket has passed.
 
 **You see.**
 
@@ -1256,7 +1264,7 @@ The browser audit findings BA-01 to BA-21 and their full dispositions live in th
 
 - BA-08. CC-04, CC-09.
 
-- BA-09. CC-12.
+- BA-09. CC-03, CC-12.
 
 - BA-10. CC-09.
 

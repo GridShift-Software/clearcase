@@ -278,6 +278,8 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Navigation names must match their destinations and use task names rather than development-priority labels (BA-18).
 
+- [ ] The history-aware navigation, accessible focus and case-aware titles required above are this workflow's share of audit findings BA-14 and BA-16, as docs/reference/audit-dispositions.md assigns them.
+
 **You see.**
 
 - [ ] The operator imports a candidate, previews and activates it, then follows a chronology citation to the correct original.
@@ -356,6 +358,8 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Ensure document ordering labels, active sort, pagination and exported order agree (BA-17).
 
+- [ ] Address the audit findings that docs/reference/audit-dispositions.md assigns here. Require a justified version relationship or an explicitly user-selected pair for document comparison and disclose the compared text coverage (BA-06). Disclose truncated or absent text and what search and comparison cover, with counts derived from the rows rather than summary metadata (BA-08). Reject a reversed date interval distinctly from a genuine empty result (BA-15).
+
 **You see.**
 
 - [ ] A reviewer can find a document through filters or search, inspect its people/entities and agreements, and compare available text.
@@ -429,6 +433,8 @@ The implementation test commands below are required deliverables, not existing r
 - [ ] Persist any checklist or witness edits found in the baseline action inventory without changing imported source analysis.
 
 - [ ] Provide readable narrow-screen details, print/export behavior from v5, and explicit empty or incomplete states.
+
+- [ ] Keep Risk Matrix, Defence & Rebuttal and Contradiction Tracker risks and details readable at 320 and 390 pixels while keeping usable desktop tables, with screenshots at 320, 390 and desktop widths (BA-21).
 
 **You see.**
 
@@ -638,7 +644,7 @@ The implementation test commands below are required deliverables, not existing r
 
 ## Work through litigation preparation tools (CC-08)
 
-**Depends on.** [GRS-13](https://linear.app/vaper/issue/GRS-13/gate-the-complete-local-pilot-before-feature-fan-out), [GRS-15](https://linear.app/vaper/issue/GRS-15/read-the-matter-narrative-and-evidence-linked-analysis), [GRS-17](https://linear.app/vaper/issue/GRS-17/maintain-case-registers-without-losing-edits).
+**Depends on.** [GRS-13](https://linear.app/vaper/issue/GRS-13/gate-the-complete-local-pilot-before-feature-fan-out).
 
 **Files.**
 
@@ -657,6 +663,8 @@ The implementation test commands below are required deliverables, not existing r
 - [ ] Implement editable statuses, authority entries and preparation notes as identified in the baseline. Persist them in the existing case user-work store.
 
 - [ ] Verify export contents and citation targets, including an empty preparation state. Do not present a corpus match as a definitive legal conflict finding.
+
+- [ ] Conflict Check reads only the package's people and entities data. Its input hint must not reproduce v5 source defect S-conflict_tab-1, a real organisation name and e-mail address hard-coded in the placeholder; show generic guidance with no case personal data in code or markup.
 
 **You see.**
 
@@ -712,7 +720,7 @@ The implementation test commands below are required deliverables, not existing r
 
 ## Prepare discovery schedules and case bundles (CC-09)
 
-**Depends on.** [GRS-13](https://linear.app/vaper/issue/GRS-13/gate-the-complete-local-pilot-before-feature-fan-out), [GRS-17](https://linear.app/vaper/issue/GRS-17/maintain-case-registers-without-losing-edits).
+**Depends on.** [GRS-13](https://linear.app/vaper/issue/GRS-13/gate-the-complete-local-pilot-before-feature-fan-out).
 
 **Files.**
 
@@ -731,6 +739,8 @@ The implementation test commands below are required deliverables, not existing r
 - [ ] Exercise every export present in the reference and inspect the output. Do not assume the old bundle builder physically merges PDFs until the baseline proves it.
 
 - [ ] Verify missing-text and missing-source behavior, selection persistence and safe handling of large originals.
+
+- [ ] Address the audit findings that docs/reference/audit-dispositions.md assigns here. Disclose truncated or absent text and what CaseLines search covers (its page-text index), with counts derived from the data (BA-08). Reconcile the supported discovery-schedule output with the imported schedules and preserve draft or incomplete status (BA-10).
 
 **You see.**
 
@@ -811,6 +821,8 @@ The implementation test commands below are required deliverables, not existing r
 - [ ] Corrupt or incompatible backups leave active data unchanged. Verify restoration into a fresh local profile and document startup, import, search coverage and backup behavior.
 
 - [ ] Own and record backup/restore time and memory budgets before implementing this workflow, then measure them on the accepted fixture. [GRS-17](https://linear.app/vaper/issue/GRS-17/maintain-case-registers-without-losing-edits) completion requires its own register read/write evidence and does not wait for these later measurements.
+
+- [ ] Backup and restore cover the app's persisted equivalent of every live user-work store in the store table of docs/reference/view-checklist.md. These are ess_dcs_annotations_v1, ess_dcs_authorities_v1, ess_dcs_bundle_header_v2, ess_dcs_caselines_docs_v1, ess_dcs_crossexam_v1, ess_dcs_custom_bundles_v1, ess_dcs_deadlines_v1, ess_dcs_disbursements_v1, ess_dcs_enf_status_v1, ess_dcs_filings_v1, ess_dcs_heads_v1, ess_dcs_info_done_v1, ess_dcs_payments_v1, ess_dcs_popia_v1, ess_dcs_privilege_v1, ess_dcs_rescan_v1, ess_dcs_schedule_co_v1, ess_dcs_schedule_mode_v1, ess_dcs_schedule_sel_v1, ess_dcs_timesheet_v1 and ess_dcs_transcripts_v1. This includes the bundle header, the CaseLines documents and the three discovery-schedule stores that v5's own backup omits (S-backup_tab-1).
 
 **You see.**
 
@@ -899,6 +911,8 @@ The implementation test commands below are required deliverables, not existing r
 - [ ] Review all BA-01 to BA-21 dispositions against their owning issues. Applicable V1 corrections/disclosures require evidence; V2 and deferred items require an explicit scope decision and visible limitations where relevant. No known misleading conclusion may pass solely because it matches the source.
 
 - [ ] Verify hostile imported content and original-preview isolation across the completed viewer. Report the 42-view parity result separately from production-only/deferred capabilities.
+
+- [ ] Verify the audit findings that docs/reference/audit-dispositions.md assigns to this gate. Check non-overlapping headings and export controls at narrow widths for every view with page actions (BA-12), shared contrast and focus, hover and active states (BA-13), navigation semantics, focus and Back across all 42 views (BA-14), and risk and detail readability at 320 and 390 pixels (BA-21).
 
 **You see.**
 
@@ -1168,9 +1182,9 @@ All 42 views, user work, exports, offline operation and acceptance evidence pass
 
 - [GRS-17](https://linear.app/vaper/issue/GRS-17/maintain-case-registers-without-losing-edits) `CC-07`. Maintain case registers without losing edits. Blockers CC-24. [delivery brief](plan/tickets/CC-07.md).
 
-- [GRS-18](https://linear.app/vaper/issue/GRS-18/work-through-litigation-preparation-tools) `CC-08`. Work through litigation preparation tools. Blockers CC-24, CC-05, CC-07. [delivery brief](plan/tickets/CC-08.md).
+- [GRS-18](https://linear.app/vaper/issue/GRS-18/work-through-litigation-preparation-tools) `CC-08`. Work through litigation preparation tools. Blockers CC-24. [delivery brief](plan/tickets/CC-08.md).
 
-- [GRS-19](https://linear.app/vaper/issue/GRS-19/prepare-discovery-schedules-and-case-bundles) `CC-09`. Prepare discovery schedules and case bundles. Blockers CC-24, CC-07. [delivery brief](plan/tickets/CC-09.md).
+- [GRS-19](https://linear.app/vaper/issue/GRS-19/prepare-discovery-schedules-and-case-bundles) `CC-09`. Prepare discovery schedules and case bundles. Blockers CC-24. [delivery brief](plan/tickets/CC-09.md).
 
 - [GRS-20](https://linear.app/vaper/issue/GRS-20/rescan-local-files-and-restore-user-work-safely) `CC-10`. Rescan local files and restore user work safely. Blockers CC-24, CC-07. [delivery brief](plan/tickets/CC-10.md).
 
@@ -1236,27 +1250,27 @@ The browser audit findings BA-01 to BA-21 and their full dispositions live in th
 
 - BA-05. CC-04, CC-12.
 
-- BA-06. No issue names it directly. The CC-01 register assigns its owner and CC-11 reviews it.
+- BA-06. CC-04.
 
 - BA-07. CC-04, CC-07, CC-12.
 
-- BA-08. No issue names it directly. The CC-01 register assigns its owner and CC-11 reviews it.
+- BA-08. CC-04, CC-09.
 
 - BA-09. CC-12.
 
-- BA-10. No issue names it directly. The CC-01 register assigns its owner and CC-11 reviews it.
+- BA-10. CC-09.
 
 - BA-11. CC-12.
 
-- BA-12. No issue names it directly. The CC-01 register assigns its owner and CC-11 reviews it.
+- BA-12. CC-11.
 
-- BA-13. No issue names it directly. The CC-01 register assigns its owner and CC-11 reviews it.
+- BA-13. CC-11.
 
-- BA-14. No issue names it directly. The CC-01 register assigns its owner and CC-11 reviews it.
+- BA-14. CC-03, CC-11.
 
-- BA-15. No issue names it directly. The CC-01 register assigns its owner and CC-11 reviews it.
+- BA-15. CC-04.
 
-- BA-16. No issue names it directly. The CC-01 register assigns its owner and CC-11 reviews it.
+- BA-16. CC-03.
 
 - BA-17. CC-04.
 
@@ -1266,4 +1280,4 @@ The browser audit findings BA-01 to BA-21 and their full dispositions live in th
 
 - BA-20. CC-15, CC-20, CC-28.
 
-- BA-21. No issue names it directly. The CC-01 register assigns its owner and CC-11 reviews it.
+- BA-21. CC-05, CC-11.

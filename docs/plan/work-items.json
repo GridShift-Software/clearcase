@@ -198,7 +198,8 @@
         "Ownership transfer after CC-02 is accepted. Extend package.json, bun.lock, tsconfig.json, vitest.config.* serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths.",
         "Apply the package's safe-rendering and link policy throughout overview, chronology, document details and previews. Active original content must not execute with the application's origin/privileges; isolate supported previews or offer an explicit download. Test hostile narratives, filenames, links and original files without outbound access.",
         "For dates used in chronology, retain the source value and expose supplied date type/provenance or explicitly mark the basis unknown. Do not silently infer a document issue date from an incidental date. Source metadata re-extraction is deferred (BA-04).",
-        "Navigation names must match their destinations and use task names rather than development-priority labels (BA-18)."
+        "Navigation names must match their destinations and use task names rather than development-priority labels (BA-18).",
+        "The history-aware navigation, accessible focus and case-aware titles required above are this workflow's share of audit findings BA-14 and BA-16, as docs/reference/audit-dispositions.md assigns them."
       ],
       "liveScenarios": [
         "Compare the complete import-to-document workflow with the reference",
@@ -242,7 +243,8 @@
         "Disclose indexed-text limits and unsupported files. Do not label a truncated corpus search as full-document search.",
         "Use literal expected search/diff examples and justified comparison relationships. Keep original links and filing-register edits functional.",
         "Treat imported filing classifications and inferred professional identities as unverified unless supported by review evidence; disclose that status and test the audit's misleading classification/automated-sender cases. Do not present an automated sender as a verified attorney. Preserve raw source data; full extraction/classification rebuild remains deferred (BA-05, BA-07).",
-        "Ensure document ordering labels, active sort, pagination and exported order agree (BA-17)."
+        "Ensure document ordering labels, active sort, pagination and exported order agree (BA-17).",
+        "Address the audit findings that docs/reference/audit-dispositions.md assigns here. Require a justified version relationship or an explicitly user-selected pair for document comparison and disclose the compared text coverage (BA-06). Disclose truncated or absent text and what search and comparison cover, with counts derived from the rows rather than summary metadata (BA-08). Reject a reversed date interval distinctly from a genuine empty result (BA-15)."
       ],
       "liveScenarios": [
         "Compare fixed search results with v5",
@@ -284,7 +286,8 @@
         "Cover Matter & Strategy, Timeline, Contradiction Tracker, Risk Matrix, Defence & Rebuttal, Info Required and Witnesses.",
         "Preserve narratives, groupings, severities and citations from the selected package. Record intentional ordering changes.",
         "Persist any checklist or witness edits found in the baseline action inventory without changing imported source analysis.",
-        "Provide readable narrow-screen details, print/export behavior from v5, and explicit empty or incomplete states."
+        "Provide readable narrow-screen details, print/export behavior from v5, and explicit empty or incomplete states.",
+        "Keep Risk Matrix, Defence & Rebuttal and Contradiction Tracker risks and details readable at 320 and 390 pixels while keeping usable desktop tables, with screenshots at 320, 390 and desktop widths (BA-21)."
       ],
       "liveScenarios": [
         "Compare a fixed narrative section with v5",
@@ -401,9 +404,7 @@
       "milestone": "M2",
       "title": "Work through litigation preparation tools",
       "depends": [
-        "CC-24",
-        "CC-05",
-        "CC-07"
+        "CC-24"
       ],
       "outcome": "A reviewer can prepare authorities, argument and cross-examination material and track the litigation roadmap.",
       "scope": [
@@ -415,7 +416,8 @@
         "Cover Conflict Check, Enforcement Roadmap, Legality & SIU Risk, Cause of Action, Authorities, Heads of Argument and Cross-Exam Prep.",
         "Preserve the supplied working analysis and cited evidence. Label dataset scope and unverified legal assertions clearly.",
         "Implement editable statuses, authority entries and preparation notes as identified in the baseline. Persist them in the existing case user-work store.",
-        "Verify export contents and citation targets, including an empty preparation state. Do not present a corpus match as a definitive legal conflict finding."
+        "Verify export contents and citation targets, including an empty preparation state. Do not present a corpus match as a definitive legal conflict finding.",
+        "Conflict Check reads only the package's people and entities data. Its input hint must not reproduce v5 source defect S-conflict_tab-1, a real organisation name and e-mail address hard-coded in the placeholder; show generic guidance with no case personal data in code or markup."
       ],
       "liveScenarios": [
         "Compare roadmap content with v5",
@@ -445,8 +447,7 @@
       "milestone": "M2",
       "title": "Prepare discovery schedules and case bundles",
       "depends": [
-        "CC-24",
-        "CC-07"
+        "CC-24"
       ],
       "outcome": "A reviewer can reconcile discovery coverage, select bundle items and use CaseLines references with honest completeness states.",
       "scope": [
@@ -458,7 +459,8 @@
         "Cover Discovery Schedule, Court Bundle and CaseLines to the actual v5 capability boundary.",
         "Reconcile source rows, order, page references and selected items. Preserve draft/incomplete status in exported content.",
         "Exercise every export present in the reference and inspect the output. Do not assume the old bundle builder physically merges PDFs until the baseline proves it.",
-        "Verify missing-text and missing-source behavior, selection persistence and safe handling of large originals."
+        "Verify missing-text and missing-source behavior, selection persistence and safe handling of large originals.",
+        "Address the audit findings that docs/reference/audit-dispositions.md assigns here. Disclose truncated or absent text and what CaseLines search covers (its page-text index), with counts derived from the data (BA-08). Reconcile the supported discovery-schedule output with the imported schedules and preserve draft or incomplete status (BA-10)."
       ],
       "liveScenarios": [
         "Compare a discovery schedule with its source",
@@ -504,7 +506,8 @@
         "A repeat scan is idempotent. Detect additions, removals and changed contents; do not assign duplicate refs or claim analysis is current after a shallow rescan.",
         "Backup includes user-entered state and required identities/version metadata. State clearly whether binaries are included. Validate restore and scope it to the correct case.",
         "Corrupt or incompatible backups leave active data unchanged. Verify restoration into a fresh local profile and document startup, import, search coverage and backup behavior.",
-        "Own and record backup/restore time and memory budgets before implementing this workflow, then measure them on the accepted fixture. [GRS-17](https://linear.app/vaper/issue/GRS-17/maintain-case-registers-without-losing-edits) completion requires its own register read/write evidence and does not wait for these later measurements."
+        "Own and record backup/restore time and memory budgets before implementing this workflow, then measure them on the accepted fixture. [GRS-17](https://linear.app/vaper/issue/GRS-17/maintain-case-registers-without-losing-edits) completion requires its own register read/write evidence and does not wait for these later measurements.",
+        "Backup and restore cover the app's persisted equivalent of every live user-work store in the store table of docs/reference/view-checklist.md. These are ess_dcs_annotations_v1, ess_dcs_authorities_v1, ess_dcs_bundle_header_v2, ess_dcs_caselines_docs_v1, ess_dcs_crossexam_v1, ess_dcs_custom_bundles_v1, ess_dcs_deadlines_v1, ess_dcs_disbursements_v1, ess_dcs_enf_status_v1, ess_dcs_filings_v1, ess_dcs_heads_v1, ess_dcs_info_done_v1, ess_dcs_payments_v1, ess_dcs_popia_v1, ess_dcs_privilege_v1, ess_dcs_rescan_v1, ess_dcs_schedule_co_v1, ess_dcs_schedule_mode_v1, ess_dcs_schedule_sel_v1, ess_dcs_timesheet_v1 and ess_dcs_transcripts_v1. This includes the bundle header, the CaseLines documents and the three discovery-schedule stores that v5's own backup omits (S-backup_tab-1)."
       ],
       "liveScenarios": [
         "Compare available system actions with v5",
@@ -559,7 +562,8 @@
         "Ownership transfer after CC-03 is accepted. Extend docs/development.md serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths.",
         "Ownership transfer after CC-10 is accepted. Extend docs/user-guide.md serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths.",
         "Review all BA-01 to BA-21 dispositions against their owning issues. Applicable V1 corrections/disclosures require evidence; V2 and deferred items require an explicit scope decision and visible limitations where relevant. No known misleading conclusion may pass solely because it matches the source.",
-        "Verify hostile imported content and original-preview isolation across the completed viewer. Report the 42-view parity result separately from production-only/deferred capabilities."
+        "Verify hostile imported content and original-preview isolation across the completed viewer. Report the 42-view parity result separately from production-only/deferred capabilities.",
+        "Verify the audit findings that docs/reference/audit-dispositions.md assigns to this gate. Check non-overlapping headings and export controls at narrow widths for every view with page actions (BA-12), shared contrast and focus, hover and active states (BA-13), navigation semantics, focus and Back across all 42 views (BA-14), and risk and detail readability at 320 and 390 pixels (BA-21)."
       ],
       "liveScenarios": [
         "Run the reference and rewrite pilot side by side",

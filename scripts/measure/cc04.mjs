@@ -49,6 +49,7 @@ const { launch, newPage } = await import('../../tests/e2e/pilot/lib/cdp.mjs');
 const { client, vpath } = await import('../../tests/e2e/pilot/lib/client.mjs');
 const { startServer } = await import('../../tests/e2e/pilot/lib/server.mjs');
 const { isolatedBuild } = await import('../../tests/e2e/pilot/lib/isolated-build.mjs');
+const { isBackground } = await import('../../tests/e2e/pilot/suite/context.mjs');
 const { ConfigError, loadConfig, v5Package } = await import('../../tests/e2e/pilot/v5/fixture.mjs');
 
 const proof = await proveOffline();
@@ -176,11 +177,12 @@ try {
 await br?.close().catch(() => {});
 await srv?.stop().catch(() => {});
 await canary.close().catch(() => {});
-result.canaryHits = canary.hits.map((h) => ({ kind: h.kind, host: h.host ?? h.sni ?? null }));
+// a request by Chromium's own background services (no page origin or referer) is counted apart, as the suites do
+result.canaryHits = canary.hits.map((h) => ({ kind: h.kind, host: h.host ?? h.sni ?? null, browserBackground: isBackground(h) }));
 result.finishedAt = new Date().toISOString();
 result.error = failure;
 result.evidence = process.env.CLEARCASE_BUILD_EVIDENCE === 'true';
-result.ok = !failure && !!result.metrics && Object.values(result.metrics).every((m) => m.pass !== false && m.enoughSamples !== false) && result.canaryHits.length === 0;
+result.ok = !failure && !!result.metrics && Object.values(result.metrics).every((m) => m.pass !== false && m.enoughSamples !== false) && result.canaryHits.every((h) => h.browserBackground);
 writeFileSync(join(out, 'measure-CC-04.json'), JSON.stringify(result, null, 1));
 if (result.metrics) {
 	console.log(`\nCC-04 candidate ${full.slice(0, 12)} (build ${result.build?.stamp?.buildId ?? '?'}); fixture ${result.fixture.docCount} documents`);

@@ -85,6 +85,8 @@ for (const f of readdirSync(join(import.meta.dirname, 'adapters', 'app')).filter
 // nothing is written before this: an output overlapping the fixture is refused, and the working directory is fresh
 let work;
 try { ({ work } = prepareOutput(out, fixtureInputs(fx, { appV5Html: opt('app-v5-html') && resolve(opt('app-v5-html')) }))); } catch (e) { setup(e.message); }
+// removed on every exit, a later setup error included, so failed runs do not pile up working directories
+if (!flag('keep-work')) process.on('exit', () => rmSync(work, { recursive: true, force: true }));
 const treeBefore = treeStamp(fx.caseFolder);
 const git = gitIdentity();
 
@@ -179,6 +181,5 @@ writeFileSync(join(out, 'scorecard.md'), [
 	'| View | Status | Compared | Matched | Registered | Pending approval | Unregistered |', '| --- | --- | --: | --: | --: | --: | --: |',
 	...Object.entries(sc.views).map(([v, x]) => `| ${v} | ${x.status} | ${x.compared} | ${x.matched} | ${Object.values(x.registered).reduce((a, b) => a + b, 0)} | ${x.pendingApproval} | ${x.unregistered} |`), '',
 ].join('\n'));
-if (!flag('keep-work')) rmSync(work, { recursive: true, force: true });
 console.log(`parity: ${sc.result} (exit ${exitCode}): ${T.views} views, ${T.compared} values compared, ${T.matched} matched, ${Object.values(T.registered).reduce((a, b) => a + b, 0)} registered, ${T.unregistered} unregistered; ${sc.seconds} s -> ${out}`);
 process.exit(exitCode);

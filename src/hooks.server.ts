@@ -15,8 +15,14 @@ const appHost = () => `127.0.0.1:${app().config.appPort}`;
 const plain = (status: number, body: string, extra: Record<string, string> = {}) =>
 	new Response(body, { status, headers: { 'content-type': 'text/plain; charset=utf-8', 'x-content-type-options': 'nosniff', 'referrer-policy': 'same-origin', 'cache-control': 'no-store', ...extra } });
 
+// Loopback clients only: 127.0.0.0/8, ::1 and IPv4-mapped 127.x. The listener binds 127.0.0.1, so this holds only if
+// someone serves the handler another way (defence in depth). An address SvelteKit cannot tell is refused too.
+const isLoopback = (addr: string) => /^(::ffff:)?127(\.\d{1,3}){3}$/i.test(addr) || addr === '::1';
+const clientAddress = (event: Parameters<Handle>[0]['event']) => { try { return event.getClientAddress(); } catch { return ''; } };
+
 export const handle: Handle = async ({ event, resolve }) => {
 	if (!building && !event.isSubRequest) {
+		if (!isLoopback(clientAddress(event))) return plain(403, 'ClearCase answers this machine only (loopback clients)');
 		const a = app();
 		// DNS-rebinding guard. Sub-requests (SSR fetch of /api/...) are exempt: they carry no browser Host.
 		if (event.request.headers.get('host') !== appHost()) return plain(421, 'misdirected request: unknown Host');
@@ -52,7 +58,12 @@ export const handle: Handle = async ({ event, resolve }) => {
 	return res;
 };
 
+// SQLITE_FULL (13) or ENOSPC: the file system holding the data directory is full. Nothing was written (every write is
+// one transaction); say so instead of a generic error.
+const diskFull = (e: unknown) => { const x = e as { errcode?: number; code?: string; message?: string }; return (x?.errcode !== undefined && (x.errcode & 0xff) === 13) || x?.code === 'ENOSPC' || /database or disk is full|ENOSPC|no space left on device/i.test(String(x?.message ?? '')); };
+const DISK_FULL = 'The disk holding the ClearCase data directory is full, so nothing was written. Free some space and try again.';
+
 export const handleError: HandleServerError = ({ error, status }) => {
 	if (status !== 404) console.error(error);
-	return { message: status === 404 ? 'Not found' : 'Internal error' };
+	return { message: status === 404 ? 'Not found' : diskFull(error) ? DISK_FULL : 'Internal error' };
 };

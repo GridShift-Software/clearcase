@@ -1,7 +1,7 @@
 // GRS-38: code-embedded view content carried as the `view-content` dataset. Synthetic,
 // invented v5-shaped viewer code only (fixtures/view-code.synthetic.js.txt).
 import { afterAll, describe, expect, it } from 'vitest';
-import { readViewContent, renderNarrative } from '../../src/lib/case-package/browser.ts';
+import { readViewContent, renderNarrative, revealInvisible } from '../../src/lib/case-package/browser.ts';
 import { DiagSink } from '../../src/lib/case-package/diagnostics.ts';
 import { sha256Hex } from '../../src/lib/case-package/hash.ts';
 import { importCandidate } from '../../src/lib/case-package/import.ts';
@@ -213,6 +213,114 @@ describe('view-content extraction: review regressions', () => {
       extractViewContent(`${markup}<script>${script}</script>`, [{ view: 'v', field: 'f', checklist: 'L1', scope: 'markup', sel: { html: 'title' }, kind: 'text', required: false }], []);
       markupText(markup);
       expect(performance.now() - t0, label).toBeLessThan(1500);
+    }
+  });
+});
+
+describe('view-content extraction: fix round regressions (CC-30 r2)', () => {
+  const one = (script: string, e: Partial<Entry> & Pick<Entry, 'scope' | 'sel' | 'kind'>, opts: { markup?: string; audit?: boolean; maxChars?: number; deadlineMs?: number } = {}) => {
+    const sink = new DiagSink();
+    const r = extractViewContent(`${opts.markup ?? ''}<script>${script}</script>`, [{ view: 'v', field: 'f', checklist: 'L1', required: true, ...e }], [], { sink, ...(opts.audit && { audit: [e.scope] }), maxChars: opts.maxChars, deadlineMs: opts.deadlineMs });
+    return { value: r.data.v?.f, status: r.fields[0]!.status, codes: sink.finish().map((d) => d.code), unmapped: r.unmapped };
+  };
+
+  it('link-checks a template-form url at import, whichever part spells the unsafe scheme', async () => {
+    const dir = await caseDir('vc-url-template');
+    const conv = await convertV5({ html: htmlOf(), htmlName: 'w.html', caseFolder: dir, caseId: 'vc' });
+    for (const template of [['javascript:alert(1)', { param: 'x' }], [{ param: 'x' }, 'javascript:alert(1)'], ['data:text/html,', { param: 'x' }], ['java', { param: 'x' }, 'script:alert(1)']]) {
+      const files = (await import('./fixtures/build.ts')).editPackage(conv.files!, 'datasets/view-content.json', (v) => { v.data.caselines_tab.url = { template }; });
+      const r = await importCandidate({ files }, dir);
+      expect(r.verdict, JSON.stringify(template)).toBe('reject');
+      expect(r.diagnostics.some((d) => d.code === 'LINK_UNSAFE_SCHEME' && d.file === 'datasets/view-content.json'), JSON.stringify(template)).toBe(true);
+    }
+  });
+
+  it('never returns an unsafe url from the reader, in string, list or template form, before or after filling', () => {
+    const rd = readViewContent({ a: { url: 'javascript:alert(1)', link: ['./ok.pdf', 'data:text/html,x'], href: { template: ['javascript:', { param: 'x' }] }, file: { template: [{ param: 'u' }] }, folder: './INVENTED/', note: 'javascript:alert(1)' } });
+    expect([rd.value('a', 'url'), rd.text('a', 'url'), rd.fill('a', 'url')]).toEqual([null, null, null]);
+    expect([rd.value('a', 'link'), rd.list('a', 'link')]).toEqual([null, null]);
+    expect([rd.value('a', 'href'), rd.params('a', 'href'), rd.fill('a', 'href', { x: 'alert(1)' })]).toEqual([null, null, null]);
+    expect(rd.fill('a', 'file', { u: 'javascript:alert(1)' })).toBeNull();
+    expect(rd.fill('a', 'file', { u: './INVENTED.pdf' })).toEqual({ text: './INVENTED.pdf', missing: [] });
+    expect(rd.text('a', 'folder')).toBe('./INVENTED/');
+    expect(rd.text('a', 'note')).toBe('javascript:alert(1)'); // not a link field: plain untrusted text
+    expect(rd.fields('a')).toEqual(['file', 'folder', 'note']);
+  });
+
+  it('refuses every reserved private-use character (U+E000 to U+E004) in a pattern capture', () => {
+    for (const cp of [0xe000, 0xe001, 0xe002, 0xe003, 0xe004]) {
+      const r = one(`function exportICS(){let ics='PRODID:-//A${String.fromCharCode(cp)}B//EN';}`, { scope: 'function:exportICS', sel: { pattern: 'PRODID:-//([^/]+)//' }, kind: 'text' });
+      expect([r.status, r.value], cp.toString(16)).toEqual(['shape', undefined]);
+    }
+    expect(one("function exportICS(){let ics='PRODID:-//AB//EN';}", { scope: 'function:exportICS', sel: { pattern: 'PRODID:-//([^/]+)//' }, kind: 'text' }).value).toBe('AB');
+  });
+
+  it('checks a template interpolation against its source expression exactly, not as a substring', () => {
+    const tpl = (expr: string) => one(`RENDER.t=function(el){pageHead('T','From '+${expr}+' items');};`, { scope: 'render:t', sel: { call: 'pageHead', arg: 1 }, kind: 'template', params: [{ name: 'docCount', expect: 'META.docCount' }] });
+    for (const expr of ['META.docCountOld', '(META.docCount*0)', "'META.docCount'", 'X.META.docCount', 'META.docCount.length']) expect(tpl(expr).status, expr).toBe('shape');
+    expect(tpl('META.docCount').value).toEqual({ template: ['From ', { param: 'docCount' }, ' items'] });
+    expect(tpl('META . docCount /* same tokens */').status).toBe('extracted');
+  });
+
+  it('reports a renderer defined again in a branch, loop or plain function as ambiguous; an IIFE redefinition stays live', () => {
+    const sel = { scope: 'render:t' as const, sel: { call: 'pageHead', arg: 1 }, kind: 'text' as const };
+    const live = "RENDER.t=function(el){pageHead('T','live');};";
+    const dead = "RENDER.t=function(el){pageHead('T','dead');};";
+    for (const wrap of [`if(false){${dead}}`, `if(x){}else{${dead}}`, `function never(){${dead}}`, `for(;false;){${dead}}`, `(function(){${dead}});`, `(function(){if(0){${dead}}})();`]) {
+      for (const script of [live + wrap, wrap + live]) {
+        const r = one(script, sel);
+        expect([r.status, r.codes], script).toEqual(['ambiguous', ['V5_VIEW_CONTENT_AMBIGUOUS']]);
+      }
+    }
+    const iife = "RENDER.t=function(el){pageHead('T','old');};";
+    expect(one(iife + "(function(){RENDER.t=function(el){pageHead('T','live');};})();", sel).value).toBe('live');
+    expect(one(iife + "(function(){RENDER.t=function(el){pageHead('T','live');};}());", sel).value).toBe('live');
+    expect(one(iife + "(()=>{(function(){RENDER.t=function(el){pageHead('T','live');};})();})();", sel).value).toBe('live');
+    expect(one("if(x){RENDER.t=function(el){pageHead('T','only');};}", sel).value).toBe('only');
+  });
+
+  it('flags invisible and zero-width characters in view content and reveals them, as in every dataset', async () => {
+    const hidden = [0x034f, 0x115f, 0x180b, 0x206f, 0x3164, 0xfe0f, 0xfff9, 0x1d173, 0xe0001, 0xe0020, 0xe0100];
+    for (const cp of hidden) expect(revealInvisible(`a${String.fromCodePoint(cp)}b`), cp.toString(16)).toBe(`a⟨U+${cp.toString(16).toUpperCase().padStart(4, '0')}⟩b`);
+    expect(revealInvisible('plain é text, ©')).toBe('plain é text, ©');
+    const dir = await caseDir('vc-hidden');
+    const conv = await convertV5({ html: htmlOf(), htmlName: 'w.html', caseFolder: dir, caseId: 'vc' });
+    const files = (await import('./fixtures/build.ts')).editPackage(conv.files!, 'datasets/view-content.json', (v) => { v.data.zz_hidden = Object.fromEntries(hidden.map((cp) => [`f${cp.toString(16)}`, `a${String.fromCodePoint(cp)}b`])); });
+    const r = await importCandidate({ files }, dir);
+    const flagged = r.diagnostics.filter((d) => d.code === 'TEXT_CONTROL_CHARS' && d.file === 'datasets/view-content.json').map((d) => d.pointer);
+    expect(flagged.sort()).toEqual(hidden.map((cp) => `/data/zz_hidden/f${cp.toString(16)}`).sort());
+  });
+
+  describe('stays linear on the hostile shapes of the review lanes', () => {
+    const title = { scope: 'markup' as const, sel: { html: 'title' }, kind: 'text' as const };
+    const shapes: [string, () => unknown][] = [
+      ['P1 \\u{ without a closing brace', () => one(`const S='${'\\u{'.repeat(400_000)}';`, title)],
+      ['P2 an unterminated /* per script block', () => extractViewContent('<script>/*</script>'.repeat(120_000), [{ view: 'v', field: 'f', checklist: 'L1', required: false, ...title }], [])],
+      ['P3 repeated unterminated const', () => one('const CAP='.repeat(40_000), { scope: 'const:CAP', sel: { lit: 'object', path: ['x'] }, kind: 'text' })],
+      ['P4 unclosed comments in static markup', () => one('', title, { markup: '<!--'.repeat(80_000) })],
+      ['P5 <script without a closing >', () => one('', title, { markup: '<script '.repeat(64_000) })],
+      ['P7 many script elements in element text', () => markupText('<script></script>'.repeat(80_000))],
+      ['P8 unclosed comments in element text', () => markupText('<!--x'.repeat(80_000))],
+      ['P9 an unclosed tag run in an unconsumed literal', () => one(`RENDER.t=function(el){let h='${'<a'.repeat(120_000)}>';};`, { scope: 'render:t', sel: { call: 'pageHead', arg: 1 }, kind: 'text' }, { audit: true })],
+      ['P10 nested calls with callbacks', () => one(`RENDER.t=function(el){let h='<p>a</p>';${'f(()=>'.repeat(48_000)}1${')'.repeat(48_000)};};`, { scope: 'render:t', sel: { html: 'p' }, kind: 'text' })],
+      ['tags with an unclosed quote', () => markupText('<p "'.repeat(80_000))],
+    ];
+    for (const [label, run] of shapes) {
+      it(label, () => {
+        const t0 = performance.now();
+        run();
+        expect(performance.now() - t0).toBeLessThan(1000);
+      }, 30_000);
+    }
+  });
+
+  it('fails closed with a diagnostic past the size bound or the deadline', () => {
+    const script = "RENDER.t=function(el){pageHead('T','value');};";
+    const sel = { scope: 'render:t' as const, sel: { call: 'pageHead', arg: 1 }, kind: 'text' as const };
+    expect(one(script, sel).value).toBe('value');
+    for (const opts of [{ maxChars: 10 }, { deadlineMs: -1 }]) {
+      const r = one(script, sel, opts);
+      expect([r.value, r.status, r.codes], JSON.stringify(opts)).toEqual([undefined, 'missing', ['V5_VIEW_CONTENT_LIMIT']]);
     }
   });
 });

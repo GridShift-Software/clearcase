@@ -153,7 +153,7 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
       }
       if (fp.kind !== 'file' && fp.kind !== 'missing') {
         // never downgrade a refused original to "missing": these are errors
-        const code = fp.kind === 'escape' ? 'ORIG_ESCAPE' : fp.kind === 'not-file' ? 'ORIG_NOT_FILE' : fp.kind === 'too-large' ? 'ORIG_TOO_LARGE' : 'ORIG_UNREADABLE';
+        const code = fp.kind === 'escape' ? 'ORIG_ESCAPE' : fp.kind === 'reserved' ? 'ASSET_PATH_RESERVED' : fp.kind === 'not-file' ? 'ORIG_NOT_FILE' : fp.kind === 'too-large' ? 'ORIG_TOO_LARGE' : 'ORIG_UNREADABLE';
         sink.add(code, `the original for ${j.ref} is refused (${fp.kind})`, { file: 'input', subject: j.ref });
         continue;
       }

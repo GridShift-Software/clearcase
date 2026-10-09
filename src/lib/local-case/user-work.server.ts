@@ -49,7 +49,8 @@ export type TableKind = 'user-work' | 'activation' | 'unregistered';
 export interface TableColumn { name: string; type: string; notNull: boolean; pk: number }
 export interface UserWorkTable { name: string; kind: TableKind; owner: string; description: string; columns: TableColumn[] }
 export interface TableDefinition { name: string; owner: string; description: string; columns: { name: string; type: 'TEXT' | 'INTEGER' | 'REAL' | 'BLOB'; notNull?: boolean }[]; primaryKey: string[] }
-type Cell = string | number | null | { $b64: string };
+/** A cell of an export: BLOBs as base64, INTEGERs beyond the JS safe range as decimal text (both lossless). */
+type Cell = string | number | null | { $b64: string } | { $int: string };
 export interface UserWorkExport {
 	format: typeof USER_WORK_EXPORT;
 	exportedAt: string;
@@ -227,7 +228,10 @@ export class UserWork {
 		});
 		const tables = selected.filter((t) => !excluded.some((x) => x.name === t.name)).map((t) => {
 			const pk = t.columns.filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk).map((c) => q(c.name));
-			const rows = (this.d.prepare(`SELECT * FROM work.${q(t.name)}${pk.length ? ` ORDER BY ${pk.join(', ')}` : ''}`).all() as Record<string, unknown>[])
+			// INTEGERs are read as BigInt: one beyond 2^53 would otherwise throw RangeError and fail the whole export
+			const select = this.d.prepare(`SELECT * FROM work.${q(t.name)}${pk.length ? ` ORDER BY ${pk.join(', ')}` : ''}`);
+			select.setReadBigInts(true);
+			const rows = (select.all() as Record<string, unknown>[])
 				.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, toCell(v)])));
 			return { ...t, rows };
 		});
@@ -238,7 +242,8 @@ export class UserWork {
 	 * Restore an export in one transaction: each table in it is replaced by its rows. A table the export defines but
 	 * this store lacks is created from the export's columns inside that same transaction (catalogued unless it was
 	 * unregistered), so a refused or failed restore leaves no table behind. Everything exportAll() writes restores;
-	 * a column mismatch with an existing table, or a shape it could not have written, refuses the whole restore.
+	 * an existing table whose schema differs from the export's (schemaDifference), or a shape exportAll() could not
+	 * have written, refuses the whole restore before any row is touched: nothing is coerced into another schema.
 	 */
 	async importAll(snapshot: UserWorkExport): Promise<{ tables: number; rows: number }> {
 		if (snapshot?.format !== USER_WORK_EXPORT || !Array.isArray(snapshot.tables)) throw new UserWorkError(`not a ${USER_WORK_EXPORT} export`);
@@ -249,7 +254,8 @@ export class UserWork {
 			const bad = definitionProblem(def);
 			if (bad) throw new UserWorkError(`table ${String(t.name).slice(0, 80)}: ${bad}; nothing was restored`);
 			const h = here.get(t.name);
-			if (h && (h.columns.length !== t.columns.length || t.columns.some((c, i) => h.columns[i]?.name !== c.name))) throw new UserWorkError(`table ${t.name} has other columns here; nothing was restored`);
+			const differs = h && schemaDifference(definitionOf(h), def);
+			if (differs) throw new UserWorkError(`table ${t.name}: ${differs}; nothing was restored (restore into a store whose table matches the backup, or migrate the table first)`);
 			if (!h) create.push({ def, catalogue: t.kind !== 'unregistered' });
 		}
 		let rows = 0;
@@ -293,6 +299,23 @@ const definitionOf = (t: Pick<UserWorkTable, 'name' | 'owner' | 'description' | 
 	columns: (Array.isArray(t.columns) ? t.columns : []).map((c) => ({ name: c.name, type: String(c.type).toUpperCase() as 'TEXT', notNull: c.notNull })),
 	primaryKey: (Array.isArray(t.columns) ? t.columns : []).filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk).map((c) => c.name),
 });
+/**
+ * How an existing table's schema differs from a backup's, or null: ordered column names, declared types (compared
+ * case-insensitively, as SQLite does), NOT NULL and the ordered primary key. A key column counts as NOT NULL either
+ * way: a restore creates it so, and exportAll() never writes a NULL key.
+ */
+function schemaDifference(here: TableDefinition, backup: TableDefinition): string | null {
+	const cols = (d: TableDefinition) => d.columns.map((c) => c.name).join(', ');
+	if (here.columns.length !== backup.columns.length || here.columns.some((c, i) => c.name !== backup.columns[i]!.name)) return `its columns here are (${cols(here)}), the backup's are (${cols(backup)})`;
+	const notNull = (d: TableDefinition, c: TableDefinition['columns'][number]) => !!c.notNull || d.primaryKey.includes(c.name);
+	for (const [i, c] of here.columns.entries()) {
+		const b = backup.columns[i]!;
+		if (c.type !== b.type) return `column ${c.name} is ${c.type || 'untyped'} here and ${b.type} in the backup`;
+		if (notNull(here, c) !== notNull(backup, b)) return `column ${c.name} is ${notNull(here, c) ? 'NOT NULL' : 'nullable'} here and ${notNull(backup, b) ? 'NOT NULL' : 'nullable'} in the backup`;
+	}
+	if (here.primaryKey.join(', ') !== backup.primaryKey.join(', ')) return `its primary key here is (${here.primaryKey.join(', ')}), the backup's is (${backup.primaryKey.join(', ')})`;
+	return null;
+}
 /** Why a table of this shape cannot be defined or restored, or null. */
 function definitionProblem(def: TableDefinition): string | null {
 	if (typeof def.name !== 'string' || !TABLE.test(def.name) || RESERVED(def.name)) return `invalid table name ${String(def.name).slice(0, 80)} (lower-case letters, digits and _, not starting with sqlite)`;
@@ -307,8 +330,13 @@ function createTable(d: ReturnType<Storage['db']>, def: TableDefinition, catalog
 	if (catalogue) d.prepare(`INSERT INTO work.userwork_catalog(name, kind, owner, description) VALUES (?, 'user-work', ?, ?)
 		ON CONFLICT(name) DO UPDATE SET owner = excluded.owner, description = excluded.description`).run(def.name, def.owner, def.description);
 }
-const toCell = (v: unknown): Cell => (v instanceof Uint8Array ? { $b64: Buffer.from(v).toString('base64') } : typeof v === 'bigint' ? Number(v) : (v as Cell));
-const fromCell = (v: Cell): unknown => (v !== null && typeof v === 'object' ? new Uint8Array(Buffer.from(v.$b64, 'base64')) : v);
+const toCell = (v: unknown): Cell =>
+	v instanceof Uint8Array ? { $b64: Buffer.from(v).toString('base64') } : typeof v === 'bigint' ? (Number.isSafeInteger(Number(v)) ? Number(v) : { $int: v.toString() }) : (v as Cell);
+const fromCell = (v: Cell): unknown => {
+	if (v === null || typeof v !== 'object') return v;
+	if ('$int' in v) { if (!/^-?\d{1,20}$/.test(v.$int)) throw new UserWorkError('an $int cell is not an integer'); return BigInt(v.$int); }
+	return new Uint8Array(Buffer.from(v.$b64, 'base64'));
+};
 
 function checkStore(store: string) {
 	if (!STORE.test(store)) throw new UserWorkError(`invalid register store name: ${store.slice(0, 80)}`);

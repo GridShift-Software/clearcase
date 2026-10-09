@@ -24,6 +24,16 @@ describe('overview slots', () => {
 		expect(s.map((x) => x.status)).toEqual(['filled', 'error', 'unavailable']);
 		expect(s[0]).toMatchObject({ status: 'filled', data: { open: 2, caseId: 'c' } });
 	});
+	it('marks only the slot whose loader returns data the page cannot carry (a function, a class instance, a symbol)', async () => {
+		class Summary { open = 2; }
+		const states = async (bad: unknown) => (await slotStates(ctx, loadersFrom({
+			'/src/lib/views/registers/overview-widgets.server.ts': { loaders: [{ slot: 'deadlines', load: () => bad }, { slot: 'unbilled-time', load: () => ({ hours: 1.5, at: new Date(0), tags: new Set(['a']), by: new Map([['x', [1n]]]) }) }] },
+		}))).map((x) => x.status);
+		for (const bad of [() => 1, { open: 2, fmt: () => '' }, new Summary(), [Symbol('x')], { [Symbol('k')]: 1 }, new Map([['k', new Summary()]])]) expect(await states(bad)).toEqual(['error', 'filled', 'unavailable']);
+		const cyclic: Record<string, unknown> = { open: 1 };
+		cyclic.self = cyclic;
+		expect(await states(cyclic)).toEqual(['filled', 'filled', 'unavailable']);
+	});
 	it('refuses unknown slots, slots of another owner, double fills and files outside src/lib/views/<category>/', () => {
 		const one = (file: string, entries: unknown[]) => () => collect({ [file]: { widgets: entries } }, 'widgets');
 		expect(one('/src/lib/views/registers/overview-widgets.ts', [{ slot: 'nope' }])).toThrow(/unknown overview slot/);

@@ -70,3 +70,28 @@ The first gate was FAIL at `c3c773cf4016d02ab22d62754c6eab5a23ca9401`, with 25 i
 The six GRS-9 and six GRS-10 follow-ups, N5-N9, N11 and N12 remain non-blocking. The 52-of-55 route sub-item remains HOLD under the brief. No unchanged-code audit, newer-export acceptance, implemented HTTP-serving acceptance, SQLite pilot acceptance or cold-cache gate is claimed. No archive HTML or archive scripts were executed. Case-dependent outputs stay local and outside Git.
 
 The full local report is `/home/vaper/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-23/r2/report.md`. The coordinator owns later ticket status and integration.
+
+## Round 3 (PR #4 review fixes)
+
+The PR #4 review found two package defects at `adf4fa9108dea063e6da9ce41f1c6142788ad2e4`. The repaired package head `8a7a92a` was merged into this branch at `2511740`. This round adds independent regressions in [`pr4-review.test.ts`](../../../tests/acceptance/CC-23/pr4-review.test.ts). They use synthetic data and the public library API only.
+
+- **Missing-original identity.** Within one case, an earlier `ORIG_MISSING` for `GT-001` is used as the trusted baseline for a later import. That baseline must not waive the later warning when `GT-001` names a different document. Three cases are tested: a different path and different bytes; the same path and size with different bytes; and the same bytes at a different path. The positive control re-imports an unchanged missing document, both as-is and with only its case label changed. Its fingerprint must stay the same, and the earlier baseline must still clear it.
+- **Zip compressed bounds.** The tests cover:
+  - `readCentralDirectory` with `archiveEntryBytes: 16` and `archiveTotalBytes: 32`, where a one-byte entry is carried by a valid deflate stream padded beyond 2 MiB;
+  - `readEntry` on deflate and stored entries whose compressed size exceeds the declared size, recording read requests to show that nothing is read;
+  - a stored entry whose compressed and declared sizes disagree;
+  - a `.zip` package import whose padded manifest must be rejected with `ARC_LIMIT`.
+
+  The positive controls read stored and deflate entries under the same tight bounds. They also import complete stored and deflate `.zip` packages.
+
+| Run | Source | Result | Receipt |
+| --- | --- | --- | --- |
+| `r3-prefix-new-tests-final` | `src` from `adf4fa9`, tests from this round | 9 failed, 4 passed: the 4 positive controls passed | exit 1 (expected) |
+| `r3-postfix-new-tests` | `2511740` | 13 passed | exit 0 |
+| `r3-gate-tests` | `2511740` | 4 files; 42 passed, 0 failed, 0 skipped | exit 0 |
+| `r3-gate-typecheck` | `2511740` | Strict typecheck of all gate files | exit 0 |
+| `r3-test` | `2511740` | 11 files; 760 passed, 0 failed, 0 skipped | exit 0 |
+| `r3-check` | `2511740` | Types; 38 schemas; 71 accepted and 59 rejected examples | exit 0 |
+| `r3-install` | `2511740` | `bun install --frozen-lockfile`; no changes | exit 0 |
+
+Before the fix, all nine targeted tests failed. The three identity cases produced the same `ORIG_MISSING` fingerprint for different documents. The padded deflate entry and the inconsistent stored entry passed `readCentralDirectory`. `readEntry` requested reads of 8,388,608 bytes and 17 bytes for oversized entries. The padded zip package was accepted. The `2511740` source tree is unchanged by the test and documentation commits. Tests ran under `unshare -rn` with Bun 1.4.2. Receipts are in the local r3 report directory and use base `adf4fa9`. An earlier r3 pre-fix run had the same failures and passed tests. It was rerun only to correct one test title.

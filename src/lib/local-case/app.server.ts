@@ -2,6 +2,7 @@
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { parseFixedNow } from '../components/clock.ts';
 import { configFromEnv } from './config.server.ts';
 import { OriginalsServer } from './originals.server.ts';
 import { LocalCase } from './service.server.ts';
@@ -21,11 +22,16 @@ export const app = (): LocalCase => instance().app;
 export const originals = (): OriginalsServer => instance().originals;
 
 /**
- * Process start: the instance lock first (a second process on the same data directory exits without touching it),
- * then the originals listener (a taken port exits before storage is touched), then the startup checks, which never
- * throw. On sveltekit:shutdown both listeners and the stores close.
+ * Process start: the configuration first (an invalid CLEARCASE_FIXED_NOW exits before anything is opened), then the
+ * instance lock (a second process on the same data directory exits without touching it), then the originals listener
+ * (a taken port exits before storage is touched), then the startup checks, which never throw. On sveltekit:shutdown
+ * both listeners and the stores close.
  */
 export async function initApp(): Promise<void> {
+	try { parseFixedNow(process.env.CLEARCASE_FIXED_NOW); } catch (e) {
+		console.error(`FATAL: ${(e as Error).message}. Unset it to use the real clock. Exiting without touching the data directory.`);
+		process.exit(1);
+	}
 	const { app: a, originals: o } = instance();
 	const lock = a.storage.acquireInstanceLock();
 	if (!lock.ok) {

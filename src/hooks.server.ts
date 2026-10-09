@@ -37,7 +37,9 @@ export const handle: Handle = async ({ event, resolve }) => {
 		if (a.storageError && event.url.pathname !== '/api/health')
 			return plain(503, `ClearCase storage is unavailable, so nothing can be shown.\n\n${a.storageError}\n\n${a.retryAt ? 'Another process holds a lock on the store; ClearCase retries automatically. Reload in a few seconds.' : a.restoreHelp()}`, a.retryAt ? { 'retry-after': '2' } : {});
 	}
-	const res = await resolve(event);
+	// The chronology page's universal load reads x-clearcase-degraded from its /api fetch; during SSR SvelteKit refuses
+	// (500) any response header it is not told to serialize for hydration. That one header is allowed, nothing else.
+	const res = await resolve(event, { filterSerializedResponseHeaders: (name) => name === 'x-clearcase-degraded' });
 	res.headers.set('x-content-type-options', 'nosniff');
 	// NOT no-referrer: that makes Chromium send 'Origin: null' on form POSTs, which SvelteKit's CSRF check rejects.
 	res.headers.set('referrer-policy', 'same-origin');

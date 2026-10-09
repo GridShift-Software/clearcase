@@ -23,6 +23,8 @@ export const load: PageServerLoad = async ({ parent }) => {
 		tallies,
 		// the document count of the document-row contract (imported register plus provider rows), as the chronology lists them
 		documents: documentCounts(a.store, v.id),
+		// the originals counts are the import-time check (a live re-check of every original would be expensive)
+		originalsCheckedAt: v.stored_at,
 		narrative,
 		known: narrative ? [...a.store.existingRefs(v.id, citedRefs([narrative]))] : [],
 		notes: a.userWork.summary(v.case_id, v.id),

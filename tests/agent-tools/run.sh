@@ -188,10 +188,53 @@ for fixture in "$FIXTURES"/graph/*.json; do
 	receipt_is "graph $name receipt" "$([[ $expected == 0 ]] && echo PASS || echo FAIL)" "$expected"
 done
 
-echo "# skipped and deferred checks are never PASS"
-run "app capability is deferred" 3 "$TOOLS/verify" app
-has "app deferral names GRS-12" "deferred to GRS-12"
-receipt_is "app receipt is SKIPPED" SKIPPED 3
+echo "# verify app and the app/browser doctor rows, in a clean checkout without node_modules"
+# A git archive of HEAD with this checkout's agent tools and verify-clearcase skill over it, committed in a scratch
+# repository: no install, no build.
+APPC="$WORK/app-clean"
+mkdir -p "$APPC" && git -C "$REPO" archive --format=tar HEAD | tar -x -C "$APPC"
+RUNNER=.agents/skills/verify-clearcase/bin/verify-clearcase
+rm -rf "$APPC/.agents/skills/verify-clearcase" && mkdir -p "$APPC/.agents/skills" && cp -a "$REPO/.agents/skills/verify-clearcase" "$APPC/.agents/skills/"
+cp -a "$TOOLS/." "$APPC/scripts/agent-tools/"
+git_fixture "$APPC"
+run "the doctor passes before install and build" 0 "$APPC/scripts/agent-tools/doctor"
+for row in "PASS     app-unshare    unshare from util-linux" "PASS     app-ip         ip utility" "PASS     app-chromium" "PASS     app-runner     $RUNNER is executable"; do
+	has "the doctor checks ${row:9:12}" "$row"
+done
+lacks "the doctor defers nothing" "DEFERRED"
+run "verify app without node_modules stops at the runner's preflight" 3 env CLEARCASE_REPORT_DIR="$WORK/app-clean-report" "$APPC/scripts/agent-tools/verify" app
+has "names the missing node_modules and the install command" "node_modules is missing (a clean checkout has no installed dependencies); fix: cd $APPC && bun install --frozen-lockfile"
+has "says nothing was built, started or contacted" "Nothing was built, started or contacted"
+receipt_check "the receipt keeps the runner's exit 3 and lists bun" 'r["result"] == "FAIL" and r["exitCode"] == 3 and any(t["name"] == "bun" and t["path"] for t in r["tools"])'
+if python3 -c 'import glob,json,sys; [f] = glob.glob(sys.argv[1] + "/skill/*/summary.json"); s = json.load(open(f)); sys.exit(not (s["result"] == "SKIPPED" and [x["status"] for x in s["steps"]] == ["SKIPPED", "NOT RUN", "NOT RUN", "NOT RUN"]))' "$WORK/app-clean-report" && [[ ! -e $APPC/.local/verify-clearcase-scratch && ! -e $APPC/node_modules ]]; then
+	ok "the runner's evidence shows only its preflight ran, and it left no scratch"
+else
+	bad "the runner's evidence shows only its preflight ran, and it left no scratch"
+fi
+chmod -x "$APPC/$RUNNER"
+run "verify app with a runner that is not executable is SKIPPED" 3 "$APPC/scripts/agent-tools/verify" app
+reason_has "names the runner" "$RUNNER is missing or not executable"
+receipt_is "the no-runner receipt is SKIPPED" SKIPPED 3
+run "the doctor fails on a runner that is not executable" 1 "$APPC/scripts/agent-tools/doctor"
+has "names the runner and the fix" "FAIL     app-runner     $RUNNER is missing or not executable"
+has "the runner is the only failure" "required checks passed, 1 failed."
+chmod +x "$APPC/$RUNNER"
+run "the doctor fails without Chromium" 1 env CLEARCASE_CHROMIUM="$WORK/no-such-chromium" "$APPC/scripts/agent-tools/doctor"
+has "names the Chromium it looked for" "FAIL     app-chromium   $WORK/no-such-chromium is not an executable file"
+has "gives the Chromium fix" "fix: set CLEARCASE_CHROMIUM to a Chromium binary"
+has "the missing Chromium is the only failure" "required checks passed, 1 failed."
+mkdir -p "$WORK/bin-no-userns"
+printf '#!/bin/sh\n[ "$1" = --version ] && { echo "unshare from util-linux 2.42.4"; exit 0; }\necho "unshare: unshare failed: Operation not permitted" >&2\nexit 1\n' >"$WORK/bin-no-userns/unshare"
+chmod +x "$WORK/bin-no-userns/unshare"
+run "the doctor fails when user and network namespaces are unavailable" 1 env PATH="$WORK/bin-no-userns:$PATH" "$APPC/scripts/agent-tools/doctor"
+has "names the failed unshare -rn" "unprivileged user and network namespaces are unavailable"
+has "the namespaces are the only failure" "required checks passed, 1 failed."
+run "the verify-clearcase self-test passes" 0 env CLEARCASE_REPORT_DIR="$WORK/self-test-report" VERIFY_CLEARCASE_SCRATCH="$WORK/self-test-scratch" "$REPO/$RUNNER" self-test
+has "the self-test covers the clean checkout" "PASS     clean checkout: preflight stops with the install command (exit 3), no build, no browser, no bun install"
+has "the self-test covers a wrong-build instance" "PASS     live doctor, another build (buildId): FAIL on build.buildId"
+has "the self-test covers another data directory" "PASS     live doctor, another data directory: FAIL on dataDir"
+
+echo "# skipped checks are never PASS"
 run "required Linear comparison without a readback fails" 3 "$TOOLS/check-plan" --require-linear-relations
 has "check-plan reports the skipped comparison" "linear-relations=SKIPPED"
 has "check-plan overall verdict is FAIL" "check-plan: FAIL"
@@ -293,6 +336,7 @@ cp -r "$TOOLS" "$REPO/scripts/planning" "$EV/scripts/"
 cp -r "$REPO/docs/plan" "$REPO/docs/delivery-plan.md" "$EV/docs/"
 cp -r "$FIXTURES/plans" "$EV/tests/agent-tools/fixtures/"
 cp "$REPO/.gitignore" "$EV/"
+cp -a "$REPO/.agents" "$EV/"
 git_fixture "$EV"
 EVPLAN="$EV/tests/agent-tools/fixtures/plans/valid.md"
 READBACK="$WORK/tree-readback-valid/readback.json"
@@ -867,11 +911,14 @@ cp -r "$REPO/scripts/agent-tools" "$REPO/scripts/planning" "$FRESH/scripts/"
 cp -r "$REPO/docs/plan" "$FRESH/docs/"
 cp "$REPO/docs/delivery-plan.md" "$FRESH/docs/"
 cp "$REPO/.gitignore" "$FRESH/"
+cp -a "$REPO/.agents" "$FRESH/"
 git_fixture "$FRESH"
 run "first bootstrap links" 0 "$FRESH/scripts/agent-tools/bootstrap"
 has "first bootstrap reports linked" "linked ->"
 receipt_is "bootstrap writes the receipt of its doctor run" PASS 0
 run "verify list prints the capabilities" 0 "$FRESH/scripts/agent-tools/verify" list
+has "verify list shows app as available" "app               available verify-clearcase run"
+lacks "verify list defers nothing" "deferred"
 no_receipt "verify list writes no receipt"
 run "second bootstrap is a no-op" 0 "$FRESH/scripts/agent-tools/bootstrap"
 has "second bootstrap reports unchanged" "unchanged ->"
@@ -889,7 +936,8 @@ echo "# rerun.sh stops or fails when a step's evidence is not recorded whole"
 # The real rerun.sh runs in a copy of this checkout whose suite is a stub, so each run takes seconds and cannot rerun
 # these cases. Faults are planted from the background once the run has written the line they wait for.
 RR="$WORK/rerun-copy"
-mkdir -p "$RR" && tar -C "$REPO" --exclude=./.git --exclude=./.local -cf - . | tar -C "$RR" -xf -
+# Without node_modules, its v5-app-deferred step (verify app) exits 3 at the runner's preflight instead of a full run.
+mkdir -p "$RR" && tar -C "$REPO" --exclude=./.git --exclude=./.local --exclude=./node_modules -cf - . | tar -C "$RR" -xf -
 printf '#!/bin/bash\necho "stub suite of a rerun.sh test: 0 failed"\n' >"$RR/tests/agent-tools/run.sh"
 git_fixture "$RR"
 rr_head=$(git -C "$RR" rev-parse HEAD)

@@ -1,0 +1,12 @@
+#!/bin/bash
+# verify-clearcase: drive the real ClearCase pilot offline and keep the evidence. See ../SKILL.md.
+#   verify-clearcase [run|preflight|live-doctor|cleanup|self-test|--help] [flags]
+# Runs lib/main.mjs under CLEARCASE_BUN, else the bun on PATH. Exit 0 PASS, 1 FAIL, 2 usage, 3 SKIPPED (missing prerequisite).
+set -euo pipefail
+SKILL=$(cd "${BASH_SOURCE[0]%/*}/.." && pwd)
+BUN=${CLEARCASE_BUN:-$(command -v bun || true)}
+if [[ -z $BUN || ! -x $BUN ]]; then
+	echo "verify-clearcase: SKIPPED preflight: bun not found (CLEARCASE_BUN=${CLEARCASE_BUN:-unset}, PATH=$PATH); fix: install the Bun that package.json's packageManager pins and put it on PATH, or set CLEARCASE_BUN" >&2
+	exit 3
+fi
+exec "$BUN" "$SKILL/lib/main.mjs" "$@"

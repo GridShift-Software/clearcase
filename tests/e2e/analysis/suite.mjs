@@ -133,7 +133,7 @@ try {
 		return { pass: ok, evidence: { nav, shaped, years, source } };
 	});
 
-	await scenario('AN-04', 'timeline', 'Scenario 4: Print / PDF prints the timeline: window.print is called, and printed output hides the shell and keeps every phase and event', async () => {
+	await scenario('AN-04', 'timeline', 'Scenario 4: Print / PDF prints the timeline: window.print is called, and printed output hides the shell and keeps every phase and event; Full chronology opens the chronology', async () => {
 		await p.goto(V(vid, 'timeline'), L.ready('timeline'));
 		await p.prints();
 		await p.click('#print');
@@ -144,8 +144,11 @@ try {
 		const pdf = await p.s('Page.printToPDF', { printBackground: false });
 		await p.media('');
 		writeFileSync(join(SCREENS, 'timeline-print.pdf'), Buffer.from(pdf.data, 'base64'));
+		// v5's other page action: Full chronology opens the chronology
+		await p.click('#full-chronology');
+		await p.waitFor(`${L.ready('chronology')} && location.pathname.endsWith('/chronology')`, 30000);
 		const ok = prints === 1 && shown.nav === 'none' && shown.header === 'none' && shown.actions === 'none' && shown.phases && shown.events === 5 && shown.heading && pdf.data.length > 1000;
-		return { pass: ok, evidence: { prints, shown, pdfBytes: Math.round(pdf.data.length * 0.75), pdf: 'screens/timeline-print.pdf' } };
+		return { pass: ok, evidence: { prints, shown, pdfBytes: Math.round(pdf.data.length * 0.75), pdf: 'screens/timeline-print.pdf', fullChronology: 'opened' } };
 	});
 
 	await scenario('AN-05', 'contradictions_tab', 'Scenario 5: contradiction categories with their severities, item counts and source chips; a chip opens its document; Export CSV has v5 columns', async () => {

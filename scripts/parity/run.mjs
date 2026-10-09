@@ -3,7 +3,7 @@
 //
 //   bun run --bun parity -- [--view ID[,ID...] | --all] --fixture-config .local/v5-verification.json --out DIR
 //       [--clock ISO] [--timezone TZ] [--approved-only] [--no-sweeps] [--no-exports] [--app-root DIR]
-//       [--register FILE] [--strict-register] [--keep-work] [--keep-snapshots] [--app-v5-html FILE]
+//       [--register FILE] [--strict-register] [--keep-work] [--keep-snapshots] [--app-v5-html FILE] [--allow-stale-build]
 //
 // For each view it extracts what v5 shows (the main HTML opened read-only from the fixture tree as a file: URL, Date
 // frozen at the clock, timezone fixed, every non-file request counted and fatal) and what the app shows (the
@@ -16,7 +16,9 @@
 // Exit 0: no unregistered difference. 1: an unregistered difference, a view that did not extract on either side (never
 // covered by the register), or an isolation breach (a v5 or app network request, a canary hit, a changed fixture
 // tree). 2: setup error (arguments, fixture locator, register, including a whole-view owner that is not the view
-// registry's, an --out overlapping a fixture input or holding a symlink where it writes, build, offline proof).
+// registry's, an --out overlapping a fixture input or holding a symlink where it writes, build, offline proof, and a
+// stale build: one whose stamp is not HEAD's, or made from or run on a tree with modified tracked files, unless
+// --allow-stale-build, which runs it with `evidence: false` in the scorecard; tests/e2e/pilot/lib/fresh-build.ts).
 //
 // Isolation: outside the network namespace the runner re-execs itself through tests/e2e/pilot/offline.sh under
 // `unshare -rn` (tests/e2e/pilot/v5/env.mjs ensureOffline); inside, it proves that only loopback exists before it
@@ -33,7 +35,7 @@ const argv = process.argv.slice(2);
 const flag = (n) => argv.includes(`--${n}`);
 const opt = (n) => { const i = argv.findIndex((a) => a === `--${n}` || a.startsWith(`--${n}=`)); if (i < 0) return undefined; return argv[i].includes('=') ? argv[i].slice(argv[i].indexOf('=') + 1) : argv[i + 1]; };
 const setup = (msg) => { console.error(`parity: setup error: ${msg}`); process.exit(2); };
-if (flag('help')) { console.log(readFileSync(import.meta.filename, 'utf8').split('\n').slice(1, 24).map((l) => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
+if (flag('help')) { const lines = readFileSync(import.meta.filename, 'utf8').split('\n').slice(1); console.log(lines.slice(0, lines.findIndex((l) => !l.startsWith('//'))).map((l) => l.replace(/^\/\/ ?/, '')).join('\n')); process.exit(0); }
 if (!opt('fixture-config')) setup('--fixture-config FILE is required');
 if (!opt('out')) setup('--out DIR is required');
 if (!flag('all') && !opt('view')) setup('pass --all or --view ID');
@@ -79,6 +81,11 @@ try { fx = await loadConfig(resolve(opt('fixture-config'))); } catch (e) { setup
 const buildDir = join(appRoot, 'build');
 if (!existsSync(join(buildDir, 'handler.js')) || !existsSync(join(buildDir, 'clearcase-build.json'))) setup(`no production build at ${buildDir} (run bun run --bun build there)`);
 const stamp = JSON.parse(readFileSync(join(buildDir, 'clearcase-build.json'), 'utf8'));
+// fresh-build evidence: the build must be HEAD's, from and on a tree without modified tracked files (exit 2 otherwise)
+const { allowStale, evidenceRecord, freshLine, freshness, refusal } = await import('../../tests/e2e/pilot/lib/fresh-build.ts');
+const fresh = freshness(REPO, stamp);
+const allowedStale = allowStale(argv);
+if (!fresh.fresh && !allowedStale) setup(refusal('parity', fresh).replace(/^parity: /, ''));
 const { VIEWS } = await import(join(appRoot, 'src', 'lib', 'components', 'view-registry.ts'));
 const registry = Object.fromEntries(VIEWS.map((v) => [v.id, v]));
 const adapters = {};
@@ -98,7 +105,7 @@ if (!flag('keep-work')) removeOnExit(work);
 const treeBefore = treeStamp(fx.caseFolder);
 const git = gitIdentity();
 
-console.log(`parity: ${views.length} view(s); clock ${clock} ${timezone}; app ${relative(REPO, appRoot) || '.'} build ${stamp.buildId} from ${stamp.revision?.slice(0, 12)}${stamp.dirty ? ' (dirty)' : ''}; HEAD ${git.head.slice(0, 12)}`);
+console.log(`parity: ${views.length} view(s); clock ${clock} ${timezone}; app ${relative(REPO, appRoot) || '.'} build ${stamp.buildId} from ${stamp.revision?.slice(0, 12)}${stamp.dirty ? ' (dirty)' : ''}; HEAD ${git.head.slice(0, 12)}; ${freshLine(fresh)}`);
 const pkgRun = v5Package(fx, join(work, 'pkg-v5'));
 if (pkgRun.exit !== 0 && !existsSync(join(pkgRun.dir, 'manifest.json'))) setup(`v5 conversion failed: ${pkgRun.stderr}`);
 const pkg = readPackage(pkgRun.dir);
@@ -171,6 +178,7 @@ writeFileSync(at('register-usage.json'), JSON.stringify({ used: [...used].sort()
 const nonFile = details.__requests?.v5NonFile ?? null;
 const sc = scorecard(perView, {
 	command: `bun run --bun parity -- ${argv.join(' ')}`, revision: git.head, dirty: git.dirty, build: { id: stamp.buildId, revision: stamp.revision, dirty: !!stamp.dirty, root: relative(REPO, appRoot) || '.' },
+	...evidenceRecord(fresh, allowedStale),
 	clock, timezone, register: { entries: reg.entries.length, approved: reg.entries.filter((e) => e.approvedBy).length, approvedOnly: flag('approved-only'), used: used.size, unused: unused.length, strict: flag('strict-register') },
 	appSide: opt('app-v5-html') ? 'v5 self-parity copy' : 'app build',
 	isolation: { offline: proof.pass, links: proof.links, v5NonFileRequests: nonFile, v5BrowserInternalRequests: details.__requests?.v5BrowserInternal ?? null, appNonLoopbackRequests: details.__requests?.appNonLoopback ?? null, canaryHits: otherHits, canaryBrowserServiceHits: serviceHits.length, fixtureUnchanged: treeBefore === treeAfter },
@@ -184,11 +192,12 @@ const T = sc.total;
 writeFileSync(at('scorecard.md'), [
 	`# Parity scorecard`, '',
 	`Result **${sc.result}** (exit ${exitCode}) at ${git.head}${git.dirty ? ' (dirty)' : ''}; build ${stamp.buildId} from ${stamp.revision}; clock ${clock} ${timezone}; ${sc.seconds} s.`, '',
+	`Evidence: ${sc.evidence ? 'yes (a fresh build of clean HEAD)' : `**no**: ${sc.evidenceNote}`}.`, '',
 	`Views ${T.views}: v5 extracted ${T.viewsExtractedV5}, app compared ${T.viewsComparedApp}, not yet implemented ${T.viewsNotImplemented}, extraction errors ${T.viewsExtractError}, failed ${T.viewsFailed}. Values: v5 ${T.v5Values}, app ${T.appValues}, compared ${T.compared}, matched ${T.matched}. Registered differences: ${TYPES.map((t) => `${t} ${T.registered[t]}`).join(', ')} (${T.pendingApproval} on entries awaiting approval). Unregistered: ${T.unregistered}.`, '',
 	`Register: ${reg.entries.length} entries (${sc.register.approved} approved); ${used.size} covered a difference, ${unused.length} unused in the views run${flag('strict-register') ? ' (strict: unused fails)' : ''}.`, '',
 	`Isolation: offline ${proof.pass}, v5 non-file network requests ${nonFile} (browser-internal viewer requests ${sc.isolation.v5BrowserInternalRequests}), app non-loopback requests ${sc.isolation.appNonLoopbackRequests}, canary hits ${otherHits} (browser-service ${serviceHits.length}), fixture tree unchanged ${treeBefore === treeAfter}.`, '',
 	'| View | Status | Compared | Matched | Registered | Pending approval | Unregistered |', '| --- | --- | --: | --: | --: | --: | --: |',
 	...Object.entries(sc.views).map(([v, x]) => `| ${v} | ${x.status} | ${x.compared} | ${x.matched} | ${Object.values(x.registered).reduce((a, b) => a + b, 0)} | ${x.pendingApproval} | ${x.unregistered} |`), '',
 ].join('\n'));
-console.log(`parity: ${sc.result} (exit ${exitCode}): ${T.views} views, ${T.compared} values compared, ${T.matched} matched, ${Object.values(T.registered).reduce((a, b) => a + b, 0)} registered, ${T.unregistered} unregistered; ${sc.seconds} s -> ${out}`);
+console.log(`parity: ${sc.result} (exit ${exitCode})${sc.evidence ? '' : ' [evidence: false, stale build]'}: ${T.views} views, ${T.compared} values compared, ${T.matched} matched, ${Object.values(T.registered).reduce((a, b) => a + b, 0)} registered, ${T.unregistered} unregistered; ${sc.seconds} s -> ${out}`);
 process.exit(exitCode);

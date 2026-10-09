@@ -13,7 +13,8 @@ const BUN = process.versions.bun ? process.execPath : 'bun';
 const root = mkdtempSync(join(tmpdir(), 'm2-base-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 const put = (p: string, s: string) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, s); };
-const echo = (name: string) => `console.log(JSON.stringify({ runner: ${JSON.stringify(name)}, args: process.argv.slice(2) }));\nprocess.exit(${name === 'cc99' ? 7 : 0});\n`;
+const echo = (name: string) => `console.log(JSON.stringify({ runner: ${JSON.stringify(name)}, args: process.argv.slice(2) }));\nconsole.error('evidence=' + process.env.CLEARCASE_BUILD_EVIDENCE);\nprocess.exit(${name === 'cc99' ? 7 : 0});\n`;
+const git = (repo: string, ...args: string[]) => spawnSync('git', ['-C', repo, '-c', 'user.name=synthetic', '-c', 'user.email=synthetic@example.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' }).stdout.trim();
 
 describe('measure dispatcher', () => {
 	// a temp copy of the dispatcher with synthetic runners beside it
@@ -25,7 +26,10 @@ describe('measure dispatcher', () => {
 	put(join(copy, 'scripts', 'measure', 'cc4.mjs'), echo('cc4'));
 	put(join(copy, 'scripts', 'measure', 'cc100.mjs'), echo('cc100'));
 	copyFileSync(join(REPO, 'scripts', 'measure', 'index.ts'), join(copy, 'scripts', 'measure', 'index.ts'));
-	const measure = (...args: string[]) => spawnSync(BUN, [join(copy, 'scripts', 'measure', 'index.ts'), ...args], { encoding: 'utf8', timeout: 30_000 });
+	put(join(copy, 'tests', 'e2e', 'pilot', 'lib', 'fresh-build.ts'), readFileSync(join(REPO, 'tests', 'e2e', 'pilot', 'lib', 'fresh-build.ts'), 'utf8'));
+	// the copy is no git checkout, so its build is never fresh: the dispatch tests run with the documented override
+	const run = (env: Record<string, string>, args: string[]) => spawnSync(BUN, [join(copy, 'scripts', 'measure', 'index.ts'), ...args], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, CLEARCASE_REPORT_DIR: join(copy, 'report'), ...env } });
+	const measure = (...args: string[]) => run({ CLEARCASE_ALLOW_STALE_BUILD: '1' }, args);
 
 	test('CC-NN runs scripts/measure/ccNN.mjs with every argument, and returns its exit code', () => {
 		const r = measure('--ticket', 'CC-99', '--baseline', 'a', '--candidate', 'b');
@@ -46,6 +50,51 @@ describe('measure dispatcher', () => {
 			expect(r.stderr).toMatch(new RegExp(`--ticket CC-02\\|CC-03\\|CC-99 .*\\(unknown ticket ${t.replace('.', '\\.')}\\)`));
 		}
 		expect(measure().status).toBe(2);
+	});
+
+	describe('fresh-build evidence', () => {
+		const evidence = (t = 'CC-99') => JSON.parse(readFileSync(join(copy, 'report', 'measure', `build-evidence-${t}.json`), 'utf8'));
+		test('a stale revision under test is refused with exit 2 before the runner starts', () => {
+			const r = run({ CLEARCASE_ALLOW_STALE_BUILD: '' }, ['--ticket', 'CC-99', '--candidate', 'HEAD']);
+			expect(r.status).toBe(2);
+			expect(r.stdout).toBe('');
+			expect(r.stderr).toMatch(/measure: refusing a stale build \(.*not a git checkout/);
+			expect(evidence()).toMatchObject({ ticket: 'CC-99', evidence: false, freshBuild: { fresh: false, allowStaleBuild: false } });
+		});
+		test('--allow-stale-build runs it with evidence: false, and the runner never sees the flag', () => {
+			const r = run({ CLEARCASE_ALLOW_STALE_BUILD: '' }, ['--ticket', 'CC-99', '--allow-stale-build', '--candidate', 'HEAD']);
+			expect(r.status).toBe(7);
+			expect(JSON.parse(r.stdout).args).toEqual(['--ticket', 'CC-99', '--candidate', 'HEAD']);
+			expect(r.stderr).toMatch(/evidence=false/);
+			expect(evidence()).toMatchObject({ evidence: false, underTest: '--candidate HEAD', freshBuild: { allowStaleBuild: true } });
+			expect(evidence().evidenceNote).toMatch(/^NOT release evidence/);
+		});
+		test("in a clean checkout, --candidate HEAD or a build stamped with HEAD is fresh; another revision or a modified tracked file is not", () => {
+			const repo = join(root, 'measure-git');
+			put(join(repo, 'scripts', 'measure', 'cc99.mjs'), echo('cc99'));
+			put(join(repo, 'scripts', 'measure', 'index.ts'), readFileSync(join(REPO, 'scripts', 'measure', 'index.ts'), 'utf8'));
+			put(join(repo, 'tests', 'e2e', 'pilot', 'lib', 'fresh-build.ts'), readFileSync(join(REPO, 'tests', 'e2e', 'pilot', 'lib', 'fresh-build.ts'), 'utf8'));
+			put(join(repo, '.gitignore'), 'build/\nreport/\n');
+			git(repo, 'init', '-q');
+			git(repo, 'add', '.');
+			git(repo, 'commit', '-q', '-m', 'synthetic');
+			const first = git(repo, 'rev-parse', 'HEAD');
+			const go = (...args: string[]) => spawnSync(BUN, [join(repo, 'scripts', 'measure', 'index.ts'), '--ticket', 'CC-99', ...args], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, CLEARCASE_REPORT_DIR: join(repo, 'report'), CLEARCASE_ALLOW_STALE_BUILD: '' } });
+			const cand = go('--candidate', 'HEAD');
+			expect(cand.status, cand.stderr).toBe(7);
+			expect(cand.stderr).toMatch(/evidence=true/);
+			put(join(repo, 'build', 'clearcase-build.json'), JSON.stringify({ revision: first, dirty: false }));
+			expect(go().status).toBe(7);
+			put(join(repo, 'build', 'clearcase-build.json'), JSON.stringify({ revision: first, dirty: true }));
+			expect(go().status).toBe(2);
+			put(join(repo, 'build', 'clearcase-build.json'), JSON.stringify({ revision: '0'.repeat(40), dirty: false }));
+			expect(go().status).toBe(2);
+			put(join(repo, 'build', 'clearcase-build.json'), JSON.stringify({ revision: first, dirty: false }));
+			writeFileSync(join(repo, 'scripts', 'measure', 'cc99.mjs'), echo('cc99') + '// modified\n');
+			const dirty = go();
+			expect(dirty.status).toBe(2);
+			expect(dirty.stderr).toMatch(/tracked files are modified: scripts\/measure\/cc99\.mjs/);
+		});
 	});
 });
 
@@ -78,11 +127,11 @@ describe('browser e2e categories', () => {
 describe('vitest includes', () => {
 	test("the owners' test paths are collected, other paths are not", () => {
 		const tree = join(root, 'vitest');
-		const files = ['tests/evidence/a/x.test.ts', 'tests/system/x.test.ts', 'tests/calculations/x.test.ts', 'src/lib/user-work/backup/x.test.ts', 'src/lib/views/registers/x.test.ts', 'src/lib/bundles/x.test.ts', 'tests/parity/x.test.ts', 'src/lib/other/x.test.ts', 'tests/e2e/evidence/x.test.ts', 'tests/acceptance/x.test.ts'];
+		const files = ['tests/evidence/a/x.test.ts', 'tests/system/x.test.ts', 'tests/calculations/x.test.ts', 'src/lib/user-work/backup/x.test.ts', 'src/lib/views/registers/x.test.ts', 'src/lib/bundles/x.test.ts', 'tests/parity/x.test.ts', 'src/routes/v/[vid]/registers/deadlines_tab/ics.test.ts', 'tests/e2e/pilot/lib/x.test.ts', 'src/lib/other/x.test.ts', 'tests/e2e/evidence/x.test.ts', 'tests/acceptance/x.test.ts'];
 		for (const f of files) put(join(tree, f), "import { test } from 'vitest';\ntest('synthetic', () => {});\n");
 		const r = spawnSync(BUN, [join(REPO, 'node_modules', 'vitest', 'vitest.mjs'), 'list', '--filesOnly', '--root', tree, '--config', join(REPO, 'vitest.config.ts')], { encoding: 'utf8', timeout: 60_000 });
 		expect(r.status, r.stderr).toBe(0);
-		expect(r.stdout.trim().split('\n').sort()).toEqual(files.slice(0, 7).sort());
+		expect(r.stdout.trim().split('\n').sort()).toEqual(files.slice(0, 9).sort());
 	});
 	test('the existing includes are kept', async () => {
 		const { default: config } = await import('../../vitest.config');

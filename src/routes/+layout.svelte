@@ -1,11 +1,8 @@
 <script lang="ts">
 	import '../app.css';
 	import { onMount } from 'svelte';
-	import { useFixedNow } from '$lib/components/clock';
 	import { afterNavigate } from '$app/navigation';
 	let { data, children } = $props();
-	// one clock for server and browser: a fixed CLEARCASE_FIXED_NOW (tests, verification) reaches now() here too
-	$effect.pre(() => useFixedNow(data.fixedNow));
 
 	// BA-14: after a client-side navigation (link, Back, Forward), focus moves to the new page's heading, so keyboard
 	// and screen-reader users start at the new content instead of the top of the document. A full page load reached by

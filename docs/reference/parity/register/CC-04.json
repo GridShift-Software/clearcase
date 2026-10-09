@@ -27,18 +27,6 @@
       "approvedOn": "2026-10-09"
     },
     {
-      "id": "IDR-006",
-      "view": "filings_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-14",
-      "reason": "The app does not implement Filings & Affidavits yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
       "id": "IDR-007",
       "view": "search",
       "field": "*",
@@ -85,6 +73,116 @@
       "author": "CC-29 worker (GRS-37)",
       "approvedBy": "coordinator",
       "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-100",
+      "view": "filings_tab",
+      "field": [
+        "sweep.register_edit.overview.Open deadlines",
+        "sweep.register_edit.overview.Unbilled time"
+      ],
+      "when": {
+        "app": {
+          "re": "^Not yet available — owned by GRS-17"
+        }
+      },
+      "type": "not-yet-implemented",
+      "owner": "GRS-17",
+      "reason": "The register_edit sweep ends on the overview tiles; Open deadlines and Unbilled time are GRS-17's overview slots, unfilled at this base. The coordinator deletes this entry when CC-07 merges.",
+      "productVisible": false,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-101",
+      "view": "filings_tab",
+      "field": "text.filing_replying_affidavit_register.1",
+      "when": {
+        "v5": {
+          "re": "^Log each filing and the responding/replying affidavit as you paginate .+\\. Saved in this browser \\(ess_dcs_filings_v1\\)\\.$"
+        },
+        "app": {
+          "re": "^Log each filing and the responding/replying affidavit\\. Saved in this case.s local work store; imported rows stay as imported and your changes are kept apart from them\\.$"
+        }
+      },
+      "type": "known-gap",
+      "source": "S-hardcoded-case",
+      "reason": "v5 hard-codes a case file name in the register introduction, which the view-content map lacks (shared-file request in the CC-04 report), and says the register is saved in the browser; the app leaves the case wording out and says the register is kept in the case work store, apart from the imported seed rows (S-seed-copy).",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-102",
+      "view": "filings_tab",
+      "field": "table.filing_replying_affidavit_register.row.*._",
+      "when": {
+        "v5": "Delete",
+        "app": "Edit Delete"
+      },
+      "type": "improvement",
+      "source": "GRS-14",
+      "reason": "Acceptance (edit and reload a filing relationship): each register row has an Edit control beside v5s Delete. An edit of an imported row is a seed overlay; a user row is replaced in place.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-103",
+      "view": "filings_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation the app focuses the page heading (BA-14), as the pilot views do; v5 leaves focus on the navigation link.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-104",
+      "view": "filings_tab",
+      "field": "text.page.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Filing groups and document types are imported classifications; they have not been verified against the documents\\.$"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-05",
+      "reason": "BA-05: the filing groups and document types are imported classifications with no verification state; the view says they are unverified.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-105",
+      "view": "filings_tab",
+      "field": "sweep.register_edit.overview.Scanned (need OCR)",
+      "when": {
+        "v5": {
+          "re": "^[0-9,]+$"
+        },
+        "app": {
+          "re": "^[0-9,]+$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-meta-counts",
+      "reason": "The register sweep ends on the overview tiles; the app counts rows without text from the register (as the overview does, IDR-049), v5 shows META.textNone.",
+      "productVisible": false,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
     }
   ]
 }

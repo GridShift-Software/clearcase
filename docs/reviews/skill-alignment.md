@@ -22,7 +22,7 @@ The installed bundle lacks the `to-spec`, `to-tickets` and `implement-spec` leaf
 
 The detailed V1 plan follows the multi-phase checklist structure. Its ten live scenarios per implementation unit are run within the concurrency cap. Decision and acceptance-gate issues use evidence appropriate to their output. The later V2 roadmap is deliberately refined at its decision gate before code dispatch; it does not pretend hosting and role decisions are settled.
 
-T3's task and preview tools replace Cursor-specific commands. There is no remote, no `origin/main` and pstack's available `orch` CLI is not used for this run. The plan records these differences instead of inventing those capabilities. No ten-agent cloud fleet, automatic merge loop or schedule starts during planning.
+T3's task and preview tools replace Cursor-specific commands. The remote is `origin`, GitHub `GridShift-Software/clearcase`, with stacked feature PRs into `dev`, linked with `gh stack link --base dev` and updated by merging rather than by pstack's `gt` restacks; pstack's available `orch` CLI is not used for this run. The plan records these differences instead of inventing those capabilities. No ten-agent cloud fleet, automatic merge loop or schedule starts during planning.
 
 ## Jove conventions adopted
 

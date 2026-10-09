@@ -1,0 +1,77 @@
+{
+  "schema": "clearcase-agent-receipt/1",
+  "name": "doctor",
+  "result": "FAIL",
+  "exitCode": 1,
+  "reason": "git: not found on PATH",
+  "command": [
+    "/tmp/cc27-nogit.ayrrxj/python3",
+    "-I",
+    "-B",
+    "/tmp/cc27-fresh.tvfgvB/scripts/agent-tools/agent_tools.py",
+    "doctor"
+  ],
+  "cwd": "/tmp/cc27-fresh.tvfgvB",
+  "tools": [
+    {
+      "name": "git",
+      "path": null,
+      "version": null
+    },
+    {
+      "name": "python3",
+      "path": "/tmp/cc27-nogit.ayrrxj/python3",
+      "version": "Python 3.14.7"
+    },
+    {
+      "name": "node",
+      "path": "/tmp/cc27-nogit.ayrrxj/node",
+      "version": "v26.10.0"
+    },
+    {
+      "name": "bun",
+      "path": "~/.local/bin/bun",
+      "version": "1.4.2"
+    }
+  ],
+  "inputs": [
+    {
+      "path": "/tmp/cc27-fresh.tvfgvB/scripts/agent-tools/skills.lock.json",
+      "sha256": "4fe010feff5eef3c16bb578a32acfa152ac7fc3836bf0b3caa63a84cd53dbf5a",
+      "size": 11333,
+      "mtimeNs": 1791489896531993799,
+      "device": 55,
+      "inode": 4537048
+    }
+  ],
+  "revision": {
+    "repository": false,
+    "root": "/tmp/cc27-fresh.tvfgvB",
+    "branch": null,
+    "head": null,
+    "baseRef": null,
+    "base": null,
+    "mergeBase": null,
+    "dirty": null,
+    "diffSha256": null
+  },
+  "environment": {
+    "os": "CachyOS",
+    "platform": "linux",
+    "kernel": "7.2.2-1-cachyos",
+    "machine": "x86_64",
+    "host": "PUK",
+    "bash": "5.3.20(1)-release",
+    "callerShell": "",
+    "python": "3.14.7",
+    "path": "/tmp/cc27-nogit.ayrrxj"
+  },
+  "startedAt": "2026-10-08T20:05:54.785836+00:00",
+  "finishedAt": "2026-10-08T20:05:54.798541+00:00",
+  "durationSeconds": 0.013,
+  "artifacts": {
+    "receipt": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r8/rerun-7f26ebe/receipts/v6-doctor-without-git/20261008T200554.785836Z-doctor/receipt.json",
+    "stdout": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r8/rerun-7f26ebe/receipts/v6-doctor-without-git/20261008T200554.785836Z-doctor/stdout.txt",
+    "stderr": "~/Work/Active/MX-two/ClearCase/clearcase/.orchestration/reports/CC-27/r8/rerun-7f26ebe/receipts/v6-doctor-without-git/20261008T200554.785836Z-doctor/stderr.txt"
+  }
+}

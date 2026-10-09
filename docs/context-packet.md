@@ -8,10 +8,10 @@ Planning checkpoint, 8 October 2026.
 | --- | --- |
 | Integration branch | `dev`, pushed to `origin` |
 | Execution host | `puk`; `dev` clone `/home/vaper/Work/Active/MX-two/ClearCase/clearcase`, worktrees under `/home/vaper/Work/Active/MX-two/ClearCase/worktrees/` |
-| Coordinator host | `archlinux`; `dev` checkout `/home/vaper/Work/Active/MX-two/ClearCase/worktrees/local-v1` |
-| Base commit | `977dc85`, the planning checkpoint on top of `6edffe1` |
+| Coordinator host | T3 on `puk`, using the `dev` clone above |
+| Integration base | `dev` at `81c3f4b`; GRS-35 in review on `feature/grs-35-agent-tooling` |
 | Main checkout | `/home/vaper/.t3/projects/clearcase`, unchanged |
-| Remote | `origin`, GitHub `GridShift-Software/clearcase`; PRs into `dev` |
+| Remote | `origin`, GitHub `GridShift-Software/clearcase`; stacked PRs into `dev` |
 | App code and runtime | Not implemented; no app dev server is running from this repository |
 | Planning files | Committed on `dev` |
 | Linear | 28 issues, seven milestones, six independent gate issues; all begin in Backlog |
@@ -48,6 +48,6 @@ Referenced research aids have been preserved under ignored `.local/research/`. T
 
 ## Exact next steps
 
-Run the planning checker and inspect current Git and Linear state. The planning commit exists on `dev`. Under the kickoff, initialize the coordinator's ignored state on `puk`, reserve GRS-35 and dispatch its worker, then GRS-9.
+Run `scripts/agent-tools/doctor` and `scripts/agent-tools/check-plan --linear-relations PATH` (see `docs/agent-tooling.md`) and inspect current Git and Linear state. CC-28 (GRS-36) now sits between the hosted design gate GRS-27 and client intake GRS-28. The planning commit exists on `dev`. GRS-35 is in independent review on `feature/grs-35-agent-tooling`, the bottom of the PR stack into `dev`. Next, run GRS-9 stacked on the accepted GRS-35 head, then GRS-10, then the independent gate GRS-11.
 
 Do not start broad feature work before GRS-11 and GRS-13 pass. Do not start V2 or Pi Durable under the V1 kickoff. Keep main and production unchanged.

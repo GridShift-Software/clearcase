@@ -1,0 +1,308 @@
+{
+  "schema": 2,
+  "provenance": {
+    "pstack": {
+      "upstream": "https://github.com/backnotprop/pstack",
+      "revision": "124f622bcaeac490e7e9dac6af83f3ef9611d554",
+      "revisionDate": "2026-10-04T08:01:26-07:00",
+      "revisionSubject": "Sync upstream cursor/plugins/pstack @ e43c7ee (0.15.9)",
+      "version": "0.15.9",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2026 Lauren Tan",
+      "mirrorOf": "cursor/plugins/pstack@e43c7ee26e0038c6c1fa8380dd34ce86ff94cb2a",
+      "about": "The user designated backnotprop/pstack as the pstack source on 2026-10-08. It is an MIT-licensed, harness-neutral mirror of cursor/plugins/pstack by Lauren Tan. Per its MIRROR.md, branch upstream holds Cursor's files verbatim and main is upstream plus the mirror's harness-neutral edits.",
+      "notInstalled": [
+        "benchmark-checklist",
+        "correct",
+        "principle-explain-the-number"
+      ],
+      "checkedAt": "2026-10-08",
+      "checks": [
+        "2026-10-08T15:28:36+02:00, coordinator on puk: the 47 skills present in both the revision's skills/ and ~/.agents/skills are byte-identical (diff -rq). backnotprop/pstack main was then 3a604672c46cd8187d2b19980eae0a34f9f91138 (0.15.15).",
+        "2026-10-08T15:36:24+02:00, CC-27 round-2 worker on puk: the reproduce command rerun from a fresh clone printed no differences."
+      ],
+      "reproduce": "git clone https://github.com/backnotprop/pstack.git p && git -C p worktree add ../p124 124f622 && for d in p124/skills/*/; do n=$(basename $d); [ -e ~/.agents/skills/$n ] && diff -rq $d ~/.agents/skills/$n; done",
+      "verify": "scripts/agent-tools/verify pstack-upstream --checkout DIR, where DIR is any clone that contains the revision above",
+      "installedAt": "$HOME/.agents/skills, verified on puk; ~/.claude/skills entries are symlinks into it",
+      "copiedFrom": "archlinux:~/.agents/skills by rsync"
+    },
+    "matt-pocock": {
+      "upstream": null,
+      "revision": null,
+      "license": null,
+      "evidence": [
+        "ask-matt, domain-modeling and codebase-design name no repository, revision or license.",
+        "The unpinned companion skill setup-matt-pocock-skills refers to labels \"in mattpocock/skills\", which suggests that repository. This is not verified."
+      ],
+      "note": "Source unknown. Not a HOLD item: GRS-35 acceptance item 1 concerns pstack."
+    }
+  },
+  "hashing": "Per skill: sha256 over the sorted relative paths and file sha256s (symlinks by target), excluding node_modules, __pycache__ and .DS_Store (tree_hash in agent_tools.py). bootstrap --relock writes the skills map; provenance is edited by hand and checked by verify pstack-upstream.",
+  "requiredFiles": [
+    "poteto-mode/SKILL.md",
+    "poteto-mode/playbooks/orchestrate.md",
+    "poteto-mode/playbooks/multi-phase-plan.md",
+    "poteto-mode/scripts/check-plan.mjs",
+    "create-verification-skill/SKILL.md",
+    "maintain-verification-skill/SKILL.md",
+    "setup-pstack/SKILL.md",
+    "swarm/SKILL.md"
+  ],
+  "knownAbsent": [
+    "to-spec",
+    "to-tickets",
+    "implement-spec"
+  ],
+  "skills": {
+    "architect": {
+      "group": "pstack",
+      "files": 4,
+      "sha256": "e18d8d0fd3b09db2dd1a6f65972749a45929d863828c06b9ed9793f1586e657b"
+    },
+    "arena": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "cd67186d4d946ab2249d3a62e9dd5a11158a72c19f94c2b39620f9dc1a60c7bd"
+    },
+    "ask-matt": {
+      "group": "matt-pocock",
+      "files": 3,
+      "sha256": "1fc44acc1e90ffda101108895a56fc4e325d1beb10724237e3c79fcb13684d26"
+    },
+    "automate-me": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "d001891d64802be718a858948d59fb8ebcd12070f2cd79eb28a9b5686530384f"
+    },
+    "blast-radius": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "3b7e5797e88eedc3590b931be07425833940b890ed85e6c397db72764456f0ac"
+    },
+    "bro": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "134795a3191cdcd5b6da1083dd27176ad718bae986ff8405ce555d0258b7a6d5"
+    },
+    "codebase-design": {
+      "group": "matt-pocock",
+      "files": 4,
+      "sha256": "4cb1dde9ff3be21db5722e2974343d29c759c3584d0f523adcfee5d418270f23"
+    },
+    "create-verification-skill": {
+      "group": "pstack",
+      "files": 4,
+      "sha256": "30b72ea9c383b24840a11624e292b889e1a1ca6e33babff84bbd2ccb32a0d4c3"
+    },
+    "domain-modeling": {
+      "group": "matt-pocock",
+      "files": 4,
+      "sha256": "11db5d8ed787dea06cc9e3a36ace329c8ebac45e9a63b6ce2235bbed642d75ce"
+    },
+    "figure-it-out": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "3bbde440d2b6128e08421c5c14a927e1f18e51c4a64004669f61603496734c64"
+    },
+    "how": {
+      "group": "pstack",
+      "files": 3,
+      "sha256": "e5af16b91bfd4281ca5351aa5447c0b945012991c9706fabf00f138b0a4f9b3a"
+    },
+    "interrogate": {
+      "group": "pstack",
+      "files": 5,
+      "sha256": "42e4e12d19c194a492ab615a8d2898098d571d7dc0730f9c3f6beeb603fbfdf4"
+    },
+    "maintain-verification-skill": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "a693b7f0bd090c29971b627c4ea97acda0d3f5d0066f3f5da687792cf47d8055"
+    },
+    "make-bot-ui": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "09beb493a7960147e9b28dc82f957481f16cf2619aafbb3e0983fa099680de74"
+    },
+    "no-comments": {
+      "group": "pstack",
+      "files": 2,
+      "sha256": "67b670d8f115c262ca9de6e089d2281aa53b8b8829a766604ab1cd40477d624d"
+    },
+    "poteto-mode": {
+      "group": "pstack",
+      "files": 45,
+      "sha256": "fce8cea00095013120fdbbb0f400dc6861a5a11ca34ed04959fd922fecaf641a"
+    },
+    "principle-attack-the-premise": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "6c47f0f980f55de9ec13bdb29a3c0e4e1bd434e2fb108d9895e58683e80f0d18"
+    },
+    "principle-boundary-discipline": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "5a91742ad338e89c667ad1ec9d0c8561a8c300918a1a2028dabb02aba1e03ed6"
+    },
+    "principle-build-the-lever": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "5024609447675ea04f20c9e00d7046a30c1bd8e4eb60073f0e1e9bc124b7efff"
+    },
+    "principle-encode-lessons-in-structure": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "6551c3dabd2f010d0e4212fbc886e37cf42857946c48e331ef999a5420335aa2"
+    },
+    "principle-exhaust-the-design-space": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "51658c5aabb7fe79ca0860ced87a4034d377d266d0e9220f51f233771bfca8d8"
+    },
+    "principle-experience-first": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "53af6c2d37e1fe9951b12371eb755e3b0f0af4236e1b87d73c584aa217fc1fc5"
+    },
+    "principle-fix-root-causes": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "d8c08e6ab65d1c6502e9539048b047bdc0e29c2efe53348043d64df31992191b"
+    },
+    "principle-foundational-thinking": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "5bf62da96216c52cc11038eae770639a967e5440efbbdcdd077122c00999fad7"
+    },
+    "principle-guard-the-context-window": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "723614be54d89dd4cc8ef97988c47b713cd81008ff300b829dc7a37b7df5aa79"
+    },
+    "principle-laziness-protocol": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "1284cbac89390acd4a99e6d2263e10ac2831b4f492dbe23e353d5ec9cbd57721"
+    },
+    "principle-make-operations-idempotent": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "1ef9c3459af708211f3cb2af155005e326be0e4b07ab367877f3aeceb0968254"
+    },
+    "principle-migrate-callers-then-delete-legacy-apis": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "efd034c98759eeccaf619256d82f64b1a6c7c48303fbe9b4e0d398f7b7647583"
+    },
+    "principle-minimize-reader-load": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "e7e5deb0921041061354eb22a98dd73f99abaf60be5c57bbd050a3317a5d60f1"
+    },
+    "principle-model-the-domain": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "a79be80f53ac9949c1baf2e69e30ce53a790b06d5133b9dfc8769ad09ff60561"
+    },
+    "principle-never-block-on-the-human": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "c9e012a3466a616dd644de041d3bbdbfc50f04bf7942bb000a59add8a9ac02c0"
+    },
+    "principle-outcome-oriented-execution": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "1d1bb2bc981fe7ca5e060db33c8c8fa99a0e499398926992dd7cc66564d75c1f"
+    },
+    "principle-prove-it-works": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "8621bf11d8d053f0218b6e5b7bee6e2a3db67da9d0586fe349499047a9219090"
+    },
+    "principle-redesign-from-first-principles": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "bac696a5b1643d0a8489f6ec062e8c5d3ce2384c2853df9c8c5e784c74d76c72"
+    },
+    "principle-separate-before-serializing-shared-state": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "91a33fa2e32ee74930b8975cc2db4f6ae8300a0dcfd57ee7d39e8f800423fe65"
+    },
+    "principle-sequence-verifiable-units": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "5ba0e226d481644054e39d04016e02eb18a5ab744358ef12cfa860cf75f6a931"
+    },
+    "principle-subtract-before-you-add": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "0cdc458d9e27192abf6de6fba5ad42a9293c7ec700ca63d19c56aacfc9884b1e"
+    },
+    "principle-test-behavior-not-implementation": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "a80cb9d116c8262aba52c0a6ecb69cdd2676ed5399affa3656f7303e9bd6275f"
+    },
+    "principle-type-system-discipline": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "97e28237c4dae05eb5de412cc0e092de41ee3dbd9c8052d68a25bd2ae4f364f1"
+    },
+    "recall": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "5c87c39369ed382ed6bb0717cc3c7b2ba242c9e6cb1c03026e537bccadc57e2f"
+    },
+    "reflect": {
+      "group": "pstack",
+      "files": 5,
+      "sha256": "45674caadfdfeb4446d64480452d8e5f3cbd71c74208ab290724357054e0ad51"
+    },
+    "setup-pstack": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "e25d3ee7f810b9e8ff53a2c1a9ba548a3690e0e8dcf8ccf0912981c4889c4e6c"
+    },
+    "show-me-your-work": {
+      "group": "pstack",
+      "files": 3,
+      "sha256": "9dfd6730b99110f90239f95d7690101ce2f0ec857fe92eed2ed42149d1469080"
+    },
+    "swarm": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "3d2d4ead0c8a55dc1da59a55de94bed63bbd0a260afcb29f5fb28e4da21ae7c8"
+    },
+    "tdd": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "f077ee0bb356cc45e47eb62c37070886ddd9e5f7b09cf9ba04d03ee95a99507d"
+    },
+    "teach": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "ae0f922e7a6dad13fa964de603fee93a2929ee8ec2ec8e3ed05a01f1ad054b91"
+    },
+    "technical-writing": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "692c5a2d68b1101cdd7db12de1a7e85444192d71ac86728e9521c580855ea2ca"
+    },
+    "typescript-best-practices": {
+      "group": "pstack",
+      "files": 2,
+      "sha256": "a86d92cdded3bf7898f33441664d1a5de9cc6d59ddd6d46fb5c3bee5fd68e499"
+    },
+    "unslop": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "b5ecb51b7228b2e9957c804a2ec7a55279c6221768f2360ef491eaf2b1f1f39f"
+    },
+    "why": {
+      "group": "pstack",
+      "files": 13,
+      "sha256": "ec6f9b61d7389bb207206758c6b10358e9f33e148b476640a5db4f4fab7aa62d"
+    }
+  }
+}

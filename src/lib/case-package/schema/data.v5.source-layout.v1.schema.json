@@ -1,0 +1,14 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.source-layout.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "patternProperties": {
+    "^.*$": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "title": "data of v5.source-layout@1 (generated)",
+  "type": "object"
+}

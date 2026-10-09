@@ -1,0 +1,13 @@
+{
+  "description": "Live GRS-10 lost its GRS-9 blocker",
+  "capability": "linear-relations",
+  "readback": {
+    "CC-02.blockedBy": []
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "CC-02: live blocking relations differ"
+    ]
+  }
+}

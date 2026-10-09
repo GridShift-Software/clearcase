@@ -1,0 +1,44 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.people.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "properties": {
+      "email": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "org": {
+        "type": "string"
+      },
+      "received": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "role": {
+        "type": "string"
+      },
+      "sent": {
+        "minimum": 0,
+        "type": "integer"
+      },
+      "total": {
+        "minimum": 0,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "name",
+      "email",
+      "org",
+      "sent",
+      "received",
+      "total",
+      "role"
+    ],
+    "type": "object"
+  },
+  "title": "data of v5.people@1 (generated)",
+  "type": "array"
+}

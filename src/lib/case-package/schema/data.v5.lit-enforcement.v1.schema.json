@@ -1,0 +1,33 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.lit-enforcement.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "properties": {
+      "basis": {
+        "type": "string"
+      },
+      "note": {
+        "type": "string"
+      },
+      "phase": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string"
+      },
+      "step": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "phase",
+      "step",
+      "basis",
+      "status",
+      "note"
+    ],
+    "type": "object"
+  },
+  "title": "data of v5.lit-enforcement@1 (authored)",
+  "type": "array"
+}

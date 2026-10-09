@@ -6,7 +6,7 @@ Use this protocol with pstack's `playbooks/orchestrate.md`. The coordinator owns
 
 Read the latest user instructions, `AGENTS.md`, the product brief, delivery plan, live Linear relations and the coordination checkpoint. Reconcile Git HEAD, branches, worktrees and active delegated task IDs before dispatch.
 
-The planning session has not authorized implementation or commits. The kickoff prompt grants a new agent local V1 execution and local commits when the user actually supplies it as an instruction. It does not grant merges into main, pushes, deployment, production writes or external messages. Never infer a new restriction from an unrelated project's old approvals.
+The planning session has not authorized implementation or commits. The kickoff prompt grants a new agent local V1 execution, local commits, pushes of `dev` and `feature/*` branches and stacked pull requests into `dev` when the user actually supplies it as an instruction. It does not grant merges into main, deployment, production writes or external messages beyond the authorized Linear updates. Never infer a new restriction from an unrelated project's old approvals.
 
 ## Dispatch one pilot before parallel work
 
@@ -19,7 +19,7 @@ The blocking first steps are the baseline, package contract and pilot. After the
 
 ## Reserve files before dispatch
 
-Create `feature/<linear-id>-<slug>` in a separate worktree based on the accepted integration revision. The integration branch is `dev`; `main` changes only through user-approved merges from `dev`. One writer owns each worktree. The coordinator records the issue, task ID, branch, worktree, base revision and allowed paths before work starts.
+Create `feature/<linear-id>-<slug>` in a separate worktree based on the accepted integration revision, or on the upstream ticket's accepted head for a stacked ticket. The integration branch is `dev`; `main` is release-only and changes only through user-approved merges from `dev`. One writer owns each worktree. The coordinator records the issue, task ID, branch, worktree, base revision and allowed paths before work starts.
 
 Workers cannot edit sibling worktrees, shared planning files, source archives or production. If a ticket needs a shared file owned elsewhere, return a precise request to the coordinator. Resolve overlaps before dispatch; a warning in a prompt is not isolation.
 
@@ -39,11 +39,11 @@ Independent gate issues require a reviewer who did not author the implementation
 
 The detailed V1 plan names ten behavioral scenarios per implementation unit. These are coverage lanes, not ten simultaneous writers. Run them in bounded batches or reuse a verifier for independent scenarios. Gates read those receipts and rerun the critical paths. Pure planning/discovery tasks use direct artifact checks; they do not invent UI or performance tests.
 
-Integrate clean, accepted commits serially into the integration branch under the kickoff's local execution authority. Delegate conflict resolution. Keep main unchanged. The remote is `origin`, GitHub `GridShift-Software/clearcase`. Every ticket closes through a pull request from its `feature/<linear-id>-<slug>` branch into `dev`, registered with T3; the user's external reviewer approves before merge, and the coordinator merges only accepted, reviewed PRs. Push feature branches early so a worktree is never the only copy. Do not fabricate PR URLs or require Graphite.
+Integrate clean, accepted commits serially into the integration branch under the kickoff's local execution authority. Delegate conflict resolution. Keep main unchanged. The remote is `origin`, GitHub `GridShift-Software/clearcase`. Every ticket closes when the pull request from its `feature/<linear-id>-<slug>` branch, registered with T3, lands in `dev`; the user's external reviewer approves before merge, and the coordinator merges only accepted, reviewed PRs. PRs form a stack on GitHub: the bottom PR targets `dev`, and a dependent ticket's branch is cut from its upstream ticket's accepted head with its PR targeting that upstream branch, so each layer is reviewed separately; GitHub retargets a layer to `dev` when the layer below merges, and everything lands in `dev`. Link the layers with `gh stack link --base dev` (the official `github/gh-stack` extension), never with commands that rebase or force-push, such as `gh stack sync` or `gh stack rebase`; when a lower layer changes, merge the updated upstream branch into the layers above and rerun affected checks. Push feature branches early so a worktree is never the only copy. Do not fabricate PR URLs or require Graphite.
 
 ## Execution hosts
 
-The coordinator thread runs in T3 on `archlinux`. Workers and verifiers run on the host `puk` (reachable over Tailscale as `puk`) as headless Claude Code or Codex CLI sessions inside tmux, one session per ticket. The `dev` clone on puk is `/home/vaper/Work/Active/MX-two/ClearCase/clearcase`; worker worktrees live under `/home/vaper/Work/Active/MX-two/ClearCase/worktrees/<branch-slug>`. RAWS is mirrored read-only at the same absolute path on both hosts. The coordinator's ignored `.orchestration/` state lives in the puk `dev` clone. A worker reports by writing its report file; the coordinator reads it over SSH after the tmux session exits.
+The coordinator thread runs in T3 on `puk`. Workers and verifiers run on the host `puk` (reachable over Tailscale as `puk`) as headless Claude Code or Codex CLI sessions inside tmux, one session per ticket. The `dev` clone on puk is `/home/vaper/Work/Active/MX-two/ClearCase/clearcase`; worker worktrees live under `/home/vaper/Work/Active/MX-two/ClearCase/worktrees/<branch-slug>`. `archlinux` remains a supported developer host; RAWS is mirrored read-only at the same absolute path on both hosts. The coordinator's ignored `.orchestration/` state lives in the puk `dev` clone. A worker reports by writing its report file; the coordinator reads it locally after the tmux session exits.
 
 ## Keep one coordination record
 
@@ -51,7 +51,7 @@ The coordinator alone writes `.orchestration/units.tsv`, `.orchestration/ledger.
 
 A ledger row records the issue, exact revision, reviewer, verdict and evidence path. A checkpoint records accepted HEAD, active issues/worktrees/task IDs, blockers, authorization limits, safe shutdown and exact next steps. Keep it short and link detailed reports. Read live Linear relations again on resume.
 
-The local graph checker is `python3 scripts/planning/check.py`. It verifies the plan and coverage; it is not an orchestration daemon. T3 owns agent dispatch and completion delivery. Pstack's `orch` CLI is available in the installed skill bundle but is not used here. Jove's custom runner is not a prerequisite. Add runtime bookkeeping automation only when the repeated work justifies it.
+The local graph checker is `python3 scripts/planning/check.py`. It verifies the plan and coverage; it is not an orchestration daemon. `scripts/agent-tools/check-plan` runs it with pstack's `check-plan.mjs` and writes receipts; `scripts/agent-tools/doctor` is the preflight for every worker and verifier session. T3 owns agent dispatch and completion delivery. Pstack's `orch` CLI is available in the installed skill bundle but is not used here. Jove's custom runner is not a prerequisite. Add runtime bookkeeping automation only when the repeated work justifies it.
 
 No scheduler is armed by this planning task. At execution, an app-owned audit schedule may implement pstack's hourly review if the active user authorization permits ongoing work. Never build a polling watcher or let a timer start V2 or automated processing past a closed gate.
 

@@ -1,0 +1,13 @@
+{
+  "description": "CC-05 loses its Linear mapping",
+  "capability": "plan-graph",
+  "delete": [
+    "CC-05.linear"
+  ],
+  "expect": {
+    "exit": 1,
+    "output": [
+      "Missing Linear issue mappings"
+    ]
+  }
+}

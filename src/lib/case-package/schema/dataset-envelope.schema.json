@@ -1,0 +1,76 @@
+{
+  "$id": "https://clearcase.invalid/schema/dataset-envelope.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "count": {
+      "maximum": 9007199254740991,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "data": {},
+    "envelope": {
+      "const": "clearcase.dataset/1",
+      "type": "string"
+    },
+    "key": {
+      "maxLength": 64,
+      "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$",
+      "type": "string"
+    },
+    "kind": {
+      "anyOf": [
+        {
+          "const": "generated",
+          "type": "string"
+        },
+        {
+          "const": "authored",
+          "type": "string"
+        }
+      ]
+    },
+    "provenance": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "maxLength": 200,
+          "type": "string"
+        },
+        "source": {
+          "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$",
+          "type": "string"
+        },
+        "sourcePath": {
+          "maxLength": 256,
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "sourcePath",
+        "adapter"
+      ],
+      "type": "object"
+    },
+    "required": {
+      "type": "boolean"
+    },
+    "schema": {
+      "pattern": "^[a-z0-9][a-z0-9.-]{0,63}@[0-9]{1,3}$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "envelope",
+    "key",
+    "kind",
+    "schema",
+    "required",
+    "count",
+    "provenance",
+    "data"
+  ],
+  "title": "ClearCase dataset envelope (clearcase.dataset/1)",
+  "type": "object"
+}

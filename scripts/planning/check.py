@@ -8,6 +8,8 @@ from itertools import combinations
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+# Bump only together with a reconciled Linear readback.
+EXPECTED_ISSUES = 28
 parser = argparse.ArgumentParser()
 parser.add_argument("--require-linear-ids", action="store_true")
 parser.add_argument("--linear-relations", type=Path)
@@ -97,8 +99,12 @@ for key in ["CC-23", "CC-24", "CC-11", "CC-25", "CC-26", "CC-20"]:
         errors.append(f"{key}: missing independent gate")
 if items["CC-03"]["depends"] != ["CC-23"]:
     errors.append("Pilot must wait for the package gate")
-if items["CC-16"]["depends"] != ["CC-26"]:
-    errors.append("Hosted intake must wait for the design gate")
+if items["CC-28"]["depends"] != ["CC-26"] or items["CC-16"]["depends"] != ["CC-28"]:
+    errors.append("Hosted intake must wait for the hosted foundation, which waits for the design gate")
+if items["CC-01"]["depends"] != ["CC-27"]:
+    errors.append("The v5 baseline must wait for the agent tooling setup")
+if len(items) != EXPECTED_ISSUES:
+    errors.append(f"Expected {EXPECTED_ISSUES} planning issues, found {len(items)}")
 linked = [item["linear"]["id"] for item in items.values() if item.get("linear")]
 if len(linked) != len(set(linked)):
     errors.append("A Linear issue maps to multiple planning keys")

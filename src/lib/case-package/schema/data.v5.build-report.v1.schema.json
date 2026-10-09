@@ -1,0 +1,60 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.build-report.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "generatedFrom": {
+      "type": "string"
+    },
+    "pending": {
+      "items": {
+        "properties": {
+          "bundle": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bundle",
+          "filename",
+          "ref"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "textNone": {
+      "items": {
+        "properties": {
+          "bundle": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bundle",
+          "filename",
+          "ref"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "generatedFrom",
+    "pending",
+    "textNone"
+  ],
+  "title": "data of v5.build-report@1 (generated)",
+  "type": "object"
+}

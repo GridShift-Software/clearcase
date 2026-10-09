@@ -1,0 +1,60 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.matter.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "forum": {
+      "type": "string"
+    },
+    "short": {
+      "type": "string"
+    },
+    "storyline": {
+      "items": {
+        "properties": {
+          "h": {
+            "type": "string"
+          },
+          "t": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "h",
+          "t"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "strategy": {
+      "items": {
+        "properties": {
+          "h": {
+            "type": "string"
+          },
+          "t": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "h",
+          "t"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "title": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "title",
+    "short",
+    "forum",
+    "storyline",
+    "strategy"
+  ],
+  "title": "data of v5.matter@1 (authored)",
+  "type": "object"
+}

@@ -1,0 +1,4 @@
+#!/bin/bash
+# See docs/agent-tooling.md. /bin/bash, not env, so a broken PATH still reaches the diagnostics.
+source "${BASH_SOURCE[0]%/*}/_common.sh"
+run_agent_tools check-plan "$@"

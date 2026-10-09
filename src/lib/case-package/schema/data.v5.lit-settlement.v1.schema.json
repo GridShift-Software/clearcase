@@ -1,0 +1,20 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.lit-settlement.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "claim": {
+      "pattern": "^(?:-?\\d{1,15}(?:\\.\\d{1,4})?)?$",
+      "type": "string"
+    },
+    "claimDate": {
+      "pattern": "^(?:\\d{4}-\\d{2}-\\d{2})?$",
+      "type": "string"
+    }
+  },
+  "required": [
+    "claim",
+    "claimDate"
+  ],
+  "title": "data of v5.lit-settlement@1 (authored)",
+  "type": "object"
+}

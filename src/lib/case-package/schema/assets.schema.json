@@ -1,0 +1,221 @@
+{
+  "$id": "https://clearcase.invalid/schema/assets.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "assets": {
+      "additionalProperties": false,
+      "patternProperties": {
+        "^[A-Z]{1,8}-[0-9]{1,8}(?:\\.a[1-9][0-9]{0,3})?$": {
+          "anyOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "file",
+                  "type": "string"
+                },
+                "mediaType": {
+                  "pattern": "^[a-z]+/[a-z0-9.+-]{1,100}$",
+                  "type": "string"
+                },
+                "parentRef": {
+                  "maxLength": 32,
+                  "pattern": "^[A-Z]{1,8}-[0-9]{1,8}$",
+                  "type": "string"
+                },
+                "path": {
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "sha256": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "size": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "textStatus": {
+                  "anyOf": [
+                    {
+                      "const": "extracted",
+                      "type": "string"
+                    },
+                    {
+                      "const": "ocr",
+                      "type": "string"
+                    },
+                    {
+                      "const": "none",
+                      "type": "string"
+                    },
+                    {
+                      "const": "pending",
+                      "type": "string"
+                    },
+                    {
+                      "const": "unsupported",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "kind",
+                "path",
+                "sha256",
+                "size",
+                "mediaType",
+                "textStatus"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "embedded",
+                  "type": "string"
+                },
+                "mediaType": {
+                  "pattern": "^[a-z]+/[a-z0-9.+-]{1,100}$",
+                  "type": "string"
+                },
+                "member": {
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "ordinal": {
+                  "maximum": 9999,
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                "parentRef": {
+                  "maxLength": 32,
+                  "pattern": "^[A-Z]{1,8}-[0-9]{1,8}$",
+                  "type": "string"
+                },
+                "sha256": {
+                  "pattern": "^[0-9a-f]{64}$",
+                  "type": "string"
+                },
+                "size": {
+                  "maximum": 9007199254740991,
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "textStatus": {
+                  "anyOf": [
+                    {
+                      "const": "extracted",
+                      "type": "string"
+                    },
+                    {
+                      "const": "ocr",
+                      "type": "string"
+                    },
+                    {
+                      "const": "none",
+                      "type": "string"
+                    },
+                    {
+                      "const": "pending",
+                      "type": "string"
+                    },
+                    {
+                      "const": "unsupported",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "kind",
+                "parentRef",
+                "ordinal",
+                "member",
+                "mediaType",
+                "textStatus"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "missing",
+                  "type": "string"
+                },
+                "mediaType": {
+                  "pattern": "^[a-z]+/[a-z0-9.+-]{1,100}$",
+                  "type": "string"
+                },
+                "parentRef": {
+                  "maxLength": 32,
+                  "pattern": "^[A-Z]{1,8}-[0-9]{1,8}$",
+                  "type": "string"
+                },
+                "path": {
+                  "maxLength": 1024,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "textStatus": {
+                  "anyOf": [
+                    {
+                      "const": "extracted",
+                      "type": "string"
+                    },
+                    {
+                      "const": "ocr",
+                      "type": "string"
+                    },
+                    {
+                      "const": "none",
+                      "type": "string"
+                    },
+                    {
+                      "const": "pending",
+                      "type": "string"
+                    },
+                    {
+                      "const": "unsupported",
+                      "type": "string"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "kind",
+                "path",
+                "mediaType",
+                "textStatus"
+              ],
+              "type": "object"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "index": {
+      "const": "clearcase.assets/1",
+      "type": "string"
+    },
+    "root": {
+      "const": "case-folder",
+      "type": "string"
+    }
+  },
+  "required": [
+    "index",
+    "root",
+    "assets"
+  ],
+  "title": "ClearCase asset index (clearcase.assets/1)",
+  "type": "object"
+}

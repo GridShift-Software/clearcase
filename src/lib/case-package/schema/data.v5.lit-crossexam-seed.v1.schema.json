@@ -1,0 +1,29 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.lit-crossexam-seed.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "properties": {
+      "docs": {
+        "type": "string"
+      },
+      "put": {
+        "type": "string"
+      },
+      "topic": {
+        "type": "string"
+      },
+      "witness": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "witness",
+      "topic",
+      "put",
+      "docs"
+    ],
+    "type": "object"
+  },
+  "title": "data of v5.lit-crossexam-seed@1 (authored)",
+  "type": "array"
+}

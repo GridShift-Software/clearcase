@@ -1,0 +1,65 @@
+{
+  "$id": "https://clearcase.invalid/schema/data.v5.defence-matrix.v1.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "items": {
+    "properties": {
+      "dcs": {
+        "type": "string"
+      },
+      "docs": {
+        "items": {
+          "properties": {
+            "date": {
+              "pattern": "^(?:\\d{4}-\\d{2}-\\d{2})?$",
+              "type": "string"
+            },
+            "doc_type": {
+              "type": "string"
+            },
+            "filename": {
+              "type": "string"
+            },
+            "ref": {
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "date",
+            "doc_type",
+            "filename",
+            "ref",
+            "url"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "evidence": {
+        "type": "string"
+      },
+      "point": {
+        "type": "string"
+      },
+      "rebuttal": {
+        "type": "string"
+      },
+      "refs": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "point",
+      "dcs",
+      "rebuttal",
+      "evidence",
+      "refs",
+      "docs"
+    ],
+    "type": "object"
+  },
+  "title": "data of v5.defence-matrix@1 (authored)",
+  "type": "array"
+}

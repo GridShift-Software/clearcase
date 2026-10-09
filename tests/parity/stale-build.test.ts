@@ -35,6 +35,9 @@ describe('parity refuses a stale build', () => {
 		const run = readFileSync(join(REPO, 'scripts', 'parity', 'run.mjs'), 'utf8');
 		expect(run).toContain('...evidenceRecord(fresh, allowedStale),');
 		expect(run).toContain("`Evidence: ${sc.evidence ? 'yes (a fresh build of clean HEAD)' : `**no**: ${sc.evidenceNote}`}.`");
-		expect(readFileSync(join(REPO, 'scripts', 'parity', 'mutate.mjs'), 'utf8')).toMatch(/'--out', join\(dir, 'out'\), '--allow-stale-build'\]/);
+		const mutate = readFileSync(join(REPO, 'scripts', 'parity', 'mutate.mjs'), 'utf8');
+		expect(mutate).toMatch(/'--out', join\(dir, 'out'\), '--allow-stale-build'\]/);
+		// each mutant build is stamped as a mutant, so its scorecard says evidence: false
+		expect(mutate).toContain("CLEARCASE_SOURCE_REVISION: `mutant:${m.id}@${HEAD}`");
 	});
 });

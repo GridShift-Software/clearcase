@@ -24,6 +24,8 @@ export interface Freshness {
 	reasons: string[];
 }
 
+/** A commit id shortened to 12 characters; any other revision label (a mutant's, say) in full. */
+const short = (r: string) => (/^[0-9a-f]{40}$/.test(r) ? r.slice(0, 12) : r);
 const git = (repo: string, args: string[]) => {
 	const r = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8' });
 	return r.status === 0 ? r.stdout : null;
@@ -46,7 +48,7 @@ export function freshness(repo: string, stamp: BuildStamp | null): Freshness {
 	if (!stamp) reasons.push('no build stamp');
 	else if (!buildRevision) reasons.push('the build stamp names no revision');
 	if (!g.head) reasons.push(`${repo} is not a git checkout (HEAD unknown)`);
-	if (buildRevision && g.head && buildRevision !== g.head) reasons.push(`the build is of ${buildRevision.slice(0, 12)}, not HEAD ${g.head.slice(0, 12)}`);
+	if (buildRevision && g.head && buildRevision !== g.head) reasons.push(`the build is of ${short(buildRevision)}, not HEAD ${g.head.slice(0, 12)}`);
 	if (buildDirty) reasons.push('the build was made from a tree with modified tracked files');
 	if (g.trackedDirty) reasons.push(`tracked files are modified: ${g.dirtyPaths.slice(0, 8).join(', ')}${g.dirtyPaths.length > 8 ? ', …' : ''}`);
 	return { buildRevision, buildDirty, head: g.head, trackedDirty: g.trackedDirty, dirtyPaths: g.dirtyPaths, fresh: reasons.length === 0, reasons };
@@ -63,7 +65,7 @@ export const evidenceRecord = (f: Freshness, allowed: boolean) => ({
 });
 
 /** One line for the console. */
-export const freshLine = (f: Freshness) => `build ${f.buildRevision?.slice(0, 12) ?? 'unknown'}${f.buildDirty ? ' (dirty)' : ''}, HEAD ${f.head?.slice(0, 12) ?? 'unknown'}${f.trackedDirty ? ' (tracked files modified)' : ''}: ${f.fresh ? 'fresh' : `STALE: ${f.reasons.join('; ')}`}`;
+export const freshLine = (f: Freshness) => `build ${f.buildRevision ? short(f.buildRevision) : 'unknown'}${f.buildDirty ? ' (dirty)' : ''}, HEAD ${f.head?.slice(0, 12) ?? 'unknown'}${f.trackedDirty ? ' (tracked files modified)' : ''}: ${f.fresh ? 'fresh' : `STALE: ${f.reasons.join('; ')}`}`;
 
 /** The refusal message (exit 2) when the build is stale and no override was given. */
 export const refusal = (who: string, f: Freshness) => `${who}: refusing a stale build (${f.reasons.join('; ')}). Commit, then run \`bun run --bun build\`, or pass ${ALLOW_FLAG} (${ALLOW_ENV}=1) to run anyway with evidence: false.`;

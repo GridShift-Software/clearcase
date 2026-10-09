@@ -37,7 +37,9 @@ describe('freshness', () => {
 		const old = head;
 		writeFileSync(join(d, 'a.txt'), 'two\n');
 		git(d, 'commit', '-q', '-am', 'second');
-		expect(freshness(d, { revision: old }).reasons.join()).toMatch(/the build is of .{12}, not HEAD/);
+		expect(freshness(d, { revision: old }).reasons.join()).toMatch(/the build is of [0-9a-f]{12}, not HEAD/);
+		// a revision label that is not a commit id (mutate.mjs stamps its mutants so) is shown in full and never fresh
+		expect(freshness(d, { revision: `mutant:export@${old}` }).reasons).toEqual([`the build is of mutant:export@${old}, not HEAD ${git(d, 'rev-parse', 'HEAD').slice(0, 12)}`]);
 		const now = git(d, 'rev-parse', 'HEAD');
 		expect(freshness(d, { revision: now, dirty: true }).reasons).toEqual(['the build was made from a tree with modified tracked files']);
 		writeFileSync(join(d, 'a.txt'), 'three\n');

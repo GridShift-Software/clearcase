@@ -111,17 +111,23 @@ describe('the committed fragments', () => {
 		expect(names).toEqual(Object.keys(RANGES).map((k) => `${k}.json`));
 		expect(problems).toEqual([]);
 	});
-	test("each holds exactly its owner's moved entries, every one for the owner's own views", () => {
+	test("each holds exactly its owner's moved entries, each for the owner's own views or owned by it (its overview slots)", () => {
 		for (const name of names) {
 			const key = name.replace(/\.json$/, '');
+			const linear = VIEWS.find((v) => v.owner === key)!.linear;
 			const doc = JSON.parse(readFileSync(join(dir, name), 'utf8'));
 			expect(doc.entries.map((e: any) => e.id).sort(), key).toEqual([...LEGACY[key]].sort());
-			for (const e of doc.entries) expect(keys[e.view], e.id).toBe(key);
+			for (const e of doc.entries) expect(keys[e.view] === key || e.owner === linear, e.id).toBe(true);
 		}
 	});
-	test("the main file holds no entry for an M2 owner's view, and every entry has a file", () => {
+	test('the overview slot entries sit with their slot owners: IDR-050/067 in CC-07, IDR-051/068 in CC-10', () => {
+		expect([files['IDR-050'], files['IDR-067'], files['IDR-051'], files['IDR-068']]).toEqual(['CC-07', 'CC-07', 'CC-10', 'CC-10'].map((k) => `docs/reference/parity/register/${k}.json`));
+	});
+	test("the main file holds no entry for an M2 owner's view or owned by an M2 ticket, and every entry has a file", () => {
 		const main = JSON.parse(readFileSync(REGISTER, 'utf8'));
+		const m2 = new Set(VIEWS.filter((v) => v.owner in RANGES).map((v) => v.linear));
 		for (const e of main.entries) expect(Object.keys(RANGES), e.id).not.toContain(keys[e.view]);
+		for (const e of main.entries) expect(m2.has(e.owner), e.id).toBe(false);
 		for (const e of entries) expect(files[e.id], e.id).toMatch(/^docs\/reference\/parity\/(intentional-differences|register\/CC-[0-9]{2})\.json$/);
 	});
 });

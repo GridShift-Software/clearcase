@@ -3,18 +3,6 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-002",
-      "view": "timeline",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-15",
-      "reason": "The app does not implement Timeline yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
       "id": "IDR-150",
       "view": "info_required_tab",
       "field": "title",
@@ -230,6 +218,120 @@
       "type": "known-gap",
       "source": "S-hardcoded-case",
       "reason": "v5 names the export after the parties in code; the view-content map carries no export file name, so the app uses a neutral name until the map does (shared-file request in the CC-05 report).",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-163",
+      "view": "timeline",
+      "field": "title",
+      "when": {
+        "v5": "Chronology & Timeline",
+        "app": "Timeline"
+      },
+      "type": "defect-fix",
+      "source": "S-timeline-4",
+      "reason": "v5 heads the page Chronology & Timeline while its navigation and crumb say Timeline; the heading is the navigation label (BA-18).",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-164",
+      "view": "timeline",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-165",
+      "view": "timeline",
+      "field": [
+        "control.link:*&amp;*",
+        "control.link:*&##;*",
+        "control.link:*&quot;*",
+        "control.link:*&lt;*",
+        "control.link:*&gt;*"
+      ],
+      "when": {
+        "app": "<absent>"
+      },
+      "type": "defect-fix",
+      "source": "S-double-escape",
+      "reason": "v5 escapes event titles twice, so its link labels show entities such as &amp;; the app shows each title once, as text, so no app link carries an entity.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-166",
+      "view": "timeline",
+      "field": [
+        "control.link:*&*",
+        "control.link:*'*",
+        "control.link:*\"*",
+        "control.link:*<*",
+        "control.link:*>*"
+      ],
+      "when": {
+        "v5": "<absent>"
+      },
+      "type": "defect-fix",
+      "source": "S-double-escape",
+      "reason": "The same event links with the title shown once: labels holding an ampersand, quote or angle bracket that v5 shows as an entity.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-167",
+      "view": "timeline",
+      "field": "sweep.timeline_events.*.title",
+      "when": {
+        "v5": {
+          "re": "&(amp|lt|gt|quot|#[0-9]+);"
+        },
+        "app": {
+          "re": "^(?!.*&(amp|lt|gt|quot|#[0-9]+);).*$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-double-escape",
+      "reason": "An event title that v5 shows with a visible entity (escaped twice) is shown once, as text.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-168",
+      "view": "timeline",
+      "field": "export.print_pdf.print.text",
+      "when": {
+        "v5": {
+          "re": "^Skip to content .+$"
+        },
+        "app": {
+          "re": "^Skip to content ClearCase .+$"
+        }
+      },
+      "type": "improvement",
+      "source": "GRS-12",
+      "reason": "The print capture is the whole page text, so it holds each side shell (the app shell and navigation labels of the pilot) and the two corrections above (heading, titles shown once); the printed timeline content is otherwise the same. Print CSS hides the shell on paper; the CC-05 e2e print scenario checks the printed content.",
       "productVisible": true,
       "author": "CC-05 worker (GRS-15)",
       "approvedBy": null,

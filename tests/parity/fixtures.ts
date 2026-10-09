@@ -1,4 +1,5 @@
 // Synthetic snapshots for the parity suite: no case values. `base()` is a small view as both sides would show it.
+import type { Entry } from '../../scripts/parity/lib/compare.mjs';
 import { emptySnapshot } from '../../scripts/parity/lib/snapshot.mjs';
 
 export function base(side: 'v5' | 'app') {
@@ -30,6 +31,6 @@ export function base(side: 'v5' | 'app') {
 }
 
 /** A register covering the synthetic view's one intended difference (BA-14 focus), approved by someone else. */
-export const register = [
+export const register: Entry[] = [
 	{ id: 'IDR-900', view: 'chronology', field: 'focus.after_nav', when: { v5: 'nav-link', app: 'heading' }, type: 'improvement', source: 'BA-14', reason: 'Focus moves to the page heading after navigation.', productVisible: true, author: 'worker', approvedBy: 'coordinator', approvedOn: '2026-10-09' },
 ];

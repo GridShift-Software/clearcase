@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { ABSENT, classify, covering, diff, flatten, scorecard } from '../../scripts/parity/lib/compare.mjs';
+import { ABSENT, classify, covering, diff, flatten, scorecard, type Entry } from '../../scripts/parity/lib/compare.mjs';
 import { emptySnapshot, fromRaw, remap, tableFromRaw } from '../../scripts/parity/lib/snapshot.mjs';
 import { base, register } from './fixtures';
 
@@ -55,7 +55,7 @@ describe('diff', () => {
 	});
 	test('a v5 extraction error is never coverable by the register', () => {
 		const r = diff({ ...emptySnapshot('chronology', 'v5', 'error'), error: 'boom' }, base('app'));
-		const c = classify('chronology', r, [{ ...register[0], field: '*' }], {});
+		const c = classify('chronology', r, [{ ...register[0], field: '*' } as Entry], {});
 		expect(c.unregistered).toHaveLength(1);
 		expect(c.registered).toHaveLength(0);
 	});
@@ -73,18 +73,18 @@ describe('register coverage', () => {
 		expect(covering(register, 'overview', d)).toBeNull();
 	});
 	test('globs, lists of globs and regular-expression conditions', () => {
-		const e = [{ ...register[0], id: 'IDR-901', field: ['text.x', 'table.table_1.row.*.date'], when: { v5: '—', app: { re: '^undated$' } } }];
+		const e: Entry[] = [{ ...register[0], id: 'IDR-901', field: ['text.x', 'table.table_1.row.*.date'], when: { v5: '—', app: { re: '^undated$' } } }];
 		expect(covering(e, 'chronology', { path: 'table.table_1.row.SY-1.date', v5: '—', app: 'undated' })).not.toBeNull();
 		expect(covering(e, 'chronology', { path: 'table.table_1.row.SY-1.date', v5: '—', app: 'n/a' })).toBeNull();
 		expect(covering(e, 'chronology', { path: 'table.table_1.row.SY-1.amount', v5: '—', app: 'undated' })).toBeNull();
 	});
 	test('a whole-view entry (field "*") covers only the view-level difference, never a value', () => {
-		const whole = [{ ...register[0], field: '*', when: undefined, type: 'not-yet-implemented', owner: 'GRS-14' }];
+		const whole: Entry[] = [{ ...register[0], field: '*', when: undefined, type: 'not-yet-implemented', owner: 'GRS-14' }];
 		expect(covering(whole, 'chronology', { path: '*', kind: 'view-not-implemented', v5: 'view', app: ABSENT })).not.toBeNull();
 		expect(covering(whole, 'chronology', d)).toBeNull();
 	});
 	test('approvedOnly ignores proposed entries', () => {
-		const proposed = [{ ...register[0], approvedBy: null, approvedOn: null }];
+		const proposed: Entry[] = [{ ...register[0], approvedBy: null, approvedOn: null }];
 		expect(covering(proposed, 'chronology', d)).not.toBeNull();
 		expect(covering(proposed, 'chronology', d, { approvedOnly: true })).toBeNull();
 	});
@@ -107,7 +107,7 @@ describe('scorecard', () => {
 	});
 	test('registered differences only: PASS-with-notes; not implemented: its own status', () => {
 		const ok = classify('chronology', diff(base('v5'), base('app')), register, {});
-		const nyi = classify('people', diff(base('v5'), emptySnapshot('people', 'app', 'not-implemented')), [{ ...register[0], id: 'IDR-902', view: 'people', field: '*', when: undefined, type: 'not-yet-implemented', owner: 'GRS-14' }], {});
+		const nyi = classify('people', diff(base('v5'), emptySnapshot('people', 'app', 'not-implemented')), [{ ...register[0], id: 'IDR-902', view: 'people', field: '*', when: undefined, type: 'not-yet-implemented', owner: 'GRS-14' } as Entry], {});
 		const sc = scorecard({ chronology: { ...ok, v5Status: 'ok', appStatus: 'ok' }, people: { ...nyi, v5Status: 'ok', appStatus: 'not-implemented' } });
 		expect(sc.views.chronology.status).toBe('PASS-with-notes');
 		expect(sc.views.people.status).toBe('NOT-YET-IMPLEMENTED');

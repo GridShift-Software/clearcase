@@ -1,6 +1,7 @@
 // Defensive zip reader for the optional package transport. The central directory is read
 // and checked before any entry is decoded; entries are decoded in memory only (nothing is
-// extracted to disk), with the actual expansion bounded by the declared size and CRC-32.
+// extracted to disk), with the compressed input bounded by the declared size before it is read
+// and the actual expansion bounded by the declared size and CRC-32.
 import type { FileHandle } from 'node:fs/promises';
 import { crc32, inflateRawSync } from 'node:zlib';
 import type { Limits } from './limits.ts';
@@ -42,6 +43,20 @@ function decodeName(b: Uint8Array, utf8Flag: boolean): string {
     for (const c of b) s += c < 0x80 ? String.fromCharCode(c) : CP437_HIGH[c - 0x80];
     return s;
   }
+}
+
+/**
+ * Most compressed bytes a writer can produce for `n` bytes: stored is exact; deflate expands
+ * incompressible data by at most a fixed-Huffman 9 bits per byte plus block headers.
+ */
+function maxCompressed(method: number, n: number): number {
+  return method === 0 ? n : n + Math.ceil(n / 8) + 64;
+}
+
+/** Refuses compressed bytes its declared output cannot need, before anything is allocated for them. */
+function checkCompressed(method: number, csize: number, usize: number, name: string): void {
+  if (method === 0 && csize !== usize) throw new ZipError('ARC_MALFORMED', `stored entry declares ${csize} compressed and ${usize} uncompressed bytes; they must be equal`, name);
+  if (csize > maxCompressed(method, usize)) throw new ZipError('ARC_LIMIT', `entry has ${csize} compressed bytes for ${usize} declared bytes (at most ${maxCompressed(method, usize)})`, name);
 }
 
 async function readAt(fh: FileHandle, pos: number, len: number): Promise<Buffer> {
@@ -114,6 +129,9 @@ export async function readCentralDirectory(fh: FileHandle, L: Limits): Promise<Z
     if (usize > L.archiveRatioFloor && usize > csize * L.archiveRatio) throw new ZipError('ARC_LIMIT', `compression ratio above ${L.archiveRatio}:1`, name);
     total += usize;
     if (total > L.archiveTotalBytes) throw new ZipError('ARC_LIMIT', `archive expands beyond ${L.archiveTotalBytes} bytes`);
+    // compressed bytes are bounded by the declared size just checked, so the per-entry and total
+    // bounds also cap what readEntry can allocate (at most 9/8 of each plus 64 bytes per entry)
+    checkCompressed(method, csize, usize, name);
     if (loff + 30 > size || loff + csize > size) throw new ZipError('ARC_MALFORMED', 'entry data out of bounds', name);
     files.add(rel);
     out.push({ name, method, flags, crc32: crc, compressedSize: csize, uncompressedSize: usize, localHeaderOffset: loff, isDirectory });
@@ -129,6 +147,7 @@ export async function readCentralDirectory(fh: FileHandle, L: Limits): Promise<Z
 
 /** Decode one entry in memory; checks the local header, method, actual size and CRC-32. */
 export async function readEntry(fh: FileHandle, e: ZipEntry): Promise<Buffer> {
+  checkCompressed(e.method, e.compressedSize, e.uncompressedSize, e.name);
   const h = await readAt(fh, e.localHeaderOffset, 30);
   if (h.readUInt32LE(0) !== 0x04034b50) throw new ZipError('ARC_MALFORMED', 'bad local header', e.name);
   const off = e.localHeaderOffset + 30 + h.readUInt16LE(26) + h.readUInt16LE(28);

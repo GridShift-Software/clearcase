@@ -65,7 +65,9 @@ for (const m of selected) {
 	rmSync(dir, { recursive: true, force: true });
 	mkdirSync(dir, { recursive: true });
 	const t0 = performance.now();
-	const args = [join(REPO, 'scripts', 'parity', 'run.mjs'), '--view', m.views, '--fixture-config', cfgFile, '--out', join(dir, 'out')];
+	// a mutant is by design not HEAD's build, and the self-parity runs compare v5 with v5: the runs here prove that the
+	// harness catches regressions, not that a build is fresh, so the runner's fresh-build refusal does not apply
+	const args = [join(REPO, 'scripts', 'parity', 'run.mjs'), '--view', m.views, '--fixture-config', cfgFile, '--out', join(dir, 'out'), '--allow-stale-build'];
 	if (m.v5) {
 		const html = at(m.id, 'v5-copy.html');
 		// read the fixture (read-only) and write a fresh, writable copy; the fixture itself is never touched

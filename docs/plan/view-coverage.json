@@ -12,7 +12,7 @@
         "datasets": ["chronology", "contradictions", "matter", "quantum", "META.builtAt", "META.dateSpan", "META.docCount", "META.emails", "META.people", "META.textNone"],
         "stores": ["ess_dcs_deadlines_v1", "ess_dcs_rescan_v1", "ess_dcs_timesheet_v1"]
       },
-      "dependsOn": ["CC-07", "CC-10"]
+      "dependsOn": []
     },
     {
       "id": "matter",
@@ -45,7 +45,7 @@
         "datasets": ["chronology"],
         "stores": ["ess_dcs_rescan_v1"]
       },
-      "dependsOn": ["CC-10"]
+      "dependsOn": []
     },
     {
       "id": "quantum_tab",
@@ -67,7 +67,7 @@
         "datasets": ["chronology", "META.bundles", "META.docCount"],
         "stores": ["ess_dcs_caselines_docs_v1", "ess_dcs_rescan_v1"]
       },
-      "dependsOn": ["CC-09", "CC-10"],
+      "dependsOn": ["CC-09"],
       "readsNote": "Checklist inconsistency: the summary and store tables list ess_dcs_caselines_docs_v1 for this view, but its section lists only ess_dcs_rescan_v1 and notes that the CaseLines drawDocs (line 3623) is closure-scoped and does not override this view's drawDocs. The CC-09 read is probably misattributed; recorded as the summary states."
     },
     {
@@ -90,7 +90,7 @@
         "datasets": ["chronology", "filings"],
         "stores": ["ess_dcs_filings_v1", "ess_dcs_rescan_v1"]
       },
-      "dependsOn": ["CC-10"]
+      "dependsOn": []
     },
     {
       "id": "search",
@@ -101,7 +101,7 @@
         "datasets": ["chronology"],
         "stores": ["ess_dcs_rescan_v1"]
       },
-      "dependsOn": ["CC-10"]
+      "dependsOn": []
     },
     {
       "id": "people",
@@ -134,7 +134,7 @@
         "datasets": ["chronology"],
         "stores": ["ess_dcs_rescan_v1"]
       },
-      "dependsOn": ["CC-10"]
+      "dependsOn": []
     },
     {
       "id": "invoice_ledger_tab",
@@ -156,7 +156,7 @@
         "datasets": ["META.builtAt", "META.docCount"],
         "stores": ["ess_dcs_disbursements_v1", "ess_dcs_rescan_v1"]
       },
-      "dependsOn": ["CC-10"]
+      "dependsOn": []
     },
     {
       "id": "timesheet_tab",
@@ -167,7 +167,7 @@
         "datasets": ["META.builtAt", "META.docCount"],
         "stores": ["ess_dcs_rescan_v1", "ess_dcs_timesheet_v1"]
       },
-      "dependsOn": ["CC-10"]
+      "dependsOn": []
     },
     {
       "id": "deadlines_tab",
@@ -178,7 +178,7 @@
         "datasets": ["META.builtAt", "META.docCount"],
         "stores": ["ess_dcs_deadlines_v1", "ess_dcs_rescan_v1"]
       },
-      "dependsOn": ["CC-10"]
+      "dependsOn": []
     },
     {
       "id": "discovery_tab",
@@ -211,7 +211,7 @@
         "datasets": ["chronology", "window.__CASELINES_IDX__"],
         "stores": ["ess_dcs_caselines_docs_v1", "ess_dcs_rescan_v1"]
       },
-      "dependsOn": ["CC-10"]
+      "dependsOn": []
     },
     {
       "id": "contradictions_tab",
@@ -400,7 +400,7 @@
         "datasets": ["META.builtAt", "META.docCount"],
         "stores": ["ess_dcs_privilege_v1", "ess_dcs_rescan_v1"]
       },
-      "dependsOn": ["CC-10"]
+      "dependsOn": []
     },
     {
       "id": "popia_tab",
@@ -411,7 +411,7 @@
         "datasets": ["META.builtAt", "META.docCount"],
         "stores": ["ess_dcs_popia_v1", "ess_dcs_rescan_v1"]
       },
-      "dependsOn": ["CC-10"]
+      "dependsOn": []
     },
     {
       "id": "annotations_tab",
@@ -422,7 +422,7 @@
         "datasets": ["META.builtAt", "META.docCount"],
         "stores": ["ess_dcs_annotations_v1", "ess_dcs_rescan_v1"]
       },
-      "dependsOn": ["CC-10"]
+      "dependsOn": []
     },
     {
       "id": "transcriptions_tab",
@@ -433,7 +433,7 @@
         "datasets": ["META.builtAt", "META.docCount"],
         "stores": ["ess_dcs_rescan_v1", "ess_dcs_transcripts_v1"]
       },
-      "dependsOn": ["CC-10"]
+      "dependsOn": []
     },
     {
       "id": "rescan_tab",
@@ -455,7 +455,7 @@
         "datasets": ["META.builtAt", "META.docCount"],
         "stores": ["ess_dcs_annotations_v1", "ess_dcs_authorities_v1", "ess_dcs_bundle_extents_v1", "ess_dcs_bundle_header_v1", "ess_dcs_bundle_overrides_v1", "ess_dcs_courtbundle_v1", "ess_dcs_crossexam_v1", "ess_dcs_custom_bundles_v1", "ess_dcs_deadlines_v1", "ess_dcs_disbursements_v1", "ess_dcs_enf_status_v1", "ess_dcs_filings_v1", "ess_dcs_heads_v1", "ess_dcs_info_done_v1", "ess_dcs_payments_v1", "ess_dcs_popia_v1", "ess_dcs_privilege_v1", "ess_dcs_rescan_v1", "ess_dcs_timesheet_v1", "ess_dcs_transcripts_v1"]
       },
-      "dependsOn": ["CC-04", "CC-05", "CC-06", "CC-07", "CC-08", "CC-09"]
+      "dependsOn": ["CC-07"]
     },
     {
       "id": "manual",
@@ -469,7 +469,8 @@
       "dependsOn": []
     }
   ],
-  "readsSource": "docs/reference/view-checklist.md summary table (head c54a10e of CC-01). 'reads.datasets' are package datasets and code constants; 'reads.stores' are v5 user-work localStorage keys. 'dependsOn' lists the other tickets that own a store this view reads (cross-ticket reads only). A store's owner is the owner of the view that writes it (storeOwners). These are view-level facts; ticket dependencies in work-items.json follow the coordinator's rule in .orchestration/reports/PLAN-M2/report.md.",
+  "readsSource": "docs/reference/view-checklist.md summary table (head c54a10e of CC-01). 'reads.datasets' are package datasets and code constants; 'reads.stores' are v5 user-work localStorage keys. 'dependsOn' lists the other tickets this view depends on for a store it reads, after the contract rules in readsNote; 'reads' keeps every store the view reads. A store's owner is the owner of the view that writes it (storeOwners). These are view-level facts; ticket dependencies in work-items.json follow the coordinator's decisions in .orchestration/reports/PLAN-M2/r2/report.md.",
+  "readsNote": "Three cross-ticket reads are carried by contracts instead of dependencies. (1) Rescanned rows: ess_dcs_rescan_v1 (CC-10) reaches other views only through allRows() or the freshness stamp; CC-10 publishes those rows through CC-03's document-row read contract, so those views do not depend on CC-10. (2) Backup: backup_tab's backup and restore operate generically over CC-03's user-work persistence contract, so it depends only on CC-07, whose src/lib/user-work/** subtree contains CC-10's backup scope and whose stores it restores; CC-11 verifies a round trip for each named store once its owner has passed. (3) Overview: CC-03 shows the deadline and timesheet summary and the freshness stamp as unavailable until CC-07 and CC-10 wire them through CC-03's overview extension point from their own subtrees.",
   "storeOwners": {
     "ess_dcs_annotations_v1": "CC-07",
     "ess_dcs_authorities_v1": "CC-08",

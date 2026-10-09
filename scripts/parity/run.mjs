@@ -40,7 +40,7 @@ ensureOffline(import.meta.filename);
 
 const { proveOffline } = await import('../../tests/e2e/pilot/lib/netproof.mjs');
 const { startCanary } = await import('../../tests/e2e/pilot/lib/canary.mjs');
-const { launch } = await import('../../tests/e2e/pilot/lib/cdp.mjs');
+const { launch, DISABLED_FEATURES } = await import('../../tests/e2e/pilot/lib/cdp.mjs');
 const { client, vpath } = await import('../../tests/e2e/pilot/lib/client.mjs');
 const { startServer } = await import('../../tests/e2e/pilot/lib/server.mjs');
 const { ConfigError, loadConfig, v5Package, readPackage } = await import('../../tests/e2e/pilot/v5/fixture.mjs');
@@ -105,7 +105,8 @@ try {
 	const act = await c.activate(imp.importId, { ack: true });
 	const vid = await c.activeVersion();
 	if (vid !== fx.accepted.resultsVersion) throw Object.assign(new Error(`activation failed: ${JSON.stringify(act)}`), { setup: true });
-	b = await launch({ profileRoot: join(work, 'profiles') });
+	// the browser's network-time query is background traffic, not the page's: switch it off (the last flag wins)
+	b = await launch({ profileRoot: join(work, 'profiles'), extra: [`--disable-features=${DISABLED_FEATURES},NetworkTimeServiceQuerying`] });
 	const v5 = await v5Page(b, { html: fx.cfg.mainHtml.path, clock, timezone });
 	const app = await appPage(b, { origin: c.origin, timezone });
 	const selfV5 = opt('app-v5-html') ? await v5Page(b, { html: resolve(opt('app-v5-html')), clock, timezone }) : null;
@@ -134,7 +135,8 @@ try {
 		const reg2 = TYPES.map((t) => [t, r.registered.filter((d) => d.type === t).length]).filter(([, n]) => n).map(([t, n]) => `${t} ${n}`).join(', ');
 		console.log(`  ${view.padEnd(20)} v5 ${s5.status.padEnd(6)} app ${sa.status.padEnd(15)} compared ${String(r.compared).padStart(6)} matched ${String(r.matched).padStart(6)} registered ${r.registered.length}${reg2 ? ` (${reg2})` : ''} unregistered ${r.unregistered.length} ${perView[view].ms} ms`);
 	}
-	details.__requests = { v5NonFile: v5.nonFile.length + (selfV5?.nonFile.length ?? 0), appNonLoopback: app.requests.filter((u) => !/^(https?:\/\/(127\.0\.0\.1|[a-z0-9-]+\.localhost)(:\d+)?\/|data:|blob:|about:)/.test(u)).length };
+	writeFileSync(join(out, 'v5-requests.json'), JSON.stringify({ network: [...v5.nonFile, ...(selfV5?.nonFile ?? [])], browserInternal: [...v5.internal, ...(selfV5?.internal ?? [])] }, null, 1) + '\n');
+	details.__requests = { v5BrowserInternal: v5.internal.length + (selfV5?.internal.length ?? 0), v5NonFile: v5.nonFile.length + (selfV5?.nonFile.length ?? 0), appNonLoopback: app.requests.filter((u) => !/^(https?:\/\/(127\.0\.0\.1|[a-z0-9-]+\.localhost)(:\d+)?\/|data:|blob:|about:)/.test(u)).length };
 } catch (e) {
 	console.error(`parity: ${e.setup ? 'setup error' : 'run aborted'}: ${e.stack ?? e}`);
 	exitCode = 2;
@@ -146,13 +148,14 @@ try {
 const treeAfter = treeStamp(fx.caseFolder);
 const used = new Set(Object.values(perView).flatMap((r) => r.registered.map((d) => d.register)));
 const unused = reg.entries.filter((e) => views.includes(e.view) && perView[e.view] && !used.has(e.id)).map((e) => e.id);
+writeFileSync(join(out, 'canary-hits.json'), JSON.stringify(canary.hits, null, 1) + '\n');
 writeFileSync(join(out, 'register-usage.json'), JSON.stringify({ used: [...used].sort(), unused }, null, 1) + '\n');
 const nonFile = details.__requests?.v5NonFile ?? null;
 const sc = scorecard(perView, {
 	command: `bun run --bun parity -- ${argv.join(' ')}`, revision: git.head, dirty: git.dirty, build: { id: stamp.buildId, revision: stamp.revision, dirty: !!stamp.dirty, root: relative(REPO, appRoot) || '.' },
 	clock, timezone, register: { entries: reg.entries.length, approved: reg.entries.filter((e) => e.approvedBy).length, approvedOnly: flag('approved-only'), used: used.size, unused: unused.length, strict: flag('strict-register') },
-	appSide: selfV5 ? 'v5 self-parity copy' : 'app build',
-	isolation: { offline: proof.pass, links: proof.links, v5NonFileRequests: nonFile, appNonLoopbackRequests: details.__requests?.appNonLoopback ?? null, canaryHits: canary.hits.length, fixtureUnchanged: treeBefore === treeAfter },
+	appSide: opt('app-v5-html') ? 'v5 self-parity copy' : 'app build',
+	isolation: { offline: proof.pass, links: proof.links, v5NonFileRequests: nonFile, v5BrowserInternalRequests: details.__requests?.v5BrowserInternal ?? null, appNonLoopbackRequests: details.__requests?.appNonLoopback ?? null, canaryHits: canary.hits.length, fixtureUnchanged: treeBefore === treeAfter },
 	seconds: Math.round((performance.now() - t0) / 100) / 10,
 });
 if (exitCode === 0) {
@@ -166,7 +169,7 @@ writeFileSync(join(out, 'scorecard.md'), [
 	`Result **${sc.result}** (exit ${exitCode}) at ${git.head}${git.dirty ? ' (dirty)' : ''}; build ${stamp.buildId} from ${stamp.revision}; clock ${clock} ${timezone}; ${sc.seconds} s.`, '',
 	`Views ${T.views}: v5 extracted ${T.viewsExtractedV5}, app compared ${T.viewsComparedApp}, not yet implemented ${T.viewsNotImplemented}, failed ${T.viewsFailed}. Values: v5 ${T.v5Values}, app ${T.appValues}, compared ${T.compared}, matched ${T.matched}. Registered differences: ${TYPES.map((t) => `${t} ${T.registered[t]}`).join(', ')} (${T.pendingApproval} on entries awaiting approval). Unregistered: ${T.unregistered}.`, '',
 	`Register: ${reg.entries.length} entries (${sc.register.approved} approved); ${used.size} covered a difference, ${unused.length} unused in the views run${flag('strict-register') ? ' (strict: unused fails)' : ''}.`, '',
-	`Isolation: offline ${proof.pass}, v5 non-file requests ${nonFile}, app non-loopback requests ${sc.isolation.appNonLoopbackRequests}, canary hits ${canary.hits.length}, fixture tree unchanged ${treeBefore === treeAfter}.`, '',
+	`Isolation: offline ${proof.pass}, v5 non-file network requests ${nonFile} (browser-internal viewer requests ${sc.isolation.v5BrowserInternalRequests}), app non-loopback requests ${sc.isolation.appNonLoopbackRequests}, canary hits ${canary.hits.length}, fixture tree unchanged ${treeBefore === treeAfter}.`, '',
 	'| View | Status | Compared | Matched | Registered | Pending approval | Unregistered |', '| --- | --- | --: | --: | --: | --: | --: |',
 	...Object.entries(sc.views).map(([v, x]) => `| ${v} | ${x.status} | ${x.compared} | ${x.matched} | ${Object.values(x.registered).reduce((a, b) => a + b, 0)} | ${x.pendingApproval} | ${x.unregistered} |`), '',
 ].join('\n'));

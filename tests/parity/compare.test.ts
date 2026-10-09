@@ -78,6 +78,11 @@ describe('register coverage', () => {
 		expect(covering(e, 'chronology', { path: 'table.table_1.row.SY-1.date', v5: '—', app: 'n/a' })).toBeNull();
 		expect(covering(e, 'chronology', { path: 'table.table_1.row.SY-1.amount', v5: '—', app: 'undated' })).toBeNull();
 	});
+	test('a whole-view entry (field "*") covers only the view-level difference, never a value', () => {
+		const whole = [{ ...register[0], field: '*', when: undefined, type: 'not-yet-implemented', owner: 'GRS-14' }];
+		expect(covering(whole, 'chronology', { path: '*', kind: 'view-not-implemented', v5: 'view', app: ABSENT })).not.toBeNull();
+		expect(covering(whole, 'chronology', d)).toBeNull();
+	});
 	test('approvedOnly ignores proposed entries', () => {
 		const proposed = [{ ...register[0], approvedBy: null, approvedOn: null }];
 		expect(covering(proposed, 'chronology', d)).not.toBeNull();

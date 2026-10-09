@@ -19,8 +19,8 @@ export const rateCells = (it: ContradictionItem) => ({
 	spread: money(it.spread),
 });
 
-/** A source chip's label: the ref, and the amount when there is one ('<ref> · R 1 234.00'). */
-export const chipLabel = (r: ContradictionRef) => (r.amount !== '' && r.amount !== null && r.amount !== undefined ? `${r.ref} · ${money(String(r.amount))}` : r.ref);
+/** A source chip's label: the ref, and the amount when v5 shows one (a truthy amount: '<ref> · R 1 234.00'). */
+export const chipLabel = (r: ContradictionRef) => (r.amount ? `${r.ref} · ${money(String(r.amount))}` : r.ref);
 
 /** KPI figure by category key, 0 when the package has none (v5 `byCat.rate || 0`). */
 export const byCat = (c: Contradictions, key: string) => (Object.hasOwn(c.byCat, key) ? c.byCat[key] || 0 : 0);

@@ -23,6 +23,16 @@
 		// the fragment target after this callback (reset_focus, in a task); the heading takes it back in the next task.
 		if (type === 'popstate' && to?.url.hash) setTimeout(() => heading(true));
 	});
+	// Back (or Forward) between entries of the SAME page, e.g. from an in-page #code-<CODE> link on the validation report
+	// to the page's own entry, is a "shallow" popstate in SvelteKit: no navigation, so afterNavigate does not run. On
+	// reaching the page's base entry (no fragment) the heading takes focus, as after any other Back.
+	let shown = '';
+	afterNavigate(() => { shown = location.pathname + location.search; });
+	onMount(() => {
+		const h = () => { if (!location.hash && location.pathname + location.search === shown) heading(true); };
+		addEventListener('popstate', h);
+		return () => removeEventListener('popstate', h);
+	});
 	// The skip link moves focus to the content without a history entry (with JavaScript); href="#main" is the fallback.
 	const skip = (a: HTMLAnchorElement) => {
 		const h = (e: MouseEvent) => { e.preventDefault(); document.getElementById('main')?.focus(); };

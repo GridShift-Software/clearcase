@@ -85,6 +85,18 @@ CREATE TABLE IF NOT EXISTS work.register_row(
   anchor TEXT,                     -- DocumentAnchor JSON or NULL
   fields TEXT NOT NULL, fields_sha256 TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
   PRIMARY KEY(case_id, store, row_id)) WITHOUT ROWID;
+-- What each work.sqlite table is, for generic enumeration, backup and restore (user-work.server.ts). Tables that M2
+-- tickets define through UserWork.defineTable are added here; a table missing from it is still enumerated, as
+-- 'unregistered', so a backup never silently misses one.
+CREATE TABLE IF NOT EXISTS work.userwork_catalog(
+  name TEXT PRIMARY KEY, kind TEXT NOT NULL, owner TEXT NOT NULL, description TEXT NOT NULL) WITHOUT ROWID;
+INSERT OR IGNORE INTO work.userwork_catalog VALUES
+  ('note', 'user-work', 'GRS-12', 'notes on documents, anchored by original fingerprint'),
+  ('seed_overlay', 'user-work', 'GRS-12', 'user edits of imported seed rows, keyed by stable seed id'),
+  ('register_row', 'user-work', 'GRS-12', 'rows of user-work registers, keyed by stable row id per store'),
+  ('trusted_warning', 'user-work', 'GRS-12', 'warnings the operator accepted for a case'),
+  ('active', 'activation', 'GRS-12', 'the active results version per case'),
+  ('activation_log', 'activation', 'GRS-12', 'every activation with its bound acknowledgement');
 `;
 
 export function readPragmas(d: DatabaseSync): Pragmas {

@@ -19,10 +19,10 @@ export const LEGACY = Object.freeze({
 	'CC-04': ['IDR-004', 'IDR-005', 'IDR-006', 'IDR-007', 'IDR-008', 'IDR-009', 'IDR-010'],
 	'CC-05': ['IDR-001', 'IDR-002', 'IDR-018', 'IDR-019', 'IDR-020', 'IDR-021', 'IDR-022'],
 	'CC-06': ['IDR-003', 'IDR-011', 'IDR-026', 'IDR-027', 'IDR-028', 'IDR-033'],
-	'CC-07': ['IDR-012', 'IDR-013', 'IDR-014', 'IDR-034', 'IDR-035', 'IDR-036', 'IDR-037'],
+	'CC-07': ['IDR-012', 'IDR-013', 'IDR-014', 'IDR-034', 'IDR-035', 'IDR-036', 'IDR-037', 'IDR-050', 'IDR-067'],
 	'CC-08': ['IDR-023', 'IDR-024', 'IDR-025', 'IDR-029', 'IDR-030', 'IDR-031', 'IDR-032'],
 	'CC-09': ['IDR-015', 'IDR-016', 'IDR-017'],
-	'CC-10': ['IDR-038', 'IDR-039', 'IDR-040'],
+	'CC-10': ['IDR-038', 'IDR-039', 'IDR-040', 'IDR-051', 'IDR-068'],
 });
 const idNumber = (id) => Number(/^IDR-([0-9]+)$/.exec(String(id))?.[1] ?? NaN);
 const rangeOwner = (id) => Object.keys(RANGES).find((k) => idNumber(id) >= RANGES[k][0] && idNumber(id) <= RANGES[k][1]);

@@ -7,7 +7,7 @@ import { canonicalJson, canonicalText } from './canonical.ts';
 import type { DiagSink } from './diagnostics.ts';
 import { inputRevisionId, resultsVersionOf, sha256Hex } from './hash.ts';
 import type { Limits } from './limits.ts';
-import { classifyLink } from './links.ts';
+import { classifyLink, MAX_LINK } from './links.ts';
 import { capabilityOf, isContainer, textStatusConsistent, type TextStatus } from './media.ts';
 import { checkRelPath, decodeLegacyLocator, foldPath, isReservedPath } from './paths.ts';
 import { CITATION_TOKEN, isAssetKey, isRef, parseCitationToken, REF_IN_TEXT } from './refs.ts';
@@ -17,7 +17,7 @@ import {
 } from './registry.ts';
 import { Asset, AssetIndex, ASSET_INDEX, DatasetEnvelope, FORMAT, FORMAT_VERSION, Manifest } from './schema.ts';
 import type { Snapshot } from './source.ts';
-import { decodeUtf8Strict, escapePointer, isObject, parseStrictJson, StrictJsonError, type JsonObject, type JsonValue } from './strict-json.ts';
+import { cutText, decodeUtf8Strict, escapePointer, isObject, parseStrictJson, StrictJsonError, type JsonObject, type JsonValue } from './strict-json.ts';
 
 export interface CitationHit { ref: string; file: string; pointer: string; inline: boolean }
 
@@ -171,7 +171,7 @@ export function validateSnapshot(snap: Snapshot, sink: DiagSink, L: Limits, chec
     const ref: unknown = isObject(r) ? r.ref : undefined;
     const raw = ref as string | undefined;
     const at = { file: 'datasets/chronology.json', pointer: `/data/${i}/ref` };
-    if (!isRef(ref)) { sink.add('ID_REF_INVALID', 'ref is missing or does not match ^[A-Z]{1,8}-[0-9]{1,8}$', { ...at, subject: typeof raw === 'string' ? raw.slice(0, 40) : `row ${i}`, stablePointer: typeof raw === 'string' ? undefined : `/data/${i}/ref` }); return; }
+    if (!isRef(ref)) { sink.add('ID_REF_INVALID', 'ref is missing or does not match ^[A-Z]{1,8}-[0-9]{1,8}$', { ...at, subject: typeof raw === 'string' ? cutText(raw, 40) : `row ${i}`, stablePointer: typeof raw === 'string' ? undefined : `/data/${i}/ref` }); return; }
     if (register.has(ref)) sink.add('ID_DUPLICATE', `ref ${ref} appears more than once`, { ...at, subject: ref });
     register.add(ref);
     if (r.text_status !== undefined && !['extracted', 'ocr', 'none', 'pending'].includes(r.text_status as string)) {
@@ -368,6 +368,20 @@ export function decodeEntities(s: string): string {
 export function markdownLinkTargets(s: string): string[] {
   const out: string[] = [];
   const isSpace = (c: string | undefined) => c === ' ' || c === '\t' || c === '\n' || c === '\r';
+  /**
+   * Records the destination s[from, to). One longer than MAX_LINK is recorded as its first
+   * MAX_LINK + 1 raw characters, undecoded, so it stays over the limit and is rejected: it is
+   * never cut or decoded into a shorter locator that could pass.
+   */
+  const push = (from: number, to: number, decode: (d: string) => string) => {
+    out.push(to - from > MAX_LINK ? s.slice(from, from + MAX_LINK + 1) : decode(s.slice(from, to)));
+  };
+  /** Index of `ch` within MAX_LINK + 1 characters of `from`, else where the bounded search stopped (at most from + MAX_LINK + 1). */
+  const closing = (ch: string, from: number): number => {
+    let k = from;
+    while (k < s.length && k - from <= MAX_LINK && s[k] !== ch) k++;
+    return k;
+  };
   /** Reads one destination at `from`; returns where scanning may resume (never before `from`). */
   const take = (from: number): number => {
     let i = from;
@@ -375,14 +389,13 @@ export function markdownLinkTargets(s: string): string[] {
     if (s[i] === '\r' && s[i + 1] === '\n') i += 2; else if (s[i] === '\n' || s[i] === '\r') i++;
     while (s[i] === ' ' || s[i] === '\t') i++;
     if (s[i] === '<') {
-      const close = s.indexOf('>', i + 1);
-      const end = close < 0 || close - i > 2049 ? Math.min(s.length, i + 2049) : close;
-      out.push(unescapeDest(s.slice(i + 1, end)));
+      const end = closing('>', i + 1);
+      push(i + 1, end, unescapeDest);
       return end;
     }
     let end = i;
-    while (end < s.length && end - i < 2048 && !isSpace(s[end]) && s[end] !== ')') end++;
-    if (end > i) out.push(unescapeDest(s.slice(i, end)));
+    while (end < s.length && end - i <= MAX_LINK && !isSpace(s[end]) && s[end] !== ')') end++;
+    if (end > i) push(i, end, unescapeDest);
     return end;
   };
   // each search resumes after the previous destination, so the scan stays linear in the text length
@@ -398,9 +411,8 @@ export function markdownLinkTargets(s: string): string[] {
     while (j < s.length && j - i <= 33 && /[A-Za-z0-9+.\-]/.test(s[j]!)) j++;
     let next = i + 1;
     if (s[j] === ':' && j > i + 1 && /[A-Za-z]/.test(s[i + 1]!)) {
-      const close = s.indexOf('>', j);
-      const end = close < 0 || close - j > 2048 ? Math.min(s.length, j + 2048) : close;
-      out.push(decodeEntities(s.slice(i + 1, end)));
+      const end = closing('>', j);
+      push(i + 1, end, decodeEntities);
       next = end;
     }
     i = s.indexOf('<', next);

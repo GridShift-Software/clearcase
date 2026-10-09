@@ -16,6 +16,9 @@ export const CANARY_PORT = +(process.env.CANARY_PORT ?? 41199);
 const b_pids = new Set();
 process.on('exit', () => { for (const p of b_pids) try { process.kill(p, 'SIGKILL'); } catch {} });
 
+/** Features every test browser runs without (no background network); a caller adding features extends this list. */
+export const DISABLED_FEATURES = 'Translate,OptimizationHints,MediaRouter,AutofillServerCommunication,CertificateTransparencyComponentUpdater';
+
 export async function launch({ profileRoot, extra = [] }) {
 	if (!chromeAvailable()) throw new Error(`Chromium not found at ${CHROME} (set CLEARCASE_CHROMIUM)`);
 	mkdirSync(profileRoot, { recursive: true });
@@ -24,7 +27,7 @@ export async function launch({ profileRoot, extra = [] }) {
 	mkdirSync(dl);
 	const args = ['--headless=new', '--remote-debugging-port=0', `--user-data-dir=${dir}`, '--no-first-run',
 		'--no-default-browser-check', '--disable-background-networking', '--disable-component-update', '--disable-sync',
-		'--disable-features=Translate,OptimizationHints,MediaRouter,AutofillServerCommunication,CertificateTransparencyComponentUpdater',
+		`--disable-features=${DISABLED_FEATURES}`,
 		'--disable-domain-reliability', '--metrics-recording-only', '--no-pings', '--window-size=1400,900',
 		// Any non-loopback hostname resolves to the canary, so exfiltration attempts are observable (and never leave the box).
 		`--host-resolver-rules=MAP * 127.0.0.1:${CANARY_PORT}, EXCLUDE localhost, EXCLUDE *.localhost, EXCLUDE 127.0.0.1`,

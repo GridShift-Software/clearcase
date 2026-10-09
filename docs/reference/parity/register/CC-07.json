@@ -1,0 +1,90 @@
+{
+  "$schema": "../intentional-differences.schema.json",
+  "version": 1,
+  "entries": [
+    {
+      "id": "IDR-012",
+      "view": "disbursements_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-17",
+      "reason": "The app does not implement Disbursements yet; GRS-17 (CC-07) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-013",
+      "view": "timesheet_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-17",
+      "reason": "The app does not implement Timesheet yet; GRS-17 (CC-07) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-014",
+      "view": "deadlines_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-17",
+      "reason": "The app does not implement Deadlines yet; GRS-17 (CC-07) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-034",
+      "view": "privilege_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-17",
+      "reason": "The app does not implement Privilege Log yet; GRS-17 (CC-07) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-035",
+      "view": "popia_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-17",
+      "reason": "The app does not implement POPIA Register yet; GRS-17 (CC-07) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-036",
+      "view": "annotations_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-17",
+      "reason": "The app does not implement Annotations yet; GRS-17 (CC-07) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-037",
+      "view": "transcriptions_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-17",
+      "reason": "The app does not implement Transcripts yet; GRS-17 (CC-07) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    }
+  ]
+}

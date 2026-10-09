@@ -25,14 +25,14 @@ bun run --bun parity -- --view chronology,overview --fixture-config .local/v5-ve
 | `--app-root DIR` | Use another checkout's build and modules (the mutation proof). |
 | `--app-v5-html FILE` | Self-parity: the app side is the v5 adapter on another copy of the v5 HTML. |
 
-Exit codes: **0** no unregistered difference; **1** at least one unregistered difference, a v5 view that did not extract, a v5 network request, a canary hit or a changed fixture tree; **2** setup error (arguments, locator, register, build, conversion, import or the offline proof).
+Exit codes: **0** no unregistered difference; **1** at least one unregistered difference, a v5 view that did not extract, a v5 network request, a canary hit other than a browser service, or a changed fixture tree; **2** setup error (arguments, locator, register, build, conversion, import or the offline proof).
 
 A full run takes about 100 seconds on this host, most of it the chronology sweeps.
 
 ### What runs, and how it is isolated
 
 - The runner re-executes itself under `unshare -rn` through `tests/e2e/pilot/offline.sh` and proves that only loopback exists before it starts anything. There is no online fallback.
-- One headless Chromium runs, sandboxed, with a temporary profile. Every non-loopback host name maps to a local canary; any canary hit fails the run. The browser's network-time query is switched off.
+- One headless Chromium runs, sandboxed, with a temporary profile. Every non-loopback host name maps to a local canary. The browser's own background services (network time, push messaging, phishing lists) are switched off; a canary hit from a Google browser-service endpoint is counted apart as browser background traffic, and any other hit fails the run.
 - **v5**: the main HTML from the fixture tree, opened read-only as a `file:` URL. `Date` is frozen at the clock and the timezone is overridden. localStorage is cleared and seeded on every load. Only the page's own UI code runs; no archive processing or build script. Every request that is not `file:`, `data:`, `blob:` or `about:` is recorded with its view in `v5-requests.json`, and any network one fails the run. Requests by Chromium's built-in PDF viewer (`chrome-extension:`) to show a local PDF that a view embeds are browser-internal and counted apart.
 - **App**: the v5 main HTML is converted with GRS-10's converter. The production build is started under Bun with `CLEARCASE_FIXED_NOW` set to the clock (the pilot's `now()` seam) and `TZ` set. The package is imported and activated through the app's own forms.
 - The fixture tree's stamp is taken before and after the run; any change fails it.

@@ -105,8 +105,9 @@ try {
 	const act = await c.activate(imp.importId, { ack: true });
 	const vid = await c.activeVersion();
 	if (vid !== fx.accepted.resultsVersion) throw Object.assign(new Error(`activation failed: ${JSON.stringify(act)}`), { setup: true });
-	// the browser's network-time query is background traffic, not the page's: switch it off (the last flag wins)
-	b = await launch({ profileRoot: join(work, 'profiles'), extra: [`--disable-features=${DISABLED_FEATURES},NetworkTimeServiceQuerying`] });
+	// the browser's own services (network time, push messaging, phishing lists) are background traffic, not the
+	// page's: switch them off (the last --disable-features wins, so it repeats the shared list)
+	b = await launch({ profileRoot: join(work, 'profiles'), extra: [`--disable-features=${DISABLED_FEATURES},NetworkTimeServiceQuerying,PushMessaging,BackgroundFetch`, '--disable-notifications', '--disable-default-apps', '--disable-client-side-phishing-detection', '--disable-component-extensions-with-background-pages'] });
 	const v5 = await v5Page(b, { html: fx.cfg.mainHtml.path, clock, timezone });
 	const app = await appPage(b, { origin: c.origin, timezone });
 	const selfV5 = opt('app-v5-html') ? await v5Page(b, { html: resolve(opt('app-v5-html')), clock, timezone }) : null;
@@ -146,6 +147,11 @@ try {
 	await canary.close().catch(() => {});
 }
 const treeAfter = treeStamp(fx.caseFolder);
+// Canary hits: Chromium's own Google service endpoints (GCM, component and time services) are browser background
+// traffic, reported apart; page requests are caught through CDP above. Any other hit fails the run.
+const SERVICE = /(^|\.)(google\.com|googleapis\.com|gstatic\.com|gvt1\.com|gvt2\.com)$/;
+const serviceHits = canary.hits.filter((h) => SERVICE.test(String(h.sni ?? h.host ?? '').replace(/:\d+$/, '')));
+const otherHits = canary.hits.length - serviceHits.length;
 const used = new Set(Object.values(perView).flatMap((r) => r.registered.map((d) => d.register)));
 const unused = reg.entries.filter((e) => views.includes(e.view) && perView[e.view] && !used.has(e.id)).map((e) => e.id);
 writeFileSync(join(out, 'canary-hits.json'), JSON.stringify(canary.hits, null, 1) + '\n');
@@ -155,11 +161,11 @@ const sc = scorecard(perView, {
 	command: `bun run --bun parity -- ${argv.join(' ')}`, revision: git.head, dirty: git.dirty, build: { id: stamp.buildId, revision: stamp.revision, dirty: !!stamp.dirty, root: relative(REPO, appRoot) || '.' },
 	clock, timezone, register: { entries: reg.entries.length, approved: reg.entries.filter((e) => e.approvedBy).length, approvedOnly: flag('approved-only'), used: used.size, unused: unused.length, strict: flag('strict-register') },
 	appSide: opt('app-v5-html') ? 'v5 self-parity copy' : 'app build',
-	isolation: { offline: proof.pass, links: proof.links, v5NonFileRequests: nonFile, v5BrowserInternalRequests: details.__requests?.v5BrowserInternal ?? null, appNonLoopbackRequests: details.__requests?.appNonLoopback ?? null, canaryHits: canary.hits.length, fixtureUnchanged: treeBefore === treeAfter },
+	isolation: { offline: proof.pass, links: proof.links, v5NonFileRequests: nonFile, v5BrowserInternalRequests: details.__requests?.v5BrowserInternal ?? null, appNonLoopbackRequests: details.__requests?.appNonLoopback ?? null, canaryHits: otherHits, canaryBrowserServiceHits: serviceHits.length, fixtureUnchanged: treeBefore === treeAfter },
 	seconds: Math.round((performance.now() - t0) / 100) / 10,
 });
 if (exitCode === 0) {
-	if (sc.total.unregistered || (flag('strict-register') && unused.length) || nonFile !== 0 || canary.hits.length || treeBefore !== treeAfter || sc.total.viewsExtractedV5 !== views.length) { exitCode = 1; sc.result = 'FAIL'; }
+	if (sc.total.unregistered || (flag('strict-register') && unused.length) || nonFile !== 0 || otherHits || treeBefore !== treeAfter || sc.total.viewsExtractedV5 !== views.length) { exitCode = 1; sc.result = 'FAIL'; }
 }
 sc.exit = exitCode;
 writeFileSync(join(out, 'scorecard.json'), JSON.stringify(sc, null, 1) + '\n');
@@ -169,7 +175,7 @@ writeFileSync(join(out, 'scorecard.md'), [
 	`Result **${sc.result}** (exit ${exitCode}) at ${git.head}${git.dirty ? ' (dirty)' : ''}; build ${stamp.buildId} from ${stamp.revision}; clock ${clock} ${timezone}; ${sc.seconds} s.`, '',
 	`Views ${T.views}: v5 extracted ${T.viewsExtractedV5}, app compared ${T.viewsComparedApp}, not yet implemented ${T.viewsNotImplemented}, failed ${T.viewsFailed}. Values: v5 ${T.v5Values}, app ${T.appValues}, compared ${T.compared}, matched ${T.matched}. Registered differences: ${TYPES.map((t) => `${t} ${T.registered[t]}`).join(', ')} (${T.pendingApproval} on entries awaiting approval). Unregistered: ${T.unregistered}.`, '',
 	`Register: ${reg.entries.length} entries (${sc.register.approved} approved); ${used.size} covered a difference, ${unused.length} unused in the views run${flag('strict-register') ? ' (strict: unused fails)' : ''}.`, '',
-	`Isolation: offline ${proof.pass}, v5 non-file network requests ${nonFile} (browser-internal viewer requests ${sc.isolation.v5BrowserInternalRequests}), app non-loopback requests ${sc.isolation.appNonLoopbackRequests}, canary hits ${canary.hits.length}, fixture tree unchanged ${treeBefore === treeAfter}.`, '',
+	`Isolation: offline ${proof.pass}, v5 non-file network requests ${nonFile} (browser-internal viewer requests ${sc.isolation.v5BrowserInternalRequests}), app non-loopback requests ${sc.isolation.appNonLoopbackRequests}, canary hits ${otherHits} (browser-service ${serviceHits.length}), fixture tree unchanged ${treeBefore === treeAfter}.`, '',
 	'| View | Status | Compared | Matched | Registered | Pending approval | Unregistered |', '| --- | --- | --: | --: | --: | --: | --: |',
 	...Object.entries(sc.views).map(([v, x]) => `| ${v} | ${x.status} | ${x.compared} | ${x.matched} | ${Object.values(x.registered).reduce((a, b) => a + b, 0)} | ${x.pendingApproval} | ${x.unregistered} |`), '',
 ].join('\n'));

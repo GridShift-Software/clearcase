@@ -198,6 +198,31 @@ describe('enumerable user work', () => {
 		expect(await lc2.userWork.importAll(JSON.parse(JSON.stringify(back)))).toEqual({ tables: back.tables.length, rows: 2 });
 	});
 
+	it('exports INTEGERs beyond the JS safe range losslessly and restores them exactly', async () => {
+		const { lc } = await setup('bigint');
+		const uw = lc.userWork;
+		const big = [2n ** 63n - 1n, -(2n ** 63n), 9007199254740993n];
+		await uw.defineTable({ name: 'counter', owner: 'GRS-17', description: 'big keys', columns: [{ name: 'id', type: 'INTEGER' }, { name: 'n', type: 'INTEGER' }, { name: 'r', type: 'REAL' }], primaryKey: ['id'] });
+		const db = lc.storage.db();
+		for (const [i, n] of big.entries()) db.prepare('INSERT INTO work.counter VALUES (?, ?, ?)').run(n, i, 0.5);
+		db.exec('CREATE TABLE work.stray_big(id TEXT PRIMARY KEY, v INTEGER)');
+		db.prepare("INSERT INTO work.stray_big VALUES ('k', ?)").run(2n ** 60n);
+		const snap = JSON.parse(JSON.stringify(uw.exportAll()));
+		expect(snap.excluded).toEqual([]);
+		expect(snap.tables.find((t: { name: string }) => t.name === 'counter').rows).toEqual([{ id: { $int: String(-(2n ** 63n)) }, n: 1, r: 0.5 }, { id: { $int: '9007199254740993' }, n: 2, r: 0.5 }, { id: { $int: String(2n ** 63n - 1n) }, n: 0, r: 0.5 }]);
+		const root2 = await tempRoot('bigint2');
+		roots.push(root2);
+		const lc2 = service(path.join(root2, 'data'));
+		open.push(lc2);
+		await lc2.startup();
+		expect(await lc2.userWork.importAll(snap)).toEqual({ tables: snap.tables.length, rows: 4 });
+		const read = (sql: string) => { const st = lc2.storage.db().prepare(sql); st.setReadBigInts(true); return st.all().map((r) => ({ ...r })); };
+		expect(read('SELECT id FROM work.counter ORDER BY id').map((r) => r.id)).toEqual([...big].sort((a, b) => (a < b ? -1 : 1)));
+		expect(read('SELECT v FROM work.stray_big')).toEqual([{ v: 2n ** 60n }]);
+		const again = JSON.parse(JSON.stringify(lc2.userWork.exportAll()));
+		expect(again.tables.map((t: { name: string; rows: unknown }) => [t.name, t.rows])).toEqual(snap.tables.map((t: { name: string; rows: unknown }) => [t.name, t.rows]));
+	});
+
 	it('restores atomically: a refused restore creates no table, and a failure while writing rows rolls the tables back', async () => {
 		const { lc } = await setup('atomic');
 		const uw = lc.userWork;

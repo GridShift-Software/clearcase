@@ -3,6 +3,7 @@
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { Validator } from '@cfworker/json-schema';
+import { globRe } from './compare.mjs';
 
 export const REPO = resolve(import.meta.dirname, '..', '..', '..');
 export const REGISTER = join(REPO, 'docs', 'reference', 'parity', 'intentional-differences.json');
@@ -41,6 +42,9 @@ export function validateRegister(doc, { views = viewIds(), owners = null } = {})
 		if (!views.includes(e.view)) problems.push(`${at}: unknown view ${JSON.stringify(e.view)}`);
 		if (e.approvedBy && identityKey(e.approvedBy) === identityKey(e.author)) problems.push(`${at}: approver must not be the author`);
 		if (!!e.approvedBy !== !!e.approvedOn) problems.push(`${at}: approvedBy and approvedOn go together`);
+		// a whole-view entry is exactly the string '*' (it alone gets the owner check below); any other glob that would
+		// match the whole-view path '*' ('?', '**', ['*'], …) is refused rather than standing in for it unchecked
+		for (const f of [e.field].flat()) if (typeof f === 'string' && (Array.isArray(e.field) || f !== '*') && globRe(f).test('*')) problems.push(`${at}: field ${JSON.stringify(e.field)} would match the whole view; a whole-view entry uses exactly "*"`);
 		if (e.type === 'not-yet-implemented' && e.field === '*' && owners && owners[e.view] && e.owner !== owners[e.view]) problems.push(`${at}: owner ${e.owner} is not the view's owner ${owners[e.view]}`);
 		// no case values: a field glob names structure, so long digit runs or e-mail-like text do not belong in it
 		if (/\d{4,}|@/.test(JSON.stringify(e.field)) || /\d{4,}|@/.test(JSON.stringify(e.when ?? {}))) problems.push(`${at}: field or condition looks like a case value (digit run or @)`);

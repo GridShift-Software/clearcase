@@ -66,6 +66,8 @@ Run checks through `scripts/agent-tools/receipt`, naming the reviewed base and a
 
 At the reviewed implementation, the gate suite returns exit 1: **25 pass, four regressions fail** (two containment cases and two link forms). The failed tests are deliberate release evidence and must not be skipped or changed to accept the defects. The browser control executes synthetic hostile markup; the rendered page has no execution or unsafe attributes.
 
+The complete suite also ran inside the clean clone at the exact upstream revision, from ignored scratch with only helper import paths and discovery adjusted. It reproduces all 29 outcomes. [Execution provenance](execution-summary.json) records clean exact-head receipt hashes and measured results; machine-local provenance retains the copied harness hashes. The gate test-layer run and explicit typecheck are additional checks, not substitutes for exact-head evidence.
+
 ## Accepted follow-ups and limits
 
 The brief's six GRS-9 and six GRS-10 follow-ups were reproduced or inspected. Ref-less example verification and malformed HTML fail with exceptions; malformed profile/unprofiled variant builds cannot pass `--verify`; duplicate refs still fail verification. Unsupported-extension PDFs download, dangling outside symlinks have no original mapping, cross-case acknowledgements are stale, surrogate-name crashes produce no candidate, and key-order/negative-zero equivalence preserves the contract's canonical values. None is promoted to a blocker here. The unresolved production route sub-item stays HOLD.

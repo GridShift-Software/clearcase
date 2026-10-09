@@ -1,0 +1,279 @@
+{
+  "reviewedRevision": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+  "verdict": "FAIL",
+  "blockingFindings": [
+    "G1: outside directory read during folded lookup",
+    "G2: over-long Markdown destination accepted"
+  ],
+  "upstreamTests": {
+    "passed": 736,
+    "failed": 0,
+    "skipped": 0
+  },
+  "independentGateTests": {
+    "passed": 25,
+    "failed": 4,
+    "skipped": 0,
+    "receipt": "exact-c3-gate-acceptance"
+  },
+  "fixtureCounts": {
+    "chronologyRecords": 1689,
+    "navEntries": 42,
+    "attachmentsResolved": 1308,
+    "attachmentsTotal": 1308,
+    "chronologyValues": 33780,
+    "chronologyMismatches": 0,
+    "unresolvedCatalogueRefs": 20
+  },
+  "conversionBudget": {
+    "warmSamples": 20,
+    "discardedWarmups": 2,
+    "medianMs": 2498,
+    "p95Ms": 2518,
+    "maxMs": 2520,
+    "peakRssMiB": 350.4,
+    "repeatLimitMs": 3118.75,
+    "absoluteLimitMs": 10000,
+    "rssLimitMiB": 1024,
+    "pass": true
+  },
+  "toolingSelfTests": {
+    "passed": 480,
+    "failed": 2,
+    "result": "FAIL",
+    "note": "Two stale MIN_BUN message assertions; doctor behavior remains correct."
+  },
+  "exactHeadReceipts": [
+    {
+      "name": "fresh-doctor",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "b3ddf0b153302db40929ba2607623c440c8b0e052a011ba193ec0937a6277745",
+      "localReceiptDirectory": "20261009T005000.489076Z-fresh-doctor"
+    },
+    {
+      "name": "frozen-install",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "a131d2a25f4cc90c2ed994521b756e3991222954b016a3f1a167ea4e3c3b9e1d",
+      "localReceiptDirectory": "20261009T005000.735975Z-frozen-install"
+    },
+    {
+      "name": "fresh-check",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "1dc7d944af34485147d973a4d7189b1ef384b4d1fd8a5fdc2a2b87ac605e3a0e",
+      "localReceiptDirectory": "20261009T005008.369590Z-fresh-check"
+    },
+    {
+      "name": "fresh-offline-test",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "a6cee91ca68eda1a27ffc228991fac469d5ed37fec265573dde8a56e9a39fc9f",
+      "localReceiptDirectory": "20261009T005014.745954Z-fresh-offline-test"
+    },
+    {
+      "name": "inventory-1",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "039ab518a716a878873b98dd5b36744e489132d6bcc3cf9d16cea2657e67cf16",
+      "localReceiptDirectory": "20261009T005029.477145Z-inventory-1"
+    },
+    {
+      "name": "inventory-2",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "657e712901123106811315b185e62e3055f49c5ecf66553e1c2a20780717d539",
+      "localReceiptDirectory": "20261009T005030.641118Z-inventory-2"
+    },
+    {
+      "name": "inventory-repeat-diff",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "60ed38a51e761348128782d3cac022c1974cd46e2c9dc45859246d6fc18b24fa",
+      "localReceiptDirectory": "20261009T005053.458671Z-inventory-repeat-diff"
+    },
+    {
+      "name": "convert-1",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "c2f2864da8e58f2e52f0e0baece88c1cde8cbd91179e6bc470ae67cf0e23dffb",
+      "localReceiptDirectory": "20261009T005053.567703Z-convert-1"
+    },
+    {
+      "name": "validate-1",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "5108dc5db8c660be3b1e0c1a3d3a2204b9e4c4ca7db20f48b7e354d57f21562c",
+      "localReceiptDirectory": "20261009T005105.548953Z-validate-1"
+    },
+    {
+      "name": "convert-2",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "4cd129f898efb42c1e4ca222170f1260a14ce703d0fce4bba62e57a02132e10b",
+      "localReceiptDirectory": "20261009T005118.170925Z-convert-2"
+    },
+    {
+      "name": "validate-2",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "6fec1b9405f784e61f8b9cee7a8add9e80e88f0298837cd116e483c999b3e0b2",
+      "localReceiptDirectory": "20261009T005131.847025Z-validate-2"
+    },
+    {
+      "name": "package-repeat-diff",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "5f3a13e029301bdeed45b512d120e31031e289547ccbe62116fc22163846bcf3",
+      "localReceiptDirectory": "20261009T005149.396042Z-package-repeat-diff"
+    },
+    {
+      "name": "fixture-independent-audit",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "cb10ad80ccb9e304b53dc09b58ce2e2afe7453c2f92952e41bedb6d6308c2c99",
+      "localReceiptDirectory": "20261009T005446.467587Z-fixture-independent-audit"
+    },
+    {
+      "name": "package-ten-lanes",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "01796b7e068a6d6b0194d764c9637455938829d45d6698ca0dbfbdfc577ec448",
+      "localReceiptDirectory": "20261009T005149.504205Z-package-ten-lanes"
+    },
+    {
+      "name": "conversion-budget",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "afe2d1a1d5605afd53c5eb435918cb81fc69d2b618f1a710489e4dd027021a51",
+      "localReceiptDirectory": "20261009T005232.399740Z-conversion-budget"
+    },
+    {
+      "name": "inventory-budget",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "102342504a4bda7a3384a532d8e1d1798896d8d11578ca9a7eb6b99289d70d18",
+      "localReceiptDirectory": "20261009T005350.927165Z-inventory-budget"
+    },
+    {
+      "name": "history-leak-scan",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "2bff7676edb25d186b166bc5c29d5a16dd149ec98f403bc13feb3555c4c6dce1",
+      "localReceiptDirectory": "20261009T005446.469094Z-history-leak-scan"
+    },
+    {
+      "name": "plan-with-readback",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "af9f647f4ed257b4636d488e171252fc22ac287513981f984882e4b2200d1747",
+      "localReceiptDirectory": "20261009T005446.469322Z-plan-with-readback"
+    },
+    {
+      "name": "pstack-upstream",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "16de91fa8b1294bfe563a9fa2026744dfd0d75c70d4792bfe6ae00f834ab6a12",
+      "localReceiptDirectory": "20261009T005504.197340Z-pstack-upstream"
+    },
+    {
+      "name": "independent-register-history-audit",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "fb3e186707deab696b5033d00446889ad91cfb57402b5564289525f64cfc0efd",
+      "localReceiptDirectory": "20261009T011459.710979Z-independent-register-history-audit"
+    },
+    {
+      "name": "independent-oracle-diff",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "a7b6e0e5fafa50e66b980eb7a34abca1a700b3a35cdd39ffdacd2c6e8e3ba1da",
+      "localReceiptDirectory": "20261009T011006.150036Z-independent-oracle-diff"
+    },
+    {
+      "name": "outside-directory-kernel-audit",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "2ddbc4a325d86a9e73f92db822815430719223d98cc70123a510a3cfd213f080",
+      "localReceiptDirectory": "20261009T010814.226795Z-outside-directory-kernel-audit"
+    },
+    {
+      "name": "adversarial-data-links-valid-events",
+      "result": "PASS",
+      "exitCode": 0,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "11a5b6cd7638eb4a327b5538d5b568f567b2988529dc56a469e69dced3aa4497",
+      "localReceiptDirectory": "20261009T012243.019781Z-adversarial-data-links-valid-events"
+    },
+    {
+      "name": "exact-c3-gate-acceptance",
+      "result": "FAIL",
+      "exitCode": 1,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "2f43cdfd97b7fcb7e994bd9374a9263a57ac544cd8f69b89567babb64aa0396a",
+      "localReceiptDirectory": "20261009T012557.962012Z-exact-c3-gate-acceptance"
+    },
+    {
+      "name": "tooling-self-tests-isolated-unprivileged",
+      "result": "FAIL",
+      "exitCode": 1,
+      "head": "c3c773cf4016d02ab22d62754c6eab5a23ca9401",
+      "dirty": false,
+      "receiptSha256": "cf4c1a0187115b91466352a625b5dc62f5b871849e160b789516110add6c5405",
+      "localReceiptDirectory": "20261009T010152.415506Z-tooling-self-tests-isolated-unprivileged"
+    }
+  ],
+  "limits": [
+    "No cold-cache acceptance",
+    "No implemented HTTP-serving acceptance",
+    "Two large adversarial stress variants not personally rerun",
+    "Known 52-of-55 route sub-item remains HOLD under fixed brief"
+  ]
+}

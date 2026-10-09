@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { ABSENT, classify, covering, diff, flatten, scorecard, type Entry } from '../../scripts/parity/lib/compare.mjs';
+import { ABSENT, classify, covering, diff, flatten, runFailures, scorecard, type Entry } from '../../scripts/parity/lib/compare.mjs';
 import { emptySnapshot, fromRaw, remap, tableFromRaw } from '../../scripts/parity/lib/snapshot.mjs';
 import { base, register } from './fixtures';
 
@@ -113,6 +113,24 @@ describe('scorecard', () => {
 		expect(sc.views.people.status).toBe('NOT-YET-IMPLEMENTED');
 		expect(sc.total.registered['not-yet-implemented']).toBe(1);
 		expect(sc.result).toBe('PASS');
+	});
+});
+
+describe('run result', () => {
+	const clean = { offline: true, v5NonFileRequests: 0, v5BrowserInternalRequests: 0, appNonLoopbackRequests: 0, canaryHits: 0, canaryBrowserServiceHits: 0, fixtureUnchanged: true };
+	const run = (isolation: object) => {
+		const ok = classify('chronology', diff(base('v5'), base('app')), register, {});
+		return runFailures({ ...scorecard({ chronology: { ...ok, v5Status: 'ok', appStatus: 'ok' } }), isolation: { ...clean, ...isolation } }, { views: 1 });
+	};
+	test('a clean run passes; browser-internal viewer requests and browser-service canary hits are counted apart', () => {
+		expect(run({})).toEqual([]);
+		expect(run({ v5BrowserInternalRequests: 7, canaryBrowserServiceHits: 3 })).toEqual([]);
+	});
+	test('any isolation breach fails the run, an app request that is not loopback included', () => {
+		expect(run({ appNonLoopbackRequests: 1 }).join()).toMatch(/app non-loopback requests 1/);
+		expect(run({ v5NonFileRequests: 1 }).join()).toMatch(/v5 non-file/);
+		expect(run({ canaryHits: 1 }).join()).toMatch(/canary hits 1/);
+		expect(run({ fixtureUnchanged: false }).join()).toMatch(/fixture tree changed/);
 	});
 });
 

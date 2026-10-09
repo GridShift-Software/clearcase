@@ -130,3 +130,21 @@ export function scorecard(perView, meta = {}) {
 	}
 	return { ...meta, result: total.unregistered ? 'FAIL' : 'PASS', total, views };
 }
+
+/**
+ * Why a completed run fails (exit 1); empty when it passes. Every isolation breach fails: a v5 network request, an
+ * app request that is not loopback, a canary hit other than a browser service, or a changed fixture tree. Browser-
+ * internal viewer requests and browser-service canary hits are counted apart and do not fail.
+ */
+export function runFailures(sc, { views, unused = 0, strict = false }) {
+	const t = sc.total, iso = sc.isolation ?? {};
+	return [
+		t.unregistered && `${t.unregistered} unregistered difference(s)`,
+		t.viewsExtractedV5 !== views && `v5 extracted ${t.viewsExtractedV5} of ${views} view(s)`,
+		strict && unused && `${unused} unused register entr${unused === 1 ? 'y' : 'ies'} (--strict-register)`,
+		iso.v5NonFileRequests !== 0 && `v5 non-file requests ${iso.v5NonFileRequests}`,
+		iso.appNonLoopbackRequests !== 0 && `app non-loopback requests ${iso.appNonLoopbackRequests}`,
+		iso.canaryHits !== 0 && `canary hits ${iso.canaryHits}`,
+		iso.fixtureUnchanged !== true && 'the fixture tree changed',
+	].filter(Boolean);
+}

@@ -2,7 +2,7 @@
 // the browser (filters, sorts, Back; S25), citations to originals in the real viewer, keyboard and Back (BA-14),
 // titles (BA-16), the 42 extension points (BA-18), source routes (BA-09) and date basis (BA-04).
 import { join } from 'node:path';
-import { frameEvaluator } from '../lib/cdp.mjs';
+import { DISABLED_FEATURES, frameEvaluator, launch } from '../lib/cdp.mjs';
 import { nextPopup, openPage, sleep } from './browser.mjs';
 import { ODD_BUNDLE, missingCase, mainCase } from './cases.mjs';
 import { readJson, vpath } from './context.mjs';
@@ -220,16 +220,49 @@ async function tabTo(p, id, { shift = false, max = 90 } = {}) {
 	throw new Error(`Tab never reached #${id}: ${seen.slice(-12).join(',')}`);
 }
 
-/** BA-14: skip link first; Tab + Enter on nav links; focus on the page heading after each navigation and after Back. */
+/**
+ * BA-14: skip link first; Tab + Enter on nav links; focus on the page heading after each navigation and after Back,
+ * including Back to the entry where the skip link was used and Back across a document boundary (a full load).
+ */
 export async function keyboard(ctx) {
 	const { A, p, main } = ctx;
 	const ov = `${A.v(main.resultsVersion)}/overview`;
+	const focusNow = `document.activeElement?.hasAttribute('data-page-heading') ? 'heading:' + document.activeElement.textContent.trim() : (document.activeElement?.id || document.activeElement?.tagName || null)`;
 	await p.goto(ov, ready('overview'));
+	const freshFocus = await p.evaluate(focusNow); // a fresh first visit keeps the browser's focus
+	const hSkip = await p.evaluate('history.length');
 	await p.key('Tab');
 	const first = await p.evaluate(`(() => { const e = document.activeElement; const r = e.getBoundingClientRect(); return { cls: e.className, href: e.getAttribute('href'), text: e.textContent.trim(), left: r.left, top: r.top, w: r.width }; })()`);
 	await p.key('Enter');
 	await sleep(150);
-	const afterSkip = await p.evaluate(`({ hash: location.hash, focused: document.activeElement?.id ?? null })`);
+	const afterSkip = await p.evaluate(`({ hash: location.hash, focused: document.activeElement?.id ?? null, added: history.length - ${hSkip} })`);
+	// the plain keyboard sequence: skip link, Shift+Tab to Chronology, Enter, Back; the heading must end up focused
+	const tSkip = await tabTo(p, 'nav-chronology', { shift: true });
+	await p.key('Enter');
+	await p.waitFor(ready('chronology'));
+	await p.evaluate('history.back(); true');
+	await p.waitFor(ready('overview'));
+	await sleep(400); // SvelteKit's fragment focus reset runs in a later task
+	const skipBack = { presses: tSkip.presses, ...(await p.evaluate(`({ path: location.pathname, hash: location.hash, focus: ${focusNow} })`)) };
+	// Back across a document boundary, as a browser without a back/forward cache does it: pages are no-store, so Back
+	// loads the chronology again (the bfcache-restored case is covered by BFCACHE and by the Back steps below).
+	let crossBack;
+	const nb = await launch({ profileRoot: join(ctx.tmp, 'chromium-no-bfcache'), extra: [`--disable-features=${DISABLED_FEATURES},BackForwardCache`] });
+	try {
+		const q = await openPage(nb);
+		await q.goto(ov, ready('overview'));
+		await tabTo(q, 'nav-chronology');
+		await q.key('Enter');
+		await q.waitFor(ready('chronology'));
+		const crossDoc = await q.evaluate('window.__ccDoc');
+		await q.goto(`${A.origin}/import`, ready('import'));
+		await q.evaluate('history.back(); true');
+		await q.waitFor(`location.pathname.endsWith('/chronology') && window.__ccMounted >= 1 && ${ready('chronology')}`, 15000);
+		await sleep(400);
+		crossBack = await q.evaluate(`({ path: location.pathname, newDocument: window.__ccDoc !== ${J(crossDoc)}, nav: performance.getEntriesByType('navigation')[0]?.type ?? null, focus: ${focusNow} })`);
+	} finally { await nb.close().catch(() => {}); }
+	// leave the overview first: a load of the URL already shown replaces its entry instead of pushing a new one
+	await p.goto(`${A.origin}/import`, ready('import'));
 	await p.goto(ov, ready('overview'));
 	const h0 = await p.evaluate('history.length');
 	const doc0 = await p.evaluate('window.__ccDoc');
@@ -251,9 +284,11 @@ export async function keyboard(ctx) {
 	await p.waitFor(ready('overview'));
 	steps.push({ step: 'Back', headingFocused: await heading('Overview'), ...(await at()), wantHistory: h0 + 2 });
 	const want = [`${vpath(main.resultsVersion)}/chronology`, `${vpath(main.resultsVersion)}/analysis/timeline`, `${vpath(main.resultsVersion)}/chronology`, `${vpath(main.resultsVersion)}/overview`];
-	const ok = first.cls === 'skip' && first.href === '#main' && first.left >= 0 && first.w > 0 && afterSkip.hash === '#main' && afterSkip.focused === 'main' &&
+	const ok = first.cls === 'skip' && first.href === '#main' && first.left >= 0 && first.w > 0 && afterSkip.hash === '' && afterSkip.added === 0 && afterSkip.focused === 'main' &&
+		freshFocus === 'BODY' && skipBack.path === `${vpath(main.resultsVersion)}/overview` && skipBack.focus === 'heading:Overview' &&
+		crossBack.path === `${vpath(main.resultsVersion)}/chronology` && crossBack.newDocument && crossBack.nav === 'back_forward' && crossBack.focus === 'heading:Chronology' &&
 		steps.every((s, i) => s.headingFocused && s.sameDocument && s.history === s.wantHistory && s.path === want[i]);
-	return { pass: ok, evidence: { firstTab: first, afterSkip, steps } };
+	return { pass: ok, evidence: { firstTab: first, freshFocus, afterSkip, skipBack, crossBack, steps } };
 }
 
 /** BA-16: titles name the document, section and case: '<document> · <section> · <case> · ClearCase'. */

@@ -1,5 +1,11 @@
 # CC-24 / GRS-13 gate evidence
 
+## Resumed gate, 9 October 2026
+
+**PASS at `27d8183154ac0fcd5a07d4a15a0f2b2d8c38e965`.** See [the resumed record](r2.md) and [receipt summary](r2-summary.json). Both original HOLD reasons are closed; no implementation files were changed by this reviewer.
+
+## First run, retained record
+
 **Verdict: HOLD.** Required coordinator reservations and one independent adversarial report are missing. Keep M2 closed.
 
 Reviewed application revision: `5aa7b91c3011ded3af57c3c14a23096d64712786`. This evidence layer changes no implementation files. The complete local report, receipts, private screenshots and raw measurements remain in the coordinator's local `.orchestration/reports/CC-24/` directory.

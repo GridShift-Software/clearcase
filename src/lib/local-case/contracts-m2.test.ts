@@ -785,7 +785,7 @@ describe('gate round 3: required scope, table rows, restore edges (HARDEN-M2 r3)
 		expect(await code(uw.defineTable({ name: 'oob2', owner: 'GRS-17', description: '', scope: 'store', columns: [{ name: 'k', type: 'TEXT' }, { name: 'v', type: 'TEXT' }], primaryKey: ['k'] }))).toBe('accepted');
 	});
 
-	it('R3-4 a snapshot without scope fields (round 1, dev) restores into a fresh store as store tables', async () => {
+	it('R3-4 a snapshot without scope fields (round 1, dev) restores into a fresh store as store tables (case tables with case_id, r4)', async () => {
 		const { lc } = await setup('r3old');
 		const uw = lc.userWork;
 		await uw.defineTable(pref);
@@ -797,8 +797,9 @@ describe('gate round 3: required scope, table rows, restore edges (HARDEN-M2 r3)
 		for (const t of old.tables) delete t.scope;
 		const lc2 = await fresh('r3old2');
 		const r = await lc2.userWork.importAll(old as never);
-		expect(r.restored.map((x) => [x.name, x.scope, x.action])).toEqual([['note', 'case', 'replaced-for-cases'], ['pref', 'store', 'merged'], ['register_row', 'case', 'replaced-for-cases'], ['seed_overlay', 'case', 'replaced-for-cases'], ['timesheet', 'store', 'merged'], ['trusted_warning', 'case', 'dropped']]);
-		expect(Object.fromEntries(lc2.userWork.tables().map((t) => [t.name, t.scope]))).toMatchObject({ pref: 'store', timesheet: 'store', register_row: 'case' });
+		// round 4: a created, catalogued table with a case_id TEXT NOT NULL column is a case table, as its owner defines it
+		expect(r.restored.map((x) => [x.name, x.scope, x.action])).toEqual([['note', 'case', 'replaced-for-cases'], ['pref', 'store', 'merged'], ['register_row', 'case', 'replaced-for-cases'], ['seed_overlay', 'case', 'replaced-for-cases'], ['timesheet', 'case', 'replaced-for-cases'], ['trusted_warning', 'case', 'dropped']]);
+		expect(Object.fromEntries(lc2.userWork.tables().map((t) => [t.name, t.scope]))).toMatchObject({ pref: 'store', timesheet: 'case', register_row: 'case' });
 		expect(lc2.userWork.listTableRows('pref')).toEqual([{ k: 'theme', v: 'plain' }]);
 		expect(lc2.userWork.listRows('A', 'deadlines').map((x) => x.rowId)).toEqual(['a-1']);
 		// into the store it came from, each table keeps its own scope
@@ -858,5 +859,156 @@ describe('gate round 3: required scope, table rows, restore edges (HARDEN-M2 r3)
 		expect(uw.listTableRows('pref')).toEqual([{ k: 'k1', v: 'snap' }, { k: 'k2', v: 'snap' }, { k: 'k3', v: 'later' }]);
 		expect(uw.listTableRows('timesheet', { caseId: 'C' }).map((x) => x.id)).toEqual(['t8']);
 		expect(uw.listTableRows('timesheet', { caseId: 'B' })).toEqual([]);
+	});
+});
+
+describe('gate round 4: owner traps in the user-work API (HARDEN-M2 r4)', () => {
+	const failure = async (p: Promise<unknown>) => { try { await p; return { code: 'accepted', message: '' }; } catch (e) { return { code: e instanceof UserWorkError ? e.code : `untyped ${(e as Error).name}`, message: String((e as Error).message) }; } };
+	const code = async (p: Promise<unknown>) => (await failure(p)).code;
+	const json = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
+	async function fresh(tag: string) {
+		const root = await tempRoot(tag);
+		roots.push(root);
+		const lc = service(path.join(root, 'data'));
+		open.push(lc);
+		await lc.startup();
+		return lc;
+	}
+	const step = { name: 'step', owner: 'GRS-18', description: 'synthetic litigation steps', scope: 'case' as const, columns: [{ name: 'case_id', type: 'TEXT' as const, notNull: true }, { name: 'step_id', type: 'TEXT' as const }, { name: 'seq', type: 'INTEGER' as const }, { name: 'ref_no', type: 'TEXT' as const }, { name: 'amount', type: 'REAL' as const }], primaryKey: ['case_id', 'step_id'] };
+	const st = { name: 'st', owner: 'GRS-18', description: 'synthetic store keys', scope: 'store' as const, columns: [{ name: 'k', type: 'TEXT' as const }, { name: 'v', type: 'TEXT' as const }], primaryKey: ['k'] };
+	const rk = { name: 'rk', owner: 'GRS-18', description: 'synthetic real keys', scope: 'store' as const, columns: [{ name: 'k', type: 'REAL' as const }, { name: 'v', type: 'TEXT' as const }], primaryKey: ['k'] };
+	const own = { owner: 'GRS-18' };
+
+	it('R4-1 a number in a TEXT column is refused by putTableRow and deleteTableRow as invalid, naming the column only', async () => {
+		const lc = await fresh('r4num');
+		const uw = lc.userWork;
+		await uw.defineTable(step);
+		await uw.defineTable(st);
+		await uw.putTableRow('step', { case_id: 'A', step_id: 's1', seq: 1, ref_no: 'R-1', amount: 2.5 }, own);
+		await uw.putTableRow('st', { k: '7', v: 'text key' }, own);
+		const before = JSON.stringify(uw.exportAll().tables);
+		const refusals: [string, Promise<unknown>, string][] = [
+			['non-key TEXT cell', uw.putTableRow('step', { case_id: 'A', step_id: 's2', ref_no: 7731 as never }, own), 'ref_no'],
+			['TEXT key cell', uw.putTableRow('step', { case_id: 'A', step_id: 7731 as never }, own), 'step_id'],
+			['store TEXT key', uw.putTableRow('st', { k: 7731 as never, v: 'x' }, own), 'k'],
+			['large integer', uw.putTableRow('st', { k: 'big', v: 12345678901234567 as never }, own), 'v'],
+			['delete by a number key', uw.deleteTableRow('st', { k: 7 as never }, own), 'k'],
+			['delete by a number in a case key', uw.deleteTableRow('step', { case_id: 'A', step_id: 1 as never }, own), 'step_id'],
+		];
+		for (const [what, p, column] of refusals) {
+			const f = await failure(p);
+			expect([what, f.code]).toEqual([what, 'invalid']);
+			expect([what, f.message]).toEqual([what, expect.stringContaining(`column ${column}`)]);
+			expect([what, f.message]).not.toEqual([what, expect.stringMatching(/7731|1234567|7\.0/)]);
+		}
+		expect(JSON.stringify(uw.exportAll().tables)).toBe(before);
+		// text, INTEGER and REAL cells are unchanged, and the text key is the one a delete finds
+		await uw.putTableRow('step', { case_id: 'A', step_id: '9', seq: 2, ref_no: '0042', amount: 3 }, own);
+		expect(uw.listTableRows('step', { caseId: 'A' }).map((r) => [r.step_id, r.ref_no])).toEqual([['9', '0042'], ['s1', 'R-1']]);
+		expect(await uw.deleteTableRow('st', { k: '7' }, own)).toBe(true);
+	});
+
+	it('R4-2 a restore refuses rows whose keys SQLite stores as one, in every mode, before writing', async () => {
+		const lc = await fresh('r4dup');
+		const uw = lc.userWork;
+		await uw.defineTable(st);
+		await uw.defineTable(rk);
+		await uw.defineTable(step);
+		await uw.putTableRow('st', { k: 'kept', v: 'here' }, own);
+		const base = json(uw.exportAll());
+		const snap = (name: string, rows: Record<string, TableCell>[]) => ({ ...base, tables: base.tables.filter((t) => t.name === name).map((t) => ({ ...t, rows })) });
+		const collisions: [string, string, Record<string, TableCell>[]][] = [
+			['TEXT: a number and its SQLite text', 'st', [{ k: 7, v: 'x' }, { k: '7.0', v: 'y' }]],
+			['TEXT: a large number and its SQLite text', 'st', [{ k: 12345678901234567, v: 'x' }, { k: '12345678901234568.0', v: 'y' }]],
+			['TEXT: $int and its decimal', 'st', [{ k: { $int: '0001' }, v: 'x' }, { k: '1', v: 'y' }]],
+			['REAL: a number and $int beyond 2^53', 'rk', [{ k: 9007199254740992, v: 'x' }, { k: { $int: '9007199254740993' }, v: 'y' }]],
+			['REAL: a number and numeric text', 'rk', [{ k: 1.5, v: 'x' }, { k: ' 1.50 ', v: 'y' }]],
+			['case table TEXT key', 'step', [{ case_id: 'A', step_id: 3 }, { case_id: 'A', step_id: '3.0' }]],
+		];
+		for (const [what, name, rows] of collisions) {
+			for (const replace of ['cases', 'tables'] as const) {
+				expect([what, replace, await code(uw.importAll(snap(name, rows), { replace }))]).toEqual([what, replace, 'restore-key']);
+			}
+		}
+		expect(json(uw.exportAll()).tables).toEqual(base.tables);
+		// keys SQLite keeps apart still restore, leniently: 7 is the TEXT key '7.0', not '7'; text that is not a number
+		// stays text in a REAL key
+		expect((await uw.importAll(snap('st', [{ k: 7, v: 'x' }, { k: '7', v: 'y' }]))).restored[0]).toMatchObject({ action: 'merged', inserted: 2, replaced: 0 });
+		expect(uw.listTableRows('st').map((r) => r.k)).toEqual(['7', '7.0', 'kept']);
+		expect((await uw.importAll(snap('rk', [{ k: 'abc', v: 'x' }, { k: 'abd', v: 'y' }, { k: '0x10', v: 'z' }, { k: 16, v: 'w' }]))).restored[0]).toMatchObject({ inserted: 4 });
+	});
+
+	it('R4-3 a restore creates a catalogued table with case_id TEXT NOT NULL as a case table, and refuses it as a store table', async () => {
+		const src = await fresh('r4scope-src');
+		await src.userWork.defineTable(step);
+		await src.userWork.putTableRow('step', { case_id: 'A', step_id: 's1' }, own);
+		const snap = json(src.userWork.exportAll());
+		const only = (scope: unknown) => ({ ...snap, tables: snap.tables.filter((t) => t.name === 'step').map((t) => ({ ...t, scope })) });
+		// an explicit 'store' is refused, as defineTable refuses it, and nothing is created
+		const lc = await fresh('r4scope');
+		const store = await failure(lc.userWork.importAll(only('store') as never));
+		expect(store).toEqual({ code: 'invalid', message: expect.stringMatching(/case_id TEXT NOT NULL column is case-scoped/) });
+		expect(lc.userWork.tables().some((t) => t.name === 'step')).toBe(false);
+		// no scope: a case table, which the owner's defineTable then adopts and writes as usual
+		const r = await lc.userWork.importAll(only(undefined) as never);
+		expect(r.restored[0]).toMatchObject({ name: 'step', scope: 'case', action: 'replaced-for-cases', cases: ['A'] });
+		expect(await code(lc.userWork.defineTable(step))).toBe('accepted');
+		await lc.userWork.putTableRow('step', { case_id: 'B', step_id: 's1' }, own);
+		expect(lc.userWork.listTableRows('step', { caseId: 'A' }).map((x) => x.step_id)).toEqual(['s1']);
+		// an unregistered table stays a store table, so an export of one still restores into a fresh store
+		const oob = await fresh('r4scope-oob');
+		oob.storage.db().exec("CREATE TABLE work.loose(id TEXT NOT NULL, case_id TEXT NOT NULL, PRIMARY KEY(id)) WITHOUT ROWID; INSERT INTO work.loose VALUES ('x', 'A')");
+		const loose = json(oob.userWork.exportAll());
+		expect(loose.tables.find((t) => t.name === 'loose')).toMatchObject({ kind: 'unregistered', scope: 'store' });
+		expect(await code((await fresh('r4scope-oob2')).userWork.importAll(loose))).toBe('accepted');
+	});
+
+	it('R4-4 a restore into an existing table with a non-BINARY key or case_id collation is table-conflict', async () => {
+		const lc = await fresh('r4coll');
+		const uw = lc.userWork;
+		const db = lc.storage.db();
+		db.exec("CREATE TABLE work.nk(k TEXT COLLATE NOCASE NOT NULL, v TEXT, PRIMARY KEY(k)) WITHOUT ROWID; INSERT INTO work.nk VALUES ('ABC', 'theirs')");
+		const nk = { ...json(uw.tables().find((t) => t.name === 'nk')!), rows: [{ k: 'abc', v: 'mine' }] };
+		const f = await failure(uw.importAll({ format: USER_WORK_EXPORT, exportedAt: '2030-01-31T09:00:00Z', tables: [nk] }));
+		expect(f).toEqual({ code: 'table-conflict', message: expect.stringMatching(/column k has the collation NOCASE/) });
+		expect(db.prepare('SELECT k, v FROM work.nk').all().map((r) => ({ ...r }))).toEqual([{ k: 'ABC', v: 'theirs' }]);
+		// a NOCASE case_id outside the key, catalogued by hand as a case table: case 'a' would replace case 'A'
+		db.exec("CREATE TABLE work.nc(k TEXT NOT NULL, case_id TEXT COLLATE NOCASE NOT NULL, PRIMARY KEY(k)) WITHOUT ROWID; INSERT INTO work.nc VALUES ('x', 'A'); INSERT INTO work.userwork_catalog(name, kind, owner, description) VALUES ('nc', 'user-work', 'GRS-18', '')");
+		await uw.defineTable(st); // records a scope, so the scope table exists
+		db.exec("INSERT INTO work.userwork_catalog_scope(name, scope) VALUES ('nc', 'case')");
+		const nc = { ...json(uw.tables().find((t) => t.name === 'nc')!), rows: [{ k: 'y', case_id: 'a' }] };
+		expect(await failure(uw.importAll({ format: USER_WORK_EXPORT, exportedAt: '2030-01-31T09:00:00Z', tables: [nc] }))).toEqual({ code: 'table-conflict', message: expect.stringMatching(/column case_id has the collation NOCASE/) });
+		expect(db.prepare('SELECT k, case_id FROM work.nc').all().map((r) => ({ ...r }))).toEqual([{ k: 'x', case_id: 'A' }]);
+		expect(db.prepare("SELECT name FROM work.sqlite_master WHERE name LIKE '%probe%'").all()).toEqual([]);
+		// the BINARY tables restore as before
+		const all = json(uw.exportAll());
+		expect(await code(uw.importAll({ ...all, tables: all.tables.filter((t) => t.name !== 'nk' && t.name !== 'nc') }))).toBe('accepted');
+	});
+
+	it('R4-5 deleteTableRow without case_id is invalid for a case table, whether or not case_id is in its key', async () => {
+		const lc = await fresh('r4del');
+		const uw = lc.userWork;
+		await uw.defineTable(step);
+		await uw.putTableRow('step', { case_id: 'A', step_id: 's1' }, own);
+		expect(await code(uw.deleteTableRow('step', { step_id: 's1' } as never, own))).toBe('invalid');
+		expect(await code(uw.deleteTableRow('step', { case_id: null, step_id: 's1' }, own))).toBe('invalid');
+		expect(uw.listTableRows('step', { caseId: 'A' })).toHaveLength(1);
+	});
+
+	it('R4-6 redefining a catalogued table of the same owner and scope skips the collation probe index', async () => {
+		const lc = await fresh('r4probe');
+		const uw = lc.userWork;
+		await uw.defineTable(step);
+		const db = lc.storage.db();
+		const exec = vi.spyOn(db, 'exec');
+		await uw.defineTable(step);
+		await uw.defineTable(st);
+		await uw.defineTable(st);
+		expect(exec.mock.calls.map((c) => String(c[0])).filter((sql) => sql.includes('userwork_catalog_probe'))).toEqual([]);
+		// an out-of-band table is still probed when adopted
+		db.exec('CREATE TABLE work.adopt(k TEXT PRIMARY KEY, v TEXT)');
+		await uw.defineTable({ ...st, name: 'adopt' });
+		expect(exec.mock.calls.some((c) => String(c[0]).includes('userwork_catalog_probe'))).toBe(true);
+		exec.mockRestore();
 	});
 });

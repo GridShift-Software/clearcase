@@ -18,6 +18,7 @@ import {
 	acceptedWarnings, canActivate, importCandidate, newWarningFingerprints, verifyCandidateBytes,
 	type Acknowledgement, type ActivationReason, type Diagnostic, type ImportResult, type Progress,
 } from '../case-package/index.ts';
+import { now as clock } from '../components/clock.ts';
 import type { LocalCaseConfig } from './config.server.ts';
 import { isBusy, Storage } from './db.server.ts';
 import { procFdAvailable, within } from './fsafe.server.ts';
@@ -57,7 +58,7 @@ export type ActivationRefusal = { message: string; reasons?: ActivationReason[] 
 export type CaseRecovery = { caseId: string; configured: string; effective: string | null; reason: string; at: string };
 export interface StartupReport { at: string; ms: number; cleaned: string[]; pruned: string[]; checked: Record<string, Verification>; pruneError: string | null }
 
-const now = () => new Date().toISOString();
+const now = () => clock().toISOString();
 
 export class LocalCase {
 	readonly storage: Storage;

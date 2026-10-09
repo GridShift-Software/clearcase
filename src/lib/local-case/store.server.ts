@@ -6,6 +6,7 @@
 import { closeSync, fsyncSync, mkdirSync, openSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { verifyCandidateBytes, type Acknowledgement } from '../case-package/index.ts';
+import { now } from '../components/clock.ts';
 import type { Db, Storage } from './db.server.ts';
 import { readModelDigest, type AssetRowW, type DocumentRowW, type Expect, type Projection, type SeedRowW } from './project.server.ts';
 
@@ -163,7 +164,7 @@ export class CaseStore {
 		return (this.d.prepare('SELECT fingerprint FROM work.trusted_warning WHERE case_id = ? ORDER BY fingerprint').all(caseId) as { fingerprint: string }[]).map((r) => r.fingerprint);
 	}
 	addTrusted(caseId: string, fingerprints: readonly string[]): Promise<number> {
-		const at = new Date().toISOString();
+		const at = now().toISOString();
 		return this.storage.tx((d) => {
 			const ins = d.prepare('INSERT OR IGNORE INTO work.trusted_warning(case_id, fingerprint, accepted_at) VALUES (?,?,?)');
 			let n = 0;
@@ -174,7 +175,7 @@ export class CaseStore {
 
 	/** Activation: its own transaction, in work.sqlite only. Records the bound acknowledgement and the carry-forward set. */
 	writeActivation(v: Version, kind: string, acknowledgement: Acknowledgement | null, accepted: readonly string[]): Promise<boolean> {
-		const at = new Date().toISOString();
+		const at = now().toISOString();
 		return this.storage.tx((d) => {
 			const prev = (d.prepare('SELECT version_id FROM work.active WHERE case_id = ?').get(v.case_id) as { version_id: string } | undefined)?.version_id ?? null;
 			// Authoritative idempotency check under the write lock: re-activating the active version logs nothing.
@@ -223,7 +224,7 @@ export class CaseStore {
 		const drop = rows.filter((r) => { const n = (seen.get(r.case_id) ?? 0) + 1; seen.set(r.case_id, n); return n > keep && r.id !== protect; }).map((r) => r.id);
 		for (const id of drop) await this.storage.tx((t) => {
 			t.prepare(`INSERT INTO retired_version(id, manifest_sha256, retired_at) SELECT id, manifest_sha256, ? FROM version WHERE id = ?
-				ON CONFLICT(id) DO UPDATE SET manifest_sha256 = excluded.manifest_sha256, retired_at = excluded.retired_at`).run(new Date().toISOString(), id);
+				ON CONFLICT(id) DO UPDATE SET manifest_sha256 = excluded.manifest_sha256, retired_at = excluded.retired_at`).run(now().toISOString(), id);
 			deleteVersionRows(t, id);
 		});
 		return drop;

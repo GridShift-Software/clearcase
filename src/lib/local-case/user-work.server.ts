@@ -49,7 +49,8 @@ export type TableKind = 'user-work' | 'activation' | 'unregistered';
 export interface TableColumn { name: string; type: string; notNull: boolean; pk: number }
 export interface UserWorkTable { name: string; kind: TableKind; owner: string; description: string; columns: TableColumn[] }
 export interface TableDefinition { name: string; owner: string; description: string; columns: { name: string; type: 'TEXT' | 'INTEGER' | 'REAL' | 'BLOB'; notNull?: boolean }[]; primaryKey: string[] }
-type Cell = string | number | null | { $b64: string };
+/** A cell of an export: BLOBs as base64, INTEGERs beyond the JS safe range as decimal text (both lossless). */
+type Cell = string | number | null | { $b64: string } | { $int: string };
 export interface UserWorkExport {
 	format: typeof USER_WORK_EXPORT;
 	exportedAt: string;
@@ -227,7 +228,10 @@ export class UserWork {
 		});
 		const tables = selected.filter((t) => !excluded.some((x) => x.name === t.name)).map((t) => {
 			const pk = t.columns.filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk).map((c) => q(c.name));
-			const rows = (this.d.prepare(`SELECT * FROM work.${q(t.name)}${pk.length ? ` ORDER BY ${pk.join(', ')}` : ''}`).all() as Record<string, unknown>[])
+			// INTEGERs are read as BigInt: one beyond 2^53 would otherwise throw RangeError and fail the whole export
+			const select = this.d.prepare(`SELECT * FROM work.${q(t.name)}${pk.length ? ` ORDER BY ${pk.join(', ')}` : ''}`);
+			select.setReadBigInts(true);
+			const rows = (select.all() as Record<string, unknown>[])
 				.map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, toCell(v)])));
 			return { ...t, rows };
 		});
@@ -307,8 +311,13 @@ function createTable(d: ReturnType<Storage['db']>, def: TableDefinition, catalog
 	if (catalogue) d.prepare(`INSERT INTO work.userwork_catalog(name, kind, owner, description) VALUES (?, 'user-work', ?, ?)
 		ON CONFLICT(name) DO UPDATE SET owner = excluded.owner, description = excluded.description`).run(def.name, def.owner, def.description);
 }
-const toCell = (v: unknown): Cell => (v instanceof Uint8Array ? { $b64: Buffer.from(v).toString('base64') } : typeof v === 'bigint' ? Number(v) : (v as Cell));
-const fromCell = (v: Cell): unknown => (v !== null && typeof v === 'object' ? new Uint8Array(Buffer.from(v.$b64, 'base64')) : v);
+const toCell = (v: unknown): Cell =>
+	v instanceof Uint8Array ? { $b64: Buffer.from(v).toString('base64') } : typeof v === 'bigint' ? (Number.isSafeInteger(Number(v)) ? Number(v) : { $int: v.toString() }) : (v as Cell);
+const fromCell = (v: Cell): unknown => {
+	if (v === null || typeof v !== 'object') return v;
+	if ('$int' in v) { if (!/^-?\d{1,20}$/.test(v.$int)) throw new UserWorkError('an $int cell is not an integer'); return BigInt(v.$int); }
+	return new Uint8Array(Buffer.from(v.$b64, 'base64'));
+};
 
 function checkStore(store: string) {
 	if (!STORE.test(store)) throw new UserWorkError(`invalid register store name: ${store.slice(0, 80)}`);

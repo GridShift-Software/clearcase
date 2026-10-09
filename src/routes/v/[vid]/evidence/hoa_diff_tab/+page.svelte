@@ -6,11 +6,13 @@
 	let { data } = $props();
 	const r = $derived(data.result);
 	const cov = $derived(data.coverage);
+	// the data is complete when the page renders (data-ready, also in the server's HTML); data-hydrated marks the
+	// moment its controls respond
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'hoa_diff_tab' : null} data-busy={navigating.to ? 'true' : null} data-result={r.kind}>
+<main id="main" tabindex="-1" data-ready="hoa_diff_tab" data-hydrated={ready ? '1' : null} data-busy={navigating.to ? 'true' : null} data-result={r.kind}>
 	<PageHeader heading="Document Diff" section="Document Diff" caseName={data.version.titleName} subtitle="Word- or line-level comparison of two documents (e.g. successive SLA drafts or invoice/statement versions)" />
 	<form method="GET" class="card" aria-label="Choose two documents to compare" data-sveltekit-keepfocus data-sveltekit-noscroll>
 		<div class="row">

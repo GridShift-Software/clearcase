@@ -28,11 +28,13 @@
 		} catch { exportError = 'The export failed: the app did not answer.'; }
 	}
 	const phase = $derived(data.actions ? 'actions' : r?.kind === 'results' ? (r.page.total ? 'results' : 'empty') : (r?.kind ?? 'idle'));
+	// the data is complete when the page renders (data-ready, also in the server's HTML); data-hydrated marks the
+	// moment its controls respond
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'search' : null} data-busy={navigating.to ? 'true' : null} data-result={phase} data-page={r?.kind === 'results' ? r.page.page : null} data-search={data.submitted ? paramsOf(q).toString() : ''}>
+<main id="main" tabindex="-1" data-ready="search" data-hydrated={ready ? '1' : null} data-busy={navigating.to ? 'true' : null} data-result={phase} data-page={r?.kind === 'results' ? r.page.page : null} data-search={data.submitted ? paramsOf(q).toString() : ''}>
 	<PageHeader heading="Advanced Search" section="Advanced Search" caseName={data.version.titleName} subtitle="Cross-corpus search over document details and indexed text excerpts, with filters and action-item extraction" />
 	<p class="disclosure" id="search-coverage" data-documents={cov.documents} data-with-excerpt={cov.withExcerpt} data-max-excerpt={cov.maxExcerpt} data-none={cov.none} data-pending={cov.pending}>
 		Search reads file names, refs, subjects, senders, recipients and the indexed text excerpt of each document (at most {n(cov.maxExcerpt)} characters), not the full text. {n(cov.withExcerpt)} of {n(cov.documents)} documents have an excerpt; {n(cov.none)} have no extracted text (scan · none) and {n(cov.pending)} are pending.

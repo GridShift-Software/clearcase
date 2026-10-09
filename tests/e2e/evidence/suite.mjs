@@ -89,7 +89,7 @@ const DL_HOOK = `(() => { window.__dl = []; const C = URL.createObjectURL.bind(U
 	HTMLAnchorElement.prototype.click = function () { const o = blobs.get(this.href); if (this.download && o) { window.__dl.push({ name: this.download, blob: o }); return; } return click.call(this); };
 })()`;
 let b;
-const R = (view) => `document.querySelector('main#main')?.dataset.ready === ${J(view)} && !document.querySelector('main#main')?.dataset.busy`;
+const R = (view) => `document.querySelector('main#main')?.dataset.ready === ${J(view)} && (${J(view)} === 'overview' || document.querySelector('main#main')?.dataset.hydrated === '1') && !document.querySelector('main#main')?.dataset.busy`;
 // the case part of page titles: the package's view-content _shell.documentTitle, else the case id (the app's fallback)
 const shellTitle = (() => { const f = sc.files.get('datasets/view-content.json'); const v = f ? JSON.parse(new TextDecoder().decode(f)).data?._shell?.documentTitle : undefined; return typeof v === 'string' && v.trim() ? v : null; })();
 const kase = shellTitle ?? 'e2e-evidence';

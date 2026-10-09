@@ -5,8 +5,8 @@
 import { parseDownload } from '../../lib/exports.mjs';
 import { slug } from '../../lib/normalize.mjs';
 import { fromRaw } from '../../lib/snapshot.mjs';
-import { capture, registerEdit } from '../../../../tests/e2e/evidence/lib/parity-app.mjs';
-import { navFocus, open, readOverviewTiles } from './_shell.mjs';
+import { capture, registerEdit, openHydrated } from '../../../../tests/e2e/evidence/lib/parity-app.mjs';
+import { navFocus, readOverviewTiles } from './_shell.mjs';
 
 const VIEW = 'filings_tab';
 
@@ -14,7 +14,7 @@ export default {
 	view: VIEW,
 	async extract(p, ctx) {
 		const nav = await navFocus(p, ctx, { from: '/overview', fromView: 'overview', view: VIEW });
-		await open(p, ctx, ctx.registry[VIEW].route, VIEW);
+		await openHydrated(p, ctx, ctx.registry[VIEW].route, VIEW);
 		const s = fromRaw(VIEW, 'app', await p.extract('#main'));
 		const groups = await p.evaluate(`[...document.querySelectorAll('#main section.group')].map((g) => ({ head: g.querySelector('h2').textContent.replace(/\\s+/g, ' ').trim(), note: g.querySelector('.group-note')?.textContent.replace(/\\s+/g, ' ').trim() ?? null }))`);
 		if (s.texts['orientation.1'] !== undefined) {
@@ -41,7 +41,7 @@ export default {
 	sweeps: {
 		/** v5's register_edit: add two synthetic filings, delete the first shown register row, read the overview tiles. */
 		async register_edit(p, ctx) {
-			await open(p, ctx, ctx.registry[VIEW].route, VIEW);
+			await openHydrated(p, ctx, ctx.registry[VIEW].route, VIEW);
 			const out = await registerEdit(p, ctx, { count: `document.querySelectorAll('#filing-register tbody tr[data-key]').length` });
 			const tiles = await readOverviewTiles(p, ctx);
 			for (const [label, t] of Object.entries(tiles)) out[`overview.${label}`] = t.value;

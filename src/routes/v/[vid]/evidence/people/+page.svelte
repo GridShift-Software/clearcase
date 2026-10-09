@@ -6,11 +6,13 @@
 	const ps = $derived(data.people ?? []);
 	// the Role column carries information only when the package supplies a role for someone (v5 never shows it)
 	const showRole = $derived(anyRole(ps));
+	// the data is complete when the page renders (data-ready, also in the server's HTML); data-hydrated marks the
+	// moment its controls respond
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'people' : null}>
+<main id="main" tabindex="-1" data-ready="people" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="People" section="People" caseName={data.version.titleName} subtitle="{ps.length} correspondents & signatories from email headers" />
 	<p class="disclosure" id="identity-status" data-verification="unverified">Names, organisations and roles are inferred from e-mail headers and have not been checked; no professional identity shown here is confirmed.</p>
 	{#if !data.people}<p class="warning">This results package has no people dataset.</p>{/if}

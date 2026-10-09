@@ -12,11 +12,13 @@
 	const k = $derived(data.content);
 	const files = $derived(new Map(data.files));
 	const exportCsv = () => download('contracts.csv', toCSV(contractsCsvRows(c?.groups ?? [])));
+	// the data is complete when the page renders (data-ready, also in the server's HTML); data-hydrated marks the
+	// moment its controls respond
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'contracts_tab' : null}>
+<main id="main" tabindex="-1" data-ready="contracts_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Contracts" section="Contracts" caseName={data.version.titleName} subtitle={k.subtitle}>
 		{#snippet actions()}<button type="button" id="export-contracts" onclick={exportCsv} disabled={!c}>Export CSV</button>{/snippet}
 	</PageHeader>

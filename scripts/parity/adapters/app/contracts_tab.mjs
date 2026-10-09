@@ -3,8 +3,8 @@
 import { parseDownload } from '../../lib/exports.mjs';
 import { slug } from '../../lib/normalize.mjs';
 import { fromRaw } from '../../lib/snapshot.mjs';
-import { capture } from '../../../../tests/e2e/evidence/lib/parity-app.mjs';
-import { navFocus, open } from './_shell.mjs';
+import { capture, openHydrated } from '../../../../tests/e2e/evidence/lib/parity-app.mjs';
+import { navFocus } from './_shell.mjs';
 
 const VIEW = 'contracts_tab';
 
@@ -12,7 +12,7 @@ export default {
 	view: VIEW,
 	async extract(p, ctx) {
 		const nav = await navFocus(p, ctx, { from: '/overview', fromView: 'overview', view: VIEW });
-		await open(p, ctx, ctx.registry[VIEW].route, VIEW);
+		await openHydrated(p, ctx, ctx.registry[VIEW].route, VIEW);
 		const s = fromRaw(VIEW, 'app', await p.extract('#main'));
 		// the classification disclosure is the app's own first paragraph
 		if (s.texts['page.1'] !== undefined) { s.texts['classification_status.1'] = s.texts['page.1']; delete s.texts['page.1']; }

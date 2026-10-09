@@ -2,10 +2,10 @@
 // row, as v5), and v5's search_filters sweep through the app's form and Search button.
 import { parseDownload } from '../../lib/exports.mjs';
 import { fromRaw } from '../../lib/snapshot.mjs';
-import { capture, refsThroughPages } from '../../../../tests/e2e/evidence/lib/parity-app.mjs';
+import { capture, refsThroughPages, openHydrated } from '../../../../tests/e2e/evidence/lib/parity-app.mjs';
 import { comboValues } from '../v5/specs/documents.mjs';
 import { searchCombos } from '../v5/specs/search.mjs';
-import { navFocus, open } from './_shell.mjs';
+import { navFocus } from './_shell.mjs';
 
 const VIEW = 'search';
 const ID = { q: '#sq', bundle: '#sb', type: '#st', sender: '#ss', from: '#sf', to: '#sto', amin: '#samin', amax: '#samax', status: '#sst' };
@@ -14,7 +14,7 @@ export default {
 	view: VIEW,
 	async extract(p, ctx) {
 		const nav = await navFocus(p, ctx, { from: '/overview', fromView: 'overview', view: VIEW });
-		await open(p, ctx, ctx.registry[VIEW].route, VIEW);
+		await openHydrated(p, ctx, ctx.registry[VIEW].route, VIEW);
 		const s = fromRaw(VIEW, 'app', await p.extract('#main'));
 		if (ctx.exports) s.exports.export_csv = (await capture(p, '#search-export', parseDownload, 15000))?.[0] ?? { name: '(nothing captured)' };
 		s.focus.after_nav = nav.focus;
@@ -25,7 +25,7 @@ export default {
 		async search_filters(p, ctx) {
 			const out = {};
 			for (const c of searchCombos(ctx.dims, ctx.clock)) {
-				await open(p, ctx, ctx.registry[VIEW].route, VIEW);
+				await openHydrated(p, ctx, ctx.registry[VIEW].route, VIEW);
 				let refused = null;
 				for (const [k, v] of Object.entries(c.f)) {
 					if (k === 'bundle' || k === 'type' || k === 'status') { const r = await p.select(ID[k], v); if (r !== 'ok') { refused = r; break; } }

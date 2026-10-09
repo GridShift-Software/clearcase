@@ -120,14 +120,18 @@ The overview has typed widget slots declared in `src/lib/components/overview-slo
 | Unavailable view | `UnavailableView.svelte` | the explicit state for a registry entry whose owner has not passed |
 | Export | `csv.ts` | `toCSV` (quotes on `"` `,` CR LF), `userCell` neutralises formulas in user-entered cells |
 | User work | `user-work.server.ts` | notes, seed overlays and register rows in `work.sqlite`, keyed by stable ids |
-| Results data | `results.server.ts` | `datasetOf`, `datasetKeys` over the verified stored bytes |
-| Document rows | `documents.server.ts`, `DegradedRows.svelte` | `documentRows`, `documentRow`, `documentCounts`, `activeDocumentRows`, `listJson`, `registerDocumentRowProvider`; the degraded state when a provider fails |
+| Results data | `results.server.ts` | `datasetOf`, `datasetKeys` over the verified stored bytes; `viewContentOf` (the `view-content` dataset through GRS-38's `readViewContent`) and `viewText`, which fills a template from imported data and returns null when the field is absent, blank, not text or names a param the caller cannot fill |
+| Document rows | `documents.server.ts`, `DegradedRows.svelte` | `documentRows`, `documentRow`, `documentCounts`, `activeDocumentRows`, `listJson`, `registerDocumentRowProvider`, `anyDateBasis` (whether any imported row has a supplied date type); the degraded state when a provider fails |
 | User-work enumeration | `user-work.server.ts` | `tables`, `defineTable`, `exportAll`, `importAll`, `registerStores` |
 | Overview slots | `overview-slots.ts`, `OverviewSlots.svelte`, `overview-widgets.server.ts` | widget slots filled from `src/lib/views/<category>/` |
+
+**Case wording from view-content.** Wording v5 hard-coded in its view code arrives as the package's `view-content` dataset (GRS-38, `docs/results-package.md`). Views read it on the server with `viewText(viewContentOf(store, rv), view, field, params)`, fill template params from imported data only, and never write case wording into app code. A missing dataset or field leaves a neutral layout: the `/v/[vid]` layout uses `_shell.documentTitle` as the case part of page titles (`version.titleName`) and `_shell.brandName` at the top of the view navigation (`version.brand`), both falling back to the case name; the overview uses `overview.subtitle` (else the matter title, else the case name) and shows `kpiDocumentsNote` and `kpiInvoicesNote` as the source's captions beside the counted figures, or only the counted figures.
 
 ## Verification
 
 Tests use synthetic cases built by GRS-10's converter (`tests/e2e/pilot/lib/fixtures.ts`); real v5 data appears only in `verify:pilot:v5` and `measure`, which keep their outputs in `.local/` or `$CLEARCASE_REPORT_DIR`. Every browser and server test runs inside `tests/e2e/pilot/offline.sh`: a network namespace with only `lo`, the host resolver's sockets hidden in a private mount namespace (a network namespace alone still lets systemd-resolved resolve names), and the caller's uid. Runners prove loopback works and outbound TCP and DNS fail before they start; a missing `unshare`, `ip` or Chromium fails the run. Chromium is `$CLEARCASE_CHROMIUM` or the Playwright build under `~/.cache/ms-playwright/`.
+
+The ignored locator `.local/v5-verification.json` names the accepted package identities of the real sample. `accepted` stays GRS-10's identity (`resultsVersion`, `diagnosticsSha256`); `verify:package` lane 11 recomputes it from a conversion without `view-content`. Since the converter emits the `view-content` dataset (GRS-38), `acceptedViewContent.resultsVersion` names the resultsVersion of a conversion that carries it, and `tests/e2e/pilot/v5/fixture.mjs` requires it: `loadConfig` returns it as `fx.accepted.resultsVersion` (with GRS-10's `diagnosticsSha256`, which view-content does not change) for `verify:pilot:v5` and `parity`, and GRS-10's own identity as `fx.acceptedBase`. Add the member to an existing locator from the CC-30 report; the values stay out of Git.
 
 ## Known limits
 

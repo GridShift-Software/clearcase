@@ -155,6 +155,13 @@ export function documentRow(store: CaseStore, resultsVersion: string, ref: strin
 	return documentRows(store, resultsVersion).rows.find((r) => r.ref === ref) ?? null;
 }
 
+/**
+ * Whether any imported register row has a source-supplied date type (BA-04). Reads the stored list JSON without
+ * parsing it: JSON escapes every quote inside a string value, so the unescaped `"dateType":"` occurs only as the key
+ * of a string value (a missing basis is stored as null).
+ */
+export const anyDateBasis = (store: CaseStore, resultsVersion: string): boolean => (store.chronologyJson(resultsVersion) ?? '').includes('"dateType":"');
+
 /** How many document rows documentRows() returns, without parsing the register: imported plus accepted provider rows. */
 export function documentCounts(store: CaseStore, resultsVersion: string): { total: number; imported: number; provided: number; failed: DocumentRowsResult['failed'] } {
 	const v = store.getVersion(resultsVersion);

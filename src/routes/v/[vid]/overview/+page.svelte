@@ -15,12 +15,16 @@
 	const sorted = (m: [string, number][]) => [...m].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
 	const claim = (k: string) => t.claims.find(([x]) => x === k)?.[1] ?? null;
 	const count = (m: [string, number][], k: string) => m.find(([x]) => x === k)?.[1] ?? 0;
+	// S-meta-counts: counts are derived from the package data; the source's own figure is shown beside one only where
+	// they differ, as provenance.
+	const beside = (k: string, n: number) => { const x = claim(k); return x !== null && String(x) !== String(n) ? ` (the source claims ${x})` : ''; };
+	const content = $derived(data.content);
 	let ready = $state(false);
 	onMount(() => { ready = true; performance.mark('cc-ready'); });
 </script>
 
 <main id="main" tabindex="-1" data-ready={ready ? 'overview' : null}>
-	<PageHeader heading="Overview" section="Overview" caseName={data.version.caseName} subtitle={o.matter?.title || data.version.caseName} />
+	<PageHeader heading="Overview" section="Overview" caseName={data.version.titleName} subtitle={content.subtitle ?? (o.matter?.title || data.version.caseName)} />
 	<DegradedRows failed={data.documents.failed} />
 	<p>Results version <code class="wrap">{vid}</code>, produced {o.created} by {o.producer} from {o.inputKind} input.</p>
 	{#if data.previous}
@@ -35,10 +39,10 @@
 	<div class="grid">
 		<section class="card" aria-labelledby="kpi-docs"><h2 id="kpi-docs">Documents indexed</h2>
 			<p class="num" id="count-documents" data-count={data.documents.total}>{data.documents.total.toLocaleString('en')}</p>
-			<p><small>Counted from the validated register{data.documents.provided ? ` (${data.documents.imported.toLocaleString('en')}) plus ${plural(data.documents.provided, 'row')} from document-row providers` : ''}{claim('docCount') !== null ? `; the source claims ${claim('docCount')}` : ''}. {plural(t.byBundle.length, 'bundle')}.</small></p></section>
+			<p><small>{content.kpiDocumentsNote ? `${content.kpiDocumentsNote} (source caption) · ` : ''}Counted from the validated register{data.documents.provided ? ` (${data.documents.imported.toLocaleString('en')}) plus ${plural(data.documents.provided, 'row')} from document-row providers` : ''}{claim('docCount') !== null ? `; the source claims ${claim('docCount')}` : ''}. {plural(t.byBundle.length, 'bundle')}.</small></p></section>
 		<section class="card" aria-labelledby="kpi-due"><h2 id="kpi-due">Amount due (to date)</h2>
 			{#if o.quantum}<p class="num" id="amount-due">{money(o.quantum.headlineDue) || '—'}</p><p><small>{o.quantum.headlineRef}{o.quantum.headlineDate ? ` · as at ${o.quantum.headlineDate}` : ''} (source value)</small></p>{:else}<p>Not in this package.</p>{/if}</section>
-		<section class="card" aria-labelledby="kpi-inv"><h2 id="kpi-inv">Invoices</h2><p class="num" id="count-invoices">{(o.quantum?.invoiceCount ?? c.invoices).toLocaleString('en')}</p><p><small>{c.invoices.toLocaleString('en')} register rows of type invoice</small></p></section>
+		<section class="card" aria-labelledby="kpi-inv"><h2 id="kpi-inv">Invoices</h2><p class="num" id="count-invoices">{(o.quantum?.invoiceCount ?? c.invoices).toLocaleString('en')}</p><p><small>{content.kpiInvoicesNote ? `${content.kpiInvoicesNote} (source caption) · ` : ''}{c.invoices.toLocaleString('en')} register rows of type invoice</small></p></section>
 		<section class="card" aria-labelledby="kpi-contra"><h2 id="kpi-contra">Contradiction flags</h2>
 			{#if o.contradictions}<p class="num">{o.contradictions.total}</p><p><small>{o.contradictions.highCount} high-severity</small></p>{:else}<p>Not in this package.</p>{/if}</section>
 		<section class="card" aria-labelledby="kpi-scan"><h2 id="kpi-scan">Without extracted text</h2><p class="num" id="count-text-none">{count(t.byTextStatus, 'none').toLocaleString('en')}</p>
@@ -62,7 +66,8 @@
 	{/if}
 
 	<section aria-labelledby="dates-heading"><h2 id="dates-heading">Dates</h2>
-		<p id="date-span">Source dates from {o.dates.min ?? '—'} to {o.dates.max ?? '—'}; {plural(o.dates.undated, 'document')} undated. Dates are shown as the source gives them; their basis (issue, sent, received) is not supplied by this package.</p></section>
+		<p id="date-span">Date span: <b>{o.dates.min ?? '—'}</b> → <b>{o.dates.max ?? '—'}</b> · {c.emails} emails{beside('emails', c.emails)}{c.people !== null ? ` · ${c.people} correspondents${beside('people', c.people)}` : ''}</p>
+		<p id="undated-note">{plural(o.dates.undated, 'document')} undated. Dates are shown as the source gives them; {data.dateBasisKnown ? 'the chronology\'s Date basis column says what kind of date each one is where the source supplies it' : 'their basis (issue, sent, received) is not supplied by this package'}.</p></section>
 
 	<div class="grid">
 		{#each [['By bundle', t.byBundle], ['By type', t.byDocType], ['By text status', t.byTextStatus]] as const as [title, m] (title)}

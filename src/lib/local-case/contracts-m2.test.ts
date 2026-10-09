@@ -1,7 +1,9 @@
 // The M2 contracts beyond views: the document-row read contract (v5 allRows()) with providers, and the enumerable
 // user-work store that a generic backup lists and round-trips, including tables a later ticket defines.
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { copyFileSync, mkdirSync, readdirSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildCase } from '../../../tests/e2e/pilot/lib/fixtures.ts';
 import { OVERVIEW_SLOTS, type OverviewWidgetLoader, type SlotId } from '../components/overview-slots.ts';
 import { activeDocumentRows, documentCounts, documentRow, documentRows, listJson, registerDocumentRowProvider } from './documents.server.ts';
@@ -9,7 +11,7 @@ import type { ChronologyListRow, DocumentStateRow } from './model.ts';
 import { MAX_SLOT_DATA_DEPTH, notPlainData, slotStates } from './overview-widgets.server.ts';
 import type { LocalCase } from './service.server.ts';
 import { ackFor, cleanup, service, tempRoot } from './test-support.ts';
-import { USER_WORK_EXPORT, UserWorkError } from './user-work.server.ts';
+import { USER_WORK_EXPORT, UserWorkError, type TableCell } from './user-work.server.ts';
 
 const roots: string[] = [];
 const open: LocalCase[] = [];
@@ -148,9 +150,9 @@ describe('enumerable user work', () => {
 	it('refuses table definitions without stable keys and restores that would not fit', async () => {
 		const { lc } = await setup('enumbad');
 		const uw = lc.userWork;
-		await expect(uw.defineTable({ name: 'x', owner: 'GRS-17', description: '', columns: [{ name: 'a', type: 'TEXT' }], primaryKey: [] })).rejects.toBeInstanceOf(UserWorkError);
-		await expect(uw.defineTable({ name: 'Bad-Name', owner: 'GRS-17', description: '', columns: [{ name: 'a', type: 'TEXT' }], primaryKey: ['a'] })).rejects.toBeInstanceOf(UserWorkError);
-		await expect(uw.defineTable({ name: 'note', owner: 'GRS-17', description: '', columns: [{ name: 'a', type: 'TEXT' }], primaryKey: ['a'] })).rejects.toBeInstanceOf(UserWorkError);
+		await expect(uw.defineTable({ name: 'x', owner: 'GRS-17', description: '', columns: [{ name: 'a', type: 'TEXT' }], primaryKey: [], scope: 'store' })).rejects.toBeInstanceOf(UserWorkError);
+		await expect(uw.defineTable({ name: 'Bad-Name', owner: 'GRS-17', description: '', columns: [{ name: 'a', type: 'TEXT' }], primaryKey: ['a'], scope: 'store' })).rejects.toBeInstanceOf(UserWorkError);
+		await expect(uw.defineTable({ name: 'note', owner: 'GRS-17', description: '', columns: [{ name: 'a', type: 'TEXT' }], primaryKey: ['a'], scope: 'store' })).rejects.toBeInstanceOf(UserWorkError);
 		const snap = uw.exportAll();
 		const bad = { ...snap, tables: snap.tables.map((t) => (t.name === 'note' ? { ...t, columns: t.columns.slice(1) } : t)) };
 		await expect(uw.importAll(bad)).rejects.toBeInstanceOf(UserWorkError);
@@ -209,8 +211,8 @@ describe('enumerable user work', () => {
 		db.exec('CREATE TABLE work.sqlitebackup(id TEXT PRIMARY KEY, v TEXT)');
 		db.exec("INSERT INTO work.sqlite1 VALUES ('a', 'kept')");
 		expect(uw.tables().map((t) => t.name)).toEqual(expect.arrayContaining(['sqlite1', 'sqlitebackup']));
-		await expect(uw.defineTable({ name: 'sqlitebackup', owner: 'GRS-20', description: '', columns: [{ name: 'id', type: 'TEXT' }], primaryKey: ['id'] })).rejects.toBeInstanceOf(UserWorkError);
-		await expect(uw.defineTable({ name: 'sqlite_x', owner: 'GRS-20', description: '', columns: [{ name: 'id', type: 'TEXT' }], primaryKey: ['id'] })).rejects.toBeInstanceOf(UserWorkError);
+		await expect(uw.defineTable({ name: 'sqlitebackup', owner: 'GRS-20', description: '', columns: [{ name: 'id', type: 'TEXT' }], primaryKey: ['id'], scope: 'store' })).rejects.toBeInstanceOf(UserWorkError);
+		await expect(uw.defineTable({ name: 'sqlite_x', owner: 'GRS-20', description: '', columns: [{ name: 'id', type: 'TEXT' }], primaryKey: ['id'], scope: 'store' })).rejects.toBeInstanceOf(UserWorkError);
 		// listed by the export, as excluded with the reason (a restore could not recreate a reserved name)
 		const snap = uw.exportAll();
 		expect(snap.tables.map((t) => t.name)).not.toContain('sqlite1');
@@ -248,7 +250,7 @@ describe('enumerable user work', () => {
 		const { lc } = await setup('bigint');
 		const uw = lc.userWork;
 		const big = [2n ** 63n - 1n, -(2n ** 63n), 9007199254740993n];
-		await uw.defineTable({ name: 'counter', owner: 'GRS-17', description: 'big keys', columns: [{ name: 'id', type: 'INTEGER' }, { name: 'n', type: 'INTEGER' }, { name: 'r', type: 'REAL' }], primaryKey: ['id'] });
+		await uw.defineTable({ name: 'counter', owner: 'GRS-17', description: 'big keys', columns: [{ name: 'id', type: 'INTEGER' }, { name: 'n', type: 'INTEGER' }, { name: 'r', type: 'REAL' }], primaryKey: ['id'], scope: 'store' });
 		const db = lc.storage.db();
 		for (const [i, n] of big.entries()) db.prepare('INSERT INTO work.counter VALUES (?, ?, ?)').run(n, i, 0.5);
 		db.exec('CREATE TABLE work.stray_big(id TEXT PRIMARY KEY, v INTEGER)');
@@ -360,7 +362,7 @@ describe('gate follow-ups: user-work restore and defineTable (CC-24 F1, F7-F10)'
 			const tables = [{ ...note, rows: [{ ...row, id: 'n-2' }, { ...row, id }] }];
 			expect(await code(uw.importAll(envelope(tables)))).toBe('restore-key');
 		}
-		await uw.defineTable({ name: 'counter', owner: 'GRS-17', description: '', columns: [{ name: 'id', type: 'INTEGER' }], primaryKey: ['id'] });
+		await uw.defineTable({ name: 'counter', owner: 'GRS-17', description: '', columns: [{ name: 'id', type: 'INTEGER' }], primaryKey: ['id'], scope: 'store' });
 		for (const id of [1.5, 'x', { $int: '1e3' }]) expect(await code(uw.importAll(envelope([{ name: 'counter', kind: 'user-work', owner: 'GRS-17', description: '', columns: [col('id', 'INTEGER', true, 1)], rows: [{ id }] }])))).toBe('restore-key');
 		const after = uw.exportAll();
 		expect(after.excluded).toEqual([]);
@@ -377,11 +379,11 @@ describe('gate follow-ups: user-work restore and defineTable (CC-24 F1, F7-F10)'
 		expect(await code(uw.defineTable({ name: 'timesheet', owner: 'GRS-17', description: 'updated', columns, primaryKey: ['case_id', 'entry_id'], scope: 'case' }))).toBe('accepted');
 		const before = uw.tables();
 		for (const t of before.filter((x) => x.kind !== 'unregistered' && x.name !== 'timesheet')) {
-			const def = { name: t.name, owner: 'GRS-99', description: 'taken over', columns: t.columns.map((x) => ({ name: x.name, type: x.type as 'TEXT', notNull: x.notNull })), primaryKey: t.columns.filter((x) => x.pk > 0).sort((a, b) => a.pk - b.pk).map((x) => x.name) };
+			const def = { name: t.name, owner: 'GRS-99', description: 'taken over', columns: t.columns.map((x) => ({ name: x.name, type: x.type as 'TEXT', notNull: x.notNull })), primaryKey: t.columns.filter((x) => x.pk > 0).sort((a, b) => a.pk - b.pk).map((x) => x.name), scope: t.scope };
 			expect([t.name, await code(uw.defineTable(def))]).toEqual([t.name, 'table-built-in']);
 			expect([t.name, await code(uw.defineTable({ ...def, owner: t.owner }))]).toEqual([t.name, 'table-built-in']);
 		}
-		expect(await code(uw.defineTable({ name: 'document', owner: 'GRS-17', description: '', columns, primaryKey: ['entry_id'] }))).toBe('table-built-in');
+		expect(await code(uw.defineTable({ name: 'document', owner: 'GRS-17', description: '', columns, primaryKey: ['entry_id'], scope: 'store' }))).toBe('table-built-in');
 		expect(uw.tables().map((t) => [t.name, t.owner, t.kind])).toEqual(before.map((t) => [t.name, t.owner, t.kind]));
 	});
 });
@@ -503,7 +505,7 @@ describe('gate round 2: explicit table scope and typed restore failures (HARDEN-
 		expect(rowsOf(lc)).toBe(ownRows);
 		// defineTable no longer makes such a table: a case_id column needs scope 'case', and that needs it NOT NULL
 		const nullable = { name: 'bookmark_v', owner: 'GRS-17', description: '', columns: [{ name: 'id', type: 'TEXT' as const }, { name: 'case_id', type: 'TEXT' as const }], primaryKey: ['id'] };
-		expect(await code(uw.defineTable(nullable))).toBe('invalid');
+		expect(await code(uw.defineTable({ ...nullable, scope: 'store' }))).toBe('invalid');
 		expect(await code(uw.defineTable({ ...nullable, scope: 'case' }))).toBe('invalid');
 		expect(await code(uw.defineTable({ ...nullable, columns: [nullable.columns[0]!, { ...nullable.columns[1]!, notNull: true }], scope: 'case' }))).toBe('accepted');
 		db.exec("INSERT INTO work.bookmark_v VALUES ('b-1', 'e2e-case')");
@@ -521,7 +523,7 @@ describe('gate round 2: explicit table scope and typed restore failures (HARDEN-
 		const { lc } = await setup('r2scope');
 		const uw = lc.userWork;
 		const db = lc.storage.db();
-		await uw.defineTable({ name: 'bookmark', owner: 'GRS-17', description: '', columns: [{ name: 'id', type: 'TEXT' }, { name: 'case_key', type: 'TEXT' }], primaryKey: ['id'] });
+		await uw.defineTable({ name: 'bookmark', owner: 'GRS-17', description: '', columns: [{ name: 'id', type: 'TEXT' }, { name: 'case_key', type: 'TEXT' }], primaryKey: ['id'], scope: 'store' });
 		await uw.defineTable({ name: 'ledger', owner: 'GRS-17', description: '', columns: [{ name: 'id', type: 'TEXT' }, { name: 'case_id', type: 'TEXT', notNull: true }, { name: 'v', type: 'TEXT' }], primaryKey: ['id'], scope: 'case' });
 		db.exec("INSERT INTO work.bookmark VALUES ('b-a', 'A'); INSERT INTO work.ledger VALUES ('k1', 'A', 'snap'), ('k2', 'A', 'snap')");
 		await uw.putRow('A', 'deadlines', 'a-1', { title: 'in the snapshot' });
@@ -533,9 +535,9 @@ describe('gate round 2: explicit table scope and typed restore failures (HARDEN-
 		expect(snap.tables.map((t: { name: string; scope: string }) => [t.name, t.scope])).toEqual([['bookmark', 'store'], ['ledger', 'case'], ['note', 'case'], ['register_row', 'case'], ['seed_overlay', 'case'], ['trusted_warning', 'case']]);
 		expect(r.cases).toEqual(['A']);
 		expect(r.restored.filter((x) => x.rows || x.deleted)).toEqual([
-			{ name: 'bookmark', scope: 'store', action: 'merged', rows: 1, deleted: 0 },
-			{ name: 'ledger', scope: 'case', action: 'replaced-for-cases', rows: 2, deleted: 2 },
-			{ name: 'register_row', scope: 'case', action: 'replaced-for-cases', rows: 1, deleted: 1 },
+			{ name: 'bookmark', scope: 'store', action: 'merged', rows: 1, deleted: 0, inserted: 0, replaced: 1 },
+			{ name: 'ledger', scope: 'case', action: 'replaced-for-cases', rows: 2, deleted: 2, cases: ['A'] },
+			{ name: 'register_row', scope: 'case', action: 'replaced-for-cases', rows: 1, deleted: 1, cases: ['A'] },
 		]);
 		expect(db.prepare('SELECT id, v FROM work.ledger ORDER BY id').all().map((x) => [x.id, x.v])).toEqual([['k1', 'snap'], ['k2', 'snap'], ['k3', 'later']]);
 		expect(Object.fromEntries(uw.tables().map((t) => [t.name, t.scope]))).toEqual({ active: 'case', activation_log: 'case', bookmark: 'store', ledger: 'case', note: 'case', register_row: 'case', seed_overlay: 'case', trusted_warning: 'case' });
@@ -559,9 +561,9 @@ describe('gate round 2: explicit table scope and typed restore failures (HARDEN-
 		const { lc } = await setup('r2inv');
 		const uw = lc.userWork;
 		const db = lc.storage.db();
-		await uw.defineTable({ name: 'counter', owner: 'GRS-17', description: '', columns: [{ name: 'n', type: 'INTEGER' }], primaryKey: ['n'] });
+		await uw.defineTable({ name: 'counter', owner: 'GRS-17', description: '', columns: [{ name: 'n', type: 'INTEGER' }], primaryKey: ['n'], scope: 'store' });
 		db.exec("INSERT INTO work.counter VALUES (1), (1.5), ('seven')");
-		await uw.defineTable({ name: 'gauge', owner: 'GRS-17', description: '', columns: [{ name: 'id', type: 'TEXT' }, { name: 'r', type: 'REAL' }], primaryKey: ['id'] });
+		await uw.defineTable({ name: 'gauge', owner: 'GRS-17', description: '', columns: [{ name: 'id', type: 'TEXT' }, { name: 'r', type: 'REAL' }], primaryKey: ['id'], scope: 'store' });
 		db.exec("INSERT INTO work.gauge VALUES ('g', 9e999)");
 		await uw.putRow('e2e-case', 'deadlines', 'a-1', { title: 'kept' });
 		const snap = JSON.parse(JSON.stringify(uw.exportAll()));
@@ -578,8 +580,8 @@ describe('gate round 2: explicit table scope and typed restore failures (HARDEN-
 		const uw = lc.userWork;
 		const db = lc.storage.db();
 		await uw.putRow('e2e-case', 'deadlines', 'a-1', { title: 'kept' });
-		await uw.defineTable({ name: 'box', owner: 'GRS-17', description: '', columns: [{ name: 'id', type: 'TEXT' }, { name: 'n', type: 'INTEGER' }, { name: 'b', type: 'BLOB' }], primaryKey: ['id'] });
-		await uw.defineTable({ name: 'counter', owner: 'GRS-17', description: '', columns: [{ name: 'n', type: 'INTEGER' }], primaryKey: ['n'] });
+		await uw.defineTable({ name: 'box', owner: 'GRS-17', description: '', columns: [{ name: 'id', type: 'TEXT' }, { name: 'n', type: 'INTEGER' }, { name: 'b', type: 'BLOB' }], primaryKey: ['id'], scope: 'store' });
+		await uw.defineTable({ name: 'counter', owner: 'GRS-17', description: '', columns: [{ name: 'n', type: 'INTEGER' }], primaryKey: ['n'], scope: 'store' });
 		db.exec("CREATE TABLE work.uniq(id TEXT PRIMARY KEY, v TEXT UNIQUE); INSERT INTO work.uniq VALUES ('u-1', 'SECRET-UNIQ')");
 		const snap = JSON.parse(JSON.stringify(uw.exportAll()));
 		const register = snap.tables.find((t: { name: string }) => t.name === 'register_row');
@@ -612,14 +614,14 @@ describe('gate round 2: explicit table scope and typed restore failures (HARDEN-
 	it('R2-5 defineTable refuses malformed input as invalid and a table that exists in another letter case', async () => {
 		const { lc } = await setup('r2define');
 		const uw = lc.userWork;
-		const ok = { name: 'pin', owner: 'GRS-17', description: '', columns: [{ name: 'a', type: 'TEXT' as const }], primaryKey: ['a'] };
+		const ok = { name: 'pin', owner: 'GRS-17', description: '', columns: [{ name: 'a', type: 'TEXT' as const }], primaryKey: ['a'], scope: 'store' as const };
 		for (const bad of [{ ...ok, primaryKey: ['a', 'a'] }, { ...ok, owner: undefined }, { ...ok, description: undefined }, { ...ok, columns: 'x' }, { ...ok, columns: [ok.columns[0], ok.columns[0]] }, { ...ok, columns: [null] }, null]) {
 			expect(await code(uw.defineTable(bad as never))).toBe('invalid');
 		}
 		expect(uw.tables().some((t) => t.name === 'pin')).toBe(false);
 		lc.storage.db().exec('CREATE TABLE work."Oob5" (x BLOB PRIMARY KEY) WITHOUT ROWID');
-		expect(await code(uw.defineTable({ name: 'oob5', owner: 'GRS-17', description: '', columns: [{ name: 'entry_id', type: 'TEXT' }], primaryKey: ['entry_id'] }))).toBe('table-conflict');
-		expect(await code(uw.defineTable({ name: 'oob5', owner: 'GRS-17', description: '', columns: [{ name: 'x', type: 'BLOB' }], primaryKey: ['x'] }))).toBe('table-conflict');
+		expect(await code(uw.defineTable({ name: 'oob5', owner: 'GRS-17', description: '', columns: [{ name: 'entry_id', type: 'TEXT' }], primaryKey: ['entry_id'], scope: 'store' }))).toBe('table-conflict');
+		expect(await code(uw.defineTable({ name: 'oob5', owner: 'GRS-17', description: '', columns: [{ name: 'x', type: 'BLOB' }], primaryKey: ['x'], scope: 'store' }))).toBe('table-conflict');
 		expect(uw.tables().filter((t) => t.name.toLowerCase() === 'oob5').map((t) => [t.name, t.kind])).toEqual([['Oob5', 'unregistered']]);
 	});
 
@@ -642,5 +644,223 @@ describe('gate round 2: explicit table scope and typed restore failures (HARDEN-
 		]);
 		expect(r.failed).toEqual([{ source: 'provider:broken', owner: 'GRS-20', reason: expect.any(String) }]);
 		expect(documentCounts(lc.store, c.resultsVersion)).toMatchObject({ provided: 2 });
+	});
+});
+
+// GRS-13 gate round 3 (HARDEN-M2 r3): a required scope, a row API for defined tables, and the remaining restore edges.
+describe('gate round 3: required scope, table rows, restore edges (HARDEN-M2 r3)', () => {
+	const failure = async (p: Promise<unknown>) => { try { await p; return { code: 'accepted', message: '' }; } catch (e) { return { code: e instanceof UserWorkError ? e.code : `untyped ${(e as Error).name}`, message: String((e as Error).message) }; } };
+	const code = async (p: Promise<unknown>) => (await failure(p)).code;
+	const json = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
+	async function fresh(tag: string, dataDir?: string) {
+		const root = await tempRoot(tag);
+		roots.push(root);
+		const lc = service(dataDir ?? path.join(root, 'data'));
+		open.push(lc);
+		await lc.startup();
+		return lc;
+	}
+	const timesheet = { name: 'timesheet', owner: 'GRS-17', description: 'synthetic time entries', scope: 'case' as const, columns: [{ name: 'id', type: 'TEXT' as const }, { name: 'case_id', type: 'TEXT' as const, notNull: true }, { name: 'hours', type: 'REAL' as const }, { name: 'big', type: 'INTEGER' as const }, { name: 'blob', type: 'BLOB' as const }], primaryKey: ['id'] };
+	const pref = { name: 'pref', owner: 'GRS-17', description: 'synthetic store-wide settings', scope: 'store' as const, columns: [{ name: 'k', type: 'TEXT' as const }, { name: 'v', type: 'TEXT' as const }], primaryKey: ['k'] };
+	const own = { owner: 'GRS-17' };
+
+	it('R3-1 scope is required: a definition without one is refused as invalid and creates nothing', async () => {
+		const { lc } = await setup('r3scope');
+		const uw = lc.userWork;
+		const { scope: _, ...loose } = pref;
+		const missing = await failure(uw.defineTable(loose as never));
+		expect(missing.code).toBe('invalid');
+		expect(missing.message).toMatch(/scope is required/);
+		for (const scope of [undefined, null, 'cases', 'Store', 7]) expect([scope, await code(uw.defineTable({ ...pref, scope } as never))]).toEqual([scope, 'invalid']);
+		expect(uw.tables().some((t) => t.name === 'pref')).toBe(false);
+		expect(await code(uw.defineTable(pref))).toBe('accepted');
+	});
+
+	it('R3-2 putTableRow, deleteTableRow and listTableRows: validated, owned, case-scoped, backed up and persistent', async () => {
+		const { root, lc } = await setup('r3rows');
+		const uw = lc.userWork;
+		await uw.defineTable(timesheet);
+		await uw.defineTable(pref);
+		const scheduled = vi.spyOn(lc, 'scheduleUserWorkBackup');
+		const t1 = { id: 't1', case_id: 'A', hours: 1.5, big: { $int: '9007199254740993' }, blob: { $b64: 'AAH/' } };
+		await uw.putTableRow('timesheet', t1, own);
+		await uw.putTableRow('timesheet', { id: 't0', case_id: 'A', hours: null }, own);
+		await uw.putTableRow('timesheet', { id: 't3', case_id: 'B', hours: 3, big: -7, blob: null }, own);
+		await uw.putTableRow('pref', { k: 'theme', v: 'plain' }, own);
+		expect(scheduled).toHaveBeenCalledTimes(4);
+		// primary-key order, cells as exportAll writes them, one case only
+		expect(uw.listTableRows('timesheet', { caseId: 'A' })).toEqual([{ id: 't0', case_id: 'A', hours: null, big: null, blob: null }, t1]);
+		expect(uw.listTableRows('timesheet', { caseId: 'B' }).map((r) => r.id)).toEqual(['t3']);
+		expect(uw.listTableRows('pref')).toEqual([{ k: 'theme', v: 'plain' }]);
+		// an upsert by key
+		await uw.putTableRow('timesheet', { ...t1, hours: 2 }, own);
+		expect(uw.listTableRows('timesheet', { caseId: 'A' }).find((r) => r.id === 't1')!.hours).toBe(2);
+		const before = JSON.stringify(uw.exportAll().tables);
+		const calls = scheduled.mock.calls.length;
+		// refusals: typed, before any write, and no message echoes a value
+		const refusals: [string, Promise<unknown>, string][] = [
+			['another case holds the key', uw.putTableRow('timesheet', { id: 't1', case_id: 'B-SECRET', hours: 9 }, own), 'restore-key-collision'],
+			['another owner', uw.putTableRow('timesheet', { id: 'x', case_id: 'A' }, { owner: 'GRS-18' }), 'table-conflict'],
+			['no owner', uw.putTableRow('timesheet', { id: 'x', case_id: 'A' }, undefined as never), 'invalid'],
+			['built-in', uw.putTableRow('note', { id: 'x', case_id: 'A' }, own), 'table-built-in'],
+			['built-in list', Promise.resolve().then(() => uw.listTableRows('register_row', { caseId: 'A' })), 'table-built-in'],
+			['import state', uw.deleteTableRow('document', { id: 'x' }, own), 'table-built-in'],
+			['no such table', uw.putTableRow('nope', { id: 'x' }, own), 'invalid'],
+			['no case_id', uw.putTableRow('timesheet', { id: 'x', hours: 1 }, own), 'invalid'],
+			['number case_id', uw.putTableRow('timesheet', { id: 'x', case_id: 7731 as never }, own), 'invalid'],
+			['empty key', uw.putTableRow('timesheet', { id: null, case_id: 'A' }, own), 'restore-key'],
+			['NaN', uw.putTableRow('timesheet', { id: 'x', case_id: 'A', hours: Number.NaN }, own), 'invalid'],
+			['Infinity', uw.putTableRow('timesheet', { id: 'x', case_id: 'A', hours: Number.POSITIVE_INFINITY }, own), 'invalid'],
+			['boolean', uw.putTableRow('timesheet', { id: 'x', case_id: 'A', hours: true as never }, own), 'invalid'],
+			['bad base64', uw.putTableRow('timesheet', { id: 'x', case_id: 'A', blob: { $b64: 'SECRET not base64' } }, own), 'invalid'],
+			['$int beyond 64 bits', uw.putTableRow('timesheet', { id: 'x', case_id: 'A', big: { $int: '99999999999999999999' } }, own), 'invalid'],
+			['unknown column', uw.putTableRow('timesheet', { id: 'x', case_id: 'A', secret: 'SECRET' } as never, own), 'invalid'],
+			['list without caseId', Promise.resolve().then(() => uw.listTableRows('timesheet')), 'invalid'],
+			['caseId on a store table', Promise.resolve().then(() => uw.listTableRows('pref', { caseId: 'A' })), 'invalid'],
+			['delete without case_id', uw.deleteTableRow('timesheet', { id: 't1' }, own), 'invalid'],
+			['delete by another owner', uw.deleteTableRow('timesheet', { id: 't1', case_id: 'A' }, { owner: 'GRS-18' }), 'table-conflict'],
+		];
+		for (const [what, p, expected] of refusals) {
+			const f = await failure(p);
+			expect([what, f.code]).toEqual([what, expected]);
+			expect([what, f.message]).not.toEqual([what, expect.stringMatching(/SECRET|7731|99999|B-SECRET/)]);
+		}
+		expect(JSON.stringify(uw.exportAll().tables)).toBe(before);
+		expect(scheduled.mock.calls.length).toBe(calls);
+		// a delete is case-scoped: another case's key matches nothing
+		expect(await uw.deleteTableRow('timesheet', { id: 't1', case_id: 'B' }, own)).toBe(false);
+		expect(scheduled.mock.calls.length).toBe(calls);
+		expect(await uw.deleteTableRow('timesheet', { id: 't0', case_id: 'A' }, own)).toBe(true);
+		expect(await uw.deleteTableRow('pref', { k: 'gone' }, own)).toBe(false);
+		expect(scheduled.mock.calls.length).toBe(calls + 1);
+		const rowsNow = { A: uw.listTableRows('timesheet', { caseId: 'A' }), B: uw.listTableRows('timesheet', { caseId: 'B' }), pref: uw.listTableRows('pref') };
+		expect(rowsNow.A).toEqual([{ ...t1, hours: 2 }]);
+		const snap = json(uw.exportAll());
+		scheduled.mockRestore();
+
+		// the scheduled backup is written at shutdown and holds the rows; a restart and a restored backup read them back
+		lc.shutdown();
+		open.splice(open.indexOf(lc), 1);
+		const backups = readdirSync(lc.storage.backupDir).filter((n) => n.startsWith('work-')).sort();
+		expect(backups.length).toBeGreaterThan(0);
+		const b = new DatabaseSync(path.join(lc.storage.backupDir, backups.at(-1)!), { readOnly: true });
+		expect(b.prepare('SELECT id FROM timesheet ORDER BY id').all().map((r) => r.id)).toEqual(['t1', 't3']);
+		b.close();
+		const read = (l: LocalCase) => ({ A: l.userWork.listTableRows('timesheet', { caseId: 'A' }), B: l.userWork.listTableRows('timesheet', { caseId: 'B' }), pref: l.userWork.listTableRows('pref') });
+		const again = await fresh('r3rows-restart', path.join(root, 'data'));
+		expect(read(again)).toEqual(rowsNow);
+		const restoredDir = path.join(root, 'restored');
+		mkdirSync(restoredDir, { recursive: true });
+		copyFileSync(path.join(lc.storage.backupDir, backups.at(-1)!), path.join(restoredDir, 'work.sqlite'));
+		expect(read(await fresh('r3rows-file', restoredDir))).toEqual(rowsNow);
+		// and the generic export restores them into a fresh store, where the owner keeps writing
+		const other = await fresh('r3rows-export');
+		await other.userWork.importAll(snap);
+		expect(read(other)).toEqual(rowsNow);
+		await other.userWork.putTableRow('timesheet', { id: 't4', case_id: 'B' }, own);
+		expect(other.userWork.listTableRows('timesheet', { caseId: 'B' }).map((r) => r.id)).toEqual(['t3', 't4']);
+	});
+
+	it('R3-3 a table scope never changes: store to case and case to store are table-conflict', async () => {
+		const { lc } = await setup('r3trans');
+		const uw = lc.userWork;
+		const db = lc.storage.db();
+		// an out-of-band table with a case_id column counts as store-scoped; adopting it as a case table is refused
+		db.exec('CREATE TABLE work.oob(id TEXT NOT NULL, case_id TEXT NOT NULL, PRIMARY KEY(id)) WITHOUT ROWID');
+		const oob = { name: 'oob', owner: 'GRS-17', description: '', scope: 'case' as const, columns: [{ name: 'id', type: 'TEXT' as const }, { name: 'case_id', type: 'TEXT' as const, notNull: true }], primaryKey: ['id'] };
+		const toCase = await failure(uw.defineTable(oob));
+		expect(toCase).toEqual({ code: 'table-conflict', message: expect.stringMatching(/store-scoped here/) });
+		expect(uw.tables().find((t) => t.name === 'oob')).toMatchObject({ kind: 'unregistered', scope: 'store' });
+		// a table catalogued before scopes were recorded is a store table too
+		db.exec("CREATE TABLE work.old(id TEXT PRIMARY KEY, case_id TEXT NOT NULL); INSERT INTO work.userwork_catalog(name, kind, owner, description) VALUES ('old', 'user-work', 'GRS-17', '')");
+		expect(await code(uw.defineTable({ ...oob, name: 'old' }))).toBe('table-conflict');
+		// a case table cannot become a store table
+		await uw.defineTable(timesheet);
+		const toStore = await failure(uw.defineTable({ ...timesheet, scope: 'store' }));
+		expect(toStore).toEqual({ code: 'table-conflict', message: expect.stringMatching(/case-scoped here/) });
+		expect(uw.tables().find((t) => t.name === 'timesheet')!.scope).toBe('case');
+		// the same scope is still idempotent, and a store table without case_id is adopted
+		expect(await code(uw.defineTable(timesheet))).toBe('accepted');
+		db.exec('CREATE TABLE work.oob2(k TEXT PRIMARY KEY, v TEXT)');
+		expect(await code(uw.defineTable({ name: 'oob2', owner: 'GRS-17', description: '', scope: 'store', columns: [{ name: 'k', type: 'TEXT' }, { name: 'v', type: 'TEXT' }], primaryKey: ['k'] }))).toBe('accepted');
+	});
+
+	it('R3-4 a snapshot without scope fields (round 1, dev) restores into a fresh store as store tables', async () => {
+		const { lc } = await setup('r3old');
+		const uw = lc.userWork;
+		await uw.defineTable(pref);
+		await uw.defineTable(timesheet);
+		await uw.putTableRow('pref', { k: 'theme', v: 'plain' }, own);
+		await uw.putTableRow('timesheet', { id: 't1', case_id: 'A', hours: 1 }, own);
+		await uw.putRow('A', 'deadlines', 'a-1', { title: 'kept' });
+		const old = json(uw.exportAll()) as unknown as { tables: Record<string, unknown>[] };
+		for (const t of old.tables) delete t.scope;
+		const lc2 = await fresh('r3old2');
+		const r = await lc2.userWork.importAll(old as never);
+		expect(r.restored.map((x) => [x.name, x.scope, x.action])).toEqual([['note', 'case', 'replaced-for-cases'], ['pref', 'store', 'merged'], ['register_row', 'case', 'replaced-for-cases'], ['seed_overlay', 'case', 'replaced-for-cases'], ['timesheet', 'store', 'merged'], ['trusted_warning', 'case', 'dropped']]);
+		expect(Object.fromEntries(lc2.userWork.tables().map((t) => [t.name, t.scope]))).toMatchObject({ pref: 'store', timesheet: 'store', register_row: 'case' });
+		expect(lc2.userWork.listTableRows('pref')).toEqual([{ k: 'theme', v: 'plain' }]);
+		expect(lc2.userWork.listRows('A', 'deadlines').map((x) => x.rowId)).toEqual(['a-1']);
+		// into the store it came from, each table keeps its own scope
+		expect((await uw.importAll(old as never)).restored.find((x) => x.name === 'timesheet')!.scope).toBe('case');
+		// a scope that is present but not 'case' or 'store' is still refused
+		expect(await code(lc2.userWork.importAll({ ...old, tables: old.tables.map((t) => ({ ...t, scope: 'cases' })) } as never))).toBe('invalid');
+	});
+
+	it('R3-5 defineTable refuses to adopt a table whose key or case_id column does not compare byte for byte', async () => {
+		const { lc } = await setup('r3coll');
+		const uw = lc.userWork;
+		const db = lc.storage.db();
+		const store = (name: string, extra: Partial<typeof pref> = {}) => ({ ...pref, name, ...extra });
+		db.exec('CREATE TABLE work.nk(k TEXT COLLATE NOCASE PRIMARY KEY, v TEXT)');
+		const nk = await failure(uw.defineTable(store('nk')));
+		expect(nk).toEqual({ code: 'table-conflict', message: expect.stringMatching(/column k has the collation NOCASE/) });
+		db.exec('CREATE TABLE work.nkpk(k TEXT NOT NULL, v TEXT, PRIMARY KEY(k COLLATE RTRIM)) WITHOUT ROWID');
+		expect(await failure(uw.defineTable(store('nkpk')))).toEqual({ code: 'table-conflict', message: expect.stringMatching(/column k has the collation RTRIM/) });
+		// a NOCASE case_id, catalogued as a case table by hand: a restore of case 'a' would delete case 'A' rows
+		db.exec("CREATE TABLE work.nc(k TEXT NOT NULL, case_id TEXT COLLATE NOCASE NOT NULL, PRIMARY KEY(case_id, k)) WITHOUT ROWID; INSERT INTO work.userwork_catalog(name, kind, owner, description) VALUES ('nc', 'user-work', 'GRS-17', '')");
+		await uw.defineTable({ ...store('scope_seed'), scope: 'store' }); // records a scope, so the scope table exists
+		db.exec("INSERT INTO work.userwork_catalog_scope(name, scope) VALUES ('nc', 'case')");
+		const nc = { name: 'nc', owner: 'GRS-17', description: '', scope: 'case' as const, columns: [{ name: 'k', type: 'TEXT' as const }, { name: 'case_id', type: 'TEXT' as const, notNull: true }], primaryKey: ['case_id', 'k'] };
+		expect(await failure(uw.defineTable(nc))).toEqual({ code: 'table-conflict', message: expect.stringMatching(/column case_id has the collation NOCASE/) });
+		// BINARY, explicit or not, and a collation on a non-key column are fine; the probe index leaves nothing behind
+		db.exec('CREATE TABLE work.bk(k TEXT COLLATE BINARY PRIMARY KEY, v TEXT COLLATE NOCASE)');
+		expect(await code(uw.defineTable(store('bk')))).toBe('accepted');
+		expect(db.prepare("SELECT name FROM work.sqlite_master WHERE name LIKE '%probe%'").all()).toEqual([]);
+		expect(uw.tables().filter((t) => ['nk', 'nkpk', 'nc'].includes(t.name)).map((t) => t.owner)).toEqual(['GRS-17', 'unknown', 'unknown']);
+	});
+
+	it('R3-6 ImportResult says, per merged table, how many rows were inserted and replaced and, per case table, which cases', async () => {
+		const { lc } = await setup('r3result');
+		const uw = lc.userWork;
+		await uw.defineTable(pref);
+		await uw.defineTable(timesheet);
+		await uw.defineTable({ name: 'tag', owner: 'GRS-17', description: 'all-key table', scope: 'store', columns: [{ name: 'k', type: 'TEXT' }], primaryKey: ['k'] });
+		for (const k of ['k1', 'k2']) await uw.putTableRow('pref', { k, v: 'snap' }, own);
+		await uw.putTableRow('tag', { k: '1' }, own);
+		await uw.putTableRow('timesheet', { id: 't1', case_id: 'A' }, own);
+		await uw.putRow('A', 'deadlines', 'a-1', { title: 'a' });
+		await uw.putRow('B', 'deadlines', 'b-1', { title: 'b' });
+		const snap = json(uw.exportAll());
+		// after the backup: k1 deleted, k2 edited, k3 added; case B gains a timesheet row, case C appears
+		await uw.deleteTableRow('pref', { k: 'k1' }, own);
+		await uw.putTableRow('pref', { k: 'k2', v: 'later' }, own);
+		await uw.putTableRow('pref', { k: 'k3', v: 'later' }, own);
+		await uw.putTableRow('timesheet', { id: 't9', case_id: 'B' }, own);
+		await uw.putTableRow('timesheet', { id: 't8', case_id: 'C' }, own);
+		// an all-key table merges with DO NOTHING: a key already here counts as replaced
+		snap.tables.find((t) => t.name === 'tag')!.rows.push({ k: '2' });
+		const r = await uw.importAll(snap);
+		const by = Object.fromEntries(r.restored.map((x) => [x.name, x]));
+		expect(r.cases).toEqual(['A', 'B']);
+		expect(by.pref).toEqual({ name: 'pref', scope: 'store', action: 'merged', rows: 2, deleted: 0, inserted: 1, replaced: 1 });
+		expect(by.tag).toEqual({ name: 'tag', scope: 'store', action: 'merged', rows: 2, deleted: 0, inserted: 1, replaced: 1 });
+		expect(by.timesheet).toEqual({ name: 'timesheet', scope: 'case', action: 'replaced-for-cases', rows: 1, deleted: 2, cases: ['A', 'B'] });
+		expect(by.register_row).toEqual({ name: 'register_row', scope: 'case', action: 'replaced-for-cases', rows: 2, deleted: 2, cases: ['A', 'B'] });
+		expect(by.note).toEqual({ name: 'note', scope: 'case', action: 'replaced-for-cases', rows: 0, deleted: 0, cases: [] });
+		// the merge brought back k1 and reverted k2, kept k3; case C was not in the snapshot and is kept
+		expect(uw.listTableRows('pref')).toEqual([{ k: 'k1', v: 'snap' }, { k: 'k2', v: 'snap' }, { k: 'k3', v: 'later' }]);
+		expect(uw.listTableRows('timesheet', { caseId: 'C' }).map((x) => x.id)).toEqual(['t8']);
+		expect(uw.listTableRows('timesheet', { caseId: 'B' })).toEqual([]);
 	});
 });

@@ -7,7 +7,7 @@ import { service } from '../../../../src/lib/local-case/test-support.ts';
 const [dataDir, mode, rowsJson] = process.argv.slice(2);
 const lc = service(dataDir!);
 if (mode === 'define') {
-	await lc.userWork.defineTable({ name: 'e2e_ledger', owner: 'GRS-12 e2e', description: 'synthetic table for the durability suite', columns: [{ name: 'id', type: 'TEXT' }, { name: 'label', type: 'TEXT' }, { name: 'amount', type: 'INTEGER' }], primaryKey: ['id'] });
+	await lc.userWork.defineTable({ name: 'e2e_ledger', owner: 'GRS-12 e2e', description: 'synthetic table for the durability suite', columns: [{ name: 'id', type: 'TEXT' }, { name: 'label', type: 'TEXT' }, { name: 'amount', type: 'INTEGER' }], primaryKey: ['id'], scope: 'store' });
 	const meta = lc.userWork.tables().find((t) => t.name === 'e2e_ledger')!;
 	const r = await lc.userWork.importAll({ format: 'clearcase.user-work/1', exportedAt: new Date().toISOString(), tables: [{ ...meta, rows: JSON.parse(rowsJson!) }] });
 	console.log(JSON.stringify({ defined: true, restored: r }));

@@ -2,8 +2,9 @@
 // page posts them. A refused Delete never returns values of its own: it returns the draft the form posted with it,
 // unchanged, so a page re-rendered from it (without JavaScript) keeps the edit in progress (D1). A refused save names
 // its operation, code and the row being edited, so the page stays in edit mode (D2, no JavaScript); a Delete also
-// carries a failed save's code. A Filing of spaces is accepted as v5 accepts it (D17). The busy store is held from
-// outside the app (BEGIN IMMEDIATE on work.sqlite).
+// carries a failed save's code. A save made from an older version of the row (two tabs editing one row) is refused
+// with its input kept, never a silent overwrite (D2, two-tab race). A Filing of spaces is accepted as v5 accepts it
+// (D17). The busy store is held from outside the app (BEGIN IMMEDIATE on work.sqlite).
 process.env.TZ = 'UTC';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -55,6 +56,8 @@ async function post(action: 'add' | 'save' | 'delete', fields: Record<string, st
 	}
 }
 const entries = async () => (await S.filingsLoad({ parent: async () => ({ version: { id: rv, caseId } }), url: page() })).entries;
+/** The row's version as an edit form loads it. */
+const versionOf = async (key: string) => { const { rowVersion } = await import('../../src/lib/views/evidence/filings'); return rowVersion((await entries()).find((e) => e.key === key)!.fields); };
 const hold = () => { const l = new DatabaseSync(lc.storage.workFile); l.exec('PRAGMA busy_timeout=0; BEGIN IMMEDIATE'); return () => { l.exec('ROLLBACK'); l.close(); }; };
 const blank = { filing: '', fdate: '', fparty: '', response: '', rdate: '', ref: '' };
 const typed = { ...blank, filing: 'Unsaved edited filing', response: 'Unsaved edited reply' };
@@ -77,11 +80,12 @@ describe('filings register actions', () => {
 		const one = (await entries()).find((e) => e.fields.filing === 'Synthetic row one')!;
 		const release = hold();
 		let r: Out;
-		try { r = await post('save', { key: one.key, ...typed }); } finally { release(); }
-		expect(r).toMatchObject({ failed: 503, op: 'save', code: 'busy', editing: one.key, values: typed, retry: true });
+		const version = await versionOf(one.key);
+		try { r = await post('save', { key: one.key, version, ...typed }); } finally { release(); }
+		expect(r).toMatchObject({ failed: 503, op: 'save', code: 'busy', editing: one.key, version, values: typed, retry: true });
 		expect((await entries()).find((e) => e.key === one.key)!.fields.filing).toBe('Synthetic row one');
 		// an empty Filing is refused for the row being edited, not as an Add
-		expect(await post('save', { key: one.key, ...blank })).toMatchObject({ failed: 400, op: 'save', code: 'empty-edit', editing: one.key, retry: false });
+		expect(await post('save', { key: one.key, version, ...blank })).toMatchObject({ failed: 400, op: 'save', code: 'empty-edit', editing: one.key, retry: false });
 		expect(await post('add', blank)).toMatchObject({ failed: 400, op: 'save', code: 'empty-add', editing: null });
 	}, 60_000);
 
@@ -105,7 +109,24 @@ describe('filings register actions', () => {
 		expect(await post('add', { ...blank, filing: '   ' })).toMatchObject({ ok: true, op: 'add' });
 		const row = (await entries()).find((e) => e.state === 'user' && e.fields.filing === '   ')!;
 		expect(row).toBeTruthy();
-		expect(await post('save', { key: row.key, ...blank, filing: '  ', response: 'Synthetic' })).toEqual({ redirect: page().pathname });
+		expect(await post('save', { key: row.key, version: await versionOf(row.key), ...blank, filing: '  ', response: 'Synthetic' })).toEqual({ redirect: page().pathname });
 		expect((await entries()).find((e) => e.key === row.key)!.fields).toMatchObject({ filing: '  ', response: 'Synthetic' });
+	});
+
+	it('refuses a save made from an older version of the row, keeping its input, so a second tab never overwrites the first (two-tab race)', async () => {
+		expect(await post('add', { ...blank, filing: 'Synthetic shared row' })).toMatchObject({ ok: true });
+		const row = (await entries()).find((e) => e.fields.filing === 'Synthetic shared row')!;
+		const seen = await versionOf(row.key); // both tabs open the row's Edit
+		expect(await post('save', { key: row.key, version: seen, ...blank, filing: 'Synthetic shared row', response: 'First tab' })).toEqual({ redirect: page().pathname });
+		const second = { ...blank, filing: 'Synthetic shared row', response: 'Second tab' };
+		expect(await post('save', { key: row.key, version: seen, ...second })).toMatchObject({ failed: 409, op: 'save', code: 'stale', editing: row.key, values: second, retry: false });
+		expect((await entries()).find((e) => e.key === row.key)!.fields.response).toBe('First tab');
+		// a save without a version (not from this page) cannot be checked, so it is refused too
+		expect(await post('save', { key: row.key, ...second })).toMatchObject({ failed: 409, code: 'stale' });
+		// a seed is checked the same way
+		const s1 = (await entries()).find((e) => e.key.startsWith('seed:'))!;
+		const sv = await versionOf(s1.key);
+		expect(await post('save', { key: s1.key, version: sv, ...blank, filing: s1.fields.filing, response: 'Seed first tab' })).toEqual({ redirect: page().pathname });
+		expect(await post('save', { key: s1.key, version: sv, ...blank, filing: s1.fields.filing, response: 'Seed second tab' })).toMatchObject({ failed: 409, code: 'stale' });
 	});
 });

@@ -466,21 +466,38 @@
     {
       "id": "IDR-276",
       "view": "deadlines_tab",
-      "field": [
-        "sweep.deadline_order.ics_added.row.*.SUMMARY",
-        "sweep.deadline_order.ics_added.row.*.DESCRIPTION"
-      ],
+      "field": "sweep.deadline_order.ics_added.row.0.SUMMARY",
       "when": {
         "v5": {
-          "re": "^[^,;]*$"
+          "re": "^Synthetic later +with comma +semicolon \\\\ backslashbreak$"
         },
         "app": {
-          "re": "\\\\[,;]"
+          "re": "^Synthetic later\\\\, with comma\\\\; semicolon \\\\\\\\ backslashbreak$"
         }
       },
       "type": "defect-fix",
       "source": "S-deadlines_tab-2",
-      "reason": "Commas, semicolons and backslashes in a deadline's title and note are escaped as RFC 5545 text, so the calendar shows them as typed; v5 replaced commas and semicolons with spaces and left backslashes unescaped (S-deadlines_tab-2, S-ics).",
+      "reason": "Commas, semicolons and backslashes in a deadline's title are escaped as RFC 5545 text, so the calendar shows them as typed; v5 replaced commas and semicolons with spaces and left backslashes unescaped (S-deadlines_tab-2, S-ics). Pinned to the sweep's own synthetic title, correctly escaped (the line break is dropped by the single-line input on both sides).",
+      "productVisible": true,
+      "author": "CC-07 worker (GRS-17)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-277",
+      "view": "deadlines_tab",
+      "field": "sweep.deadline_order.ics_added.row.0.DESCRIPTION",
+      "when": {
+        "v5": {
+          "re": "^Hearing note +one +two$"
+        },
+        "app": {
+          "re": "^Hearing note\\\\, one\\\\; two$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-deadlines_tab-2",
+      "reason": "Commas and semicolons in a deadline's note are escaped as RFC 5545 text, so the calendar's DESCRIPTION (category, then note) shows them as typed; v5 replaced them with spaces (S-deadlines_tab-2, S-ics). Pinned to the sweep's own synthetic note, correctly escaped.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
       "approvedBy": null,
@@ -521,14 +538,14 @@
     {
       "id": "IDR-280",
       "view": "privilege_tab",
-      "field": "sweep.doc_ref_link.*.ref",
+      "field": "sweep.doc_ref_link.0.ref",
       "when": {
         "v5": "text",
         "app": "link"
       },
       "type": "defect-fix",
       "source": "S-privilege_tab-1",
-      "reason": "A Doc ref that names a document of the imported version links to that document's page (its anchor is kept with the entry); the ref is stored and shown as typed. v5 showed it as plain text. A ref that names nothing still renders as text, marked as not in this results version, and is never matched loosely.",
+      "reason": "A Doc ref that names a document of the imported version links to that document's page (its anchor is kept with the entry); the ref is stored and shown as typed. v5 showed it as plain text. A ref that names nothing still renders as text, marked as not in this results version, and is never matched loosely. Only row 0, the ref that names a document, differs; row 1 (a ref that names nothing) must stay text and is not covered.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
       "approvedBy": null,
@@ -537,14 +554,14 @@
     {
       "id": "IDR-281",
       "view": "annotations_tab",
-      "field": "sweep.doc_ref_link.*.ref",
+      "field": "sweep.doc_ref_link.0.ref",
       "when": {
         "v5": "text",
         "app": "link"
       },
       "type": "defect-fix",
       "source": "S-annotations_tab-1",
-      "reason": "A Doc ref that names a document of the imported version links to that document's page (its anchor is kept with the entry); the ref is stored and shown as typed. v5 showed it as plain text. A ref that names nothing still renders as text, marked as not in this results version, and is never matched loosely.",
+      "reason": "A Doc ref that names a document of the imported version links to that document's page (its anchor is kept with the entry); the ref is stored and shown as typed. v5 showed it as plain text. A ref that names nothing still renders as text, marked as not in this results version, and is never matched loosely. Only row 0, the ref that names a document, differs; row 1 (a ref that names nothing) must stay text and is not covered.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
       "approvedBy": null,

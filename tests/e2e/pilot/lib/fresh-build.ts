@@ -14,10 +14,13 @@
 // are each a refusal reason. git runs without any GIT_* variable, without the fsmonitor hook or the untracked cache, and
 // lists untracked files whatever its config says. In the build inputs (BUILD_INPUTS), an untracked file only a local
 // ignore rule hides (.git/info/exclude, a global excludes file) and an untracked .gitignore that ignores itself are
-// refusal reasons too: only the committed .gitignore files may hide a file there.
+// refusal reasons too: only the committed .gitignore files may hide a file there. A file a runner reads by name at run
+// time (a register file, a module or suite it finds by listing a folder) must also be a committed review input
+// (uncommittedInputs: tracked, unmodified, not hidden), since a committed .gitignore can ignore it without making the
+// tree dirty; the runners record such a run as not evidence.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 export const ALLOW_FLAG = '--allow-stale-build';
 
@@ -161,6 +164,52 @@ export function freshness(repo: string, stamp: BuildStamp | null, { buildDir, is
 	if (appRoot && real(appRoot) !== real(repo)) reasons.push(`the app tree under test is ${real(appRoot)}, not ${real(repo)} (its server entry, suites and routes would be unverified)`);
 	return { buildRevision, buildDirty, head: g.head, trackedDirty: g.trackedDirty, dirtyPaths: g.dirtyPaths, fresh: reasons.length === 0, reasons };
 }
+
+/**
+ * The files among `paths` that are not committed review inputs of `repo`, each as `<path> (<why>)`: a file a runner
+ * reads by name at run time (a register file, a module or suite it finds by listing a folder) counts only when its
+ * realpath lies in `repo`, git's index tracks it, git status shows no change to it (staged or not), and it is not
+ * flagged assume-unchanged or skip-worktree, so the reviewed commit holds its contents. Freshness does not cover this:
+ * a file a committed .gitignore ignores (say under .local/) leaves git status clean. Why is `ignored`, `untracked`,
+ * `modified`, `hidden from git (...)`, `outside the checkout` or, when git cannot answer or `repo` is not its top
+ * level, `unknown (...)`. git runs as gitState runs it (gitEnv, FRESH_READ). Paths are relative to `repo` when inside.
+ */
+export function uncommittedInputs(repo: string, paths: readonly string[]): string[] {
+	const top = real(repo);
+	const out: string[] = [];
+	const files = new Set<string>();
+	for (const p of paths) {
+		const r = relative(top, real(p));
+		if (r === '' || r === '..' || r.startsWith(`..${sep}`) || isAbsolute(r)) out.push(`${real(p)} (outside the checkout ${top})`);
+		else files.add(r.split(sep).join('/'));
+	}
+	if (files.size === 0) return out;
+	const specs = [...files].map((f) => `:(literal)${f}`);
+	const at = git(repo, ['rev-parse', '--show-toplevel']);
+	const ls = git(repo, [...FRESH_READ, 'ls-files', '-v', '-z', '--', ...specs]);
+	const ign = git(repo, [...FRESH_READ, 'ls-files', '-o', '-i', '--exclude-standard', '-z', '--', ...specs]);
+	const st = git(repo, [...FRESH_READ, 'status', '--porcelain', '-z', '--untracked-files=no', '--', ...specs]);
+	const error = at.error ?? ls.error ?? ign.error ?? st.error ?? (real(at.out!.trim()) === top ? null : `${top} is not the top level of its git checkout`);
+	if (error) return [...out, ...[...files].map((f) => `${f} (unknown: ${error})`)];
+	const tags = new Map(ls.out!.split('\0').filter(Boolean).map((l) => [l.slice(2), l[0]!]));
+	const ignored = new Set(ign.out!.split('\0').filter(Boolean));
+	const changed = new Set<string>();
+	const recs = st.out!.split('\0');
+	// porcelain -z: `XY path`, and a rename or copy is followed by its source path
+	for (let i = 0; i < recs.length; i++) if (recs[i]) { changed.add(recs[i]!.slice(3)); if (/^[RC]/.test(recs[i]!)) i++; }
+	for (const f of files) {
+		const tag = tags.get(f);
+		const why = tag === undefined ? (ignored.has(f) ? 'ignored' : 'untracked') : /^([a-z]|S)$/.test(tag) ? 'hidden from git (assume-unchanged or skip-worktree)' : changed.has(f) ? 'modified' : null;
+		if (why) out.push(`${f} (${why})`);
+	}
+	return out;
+}
+
+/** One reason a run is not release evidence when some of `paths` are not committed review inputs (uncommittedInputs), else none. */
+export const notCommitted = (what: string, repo: string, paths: readonly string[]) => {
+	const found = uncommittedInputs(repo, paths);
+	return found.length ? [`${what} that the reviewed commit does not hold: ${found.join(', ')}`] : [];
+};
 
 /** The override: --allow-stale-build in `argv` (there is no environment form). */
 export const allowStale = (argv: readonly string[]) => argv.includes(ALLOW_FLAG);

@@ -6,40 +6,58 @@
 	import { infoTone } from '$lib/views/analysis/tone';
 	import '$lib/views/analysis/analysis.css';
 	let { data, form } = $props();
-	// The operator's choice for an item until the server has saved it; a failed save keeps it (and the error) so the
-	// checkbox still shows what was chosen and Retry sends it again. Without JavaScript the action's failure carries it.
+	// Every unsaved choice, per item key, until the server has saved that key: in flight, or failed with its message.
+	// A failed key keeps its choice, its error and its Retry until that key saves; a save of another key never clears
+	// it. Without JavaScript the action's failure carries the choice back.
 	let choice = $state<Record<string, boolean>>({});
-	let failed = $state<{ key: string; done: boolean; message: string } | null>(null);
+	let failures = $state<Record<string, { done: boolean; message: string }>>({});
+	const sent: Record<string, number> = {};
 	const noJsFailure = $derived(form && 'key' in form && 'message' in form ? { key: String(form.key), done: form.done === true, message: String(form.message) } : null);
-	const problem = $derived(failed ?? noJsFailure);
+	const problems = $derived([
+		...Object.entries(failures).map(([key, f]) => ({ key, ...f })),
+		...(noJsFailure && !(noJsFailure.key in failures) && !(noJsFailure.key in choice) ? [noJsFailure] : []),
+	]);
 	const shown = (r: { key: string; done: boolean }) => choice[r.key] ?? (noJsFailure?.key === r.key ? noJsFailure.done : r.done);
+	const busy = (key: string) => key in choice && !(key in failures);
+	const unsaved = (key: string) => key in failures || (noJsFailure?.key === key && !(key in choice));
 	const submit: SubmitFunction = ({ formData }) => {
 		const key = String(formData.get('key'));
 		const done = formData.get('done') === 'true';
+		const n = (sent[key] = (sent[key] ?? 0) + 1);
 		choice[key] = done;
-		failed = null;
+		delete failures[key];
 		return async ({ result, update }) => {
-			if (result.type === 'success') { await update({ reset: false }); delete choice[key]; }
-			else if (result.type === 'failure') failed = { key, done, message: String(result.data?.message ?? 'Not saved.') };
-			else if (result.type === 'error') failed = { key, done, message: result.status ? `Not saved: ClearCase answered ${result.status}. Your choice is kept; retry.` : 'Not saved: ClearCase could not be reached. Your choice is kept; retry when it is running.' };
+			const latest = sent[key] === n;
+			if (result.type === 'success') { await update({ reset: false }); if (latest) delete choice[key]; }
+			else if (!latest) return;
+			else if (result.type === 'failure') failures[key] = { done, message: String(result.data?.message ?? 'Not saved.') };
+			else if (result.type === 'error') failures[key] = { done, message: result.status ? `Not saved: ClearCase answered ${result.status}. Your choice is kept; retry.` : 'Not saved: ClearCase could not be reached. Your choice is kept; retry when it is running.' };
 			else await update();
 		};
 	};
 	const itemOf = (key: string) => data.rows.find((r) => r.key === key)?.item ?? '';
 	let hydrated = $state(false);
-	onMount(() => { hydrated = true; });
+	onMount(() => {
+		// a failure the action answered before hydration becomes a tracked failure, so a later save of another item keeps it
+		if (noJsFailure) { choice[noJsFailure.key] = noJsFailure.done; failures[noJsFailure.key] = { done: noJsFailure.done, message: noJsFailure.message }; }
+		hydrated = true;
+	});
 </script>
 
 <main id="main" tabindex="-1" data-analysis data-ready="info_required_tab" data-hydrated={hydrated ? '' : null}>
 	<PageHeader heading="Info Required" section="Info Required" caseName={data.version.titleName} subtitle="Checklist of outstanding items" />
-	{#if problem}
+	{#if problems.length}
 		<div class="an-error" role="alert" id="info-error">
-			<span>{problem.message} ({problem.done ? 'done' : 'not done'}: {itemOf(problem.key)})</span>
-			<form method="POST" action="?/toggle" use:enhance={submit} class="no-print retry">
-				<input type="hidden" name="key" value={problem.key} />
-				<input type="hidden" name="done" value={String(problem.done)} />
-				<button id="info-retry">Retry</button>
-			</form>
+			{#each problems as pr (pr.key)}
+				<div class="info-problem" data-key={pr.key}>
+					<span>{pr.message} ({pr.done ? 'done' : 'not done'}: {itemOf(pr.key)})</span>
+					<form method="POST" action="?/toggle" use:enhance={submit} class="no-print retry">
+						<input type="hidden" name="key" value={pr.key} />
+						<input type="hidden" name="done" value={String(pr.done)} />
+						<button class="info-retry" aria-label="Retry: {itemOf(pr.key)}">Retry</button>
+					</form>
+				</div>
+			{/each}
 		</div>
 	{/if}
 	{#if data.rows.length === 0}
@@ -50,7 +68,7 @@
 				<thead><tr><th aria-label="Done"></th><th>Item</th><th>Status</th><th>Owner</th></tr></thead>
 				<tbody>
 					{#each data.rows as r (r.key)}
-						<tr data-key={r.key} aria-busy={r.key in choice && failed?.key !== r.key ? 'true' : null}>
+						<tr data-key={r.key} aria-busy={busy(r.key) ? 'true' : null} class:saving={busy(r.key)}>
 							<td>
 								<form method="POST" action="?/toggle" use:enhance={submit}>
 									<input type="hidden" name="key" value={r.key} />
@@ -59,7 +77,7 @@
 									<noscript><button>Save</button></noscript>
 								</form>
 							</td>
-							<td data-label="Item" class:struck={shown(r)}>{r.item}</td>
+							<td data-label="Item" class:struck={shown(r)}>{r.item}{#if busy(r.key)}<span class="row-state" data-state="saving">Saving…</span>{:else if unsaved(r.key)}<span class="row-state an-danger" data-state="unsaved">Not saved</span>{/if}</td>
 							<td data-label="Status"><span class="badge {infoTone(r.status)}">{r.status}</span></td>
 							<td data-label="Owner">{r.owner}</td>
 						</tr>
@@ -74,4 +92,8 @@
 <style>
 	.struck { text-decoration: line-through; color: #888; }
 	.retry { display: inline; margin-left: .5rem; }
+	.info-problem + .info-problem { margin-top: .3rem; }
+	.saving { opacity: .7; }
+	.row-state { display: inline-block; margin-left: .5rem; font-size: .85em; font-weight: 600; color: #333; }
+	.row-state.an-danger { color: #a01010; }
 </style>

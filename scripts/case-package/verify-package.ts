@@ -236,9 +236,10 @@ lane(9, 'Reconvert with stable output identity', async (log) => {
   const patched = await convert(mainHtml, 'workspace.html', tree);
   (ADAPTER as { version: string }).version = saved;
   check(log, patched.manifest!.resultsVersion === rv, 'same resultsVersion after a producer patch release');
-  // disposable reflink copy of the case folder (never hardlinks); writes go only into the copy
+  // disposable reflink copy of the case folder (never hardlinks); writes go only into the copy. The copy takes default
+  // modes (--no-preserve=mode), so it is writable when the case folder is read-only (files 0444); the source keeps its own.
   const copy = path.join(work, 'case-copy');
-  const cp = spawnSync('cp', ['-r', '--reflink=auto', tree, copy]);
+  const cp = spawnSync('cp', ['-r', '--reflink=auto', '--no-preserve=mode', tree, copy]);
   check(log, cp.status === 0, 'disposable reflink copy of the case folder');
   await writeFile(path.join(copy, 'unrelated file.txt'), 'not referenced');
   const unrelated = await convert(mainHtml, 'workspace.html', copy);

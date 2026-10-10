@@ -112,11 +112,12 @@ describe('register files must be committed review inputs', () => {
 		expect(ignored.evidenceNote).toBe('NOT release evidence: register files the run read that the reviewed commit does not hold: docs/reference/parity/register/CC-10.json (ignored)');
 	});
 	test('a parity module found by listing its folder and hidden by the committed .env.* rule: not evidence', async () => {
-		const { moduleFiles } = await import('../../scripts/parity/lib/modules.mjs');
 		writeFileSync(join(synth, 'scripts', 'parity', 'adapters', 'app', '.env.local.mjs'), 'export default {};\n');
 		expect(g('status', '--porcelain')).toBe('');
-		// the app adapter loader lists it, so the runner would import it
-		expect(moduleFiles(join(synth, 'scripts', 'parity', 'adapters', 'app'))).toContain(join(synth, 'scripts', 'parity', 'adapters', 'app', '.env.local.mjs'));
+		expect(record('', 'modules')).toMatchObject({ fresh: true, evidence: false });
 		expect(record('', 'modules').evidenceNote).toContain('parity modules loaded by file name that the reviewed commit does not hold: scripts/parity/adapters/app/.env.local.mjs (ignored)');
+		// the app adapter loader lists it, so the runner would import it
+		const { moduleFiles } = await import('../../scripts/parity/lib/modules.mjs');
+		expect(moduleFiles(join(synth, 'scripts', 'parity', 'adapters', 'app'))).toContain(join(synth, 'scripts', 'parity', 'adapters', 'app', '.env.local.mjs'));
 	});
 });

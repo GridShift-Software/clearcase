@@ -34,6 +34,10 @@
 	.an-stack tr { border: 1px solid #ddd; border-radius: 6px; margin: .5rem; padding: .3rem .5rem; background: #fff; }
 	.an-stack td { border: 0; padding: .2rem 0; text-align: left; overflow-wrap: anywhere; }
 	.an-stack td.num { white-space: normal; }
+	/* Imported values (badges, citation chips, explanations, phase notes, narrative) wrap or break on a phone instead
+	   of pushing the page sideways; desktop widths keep badges and chips on one line, as v5 does. */
+	main[data-analysis] { overflow-wrap: anywhere; }
+	main[data-analysis] :is(.badge, .chips a.cite, .chips .cite-broken) { white-space: normal; max-width: 100%; }
 	.an-stack td[data-label]::before { content: attr(data-label); display: block; font-size: .78em; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: #555; }
 	.an-scroll { overflow-x: visible; }
 	/* The shared shell keeps its 15rem navigation column at every width, which leaves a phone too little room. On an

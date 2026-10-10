@@ -310,6 +310,30 @@ try {
 		const c2 = await snap();
 		return { pass: /as-of date 2026-10-08 \(today\)/.test(a.presc) && /^.*2 of 4 rows have a prescription date on or before/m.test(a.presc) && /"R 10 493.90"/.test(a.interest) && J(a) === J(b2) && J(a) === J(c2), evidence: { a, same: J(a) === J(b2), sameAfterRestart: J(a) === J(c2) } };
 	});
+	// ---- optional: synthetic screenshots of the product-visible changes (QUANTUM_SCREENS=<dir>; not a scenario) ---------
+	if (process.env.QUANTUM_SCREENS) {
+		mkdirSync(process.env.QUANTUM_SCREENS, { recursive: true });
+		const shot = async (name, path, view, act) => {
+			await k.open(path, view);
+			if (act) await act();
+			await sleep(150);
+			const r = await p.s('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+			writeFileSync(join(process.env.QUANTUM_SCREENS, `${name}.png`), Buffer.from(r.data, 'base64'));
+		};
+		await p.s('Emulation.setDeviceMetricsOverride', { width: 1400, height: 1000, deviceScaleFactor: 1, mobile: false });
+		await shot('quantum-reconcile-flag', route('quantum_tab'), 'quantum_tab');
+		await shot('invoice-ledger-heading', route('invoice_ledger_tab'), 'invoice_ledger_tab');
+		await shot('prescription-arithmetic', route('prescription_tab'), 'prescription_tab');
+		await shot('prescription-filter-in-url', `${route('prescription_tab')}?risk=Not+yet+due+to+prescribe`, 'prescription_tab');
+		await shot('interest-default-and-note', route('interest_calc_tab'), 'interest_calc_tab');
+		await shot('interest-reversed-refused', `${route('interest_calc_tab')}?p=100000&r=10&m=Simple&from=2094-01-10&to=2093-01-10`, 'interest_calc_tab');
+		await shot('interest-separated-capital', `${route('interest_calc_tab')}?p=100%20000&r=10&m=Simple&from=2004-02-03&to=2005-02-03`, 'interest_calc_tab');
+		await shot('payments-net-claim', route('payments_tab'), 'payments_tab');
+		await shot('payments-refused-amount', route('payments_tab'), 'payments_tab', async () => { await k.fill([['#pay_amount', 'Synthetic entry 1']]); await k.click('#pay-add'); await p.waitFor(`!!document.getElementById('pay-error')`, 15000); });
+		await shot('settlement-net-prefill-and-reset', route('settlement_tab'), 'settlement_tab');
+		await shot('settlement-separated-claim', `${route('settlement_tab')}?claim=1%20000%20000`, 'settlement_tab');
+		await shot('heading-focus-after-nav', '/overview', 'overview', async () => { await p.evaluate(`document.getElementById('nav-payments_tab').click()`); await p.waitFor(`${ready('payments_tab')} && document.activeElement?.hasAttribute('data-page-heading')`, 20000); });
+	}
 } catch (e) {
 	results.push({ id: 'Q-SETUP', view: 'quantum_tab', title: 'suite setup', pass: false, evidence: { error: String(e?.stack ?? e).slice(0, 3000) } });
 	console.log(`FAIL    Q-SETUP ${String(e?.message ?? e).slice(0, 300)}`);

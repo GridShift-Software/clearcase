@@ -186,7 +186,8 @@ try {
 				const fits = m.docScroll <= m.innerWidth && m.mainScroll <= m.mainClient + 1 && m.over === 0 && m.longValues > 0;
 				const layout = narrow ? m.tableDisplay.every((d) => d === 'block') : m.tableDisplay.every((d) => d === 'table');
 				out.widths[`${view}@${w}`] = { ...m, fits, layout };
-				if (!(narrow ? fits && layout : layout)) ok = false;
+				// at 1280 px a table may scroll inside its card, but the page itself never scrolls sideways
+				if (!(narrow ? fits && layout : layout && m.docScroll <= m.innerWidth)) ok = false;
 			}
 		}
 		await p.viewport(320);
@@ -327,11 +328,11 @@ try {
 			const failed = { problems: await infoProblems(), marks: await rowMarks(), shown: await infoState() };
 			await A.start();
 			await retry('Invented item B');
-			await saved();
+			const settledFirst = await saved().then(() => true, () => false);
 			await sleep(300);
 			const oneRetried = { problems: await infoProblems(), marks: await rowMarks(), shown: await infoState(), rows: infoRows() };
 			await retry('Invented item A');
-			await saved();
+			const settledSecond = await saved().then(() => true, () => false);
 			await sleep(300);
 			const after = { rows: infoRows(), error: await p.evaluate(`!!document.querySelector('#info-error')`) };
 			await p.goto(V(vid, 'info_required_tab'), L.ready('info_required_tab'));
@@ -340,6 +341,7 @@ try {
 				start: J(shownBefore) === J([[true, true], [false, false], [true, true]]),
 				bothFailuresNamedWithRetry: failed.problems.length === 2 && names(failed.problems, 'Invented item A') && names(failed.problems, 'Invented item B') && /\(not done: Invented item A\)/.test(failed.problems[0].text) && failed.problems.every((x) => /could not be reached/.test(x.text)),
 				bothRowsMarkedUnsaved: J(failed.marks) === J(['unsaved', 'unsaved', null]) && J(failed.shown) === J([[false, false], [true, true], [true, true]]),
+				noRowLeftBusy: settledFirst && settledSecond,
 				retryOfOneKeepsTheOther: oneRetried.problems.length === 1 && names(oneRetried.problems, 'Invented item A') && J(oneRetried.marks) === J(['unsaved', null, null]) && J(oneRetried.shown) === J(failed.shown),
 				retryOfOneSavesOnlyIt: doneOf(oneRetried.rows, 'Invented item B') === true && doneOf(oneRetried.rows, 'Invented item A') === true,
 				secondRetrySaves: doneOf(after.rows, 'Invented item A') === false && doneOf(after.rows, 'Invented item B') === true && after.rows.length === before.length && !after.error,
@@ -358,7 +360,7 @@ try {
 			await errorNames('Invented item C');
 			await A.start();
 			await p.click('#info-table tbody tr:nth-child(1) input[type=checkbox]');
-			await saved();
+			const settled = await saved().then(() => true, () => false);
 			await sleep(300);
 			const mid = { problems: await infoProblems(), marks: await rowMarks(), shown: await infoState(), rows: infoRows() };
 			// a reload shows what is stored: A saved, C as stored (its unsaved choice is not shown as saved)
@@ -366,11 +368,12 @@ try {
 			const reloaded = { shown: await infoState(), error: await p.evaluate(`!!document.querySelector('#info-error')`) };
 			// choosing C again with the server up saves it; a reload shows it
 			await p.click('#info-table tbody tr:nth-child(3) input[type=checkbox]');
-			await saved();
+			await saved().catch(() => {});
 			await p.goto(V(vid, 'info_required_tab'), L.ready('info_required_tab'));
 			const final = { shown: await infoState(), rows: infoRows() };
 			const checks = {
 				start: J(shownBefore) === J([[false, false], [true, true], [true, true]]),
+				noRowLeftBusy: settled,
 				otherSaveSaved: doneOf(mid.rows, 'Invented item A') === true,
 				failedKeepsErrorAndRetry: mid.problems.length === 1 && names(mid.problems, 'Invented item C') && /\(not done: Invented item C\)/.test(mid.problems[0].text),
 				failedRowMarkedUnsaved: J(mid.marks) === J([null, null, 'unsaved']) && J(mid.shown) === J([[true, true], [true, true], [false, false]]),

@@ -14,6 +14,8 @@
 .an-scroll { overflow-x: auto; }
 .an-table { width: 100%; }
 .an-table th, .an-table td { overflow-wrap: break-word; }
+/* v5's table headings are upper case (.tbl th, text-transform); copied, as a cosmetic v5 behaviour. */
+.an-table th { text-transform: uppercase; letter-spacing: .04em; }
 .an-table td.num, .an-table th.num { white-space: nowrap; }
 .badge { display: inline-block; padding: 0 .4em; border-radius: 3px; font-size: .85em; font-weight: 600; background: #eceff3; color: #333; white-space: nowrap; }
 .badge.b-dang { background: #fde8e8; color: #8a1010; }

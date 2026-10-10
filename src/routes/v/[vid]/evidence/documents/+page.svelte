@@ -5,7 +5,7 @@
 	import DegradedRows from '$lib/components/DegradedRows.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { docPath } from '$lib/local-case/model';
-	import { dateCell, docLabel, n, statusLabel } from '$lib/views/evidence/common';
+	import { MAX_TEXT, dateCell, docLabel, n, statusLabel } from '$lib/views/evidence/common';
 	let { data } = $props();
 	const vid = $derived(data.version.id);
 	const m = $derived(data.model);
@@ -28,11 +28,13 @@
 	<PageHeader heading="Documents" section="Documents" caseName={data.version.titleName} subtitle="{n(data.total)} documents · by bundle then type" />
 	<DegradedRows failed={data.failed} />
 	{#if m.unknownBundle}<p class="warning" id="unknown-bundle">The requested bundle is not in this results version; the first bundle is shown.</p>{/if}
+	{#if m.filterTooLong}<p class="warning" id="filter-too-long">The filter is longer than {MAX_TEXT} characters, so it was not applied: every document of the bundle is shown.</p>{/if}
+	{#if m.pageNotice}<p class="warning" id="page-notice">{m.pageNotice}</p>{/if}
 	<div class="toolbar" role="group" aria-label="Bundle and filter">
-		{#each m.bundles as b (b.name)}
-			<button type="button" class={b.name === m.bundle ? 'primary' : 'sec'} aria-pressed={b.name === m.bundle} onclick={() => go({ bundle: b.name, page: 1 })}>{b.name} ({b.count})</button>
+		{#each m.bundles as b (b.value)}
+			<button type="button" class={b.name === m.bundle ? 'primary' : 'sec'} aria-pressed={b.name === m.bundle} data-bundle={b.value} onclick={() => go({ bundle: b.value, page: 1 })}>{b.label} ({b.count})</button>
 		{/each}
-		<input class="in" id="doc-filter" placeholder="Filter in bundle" aria-label="Filter in bundle" bind:value={q} oninput={() => go({ q, page: 1 })} />
+		<input class="in" id="doc-filter" placeholder="Filter in bundle" aria-label="Filter in bundle" maxlength={MAX_TEXT} bind:value={q} oninput={() => go({ q, page: 1 })} />
 	</div>
 	<div class="toolbar types" id="doc-types">{#each m.types as t (t.type)}<span class="badge">{t.type}: {t.count}</span>{/each}</div>
 	<p class="note" id="doc-order">Ordered by type, then date (undated first). Types are imported classifications and have not been verified.</p>

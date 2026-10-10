@@ -461,7 +461,7 @@
       "when": {
         "v5": "<absent>",
         "app": {
-          "re": "^Search reads file names, refs, subjects, senders, recipients and the indexed text excerpt .+, not the full text\\. .+$"
+          "re": "^Search reads file names, refs, subjects, senders, To recipients and the indexed text excerpt .+, not the full text\\. Cc recipients are searched only through Sender contains\\. .+$"
         }
       },
       "type": "improvement",

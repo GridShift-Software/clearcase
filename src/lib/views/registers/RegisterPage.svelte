@@ -102,8 +102,10 @@
 	let confirmedDelete: string | null = null;
 	const remove: SubmitFunction = ({ formData, cancel, formElement }) => {
 		const id = String(formData.get('rowId'));
-		// deleting the entry being edited discards the form's input: ask first when it is unsaved
-		if (id === editing && unsaved && confirmedDelete !== id) { cancel(); ask = { what: question(), go: () => { confirmedDelete = id; formElement.requestSubmit(); } }; return; }
+		// deleting the entry being edited discards the form's input: ask first when it is unsaved (an emptied form, which
+		// the emptied-edit message sends to Delete, holds nothing to lose)
+		const typed = reg.fields.some((f) => values[f.k] && !(f.type === 'select' && f.placeholder === undefined));
+		if (id === editing && unsaved && typed && confirmedDelete !== id) { cancel(); ask = { what: question(), go: () => { confirmedDelete = id; formElement.requestSubmit(); } }; return; }
 		confirmedDelete = null;
 		deleting = id;
 		return async ({ result }) => {

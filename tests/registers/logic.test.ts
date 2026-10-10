@@ -78,6 +78,8 @@ describe('entries', () => {
 		expect(invalidReason(ts, entryFrom(ts, { date: '2026-02-30' }))).toMatch(/Date/);
 		expect(invalidReason(dl, entryFrom(dl, { title: 'x', date: '2026-10-09', cat: '' }))).toMatch(/Category/);
 		expect(invalidReason(ts, entryFrom(ts, { date: '2026-10-09', billed: 'no' }))).toBeNull();
+		// a submitted textarea's CRLF (multipart and urlencoded alike) is stored as the LF the user typed
+		expect(entryFrom(REGISTERS.annotations_tab, { note: 'one\r\ntwo\rthree\nfour', ref: 'a\r\nb' })).toEqual({ ref: 'a\r\nb', date: '', note: 'one\ntwo\nthree\nfour' });
 	});
 });
 

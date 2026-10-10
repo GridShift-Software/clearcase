@@ -72,6 +72,8 @@ try {
 	const V = vpath(rv);
 	b = await launch({ profileRoot: join(tmp, 'profile') });
 	const p = await page(b, A.origin);
+	// BUNDLES_SHOT_DIR: save synthetic screenshots of the product-visible changes (for the report; synthetic data only)
+	const shot = async (name) => { const dir = process.env.BUNDLES_SHOT_DIR; if (!dir) return; mkdirSync(dir, { recursive: true }); const { data } = await p.s('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false }); writeFileSync(join(dir, `${name}.png`), Buffer.from(data, 'base64')); };
 	const D = `${V}/bundles/discovery_tab`, C = `${V}/bundles/caselines_tab`, B = `${V}/bundles/court_bundle_tab`;
 	const marks = () => A.work('SELECT case_id, locator, selected, co FROM bundles_schedule_mark ORDER BY locator');
 	const chip = (fn) => `#ds-list .ds-chip[data-key$=${JSON.stringify('/' + fn)}] input[type=checkbox]`;
@@ -80,6 +82,7 @@ try {
 	await S('DS-TITLE', 'discovery_tab', 'Discovery Schedule: document title, heading, focus on the heading after sidebar navigation', () => titleAndFocus(p, V, 'discovery_tab', 'Discovery Schedule'));
 	await S('DS-SOURCE', 'discovery_tab', 'scenario 1: the schedule matches its source rows, order and counts; an unindexed file is not served; an item without files is marked (BA-10)', async () => {
 		await p.go(D, 'discovery_tab');
+		await shot('discovery-not-served');
 		const r = await p.evaluate(`({ items: [...document.querySelectorAll('#ds-list tr[data-item]')].map((t) => t.querySelector('.ds-no').textContent.trim()), info: document.getElementById('ds-info').textContent.replace(/\\s+/g, ' ').trim(), notServed: document.querySelectorAll('#ds-list .not-served').length, none: document.querySelector('#ds-list .ds-none')?.textContent.trim(), unmatched: document.getElementById('ds-missing').closest('label').textContent.trim(), links: [...document.querySelectorAll('#ds-list .ds-chip a')].map((a) => a.getAttribute('href')) })`);
 		return { pass: r.items.join(',') === '1.,2.,3.' && /3 items · 3 files linked · 1 not in the verified index · uncertified$/.test(r.info) && r.notServed === 1 && r.none === 'No separate document on file — see coverage note' && r.unmatched === 'Only unmatched (1)' && r.links.every((h) => h.startsWith(`${V}/doc/`)), evidence: r };
 	});
@@ -107,6 +110,7 @@ try {
 		await p.click('#ds-build');
 		await p.waitFor(`document.getElementById('ds-bundle')`);
 		const warn = await p.text('#ds-incomplete');
+		await shot('discovery-incomplete-selection');
 		await p.click('#ds-dlindex');
 		await sleep(200);
 		const idx = text((await p.downloads())[0]);
@@ -196,6 +200,7 @@ try {
 	await S('CL-MISSING-TEXT', 'caselines_tab', 'scenario 8 and BA-08: the page without text is disclosed with counts derived from the index', async () => {
 		await p.go(C, 'caselines_tab');
 		const t = await p.text('#cl-coverage');
+		await shot('caselines-coverage');
 		return { pass: t === 'Search covers the page-text index only: 3 pages indexed of 3, 1 without text (p.2). Words on pages without text, and in images, are not found.', evidence: { t } };
 	});
 	await S('CL-LARGE', 'caselines_tab', 'scenario 9: the CaseLines original resolves by exact path and opens through the document page (two clicks, the isolated viewer at the page)', async () => {
@@ -228,6 +233,7 @@ try {
 		const { nodeId } = await p.s('DOM.querySelector', { nodeId: root.nodeId, selector: '#cl-file' });
 		await p.s('DOM.setFileInputFiles', { nodeId, files: [file] });
 		await p.waitFor(`[...document.querySelectorAll('#cl-docs li')].some((l) => l.textContent.includes('upload.txt'))`);
+		await shot('caselines-upload-download-only');
 		const up = await p.evaluate(`(() => { const l = [...document.querySelectorAll('#cl-docs li')].find((x) => x.textContent.includes('upload.txt')); return { links: [...l.querySelectorAll('a')].map((a) => [a.textContent.trim(), a.hasAttribute('download')]), path: location.pathname }; })()`);
 		const rows = A.work("SELECT count(*) n FROM register_row WHERE store = 'caselines-links'")[0].n;
 		return { pass: during.value === '/DISCOVERY A/OD-003 Scan.pdf' && during.rows === 0 && rows === 2 && /^📄 OD-003 Scan\.pdf \(linked\)OpenDownloadRemove$/.test(list[0]) && /x\.pdf \(linked\)not in the verified index; not servedRemove$/.test(list[1]) && JSON.stringify(up.links) === '[["Download",true]]' && up.path === C, evidence: { during, list, up, rows } };
@@ -237,10 +243,12 @@ try {
 	await S('CB-TITLE', 'court_bundle_tab', 'Court Bundle: document title, heading, focus on the heading after sidebar navigation', () => titleAndFocus(p, V, 'court_bundle_tab', 'Court Bundle'));
 	await S('CB-LIST', 'court_bundle_tab', 'list view: counts, statuses, unindexed bundle PDFs named but not served, builder explicitly not available', async () => {
 		await p.go(B, 'court_bundle_tab');
+		await shot('court-bundle-list');
 		const rows = await p.evaluate(`[...document.querySelectorAll('#cb-list tbody tr')].map((r) => [...r.cells].map((c) => c.textContent.replace(/\\s+/g, ' ').trim()).join('|'))`);
 		await p.click('#cb-build');
 		await p.waitFor(`document.getElementById('cb-builder-state')`);
 		const state = await p.text('#cb-builder-state');
+		await shot('court-bundle-builder-unavailable');
 		return { pass: rows.length === 2 && /^1\|Bundle AInvented\|1\|2\|complete\|Open Bundle PDF Index PDF Word$/.test(rows[0]) && /^2\|Bundle B\|1\|2\|complete\|Open Bundle PDF \(not in the verified index; not served\) Index PDF \(not in the verified index; not served\) Word$/.test(rows[1]) && /not available in this version/.test(state), evidence: { rows, state } };
 	});
 	await S('CB-HEADER', 'court_bundle_tab', 'header: a busy store keeps all eight typed fields and writes nothing; retry saves one row; restore and clear; the index and Word export use it (scenario 5)', async () => {
@@ -254,8 +262,8 @@ try {
 			during = { kept: await p.evaluate(`${JSON.stringify(Object.keys(vals))}.every((k) => document.getElementById('cbh_' + k).value === ${JSON.stringify(vals)}[k])`), rows: A.work("SELECT count(*) n FROM register_row WHERE store = 'bundle-header'")[0].n };
 		});
 		await p.click('#cb-save');
-		await p.idle();
-		await p.waitFor(`!document.getElementById('cb-error')`);
+		await p.waitFor(`!document.getElementById('cb-error') && document.querySelector('#main').dataset.busy === '0'`, 30000);
+		for (let i = 0; i < 100 && !A.work("SELECT count(*) n FROM register_row WHERE store = 'bundle-header'")[0].n; i++) await sleep(50);
 		const saved = A.work("SELECT fields FROM register_row WHERE store = 'bundle-header'");
 		await p.go(`${B}?b=2&tab=index`, 'court_bundle_tab');
 		const head = await p.evaluate(`[...document.querySelectorAll('#cbindexdoc > p')].map((x) => x.textContent.trim()).filter((x) => x && x !== '\\u00a0')`);
@@ -267,10 +275,10 @@ try {
 		const dtext = doc ? docxText(Buffer.from(doc.base64, 'base64')) : '';
 		await p.go(B, 'court_bundle_tab');
 		await p.click('#cb-clear');
-		await p.idle();
+		await p.waitFor(`document.getElementById('cbh_court').value === '' && !!document.querySelector('#cb-header .meta b')`, 30000);
 		const cleared = await p.evaluate(`document.getElementById('cbh_court').value + '|' + document.querySelector('#cb-header .meta b')?.textContent`);
 		await p.click('#cb-restore');
-		await p.idle();
+		await p.waitFor(`document.getElementById('cbh_court').value !== ''`, 30000);
 		const restored = await p.evaluate(`document.getElementById('cbh_court').value`);
 		const left = A.work("SELECT count(*) n FROM register_row WHERE store = 'bundle-header'")[0].n;
 		return {
@@ -291,7 +299,7 @@ try {
 		await p.go(B, 'court_bundle_tab');
 		await p.evaluate(`(() => { const e = document.getElementById('cbh_caseNo'); e.value = '9/2001'; e.dispatchEvent(new Event('input', { bubbles: true })); })()`);
 		await p.click('#cb-save');
-		await p.idle();
+		for (let i = 0; i < 100 && !A.work("SELECT fields FROM register_row WHERE store = 'bundle-header'").some((r) => JSON.parse(r.fields).caseNo === '9/2001'); i++) await sleep(50);
 		const snap = () => ({ marks: A.work('SELECT * FROM bundles_schedule_mark ORDER BY case_id, locator'), regs: A.work("SELECT row_id, store, fields FROM register_row WHERE store IN ('bundle-header', 'caselines-links', 'discovery-mode') ORDER BY row_id") });
 		const s0 = JSON.stringify(snap());
 		await A.srv.stop('SIGKILL');

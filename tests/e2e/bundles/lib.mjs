@@ -31,7 +31,7 @@ export async function page(b, origin) {
 	p.count = (sel) => p.evaluate(`document.querySelectorAll(${JSON.stringify(sel)}).length`);
 	/** Downloads since the last call: name and UTF-8 text (or base64 for binary). */
 	p.downloads = () => p.evaluate(`Promise.all(window.__cc.downloads.splice(0).map(async (d) => { const u = new Uint8Array(await d.blob.arrayBuffer()); let bin = ''; for (let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode(...u.subarray(i, i + 0x8000)); return { name: d.name, size: u.length, base64: btoa(bin) }; }))`);
-	p.idle = () => p.waitFor(`document.querySelector('#main')?.dataset.pending !== undefined ? document.querySelector('#main').dataset.pending === '0' : document.querySelector('#main')?.dataset.busy !== '1'`, 30000);
+	p.idle = async () => { await sleep(120); return p.waitFor(`document.querySelector('#main')?.dataset.pending !== undefined ? document.querySelector('#main').dataset.pending === '0' : document.querySelector('#main')?.dataset.busy !== '1'`, 30000); };
 	return p;
 }
 export const text = (d) => Buffer.from(d.base64, 'base64').toString('utf8');

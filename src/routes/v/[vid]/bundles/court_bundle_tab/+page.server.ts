@@ -51,7 +51,8 @@ export const actions: Actions = {
 	header: async ({ request, params }) => {
 		const c = versionCase(params.vid); if (!c) return fail(404, { message: 'Unknown results version' });
 		const f = await request.formData();
-		const values = Object.fromEntries(HEADER_KEYS.map((k) => [k, String(f.get(k) ?? '').slice(0, MAX_FIELD)]));
+		// multipart form data sends line ends as CRLF; v5 stores a textarea's value with LF
+		const values = Object.fromEntries(HEADER_KEYS.map((k) => [k, String(f.get(k) ?? '').replace(/\r\n?/g, '\n').slice(0, MAX_FIELD)]));
 		return guarded(values, async () => { await putSingle(c, HEADER_STORE, values); return { saved: true }; });
 	},
 	/** Restore matter defaults: the stored header is removed, so the imported defaults show (v5 cbHdrReset). */

@@ -4,7 +4,10 @@
 //  * Every document with an indexed excerpt can be chosen (S-hoa_diff_tab-1, corrected: v5 offered the first 1,200).
 //  * Only the indexed excerpts are compared (S-hoa_diff_tab-2): the page discloses each side's excerpt length and text
 //    status (BA-06, BA-08); full-text comparison waits for a full-text rebuild.
-//  * The diff is v5's: an LCS over whitespace-kept word tokens, or over lines, deletions before insertions.
+//  * The diff is v5's: an LCS over whitespace-kept word tokens, or over lines, deletions before insertions. Its table
+//    has one cell per pair of tokens and runs on the server, so a pair above MAX_CELLS is refused with a message (D10).
+//  * The pair is resolved against the candidates, as the selects are: a ref that is not a document, or names one
+//    without an excerpt, is said and not compared (D11).
 import type { ChronologyListRow } from '../../local-case/model.ts';
 import { cleanName } from './common.ts';
 
@@ -30,8 +33,15 @@ export function lcsDiff(A: readonly string[], B: readonly string[], sep = ''): S
 	while (j < m) push('add', B[j++]!);
 	return out;
 }
-export const diffWords = (a: string, b: string) => lcsDiff(a.split(/(\s+)/), b.split(/(\s+)/));
-export const diffLines = (a: string, b: string) => lcsDiff(a.split(/\n/), b.split(/\n/), '\n');
+const words = (s: string) => s.split(/(\s+)/);
+const lines = (s: string) => s.split(/\n/);
+export const diffWords = (a: string, b: string) => lcsDiff(words(a), words(b));
+export const diffLines = (a: string, b: string) => lcsDiff(lines(a), lines(b), '\n');
+/**
+ * The largest LCS table compared (token pairs): about 16 MB and some tens of milliseconds. Today's excerpts (at most
+ * 500 characters, so at most about 500 tokens a side, 250,000 pairs) stay far below it.
+ */
+export const MAX_CELLS = 4_000_000;
 
 export interface Candidate { ref: string; label: string }
 /** Every document with an excerpt, in register order, labelled as v5 does ('ref · clean file name'). */
@@ -40,17 +50,31 @@ export const candidates = (rows: readonly ChronologyListRow[]): Candidate[] => r
 export interface Side { ref: string; name: string; chars: number; textStatus: string }
 export type Comparison =
 	| { kind: 'none' }
-	| { kind: 'pick' }
+	| { kind: 'pick'; reasons: string[] }
+	| { kind: 'too-long'; mode: 'words' | 'lines'; a: Side; b: Side; cells: number }
 	| { kind: 'diff'; mode: 'words' | 'lines'; a: Side; b: Side; same: boolean; segments: Segment[] };
 
-/** Compare the chosen pair (v5 runDiff): both refs must name a document of the version, else 'Pick two documents.'. */
+/** Compare the chosen pair (v5 runDiff): both refs must name a candidate (a document with an excerpt), else 'Pick two
+ *  documents.', with the reason for a ref that is chosen but cannot be compared. */
 export function compare(rows: readonly ChronologyListRow[], a: string | null, b: string | null, mode: string | null, submitted: boolean): Comparison {
 	if (!submitted) return { kind: 'none' };
 	const map = new Map<string, ChronologyListRow>();
 	for (const r of rows) map.set(r.ref, r);
-	const A = a ? map.get(a) : undefined, B = b ? map.get(b) : undefined;
-	if (!A || !B) return { kind: 'pick' };
+	const reasons: string[] = [];
+	const pick = (ref: string | null, label: string) => {
+		if (!ref) return undefined;
+		const r = map.get(ref);
+		if (!r) reasons.push(`Document ${label} “${ref.length > 40 ? `${ref.slice(0, 40)}…` : ref}” is not a document of this results version.`);
+		else if (!r.excerpt) reasons.push(`Document ${label} ${ref} has no indexed excerpt, so it cannot be compared.`);
+		else return r;
+		return undefined;
+	};
+	const A = pick(a, 'A'), B = pick(b, 'B');
+	if (!A || !B) return { kind: 'pick', reasons };
 	const m = mode === 'lines' ? 'lines' : 'words';
 	const side = (r: ChronologyListRow): Side => ({ ref: r.ref, name: cleanName(r.filename), chars: r.excerpt.length, textStatus: r.textStatus });
-	return { kind: 'diff', mode: m, a: side(A), b: side(B), same: A.ref === B.ref, segments: m === 'lines' ? diffLines(A.excerpt, B.excerpt) : diffWords(A.excerpt, B.excerpt) };
+	const split = m === 'lines' ? lines : words;
+	const ta = split(A.excerpt), tb = split(B.excerpt);
+	if (ta.length * tb.length > MAX_CELLS) return { kind: 'too-long', mode: m, a: side(A), b: side(B), cells: ta.length * tb.length };
+	return { kind: 'diff', mode: m, a: side(A), b: side(B), same: A.ref === B.ref, segments: m === 'lines' ? lcsDiff(ta, tb, '\n') : lcsDiff(ta, tb) };
 }

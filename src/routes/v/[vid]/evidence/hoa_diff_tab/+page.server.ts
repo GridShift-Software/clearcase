@@ -16,5 +16,6 @@ export const load: PageServerLoad = async ({ parent, url }) => {
 		chosen: { a: p.get('a') ?? '', b: p.get('b') ?? '', mode: p.get('mode') === 'lines' ? 'lines' : 'words' },
 		result: compare(ev.rows, p.get('a'), p.get('b'), p.get('mode'), p.has('a') || p.has('b')),
 		coverage: coverage(ev.rows),
+		failed: ev.failed,
 	};
 };

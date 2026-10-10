@@ -8,14 +8,15 @@
 // else the stamp of ./build, else the worktree itself (HEAD; a runner that builds nothing, such as CC-02's). It must be
 // HEAD, built from and run on a tree without modified or untracked (not ignored) files; otherwise exit 2 before the
 // runner starts, unless --allow-stale-build (the flag only; removed before the runner sees its arguments). The record,
-// with `evidence: false` and the reasons when stale or overridden, goes to <out>/build-evidence-CC-NN.json (--out,
-// else $CLEARCASE_REPORT_DIR/measure, else .local/measure), the runner gets CLEARCASE_BUILD_EVIDENCE=true|false, and
-// the final status line says NOT EVIDENCE when it is false.
+// with `evidence: false` and the reasons when stale or overridden, or when the runner file is not a committed review
+// input under scripts/ with HEAD's bytes (fresh-build.ts uncommittedInputs: ccNN.mjs is found by listing this
+// folder), goes to <out>/build-evidence-CC-NN.json (--out, else $CLEARCASE_REPORT_DIR/measure, else .local/measure),
+// the runner gets CLEARCASE_BUILD_EVIDENCE=true|false, and the final status line says NOT EVIDENCE when it is false.
 // This file only spawns and imports the typed fresh-build module, so `tsc --noEmit -p .` checks it cleanly.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { ALLOW_FLAG, allowStale, type BuildStamp, evidenceRecord, evidenceSuffix, freshLine, freshness, refusal } from '../../tests/e2e/pilot/lib/fresh-build.ts';
+import { ALLOW_FLAG, allowStale, type BuildStamp, evidenceRecord, evidenceSuffix, freshLine, freshness, notCommitted, readStamp, refusal } from '../../tests/e2e/pilot/lib/fresh-build.ts';
 
 const RUNNERS: Record<string, string> = {
 	'CC-02': 'scripts/case-package/measure.ts',
@@ -39,10 +40,10 @@ const opt = (n: string) => { const j = args.findIndex((a) => a === `--${n}` || a
 const candidate = opt('candidate');
 const stampFile = path.join(repo, 'build', 'clearcase-build.json');
 const resolved = candidate ? spawnSync('git', ['-C', repo, 'rev-parse', '--verify', `${candidate}^{commit}`], { encoding: 'utf8' }).stdout?.trim() || null : null;
-const stamp: BuildStamp | null = candidate ? { revision: resolved, dirty: false } : existsSync(stampFile) ? JSON.parse(readFileSync(stampFile, 'utf8')) : { revision: spawnSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout?.trim() || null, dirty: false };
+const stamp: BuildStamp | null = candidate ? { revision: resolved, dirty: false } : existsSync(stampFile) ? readStamp(path.join(repo, 'build')) : { revision: spawnSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout?.trim() || null, dirty: false };
 const fresh = freshness(repo, stamp, candidate || !existsSync(stampFile) ? {} : { buildDir: path.join(repo, 'build') });
 const allowed = allowStale(argv);
-const record = { ticket, runner, underTest: candidate ? `--candidate ${candidate}` : existsSync(stampFile) ? 'build/clearcase-build.json' : 'worktree (no build)', ...evidenceRecord(fresh, allowed) };
+const record = { ticket, runner, underTest: candidate ? `--candidate ${candidate}` : existsSync(stampFile) ? 'build/clearcase-build.json' : 'worktree (no build)', ...evidenceRecord(fresh, allowed, notCommitted('the measure runner', repo, [path.join(repo, runner)], { within: 'scripts' })) };
 const outArg = opt('out');
 const out = path.resolve(outArg ?? (process.env.CLEARCASE_REPORT_DIR ? path.join(process.env.CLEARCASE_REPORT_DIR, 'measure') : path.join(repo, '.local', 'measure')));
 mkdirSync(out, { recursive: true });

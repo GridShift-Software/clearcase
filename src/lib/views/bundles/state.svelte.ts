@@ -2,6 +2,3 @@
 // the schedule/bundle sub-view, the filter text and the only-unmatched flag survive navigating away and back within
 // the session, and are lost on reload. The mode is user work (stored).
 export const ds = $state({ view: 'schedule' as 'schedule' | 'bundle', q: '', onlyMissing: false });
-
-/** POST a form action with fetch and read its result; one write at a time, in order. */
-export interface Op { action: string; entries: [string, string][] }

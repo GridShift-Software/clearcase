@@ -3,10 +3,11 @@ import { app } from '$lib/local-case/app.server';
 import { datasetOf, viewContentOf, viewText } from '$lib/local-case/results.server';
 import { HEADER_FIELDS, HEADER_KEYS, bundlesOf, headerRaw } from '$lib/views/bundles/court';
 import { resolveLocator } from '$lib/views/bundles/links';
-import { bundlePathIndex } from '$lib/views/bundles/links.server';
-import { HEADER_STORE, deleteSingle, guarded, putSingle, singleRow } from '$lib/views/bundles/store.server';
+import { bundleDownloads, bundlePathIndex } from '$lib/views/bundles/links.server';
+import { HEADER_STORE, deleteSingle, guarded, putSingle, serial, singleHash, singleRow } from '$lib/views/bundles/store.server';
 import type { Actions, PageServerLoad } from './$types';
 
+/** Per header field; over it a save is refused with the field named and every typed field kept (never cut). */
 const MAX_FIELD = 2000;
 type Raw = { headerDefaults?: Record<string, unknown>; source?: unknown; indexSource?: unknown; caselinesSrc?: unknown };
 
@@ -29,6 +30,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const t = (f: string) => viewText(vc, 'court_bundle_tab', f);
 	const str = (v: unknown) => (typeof v === 'string' && v ? v : null);
 	const stored = singleRow(version.caseId, HEADER_STORE);
+	const refs = links.flatMap((l) => [l.file, l.indexFile, ...l.rows.flatMap((r) => [r.slice, ...r.parts, r.caselines])]).filter((r) => r !== null).map((r) => r.ref);
 	return {
 		present: raw !== null,
 		bundles, links,
@@ -41,28 +43,52 @@ export const load: PageServerLoad = async ({ parent }) => {
 		},
 		header: headerRaw(raw?.headerDefaults ?? {}, stored ? stored.fields : null),
 		headerStored: stored !== null,
+		// the fields-hash of the stored header, sent back with Save, Restore and Clear (refused when another tab changed it)
+		headerHash: singleHash(version.caseId, HEADER_STORE),
+		// the original's download link (attachment, nosniff, sandbox CSP from the originals site) per served ref
+		downloads: Object.fromEntries(await bundleDownloads(version.id, refs)),
 	};
 };
 
 const versionCase = (vid: string) => app().store.getVersion(vid)?.case_id ?? null;
+const CONFLICT = 'Not saved: the header was changed in another tab since this page loaded. Your typed fields are kept and the stored header is shown below; Retry saves yours over it, or use the stored header.';
+
+/**
+ * One header write in the header queue, refused (409) when the stored header's fields-hash is not the one the page
+ * loaded: the stored header and its hash come back, so the page keeps the typed fields and shows both.
+ */
+function headerWrite(vid: string, c: string, version: string, values: Record<string, string>, write: () => Promise<void>) {
+	return guarded(values, () => serial(c, HEADER_STORE, async () => {
+		const now = singleHash(c, HEADER_STORE);
+		if (version !== now) {
+			const raw = datasetOf<Raw>(app().store, vid, 'bundles');
+			return fail(409, { message: CONFLICT, values, stored: headerRaw(raw?.headerDefaults ?? {}, singleRow(c, HEADER_STORE)?.fields ?? null), version: now });
+		}
+		await write();
+		return { saved: true, version: singleHash(c, HEADER_STORE) };
+	}));
+}
+const versionOf = (f: FormData) => String(f.get('version') ?? '');
 
 export const actions: Actions = {
-	/** Save header: all eight fields (v5 cbHdrSave). */
+	/** Save header: all eight fields (v5 cbHdrSave); a field over MAX_FIELD is refused, never cut. */
 	header: async ({ request, params }) => {
 		const c = versionCase(params.vid); if (!c) return fail(404, { message: 'Unknown results version' });
 		const f = await request.formData();
 		// multipart form data sends line ends as CRLF; v5 stores a textarea's value with LF
-		const values = Object.fromEntries(HEADER_KEYS.map((k) => [k, String(f.get(k) ?? '').replace(/\r\n?/g, '\n').slice(0, MAX_FIELD)]));
-		return guarded(values, async () => { await putSingle(c, HEADER_STORE, values); return { saved: true }; });
+		const values = Object.fromEntries(HEADER_KEYS.map((k) => [k, String(f.get(k) ?? '').replace(/\r\n?/g, '\n')]));
+		const long = HEADER_FIELDS.find((x) => values[x.key]!.length > MAX_FIELD);
+		if (long) return fail(400, { message: `Not saved: “${long.label}” is ${values[long.key]!.length.toLocaleString('en')} characters; the limit is ${MAX_FIELD.toLocaleString('en')} per field. Your typed fields are kept.`, values, field: long.key });
+		return headerWrite(params.vid, c, versionOf(f), values, () => putSingle(c, HEADER_STORE, values));
 	},
 	/** Restore matter defaults: the stored header is removed, so the imported defaults show (v5 cbHdrReset). */
-	restore: async ({ params }) => {
+	restore: async ({ request, params }) => {
 		const c = versionCase(params.vid); if (!c) return fail(404, { message: 'Unknown results version' });
-		return guarded({}, async () => { await deleteSingle(c, HEADER_STORE); return { saved: true }; });
+		return headerWrite(params.vid, c, versionOf(await request.formData()), {}, () => deleteSingle(c, HEADER_STORE));
 	},
 	/** Clear all: every field stored empty, so placeholders print (v5 cbHdrClear). */
-	clear: async ({ params }) => {
+	clear: async ({ request, params }) => {
 		const c = versionCase(params.vid); if (!c) return fail(404, { message: 'Unknown results version' });
-		return guarded({}, async () => { await putSingle(c, HEADER_STORE, Object.fromEntries(HEADER_KEYS.map((k) => [k, '']))); return { saved: true }; });
+		return headerWrite(params.vid, c, versionOf(await request.formData()), {}, () => putSingle(c, HEADER_STORE, Object.fromEntries(HEADER_KEYS.map((k) => [k, '']))));
 	},
 };

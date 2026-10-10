@@ -44,3 +44,8 @@ export const linkedName = (path: string) => path.split('/').pop() || path;
 
 /** Upload list size label (v5 L3634). */
 export const sizeLabel = (bytes: number) => `${Math.round(bytes / 1024).toLocaleString('en')} KB`;
+
+/** A session upload's link (CC-09-r2 D1): an object URL of an application/octet-stream copy of the file, never of the
+ *  file's own type, so the browser only ever downloads it and never renders it on the app origin. */
+export const uploadBlob = (f: Blob) => new Blob([f], { type: 'application/octet-stream' });
+export const uploadUrl = (f: Blob) => URL.createObjectURL(uploadBlob(f));

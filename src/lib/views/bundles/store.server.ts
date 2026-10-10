@@ -6,6 +6,9 @@
 // - register store discovery-mode: one row {mode} (v5 ess_dcs_schedule_mode_v1).
 // - register store bundle-header: one row of the 8 index header fields (v5 ess_dcs_bundle_header_v2).
 // - register store caselines-links: {path, seq} per linked file (v5 ess_dcs_caselines_docs_v1).
+// Every write runs in one in-process queue per case and store (serial), re-reading what it changes just before it
+// writes; a form sends the fields-hash of what it loaded, and a write over another tab's change is refused (409).
+import { createHash } from 'node:crypto';
 import { fail, isHttpError } from '@sveltejs/kit';
 import { app } from '../../local-case/app.server.ts';
 import { UserWorkError, type RegisterRow, type RegisterValue } from '../../local-case/user-work.server.ts';
@@ -31,28 +34,75 @@ export async function readMarks(caseId: string): Promise<Mark[]> {
 	return app().userWork.listTableRows(MARK_TABLE, { caseId }).map((r) => ({ locator: String(r.locator), selected: Number(r.selected) === 1, co: r.co === 'C' || r.co === 'O' ? r.co : null }));
 }
 
-/** Set `selected` and/or `co` on each locator; a row with neither is deleted. */
-export async function writeMarks(caseId: string, locators: readonly string[], patch: { selected?: boolean; co?: CO }): Promise<void> {
-	const cur = new Map((await readMarks(caseId)).map((m) => [m.locator, m]));
-	const uw = app().userWork;
-	for (const locator of new Set(locators)) {
-		const old = cur.get(locator) ?? { locator, selected: false, co: null };
-		const next = { ...old, ...(patch.selected !== undefined ? { selected: patch.selected } : {}), ...(patch.co ? { co: patch.co } : {}) };
-		if (next.selected === old.selected && next.co === old.co && cur.has(locator)) continue;
-		if (!next.selected && !next.co) { if (cur.has(locator)) await uw.deleteTableRow(MARK_TABLE, { case_id: caseId, locator }, { owner: OWNER }); }
-		else await uw.putTableRow(MARK_TABLE, { case_id: caseId, locator, selected: next.selected ? 1 : 0, co: next.co }, { owner: OWNER });
-	}
+// One server process serves a data directory, so this queue orders every tab's CC-09 writes of a case and store. A
+// write outside it (a user-work restore, another process on the same store) is not ordered by it.
+const queues = new Map<string, Promise<unknown>>();
+/** Run `fn` after every earlier CC-09 write of the same case and store (a failed write does not block the queue). */
+export function serial<T>(caseId: string, store: string, fn: () => Promise<T>): Promise<T> {
+	const key = JSON.stringify([caseId, store]);
+	const run = (queues.get(key) ?? Promise.resolve()).then(fn);
+	const tail = run.then(() => undefined, () => undefined);
+	queues.set(key, tail);
+	void tail.then(() => { if (queues.get(key) === tail) queues.delete(key); });
+	return run;
 }
 
-/** Unselect every file (v5 Clear and Empty bundle), keeping the marks. */
-export async function clearSelection(caseId: string): Promise<void> {
-	await writeMarks(caseId, (await readMarks(caseId)).filter((m) => m.selected).map((m) => m.locator), { selected: false });
+/** The fields-hash a form sends back: of the stored fields, not updatedAt (which never changes under CLEARCASE_FIXED_NOW). */
+export const fieldsHash = (fields: unknown): string => createHash('sha256').update(JSON.stringify(fields ?? null)).digest('hex').slice(0, 24);
+
+/** One file of a mark action: its locator and, for a Copy/Original change, the mark this tab last saw stored. */
+export interface MarkChange { locator: string; base?: CO | null }
+export interface MarkResult { saved: string[]; conflicts: { locator: string; stored: CO | null }[] }
+/** A multi-file write a busy store interrupted after `saved` files were written (each file is its own transaction). */
+export class PartialWrite extends Error {
+	readonly saved: string[];
+	readonly reason: unknown;
+	constructor(saved: string[], reason: unknown) { super('partly saved'); this.saved = saved; this.reason = reason; }
+}
+
+/**
+ * Set `selected` or `co` on each locator, in the marks queue: the rows are re-read just before the write and only that
+ * column changes, so a tick and an O on one file both survive. A Copy/Original change on a file another tab set to the
+ * other mark since this tab saw it (stored is neither `base` nor the new mark) refuses the whole action, with nothing
+ * written (`conflicts`). The user-work API has no multi-row transaction for a defined table, so each file is its own
+ * transaction: a busy store part-way throws PartialWrite naming the files already written.
+ */
+export function writeMarks(caseId: string, changes: readonly MarkChange[], patch: { selected: boolean } | { co: CO }): Promise<MarkResult> {
+	return serial(caseId, MARK_TABLE, async () => {
+		const cur = new Map((await readMarks(caseId)).map((m) => [m.locator, m]));
+		const uw = app().userWork;
+		const seen = new Set<string>();
+		const list = changes.filter((c) => !seen.has(c.locator) && !!seen.add(c.locator));
+		if ('co' in patch) {
+			const conflicts = list.filter((c) => c.base !== undefined).map((c) => ({ locator: c.locator, stored: cur.get(c.locator)?.co ?? null, base: c.base }))
+				.filter((c) => c.stored !== c.base && c.stored !== patch.co).map(({ locator, stored }) => ({ locator, stored }));
+			if (conflicts.length) return { saved: [], conflicts };
+		}
+		const saved: string[] = [];
+		try {
+			for (const { locator } of list) {
+				const old = cur.get(locator) ?? { locator, selected: false, co: null };
+				const next = { ...old, ...patch };
+				if (next.selected !== old.selected || next.co !== old.co) {
+					if (!next.selected && !next.co) await uw.deleteTableRow(MARK_TABLE, { case_id: caseId, locator }, { owner: OWNER });
+					else await uw.putTableRow(MARK_TABLE, { case_id: caseId, locator, selected: next.selected ? 1 : 0, co: next.co }, { owner: OWNER });
+				}
+				saved.push(locator);
+			}
+		} catch (e) {
+			if (saved.length) throw new PartialWrite(saved, e);
+			throw e;
+		}
+		return { saved, conflicts: [] };
+	});
 }
 
 /** A one-row register store: its single row (the first by seq, then id), or null. */
 export function singleRow(caseId: string, store: string): RegisterRow | null {
 	return app().userWork.listRows(caseId, store)[0] ?? null;
 }
+/** The fields-hash of a one-row store as a form loads it ('' fields for no row). */
+export const singleHash = (caseId: string, store: string) => fieldsHash(singleRow(caseId, store)?.fields ?? null);
 export async function putSingle(caseId: string, store: string, fields: Record<string, RegisterValue>): Promise<void> {
 	const rows = app().userWork.listRows(caseId, store);
 	await app().userWork.putRow(caseId, store, rows[0]?.rowId ?? null, fields);
@@ -67,14 +117,28 @@ export const LINKS_STORE = 'caselines-links';
 export const HEADER_STORE = 'bundle-header';
 export const readMode = (caseId: string): Mode => (singleRow(caseId, MODE_STORE)?.fields.mode === 'supplementary' ? 'supplementary' : 'discovery');
 
+/** Add one CaseLines link in the links queue: its seq is computed there, so links saved together keep their order. */
+export const addLink = (caseId: string, path: string) => serial(caseId, LINKS_STORE, async () => {
+	const seq = Math.max(0, ...app().userWork.listRows(caseId, LINKS_STORE).map((r) => Number(r.fields.seq) || 0)) + 1;
+	return app().userWork.putRow(caseId, LINKS_STORE, null, { path, seq });
+});
+
+export const busyMessage = (e: unknown) => `the case store is busy (${isHttpError(e) ? e.body.message : 'locked'})`;
+
 /**
  * Run a user-work write for a form action. A busy store (503 after the store's retries) or a refused write returns
- * `fail` with the user's values, so the page keeps the input and shows the error; nothing is half-saved.
+ * `fail` with the user's values, so the page keeps the input and shows the error. A single write is one transaction,
+ * so it is saved or not; a multi-file write reports the files it saved (PartialWrite), never "Not saved" after a part.
  */
 export async function guarded<T>(values: Record<string, unknown>, fn: () => Promise<T>) {
 	try { return await fn(); }
 	catch (e) {
-		if (isHttpError(e) && e.status === 503) return fail(503, { message: `Not saved: the case store is busy (${e.body.message}). Your input is kept; try again.`, values });
+		if (e instanceof PartialWrite) {
+			// the store's own busy message says "nothing was written", which is true of that one file only
+			const why = isHttpError(e.reason) && e.reason.status === 503 ? 'the case store was busy (another process holds it)' : e.reason instanceof UserWorkError ? `a write was refused (${e.reason.message})` : 'a write failed';
+			return fail(503, { message: `Partly saved: ${e.saved.length} file${e.saved.length === 1 ? '' : 's'} saved, then ${why}. The rest are not saved; Retry saves them.`, saved: e.saved, values });
+		}
+		if (isHttpError(e) && e.status === 503) return fail(503, { message: `Not saved: ${busyMessage(e)}. Your input is kept; try again.`, values });
 		if (e instanceof UserWorkError) return fail(400, { message: `Not saved: ${e.message}`, values });
 		throw e;
 	}

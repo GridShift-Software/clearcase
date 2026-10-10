@@ -3,8 +3,8 @@ import { app } from '$lib/local-case/app.server';
 import { datasetOf, viewContentOf, viewText } from '$lib/local-case/results.server';
 import { MAX_QUERY, MAX_SHOWN, coverage, linkedName, linkedPath, searchPages, type PageText } from '$lib/views/bundles/caselines';
 import { locatorPath, resolveLocator } from '$lib/views/bundles/links';
-import { bundlePathIndex } from '$lib/views/bundles/links.server';
-import { LINKS_STORE as LINKS, guarded } from '$lib/views/bundles/store.server';
+import { bundleDownloads, bundlePathIndex } from '$lib/views/bundles/links.server';
+import { LINKS_STORE as LINKS, addLink, guarded, serial } from '$lib/views/bundles/store.server';
 import type { Actions, PageServerLoad } from './$types';
 
 
@@ -28,7 +28,10 @@ export const load: PageServerLoad = async ({ parent, url }) => {
 	const paths = bundlePathIndex(a.store, version.id);
 	const src = vc.text('caselines_tab', 'url');
 	const bundle = resolveLocator(paths, src, null);
-	const q = (url.searchParams.get('q') ?? '').slice(0, MAX_QUERY);
+	// a query over MAX_QUERY is refused visibly (qTooLong), never cut and searched
+	const qRaw = url.searchParams.get('q') ?? '';
+	const qTooLong = qRaw.length > MAX_QUERY;
+	const q = qTooLong ? '' : qRaw;
 	const hits = q.trim() && index.length ? searchPages(index, q) : null;
 	const links = a.userWork.listRows(version.caseId, LINKS)
 		.map((r) => ({ rowId: r.rowId, path: String(r.fields.path ?? ''), seq: Number(r.fields.seq) || 0 }))
@@ -45,6 +48,9 @@ export const load: PageServerLoad = async ({ parent, url }) => {
 		bundle,
 		cover: coverage(index, pages),
 		q,
+		qTooLong,
+		// the original's download link (attachment, nosniff, sandbox CSP from the originals site) per served ref
+		downloads: Object.fromEntries(await bundleDownloads(version.id, [...(bundle ? [bundle.ref] : []), ...links.flatMap((l) => (l.ref ? [l.ref] : []))])),
 		search: hits ? { total: hits.length, occurrences: hits.reduce((n, h) => n + h.count, 0), hits: hits.slice(0, MAX_SHOWN) } : null,
 		links,
 	};
@@ -59,17 +65,14 @@ export const actions: Actions = {
 		const path = linkedPath(raw);
 		if (!path) return { saved: false };
 		if (path.length > 2048 || locatorPath(encode(path)) !== path) return fail(400, { message: 'Not linked: give a path inside the case folder, such as Folder/File.pdf.', values: { path: raw } });
-		return guarded({ path: raw }, async () => {
-			const seq = Math.max(0, ...a.userWork.listRows(v.case_id, LINKS).map((r) => Number(r.fields.seq) || 0)) + 1;
-			await a.userWork.putRow(v.case_id, LINKS, null, { path, seq });
-			return { saved: true };
-		});
+		return guarded({ path: raw }, async () => { await addLink(v.case_id, path); return { saved: true }; });
 	},
 	unlink: async ({ request, params }) => {
 		const a = app();
 		const v = a.store.getVersion(params.vid);
 		if (!v) return fail(404, { message: 'Unknown results version' });
 		const id = String((await request.formData()).get('id') ?? '');
-		return guarded({ id }, async () => ({ saved: await a.userWork.deleteRow(v.case_id, LINKS, id) }));
+		// a link another tab already removed is gone either way: both intents agree
+		return guarded({ id }, () => serial(v.case_id, LINKS, async () => ({ saved: await a.userWork.deleteRow(v.case_id, LINKS, id) })));
 	},
 };

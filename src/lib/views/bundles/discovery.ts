@@ -58,12 +58,13 @@ export function selectedFiles(s: Record<Mode, readonly ScheduleItem[]>, sel: Rea
 
 /**
  * The cover page's C/O for one item (S-discovery_tab-2 corrected): from the user's marks on its files when any file
- * is marked (all C -> C, all O -> O, mixed -> C&O, an unmarked file counting as its own co), otherwise the data's
- * item co, so with no marks the cover equals v5's.
+ * is marked (all C -> C, all O -> O, mixed -> C&O), otherwise the data's item co, so with no marks the cover equals
+ * v5's. An unmarked file counts as its own co, else as the item's co (so marking one file of an Original item O keeps
+ * it O), else C. The chips keep v5's display default (fileCo).
  */
 export function coverCo(i: ScheduleItem, marks: ReadonlyMap<string, CO>): string {
 	if (!i.files.some((f) => marks.has(f.key))) return i.co || '';
-	const set = new Set(i.files.map((f) => fileCo(f, marks)));
+	const set = new Set(i.files.map((f) => marks.get(f.key) || f.co || i.co || 'C'));
 	return set.size > 1 ? 'C&O' : [...set][0]!;
 }
 

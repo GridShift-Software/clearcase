@@ -3,7 +3,13 @@
 import { desc, range, type Bundle, type Header } from './court.ts';
 import { storedZip } from './zip.ts';
 
-const x = (s: unknown) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+/**
+ * XML 1.0 text (CC-09-r2 D11): a vertical tab (Word's pasted manual line break) or a form feed becomes a space (a line
+ * break in the multi-line header fields, see lines()), other characters outside the XML Char range (C0 controls, U+FFFE,
+ * U+FFFF) are dropped and a lone surrogate becomes U+FFFD; then v5's cbX escape. The stored values stay as typed.
+ */
+export const xmlText = (s: unknown) => String(s ?? '').toWellFormed().replace(/[\u000B\u000C]/g, ' ').replace(/[\u0000-\u0008\u000E-\u001F\uFFFE\uFFFF]/g, '');
+const x = (s: unknown) => xmlText(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const RPR = '<w:rPr><w:rFonts w:ascii="Verdana" w:hAnsi="Verdana" w:cs="Arial"/><w:b/></w:rPr>';
 interface P { jc?: string; tabPos?: number; tabRight?: string; pageBreakBefore?: boolean }
 function p(text: string, o: P = {}): string {
@@ -16,7 +22,7 @@ function p(text: string, o: P = {}): string {
 	return `<w:p><w:pPr>${br}${tabs}<w:spacing w:line="276" w:lineRule="auto"/>${jc}${RPR}</w:pPr>${runs}</w:p>`;
 }
 const cell = (text: string, w: number, jc: string) => `<w:tc><w:tcPr><w:tcW w:w="${w}" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:line="360" w:lineRule="auto"/><w:jc w:val="${jc}"/>${RPR}</w:pPr>${text !== '' ? `<w:r>${RPR}<w:t xml:space="preserve">${x(text)}</w:t></w:r>` : ''}</w:p></w:tc>`;
-const lines = (t: string) => String(t ?? '').split(/\r?\n/);
+const lines = (t: string) => String(t ?? '').split(/\r?\n|[\u000B\u000C]/);
 const pml = (t: string, o: P = {}) => lines(t).map((l, i) => p(l, { ...o, pageBreakBefore: i === 0 && !!o.pageBreakBefore })).join('');
 const party = (name: string, role: string) => { const ls = lines(name); return p(ls[0] || '', { tabRight: role || '', tabPos: 9360 }) + ls.slice(1).map((l) => p(l)).join(''); };
 const BORDERS = '<w:top w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:left w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:bottom w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:right w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:insideH w:val="single" w:sz="4" w:space="0" w:color="auto"/><w:insideV w:val="single" w:sz="4" w:space="0" w:color="auto"/>';

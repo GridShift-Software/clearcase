@@ -10,12 +10,12 @@ const { tmpdir } = await import('node:os');
 const { join, resolve } = await import('node:path');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { recorder, outDir } = await import('../pilot/lib/record.mjs');
-const { launch, sleep } = await import('../pilot/lib/cdp.mjs');
+const { launch, newPage, sleep } = await import('../pilot/lib/cdp.mjs');
 const { buildCase, putOriginal, pdf, row, url } = await import('../pilot/lib/fixtures.ts');
 const { appServer } = await import('../pilot/suite/context.mjs');
 const { vpath } = await import('../pilot/lib/client.mjs');
 const { docxText } = await import('../../../scripts/parity/lib/exports.mjs');
-const { page, text, titleAndFocus, withBusyStore } = await import('./lib.mjs');
+const { holdStore, page, text, titleAndFocus, usableControls, withBusyStore } = await import('./lib.mjs');
 
 const ROOT = resolve(process.env.E2E_ROOT ?? join(import.meta.dirname, '..', '..', '..'));
 const BUILD = resolve(process.env.E2E_BUILD_DIR ?? join(ROOT, 'build'));
@@ -83,8 +83,8 @@ try {
 	await S('DS-SOURCE', 'discovery_tab', 'scenario 1: the schedule matches its source rows, order and counts; an unindexed file is not served; an item without files is marked (BA-10)', async () => {
 		await p.go(D, 'discovery_tab');
 		await shot('discovery-not-served');
-		const r = await p.evaluate(`({ items: [...document.querySelectorAll('#ds-list tr[data-item]')].map((t) => t.querySelector('.ds-no').textContent.trim()), info: document.getElementById('ds-info').textContent.replace(/\\s+/g, ' ').trim(), notServed: document.querySelectorAll('#ds-list .not-served').length, none: document.querySelector('#ds-list .ds-none')?.textContent.trim(), unmatched: document.getElementById('ds-missing').closest('label').textContent.trim(), links: [...document.querySelectorAll('#ds-list .ds-chip a')].map((a) => a.getAttribute('href')) })`);
-		return { pass: r.items.join(',') === '1.,2.,3.' && /3 items · 3 files linked · 1 not in the verified index · uncertified$/.test(r.info) && r.notServed === 1 && r.none === 'No separate document on file — see coverage note' && r.unmatched === 'Only unmatched (1)' && r.links.every((h) => h.startsWith(`${V}/doc/`)), evidence: r };
+		const r = await p.evaluate(`({ items: [...document.querySelectorAll('#ds-list tr[data-item]')].map((t) => t.querySelector('.ds-no').textContent.trim()), info: document.getElementById('ds-info').textContent.replace(/\\s+/g, ' ').trim(), notServed: document.querySelectorAll('#ds-list .not-served').length, none: document.querySelector('#ds-list .ds-none')?.textContent.trim(), unmatched: document.getElementById('ds-missing').closest('label').textContent.trim(), links: [...document.querySelectorAll('#ds-list .ds-chip a:not(.dl)')].map((a) => a.getAttribute('href')), dl: [...document.querySelectorAll('#ds-list .ds-chip a.dl')].map((a) => [a.textContent, a.getAttribute('href'), a.hasAttribute('download')]) })`);
+		return { pass: r.items.join(',') === '1.,2.,3.' && /3 items · 3 files linked · 1 not in the verified index · uncertified$/.test(r.info) && r.notServed === 1 && r.none === 'No separate document on file — see coverage note' && r.unmatched === 'Only unmatched (1)' && r.links.every((h) => h.startsWith(`${V}/doc/`)) && r.dl.length > 0 && r.dl.every(([t, h, d]) => t === 'Download' && h.startsWith(`${A.orig}/o/`) && h.endsWith('&download=1') && d), evidence: r };
 	});
 	await S('DS-ONE-CLICK', 'discovery_tab', 'S-discovery_tab-1: after three schedule switches one press of Download cover page gives exactly one download, named from view-content', async () => {
 		await p.go(D, 'discovery_tab');
@@ -313,6 +313,346 @@ try {
 		const shown = await p.evaluate(`document.getElementById('cbh_caseNo').value`);
 		return { pass: s0 === s1 && s1 === s2 && JSON.parse(s0).regs.length >= 3 && JSON.parse(s0).marks.length >= 1 && shown === '9/2001', evidence: { rows: JSON.parse(s0).regs.length + JSON.parse(s0).marks.length, shown } };
 	});
+
+	// ---- CC-09-r2 regressions ---------------------------------------------------------------------------------
+	const J = JSON.stringify;
+	const setVal = (pp, id, v) => pp.evaluate(`(() => { const e = document.getElementById(${J(id)}); e.value = ${J(v)}; e.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+	const val = (pp, id) => pp.evaluate(`document.getElementById(${J(id)}).value`);
+	const storedHeader = () => { const r = A.work("SELECT fields FROM register_row WHERE store = 'bundle-header'"); return r.length ? JSON.parse(r[0].fields) : null; };
+	const idleBusy = (pp, t = 30000) => pp.waitFor(`document.querySelector('#main')?.dataset.busy === '0'`, t);
+	const lower = (h) => Object.fromEntries(Object.entries(h ?? {}).map(([k, v]) => [k.toLowerCase(), String(v)]));
+	const safeHeaders = (h) => /^attachment/.test(h['content-disposition'] ?? '') && h['x-content-type-options'] === 'nosniff' && /(^|;)\s*sandbox/.test(h['content-security-policy'] ?? '');
+
+	await S('CL-UPLOAD-SAFE', 'caselines_tab', 'D1: a file added for the session (HTML, SVG with a script, HTML named .pdf), opened through its link in a new tab, never runs on the app origin: no title change, no console, it downloads', async () => {
+		await p.go(C, 'caselines_tab');
+		const RUN = "<script>document.title = 'RAN ' + location.origin; console.log('RAN ' + location.origin)</script>";
+		const files = { 'synthetic-upload.html': `<!doctype html><title>x</title>${RUN}`, 'synthetic-upload.svg': `<svg xmlns="http://www.w3.org/2000/svg"><script>document.title = 'RAN ' + location.origin</script></svg>`, 'synthetic-upload.pdf': `<!doctype html><title>x</title>${RUN}` };
+		for (const [n, c] of Object.entries(files)) writeFileSync(join(tmp, n), c);
+		const { root } = await p.s('DOM.getDocument');
+		const { nodeId } = await p.s('DOM.querySelector', { nodeId: root.nodeId, selector: '#cl-file' });
+		await p.s('DOM.setFileInputFiles', { nodeId, files: Object.keys(files).map((n) => join(tmp, n)) });
+		await p.waitFor(`${J(Object.keys(files))}.every((n) => [...document.querySelectorAll('#cl-docs li')].some((l) => l.textContent.includes(n)))`);
+		const out = [];
+		for (const n of Object.keys(files)) {
+			const a = await p.evaluate(`(() => { const l = [...document.querySelectorAll('#cl-docs li')].find((x) => x.textContent.includes(${J(n)})); const a = l.querySelector('a'); return { href: a.href, download: a.getAttribute('download'), text: a.textContent.trim() }; })()`);
+			const mk = b.mark();
+			const t = await newPage(b);
+			await t.navigate(a.href, { timeout: 5000 });
+			await sleep(1000);
+			const st = await t.evaluate(`({ title: document.title, url: location.href, scripts: document.scripts.length })`).catch((e) => ({ error: String(e).slice(0, 200) }));
+			await t.close();
+			const ev = b.since(mk);
+			out.push({ n, scheme: a.href.split(':')[0], download: a.download, text: a.text, st, downloads: ev.downloads.length, ran: ev.titles.some((x) => /^RAN/.test(x.title)) || /^RAN/.test(st.title ?? ''), console: ev.console.filter((c) => /RAN/.test(c.text) || c.kind === 'exception').length });
+		}
+		return { pass: out.length === 3 && out.every((o) => o.scheme === 'blob' && o.download === o.n && o.text === 'Download' && !o.ran && o.console === 0 && (o.downloads >= 1 || o.st.url === 'about:blank') && !o.st.scripts), evidence: out };
+	});
+	await S('CL-DOWNLOAD', 'caselines_tab', 'D13 and D1: "Download" downloads the original through the originals site (attachment, nosniff, a sandbox CSP); "Open" opens the document page', async () => {
+		await p.go(C, 'caselines_tab');
+		const r = await p.evaluate(`({ open: document.getElementById('cl-open')?.getAttribute('href'), dl: document.getElementById('cl-download')?.getAttribute('href'), dlAttr: document.getElementById('cl-download')?.hasAttribute('download'), linked: [...document.querySelectorAll('#cl-docs li[data-row] a')].map((a) => [a.textContent.trim(), a.getAttribute('href')]) })`);
+		const heads = [];
+		for (const h of [r.dl, ...r.linked.filter(([t]) => t === 'Download').map(([, h]) => h)].filter(Boolean)) { const u = new URL(h); const res = await A.o(u.pathname + u.search); heads.push({ status: res.status, ok: safeHeaders(lower(res.headers)), type: lower(res.headers)['content-type'] }); }
+		return { pass: r.open === `${V}/doc/PN-001` && r.dl?.startsWith(`${A.orig}/o/`) && r.dl.endsWith('&download=1') && r.dlAttr && heads.length >= 1 && heads.every((x) => x.status === 200 && x.ok && x.type === 'application/octet-stream'), evidence: { r: { ...r, dl: r.dl?.replace(/k=[^&]+/, 'k=…'), linked: r.linked.map(([t, h]) => [t, h.replace(/k=[^&]+/, 'k=…')]) }, heads } };
+	});
+	await S('CL-ERRORS', 'caselines_tab', 'D4: a failed Link keeps its own error, Retry and the typed path when a Remove succeeds afterwards; Retry links it', async () => {
+		await p.go(C, 'caselines_tab');
+		const n0 = await p.count('#cl-docs li[data-row]');
+		await p.type('#cl-path', 'Synthetic/failing link.pdf');
+		let during;
+		await withBusyStore(A.dataDir, 12500, async () => { await p.click('#cl-link'); await p.waitFor(`document.getElementById('cl-error')`, 20000); during = await p.text('#cl-error'); });
+		await p.evaluate(`[...document.querySelectorAll('#cl-docs li[data-row]')].at(-1).querySelector('button.rm').setAttribute('data-t', 'rm')`);
+		await p.click('[data-t="rm"]');
+		await p.waitFor(`document.querySelectorAll('#cl-docs li[data-row]').length === ${n0 - 1}`, 20000);
+		const after = { error: await p.evaluate(`document.getElementById('cl-error')?.textContent ?? null`), path: await val(p, 'cl-path') };
+		await p.click('#cl-retry');
+		await p.waitFor(`!document.getElementById('cl-error') && document.querySelectorAll('#cl-docs li[data-row]').length === ${n0}`, 30000);
+		const final = { path: await val(p, 'cl-path'), rows: A.work("SELECT fields FROM register_row WHERE store = 'caselines-links'").map((x) => JSON.parse(x.fields).path) };
+		return { pass: /busy/.test(during) && /busy/.test(after.error ?? '') && after.path === 'Synthetic/failing link.pdf' && final.path === '' && final.rows.includes('Synthetic/failing link.pdf'), evidence: { during, after, final } };
+	});
+	await S('CL-QUERY-LIMIT', 'caselines_tab', 'D5: a search over 200 characters is refused visibly, never cut and searched', async () => {
+		await p.go(`${C}?q=${'court '.repeat(40)}x`, 'caselines_tab');
+		return { pass: /limited to 200 characters/.test(await p.text('#cl-too-long')) && !(await p.evaluate(`!!document.getElementById('cl-summary')`)), evidence: { t: await p.text('#cl-too-long') } };
+	});
+	await S('CB-INFLIGHT', 'court_bundle_tab', 'D2: text typed into another field while a header save is pending survives that save; only the submitted fields come from the store; Saving… shows', async () => {
+		await p.go(B, 'court_bundle_tab');
+		const judge0 = await val(p, 'cbh_judge');
+		let during;
+		await withBusyStore(A.dataDir, 2500, async () => {
+			await p.type('#cbh_court', 'SYN INFLIGHT COURT');
+			await p.click('#cb-save');
+			await p.waitFor(`document.querySelector('#main').dataset.busy === '1'`, 5000);
+			await p.type('#cbh_judge', 'SYN TYPED IN FLIGHT');
+			during = { saving: await p.text('#cb-saving'), aria: await p.evaluate(`document.getElementById('cb-header').getAttribute('aria-busy')`) };
+		});
+		await idleBusy(p);
+		await sleep(300);
+		const after = { court: await val(p, 'cbh_court'), judge: await val(p, 'cbh_judge'), error: await p.evaluate(`document.getElementById('cb-error')?.textContent ?? null`), unsaved: await p.text('#cb-unsaved') };
+		const h = storedHeader();
+		await p.click('#cb-save');
+		await idleBusy(p);
+		return { pass: during.saving === 'Saving…' && during.aria === 'true' && after.court === 'SYN INFLIGHT COURT' && after.judge === 'SYN TYPED IN FLIGHT' && after.error === null && after.unsaved === '1 field changed, not saved' && h?.court === 'SYN INFLIGHT COURT' && h?.judge === judge0 && storedHeader()?.judge === 'SYN TYPED IN FLIGHT', evidence: { during, after, stored: { court: h?.court, judge: h?.judge } } };
+	});
+	await S('CB-INFLIGHT-CLEAR', 'court_bundle_tab', 'D4: text typed while Clear all is pending survives it; the other fields clear', async () => {
+		await p.go(B, 'court_bundle_tab');
+		await withBusyStore(A.dataDir, 2500, async () => {
+			await p.click('#cb-clear');
+			await p.waitFor(`document.querySelector('#main').dataset.busy === '1'`, 5000);
+			await p.type('#cbh_caseNo', 'SYN 5/2001');
+		});
+		await idleBusy(p);
+		await sleep(300);
+		const after = { caseNo: await val(p, 'cbh_caseNo'), court: await val(p, 'cbh_court'), stored: storedHeader() };
+		await p.type('#cbh_caseNo', '');
+		return { pass: after.caseNo === 'SYN 5/2001' && after.court === '' && after.stored?.caseNo === '' && after.stored?.court === '', evidence: after };
+	});
+	await S('CB-ERRORS', 'court_bundle_tab', 'D4: Restore after a failed header save asks first; refusing keeps the typed draft and its error; Retry saves it', async () => {
+		await p.go(B, 'court_bundle_tab');
+		await p.type('#cbh_court', 'SYN DRAFT COURT');
+		await withBusyStore(A.dataDir, 12500, async () => { await p.click('#cb-save'); await p.waitFor(`document.getElementById('cb-error')`, 20000); });
+		const mk = b.mark();
+		await p.click('#cb-restore');
+		await sleep(600);
+		const dialogs = b.since(mk).dialogs.map((d) => d.type);
+		const kept = { court: await val(p, 'cbh_court'), error: await p.evaluate(`!!document.getElementById('cb-error')`), stored: storedHeader()?.court ?? null };
+		await p.click('#cb-retry-header');
+		await idleBusy(p);
+		await sleep(200);
+		return { pass: dialogs.includes('confirm') && kept.court === 'SYN DRAFT COURT' && kept.error && kept.stored !== 'SYN DRAFT COURT' && storedHeader()?.court === 'SYN DRAFT COURT' && !(await p.evaluate(`!!document.getElementById('cb-error')`)), evidence: { dialogs, kept } };
+	});
+	await S('CB-LIMIT', 'court_bundle_tab', 'D5: a header field over 2,000 characters is refused with the field and the limit named, every typed field kept, nothing written', async () => {
+		await p.go(B, 'court_bundle_tab');
+		const before = storedHeader();
+		const long = 'Synthetic citation line. '.repeat(104);
+		await setVal(p, 'cbh_claimant', long);
+		await p.click('#cb-save');
+		await p.waitFor(`document.getElementById('cb-error')`, 20000);
+		const r = { error: await p.text('#cb-error'), len: (await val(p, 'cbh_claimant')).length, stored: storedHeader()?.claimant === before?.claimant };
+		await p.click('#cb-discard');
+		await sleep(200);
+		return { pass: /“Plaintiff \/ claimant citation” is 2,600 characters; the limit is 2,000 per field/.test(r.error) && r.len === 2600 && r.stored && !(await p.evaluate(`!!document.getElementById('cb-error')`)), evidence: r };
+	});
+	await S('CB-TWOTABS', 'court_bundle_tab', 'D3: two tabs on the header: the second save over the first is refused (409), keeps its typed fields and shows the stored header; nothing is reverted', async () => {
+		const p2 = await page(b, A.origin);
+		try {
+			await p.go(B, 'court_bundle_tab');
+			await p2.go(B, 'court_bundle_tab');
+			await p.type('#cbh_court', 'SYN TAB ONE COURT');
+			await p.click('#cb-save');
+			await idleBusy(p);
+			await p2.type('#cbh_judge', 'SYN TAB TWO JUDGE');
+			await p2.click('#cb-save');
+			await p2.waitFor(`document.getElementById('cb-error')`, 20000);
+			const r = { error: await p2.text('#cb-error'), conflict: await p2.text('#cb-conflict [data-field="court"]'), judge: await val(p2, 'cbh_judge'), stored: storedHeader() };
+			await p2.click('#cb-discard');
+			await sleep(300);
+			const used = { court: await val(p2, 'cbh_court'), judge: await val(p2, 'cbh_judge'), error: await p2.evaluate(`!!document.getElementById('cb-error')`) };
+			return { pass: /changed in another tab/.test(r.error) && r.conflict === 'SYN TAB ONE COURT' && r.judge === 'SYN TAB TWO JUDGE' && r.stored?.court === 'SYN TAB ONE COURT' && r.stored?.judge !== 'SYN TAB TWO JUDGE' && used.court === 'SYN TAB ONE COURT' && !used.error, evidence: { r: { ...r, stored: { court: r.stored?.court, judge: r.stored?.judge } }, used } };
+		} finally { await p2.close(); }
+	});
+	await S('NOJS', 'discovery_tab', 'D4: without JavaScript no control of the three views looks usable, and each view says saving needs JavaScript', async () => {
+		const out = {};
+		await p.s('Emulation.setScriptExecutionDisabled', { value: true });
+		try {
+			for (const [view, path, note] of [['discovery_tab', D, '#ds-nojs'], ['court_bundle_tab', B, '#cb-nojs'], ['caselines_tab', C, '#cl-nojs']]) {
+				await p.navigate(A.origin + path, { timeout: 30000 });
+				await p.waitFor(`document.querySelector('main[data-ready="${view}"]')`, 30000);
+				out[view] = { usable: await usableControls(p), note: await p.text(note), hydrated: await p.evaluate(`!!document.querySelector('main[data-hydrated]')`) };
+			}
+		} finally { await p.s('Emulation.setScriptExecutionDisabled', { value: false }); }
+		return { pass: Object.values(out).every((o) => o.usable.length === 0 && /need JavaScript/.test(o.note) && !o.hydrated), evidence: out };
+	});
+
+	// a second server and case: duplicate numbers, a bulk supplementary schedule (40 x 100 files), an Original item with
+	// unmarked files; a third case without a page-text index
+	const BULK = 40, PER = 100;
+	const bulkPath = (i, j) => `SYNTHETIC BULK FOLDER WITH A LONG NAME/SUBFOLDER ${i}/Synthetic item ${i} file ${j} with a long descriptive file name.pdf`;
+	const caseB = await buildCase(join(tmp, 'case-b'), {
+		caseId: 'e2e-case-b',
+		edit: (r) => {
+			r.SCHED.discovery = [
+				{ no: 1, date: '', desc: 'Synthetic original item', co: 'O', nfiles: 2, files: [{ fn: 'orig one.pdf', url: url('SYN B/orig one.pdf'), co: '' }, { fn: 'orig two.pdf', url: url('SYN B/orig two.pdf'), co: '' }] },
+				{ no: 1, date: '', desc: 'Synthetic repeated number', co: 'C', nfiles: 1, files: [{ fn: 'repeat.pdf', url: url('SYN B/repeat.pdf'), co: 'C' }] },
+				{ no: 2, date: '', desc: 'Synthetic plain item', co: 'C', nfiles: 2, files: [{ fn: 'plain one.pdf', url: url('SYN B/plain one.pdf'), co: 'C' }, { fn: 'plain two.pdf', url: url('SYN B/plain two.pdf'), co: 'C' }] },
+			];
+			r.SCHED.supplementary = Array.from({ length: BULK }, (_, i) => ({ no: i + 1, date: '', desc: `Synthetic bulk item ${i + 1}`, co: 'C', nfiles: PER, files: Array.from({ length: PER }, (_, j) => ({ fn: `file ${j}.pdf`, url: url(bulkPath(i + 1, j)), co: 'C' })) }));
+			r.CASELINES.index = [[1, 'Invented page one'], [1, 'Invented page one repeated'], [2, 'Other words']];
+			r.CASELINES.pages = 2;
+			const bl = r.DATA.bundles.list;
+			bl.push({ ...bl[0], title: 'Synthetic repeated bundle', name: 'Synthetic repeated bundle' }, { ...bl[0], no: '2', name: 'Unbuilt', title: 'Unbuilt', file: '', indexFile: '' });
+		},
+	});
+	const caseC = await buildCase(join(tmp, 'case-c'), { caseId: 'e2e-case-c', edit: (r) => { r.CASELINES.index = []; } });
+	const SB = appServer({ name: 'b', root: ROOT, buildDir: BUILD, port: 43102, origPort: 43103, dir: tmp });
+	const { startServer } = await import('../pilot/lib/server.mjs');
+	SB.srv = await startServer({ root: ROOT, port: SB.port, origPort: SB.origPort, dataDir: SB.dataDir, buildDir: BUILD, logFile: SB.logFile, env });
+	try {
+		for (const sc2 of [caseB, caseC]) {
+			const imp2 = await SB.c.importPkg(sc2.caseDir, sc2.pkgDir);
+			const act2 = await SB.c.activate(imp2.importId);
+			if (!imp2.importId || act2.status >= 400) throw new Error(`import/activate failed: ${JSON.stringify({ imp: imp2.status, act: act2.status })}`);
+		}
+		const VB = vpath(caseB.resultsVersion), VC = vpath(caseC.resultsVersion);
+		const DB = `${VB}/bundles/discovery_tab`, BB = `${VB}/bundles/court_bundle_tab`, CB_ = `${VB}/bundles/caselines_tab`;
+		const q = await page(b, SB.origin);
+		const marksB = () => SB.work('SELECT locator, selected, co FROM bundles_schedule_mark ORDER BY locator');
+		const rowB = (fn) => marksB().find((x) => x.locator.endsWith('/' + fn)) ?? null;
+		const coBtn = (fn, label) => `#ds-list .ds-chip[data-key$=${J('/' + fn)}] button[aria-label=${label}]`;
+		const pend = (pp, t = 120000) => pp.waitFor(`document.querySelector('#main')?.dataset.pending === '0'`, t);
+		const exceptions = (mk) => b.since(mk).console.filter((c) => c.kind === 'exception');
+
+		await S('DS-DUP', 'discovery_tab', 'D8: a repeated item number renders every row, hydrates without an exception and is flagged', async () => {
+			const mk = b.mark();
+			await q.go(DB, 'discovery_tab');
+			const r = await q.evaluate(`({ rows: [...document.querySelectorAll('#ds-list tr[data-item]')].map((t) => t.querySelector('.tx').textContent.trim()), dup: document.querySelectorAll('#ds-list .dup').length, hydrated: !!document.querySelector('main[data-hydrated]') })`);
+			const ex = exceptions(mk);
+			return { pass: r.rows.join('|') === 'Synthetic original item|Synthetic repeated number|Synthetic plain item' && r.dup === 2 && r.hydrated && ex.length === 0, evidence: { r, ex } };
+		});
+		await S('CB-DUP', 'court_bundle_tab', 'D8 and D12: a repeated bundle number renders every row, flagged, each opening its own bundle; the copy claims no finished PDF', async () => {
+			const mk = b.mark();
+			await q.go(BB, 'court_bundle_tab');
+			const r = await q.evaluate(`({ rows: [...document.querySelectorAll('#cb-list tbody tr')].map((t) => t.cells[1].textContent.trim()), dup: document.querySelectorAll('#cb-list .dup').length, sub: document.getElementById('main').textContent.replace(/\\s+/g, ' ') })`);
+			await q.evaluate(`document.querySelectorAll('#cb-list tbody tr')[1].querySelector('button').setAttribute('data-t', 'open2')`);
+			await q.click('[data-t="open2"]');
+			await q.waitFor(`document.getElementById('cb-bundle-h')`);
+			const opened = { title: await q.text('#cb-bundle-h'), search: await q.evaluate('location.search') };
+			const ex = exceptions(mk);
+			return { pass: r.rows.length === 3 && r.dup === 2 && opened.title === 'Synthetic repeated bundle' && /[?&]b=1&at=1/.test(opened.search) && !/finished PDF|assembled and numbered/.test(r.sub) && /Every bundle PDF opens here\.|bundle PDFs open here; the others are not served\.|The bundle PDFs are not served in this version\./.test(r.sub) && ex.length === 0, evidence: { rows: r.rows, dup: r.dup, opened, ex } };
+		});
+		await S('CL-DUP', 'caselines_tab', 'D8: a page number the page-text index repeats renders every hit, flagged', async () => {
+			const mk = b.mark();
+			await q.go(`${CB_}?q=invented`, 'caselines_tab');
+			const r = await q.evaluate(`({ hits: document.querySelectorAll('.cl-hit').length, dup: document.querySelectorAll('.cl-hit .dup').length })`);
+			const ex = exceptions(mk);
+			return { pass: r.hits === 2 && r.dup === 2 && ex.length === 0, evidence: { r, ex } };
+		});
+		await S('CL-NOINDEX', 'caselines_tab', 'D14: without a page-text index the search control says so and a query answers that the bundle cannot be searched', async () => {
+			await q.go(`${VC}/bundles/caselines_tab`, 'caselines_tab');
+			const go = await q.evaluate(`({ text: document.getElementById('cl-go').textContent.trim(), disabled: document.getElementById('cl-go').disabled })`);
+			await q.go(`${VC}/bundles/caselines_tab?q=court`, 'caselines_tab');
+			const t = await q.text('#cl-no-index');
+			return { pass: go.disabled && go.text === 'Search unavailable (no page-text index)' && t === 'This package has no page-text index, so the bundle cannot be searched here.', evidence: { go, t } };
+		});
+		await S('DS-COVER-PARTIAL', 'discovery_tab', 'D15: marking one unmarked file of an Original item O keeps the cover O', async () => {
+			await q.go(DB, 'discovery_tab');
+			await q.click(coBtn('orig one.pdf', 'Original'));
+			await pend(q);
+			await q.downloads();
+			await q.click('#ds-cover-dl');
+			await sleep(300);
+			const cover = text((await q.downloads())[0]);
+			return { pass: /<td>Synthetic original item<\/td><td class="d"><\/td><td class="co">O<\/td>/.test(cover), evidence: { row: /<td>Synthetic original item<\/td>.{0,60}/.exec(cover)?.[0] } };
+		});
+		await S('DS-TWOTABS', 'discovery_tab', 'D3: two tabs on one file while the store is busy: tab 1 ticks, tab 2 marks O; both survive and neither shows an error', async () => {
+			const q2 = await page(b, SB.origin);
+			try {
+				await q.go(DB, 'discovery_tab');
+				await q2.go(DB, 'discovery_tab');
+				await withBusyStore(SB.dataDir, 3000, async () => { await q.click(chip('plain one.pdf')); await sleep(1000); await q2.click(coBtn('plain one.pdf', 'Original')); });
+				await pend(q); await pend(q2);
+				const r = { row: rowB('plain one.pdf'), e1: await q.evaluate(`!!document.getElementById('ds-error')`), e2: await q2.evaluate(`!!document.getElementById('ds-error')`) };
+				await q.go(DB, 'discovery_tab');
+				const shown = await q.evaluate(`({ ticked: document.querySelector(${J(chip('plain one.pdf'))}).checked, o: document.querySelector(${J(coBtn('plain one.pdf', 'Original'))}).getAttribute('aria-pressed') })`);
+				return { pass: r.row?.selected === 1 && r.row?.co === 'O' && !r.e1 && !r.e2 && shown.ticked && shown.o === 'true', evidence: { r, shown } };
+			} finally { await q2.close(); }
+		});
+		await S('DS-CO-CONFLICT', 'discovery_tab', 'D3: a Copy/Original mark over another tab\'s different mark is refused visibly, keeps both (the stored mark named, this tab\'s shown unsaved); Retry saves it', async () => {
+			const q2 = await page(b, SB.origin);
+			try {
+				await q.go(DB, 'discovery_tab');
+				await q2.go(DB, 'discovery_tab');
+				await q.click(coBtn('plain two.pdf', 'Copy'));
+				await pend(q);
+				await q.click(coBtn('plain two.pdf', 'Original'));
+				await pend(q);
+				await q2.click(coBtn('plain two.pdf', 'Copy'));
+				await q2.waitFor(`document.getElementById('ds-error')`, 20000);
+				const r = { error: await q2.text('#ds-error'), chip: await q2.evaluate(`({ c: document.querySelector(${J(coBtn('plain two.pdf', 'Copy'))}).getAttribute('aria-pressed'), unsaved: document.querySelector('#ds-list .ds-chip[data-key$="/plain two.pdf"]').classList.contains('unsaved') })`), stored: rowB('plain two.pdf')?.co };
+				await q2.click('.ds-retry-one');
+				await pend(q2);
+				return { pass: /marked differently in another tab/.test(r.error) && /plain two\.pdf is Original/.test(r.error) && r.chip.c === 'true' && r.chip.unsaved && r.stored === 'O' && rowB('plain two.pdf')?.co === 'C' && !(await q2.evaluate(`!!document.getElementById('ds-error')`)), evidence: r };
+			} finally { await q2.close(); }
+		});
+		await S('DS-FAIL-SLOTS', 'discovery_tab', 'D4: a failed tick keeps its own error and Retry while a later tick on another file is sent and saved; Retry saves the first', async () => {
+			await q.go(DB, 'discovery_tab');
+			const was = rowB('plain one.pdf')?.selected;
+			const release = holdStore(SB.dataDir);
+			try {
+				await q.click(chip('plain one.pdf'));
+				await q.waitFor(`document.getElementById('ds-error')`, 20000);
+			} finally { release(); }
+			await q.click(chip('plain two.pdf'));
+			await pend(q);
+			const r = { error: await q.text('#ds-error'), n: await q.count('#ds-error .ds-fail'), one: rowB('plain one.pdf')?.selected ?? 0, two: rowB('plain two.pdf')?.selected ?? 0, unsaved: await q.evaluate(`document.querySelector('#ds-list .ds-chip[data-key$="/plain one.pdf"]').classList.contains('unsaved')`) };
+			await q.click('#ds-retry');
+			await pend(q);
+			const one = rowB('plain one.pdf')?.selected ?? 0;
+			return { pass: was === 1 && /busy/.test(r.error) && /untick 1 file/.test(r.error) && r.n === 1 && r.one === 1 && r.two === 1 && r.unsaved && one === 0 && !(await q.evaluate(`!!document.getElementById('ds-error')`)), evidence: { r, one } };
+		});
+		await S('DS-LEAVE', 'discovery_tab', 'D4: with a failed change, an in-app navigation asks first and a reload warns; refusing keeps the page and the change; Discard restores the stored state', async () => {
+			await q.go(DB, 'discovery_tab');
+			const release = holdStore(SB.dataDir);
+			try {
+				await q.click(chip('repeat.pdf'));
+				await q.waitFor(`document.getElementById('ds-error')`, 20000);
+			} finally { release(); }
+			await q.evaluate('window.__stay = 1');
+			let mk = b.mark();
+			await q.click('#nav-court_bundle_tab');
+			await sleep(800);
+			const inApp = { dialogs: b.since(mk).dialogs.map((d) => d.type), path: await q.evaluate('location.pathname'), stay: await q.evaluate('window.__stay') };
+			mk = b.mark();
+			await q.s('Page.reload', {});
+			await sleep(1200);
+			const reload = { dialogs: b.since(mk).dialogs.map((d) => d.type), stay: await q.evaluate('window.__stay').catch(() => null) };
+			await q.click('.ds-discard');
+			await sleep(200);
+			const after = { error: await q.evaluate(`!!document.getElementById('ds-error')`), ticked: await q.evaluate(`document.querySelector(${J(chip('repeat.pdf'))}).checked`) };
+			return { pass: inApp.dialogs.includes('confirm') && inApp.path === DB && inApp.stay === 1 && reload.dialogs.includes('beforeunload') && reload.stay === 1 && !after.error && !after.ticked, evidence: { inApp, reload, after } };
+		});
+		await S('DS-PARTIAL-ACTION', 'discovery_tab', 'D6: a 2,000-file Original mark that meets a lock taken mid-write answers exactly how many files it saved, matching the store; never "Not saved"', async () => {
+			await q.go(DB, 'discovery_tab');
+			const keys = []; for (let i = 1; i <= 20; i++) for (let j = 0; j < PER; j++) keys.push(bulkPath(i, j));
+			const post = q.evaluate(`(async () => { const f = new FormData(); f.append('val', 'O'); for (const k of ${J(keys)}) { f.append('key', k); f.append('base', ''); } const r = await fetch(location.pathname + '?/co', { method: 'POST', body: f, headers: { 'x-sveltekit-action': 'true', accept: 'application/json' } }); return r.text(); })()`);
+			// take the lock from outside once the write has stored some files (retrying while the app holds a transaction)
+			const ks = new Set(keys);
+			const storedO = () => marksB().filter((x) => x.co === 'O' && ks.has(x.locator)).length;
+			for (let i = 0; i < 1000 && !storedO(); i++) await sleep(5);
+			let release = null;
+			for (let i = 0; i < 400 && !release; i++) { try { release = holdStore(SB.dataDir); } catch { await sleep(2); } }
+			let res;
+			try { res = await post; } finally { release?.(); }
+			const m = /Partly saved: ([\d,]+) files? saved/.exec(res);
+			const n = m ? Number(m[1].replace(/,/g, '')) : -1;
+			const stored = storedO();
+			return { pass: !!release && n > 0 && n < keys.length && n === stored && !/Not saved/.test(res), evidence: { n, stored, of: keys.length, locked: !!release, says: res.slice(0, 400) } };
+		});
+		await S('DS-LARGE', 'discovery_tab', 'D7: 40 items x 100 files: tick all, Mark Copy marks all 4,000; untick one item; reload shows 3,900; a busy store fails one chunk and Retry finishes Mark Original', async () => {
+			await q.go(DB, 'discovery_tab');
+			await q.click('#main .ds-switch button[data-mode="supplementary"]');
+			await pend(q);
+			for (let i = 1; i <= BULK; i++) await q.click(`tr[data-item="supplementary-${i}"] td:first-child input`);
+			await pend(q, 300000);
+			await q.click('#ds-mark-c');
+			await pend(q, 300000);
+			const copy = { c: marksB().filter((x) => x.co === 'C' && x.locator.startsWith('SYNTHETIC BULK')).length, error: await q.evaluate(`document.getElementById('ds-error')?.textContent ?? null`) };
+			await q.click('tr[data-item="supplementary-1"] td:first-child input');
+			await pend(q);
+			await q.go(DB, 'discovery_tab');
+			const bulk = (x) => x.locator.startsWith('SYNTHETIC BULK');
+			const extra = marksB().filter((x) => x.selected === 1 && !bulk(x)).length; // files ticked by the steps above
+			const reloaded = { count: await q.text('#ds-count'), extra, stored: marksB().filter((x) => x.selected === 1 && bulk(x)).length };
+			const release = holdStore(SB.dataDir);
+			try {
+				await q.click('#ds-mark-o');
+				await q.waitFor(`document.getElementById('ds-error')`, 30000);
+			} finally { release(); }
+			await pend(q, 300000);
+			const failedOnce = await q.text('#ds-error');
+			await q.click('#ds-retry');
+			await pend(q, 300000);
+			const o = marksB().filter((x) => x.co === 'O' && x.selected === 1 && bulk(x)).length;
+			return { pass: copy.c === BULK * PER && copy.error === null && reloaded.count === String(3900 + extra) && reloaded.stored === 3900 && /busy/.test(failedOnce) && o === 3900 && !(await q.evaluate(`!!document.getElementById('ds-error')`)), evidence: { copy, reloaded, failedOnce: failedOnce.slice(0, 200), o } };
+		});
+	} finally { await SB.stop().catch(() => {}); }
 } catch (e) {
 	R.rec('SUITE', 'the bundles suite ran', 'FAIL', { error: String(e?.stack ?? e).slice(0, 4000) });
 	scenarios.push({ id: 'SUITE', view: 'discovery_tab', pass: false });

@@ -52,7 +52,7 @@
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'caselines_tab' : null} data-busy={busy ? '1' : '0'}>
+<main id="main" tabindex="-1" data-ready="caselines_tab" data-hydrated={ready ? '1' : null} data-busy={busy ? '1' : '0'}>
 	<PageHeader heading="CaseLines" section="CaseLines" caseName={data.version.titleName} subtitle={c.subtitle ?? 'The consolidated court bundle — open, download, search, and add documents'} />
 	<div class="cl-hero">
 		<div>{#if c.name}<div class="t">{c.name}</div>{/if}{#if c.note}<div class="m">{c.note}</div>{/if}</div>

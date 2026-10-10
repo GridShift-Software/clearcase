@@ -124,7 +124,7 @@ try {
 	// selection
 	console.log('selection ...');
 	await P.navigate(`${V}/bundles/discovery_tab`);
-	await P.waitFor(`document.querySelector('main[data-ready="discovery_tab"]')`, 60000);
+	await P.waitFor(`document.querySelector('main[data-ready="discovery_tab"][data-hydrated]')`, 60000);
 	if ((await P.evaluate(`document.getElementById('ds-count').textContent.trim()`)) !== '0') { await click('#ds-clear'); await P.waitFor(`document.querySelector('#main').dataset.pending === '0' && document.getElementById('ds-count').textContent.trim() === '0'`, 30000); }
 	raw.selection = [];
 	for (let i = 0; i < N; i++) {
@@ -143,7 +143,7 @@ try {
 	// exports: one click -> the Blob download handed over
 	const exportSeries = async (path, ready, sel) => {
 		await P.navigate(`${V}${path}`);
-		await P.waitFor(`document.querySelector('main[data-ready="${ready}"]')`, 60000);
+		await P.waitFor(`document.querySelector('main[data-ready="${ready}"][data-hydrated]')`, 60000);
 		const xs = [];
 		for (let i = 0; i < N; i++) {
 			await P.evaluate('window.__cc.dl = []; window.__cc.t0 = null');
@@ -163,7 +163,7 @@ try {
 	let viewer = null;
 	for (let i = 0; i < N; i++) {
 		await P.navigate(`${V}/bundles/caselines_tab`);
-		await P.waitFor(`document.querySelector('main[data-ready="caselines_tab"]')`, 60000);
+		await P.waitFor(`document.querySelector('main[data-ready="caselines_tab"][data-hydrated]')`, 60000);
 		if (!(await P.evaluate(`!!document.getElementById('cl-open')`))) throw new Error('the CaseLines original does not resolve to a document of the version');
 		await P.evaluate('window.__cc.t0 = null');
 		await click('#cl-open');

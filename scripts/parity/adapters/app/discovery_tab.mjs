@@ -12,6 +12,8 @@ const VIEW = 'discovery_tab';
 
 export async function openDiscovery(p, ctx) {
 	await open(p, ctx, ctx.registry[VIEW].route, VIEW);
+	// data-ready is server-rendered; controls work once the page has hydrated
+	await p.waitFor(`document.querySelector('main[data-hydrated]')`, 60000);
 	await p.evaluate(`window.open = () => null`);
 }
 

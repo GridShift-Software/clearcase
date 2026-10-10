@@ -17,7 +17,7 @@ The Discovery Schedule reproduces the two imported affidavit schedules (`discove
 
 ## Driving it with verify-clearcase
 
-- **Open.** `main[data-ready=discovery_tab]` appears; the h1 is `Discovery Schedule` and receives focus after sidebar navigation.
+- **Open.** `main[data-ready=discovery_tab]` (server-rendered) appears and `data-hydrated` marks the controls live; the h1 is `Discovery Schedule` and receives focus after sidebar navigation.
 - **Rows.** `#ds-list tr[data-item]` holds one row per item; `#ds-info` gives items, files linked, files not in the verified index and `uncertified`.
 - **Select.** Tick `.ds-chip input[type=checkbox]`; `#ds-count` rises; `main[data-pending="0"]` once saved. Reload: the ticks and the mode return.
 - **Cover.** `#ds-cover-dl` downloads `<file>.html` once per click, however often the schedule was switched.

@@ -17,7 +17,7 @@ CaseLines shows the consolidated court bundle named by the package (`view-conten
 
 ## Driving it with verify-clearcase
 
-- **Open.** `main[data-ready=caselines_tab]`; h1 `CaseLines`.
+- **Open.** `main[data-ready=caselines_tab]` (server-rendered), then `data-hydrated`; h1 `CaseLines`.
 - **Search.** Type into `#cl-q`, press Enter; wait for `#cl-results[data-q="<phrase>"]`; read `#cl-summary` and `.cl-hit`. Click a hit: `/v/<rv>/doc/<ref>?page=<n>`.
 - **Link.** Type into `#cl-path`, choose `#cl-link`; `#cl-docs li[data-row]` appears. A failed save shows `#cl-error` and keeps the typed path.
 

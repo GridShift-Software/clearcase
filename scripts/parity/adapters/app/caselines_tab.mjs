@@ -8,8 +8,10 @@ import { runSweeps } from '../v5/specs/caselines_tab.mjs';
 
 const VIEW = 'caselines_tab';
 const where = (p) => p.evaluate(`(() => { if (!/\\/doc\\//.test(location.pathname)) return 'none'; const n = new URLSearchParams(location.search).get('page'); return n ? 'page=' + n : 'open'; })()`);
+// data-ready is server-rendered; controls work once the page has hydrated
+const openView = async (p, ctx) => { await open(p, ctx, ctx.registry[VIEW].route, VIEW); await p.waitFor(`document.querySelector('main[data-hydrated]')`, 60000); };
 const APP = {
-	fresh: (p, ctx) => open(p, ctx, ctx.registry[VIEW].route, VIEW),
+	fresh: openView,
 	search: async (p, q) => {
 		await p.type('#cl-q', q);
 		await p.click('#cl-go');
@@ -24,7 +26,7 @@ export default {
 	view: VIEW,
 	async extract(p, ctx) {
 		const nav = await navFocus(p, ctx, { from: '/overview', fromView: 'overview', view: VIEW });
-		await open(p, ctx, ctx.registry[VIEW].route, VIEW);
+		await openView(p, ctx);
 		const s = remap(fromRaw(VIEW, 'app', await p.extract('#main')), { 'list.add_documents_to_caselines': 'list_1' });
 		if (ctx.exports !== false) {
 			// v5's Download is a plain file link (no Blob), so pressing it captures nothing; the app's leads to the document page

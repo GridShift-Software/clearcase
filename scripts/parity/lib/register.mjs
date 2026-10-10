@@ -1,8 +1,8 @@
 // The intentional-differences register (docs/reference/parity/intentional-differences.json, then the per-owner
 // fragments in docs/reference/parity/register/CC-NN.json by file name): schema validation plus the rules a schema
 // cannot state. Problems are returned, never thrown, so the runner can exit 2 with all of them.
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { dirname, join, relative, resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
+import { dirname, join, relative, resolve, sep } from 'node:path';
 import { Validator } from '@cfworker/json-schema';
 import { globRe } from './compare.mjs';
 
@@ -103,3 +103,17 @@ export function loadRegister(file = REGISTER, opts = {}) {
 
 /** The ids of entries for a view that ran (`ran`: view ids) that covered no difference (`used`: a Set of ids). */
 export const unusedEntries = (entries, ran, used) => entries.filter((e) => ran.includes(e.view) && !used.has(e.id)).map((e) => e.id);
+
+/**
+ * Why a parity run is not release evidence whatever its build (the scorecard's evidence is false with these in its
+ * note): a --register FILE outside docs/reference/parity/ (an ignored .local/ register could waive anything), and
+ * --app-v5-html (v5 against a copy of itself: self-parity, the mutation control). Paths compare by realpath.
+ */
+export function runNonEvidence({ register, appV5Html } = {}) {
+	const real = (p) => { try { return realpathSync(p); } catch { return resolve(p); } };
+	const dir = real(dirname(REGISTER));
+	const out = [];
+	if (register !== undefined && !real(register).startsWith(dir + sep)) out.push(`--register ${real(register)} is not under ${dir}${sep}`);
+	if (appV5Html) out.push('--app-v5-html compares v5 with a copy of itself (self-parity)');
+	return out;
+}

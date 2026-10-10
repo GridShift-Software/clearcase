@@ -20,7 +20,8 @@
 // stale build: one whose stamp is not HEAD's, not made in this repository's own build/ (an --app-root build is never
 // evidence), or made from or run on a tree with modified or untracked (not ignored) files, unless --allow-stale-build,
 // which runs it with `evidence: false` in the scorecard and NOT EVIDENCE in the final status line;
-// tests/e2e/pilot/lib/fresh-build.ts).
+// tests/e2e/pilot/lib/fresh-build.ts). A run with --register FILE outside docs/reference/parity/ or with --app-v5-html
+// also records `evidence: false` (lib/register.mjs runNonEvidence), whatever its exit code.
 //
 // Isolation: outside the network namespace the runner re-execs itself through tests/e2e/pilot/offline.sh under
 // `unshare -rn` (tests/e2e/pilot/v5/env.mjs ensureOffline); inside, it proves that only loopback exists before it
@@ -41,7 +42,7 @@ if (flag('help')) { const lines = readFileSync(import.meta.filename, 'utf8').spl
 if (!opt('fixture-config')) setup('--fixture-config FILE is required');
 if (!opt('out')) setup('--out DIR is required');
 if (!flag('all') && !opt('view')) setup('pass --all or --view ID');
-const { loadRegister, registryKeys, registryOwners, unusedEntries, viewIds } = await import('./lib/register.mjs');
+const { loadRegister, registryKeys, registryOwners, runNonEvidence, unusedEntries, viewIds } = await import('./lib/register.mjs');
 const reg = loadRegister(opt('register') ? resolve(opt('register')) : undefined, { owners: await registryOwners(), keys: await registryKeys() });
 if (reg.problems.length) setup(`register invalid:\n  ${reg.problems.join('\n  ')}`);
 const { checkOutput, fixtureInputs, locatorInputs, prepareOutput, removeOnExit } = await import('./lib/outdir.mjs');
@@ -58,9 +59,9 @@ if (rawLocator) try { checkOutput(out, locatorInputs(rawLocator, { appV5Html }),
 // files (exit 2 otherwise, unless --allow-stale-build); a missing build is the setup error further down
 const appRoot = resolve(opt('app-root') ?? REPO);
 const buildDir = join(appRoot, 'build');
-const { allowStale, evidenceRecord, evidenceSuffix, freshLine, freshness, refusal } = await import('../../tests/e2e/pilot/lib/fresh-build.ts');
+const { allowStale, evidenceRecord, evidenceSuffix, freshLine, freshness, readStamp, refusal } = await import('../../tests/e2e/pilot/lib/fresh-build.ts');
 const stampFile = join(buildDir, 'clearcase-build.json');
-const fresh = freshness(REPO, existsSync(stampFile) ? JSON.parse(readFileSync(stampFile, 'utf8')) : null, { buildDir });
+const fresh = freshness(REPO, readStamp(buildDir), { buildDir, appRoot });
 const allowedStale = allowStale(argv);
 if (existsSync(stampFile) && !fresh.fresh && !allowedStale) setup(refusal('parity', fresh).replace(/^parity: /, ''));
 
@@ -89,7 +90,7 @@ if (!proof.pass) setup(`offline proof failed: ${JSON.stringify(proof)}`);
 let fx;
 try { fx = await loadConfig(resolve(opt('fixture-config'))); } catch (e) { setup(e instanceof ConfigError ? e.message : String(e)); }
 if (!existsSync(join(buildDir, 'handler.js')) || !existsSync(join(buildDir, 'clearcase-build.json'))) setup(`no production build at ${buildDir} (run bun run --bun build there)`);
-const stamp = JSON.parse(readFileSync(join(buildDir, 'clearcase-build.json'), 'utf8'));
+const stamp = readStamp(buildDir);
 const { VIEWS } = await import(join(appRoot, 'src', 'lib', 'components', 'view-registry.ts'));
 const registry = Object.fromEntries(VIEWS.map((v) => [v.id, v]));
 // a view whose owner route exists in the app tree is implemented, whatever the registry status says (it flips only
@@ -185,8 +186,8 @@ writeFileSync(at('canary-hits.json'), JSON.stringify(canary.hits, null, 1) + '\n
 writeFileSync(at('register-usage.json'), JSON.stringify({ used: [...used].sort(), unused, files: reg.files }, null, 1) + '\n');
 const nonFile = details.__requests?.v5NonFile ?? null;
 const sc = scorecard(perView, {
-	command: `bun run --bun parity -- ${argv.join(' ')}`, revision: git.head, dirty: git.dirty, build: { id: stamp.buildId, revision: stamp.revision, dirty: !!stamp.dirty, root: relative(REPO, appRoot) || '.' },
-	...evidenceRecord(fresh, allowedStale),
+	command: `bun run --bun parity -- ${argv.join(' ')}`, revision: git.head, dirty: git.dirty, build: { id: stamp.buildId, revision: stamp.revision, dirty: stamp.dirty ?? null, root: relative(REPO, appRoot) || '.' },
+	...evidenceRecord(fresh, allowedStale, runNonEvidence({ register: opt('register'), appV5Html })),
 	clock, timezone, register: { entries: reg.entries.length, approved: reg.entries.filter((e) => e.approvedBy).length, approvedOnly: flag('approved-only'), used: used.size, unused: unused.length, strict: flag('strict-register') },
 	appSide: opt('app-v5-html') ? 'v5 self-parity copy' : 'app build',
 	isolation: { offline: proof.pass, links: proof.links, v5NonFileRequests: nonFile, v5BrowserInternalRequests: details.__requests?.v5BrowserInternal ?? null, appNonLoopbackRequests: details.__requests?.appNonLoopback ?? null, canaryHits: otherHits, canaryBrowserServiceHits: serviceHits.length, fixtureUnchanged: treeBefore === treeAfter },

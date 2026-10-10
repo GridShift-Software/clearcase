@@ -45,17 +45,18 @@ walk(out);
 writeFileSync(join(out, 'manifest.json'), JSON.stringify({ pdfjsVersion: version, files }, null, 1));
 
 // git describes this tree only when the tree is git's top level (gitState, the fresh-build guard's own reading: no
-// GIT_* variable, untracked files listed whatever the config says, assume-unchanged and skip-worktree entries found): a
-// copy inside another worktree (say under .local/) would otherwise borrow the enclosing worktree's HEAD and status. A
-// copy's revision is unknown (null) unless its caller exported it (an isolated build from `git archive` names the
-// revision in CLEARCASE_SOURCE_REVISION). `dirty` counts modified and untracked, not ignored, files whenever git works
-// here, the exported revision notwithstanding. It fails closed: when git cannot read this checkout's HEAD or status
-// (say an unreadable index), or is told not to look at some tracked files, the revision or `dirty` is null, which the
-// fresh-build guard refuses.
+// GIT_* variable, no fsmonitor hook or untracked cache, untracked files listed whatever the config says,
+// assume-unchanged and skip-worktree entries found): a copy inside another worktree (say under .local/) would otherwise
+// borrow the enclosing worktree's HEAD and status. A copy's revision is unknown (null) unless its caller exported it
+// (an isolated build from `git archive` names the revision in CLEARCASE_SOURCE_REVISION). `dirty` counts modified and
+// untracked, not ignored, files whenever git works here, the exported revision notwithstanding, and so do untracked
+// build inputs that only a local ignore rule or a self-ignoring .gitignore hides. It fails closed: when git cannot read
+// this checkout's HEAD or status (say an unreadable index), or is told not to look at some tracked files, the revision
+// or `dirty` is null, which the fresh-build guard refuses.
 const g = gitState(root);
 const atRoot = g.top !== null && g.top === real(root);
 const exported = process.env.CLEARCASE_SOURCE_REVISION ?? null;
-const dirty = !atRoot ? false : g.trackedDirty === null || g.hiddenPaths.length > 0 ? null : g.trackedDirty;
+const dirty = !atRoot ? false : g.trackedDirty === null || g.hiddenPaths.length > 0 ? null : g.trackedDirty || g.locallyIgnored.length > 0 || g.selfIgnoring.length > 0;
 const stamp = { revision: exported ?? (atRoot ? g.head : null), dirty, exported: exported !== null, builtAt: new Date().toISOString(), bun: process.versions.bun ?? null, pdfjs: version, buildId: createHash('sha256').update(readFileSync(join(build, 'handler.js'))).digest('hex').slice(0, 16) };
 writeFileSync(join(build, 'clearcase-build.json'), JSON.stringify(stamp, null, 1) + '\n');
 console.log(`pdf.js ${version} bundled: ${Object.keys(files).length} files -> ${relative(root, out)}; build ${stamp.buildId} from ${stamp.revision?.slice(0, 12) ?? 'unknown'}${stamp.dirty ? ' (dirty)' : stamp.dirty === null ? ' (working-tree state unknown: not fresh)' : ''}`);

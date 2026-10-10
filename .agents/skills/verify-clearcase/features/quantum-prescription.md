@@ -23,5 +23,5 @@ The imported prescription list (invoice, invoice date, imported prescription dat
 
 ## Gotchas
 
-- The as-of date is computed on the server from `now()` (UTC calendar date); never read the browser clock.
+- The as-of date is computed on the server from `now()` (its South African calendar date, UTC+2, whatever the host time zone); never read the browser clock.
 - Filters replace the history entry (shallow routing); Back from a document restores the filtered URL.

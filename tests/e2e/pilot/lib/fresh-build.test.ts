@@ -5,12 +5,15 @@
 // untracked files, and a copy inside another worktree gets no revision, so it is refused. The guard fails closed: a
 // working-tree state git cannot read (a corrupt index: HEAD resolves, `git status` fails), a stamp that does not parse
 // or does not say whether its tree was dirty, and an app tree under test other than the repository are each refused.
+// git answers for the directory itself: a copy inside another checkout or a nested repository git rejects (it walks up
+// to the parent) is refused, GIT_* variables cannot point git elsewhere, untracked files show whatever
+// status.showUntrackedFiles says, and tracked files flagged assume-unchanged or skip-worktree are refused.
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
-import { ALLOW_FLAG, allowStale, evidenceRecord, evidenceSuffix, freshness, readStamp, refusal } from './fresh-build.ts';
+import { ALLOW_FLAG, allowStale, evidenceRecord, evidenceSuffix, freshness, gitEnv, readStamp, refusal } from './fresh-build.ts';
 
 const REPO = join(import.meta.dirname, '..', '..', '..', '..');
 const BUN = process.versions.bun ? process.execPath : 'bun';
@@ -139,6 +142,55 @@ describe('freshness', () => {
 		expect(evidenceRecord(ok, true, ['x']).evidenceNote).toBe('NOT release evidence (--allow-stale-build): the override was passed; x');
 		expect(evidenceSuffix(evidenceRecord(ok, false, ['x']))).toBe(' — NOT EVIDENCE (NOT release evidence: x)');
 	});
+	test("a directory that is not git's top level is refused, naming the checkout git answers for (a copy, a nested repository with a corrupt HEAD)", () => {
+		const { d, head } = repo();
+		// a modified copy under the ignored .local/: git would answer for the clean checkout around it
+		const copy = join(d, '.local', 'copy');
+		mkdirSync(join(copy, 'tests'), { recursive: true });
+		writeFileSync(join(copy, 'tests', 'suite.mjs'), '// modified\n');
+		expect(freshness(copy, { revision: head, dirty: false }).reasons).toEqual([`${copy} is not the top level of its git checkout: git answers for ${d}`]);
+		// a nested repository whose HEAD git cannot read: git walks up to the parent
+		const nested = join(d, 'nested');
+		git(d, 'init', '-q', 'nested');
+		writeFileSync(join(nested, '.git', 'HEAD'), 'not a ref\n');
+		const f = freshness(nested, { revision: head, dirty: false });
+		expect(f).toMatchObject({ fresh: false, head: null, trackedDirty: null });
+		expect(f.reasons).toEqual([`${nested} is not the top level of its git checkout: git answers for ${d}`]);
+		expect(evidenceRecord(f, false).evidence).toBe(false);
+	});
+	test('GIT_WORK_TREE and GIT_DIR in the environment cannot point git at a clean clone', () => {
+		const { d, head } = repo();
+		const clone = join(root, `clone-${head.slice(0, 8)}`);
+		git(root, 'clone', '-q', d, clone);
+		writeFileSync(join(d, 'a.txt'), 'modified\n');
+		const keys = ['GIT_WORK_TREE', 'GIT_DIR'] as const;
+		const was = Object.fromEntries(keys.map((k) => [k, process.env[k]]));
+		const withEnv = (env: Partial<Record<(typeof keys)[number], string>>) => {
+			try { Object.assign(process.env, env); return freshness(d, { revision: head, dirty: false }); } finally { for (const k of keys) if (was[k] === undefined) delete process.env[k]; else process.env[k] = was[k]; }
+		};
+		expect(withEnv({ GIT_WORK_TREE: clone }).reasons).toEqual(['files are modified or untracked: a.txt']);
+		expect(withEnv({ GIT_WORK_TREE: clone, GIT_DIR: join(clone, '.git') }).reasons).toEqual(['files are modified or untracked: a.txt']);
+		// every GIT_* variable is dropped from git's environment, nothing else
+		expect(gitEnv({ GIT_DIR: 'x', GIT_WORK_TREE: 'x', GIT_INDEX_FILE: 'x', GIT_COMMON_DIR: 'x', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'status.showUntrackedFiles', GIT_CONFIG_VALUE_0: 'no', PATH: '/bin', HOME: '/h' })).toEqual({ PATH: '/bin', HOME: '/h' });
+	});
+	test('an untracked file is seen with status.showUntrackedFiles=no in the git config', () => {
+		const { d, head } = repo();
+		git(d, 'config', 'status.showUntrackedFiles', 'no');
+		writeFileSync(join(d, 'untracked.ts'), 'x');
+		expect(freshness(d, { revision: head, dirty: false }).reasons).toEqual(['files are modified or untracked: untracked.ts']);
+	});
+	test('a tracked file flagged assume-unchanged or skip-worktree is refused, modified or not', () => {
+		const reason = (p: string) => `git is told not to look at tracked files (assume-unchanged or skip-worktree), so their changes are invisible: ${p}`;
+		for (const flag of ['--assume-unchanged', '--skip-worktree']) {
+			const { d, head } = repo();
+			git(d, 'update-index', flag, 'a.txt');
+			writeFileSync(join(d, 'a.txt'), 'modified behind git\n');
+			expect(git(d, 'status', '--porcelain'), flag).toBe('');
+			const f = freshness(d, { revision: head, dirty: false });
+			expect(f.reasons, flag).toEqual([reason('a.txt')]);
+			expect(f.fresh).toBe(false);
+		}
+	});
 	test('the override is the flag only: an exported CLEARCASE_ALLOW_STALE_BUILD does nothing', () => {
 		expect(allowStale([ALLOW_FLAG])).toBe(true);
 		expect(allowStale([])).toBe(false);
@@ -164,10 +216,12 @@ describe('freshness', () => {
 });
 
 describe('the build stamp (scripts/pilot/copy-pdfjs.ts)', () => {
-	/** A minimal app tree copy-pdfjs can stamp: the script, the viewer files, pdfjs-dist (linked) and a vite build. */
+	/** A minimal app tree copy-pdfjs can stamp: the script and the guard it reads git with, the viewer files, pdfjs-dist (linked) and a vite build. */
 	function appTree(d: string) {
 		mkdirSync(join(d, 'scripts', 'pilot'), { recursive: true });
 		copyFileSync(join(REPO, 'scripts', 'pilot', 'copy-pdfjs.ts'), join(d, 'scripts', 'pilot', 'copy-pdfjs.ts'));
+		mkdirSync(join(d, 'tests', 'e2e', 'pilot', 'lib'), { recursive: true });
+		copyFileSync(join(REPO, 'tests', 'e2e', 'pilot', 'lib', 'fresh-build.ts'), join(d, 'tests', 'e2e', 'pilot', 'lib', 'fresh-build.ts'));
 		const viewer = join('src', 'lib', 'local-case', 'viewer');
 		mkdirSync(join(d, viewer), { recursive: true });
 		for (const f of ['viewer.mjs', 'viewer.css', 'wrapper.mjs', 'frame.html']) copyFileSync(join(REPO, viewer, f), join(d, viewer, f));
@@ -218,6 +272,37 @@ describe('the build stamp (scripts/pilot/copy-pdfjs.ts)', () => {
 		expect(f.reasons).toContain('the build stamp does not say whether its tree had modified or untracked files (git could not tell at build time)');
 		// an exported revision does not paper over it
 		expect(stamp(e, { CLEARCASE_SOURCE_REVISION: at })).toMatchObject({ revision: at, dirty: null, exported: true });
+	});
+	/** A fresh committed app tree in its own repository. */
+	/** copy-pdfjs with CLEARCASE_SOURCE_REVISION unset and `env` added. */
+	const stampEnv = (d: string, env: Record<string, string>) => {
+		const e: NodeJS.ProcessEnv = { ...process.env, ...env };
+		delete e.CLEARCASE_SOURCE_REVISION;
+		const r = spawnSync(BUN, [join(d, 'scripts', 'pilot', 'copy-pdfjs.ts')], { encoding: 'utf8', timeout: 60_000, env: e });
+		if (r.status !== 0) throw new Error(r.stderr);
+		return JSON.parse(readFileSync(join(d, 'build', 'clearcase-build.json'), 'utf8'));
+	};
+	const appRepo = () => { const { d: e } = repo(); appTree(e); git(e, 'add', '.'); git(e, 'commit', '-q', '-m', 'app tree'); return { e, at: git(e, 'rev-parse', 'HEAD') }; };
+	test('the stamp asks git about the app tree itself: GIT_DIR and GIT_WORK_TREE pointing at a clean clone change nothing', () => {
+		const { e, at } = appRepo();
+		const clone = join(root, `app-clone-${at.slice(0, 8)}`);
+		git(root, 'clone', '-q', e, clone);
+		writeFileSync(join(e, 'untracked.ts'), 'x');
+		expect(stampEnv(e, { GIT_DIR: join(clone, '.git'), GIT_WORK_TREE: clone })).toMatchObject({ revision: at, dirty: true, exported: false });
+		expect(stampEnv(e, { GIT_WORK_TREE: clone })).toMatchObject({ revision: at, dirty: true });
+	});
+	test('the stamp sees untracked files with status.showUntrackedFiles=no, and stamps dirty: null for an assume-unchanged file', () => {
+		const { e, at } = appRepo();
+		git(e, 'config', 'status.showUntrackedFiles', 'no');
+		writeFileSync(join(e, 'untracked.ts'), 'x');
+		expect(noEnv(e)).toMatchObject({ revision: at, dirty: true });
+		rmSync(join(e, 'untracked.ts'));
+		expect(noEnv(e)).toMatchObject({ revision: at, dirty: false });
+		git(e, 'update-index', '--assume-unchanged', 'a.txt');
+		writeFileSync(join(e, 'a.txt'), 'modified behind git\n');
+		const s = noEnv(e);
+		expect(s).toMatchObject({ revision: at, dirty: null });
+		expect(freshness(e, s, { buildDir: join(e, 'build') }).fresh).toBe(false);
 	});
 	test('a modified copy under .local/ gets no revision and is refused, also when it exports one by hand', () => {
 		const copy = appTree(join(d, '.local', 'scratch'));

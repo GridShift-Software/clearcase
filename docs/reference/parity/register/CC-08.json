@@ -3,30 +3,6 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-025",
-      "view": "legality_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-18",
-      "reason": "The app does not implement Legality & SIU Risk yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-029",
-      "view": "elements_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-18",
-      "reason": "The app does not implement Cause of Action yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
       "id": "IDR-300",
       "view": "crossexam_tab",
       "field": "title",
@@ -395,6 +371,112 @@
       "type": "defect-fix",
       "source": "S-hardcoded-case",
       "reason": "The export file name is generic (authorities.csv); v5 prefixed it with the case abbreviations, which are case content that app code must not carry (S-hardcoded-case, as the chronology export IDR-064).",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-321",
+      "view": "legality_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 left it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-322",
+      "view": "legality_tab",
+      "field": "text.source_and_scope.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Supplied analysis from the imported results package, shown as supplied\\. ClearCase has not verified it"
+        }
+      },
+      "type": "improvement",
+      "source": "GRS-18",
+      "reason": "GRS-18 acceptance: the view labels its content as supplied analysis that ClearCase has not verified (every lit-* dataset is authored analysis); v5 showed no such note.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-323",
+      "view": "legality_tab",
+      "field": "text.the_risk.2",
+      "when": {
+        "v5": {
+          "re": "^.+ documents in the bundle \\(\\d+\\)$"
+        },
+        "app": {
+          "re": "^Documents in the bundle \\(\\d+\\)$"
+        }
+      },
+      "type": "known-gap",
+      "source": "GRS-38",
+      "reason": "v5 hard-codes case wording (the related proceedings) in this card caption, and the view-content map has no field for it, so the app shows the neutral caption with the same count until the map carries it (shared-file request in the CC-08 report).",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-324",
+      "view": "legality_tab",
+      "field": "table.scenarios.col.ess_action",
+      "when": {
+        "v5": {
+          "re": "^\\S+ action$"
+        },
+        "app": "Action"
+      },
+      "type": "known-gap",
+      "source": "GRS-38",
+      "reason": "v5 names a party in this column heading, and the view-content map has no field for it, so the app shows the neutral heading Action (same column, same cells) until the map carries it (shared-file request in the CC-08 report).",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-325",
+      "view": "elements_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 left it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-326",
+      "view": "elements_tab",
+      "field": "text.source_and_scope.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Supplied analysis from the imported results package, shown as supplied\\. ClearCase has not verified it"
+        }
+      },
+      "type": "improvement",
+      "source": "GRS-18",
+      "reason": "GRS-18 acceptance: the view labels its content as supplied analysis that ClearCase has not verified (every lit-* dataset is authored analysis); v5 showed no such note.",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
       "approvedBy": null,

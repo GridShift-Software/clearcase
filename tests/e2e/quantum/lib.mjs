@@ -1,6 +1,7 @@
 // Helpers of the quantum browser suite (GRS-16): the synthetic case, a restartable server with the fixed clock, page
 // helpers and read-only store queries. Synthetic data only; dates are far from any case date.
 import { Database } from 'bun:sqlite';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { sleep } from '../pilot/lib/cdp.mjs';
 import { buildCase, url } from '../pilot/lib/fixtures.ts';
@@ -21,7 +22,8 @@ export function quantumCase(root) {
 			D.quantum.invoiceLedger = [
 				{ amount: '1150.00', bundle: 'Original', date: '2081-01-31', no: 'SYNINV1', ref: 'OD-002', text_status: 'extracted', url: inv },
 				{ amount: '0.10', bundle: 'Original', date: '2081-02-28', no: 'SYNINV2', ref: 'OD-001', text_status: 'ocr', url: url('DISCOVERY A/OD-001 Supply agreement.pdf') },
-				{ amount: '0.20', bundle: 'Supplementary', date: '', no: 'SYNINV3', ref: 'OD-003', text_status: 'none', url: '' },
+				// CC-06 r2, D13: a ref the case does not hold renders visibly broken, never as a link
+				{ amount: '0.20', bundle: 'Supplementary', date: '', no: 'SYNINV3', ref: 'ZZ-406', text_status: 'none', url: '' },
 			];
 			// the imported reference figures disagree with the rows: both must be shown as given, and flagged
 			D.quantum.invoiceCount = 4;
@@ -31,6 +33,11 @@ export function quantumCase(root) {
 				{ no: 'SYNP2', ref: 'OD-002', date: '1987-05-31', prescDate: '1990-05-31', risk: 'Relies on interruption', url: inv },
 				{ no: 'SYNP3', ref: 'OD-003', date: '2088-02-29', prescDate: '2091-02-28', risk: 'Not yet due to prescribe', url: '' },
 				{ no: 'SYNP4', ref: 'SD-001', date: '2081-12-31', prescDate: '2084-12-31', risk: 'Not yet due to prescribe', url: '' },
+				// CC-06 r2: an unknown ref with a url (D13); a prescription date equal to the clock's date (passed: the <= rule,
+				// D14's M2); the not-yet-due label on a date that has passed (D14's M7); the day after the clock's UTC date (D9)
+				{ no: 'SYNP5', ref: 'ZZ-405', date: '', prescDate: '2026-10-08', risk: 'Not yet due to prescribe', url: inv },
+				{ no: 'SYNP6', ref: 'OD-001', date: '1986-04-30', prescDate: '1989-04-30', risk: 'Not yet due to prescribe', url: '' },
+				{ no: 'SYNP7', ref: 'SD-001', date: '', prescDate: '2026-10-09', risk: 'Not yet due to prescribe', url: '' },
 			];
 			// the summary contradicts its own rows (3 relying on interruption where 2 rows carry the label)
 			D.lit.prescSummary = { awardDate: '2089-01-31', note: 'Synthetic narrative: every invoice has prescribed.', reliesOnInterruption: 3, total: 4 };
@@ -45,7 +52,8 @@ export function quantumCase(root) {
 export function server({ root, buildDir, port, dir }) {
 	const s = {
 		port, origin: `http://127.0.0.1:${port}`, dataDir: join(dir, 'data'), srv: null, starts: [],
-		async start() { s.srv = await startServer({ root, port, origPort: port + 1, dataDir: s.dataDir, buildDir, logFile: join(dir, 'server.log'), env: { CLEARCASE_FIXED_NOW: CLOCK, TZ: 'UTC' } }); s.starts.push(s.srv.pid); return s.srv; },
+		/** Start on the data directory; `env` overrides the clock or the time zone (CC-06 r2, D9). */
+		async start(env = {}) { s.srv = await startServer({ root, port, origPort: port + 1, dataDir: s.dataDir, buildDir, logFile: join(dir, 'server.log'), env: { CLEARCASE_FIXED_NOW: CLOCK, TZ: 'UTC', ...env } }); s.starts.push(s.srv.pid); return s.srv; },
 		async stop(sig = 'SIGTERM') { const x = s.srv; s.srv = null; return x ? x.stop(sig) : null; },
 		/** Read-only rows of a register store, by row id (the user-work file). */
 		rows(store) {
@@ -54,6 +62,20 @@ export function server({ root, buildDir, port, dir }) {
 		},
 	};
 	return s;
+}
+
+/** The hash of a stored row's fields that the page's Delete carries (writes.server.ts fieldsHash), for test clean-up. */
+export const fieldsHash = (fields) => createHash('sha256').update(JSON.stringify(fields)).digest('hex').slice(0, 32);
+
+/** Change a stored payment's fields from outside the app (a restore would), keeping the row's integrity hash right. */
+export function rewriteRow(dataDir, rowId, change) {
+	const d = new Database(join(dataDir, 'work.sqlite'));
+	try {
+		d.exec('PRAGMA busy_timeout=5000');
+		const r = d.query('SELECT fields FROM register_row WHERE row_id = ?').get(rowId);
+		const fields = JSON.stringify({ ...JSON.parse(r.fields), ...change });
+		d.query('UPDATE register_row SET fields = ?, fields_sha256 = ? WHERE row_id = ?').run(fields, createHash('sha256').update(fields).digest('hex'), rowId);
+	} finally { d.close(); }
 }
 
 /** Hold the user-work store's write lock from outside the app (IMMEDIATE: readers still work). */

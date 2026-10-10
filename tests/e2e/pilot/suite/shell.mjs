@@ -83,7 +83,7 @@ export async function narrowShell(ctx) {
 				const narrow = width < 560;
 				const ok = narrow
 					? l.columns === 1 && l.navPosition !== 'sticky' && l.navBottom <= l.mainTop + 0.5 && Math.abs(l.mainLeft) <= 0.5 && Math.abs(l.mainWidth - l.vw) <= 1 &&
-						l.navOverflowY === 'auto' && l.navMaxHeight !== 'none' && l.headerWrap === 'wrap' && (pg.name !== 'overview' || l.scrollWidth <= l.vw)
+						l.navOverflowY === 'auto' && l.navMaxHeight !== 'none' && l.headerWrap === 'wrap' && l.scrollWidth <= l.vw
 					: l.columns === 2 && l.navPosition === 'sticky' && l.navRight <= l.mainLeft + 0.5 && l.mainTop < l.navBottom && l.headerWrap === 'nowrap';
 				out[`${width}:${pg.name}`] = { ok, ...l, screenshot: file };
 			}

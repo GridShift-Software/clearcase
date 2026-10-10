@@ -35,6 +35,8 @@ td, th { padding: 2px 8px; border-bottom: 1px solid #eee; text-align: left; vert
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 .wrap { overflow-wrap: anywhere; white-space: pre-wrap; }
 .clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* a textarea sized in columns (the document page's notes form has cols=80) never pushes a narrow page sideways */
+textarea { max-width: 100%; box-sizing: border-box; }
 .filters { display: flex; flex-wrap: wrap; gap: .6rem; align-items: end; margin-bottom: .6rem; }
 .missing, .error { background: #fde8e8; border: 1px solid #e0a0a0; color: #7a1010; padding: .5rem .8rem; border-radius: 6px; }
 .warning { background: #fff6dc; border: 1px solid #e8cf7a; padding: .5rem .8rem; border-radius: 6px; }

@@ -9,6 +9,7 @@ import { writePackageDir } from '../../../../src/lib/case-package/writer.ts';
 import { editPackage } from '../../../case-package/fixtures/build.ts';
 import { frameEvaluator } from '../lib/cdp.mjs';
 import { vpath } from '../lib/client.mjs';
+import { expectedSlot, filledSlots, firstUnimplemented, implementedViews, modeSummary, observedSlot, registryOf, slotsFromHtml } from '../lib/implemented.mjs';
 import { attrById, decode, nextDownload, originalsGet, pageTargets, pathOf, popup } from './browser.mjs';
 import { digestFile, listeners, REPO, treeStamp } from './env.mjs';
 import { convert, examplesOfKind, expectOf, readPackage } from './fixture.mjs';
@@ -48,7 +49,7 @@ export async function lane2(C, L) {
 	L.need('GRS-10 conversion of the main HTML exits 0', 0, pkgRun.exit);
 	const conv = pkgRun.report;
 	L.check('conversion verdict', 'report', conv?.verdict);
-	L.check('conversion resultsVersion equals GRS-10\'s accepted identity', fx.accepted.resultsVersion, conv?.resultsVersion);
+	L.check('conversion resultsVersion equals the accepted identity (GRS-38\'s with view-content, else GRS-10\'s)', fx.accepted.resultsVersion, conv?.resultsVersion);
 	L.check('conversion diagnosticsSha256 equals GRS-10\'s accepted identity', fx.accepted.diagnosticsSha256, conv?.diagnosticsSha256);
 	L.note(`conversion counts: ${JSON.stringify(conv.counts)}`);
 	const P = C.P;
@@ -333,7 +334,7 @@ export async function lane9(C, L) {
 		await P.waitFor(`location.pathname.endsWith('/chronology') && ${ready('chronology')}`, 60000);
 		const f1 = await P.waitFor(`document.activeElement?.hasAttribute('data-page-heading') ? document.activeElement.textContent.trim() : null`, 5000).catch(() => null);
 		L.check('after Enter: chronology, focus on its page heading', 'Chronology', f1);
-		L.check('chronology title', expectedTitle({ section: 'Chronology', caseName: C.caseName }), await P.evaluate('document.title'));
+		L.check('chronology title', expectedTitle({ section: 'Chronology', caseName: C.titleName }), await P.evaluate('document.title'));
 		let t2 = 0;
 		for (; t2 < 80; t2++) { await P.key('Tab'); if (await P.evaluate(`!!document.activeElement?.closest?.('.grid-table .grid-row[data-ref]') && document.activeElement.tagName === 'A'`)) break; }
 		const ref = await P.evaluate(`document.activeElement?.closest?.('.grid-row[data-ref]')?.dataset.ref ?? null`);
@@ -345,7 +346,7 @@ export async function lane9(C, L) {
 		const row = C.pkg.chronology.find((r) => r.ref === ref);
 		const f2 = await P.waitFor(`document.activeElement?.hasAttribute('data-page-heading') ? document.activeElement.textContent.trim() : null`, 5000).catch(() => null);
 		L.check('after Enter: the document, focus on its heading', `${ref} ${docTitle(row)}`.trim(), f2);
-		L.check('document title names document, section and case', expectedTitle({ section: 'Document', caseName: C.caseName, document: `${ref} ${docTitle(row)}` }), await P.evaluate('document.title'));
+		L.check('document title names document, section and case', expectedTitle({ section: 'Document', caseName: C.titleName, document: `${ref} ${docTitle(row)}` }), await P.evaluate('document.title'));
 		await P.shot(L.file(join(C.out, 'lane-09.png')));
 		const hist = await P.s('Page.getNavigationHistory');
 		const paths = hist.entries.slice(0, hist.currentIndex + 1).map((e) => { try { return new URL(e.url).pathname; } catch { return e.url; } });
@@ -354,12 +355,12 @@ export async function lane9(C, L) {
 		await P.back();
 		await P.waitFor(`location.pathname.endsWith('/chronology') && ${ready('chronology')}`, 60000);
 		L.check('Back 1: chronology, focus on its heading', 'Chronology', await P.waitFor(`document.activeElement?.hasAttribute('data-page-heading') ? document.activeElement.textContent.trim() : null`, 5000).catch(() => null));
-		L.check('Back 1: chronology title', expectedTitle({ section: 'Chronology', caseName: C.caseName }), await P.evaluate('document.title'));
+		L.check('Back 1: chronology title', expectedTitle({ section: 'Chronology', caseName: C.titleName }), await P.evaluate('document.title'));
 		L.cmd('browser Back');
 		await P.back();
 		await P.waitFor(`location.pathname.endsWith('/overview') && ${ready('overview')}`, 60000);
 		L.check('Back 2: overview, focus on its heading', 'Overview', await P.waitFor(`document.activeElement?.hasAttribute('data-page-heading') ? document.activeElement.textContent.trim() : null`, 5000).catch(() => null));
-		L.check('Back 2: overview title', expectedTitle({ section: 'Overview', caseName: C.caseName }), await P.evaluate('document.title'));
+		L.check('Back 2: overview title', expectedTitle({ section: 'Overview', caseName: C.titleName }), await P.evaluate('document.title'));
 	} finally { await P.close(); }
 	const Q = await openPage(b, { fresh: true });
 	try {
@@ -525,22 +526,38 @@ export async function checkRegistry(C, L) {
 	const nav = await P.evaluate(`[...document.querySelectorAll('nav.views a[data-view]')].map((a) => { const c = a.cloneNode(true); c.querySelectorAll('.visually-hidden').forEach((x) => x.remove()); return { id: a.dataset.view, label: c.textContent.trim(), group: a.closest('section').querySelector('h2').textContent.trim(), status: a.dataset.status, href: a.getAttribute('href') }; })`);
 	const want = cov.views.map((v) => ({ id: v.id, label: v.label, group: v.group, status: v.owner === 'CC-03' ? 'available' : `unavailable-until:${linearOf(v.owner)}`, href: `${vpath(rv)}${v.owner === 'CC-03' ? `/${v.id}` : `/${OWNER_CATEGORY[v.owner]}/${v.id}`}` }));
 	L.check('navigation: all 42 entries in inventory order with id, task label, group, status and route', want, nav);
-	let ok = 0;
+	// a view whose owner route exists in the build's tree is implemented: heading = label, data-ready="<id>", no
+	// unavailable state, aria-current on its entry; every other M2 view keeps the unavailable state and its owner
+	const reg = await registryOf(C.build.root);
+	const implemented = implementedViews(C.build.root, reg.views);
+	L.note(`tree under test: ${JSON.stringify(modeSummary(reg.views, implemented, filledSlots(C.build.root, reg.slots)))}`);
+	let ok = 0, implOk = 0, unavailOk = 0;
 	for (const v of want) {
 		const r = await C.c.get(v.href);
 		const h1 = decode(/<h1[^>]*data-page-heading[^>]*>([^<]*)</.exec(r.text)?.[1] ?? '');
 		const title = decode(/<title>([^<]*)<\/title>/.exec(r.text)?.[1] ?? '');
 		const owner = /data-unavailable="([^"]+)" data-owner="([^"]+)"/.exec(r.text);
+		if (implemented.has(v.id)) {
+			const navTag = new RegExp(`<a [^>]*id="nav-${v.id}"[^>]*>`).exec(r.text)?.[0] ?? '';
+			const got = { status: r.status, heading: h1, ready: /<main[^>]*data-ready="([^"]*)"/.exec(r.text)?.[1] ?? null, unavailable: /data-unavailable=/.test(r.text), current: /aria-current="page"/.test(navTag) };
+			if (L.check(`${v.id}: implemented (owner route present): heading matches the label (BA-18), data-ready, no unavailable state, aria-current`, { status: 200, heading: v.label, ready: v.id, unavailable: false, current: true }, got)) { ok++; implOk++; }
+			continue;
+		}
 		const avail = v.status === 'available';
-		const exp = { status: 200, heading: v.label, title: expectedTitle({ section: v.label, caseName: C.caseName, status: avail ? null : 'not yet available' }), unavailable: avail ? null : [v.id, v.status.split(':')[1]] };
-		if (L.check(`${v.id}: destination heading matches the label (BA-18), title, unavailable state and owner`, exp, { status: r.status, heading: h1, title, unavailable: owner ? [owner[1], owner[2]] : null })) ok++;
+		const exp = { status: 200, heading: v.label, title: expectedTitle({ section: v.label, caseName: C.titleName, status: avail ? null : 'not yet available' }), unavailable: avail ? null : [v.id, v.status.split(':')[1]] };
+		if (L.check(`${v.id}: destination heading matches the label (BA-18), title, unavailable state and owner`, exp, { status: r.status, heading: h1, title, unavailable: owner ? [owner[1], owner[2]] : null })) { ok++; if (!avail) unavailOk++; }
 	}
-	L.note(`${ok}/42 destinations agree`);
-	const first = want.find((v) => v.status !== 'available');
-	const len0 = await P.evaluate('history.length');
-	await P.click(`#nav-${first.id}`);
-	await P.waitFor(ready(`view:${first.id}`));
-	L.check('clicking an unavailable entry is a real navigation with its own history entry', { path: first.href, grew: true }, { path: await P.evaluate('location.pathname'), grew: (await P.evaluate('history.length')) > len0 });
+	L.note(`${ok}/42 destinations agree (${implOk} implemented, ${unavailOk} unavailable)`);
+	L.check('implemented plus unavailable views outside the pilot: 40', 40, implOk + unavailOk);
+	const ex = firstUnimplemented(reg.views, implemented);
+	const first = ex && want.find((v) => v.id === ex.id);
+	if (!first) L.note('clicking an unavailable entry: none left (every M2 view has its owner route)');
+	else {
+		const len0 = await P.evaluate('history.length');
+		await P.click(`#nav-${first.id}`);
+		await P.waitFor(ready(`view:${first.id}`));
+		L.check('clicking an unavailable entry is a real navigation with its own history entry', { path: first.href, grew: true }, { path: await P.evaluate('location.pathname'), grew: (await P.evaluate('history.length')) > len0 });
+	}
 	await P.shot(L.file(join(C.out, 'check-registry.png')));
 }
 
@@ -554,9 +571,11 @@ export async function checkDates(C, L) {
 	L.note(`rows with a supplied date type or provenance: ${withType}`);
 	const P = C.P;
 	await P.goto(`${C.origin}${vpath(rv)}/chronology`, ready('chronology'), 60000);
-	const g = await P.settled(`(() => { const rows = [...document.querySelectorAll('.grid-table .grid-row[data-ref]')]; const b = rows.map((r) => r.querySelector('[data-date-basis]')); const by = {}; for (const x of b) by[x.dataset.dateBasis] = (by[x.dataset.dateBasis] ?? 0) + 1; return { by, undatedText: rows.filter((r) => r.querySelector('[role=cell]').textContent.trim() === 'undated').length, unknownLabel: b.filter((x) => x.dataset.dateBasis === 'unknown' && x.textContent.trim() === 'unknown' && /basis unknown/.test(x.title)).length }; })()`);
+	const g = await P.settled(`(() => { const rows = [...document.querySelectorAll('.grid-table .grid-row[data-ref]')]; const b = rows.map((r) => r.querySelector('[data-date-basis]')).filter(Boolean); const by = {}; for (const x of b) by[x.dataset.dateBasis] = (by[x.dataset.dateBasis] ?? 0) + 1; return { column: [...document.querySelectorAll('.grid-table [role=columnheader]')].some((h) => h.textContent.trim() === 'Date basis'), by, undatedText: rows.filter((r) => r.querySelector('[role=cell]').textContent.trim() === 'undated').length, unknownLabel: b.filter((x) => x.dataset.dateBasis === 'unknown' && x.textContent.trim() === 'unknown' && /basis unknown/.test(x.title)).length }; })()`);
 	const dated = C.pkg.chronology.length - undated;
-	L.check('chronology: every dated row says basis unknown, every undated row says undated (none inferred)', { by: sortObj({ undated, unknown: dated - withType, ...(withType ? { supplied: withType } : {}) }), undatedText: undated, unknownLabel: dated - withType }, { ...g, by: sortObj(g.by) });
+	// the Date basis column is shown only when some row has a supplied basis; the Date column says 'undated' either way
+	const want = withType ? { column: true, by: sortObj({ undated, unknown: dated - withType, supplied: withType }), undatedText: undated, unknownLabel: dated - withType } : { column: false, by: {}, undatedText: undated, unknownLabel: 0 };
+	L.check(withType ? 'chronology: every dated row says basis unknown, every undated row says undated (none inferred)' : 'chronology: no row has a supplied basis, so the Date basis column is hidden; every undated row says undated', want, { ...g, by: sortObj(g.by) });
 	const ov = (await C.c.get(`${vpath(rv)}/overview`)).text;
 	L.check('overview date span states the undated count and that the basis is not supplied', true, new RegExp(`${undated.toLocaleString('en')} documents? undated\\. Dates are shown as the source gives them; their basis`).test(ov));
 	const d1 = C.pkg.chronology.find((r) => r.date !== '');
@@ -678,17 +697,21 @@ export async function checkIsolation(C, L) {
 // ---- the overview's widget slots (M2 extension point): unfilled slots name their owner, never look finished --------
 export async function checkSlots(C, L) {
 	const rv = C.fx.accepted.resultsVersion;
-	const { OVERVIEW_SLOTS } = await import('../../../../src/lib/components/overview-slots.ts');
+	// the slot declaration and the filled slots of the build's tree: a slot its owner's overview-widgets.ts fills must
+	// render filled under its heading; every other one stays unfilled and names its owning issue
+	const { slots: OVERVIEW_SLOTS } = await registryOf(C.build.root);
+	const filled = filledSlots(C.build.root, OVERVIEW_SLOTS);
 	L.need('the slot declaration lists at least one slot', true, OVERVIEW_SLOTS.length > 0);
-	const want = OVERVIEW_SLOTS.map((s) => ({ id: s.id, status: 'unavailable', heading: s.title, text: `Not yet available — owned by ${s.linear} (${s.owner}).` }));
+	L.note(`filled slots in the tree under test: ${JSON.stringify([...filled])}`);
+	const want = OVERVIEW_SLOTS.map((s) => expectedSlot(s, filled));
 	L.cmd(`GET ${vpath(rv)}/overview (server-rendered slots)`);
 	const html = (await C.c.get(`${vpath(rv)}/overview`)).text;
-	const ssr = [...html.matchAll(/<section class="card" aria-labelledby="slot-([a-z-]+)" data-slot="([a-z-]+)" data-slot-status="([a-z]+)">\s*<h2 id="slot-[a-z-]+">([^<]*)<\/h2>\s*(?:<!--[^>]*-->)*\s*<p>([^<]*)<\/p>/g)].map((m) => ({ id: m[2], status: m[3], heading: decode(m[4]), text: decode(m[5]) }));
-	L.check('server-rendered overview: every declared slot, in order, unfilled with its owning issue', want, ssr);
+	const ssr = slotsFromHtml(html, decode).map((o) => observedSlot(o, filled));
+	L.check('server-rendered overview: every declared slot, in order, filled by its owner or unfilled with its owning issue', want, ssr);
 	const P = C.P;
 	L.cmd(`browser: ${vpath(rv)}/overview, read section[data-slot]`);
 	await P.goto(`${C.origin}${vpath(rv)}/overview`, ready('overview'));
-	const dom = await P.settled(`[...document.querySelectorAll('section[data-slot]')].map((s) => ({ id: s.dataset.slot, status: s.dataset.slotStatus, heading: s.querySelector('h2')?.textContent.trim() ?? null, text: s.querySelector('p')?.textContent.trim() ?? null }))`);
+	const dom = (await P.settled(`[...document.querySelectorAll('section[data-slot]')].map((s) => ({ id: s.dataset.slot, status: s.dataset.slotStatus, heading: s.querySelector('h2')?.textContent.trim() ?? null, text: s.querySelector('p')?.textContent.trim() ?? null }))`)).map((o) => observedSlot(o, filled));
 	L.check('hydrated overview: the same slots and states (GRS-17 registers, GRS-20 system)', want, dom);
 	L.check('slot owners are the issues the brief names (GRS-17, GRS-20)', ['GRS-17', 'GRS-20'], [...new Set(OVERVIEW_SLOTS.map((s) => s.linear))].sort());
 	await P.evaluate(`document.querySelector('section[data-slot]')?.scrollIntoView()`);

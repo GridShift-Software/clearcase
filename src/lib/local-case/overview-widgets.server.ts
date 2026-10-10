@@ -1,6 +1,7 @@
 // Server registry of overview widget loaders, discovered from the owners' subtrees, and the slot states the overview
-// renders. A loader that throws, or returns something the page data cannot carry (a function, a class instance, a
-// symbol), marks its slot as an error; it never breaks the overview.
+// renders. A loader that throws, does not settle within SLOT_LOADER_TIMEOUT_MS, or returns something the page data
+// cannot carry (a function, a class instance, a symbol, a reserved key, nesting deeper than MAX_SLOT_DATA_DEPTH),
+// marks its slot as an error; it never breaks or hangs the overview.
 import { collect, OVERVIEW_SLOTS, type OverviewWidgetLoader, type SlotId, type SlotState, type WidgetContext } from '../components/overview-slots.ts';
 
 const modules = import.meta.glob<Record<string, unknown>>('/src/lib/views/*/overview-widgets.server.ts', { eager: true });
@@ -10,29 +11,54 @@ export function loadersFrom(mods: Record<string, Record<string, unknown>>): Read
 }
 const registered = loadersFrom(modules);
 
+/** How long the overview waits for one slot loader before showing that slot's error state. It bounds waiting on a
+ *  pending promise only: a loader that computes synchronously (node:sqlite reads are synchronous) blocks the server
+ *  until it returns, so loaders must stay within the overview budget themselves. */
+export const SLOT_LOADER_TIMEOUT_MS = 5_000;
+/** How deeply slot data may nest (devalue, SvelteKit's serializer, recurses and overflows the stack far deeper). */
+export const MAX_SLOT_DATA_DEPTH = 100;
+/** Own keys devalue refuses (`__proto__`) or that could reach a prototype when the data is merged client-side. */
+const RESERVED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+
 /** Why a loader's value cannot travel as page data, or null. Plain data only: primitives (not symbols), arrays, plain
- *  objects, Date, Map and Set; a subset of what SvelteKit serializes, so an accepted value never fails the page. */
-export function notPlainData(v: unknown, seen = new Set<object>()): string | null {
+ *  objects without own `__proto__`, `constructor` or `prototype` keys, Date, Map and Set, nested at most
+ *  MAX_SLOT_DATA_DEPTH deep, and nothing thenable; a subset of what SvelteKit's devalue serializes (stringify and
+ *  uneval), so an accepted value never fails the page. The reason never echoes the value. */
+export function notPlainData(v: unknown, seen = new Set<object>(), depth = 0): string | null {
 	if (v === null || v === undefined || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' || typeof v === 'bigint') return null;
 	if (typeof v !== 'object') return `a ${typeof v}`;
 	if (seen.has(v)) return null;
+	if (depth > MAX_SLOT_DATA_DEPTH) return `data nested deeper than ${MAX_SLOT_DATA_DEPTH} levels`;
 	seen.add(v);
+	if (typeof (v as { then?: unknown }).then === 'function') return 'a thenable';
 	if (v instanceof Date) return null;
 	const kids = Array.isArray(v) || v instanceof Set ? [...(v as Iterable<unknown>)] : v instanceof Map ? [...v].flat() : null;
-	if (kids) return kids.reduce<string | null>((bad, x) => bad ?? notPlainData(x, seen), null);
+	if (kids) return kids.reduce<string | null>((bad, x) => bad ?? notPlainData(x, seen, depth + 1), null);
 	const proto = Object.getPrototypeOf(v);
 	if (proto !== Object.prototype && proto !== null) return `an instance of ${String(proto?.constructor?.name || 'a class')}`;
 	if (Object.getOwnPropertySymbols(v).length) return 'an object with symbol keys';
-	for (const k of Object.keys(v)) { const bad = notPlainData((v as Record<string, unknown>)[k], seen); if (bad) return bad; }
+	for (const k of Object.keys(v)) {
+		if (RESERVED_KEYS.has(k)) return `an object with an own ${k} key`;
+		const bad = notPlainData((v as Record<string, unknown>)[k], seen, depth + 1);
+		if (bad) return bad;
+	}
 	return null;
 }
 
-export async function slotStates(ctx: WidgetContext & { app: unknown }, loaders: ReadonlyMap<SlotId, OverviewWidgetLoader> = registered, filled: ReadonlySet<SlotId> = new Set(loaders.keys())): Promise<SlotState[]> {
+/** The loader's value, or a rejection once `ms` pass without it settling (the timer never outlives the race). */
+async function within<T>(p: Promise<T> | T, ms: number): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([p, new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error(`the loader did not settle within ${ms} ms`)), ms); })]);
+	} finally { clearTimeout(timer); }
+}
+
+export async function slotStates(ctx: WidgetContext & { app: unknown }, loaders: ReadonlyMap<SlotId, OverviewWidgetLoader> = registered, filled: ReadonlySet<SlotId> = new Set(loaders.keys()), timeoutMs = SLOT_LOADER_TIMEOUT_MS): Promise<SlotState[]> {
 	return Promise.all(OVERVIEW_SLOTS.map(async (slot): Promise<SlotState> => {
 		const l = loaders.get(slot.id);
 		if (!l || !filled.has(slot.id)) return { slot, status: 'unavailable' };
 		try {
-			const data = await l.load(ctx);
+			const data = await within(l.load(ctx), timeoutMs);
 			const bad = notPlainData(data);
 			if (bad) throw new Error(`the loader returned ${bad}, which is not plain data`);
 			return { slot, status: 'filled', data };

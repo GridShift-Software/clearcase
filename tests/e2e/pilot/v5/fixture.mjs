@@ -1,12 +1,14 @@
 // The local, case-bearing fixture locator (.local/v5-verification.json, ignored) and everything read from it at run
 // time: the v5 main HTML, the extracted case folder, GRS-9's inventory and summary, the literal expected examples
-// (pinned by scripts/fixtures/profiles/v5-002.json) and GRS-10's accepted package identities. Committed code holds
+// (pinned by scripts/fixtures/profiles/v5-002.json) and the accepted package identities (GRS-10's, and GRS-38's once
+// the converter emits the view-content dataset). Committed code holds
 // no case values; it only reads these files. Conversion uses GRS-10's converter unchanged (cli.ts convert), which
 // parses the data lines of the HTML without executing it.
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { REPO, sha256File } from './env.mjs';
+import { KNOWN_KEYS } from '../../../../src/lib/case-package/registry.ts';
 
 export const PROFILE = join(REPO, 'scripts', 'fixtures', 'profiles', 'v5-002.json');
 const readJson = (p) => JSON.parse(readFileSync(p, 'utf8'));
@@ -29,6 +31,11 @@ export async function loadConfig(file = join(REPO, '.local', 'v5-verification.js
 	need(cfg.references?.inventory && existsSync(cfg.references.inventory), 'references.inventory must exist');
 	need(cfg.expectedExamples?.path && existsSync(cfg.expectedExamples.path) && /^[0-9a-f]{64}$/.test(cfg.expectedExamples?.sha256 ?? ''), 'expectedExamples {path, sha256} is required');
 	need(SHA_ID.test(cfg.accepted?.resultsVersion ?? '') && SHA_ID.test(cfg.accepted?.diagnosticsSha256 ?? ''), 'accepted {resultsVersion, diagnosticsSha256} (GRS-10 accepted identities, full values) are required');
+	// GRS-38's view-content dataset adds one file to the package, so only the manifest's resultsVersion changes; the
+	// diagnostics identity stays GRS-10's. `accepted` stays GRS-10's identity in the locator (verify:package lane 11
+	// recomputes it); `acceptedViewContent` names the identity of a conversion that carries view-content.
+	const emitsViewContent = KNOWN_KEYS.has('view-content');
+	need(!emitsViewContent || SHA_ID.test(cfg.acceptedViewContent?.resultsVersion ?? ''), 'acceptedViewContent {resultsVersion} (GRS-38 accepted identity, full value) is required: the converter emits view-content');
 	const summaryPath = resolve(REPO, cfg.references.summary ?? 'docs/reference/v5-summary.json');
 	const profile = readJson(PROFILE);
 	const got = { mainHtml: await sha256File(cfg.mainHtml.path), expected: await sha256File(cfg.expectedExamples.path), inventory: await sha256File(cfg.references.inventory), summary: await sha256File(summaryPath) };
@@ -42,7 +49,9 @@ export async function loadConfig(file = join(REPO, '.local', 'v5-verification.js
 		caseFolder: cfg.caseFolder, caseId: cfg.caseId,
 		workDir: resolve(REPO, pilot.workDir ?? '.local/v5-lanes-work'),
 		packageDir: pilot.packageDir ? resolve(REPO, pilot.packageDir) : null,
-		accepted: cfg.accepted,
+		/** the identity this converter's output must carry: GRS-10's, with GRS-38's resultsVersion when view-content is emitted */
+		accepted: emitsViewContent ? { ...cfg.accepted, resultsVersion: cfg.acceptedViewContent.resultsVersion } : cfg.accepted,
+		acceptedBase: cfg.accepted,
 		summaryPath,
 		summary: readJson(summaryPath),
 		inventory: readJson(cfg.references.inventory),

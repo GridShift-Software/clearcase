@@ -1,0 +1,42 @@
+{
+  "$schema": "../intentional-differences.schema.json",
+  "version": 1,
+  "entries": [
+    {
+      "id": "IDR-015",
+      "view": "discovery_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-19",
+      "reason": "The app does not implement Discovery Schedule yet; GRS-19 (CC-09) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-016",
+      "view": "court_bundle_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-19",
+      "reason": "The app does not implement Court Bundle yet; GRS-19 (CC-09) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-017",
+      "view": "caselines_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-19",
+      "reason": "The app does not implement CaseLines yet; GRS-19 (CC-09) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    }
+  ]
+}

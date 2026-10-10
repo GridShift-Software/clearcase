@@ -7,7 +7,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { download, toCSV } from '$lib/components/csv';
 	import { dateBasis, money } from '$lib/components/format';
-	import { optionsOf, paramsFromQuery, queryFromParams, queryRows, type ChronologyQuery, type SortKey } from '$lib/local-case/chronology';
+	import { excerptPreview, optionsOf, paramsFromQuery, queryFromParams, queryRows, statusLabel, statusOptions, type ChronologyQuery, type SortKey } from '$lib/local-case/chronology';
 	import { docPath, type ChronologyListRow } from '$lib/local-case/model';
 	let { data } = $props();
 	const vid = $derived(data.version.id);
@@ -17,7 +17,7 @@
 	const rows = $derived(queryRows(data.rows, query));
 	const bundles = $derived(optionsOf(data.rows, 'bundle'));
 	const types = $derived(optionsOf(data.rows, 'docType'));
-	const statuses = $derived(optionsOf(data.rows, 'textStatus'));
+	const statuses = $derived(statusOptions(data.rows));
 	// Filters live in the URL (replaced, not pushed), so Back from a document returns to the same filtered list.
 	const sync = () => {
 		const p = paramsFromQuery(query).toString();
@@ -25,17 +25,20 @@
 	};
 	const set = (k: 'q' | 'bundle' | 'type' | 'status', v: string) => { query = { ...query, [k]: v }; sync(); };
 	const sortBy = (k: string) => { query = query.sort === k ? { ...query, dir: query.dir === 1 ? -1 : 1 } : { ...query, sort: k as SortKey, dir: 1 }; sync(); };
-	const columns: Column[] = [
+	// The Date basis column carries information only when the source supplies a date type for some row (BA-04); the
+	// "undated" label in the Date column stays either way.
+	const showBasis = $derived(data.rows.some((r) => r.dateType));
+	const columns: Column[] = $derived([
 		{ key: 'date', label: 'Date', sortable: true },
-		{ key: 'basis', label: 'Date basis' },
+		...(showBasis ? [{ key: 'basis', label: 'Date basis' }] : []),
 		{ key: 'ref', label: 'Ref', sortable: true },
 		{ key: 'title', label: 'Title / subject' },
 		{ key: 'docType', label: 'Type', sortable: true },
 		{ key: 'bundle', label: 'Bundle', sortable: true },
 		{ key: 'amount', label: 'Amount', sortable: true, align: 'end' },
-		{ key: 'text', label: 'Text' },
+		{ key: 'text', label: 'Status' },
 		{ key: 'original', label: 'Original' },
-	];
+	]);
 	const cleanName = (s: string) => s.replace(/^\(\d+\)\s*/, '').replace(/\.(pdf|eml|msg)$/i, '');
 	const exportCsv = () => {
 		const keys = ['ref', 'date', 'filename', 'subject', 'sender', 'to', 'doc_type', 'bundle', 'amount', 'also_in', 'text_status', 'url'];
@@ -46,7 +49,7 @@
 </script>
 
 <main id="main" tabindex="-1" data-ready={ready ? 'chronology' : null}>
-	<PageHeader heading="Chronology" section="Chronology" caseName={data.version.caseName} subtitle="{data.rows.length.toLocaleString('en')} documents in source order of the register; dates as the source gives them">
+	<PageHeader heading="Chronology" section="Chronology" caseName={data.version.titleName} subtitle="{data.rows.length.toLocaleString('en')} items · sorted by date">
 		{#snippet actions()}<button type="button" onclick={exportCsv} id="export-csv">Export CSV ({rows.length.toLocaleString('en')} rows)</button>{/snippet}
 	</PageHeader>
 	<DegradedRows failed={data.failed} />
@@ -58,18 +61,24 @@
 		<span id="row-count" role="status" aria-live="polite" data-count={rows.length}>{rows.length.toLocaleString('en')} of {data.rows.length.toLocaleString('en')} documents</span>
 	</form>
 	<div class="chrono">
-		<DataGrid {columns} {rows} rowKey={(r: ChronologyListRow) => r.ref} label="Chronology" gridClass="chrono-grid" sort={{ key: query.sort, dir: query.dir }} onsort={sortBy} rowAttrs={(r: ChronologyListRow) => ({ 'data-ref': r.ref })}>
+		<DataGrid {columns} {rows} rowKey={(r: ChronologyListRow) => r.ref} label="Chronology" gridClass={showBasis ? 'chrono-grid' : 'chrono-grid no-basis'} sort={{ key: query.sort, dir: query.dir }} onsort={sortBy} rowAttrs={(r: ChronologyListRow) => ({ 'data-ref': r.ref })}>
 			{#snippet cell(r: ChronologyListRow, c: Column)}
 				{#if c.key === 'date'}{r.date || 'undated'}
 				{:else if c.key === 'basis'}<span title={dateBasis(r)} data-date-basis={r.dateType ? 'supplied' : r.date ? 'unknown' : 'undated'}>{r.dateType ?? (r.date ? 'unknown' : 'undated')}</span>
 				{:else if c.key === 'ref'}<a href={docPath(vid, r.ref)}>{r.ref}</a>{#if r.parentRef}<small> in {r.parentRef}</small>{/if}
-				{:else if c.key === 'title'}<span class="clip" title={r.subject || r.filename}>{r.subject || cleanName(r.filename)}{#if r.sender}<small> — {r.sender}</small>{/if}</span>
+				{:else if c.key === 'title'}<span class="clip" title={r.subject || r.filename}>{r.subject || cleanName(r.filename)}{#if r.sender}<small class="sender"> — {r.sender}</small>{/if}</span>{#if r.excerpt}<span class="clip excerpt" title={r.excerpt}>{excerptPreview(r.excerpt)}</span>{/if}{#if r.alsoIn.length}<small class="also-in">also in: {r.alsoIn.join(', ')}</small>{/if}
 				{:else if c.key === 'docType'}{r.docType}
 				{:else if c.key === 'bundle'}{r.bundle}
 				{:else if c.key === 'amount'}{money(r.amount)}
-				{:else if c.key === 'text'}{r.textStatus}
+				{:else if c.key === 'text'}{statusLabel(r.textStatus)}
 				{:else}<span class={r.file === 'present' ? 'ok' : 'unresolved'} data-file={r.file}>{r.file === 'present' ? (r.preview === 'download' ? 'download' : 'open') : r.file}</span>{/if}
 			{/snippet}
 		</DataGrid>
 	</div>
 </main>
+
+<style>
+	/* without the Date basis column (no row has a known basis) */
+	:global(.chrono-grid.no-basis .grid-row) { grid-template-columns: 6.5em 7.5em minmax(0, 1fr) 9em 8em 8em 6em 6em; }
+	.excerpt, .also-in { display: block; color: #555; font-size: .85em; }
+</style>

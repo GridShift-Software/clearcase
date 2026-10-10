@@ -1,0 +1,197 @@
+{
+  "reviewed": "5aa7b91c3011ded3af57c3c14a23096d64712786",
+  "status": "PROPOSED; coordinator must record before M2 dispatch",
+  "owners": [
+    {
+      "owner": "CC-04",
+      "category": "evidence",
+      "route": "src/routes/v/[vid]/evidence/**",
+      "scopes": [
+        "src/routes/v/[vid]/evidence/**",
+        "src/lib/evidence/**",
+        "tests/evidence/**",
+        "src/lib/views/evidence/**",
+        "tests/e2e/evidence/**",
+        ".agents/skills/verify-clearcase/features/evidence-*.md"
+      ],
+      "views": [
+        "documents",
+        "contracts_tab",
+        "filings_tab",
+        "search",
+        "people",
+        "entity_ledger_tab",
+        "hoa_diff_tab"
+      ]
+    },
+    {
+      "owner": "CC-05",
+      "category": "analysis",
+      "route": "src/routes/v/[vid]/analysis/**",
+      "scopes": [
+        "src/routes/v/[vid]/analysis/**",
+        "src/lib/analysis/**",
+        "tests/analysis/**",
+        "src/lib/views/analysis/**",
+        "tests/e2e/analysis/**",
+        ".agents/skills/verify-clearcase/features/analysis-*.md"
+      ],
+      "views": [
+        "matter",
+        "timeline",
+        "contradictions_tab",
+        "risk_matrix_tab",
+        "vdm_matrix_tab",
+        "info_required_tab",
+        "witness_tab"
+      ]
+    },
+    {
+      "owner": "CC-06",
+      "category": "quantum",
+      "route": "src/routes/v/[vid]/quantum/**",
+      "scopes": [
+        "src/routes/v/[vid]/quantum/**",
+        "src/lib/calculations/**",
+        "tests/calculations/**",
+        "docs/reference/calculation-differences.md",
+        "src/lib/views/quantum/**",
+        "tests/e2e/quantum/**",
+        ".agents/skills/verify-clearcase/features/quantum-*.md"
+      ],
+      "views": [
+        "quantum_tab",
+        "invoice_ledger_tab",
+        "prescription_tab",
+        "interest_calc_tab",
+        "payments_tab",
+        "settlement_tab"
+      ]
+    },
+    {
+      "owner": "CC-07",
+      "category": "registers",
+      "route": "src/routes/v/[vid]/registers/**",
+      "scopes": [
+        "src/routes/v/[vid]/registers/**",
+        "src/lib/user-work/**",
+        "tests/registers/**",
+        "src/lib/views/registers/**",
+        "tests/e2e/registers/**",
+        ".agents/skills/verify-clearcase/features/registers-*.md"
+      ],
+      "views": [
+        "disbursements_tab",
+        "timesheet_tab",
+        "deadlines_tab",
+        "privilege_tab",
+        "popia_tab",
+        "annotations_tab",
+        "transcriptions_tab"
+      ]
+    },
+    {
+      "owner": "CC-08",
+      "category": "litigation",
+      "route": "src/routes/v/[vid]/litigation/**",
+      "scopes": [
+        "src/routes/v/[vid]/litigation/**",
+        "src/lib/litigation/**",
+        "tests/litigation/**",
+        "src/lib/views/litigation/**",
+        "tests/e2e/litigation/**",
+        ".agents/skills/verify-clearcase/features/litigation-*.md"
+      ],
+      "views": [
+        "conflict_tab",
+        "enforcement_tab",
+        "legality_tab",
+        "elements_tab",
+        "authorities_tab",
+        "heads_tab",
+        "crossexam_tab"
+      ]
+    },
+    {
+      "owner": "CC-09",
+      "category": "bundles",
+      "route": "src/routes/v/[vid]/bundles/**",
+      "scopes": [
+        "src/routes/v/[vid]/bundles/**",
+        "src/lib/bundles/**",
+        "tests/bundles/**",
+        "src/lib/views/bundles/**",
+        "tests/e2e/bundles/**",
+        ".agents/skills/verify-clearcase/features/bundles-*.md"
+      ],
+      "views": [
+        "discovery_tab",
+        "court_bundle_tab",
+        "caselines_tab"
+      ]
+    },
+    {
+      "owner": "CC-10",
+      "category": "system",
+      "route": "src/routes/v/[vid]/system/**",
+      "scopes": [
+        "src/routes/v/[vid]/system/**",
+        "src/lib/local-case/rescan/**",
+        "src/lib/user-work/backup/**",
+        "tests/system/**",
+        "docs/user-guide.md",
+        "src/lib/views/system/**",
+        "tests/e2e/system/**",
+        ".agents/skills/verify-clearcase/features/system-*.md"
+      ],
+      "views": [
+        "rescan_tab",
+        "backup_tab",
+        "manual"
+      ]
+    }
+  ],
+  "coordinatorSerialized": [
+    "package.json",
+    "bun.lock",
+    "tsconfig.json",
+    "vitest.config.ts",
+    "svelte.config.js",
+    "vite.config.ts",
+    "src/app.*",
+    "src/hooks.server.ts",
+    "static/**",
+    "src/routes/+layout.*",
+    "src/routes/+error.svelte",
+    "src/routes/v/[vid]/+layout.*",
+    "src/routes/v/[vid]/[category]/[view]/**",
+    "src/lib/components/**",
+    "src/lib/local-case/**",
+    "scripts/pilot/**",
+    "tests/e2e/pilot/lib/**",
+    ".agents/skills/verify-clearcase/SKILL.md",
+    ".agents/skills/verify-clearcase/bin/**",
+    ".agents/skills/verify-clearcase/lib/**"
+  ],
+  "requiredTransfers": [
+    "Release CC-03 src/routes/** and transfer its shared paths to the coordinator",
+    "Record CC-04 through CC-10 route scopes and owner-specific scopes",
+    "Carve out CC-10 src/lib/local-case/rescan/** from the coordinator blanket",
+    "Transfer src/lib/user-work/backup/** from CC-07 only after CC-07 acceptance and reservation release",
+    "Retain initial three-worker cap until measured peak memory permits four"
+  ],
+  "currentBlocks": [
+    "CC-03 broad route reservation has not been released",
+    "CC-04 route reservation is not recorded",
+    "CC-05 route reservation is not recorded",
+    "CC-06 route reservation is not recorded",
+    "CC-07 route reservation is not recorded",
+    "CC-08 route reservation is not recorded",
+    "CC-09 route reservation is not recorded",
+    "CC-10 route reservation is not recorded",
+    "coordinator reservation is not recorded: src/lib/local-case/**",
+    "coordinator reservation is not recorded: src/routes/+layout.*",
+    "coordinator reservation is not recorded: src/routes/v/[vid]/+layout.*",
+    "coordinator reservation is not recorded: src/lib/components/**"
+  ]
+}

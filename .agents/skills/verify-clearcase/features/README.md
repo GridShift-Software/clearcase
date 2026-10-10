@@ -53,7 +53,18 @@ An M2 owner who lands a view, widget or user-work table adds its proof here in t
 3. **Drive step.** Append a step to `lib/drive.mjs` (the shape is in `SKILL.md`, Extending). Act through the UI; use `x.c` only for a read-only second view.
 4. **Contracts to assert through.** Prove behavior on what the user sees, but check it against the shared contracts so a proof does not depend on internals:
    - Document rows: `documentRows(store, rv)` and `activeDocumentRows(app(), caseId)` in `src/lib/local-case/documents.server.ts`. A view listing documents shows the same rows and count as the chronology (7 for the synthetic case; `/api/v/<rv>/chronology` is the HTTP second view).
-   - User work: `app().userWork` in `src/lib/local-case/user-work.server.ts` (`putRow`/`listRows`/`deleteRow`, notes, seed overlays; `tables`, `defineTable`, `exportAll`, `importAll`, `registerStores`). A step that creates user work proves it persists across a reload and, where your ticket requires it, across a re-import of the same case (keyed by stable ids, never by position).
+   - User work: `app().userWork` in `src/lib/local-case/user-work.server.ts`. It provides:
+     - the register API, `putRow`/`listRows`/`deleteRow`;
+     - notes and seed overlays;
+     - `tables` and `defineTable`, which needs `scope: 'case' | 'store'`;
+     - the defined-table row API, `putTableRow`/`deleteTableRow`/`listTableRows`;
+     - `exportAll`, `importAll` and `registerStores`.
+
+     A step that creates user work proves it persists across a reload and, where your ticket requires it, across a re-import of the same case. Rows are keyed by stable ids, never by position.
+
+     Two traps:
+     - TEXT cells take text only; a number is refused.
+     - `listRows` is not insertion order. Assert the order through your own `seq` field.
    - Overview widget slots: `src/lib/components/overview-slots.ts`. Filling `deadlines`, `unbilled-time` (GRS-17) or `rescan-freshness` (GRS-20) flips `section[data-slot=<id>]` to `data-slot-status=filled`; extend the `overview-slots` step to assert your widget's content (see [overview.md](./overview.md)).
    - Citations and originals: link documents with `CitationLink`/`docPath` and open originals with `OriginalOpen`; drive a new-tab original with `x.openTab` and the viewer checks of [document-originals.md](./document-originals.md).
 5. **Synthetic data only.** If the case lacks data your view needs, extend the `synthetic-case` step in `lib/inner.mjs` through `buildCase`'s `edit`, `rows` or `originals` options, with invented values.

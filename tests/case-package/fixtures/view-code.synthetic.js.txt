@@ -47,8 +47,9 @@ RENDER.quantum_tab=function(el){
   ].forEach(k=>h+='<div class="kpi">'+esc(k[0])+'</div>');
   el.innerHTML=h;
 };
+function exportInvoices(){const head=['no','date','amount'];dl('syn-invoices.csv',toCSV([head]),'text/csv');}
 RENDER.invoice_ledger_tab=function(el){const L=DATA.quantum.invoiceLedger;let h=pageHead('Ledger',L.length+' SYN-series invoices','<button class="btn">Export</button>');el.innerHTML=h;};
-function exportICS(){let ics='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//SYN v ORG//Workspace//EN\r\n';ics+='END:VCALENDAR';dl('syn.ics',ics,'text/calendar');}
+function exportICS(){let ics='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//SYN v ORG//Workspace//EN\r\n';ics+='END:VCALENDAR';dl('syn-deadlines.ics',ics,'text/calendar');}
 RENDER.contracts_tab=function(el){
   const C=DATA.contracts;
   let h=pageHead('Contracts','The invented agreements behind the invented claim','<button class="btn">CSV</button>');
@@ -154,9 +155,12 @@ RENDER.conflict_tab=function(el){let h=pageHead('Conflict','');h+='<div class="c
 RENDER.enforcement_tab=function(el){let h=pageHead('Enforcement','How SYN collects from ORG');h+='<div class="card narr"><h3>Why</h3><p>An invented enforcement path.</p></div>';el.innerHTML=h;};
 RENDER.legality_tab=function(el){let h=pageHead('Legality','Could an invented review change the claim?');el.innerHTML=h;};
 RENDER.interest_calc_tab=function(el){let h=pageHead('Interest','');h+='<div class="card"><input class="in" id="ic_r" value="7.25"></div>';el.innerHTML=h;};
+function exportPresc(){dl('syn-prescription.csv',toCSV([['ref','date']]),'text/csv');}
+function ledgerCSVp(){dl('syn-payments.csv',toCSV([['date','amount']]),'text/csv');}
 RENDER.payments_tab=function(el){let h=pageHead('Payments','Credit what ORG has paid','<button class="btn">x</button>');el.innerHTML=h;};
 RENDER.elements_tab=function(el){let h=pageHead('Cause of Action','Each element SYN must prove');h+='<div class="card pad0"><table class="tbl"><thead><tr><th>Element</th><th>What SYN must prove</th></tr></thead></table></div>';el.innerHTML=h;};
-function exportHeads(){let out='HEADS OF ARGUMENT — SYN v ORG\n\n';dl('syn.txt',out,'text/plain');}
+function exportHeads(){let out='HEADS OF ARGUMENT — SYN v ORG\n\n';dl('syn-heads.txt',out,'text/plain');}
+function exportAuth(){dl('syn-authorities.csv',toCSV([['name','cite']]),'text/csv');}
 RENDER.crossexam_tab=function(el){let h=pageHead('Cross-examination','');h+='<p class="tag">Tip: use the invented contradictions.</p>';el.innerHTML=h;};
 RENDER.settlement_tab=function(el){
   let h=pageHead('Settlement','Risk-adjusted value of an invented claim');
@@ -168,5 +172,7 @@ RENDER.settlement_tab=function(el){
     '<input class="in" id="se_c" value="1000"></div></div>';
   el.innerHTML=h;
 };
+function rescanWriteIndex(){dl('syn-index.json',JSON.stringify({v:1}),'application/json');}
+function backupExport(){dl('syn-backup.json',JSON.stringify({v:1}),'application/json');}
 async function rescanNow(){const fn='x.pdf';return /syn\d{4,6}/i.test(fn)?'invoice':'other';}
 function verifyLinks(){let h='<table class="tbl"></table><p class="tag" style="margin-top:6px">3 invented links were checked at build time.</p>';document.getElementById('noneList').innerHTML=h;}

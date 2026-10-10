@@ -13,7 +13,10 @@ describe('defaults and prefill', () => {
 	it('prefills the claim in whole rand, rounded half away from zero, as v5 toFixed(0)', () => {
 		expect(claimPrefill(115050n)).toBe('1151');
 		expect(claimPrefill(115049n)).toBe('1150');
+		// a net below zero (payments above the claim) prefills a negative claim that the model computes (CC-06 r2, D10)
 		expect(claimPrefill(-150n)).toBe('-2');
+		const o = settleOutcome(defaultInputs(claimPrefill(-150n), D));
+		expect([o.errors, o.kpis?.length]).toEqual([{}, 3]);
 	});
 	it('reads changed assumptions from the query over the defaults', () => {
 		const def = defaultInputs('1000000', D);

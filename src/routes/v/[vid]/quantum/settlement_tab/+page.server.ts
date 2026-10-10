@@ -20,6 +20,8 @@ export const load: PageServerLoad = async ({ parent }) => {
 			discount: vc.number('settlement_tab', 'defaultDiscountRate'), cost: vc.number('settlement_tab', 'defaultEnforcementCost'),
 		},
 		claim: claimPrefill(t.net),
-		payments: { count: pays.length, counted: pays.length - t.uncounted, gross: String(t.gross), paid: String(t.paid), claimDate: s?.claimDate ?? '' },
+		// D10: payments above the gross amount due leave a negative net claim; the note says by how much (cents, as the
+		// Payments tiles show them)
+		payments: { count: pays.length, counted: pays.length - t.uncounted, gross: String(t.gross), paid: String(t.paid), excess: t.paid > t.gross ? String(t.paid - t.gross) : null, claimDate: s?.claimDate ?? '' },
 	};
 };

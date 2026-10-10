@@ -7,7 +7,9 @@
 // or does not say whether its tree was dirty, and an app tree under test other than the repository are each refused.
 // git answers for the directory itself: a copy inside another checkout or a nested repository git rejects (it walks up
 // to the parent) is refused, GIT_* variables cannot point git elsewhere, untracked files show whatever
-// status.showUntrackedFiles says, and tracked files flagged assume-unchanged or skip-worktree are refused.
+// status.showUntrackedFiles says, and tracked files flagged assume-unchanged or skip-worktree are refused. An fsmonitor
+// hook cannot hide an edit, and in the build inputs only the committed .gitignore files may hide an untracked file: one
+// hidden by .git/info/exclude or a global excludes file, or by a .gitignore that ignores itself, is refused.
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -191,6 +193,63 @@ describe('freshness', () => {
 			expect(f.fresh).toBe(false);
 		}
 	});
+	test('an fsmonitor hook that reports no change cannot hide an edit to a tracked file', () => {
+		const { d, head } = repo();
+		const hook = join(root, `fsmonitor-${head.slice(0, 8)}.sh`);
+		writeFileSync(hook, '#!/bin/sh\nprintf "tok\\0"\n', { mode: 0o755 });
+		git(d, 'config', 'core.fsmonitor', hook);
+		git(d, 'status', '--porcelain');
+		writeFileSync(join(d, 'a.txt'), 'edited behind the hook\n');
+		expect(git(d, 'status', '--porcelain')).toBe('');
+		expect(freshness(d, { revision: head, dirty: false }).reasons).toEqual(['files are modified or untracked: a.txt']);
+	});
+	const locally = (ps: string) => `untracked files in the build inputs are hidden only by a local ignore rule (.git/info/exclude or a global excludes file): ${ps}`;
+	test('an untracked build input hidden only by .git/info/exclude is refused, also in a linked worktree; outside the inputs it is not', () => {
+		const { d, head } = repo();
+		const put = (base: string, rel: string) => { mkdirSync(join(base, rel, '..'), { recursive: true }); writeFileSync(join(base, rel), 'synthetic\n'); };
+		put(d, 'src/routes/new/+page.svelte');
+		writeFileSync(join(d, '.git', 'info', 'exclude'), 'src/routes/new/\n');
+		expect(git(d, 'status', '--porcelain')).toBe('');
+		expect(freshness(d, { revision: head, dirty: false }).reasons).toEqual([locally('src/routes/new/+page.svelte')]);
+		// a root file is a build input (a tool may pick it up by name); a folder outside the inputs is not
+		put(d, 'postcss.config.js');
+		put(d, 'notes/scratch.md');
+		writeFileSync(join(d, '.git', 'info', 'exclude'), 'src/routes/new/\npostcss.config.js\nnotes/\n');
+		expect(git(d, 'status', '--porcelain')).toBe('');
+		expect(freshness(d, { revision: head, dirty: false }).reasons).toEqual([locally('postcss.config.js, src/routes/new/+page.svelte')]);
+		// a linked worktree reads the common directory's info/exclude
+		const w = join(root, `linked-${head.slice(0, 8)}`);
+		git(d, 'worktree', 'add', '-q', '--detach', w, 'HEAD');
+		expect(freshness(w, { revision: head, dirty: false }).fresh).toBe(true);
+		put(w, 'src/routes/new/+page.svelte');
+		expect(git(w, 'status', '--porcelain')).toBe('');
+		expect(freshness(w, { revision: head, dirty: false }).reasons).toEqual([locally('src/routes/new/+page.svelte')]);
+	});
+	test('an untracked build input hidden only by a global excludes file is refused (a temporary XDG_CONFIG_HOME, a repository core.excludesFile)', () => {
+		const { d, head } = repo();
+		const xdg = join(root, `xdg-${head.slice(0, 8)}`);
+		mkdirSync(join(xdg, 'git'), { recursive: true });
+		writeFileSync(join(xdg, 'git', 'ignore'), '*.swp\n');
+		mkdirSync(join(d, 'src'));
+		writeFileSync(join(d, 'src', '.page.svelte.swp'), 'synthetic\n');
+		const was = process.env.XDG_CONFIG_HOME;
+		try {
+			process.env.XDG_CONFIG_HOME = xdg;
+			expect(git(d, 'status', '--porcelain')).toBe('');
+			expect(freshness(d, { revision: head, dirty: false }).reasons).toEqual([locally('src/.page.svelte.swp')]);
+		} finally { if (was === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = was; }
+		git(d, 'config', 'core.excludesFile', join(xdg, 'git', 'ignore'));
+		expect(git(d, 'status', '--porcelain')).toBe('');
+		expect(freshness(d, { revision: head, dirty: false }).reasons).toEqual([locally('src/.page.svelte.swp')]);
+	});
+	test('an untracked folder whose own .gitignore ignores everything, itself included, is refused', () => {
+		const { d, head } = repo();
+		mkdirSync(join(d, 'src', 'routes', 'sneak'), { recursive: true });
+		writeFileSync(join(d, 'src', 'routes', 'sneak', '.gitignore'), '*\n');
+		writeFileSync(join(d, 'src', 'routes', 'sneak', '+page.svelte'), 'synthetic\n');
+		expect(git(d, 'status', '--porcelain')).toBe('');
+		expect(freshness(d, { revision: head, dirty: false }).reasons).toEqual(['untracked .gitignore files in the build inputs ignore themselves and hide their folder: src/routes/sneak/.gitignore']);
+	});
 	test('the override is the flag only: an exported CLEARCASE_ALLOW_STALE_BUILD does nothing', () => {
 		expect(allowStale([ALLOW_FLAG])).toBe(true);
 		expect(allowStale([])).toBe(false);
@@ -303,6 +362,25 @@ describe('the build stamp (scripts/pilot/copy-pdfjs.ts)', () => {
 		const s = noEnv(e);
 		expect(s).toMatchObject({ revision: at, dirty: null });
 		expect(freshness(e, s, { buildDir: join(e, 'build') }).fresh).toBe(false);
+	});
+	test('the stamp skips the fsmonitor hook and counts build inputs that only a local rule or a self-ignoring .gitignore hides', () => {
+		const hooked = appRepo();
+		const hook = join(root, `stamp-fsmonitor-${hooked.at.slice(0, 8)}.sh`);
+		writeFileSync(hook, '#!/bin/sh\nprintf "tok\\0"\n', { mode: 0o755 });
+		git(hooked.e, 'config', 'core.fsmonitor', hook);
+		git(hooked.e, 'status', '--porcelain');
+		writeFileSync(join(hooked.e, 'a.txt'), 'edited behind the hook\n');
+		expect(noEnv(hooked.e)).toMatchObject({ revision: hooked.at, dirty: true });
+		const excluded = appRepo();
+		mkdirSync(join(excluded.e, 'src', 'routes', 'new'), { recursive: true });
+		writeFileSync(join(excluded.e, 'src', 'routes', 'new', '+page.svelte'), 'synthetic\n');
+		writeFileSync(join(excluded.e, '.git', 'info', 'exclude'), 'src/routes/new/\n');
+		expect(noEnv(excluded.e)).toMatchObject({ revision: excluded.at, dirty: true });
+		const sneaky = appRepo();
+		mkdirSync(join(sneaky.e, 'src', 'routes', 'sneak'), { recursive: true });
+		writeFileSync(join(sneaky.e, 'src', 'routes', 'sneak', '.gitignore'), '*\n');
+		writeFileSync(join(sneaky.e, 'src', 'routes', 'sneak', '+page.svelte'), 'synthetic\n');
+		expect(noEnv(sneaky.e)).toMatchObject({ revision: sneaky.at, dirty: true });
 	});
 	test('a modified copy under .local/ gets no revision and is refused, also when it exports one by hand', () => {
 		const copy = appTree(join(d, '.local', 'scratch'));

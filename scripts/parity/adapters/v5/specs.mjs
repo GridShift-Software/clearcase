@@ -7,7 +7,7 @@ import { basename, join } from 'node:path';
 import { sleep } from '../../../../tests/e2e/pilot/lib/cdp.mjs';
 import { FNV_SRC, SORTS, engineCombos, seededUserWork, seqValue, syntheticInput, uiCombos } from '../../lib/sweeps.mjs';
 import { domExtract } from '../../lib/dom.mjs';
-import { moduleFiles } from '../../lib/modules.mjs';
+import { importModule, moduleFiles } from '../../lib/modules.mjs';
 import { tableFromRaw } from '../../lib/snapshot.mjs';
 
 const V5_SORT = { date: 'Date', ref: 'Ref', docType: 'Type', bundle: 'Bundle', amount: 'Amount' };
@@ -173,7 +173,7 @@ export function loadSpecs(dir = SPEC_DIR, { views } = {}) {
 			const bad = (why) => { throw new Error(`v5 spec ${join(dir, name)}: ${why}`); };
 			if (!known.includes(view)) bad(`${view} is not a v5 navigation id`);
 			if (SPECS[view]) bad(`${view}'s spec is defined in specs.mjs`);
-			const spec = (await import(join(dir, name))).default;
+			const spec = (await importModule(join(dir, name))).default;
 			if (!spec || typeof spec !== 'object' || Array.isArray(spec)) bad('the default export must be one SPECS entry (an object)');
 			for (const k of Object.keys(spec)) if (!SPEC_KEYS.has(k)) bad(`unknown key ${k}`);
 			for (const sw of spec.sweeps ?? []) if (typeof sw?.id !== 'string' || typeof sw.v5 !== 'function') bad('each sweep needs an id and a v5 driver function');

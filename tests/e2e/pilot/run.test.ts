@@ -7,7 +7,7 @@
 // in a temp folder; the runner never reaches a browser step here (it stops at a missing Chromium, after writing its
 // evidence record).
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
@@ -18,8 +18,10 @@ const BUN = process.versions.bun ? process.execPath : 'bun';
 const root = mkdtempSync(join(tmpdir(), 'cc-e2e-run-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 const put = (p: string, s = '') => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, s); };
+/** An mtime long before any index write (seconds since the epoch), so git trusts the index entry's stat data. */
+const OLD_MTIME = 86_400;
 /** The development knobs, a value for each and what the evidence note says it does (an empty size list is one size of 0 MiB). */
-const DEV: Record<string, [string, string]> = { E2E_ONLY: ['S9,S10', 'runs only the listed durability scenarios'], E2E_STOP_AFTER: ['S3', 'stops the browser suite early'], E2E_LATENCY_SIZES_MIB: ['', 'changes the durability latency file sizes'] };
+const DEV: Record<string, [string, string]> = { E2E_ONLY: ['S9,S10', 'runs only the listed durability scenarios'], E2E_STOP_AFTER: ['S3', 'stops the browser suite early'], E2E_LATENCY_SIZES_MIB: ['', 'changes the durability latency file sizes'], CLEARCASE_E2E_TMP: ['/dev/shm/e2e', 'moves the durability files off the disk-backed default folder'] };
 
 describe('category discovery', () => {
 	test('suites and views per category; views without a suite are listed as missing', async () => {
@@ -161,6 +163,19 @@ describe('fresh-build evidence', () => {
 		put(join(repo, 'tests', 'e2e', 'evidence', 'suite.mjs'), '// an unreviewed suite\n');
 		expect(g('status', '--porcelain')).toBe('');
 		expect(summary()).toMatchObject({ categories: { suites: ['evidence'] }, evidence: false, freshBuild: { fresh: true }, evidenceNote: 'NOT release evidence: suites run by file name that the reviewed commit does not hold: tests/e2e/evidence/suite.mjs (ignored)' });
+		// a committed suite whose edit a clean filter hid from git's index (git status clean): its bytes are not HEAD's
+		const rel = 'tests/e2e/system/suite.mjs';
+		put(join(repo, rel), '// the reviewed suite\n');
+		commit('a committed system suite');
+		put(join(repo, rel), '// an unreviewed edit\n');
+		utimesSync(join(repo, rel), OLD_MTIME, OLD_MTIME);
+		put(join(repo, '.git', 'info', 'attributes'), `${rel} filter=hide\n`);
+		g('config', 'filter.hide.clean', `sh -c 'cat >/dev/null; git cat-file blob HEAD:${rel}'`);
+		g('add', rel);
+		rmSync(join(repo, '.git', 'info', 'attributes'));
+		g('config', '--unset', 'filter.hide.clean');
+		expect(g('status', '--porcelain')).toBe('');
+		expect(summary()).toMatchObject({ categories: { suites: ['evidence', 'system'] }, evidence: false, freshBuild: { fresh: true }, evidenceNote: `NOT release evidence: suites run by file name that the reviewed commit does not hold: tests/e2e/evidence/suite.mjs (ignored), ${rel} (its bytes are not HEAD's)` });
 	});
 	test('an exported CLEARCASE_ALLOW_STALE_BUILD=1 no longer overrides the refusal', () => {
 		const r = run(build('0000000000000000000000000000000000000000', true), [], { CLEARCASE_ALLOW_STALE_BUILD: '1' });

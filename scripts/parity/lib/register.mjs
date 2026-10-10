@@ -91,16 +91,17 @@ export function registerFiles(file = REGISTER) {
 
 /**
  * Load the main file, then each fragment in `<its folder>/register/*.json` in file-name order, into one entry list.
- * `files` maps each entry id to its file, relative to the repository; `read` lists every file read (registerFiles). A
- * fragment's problems are prefixed with its name.
+ * `files` maps each entry id to its file, relative to the repository; `read` lists every file read (registerFiles) and
+ * `bytes` holds the bytes each was parsed from, by path, for the committed-input check. A fragment's problems are
+ * prefixed with its name.
  */
 export function loadRegister(file = REGISTER, opts = {}) {
 	const read = registerFiles(file);
 	const ids = new Set();
-	const out = { entries: [], problems: [], files: {}, read };
+	const out = { entries: [], problems: [], files: {}, read, bytes: {} };
 	for (const [path, fragment] of read.map((p, i) => [p, i === 0 ? null : basename(p, '.json')])) {
 		let doc;
-		try { doc = JSON.parse(readFileSync(path, 'utf8')); } catch (e) { out.problems.push(`cannot read ${path}: ${e.message}`); continue; }
+		try { out.bytes[path] = readFileSync(path); doc = JSON.parse(out.bytes[path].toString('utf8')); } catch (e) { out.problems.push(`cannot read ${path}: ${e.message}`); continue; }
 		const problems = validateRegister(doc, { ...opts, fragment, ids });
 		out.problems.push(...(fragment ? problems.map((p) => `register/${fragment}.json: ${p}`) : problems));
 		for (const e of Array.isArray(doc?.entries) ? doc.entries : []) { out.entries.push(e); out.files[e.id] ??= relative(REPO, path); }
@@ -115,19 +116,22 @@ export const unusedEntries = (entries, ran, used) => entries.filter((e) => ran.i
  * Why a parity run is not release evidence whatever its build (the scorecard's evidence is false with these in its
  * note). A waiver counts only when the reviewed commit holds it: a --register FILE outside docs/reference/parity/, and
  * any register file the run read (`loaded`, loadRegister's `read`; else the files it would read now for --register or
- * the default register: the main file and every fragment) that is not a committed review input (untracked, ignored,
- * modified or hidden from git: an ignored .local/ register inside the folder could waive anything too). The same holds
- * for `modules`, the adapters, v5 specs and slot plug-ins the runner loads by listing a folder (lib/modules.mjs). A run
+ * the default register: the main file and every fragment) that is not a committed review input inside that folder
+ * (fresh-build.ts uncommittedInputs: untracked, ignored, modified or hidden from git as given or resolved, or bytes
+ * other than HEAD's blob; `bytes`, by path, are the bytes the run read, else the file is read now). An ignored .local/
+ * register inside the folder, a symlink to a committed file elsewhere, or an edit a stale index hides could waive
+ * anything. The same holds for `modules`, the adapters, v5 specs and slot plug-ins the runner loads by listing a folder
+ * under scripts/parity/adapters (lib/modules.mjs; their bytes as imported go in `bytes` too). A run
  * that compares less than the gate is not evidence either: --no-sweeps, --no-exports, PARITY_MAX_COMBOS (`maxCombos`),
  * and --app-v5-html (v5 against a copy of itself: self-parity, the mutation control). Paths compare by realpath.
  */
-export function runNonEvidence({ register, appV5Html, loaded, modules = [], noSweeps = false, noExports = false, maxCombos } = {}) {
+export function runNonEvidence({ register, appV5Html, loaded, bytes = {}, modules = [], noSweeps = false, noExports = false, maxCombos } = {}) {
 	const real = (p) => { try { return realpathSync(p); } catch { return resolve(p); } };
 	const dir = real(dirname(REGISTER));
 	const out = [];
 	if (register !== undefined && !real(register).startsWith(dir + sep)) out.push(`--register ${real(register)} is not under ${dir}${sep}`);
-	out.push(...notCommitted('register files the run read', REPO, loaded ?? registerFiles(register === undefined ? REGISTER : resolve(register))));
-	out.push(...notCommitted('parity modules loaded by file name', REPO, modules));
+	out.push(...notCommitted('register files the run read', REPO, loaded ?? registerFiles(register === undefined ? REGISTER : resolve(register)), { within: 'docs/reference/parity', read: bytes }));
+	out.push(...notCommitted('parity modules loaded by file name', REPO, modules, { within: 'scripts/parity/adapters', read: bytes }));
 	if (appV5Html) out.push('--app-v5-html compares v5 with a copy of itself (self-parity)');
 	if (noSweeps) out.push('--no-sweeps skips the interaction sweeps');
 	if (noExports) out.push('--no-exports skips the export capture');

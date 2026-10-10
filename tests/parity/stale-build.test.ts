@@ -93,10 +93,14 @@ describe('parity refuses a stale build', () => {
 	});
 	test('the scorecard carries the evidence record, and mutate.mjs runs its mutants with the override', () => {
 		const run = readFileSync(join(REPO, 'scripts', 'parity', 'run.mjs'), 'utf8');
-		expect(run).toContain("const nonEvidence = runNonEvidence({ register: opt('register'), appV5Html, loaded: reg.read, modules, noSweeps: flag('no-sweeps'), noExports: flag('no-exports'), maxCombos: process.env.PARITY_MAX_COMBOS });");
+		expect(run).toContain("const nonEvidence = runNonEvidence({ register: opt('register'), appV5Html, loaded: reg.read, bytes: { ...reg.bytes, ...Object.fromEntries(IMPORTED) }, modules, noSweeps: flag('no-sweeps'), noExports: flag('no-exports'), maxCombos: process.env.PARITY_MAX_COMBOS });");
+		// every listed module is imported through importModule, which keeps the bytes it imported
+		expect(run).toContain('const a = (await importModule(file)).default;');
+		expect(readFileSync(join(REPO, 'scripts', 'parity', 'adapters', 'v5', 'specs.mjs'), 'utf8')).toContain('const spec = (await importModule(join(dir, name))).default;');
+		expect(readFileSync(join(REPO, 'scripts', 'parity', 'adapters', 'app', '_shell.mjs'), 'utf8')).toContain('const mod = await importModule(join(dir, f));');
 		expect(run).toContain('...evidenceRecord(fresh, allowedStale, nonEvidence),');
-		// the modules checked are the ones the three loaders import: they share one listing rule
-		expect(run).toContain('const modules = [APP_ADAPTERS, SPEC_DIR, SLOTS_DIR].flatMap(moduleFiles);');
+		// the modules checked are the ones the three loaders list (they share one listing rule) and the ones they imported
+		expect(run).toContain('const modules = checkedModules([APP_ADAPTERS, SPEC_DIR, SLOTS_DIR]);');
 		expect(run).toContain('for (const file of moduleFiles(APP_ADAPTERS)) {');
 		expect(readFileSync(join(REPO, 'scripts', 'parity', 'adapters', 'v5', 'specs.mjs'), 'utf8')).toContain('const names = moduleFiles(dir).map((f) => basename(f));');
 		expect(readFileSync(join(REPO, 'scripts', 'parity', 'adapters', 'app', '_shell.mjs'), 'utf8')).toContain('for (const f of moduleFiles(dir).map((p) => basename(p))) {');

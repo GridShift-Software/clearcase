@@ -16,9 +16,11 @@
 // ignore rule hides (.git/info/exclude, a global excludes file) and an untracked .gitignore that ignores itself are
 // refusal reasons too: only the committed .gitignore files may hide a file there. A file a runner reads by name at run
 // time (a register file, a module or suite it finds by listing a folder) must also be a committed review input
-// (uncommittedInputs: tracked, unmodified, not hidden), since a committed .gitignore can ignore it without making the
-// tree dirty; the runners record such a run as not evidence.
+// (uncommittedInputs: tracked, unmodified and not hidden as given and resolved, inside its folder, and its bytes HEAD's
+// blob), since a committed .gitignore can ignore it without making the tree dirty and a stale index can hide an edit;
+// the runners record such a run as not evidence.
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 
@@ -47,8 +49,8 @@ const short = (r: string) => (/^[0-9a-f]{40}$/.test(r) ? r.slice(0, 12) : r);
 export const gitEnv = (env: NodeJS.ProcessEnv = process.env) => Object.fromEntries(Object.entries(env).filter(([k]) => !k.startsWith('GIT_')));
 
 /** git's output, or null and why it failed (its first stderr line). */
-const git = (repo: string, args: string[]): { out: string | null; error: string | null } => {
-	const r = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', env: gitEnv() });
+const git = (repo: string, args: string[], input?: string): { out: string | null; error: string | null } => {
+	const r = spawnSync('git', ['-C', repo, ...args], { encoding: 'utf8', env: gitEnv(), input });
 	return r.status === 0 ? { out: r.stdout, error: null } : { out: null, error: (r.error?.message ?? r.stderr ?? '').trim().split('\n')[0] || `exit ${r.status}` };
 };
 
@@ -165,49 +167,94 @@ export function freshness(repo: string, stamp: BuildStamp | null, { buildDir, is
 	return { buildRevision, buildDirty, head: g.head, trackedDirty: g.trackedDirty, dirtyPaths: g.dirtyPaths, fresh: reasons.length === 0, reasons };
 }
 
+/** git's blob id for `bytes`: the hash of `blob <length>\0<bytes>`, no filters applied, in the given object format. */
+export const gitBlobId = (bytes: Uint8Array, format: 'sha1' | 'sha256' = 'sha1') => createHash(format).update(`blob ${bytes.length}\0`).update(bytes).digest('hex');
+
+/** What a runner read by name and the bytes it read, by the path it read them from (see uncommittedInputs). */
+export type ReadBytes = Readonly<Record<string, Uint8Array>>;
+
 /**
- * The files among `paths` that are not committed review inputs of `repo`, each as `<path> (<why>)`: a file a runner
- * reads by name at run time (a register file, a module or suite it finds by listing a folder) counts only when its
- * realpath lies in `repo`, git's index tracks it, git status shows no change to it (staged or not), and it is not
- * flagged assume-unchanged or skip-worktree, so the reviewed commit holds its contents. Freshness does not cover this:
- * a file a committed .gitignore ignores (say under .local/) leaves git status clean. Why is `ignored`, `untracked`,
- * `modified`, `hidden from git (...)`, `outside the checkout` or, when git cannot answer or `repo` is not its top
- * level, `unknown (...)`. git runs as gitState runs it (gitEnv, FRESH_READ). Paths are relative to `repo` when inside.
+ * The files among `paths` that are not committed review inputs of `repo`, each as `<path> (<why>; ...)`. A file a
+ * runner reads by name at run time (a register file, a module or suite it finds by listing a folder) counts only when:
+ * - the path as given (only the checkout's own path resolved) and its realpath both lie in `repo` and, with `within`
+ *   (a folder relative to `repo`), inside that folder;
+ * - git's index tracks both, git status shows no change to either (staged or not), and neither is flagged
+ *   assume-unchanged or skip-worktree;
+ * - the bytes the runner read (`read`, by path; a file not in it is read now) are HEAD's blob at the path as given:
+ *   hashed as git hashes a blob, without filters, and compared with HEAD's tree, so neither a stale or poisoned index
+ *   (a clean filter, a restored mtime) nor a symlink can stand in for the committed contents.
+ * Freshness does not cover this: a file a committed .gitignore ignores (say under .local/) leaves git status clean.
+ * When git cannot answer, or `repo` is not its top level, the why is `unknown (...)`. git runs as gitState runs it
+ * (gitEnv, FRESH_READ). Paths are shown relative to `repo` when inside.
  */
-export function uncommittedInputs(repo: string, paths: readonly string[]): string[] {
+export function uncommittedInputs(repo: string, paths: readonly string[], { within, read = {} }: { within?: string; read?: ReadBytes } = {}): string[] {
 	const top = real(repo);
-	const out: string[] = [];
-	const files = new Set<string>();
-	for (const p of paths) {
-		const r = relative(top, real(p));
-		if (r === '' || r === '..' || r.startsWith(`..${sep}`) || isAbsolute(r)) out.push(`${real(p)} (outside the checkout ${top})`);
-		else files.add(r.split(sep).join('/'));
+	const inside = (x: string) => x !== '' && x !== '..' && !x.startsWith(`..${sep}`) && !isAbsolute(x);
+	const posix = (x: string) => x.split(sep).join('/');
+	const given = (p: string) => { for (const r of new Set([resolve(repo), top])) { const x = relative(r, resolve(p)); if (inside(x)) return posix(x); } return null; };
+	const resolved = (p: string) => { const x = relative(top, real(p)); return inside(x) ? posix(x) : null; };
+	const under = (f: string) => !within || f.startsWith(`${within}/`);
+	const items = [...new Set(paths)].map((p) => ({ p, g: given(p), r: resolved(p) }));
+	const rels = [...new Set(items.flatMap((i) => [i.g, i.r]).filter((x): x is string => x !== null))];
+	const state = new Map<string, string>();
+	const head = new Map<string, string>();
+	let error: string | null = null;
+	if (rels.length) {
+		const specs = rels.map((f) => `:(literal)${f}`);
+		const at = git(repo, ['rev-parse', '--show-toplevel']);
+		const ls = git(repo, [...FRESH_READ, 'ls-files', '-v', '-z', '--', ...specs]);
+		const ign = git(repo, [...FRESH_READ, 'ls-files', '-o', '-i', '--exclude-standard', '-z', '--', ...specs]);
+		const st = git(repo, [...FRESH_READ, 'status', '--porcelain', '-z', '--untracked-files=no', '--', ...specs]);
+		const objs = git(repo, ['cat-file', '--batch-check=%(objectname) %(objecttype)'], rels.map((f) => `HEAD:${f}`).join('\n') + '\n');
+		error = at.error ?? ls.error ?? ign.error ?? st.error ?? objs.error ?? (real(at.out!.trim()) === top ? null : `${top} is not the top level of its git checkout`) ?? (rels.some((f) => f.includes('\n')) ? 'a path holds a newline' : null);
+		if (!error) {
+			const tags = new Map(ls.out!.split('\0').filter(Boolean).map((l) => [l.slice(2), l[0]!]));
+			const ignored = new Set(ign.out!.split('\0').filter(Boolean));
+			const changed = new Set<string>();
+			const recs = st.out!.split('\0');
+			// porcelain -z: `XY path`, and a rename or copy is followed by its source path
+			for (let i = 0; i < recs.length; i++) if (recs[i]) { changed.add(recs[i]!.slice(3)); if (/^[RC]/.test(recs[i]!)) i++; }
+			for (const f of rels) {
+				const tag = tags.get(f);
+				const why = tag === undefined ? (ignored.has(f) ? 'ignored' : 'untracked') : /^([a-z]|S)$/.test(tag) ? 'hidden from git (assume-unchanged or skip-worktree)' : changed.has(f) ? 'modified' : null;
+				if (why) state.set(f, why);
+			}
+			// one `<oid> <type>` line per path, or `HEAD:<path> missing`
+			objs.out!.split('\n').slice(0, rels.length).forEach((l, i) => { const [oid, type] = l.split(' '); if (type === 'blob' && /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(oid!)) head.set(rels[i]!, oid!); });
+		}
 	}
-	if (files.size === 0) return out;
-	const specs = [...files].map((f) => `:(literal)${f}`);
-	const at = git(repo, ['rev-parse', '--show-toplevel']);
-	const ls = git(repo, [...FRESH_READ, 'ls-files', '-v', '-z', '--', ...specs]);
-	const ign = git(repo, [...FRESH_READ, 'ls-files', '-o', '-i', '--exclude-standard', '-z', '--', ...specs]);
-	const st = git(repo, [...FRESH_READ, 'status', '--porcelain', '-z', '--untracked-files=no', '--', ...specs]);
-	const error = at.error ?? ls.error ?? ign.error ?? st.error ?? (real(at.out!.trim()) === top ? null : `${top} is not the top level of its git checkout`);
-	if (error) return [...out, ...[...files].map((f) => `${f} (unknown: ${error})`)];
-	const tags = new Map(ls.out!.split('\0').filter(Boolean).map((l) => [l.slice(2), l[0]!]));
-	const ignored = new Set(ign.out!.split('\0').filter(Boolean));
-	const changed = new Set<string>();
-	const recs = st.out!.split('\0');
-	// porcelain -z: `XY path`, and a rename or copy is followed by its source path
-	for (let i = 0; i < recs.length; i++) if (recs[i]) { changed.add(recs[i]!.slice(3)); if (/^[RC]/.test(recs[i]!)) i++; }
-	for (const f of files) {
-		const tag = tags.get(f);
-		const why = tag === undefined ? (ignored.has(f) ? 'ignored' : 'untracked') : /^([a-z]|S)$/.test(tag) ? 'hidden from git (assume-unchanged or skip-worktree)' : changed.has(f) ? 'modified' : null;
-		if (why) out.push(`${f} (${why})`);
+	const out: string[] = [];
+	for (const { p, g, r } of items) {
+		const why: string[] = [];
+		if (g === null) why.push(`outside the checkout ${top}`);
+		else {
+			if (!under(g)) why.push(`outside ${within}/`);
+			if (error) why.push(`unknown: ${error}`);
+			else {
+				if (state.has(g)) why.push(state.get(g)!);
+				if (r === null) why.push(`resolves outside the checkout, to ${real(p)}`);
+				else if (r !== g) why.push(`resolves ${under(r) ? '' : `outside ${within}/, `}to ${r}${state.has(r) ? `, which is ${state.get(r)}` : ''}`);
+				if (!state.has(g)) {
+					const id = head.get(g);
+					let bytes: Uint8Array | null = read[p] ?? null;
+					if (!bytes) try { bytes = readFileSync(p); } catch { bytes = null; }
+					if (!id) why.push('not in HEAD');
+					else if (!bytes) why.push('unreadable');
+					else if (gitBlobId(bytes, id.length === 64 ? 'sha256' : 'sha1') !== id) why.push("its bytes are not HEAD's");
+				}
+			}
+		}
+		if (why.length) out.push(`${g ?? real(p)} (${why.join('; ')})`);
 	}
 	return out;
 }
 
-/** One reason a run is not release evidence when some of `paths` are not committed review inputs (uncommittedInputs), else none. */
-export const notCommitted = (what: string, repo: string, paths: readonly string[]) => {
-	const found = uncommittedInputs(repo, paths);
+/**
+ * One reason a run is not release evidence when some of `paths` are not committed review inputs (uncommittedInputs,
+ * with its `within` and `read`), else none.
+ */
+export const notCommitted = (what: string, repo: string, paths: readonly string[], opts: { within?: string; read?: ReadBytes } = {}) => {
+	const found = uncommittedInputs(repo, paths, opts);
 	return found.length ? [`${what} that the reviewed commit does not hold: ${found.join(', ')}`] : [];
 };
 

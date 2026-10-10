@@ -2,7 +2,7 @@
 // way a user sees it: real navigation, the rendered DOM, real clicks; never the database or page data.
 import { basename, join } from 'node:path';
 import { sleep } from '../../../../tests/e2e/pilot/lib/cdp.mjs';
-import { moduleFiles } from '../../lib/modules.mjs';
+import { importModule, moduleFiles } from '../../lib/modules.mjs';
 import { fromRaw, remap } from '../../lib/snapshot.mjs';
 
 export const ready = (view) => `document.querySelector('[data-ready="${view}"]')`;
@@ -61,7 +61,7 @@ export async function loadSlotPlugins(dir = SLOTS_DIR, root = join(import.meta.d
 	for (const f of moduleFiles(dir).map((p) => basename(p))) {
 		const id = f.slice(0, -'.mjs'.length);
 		if (!ids.includes(id)) throw new Error(`slot plug-in ${f}: ${id} is not an overview slot (${ids.join(', ')})`);
-		const mod = await import(join(dir, f));
+		const mod = await importModule(join(dir, f));
 		const pl = mod.default ?? mod;
 		if (!isFn(pl.read) || !isFn(pl.seed) || !isFn(pl.cleanup)) throw new Error(`slot plug-in ${f} must export read(p, ctx), seed(p, ctx, rows) and cleanup(p, ctx)`);
 		found.set(id, { read: pl.read, seed: pl.seed, cleanup: pl.cleanup });

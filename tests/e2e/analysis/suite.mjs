@@ -215,6 +215,12 @@ try {
 	const infoRows = () => A.work("SELECT row_id, fields FROM register_row WHERE case_id = 'e2e-analysis' AND store = 'info-required' ORDER BY row_id").map((r) => ({ id: r.row_id, fields: JSON.parse(r.fields) }));
 	const infoState = () => p.evaluate(`[...document.querySelectorAll('#info-table tbody tr')].map((r) => [r.querySelector('input[type=checkbox]').checked, r.cells[1].classList.contains('struck')])`);
 	const saved = () => p.waitFor(`!document.querySelector('#info-table [aria-busy="true"]')`, 30000);
+	/** The unsaved items the alert names, each with its own Retry, and each row's visible save marker. */
+	const infoProblems = () => p.evaluate(`[...document.querySelectorAll('#info-error .info-problem')].map((e) => ({ text: e.querySelector('span').textContent, retry: !!e.querySelector('button.info-retry') }))`);
+	const rowMarks = () => p.evaluate(`[...document.querySelectorAll('#info-table tbody tr')].map((r) => { const m = r.querySelector('.row-state'); return m && m.getClientRects().length ? m.dataset.state : null; })`);
+	const retry = (item) => p.click(`#info-error .info-retry[aria-label=${J(`Retry: ${item}`)}]`);
+	const problemCount = (n) => p.waitFor(`document.querySelectorAll('#info-error .info-problem').length === ${n}`, 30000);
+	const doneOf = (rows, item) => rows.find((r) => r.fields.item === item)?.fields.done;
 
 	await scenario('AN-08', 'info_required_tab', 'Scenario 8: check an information-required item, reload: it stays checked and struck through; the flag is one row keyed by the item, not its position; unchecking persists too', async () => {
 		const nav = await arrive(p, vid, 'info_required_tab', name);
@@ -245,6 +251,8 @@ try {
 		const release = () => { if (!released) { released = true; lock.exec('ROLLBACK'); lock.close(); } };
 		try {
 			await p.click('#info-table tbody tr:nth-child(1) input[type=checkbox]');
+			// while the store retries, the row shows that it is saving (visible text, not only aria-busy)
+			const busyShown = await p.waitFor(`(() => { const r = document.querySelector('#info-table tbody tr:nth-child(1)'); const m = r?.querySelector('.row-state[data-state="saving"]'); return r?.getAttribute('aria-busy') === 'true' && !!m && m.getClientRects().length > 0 && m.textContent.trim() === 'Saving…'; })()`, 10000).then(() => true, () => false);
 			await p.waitFor(`document.querySelector('#info-error')`, 30000);
 			const error = await p.evaluate(`document.querySelector('#info-error').textContent`);
 			const kept = await infoState();
@@ -252,13 +260,13 @@ try {
 			const during = infoRows();
 			release();
 			const heldMs = Date.now() - t0;
-			await p.click('#info-retry');
+			await p.click('#info-error .info-retry');
 			await saved();
 			await p.waitFor(`!document.querySelector('#info-error')`, 15000);
 			const after = infoRows();
 			const added = after.filter((r) => !before.some((x) => x.id === r.id));
-			const ok = /Not saved/.test(error) && kept[0][0] === true && J(during) === J(before) && heldMs > 12000 && added.length === 1 && added[0].fields.item === 'Invented item A' && added[0].fields.done === true && after.length === before.length + 1;
-			return { pass: ok, evidence: { error: error.slice(0, 160), kept: kept[0], heldMs, rowsBefore: before.length, rowsDuring: during.length, rowsAfter: after.length } };
+			const ok = busyShown && /Not saved/.test(error) && kept[0][0] === true && J(during) === J(before) && heldMs > 12000 && added.length === 1 && added[0].fields.item === 'Invented item A' && added[0].fields.done === true && after.length === before.length + 1;
+			return { pass: ok, evidence: { busyShown, error: error.slice(0, 160), kept: kept[0], heldMs, rowsBefore: before.length, rowsDuring: during.length, rowsAfter: after.length } };
 		} finally { release(); }
 	}, { expectsFailures: true });
 
@@ -272,7 +280,7 @@ try {
 		const kept = await infoState();
 		await A.start();
 		const during = infoRows();
-		await p.click('#info-retry');
+		await p.click('#info-error .info-retry');
 		await saved();
 		await p.waitFor(`!document.querySelector('#info-error')`, 15000);
 		const after = infoRows();
@@ -295,6 +303,63 @@ try {
 		const shownAfter = await infoState();
 		const ok = before.length === 3 && J(afterKill) === J(before) && J(afterGraceful) === J(before) && J(shownAfter) === J(shownBefore) && graceful?.graceful === true;
 		return { pass: ok, evidence: { rows: before.length, kill: { graceful: kill?.graceful }, graceful: graceful?.graceful, shownBefore, shownAfter } };
+	}, { expectsFailures: true });
+
+	await scenario('AN-FW3', 'info_required_tab', 'Two failed saves in a row: each item keeps its choice, its own error and Retry; one Retry saves only its item and leaves the other failure; the second Retry saves it; a reload shows the stored truth', async () => {
+		await p.goto(V(vid, 'info_required_tab'), L.ready('info_required_tab'));
+		const before = infoRows();
+		const shownBefore = await infoState();
+		await A.stop();
+		await p.click('#info-table tbody tr:nth-child(2) input[type=checkbox]');
+		await problemCount(1);
+		await p.click('#info-table tbody tr:nth-child(1) input[type=checkbox]');
+		await problemCount(2);
+		const failed = { problems: await infoProblems(), marks: await rowMarks(), shown: await infoState() };
+		await A.start();
+		await retry('Invented item B');
+		await p.waitFor(`document.querySelectorAll('#info-error .info-problem').length === 1 && !document.querySelector('#info-table [aria-busy="true"]')`, 30000);
+		const oneRetried = { problems: await infoProblems(), marks: await rowMarks(), shown: await infoState(), rows: infoRows() };
+		await retry('Invented item A');
+		await saved();
+		await p.waitFor(`!document.querySelector('#info-error')`, 15000);
+		const after = infoRows();
+		await p.goto(V(vid, 'info_required_tab'), L.ready('info_required_tab'));
+		const reloaded = { shown: await infoState(), marks: await rowMarks(), error: await p.evaluate(`!!document.querySelector('#info-error')`) };
+		const ok = J(shownBefore) === J([[true, true], [false, false], [true, true]])
+			&& failed.problems.length === 2 && /Invented item B/.test(failed.problems[0].text) && /Invented item A/.test(failed.problems[1].text) && failed.problems.every((x) => x.retry && /could not be reached/.test(x.text))
+			&& J(failed.marks) === J(['unsaved', 'unsaved', null]) && J(failed.shown) === J([[false, false], [true, true], [true, true]])
+			&& oneRetried.problems.length === 1 && /Invented item A/.test(oneRetried.problems[0].text) && oneRetried.problems[0].retry && J(oneRetried.marks) === J(['unsaved', null, null]) && J(oneRetried.shown) === J(failed.shown)
+			&& doneOf(oneRetried.rows, 'Invented item B') === true && doneOf(oneRetried.rows, 'Invented item A') === true
+			&& doneOf(after, 'Invented item A') === false && doneOf(after, 'Invented item B') === true && after.length === before.length
+			&& J(reloaded.shown) === J([[false, false], [true, true], [true, true]]) && J(reloaded.marks) === J([null, null, null]) && !reloaded.error;
+		return { pass: ok, evidence: { shownBefore, failed, oneRetried: { ...oneRetried, rows: oneRetried.rows.length }, rowsAfter: after.length, reloaded } };
+	}, { expectsFailures: true });
+
+	await scenario('AN-FW4', 'info_required_tab', 'A failed save, then a successful save of another item: the failed item keeps its choice, its error and Retry and is not stored; a reload shows the stored truth, and choosing it again saves it', async () => {
+		await p.goto(V(vid, 'info_required_tab'), L.ready('info_required_tab'));
+		const shownBefore = await infoState();
+		await A.stop();
+		await p.click('#info-table tbody tr:nth-child(3) input[type=checkbox]');
+		await problemCount(1);
+		await A.start();
+		await p.click('#info-table tbody tr:nth-child(1) input[type=checkbox]');
+		await saved();
+		await sleep(300);
+		const mid = { problems: await infoProblems(), marks: await rowMarks(), shown: await infoState(), rows: infoRows() };
+		// a reload shows what is stored: A saved, C still as stored (its unsaved choice is not shown as saved)
+		await p.goto(V(vid, 'info_required_tab'), L.ready('info_required_tab'));
+		const reloaded = { shown: await infoState(), error: await p.evaluate(`!!document.querySelector('#info-error')`) };
+		// choosing C again with the server up saves it; a reload shows it
+		await p.click('#info-table tbody tr:nth-child(3) input[type=checkbox]');
+		await saved();
+		await p.goto(V(vid, 'info_required_tab'), L.ready('info_required_tab'));
+		const final = { shown: await infoState(), rows: infoRows() };
+		const ok = J(shownBefore) === J([[false, false], [true, true], [true, true]])
+			&& mid.problems.length === 1 && /Invented item C/.test(mid.problems[0].text) && mid.problems[0].retry && J(mid.marks) === J([null, null, 'unsaved'])
+			&& J(mid.shown) === J([[true, true], [true, true], [false, false]]) && doneOf(mid.rows, 'Invented item A') === true && doneOf(mid.rows, 'Invented item C') === true
+			&& J(reloaded.shown) === J([[true, true], [true, true], [true, true]]) && !reloaded.error
+			&& J(final.shown) === J([[true, true], [true, true], [false, false]]) && doneOf(final.rows, 'Invented item C') === false;
+		return { pass: ok, evidence: { shownBefore, mid: { ...mid, rows: mid.rows.length }, reloaded, final: final.shown } };
 	}, { expectsFailures: true });
 
 	await scenario('AN-09', 'witness_tab', 'Scenario 9: a will-say [[REF]] links to its document through Narrative.svelte; a missing ref renders broken; names and bare refs are never turned into links', async () => {

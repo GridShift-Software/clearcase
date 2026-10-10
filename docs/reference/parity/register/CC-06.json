@@ -51,18 +51,6 @@
       "approvedOn": "2026-10-09"
     },
     {
-      "id": "IDR-028",
-      "view": "payments_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-16",
-      "reason": "The app does not implement Payments & Net Claim yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
       "id": "IDR-033",
       "view": "settlement_tab",
       "field": "*",
@@ -73,6 +61,189 @@
       "author": "CC-29 worker (GRS-37)",
       "approvedBy": "coordinator",
       "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-200",
+      "view": "payments_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar link, as on every app view.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-201",
+      "view": "payments_tab",
+      "field": "table.table_2.row.*.pod",
+      "when": {
+        "v5": "",
+        "app": "<absent>"
+      },
+      "type": "improvement",
+      "source": "S-payments_tab-4",
+      "reason": "The reconciliation chain hides the POD column when no month has a proof-of-delivery ref (every POD cell is empty in v5's data, S-payments_tab-4); product rule: a column that carries no information on the imported data is hidden.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-202",
+      "view": "payments_tab",
+      "field": [
+        "table.table_2.col.pod",
+        "table.table_2.columns"
+      ],
+      "when": {
+        "v5": {
+          "re": "^(POD|month \\| invoice \\| supporting_stmt \\| charging \\| pod \\| statement \\| amount_due)$"
+        },
+        "app": {
+          "re": "^(<absent>|month \\| invoice \\| supporting_stmt \\| charging \\| statement \\| amount_due)$"
+        }
+      },
+      "type": "improvement",
+      "source": "S-payments_tab-4",
+      "reason": "The POD column header is left out with its empty column (S-payments_tab-4): no month of the imported chain has a proof-of-delivery ref.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-203",
+      "view": "payments_tab",
+      "field": [
+        "sweep.separators.kpi.Payments recorded",
+        "sweep.separators.kpi.Net claim"
+      ],
+      "when": {
+        "v5": {
+          "re": "^-?R[\\d .]+( · \\d+ receipts)?$"
+        },
+        "app": {
+          "re": "^-?R[\\d .]+( · \\d+ receipts)?$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-payments_tab-1",
+      "reason": "Amounts typed with separators or an R prefix (R 1 000.00 is the app's own format) count in full: the payments total and net claim use the same parsed cents as the table. v5 summed parseFloat (1 000 counted as 1, R 500 as 0) while its table showed the full amounts (S-payments_tab-1, high).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-204",
+      "view": "payments_tab",
+      "field": [
+        "sweep.register_edit.add1.row.0",
+        "sweep.register_edit.add2.row.0",
+        "sweep.register_edit.add2.row.1",
+        "sweep.register_edit.delete.row.0"
+      ],
+      "when": {
+        "v5": {
+          "re": "^\\d+-\\d+-\\d+ \\| R \\d\\.00 \\| Synthetic entry \\d \\| Synthetic entry \\d \\| Delete$"
+        },
+        "app": {
+          "re": "^(<absent>|No payments recorded — the claim is currently gross\\.[ |]*)$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-payments_tab-2",
+      "reason": "A non-numeric amount (the sweep types Synthetic entry N) is refused with a visible error and the typed text kept, so no payment is stored; v5 stored it, showed R 1.00 or R 2.00 and counted it as a receipt (S-payments_tab-2).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-205",
+      "view": "payments_tab",
+      "field": [
+        "sweep.register_edit.add2.rows",
+        "sweep.register_edit.delete.rows",
+        "sweep.register_edit.delete"
+      ],
+      "when": {
+        "v5": {
+          "re": "^(1|2|<absent>)$"
+        },
+        "app": {
+          "re": "^(1|<absent>|no-delete-control)$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-payments_tab-2",
+      "reason": "Because the two non-numeric amounts are refused (S-payments_tab-2), the table keeps its empty-state row and has no row to delete; v5 had two stored rows and deleted one.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-206",
+      "view": "payments_tab",
+      "field": [
+        "sweep.register_edit.overview.Open deadlines",
+        "sweep.register_edit.overview.Unbilled time"
+      ],
+      "when": {
+        "app": {
+          "re": "^Not yet available — owned by GRS-17"
+        }
+      },
+      "type": "not-yet-implemented",
+      "source": "GRS-17",
+      "owner": "GRS-17",
+      "reason": "The register sweep ends on the overview tiles; the deadline and unbilled-time tiles are overview slots that GRS-17 (CC-07) fills, so the app still shows their unavailable state there.",
+      "productVisible": false,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-207",
+      "view": "payments_tab",
+      "field": "sweep.register_edit.overview.Scanned (need OCR)",
+      "when": {
+        "v5": {
+          "re": "^\\d+$"
+        },
+        "app": {
+          "re": "^\\d+$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-meta-counts",
+      "reason": "The overview tile read at the end of the register sweep counts the register rows without extracted text instead of the build metadata figure (S-meta-counts, as IDR-049 on the overview).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-208",
+      "view": "payments_tab",
+      "field": "export.export_payments.name",
+      "when": {
+        "app": "payments.csv"
+      },
+      "type": "defect-fix",
+      "source": "S-hardcoded-case",
+      "reason": "v5 prefixes the export file name with case-specific initials; the app uses a neutral name (as IDR-064 for the chronology). The columns and rows are v5's.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
     }
   ]
 }

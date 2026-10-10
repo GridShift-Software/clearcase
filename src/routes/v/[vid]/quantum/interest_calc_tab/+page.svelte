@@ -18,7 +18,7 @@
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'interest_calc_tab' : null}>
+<main id="main" tabindex="-1" data-ready="interest_calc_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Interest Recalculator" section="Interest Recalculator" caseName={data.version.titleName} subtitle="Reproduce and stress-test the interest underlying the claim" />
 	{#if data.note}
 		<div class="q-card">
@@ -34,8 +34,8 @@
 				<div><label for="ic_m">Method</label><select id="ic_m" name="m" value={inputs.m}>{#each METHODS as m (m)}<option value={m}>{m}</option>{/each}</select></div>
 				<div><label for="ic_from">From (mora)</label><input id="ic_from" name="from" type="date" value={inputs.from} aria-invalid={errs.from ? 'true' : undefined} /></div>
 				<div><label for="ic_to">To</label><input id="ic_to" name="to" type="date" value={inputs.to} aria-invalid={errs.to ? 'true' : undefined} /></div>
-				<div style="flex:0"><button id="ic-compute">Compute</button></div>
-				<div style="flex:0"><a href={page.url.pathname} id="ic-reset" data-sveltekit-replacestate data-sveltekit-noscroll>Reset to defaults</a></div>
+				<div class="q-tight"><button id="ic-compute">Compute</button></div>
+				<div class="q-tight"><a href={page.url.pathname} id="ic-reset" data-sveltekit-replacestate data-sveltekit-noscroll>Reset to defaults</a></div>
 			</div>
 		</form>
 		{#if data.defaults.rate === null}<p class="q-note" id="rate-missing">This package gives no default rate: enter the rate fixed by the award or contract.</p>{/if}

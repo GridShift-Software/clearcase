@@ -19,7 +19,7 @@
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'quantum_tab' : null}>
+<main id="main" tabindex="-1" data-ready="quantum_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Quantum & Interest" section="Quantum & Interest" caseName={data.version.titleName} subtitle={data.content.subtitle} />
 	{#if !q}
 		<p>This results package has no quantum data.</p>
@@ -54,7 +54,7 @@
 			<div class="q-card">
 				<h3>Invoice ledger ({q.invoiceLedger.length})</h3>
 				<div class="toolbar"><button type="button" id="export-invoices" onclick={() => download('invoices.csv', invoicesCsv(q.invoiceLedger))}>Export CSV</button></div>
-				<div class="q-wrap" style="max-height:460px">
+				<div class="q-wrap q-h460">
 					<table class="q-tbl" id="invoice-ledger">
 						<thead><tr><th>Ref</th><th>Invoice</th><th>Date</th><th class="num">Amount</th><th>Doc</th></tr></thead>
 						<tbody>{#each q.invoiceLedger as r, i (i)}<tr><td class="mono">{r.ref}</td><td class="mono">{r.no}</td><td class="mono">{r.date || '—'}</td><td class="num">{importedMoney(r.amount)}</td><td><CitationLink resultsVersion={vid} ref={r.ref} exists={known.has(r.ref)} label={known.has(r.ref) ? 'open ↗' : r.ref} /></td></tr>{/each}</tbody>

@@ -10,6 +10,9 @@ import { syntheticInput } from '../../lib/sweeps.mjs';
 import { readPayments, SEPARATED, separatedPayment } from '../v5/specs/payments_tab.mjs';
 import { navFocus, open, pressAndCapture, readOverviewTiles } from './_shell.mjs';
 
+/** Open one of this view's routes and wait until it is hydrated (data-ready is server-rendered; data-hydrated marks working controls). */
+const openView = async (p, ctx, route, view) => { await open(p, ctx, route, view); await p.waitFor(`!!document.querySelector('main[data-ready="${view}"][data-hydrated]')`, 30000); };
+
 const VIEW = 'payments_tab';
 const route = (ctx) => ctx.registry[VIEW].route;
 
@@ -34,7 +37,7 @@ async function submit(p, sel) {
 
 /** Delete every stored payment whose note marks it as the sweep's own (the app keeps user work across views). */
 async function cleanup(p, ctx, notePrefix) {
-	await open(p, ctx, route(ctx), VIEW);
+	await openView(p, ctx, route(ctx), VIEW);
 	for (let i = 0; i < 50; i++) {
 		const tagged = await p.evaluate(`(() => { const r = [...document.querySelectorAll('#payments tbody tr[data-row-id]')].find((r) => r.cells[3]?.textContent.startsWith(${JSON.stringify(notePrefix)})); if (!r) return false; r.querySelector('button').setAttribute('data-parity-cleanup', '1'); return true; })()`);
 		if (!tagged) return;
@@ -54,7 +57,7 @@ export default {
 	view: VIEW,
 	async extract(p, ctx) {
 		const nav = await navFocus(p, ctx, { from: '/overview', fromView: 'overview', view: VIEW });
-		await open(p, ctx, route(ctx), VIEW);
+		await openView(p, ctx, route(ctx), VIEW);
 		const s = fromRaw(VIEW, 'app', await p.extract('#main'));
 		if (ctx.exports) {
 			const got = await pressAndCapture(p, '#export-payments', parseDownload);
@@ -68,7 +71,7 @@ export default {
 		/** v5's generic register sequence through the app's form (scripts/parity/adapters/v5/specs.mjs registerSweep). */
 		async register_edit(p, ctx) {
 			const out = {};
-			await open(p, ctx, route(ctx), VIEW);
+			await openView(p, ctx, route(ctx), VIEW);
 			const record = async (step) => { const rows = await firstTableRows(p); out[`${step}.rows`] = String(rows.length); rows.forEach((r, i) => { out[`${step}.row.${i}`] = r; }); };
 			for (let n = 0; n < 2; n++) {
 				const fields = await p.evaluate(`[...document.querySelectorAll('#main input, #main select, #main textarea')].filter((e) => e.getClientRects().length && !e.closest('table') && e.type !== 'file' && e.type !== 'checkbox').map((e, i) => { e.setAttribute('data-parity-field', String(i)); return { i, tag: e.tagName.toLowerCase(), type: e.type, options: e.tagName === 'SELECT' ? [...e.options].map((o) => o.value) : null }; })`);
@@ -90,7 +93,7 @@ export default {
 		},
 		/** The v5 spec's separated amounts, typed into the app's form (scripts/parity/adapters/v5/specs/payments_tab.mjs). */
 		async separators(p, ctx) {
-			await open(p, ctx, route(ctx), VIEW);
+			await openView(p, ctx, route(ctx), VIEW);
 			for (let i = 0; i < SEPARATED.length; i++) {
 				const pay = separatedPayment(ctx.clock, i);
 				await p.evaluate(`(() => { const v = ${JSON.stringify(pay)}; for (const [id, k] of [['pay_date', 'date'], ['pay_amount', 'amount'], ['pay_method', 'method'], ['pay_note', 'note']]) { const e = document.getElementById(id); e.value = v[k]; e.dispatchEvent(new Event('input', { bubbles: true })); } })()`);

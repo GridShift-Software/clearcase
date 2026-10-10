@@ -8,7 +8,8 @@ import { startServer } from '../pilot/lib/server.mjs';
 
 export const CLOCK = '2026-10-08T09:00:00Z';
 export const J = JSON.stringify;
-export const ready = (view) => `!!document.querySelector('[data-ready="${view}"]')`;
+/** A view is ready when its data-ready root is there; a quantum view also when hydrated (its controls work). */
+export const ready = (view) => (['overview', 'chronology'].includes(view) ? `!!document.querySelector('[data-ready="${view}"]')` : `!!document.querySelector('[data-ready="${view}"][data-hydrated]')`);
 
 /** The suite's synthetic case: quantum and litigation datasets edited to exercise the checks (mismatches on purpose). */
 export function quantumCase(root) {

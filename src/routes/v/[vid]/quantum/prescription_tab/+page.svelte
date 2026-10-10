@@ -35,7 +35,7 @@
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'prescription_tab' : null}>
+<main id="main" tabindex="-1" data-ready="prescription_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Prescription" section="Prescription" caseName={data.version.titleName} subtitle="Three-year extinctive prescription per invoice, and what interrupts it">
 		{#snippet actions()}<button type="button" id="export-presc" onclick={() => download('prescription.csv', prescriptionCsv(shown))}>Export CSV</button>{/snippet}
 	</PageHeader>
@@ -57,7 +57,7 @@
 	{/if}
 	<div class="q-card">
 		<div class="q-row">
-			<input id="pr-q" aria-label="Filter invoice / ref" placeholder="Filter invoice / ref" value={query.q} oninput={(e) => set('q', e.currentTarget.value)} style="max-width:220px" />
+			<input id="pr-q" aria-label="Filter invoice / ref" placeholder="Filter invoice / ref" value={query.q} oninput={(e) => set('q', e.currentTarget.value)} class="q-filter" />
 			<select id="pr-risk" aria-label="Risk" value={query.risk} onchange={(e) => set('risk', e.currentTarget.value)}><option value="">Any risk</option>{#each risks as r (r)}<option value={r}>{r}</option>{/each}</select>
 		</div>
 		<div class="q-wrap">
@@ -75,7 +75,7 @@
 					{/each}
 				</tbody>
 			</table>
-			<div class="pager q-pager" id="pr-pager"><button type="button" disabled={pg.page <= 1} onclick={() => go(-1)}>Prev</button><span>Page {pg.page} / {pg.pages}</span><button type="button" disabled={pg.page >= pg.pages} onclick={() => go(1)}>Next</button><span class="count" style="margin-left:auto">Showing {pg.from}–{pg.to} of {pg.total.toLocaleString('en')}</span></div>
+			<div class="pager q-pager" id="pr-pager"><button type="button" disabled={pg.page <= 1} onclick={() => go(-1)}>Prev</button><span>Page {pg.page} / {pg.pages}</span><button type="button" disabled={pg.page >= pg.pages} onclick={() => go(1)}>Next</button><span class="count q-push">Showing {pg.from}–{pg.to} of {pg.total.toLocaleString('en')}</span></div>
 		</div>
 	</div>
 	<div class="q-card" id="presc-arithmetic">

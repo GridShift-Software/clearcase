@@ -389,11 +389,11 @@ describe('readViewContent', () => {
 });
 
 describe('view-content map', () => {
-  it('covers 25 v5 views plus the shell with well-formed, unique ids and checklist references', () => {
+  it('covers 28 v5 views plus the shell with well-formed, unique ids and checklist references', () => {
     expect(() => checkMap(VIEW_CONTENT_MAP, VIEW_CONTENT_OMISSIONS)).not.toThrow();
     const views = new Set(VIEW_CONTENT_MAP.map((e) => e.view));
     for (const v of views) expect(v === SHELL_VIEW || (V5_VIEW_IDS as readonly string[]).includes(v)).toBe(true);
-    expect(views.size).toBe(26);
+    expect(views.size).toBe(29);
     for (const e of [...VIEW_CONTENT_MAP, ...VIEW_CONTENT_OMISSIONS]) expect(e.checklist).toMatch(/S-[a-z_]+-\d+|L\d+/);
     for (const o of VIEW_CONTENT_OMISSIONS) expect(o.reason.length).toBeGreaterThan(10);
     expect(() => checkMap([...VIEW_CONTENT_MAP, VIEW_CONTENT_MAP[0]!], [])).toThrow(/duplicate/);
@@ -413,6 +413,22 @@ describe('view-content extraction: export file names, CSV keys and the register 
     expect(data.contradictions_tab!.exportFileName).toBe('syn-contradictions.csv');
     expect(data.vdm_matrix_tab!.exportFileName).toBe('syn-defence-matrix.csv');
     expect(data.vdm_matrix_tab!.exportColumns).toEqual(['syn_point', 'documents', 'syn_rebuttal', 'org_answer', 'status']);
+  });
+
+  it('extracts the export names of the quantum, register, litigation and system views, one entry per view for a shared export', () => {
+    const { data } = extract();
+    const names = Object.fromEntries(['quantum_tab', 'invoice_ledger_tab', 'prescription_tab', 'payments_tab', 'deadlines_tab', 'authorities_tab', 'heads_tab', 'rescan_tab', 'backup_tab']
+      .map((v) => [v, data[v]?.exportFileName]));
+    expect(names).toEqual({
+      quantum_tab: 'syn-invoices.csv', invoice_ledger_tab: 'syn-invoices.csv', prescription_tab: 'syn-prescription.csv', payments_tab: 'syn-payments.csv', deadlines_tab: 'syn-deadlines.ics',
+      authorities_tab: 'syn-authorities.csv', heads_tab: 'syn-heads.txt', rescan_tab: 'syn-index.json', backup_tab: 'syn-backup.json',
+    });
+    // the ICS and heads scopes keep their other anchors
+    expect(data.deadlines_tab!.icsProductId).toBe('SYN v ORG');
+    expect(data.heads_tab!.exportCaption).toBe('SYN v ORG');
+    // a shared export function that is missing fails both views
+    const gone = extract(swap('function exportInvoices(){', 'function exportBills(){'));
+    expect(diag(gone).sort()).toEqual([['V5_VIEW_CONTENT_MISSING', 'invoice_ledger_tab.exportFileName'], ['V5_VIEW_CONTENT_MISSING', 'quantum_tab.exportFileName']]);
   });
 
   it('keeps only the introduction of the register paragraph, never the storage sentence or its key', () => {

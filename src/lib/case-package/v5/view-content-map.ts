@@ -54,8 +54,12 @@ const ENTRIES: E[] = [
   { view: 'quantum_tab', field: 'kpiInvoicesNote', checklist: 'L546', scope: R('quantum_tab'), sel: { lit: 'table', nth: 0, path: [2, 2] }, kind: 'text' },
   // invoice ledger
   { ...sub('invoice_ledger_tab', 'L577'), kind: 'template', params: [p('count', 'L.length')] },
+  // the invoice export serves both the quantum and the ledger view: one entry per view
+  dlName('quantum_tab', 'exportInvoices', 'L574-575'),
+  dlName('invoice_ledger_tab', 'exportInvoices', 'L574-575'),
   // deadlines
   { view: 'deadlines_tab', field: 'icsProductId', checklist: 'L653', scope: 'function:exportICS', sel: { pattern: '^BEGIN:VCALENDAR\\r\\nVERSION:2\\.0\\r\\nPRODID:-//([^\\r\\n]+?)//' }, kind: 'text' },
+  dlName('deadlines_tab', 'exportICS', 'L653-655'),
   // contracts
   sub('contracts_tab', 'contracts notes; L2590'),
   { view: 'contracts_tab', field: 'kpiSpineValue', checklist: 'S-contracts_tab-2; L2594', scope: R('contracts_tab'), sel: { html: 'div.kpi:eq(1) > div.v' }, kind: 'text' },
@@ -112,10 +116,14 @@ const ENTRIES: E[] = [
   sub('enforcement_tab', 'S-enforcement_tab-3; L2874'),
   { view: 'enforcement_tab', field: 'whyNarrative', checklist: 'S-enforcement_tab-3; L2875', scope: R('enforcement_tab'), sel: { html: 'div.card.narr > p' }, kind: 'text' },
   sub('legality_tab', 'S-legality_tab-1; L2893'),
+  dlName('prescription_tab', 'exportPresc', 'L2929'),
   { view: 'interest_calc_tab', field: 'defaultRate', checklist: 'S-interest_calc_tab-2; L1229, L2938', scope: R('interest_calc_tab'), sel: { html: 'input#ic_r', attr: 'value' }, kind: 'number' },
   sub('payments_tab', 'S-payments_tab-5; L2965'),
+  dlName('payments_tab', 'ledgerCSVp', 'L2990'),
   sub('elements_tab', 'L1308, L2994'),
   { view: 'elements_tab', field: 'columns', checklist: 'L1308, L2995', scope: R('elements_tab'), sel: { html: 'table.tbl th', all: true }, kind: 'list' },
+  dlName('authorities_tab', 'exportAuth', 'L3014'),
+  dlName('heads_tab', 'exportHeads', 'L3036'),
   { view: 'heads_tab', field: 'exportCaption', checklist: 'S-heads_tab-1; L1360, L3036', scope: 'function:exportHeads', sel: { pattern: '^[A-Z ]+ — (.+)\\n\\n$' }, kind: 'text' },
   sub('settlement_tab', 'L3062'),
   { view: 'settlement_tab', field: 'narrative', checklist: 'S-settlement_tab-5; L3063', scope: R('settlement_tab'), sel: { html: 'div.card.narr > p' }, kind: 'text' },
@@ -123,6 +131,8 @@ const ENTRIES: E[] = [
     ({ view: 'settlement_tab', field, checklist: `S-settlement_tab-1; ${lines}`, scope: R('settlement_tab'), sel: { html: `input#${id}`, attr: 'value' }, kind: 'number' })),
   { view: 'crossexam_tab', field: 'tip', checklist: 'L3049 (found by the unmapped-prose audit)', scope: R('crossexam_tab'), sel: { html: 'p.tag' }, kind: 'text' },
   // system
+  dlName('rescan_tab', 'rescanWriteIndex', 'L2824-2826'),
+  dlName('backup_tab', 'backupExport', 'L2838'),
   { view: 'rescan_tab', field: 'invoicePrefix', checklist: 'S-rescan_tab-7; L1578, L2810', scope: 'function:rescanNow', sel: { pattern: '^/([A-Za-z]+)\\\\d\\{4,6\\}/i$', on: 're' }, kind: 'text' },
   { view: 'manual', field: 'linkSampleNote', checklist: 'S-manual-1; L2863', scope: 'function:verifyLinks', sel: { html: 'p.tag' }, kind: 'text' },
 ];

@@ -133,7 +133,7 @@
 			<button type="button" class="ds-btn pri" id="ds-build" onclick={() => { ds.view = 'bundle'; }}>Build court bundle ▸</button>
 		</div>
 		<div class="ds-bar">
-			<span class="cnt" id="ds-info">{#if meta.deed}<b>{meta.deed}</b> · {/if}{#if meta.schedule}{meta.schedule} · {/if}{counts.items} items · {counts.files} files linked{counts.notServed ? ` · ${counts.notServed} not in the verified index` : ''} · uncertified</span>
+			<span class="cnt" id="ds-info">{#if meta.deed}<b>{meta.deed}</b>{' · '}{/if}{#if meta.schedule}{`${meta.schedule} · `}{/if}{counts.items} items · {counts.files} files linked{counts.notServed ? ` · ${counts.notServed} not in the verified index` : ''} · uncertified</span>
 			<span class="sp"></span>
 			<button type="button" class="ds-btn" id="ds-cover-open" onclick={coverOpen}>Open / print cover page</button>
 			<button type="button" class="ds-btn" id="ds-cover-dl" onclick={coverDownload}>Download cover page (uncertified)</button>

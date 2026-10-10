@@ -12,10 +12,21 @@ const day = (clock, n) => new Date(Date.parse(clock) + n * 86400000).toISOString
 /** The synthetic payment for step i: date, amount, method, note. */
 export const separatedPayment = (clock, i) => ({ date: day(clock, 1 + i), amount: SEPARATED[i], method: 'Synthetic method', note: `Synthetic separators ${i + 1}` });
 
-/** The KPIs and the rows of the first table under #main, as the sweep records them (both sides). */
+/** A shown money figure ('R 1 234.50', '-R 5.00') in cents, or null. */
+const shownCents = (v) => { const m = /^(-?)R ?([\d ]+)\.(\d{2})$/.exec(String(v ?? '').trim()); return m ? BigInt(`${m[1]}${m[2].replace(/ /g, '')}${m[3]}`) : null; };
+
+/**
+ * The KPIs and the rows of the first table under #main, as the sweep records them (both sides), and `net_identity`
+ * (CC-06 r2, D14): 'ok' when the shown Net claim equals the shown Gross amount due minus the shown Payments recorded,
+ * else the three figures. Each driver computes it from its own page, so a wrong net claim fails parity without a
+ * register value from the imported claim.
+ */
 export function readPayments(raw) {
 	const out = {};
 	for (const k of raw.kpis) out[`kpi.${k.label}`] = [k.value, k.sub].filter(Boolean).join(' · ');
+	const kv = Object.fromEntries(raw.kpis.map((k) => [k.label, k.value]));
+	const [g, pd, n] = ['Gross amount due', 'Payments recorded', 'Net claim'].map((l) => shownCents(kv[l]));
+	out.net_identity = g !== null && pd !== null && n !== null && n === g - pd ? 'ok' : ['Gross amount due', 'Payments recorded', 'Net claim'].map((l) => kv[l] ?? '(none)').join(' | ');
 	const t = raw.tables[0] ? tableFromRaw(raw.tables[0]) : { columns: [], rows: [] };
 	out.rows = String(t.rows.length);
 	t.rows.forEach((r, i) => { out[`row.${i}`] = t.columns.map((c) => r[c.id]).join(' | '); });

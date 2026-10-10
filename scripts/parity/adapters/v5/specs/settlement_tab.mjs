@@ -1,11 +1,13 @@
 // v5 spec: Settlement / BATNA (GRS-16, CC-06). The generic extraction reads the model run on the defaults; this sweep
 // changes one assumption at a time and presses Model (scenario 8): the probability near both clamps, zero years, and
-// a claim typed with the app's own thousands separator. Synthetic inputs only; it records the three KPIs (label and
+// a claim typed with the app's own thousands separator, and a negative claim (D10). Synthetic inputs only; it records the three KPIs (label and
 // value) and any error line. The app adapter runs the same cases through the app's form.
 import { sleep } from '../../../../../tests/e2e/pilot/lib/cdp.mjs';
 import { domExtract } from '../../../lib/dom.mjs';
 
-export const CASES = { defaults: {}, p95: { p: '95' }, p10: { p: '10' }, y0: { y: '0' }, claim_separated: { claim: '1 000 000' } };
+// negative_claim (CC-06 r2, D10): a whole-rand negative claim, as the app prefills when recorded payments exceed the
+// gross amount due; v5 reads it with parseFloat||0 and models it
+export const CASES = { defaults: {}, p95: { p: '95' }, p10: { p: '10' }, y0: { y: '0' }, claim_separated: { claim: '1 000 000' }, negative_claim: { claim: '-1234' } };
 export const FIELD_ID = { claim: 'se_claim', p: 'se_p', y: 'se_y', d: 'se_d', c: 'se_c' };
 
 export function readOutput(raw, error) {

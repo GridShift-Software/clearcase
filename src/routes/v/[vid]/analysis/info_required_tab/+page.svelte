@@ -13,10 +13,11 @@
 	let failures = $state<Record<string, { done: boolean; message: string }>>({});
 	const sent: Record<string, number> = {};
 	const noJsFailure = $derived(form && 'key' in form && 'message' in form ? { key: String(form.key), done: form.done === true, message: String(form.message) } : null);
+	// listed in the table's order
 	const problems = $derived([
 		...Object.entries(failures).map(([key, f]) => ({ key, ...f })),
 		...(noJsFailure && !(noJsFailure.key in failures) && !(noJsFailure.key in choice) ? [noJsFailure] : []),
-	]);
+	].sort((a, b) => data.rows.findIndex((r) => r.key === a.key) - data.rows.findIndex((r) => r.key === b.key)));
 	const shown = (r: { key: string; done: boolean }) => choice[r.key] ?? (noJsFailure?.key === r.key ? noJsFailure.done : r.done);
 	const busy = (key: string) => key in choice && !(key in failures);
 	const unsaved = (key: string) => key in failures || (noJsFailure?.key === key && !(key in choice));

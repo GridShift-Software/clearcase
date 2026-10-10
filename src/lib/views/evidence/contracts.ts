@@ -5,15 +5,22 @@ export interface ContractItem { ref: string; date: string; title: string; note: 
 export interface ContractGroup { key: string; items: ContractItem[] }
 export interface ContractsData { count: number; groups: ContractGroup[] }
 
+const SIGNED = '(?:counter)?signed|executed|finali[sz]ed';
+/** Negated wording ('not executed', 'never signed', 'yet to be signed', 'not yet countersigned'): uncertain, so '—'. */
+const NEGATED = new RegExp(`\\b(?:(?:not|never)(?:\\s+(?:yet|been|be|fully|duly))*|yet\\s+to\\s+be)\\s+(?:${SIGNED})\\b`, 'i');
+const POSITIVE = new RegExp(`\\b(?:${SIGNED}|final|execution)\\b`, 'i');
 /**
  * The Signed marker, read from the title and note as words (S-contracts_tab-1, corrected). v5 tested 'unsigned' in the
  * note only and /sign|final|execut/ anywhere in title+note glued together, so 'assignment', 'designated', 'signature'
- * or an 'unsigned' title read as signed. It stays a heuristic over imported text, never a verified execution status.
+ * or an 'unsigned' title read as signed. Negated wording reads as uncertain ('—'), and 'countersigned', 'finalised' and
+ * 'finalized' read as signed, as v5 read them. It stays a heuristic over imported text, never a verified execution
+ * status.
  */
 export function signedChip(x: Pick<ContractItem, 'title' | 'note'>): 'signed' | 'unsigned' | '—' {
 	const t = `${x.title ?? ''} ${x.note ?? ''}`;
 	if (/\bunsigned\b/i.test(t)) return 'unsigned';
-	return /\b(signed|final|executed|execution)\b/i.test(t) ? 'signed' : '—';
+	if (NEGATED.test(t)) return '—';
+	return POSITIVE.test(t) ? 'signed' : '—';
 }
 
 /** v5 ess_dcs_contracts.csv columns (L2605-2607): every item of every group, imported values unchanged. */

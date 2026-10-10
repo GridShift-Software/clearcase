@@ -18,6 +18,20 @@ describe('contracts', () => {
 		expect(signedChip({ title: 'Lease', note: 'executed copy' })).toBe('signed');
 	});
 
+	it('reads negated wording as uncertain and the forms that mean signed as signed (D7)', () => {
+		// the verification lanes' synthetic examples
+		expect(signedChip({ title: 'Supply agreement', note: 'not executed' })).toBe('—');
+		expect(signedChip({ title: 'Agreement (not signed)', note: '' })).toBe('—');
+		expect(signedChip({ title: 'Lease', note: 'never signed by tenant' })).toBe('—');
+		expect(signedChip({ title: 'Countersigned lease', note: '' })).toBe('signed');
+		expect(signedChip({ title: 'Finalised agreement', note: '' })).toBe('signed');
+		// each negation word, before signed or executed
+		for (const note of ['not signed', 'never signed', 'yet to be signed', 'not executed', 'never executed', 'yet to be executed', 'not yet countersigned', 'has not been signed', 'NOT FINALISED']) expect(signedChip({ title: 'Lease', note }), note).toBe('—');
+		for (const title of ['Finalized agreement', 'Executed lease', 'Countersigned deed']) expect(signedChip({ title, note: '' }), title).toBe('signed');
+		// 'unsigned' still wins
+		expect(signedChip({ title: 'Unsigned, not executed', note: '' })).toBe('unsigned');
+	});
+
 	it('exports every item in v5 columns, CRLF separated (checklist example)', () => {
 		const csv = toCSV(contractsCsvRows([{ key: 'G1', items: [{ ref: 'OD-1', date: '', title: 'T1', note: '', text_status: 'none', url: './a.pdf' }] }, { key: 'G2', items: [{ ref: 'OD-2', date: '2001-02-03', title: 'T2', note: 'n, with comma', text_status: 'extracted', url: './b.pdf' }] }]));
 		expect(csv).toBe('group,ref,date,title,note,text_status,url\r\nG1,OD-1,,T1,,none,./a.pdf\r\nG2,OD-2,2001-02-03,T2,"n, with comma",extracted,./b.pdf');

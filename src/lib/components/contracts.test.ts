@@ -13,7 +13,27 @@ const root = path.join(import.meta.dirname, '..', '..', '..');
 const inventory = JSON.parse(readFileSync(path.join(root, 'docs', 'plan', 'view-coverage.json'), 'utf8')) as { views: { id: string; label: string; group: string; owner: string }[] };
 const RV = 'sha256:' + 'ab'.repeat(32);
 
+/**
+ * An M2 view's registry entry: under its owner's category, unavailable until its owner's gate (blocked by that ticket)
+ * or available once the owner has flipped it, so the check holds before and after each owner's gate.
+ */
+function expectOwnerView(v: (typeof VIEWS)[number]) {
+	expect(v.category).not.toBeNull();
+	expect(CATEGORIES[v.category!].owner).toBe(v.owner);
+	expect(v.route).toBe(`/${v.category}/${v.id}`);
+	expect([`unavailable-until:${v.linear}`, 'available']).toContain(v.status);
+	expect(isAvailable(v)).toBe(v.status === 'available');
+	expect(blockedBy(v)).toBe(v.status === 'available' ? null : v.linear);
+}
+
 describe('view registry', () => {
+	it('an M2 view flipped to available after its gate (synthetic) still passes; another owner\'s ticket or status does not', () => {
+		const v = VIEWS.find((x) => x.id === 'timeline')!;
+		expectOwnerView({ ...v, status: `unavailable-until:${v.linear}` });
+		expectOwnerView({ ...v, status: 'available' });
+		expect(() => expectOwnerView({ ...v, status: 'unavailable-until:GRS-99' } as typeof v)).toThrow();
+		expect(() => expectOwnerView({ ...v, status: 'retired' } as unknown as typeof v)).toThrow();
+	});
 	it('has the 42 inventory entries in order, with their labels, groups and owners', () => {
 		expect(VIEWS.map((v) => [v.id, v.label, v.group, v.owner])).toEqual(inventory.views.map((v) => [v.id, v.label, v.group, v.owner]));
 		expect(VIEWS).toHaveLength(42);
@@ -22,12 +42,7 @@ describe('view registry', () => {
 		const pilot = VIEWS.filter((v) => v.owner === 'CC-03');
 		expect(pilot.map((v) => [v.id, v.route, v.status])).toEqual([['overview', '/overview', 'available'], ['chronology', '/chronology', 'available']]);
 		for (const v of VIEWS.filter((x) => x.owner !== 'CC-03')) {
-			expect(v.category).not.toBeNull();
-			expect(CATEGORIES[v.category!].owner).toBe(v.owner);
-			expect(v.route).toBe(`/${v.category}/${v.id}`);
-			expect(v.status).toBe(`unavailable-until:${v.linear}`);
-			expect(isAvailable(v)).toBe(false);
-			expect(blockedBy(v)).toBe(v.linear);
+			expectOwnerView(v);
 			expect(viewAt(v.category!, v.id)).toBe(v);
 		}
 		expect(new Set(VIEWS.map((v) => v.route)).size).toBe(42);

@@ -1,9 +1,10 @@
 // The pilot checks' implementation awareness (lib/implemented.mjs): in a scratch copy of the tree, a temporary owner
 // route and a filled overview slot switch the views42/titles/keyboard/slots and checkRegistry/checkSlots expectations
-// from unavailable to implemented, and back when they are removed. Nothing is written into the repository.
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+// from unavailable to implemented, and back when they are removed. Nothing is written into the repository, and the
+// committed tree is checked against its own routes, so the test holds whichever M2 views exist.
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join, sep } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 import { destinationOk, expectedSlot, filledSlots, firstUnimplemented, implementedViews, observedSlot, readyKind, registryOf, routeFile, slotsFromHtml } from './implemented.mjs';
 
@@ -22,10 +23,22 @@ const built = (v: { id: string; label: string }) => ({ h1: v.label, ready: v.id,
 const slotHtml = (id: string, title: string, status: string, body: string) => `<section class="card" aria-labelledby="slot-${id}" data-slot="${id}" data-slot-status="${status}"><h2 id="slot-${id}">${title}</h2><!--[-->${body}</section>`;
 
 describe('pilot checks follow the tree under test', () => {
-	test('the committed tree: no owner route, no filled slot, so every M2 view and slot is asserted unavailable', () => {
-		expect(implementedViews(REPO, views).size).toBe(0);
-		expect(filledSlots(REPO, slots).size).toBe(0);
-		expect(firstUnimplemented(views, new Set())?.id).toBe('matter');
+	test('the committed tree, whatever its owners have added: a view is implemented exactly when its route is on disk', () => {
+		// read the routes from disk, not through routeFile: each +page.svelte under src/routes/v/[vid]/, as a registry route
+		const base = join(REPO, 'src', 'routes', 'v', '[vid]');
+		const onDisk = new Set((readdirSync(base, { recursive: true }) as string[]).filter((f) => basename(f) === '+page.svelte').map((f) => `/${dirname(f).split(sep).join('/')}`));
+		const want = new Set(views.filter((v: { category: string | null; route: string }) => v.category && onDisk.has(v.route)).map((v: { id: string }) => v.id));
+		const impl = implementedViews(REPO, views);
+		expect(impl).toEqual(want);
+		expect(firstUnimplemented(views, impl)?.id ?? null).toBe(views.find((v: { id: string; category: string | null }) => v.category && !want.has(v.id))?.id ?? null);
+		// a filled slot is named by its owner's overview-widgets.ts, which must exist
+		for (const id of filledSlots(REPO, slots)) expect(existsSync(join(REPO, 'src', 'lib', 'views', slots.find((x: { id: string }) => x.id === id)!.category, 'overview-widgets.ts')), id).toBe(true);
+	});
+
+	test('a tree with no owner route and no filled slot: every M2 view and slot is unavailable, and the example is matter', () => {
+		expect(implementedViews(tree, views).size).toBe(0);
+		expect(filledSlots(tree, slots).size).toBe(0);
+		expect(firstUnimplemented(views, implementedViews(tree, views))?.id).toBe('matter');
 	});
 
 	test('a temporary owner route and filled slot switch the checks to implemented mode; removing them switches back', () => {

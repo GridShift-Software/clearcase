@@ -213,10 +213,14 @@ try {
 await br?.close().catch(() => {});
 await srv?.stop().catch(() => {});
 await canary.close().catch(() => {});
-result.canaryHits = canary.hits.map((h) => ({ kind: h.kind, host: h.host ?? h.sni ?? null }));
+// Chromium's own background services (component updates, safe browsing) are counted apart, as the pilot suite does
+// (tests/e2e/pilot/suite/context.mjs isBackground); any other canary hit fails the run.
+const BACKGROUND_HOST = /(^|\.)(google\.com|gvt1\.com|googleapis\.com|gstatic\.com)$/i;
+const isBackground = (h) => BACKGROUND_HOST.test(h.host?.replace(/:\d+$/, '') ?? h.sni ?? '') && !h.origin && !h.referer;
+result.canaryHits = canary.hits.map((h) => ({ kind: h.kind, host: h.host ?? h.sni ?? null, browserBackground: isBackground(h) }));
 result.finishedAt = new Date().toISOString();
 result.error = failure;
-result.ok = !failure && Object.values(result.metrics ?? {}).length === 4 && Object.values(result.metrics).every((m) => m.pass) && result.numeric?.unexplained === 0 && result.canaryHits.length === 0;
+result.ok = !failure && Object.values(result.metrics ?? {}).length === 4 && Object.values(result.metrics).every((m) => m.pass) && result.numeric?.unexplained === 0 && result.canaryHits.every((h) => h.browserBackground);
 writeFileSync(join(out, 'measure-CC-06.json'), JSON.stringify(result, null, 1));
 if (result.metrics) {
 	console.log(`\nCC-06 candidate ${result.build?.stamp?.revision?.slice(0, 12) ?? '?'} (build ${result.build?.stamp?.buildId ?? '?'}); fixture ${result.fixture.docCount} documents, ${LEDGER} ledger rows`);

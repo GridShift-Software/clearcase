@@ -15,18 +15,6 @@
       "approvedOn": "2026-10-09"
     },
     {
-      "id": "IDR-024",
-      "view": "enforcement_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-18",
-      "reason": "The app does not implement Enforcement Roadmap yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
       "id": "IDR-025",
       "view": "legality_tab",
       "field": "*",
@@ -149,6 +137,40 @@
     {
       "id": "IDR-304",
       "view": "crossexam_tab",
+      "field": "text.source_and_scope.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Supplied analysis from the imported results package, shown as supplied\\. ClearCase has not verified it"
+        }
+      },
+      "type": "improvement",
+      "source": "GRS-18",
+      "reason": "GRS-18 acceptance: the view labels its content as supplied analysis that ClearCase has not verified (every lit-* dataset is authored analysis); v5 showed no such note.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-305",
+      "view": "enforcement_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 left it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-306",
+      "view": "enforcement_tab",
       "field": "text.source_and_scope.1",
       "when": {
         "v5": "<absent>",

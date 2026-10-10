@@ -214,6 +214,8 @@ try {
 		const checks = {
 			nav: nav.ok,
 			coverage: Object.entries(expectCov).every(([k, v]) => cov[k] === v) && /not the full text/.test(cov.text) && !/full-document|full text search/i.test(cov.text),
+			// D15: Text reads To recipients; Cc only through Sender contains
+			coverageNamesRecipients: /To recipients and the indexed text excerpt/.test(cov.text) && /Cc recipients are searched only through Sender contains\./.test(cov.text),
 			literal: bulk.result === 'results' && J(bulk.refs) === J(bulkExpected.slice(0, 50)) && bulk.count === `Showing 1–50 of ${bulkExpected.length} results`,
 			queryKeptAcrossPages: J(page2.refs) === J(bulkExpected.slice(50)) && page2.query === 'Synthetic bulk' && /q=Synthetic\+bulk/.test(page2.url) && /page=2/.test(page2.url),
 			exportOrder: dl.name === 'search.csv' && J(exported) === J(bulkExpected),

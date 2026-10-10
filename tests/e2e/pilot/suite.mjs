@@ -6,6 +6,10 @@
 // fails unless the offline proof passes, every scenario passes, and no real canary hit or off-origin request happened
 // outside a labelled positive control. Results: $CLEARCASE_E2E_OUT/suite.json (lib/record.mjs).
 // Ports: app/originals 43000-43298, canary 43299 (CANARY_PORT). E2E_STOP_AFTER=<id> ends a development run early (recorded as a PARTIAL failure).
+// Fail fast (lib/lifecycle.mjs): the browser launch (2 min) and each scenario (3 min; the whole suite takes about a
+// minute) run under a deadline and end at once when a browser exits or a page crashes. The run then stops: the
+// scenario fails, an ABORTED record names it and the cause, suite.json has `aborted` and `evidence: false`, and the
+// process exits 1 within seconds. `browser` records the launch (a failed first launch is retried once).
 process.env.CANARY_PORT ??= '43299';
 const { existsSync, mkdtempSync, readFileSync, rmSync } = await import('node:fs');
 const { tmpdir } = await import('node:os');
@@ -13,6 +17,7 @@ const { join, resolve } = await import('node:path');
 const { proveOffline } = await import('./lib/netproof.mjs');
 const { recorder } = await import('./lib/record.mjs');
 const { CHROME, CANARY_PORT, launch } = await import('./lib/cdp.mjs');
+const { abortOf, abortReason, deadline, exitWithin, guard } = await import('./lib/lifecycle.mjs');
 const { startCanary } = await import('./lib/canary.mjs');
 const { bunIdentity } = await import('./lib/server.mjs');
 const { hostileOriginals } = await import('./lib/fixtures.ts');
@@ -30,7 +35,15 @@ const stamp = existsSync(join(BUILD, 'clearcase-build.json')) ? JSON.parse(readF
 const R = recorder('suite', { bun: bunIdentity(), root: ROOT, build: BUILD, buildStamp: stamp, chromium: CHROME, ports: PORTS, canaryPort: CANARY_PORT });
 const STOP = process.env.E2E_STOP_AFTER ?? null;
 let stopped = false;
-const step = async (id, title, fn) => { if (stopped) return; await R.step(id, title, fn); if (id === STOP) stopped = true; };
+const SCENARIO_MS = deadline(3 * 60_000);
+/** One scenario under its deadline; an abort (a dead browser, a timeout) fails it and ends the run. */
+const step = async (id, title, fn) => {
+	if (stopped) return;
+	let abort = null;
+	await R.step(id, title, () => guard(`scenario ${id}`, SCENARIO_MS, fn).catch((e) => { abort = abortOf(e, `scenario ${id}`); throw e; }));
+	if (abort) throw abort;
+	if (id === STOP) stopped = true;
+};
 
 const offline = await proveOffline();
 R.rec('NET-OFFLINE', 'the run is offline: only lo, outbound TCP and DNS fail, loopback works (proveOffline)', offline.pass ? 'PASS' : 'FAIL', offline);
@@ -57,11 +70,11 @@ const ctx = {
 	titleName: (sc) => shellText(sc, 'documentTitle') ?? ctx.caseName(sc),
 	brandName: (sc) => shellText(sc, 'brandName') ?? ctx.caseName(sc),
 };
-let canary, b, sites;
+let canary, b, sites, aborted = null;
 try {
 	canary = await startCanary();
 	sites = ctx.sites = helperSites(hostileOriginals()['HOSTILE/HX-005 open-action.pdf']);
-	b = ctx.b = await launch({ profileRoot: join(tmp, 'chromium') });
+	b = ctx.b = await guard('browser launch', deadline(2 * 60_000), () => launch({ profileRoot: join(tmp, 'chromium') }));
 	ctx.L = ledger(b, canary);
 	const t0 = Date.now();
 	await step('NET-CANARY', 'positive control (labelled): a page request to a non-loopback host reaches the canary, never the network', () => sec.canaryControl(ctx));
@@ -98,7 +111,12 @@ try {
 	if (!stopped || STOP === 'S13') await step('NET-ZERO', 'no real canary hit and no off-origin request from any page, frame or worker during the run (controls excluded and labelled)', () => sec.netZero(ctx, t0));
 	if (STOP) R.rec('PARTIAL', `development run stopped after ${STOP} (E2E_STOP_AFTER): not a complete run`, 'FAIL', { stopAfter: STOP });
 } catch (e) {
-	R.rec('HARNESS', 'suite harness', 'FAIL', { error: String(e?.stack ?? e).slice(0, 4000) });
+	const a = abortOf(e, 'the suite harness');
+	if (a) {
+		aborted = a.record;
+		R.rec('ABORTED', `run aborted in ${a.step}: ${a.why}`, 'FAIL', aborted);
+		exitWithin(30_000, 1, 'suite');
+	} else R.rec('HARNESS', 'suite harness', 'FAIL', { error: String(e?.stack ?? e).slice(0, 4000) });
 } finally {
 	for (const s of [ctx.A, ctx.B]) {
 		const st = await s.stop().catch((e) => ({ error: String(e) }));
@@ -109,4 +127,4 @@ try {
 	await canary?.close().catch(() => {});
 	rmSync(tmp, { recursive: true, force: true });
 }
-process.exit(R.finish() ? 0 : 1);
+process.exit(R.finish({ browser: b?.launch ?? null, ...(aborted ? { aborted, evidence: false, evidenceNote: `NOT release evidence: ${abortReason(aborted)}` } : {}) }) ? 0 : 1);

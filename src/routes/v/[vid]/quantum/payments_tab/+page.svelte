@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { enhance } from '$app/forms';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import PageHeader from '$lib/components/PageHeader.svelte';
@@ -18,8 +18,11 @@
 	const R = (c: bigint) => fmtR(centsText(c));
 	// S-payments_tab-4: the POD column shows only when some month has a proof-of-delivery ref
 	const showPod = $derived(data.recon.some((m) => m.pod.length));
-	// the add form's typed values after a refused or failed add (a failed delete carries none)
-	const values = $derived((form && 'values' in form && form.values && 'amount' in form.values ? form.values : null) as Record<string, string> | null);
+	// The add form's fields are bound state, so what the user typed survives any re-render (an error appearing, the
+	// buttons disabling) until a successful add resets the form. After a refused add without JavaScript, the server's
+	// answer carries the typed values back (a failed delete carries none).
+	const typed = untrack(() => (form && 'values' in form && form.values && 'amount' in form.values ? form.values : null)) as Record<string, string> | null;
+	let fields = $state({ date: typed?.date ?? '', amount: typed?.amount ?? '', method: typed?.method ?? '', note: typed?.note ?? '' });
 	// a write that never reached the server (transport lost) keeps the form as typed and says so
 	let transportError = $state<string | null>(null);
 	let busy = $state(false);
@@ -50,10 +53,10 @@
 		<h3>Record a payment received</h3>
 		<form method="POST" action="?/add" use:enhance={submit} id="pay-form">
 			<div class="q-row">
-				<div><label for="pay_date">Date</label><input id="pay_date" name="date" type="date" value={values?.date ?? ''} /></div>
-				<div><label for="pay_amount">Amount (R)</label><input id="pay_amount" name="amount" type="text" inputmode="decimal" autocomplete="off" value={values?.amount ?? ''} aria-invalid={form && 'field' in form && form.field === 'amount' ? 'true' : undefined} aria-describedby={error ? 'pay-error' : undefined} /></div>
-				<div><label for="pay_method">Method / reference</label><input id="pay_method" name="method" type="text" value={values?.method ?? ''} /></div>
-				<div style="flex:2"><label for="pay_note">Note</label><input id="pay_note" name="note" type="text" value={values?.note ?? ''} /></div>
+				<div><label for="pay_date">Date</label><input id="pay_date" name="date" type="date" bind:value={fields.date} /></div>
+				<div><label for="pay_amount">Amount (R)</label><input id="pay_amount" name="amount" type="text" inputmode="decimal" autocomplete="off" bind:value={fields.amount} aria-invalid={form && 'field' in form && form.field === 'amount' ? 'true' : undefined} aria-describedby={error ? 'pay-error' : undefined} /></div>
+				<div><label for="pay_method">Method / reference</label><input id="pay_method" name="method" type="text" bind:value={fields.method} /></div>
+				<div style="flex:2"><label for="pay_note">Note</label><input id="pay_note" name="note" type="text" bind:value={fields.note} /></div>
 				<div style="flex:0"><button id="pay-add" disabled={busy}>Add</button></div>
 			</div>
 		</form>

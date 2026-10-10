@@ -63,6 +63,8 @@ export async function deleteSingle(caseId: string, store: string): Promise<void>
 }
 
 export const MODE_STORE = 'discovery-mode';
+export const LINKS_STORE = 'caselines-links';
+export const HEADER_STORE = 'bundle-header';
 export const readMode = (caseId: string): Mode => (singleRow(caseId, MODE_STORE)?.fields.mode === 'supplementary' ? 'supplementary' : 'discovery');
 
 /**

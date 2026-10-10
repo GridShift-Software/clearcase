@@ -3,30 +3,6 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-016",
-      "view": "court_bundle_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-19",
-      "reason": "The app does not implement Court Bundle yet; GRS-19 (CC-09) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-017",
-      "view": "caselines_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-19",
-      "reason": "The app does not implement CaseLines yet; GRS-19 (CC-09) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
       "id": "IDR-350",
       "view": "discovery_tab",
       "field": "table.table_1.row.*.document_s_description",
@@ -107,6 +83,121 @@
     {
       "id": "IDR-354",
       "view": "discovery_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 leaves it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-355",
+      "view": "caselines_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 leaves it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-356",
+      "view": "caselines_tab",
+      "field": "text.page.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^(Search covers the page-text index only: .+ without text.*|This package has no page-text index, so the bundle cannot be searched here\\.)$"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-08",
+      "reason": "The page says what CaseLines search covers: only its page-text index, with the number of pages indexed and without text derived from the imported index, and which pages have no text.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-357",
+      "view": "court_bundle_tab",
+      "field": "title",
+      "when": {
+        "v5": "Court Bundles",
+        "app": "Court Bundle"
+      },
+      "type": "improvement",
+      "source": "BA-18",
+      "reason": "The page heading is the navigation label (BA-18); v5's list view says Court Bundles.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-358",
+      "view": "court_bundle_tab",
+      "field": "table.index_header_details.row.*._",
+      "when": {
+        "v5": "Open Bundle PDF Index PDF Word",
+        "app": "Open Bundle PDF (not in the verified index; not served) Index PDF (not in the verified index; not served) Word"
+      },
+      "type": "known-gap",
+      "source": "GRS-19",
+      "reason": "The assembled bundle PDFs and index PDFs are not package assets (only chronology rows are indexed), so the app names them as not served where v5 links the files on disk. A separate unit is to index them as verified assets (shared-file request in the CC-09 report).",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-359",
+      "view": "court_bundle_tab",
+      "field": "control.row:link:?",
+      "when": {
+        "v5": "1",
+        "app": "<absent>"
+      },
+      "type": "known-gap",
+      "source": "GRS-19",
+      "reason": "The bundle list rows have no Bundle PDF or Index PDF link because those PDFs are not in the verified index (see IDR-358).",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-360",
+      "view": "court_bundle_tab",
+      "field": "sweep.bundle_tabs.items.r*",
+      "when": {
+        "app": {
+          "re": "not in the verified index; not served"
+        }
+      },
+      "type": "known-gap",
+      "source": "GRS-19",
+      "reason": "Open item, Save extract and the bundle page links point at extract and bundle PDFs that are not in the verified index, so the items tab names them as not served; source parts and the CaseLines original link to their document pages.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-361",
+      "view": "court_bundle_tab",
       "field": "focus.after_nav",
       "when": {
         "v5": "nav-link",

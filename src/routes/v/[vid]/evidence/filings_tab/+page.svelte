@@ -18,9 +18,9 @@
 	import { download, toCSV } from '$lib/components/csv';
 	import { docPath } from '$lib/local-case/model';
 	import { cleanName, dateCell, docLabel, statusLabel } from '$lib/views/evidence/common';
-	import { INPUTS, SAVE_FAILURES, entryNote, filingsCsvRows, registerCsvRows, saveFailure, type RegisterEntry, type SaveFailure } from '$lib/views/evidence/filings';
+	import { INPUTS, SAVE_FAILURES, entryNote, filingsCsvRows, registerCsvRows, rowVersion, saveFailure, type RegisterEntry, type SaveFailure } from '$lib/views/evidence/filings';
 	type Values = Record<string, string>;
-	type Result = { op?: 'add' | 'save' | 'delete'; code?: string; values?: Values; editing?: string | null; message?: string; target?: string; draft?: { values: Values; editing: string | null; failed: string | null } } | null;
+	type Result = { op?: 'add' | 'save' | 'delete'; code?: string; values?: Values; editing?: string | null; version?: string | null; message?: string; target?: string; draft?: { values: Values; editing: string | null; version: string | null; failed: string | null } } | null;
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
 	const files = $derived(new Map(data.files));
@@ -28,23 +28,29 @@
 	const blank = (): Values => Object.fromEntries(INPUTS.map((k) => [k, '']));
 	const entryOf = (key: string | null | undefined): RegisterEntry | null => (key ? (data.entries.find((e) => e.key === key) ?? null) : null);
 	const fieldsOf = (e: RegisterEntry | null): Values => (e ? Object.fromEntries(INPUTS.map((k) => [k, e.fields[k]])) : blank());
+	const versionOf = (e: RegisterEntry | null) => (e ? rowVersion(e.fields) : null);
 	const same = (x: Values, y: Values) => INPUTS.every((k) => (x[k] ?? '') === (y[k] ?? ''));
 	type SaveError = { code: SaveFailure; message: string; retry: boolean };
 	const failure = (code: SaveFailure): SaveError => ({ code, ...SAVE_FAILURES[code] });
 	/** The form as the server rendered it: a refused save, or a Delete with the draft it carried (both only without
 	 *  JavaScript), else the row the URL's ?edit= names. */
 	function initial(f: Result) {
-		if (f?.op === 'save' && f.message) return { values: { ...blank(), ...f.values }, editing: entryOf(f.editing)?.key ?? null, saveError: failure(saveFailure(f.code) ?? 'busy'), deleteError: null };
+		if (f?.op === 'save' && f.message) {
+			const e = entryOf(f.editing);
+			return { values: { ...blank(), ...f.values }, editing: e?.key ?? null, version: f.version ?? versionOf(e), saveError: failure(saveFailure(f.code) ?? 'busy'), deleteError: null };
+		}
 		if (f?.op === 'delete' && f.draft) {
-			const code = saveFailure(f.draft.failed);
-			return { values: { ...blank(), ...f.draft.values }, editing: entryOf(f.draft.editing)?.key ?? null, saveError: code ? failure(code) : null, deleteError: f.message ? { key: f.target ?? '', message: f.message } : null };
+			const code = saveFailure(f.draft.failed), e = entryOf(f.draft.editing);
+			return { values: { ...blank(), ...f.draft.values }, editing: e?.key ?? null, version: f.draft.version ?? versionOf(e), saveError: code ? failure(code) : null, deleteError: f.message ? { key: f.target ?? '', message: f.message } : null };
 		}
 		const e = entryOf(data.editing);
-		return { values: fieldsOf(e), editing: e?.key ?? null, saveError: null, deleteError: null };
+		return { values: fieldsOf(e), editing: e?.key ?? null, version: versionOf(e), saveError: null, deleteError: null };
 	}
 	const init = untrack(() => initial(form as Result));
 	let values = $state<Values>(init.values);
 	let editing = $state<string | null>(init.editing);
+	/** the edited row's version as the form loaded it: a save from an older version is refused, never an overwrite */
+	let version = $state<string | null>(init.version);
 	/** the form as loaded: input that differs from it is unsaved */
 	let base = $state<Values>(untrack(() => fieldsOf(entryOf(init.editing))));
 	let saveError = $state<SaveError | null>(init.saveError);
@@ -62,6 +68,7 @@
 		values = fieldsOf(e);
 		base = fieldsOf(e);
 		editing = e?.key ?? null;
+		version = versionOf(e);
 		saveError = null;
 	}
 	// Edit, Cancel and Back change the URL's ?edit=; the form follows once the navigation (confirmed, if it drops
@@ -94,7 +101,7 @@
 	const submit: SubmitFunction = ({ submitter, cancel }) => {
 		if (busy) { cancel(); return; }
 		if (submitter?.getAttribute('name') === 'delete') return remove(submitter.getAttribute('value') ?? '');
-		const sent = { key: editing, values: { ...values } };
+		const sent = { key: editing, version, values: { ...values } };
 		busy = { op: editing ? 'save' : 'add', key: editing };
 		saveError = null;
 		return async ({ result }) => {
@@ -108,8 +115,10 @@
 					// refused or unanswered: the form shows what was sent, for the row it was sent for
 					values = sent.values;
 					editing = sent.key;
+					version = sent.version;
 					saveError = failure(result.type === 'failure' ? (saveFailure(result.data?.code) ?? 'busy') : 'lost');
-					if (result.type === 'failure' && result.status === 404) await invalidateAll();
+					// deleted or changed elsewhere: the register shows the row as it is now, the form keeps the input
+					if (result.type === 'failure' && (result.status === 404 || result.status === 409)) await invalidateAll();
 				}
 			} finally { busy = null; }
 		};
@@ -173,7 +182,7 @@
 		<h2 id="register-heading">Filing ↔ Replying-affidavit register</h2>
 		<p class="register-intro">Log each filing and the responding/replying affidavit. Saved in this case's local work store; imported rows stay as imported and your changes are kept apart from them.</p>
 		<form method="POST" action={editing ? '?/save' : '?/add'} class="register-form" use:enhance={submit} id="register-form" data-mode={editing ? 'edit' : 'add'} aria-busy={busy !== null}>
-			{#if editing}<input type="hidden" name="key" value={editing} />{/if}
+			{#if editing}<input type="hidden" name="key" value={editing} /><input type="hidden" name="version" value={version ?? ''} />{/if}
 			{#if saveError}<input type="hidden" name="failed" value={saveError.code} />{/if}
 			<fieldset class="row" disabled={busy !== null}>
 				<div><label class="fld" for="fl_filing">Filing</label><input class="in" id="fl_filing" name="filing" bind:value={values.filing} /></div>

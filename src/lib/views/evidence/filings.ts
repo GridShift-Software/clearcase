@@ -93,16 +93,29 @@ export function formFields(get: (k: string) => unknown): { values: Record<(typeo
  * Why a register save failed, as a code the form can carry without JavaScript (a Delete posts the form, so a failed
  * save stays shown after it), and the message each code shows.
  */
-export type SaveFailure = 'busy' | 'empty-add' | 'empty-edit' | 'gone' | 'version' | 'lost';
+export type SaveFailure = 'busy' | 'empty-add' | 'empty-edit' | 'gone' | 'stale' | 'version' | 'lost';
 export const SAVE_FAILURES: Record<SaveFailure, { message: string; retry: boolean }> = {
 	busy: { message: 'The register could not be saved: the local store is busy or unavailable. Nothing was changed and your entry is kept below; try again.', retry: true },
 	'empty-add': { message: 'Enter a filing to add it to the register.', retry: false },
 	'empty-edit': { message: 'A register row needs a filing.', retry: false },
 	gone: { message: 'That register row no longer exists, so your change was not saved. Your entry is kept below: Add it again, or discard it.', retry: false },
+	stale: { message: 'This row was changed elsewhere (in another tab or window) since you opened it, so your change was not saved. Your entry is kept below and the register shows the row as it is now: copy what you need, discard, then edit the row again.', retry: false },
 	version: { message: 'Unknown results version: nothing was saved. Your entry is kept below.', retry: false },
 	lost: { message: 'The register could not be saved: the app did not answer, so the change may or may not have been made. Your entry is kept below; check the register, then try again.', retry: true },
 };
 export const saveFailure = (code: unknown): SaveFailure | null => (typeof code === 'string' && Object.hasOwn(SAVE_FAILURES, code) ? (code as SaveFailure) : null);
+
+/**
+ * The version of a register row as an edit form saw it: a digest of its shown fields. A save names the version it was
+ * made from, and one made from an older version is refused (two tabs editing one row), so it never silently
+ * overwrites another save.
+ */
+export function rowVersion(fields: Readonly<Record<string, string>>): string {
+	let h = 0x811c9dc5;
+	const s = JSON.stringify(FIELDS.map((k) => fields[k] ?? ''));
+	for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193) >>> 0;
+	return `${s.length}:${h.toString(16)}`;
+}
 
 /**
  * v5 ess_dcs_filing_register.csv: imported seed values unchanged, user-entered values neutralised (S-csv). In an

@@ -5,7 +5,7 @@ import { fail, isHttpError, redirect, type RequestEvent } from '@sveltejs/kit';
 import { app } from '../../local-case/app.server.ts';
 import { datasetOf, viewContentOf, viewText } from '../../local-case/results.server.ts';
 import { evidenceRows } from './rows.server.ts';
-import { REGISTER_STORE, SAVE_FAILURES, SEED_DATASET, asFields, formFields, nextSeq, registerEntries, saveFailure, type FilingsData, type SaveFailure, type SeedViewLike } from './filings.ts';
+import { REGISTER_STORE, SAVE_FAILURES, SEED_DATASET, asFields, formFields, nextSeq, registerEntries, rowVersion, saveFailure, type FilingsData, type SaveFailure, type SeedViewLike } from './filings.ts';
 
 /** The register as shown, for one case and the version being viewed. */
 function register(caseId: string, rv: string) {
@@ -40,13 +40,13 @@ export const filingsLoad = async ({ parent, url }: { parent: () => Promise<{ ver
 // A Delete is a submit button of the register form, so it posts the form's unsaved draft (values, the row being
 // edited and a failed save's code) and returns it unchanged, done or refused: without JavaScript the page re-renders
 // with the draft and its failure, and a delete error never replaces or clears either. Nothing throws to the error page.
-type Draft = { values: Record<string, string>; editing: string | null; failed: SaveFailure | null };
+type Draft = { values: Record<string, string>; editing: string | null; version: string | null; failed: SaveFailure | null };
 const draftOf = (fd: FormData): Draft => {
-	const key = fd.get('key');
-	return { values: formFields((k) => fd.get(k)).values, editing: typeof key === 'string' && key ? key : null, failed: saveFailure(fd.get('failed')) };
+	const key = fd.get('key'), version = fd.get('version');
+	return { values: formFields((k) => fd.get(k)).values, editing: typeof key === 'string' && key ? key : null, version: typeof version === 'string' && version ? version : null, failed: saveFailure(fd.get('failed')) };
 };
-const refuse = (status: number, code: SaveFailure, values: Record<string, string>, editing: string | null) =>
-	fail(status, { op: 'save' as const, code, values, editing, message: SAVE_FAILURES[code].message, retry: SAVE_FAILURES[code].retry });
+const refuse = (status: number, code: SaveFailure, values: Record<string, string>, editing: string | null, version: string | null = null) =>
+	fail(status, { op: 'save' as const, code, values, editing, version, message: SAVE_FAILURES[code].message, retry: SAVE_FAILURES[code].retry });
 const DELETE_BUSY = 'The entry could not be deleted: the local store is busy or unavailable. Nothing was changed and the entry is still in the register; try again.';
 const DELETE_GONE = 'That register row no longer exists; nothing was deleted.';
 
@@ -76,13 +76,17 @@ export const filingsActions = {
 		const a = app();
 		const fd = await request.formData();
 		const key = String(fd.get('key') ?? '');
+		const seen = typeof fd.get('version') === 'string' ? String(fd.get('version')) : null;
 		const typed = formFields((k) => fd.get(k));
 		const v = a.store.getVersion(params.vid ?? '');
-		if (!v) return refuse(404, 'version', typed.values, key || null);
-		if (!typed.ok) return refuse(400, 'empty-edit', typed.values, key);
+		if (!v) return refuse(404, 'version', typed.values, key || null, seen);
+		if (!typed.ok) return refuse(400, 'empty-edit', typed.values, key, seen);
 		const { seeds, rows, entries } = register(v.case_id, v.id);
 		const e = entries.find((x) => x.key === key);
-		if (!e) return refuse(404, 'gone', typed.values, key);
+		if (!e) return refuse(404, 'gone', typed.values, key, seen);
+		// made from another version of the row (changed in another tab since the form loaded it), or without one: refused,
+		// never a silent overwrite
+		if (seen !== rowVersion(e.fields)) return refuse(409, 'stale', typed.values, key, seen);
 		const kept = { ...typed.values, status: e.fields.status };
 		const status = await write(async () => {
 			if (key.startsWith('row:')) {
@@ -95,7 +99,7 @@ export const filingsActions = {
 				await a.userWork.putSeedOverlay({ caseId: v.case_id, datasetKey: SEED_DATASET, seedId, baseSeedSha256: base, fields: { ...asFields(kept), deleted: false } });
 			}
 		});
-		if (status) return refuse(status, 'busy', typed.values, key);
+		if (status) return refuse(status, 'busy', typed.values, key, seen);
 		// saved: back to the register without the row in the form
 		redirect(303, url.pathname);
 	},

@@ -7,6 +7,7 @@ import { createReadStream, existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import { join, resolve } from 'node:path';
 import { crc32 } from 'node:zlib';
+import { readStamp } from '../lib/fresh-build.ts';
 
 export const REPO = resolve(import.meta.dirname, '..', '..', '..', '..');
 export const OFFLINE_SH = join(REPO, 'tests', 'e2e', 'pilot', 'offline.sh');
@@ -90,7 +91,7 @@ export function buildFromEnv() {
 	const buildDir = resolve(process.env.E2E_BUILD_DIR ?? join(root, 'build'));
 	const stampFile = join(buildDir, 'clearcase-build.json');
 	if (!existsSync(join(buildDir, 'handler.js')) || !existsSync(stampFile)) return { root, buildDir, stamp: null, problem: `no production build at ${buildDir} (run bun run --bun build, or pass --isolated)` };
-	return { root, buildDir, stamp: JSON.parse(readFileSync(stampFile, 'utf8')), problem: null };
+	return { root, buildDir, stamp: readStamp(buildDir), problem: null };
 }
 
 /** Listening TCP sockets on the given ports, from `ss` (iproute2) inside this namespace. */

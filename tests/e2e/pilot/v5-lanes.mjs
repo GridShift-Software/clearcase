@@ -34,7 +34,7 @@ import { buildFromEnv, bunIdentity, chromiumIdentity, ensureOffline, gitIdentity
 const allowedStale = allowStale(process.argv.slice(2));
 if (!process.argv.slice(2).some((a) => a === '--isolated' || a.startsWith('--isolated='))) {
 	const b = buildFromEnv();
-	const f = b.stamp ? freshness(REPO, b.stamp, { buildDir: b.buildDir }) : null;
+	const f = b.stamp ? freshness(REPO, b.stamp, { buildDir: b.buildDir, appRoot: b.root }) : null;
 	if (f && !f.fresh && !allowedStale) { console.error(refusal('verify:pilot:v5', f)); process.exit(2); }
 }
 
@@ -86,7 +86,7 @@ if (iso) {
 	const b = buildFromEnv();
 	if (b.problem) die(2, b.problem);
 	build = { ...b, mode: process.env.E2E_BUILD_DIR || process.env.E2E_ROOT ? 'E2E_ROOT/E2E_BUILD_DIR' : 'worktree ./build', revision: b.stamp.revision };
-	fresh = freshness(REPO, b.stamp, { buildDir: b.buildDir });
+	fresh = freshness(REPO, b.stamp, { buildDir: b.buildDir, appRoot: b.root });
 	if (!fresh.fresh && !allowedStale) die(2, refusal('verify:pilot:v5', fresh).replace(/^verify:pilot:v5: /, '')); // refused above; the tree changed since
 }
 const evidence = evidenceRecord(fresh, allowedStale);

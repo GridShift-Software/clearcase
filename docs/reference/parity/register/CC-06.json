@@ -3,18 +3,6 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-026",
-      "view": "prescription_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-16",
-      "reason": "The app does not implement Prescription yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
       "id": "IDR-033",
       "view": "settlement_tab",
       "field": "*",
@@ -388,6 +376,174 @@
       "type": "improvement",
       "source": "BA-14",
       "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar link, as on every app view.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-220",
+      "view": "prescription_tab",
+      "field": "title",
+      "when": {
+        "v5": "Prescription Tracker",
+        "app": "Prescription"
+      },
+      "type": "improvement",
+      "source": "BA-18",
+      "reason": "The page heading is the registry label, the task name the navigation uses (BA-18); v5's heading was Prescription Tracker.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-221",
+      "view": "prescription_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar link, as on every app view.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-222",
+      "view": "prescription_tab",
+      "field": "export.export_csv.name",
+      "when": {
+        "app": "prescription.csv"
+      },
+      "type": "defect-fix",
+      "source": "S-hardcoded-case",
+      "reason": "v5 prefixes the export file name with case-specific initials; the app uses a neutral name (as IDR-064 for the chronology). Unfiltered, the columns and rows are v5's.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-223",
+      "view": "prescription_tab",
+      "field": "text.page.2",
+      "when": {
+        "v5": "<absent>",
+        "app": "Imported narrative: not checked against the computed dates."
+      },
+      "type": "improvement",
+      "source": "BA-02",
+      "reason": "The imported prescription summary note is labelled as imported narrative that is not checked against the computed dates, so it cannot pass as a verified conclusion (BA-02); the note itself is shown unchanged.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-224",
+      "view": "prescription_tab",
+      "field": "text.arithmetic_checks.*",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^(\\d+ of \\d+ imported prescription dates are the invoice date plus 3 calendar years\\.( \\d+ invoices are dated 29 February; \\d+ of them prescribe on 28 February\\.)?|\\d+ of \\d+ rows have a prescription date on or before the as-of date \\d+-\\d+-\\d+ \\(today\\)\\.|Arithmetic only; legal rule \\(leap day, < or ≤, interruption\\) not approved\\. .+)$"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-01",
+      "reason": "An Arithmetic checks card counts the imported prescription dates that equal invoice date + 3 years (29 February moved to 28 February) and the rows due on or before an explicit as-of date from the clock, labelled arithmetic only with the legal rule not approved. It answers S-prescription_tab-2 and S-prescription-frozen (labels frozen against the headline date); approval of the legal rule stays with the user.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-225",
+      "view": "prescription_tab",
+      "field": "table.table_1.row.*.as_of_status",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^(3-yr date passed|3-yr date not reached|no valid date)$"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-01",
+      "reason": "Each row gets an As-of status computed from its imported prescription date and the as-of date (arithmetic only), next to the imported Risk label, so a label frozen against the headline date is visible as such (S-prescription_tab-2, S-prescription-frozen). The parity report lists this cell for every row.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-226",
+      "view": "prescription_tab",
+      "field": [
+        "table.table_1.col.as_of_status",
+        "table.table_1.columns"
+      ],
+      "when": {
+        "v5": {
+          "re": "^(<absent>|ref \\| invoice \\| invoice_date \\| prescribes_3yr \\| risk \\| doc)$"
+        },
+        "app": {
+          "re": "^(As-of status|ref \\| invoice \\| invoice_date \\| prescribes_3yr \\| risk \\| as_of_status \\| doc)$"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-01",
+      "reason": "The As-of status column (BA-01, S-prescription-frozen) stands between the imported Risk label and the document link.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-227",
+      "view": "prescription_tab",
+      "field": [
+        "sweep.stale.rows",
+        "sweep.stale.pager"
+      ],
+      "when": {
+        "v5": {
+          "re": "^(\\d+\\|[0-9a-f]+:[0-9a-f]+|Prev Page \\d+ / \\d+ Next Showing \\d+–\\d+ of [\\d,]+)$"
+        },
+        "app": {
+          "re": "^(\\d+\\|[0-9a-f]+:[0-9a-f]+|Prev Page \\d+ / \\d+ Next Showing \\d+–\\d+ of [\\d,]+)$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-prescription_tab-1",
+      "reason": "The filter lives in the URL and the controls show it. Returning through the navigation opens the unfiltered list with empty controls; v5 kept the old filter hidden behind empty controls, so its table was silently filtered (S-prescription_tab-1, medium). Back restores the filtered URL with its controls.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-228",
+      "view": "prescription_tab",
+      "field": [
+        "sweep.export.q1.r0.rows",
+        "sweep.export.q0.r2.rows"
+      ],
+      "when": {
+        "v5": {
+          "re": "^\\d+\\|[0-9a-f]+:[0-9a-f]+$"
+        },
+        "app": {
+          "re": "^\\d+\\|[0-9a-f]+:[0-9a-f]+$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-prescription_tab-3",
+      "reason": "The export writes the rows the filters show, in the shown order (S-prescription_tab-3, BA-17); v5 always exported every row. Without a filter the export equals v5's.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
       "approvedBy": null,

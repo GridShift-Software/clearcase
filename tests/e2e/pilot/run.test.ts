@@ -233,6 +233,6 @@ describe('a step that timed out or aborted is not evidence (fail fast)', () => {
 		const src = readFileSync(join(HERE, 'run.mjs'), 'utf8');
 		expect(src).toContain('for (const f of Object.values(STEP_RECORDS)) rmSync(join(dir, f), { force: true });');
 		expect(src).toContain("timeout: STEP_TIMEOUT_MS, killSignal: 'SIGTERM' });");
-		expect(src).toContain('const evidence = evidenceRecord(fresh, allowed, results.map((r) => stepAbort(dir, r)).filter(Boolean));');
+		expect(src).toContain('const evidence = evidenceRecord(fresh, allowed, [...e2eNonEvidence(process.env, steps.map(([, [, args]]) => args.at(-1)), read), ...results.map((r) => stepAbort(dir, r)).filter(Boolean)]);');
 	});
 });

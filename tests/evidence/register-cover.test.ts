@@ -55,4 +55,11 @@ describe('CC-04 register entries cover only the differences they name', () => {
 		expect(by.get('IDR-105')!.when).toBeUndefined();
 		expect(by.get('IDR-128')!.when).toBeUndefined();
 	});
+
+	it('D5: each export name is pinned to its own export, so swapped names are unregistered', () => {
+		// synthetic case prefix: only the shape of v5's name is pinned
+		expect(cover('filings_tab', { path: 'export.export_csv.name', kind: 'value', v5: 'syn_filings.csv', app: 'filing-register.csv' })).toBeNull();
+		expect(cover('filings_tab', { path: 'export.export_register_csv.name', kind: 'value', v5: 'syn_filing_register.csv', app: 'filings.csv' })).toBeNull();
+		expect(cover('contracts_tab', { path: 'export.export_csv.name', kind: 'value', v5: 'syn_contracts.csv', app: 'search.csv' })).toBeNull();
+	});
 });

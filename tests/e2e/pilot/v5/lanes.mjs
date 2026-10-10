@@ -525,6 +525,10 @@ export async function checkRegistry(C, L) {
 	L.need('accepted inventory: 42 views', 42, cov.views.length);
 	const P = C.P;
 	await P.goto(`${C.origin}${vpath(rv)}/overview`, ready('overview'));
+	// the routes as a fresh tab shows them: a sidebar link carries its view's last query of this tab session
+	// (ViewNav.svelte), and lane 4 left the chronology filtered
+	await P.evaluate(`Object.keys(sessionStorage).filter((k) => k.startsWith('clearcase:view-query:')).forEach((k) => sessionStorage.removeItem(k))`);
+	await P.goto(`${C.origin}${vpath(rv)}/overview`, ready('overview'));
 	const nav = await P.evaluate(`[...document.querySelectorAll('nav.views a[data-view]')].map((a) => { const c = a.cloneNode(true); c.querySelectorAll('.visually-hidden').forEach((x) => x.remove()); return { id: a.dataset.view, label: c.textContent.trim(), group: a.closest('section').querySelector('h2').textContent.trim(), status: a.dataset.status, href: a.getAttribute('href') }; })`);
 	const want = cov.views.map((v) => ({ id: v.id, label: v.label, group: v.group, status: v.owner === 'CC-03' ? 'available' : `unavailable-until:${linearOf(v.owner)}`, href: `${vpath(rv)}${v.owner === 'CC-03' ? `/${v.id}` : `/${OWNER_CATEGORY[v.owner]}/${v.id}`}` }));
 	L.check('navigation: all 42 entries in inventory order with id, task label, group, status and route', want, nav);

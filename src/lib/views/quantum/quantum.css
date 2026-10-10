@@ -1,0 +1,16 @@
+/* Layout shared by the quantum views (GRS-16), imported by their pages. */
+.q-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: .8rem; margin: .8rem 0; }
+.q-card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: .6rem .8rem; margin: .8rem 0; }
+.q-card h3 { margin: 0 0 .5rem; font-size: 1.05em; }
+.q-row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: flex-end; }
+.q-row > div { display: flex; flex-direction: column; min-width: 10em; }
+.q-row label { font-size: .85em; color: #444; }
+.q-wrap { overflow: auto; }
+.q-tbl { border-collapse: collapse; width: 100%; font-size: .92em; }
+.q-tbl th, .q-tbl td { text-align: left; padding: 3px 8px; border-bottom: 1px solid #eee; vertical-align: top; }
+.q-tbl .num { text-align: right; font-variant-numeric: tabular-nums; }
+.q-tbl .mono { font-family: ui-monospace, monospace; }
+.q-note { font-size: .88em; color: #555; }
+.q-flag { background: #fff6e0; border: 1px solid #e0c070; color: #5a4300; padding: .4rem .7rem; border-radius: 6px; font-size: .9em; }
+.q-chead { font-weight: 600; padding: .4rem 0; }
+.q-pager { display: flex; gap: .6rem; align-items: center; margin: .4rem 0; }

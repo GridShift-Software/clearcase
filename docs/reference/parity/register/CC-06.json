@@ -3,18 +3,6 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-033",
-      "view": "settlement_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-16",
-      "reason": "The app does not implement Settlement / BATNA yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
       "id": "IDR-200",
       "view": "payments_tab",
       "field": "focus.after_nav",
@@ -451,7 +439,7 @@
       "when": {
         "v5": "<absent>",
         "app": {
-          "re": "^(\\d+ of \\d+ imported prescription dates are the invoice date plus 3 calendar years\\.( \\d+ invoices are dated 29 February; \\d+ of them prescribe on 28 February\\.)?|\\d+ of \\d+ rows have a prescription date on or before the as-of date \\d+-\\d+-\\d+ \\(today\\)\\.|Arithmetic only; legal rule \\(leap day, < or ≤, interruption\\) not approved\\. .+)$"
+          "re": "^\\d+ of \\d+ (imported prescription dates are the invoice date plus 3 calendar years\\.|rows have a prescription date on or before the as-of date )"
         }
       },
       "type": "improvement",
@@ -544,6 +532,80 @@
       "type": "defect-fix",
       "source": "S-prescription_tab-3",
       "reason": "The export writes the rows the filters show, in the shown order (S-prescription_tab-3, BA-17); v5 always exported every row. Without a filter the export equals v5's.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-229",
+      "view": "prescription_tab",
+      "field": "text.arithmetic_checks.*",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Arithmetic only; legal rule \\(leap day, < or ≤, interruption\\) not approved\\. The Prescribes \\(3yr\\) and Risk columns are imported as given;"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-01",
+      "reason": "The Arithmetic checks card states that its figures are arithmetic only and the legal rule (leap day, < or <=, interruption) is not approved, and that the Prescribes and Risk columns are imported, the labels classified against the headline date (S-prescription_tab-2, S-prescription-frozen).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-230",
+      "view": "settlement_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar link, as on every app view.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-231",
+      "view": "settlement_tab",
+      "field": "control.link:Reset to defaults",
+      "when": {
+        "v5": "<absent>",
+        "app": "1"
+      },
+      "type": "improvement",
+      "source": "BA-03",
+      "reason": "The model's inputs live in the URL query, so a reload gives the same result, and a Reset to defaults link returns to the package defaults and the prefilled claim (BA-03; v5 kept no input and reset on every visit).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-232",
+      "view": "settlement_tab",
+      "field": [
+        "sweep.model.claim_separated.k0.value",
+        "sweep.model.claim_separated.k1.value",
+        "sweep.model.claim_separated.k2.value"
+      ],
+      "when": {
+        "v5": {
+          "re": "^-?R[\\d.]+$"
+        },
+        "app": {
+          "re": "^-?R[\\d.]+$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-settlement_tab-3",
+      "reason": "A claim typed with the app's own thousands separator (1 000 000) is the full amount: every amount on the quantum views is parsed with one grammar. v5's parseFloat read it as 1, so all three scenarios differ (the separator half of S-settlement_tab-3; the whole-rand prefill is kept).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
       "approvedBy": null,

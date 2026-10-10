@@ -2,13 +2,15 @@
 // the runner goes offline or reads the locator; --allow-stale-build gets past the refusal (here it then stops at the
 // absent synthetic locator) and the scorecard records evidence: false. The override is the flag only: an exported
 // CLEARCASE_ALLOW_STALE_BUILD does nothing. An --app-root build is never this repository's build/, so even one stamped
-// with HEAD is refused. mutate.mjs passes the flag to its own runs.
+// with HEAD is refused, and so is an --app-root copy whose build/ links to this repository's. A --register FILE outside
+// docs/reference/parity/ and --app-v5-html (self-parity) make the scorecard non-evidence. mutate.mjs passes the flag
+// to its own runs.
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
-import { REPO } from '../../scripts/parity/lib/register.mjs';
+import { REPO, runNonEvidence } from '../../scripts/parity/lib/register.mjs';
 
 const BUN = process.versions.bun ? process.execPath : 'bun';
 const root = mkdtempSync(join(tmpdir(), 'parity-stale-'));
@@ -45,9 +47,34 @@ describe('parity refuses a stale build', () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(`the build is not ${join(REPO, 'build')} (it is ${join(copy, 'build')})`);
 	});
+	test('an --app-root copy whose build/ links to this repository\'s build/ is refused: the app tree is not the repository', () => {
+		const copy = join(root, 'linked');
+		mkdirSync(copy, { recursive: true });
+		symlinkSync(join(REPO, 'build'), join(copy, 'build'));
+		const r = parity([], {}, copy);
+		// with no build in this checkout the stamp check is skipped and the run stops at the locator; the guard is the
+		// same freshness call either way (tests/e2e/pilot/lib/fresh-build.test.ts covers the reason itself)
+		if (existsSync(join(REPO, 'build', 'clearcase-build.json'))) {
+			expect(r.status).toBe(2);
+			expect(r.stderr).toContain(`the app tree under test is ${copy}, not ${REPO}`);
+		}
+		expect(readFileSync(join(REPO, 'scripts', 'parity', 'run.mjs'), 'utf8')).toContain('freshness(REPO, readStamp(buildDir), { buildDir, appRoot })');
+	});
+	test('a register outside docs/reference/parity/ and v5 self-parity are never evidence', () => {
+		const dir = join(REPO, 'docs', 'reference', 'parity');
+		expect(runNonEvidence({})).toEqual([]);
+		expect(runNonEvidence({ register: join(dir, 'intentional-differences.json') })).toEqual([]);
+		const local = join(root, 'r.json');
+		expect(runNonEvidence({ register: local })).toEqual([`--register ${local} is not under ${dir}/`]);
+		// a path that only starts with the folder's name, or climbs out of it, is outside
+		expect(runNonEvidence({ register: `${dir}-copy/x.json` })).toHaveLength(1);
+		expect(runNonEvidence({ register: join(dir, '..', 'x.json') })).toHaveLength(1);
+		expect(runNonEvidence({ appV5Html: join(root, 'v5.html') })).toEqual(['--app-v5-html compares v5 with a copy of itself (self-parity)']);
+		expect(runNonEvidence({ register: local, appV5Html: 'x' })).toHaveLength(2);
+	});
 	test('the scorecard carries the evidence record, and mutate.mjs runs its mutants with the override', () => {
 		const run = readFileSync(join(REPO, 'scripts', 'parity', 'run.mjs'), 'utf8');
-		expect(run).toContain('...evidenceRecord(fresh, allowedStale),');
+		expect(run).toContain("...evidenceRecord(fresh, allowedStale, runNonEvidence({ register: opt('register'), appV5Html })),");
 		// the final status line says NOT EVIDENCE whenever the scorecard's evidence is false
 		expect(run).toContain('console.log(`parity: ${sc.result} (exit ${exitCode})${evidenceSuffix(sc)}:');
 		expect(run).toContain("`Evidence: ${sc.evidence ? 'yes (a fresh build of clean HEAD)' : `**no**: ${sc.evidenceNote}`}.`");

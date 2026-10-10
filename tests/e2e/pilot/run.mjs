@@ -18,7 +18,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { CHROME, chromeAvailable } from './lib/cdp.mjs';
-import { allowStale, evidenceRecord, evidenceSuffix, freshLine, freshness, refusal } from './lib/fresh-build.ts';
+import { allowStale, evidenceRecord, evidenceSuffix, freshLine, freshness, readStamp, refusal } from './lib/fresh-build.ts';
 import { implementedViews, registryOf } from './lib/implemented.mjs';
 import { outDir } from './lib/record.mjs';
 import { bunIdentity } from './lib/server.mjs';
@@ -81,8 +81,8 @@ async function main() {
 	const missing = Object.entries(pre).filter(([, v]) => !v).map(([k]) => k);
 	const dir = outDir();
 	mkdirSync(dir, { recursive: true });
-	const build = pre.build ? JSON.parse(readFileSync(join(buildDir, 'clearcase-build.json'), 'utf8')) : null;
-	const fresh = freshness(root, build, { buildDir });
+	const build = pre.build ? readStamp(buildDir) : null;
+	const fresh = freshness(root, build, { buildDir, appRoot });
 	const allowed = allowStale(process.argv.slice(2));
 	console.log(`test:e2e: ${freshLine(fresh)}`);
 	if (pre.build && !fresh.fresh && !allowed) {

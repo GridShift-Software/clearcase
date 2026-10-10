@@ -13,9 +13,9 @@
 // the final status line says NOT EVIDENCE when it is false.
 // This file only spawns and imports the typed fresh-build module, so `tsc --noEmit -p .` checks it cleanly.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { ALLOW_FLAG, allowStale, type BuildStamp, evidenceRecord, evidenceSuffix, freshLine, freshness, refusal } from '../../tests/e2e/pilot/lib/fresh-build.ts';
+import { ALLOW_FLAG, allowStale, type BuildStamp, evidenceRecord, evidenceSuffix, freshLine, freshness, readStamp, refusal } from '../../tests/e2e/pilot/lib/fresh-build.ts';
 
 const RUNNERS: Record<string, string> = {
 	'CC-02': 'scripts/case-package/measure.ts',
@@ -39,7 +39,7 @@ const opt = (n: string) => { const j = args.findIndex((a) => a === `--${n}` || a
 const candidate = opt('candidate');
 const stampFile = path.join(repo, 'build', 'clearcase-build.json');
 const resolved = candidate ? spawnSync('git', ['-C', repo, 'rev-parse', '--verify', `${candidate}^{commit}`], { encoding: 'utf8' }).stdout?.trim() || null : null;
-const stamp: BuildStamp | null = candidate ? { revision: resolved, dirty: false } : existsSync(stampFile) ? JSON.parse(readFileSync(stampFile, 'utf8')) : { revision: spawnSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout?.trim() || null, dirty: false };
+const stamp: BuildStamp | null = candidate ? { revision: resolved, dirty: false } : existsSync(stampFile) ? readStamp(path.join(repo, 'build')) : { revision: spawnSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout?.trim() || null, dirty: false };
 const fresh = freshness(repo, stamp, candidate || !existsSync(stampFile) ? {} : { buildDir: path.join(repo, 'build') });
 const allowed = allowStale(argv);
 const record = { ticket, runner, underTest: candidate ? `--candidate ${candidate}` : existsSync(stampFile) ? 'build/clearcase-build.json' : 'worktree (no build)', ...evidenceRecord(fresh, allowed) };

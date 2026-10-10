@@ -1,6 +1,6 @@
 // The e2e runner (run.mjs): category discovery (a category with views but no suite fails the run; with E2E_ROOT, in
 // E2E_ROOT's tree), the suite summary contract (each category suite proves what it ran), the fresh-build refusal
-// (exit 2 before any step, also for a build outside <repo>/build) and its override, the flag only (evidence: false in
+// (exit 2 before any step, also for a build outside <repo>/build or an E2E_ROOT other than this checkout) and its override, the flag only (evidence: false in
 // the summary, NOT EVIDENCE in the final line). Synthetic trees, suites and stamps in a temp folder; the runner never
 // reaches a browser step here (the override run stops at a missing Chromium).
 import { spawnSync } from 'node:child_process';
@@ -71,6 +71,22 @@ describe('fresh-build evidence', () => {
 		const r = run(d);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(`the build is not ${join(REPO, 'build')}`);
+	});
+	test('an E2E_ROOT other than this checkout is refused (its server entry, suites and routes are unverified); so is verify:pilot:v5', () => {
+		const head = spawnSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout.trim();
+		const copy = mkdtempSync(join(root, 'copy-'));
+		const reason = `the app tree under test is ${copy}, not ${REPO}`;
+		const r = run(build(head), [], { E2E_ROOT: copy });
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(reason);
+		expect(r.summary).toMatchObject({ ok: false, evidence: false, results: [] });
+		const v5 = spawnSync(BUN, [join(HERE, 'v5-lanes.mjs')], { cwd: REPO, encoding: 'utf8', timeout: 60_000, env: { ...process.env, E2E_ROOT: copy, E2E_BUILD_DIR: build(head), CLEARCASE_REPORT_DIR: mkdtempSync(join(root, 'v5-')) } });
+		expect(v5.status).toBe(2);
+		expect(v5.stderr).toMatch(/^verify:pilot:v5: stale build \(/);
+		expect(v5.stderr).toContain(reason);
+		// the runners pass the tree under test to the guard
+		expect(readFileSync(join(HERE, 'run.mjs'), 'utf8')).toContain('freshness(root, build, { buildDir, appRoot })');
+		expect(readFileSync(join(HERE, 'v5-lanes.mjs'), 'utf8').match(/freshness\(REPO, b\.stamp, \{ buildDir: b\.buildDir, appRoot: b\.root \}\)/g)).toHaveLength(2);
 	});
 	test('--allow-stale-build runs it: evidence: false in the summary and NOT EVIDENCE in the final line', () => {
 		const r = run(build('0000000000000000000000000000000000000000', true), ['--allow-stale-build']);

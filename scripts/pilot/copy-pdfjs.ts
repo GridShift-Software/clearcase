@@ -49,10 +49,12 @@ const real = (p: string) => { try { return realpathSync(p); } catch { return p; 
 // would otherwise borrow the enclosing worktree's HEAD and status. A copy's revision is unknown (null) unless its
 // caller exported it (an isolated build from `git archive` names the revision in CLEARCASE_SOURCE_REVISION).
 // `dirty` counts modified and untracked, not ignored, files (the default git status) whenever git works here, the
-// exported revision notwithstanding.
+// exported revision notwithstanding. It fails closed: when git cannot read this checkout's HEAD or status (say an
+// unreadable index), the revision or `dirty` is null, which the fresh-build guard refuses.
 const top = git('rev-parse', '--show-toplevel');
 const atRoot = top !== null && real(top) === real(root);
 const exported = process.env.CLEARCASE_SOURCE_REVISION ?? null;
-const stamp = { revision: exported ?? (atRoot ? git('rev-parse', 'HEAD') : null), dirty: atRoot ? git('status', '--porcelain') !== '' : false, exported: exported !== null, builtAt: new Date().toISOString(), bun: process.versions.bun ?? null, pdfjs: version, buildId: createHash('sha256').update(readFileSync(join(build, 'handler.js'))).digest('hex').slice(0, 16) };
+const status = atRoot ? git('status', '--porcelain') : '';
+const stamp = { revision: exported ?? (atRoot ? git('rev-parse', '--verify', 'HEAD') || null : null), dirty: status === null ? null : status !== '', exported: exported !== null, builtAt: new Date().toISOString(), bun: process.versions.bun ?? null, pdfjs: version, buildId: createHash('sha256').update(readFileSync(join(build, 'handler.js'))).digest('hex').slice(0, 16) };
 writeFileSync(join(build, 'clearcase-build.json'), JSON.stringify(stamp, null, 1) + '\n');
-console.log(`pdf.js ${version} bundled: ${Object.keys(files).length} files -> ${relative(root, out)}; build ${stamp.buildId} from ${stamp.revision?.slice(0, 12) ?? 'unknown'}${stamp.dirty ? ' (dirty)' : ''}`);
+console.log(`pdf.js ${version} bundled: ${Object.keys(files).length} files -> ${relative(root, out)}; build ${stamp.buildId} from ${stamp.revision?.slice(0, 12) ?? 'unknown'}${stamp.dirty ? ' (dirty)' : stamp.dirty === null ? ' (working-tree state unknown: not fresh)' : ''}`);

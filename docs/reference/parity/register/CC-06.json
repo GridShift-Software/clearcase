@@ -60,21 +60,34 @@
     {
       "id": "IDR-203",
       "view": "payments_tab",
-      "field": [
-        "sweep.separators.kpi.Payments recorded",
-        "sweep.separators.kpi.Net claim"
-      ],
+      "field": "sweep.separators.kpi.Payments recorded",
+      "when": {
+        "v5": "R 252.50 · 4 receipts",
+        "app": "R 2 750.75 · 4 receipts"
+      },
+      "type": "defect-fix",
+      "source": "S-payments_tab-1",
+      "reason": "Amounts typed with separators or an R prefix (R 1 000.00 is the app's own format) count in full: the payments total uses the same parsed cents as the table. v5 summed parseFloat (1 000 counted as 1, R 500 as 0) while its table showed the full amounts (S-payments_tab-1, high). Pinned exactly (CC-06 r2, D14): both figures come only from the sweep's four synthetic payments (1 000, R 500, 250.50, 1,000.25).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-233",
+      "view": "payments_tab",
+      "field": "sweep.separators.kpi.Net claim",
       "when": {
         "v5": {
-          "re": "^-?R[\\d .]+( · \\d+ receipts)?$"
+          "re": "^-?R[\\d]+\\.\\d{2}$"
         },
         "app": {
-          "re": "^-?R[\\d .]+( · \\d+ receipts)?$"
+          "re": "^-?R[\\d]+\\.\\d{2}$"
         }
       },
       "type": "defect-fix",
       "source": "S-payments_tab-1",
-      "reason": "Amounts typed with separators or an R prefix (R 1 000.00 is the app's own format) count in full: the payments total and net claim use the same parsed cents as the table. v5 summed parseFloat (1 000 counted as 1, R 500 as 0) while its table showed the full amounts (S-payments_tab-1, high).",
+      "reason": "The net claim after the separated payments (IDR-203) differs because the payments total does; it depends on the imported claim, so only its shape is registered here (CC-06 r2, D14). Its arithmetic is checked by sweep.separators.net_identity, which each driver computes from its own page (shown Net = shown Gross − shown Payments) and which must match ('ok' on both sides): a wrong net claim fails parity.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
       "approvedBy": null,
@@ -236,23 +249,72 @@
     {
       "id": "IDR-212",
       "view": "interest_calc_tab",
-      "field": [
-        "sweep.compute.separated.k0.value",
-        "sweep.compute.separated.k1.value",
-        "sweep.compute.separated.k2.value",
-        "sweep.compute.separated.k3.sub"
-      ],
+      "field": "sweep.compute.separated.k0.value",
       "when": {
-        "v5": {
-          "re": "^[-+]?R[\\d .]+( vs your calc)?$"
-        },
+        "v5": "R100.00",
         "app": {
-          "re": "^[-+]?R[\\d .]+( vs your calc)?$"
+          "re": "^R10{5}\\.00$"
         }
       },
       "type": "defect-fix",
       "source": "S-interest_calc_tab-1",
-      "reason": "A capital typed with the app's own thousands separator (100 000) is the full amount; v5's parseFloat read it as 100, so capital, interest, total and the comparison line differ (S-interest_calc_tab-1, medium).",
+      "reason": "A capital typed with the app's own thousands separator (100 000) is the full amount; v5's parseFloat read it as 100, so capital, interest, total and the comparison line differ (S-interest_calc_tab-1, medium). Pinned exactly (CC-06 r2, D14): the sweep types every input of this figure. IDR-234 and IDR-235 pin the interest and the total; IDR-236 covers the comparison with the imported amount due by shape. The app value is an exact single-string pattern, written without a run of four digits (the register's case-value check).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-234",
+      "view": "interest_calc_tab",
+      "field": "sweep.compute.separated.k1.value",
+      "when": {
+        "v5": "R10.02",
+        "app": {
+          "re": "^R10[0]20\\.53$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-interest_calc_tab-1",
+      "reason": "The interest on the separated capital (IDR-212): R 100 000 at 10% simple for 366 days on the app, v5's R 100. Pinned exactly: every input is the sweep's own (CC-06 r2, D14). The app value is an exact single-string pattern, written without a run of four digits (the register's case-value check).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-235",
+      "view": "interest_calc_tab",
+      "field": "sweep.compute.separated.k2.value",
+      "when": {
+        "v5": "R110.02",
+        "app": {
+          "re": "^R11[0]{2}20\\.53$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-interest_calc_tab-1",
+      "reason": "The total on the separated capital (IDR-212): capital plus interest. Pinned exactly: every input is the sweep's own (CC-06 r2, D14). The app value is an exact single-string pattern, written without a run of four digits (the register's case-value check).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-236",
+      "view": "interest_calc_tab",
+      "field": "sweep.compute.separated.k3.sub",
+      "when": {
+        "v5": {
+          "re": "^[-+]?R[\\d .]+ vs your calc$"
+        },
+        "app": {
+          "re": "^[-+]?R[\\d .]+ vs your calc$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-interest_calc_tab-1",
+      "reason": "The comparison of the separated total with the imported amount due (IDR-212) differs because the total does; the imported amount is case data, so only the line's shape is registered (CC-06 r2, D14). The total itself is pinned by IDR-235.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
       "approvedBy": null,
@@ -435,16 +497,34 @@
     {
       "id": "IDR-224",
       "view": "prescription_tab",
-      "field": "text.arithmetic_checks.*",
+      "field": "text.arithmetic_checks.1",
       "when": {
         "v5": "<absent>",
         "app": {
-          "re": "^\\d+ of \\d+ (imported prescription dates are the invoice date plus 3 calendar years\\.|rows have a prescription date on or before the as-of date )"
+          "re": "^\\d+ of \\d+ imported prescription dates are the invoice date plus 3 calendar years\\.( \\d+ invoices are dated 29 February; \\d+ of them prescribe on 28 February\\.)?$"
         }
       },
       "type": "improvement",
       "source": "BA-01",
-      "reason": "An Arithmetic checks card counts the imported prescription dates that equal invoice date + 3 years (29 February moved to 28 February) and the rows due on or before an explicit as-of date from the clock, labelled arithmetic only with the legal rule not approved. It answers S-prescription_tab-2 and S-prescription-frozen (labels frozen against the headline date); approval of the legal rule stays with the user.",
+      "reason": "An Arithmetic checks card counts the imported prescription dates that equal invoice date + 3 years (29 February moved to 28 February), labelled arithmetic only with the legal rule not approved. It answers S-prescription_tab-2 and S-prescription-frozen; approval of the legal rule stays with the user. Narrowed to this sentence (CC-06 r2, D14); IDR-238 covers the as-of sentence, and IDR-237's check keys must be exactly 0.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-238",
+      "view": "prescription_tab",
+      "field": "text.arithmetic_checks.2",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^\\d+ of \\d+ rows have a prescription date on or before the as-of date \\d{4}-\\d{2}-\\d{2} \\(today, South African time\\)\\.$"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-01",
+      "reason": "The card's second sentence (BA-01): the rows due on or before an explicit as-of date, the South African calendar date of the clock (CC-06 r2, D9), arithmetic only (S-prescription_tab-2, S-prescription-frozen). Its count is checked against the shown rows by IDR-237, which must be exactly 0 (CC-06 r2, D14).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
       "approvedBy": null,
@@ -462,7 +542,7 @@
       },
       "type": "improvement",
       "source": "BA-01",
-      "reason": "Each row gets an As-of status computed from its imported prescription date and the as-of date (arithmetic only), next to the imported Risk label, so a label frozen against the headline date is visible as such (S-prescription_tab-2, S-prescription-frozen). The parity report lists this cell for every row.",
+      "reason": "Each row gets an As-of status computed from its imported prescription date and the as-of date (arithmetic only), next to the imported Risk label, so a label frozen against the headline date is visible as such (S-prescription_tab-2, S-prescription-frozen). The parity report lists this cell for every row. Which status a row shows is checked by IDR-237 (count.check.as_of_status_disagreements must be exactly 0; CC-06 r2, D14).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
       "approvedBy": null,
@@ -485,7 +565,26 @@
       },
       "type": "improvement",
       "source": "BA-01",
-      "reason": "The As-of status column (BA-01, S-prescription-frozen) stands between the imported Risk label and the document link.",
+      "reason": "The As-of status column (BA-01; S-prescription_tab-2, S-prescription-frozen) stands between the imported Risk label and the document link.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-237",
+      "view": "prescription_tab",
+      "field": [
+        "count.check.as_of_status_disagreements",
+        "count.check.arithmetic_disagreements"
+      ],
+      "when": {
+        "v5": "<absent>",
+        "app": "0"
+      },
+      "type": "improvement",
+      "source": "BA-01",
+      "reason": "Check keys of the app adapter (CC-06 r2, D14): an oracle in the adapter recomputes each row's As-of status from its shown prescription date and the card's as-of date, and the card's +3-year and passed counts from the shown rows, and counts the disagreements. v5 has no such card (S-prescription_tab-2, S-prescription-frozen). Pinned to exactly 0: a wrong status, a swapped label or a wrong count fails parity, with no case value in the register.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
       "approvedBy": null,

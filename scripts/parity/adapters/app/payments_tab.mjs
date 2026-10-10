@@ -87,6 +87,8 @@ export default {
 			}
 			const del = await p.evaluate(`(() => { const b = [...document.querySelectorAll('#main table tbody tr button')].find((b) => /delete|remove|×|✕/i.test(b.textContent + (b.title || ''))); if (!b) return false; b.setAttribute('data-parity-del', '1'); return true; })()`);
 			if (del) { await submit(p, '[data-parity-del]'); await record('delete'); } else out.delete = 'no-delete-control';
+			// a refused entry stays in the form, and leaving the page would ask about it first (CC-06 r2): discard it
+			await p.evaluate(`document.getElementById('pay-discard')?.click()`);
 			for (const [label, t] of Object.entries(await readOverviewTiles(p, ctx))) out[`overview.${label}`] = t.value;
 			await cleanup(p, ctx, 'Synthetic entry');
 			return out;

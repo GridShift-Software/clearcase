@@ -1,0 +1,44 @@
+// Settlement / BATNA form model (GRS-16): defaults only from the package (S-settlement_tab-1), the claim prefill net
+// of recorded payments in whole rand (S-settlement_tab-2, -3), URL query inputs (BA-03), visible refusal.
+import { describe, expect, it } from 'vitest';
+import { claimPrefill, defaultInputs, settleInputs, settleOutcome, submitted } from '../../src/lib/views/quantum/settlement';
+
+const D = { probability: 60, years: 3, discount: 8, cost: 1000 };
+
+describe('defaults and prefill', () => {
+	it('takes every default from the package and leaves a missing one empty', () => {
+		expect(defaultInputs('1150', D)).toEqual({ claim: '1150', p: '60', y: '3', d: '8', c: '1000' });
+		expect(defaultInputs('1150', { ...D, cost: null }).c).toBe('');
+	});
+	it('prefills the claim in whole rand, rounded half away from zero, as v5 toFixed(0)', () => {
+		expect(claimPrefill(115050n)).toBe('1151');
+		expect(claimPrefill(115049n)).toBe('1150');
+		expect(claimPrefill(-150n)).toBe('-2');
+	});
+	it('reads changed assumptions from the query over the defaults', () => {
+		const def = defaultInputs('1000000', D);
+		expect(submitted(new URLSearchParams(''))).toBe(false);
+		expect(settleInputs(new URLSearchParams('p=95'), def)).toEqual({ ...def, p: '95' });
+	});
+});
+
+describe('outcome', () => {
+	const base = { claim: '1000000', p: '70', y: '2', d: '10', c: '100000' };
+	it('the checklist example, with v5\'s labels', () => {
+		const o = settleOutcome(base);
+		expect(o.kpis!.map((k) => `${k.label}=${k.value}`)).toEqual(['Pessimistic (p-25)=R 271 900.83', 'Base (p=70%)=R 478 512.40', 'Optimistic (p+15)=R 602 479.34']);
+		expect(o.floor).toContain('claim R 1 000 000.00 discounted for a 70% recovery probability over 2 year(s) at 10%, net of R 100 000.00 costs');
+	});
+	it('changing an assumption changes the result (scenario 8)', () => {
+		expect(settleOutcome({ ...base, p: '95' }).kpis![2]!.value).toBe('R 726 446.28');
+		expect(settleOutcome({ ...base, p: '10' }).kpis![0]!.value).toBe('-R 100 000.00');
+	});
+	it('parses a claim typed with separators in full', () => {
+		expect(settleOutcome({ ...base, claim: 'R 1 000 000' }).kpis![1]!.value).toBe('R 478 512.40');
+	});
+	it('refuses text, negatives and empty fields visibly', () => {
+		const o = settleOutcome({ claim: 'lots', p: '-5', y: '', d: '1,5', c: '' });
+		expect(o.kpis).toBeNull();
+		expect(Object.keys(o.errors).sort()).toEqual(['c', 'claim', 'd', 'p', 'y']);
+	});
+});

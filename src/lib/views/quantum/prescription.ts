@@ -16,9 +16,28 @@ export const V5_RISKS = [RELIES, 'Not yet due to prescribe'];
 export const riskOptions = (rows: readonly PrescRow[]) => [...V5_RISKS, ...[...new Set(rows.map((r) => r.risk))].filter((r) => r && !V5_RISKS.includes(r)).sort()];
 
 export interface PrescQuery { q: string; risk: string; page: number }
-export function queryFrom(p: URLSearchParams): PrescQuery {
+/**
+ * The filter a URL holds. A risk the controls cannot show (`risks`: the select's options) is ignored, never applied
+ * behind a blank select (CC-06 r2, D12); a page that is not a whole number from 1 is page 1. `urlNotes` says so.
+ */
+export function queryFrom(p: URLSearchParams, risks: readonly string[] | null = null): PrescQuery {
 	const page = Number(p.get('page'));
-	return { q: p.get('q') ?? '', risk: p.get('risk') ?? '', page: Number.isSafeInteger(page) && page > 0 ? page : 1 };
+	const risk = p.get('risk') ?? '';
+	return { q: p.get('q') ?? '', risk: risks && risk && !risks.includes(risk) ? '' : risk, page: Number.isSafeInteger(page) && page > 0 ? page : 1 };
+}
+/** What the page says about URL values it did not apply as given: an unknown risk, a repeated key, a bad or too-high page. */
+export function urlNotes(p: URLSearchParams, risks: readonly string[], pages: number): string[] {
+	const notes: string[] = [];
+	const risk = p.get('risk') ?? '';
+	if (risk && !risks.includes(risk)) notes.push(`The risk filter '${risk}' in the link matches no risk in this case and was ignored: every risk is shown.`);
+	for (const k of ['q', 'risk', 'page']) if (p.getAll(k).length > 1) notes.push(`The link gives '${k}' ${p.getAll(k).length} times; only the first is used.`);
+	const raw = p.get('page');
+	if (raw !== null && raw !== '') {
+		const n = Number(raw);
+		if (!Number.isSafeInteger(n) || n < 1) notes.push(`The page '${raw}' in the link is not a page number: page 1 is shown.`);
+		else if (n > pages) notes.push(`The link asks for page ${n}, but there ${pages === 1 ? 'is 1 page' : `are ${pages} pages`}: the last page is shown.`);
+	}
+	return notes;
 }
 export function paramsFrom(q: PrescQuery): URLSearchParams {
 	const p = new URLSearchParams();

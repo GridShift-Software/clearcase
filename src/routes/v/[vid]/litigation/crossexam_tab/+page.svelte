@@ -18,7 +18,9 @@
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'crossexam_tab' : null}>
+<!-- the data is complete when the server renders the page, so data-ready is set from the start (the pilot checks read
+	it from the served HTML); data-hydrated marks when the page's controls work -->
+<main id="main" tabindex="-1" data-ready="crossexam_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Cross-Exam Prep" section="Cross-Exam Prep" caseName={data.version.titleName} subtitle="Per-witness topics, what to put, and the documents to confront them with">
 		<!-- S-crossexam_tab-3 (copied): v5 has a second Add in the page header; it submits the same form -->
 		{#snippet actions()}<button type="submit" form="cx-add" class="primary" id="cx-add-header">Add</button>{/snippet}

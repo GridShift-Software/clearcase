@@ -30,7 +30,9 @@
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'enforcement_tab' : null}>
+<!-- the data is complete when the server renders the page, so data-ready is set from the start (the pilot checks read
+	it from the served HTML); data-hydrated marks when the page's controls work -->
+<main id="main" tabindex="-1" data-ready="enforcement_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Enforcement Roadmap" section="Enforcement Roadmap" caseName={data.version.titleName} subtitle={data.content.subtitle} />
 	{#if data.content.why}
 		<div class="card narr"><h3>Why this matters</h3><Narrative text={data.content.why} resultsVersion={vid} known={data.known} /></div>

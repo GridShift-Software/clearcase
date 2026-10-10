@@ -6,6 +6,13 @@ import { syntheticInput } from '../../../../scripts/parity/lib/sweeps.mjs';
 import { tableFromRaw } from '../../../../scripts/parity/lib/snapshot.mjs';
 import { open, readOverviewTiles } from '../../../../scripts/parity/adapters/app/_shell.mjs';
 
+/** Open a litigation view at its route and wait until its controls work (main[data-hydrated]). */
+export async function openHydrated(p, ctx, view) {
+	await open(p, ctx, ctx.registry[view].route, view);
+	await p.waitFor(`document.querySelector('main#main')?.dataset.hydrated === '1'`, 60000);
+	await p.settled();
+}
+
 /** The rows of the first table under #main, as joined cell text (the v5 register sweep's reading). */
 export async function tableRows(p) {
 	const raw = await p.evaluate(`(${domExtract.toString()})('#main', {})`);
@@ -35,7 +42,7 @@ async function changed(p, before, timeout = 15000) {
  */
 export async function registerEdit(p, ctx, view, { cleanup } = {}) {
 	const out = {};
-	await open(p, ctx, ctx.registry[view].route, view);
+	await openHydrated(p, ctx, view);
 	const record = (step, rows) => { out[`${step}.rows`] = String(rows.length); rows.forEach((r, i) => { out[`${step}.row.${i}`] = r; }); };
 	let rows = await tableRows(p);
 	for (let n = 0; n < 2; n++) {

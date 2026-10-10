@@ -4,6 +4,7 @@
 import { sleep } from '../../../../tests/e2e/pilot/lib/cdp.mjs';
 import { fromRaw } from '../../lib/snapshot.mjs';
 import { STEP, TO } from '../v5/specs/enforcement_tab.mjs';
+import { openHydrated } from '../../../../tests/e2e/litigation/lib/parity.mjs';
 import { navFocus, open } from './_shell.mjs';
 
 const VIEW = 'enforcement_tab';
@@ -29,7 +30,7 @@ export default {
 	view: VIEW,
 	async extract(p, ctx) {
 		const nav = await navFocus(p, ctx, { from: '/overview', fromView: 'overview', view: VIEW });
-		await open(p, ctx, ctx.registry[VIEW].route, VIEW);
+		await openHydrated(p, ctx, VIEW);
 		const s = fromRaw(VIEW, 'app', await p.extract('#main'));
 		s.focus.after_nav = nav.focus;
 		s.texts['shell.crumb'] = nav.crumb;
@@ -39,13 +40,13 @@ export default {
 		async status_edit(p, ctx) {
 			const out = {};
 			const route = ctx.registry[VIEW].route;
-			await open(p, ctx, route, VIEW);
+			await openHydrated(p, ctx, VIEW);
 			const initial = await statuses(p);
 			record(out, 'initial', initial);
 			if (initial.length <= STEP) { out.change = 'no-step'; return out; }
 			if (!(await choose(p, STEP, TO))) { out.change = 'not-saved'; return out; }
 			await open(p, ctx, '/overview', 'overview');
-			await open(p, ctx, route, VIEW);
+			await openHydrated(p, ctx, VIEW);
 			record(out, 'after', await statuses(p));
 			// back to the imported status (an override equal to it shows nothing extra)
 			if (!(await choose(p, STEP, initial[STEP]))) throw new Error('enforcement status sweep: could not restore the imported status');

@@ -127,7 +127,7 @@ try {
 			raw.read.push({ ...(await measured(p)), rows: n, warmup: i < WARMUP });
 		}
 		// save: the register page open, the form filled, Save -> the new row rendered
-		await goto(`/registers/${view}`, ready(view));
+		await goto(`/registers/${view}`, `${ready(view)} && !!document.querySelector('main#main[data-hydrated]')`);
 		const startRows = await rowCount(p);
 		for (let i = 0; i < WARMUP + SAMPLES; i++) {
 			const n = await rowCount(p);

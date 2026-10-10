@@ -90,7 +90,9 @@
 	}
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? reg.view : null}>
+<!-- the rows are complete when the page renders, so data-ready is set on the server too; data-hydrated marks that the
+     form is interactive (tests type and click only after it) -->
+<main id="main" tabindex="-1" data-ready={reg.view} data-hydrated={ready ? '' : undefined}>
 	<PageHeader heading={reg.label} section={reg.label} caseName={data.version.titleName} subtitle={reg.subtitle}>
 		{#snippet actions()}
 			<button type="button" id="register-export" onclick={exportNow}>{reg.export.label}</button>

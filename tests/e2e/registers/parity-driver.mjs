@@ -11,12 +11,14 @@ import { syntheticInput } from '../../../scripts/parity/lib/sweeps.mjs';
 
 export const day = (clock, offset) => new Date(Date.parse(clock) + offset * 86400000).toISOString().slice(0, 10);
 const ready = (view) => `document.querySelector('[data-ready="${view}"]')`;
+/** A register page that is rendered and hydrated (its form is interactive). */
+const interactive = (view) => `document.querySelector('[data-ready="${view}"][data-hydrated]')`;
 
 // ---- app side -------------------------------------------------------------------------------------------------------
 
 /** Open a register page and wait for it. */
 export async function openRegister(p, ctx, view) {
-	await p.goto(`${ctx.base}${ctx.registry[view].route}`, ready(view));
+	await p.goto(`${ctx.base}${ctx.registry[view].route}`, interactive(view));
 	await p.settled();
 }
 

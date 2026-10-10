@@ -23,7 +23,7 @@ Preconditions:
 
 - `activate` passed. Registers start empty: the package seeds none.
 
-- **Open.** *Not yet driven* (no `lib/drive.mjs` step yet; the registers browser suite drives it). Choose `#nav-<view-id>`. `main[data-ready=<view-id>]` appears, the `[data-page-heading]` h1 (the registry label) has focus, and the table's only row is v5's empty state (for example `No disbursements recorded.`).
+- **Open.** *Not yet driven* (no `lib/drive.mjs` step yet; the registers browser suite drives it). Choose `#nav-<view-id>`. `main[data-ready=<view-id>]` is in the server-rendered page; `main[data-hydrated]` marks the form interactive, the `[data-page-heading]` h1 (the registry label) has focus, and the table's only row is v5's empty state (for example `No disbursements recorded.`).
 - **Add.** *Not yet driven* (no `lib/drive.mjs` step yet; the registers browser suite drives it). Fill `#in-<field key>` (v5 keys: `date`, `desc`, `payee`, `amount`; `fee_earner`, `activity`, `hours`, `rate`, `billed`; `ref`, `basis`; `activity`, `category`, `lawful`, `retention`; `note`; `title`, `source`, `body`) and choose `#register-save` (`Add`). Wait for one more `#register-table tbody tr[data-row-id]`.
 - **Edit.** *Not yet driven* (no `lib/drive.mjs` step yet; the registers browser suite drives it). Choose `[data-edit]` in a row. The form holds the row's values, `#register-save` reads `Save` and the first field has focus. Change a field and save; the row keeps its `data-row-id`.
 - **Delete.** *Not yet driven* (no `lib/drive.mjs` step yet; the registers browser suite drives it). Choose `[data-delete]` in the row.

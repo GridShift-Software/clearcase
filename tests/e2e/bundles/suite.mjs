@@ -261,8 +261,11 @@ try {
 			await p.waitFor(`document.getElementById('cb-error')`, 20000);
 			during = { kept: await p.evaluate(`${JSON.stringify(Object.keys(vals))}.every((k) => document.getElementById('cbh_' + k).value === ${JSON.stringify(vals)}[k])`), rows: A.work("SELECT count(*) n FROM register_row WHERE store = 'bundle-header'")[0].n };
 		});
+		// the page never shows idle while the saved fields still count as changed (a reload then would warn for nothing)
+		await p.evaluate(`(() => { const m = document.getElementById('main'); window.__cbIdleUnsaved = []; new MutationObserver(() => { const u = document.getElementById('cb-unsaved')?.textContent ?? ''; if (m.dataset.busy === '0' && u) window.__cbIdleUnsaved.push(u); }).observe(m, { attributes: true, childList: true, subtree: true, characterData: true }); })()`);
 		await p.click('#cb-save');
 		await p.waitFor(`!document.getElementById('cb-error') && document.querySelector('#main').dataset.busy === '0'`, 30000);
+		const idleUnsaved = await p.evaluate(`window.__cbIdleUnsaved`);
 		for (let i = 0; i < 100 && !A.work("SELECT count(*) n FROM register_row WHERE store = 'bundle-header'")[0].n; i++) await sleep(50);
 		const saved = A.work("SELECT fields FROM register_row WHERE store = 'bundle-header'");
 		await p.go(`${B}?b=2&tab=index`, 'court_bundle_tab');
@@ -282,10 +285,10 @@ try {
 		const restored = await p.evaluate(`document.getElementById('cbh_court').value`);
 		const left = A.work("SELECT count(*) n FROM register_row WHERE store = 'bundle-header'")[0].n;
 		return {
-			pass: during.kept && during.rows === 0 && saved.length === 1 && JSON.parse(saved[0].fields).caseNo === '7/2001' && head.join('|') === 'SYN COURT|SYN DIVISION|CASE NUMBER: 7/2001|Between:|SYN ONE\nLINE TWOAPPLICANT|and|SYN TWORESPONDENT|INDEX|Bundle B'
+			pass: idleUnsaved.length === 0 && during.kept && during.rows === 0 && saved.length === 1 && JSON.parse(saved[0].fields).caseNo === '7/2001' && head.join('|') === 'SYN COURT|SYN DIVISION|CASE NUMBER: 7/2001|Between:|SYN ONE\nLINE TWOAPPLICANT|and|SYN TWORESPONDENT|INDEX|Bundle B'
 				&& idx.join('\n') === '1.|[DESCRIPTION TO BE COMPLETED]|001 – 003' && doc?.name === 'Index_2_Bundle_B.docx' && dtext.split('\n').join('|') === 'SYN COURT|SYN DIVISION|CASE NUMBER: 7/2001|Between:|SYN ONE APPLICANT|LINE TWO|and|SYN TWO RESPONDENT|INDEX|Bundle B|1.|[DESCRIPTION TO BE COMPLETED]|001 – 003'
 				&& cleared === '|8 fields blank — placeholders will be used.' && restored === 'Invented court' && left === 0,
-			evidence: { during, head, idx, name: doc?.name, dtext, cleared, restored, left },
+			evidence: { idleUnsaved, during, head, idx, name: doc?.name, dtext, cleared, restored, left },
 		};
 	});
 	await S('CB-ITEMS', 'court_bundle_tab', 'items tab: a part resolves by exact path at its page; unindexed parts and bundles are named but not served', async () => {

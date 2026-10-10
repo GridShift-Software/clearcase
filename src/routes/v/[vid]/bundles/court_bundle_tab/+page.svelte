@@ -49,21 +49,23 @@
 	const act = async (action: HAct) => {
 		if (action !== 'header' && changed.length && !confirm('Discard the header fields you changed and have not saved?')) return;
 		const sent = { ...hv };
+		// busy until the stored header is back in `data`: before that every saved field still counts as changed
 		busy = action;
-		const r = await postAction(action, [['version', version], ...(action === 'header' ? HEADER_KEYS.map((k): [string, string] => [k, sent[k]]) : [])]);
-		busy = null;
-		if (!r.ok) {
-			errors[action] = r.message;
-			if (r.status === 409 && r.data?.stored) { conflict = r.data.stored as Header; version = String(r.data.version ?? version); }
-			return;
-		}
-		errors[action] = null;
-		// Restore and Clear replace the fields on purpose (confirmed above), so a failed save's draft is gone with them
-		if (action !== 'header') errors.header = null;
-		conflict = null;
-		await invalidateAll();
-		version = data.headerHash;
-		for (const k of HEADER_KEYS) if (hv[k] === sent[k]) hv[k] = data.header[k];
+		try {
+			const r = await postAction(action, [['version', version], ...(action === 'header' ? HEADER_KEYS.map((k): [string, string] => [k, sent[k]]) : [])]);
+			if (!r.ok) {
+				errors[action] = r.message;
+				if (r.status === 409 && r.data?.stored) { conflict = r.data.stored as Header; version = String(r.data.version ?? version); }
+				return;
+			}
+			errors[action] = null;
+			// Restore and Clear replace the fields on purpose (confirmed above), so a failed save's draft is gone with them
+			if (action !== 'header') errors.header = null;
+			conflict = null;
+			await invalidateAll();
+			version = data.headerHash;
+			for (const k of HEADER_KEYS) if (hv[k] === sent[k]) hv[k] = data.header[k];
+		} finally { busy = null; }
 	};
 	const saveHeader = () => act('header');
 	/** Use the stored header: drop the typed fields and every header error. */

@@ -37,8 +37,12 @@ export function quantumBars(series: readonly SeriesPoint[]) {
 	const vals = series.map((s) => parseFloat(String(s.amount)) || 0);
 	const max = Math.max(...vals);
 	const bw = Math.max(2, (W - 2 * pad) / n - 2);
+	// v5 scales by the largest value and writes a negative height for a negative amount (an invalid <rect>, which the
+	// browser rejects with a console error and does not draw). A negative amount draws no bar here; its title still
+	// names the imported amount, which is never changed.
+	const top = Math.max(0, max);
 	const bars = series.map((s, i) => {
-		const h = max ? (vals[i]! / max) * (H - 2 * pad) : 0;
+		const h = top ? (Math.max(0, vals[i]!) / top) * (H - 2 * pad) : 0;
 		return { x: (pad + i * ((W - 2 * pad) / n)).toFixed(1), y: (H - pad - h).toFixed(1), w: bw.toFixed(1), h: h.toFixed(1), title: `${s.date}: ${fmtR(String(s.amount))}` };
 	});
 	return { width: W, height: H, bars, caption: `${series[0]!.date} → ${series[n - 1]!.date} · peak ${fmtR(max)}` };

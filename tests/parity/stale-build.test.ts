@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 import { REPO, runNonEvidence } from '../../scripts/parity/lib/register.mjs';
+import { freshness, readStamp } from '../e2e/pilot/lib/fresh-build.ts';
 
 const BUN = process.versions.bun ? process.execPath : 'bun';
 const root = mkdtempSync(join(tmpdir(), 'parity-stale-'));
@@ -68,10 +69,8 @@ describe('parity refuses a stale build', () => {
 		const r = run(['--app-root', copy]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(`parity: setup error: stale build (the app tree under test is ${copy}, not ${synth} (its server entry, suites and routes would be unverified)): git add`);
-		// the control: the same checkout's own app tree gets past the guard and stops at the absent locator
-		const own = run([]);
-		expect(own.stderr).not.toMatch(/stale build/);
-		expect(own.stderr).toMatch(/absent\.json/);
+		// the control: the synthetic checkout and its own build are fresh (the reason list above is exactly the app tree)
+		expect(freshness(synth, readStamp(join(synth, 'build')), { buildDir: join(synth, 'build'), appRoot: synth })).toMatchObject({ fresh: true, reasons: [] });
 		expect(readFileSync(join(REPO, 'scripts', 'parity', 'run.mjs'), 'utf8')).toContain('freshness(REPO, readStamp(buildDir), { buildDir, appRoot })');
 	});
 	test('a register outside docs/reference/parity/ and v5 self-parity are never evidence', () => {

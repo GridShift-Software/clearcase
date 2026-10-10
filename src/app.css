@@ -27,6 +27,7 @@ main:focus, h1:focus { outline: none; }
 .page-head { display: flex; justify-content: space-between; align-items: start; gap: 1rem; margin-bottom: .75rem; }
 .page-head h1 { margin: 0; font-size: 1.5rem; }
 .subtitle { margin: .2rem 0 0; color: #555; }
+.export-note { display: block; max-width: 24rem; margin-top: .2rem; font-size: .85em; color: #555; }
 table { border-collapse: collapse; }
 td, th { padding: 2px 8px; border-bottom: 1px solid #eee; text-align: left; vertical-align: top; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }

@@ -21,6 +21,9 @@ const p = (name: string, expect: string): Param => ({ name, expect });
 type E = Omit<Entry, 'required'> & { required?: boolean };
 const R = (view: string): ScopeSpec => `render:${view}`;
 const sub = (view: string, checklist: string): E => ({ view, field: 'subtitle', checklist, scope: R(view), sel: { call: 'pageHead', arg: 1 }, kind: 'text', markup: true });
+/** An export's file name: the literal first argument of the one `dl(...)` call in the named export function. */
+const dlName = (view: string, fn: string, lines: string, field = 'exportFileName'): E =>
+  ({ view, field, checklist: `S-hardcoded-case; ${lines}`, scope: `function:${fn}`, sel: { call: 'dl', arg: 0 }, kind: 'text' });
 
 const ENTRIES: E[] = [
   // shared shell
@@ -30,6 +33,9 @@ const ENTRIES: E[] = [
   sub('overview', 'S-overview-4; L330'),
   { view: 'overview', field: 'kpiDocumentsNote', checklist: 'S-overview-3; L322', scope: R('overview'), sel: { lit: 'table', binding: 'kpis', path: [0, 2] }, kind: 'text' },
   { view: 'overview', field: 'kpiInvoicesNote', checklist: 'L324', scope: R('overview'), sel: { lit: 'table', binding: 'kpis', path: [2, 2] }, kind: 'text' },
+  // chronology and search: export file names
+  dlName('chronology', 'exportChron', 'L440-442'),
+  dlName('search', 'exportSearch', 'L515-516'),
   // timeline
   { ...sub('timeline', 'L361'), kind: 'template', params: [p('docCount', 'META.docCount.toLocaleString()')] },
   { view: 'timeline', field: 'synopsis', checklist: 'S-timeline-2; L364-368', scope: R('timeline'), sel: { html: 'div.card.narr:eq(0) > p:eq(0)' }, kind: 'template',
@@ -57,9 +63,15 @@ const ENTRIES: E[] = [
   { view: 'contracts_tab', field: 'kpiWatchValue', checklist: 'S-contracts_tab-2; L2595', scope: R('contracts_tab'), sel: { html: 'div.kpi:eq(2) > div.v' }, kind: 'text' },
   { view: 'contracts_tab', field: 'kpiWatchNote', checklist: 'S-contracts_tab-2; L2595', scope: R('contracts_tab'), sel: { html: 'div.kpi:eq(2) > div.s' }, kind: 'text' },
   { view: 'contracts_tab', field: 'counselNote', checklist: 'S-contracts_tab-2; L2602', scope: R('contracts_tab'), sel: { html: 'div.card.narr > p' }, kind: 'text' },
+  dlName('contracts_tab', 'exportContracts', 'L2605-2607'),
   // filings
   sub('filings_tab', 'L2612'),
   { view: 'filings_tab', field: 'orientation', checklist: 'S-filings_tab-3; L2614', scope: R('filings_tab'), sel: { html: 'div.card.narr > p' }, kind: 'text' },
+  dlName('filings_tab', 'exportFilings', 'L2653-2655'),
+  dlName('filings_tab', 'exportRegister', 'L2656-2657', 'registerExportFileName'),
+  // the register paragraph is one literal: the introduction, then a closing sentence naming the browser storage key in
+  // parentheses (false in the app, S-seed-copy). Anchored on that structure; the field is the introduction only.
+  { view: 'filings_tab', field: 'registerIntro', checklist: 'S-hardcoded-case; L2626', scope: R('filings_tab'), sel: { pattern: '^<p\\b[^>]*>(.+?[.!?])\\s+[^.!?<>]*\\([A-Za-z_][A-Za-z0-9_]*\\)\\.</p>$' }, kind: 'text', markup: true },
   // discovery schedule: caption constant, per-mode deed metadata, mode labels, bundle file name
   ...([['court', 'court'], ['division', 'div'], ['caseNumber', 'cnum'], ['plaintiff', 'plaintiff'], ['plaintiffCitation', 'plaintiffCite'], ['plaintiffRole', 'plaintiffRole'],
     ['defendant', 'defendant'], ['defendantCitation', 'defendantCite'], ['defendantRole', 'defendantRole']] as const).map(([field, prop]): E =>
@@ -89,8 +101,12 @@ const ENTRIES: E[] = [
   { view: 'caselines_tab', field: 'heroNote', checklist: 'S-caselines_tab-2; L3530', scope: R('caselines_tab'), sel: { html: 'div.cl-hero div.m' }, kind: 'template', params: [p('pages', 'BUNDLE.pages.toLocaleString()')] },
   // analysis
   { view: 'contradictions_tab', field: 'methodNote', checklist: 'S-contradictions_tab-3; L2693', scope: R('contradictions_tab'), sel: { html: 'div.card.narr > p' }, kind: 'template', params: [p('docCount', 'META.docCount.toLocaleString()')] },
+  dlName('contradictions_tab', 'exportContradictions', 'L2696-2698'),
   sub('vdm_matrix_tab', 'S-vdm_matrix_tab-2; L2711'),
   { view: 'vdm_matrix_tab', field: 'columns', checklist: 'S-vdm_matrix_tab-2; L1053, L2713', scope: R('vdm_matrix_tab'), sel: { html: 'table.tbl th', all: true }, kind: 'list' },
+  dlName('vdm_matrix_tab', 'exportDefence', 'L2719-2721'),
+  // the Defence CSV header keys carry the parties' abbreviations
+  { view: 'vdm_matrix_tab', field: 'exportColumns', checklist: 'S-hardcoded-case; L2719', scope: 'function:exportDefence', sel: { lit: 'array', binding: 'head', path: [] }, kind: 'list' },
   { view: 'conflict_tab', field: 'queryPlaceholder', checklist: 'S-conflict_tab-1; L2744', scope: R('conflict_tab'), sel: { html: 'input#confq', attr: 'placeholder' }, kind: 'text' },
   // litigation strategy
   sub('enforcement_tab', 'S-enforcement_tab-3; L2874'),

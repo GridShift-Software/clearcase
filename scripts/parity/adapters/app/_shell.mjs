@@ -1,8 +1,8 @@
 // Shared app-side helpers for adapters (files starting with '_' are not adapters). Every adapter reads the app the
 // way a user sees it: real navigation, the rendered DOM, real clicks; never the database or page data.
-import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { sleep } from '../../../../tests/e2e/pilot/lib/cdp.mjs';
+import { moduleFiles } from '../../lib/modules.mjs';
 import { fromRaw, remap } from '../../lib/snapshot.mjs';
 
 export const ready = (view) => `document.querySelector('[data-ready="${view}"]')`;
@@ -58,7 +58,7 @@ export async function loadSlotPlugins(dir = SLOTS_DIR, root = join(import.meta.d
 	const { OVERVIEW_SLOTS } = await import(join(root, 'src', 'lib', 'components', 'overview-slots.ts'));
 	const ids = OVERVIEW_SLOTS.map((s) => s.id);
 	const found = new Map();
-	for (const f of existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.mjs') && !f.startsWith('_')).sort() : []) {
+	for (const f of moduleFiles(dir).map((p) => basename(p))) {
 		const id = f.slice(0, -'.mjs'.length);
 		if (!ids.includes(id)) throw new Error(`slot plug-in ${f}: ${id} is not an overview slot (${ids.join(', ')})`);
 		const mod = await import(join(dir, f));

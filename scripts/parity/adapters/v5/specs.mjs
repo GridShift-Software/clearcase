@@ -3,11 +3,11 @@
 // generic extraction, export capture, focus check and (for any view with an Add control) the register sweep.
 // An M2 owner adds a view's spec as its own module, specs/<view-id>.mjs, whose default export has the shape of one
 // SPECS entry; loadSpecs() discovers those modules by dynamic import over the folder, so no owner edits this file.
-import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { sleep } from '../../../../tests/e2e/pilot/lib/cdp.mjs';
 import { FNV_SRC, SORTS, engineCombos, seededUserWork, seqValue, syntheticInput, uiCombos } from '../../lib/sweeps.mjs';
 import { domExtract } from '../../lib/dom.mjs';
+import { moduleFiles } from '../../lib/modules.mjs';
 import { tableFromRaw } from '../../lib/snapshot.mjs';
 
 const V5_SORT = { date: 'Date', ref: 'Ref', docType: 'Type', bundle: 'Bundle', amount: 'Amount' };
@@ -167,7 +167,7 @@ export function loadSpecs(dir = SPEC_DIR, { views } = {}) {
 	if (!loaded.has(dir)) loaded.set(dir, (async () => {
 		const known = views ?? (await import('../../lib/register.mjs')).viewIds();
 		const out = { ...SPECS };
-		const names = existsSync(dir) ? readdirSync(dir).filter((n) => n.endsWith('.mjs') && !n.startsWith('_')).sort() : [];
+		const names = moduleFiles(dir).map((f) => basename(f));
 		for (const name of names) {
 			const view = name.slice(0, -'.mjs'.length);
 			const bad = (why) => { throw new Error(`v5 spec ${join(dir, name)}: ${why}`); };

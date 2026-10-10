@@ -169,7 +169,7 @@ The overview has typed widget slots declared in `src/lib/components/overview-slo
 | Table and grid | `DataGrid.svelte` | div grid with ARIA table roles, `content-visibility`, sortable headers with `aria-sort`, rows keyed by stable id |
 | Dates | `DateValue.svelte`, `format.ts` `dateBasis` | the source value with its supplied type and provenance, or "basis unknown" (BA-04) |
 | Unavailable view | `UnavailableView.svelte` | the explicit state for a registry entry whose owner has not passed |
-| Export | `csv.ts` | `toCSV` (quotes on `"` `,` CR LF), `userCell` neutralises formulas in user-entered cells |
+| Export | `csv.ts` | `toCSV` (quotes on `"` `,` `;` tab CR LF, so a `;`- or tab-separated spreadsheet keeps the cell whole), `userCell` neutralises formulas in user-entered cells |
 | User work | `user-work.server.ts` | notes, seed overlays and register rows in `work.sqlite`, keyed by stable ids |
 | Results data | `results.server.ts` | `datasetOf`, `datasetKeys` over the verified stored bytes; `viewContentOf` (the `view-content` dataset through GRS-38's `readViewContent`) and `viewText`, which fills a template from imported data and returns null when the field is absent, blank, not text or names a param the caller cannot fill |
 | Document rows | `documents.server.ts`, `DegradedRows.svelte` | `documentRows`, `documentRow`, `documentCounts`, `activeDocumentRows`, `listJson`, `registerDocumentRowProvider`, `anyDateBasis` (whether any imported row has a supplied date type); the degraded state when a provider fails |

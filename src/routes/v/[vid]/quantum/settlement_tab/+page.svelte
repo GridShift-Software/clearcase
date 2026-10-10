@@ -47,7 +47,7 @@
 				<div class="q-tight"><a href={page.url.pathname} id="se-reset" data-sveltekit-replacestate data-sveltekit-noscroll onclick={() => { sent = null; vals = { ...defaults }; }}>Reset to defaults</a></div>
 			</div>
 		</form>
-		{#if data.payments.count}<p class="q-note" id="se-net">The claim value is prefilled net of {data.payments.counted} recorded {data.payments.counted === 1 ? 'payment' : 'payments'} ({R(data.payments.paid)}) on Payments &amp; Net Claim; the gross amount due is {R(data.payments.gross)} as at {data.payments.claimDate}.{#if data.payments.excess !== null} The recorded payments exceed the gross amount due by {R(data.payments.excess)}, so the prefilled net claim is negative; the model is computed on it as v5 computes a negative claim.{/if}</p>{/if}
+		{#if data.payments.count}<p class="q-note" id="se-net">The claim value is prefilled net of {data.payments.counted} recorded {data.payments.counted === 1 ? 'payment' : 'payments'} ({R(data.payments.paid)}) on Payments &amp; Net Claim; the gross amount due is {R(data.payments.gross)} as at {data.payments.claimDate}.{#if data.payments.excess !== null}{' '}The recorded payments exceed the gross amount due by {R(data.payments.excess)}, so the prefilled net claim is negative; the model is computed on it as v5 computes a negative claim.{/if}</p>{/if}
 		{#if missing.length}<p class="q-note" id="se-missing">This package gives no default for {missing.join(', ')}: enter your assessment.</p>{/if}
 		<div id="se_out">
 			{#if out.kpis}

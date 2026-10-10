@@ -45,12 +45,14 @@ export const payments = (caseId: string) => listPayments(app().userWork, caseId)
  * nothing is lost to an error page. Only a busy store says "try again" (`retry`): another refusal would refuse a retry
  * of the same entry too (CC-06 r2, D18).
  */
-export async function guardedWrite<V extends Record<string, string>, T>(values: V, write: () => Promise<T>, extra: Record<string, unknown> = {}): Promise<{ ok: true; value: T } | { ok: false; failure: ReturnType<typeof fail> }> {
+export const ADD_MESSAGES = { busy: 'Not saved: the workspace store is busy (another process holds it). Your entry is kept; try again.', refused: 'Not saved: the workspace store refused this entry, and would refuse it again unchanged. Your entry is kept.' };
+export const DELETE_MESSAGES = { busy: 'Not deleted: the workspace store is busy (another process holds it); try again.', refused: 'Not deleted: the workspace store refused the deletion.' };
+export async function guardedWrite<V extends Record<string, string>, T>(values: V, write: () => Promise<T>, extra: Record<string, unknown> = {}, messages = ADD_MESSAGES): Promise<{ ok: true; value: T } | { ok: false; failure: ReturnType<typeof fail> }> {
 	try {
 		return { ok: true, value: await write() };
 	} catch (e) {
 		const busy = isHttpError(e) && e.status === 503;
-		const error = busy ? 'Not saved: the workspace store is busy (another process holds it). Your entry is kept; try again.' : 'Not saved: the workspace store refused this entry, and would refuse it again unchanged. Your entry is kept.';
+		const error = busy ? messages.busy : messages.refused;
 		return { ok: false, failure: fail(busy ? 503 : 500, { ...extra, values, error, retry: busy }) };
 	}
 }

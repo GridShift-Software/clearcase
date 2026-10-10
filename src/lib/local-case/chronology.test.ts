@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_QUERY, filterRows, optionsOf, paramsFromQuery, queryFromParams, queryRows, sortRows } from './chronology.ts';
+import { DEFAULT_QUERY, excerptPreview, filterRows, optionsOf, paramsFromQuery, queryFromParams, queryRows, sortRows, statusLabel, statusOptions, TEXT_STATUSES } from './chronology.ts';
 import type { ChronologyListRow } from './model.ts';
 
 const r = (ref: string, ord: number, o: Partial<ChronologyListRow> = {}): ChronologyListRow => ({
@@ -33,6 +33,20 @@ describe('chronology', () => {
 	});
 	it('offers every imported bundle, including non-standard ones', () => {
 		expect(optionsOf(rows, 'bundle')).toEqual(['Additional', 'Original']);
+	});
+	it('offers the whole text-status vocabulary in v5 order, even statuses no row has, then any other status', () => {
+		expect(statusOptions(rows)).toEqual(['extracted', 'ocr', 'none', 'pending']);
+		expect(statusOptions([...rows, r('F-6', 5, { textStatus: 'unsupported' })])).toEqual([...TEXT_STATUSES, 'unsupported']);
+		expect(refs(filterRows(rows, { ...DEFAULT_QUERY, status: 'ocr' }))).toEqual([]);
+	});
+	it("labels text statuses with v5's wording: a row without text reads 'scan · none'", () => {
+		expect(['extracted', 'ocr', 'none', 'pending', 'unsupported', ''].map(statusLabel)).toEqual(['extracted', 'ocr', 'scan · none', 'pending', 'unsupported', '—']);
+	});
+	it("previews an excerpt as v5 does: its first 140 code units and always an ellipsis; no excerpt, no preview", () => {
+		expect(excerptPreview('short text')).toBe('short text…');
+		const long = 'x'.repeat(139) + 'yz';
+		expect(excerptPreview(long)).toBe('x'.repeat(139) + 'y…');
+		expect(excerptPreview('')).toBe('');
 	});
 	it('round-trips the query through URL parameters, omitting defaults', () => {
 		const q = { q: 'x y', bundle: 'Additional', type: '', status: 'none', sort: 'amount' as const, dir: -1 as const };

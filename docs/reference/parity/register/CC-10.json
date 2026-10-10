@@ -1,0 +1,74 @@
+{
+  "$schema": "../intentional-differences.schema.json",
+  "version": 1,
+  "entries": [
+    {
+      "id": "IDR-038",
+      "view": "rescan_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-20",
+      "reason": "The app does not implement Rescan & Update yet; GRS-20 (CC-10) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-039",
+      "view": "backup_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-20",
+      "reason": "The app does not implement Backup / Restore yet; GRS-20 (CC-10) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-040",
+      "view": "manual",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-20",
+      "reason": "The app does not implement Manual yet; GRS-20 (CC-10) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-051",
+      "view": "overview",
+      "field": "text.freshness.1",
+      "when": {
+        "app": {
+          "re": "^Not yet available — owned by GRS-20"
+        }
+      },
+      "type": "not-yet-implemented",
+      "owner": "GRS-20",
+      "reason": "The freshness card is an overview widget slot owned by the system ticket (rescan); until it fills it the slot says so.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-068",
+      "view": "overview",
+      "field": "text.freshness.2",
+      "when": {
+        "app": "<absent>"
+      },
+      "type": "not-yet-implemented",
+      "owner": "GRS-20",
+      "reason": "The freshness card's pointer to Rescan & Update belongs to the freshness slot, which the system ticket (rescan) fills; until then the slot shows only its availability line.",
+      "productVisible": false,
+      "author": "M1-INT worker (integration)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    }
+  ]
+}

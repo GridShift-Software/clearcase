@@ -1,0 +1,90 @@
+{
+  "$schema": "../intentional-differences.schema.json",
+  "version": 1,
+  "entries": [
+    {
+      "id": "IDR-001",
+      "view": "matter",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-15",
+      "reason": "The app does not implement Matter & Strategy yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-002",
+      "view": "timeline",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-15",
+      "reason": "The app does not implement Timeline yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-018",
+      "view": "contradictions_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-15",
+      "reason": "The app does not implement Contradiction Tracker yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-019",
+      "view": "risk_matrix_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-15",
+      "reason": "The app does not implement Risk Matrix yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-020",
+      "view": "vdm_matrix_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-15",
+      "reason": "The app does not implement Defence & Rebuttal yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-021",
+      "view": "info_required_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-15",
+      "reason": "The app does not implement Info Required yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-022",
+      "view": "witness_tab",
+      "field": "*",
+      "type": "not-yet-implemented",
+      "owner": "GRS-15",
+      "reason": "The app does not implement Witnesses yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
+      "productVisible": false,
+      "author": "CC-29 worker (GRS-37)",
+      "approvedBy": "coordinator",
+      "approvedOn": "2026-10-09"
+    }
+  ]
+}

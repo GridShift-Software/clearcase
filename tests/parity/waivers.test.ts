@@ -1,19 +1,23 @@
 // A whole-view not-yet-implemented entry waives only a view the app genuinely does not implement: an extraction error
 // on either side (an app adapter that threw, an available view with no adapter, a v5 view that did not extract) is
 // never covered and fails the run. Nor is an available view whose adapter returns anything but 'ok', and only a field of
-// exactly '*' stands for the whole view. Uses the committed register's `people` entry with synthetic snapshots.
+// exactly '*' stands for the whole view. A synthetic whole-view entry for `people` and a registry in which `people` is
+// still unavailable, with synthetic snapshots, so the test holds after the owner (CC-04) implements the view and
+// deletes the committed entry.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
 import { classify, covering, diff, runFailures, scorecard, type Entry } from '../../scripts/parity/lib/compare.mjs';
-import { loadRegister, REPO } from '../../scripts/parity/lib/register.mjs';
+import { REPO, validateRegister } from '../../scripts/parity/lib/register.mjs';
 import * as snap from '../../scripts/parity/lib/snapshot.mjs';
 import { VIEWS } from '../../src/lib/components/view-registry';
 import { base } from './fixtures';
 
-const { entries } = loadRegister();
-const whole = entries.find((e: Entry) => e.view === 'people' && e.field === '*' && e.type === 'not-yet-implemented') as Entry;
-const registry = Object.fromEntries(VIEWS.map((v) => [v.id, v]));
+const committed = Object.fromEntries(VIEWS.map((v) => [v.id, v]));
+// people as the pilot left it: unavailable until its owner's gate, whatever the committed registry says now
+const registry: Record<string, (typeof VIEWS)[number]> = { ...committed, people: { ...committed.people!, status: `unavailable-until:${committed.people!.linear}` } };
+const whole = { id: 'IDR-990', view: 'people', field: '*', type: 'not-yet-implemented', owner: committed.people.linear, reason: 'A synthetic whole-view waiver for the test.', productVisible: false, author: 'worker', approvedBy: null, approvedOn: null } as unknown as Entry;
+const entries: Entry[] = [whole];
 const clean = { offline: true, v5NonFileRequests: 0, v5BrowserInternalRequests: 0, appNonLoopbackRequests: 0, canaryHits: 0, canaryBrowserServiceHits: 0, fixtureUnchanged: true };
 const v5 = () => ({ ...base('v5'), view: 'people' });
 
@@ -25,8 +29,8 @@ function run(s5: any, sa: any) {
 }
 
 describe('extraction errors are never waived', () => {
-	test('the committed register has a whole-view entry for people (the waiver under test)', () => {
-		expect(whole?.id).toBeTruthy();
+	test('the synthetic whole-view entry for people (the waiver under test) is a valid register entry', () => {
+		expect(validateRegister({ version: 1, entries }, { owners: Object.fromEntries(VIEWS.map((v) => [v.id, v.linear])) })).toEqual([]);
 	});
 	test('an app adapter that threw, under the whole-view waiver: unregistered, view FAIL, run FAIL', () => {
 		const { r, sc, failures } = run(v5(), { ...snap.emptySnapshot('people', 'app', 'error'), error: 'synthetic adapter crash' });
@@ -73,7 +77,7 @@ describe('extraction errors are never waived', () => {
 		expect(snap.appFromAdapter('people', registry, absent)).toBe(absent);
 	});
 	test('the runner passes every app adapter snapshot through appFromAdapter', () => {
-		expect(readFileSync(join(REPO, 'scripts', 'parity', 'run.mjs'), 'utf8')).toMatch(/sa = appFromAdapter\(view, registry, sa\)/);
+		expect(readFileSync(join(REPO, 'scripts', 'parity', 'run.mjs'), 'utf8')).toMatch(/sa = appFromAdapter\(view, registry, sa, implemented\)/);
 	});
 	test('a whole-view absence is covered only by a field of exactly the string *, not by ?, **, *? or [*]', () => {
 		const d = { path: '*', kind: 'view-not-implemented', v5: 'view', app: '<absent>' };

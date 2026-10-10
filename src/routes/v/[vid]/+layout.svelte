@@ -13,6 +13,6 @@
 	<div class="banner candidate" id="candidate-banner" role="status">CANDIDATE PREVIEW of {v.caseName}: this results version is not active. <a href="/import/{v.importId}">Back to its validation report</a></div>
 {/if}
 <div class="case-shell">
-	<ViewNav resultsVersion={v.id} {current} />
+	<ViewNav resultsVersion={v.id} {current} brand={v.brand} />
 	{@render children()}
 </div>

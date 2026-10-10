@@ -1,22 +1,45 @@
 // The committed register: valid, no self-approval, every unimplemented view registered with its owner, and the
 // pilot's own views never blanket-registered.
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
-import { REGISTER, REPO, registryOwners, validateRegister, viewIds } from '../../scripts/parity/lib/register.mjs';
+import { loadRegister, REGISTER, REPO, registryKeys, registryOwners, validateRegister, viewIds } from '../../scripts/parity/lib/register.mjs';
 import { VIEWS } from '../../src/lib/components/view-registry';
 
-const doc = JSON.parse(readFileSync(REGISTER, 'utf8'));
 const owners = Object.fromEntries(VIEWS.map((v) => [v.id, v.linear]));
+const keys = Object.fromEntries(VIEWS.map((v) => [v.id, v.owner]));
+/**
+ * A register folder's problems: every file as the runner loads it (the main file, then each fragment with its owner's
+ * id range), plus the main file's own rules once more. Never the merged entries as if they were the main file: a
+ * fragment's ids lie in its owner's range, which the main file may not use.
+ */
+const registerProblems = (file = REGISTER) => [...loadRegister(file, { owners, keys }).problems, ...validateRegister(JSON.parse(readFileSync(file, 'utf8')), { owners })];
+// the main file and its owners' fragments, as the runner loads them
+const loaded = loadRegister(undefined, { owners, keys });
+const doc: { version: number; entries: any[] } = { version: 1, entries: loaded.entries };
 const adapters = readdirSync(join(REPO, 'scripts', 'parity', 'adapters', 'app')).filter((f) => f.endsWith('.mjs') && !f.startsWith('_')).map((f) => f.replace(/\.mjs$/, ''));
 const good = { id: 'IDR-999', view: 'chronology', field: 'text.subtitle', type: 'improvement', reason: 'A synthetic reason long enough.', productVisible: false, author: 'worker', approvedBy: null, approvedOn: null };
 const check = (e: object) => validateRegister({ version: 1, entries: [{ ...good, ...e }] }, { owners });
 
 describe('committed register', () => {
-	test('validates against its schema and rules', () => {
-		expect(validateRegister(doc, { owners })).toEqual([]);
+	test('validates against its schema and rules, fragments included', () => {
+		expect(loaded.problems).toEqual([]);
+		expect(registerProblems()).toEqual([]);
+	});
+	test("an owner's id in its own fragment passes; the same id in the main file fails (synthetic register)", () => {
+		const dir = mkdtempSync(join(tmpdir(), 'parity-register-ranges-'));
+		try {
+			mkdirSync(join(dir, 'register'));
+			const main = join(dir, 'intentional-differences.json');
+			writeFileSync(main, JSON.stringify({ version: 1, entries: [good] }));
+			writeFileSync(join(dir, 'register', 'CC-05.json'), JSON.stringify({ version: 1, entries: [{ ...good, id: 'IDR-150' }] }));
+			expect(registerProblems(main)).toEqual([]);
+			writeFileSync(join(dir, 'register', 'CC-05.json'), JSON.stringify({ version: 1, entries: [] }));
+			writeFileSync(main, JSON.stringify({ version: 1, entries: [good, { ...good, id: 'IDR-150' }] }));
+			expect(registerProblems(main).join('\n')).toMatch(/IDR-150: in CC-05's id range; it belongs in register\/CC-05\.json/);
+		} finally { rmSync(dir, { recursive: true, force: true }); }
 	});
 	test('the 42 views are the v5 navigation ids', () => {
 		expect(viewIds()).toHaveLength(42);
@@ -82,8 +105,9 @@ describe('rules', () => {
 });
 
 describe('runner', () => {
-	test('owners come from the generated view registry', async () => {
+	test('owners and planning keys come from the generated view registry', async () => {
 		expect(await registryOwners()).toEqual(owners);
+		expect(await registryKeys()).toEqual(keys);
 	});
 	test('a whole-view entry with the wrong owner is a register error: exit 2 before anything starts', () => {
 		const dir = mkdtempSync(join(tmpdir(), 'parity-register-'));

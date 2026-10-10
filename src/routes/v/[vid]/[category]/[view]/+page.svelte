@@ -4,5 +4,5 @@
 </script>
 
 <main id="main" tabindex="-1" data-ready="view:{data.view.id}">
-	<UnavailableView view={data.view} caseName={data.version.caseName} />
+	<UnavailableView view={data.view} caseName={data.version.titleName} />
 </main>

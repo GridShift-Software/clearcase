@@ -53,6 +53,7 @@ try { at = checkOutput(out, locatorInputs(cfg), ['mutation-proof.json', ...selec
 const local = canonical(join(REPO, '.local')), rel = relative(local, canonical(out));
 if (!(out + '/').startsWith(join(REPO, '.local') + '/') || rel === '..' || rel.startsWith('../') || isAbsolute(rel)) die(`--out must lie inside ${join(REPO, '.local')}/, symlinks resolved (mutants and diffs are local evidence)`);
 const results = [];
+const HEAD = execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 const run = (args, cwd = REPO) => spawnSync(process.execPath, args, { cwd, encoding: 'utf8', maxBuffer: 1 << 26, env: process.env });
 const replaceOnce = (text, find, repl, where) => {
 	const n = text.split(find).length - 1;
@@ -65,7 +66,9 @@ for (const m of selected) {
 	rmSync(dir, { recursive: true, force: true });
 	mkdirSync(dir, { recursive: true });
 	const t0 = performance.now();
-	const args = [join(REPO, 'scripts', 'parity', 'run.mjs'), '--view', m.views, '--fixture-config', cfgFile, '--out', join(dir, 'out')];
+	// a mutant is by design not HEAD's build, and the self-parity runs compare v5 with v5: the runs here prove that the
+	// harness catches regressions, not that a build is fresh, so the runner's fresh-build refusal does not apply
+	const args = [join(REPO, 'scripts', 'parity', 'run.mjs'), '--view', m.views, '--fixture-config', cfgFile, '--out', join(dir, 'out'), '--allow-stale-build'];
 	if (m.v5) {
 		const html = at(m.id, 'v5-copy.html');
 		// read the fixture (read-only) and write a fresh, writable copy; the fixture itself is never touched
@@ -80,7 +83,9 @@ for (const m of selected) {
 		for (const [file, find, repl] of m.edits) writeFileSync(join(src, file), replaceOnce(readFileSync(join(src, file), 'utf8'), find, repl, file));
 		const cp = spawnSync('cp', ['-a', '--reflink=auto', join(REPO, 'node_modules'), join(src, 'node_modules')]);
 		if (cp.status !== 0) die(`copying node_modules failed: ${cp.stderr}`);
-		const b = spawnSync(process.execPath, ['run', '--bun', 'build'], { cwd: src, encoding: 'utf8', maxBuffer: 1 << 26 });
+		// stamp the mutant as what it is: `git` inside .local/ would otherwise report the worktree's HEAD, and the scorecard
+		// would call a mutant a fresh build of HEAD (it now says evidence: false, naming the mutant)
+		const b = spawnSync(process.execPath, ['run', '--bun', 'build'], { cwd: src, encoding: 'utf8', maxBuffer: 1 << 26, env: { ...process.env, CLEARCASE_SOURCE_REVISION: `mutant:${m.id}@${HEAD}` } });
 		if (b.status !== 0) die(`${m.id}: build failed:\n${(b.stdout + b.stderr).slice(-2000)}`);
 		args.push('--app-root', src);
 	}
@@ -100,6 +105,6 @@ for (const m of selected) {
 	if (!argv.includes('--keep')) for (const x of ['src', 'v5-copy.html']) rmSync(at(m.id, x), { recursive: true, force: true });
 }
 const ok = results.length > 0 && results.every((x) => x.caught);
-writeFileSync(at('mutation-proof.json'), JSON.stringify({ ok, revision: execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), results }, null, 1) + '\n');
+writeFileSync(at('mutation-proof.json'), JSON.stringify({ ok, revision: HEAD, results }, null, 1) + '\n');
 console.log(`mutate: ${ok ? 'PASS' : 'FAIL'}: ${results.filter((x) => x.caught).length}/${results.length} caught -> ${join(out, 'mutation-proof.json')}`);
 process.exit(ok ? 0 : 1);

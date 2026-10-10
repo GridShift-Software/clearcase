@@ -39,18 +39,6 @@
       "approvedOn": "2026-10-09"
     },
     {
-      "id": "IDR-027",
-      "view": "interest_calc_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-16",
-      "reason": "The app does not implement Interest Recalculator yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
       "id": "IDR-033",
       "view": "settlement_tab",
       "field": "*",
@@ -240,6 +228,112 @@
       "type": "defect-fix",
       "source": "S-hardcoded-case",
       "reason": "v5 prefixes the export file name with case-specific initials; the app uses a neutral name (as IDR-064 for the chronology). The columns and rows are v5's.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-209",
+      "view": "interest_calc_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar link, as on every app view.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-210",
+      "view": "interest_calc_tab",
+      "field": "text.page.2",
+      "when": {
+        "v5": "<absent>",
+        "app": "Imported narrative: not checked against the dates or figures computed here."
+      },
+      "type": "improvement",
+      "source": "BA-02",
+      "reason": "The imported interest-basis note is labelled as imported narrative that the calculator does not check against its computed dates or figures, so it cannot pass as a verified conclusion (BA-02). The note itself is shown unchanged.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-211",
+      "view": "interest_calc_tab",
+      "field": "control.link:Reset to defaults",
+      "when": {
+        "v5": "<absent>",
+        "app": "1"
+      },
+      "type": "improvement",
+      "source": "BA-03",
+      "reason": "The calculator's inputs live in the URL query, so a reload gives the same result, and a Reset to defaults link returns to the package defaults (BA-03; v5 kept no input and reset on every visit).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-212",
+      "view": "interest_calc_tab",
+      "field": [
+        "sweep.compute.separated.k0.value",
+        "sweep.compute.separated.k1.value",
+        "sweep.compute.separated.k2.value",
+        "sweep.compute.separated.k3.sub"
+      ],
+      "when": {
+        "v5": {
+          "re": "^[-+]?R[\\d .]+( vs your calc)?$"
+        },
+        "app": {
+          "re": "^[-+]?R[\\d .]+( vs your calc)?$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-interest_calc_tab-1",
+      "reason": "A capital typed with the app's own thousands separator (100 000) is the full amount; v5's parseFloat read it as 100, so capital, interest, total and the comparison line differ (S-interest_calc_tab-1, medium).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-213",
+      "view": "interest_calc_tab",
+      "field": "sweep.compute.reversed.k*",
+      "when": {
+        "app": "<absent>"
+      },
+      "type": "defect-fix",
+      "source": "S-interest_calc_tab-3",
+      "reason": "A reversed period (To before From) is refused visibly and nothing is computed; v5 showed a negative interest under a 0 yrs label (S-interest_calc_tab-3).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-214",
+      "view": "interest_calc_tab",
+      "field": "sweep.compute.reversed.error",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^The To date is before the From \\(mora\\) date: a reversed period is not computed\\.$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-interest_calc_tab-3",
+      "reason": "The refusal of a reversed period is a visible error line naming the problem (S-interest_calc_tab-3); the typed dates stay in the form.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
       "approvedBy": null,

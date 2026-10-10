@@ -91,13 +91,16 @@ describe('register files must be committed review inputs', () => {
 		writeFileSync(file, was);
 		expect(record()).toMatchObject({ evidence: true });
 	});
-	test('an untracked fragment, then the same fragment hidden by a committed .gitignore: not evidence either way', () => {
-		const frag = join(PARITY, 'register', 'CC-10.json');
+	test('an untracked fragment: not evidence (the build is stale too)', () => {
 		g('rm', '-q', '--cached', 'docs/reference/parity/register/CC-10.json');
 		commit('CC-10 untracked', false);
 		const untracked = record();
 		expect(untracked).toMatchObject({ problems: [], fresh: false, evidence: false });
 		expect(untracked.evidenceNote).toContain('register files the run read that the reviewed commit does not hold: docs/reference/parity/register/CC-10.json (untracked)');
+	});
+	test('the same fragment hidden by a committed .gitignore: the build stays fresh, the run is not evidence', () => {
+		const frag = join(PARITY, 'register', 'CC-10.json');
+		expect(g('ls-files', 'docs/reference/parity/register/CC-10.json')).toBe('');
 		writeFileSync(join(PARITY, 'register', '.gitignore'), 'CC-10.json\n');
 		commit('a committed rule hides CC-10');
 		// git status is clean and the build fresh, but the loader still reads the hidden fragment

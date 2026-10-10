@@ -18,7 +18,7 @@ The Court Bundle view lists the imported bundles (`bundles`) with items, pages a
 
 ## Driving it with verify-clearcase
 
-- **Open.** `main[data-ready=court_bundle_tab]`; h1 `Court Bundle`; `#cb-list tbody tr` per bundle.
+- **Open.** `main[data-ready=court_bundle_tab]` (server-rendered), then `data-hydrated`; h1 `Court Bundle`; `#cb-list tbody tr` per bundle.
 - **Header.** Fill `#cbh_<key>`, choose `#cb-save`; `main[data-busy="0"]` when saved. A failed save shows `#cb-error` and keeps all eight values.
 - **Index.** Open a row (`Open`); `#cbindexdoc` shows the header and `table.cbixt`; `#cb-word` downloads `Index_<no>_<name>.docx`.
 - **Builder.** `#cb-build` shows `#cb-builder-state`.

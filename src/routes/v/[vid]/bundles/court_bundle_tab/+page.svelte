@@ -55,7 +55,7 @@
 
 {#snippet notServed(what: string)}<span class="not-served">{what} ({NOT_SERVED})</span>{/snippet}
 
-<main id="main" tabindex="-1" data-ready={ready ? 'court_bundle_tab' : null} data-busy={busy ? '1' : '0'}>
+<main id="main" tabindex="-1" data-ready="court_bundle_tab" data-hydrated={ready ? '1' : null} data-busy={busy ? '1' : '0'}>
 	<PageHeader heading="Court Bundle" section="Court Bundle" caseName={data.version.titleName} subtitle="{bs.length} bundles · {ti} index items · {tp} paginated pages. Every bundle is a finished PDF: index first, then the extracted documents, numbered continuously from page 1.">
 		{#snippet actions()}<button type="button" class="btn sec" id="cb-word-all" onclick={wordAll}>All indexes (Word)</button> <button type="button" class="btn primary" id="cb-build" onclick={() => go({ view: 'build' })}>Build a bundle</button>{/snippet}
 	</PageHeader>

@@ -8,8 +8,10 @@ import { runSweeps } from '../v5/specs/court_bundle_tab.mjs';
 
 const VIEW = 'court_bundle_tab';
 const at = (sel) => `!!document.querySelector(${JSON.stringify(sel)})`;
+// data-ready is server-rendered; controls work once the page has hydrated
+const openView = async (p, ctx) => { await open(p, ctx, ctx.registry[VIEW].route, VIEW); await p.waitFor(`document.querySelector('main[data-hydrated]')`, 60000); };
 const APP = {
-	fresh: (p, ctx) => open(p, ctx, ctx.registry[VIEW].route, VIEW),
+	fresh: openView,
 	wordAll: (p) => p.click('#cb-word-all'),
 	openFirst: async (p) => { await p.click('#cb-list tbody tr:first-child button'); await p.waitFor(at('#cb-index'), 30000); await sleep(40); },
 	wordOne: (p) => p.click('#cb-word'),
@@ -25,7 +27,7 @@ export default {
 	view: VIEW,
 	async extract(p, ctx) {
 		const nav = await navFocus(p, ctx, { from: '/overview', fromView: 'overview', view: VIEW });
-		await open(p, ctx, ctx.registry[VIEW].route, VIEW);
+		await openView(p, ctx);
 		const s = fromRaw(VIEW, 'app', await p.extract('#main'));
 		s.focus.after_nav = nav.focus;
 		s.texts['shell.crumb'] = nav.crumb;

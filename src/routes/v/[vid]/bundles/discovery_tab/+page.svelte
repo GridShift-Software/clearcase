@@ -85,7 +85,7 @@
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'discovery_tab' : null} data-pending={pending} class:ds-printing={printing}>
+<main id="main" tabindex="-1" data-ready="discovery_tab" data-hydrated={ready ? '1' : null} data-pending={pending} class:ds-printing={printing}>
 	<PageHeader heading="Discovery Schedule" section="Discovery Schedule" caseName={data.version.titleName} subtitle="Each affidavit schedule reproduced and linked to the discovered file(s) on disk · open in-app · download · court bundle · Copy/Original" />
 	{#if error}<p class="error" role="alert" id="ds-error">{error} <button type="button" id="ds-retry" onclick={retry}>Retry</button></p>{/if}
 	{#if notice}<p class="notice" role="status" id="ds-notice">{notice}</p>{/if}

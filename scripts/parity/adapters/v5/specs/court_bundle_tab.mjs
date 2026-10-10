@@ -14,6 +14,24 @@ export async function clickText(p, scope, sel, text) {
 /** Cell text with block elements as separate parts joined ' / ', as the shared extractor reads table cells. */
 const CELL = `(c) => { let out = ''; const walk = (n) => { if (n.nodeType === 3) { out += n.nodeValue; return; } if (n.nodeType !== 1 || /^(SCRIPT|STYLE)$/.test(n.tagName)) return; const b = /^(DIV|P|BR|LI|TR)$/.test(n.tagName); if (b) out += '\\u0001'; for (const x of n.childNodes) walk(x); if (b) out += '\\u0001'; }; walk(c); return out.split('\\u0001').map((s) => s.replace(/\\s+/g, ' ').trim()).filter(Boolean).join(' / '); }`;
 export const tableRows = (p, sel) => p.evaluate(`(() => { const cell = ${CELL}; return [...document.querySelectorAll(${JSON.stringify(sel)})].map((r) => [...r.cells].map(cell).join(' | ')); })()`);
+export const tableCells = (p, sel) => p.evaluate(`(() => { const cell = ${CELL}; return [...document.querySelectorAll(${JSON.stringify(sel)})].map((r) => [...r.cells].map(cell)); })()`);
+const NS = ' (not in the verified index; not served)';
+const ITEM_CELLS = ['item', 'ref', 'desc', 'from', 'pages', 'page_nos', 'actions'];
+/**
+ * One items row as its own keys (items.r<i>.<cell>), so each cell compares exactly. The Extracted-from cell's link
+ * state per part (v5's ↗, the app's not-served marker, or '-') is split from its text (items.r<i>.from_link.<k>).
+ */
+export function itemCells(i, cells) {
+	const out = {};
+	cells.forEach((c, j) => {
+		const k = `items.r${i}.${ITEM_CELLS[j] ?? `c${j}`}`;
+		if (ITEM_CELLS[j] !== 'from') { out[k] = c; return; }
+		const parts = c.split(' / ');
+		out[k] = parts.map((x) => x.replace(NS, '').replace(' ↗', '')).join(' / ');
+		parts.forEach((x, n) => { out[`items.r${i}.from_link.${n}`] = x.includes(NS) ? NS.trim().slice(1, -1) : x.includes(' ↗') ? '↗' : '-'; });
+	});
+	return out;
+}
 const texts = (p, sel) => p.evaluate(`[...document.querySelectorAll(${JSON.stringify(sel)})].map((e) => e.textContent.replace(/\\s+/g, ' ').trim())`);
 
 async function capture(p, press) {
@@ -49,7 +67,7 @@ export function runSweeps(side) {
 			out['index.head'] = (await texts(p, side.indexHead)).join(' | ');
 			(await tableRows(p, side.indexRows)).forEach((r, i) => { out[`index.r${i}`] = r; });
 			await side.itemsTab(p);
-			(await tableRows(p, side.itemsRows)).forEach((r, i) => { out[`items.r${i}`] = r; });
+			(await tableCells(p, side.itemsRows)).forEach((cells, i) => Object.assign(out, itemCells(i, cells)));
 			return out;
 		},
 	};

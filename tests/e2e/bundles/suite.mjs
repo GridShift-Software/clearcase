@@ -515,7 +515,7 @@ try {
 			await q.waitFor(`document.getElementById('cb-bundle-h')`);
 			const opened = { title: await q.text('#cb-bundle-h'), search: await q.evaluate('location.search') };
 			const ex = exceptions(mk);
-			return { pass: r.rows.length === 3 && r.dup === 2 && opened.title === 'Synthetic repeated bundle' && /[?&]b=1&at=1/.test(opened.search) && !/finished PDF|assembled and numbered/.test(r.sub) && /Every bundle PDF opens here\.|bundle PDFs open here; the others are not served\.|The bundle PDFs are not served in this version\./.test(r.sub) && ex.length === 0, evidence: { rows: r.rows, dup: r.dup, opened, ex } };
+			return { pass: r.rows.length === 3 && r.dup === 2 && opened.title === 'Synthetic repeated bundle' && /[?&]b=1&at=1/.test(opened.search) && !/finished PDF|assembled and numbered/.test(r.sub) && /paginated pages\. Each index lists the extracted documents, numbered continuously from page 1\./.test(r.sub) && ex.length === 0, evidence: { rows: r.rows, dup: r.dup, opened, ex } };
 		});
 		await S('CL-DUP', 'caselines_tab', 'D8: a page number the page-text index repeats renders every hit, flagged', async () => {
 			const mk = b.mark();
@@ -610,8 +610,9 @@ try {
 		});
 		await S('DS-PARTIAL-ACTION', 'discovery_tab', 'D6: a 2,000-file Original mark that meets a lock taken mid-write answers exactly how many files it saved, matching the store; never "Not saved"', async () => {
 			await q.go(DB, 'discovery_tab');
+			// lane 03's repro: one POST of 2,000 keys (no base marks, so it stays under the body limit as at 2e7dd60)
 			const keys = []; for (let i = 1; i <= 20; i++) for (let j = 0; j < PER; j++) keys.push(bulkPath(i, j));
-			const post = q.evaluate(`(async () => { const f = new FormData(); f.append('val', 'O'); for (const k of ${J(keys)}) { f.append('key', k); f.append('base', ''); } const r = await fetch(location.pathname + '?/co', { method: 'POST', body: f, headers: { 'x-sveltekit-action': 'true', accept: 'application/json' } }); return r.text(); })()`);
+			const post = q.evaluate(`(async () => { const f = new FormData(); f.append('val', 'O'); for (const k of ${J(keys)}) f.append('key', k); const r = await fetch(location.pathname + '?/co', { method: 'POST', body: f, headers: { 'x-sveltekit-action': 'true', accept: 'application/json' } }); return r.text(); })()`);
 			// take the lock from outside once the write has stored some files (retrying while the app holds a transaction)
 			const ks = new Set(keys);
 			const storedO = () => marksB().filter((x) => x.co === 'O' && ks.has(x.locator)).length;

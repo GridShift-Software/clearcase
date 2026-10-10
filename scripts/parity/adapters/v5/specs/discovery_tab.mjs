@@ -39,6 +39,38 @@ async function state(p, S) {
 	return `rows=${nos.length}|first=${nos[0] ?? ''}|last=${nos.at(-1) ?? ''}|${await missingLabel(p, S)}|filter=${await p.evaluate(`document.querySelector(${JSON.stringify(S.q)})?.value ?? ''`)}`;
 }
 
+/** The bundle index without its INCOMPLETE SELECTION line, and that line as `index_incomplete` when present. */
+export function splitIncomplete(html) {
+	const m = /<div class="cap"><b>INCOMPLETE SELECTION<\/b>: [^<]*<\/div>/.exec(html);
+	return m ? { index_text: html.replace(m[0], ''), index_incomplete: m[0] } : { index_text: html };
+}
+/** The cover page with its C/O cells emptied, and each item's C/O as `cover_co.<i>` (row order). */
+export function splitCoverCo(html) {
+	const out = {};
+	let i = 0;
+	out.cover_text = html.replace(/<td class="co">([^<]*)<\/td>/g, (_, v) => { out[`cover_co.${i++}`] = v; return '<td class="co"></td>'; });
+	return out;
+}
+/**
+ * The schedule table's file actions as their own column (both sides): each file chip's text ends with its C and O
+ * buttons and then its actions (v5 "OpenDownload"; the app "OpenDownload", or the not-served marker), so the
+ * description and file names compare exactly and only the actions column can differ.
+ */
+const CHIP_ACTIONS = /CO(OpenDownload|Open|not in the verified index; not served)?$/;
+export function splitFileActions(raw) {
+	for (const t of raw.tables ?? []) {
+		const at = t.header.findIndex((h) => /^Document\(s\)/.test(h));
+		if (at < 0) continue;
+		t.header.splice(at + 1, 0, 'File actions');
+		t.rows = t.rows.map((cells) => {
+			const [desc, ...chips] = cells[at] ?? [];
+			const keep = [], acts = [];
+			for (const c of chips) { const m = CHIP_ACTIONS.exec(c); if (m) { keep.push(c.slice(0, m.index + 2)); acts.push(m[1] ?? ''); } else keep.push(c); }
+			return [...cells.slice(0, at), desc === undefined ? [] : [desc, ...keep], acts.length ? [acts.join(' / ')] : [], ...cells.slice(at + 1)];
+		});
+	}
+}
+
 /** The sweeps, given a side's selectors and a function that opens the view in its clean starting state. */
 export function runSweeps(S, fresh) {
 	return {
@@ -89,7 +121,8 @@ export function runSweeps(S, fresh) {
 			const got = await capture(p, S, S.dlindex);
 			out.index_count = String(got.length);
 			out.index_name = got[0]?.name ?? '';
-			out.index_text = got[0]?.text ?? '';
+			// the INCOMPLETE SELECTION line is its own key (absent when complete), so the rest of the index compares exactly
+			Object.assign(out, splitIncomplete(got[0]?.text ?? ''));
 			await p.click(S.back);
 			await sleep(60);
 			await p.click(modeSel('discovery'));
@@ -110,7 +143,8 @@ export function runSweeps(S, fresh) {
 			out.chip = await p.evaluate(`(() => { const c = document.querySelector(${JSON.stringify(S.file)})?.closest('.ds-chip'); return [...(c?.querySelectorAll('.ds-co button') ?? [])].map((b) => b.textContent.trim() + (b.className.includes('on-') ? '*' : '')).join(' '); })()`);
 			const got = await capture(p, S, S.coverDl);
 			out.cover_name = got[0]?.name ?? '';
-			out.cover_text = got[0]?.text ?? '';
+			// the C/O column per item is its own key (cover_co.<i>), so the rest of the cover compares exactly
+			Object.assign(out, splitCoverCo(got[0]?.text ?? ''));
 			await p.click(S.markC);
 			await settle(p, S);
 			await p.click(S.clear);
@@ -122,4 +156,4 @@ export function runSweeps(S, fresh) {
 
 const v5Fresh = async (p) => { await p.load({}); await p.go(VIEW); };
 const sweeps = runSweeps(V5, v5Fresh);
-export default { sweeps: Object.entries(sweeps).map(([id, fn]) => ({ id, v5: (p, ctx) => fn(p, ctx) })) };
+export default { postRaw: splitFileActions, sweeps: Object.entries(sweeps).map(([id, fn]) => ({ id, v5: (p, ctx) => fn(p, ctx) })) };

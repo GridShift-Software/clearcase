@@ -6,7 +6,7 @@ import { sleep } from '../../../../tests/e2e/pilot/lib/cdp.mjs';
 import { parseDownload } from '../../lib/exports.mjs';
 import { fromRaw } from '../../lib/snapshot.mjs';
 import { navFocus, open } from './_shell.mjs';
-import { APP, runSweeps } from '../v5/specs/discovery_tab.mjs';
+import { APP, runSweeps, splitFileActions } from '../v5/specs/discovery_tab.mjs';
 
 const VIEW = 'discovery_tab';
 
@@ -33,7 +33,9 @@ export default {
 	async extract(p, ctx) {
 		const nav = await navFocus(p, ctx, { from: '/overview', fromView: 'overview', view: VIEW });
 		await openDiscovery(p, ctx);
-		const s = fromRaw(VIEW, 'app', await p.extract('#main'));
+		const raw = await p.extract('#main');
+		splitFileActions(raw); // as the v5 spec's postRaw does
+		const s = fromRaw(VIEW, 'app', raw);
 		if (ctx.exports !== false) {
 			for (const [id, sel] of [['open_print_cover_page', '#ds-cover-open'], ['download_cover_page_uncertified', '#ds-cover-dl']]) {
 				await openDiscovery(p, ctx);

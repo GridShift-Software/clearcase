@@ -306,7 +306,7 @@ try {
 		return { pass: ok, evidence: { rows: before.length, kill: { graceful: kill?.graceful }, graceful: graceful?.graceful, shownBefore, shownAfter } };
 	}, { expectsFailures: true });
 
-	await scenario('AN-FW3', 'info_required_tab', 'Two failed saves in a row: each item keeps its choice, its own error and Retry; one Retry saves only its item and leaves the other failure; the second Retry saves it; a reload shows the stored truth', async () => {
+	await scenario('AN-FW3', 'info_required_tab', 'Two failed saves in a row: each item keeps its choice, its own error and Retry (listed in table order); one Retry saves only its item and leaves the other failure; the second Retry saves it; a reload shows the stored truth', async () => {
 		await p.goto(V(vid, 'info_required_tab'), L.ready('info_required_tab'));
 		const before = infoRows();
 		const shownBefore = await infoState();
@@ -327,7 +327,7 @@ try {
 		await p.goto(V(vid, 'info_required_tab'), L.ready('info_required_tab'));
 		const reloaded = { shown: await infoState(), marks: await rowMarks(), error: await p.evaluate(`!!document.querySelector('#info-error')`) };
 		const ok = J(shownBefore) === J([[true, true], [false, false], [true, true]])
-			&& failed.problems.length === 2 && /Invented item B/.test(failed.problems[0].text) && /Invented item A/.test(failed.problems[1].text) && failed.problems.every((x) => x.retry && /could not be reached/.test(x.text))
+			&& failed.problems.length === 2 && /\(not done: Invented item A\)/.test(failed.problems[0].text) && /\(done: Invented item B\)/.test(failed.problems[1].text) && failed.problems.every((x) => x.retry && /could not be reached/.test(x.text))
 			&& J(failed.marks) === J(['unsaved', 'unsaved', null]) && J(failed.shown) === J([[false, false], [true, true], [true, true]])
 			&& oneRetried.problems.length === 1 && /Invented item A/.test(oneRetried.problems[0].text) && oneRetried.problems[0].retry && J(oneRetried.marks) === J(['unsaved', null, null]) && J(oneRetried.shown) === J(failed.shown)
 			&& doneOf(oneRetried.rows, 'Invented item B') === true && doneOf(oneRetried.rows, 'Invented item A') === true

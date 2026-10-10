@@ -52,6 +52,7 @@ const { client, vpath } = await import('../../tests/e2e/pilot/lib/client.mjs');
 const { startServer } = await import('../../tests/e2e/pilot/lib/server.mjs');
 const { isolatedBuild } = await import('../../tests/e2e/pilot/lib/isolated-build.mjs');
 const { ConfigError, loadConfig, readPackage, v5Package } = await import('../../tests/e2e/pilot/v5/fixture.mjs');
+const { isBackground } = await import('../../tests/e2e/pilot/suite/context.mjs');
 
 const proof = await proveOffline();
 if (!proof.pass) { console.error(`cc09: offline proof failed: ${JSON.stringify(proof)}`); process.exit(1); }
@@ -187,7 +188,9 @@ try {
 await br?.close().catch(() => {});
 await srv?.stop().catch(() => {});
 await canary.close().catch(() => {});
-result.canaryHits = canary.hits.map((h) => ({ kind: h.kind, host: h.host ?? h.sni ?? null }));
+// Chromium's own background services reach the canary; only those (Google service hosts, no Origin or Referer) are
+// set apart, as the pilot suite does; any other hit fails the run
+result.canaryHits = canary.hits.map((h) => ({ kind: h.kind, host: h.host ?? h.sni ?? null, background: isBackground(h) }));
 const kept = (xs) => (xs ?? []).filter((x) => !x.warmup).map((x) => x.ms);
 result.raw = raw;
 result.metrics = {};
@@ -198,7 +201,7 @@ for (const k of ['selection', 'coverExport', 'wordIndexes', 'largeDocPage', 'lar
 }
 result.metrics.selection.savedWithin = stats((raw.selection ?? []).filter((x) => !x.warmup).map((x) => x.savedWithinMs));
 result.error = failure;
-result.ok = !failure && Object.values(result.metrics).every((m) => m.enoughSamples && m.pass !== false) && result.canaryHits.length === 0;
+result.ok = !failure && Object.values(result.metrics).every((m) => m.enoughSamples && m.pass !== false) && result.canaryHits.every((h) => h.background);
 result.finishedAt = new Date().toISOString();
 writeFileSync(join(out, 'measure-CC-09.json'), JSON.stringify(result, null, 1));
 console.log(`\nCC-09 candidate ${full.slice(0, 12)} (build ${result.build?.stamp?.buildId ?? '?'}); fixture ${JSON.stringify(fixtureSize)}`);

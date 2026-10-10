@@ -117,21 +117,14 @@
     {
       "id": "IDR-157",
       "view": "vdm_matrix_tab",
-      "field": [
-        "table.table_1.columns",
-        "export.export_csv.columns"
-      ],
+      "field": "table.table_1.columns",
       "when": {
-        "v5": {
-          "re": "^[a-z_]+( \\| [a-z_]+){4}$"
-        },
-        "app": {
-          "re": "^[a-z_]+( \\| [a-z_]+){4} \\| refs$"
-        }
+        "v5": "dcs_point | dcs_case | ess_supporting_evidence | documents | ess_rebuttal",
+        "app": "dcs_point | dcs_case | ess_supporting_evidence | documents | ess_rebuttal | refs"
       },
       "type": "defect-fix",
       "source": "S-vdm_matrix_tab-1",
-      "reason": "v5 never shows or exports the defence matrix free-text refs; the app adds them as a last column of the table and of the CSV, after v5 columns in v5 order.",
+      "reason": "v5 never shows the defence matrix free-text refs; the app adds them as a last table column, after v5's columns in v5's exact order (pinned: any other order or column set is unregistered).",
       "productVisible": true,
       "author": "CC-05 worker (GRS-15)",
       "approvedBy": null,
@@ -183,6 +176,7 @@
       },
       "type": "known-gap",
       "source": "S-hardcoded-case",
+      "owner": "GRS-15",
       "reason": "v5 names the export after the parties in code; the view-content map carries no export file name, so the app uses a neutral name until the map does (shared-file request in the CC-05 report).",
       "productVisible": true,
       "author": "CC-05 worker (GRS-15)",
@@ -217,6 +211,7 @@
       },
       "type": "known-gap",
       "source": "S-hardcoded-case",
+      "owner": "GRS-15",
       "reason": "v5 names the export after the parties in code; the view-content map carries no export file name, so the app uses a neutral name until the map does (shared-file request in the CC-05 report).",
       "productVisible": true,
       "author": "CC-05 worker (GRS-15)",
@@ -256,62 +251,16 @@
       "approvedOn": null
     },
     {
-      "id": "IDR-165",
-      "view": "timeline",
-      "field": [
-        "control.link:*&amp;*",
-        "control.link:*&##;*",
-        "control.link:*&quot;*",
-        "control.link:*&lt;*",
-        "control.link:*&gt;*"
-      ],
-      "when": {
-        "app": "<absent>"
-      },
-      "type": "defect-fix",
-      "source": "S-double-escape",
-      "reason": "v5 escapes event titles twice, so its link labels show entities such as &amp;; the app shows each title once, as text, so no app link carries an entity.",
-      "productVisible": true,
-      "author": "CC-05 worker (GRS-15)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
-      "id": "IDR-166",
-      "view": "timeline",
-      "field": [
-        "control.link:*&*",
-        "control.link:*'*",
-        "control.link:*\"*",
-        "control.link:*<*",
-        "control.link:*>*"
-      ],
-      "when": {
-        "v5": "<absent>"
-      },
-      "type": "defect-fix",
-      "source": "S-double-escape",
-      "reason": "The same event links with the title shown once: labels holding an ampersand, quote or angle bracket that v5 shows as an entity.",
-      "productVisible": true,
-      "author": "CC-05 worker (GRS-15)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
       "id": "IDR-167",
       "view": "timeline",
-      "field": "sweep.timeline_events.*.title",
+      "field": "sweep.timeline_events.*.escaped",
       "when": {
-        "v5": {
-          "re": "&(amp|lt|gt|quot|#[0-9]+);"
-        },
-        "app": {
-          "re": "^(?!.*&(amp|lt|gt|quot|#[0-9]+);).*$"
-        }
+        "v5": "twice",
+        "app": "once"
       },
       "type": "defect-fix",
       "source": "S-double-escape",
-      "reason": "An event title that v5 shows with a visible entity (escaped twice) is shown once, as text.",
+      "reason": "v5 escapes event titles twice, so a title or link label shows an entity such as &amp;; the app shows it once, as text. The v5 side's titles and link labels are unescaped once before comparing, so the app's must equal the unescaped v5 value exactly; this entry covers only the per-event record that v5 showed an entity and the app did not.",
       "productVisible": true,
       "author": "CC-05 worker (GRS-15)",
       "approvedBy": null,
@@ -323,15 +272,32 @@
       "field": "export.print_pdf.print.text",
       "when": {
         "v5": {
-          "re": "^Skip to content .+$"
+          "re": "^Skip to content .+ Chronology & Timeline .+$"
         },
         "app": {
-          "re": "^Skip to content ClearCase .+$"
+          "re": "^Timeline .+$"
         }
       },
-      "type": "improvement",
+      "type": "known-gap",
       "source": "GRS-12",
-      "reason": "The print capture is the whole page text, so it holds each side shell (the app shell and navigation labels of the pilot) and the two corrections above (heading, titles shown once); the printed timeline content is otherwise the same. Print CSS hides the shell on paper; the CC-05 e2e print scenario checks the printed content.",
+      "owner": "GRS-15",
+      "reason": "Harness capture, not a product difference: the print capture is the whole page text. The app adapter trims it to the page's main (heading on); the v5 capture keeps v5's shell, which no v5 spec hook can trim (shared-file request in the CC-05 r2 report). The printed content after the heading is compared exactly in sweep.timeline_print.content.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-169",
+      "view": "vdm_matrix_tab",
+      "field": "export.export_csv.columns",
+      "when": {
+        "v5": "dcs_point | dcs_case | ess_evidence | documents | rebuttal",
+        "app": "dcs_point | dcs_case | ess_evidence | documents | rebuttal | refs"
+      },
+      "type": "defect-fix",
+      "source": "S-vdm_matrix_tab-1",
+      "reason": "v5 never exports the defence matrix free-text refs; the app adds them as a last CSV column, after v5's columns in v5's exact order (pinned: any other order or column set is unregistered).",
       "productVisible": true,
       "author": "CC-05 worker (GRS-15)",
       "approvedBy": null,

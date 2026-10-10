@@ -160,7 +160,7 @@ The overview has typed widget slots declared in `src/lib/components/overview-slo
 
 | Contract | Where | Use |
 | --- | --- | --- |
-| Registry and navigation | `views.ts`, `view-registry.ts`, `ViewNav.svelte` | `VIEWS`, `viewHref`, `viewAt`, `blockedBy`; nav marks the current view with `aria-current` |
+| Registry and navigation | `views.ts`, `view-registry.ts`, `ViewNav.svelte` | `VIEWS`, `viewHref`, `viewAt`, `blockedBy`; nav marks the current view with `aria-current`, and each link carries the view's last query in this case for the tab session (sessionStorage, `rememberQueries` in the `[vid]` layout), so a view's filters survive a trip through the sidebar; a view opened with its own query keeps it |
 | Page header and titles | `PageHeader.svelte`, `titles.ts` | `<document> · <section> · <case> · ClearCase` (BA-16); the `[data-page-heading]` h1 receives focus after navigation, Back and Forward, including a full load reached by Back and Back from an in-page fragment link (such as the validation report's `#code-<CODE>` links) to the page's own entry, which SvelteKit handles as a same-page popstate without `afterNavigate` (the root layout's `popstate` listener focuses the heading) (BA-14); the skip link focuses `#main` without a history entry |
 | Clock | `clock.ts` | `now()`: the real clock, or `CLEARCASE_FIXED_NOW` in tests and verification |
 | Citation link | `CitationLink.svelte`, `cite.ts` | `/v/<rv>/doc/<ref>?page=N` via GRS-10 `documentRoute`; missing refs render broken |

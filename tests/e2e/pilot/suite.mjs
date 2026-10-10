@@ -84,6 +84,7 @@ try {
 	await step('S1b', 'Preview of the imported candidate shows the candidate banner and the document count; preview never activates', () => flow.s1(ctx));
 	await step('ACT', 'activation through the UI: refused without the acknowledgement (ACK_REQUIRED, nothing changes); with it the version is active', () => flow.activation(ctx));
 	await step('CHRON', 'chronology in the browser: filters (incl. a non-standard bundle, type, status, text), stable sorts (date asc/desc, amount with empty = 0), row count', () => flow.chronology(ctx));
+	await step('NAV-STATE', "sidebar keeps each view's query for the tab session: the chronology's ?q= survives Advanced Search and the way back by the sidebar and by Back; a view opened with its own query keeps it, opened plainly it forgets it; sessionStorage only", () => state.navState(ctx));
 	await step('S25', 'chronology grid: div rows with content-visibility:auto; per-version JSON private, no-cache, ETag = read-model digest, 304', () => flow.s25(ctx));
 	await step('CITE', 'citations: [[REF]] and [[REF#p2]] are client-side app links; Open shows the PDF in the sandboxed viewer, at page 2 for #p2', () => flow.citations(ctx));
 	await step('BA-14', "keyboard: skip link first (no history entry), Tab + Enter on nav links (the example: the first registry view without an owner route, or 'none left'), heading focused after each navigation and after Back (also after the skip link, across a full load and from an in-page #code- fragment link), one history entry each", () => flow.keyboard(ctx));

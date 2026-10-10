@@ -3,18 +3,6 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-023",
-      "view": "conflict_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-18",
-      "reason": "The app does not implement Conflict Check yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
       "id": "IDR-025",
       "view": "legality_tab",
       "field": "*",
@@ -181,6 +169,56 @@
       "type": "improvement",
       "source": "GRS-18",
       "reason": "GRS-18 acceptance: the view labels its content as supplied analysis that ClearCase has not verified (every lit-* dataset is authored analysis); v5 showed no such note.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-307",
+      "view": "conflict_tab",
+      "field": "title",
+      "when": {
+        "v5": "Conflict-of-Interest Check",
+        "app": "Conflict Check"
+      },
+      "type": "improvement",
+      "source": "BA-18",
+      "reason": "The page heading is the navigation label (BA-18), so the destination matches the task the user chose; v5 headed this view \"Conflict-of-Interest Check\".",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-308",
+      "view": "conflict_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 left it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-309",
+      "view": "conflict_tab",
+      "field": "text.page.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Searches only this matter's \\d+ (person|people) and \\d+ (entity|entities) from the imported results package\\. A match, or no match, is not a conflict clearance\\.$"
+        }
+      },
+      "type": "improvement",
+      "source": "GRS-18",
+      "reason": "GRS-18 acceptance: the check always says it searched only this matter's people and entities (counted from the data) and that a result is not a conflict clearance; v5 said nothing about scope.",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
       "approvedBy": null,

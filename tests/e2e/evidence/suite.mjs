@@ -293,7 +293,7 @@ try {
 		const formReset = await typedValues();
 		const userKey = added.at(-1).key;
 		// edit the user row
-		await p.click(`#filing-register tr[data-key=${J(userKey)}] [data-edit]`);
+		await p.click(`#filing-register tr[data-key=${J(userKey)}] [data-edit], #filing-register tr[data-key=${J(userKey)}] .actions form:first-child button`);
 		await p.waitFor(`document.getElementById('register-form')?.dataset.mode === 'edit' && document.getElementById('fl_filing').value === 'Synthetic added filing'`, 15000);
 		await fill({ fl_filing: 'Synthetic edited filing' });
 		await p.click('#register-save');
@@ -304,7 +304,7 @@ try {
 		await fill({ fl_response: 'Synthetic seed reply edited' });
 		await p.click('#register-save');
 		await p.waitFor(`document.querySelector('#filing-register tr[data-key=${J(s1.key)}]')?.dataset.state === 'edited'`, 15000);
-		await p.click(`#filing-register tr[data-key=${J(s2.key)}] [data-delete]`);
+		await p.click(`#filing-register tr[data-key=${J(s2.key)}] [data-delete], #filing-register tr[data-key=${J(s2.key)}] .actions form:last-child button`);
 		await p.waitFor(`!document.querySelector('#filing-register tr[data-key=${J(s2.key)}]')`, 15000);
 		const edited = await reg();
 		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
@@ -408,117 +408,119 @@ try {
 		draftKeys = [kA, kB, kC];
 		const ev = { keys: draftKeys };
 
-		// D1: an edit in progress, then a busy Delete of another row
-		await p.goto(`${V}/evidence/filings_tab?edit=${encodeURIComponent(kA)}`, `${R('filings_tab')} && document.getElementById('register-form').dataset.mode === 'edit'`);
-		await p.type('#fl_filing', 'Unsaved edited filing');
-		await p.type('#fl_response', 'Unsaved edited reply');
-		let release = holdStore();
 		try {
-			await p.click(deleteOf(kB));
-			await sleep(400);
-			ev.d1InFlight = await inFlight(p);
-			await p.waitFor(errorShown, 30000).catch(() => null);
-			await sleep(200);
-			ev.d1 = await formOf(p);
-		} finally { ev.d1HeldMs = release(); }
-		ev.d1RowKept = (await regRows()).some((r) => r.key === kB);
-		await p.click('#register-save');
-		await p.waitFor(`document.getElementById('register-form')?.dataset.mode === 'add' && [...document.querySelectorAll('#filing-register tbody tr[data-key]')].some((r) => r.textContent.includes('Unsaved edited filing'))`, 20000).catch(() => null);
-		ev.d1Saved = storedFilings().filter((r) => r.filing === 'Unsaved edited filing' && r.response === 'Unsaved edited reply').length;
-		// a delete error stays until it is dismissed (or that row's delete succeeds); a save never clears it
-		ev.d1ErrorAfterSave = await p.evaluate(`!!document.getElementById('register-delete-error')`);
-		await p.click('#register-delete-dismiss').catch(() => {});
-
-		// D2: a failed Add, then a busy Delete: both errors stay, apart, with the draft; Retry adds one row
-		await setFields(p, { fl_filing: 'Synthetic failed add', fl_response: 'Synthetic failed add reply' });
-		release = holdStore();
-		try {
-			await p.click('#register-add');
-			await p.waitFor(`!!document.getElementById('register-error')`, 30000).catch(() => null);
-			ev.addFailed = await formOf(p);
-			await p.click(deleteOf(kB));
-			await p.waitFor(`!document.getElementById('register-status') && (!!document.getElementById('register-delete-error') || !document.getElementById('register-error'))`, 30000).catch(() => null);
-			await sleep(200);
-			ev.both = await formOf(p);
-		} finally { release(); }
-		await p.click('#register-retry').catch(() => p.click('#register-add'));
-		await p.waitFor(`[...document.querySelectorAll('#filing-register tbody tr[data-key]')].some((r) => r.textContent.includes('Synthetic failed add')) && !document.getElementById('register-status')`, 20000).catch(() => null);
-		ev.afterRetry = { ...(await formOf(p)), stored: storedFilings().filter((r) => r.filing === 'Synthetic failed add').length };
-		if (ev.afterRetry.deleteError) await p.click('#register-delete-dismiss').catch(() => {});
-
-		// D2: a save in flight: the form and every row action are inert with a status; the completed save resets the form
-		await setFields(p, { fl_filing: 'Synthetic in-flight add' });
-		release = holdStore();
-		try {
-			await p.click('#register-add');
-			await sleep(400);
-			await p.type('#fl_response', 'typed in flight').catch(() => {});
-			ev.addInFlight = { ...(await inFlight(p)), response: await p.evaluate(`document.getElementById('fl_response').value`) };
-			await sleep(1200);
-		} finally { ev.inFlightHeldMs = release(); }
-		await p.waitFor(`[...document.querySelectorAll('#filing-register tbody tr[data-key]')].some((r) => r.textContent.includes('Synthetic in-flight add')) && !document.getElementById('register-status')`, 20000).catch(() => null);
-		ev.afterInFlight = { ...(await formOf(p)), stored: storedFilings().filter((r) => r.filing === 'Synthetic in-flight add').length };
-
-		// D2: Edit of row C pressed while row A's save is failing; the failure stays with A's draft
-		await p.goto(`${V}/evidence/filings_tab?edit=${encodeURIComponent(kA)}`, `${R('filings_tab')} && document.getElementById('register-form').dataset.mode === 'edit'`);
-		await p.type('#fl_filing', 'Synthetic failed edit A');
-		release = holdStore();
-		try {
+			// D1: an edit in progress, then a busy Delete of another row
+			await p.goto(`${V}/evidence/filings_tab?edit=${encodeURIComponent(kA)}`, `${R('filings_tab')} && document.getElementById('register-form').dataset.mode === 'edit'`);
+			await p.type('#fl_filing', 'Unsaved edited filing');
+			await p.type('#fl_response', 'Unsaved edited reply');
+			let release = holdStore();
+			try {
+				await p.click(deleteOf(kB));
+				await sleep(400);
+				ev.d1InFlight = await inFlight(p);
+				await p.waitFor(errorShown, 30000).catch(() => null);
+				await sleep(200);
+				ev.d1 = await formOf(p);
+			} finally { ev.d1HeldMs = release(); }
+			ev.d1RowKept = (await regRows()).some((r) => r.key === kB);
 			await p.click('#register-save');
-			await sleep(400);
+			await p.waitFor(`document.getElementById('register-form')?.dataset.mode === 'add' && [...document.querySelectorAll('#filing-register tbody tr[data-key]')].some((r) => r.textContent.includes('Unsaved edited filing'))`, 20000).catch(() => null);
+			ev.d1Saved = storedFilings().filter((r) => r.filing === 'Unsaved edited filing' && r.response === 'Unsaved edited reply').length;
+			// a delete error stays until it is dismissed (or that row's delete succeeds); a save never clears it
+			ev.d1ErrorAfterSave = await p.evaluate(`!!document.getElementById('register-delete-error')`);
+			await p.click('#register-delete-dismiss').catch(() => {});
+
+			// D2: a failed Add, then a busy Delete: both errors stay, apart, with the draft; Retry adds one row
+			await setFields(p, { fl_filing: 'Synthetic failed add', fl_response: 'Synthetic failed add reply' });
+			release = holdStore();
+			try {
+				await p.click('#register-add');
+				await p.waitFor(`!!document.getElementById('register-error')`, 30000).catch(() => null);
+				ev.addFailed = await formOf(p);
+				await p.click(deleteOf(kB));
+				await p.waitFor(`!document.getElementById('register-status') && (!!document.getElementById('register-delete-error') || !document.getElementById('register-error'))`, 30000).catch(() => null);
+				await sleep(200);
+				ev.both = await formOf(p);
+			} finally { release(); }
+			await p.click('#register-retry').catch(() => p.click('#register-add'));
+			await p.waitFor(`[...document.querySelectorAll('#filing-register tbody tr[data-key]')].some((r) => r.textContent.includes('Synthetic failed add')) && !document.getElementById('register-status')`, 20000).catch(() => null);
+			ev.afterRetry = { ...(await formOf(p)), stored: storedFilings().filter((r) => r.filing === 'Synthetic failed add').length };
+			if (ev.afterRetry.deleteError) await p.click('#register-delete-dismiss').catch(() => {});
+
+			// D2: a save in flight: the form and every row action are inert with a status; the completed save resets the form
+			await setFields(p, { fl_filing: 'Synthetic in-flight add' });
+			release = holdStore();
+			try {
+				await p.click('#register-add');
+				await sleep(400);
+				await p.type('#fl_response', 'typed in flight').catch(() => {});
+				ev.addInFlight = { ...(await inFlight(p)), response: await p.evaluate(`document.getElementById('fl_response').value`) };
+				await sleep(1200);
+			} finally { ev.inFlightHeldMs = release(); }
+			await p.waitFor(`[...document.querySelectorAll('#filing-register tbody tr[data-key]')].some((r) => r.textContent.includes('Synthetic in-flight add')) && !document.getElementById('register-status')`, 20000).catch(() => null);
+			ev.afterInFlight = { ...(await formOf(p)), stored: storedFilings().filter((r) => r.filing === 'Synthetic in-flight add').length };
+
+			// D2: Edit of row C pressed while row A's save is failing; the failure stays with A's draft
+			await p.goto(`${V}/evidence/filings_tab?edit=${encodeURIComponent(kA)}`, `${R('filings_tab')} && document.getElementById('register-form').dataset.mode === 'edit'`);
+			await p.type('#fl_filing', 'Synthetic failed edit A');
+			release = holdStore();
+			try {
+				await p.click('#register-save');
+				await sleep(400);
+				await p.click(editOf(kC)).catch(() => {});
+				await p.waitFor(`!!document.getElementById('register-error')`, 30000).catch(() => null);
+				await sleep(300);
+				ev.editDuring = await formOf(p);
+			} finally { release(); }
+			// Edit of another row and the sidebar ask before dropping the failed draft; Keep it keeps everything
 			await p.click(editOf(kC)).catch(() => {});
-			await p.waitFor(`!!document.getElementById('register-error')`, 30000).catch(() => null);
+			ev.askEdit = await p.waitFor(`document.getElementById('register-ask')?.textContent.includes('was not saved')`, 5000).then(() => true, () => false);
+			await p.click('#register-ask-keep').catch(() => {});
 			await sleep(300);
-			ev.editDuring = await formOf(p);
-		} finally { release(); }
-		// Edit of another row and the sidebar ask before dropping the failed draft; Keep it keeps everything
-		await p.click(editOf(kC)).catch(() => {});
-		ev.askEdit = await p.waitFor(`document.getElementById('register-ask')?.textContent.includes('was not saved')`, 5000).then(() => true, () => false);
-		await p.click('#register-ask-keep').catch(() => {});
-		await sleep(300);
-		await p.click('#nav-documents');
-		ev.askNav = await p.waitFor(`document.getElementById('register-ask')?.textContent.includes('was not saved')`, 5000).then(() => true, () => false);
-		await p.click('#register-ask-keep').catch(() => {});
-		await sleep(300);
-		ev.afterKeep = { ...(await formOf(p)), path: await p.evaluate('location.pathname + location.search') };
-		await p.click('#register-retry').catch(() => {});
-		await p.waitFor(`document.getElementById('register-form')?.dataset.mode === 'add' && [...document.querySelectorAll('#filing-register tbody tr[data-key]')].some((r) => r.textContent.includes('Synthetic failed edit A'))`, 20000).catch(() => null);
-		ev.afterEditRetry = { ...(await formOf(p)), storedA: storedFilings().filter((r) => r.filing === 'Synthetic failed edit A').length };
+			await p.click('#nav-documents');
+			ev.askNav = await p.waitFor(`document.getElementById('register-ask')?.textContent.includes('was not saved')`, 5000).then(() => true, () => false);
+			await p.click('#register-ask-keep').catch(() => {});
+			await sleep(300);
+			ev.afterKeep = { ...(await formOf(p)), path: await p.evaluate('location.pathname + location.search') };
+			await p.click('#register-retry').catch(() => {});
+			await p.waitFor(`document.getElementById('register-form')?.dataset.mode === 'add' && [...document.querySelectorAll('#filing-register tbody tr[data-key]')].some((r) => r.textContent.includes('Synthetic failed edit A'))`, 20000).catch(() => null);
+			ev.afterEditRetry = { ...(await formOf(p)), storedA: storedFilings().filter((r) => r.filing === 'Synthetic failed edit A').length };
 
-		// two tabs edit one row: the later save from the older version is refused with its input kept, never an overwrite
-		await p.goto(`${V}/evidence/filings_tab?edit=${encodeURIComponent(kA)}`, `${R('filings_tab')} && document.getElementById('register-form').dataset.mode === 'edit'`);
-		const other = await openPage(b, { initScript: INIT });
-		try {
-			await other.goto(`${V}/evidence/filings_tab?edit=${encodeURIComponent(kA)}`, `${R('filings_tab')} && document.getElementById('register-form').dataset.mode === 'edit'`);
-			await other.type('#fl_response', 'Saved in the other tab');
-			await other.click('#register-save');
-			await other.waitFor(`document.getElementById('register-form')?.dataset.mode === 'add'`, 20000).catch(() => null);
-		} finally { await other.close().catch(() => {}); }
-		await p.type('#fl_response', 'Saved in this tab later');
-		await p.click('#register-save');
-		await p.waitFor(`!!document.getElementById('register-error') || document.getElementById('register-form')?.dataset.mode === 'add'`, 20000).catch(() => null);
-		await sleep(300);
-		ev.twoTabs = { ...(await formOf(p)), shown: await p.evaluate(`document.querySelector(${J(`#filing-register tr[data-key="${kA}"]`)})?.cells[3]?.textContent.trim() ?? null`), stored: storedFilings().find((r) => `row:${r.id}` === kA)?.response ?? null };
-		await p.click('#register-discard').catch(() => {});
-		await p.waitFor(`document.getElementById('register-form')?.dataset.mode === 'add' && !document.getElementById('register-error')`, 10000).catch(() => null);
+			// two tabs edit one row: the later save from the older version is refused with its input kept, never an overwrite
+			await p.goto(`${V}/evidence/filings_tab?edit=${encodeURIComponent(kA)}`, `${R('filings_tab')} && document.getElementById('register-form').dataset.mode === 'edit'`);
+			const other = await openPage(b, { initScript: INIT });
+			try {
+				await other.goto(`${V}/evidence/filings_tab?edit=${encodeURIComponent(kA)}`, `${R('filings_tab')} && document.getElementById('register-form').dataset.mode === 'edit'`);
+				await other.type('#fl_response', 'Saved in the other tab');
+				await other.click('#register-save');
+				await other.waitFor(`document.getElementById('register-form')?.dataset.mode === 'add'`, 20000).catch(() => null);
+			} finally { await other.close().catch(() => {}); }
+			await p.type('#fl_response', 'Saved in this tab later');
+			await p.click('#register-save');
+			await p.waitFor(`!!document.getElementById('register-error') || document.getElementById('register-form')?.dataset.mode === 'add'`, 20000).catch(() => null);
+			await sleep(300);
+			ev.twoTabs = { ...(await formOf(p)), shown: await p.evaluate(`document.querySelector(${J(`#filing-register tr[data-key="${kA}"]`)})?.cells[3]?.textContent.trim() ?? null`), stored: storedFilings().find((r) => `row:${r.id}` === kA)?.response ?? null };
+			await p.click('#register-discard').catch(() => {});
+			await p.waitFor(`document.getElementById('register-form')?.dataset.mode === 'add' && !document.getElementById('register-error')`, 10000).catch(() => null);
+		} catch (e) { ev.error = String(e?.message ?? e).split('\n')[0]; }
 
-		const blankForm = (f) => Object.values(f.values).every((v) => v === '');
+		const blankForm = (f) => !!f && Object.values(f.values).every((v) => v === '');
 		const checks = {
-			d1InFlightBusyShown: ev.d1InFlight.status === 'Deleting the entry…' && ev.d1InFlight.fieldset === true && ev.d1InFlight.edits && ev.d1InFlight.deletes,
-			d1EditKept: ev.d1.mode === 'edit' && ev.d1.key === kA && ev.d1.values.fl_filing === 'Unsaved edited filing' && ev.d1.values.fl_response === 'Unsaved edited reply',
-			d1OwnError: /^The entry could not be deleted: the local store is busy/.test(ev.d1.deleteError ?? '') && ev.d1.saveError === null && ev.d1RowKept && ev.d1HeldMs >= 9000,
+			d1InFlightBusyShown: ev.d1InFlight?.status === 'Deleting the entry…' && ev.d1InFlight?.fieldset === true && ev.d1InFlight?.edits && ev.d1InFlight?.deletes,
+			d1EditKept: ev.d1?.mode === 'edit' && ev.d1?.key === kA && ev.d1?.values.fl_filing === 'Unsaved edited filing' && ev.d1?.values.fl_response === 'Unsaved edited reply',
+			d1OwnError: /^The entry could not be deleted: the local store is busy/.test(ev.d1?.deleteError ?? '') && ev.d1?.saveError === null && ev.d1RowKept && ev.d1HeldMs >= 9000,
 			d1SavedAfter: ev.d1Saved === 1 && ev.d1ErrorAfterSave === true,
-			addFailureRetry: /could not be saved: the local store is busy/.test(ev.addFailed.saveError ?? '') && ev.addFailed.retry && ev.addFailed.values.fl_filing === 'Synthetic failed add',
-			deleteKeepsSaveFailure: /could not be saved/.test(ev.both.saveError ?? '') && /could not be deleted/.test(ev.both.deleteError ?? '') && ev.both.values.fl_filing === 'Synthetic failed add' && ev.both.values.fl_response === 'Synthetic failed add reply' && ev.both.retry,
-			retryAddsOne: ev.afterRetry.stored === 1 && ev.afterRetry.saveError === null && blankForm(ev.afterRetry) && /could not be deleted/.test(ev.afterRetry.deleteError ?? ''),
-			inertInFlight: ev.addInFlight.status === 'Adding the entry…' && ev.addInFlight.fieldset === true && ev.addInFlight.ariaBusy === 'true' && ev.addInFlight.edits && ev.addInFlight.deletes && !ev.addInFlight.response.includes('typed in flight'),
-			completedSaveResets: ev.afterInFlight.stored === 1 && blankForm(ev.afterInFlight) && ev.inFlightHeldMs >= 1500 && ev.inFlightHeldMs < 4000,
-			failureStaysWithItsRow: ev.editDuring.mode === 'edit' && ev.editDuring.key === kA && ev.editDuring.values.fl_filing === 'Synthetic failed edit A' && /could not be saved/.test(ev.editDuring.saveError ?? ''),
-			asksBeforeDropping: ev.askEdit && ev.askNav && ev.afterKeep.key === kA && ev.afterKeep.values.fl_filing === 'Synthetic failed edit A' && /could not be saved/.test(ev.afterKeep.saveError ?? '') && !ev.afterKeep.cancel && ev.afterKeep.discard && ev.afterKeep.path.endsWith('/evidence/filings_tab?edit=' + encodeURIComponent(kA)),
-			retrySavesTheEdit: ev.afterEditRetry.storedA === 1 && ev.afterEditRetry.mode === 'add',
-			twoTabsNoOverwrite: /changed elsewhere/.test(ev.twoTabs.saveError ?? '') && ev.twoTabs.values.fl_response === 'Saved in this tab later' && ev.twoTabs.stored === 'Saved in the other tab' && ev.twoTabs.shown === 'Saved in the other tab',
+			addFailureRetry: /could not be saved: the local store is busy/.test(ev.addFailed?.saveError ?? '') && ev.addFailed?.retry && ev.addFailed?.values.fl_filing === 'Synthetic failed add',
+			deleteKeepsSaveFailure: /could not be saved/.test(ev.both?.saveError ?? '') && /could not be deleted/.test(ev.both?.deleteError ?? '') && ev.both?.values.fl_filing === 'Synthetic failed add' && ev.both?.values.fl_response === 'Synthetic failed add reply' && ev.both?.retry,
+			retryAddsOne: ev.afterRetry?.stored === 1 && ev.afterRetry?.saveError === null && blankForm(ev.afterRetry) && /could not be deleted/.test(ev.afterRetry?.deleteError ?? ''),
+			inertInFlight: ev.addInFlight?.status === 'Adding the entry…' && ev.addInFlight?.fieldset === true && ev.addInFlight?.ariaBusy === 'true' && ev.addInFlight?.edits && ev.addInFlight?.deletes && !ev.addInFlight?.response?.includes('typed in flight'),
+			completedSaveResets: ev.afterInFlight?.stored === 1 && blankForm(ev.afterInFlight) && ev.inFlightHeldMs >= 1500 && ev.inFlightHeldMs < 4000,
+			failureStaysWithItsRow: ev.editDuring?.mode === 'edit' && ev.editDuring?.key === kA && ev.editDuring?.values.fl_filing === 'Synthetic failed edit A' && /could not be saved/.test(ev.editDuring?.saveError ?? ''),
+			asksBeforeDropping: ev.askEdit && ev.askNav && ev.afterKeep?.key === kA && ev.afterKeep?.values.fl_filing === 'Synthetic failed edit A' && /could not be saved/.test(ev.afterKeep?.saveError ?? '') && !ev.afterKeep?.cancel && ev.afterKeep?.discard && ev.afterKeep?.path?.endsWith('/evidence/filings_tab?edit=' + encodeURIComponent(kA)),
+			retrySavesTheEdit: ev.afterEditRetry?.storedA === 1 && ev.afterEditRetry?.mode === 'add',
+			twoTabsNoOverwrite: /changed elsewhere/.test(ev.twoTabs?.saveError ?? '') && ev.twoTabs?.values.fl_response === 'Saved in this tab later' && ev.twoTabs?.stored === 'Saved in the other tab' && ev.twoTabs?.shown === 'Saved in the other tab',
 		};
-		return { pass: Object.values(checks).every(Boolean), evidence: { checks, ...ev } };
+		return { pass: !ev.error && Object.values(checks).every(Boolean), evidence: { checks, ...ev } };
 	});
 
 	await scenario('E-FILINGS-NOJS', 'filings_tab', 'Filings without JavaScript (CC-04 r2 D1, D2): a busy Delete of another row keeps the edit in progress; a refused save of an edit comes back in edit mode with its values, Retry and Discard, and the rows Edit buttons wait with a note; a Delete after it keeps the draft and its failure; Retry saves the edit once; a refused Add keeps its values; a refused Search keeps what was typed', async () => {
@@ -558,20 +560,20 @@ try {
 			await setFields(q, { sq: 'Synthetic', samin: '10', samax: '1' }, false);
 			await post('#search-run', 'search');
 			ev.search = await q.evaluate(`({ result: document.getElementById('main').dataset.result, invalid: document.getElementById('search-invalid')?.textContent.trim() ?? null, q: document.getElementById('sq').value, amin: document.getElementById('samin').value, amax: document.getElementById('samax').value })`);
-		} finally { await q.close().catch(() => {}); }
+		} catch (e) { ev.error = String(e?.message ?? e).split('\n')[0]; } finally { await q.close().catch(() => {}); }
 		const [kA, , kC] = draftKeys;
-		const editVals = (f) => f.values.fl_filing === 'No-JS edited filing' && f.values.fl_response === 'No-JS edited reply';
+		const editVals = (f) => !!f && f.values.fl_filing === 'No-JS edited filing' && f.values.fl_response === 'No-JS edited reply';
 		const checks = {
 			noScripts: ev.hydrated === false,
-			d1EditKept: ev.d1.mode === 'edit' && ev.d1.key === kA && editVals(ev.d1) && /could not be deleted/.test(ev.d1.deleteError ?? '') && ev.d1.saveError === null && ev.d1.rowKept,
-			refusedEditStaysEdit: ev.saveFailed.mode === 'edit' && ev.saveFailed.key === kA && editVals(ev.saveFailed) && /could not be saved: the local store is busy/.test(ev.saveFailed.saveError ?? '') && ev.saveFailed.retry && ev.saveFailed.discard && !ev.saveFailed.cancel,
-			editsWaitWithNote: ev.saveFailed.held && ev.saveFailed.editsDisabled.length > 0 && ev.saveFailed.editsDisabled.every(Boolean),
-			deleteKeepsDraftAndFailure: !ev.afterDelete.rows.includes(kC) && ev.afterDelete.mode === 'edit' && ev.afterDelete.key === kA && editVals(ev.afterDelete) && /could not be saved/.test(ev.afterDelete.saveError ?? '') && ev.afterDelete.retry && ev.afterDelete.deleteError === null,
-			retrySavesOnce: ev.afterRetry.stored === 1 && ev.afterRetry.storedDelta === 0 && ev.afterRetry.mode === 'add' && ev.afterRetry.saveError === null && !ev.afterRetry.url.includes('?'),
-			refusedAddKeepsInput: ev.addFailed.mode === 'add' && ev.addFailed.values.fl_filing === 'No-JS added filing' && ev.addFailed.values.fl_response === 'No-JS added reply' && /could not be saved: the local store is busy/.test(ev.addFailed.saveError ?? '') && ev.addFailed.storedDelta === 0,
-			searchRefusalKeepsInput: ev.search.result === 'invalid' && /Amount min is greater than Amount max/.test(ev.search.invalid ?? '') && ev.search.q === 'Synthetic' && ev.search.amin === '10' && ev.search.amax === '1',
+			d1EditKept: ev.d1?.mode === 'edit' && ev.d1?.key === kA && editVals(ev.d1) && /could not be deleted/.test(ev.d1?.deleteError ?? '') && ev.d1?.saveError === null && ev.d1?.rowKept,
+			refusedEditStaysEdit: ev.saveFailed?.mode === 'edit' && ev.saveFailed?.key === kA && editVals(ev.saveFailed) && /could not be saved: the local store is busy/.test(ev.saveFailed?.saveError ?? '') && ev.saveFailed?.retry && ev.saveFailed?.discard && !ev.saveFailed?.cancel,
+			editsWaitWithNote: ev.saveFailed?.held && ev.saveFailed?.editsDisabled?.length > 0 && ev.saveFailed?.editsDisabled?.every(Boolean),
+			deleteKeepsDraftAndFailure: !ev.afterDelete?.rows?.includes(kC) && ev.afterDelete?.mode === 'edit' && ev.afterDelete?.key === kA && editVals(ev.afterDelete) && /could not be saved/.test(ev.afterDelete?.saveError ?? '') && ev.afterDelete?.retry && ev.afterDelete?.deleteError === null,
+			retrySavesOnce: ev.afterRetry?.stored === 1 && ev.afterRetry?.storedDelta === 0 && ev.afterRetry?.mode === 'add' && ev.afterRetry?.saveError === null && !ev.afterRetry?.url?.includes('?'),
+			refusedAddKeepsInput: ev.addFailed?.mode === 'add' && ev.addFailed?.values.fl_filing === 'No-JS added filing' && ev.addFailed?.values.fl_response === 'No-JS added reply' && /could not be saved: the local store is busy/.test(ev.addFailed?.saveError ?? '') && ev.addFailed?.storedDelta === 0,
+			searchRefusalKeepsInput: ev.search?.result === 'invalid' && /Amount min is greater than Amount max/.test(ev.search?.invalid ?? '') && ev.search?.q === 'Synthetic' && ev.search?.amin === '10' && ev.search?.amax === '1',
 		};
-		return { pass: Object.values(checks).every(Boolean), evidence: { checks, ...ev } };
+		return { pass: !ev.error && Object.values(checks).every(Boolean), evidence: { checks, ...ev } };
 	});
 
 	// ---- CC-04 r2 (D3, D4): URL values the controls cannot show, and the empty-named bundle --------------------------
@@ -579,35 +581,37 @@ try {
 		const ev = {};
 		const S = `${V}/evidence/search`;
 		const readSearch = () => p.evaluate(`({ result: document.getElementById('main').dataset.result, invalid: document.getElementById('search-invalid')?.textContent.trim() ?? null, empty: !!document.getElementById('search-empty'), refs: [...document.querySelectorAll('#search-table tbody tr[data-ref]')].map((r) => r.dataset.ref) })`);
-		await p.goto(`${S}?q=&bundle=NoSuchSyntheticBundle`, R('search'));
-		ev.unknownOption = await readSearch();
-		await p.goto(`${S}?q=&from=abc`, R('search'));
-		ev.badDate = await readSearch();
-		ev.export = await p.evaluate(`Promise.all([${J(`${S}/export?q=&bundle=NoSuchSyntheticBundle`)}, ${J(`${S}/export?q=&from=abc`)}, ${J(`${S}/export?q=&from=2091-02-30`)}, ${J(`${S}/export?q=synthetic`)}].map(async (u) => { const r = await fetch(u); return { status: r.status, text: (await r.text()).slice(0, 160) }; }))`);
-		await p.goto(`${V}/evidence/documents?page=abc`, R('documents'));
-		ev.docPage = await p.evaluate(`({ notice: document.getElementById('page-notice')?.textContent.trim() ?? null, page: document.getElementById('main').dataset.page })`);
-		// D4: Documents selects the empty-named bundle by its own value
-		await p.goto(`${V}/evidence/documents`, R('documents'));
-		ev.docButton = await p.evaluate(`document.querySelector('#main .toolbar button[data-bundle="~"]')?.textContent.trim() ?? null`);
-		await p.click('#main .toolbar button[data-bundle="~"]');
-		await p.waitFor(`document.getElementById('main').dataset.bundle === '' && ${R('documents')}`, 15000).catch(() => null);
-		ev.docEmpty = await p.evaluate(`({ url: location.search, bundle: document.getElementById('main').dataset.bundle, refs: [...document.querySelectorAll('#documents-table tbody tr[data-ref]')].map((r) => r.dataset.ref), unknown: !!document.getElementById('unknown-bundle') })`);
-		// D4: Search offers it as its own option, not as All
-		await p.goto(S, R('search'));
-		ev.options = await p.evaluate(`[...document.getElementById('sb').options].map((o) => [o.value, o.textContent.trim()])`);
-		await p.evaluate(`(() => { const e = document.getElementById('sb'); e.value = '~'; e.dispatchEvent(new Event('change', { bubbles: true })); })()`);
-		await p.click('#search-run');
-		await p.waitFor(`document.getElementById('main').dataset.result !== 'idle' && ${R('search')}`, 15000).catch(() => null);
-		ev.searchEmpty = { ...(await readSearch()), url: await p.evaluate('location.search'), selected: await p.evaluate(`document.getElementById('sb').value`) };
+		try {
+			await p.goto(`${S}?q=&bundle=NoSuchSyntheticBundle`, R('search'));
+			ev.unknownOption = await readSearch();
+			await p.goto(`${S}?q=&from=abc`, R('search'));
+			ev.badDate = await readSearch();
+			ev.export = await p.evaluate(`Promise.all([${J(`${S}/export?q=&bundle=NoSuchSyntheticBundle`)}, ${J(`${S}/export?q=&from=abc`)}, ${J(`${S}/export?q=&from=2091-02-30`)}, ${J(`${S}/export?q=synthetic`)}].map(async (u) => { const r = await fetch(u); return { status: r.status, text: (await r.text()).slice(0, 160) }; }))`);
+			await p.goto(`${V}/evidence/documents?page=abc`, R('documents'));
+			ev.docPage = await p.evaluate(`({ notice: document.getElementById('page-notice')?.textContent.trim() ?? null, page: document.getElementById('main').dataset.page })`);
+			// D4: Documents selects the empty-named bundle by its own value
+			await p.goto(`${V}/evidence/documents`, R('documents'));
+			ev.docButton = await p.evaluate(`document.querySelector('#main .toolbar button[data-bundle="~"]')?.textContent.trim() ?? null`);
+			if (ev.docButton !== null) await p.click('#main .toolbar button[data-bundle="~"]');
+			await p.waitFor(`document.getElementById('main').dataset.bundle === '' && ${R('documents')}`, 15000).catch(() => null);
+			ev.docEmpty = await p.evaluate(`({ url: location.search, bundle: document.getElementById('main').dataset.bundle, refs: [...document.querySelectorAll('#documents-table tbody tr[data-ref]')].map((r) => r.dataset.ref), unknown: !!document.getElementById('unknown-bundle') })`);
+			// D4: Search offers it as its own option, not as All
+			await p.goto(S, R('search'));
+			ev.options = await p.evaluate(`[...document.getElementById('sb').options].map((o) => [o.value, o.textContent.trim()])`);
+			await p.evaluate(`(() => { const e = document.getElementById('sb'); e.value = '~'; e.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+			await p.click('#search-run');
+			await p.waitFor(`document.getElementById('main').dataset.result !== 'idle' && ${R('search')}`, 15000).catch(() => null);
+			ev.searchEmpty = { ...(await readSearch()), url: await p.evaluate('location.search'), selected: await p.evaluate(`document.getElementById('sb').value`) };
+		} catch (e) { ev.error = String(e?.message ?? e).split('\n')[0]; }
 		const checks = {
-			unknownOption: ev.unknownOption.result === 'invalid' && /Bundle “NoSuchSyntheticBundle” is not in this results version\./.test(ev.unknownOption.invalid ?? '') && !ev.unknownOption.empty,
-			badDate: ev.badDate.result === 'invalid' && /From date “abc” is not a date \(YYYY-MM-DD\)\./.test(ev.badDate.invalid ?? '') && !ev.badDate.empty,
+			unknownOption: ev.unknownOption?.result === 'invalid' && /Bundle “NoSuchSyntheticBundle” is not in this results version\./.test(ev.unknownOption?.invalid ?? '') && !ev.unknownOption?.empty,
+			badDate: ev.badDate?.result === 'invalid' && /From date “abc” is not a date \(YYYY-MM-DD\)\./.test(ev.badDate?.invalid ?? '') && !ev.badDate?.empty,
 			exportRefuses: ev.export[0].status === 400 && /Bundle/.test(ev.export[0].text) && ev.export[1].status === 400 && /not a date/.test(ev.export[1].text) && ev.export[2].status === 400 && /calendar/.test(ev.export[2].text) && ev.export[3].status === 200,
-			documentsPageNotice: ev.docPage.notice === 'The requested page “abc” is not a page number; page 1 is shown.' && ev.docPage.page === '1',
-			documentsEmptyBundle: ev.docButton === `(no bundle) (${NO_BUNDLE.length})` && /(^|[?&])bundle=(~|%7E)(&|$)/.test(ev.docEmpty.url) && ev.docEmpty.bundle === '' && J(ev.docEmpty.refs) === J(NO_BUNDLE) && !ev.docEmpty.unknown,
-			searchEmptyBundle: ev.options.some(([v, l]) => v === '~' && l === '(no bundle)') && ev.options.filter(([v]) => v === '').length === 1 && ev.searchEmpty.result === 'results' && J(ev.searchEmpty.refs) === J(NO_BUNDLE) && ev.searchEmpty.selected === '~',
+			documentsPageNotice: ev.docPage?.notice === 'The requested page “abc” is not a page number; page 1 is shown.' && ev.docPage?.page === '1',
+			documentsEmptyBundle: ev.docButton === `(no bundle) (${NO_BUNDLE.length})` && /(^|[?&])bundle=(~|%7E)(&|$)/.test(ev.docEmpty?.url) && ev.docEmpty?.bundle === '' && J(ev.docEmpty?.refs) === J(NO_BUNDLE) && !ev.docEmpty?.unknown,
+			searchEmptyBundle: ev.options?.some(([v, l]) => v === '~' && l === '(no bundle)') && ev.options?.filter(([v]) => v === '').length === 1 && ev.searchEmpty?.result === 'results' && J(ev.searchEmpty?.refs) === J(NO_BUNDLE) && ev.searchEmpty?.selected === '~',
 		};
-		return { pass: Object.values(checks).every(Boolean), evidence: { checks, ...ev } };
+		return { pass: !ev.error && Object.values(checks).every(Boolean), evidence: { checks, ...ev } };
 	});
 
 	// E10 (diff): compare two known texts as an explicit pair, with coverage

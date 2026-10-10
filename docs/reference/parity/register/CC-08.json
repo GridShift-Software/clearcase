@@ -27,30 +27,6 @@
       "approvedOn": "2026-10-09"
     },
     {
-      "id": "IDR-030",
-      "view": "authorities_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-18",
-      "reason": "The app does not implement Authorities yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-031",
-      "view": "heads_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-18",
-      "reason": "The app does not implement Heads of Argument yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
       "id": "IDR-300",
       "view": "crossexam_tab",
       "field": "title",
@@ -219,6 +195,206 @@
       "type": "improvement",
       "source": "GRS-18",
       "reason": "GRS-18 acceptance: the check always says it searched only this matter's people and entities (counted from the data) and that a result is not a conflict clearance; v5 said nothing about scope.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-310",
+      "view": "heads_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 left it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-311",
+      "view": "heads_tab",
+      "field": [
+        "sweep.register_edit.overview.Open deadlines",
+        "sweep.register_edit.overview.Unbilled time"
+      ],
+      "when": {
+        "app": {
+          "re": "^Not yet available — owned by GRS-17"
+        }
+      },
+      "type": "not-yet-implemented",
+      "owner": "GRS-17",
+      "reason": "The overview tiles that register_edit reads after the sweep: the deadline and timesheet slots stay unfilled until GRS-17 (CC-07) lands them.",
+      "productVisible": false,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-312",
+      "view": "heads_tab",
+      "field": "sweep.register_edit.overview.Scanned (need OCR)",
+      "when": {
+        "v5": {
+          "re": "^[0-9,]+$"
+        },
+        "app": {
+          "re": "^[0-9,]+$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-meta-counts",
+      "reason": "The overview tile read after the sweep: the app counts register rows with text status none instead of repeating the source META figure, as on the overview itself (S-meta-counts, IDR-049).",
+      "productVisible": false,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-313",
+      "view": "heads_tab",
+      "field": "text.source_and_scope.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Supplied analysis from the imported results package, shown as supplied\\. ClearCase has not verified it"
+        }
+      },
+      "type": "improvement",
+      "source": "GRS-18",
+      "reason": "GRS-18 acceptance: the view labels its content as supplied analysis that ClearCase has not verified (every lit-* dataset is authored analysis); v5 showed no such note.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-314",
+      "view": "heads_tab",
+      "field": "export.export.name",
+      "when": {
+        "v5": {
+          "re": "^.+_heads_of_argument\\.txt$"
+        },
+        "app": "heads_of_argument.txt"
+      },
+      "type": "defect-fix",
+      "source": "S-hardcoded-case",
+      "reason": "The export file name is generic (heads_of_argument.txt); v5 prefixed it with the case abbreviations, which are case content that app code must not carry (S-hardcoded-case, as the chronology export IDR-064).",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-315",
+      "view": "authorities_tab",
+      "field": "title",
+      "when": {
+        "v5": "Legal Authorities",
+        "app": "Authorities"
+      },
+      "type": "improvement",
+      "source": "BA-18",
+      "reason": "The page heading is the navigation label (BA-18), so the destination matches the task the user chose; v5 headed this view \"Legal Authorities\".",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-316",
+      "view": "authorities_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 left it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-317",
+      "view": "authorities_tab",
+      "field": [
+        "sweep.register_edit.overview.Open deadlines",
+        "sweep.register_edit.overview.Unbilled time"
+      ],
+      "when": {
+        "app": {
+          "re": "^Not yet available — owned by GRS-17"
+        }
+      },
+      "type": "not-yet-implemented",
+      "owner": "GRS-17",
+      "reason": "The overview tiles that register_edit reads after the sweep: the deadline and timesheet slots stay unfilled until GRS-17 (CC-07) lands them.",
+      "productVisible": false,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-318",
+      "view": "authorities_tab",
+      "field": "sweep.register_edit.overview.Scanned (need OCR)",
+      "when": {
+        "v5": {
+          "re": "^[0-9,]+$"
+        },
+        "app": {
+          "re": "^[0-9,]+$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-meta-counts",
+      "reason": "The overview tile read after the sweep: the app counts register rows with text status none instead of repeating the source META figure, as on the overview itself (S-meta-counts, IDR-049).",
+      "productVisible": false,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-319",
+      "view": "authorities_tab",
+      "field": "text.source_and_scope.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Supplied analysis from the imported results package, shown as supplied\\. ClearCase has not verified it"
+        }
+      },
+      "type": "improvement",
+      "source": "GRS-18",
+      "reason": "GRS-18 acceptance: the view labels its content as supplied analysis that ClearCase has not verified (every lit-* dataset is authored analysis); v5 showed no such note.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-320",
+      "view": "authorities_tab",
+      "field": "export.export_csv.name",
+      "when": {
+        "v5": {
+          "re": "^.+_authorities\\.csv$"
+        },
+        "app": "authorities.csv"
+      },
+      "type": "defect-fix",
+      "source": "S-hardcoded-case",
+      "reason": "The export file name is generic (authorities.csv); v5 prefixed it with the case abbreviations, which are case content that app code must not carry (S-hardcoded-case, as the chronology export IDR-064).",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
       "approvedBy": null,

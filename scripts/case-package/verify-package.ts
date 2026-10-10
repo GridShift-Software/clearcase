@@ -281,8 +281,10 @@ lane(11, 'Carry code-embedded view content as data; every other file keeps the a
   const perView = new Map<string, number>();
   for (const f of extracted) perView.set(f.view, (perView.get(f.view) ?? 0) + 1);
   for (const [v, n] of [...perView].sort()) log(`  ${v}: ${n} fields`);
-  check(log, extracted.length === VIEW_CONTENT_MAP.length, `map fields extracted: ${extracted.length} of ${VIEW_CONTENT_MAP.length} from ${perView.size} views (23 v5 views and the shell expected: ${perView.size === 24})`);
-  check(log, perView.size === 24, 'fields come from 23 v5 views and the shared shell');
+  // the views the map names (v5 views and the shared shell), so a map change that adds a view needs no edit here
+  const mapViews = new Set(VIEW_CONTENT_MAP.map((e) => e.view)).size;
+  check(log, extracted.length === VIEW_CONTENT_MAP.length, `map fields extracted: ${extracted.length} of ${VIEW_CONTENT_MAP.length} from ${perView.size} views (${mapViews - 1} v5 views and the shell expected: ${perView.size === mapViews})`);
+  check(log, perView.size === mapViews, `fields come from ${mapViews - 1} v5 views and the shared shell`);
   const conv = main.diagnostics.filter((d) => d.code.startsWith('V5_VIEW_CONTENT_'));
   check(log, conv.length === 0, `view-content conversion diagnostics: ${conv.length}`);
   log(`unmapped prose literals in audited scopes (locations in the convert report, reviewed as UI chrome): ${vc.unmapped.length}`);
@@ -291,7 +293,7 @@ lane(11, 'Carry code-embedded view content as data; every other file keeps the a
   check(log, full.diagnostics.filter((d) => d.file === `datasets/${VIEW_CONTENT.key}.json`).length === 0, 'validated against v5.view-content@1 with no diagnostics on its file');
   const rd = readViewContent(env!.data);
   const templates = rd.views().flatMap((v) => rd.fields(v).filter((f) => (rd.params(v, f) ?? []).length > 0));
-  check(log, rd.views().length === 24 && rd.views().reduce((n, v) => n + rd.fields(v).length, 0) === VIEW_CONTENT_MAP.length, `typed reader: ${rd.views().length} views, ${templates.length} templates with params`);
+  check(log, rd.views().length === mapViews && rd.views().reduce((n, v) => n + rd.fields(v).length, 0) === VIEW_CONTENT_MAP.length, `typed reader: ${rd.views().length} views, ${templates.length} templates with params`);
   const files = main.manifest!.files.filter((f) => f.path !== `datasets/${VIEW_CONTENT.key}.json`);
   const without = resultsVersionOf({ formatVersion: main.manifest!.formatVersion, caseId: main.manifest!.case.id, inputRevisionId: main.manifest!.inputRevision.id, files });
   check(log, !!cfg.accepted, 'the fixture configuration names the accepted pre-view-content identity');

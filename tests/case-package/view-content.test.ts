@@ -389,14 +389,70 @@ describe('readViewContent', () => {
 });
 
 describe('view-content map', () => {
-  it('covers 23 v5 views plus the shell with well-formed, unique ids and checklist references', () => {
+  it('covers 25 v5 views plus the shell with well-formed, unique ids and checklist references', () => {
     expect(() => checkMap(VIEW_CONTENT_MAP, VIEW_CONTENT_OMISSIONS)).not.toThrow();
     const views = new Set(VIEW_CONTENT_MAP.map((e) => e.view));
     for (const v of views) expect(v === SHELL_VIEW || (V5_VIEW_IDS as readonly string[]).includes(v)).toBe(true);
-    expect(views.size).toBe(24);
+    expect(views.size).toBe(26);
     for (const e of [...VIEW_CONTENT_MAP, ...VIEW_CONTENT_OMISSIONS]) expect(e.checklist).toMatch(/S-[a-z_]+-\d+|L\d+/);
     for (const o of VIEW_CONTENT_OMISSIONS) expect(o.reason.length).toBeGreaterThan(10);
     expect(() => checkMap([...VIEW_CONTENT_MAP, VIEW_CONTENT_MAP[0]!], [])).toThrow(/duplicate/);
+  });
+});
+
+describe('view-content extraction: export file names, CSV keys and the register introduction (BASE-R2)', () => {
+  const diag = (r: ReturnType<typeof extract>) => r.diagnostics.map((d) => [d.code, d.subject]);
+  it('extracts every export name, the Defence CSV keys and the register introduction from the synthetic code', () => {
+    const { data, fields } = extract();
+    expect(fields.filter((f) => f.status !== 'extracted')).toEqual([]);
+    expect(data.chronology).toEqual({ exportFileName: 'syn-chronology.csv' });
+    expect(data.search).toEqual({ exportFileName: 'syn-search.csv' });
+    expect(data.contracts_tab!.exportFileName).toBe('syn-contracts.csv');
+    expect(data.filings_tab!.exportFileName).toBe('syn-filings.csv');
+    expect(data.filings_tab!.registerExportFileName).toBe('syn-filing-register.csv');
+    expect(data.contradictions_tab!.exportFileName).toBe('syn-contradictions.csv');
+    expect(data.vdm_matrix_tab!.exportFileName).toBe('syn-defence-matrix.csv');
+    expect(data.vdm_matrix_tab!.exportColumns).toEqual(['syn_point', 'documents', 'syn_rebuttal', 'org_answer', 'status']);
+  });
+
+  it('keeps only the introduction of the register paragraph, never the storage sentence or its key', () => {
+    const intro = extract().data.filings_tab!.registerIntro;
+    expect(intro).toBe('An invented register of the invented bundle, kept by hand.');
+    expect(intro).not.toMatch(/browser|syn_register_v1/);
+    // without the closing storage sentence there is no structural anchor: missing, not guessed
+    const bare = extract(swap(' It is saved in this browser (syn_register_v1).</p>', '</p>'));
+    expect(bare.data.filings_tab!.registerIntro).toBeUndefined();
+    expect(diag(bare)).toEqual([['V5_VIEW_CONTENT_MISSING', 'filings_tab.registerIntro']]);
+    // two paragraphs of that shape: ambiguous
+    const two = extract(swap("h+='</div>';el.innerHTML=h;};", "h+='<p>Another invented paragraph. Kept in (syn_other).</p>';h+='</div>';el.innerHTML=h;};"));
+    expect(two.data.filings_tab!.registerIntro).toBeUndefined();
+    expect(diag(two)).toEqual([['V5_VIEW_CONTENT_AMBIGUOUS', 'filings_tab.registerIntro']]);
+  });
+
+  it('refuses a computed file name as a shape miss instead of guessing', () => {
+    const r = extract(swap("dl('syn-chronology.csv',", "dl(caseKey+'.csv',"));
+    expect(r.data.chronology).toBeUndefined();
+    expect(diag(r)).toEqual([['V5_VIEW_CONTENT_MISSING', 'chronology.exportFileName']]);
+    expect(r.fields.find((f) => f.view === 'chronology')!.status).toBe('shape');
+    expect(r.diagnostics[0]!.message).toMatch(/expected literal text, found code/);
+  });
+
+  it('reports a missing export function, and one defined twice as ambiguous', () => {
+    const gone = extract(swap('function exportSearch(){', 'function exportFind(){'));
+    expect(gone.data.search).toBeUndefined();
+    expect(diag(gone)).toEqual([['V5_VIEW_CONTENT_MISSING', 'search.exportFileName']]);
+    expect(gone.diagnostics[0]!.message).toMatch(/scope function:exportSearch not found/);
+    const twice = extract(swap("function exportFilings(){", "function exportContracts(){dl('syn-other.csv','','text/csv');}\nfunction exportFilings(){"));
+    expect(twice.data.contracts_tab!.exportFileName).toBeUndefined();
+    expect(diag(twice)).toEqual([['V5_VIEW_CONTENT_AMBIGUOUS', 'contracts_tab.exportFileName']]);
+  });
+
+  it('refuses a CSV header with a computed key', () => {
+    const r = extract(swap("'org_answer','status'];", "'org_answer',DATA.matter.side+'_status'];"));
+    expect(r.data.vdm_matrix_tab!.exportColumns).toBeUndefined();
+    expect(r.data.vdm_matrix_tab!.exportFileName).toBe('syn-defence-matrix.csv');
+    expect(diag(r)).toEqual([['V5_VIEW_CONTENT_MISSING', 'vdm_matrix_tab.exportColumns']]);
+    expect(r.diagnostics[0]!.message).toMatch(/list item is code/);
   });
 });
 

@@ -49,8 +49,8 @@ export function abortOf(e, step) {
 	return dead ? new StepAborted(step, dead.message, 'browser') : null;
 }
 
-/** The evidence reason for an abort (evidenceRecord's `other`): the run proves nothing past it. */
-export const abortReason = (a) => `run aborted in ${a.step}: ${a.cause}`;
+/** The evidence reason for an abort, a StepAborted or its record (evidenceRecord's `other`): the run proves nothing past it. */
+export const abortReason = (a) => { const { step, cause } = a instanceof StepAborted ? a.record : a; return `run aborted in ${step}: ${cause}`; };
 
 /** After an abort: if cleanup has not ended the process within `ms`, exit with `code` (a run never hangs). */
 export function exitWithin(ms, code, who) {

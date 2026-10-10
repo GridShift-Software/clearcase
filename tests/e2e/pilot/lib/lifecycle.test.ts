@@ -12,7 +12,7 @@ import { afterAll, describe, expect, test } from 'vitest';
 
 const HERE = import.meta.dirname;
 const { BrowserDied, browserDeath, CHROME, LaunchFailed, launch, newPage } = await import(join(HERE, 'cdp.mjs'));
-const { abortOf, guard, StepAborted } = await import(join(HERE, 'lifecycle.mjs'));
+const { abortOf, abortReason, guard, StepAborted } = await import(join(HERE, 'lifecycle.mjs'));
 const { offlineStep } = await import(join(HERE, '..', 'run.mjs'));
 const BUN = process.versions.bun ? process.execPath : 'bun';
 const root = mkdtempSync(join(tmpdir(), 'cc-lifecycle-'));
@@ -81,6 +81,9 @@ describe('a browser step fails fast', () => {
 		const { e, ms } = await rejection(guard('lane-04', 300, () => new Promise(() => {})));
 		expect([e.message, e.kind]).toEqual(['lane-04: no result within 0.3 s (timeout)', 'timeout']);
 		expect(ms).toBeLessThan(2000);
+		// the evidence reason names the step and the cause, from the abort itself or from its record
+		const reason = 'run aborted in lane-04: no result within 0.3 s (timeout)';
+		expect([abortReason(e), abortReason((e as unknown as { record: object }).record)]).toEqual([reason, reason]);
 		const b = await launch({ profileRoot: join(root, 'close') });
 		const p = await newPage(b);
 		const step = rejection(guard('scenario CLOSING', 3000, () => p.waitFor('false', 600_000)));

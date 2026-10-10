@@ -13,6 +13,10 @@
 // Fresh-build evidence (lib/fresh-build.ts): the build stamp must be HEAD's, made in <repo>/build, from and on a tree
 // without modified or untracked (not ignored) files; otherwise exit 2 before any step, unless --allow-stale-build,
 // which runs it with `evidence: false` in the summary and NOT EVIDENCE in the final status line.
+// Fail fast: each step runs at most 15 minutes (CLEARCASE_SUITE_TIMEOUT_MS; the browser suite takes about one, the
+// durability suite about two) and is then stopped with SIGTERM, which fails it. A step that timed out, or a suite whose
+// record (<out>/<name>.json) says it aborted (a dead browser, a scenario timeout: lib/lifecycle.mjs), makes the summary
+// `evidence: false` with the reason.
 // Results: $CLEARCASE_REPORT_DIR/e2e.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -43,6 +47,19 @@ export function discoverCategories({ e2eDir = join(appRoot, 'tests', 'e2e'), rou
 	const suites = CATEGORIES.filter((c) => existsSync(join(e2eDir, c, 'suite.mjs')));
 	const views = CATEGORIES.filter((c) => hasFiles(join(routesDir, c)));
 	return { suites, views, missing: views.filter((c) => !suites.includes(c)) };
+}
+
+/** A step's time limit in ms. */
+export const STEP_TIMEOUT_MS = +(process.env.CLEARCASE_SUITE_TIMEOUT_MS ?? 15 * 60_000);
+
+/** Why a step proves nothing even if it passed: it timed out, or its record says the run aborted; else null. */
+export function stepAbort(out, step) {
+	if (step.timedOut) return `${step.name}: no result within ${STEP_TIMEOUT_MS / 1000} s (timeout); stopped`;
+	if (!step.record) return null;
+	try {
+		const a = JSON.parse(readFileSync(join(out, step.record), 'utf8')).aborted;
+		return a ? `${step.name}: run aborted in ${a.step}: ${a.cause}` : null;
+	} catch { return null; }
 }
 
 /** Where a category suite writes what it ran. */
@@ -99,19 +116,22 @@ async function main() {
 	for (const c of cats.missing) console.error(`test:e2e: category ${c} has views but no suite`);
 	const offline = (file) => offlineStep(join(here, file));
 	const steps = [
-		['browser suite (offline)', offline('suite.mjs')],
-		['durability suite (offline)', offline('durability.mjs')],
-		['loopback bind check (host namespace)', [process.execPath, [join(here, 'netcheck.mjs')]]],
+		['browser suite (offline)', offline('suite.mjs'), undefined, 'suite.json'],
+		['durability suite (offline)', offline('durability.mjs'), undefined, 'durability.json'],
+		['loopback bind check (host namespace)', [process.execPath, [join(here, 'netcheck.mjs')]], undefined, 'netcheck.json'],
 		...categorySteps(),
 	];
 	const results = [];
 	if (missing.length) console.error(`test:e2e: missing prerequisites: ${missing.join(', ')} (build first with bun run --bun build)`);
-	else for (const [name, [cmd, args], category] of steps) {
+	else for (const [name, [cmd, args], category, record] of steps) {
 		const t0 = Date.now();
 		console.log(`\n=== ${name}: ${cmd} ${args.join(' ')}`);
 		if (category) rmSync(suiteSummaryFile(dir, category), { force: true });
-		const r = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', env: { ...process.env, CLEARCASE_E2E_OUT: dir } });
-		const res = { name, rc: r.status, ms: Date.now() - t0 };
+		if (record) rmSync(join(dir, record), { force: true });
+		const r = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', env: { ...process.env, CLEARCASE_E2E_OUT: dir }, timeout: STEP_TIMEOUT_MS, killSignal: 'SIGTERM' });
+		const timedOut = r.error?.code === 'ETIMEDOUT';
+		if (timedOut) console.error(`test:e2e: ${name}: no result within ${STEP_TIMEOUT_MS / 1000} s; stopped`);
+		const res = { name, rc: timedOut ? 124 : r.status, ms: Date.now() - t0, ...(timedOut ? { timedOut } : {}), ...(record ? { record } : {}) };
 		if (category) {
 			const problems = suiteProblems(dir, category, implementedIn(category));
 			for (const p of problems) console.error(`test:e2e: ${category} suite: ${p}`);
@@ -121,7 +141,7 @@ async function main() {
 	}
 	const noSuite = cats.missing.map((c) => ({ name: `category ${c} has views but no suite`, rc: 1, ms: 0 }));
 	const ok = missing.length === 0 && results.length === steps.length && results.every((r) => r.rc === 0) && noSuite.length === 0;
-	const evidence = evidenceRecord(fresh, allowed);
+	const evidence = evidenceRecord(fresh, allowed, results.map((r) => stepAbort(dir, r)).filter(Boolean));
 	writeFileSync(join(dir, 'summary.json'), JSON.stringify({ ok, prerequisites: pre, missing, bun: bunIdentity(), build, ...evidence, categories: cats, results: [...results, ...noSuite] }, null, 1));
 	console.log('\n' + [...results, ...noSuite].map((r) => `${r.rc === 0 ? 'PASS' : 'FAIL'} rc=${r.rc} ${(r.ms / 1000).toFixed(1)}s ${r.name}`).join('\n'));
 	console.log(`test:e2e: ${ok ? 'PASS' : 'FAIL'}${evidenceSuffix(evidence)}`);

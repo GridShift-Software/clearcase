@@ -461,8 +461,8 @@ try {
 		return { pass: Object.values(out).every((o) => o.usable.length === 0 && /need JavaScript/.test(o.note) && !o.hydrated), evidence: out };
 	});
 
-	// a second server and case: duplicate numbers, a bulk supplementary schedule (40 x 100 files), an Original item with
-	// unmarked files; a third case without a page-text index
+	// a second server and case: a repeated bundle number and page, a bulk supplementary schedule (40 x 100 files), an
+	// Original item with unmarked files; a third case without a page-text index and with a repeated item number
 	const BULK = 40, PER = 100;
 	const bulkPath = (i, j) => `SYNTHETIC BULK FOLDER WITH A LONG NAME/SUBFOLDER ${i}/Synthetic item ${i} file ${j} with a long descriptive file name.pdf`;
 	const caseB = await buildCase(join(tmp, 'case-b'), {
@@ -470,7 +470,7 @@ try {
 		edit: (r) => {
 			r.SCHED.discovery = [
 				{ no: 1, date: '', desc: 'Synthetic original item', co: 'O', nfiles: 2, files: [{ fn: 'orig one.pdf', url: url('SYN B/orig one.pdf'), co: '' }, { fn: 'orig two.pdf', url: url('SYN B/orig two.pdf'), co: '' }] },
-				{ no: 1, date: '', desc: 'Synthetic repeated number', co: 'C', nfiles: 1, files: [{ fn: 'repeat.pdf', url: url('SYN B/repeat.pdf'), co: 'C' }] },
+				{ no: 3, date: '', desc: 'Synthetic third item', co: 'C', nfiles: 1, files: [{ fn: 'repeat.pdf', url: url('SYN B/repeat.pdf'), co: 'C' }] },
 				{ no: 2, date: '', desc: 'Synthetic plain item', co: 'C', nfiles: 2, files: [{ fn: 'plain one.pdf', url: url('SYN B/plain one.pdf'), co: 'C' }, { fn: 'plain two.pdf', url: url('SYN B/plain two.pdf'), co: 'C' }] },
 			];
 			r.SCHED.supplementary = Array.from({ length: BULK }, (_, i) => ({ no: i + 1, date: '', desc: `Synthetic bulk item ${i + 1}`, co: 'C', nfiles: PER, files: Array.from({ length: PER }, (_, j) => ({ fn: `file ${j}.pdf`, url: url(bulkPath(i + 1, j)), co: 'C' })) }));
@@ -480,7 +480,19 @@ try {
 			bl.push({ ...bl[0], title: 'Synthetic repeated bundle', name: 'Synthetic repeated bundle' }, { ...bl[0], no: '2', name: 'Unbuilt', title: 'Unbuilt', file: '', indexFile: '' });
 		},
 	});
-	const caseC = await buildCase(join(tmp, 'case-c'), { caseId: 'e2e-case-c', edit: (r) => { r.CASELINES.index = []; } });
+	// case C: no page-text index, and a Discovery schedule that repeats an item number (case B has none, so its Discovery
+	// scenarios also run, and fail on their own defects, at a revision that blanks a view with repeated numbers)
+	const caseC = await buildCase(join(tmp, 'case-c'), {
+		caseId: 'e2e-case-c',
+		edit: (r) => {
+			r.CASELINES.index = [];
+			r.SCHED.discovery = [
+				{ no: 1, date: '', desc: 'Synthetic original item', co: 'O', nfiles: 1, files: [{ fn: 'c one.pdf', url: url('SYN C/c one.pdf'), co: '' }] },
+				{ no: 1, date: '', desc: 'Synthetic repeated number', co: 'C', nfiles: 1, files: [{ fn: 'c repeat.pdf', url: url('SYN C/c repeat.pdf'), co: 'C' }] },
+				{ no: 2, date: '', desc: 'Synthetic plain item', co: 'C', nfiles: 1, files: [{ fn: 'c plain.pdf', url: url('SYN C/c plain.pdf'), co: 'C' }] },
+			];
+		},
+	});
 	const SB = appServer({ name: 'b', root: ROOT, buildDir: BUILD, port: 43102, origPort: 43103, dir: tmp });
 	const { startServer } = await import('../pilot/lib/server.mjs');
 	SB.srv = await startServer({ root: ROOT, port: SB.port, origPort: SB.origPort, dataDir: SB.dataDir, buildDir: BUILD, logFile: SB.logFile, env });
@@ -501,7 +513,7 @@ try {
 
 		await S('DS-DUP', 'discovery_tab', 'D8: a repeated item number renders every row, hydrates without an exception and is flagged', async () => {
 			const mk = b.mark();
-			await q.go(DB, 'discovery_tab');
+			await q.go(`${VC}/bundles/discovery_tab`, 'discovery_tab');
 			const r = await q.evaluate(`({ rows: [...document.querySelectorAll('#ds-list tr[data-item]')].map((t) => t.querySelector('.tx').textContent.trim()), dup: document.querySelectorAll('#ds-list .dup').length, hydrated: !!document.querySelector('main[data-hydrated]') })`);
 			const ex = exceptions(mk);
 			return { pass: r.rows.join('|') === 'Synthetic original item|Synthetic repeated number|Synthetic plain item' && r.dup === 2 && r.hydrated && ex.length === 0, evidence: { r, ex } };

@@ -385,8 +385,10 @@ export async function lane7(C, L) {
 	const { fx, pkg } = C;
 	const copy = join(C.work, 'case-missing');
 	rmSync(copy, { recursive: true, force: true });
-	L.cmd(`cp -a --reflink=always ${fx.caseFolder} ${copy}`);
-	const cp = spawnSync('cp', ['-a', '--reflink=always', fx.caseFolder, copy], { encoding: 'utf8' });
+	// the copy takes default modes (--no-preserve=mode), so it is writable when the case folder is read-only (files
+	// 0444, folders 0555); the source keeps its own (as verify:package lane 09 copies it)
+	L.cmd(`cp -a --reflink=always --no-preserve=mode ${fx.caseFolder} ${copy}`);
+	const cp = spawnSync('cp', ['-a', '--reflink=always', '--no-preserve=mode', fx.caseFolder, copy], { encoding: 'utf8' });
 	L.need('disposable reflink copy of the case folder (the filesystem must support reflinks; no full copy)', 0, cp.status);
 	C.cleanup.push(copy);
 	const pathCount = countBy(Object.values(pkg.assets).filter((a) => a.kind === 'file'), (a) => a.path);

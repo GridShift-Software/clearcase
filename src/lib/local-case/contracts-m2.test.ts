@@ -1012,3 +1012,129 @@ describe('gate round 4: owner traps in the user-work API (HARDEN-M2 r4)', () => 
 		exec.mockRestore();
 	});
 });
+
+describe('external review of PR #12: export and restore agree (PRFIX-12)', () => {
+	const failure = async (p: Promise<unknown>) => { try { await p; return { code: 'accepted', message: '' }; } catch (e) { return { code: e instanceof UserWorkError ? e.code : `untyped ${(e as Error).name}`, message: String((e as Error).message) }; } };
+	const json = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
+	async function fresh(tag: string) {
+		const root = await tempRoot(tag);
+		roots.push(root);
+		const lc = service(path.join(root, 'data'));
+		open.push(lc);
+		await lc.startup();
+		return lc;
+	}
+	const own = { owner: 'GRS-17' };
+	const amounts = { name: 'amounts', owner: 'GRS-17', description: 'synthetic amounts', scope: 'store' as const, columns: [{ name: 'id', type: 'TEXT' as const }, { name: 'amount', type: 'REAL' as const }, { name: 'units', type: 'INTEGER' as const }], primaryKey: ['id'] };
+	const OUT_OF_RANGE = ['1e999', '-1e999', ' 1e999 ', `1${'0'.repeat(400)}`];
+
+	it('P2-1 numeric text that SQLite stores as a non-finite number is refused, so the next export keeps every valid row', async () => {
+		const lc = await fresh('pf1');
+		const uw = lc.userWork;
+		await uw.defineTable(amounts);
+		await uw.putTableRow('amounts', { id: 'a', amount: 12.5, units: 3 }, own);
+		for (const v of OUT_OF_RANGE) for (const column of ['amount', 'units']) {
+			const f = await failure(uw.putTableRow('amounts', { id: 'b', [column]: v }, own));
+			expect(f).toEqual({ code: 'invalid', message: expect.stringMatching(new RegExp(`column ${column}: .*out of range.*nothing was written`)) });
+			expect(f.message).not.toContain(v.trim());
+			// replacing an existing row is refused the same way, and the row keeps its value
+			expect((await failure(uw.putTableRow('amounts', { id: 'a', [column]: v }, own))).code).toBe('invalid');
+		}
+		// numeric text SQLite keeps as text, or stores as a finite number, is a value an export holds
+		await uw.putTableRow('amounts', { id: 'c', amount: 'NaN', units: 'Infinity' }, own);
+		await uw.putTableRow('amounts', { id: 'd', amount: '-Infinity', units: '99999999999999999999' }, own);
+		const snap = json(uw.exportAll());
+		expect(snap.excluded).toEqual([]);
+		expect(snap.tables.find((t) => t.name === 'amounts')!.rows).toEqual([
+			{ id: 'a', amount: 12.5, units: 3 }, { id: 'c', amount: 'NaN', units: 'Infinity' }, { id: 'd', amount: '-Infinity', units: 1e20 },
+		]);
+		expect((await failure(uw.importAll(snap))).code).toBe('accepted');
+		const lc2 = await fresh('pf1b');
+		await lc2.userWork.importAll(snap);
+		expect(json(lc2.userWork.exportAll()).tables.find((t) => t.name === 'amounts')!.rows).toEqual(snap.tables.find((t) => t.name === 'amounts')!.rows);
+	});
+
+	it('P2-1 a restore carrying such numeric text is refused as invalid and writes nothing, here or in a fresh store', async () => {
+		const lc = await fresh('pf1r');
+		const uw = lc.userWork;
+		await uw.defineTable(amounts);
+		await uw.putTableRow('amounts', { id: 'a', amount: 1, units: 1 }, own);
+		const good = json(uw.exportAll());
+		const lc2 = await fresh('pf1r2');
+		for (const v of OUT_OF_RANGE) for (const column of ['amount', 'units']) {
+			const t = good.tables.find((x) => x.name === 'amounts')!;
+			const bad = { ...good, tables: [{ ...t, rows: [...t.rows, { id: 'z', amount: null, units: null, [column]: v }] }] };
+			for (const target of [uw, lc2.userWork]) for (const replace of ['cases', 'tables'] as const) {
+				const f = await failure(target.importAll(json(bad), { replace }));
+				expect(f).toEqual({ code: 'invalid', message: expect.stringMatching(new RegExp(`^table amounts: column ${column}: .*nothing was restored`)) });
+				expect(f.message).not.toContain(v.trim());
+			}
+		}
+		expect(json(uw.exportAll()).tables).toEqual(good.tables);
+		expect(lc2.userWork.tables().some((t) => t.name === 'amounts')).toBe(false);
+		// a REAL key that becomes Infinity is refused too
+		await uw.defineTable({ ...amounts, name: 'rkey', columns: [{ name: 'k', type: 'REAL' }, { name: 'v', type: 'TEXT' }], primaryKey: ['k'] });
+		expect((await failure(uw.putTableRow('rkey', { k: '1e999', v: 'x' }, own))).code).toBe('invalid');
+		expect(uw.listTableRows('rkey')).toEqual([]);
+	});
+
+	it('P2-1 a non-finite number already stored by raw SQL (REAL, INTEGER, NUMERIC) is excluded with a reason, and the export restores', async () => {
+		const lc = await fresh('pf1x');
+		const uw = lc.userWork;
+		const db = lc.storage.db();
+		await uw.defineTable(amounts);
+		await uw.putTableRow('amounts', { id: 'a', amount: 1, units: 1 }, own);
+		db.exec("CREATE TABLE work.raw_real(id TEXT PRIMARY KEY NOT NULL, r REAL); INSERT INTO work.raw_real VALUES ('x', '1e999'), ('y', 2)");
+		db.exec("CREATE TABLE work.raw_int(id TEXT PRIMARY KEY NOT NULL, n INTEGER); INSERT INTO work.raw_int VALUES ('x', '-1e999')");
+		db.exec("CREATE TABLE work.raw_num(id TEXT PRIMARY KEY NOT NULL, n NUMERIC); INSERT INTO work.raw_num VALUES ('x', '1e999')");
+		const snap = json(uw.exportAll());
+		expect(snap.excluded).toEqual([
+			{ name: 'raw_int', kind: 'unregistered', rows: 1, reason: expect.stringContaining('column n') },
+			{ name: 'raw_num', kind: 'unregistered', rows: 1, reason: expect.stringContaining('columns need') },
+			{ name: 'raw_real', kind: 'unregistered', rows: 2, reason: expect.stringContaining('column r') },
+		]);
+		expect(snap.tables.map((t) => t.name)).toContain('amounts');
+		expect((await failure(uw.importAll(snap))).code).toBe('accepted');
+		expect((await failure((await fresh('pf1x2')).userWork.importAll(snap))).code).toBe('accepted');
+	});
+
+	it('P2-2 an unregistered table with a non-BINARY key collation is excluded with a reason, so its export restores here and fresh', async () => {
+		const lc = await fresh('pf2');
+		const uw = lc.userWork;
+		const db = lc.storage.db();
+		db.exec("CREATE TABLE work.legacy(id TEXT COLLATE NOCASE PRIMARY KEY NOT NULL, memo TEXT); INSERT INTO work.legacy VALUES ('L-1', 'synthetic')");
+		db.exec("CREATE TABLE work.legacy_rt(id TEXT NOT NULL, memo TEXT, PRIMARY KEY(id COLLATE RTRIM)) WITHOUT ROWID; INSERT INTO work.legacy_rt VALUES ('R-1', 'synthetic')");
+		// a NOCASE case_id outside the key, catalogued as a case table by hand
+		db.exec("CREATE TABLE work.legacy_nc(k TEXT NOT NULL PRIMARY KEY, case_id TEXT COLLATE NOCASE NOT NULL); INSERT INTO work.legacy_nc VALUES ('x', 'A'); INSERT INTO work.userwork_catalog(name, kind, owner, description) VALUES ('legacy_nc', 'user-work', 'GRS-18', '')");
+		// a collation on a non-key column compares nothing a restore matches: exported and restored
+		db.exec("CREATE TABLE work.legacy_ok(id TEXT PRIMARY KEY NOT NULL, memo TEXT COLLATE NOCASE); INSERT INTO work.legacy_ok VALUES ('O-1', 'Synthetic')");
+		const snap = json(uw.exportAll());
+		expect(snap.excluded).toEqual([
+			{ name: 'legacy', kind: 'unregistered', rows: 1, reason: expect.stringMatching(/column id has the collation NOCASE/) },
+			{ name: 'legacy_nc', kind: 'user-work', rows: 1, reason: expect.stringMatching(/column case_id has the collation NOCASE/) },
+			{ name: 'legacy_rt', kind: 'unregistered', rows: 1, reason: expect.stringMatching(/column id has the collation RTRIM/) },
+		]);
+		expect(snap.tables.find((t) => t.name === 'legacy_ok')!.rows).toEqual([{ id: 'O-1', memo: 'Synthetic' }]);
+		expect((await failure(uw.importAll(json(snap)))).code).toBe('accepted');
+		expect((await failure(uw.importAll(json(snap), { replace: 'tables' }))).code).toBe('accepted');
+		const lc2 = await fresh('pf2b');
+		expect((await failure(lc2.userWork.importAll(json(snap)))).code).toBe('accepted');
+		expect(json(lc2.userWork.exportAll()).tables.find((t) => t.name === 'legacy_ok')!.rows).toEqual([{ id: 'O-1', memo: 'Synthetic' }]);
+		// the export's probe leaves nothing behind and changes no row
+		expect(db.prepare("SELECT name FROM work.sqlite_master WHERE name LIKE '%probe%'").all()).toEqual([]);
+		expect(db.isTransaction).toBe(false);
+		expect(db.prepare('SELECT * FROM work.legacy').all().map((r) => ({ ...r }))).toEqual([{ id: 'L-1', memo: 'synthetic' }]);
+	});
+
+	it('P2-2 a table a fresh store would refuse (store-scoped with case_id TEXT NOT NULL) is excluded, naming the fresh store', async () => {
+		const lc = await fresh('pf2f');
+		const uw = lc.userWork;
+		const db = lc.storage.db();
+		// catalogued before scopes were recorded: a store table here, but a fresh store's restore would make it a case table
+		db.exec("CREATE TABLE work.early(id TEXT PRIMARY KEY NOT NULL, case_id TEXT NOT NULL); INSERT INTO work.early VALUES ('e', 'A'); INSERT INTO work.userwork_catalog(name, kind, owner, description) VALUES ('early', 'user-work', 'GRS-18', '')");
+		const snap = json(uw.exportAll());
+		expect(snap.excluded).toEqual([{ name: 'early', kind: 'user-work', rows: 1, reason: expect.stringMatching(/^in a fresh store: .*case-scoped/) }]);
+		expect((await failure(uw.importAll(json(snap)))).code).toBe('accepted');
+		expect((await failure((await fresh('pf2f2')).userWork.importAll(json(snap)))).code).toBe('accepted');
+	});
+});

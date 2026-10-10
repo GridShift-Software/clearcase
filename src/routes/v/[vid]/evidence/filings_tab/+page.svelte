@@ -1,6 +1,16 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	// Unsaved register input is never lost and never shown as saved (CC-04 r2). While a write is in flight the form,
+	// Cancel, Retry and every row's Edit and Delete are inert and a status says so; a save's result applies to the row
+	// and values it was submitted with. A refused save keeps its input with its error (and a Retry when trying again can
+	// help) until that save succeeds, is retried or is discarded on purpose (Discard, or a confirmed Edit, Cancel or
+	// navigation). Delete errors are kept apart and never clear a save failure, nor the reverse.
+	// Without JavaScript a refused save re-renders with its values and row; a Delete posts the form's draft (a Delete
+	// button is a submit button of the register form) and gets it back, done or refused; and while a refused save is
+	// shown the rows' Edit buttons are inert, with a note, until it is retried or discarded.
+	import { onMount, untrack } from 'svelte';
 	import { enhance } from '$app/forms';
+	import { afterNavigate, beforeNavigate, goto, invalidateAll } from '$app/navigation';
+	import { page } from '$app/state';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import CitationLink from '$lib/components/CitationLink.svelte';
 	import Narrative from '$lib/components/Narrative.svelte';
@@ -8,29 +18,125 @@
 	import { download, toCSV } from '$lib/components/csv';
 	import { docPath } from '$lib/local-case/model';
 	import { cleanName, dateCell, docLabel, statusLabel } from '$lib/views/evidence/common';
-	import { entryNote, filingsCsvRows, registerCsvRows, type RegisterEntry } from '$lib/views/evidence/filings';
+	import { INPUTS, SAVE_FAILURES, entryNote, filingsCsvRows, registerCsvRows, saveFailure, type RegisterEntry, type SaveFailure } from '$lib/views/evidence/filings';
+	type Values = Record<string, string>;
+	type Result = { op?: 'add' | 'save' | 'delete'; code?: string; values?: Values; editing?: string | null; message?: string; target?: string; draft?: { values: Values; editing: string | null; failed: string | null } } | null;
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
 	const files = $derived(new Map(data.files));
-	// every action failure carries the typed values and a message; a failed save also names the row being edited
-	const failed = $derived(form as { values?: Record<string, string>; message?: string; editing?: string } | null);
-	const editing = $derived<RegisterEntry | null>(data.entries.find((e) => e.key === (failed?.editing ?? data.editing)) ?? null);
-	// the form's values: what the user typed when a save failed, else the row being edited, else empty
-	const typed = $derived<Record<string, string>>(failed?.values ?? editing?.fields ?? {});
-	let transportError = $state<string | null>(null);
-	const message = $derived(transportError ?? failed?.message ?? null);
-	// A failure keeps the form as typed (no reset); a lost connection does not replace the page with an error page.
-	const keep: SubmitFunction = () => async ({ result, update }) => {
-		if (result.type === 'error') { transportError = `The register could not be saved: ${result.status ? 'the app reported an error' : 'the app did not answer'}. Your entry is kept below; try again.`; return; }
-		transportError = null;
-		await update({ reset: result.type === 'success' || result.type === 'redirect' });
+
+	const blank = (): Values => Object.fromEntries(INPUTS.map((k) => [k, '']));
+	const entryOf = (key: string | null | undefined): RegisterEntry | null => (key ? (data.entries.find((e) => e.key === key) ?? null) : null);
+	const fieldsOf = (e: RegisterEntry | null): Values => (e ? Object.fromEntries(INPUTS.map((k) => [k, e.fields[k]])) : blank());
+	const same = (x: Values, y: Values) => INPUTS.every((k) => (x[k] ?? '') === (y[k] ?? ''));
+	type SaveError = { code: SaveFailure; message: string; retry: boolean };
+	const failure = (code: SaveFailure): SaveError => ({ code, ...SAVE_FAILURES[code] });
+	/** The form as the server rendered it: a refused save, or a Delete with the draft it carried (both only without
+	 *  JavaScript), else the row the URL's ?edit= names. */
+	function initial(f: Result) {
+		if (f?.op === 'save' && f.message) return { values: { ...blank(), ...f.values }, editing: entryOf(f.editing)?.key ?? null, saveError: failure(saveFailure(f.code) ?? 'busy'), deleteError: null };
+		if (f?.op === 'delete' && f.draft) {
+			const code = saveFailure(f.draft.failed);
+			return { values: { ...blank(), ...f.draft.values }, editing: entryOf(f.draft.editing)?.key ?? null, saveError: code ? failure(code) : null, deleteError: f.message ? { key: f.target ?? '', message: f.message } : null };
+		}
+		const e = entryOf(data.editing);
+		return { values: fieldsOf(e), editing: e?.key ?? null, saveError: null, deleteError: null };
+	}
+	const init = untrack(() => initial(form as Result));
+	let values = $state<Values>(init.values);
+	let editing = $state<string | null>(init.editing);
+	/** the form as loaded: input that differs from it is unsaved */
+	let base = $state<Values>(untrack(() => fieldsOf(entryOf(init.editing))));
+	let saveError = $state<SaveError | null>(init.saveError);
+	let deleteError = $state<{ key: string; message: string } | null>(init.deleteError);
+	/** the write in flight, if any */
+	let busy = $state<{ op: 'add' | 'save' | 'delete'; key: string | null } | null>(null);
+	/** an action waiting for the user to confirm that the unsaved input may be discarded */
+	let ask = $state<{ what: string; go: () => void } | null>(null);
+	const dirty = $derived(!same(values, base));
+	const unsaved = $derived(dirty || saveError !== null);
+
+	/** Show the register with this row (or none) in the form, as loaded. */
+	function load(key: string | null) {
+		const e = entryOf(key);
+		values = fieldsOf(e);
+		base = fieldsOf(e);
+		editing = e?.key ?? null;
+		saveError = null;
+	}
+	// Edit, Cancel and Back change the URL's ?edit=; the form follows once the navigation (confirmed, if it drops
+	// unsaved input) is done
+	afterNavigate((nav) => { if (nav.type !== 'enter') load(data.editing); });
+	let leaving = false;
+	const go = (url: URL | string) => { leaving = true; void goto(url, { noScroll: true, keepFocus: true }).finally(() => { leaving = false; }); };
+	const question = () => `${saveError ? 'The entry in the form was not saved.' : 'The entry in the form has changes that are not saved.'} Discard it?`;
+	beforeNavigate((nav) => {
+		if (leaving || !(busy || unsaved)) return;
+		// leaving the page gets the browser's own prompt; any other navigation asks here first
+		nav.cancel();
+		if (nav.type === 'leave' || !nav.to) return;
+		const url = nav.to.url;
+		ask = { what: busy ? 'A change is still being saved; leaving now may not show whether it worked. Leave anyway?' : question(), go: () => go(url) };
+	});
+	function answer(yes: boolean) {
+		const a = ask;
+		ask = null;
+		if (yes && a) a.go();
+	}
+	function discard(e: MouseEvent) {
+		e.preventDefault();
+		if (busy) return;
+		load(null);
+		if (page.url.search) go(page.url.pathname);
+	}
+
+	// One form posts Add, Save and every row's Delete: a Delete's result never touches the form or a save failure
+	const submit: SubmitFunction = ({ submitter, cancel }) => {
+		if (busy) { cancel(); return; }
+		if (submitter?.getAttribute('name') === 'delete') return remove(submitter.getAttribute('value') ?? '');
+		const sent = { key: editing, values: { ...values } };
+		busy = { op: editing ? 'save' : 'add', key: editing };
+		saveError = null;
+		return async ({ result }) => {
+			try {
+				if (result.type === 'success' || result.type === 'redirect') {
+					// done: the form empties only while it still holds what was sent (it is inert in flight, so it does)
+					if (editing === sent.key && same(values, sent.values)) load(null);
+					if (result.type === 'redirect') go(result.location);
+					else await invalidateAll();
+				} else {
+					// refused or unanswered: the form shows what was sent, for the row it was sent for
+					values = sent.values;
+					editing = sent.key;
+					saveError = failure(result.type === 'failure' ? (saveFailure(result.data?.code) ?? 'busy') : 'lost');
+					if (result.type === 'failure' && result.status === 404) await invalidateAll();
+				}
+			} finally { busy = null; }
+		};
 	};
+	function remove(target: string): ReturnType<SubmitFunction> {
+		busy = { op: 'delete', key: target };
+		return async ({ result }) => {
+			try {
+				if (result.type === 'success') {
+					if (deleteError?.key === target) deleteError = null;
+					await invalidateAll();
+				} else if (result.type === 'failure') {
+					deleteError = { key: target, message: String(result.data?.message ?? 'The entry could not be deleted; try again.') };
+					if (result.status === 404) await invalidateAll();
+				} else if (result.type === 'redirect') go(result.location);
+				else deleteError = { key: target, message: 'The entry may not have been deleted: the app did not answer. Check the register, then try again.' };
+			} finally { busy = null; }
+		};
+	}
 	const exportFilings = () => download('filings.csv', toCSV(filingsCsvRows(data.groups ?? [])));
 	const exportRegister = () => download('filing-register.csv', toCSV(registerCsvRows(data.entries)));
 	// the data is complete when the page renders (data-ready, also in the server's HTML); data-hydrated marks the
 	// moment its controls respond
 	let ready = $state(false);
 	onMount(() => { ready = true; });
+	/** without JavaScript a row's Edit would drop a refused save's input: it waits until that is retried or discarded */
+	const held = $derived(!ready && saveError !== null);
 </script>
 
 <main id="main" tabindex="-1" data-ready="filings_tab" data-hydrated={ready ? '1' : null}>
@@ -66,19 +172,41 @@
 	<section class="card register" aria-labelledby="register-heading">
 		<h2 id="register-heading">Filing ↔ Replying-affidavit register</h2>
 		<p class="register-intro">Log each filing and the responding/replying affidavit. Saved in this case's local work store; imported rows stay as imported and your changes are kept apart from them.</p>
-		<form method="POST" action={editing ? '?/save' : '?/add'} class="register-form" use:enhance={keep} id="register-form" data-mode={editing ? 'edit' : 'add'}>
-			{#if editing}<input type="hidden" name="key" value={editing.key} />{/if}
-			<div class="row">
-				<div><label class="fld" for="fl_filing">Filing</label><input class="in" id="fl_filing" name="filing" value={typed.filing ?? ''} /></div>
-				<div><label class="fld" for="fl_fdate">Date</label><input class="in" id="fl_fdate" name="fdate" type="date" value={typed.fdate ?? ''} /></div>
-				<div><label class="fld" for="fl_fparty">Party filing</label><input class="in" id="fl_fparty" name="fparty" value={typed.fparty ?? ''} /></div>
-				<div><label class="fld" for="fl_response">Responding / replying affidavit</label><input class="in" id="fl_response" name="response" value={typed.response ?? ''} /></div>
-				<div><label class="fld" for="fl_rdate">Response date</label><input class="in" id="fl_rdate" name="rdate" type="date" value={typed.rdate ?? ''} /></div>
-				<div><label class="fld" for="fl_ref">Ref</label><input class="in" id="fl_ref" name="ref" value={typed.ref ?? ''} /></div>
-				<div class="submit">{#if editing}<button id="register-save">Save</button> <a href="?" id="register-cancel">Cancel</a>{:else}<button id="register-add">Add</button>{/if}</div>
-			</div>
-			{#if message}<p class="error" role="alert" id="register-error">{message}</p>{/if}
+		<form method="POST" action={editing ? '?/save' : '?/add'} class="register-form" use:enhance={submit} id="register-form" data-mode={editing ? 'edit' : 'add'} aria-busy={busy !== null}>
+			{#if editing}<input type="hidden" name="key" value={editing} />{/if}
+			{#if saveError}<input type="hidden" name="failed" value={saveError.code} />{/if}
+			<fieldset class="row" disabled={busy !== null}>
+				<div><label class="fld" for="fl_filing">Filing</label><input class="in" id="fl_filing" name="filing" bind:value={values.filing} /></div>
+				<div><label class="fld" for="fl_fdate">Date</label><input class="in" id="fl_fdate" name="fdate" type="date" bind:value={values.fdate} /></div>
+				<div><label class="fld" for="fl_fparty">Party filing</label><input class="in" id="fl_fparty" name="fparty" bind:value={values.fparty} /></div>
+				<div><label class="fld" for="fl_response">Responding / replying affidavit</label><input class="in" id="fl_response" name="response" bind:value={values.response} /></div>
+				<div><label class="fld" for="fl_rdate">Response date</label><input class="in" id="fl_rdate" name="rdate" type="date" bind:value={values.rdate} /></div>
+				<div><label class="fld" for="fl_ref">Ref</label><input class="in" id="fl_ref" name="ref" bind:value={values.ref} /></div>
+				<div class="submit">{#if editing}<button id="register-save">Save</button>{#if !saveError} <a href="?" id="register-cancel">Cancel</a>{/if}{:else}<button id="register-add">Add</button>{/if}</div>
+			</fieldset>
+			{#if busy}<p class="status" role="status" id="register-status">{busy.op === 'delete' ? 'Deleting the entry…' : busy.op === 'save' ? 'Saving the change…' : 'Adding the entry…'}</p>{/if}
+			{#if saveError}
+				<div class="error" role="alert" id="register-error" data-code={saveError.code}>
+					<p>{saveError.message}</p>
+					{#if saveError.retry}<button id="register-retry" disabled={busy !== null}>Retry</button>{/if}
+					<a href="?" id="register-discard" onclick={discard}>Discard the entry</a>
+				</div>
+				{#if held}<p class="note" id="register-held">Retry or discard the unsaved entry before you edit another row.</p>{/if}
+			{/if}
 		</form>
+		{#if deleteError}
+			<div class="error" role="alert" id="register-delete-error" data-key={deleteError.key}>
+				<p>{deleteError.message}</p>
+				{#if ready}<button type="button" id="register-delete-dismiss" onclick={() => (deleteError = null)}>Dismiss</button>{/if}
+			</div>
+		{/if}
+		{#if ask}
+			<div class="ask" role="alertdialog" aria-labelledby="register-ask-text" id="register-ask">
+				<p id="register-ask-text">{ask.what}</p>
+				<button type="button" id="register-ask-discard" onclick={() => answer(true)}>Discard it</button>
+				<button type="button" id="register-ask-keep" onclick={() => answer(false)}>Keep it</button>
+			</div>
+		{/if}
 		<div class="toolbar"><button type="button" id="export-register" onclick={exportRegister}>Export register CSV</button></div>
 		<table class="tbl" id="filing-register">
 			<thead><tr><th>Filing</th><th>Filed</th><th>By</th><th>Replying / responding affidavit</th><th>Responded</th><th>Ref</th><th>Status</th><th></th></tr></thead>
@@ -92,8 +220,8 @@
 						<td>{#if e.fields.ref && files.get(e.fields.ref)}<CitationLink resultsVersion={vid} ref={e.fields.ref} label="{e.fields.ref} ↗" />{:else}{e.fields.ref}{/if}</td>
 						<td>{#if e.fields.status}<span class="badge info">{e.fields.status}</span>{/if}</td>
 						<td class="actions">
-							<form method="GET"><input type="hidden" name="edit" value={e.key} /><button class="ghost">Edit</button></form>
-							<form method="POST" action="?/delete" use:enhance={keep}><input type="hidden" name="key" value={e.key} /><button class="ghost">Delete</button></form>
+							<form method="GET"><input type="hidden" name="edit" value={e.key} /><button class="ghost" data-edit disabled={busy !== null || held}>Edit</button></form>
+							<button class="ghost" data-delete form="register-form" formaction="?/delete" name="delete" value={e.key} disabled={busy !== null || e.key === editing} title={e.key === editing ? 'Cancel the edit to delete this row' : undefined}>Delete</button>
 						</td>
 					</tr>
 				{/each}
@@ -111,7 +239,11 @@
 	.badge { display: inline-block; padding: 0 .4em; border-radius: 3px; background: #eef0f3; font-size: .85em; }
 	.badge.info { background: #e3eefc; }
 	.register { margin-top: 1rem; }
-	.register-form .row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; }
+	.register-form .row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; border: 0; padding: 0; margin: 0; min-width: 0; }
+	.status, .note { font-style: italic; color: #555; }
+	.error, .ask { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+	.error p, .ask p { margin: 0; }
+	.ask { border: 1px solid currentColor; padding: .5rem; margin: .4rem 0; }
 	.fld { display: block; font-size: .85em; color: #555; }
 	.toolbar { margin: .6rem 0; }
 	.actions form { display: inline; }

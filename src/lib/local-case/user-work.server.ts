@@ -60,7 +60,7 @@ const ACTIVATION = new Set(['active', 'activation_log']);
 const TRUST = 'trusted_warning';
 /** The column of a case-scoped table that names its case; a restore replaces only the snapshot's cases there. */
 const CASE_COLUMN = 'case_id';
-/** A transient index defineTable creates (and drops) to read a column's collation; under the reserved prefix. */
+/** A transient index (and its savepoint) that reads a column's collation, always rolled back; under the reserved prefix. */
 const PROBE = 'userwork_catalog_probe';
 export const USER_WORK_EXPORT = 'clearcase.user-work/1';
 
@@ -87,7 +87,8 @@ export interface UserWorkExport {
 	format: typeof USER_WORK_EXPORT;
 	exportedAt: string;
 	tables: (UserWorkTable & { rows: Record<string, Cell>[] })[];
-	/** tables of the selected kinds left out because importAll() could not recreate them, each with the reason */
+	/** tables of the selected kinds left out because importAll() would refuse them, here or in a fresh store, each with
+	 *  the reason */
 	excluded?: { name: string; kind: TableKind; rows: number; reason: string }[];
 }
 const q = (id: string) => `"${id.replaceAll('"', '""')}"`;
@@ -349,7 +350,8 @@ export class UserWork {
 	 * Insert or replace one whole row of a defined table, by primary key, as `owner` (a missing cell is NULL, so read,
 	 * spread and put back to change one field). Cells are checked as in a restore, and a number in a TEXT column is
 	 * refused (SQLite would store 7 as '7.0'); a case table's row needs a text `case_id`, and its key may not be held by
-	 * another case's row (`restore-key-collision`). One transaction; schedules the work.sqlite backup like putRow.
+	 * another case's row (`restore-key-collision`). The stored row is checked again after column affinity: numeric
+	 * text SQLite stores as a non-finite number is `invalid`. One transaction; schedules the work.sqlite backup like putRow.
 	 */
 	async putTableRow(table: string, row: Record<string, TableCell>, opts: { owner: string }): Promise<void> {
 		const t = this.definedTable(table, opts?.owner ?? null);
@@ -367,9 +369,11 @@ export class UserWork {
 		const guard = t.scope === 'case' && !def.primaryKey.includes(CASE_COLUMN);
 		const upsert = rest.length ? `UPDATE SET ${rest.map((c) => `${q(c)} = excluded.${q(c)}`).join(', ')}${guard ? ` WHERE ${q(CASE_COLUMN)} = excluded.${q(CASE_COLUMN)}` : ''}` : 'NOTHING';
 		await this.write(() => `writing a row of table ${t.name}`, (d) => {
-			const n = d.prepare(`INSERT INTO work.${q(t.name)}(${cols.map(q).join(', ')}) VALUES (${cols.map(() => '?').join(', ')}) ON CONFLICT(${def.primaryKey.map(q).join(', ')}) DO ${upsert}`)
-				.run(...(cols.map((c) => fromCell(r[c])) as never[])).changes;
-			if (guard && !Number(n)) throw new UserWorkError(`table ${t.name}: the row's primary key (${def.primaryKey.join(', ')}) is held by a row of another case here; nothing was written`, 'restore-key-collision');
+			const st = d.prepare(`INSERT INTO work.${q(t.name)}(${cols.map(q).join(', ')}) VALUES (${cols.map(() => '?').join(', ')}) ON CONFLICT(${def.primaryKey.map(q).join(', ')}) DO ${upsert} RETURNING *`);
+			const stored = storedRow(st, cols.map((c) => fromCell(r[c])));
+			if (guard && !stored) throw new UserWorkError(`table ${t.name}: the row's primary key (${def.primaryKey.join(', ')}) is held by a row of another case here; nothing was written`, 'restore-key-collision');
+			const conv = stored && storedProblem(def, stored);
+			if (conv) throw new UserWorkError(`table ${t.name}: ${conv.message}; nothing was written`, conv.code);
 		});
 		this.onWrite();
 	}
@@ -395,24 +399,39 @@ export class UserWork {
 	/** Every row of the selected kinds of tables (default: user work), in primary-key order. */
 	exportAll(opts: { kinds?: TableKind[] } = {}): UserWorkExport {
 		const kinds = new Set(opts.kinds ?? ['user-work', 'unregistered']);
-		const state = this.stateTables();
-		// Only what importAll() can restore is exported: each table passes the checks importAll() applies, or is named
-		// in `excluded` with the reason, never silently dropped. Activation tables are listed there too when asked for.
+		// Only what importAll() restores is exported: each table passes restorePlan(), the check importAll() applies to
+		// every snapshot table, against this store and against a fresh one, or it is named in `excluded` with the
+		// reason, never silently dropped. Activation tables are listed there too when asked for.
+		const here = this.target();
+		const freshStore: Target = { ...here, here: new Map([...here.here].filter(([n]) => BUILT_IN.has(n))), others: new Set() };
 		const tables: UserWorkExport['tables'] = [];
 		const excluded: NonNullable<UserWorkExport['excluded']> = [];
 		for (const t of this.tables().filter((x) => kinds.has(x.kind))) {
 			const def = definitionOf(t);
-			const reason = (state.has(t.name.toLowerCase()) || t.kind === 'activation' ? 'a restore never writes activation or import state' : null) ?? definitionProblem(def) ?? scopeProblem(def, t.scope, false);
-			if (reason) { excluded.push({ name: t.name, kind: t.kind, rows: (this.d.prepare(`SELECT count(*) AS n FROM work.${q(t.name)}`).get() as { n: number }).n, reason }); continue; }
 			// INTEGERs are read as BigInt: one beyond 2^53 would otherwise throw RangeError and fail the whole export
-			const select = this.d.prepare(`SELECT * FROM work.${q(t.name)} ORDER BY ${def.primaryKey.map(q).join(', ')}`);
-			select.setReadBigInts(true);
-			const rows = (select.all() as Record<string, unknown>[]).map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, toCell(v)])));
-			const bad = rowsProblem(this.d, def, t.scope, rows);
-			if (bad) { excluded.push({ name: t.name, kind: t.kind, rows: rows.length, reason: bad.message }); continue; }
-			tables.push({ ...t, rows });
+			const select = here.state.has(t.name.toLowerCase()) || t.kind === 'activation' || definitionProblem(def) ? null : this.d.prepare(`SELECT * FROM work.${q(t.name)} ORDER BY ${def.primaryKey.map(q).join(', ')}`);
+			select?.setReadBigInts(true);
+			const rows = select ? (select.all() as Record<string, unknown>[]).map((r) => Object.fromEntries(Object.entries(r).map(([k, v]) => [k, toCell(v)]))) : [];
+			const entry = { ...t, rows };
+			const same = restorePlan(this.d, here, entry);
+			const fresh = 'code' in same ? same : restorePlan(this.d, freshStore, entry);
+			if ('code' in fresh) {
+				const n = select ? rows.length : (this.d.prepare(`SELECT count(*) AS n FROM work.${q(t.name)}`).get() as { n: number }).n;
+				excluded.push({ name: t.name, kind: t.kind, rows: n, reason: fresh === same ? fresh.message : `in a fresh store: ${fresh.message}` });
+				continue;
+			}
+			tables.push(entry);
 		}
 		return { format: USER_WORK_EXPORT, exportedAt: now().toISOString(), tables, excluded };
+	}
+
+	/** This store as a restore target (see restorePlan). */
+	private target(): Target {
+		return {
+			here: new Map(this.tables().map((t) => [t.name.toLowerCase(), t])),
+			state: this.stateTables(),
+			others: new Set((this.d.prepare("SELECT name FROM work.sqlite_master WHERE type != 'table'").all() as { name: string }[]).map((r) => r.name.toLowerCase())),
+		};
 	}
 
 	/**
@@ -424,7 +443,9 @@ export class UserWork {
 	 * import-state tables, a cell that is not a string, finite number, null, `{$b64}` or `{$int}` in the 64-bit range,
 	 * an empty, non-integer or repeated key (repeated as SQLite compares it in the column: 7 and '7.0' are one TEXT
 	 * key), an existing table with a non-BINARY key or case_id collation, and (case scope) a row whose key another
-	 * case's row holds here. A table it creates with a case_id TEXT NOT NULL column (catalogued) is a case table.
+	 * case's row holds here (restorePlan, which exportAll also applies). A row SQLite stores as a non-finite number
+	 * (numeric text such as '1e999' in a REAL or INTEGER column) rolls the restore back as `invalid`. A table it creates
+	 * with a case_id TEXT NOT NULL column (catalogued) is a case table.
 	 *  * Case scope (default, `replace: 'cases'`): the snapshot's cases are the case_id values of its case tables' rows.
 	 *    A case table's rows of those cases are replaced; other cases' rows are kept. A store table is merged by
 	 *    primary key: snapshot rows replace same-key rows, other rows are kept. `replace: 'tables'` replaces every
@@ -436,55 +457,25 @@ export class UserWork {
 		if (!isRecord(snapshot) || snapshot.format !== USER_WORK_EXPORT || !Array.isArray(snapshot.tables)) throw new UserWorkError(`not a ${USER_WORK_EXPORT} export`);
 		const replace = opts?.replace ?? 'cases';
 		if (replace !== 'cases' && replace !== 'tables') throw new UserWorkError("replace is 'cases' or 'tables'");
-		const here = new Map(this.tables().map((t) => [t.name.toLowerCase(), t]));
-		const state = this.stateTables();
-		const others = new Set((this.d.prepare("SELECT name FROM work.sqlite_master WHERE type != 'table'").all() as { name: string }[]).map((r) => r.name.toLowerCase()));
-		const plans: { def: Shape; scope: TableScope; rows: Record<string, Cell>[]; create: boolean; catalogue: boolean }[] = [];
-		for (const [i, t] of (snapshot.tables as unknown[]).entries()) {
-			if (!isRecord(t)) throw new UserWorkError(`table entry ${i} is not a table; nothing was restored`);
-			const raw = t.name;
-			const name = typeof raw === 'string' ? raw.slice(0, 80) : `#${i}`;
-			if ((typeof raw === 'string' && state.has(raw.toLowerCase())) || t.kind === 'activation' || (typeof raw === 'string' && here.get(raw.toLowerCase())?.kind === 'activation')) throw new UserWorkError(`table ${name}: a restore never writes activation or import state; nothing was restored`, 'restore-state');
-			const def = definitionOf(t as unknown as UserWorkTable);
-			const bad = definitionProblem(def) ?? (Array.isArray(t.rows) && t.rows.every(isRecord) ? null : 'rows must be a list of objects')
-				?? (plans.some((p) => p.def.name === def.name) ? 'the snapshot lists the table twice' : null)
-				?? (others.has(def.name) ? 'an index, view or trigger here has that name' : null);
-			if (bad) throw new UserWorkError(`table ${name}: ${bad}; nothing was restored`);
-			const h = here.get(def.name);
-			const differs = h && (schemaDifference(definitionOf(h), def) ?? (h.name !== def.name ? 'a table of that name in another letter case exists here' : null));
-			if (differs) throw new UserWorkError(`table ${def.name}: ${differs}; nothing was restored (restore into a store whose table matches the backup, or migrate the table first)`);
-			// a snapshot written before scopes were recorded carries none: an existing table keeps its own, and a new one
-			// is a store table, as a table without a recorded scope is here (tablesOf), unless the restore catalogues it
-			// and it has a case_id TEXT NOT NULL column: then it is a case table, as its owner's defineTable says, and an
-			// explicit 'store' is refused, so a restore never creates a table its owner cannot adopt
-			const catalogued = !h && t.kind !== 'unregistered';
-			const caseShaped = catalogued && !scopeProblem(def, 'case', false);
-			const scope = (t.scope === undefined ? h?.scope ?? (caseShaped ? 'case' : 'store') : t.scope) as TableScope;
-			const kind = h?.kind ?? t.kind;
-			const wrong = scopeProblem(def, scope, false) ?? (h && h.scope !== scope ? `it is ${h.scope}-scoped here and ${scope}-scoped in the backup` : null)
-				?? (kind === 'unregistered' && scope !== 'store' ? 'an unregistered table is store-scoped' : null)
-				?? (caseShaped && scope === 'store' ? `a table with a ${CASE_COLUMN} TEXT NOT NULL column is case-scoped (declare scope 'case', as defineTable does)` : null);
-			if (wrong) throw new UserWorkError(`table ${def.name}: ${wrong}; nothing was restored`);
-			const rows = t.rows as Record<string, Cell>[];
-			const rowBad = def.name === TRUST ? null : rowsProblem(this.d, def, scope, rows);
-			if (rowBad) throw new UserWorkError(`table ${def.name}: ${rowBad.message}; nothing was restored`, rowBad.code);
-			plans.push({ def, scope, rows, create: !h, catalogue: t.kind !== 'unregistered' });
-		}
-		const cases = [...new Set(plans.filter((p) => p.scope === 'case' && p.def.name !== TRUST).flatMap((p) => p.rows.map((r) => cellOf(r, CASE_COLUMN) as string)))].sort();
-		const json = JSON.stringify(cases);
+		const plans: Plan[] = [];
+		let cases: string[] = [];
 		const restored: TableRestoreReport[] = [];
 		const dropped: NonNullable<ImportResult['dropped']> = [];
 		let rows = 0;
 		let current = '';
+		// planned inside the write transaction: the collation probe of restorePlan() runs under the write lock
 		await this.write(() => `restoring table ${current}`, (d) => {
-			// before any write: an existing table must match keys and cases byte for byte, or a merge or a case
-			// replacement would also hit rows that differ only in letter case or trailing spaces
-			for (const p of plans) {
-				if (p.create || BUILT_IN.has(p.def.name)) continue;
-				current = p.def.name;
-				const coll = collationProblem(d, p.def, true);
-				if (coll) throw new UserWorkError(`table ${p.def.name}: ${coll}; nothing was restored`, 'table-conflict');
+			const at = this.target();
+			for (const [i, t] of (snapshot.tables as unknown[]).entries()) {
+				if (!isRecord(t)) throw new UserWorkError(`table entry ${i} is not a table; nothing was restored`);
+				const name = typeof t.name === 'string' ? t.name.slice(0, 80) : `#${i}`;
+				current = name;
+				const p = plans.some((x) => x.def.name === t.name) ? { code: 'invalid' as const, message: 'the snapshot lists the table twice' } : restorePlan(d, at, t);
+				if ('code' in p) throw new UserWorkError(`table ${name}: ${p.message}; nothing was restored`, p.code);
+				plans.push(p);
 			}
+			cases = [...new Set(plans.filter((p) => p.scope === 'case' && p.def.name !== TRUST).flatMap((p) => p.rows.map((r) => cellOf(r, CASE_COLUMN) as string)))].sort();
+			const json = JSON.stringify(cases);
 			// before any write: in case scope a case table keeps other cases' rows, so a snapshot key they hold would clash
 			if (replace === 'cases') for (const p of plans) {
 				if (p.scope !== 'case' || p.create || p.def.name === TRUST || p.def.primaryKey.includes(CASE_COLUMN)) continue;
@@ -512,8 +503,13 @@ export class UserWork {
 				const cols = def.columns.map((c) => c.name);
 				const rest = cols.filter((c) => !def.primaryKey.includes(c));
 				const merge = action !== 'merged' ? '' : ` ON CONFLICT(${def.primaryKey.map(q).join(', ')}) DO ${rest.length ? `UPDATE SET ${rest.map((c) => `${q(c)} = excluded.${q(c)}`).join(', ')}` : 'NOTHING'}`;
-				const ins = d.prepare(`INSERT INTO work.${q(def.name)}(${cols.map(q).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})${merge}`);
-				for (const r of p.rows) ins.run(...(cols.map((c) => fromCell(cellOf(r, c))) as never[]));
+				const ins = d.prepare(`INSERT INTO work.${q(def.name)}(${cols.map(q).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})${merge} RETURNING *`);
+				for (const r of p.rows) {
+					// what SQLite stored, after column affinity: numeric text may have become a non-finite number
+					const stored = storedRow(ins, cols.map((c) => fromCell(cellOf(r, c))));
+					const conv = stored && storedProblem(def, stored);
+					if (conv) throw new UserWorkError(`table ${def.name}: ${conv.message}; nothing was restored`, conv.code);
+				}
 				rows += p.rows.length;
 				const report: TableRestoreReport = { name: def.name, scope, action, rows: p.rows.length, deleted };
 				// a merge never deletes, so the rows it added are the growth of the table
@@ -677,6 +673,63 @@ function rowsProblem(d: ReturnType<Storage['db']>, def: Shape, scope: TableScope
 	}
 	return null;
 }
+/** A row as SQLite stored it, after column affinity (from an INSERT ... RETURNING *), as cells; null when the
+ *  statement stored nothing (an upsert whose conflict did nothing). */
+function storedRow(st: ReturnType<ReturnType<Storage['db']>['prepare']>, values: unknown[]): Record<string, unknown> | null {
+	st.setReadBigInts(true);
+	const r = st.get(...(values as never[])) as Record<string, unknown> | undefined;
+	return r ? Object.fromEntries(Object.entries(r).map(([k, v]) => [k, toCell(v)])) : null;
+}
+/** Why a stored row is not a row exportAll() can write: column affinity turned numeric text into a non-finite number
+ *  ('1e999' in a REAL, INTEGER or NUMERIC column). A write or restore that stores one is rolled back. */
+function storedProblem(def: Shape, stored: Record<string, unknown>): Problem | null {
+	const c = def.columns.find((x) => !isCell(cellOf(stored, x.name)));
+	return c ? { code: 'invalid', message: `column ${c.name}: SQLite stores a cell as a number out of range (numeric text beyond the REAL range)` } : null;
+}
+
+/** What importAll() writes for one snapshot table. */
+type Plan = { def: Shape; scope: TableScope; rows: Record<string, Cell>[]; create: boolean; catalogue: boolean };
+/** A store a restore writes into: its tables by lower-case name, its activation and import-state table names, and
+ *  the names of its indexes, views and triggers. */
+type Target = { here: Map<string, UserWorkTable>; state: Set<string>; others: Set<string> };
+/**
+ * How importAll() restores one snapshot table into `at`, or why it refuses it: activation or import state, the table
+ * definition, an existing table of another schema, letter case or scope, the scope itself, every row (rowsProblem) and
+ * an existing table's key and case_id collations. exportAll() applies this same function to each table, against the
+ * store itself and a fresh store, so an export never holds what a restore refuses. Messages name tables and columns.
+ */
+function restorePlan(d: ReturnType<Storage['db']>, at: Target, t: Record<string, unknown>): Plan | Problem {
+	const invalid = (message: string): Problem => ({ code: 'invalid', message });
+	const raw = typeof t.name === 'string' ? t.name.toLowerCase() : null;
+	if ((raw !== null && (at.state.has(raw) || at.here.get(raw)?.kind === 'activation')) || t.kind === 'activation') return { code: 'restore-state', message: 'a restore never writes activation or import state' };
+	const def = definitionOf(t as unknown as UserWorkTable);
+	const bad = definitionProblem(def) ?? (Array.isArray(t.rows) && t.rows.every(isRecord) ? null : 'rows must be a list of objects')
+		?? (at.others.has(def.name) ? 'an index, view or trigger here has that name' : null);
+	if (bad) return invalid(bad);
+	const h = at.here.get(def.name);
+	const differs = h && (schemaDifference(definitionOf(h), def) ?? (h.name !== def.name ? 'a table of that name in another letter case exists here' : null));
+	if (differs) return invalid(`${differs} (restore into a store whose table matches the backup, or migrate the table first)`);
+	// a snapshot written before scopes were recorded carries none: an existing table keeps its own, and a new one is a
+	// store table, as a table without a recorded scope is here (tablesOf), unless the restore catalogues it and it has a
+	// case_id TEXT NOT NULL column: then it is a case table, as its owner's defineTable says, and an explicit 'store' is
+	// refused, so a restore never creates a table its owner cannot adopt
+	const catalogued = !h && t.kind !== 'unregistered';
+	const caseShaped = catalogued && !scopeProblem(def, 'case', false);
+	const scope = (t.scope === undefined ? h?.scope ?? (caseShaped ? 'case' : 'store') : t.scope) as TableScope;
+	const kind = h?.kind ?? t.kind;
+	const wrong = scopeProblem(def, scope, false) ?? (h && h.scope !== scope ? `it is ${h.scope}-scoped here and ${scope}-scoped in the backup` : null)
+		?? (kind === 'unregistered' && scope !== 'store' ? 'an unregistered table is store-scoped' : null)
+		?? (caseShaped && scope === 'store' ? `a table with a ${CASE_COLUMN} TEXT NOT NULL column is case-scoped (declare scope 'case', as defineTable does)` : null);
+	if (wrong) return invalid(wrong);
+	const rows = t.rows as Record<string, Cell>[];
+	const rowBad = def.name === TRUST ? null : rowsProblem(d, def, scope, rows);
+	if (rowBad) return rowBad;
+	// an existing table must match keys and cases byte for byte, or a merge or a case replacement would also hit rows
+	// that differ only in letter case or trailing spaces
+	const coll = h && !BUILT_IN.has(def.name) ? collationProblem(d, def, true) : null;
+	if (coll) return { code: 'table-conflict', message: coll };
+	return { def, scope, rows, create: !h, catalogue: t.kind !== 'unregistered' };
+}
 /** Create a defined table (inside the caller's transaction) and, unless it stays unregistered, catalogue it and its
  *  scope. */
 function createTable(d: ReturnType<Storage['db']>, def: Shape, catalogue: boolean, scope: TableScope) {
@@ -690,7 +743,7 @@ function createTable(d: ReturnType<Storage['db']>, def: Shape, catalogue: boolea
 }
 /**
  * Why an existing table's key or case_id columns would not compare byte for byte, or null. SQLite reports no column
- * collation directly: with `probe`, an index on the columns (created and dropped inside the caller's transaction)
+ * collation directly: with `probe`, an index on the columns (created in a savepoint that is always rolled back)
  * inherits each column's own; the primary-key index carries the key columns' own and any its PRIMARY KEY clause adds.
  */
 function collationProblem(d: ReturnType<Storage['db']>, def: Shape, probe: boolean): string | null {
@@ -698,9 +751,14 @@ function collationProblem(d: ReturnType<Storage['db']>, def: Shape, probe: boole
 	type Xinfo = { name: string | null; coll: string; key: number };
 	let own: Xinfo[] = [];
 	if (probe) {
-		d.exec(`CREATE INDEX work.${q(PROBE)} ON ${q(def.name)}(${cols.map(q).join(', ')})`);
-		own = d.prepare(`PRAGMA work.index_xinfo(${q(PROBE)})`).all() as Xinfo[];
-		d.exec(`DROP INDEX work.${q(PROBE)}`);
+		// in a savepoint that is always rolled back, inside the caller's transaction or (exportAll) in its own
+		d.exec(`SAVEPOINT ${PROBE}`);
+		try {
+			d.exec(`CREATE INDEX work.${q(PROBE)} ON ${q(def.name)}(${cols.map(q).join(', ')})`);
+			own = d.prepare(`PRAGMA work.index_xinfo(${q(PROBE)})`).all() as Xinfo[];
+		} finally {
+			d.exec(`ROLLBACK TO ${PROBE}; RELEASE ${PROBE}`);
+		}
 	}
 	const pk = (d.prepare(`PRAGMA work.index_list(${q(def.name)})`).all() as { name: string; origin: string }[]).filter((i) => i.origin === 'pk')
 		.flatMap((i) => d.prepare(`PRAGMA work.index_xinfo(${q(i.name)})`).all() as Xinfo[]);

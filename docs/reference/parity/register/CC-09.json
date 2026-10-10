@@ -3,18 +3,6 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-015",
-      "view": "discovery_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-19",
-      "reason": "The app does not implement Discovery Schedule yet; GRS-19 (CC-09) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
       "id": "IDR-016",
       "view": "court_bundle_tab",
       "field": "*",
@@ -37,6 +25,100 @@
       "author": "CC-29 worker (GRS-37)",
       "approvedBy": "coordinator",
       "approvedOn": "2026-10-09"
+    },
+    {
+      "id": "IDR-350",
+      "view": "discovery_tab",
+      "field": "table.table_1.row.*.document_s_description",
+      "when": {
+        "v5": {
+          "re": "OpenDownload$"
+        },
+        "app": {
+          "re": "not in the verified index; not served"
+        }
+      },
+      "type": "known-gap",
+      "source": "GRS-19",
+      "reason": "A schedule file whose locator does not decode to an indexed document path is not a package asset, so the app shows it as not in the verified index and does not serve it, where v5 links the file on disk. A separate unit is to index these files as verified package assets (shared-file request in the CC-09 report).",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-351",
+      "view": "discovery_tab",
+      "field": "sweep.modes.cover_after_switches",
+      "when": {
+        "v5": {
+          "re": "^([2-9]|[1-9][0-9]+)$"
+        },
+        "app": "1"
+      },
+      "type": "defect-fix",
+      "source": "S-discovery_tab-1",
+      "reason": "v5 adds its click listeners again on every render, so after three schedule switches one press of Download cover page gives several downloads; the app gives exactly one.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-352",
+      "view": "discovery_tab",
+      "field": "sweep.bundle.index_text",
+      "when": {
+        "v5": {
+          "re": "^(?:(?!INCOMPLETE SELECTION).)*$"
+        },
+        "app": {
+          "re": "<div class=\"cap\"><b>INCOMPLETE SELECTION</b>: "
+        }
+      },
+      "type": "improvement",
+      "source": "BA-10",
+      "reason": "The court bundle index says when the selection is incomplete (an item only partly selected, or selected files not in the verified index), so an incomplete export stays visibly incomplete.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-353",
+      "view": "discovery_tab",
+      "field": "sweep.marks.cover_text",
+      "when": {
+        "v5": {
+          "re": "^(?:(?!<td class=\"co\">O</td>).)*$"
+        },
+        "app": {
+          "re": "<td class=\"co\">O</td>"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-discovery_tab-2",
+      "reason": "The certified cover page now follows the user's Copy/Original marks (all C, all O, or C&O per item); v5 printed the data-level value and ignored the marks. With no marks it equals v5.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-354",
+      "view": "discovery_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 leaves it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
     }
   ]
 }

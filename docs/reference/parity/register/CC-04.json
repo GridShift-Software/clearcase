@@ -28,7 +28,7 @@
       "field": "text.filing_replying_affidavit_register.1",
       "when": {
         "v5": {
-          "re": "^Log each filing and the responding/replying affidavit as you paginate .+\\. Saved in this browser \\(ess_dcs_filings_v1\\)\\.$"
+          "re": "^Log each filing and the responding/replying affidavit as you paginate .+\\. Saved in this browser \\(.+\\)\\.$"
         },
         "app": {
           "re": "^Log each filing and the responding/replying affidavit\\. Saved in this case.s local work store; imported rows stay as imported and your changes are kept apart from them\\.$"
@@ -107,21 +107,34 @@
     {
       "id": "IDR-106",
       "view": "filings_tab",
-      "field": [
-        "export.export_csv.name",
-        "export.export_register_csv.name"
-      ],
+      "field": "export.export_csv.name",
       "when": {
         "v5": {
-          "re": "^ess_dcs_filing(s|_register)\\.csv$"
+          "re": "^.+_filings\\.csv$"
         },
-        "app": {
-          "re": "^filing(s|-register)\\.csv$"
-        }
+        "app": "filings.csv"
       },
-      "type": "defect-fix",
+      "type": "known-gap",
       "source": "S-hardcoded-case",
-      "reason": "v5 names its exports with the case abbreviation hard-coded in the renderer; the app uses neutral names, as the chronology does (IDR-064). The view-content map has no export-name field (shared-file request in the CC-04 report).",
+      "reason": "v5 names its filings export with the case abbreviation hard-coded in the renderer (case content, product rule 2); the view-content map at this base has no export-name field (shared-file request in the CC-04 report), so the app uses the neutral name. A known gap until the view reads the name from view-content; only the shape of v5's name is pinned, never the case value.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-134",
+      "view": "filings_tab",
+      "field": "export.export_register_csv.name",
+      "when": {
+        "v5": {
+          "re": "^.+_filing_register\\.csv$"
+        },
+        "app": "filing-register.csv"
+      },
+      "type": "known-gap",
+      "source": "S-hardcoded-case",
+      "reason": "v5 names its register export with the case abbreviation hard-coded in the renderer (case content, product rule 2); the view-content map at this base has no export-name field (shared-file request in the CC-04 report), so the app uses the neutral name. A known gap until the view reads the name from view-content; only the shape of v5's name is pinned, never the case value.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
       "approvedBy": null,
@@ -279,12 +292,14 @@
       "view": "contracts_tab",
       "field": "export.export_csv.name",
       "when": {
-        "v5": "ess_dcs_contracts.csv",
+        "v5": {
+          "re": "^.+_contracts\\.csv$"
+        },
         "app": "contracts.csv"
       },
-      "type": "defect-fix",
+      "type": "known-gap",
       "source": "S-hardcoded-case",
-      "reason": "v5 names its export with the case abbreviation hard-coded in the renderer; the app uses a neutral name, as the chronology does (IDR-064). The view-content map has no export-name field (shared-file request in the CC-04 report).",
+      "reason": "v5 names its contracts export with the case abbreviation hard-coded in the renderer (case content, product rule 2); the view-content map at this base has no export-name field (shared-file request in the CC-04 report), so the app uses the neutral name. A known gap until the view reads the name from view-content; only the shape of v5's name is pinned, never the case value.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
       "approvedBy": null,
@@ -446,12 +461,14 @@
       "view": "search",
       "field": "export.export_csv.name",
       "when": {
-        "v5": "ess_dcs_search.csv",
+        "v5": {
+          "re": "^.+_search\\.csv$"
+        },
         "app": "search.csv"
       },
-      "type": "defect-fix",
+      "type": "known-gap",
       "source": "S-hardcoded-case",
-      "reason": "v5 names its export with the case abbreviation hard-coded in the renderer; the app uses a neutral name, as the chronology does (IDR-064). The view-content map has no export-name field (shared-file request in the CC-04 report).",
+      "reason": "v5 names its search export with the case abbreviation hard-coded in the renderer (case content, product rule 2); the view-content map at this base has no export-name field (shared-file request in the CC-04 report), so the app uses the neutral name. A known gap until the view reads the name from view-content; only the shape of v5's name is pinned, never the case value.",
       "productVisible": true,
       "author": "CC-04 worker (GRS-14)",
       "approvedBy": null,

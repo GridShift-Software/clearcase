@@ -35,6 +35,13 @@ describe('timeline builders (v5 RENDER.timeline)', () => {
 		expect(q.bars[2]!.h).toBe('0.0');
 		expect(quantumBars([])).toBeNull();
 	});
+	it('draws no bar, never a negative height, for a negative amount, and keeps the imported amount in its title', () => {
+		const q = quantumBars([{ date: '2091-01-31', amount: '100' }, { date: '2091-02-28', amount: '-50' }])!;
+		expect(q.bars.map((b) => [b.h, b.y])).toEqual([['144.0', '8.0'], ['0.0', '152.0']]);
+		expect(q.bars[1]!.title).toBe('2091-02-28: -R 50.00');
+		const neg = quantumBars([{ date: '2091-01-31', amount: '-100' }, { date: '2091-02-28', amount: '-50' }])!;
+		expect(neg.bars.every((b) => b.h === '0.0' && Number(b.y) <= 152)).toBe(true);
+	});
 	it('cleans file-like titles as v5 does, keeping entities as plain characters', () => {
 		expect(cleanName('(12) Letter A & B.pdf')).toBe('Letter A & B');
 		expect(cleanName('Mail.EML')).toBe('Mail');

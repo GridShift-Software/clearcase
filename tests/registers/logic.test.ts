@@ -81,6 +81,9 @@ describe('entries', () => {
 		// a submitted textarea's CRLF (multipart and urlencoded alike) is stored as the LF the user typed
 		expect(entryFrom(REGISTERS.annotations_tab, { note: 'one\r\ntwo\rthree\nfour', ref: 'a\r\nb' })).toEqual({ ref: 'a\r\nb', date: '', note: 'one\ntwo\nthree\nfour' });
 	});
+	it("carries no v5 browser storage key: a later v5 import derives the keys from v5's data (D16)", () => {
+		for (const d of Object.values(REGISTERS)) expect(Object.keys(d)).not.toContain('v5Key');
+	});
 });
 
 describe('CSV export (S-csv)', () => {

@@ -6,7 +6,7 @@
 // docs/reference/parity/ and --app-v5-html (self-parity) make the scorecard non-evidence. mutate.mjs passes the flag
 // to its own runs.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
@@ -47,17 +47,31 @@ describe('parity refuses a stale build', () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(`the build is not ${join(REPO, 'build')} (it is ${join(copy, 'build')})`);
 	});
-	test('an --app-root copy whose build/ links to this repository\'s build/ is refused: the app tree is not the repository', () => {
+	test('an --app-root copy whose build/ links to the repository\'s own fresh build is refused: the app tree is not the repository', () => {
+		// a clean synthetic checkout holding this parity runner and what it reads before the guard, with a build stamped
+		// with its HEAD, so the app tree is the only reason left
+		const synth = mkdtempSync(join(root, 'synth-'));
+		const g = (...a: string[]) => { const x = spawnSync('git', ['-C', synth, '-c', 'user.name=synthetic', '-c', 'user.email=synthetic@example.invalid', '-c', 'commit.gpgsign=false', ...a], { encoding: 'utf8' }); if (x.status !== 0) throw new Error(x.stderr); return x.stdout.trim(); };
+		for (const p of ['scripts/parity', 'tests/e2e/pilot', 'docs/reference/parity', 'docs/reference/v5-summary.json', 'src/lib/components/view-registry.ts']) cpSync(join(REPO, p), join(synth, p), { recursive: true });
+		writeFileSync(join(synth, '.gitignore'), 'build/\nnode_modules\n.local/\n');
+		symlinkSync(join(REPO, 'node_modules'), join(synth, 'node_modules'));
+		g('init', '-q');
+		g('add', '.');
+		g('commit', '-q', '-m', 'synthetic');
+		mkdirSync(join(synth, 'build'));
+		writeFileSync(join(synth, 'build', 'handler.js'), '');
+		writeFileSync(join(synth, 'build', 'clearcase-build.json'), JSON.stringify({ revision: g('rev-parse', 'HEAD'), dirty: false, buildId: 'synthetic' }));
 		const copy = join(root, 'linked');
 		mkdirSync(copy, { recursive: true });
-		symlinkSync(join(REPO, 'build'), join(copy, 'build'));
-		const r = parity([], {}, copy);
-		// with no build in this checkout the stamp check is skipped and the run stops at the locator; the guard is the
-		// same freshness call either way (tests/e2e/pilot/lib/fresh-build.test.ts covers the reason itself)
-		if (existsSync(join(REPO, 'build', 'clearcase-build.json'))) {
-			expect(r.status).toBe(2);
-			expect(r.stderr).toContain(`the app tree under test is ${copy}, not ${REPO}`);
-		}
+		symlinkSync(join(synth, 'build'), join(copy, 'build'));
+		const run = (extra: string[]) => spawnSync(BUN, [join(synth, 'scripts', 'parity', 'run.mjs'), '--view', 'overview', '--fixture-config', join(root, 'absent.json'), '--out', join(root, 'out-linked'), ...extra], { encoding: 'utf8', timeout: 60_000, env: { ...process.env, CANARY_PORT: '43899' } });
+		const r = run(['--app-root', copy]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(`parity: setup error: stale build (the app tree under test is ${copy}, not ${synth} (its server entry, suites and routes would be unverified)): git add`);
+		// the control: the same checkout's own app tree gets past the guard and stops at the absent locator
+		const own = run([]);
+		expect(own.stderr).not.toMatch(/stale build/);
+		expect(own.stderr).toMatch(/absent\.json/);
 		expect(readFileSync(join(REPO, 'scripts', 'parity', 'run.mjs'), 'utf8')).toContain('freshness(REPO, readStamp(buildDir), { buildDir, appRoot })');
 	});
 	test('a register outside docs/reference/parity/ and v5 self-parity are never evidence', () => {

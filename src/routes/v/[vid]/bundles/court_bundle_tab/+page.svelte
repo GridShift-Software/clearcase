@@ -1,0 +1,188 @@
+<script lang="ts">
+	import { onMount, untrack } from 'svelte';
+	import { goto, invalidateAll } from '$app/navigation';
+	import { page } from '$app/state';
+	import PageHeader from '$lib/components/PageHeader.svelte';
+	import { docPath } from '$lib/local-case/model';
+	import { NOT_SERVED, type Resolved } from '$lib/views/bundles/links';
+	import { downloadBlob } from '$lib/views/bundles/download';
+	import { postAction } from '$lib/views/bundles/post';
+	import { printIndex } from '$lib/views/bundles/print';
+	import { DOCX_TYPE, indexDocx } from '$lib/views/bundles/docx';
+	import { HEADER_FIELDS, HEADER_KEYS, TO_COMPLETE, cleanName, desc, header, indexFileName, pad, partRange, range, totals, type Bundle, type Header } from '$lib/views/bundles/court';
+	let { data } = $props();
+	const vid = $derived(data.version.id);
+	const c = $derived(data.content);
+	const bs = $derived(data.bundles);
+	const ti = $derived(bs.reduce((n, b) => n + b.rows.length, 0));
+	const tp = $derived(bs.reduce((n, b) => n + (b.pages || 0), 0));
+	const extracts = $derived(c.kpiExtractsValue ?? bs.reduce((n, b) => n + b.rows.filter((r) => r.sliceUrl).length, 0));
+	const hd = $derived(header(data.header));
+
+	// the sub-view lives in the address, so Back returns to it: list, one bundle's tab, or the (unavailable) builder
+	const view = $derived(page.url.searchParams.get('view') === 'build' ? 'build' : page.url.searchParams.has('b') ? 'bundle' : 'list');
+	const cur = $derived(bs.findIndex((b) => b.no === page.url.searchParams.get('b')));
+	const b = $derived(cur >= 0 ? bs[cur]! : null);
+	const tab = $derived(({ items: 'items', view: 'view' } as Record<string, string>)[page.url.searchParams.get('tab') ?? ''] ?? 'index');
+	const go = (q: Record<string, string>) => goto(`?${new URLSearchParams(q)}`);
+	const href = (r: Resolved | null) => (r ? docPath(vid, r.ref, r.page) : null);
+
+	// index header details: local values, saved together; a failed save keeps them and says why
+	let hv = $state<Header>({ ...untrack(() => data.header) });
+	let error = $state<string | null>(null);
+	let busy = $state(false);
+	let message = $state<string | null>(null);
+	const act = async (action: string, entries: [string, string][] = []) => {
+		busy = true;
+		const r = await postAction(action, entries);
+		busy = false;
+		if (!r.ok) { error = r.message; return; }
+		error = null;
+		await invalidateAll();
+		hv = { ...data.header };
+	};
+	const saveHeader = () => act('header', HEADER_KEYS.map((k) => [k, hv[k]]));
+	const rowsOf = (v: string) => Math.max(3, v.split(/\r?\n/).length + 1);
+
+	const creator = () => c.docxCreator ?? 'ClearCase';
+	const wordOne = (x: Bundle) => downloadBlob(indexFileName(x), indexDocx([x], hd.h, creator()), DOCX_TYPE);
+	const wordAll = () => { if (bs.length) downloadBlob(c.allIndexesFileName ?? 'Court_Bundle_Indexes.docx', indexDocx(bs, hd.h, creator()), DOCX_TYPE); };
+	const print = (x: Bundle) => { message = printIndex(x, hd.h) ? null : 'Allow pop-ups to print the index.'; };
+
+	let ready = $state(false);
+	onMount(() => { ready = true; });
+</script>
+
+{#snippet notServed(what: string)}<span class="not-served">{what} ({NOT_SERVED})</span>{/snippet}
+
+<main id="main" tabindex="-1" data-ready={ready ? 'court_bundle_tab' : null} data-busy={busy ? '1' : '0'}>
+	<PageHeader heading="Court Bundle" section="Court Bundle" caseName={data.version.titleName} subtitle="{bs.length} bundles · {ti} index items · {tp} paginated pages. Every bundle is a finished PDF: index first, then the extracted documents, numbered continuously from page 1.">
+		{#snippet actions()}<button type="button" class="btn sec" id="cb-word-all" onclick={wordAll}>All indexes (Word)</button> <button type="button" class="btn primary" id="cb-build" onclick={() => go({ view: 'build' })}>Build a bundle</button>{/snippet}
+	</PageHeader>
+	{#if error}<p class="error" role="alert" id="cb-error">{error}</p>{/if}
+	{#if message}<p class="notice" role="status" id="cb-message">{message}</p>{/if}
+
+	{#if view === 'build'}
+		<section class="card" id="cb-builder" data-unavailable-feature="builder" aria-labelledby="cb-builder-h">
+			<h2 id="cb-builder-h">Bundle builder</h2>
+			<p id="cb-builder-state">The bundle builder is not available in this version. It assembles a numbered PDF bundle from PDFs you pick; ClearCase claims nothing about merging PDFs yet. The shipped bundles' indexes, Word indexes and print remain available.</p>
+			<button type="button" class="btn sec" id="cb-builder-back" onclick={() => go({})}>All bundles</button>
+		</section>
+	{:else if view === 'bundle' && b}
+		{@const t = totals(b)}
+		{@const l = data.links[cur]!}
+		<section id="cb-bundle" aria-labelledby="cb-bundle-h">
+			<h2 id="cb-bundle-h">{b.title}</h2>
+			<p class="sub" id="cb-bundle-sub">{t.items} items · {t.pages} pages, numbered 1 to {t.pages}{t.missing ? ` · ${t.missing} item(s) flagged for review` : ''}</p>
+			<div class="toolbar"><button type="button" class="btn sec" id="cb-all" onclick={() => go({})}>All bundles</button>
+				{#if href(l.file)}<a class="btn sec" href={href(l.file)} target="_blank" rel="noopener">Open bundle PDF</a> <a class="btn primary" href={href(l.file)}>Download bundle</a>{:else if b.file}{@render notServed('Bundle PDF')}{/if}</div>
+			<div class="toolbar" role="tablist" aria-label="Bundle">
+				{#each [['index', 'Index'], ['items', 'Items & page numbers'], ['view', 'View bundle']] as [k, label] (k)}<button type="button" role="tab" aria-selected={tab === k} class="btn sm" class:primary={tab === k} id="cb-tab-{k}" onclick={() => go({ b: b.no, tab: k })}>{label}</button>{/each}
+				{#if b.note}<span class="tag">{b.note}</span>{/if}
+			</div>
+			{#if tab === 'items'}
+				<div class="card pad0"><div class="chead">Items — every page number below is the number printed on the page</div>
+					<div class="wrap"><table class="tbl" id="cb-items"><thead><tr><th>Item</th><th>Ref</th><th>Description</th><th>Extracted from</th><th class="num">Pages</th><th class="num">Page nos.</th><th></th></tr></thead><tbody>
+						{#if !b.rows.length}<tr><td colspan="7"><div class="empty">This bundle has no items yet.</div></td></tr>{/if}
+						{#each b.rows as r, i (i)}
+							{@const lr = l.rows[i]!}
+							<tr><td class="mono"><b>{r.n}</b></td><td class="mono">{r.key || ''}</td>
+								<td><div>{r.desc || '—'}</div>{#if r.blank}<div class="ex"><span class="badge b-info">intentionally blank</span></div>{/if}{#if r.missing && !r.blank}<div class="ex"><span class="badge b-warn">no file located — supply it or strike the item</span></div>{/if}{#if r.review && !r.missing && !r.blank}<div class="ex"><span class="badge b-info">extent auto-detected — verify</span></div>{/if}</td>
+								<td>{#if !r.parts.length}<span class="tag">—</span>{/if}{#each r.parts as p, j (j)}<div>{#if href(lr.parts[j]!)}<a class="doc" href={href(lr.parts[j]!)}>{cleanName(p.name)} <span class="extlink">↗</span></a>{:else}{cleanName(p.name)} <span class="not-served">({NOT_SERVED})</span>{/if} <span class="tag">{partRange(p)}</span></div>{/each}{#if r.caselines}<div class="ex">CaseLines {r.caselines.stamps} · {#if href(lr.caselines)}<a href={href(lr.caselines)} target="_blank" rel="noopener">verify page {r.caselines.from}</a>{:else}verify page {r.caselines.from} <span class="not-served">({NOT_SERVED})</span>{/if}</div>{/if}</td>
+								<td class="num">{r.pages || 0}</td><td class="num mono"><b>{#if range(r)}{range(r)}{:else}<span class="tag">—</span>{/if}</b></td>
+								<td>{#if r.sliceUrl}{#if href(lr.slice)}<a class="btn primary sm" href={href(lr.slice)} target="_blank" rel="noopener">Open item</a> <a class="btn ghost sm" href={href(lr.slice)}>Save extract</a>{:else}{@render notServed('Extract')}{/if}{#if r.from}<div class="ex">{#if href(l.file)}<a href={docPath(vid, l.file!.ref, r.from + b.indexPages)} target="_blank" rel="noopener">in the bundle at page {pad(r.from)}</a>{:else}in the bundle at page {pad(r.from)} <span class="not-served">({NOT_SERVED})</span>{/if}</div>{/if}
+									{:else if b.file && r.from}{#if href(l.file)}<a class="btn primary sm" href={docPath(vid, l.file!.ref, r.from + b.indexPages)} target="_blank" rel="noopener">Open item</a> <span class="tag">opens the bundle at page {pad(r.from)}</span>{:else}{@render notServed('Open item')}{/if}
+									{:else if r.parts.length && href(lr.parts[0]!)}<a class="btn primary sm" href={href(lr.parts[0]!)} target="_blank" rel="noopener">Open item</a>
+									{:else}<span class="tag">—</span>{/if}</td></tr>
+						{/each}
+					</tbody></table></div></div>
+				<div class="card"><h3>Reading this table</h3><div class="narr"><p>“Extracted from” is the source file and the pages taken out of it. “Page nos.” is where those pages sit in this bundle — the numbers stamped at the foot of each page and printed in the index.</p><p>“Open item” opens the extract on its own where one was cut (the pleadings), otherwise it opens the assembled bundle at that item’s first page. A file that is not in this version's verified document index is named but not served.</p></div></div>
+			{:else if tab === 'view'}
+				<div class="card">
+					{#if href(l.file)}<div class="toolbar"><a class="btn primary" href={href(l.file)} target="_blank" rel="noopener">Open in a new tab</a><a class="btn sec" href={href(l.file)}>Download PDF</a><button type="button" class="btn ghost" onclick={() => wordOne(b)}>Index (Word)</button><span class="tag">{b.pages || 0} pages</span></div>
+						<div class="empty">Bundles are large files. Open it through its document page, which shows it in the isolated viewer.</div>
+					{:else if b.file}<div class="toolbar"><button type="button" class="btn ghost" id="cb-view-word" onclick={() => wordOne(b)}>Index (Word)</button><span class="tag">{b.pages || 0} pages</span></div><div class="empty" id="cb-view-state">The assembled bundle PDF is {NOT_SERVED}, so it cannot be opened, downloaded or printed here.</div>
+					{:else}<div class="empty">This bundle has not been assembled yet. The bundle builder is not available in this version.</div>{/if}
+				</div>
+			{:else}
+				<div class="card" id="cb-index">
+					<div class="toolbar"><button type="button" class="btn primary" id="cb-word" onclick={() => wordOne(b)}>Download Word (.docx)</button><button type="button" class="btn sec" id="cb-print" onclick={() => print(b)}>Print index</button>{#if href(l.indexFile)}<a class="btn sec" href={href(l.indexFile)} target="_blank" rel="noopener">Index PDF</a>{:else if b.indexFile}{@render notServed('Index PDF')}{/if}{#if href(l.file)}<a class="btn sec" href={href(l.file)} target="_blank" rel="noopener">Full bundle</a>{:else if b.file}{@render notServed('Full bundle')}{/if}<button type="button" class="btn ghost" id="cb-edit-header" onclick={() => go({})}>Edit header details</button>{#if hd.blank.length}<span class="badge b-warn">{hd.blank.length} header field(s) blank — placeholders shown</span>{/if}</div>
+					<div class="cbindex" id="cbindexdoc">
+						<p class="c">{hd.h.court}</p><p class="c">{hd.h.judge}</p><p class="cn">{hd.h.caseNo ? 'CASE NUMBER: ' + hd.h.caseNo : ''}</p><p>&nbsp;</p><p>{hd.h.intro}</p><p>&nbsp;</p>
+						<p class="pt"><span>{hd.h.claimant}</span><span>{hd.h.claimantRole}</span></p><p>&nbsp;</p><p>and</p><p>&nbsp;</p>
+						<p class="pt"><span>{hd.h.defendant}</span><span>{hd.h.defendantRole}</span></p><p>&nbsp;</p><p class="c bt">INDEX</p><p class="c bt2">{b.title}</p><p>&nbsp;</p>
+						<table class="cbixt"><tbody>{#if !b.rows.length}<tr><td colspan="3">No items.</td></tr>{/if}{#each b.rows as r, i (i)}<tr class:to-complete={desc(r) === TO_COMPLETE}><td class="c">{r.n}.</td><td>{desc(r)}</td><td class="c">{range(r)}</td></tr>{/each}</tbody></table>
+					</div>
+				</div>
+			{/if}
+		</section>
+	{:else if !data.present}
+		<p class="empty">This results version has no court bundles.</p>
+	{:else}
+		<div class="grid g12">
+			<div class="kpi"><div class="k">Bundles</div><div class="v">{bs.length}</div><div class="s">{c.kpiBundlesNote ?? 'imported bundle definitions'}</div></div>
+			<div class="kpi"><div class="k">Index items</div><div class="v">{ti}</div><div class="s">listed across all bundles</div></div>
+			<div class="kpi"><div class="k">Pages</div><div class="v">{tp}</div><div class="s">assembled and numbered</div></div>
+			<div class="kpi"><div class="k">Extracts</div><div class="v">{extracts}</div><div class="s">{c.kpiExtractsNote ?? 'items with their own extract'}</div></div>
+		</div>
+		<div class="card" id="cb-header">
+			<h3>Index header details</h3>
+			<div class="meta">These appear at the head of every index — the PDF index, the printed index and the Word index alike. The two party citations may run over several lines: type them exactly as they are to appear and each line prints on its own line, with the party label against the first line. Leave a field blank and the index prints a placeholder in square brackets for counsel to complete.{#if header(hv).blank.length}{' '}<b>{header(hv).blank.length} field{header(hv).blank.length === 1 ? '' : 's'} blank — placeholders will be used.</b>{/if}</div>
+			<div class="row">
+				{#each HEADER_FIELDS as f (f.key)}
+					<div class="fld" class:ml={f.ml}><label class="tag" for="cbh_{f.key}">{f.label}</label>
+						{#if f.ml}<textarea class="in" id="cbh_{f.key}" name={f.key} rows={rowsOf(hv[f.key])} placeholder={f.placeholder} bind:value={hv[f.key]}></textarea>
+						{:else}<input class="in" id="cbh_{f.key}" name={f.key} placeholder={f.example ? (c.examples[f.key] ?? '') : f.placeholder} bind:value={hv[f.key]} />{/if}</div>
+				{/each}
+			</div>
+			<div class="toolbar"><button type="button" class="btn primary" id="cb-save" disabled={busy} onclick={saveHeader}>Save header</button><button type="button" class="btn sec" id="cb-restore" disabled={busy} onclick={() => act('restore')}>Restore matter defaults</button><button type="button" class="btn ghost" id="cb-clear" disabled={busy} onclick={() => act('clear')}>Clear all (use placeholders)</button></div>
+		</div>
+		<div class="card pad0"><div class="chead">Bundles</div><div class="wrap"><table class="tbl" id="cb-list"><thead><tr><th>No.</th><th>Bundle</th><th class="num">Items</th><th class="num">Pages</th><th>Status</th><th></th></tr></thead><tbody>
+			{#each bs as x, i (x.no)}
+				{@const t = totals(x)}
+				{@const l = data.links[i]!}
+				<tr data-no={x.no}><td class="mono"><b>{x.no}</b></td><td><div><b>{x.name}</b></div>{#if x.note}<div class="ex">{x.note}</div>{/if}</td><td class="num">{t.items}</td><td class="num">{t.pages}</td>
+					<td>{#if t.missing}<span class="badge b-warn">{t.missing} to review</span>{:else}<span class="badge b-ok">complete</span>{/if}</td>
+					<td><button type="button" class="btn primary sm" onclick={() => go({ b: x.no, tab: 'index' })}>Open</button> {#if href(l.file)}<a class="btn sec sm" href={href(l.file)} target="_blank" rel="noopener">Bundle PDF</a>{:else if x.file}{@render notServed('Bundle PDF')}{:else}<button type="button" class="btn sec sm" onclick={() => go({ view: 'build' })}>Create</button>{/if} {#if href(l.indexFile)}<a class="btn ghost sm" href={href(l.indexFile)} target="_blank" rel="noopener">Index PDF</a>{:else if x.indexFile}{@render notServed('Index PDF')}{/if}{x.indexFile ? ' ' : ''}<button type="button" class="btn ghost sm" onclick={() => wordOne(x)}>Word</button></td></tr>
+			{/each}
+		</tbody></table></div></div>
+		<div class="card"><h3>How the bundles are put together</h3><div class="narr">
+			{#if c.extentNarrative}<p>{c.extentNarrative}</p>{/if}
+			<p>The extracted pages are then stamped with the bundle’s own page numbers, starting at 1 on the first page of item 1 and running continuously to the last page of the last item. The index carries those same numbers, so the number in the index is the number printed on the page.</p>
+			<p>The index pages themselves sit in front of page 1 and are not numbered, in the usual way.</p>
+			{#if c.source || c.indexSource}<p class="tag">{c.source ? `Composition follows ${c.source}` : ''}{c.source && c.indexSource ? '; ' : ''}{c.indexSource ? `the index layout follows ${c.indexSource}` : ''}.</p>{/if}
+		</div></div>
+	{/if}
+</main>
+
+<style>
+	.grid.g12 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+	.kpi { border: 1px solid #ddd; border-radius: 6px; padding: 10px; }
+	.kpi .k { font-size: 0.85em; color: #555; }
+	.kpi .v { font-size: 1.6em; font-weight: 700; }
+	.kpi .s { font-size: 0.8em; color: #555; }
+	.card { border: 1px solid #ddd; border-radius: 6px; padding: 12px; margin: 12px 0; }
+	.card.pad0 { padding: 0; }
+	.chead { font-weight: 700; padding: 8px 12px; }
+	.row { display: flex; flex-wrap: wrap; gap: 10px; }
+	.fld { min-width: 230px; flex: 1; display: flex; flex-direction: column; }
+	.fld.ml { min-width: 320px; flex: 2; }
+	.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
+	.tbl { width: 100%; border-collapse: collapse; }
+	.tbl td, .tbl th { border-bottom: 1px solid #eee; padding: 4px 8px; text-align: left; vertical-align: top; }
+	.num { text-align: right; }
+	.ex, .tag { font-size: 0.85em; color: #555; }
+	.badge { border-radius: 8px; padding: 1px 6px; font-size: 0.8em; }
+	.b-ok { background: #dcfce7; } .b-warn { background: #fef3c7; } .b-info { background: #dbeafe; }
+	.not-served { color: #92400e; font-style: italic; }
+	.cbindex { font-family: Verdana, Geneva, sans-serif; font-size: 13px; line-height: 1.9; }
+	.cbindex p { margin: 0; font-weight: 700; }
+	.cbindex p.c { text-align: center; }
+	.cbindex p.cn { text-align: right; font-size: 12px; }
+	.cbindex p.pt { display: flex; justify-content: space-between; gap: 24px; }
+	.cbindex p.pt span:first-child { white-space: pre-line; }
+	.cbixt { border-collapse: collapse; width: 100%; }
+	.cbixt td { border: 1px solid #000; padding: 6px 8px; font-weight: 700; vertical-align: top; }
+	.cbixt td.c { text-align: center; white-space: nowrap; }
+	.error { color: #b91c1c; }
+</style>

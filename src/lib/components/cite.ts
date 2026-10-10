@@ -5,10 +5,13 @@
 import { documentRoute, renderNarrative } from '../case-package/browser.ts';
 import { CITATION_TOKEN, parseCitationToken } from '../case-package/refs.ts';
 
-/** The refs cited in a set of texts (the server checks which of them exist in the version). */
+/**
+ * The refs cited in a set of texts (the server checks which of them exist in the version). Tokens are read as
+ * renderNarrative reads them (line breaks normalised, the inner text trimmed), so every ref it links is looked up.
+ */
 export function citedRefs(texts: Iterable<string>): string[] {
 	const out = new Set<string>();
-	for (const t of texts) for (const m of String(t).matchAll(CITATION_TOKEN)) { const c = parseCitationToken(m[1]!); if (c) out.add(c.ref); }
+	for (const t of texts) for (const m of String(t).replace(/\r\n?/g, '\n').matchAll(CITATION_TOKEN)) { const c = parseCitationToken(m[1]!.trim()); if (c) out.add(c.ref); }
 	return [...out].sort();
 }
 

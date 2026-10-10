@@ -53,3 +53,11 @@ td, th { padding: 2px 8px; border-bottom: 1px solid #eee; text-align: left; vert
 .diag-code { margin-top: 1rem; }
 details > summary { cursor: pointer; }
 .narrative p { margin: .3rem 0; }
+/* Below 40rem a phone has too little room beside the 15rem navigation column: the navigation stacks above the content
+   as a bounded list that scrolls, the top bar and page header wrap. At 40rem and wider nothing changes. */
+@media (max-width: 40rem) {
+	header.top { flex-wrap: wrap; }
+	.case-shell { grid-template-columns: minmax(0, 1fr); }
+	nav.views { position: static; max-height: 14rem; border-right: 0; border-bottom: 1px solid #ddd; }
+	.page-head { flex-wrap: wrap; }
+}

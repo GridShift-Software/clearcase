@@ -22,6 +22,7 @@ const flow = await import('./suite/main-flow.mjs');
 const sec = await import('./suite/security.mjs');
 const state = await import('./suite/state.mjs');
 const hostile = await import('./suite/hostile.mjs');
+const shell = await import('./suite/shell.mjs');
 
 const ROOT = resolve(process.env.E2E_ROOT ?? join(import.meta.dirname, '..', '..', '..'));
 const BUILD = resolve(process.env.E2E_BUILD_DIR ?? join(ROOT, 'build'));
@@ -78,6 +79,8 @@ try {
 	await step('SLOTS', "overview widget slots: deadlines, unbilled-time and rescan-freshness render data-slot-status=filled with their heading when the owner's overview-widgets.ts fills them, else unavailable naming GRS-17/GRS-20; the old combined card is gone", () => flow.overviewSlots(ctx));
 	await step('BA-04', "date basis column hidden while no row has a basis ('undated' in the Date column); with supplied date_type/date_source, 'unknown', 'undated' and the supplied values", () => flow.dateBasis(ctx));
 	await step('BA-09', 'source routes: e-mail original direct, attachments through the parent; an original deleted before import, or after activation, is unavailable, has no link and is 410; restoring it brings the links back', () => flow.sourceRoutes(ctx));
+	await step('EXPORT-NAME', "chronology export: the download (Browser.downloadWillBegin) is named by the package's view-content chronology.exportFileName with no note; a package without view-content (viewCode: false) downloads chronology.csv with the fixed note beside the export button", () => shell.exportName(ctx));
+	await step('NARROW', 'narrow shell: at 320 and 390 px the navigation stacks above main (not sticky, bounded and scrolling), main starts at the left edge and spans the viewport, the top bar wraps, the overview does not scroll sideways (overview, a document, an unavailable view); at 1280 px two columns and a sticky navigation', () => shell.narrowShell(ctx));
 	await step('S4', 'a note added through the document page form appears without a reload, renders as text and persists', () => state.notesUi(ctx));
 	await step('S28', 'viewer containment: script in the sandboxed pdf.js frame cannot navigate, open popups, read originals, set cookies or reach the wrapper', () => sec.s28(ctx));
 	await step('S29', '/_pdfjs allowlist: inherited keys and malformed escapes 404 with CSP; listed files 200', () => sec.s29(ctx));

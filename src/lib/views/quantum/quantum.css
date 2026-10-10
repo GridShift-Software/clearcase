@@ -20,3 +20,7 @@
 .q-h520 { max-height: 520px; }
 .q-filter { max-width: 220px; }
 .q-push { margin-left: auto; }
+.q-hint { font-size: .78em; color: #555; }
+.q-status { font-style: italic; }
+.q-actions { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.q-nowrap { white-space: nowrap; }

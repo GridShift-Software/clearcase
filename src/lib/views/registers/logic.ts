@@ -17,9 +17,13 @@ export interface Row { rowId: string; values: Entry }
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const realDate = (s: string) => { const [y, m, d] = s.split('-').map(Number) as [number, number, number]; return new Date(Date.UTC(y, m - 1, d)).getUTCDate() === d && m >= 1 && m <= 12; };
 
-/** Every field of the register as text, from form input (a missing or non-text value is ''). */
+/**
+ * Every field of the register as text, from form input (a missing or non-text value is ''). A form submission sends a
+ * textarea's line breaks as CRLF (multipart and urlencoded alike) while the textarea's own value holds LF, so a
+ * textarea's CRLF or CR is stored as LF, as typed.
+ */
 export function entryFrom(def: Shape, input: Record<string, unknown>): Entry {
-	return Object.fromEntries(def.fields.map((x) => { const v = input[x.k]; return [x.k, typeof v === 'string' ? v : ''] as const; }));
+	return Object.fromEntries(def.fields.map((x) => { const v = input[x.k]; return [x.k, typeof v !== 'string' ? '' : x.type === 'textarea' ? v.replace(/\r\n?/g, '\n') : v] as const; }));
 }
 
 /**

@@ -9,7 +9,6 @@ import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writ
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
-import { moduleFiles } from '../../scripts/parity/lib/modules.mjs';
 import { REPO } from '../../scripts/parity/lib/register.mjs';
 
 const BUN = process.versions.bun ? process.execPath : 'bun';
@@ -109,7 +108,8 @@ describe('register files must be committed review inputs', () => {
 		expect(ignored.ids).toContain('IDR-038');
 		expect(ignored.evidenceNote).toBe('NOT release evidence: register files the run read that the reviewed commit does not hold: docs/reference/parity/register/CC-10.json (ignored)');
 	});
-	test('a parity module found by listing its folder and hidden by the committed .env.* rule: not evidence', () => {
+	test('a parity module found by listing its folder and hidden by the committed .env.* rule: not evidence', async () => {
+		const { moduleFiles } = await import('../../scripts/parity/lib/modules.mjs');
 		writeFileSync(join(synth, 'scripts', 'parity', 'adapters', 'app', '.env.local.mjs'), 'export default {};\n');
 		expect(g('status', '--porcelain')).toBe('');
 		// the app adapter loader lists it, so the runner would import it

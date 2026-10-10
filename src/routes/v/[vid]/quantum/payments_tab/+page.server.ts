@@ -1,6 +1,6 @@
 import { app } from '$lib/local-case/app.server';
 import { viewText } from '$lib/local-case/results.server';
-import { caseOf, content, dataset, guardedWrite, payments, resolvableRefs, type ReconRow, type Settlement } from '$lib/views/quantum/data.server';
+import { caseOf, content, dataset, DELETE_MESSAGES, guardedWrite, payments, resolvableRefs, type ReconRow, type Settlement } from '$lib/views/quantum/data.server';
 import { checkEntry } from '$lib/views/quantum/payments';
 import { addPayment, deletePayment } from '$lib/views/quantum/writes.server';
 import { fail } from '@sveltejs/kit';
@@ -51,9 +51,9 @@ export const actions: Actions = {
 		const pending = typed ? { addError: c && !c.ok ? c.error : 'The entry in the form is not saved yet: press Add to save it.', field: c && !c.ok ? c.field : null } : {};
 		const caseId = caseOf(params.vid);
 		// deleted by the row's stable id, never by its position (v5 deleted by array index)
-		const w = await guardedWrite(values, () => deletePayment(app().userWork, caseId, rowId, hash), { op: 'delete', rowId, ...pending });
+		const w = await guardedWrite(values, () => deletePayment(app().userWork, caseId, rowId, hash), { op: 'delete', rowId, ...pending }, DELETE_MESSAGES);
 		if (!w.ok) return w.failure;
-		if (w.value === 'gone') return fail(404, { op: 'delete', rowId, values, ...pending, error: 'This payment was already deleted elsewhere (another tab or window). Nothing else changed.', retry: false });
+		if (w.value === 'gone') return fail(404, { op: 'delete', rowId, values, ...pending, gone: true, error: 'This payment was already deleted elsewhere (another tab or window). Nothing else changed.', retry: false });
 		if (w.value === 'stale') return fail(409, { op: 'delete', rowId, values, ...pending, error: 'Not deleted: this payment changed since the page showed it (a restore or an import). The table now shows it as stored; check it, then delete it again if you still want to.', retry: false });
 		return { op: 'delete', deleted: true, rowId, values, ...pending };
 	},

@@ -521,7 +521,7 @@ try {
 		return { pass: Object.values(checks).every(Boolean), evidence: { checks, ...ev } };
 	});
 
-	await scenario('E-FILINGS-NOJS', 'filings_tab', 'Filings without JavaScript (CC-04 r2 D1, D2): a busy Delete of another row keeps the edit in progress; a refused save of an edit comes back in edit mode with its values, Retry and Discard, and the rows Edit buttons wait with a note; a Delete after it keeps the draft and its failure; Retry saves the edit once; a refused Search keeps what was typed', async () => {
+	await scenario('E-FILINGS-NOJS', 'filings_tab', 'Filings without JavaScript (CC-04 r2 D1, D2): a busy Delete of another row keeps the edit in progress; a refused save of an edit comes back in edit mode with its values, Retry and Discard, and the rows Edit buttons wait with a note; a Delete after it keeps the draft and its failure; Retry saves the edit once; a refused Add keeps its values; a refused Search keeps what was typed', async () => {
 		const q = await openPage(b, { initScript: INIT });
 		await q.s('Emulation.setScriptExecutionDisabled', { value: true });
 		const ev = {};
@@ -547,6 +547,12 @@ try {
 			const before = storedFilings().length;
 			await post('#register-retry');
 			ev.afterRetry = { ...(await formOf(q)), stored: storedFilings().filter((r) => r.filing === 'No-JS edited filing' && r.response === 'No-JS edited reply').length, storedDelta: storedFilings().length - before, url: await q.evaluate('location.pathname + location.search') };
+			// a refused Add keeps its values, in add mode, and writes nothing
+			await setFields(q, { fl_filing: 'No-JS added filing', fl_response: 'No-JS added reply' }, false);
+			const beforeAdd = storedFilings().length;
+			release = holdStore();
+			try { await post('#register-add'); } finally { release(); }
+			ev.addFailed = { ...(await formOf(q)), storedDelta: storedFilings().length - beforeAdd };
 			// GET form: a refused search keeps what was typed
 			await open(`${V}/evidence/search`, 'search');
 			await setFields(q, { sq: 'Synthetic', samin: '10', samax: '1' }, false);
@@ -562,6 +568,7 @@ try {
 			editsWaitWithNote: ev.saveFailed.held && ev.saveFailed.editsDisabled.length > 0 && ev.saveFailed.editsDisabled.every(Boolean),
 			deleteKeepsDraftAndFailure: !ev.afterDelete.rows.includes(kC) && ev.afterDelete.mode === 'edit' && ev.afterDelete.key === kA && editVals(ev.afterDelete) && /could not be saved/.test(ev.afterDelete.saveError ?? '') && ev.afterDelete.retry && ev.afterDelete.deleteError === null,
 			retrySavesOnce: ev.afterRetry.stored === 1 && ev.afterRetry.storedDelta === 0 && ev.afterRetry.mode === 'add' && ev.afterRetry.saveError === null && !ev.afterRetry.url.includes('?'),
+			refusedAddKeepsInput: ev.addFailed.mode === 'add' && ev.addFailed.values.fl_filing === 'No-JS added filing' && ev.addFailed.values.fl_response === 'No-JS added reply' && /could not be saved: the local store is busy/.test(ev.addFailed.saveError ?? '') && ev.addFailed.storedDelta === 0,
 			searchRefusalKeepsInput: ev.search.result === 'invalid' && /Amount min is greater than Amount max/.test(ev.search.invalid ?? '') && ev.search.q === 'Synthetic' && ev.search.amin === '10' && ev.search.amax === '1',
 		};
 		return { pass: Object.values(checks).every(Boolean), evidence: { checks, ...ev } };

@@ -15,13 +15,17 @@ const { launch, newPage, sleep } = await import('../pilot/lib/cdp.mjs');
 const { client, vpath } = await import('../pilot/lib/client.mjs');
 const { outDir } = await import('../pilot/lib/record.mjs');
 const { CAPTURE, CLOCK, J, holdStore, pageKit, quantumCase, ready, server, takeDownloads } = await import('./lib.mjs');
+const { r2 } = await import('./r2.mjs');
 
 const ROOT = resolve(join(import.meta.dirname, '..', '..', '..'));
 const BUILD = join(ROOT, 'build');
 const OUT = join(outDir(), 'quantum');
 const LABEL = { quantum_tab: 'Quantum & Interest', invoice_ledger_tab: 'Invoice Ledger', prescription_tab: 'Prescription', interest_calc_tab: 'Interest Recalculator', payments_tab: 'Payments & Net Claim', settlement_tab: 'Settlement / BATNA' };
 const results = [];
+// QUANTUM_ONLY=<id,id,...> runs only those scenarios (a development probe, e.g. a mutant check); never for evidence
+const ONLY = new Set((process.env.QUANTUM_ONLY ?? '').split(',').filter(Boolean));
 const scenario = async (id, view, title, fn) => {
+	if (ONLY.size && !ONLY.has(id)) return;
 	const t0 = Date.now();
 	let pass = false, evidence = {};
 	try { const r = await fn(); pass = r.pass === true; evidence = r.evidence ?? {}; } catch (e) { evidence = { error: String(e?.stack ?? e).slice(0, 3000) }; }
@@ -30,7 +34,7 @@ const scenario = async (id, view, title, fn) => {
 };
 const finish = (extra = {}) => {
 	mkdirSync(OUT, { recursive: true });
-	writeFileSync(join(OUT, 'summary.json'), JSON.stringify({ scenarios: results.map(({ id, view, pass }) => ({ id, view, pass })), clock: CLOCK, ...extra }, null, 1));
+	writeFileSync(join(OUT, 'summary.json'), JSON.stringify({ scenarios: results.map(({ id, view, pass }) => ({ id, view, pass })), clock: CLOCK, ...(ONLY.size ? { only: [...ONLY], evidence: false } : {}), ...extra }, null, 1));
 	writeFileSync(join(OUT, 'results.json'), JSON.stringify({ results, ...extra }, null, 1));
 	const failed = results.filter((r) => !r.pass).length;
 	console.log(`quantum suite: ${results.length - failed} PASS, ${failed} FAIL -> ${join(OUT, 'summary.json')}`);
@@ -134,7 +138,7 @@ try {
 		const cells = await p.evaluate(`[...document.querySelectorAll('#prescription tbody tr')].map((r) => [r.cells[2].textContent, r.cells[3].textContent, r.cells[5].textContent.trim()])`);
 		await k.open(`${route('interest_calc_tab')}?p=100000&r=10&m=Simple&from=2092-02-28&to=2092-03-01`, 'interest_calc_tab');
 		const leap = await k.kpis('#ic_out');
-		return { pass: plus3 === '4 of 4 imported prescription dates are the invoice date plus 3 calendar years. 2 invoices are dated 29 February; 2 of them prescribe on 28 February.' && cells[0][1] === '1991-02-28' && cells[3][1] === '2084-12-31' && leap[1]?.label === 'Interest (0.01 yrs)' && leap[1]?.value === 'R 54.76', evidence: { plus3, cells, leap } };
+		return { pass: plus3 === '5 of 7 imported prescription dates are the invoice date plus 3 calendar years. 2 invoices are dated 29 February; 2 of them prescribe on 28 February.' && cells[0][1] === '1991-02-28' && cells[3][1] === '2084-12-31' && leap[1]?.label === 'Interest (0.01 yrs)' && leap[1]?.value === 'R 54.76', evidence: { plus3, cells, leap } };
 	});
 
 	// ---- 5. invalid and reversed inputs are refused visibly, the typed text kept ----------------------------------------
@@ -158,6 +162,9 @@ try {
 		await k.click('#pay-add');
 		await p.waitFor(`!!document.getElementById('pay-error')`, 15000);
 		const r = { error: await k.text('#pay-error'), values: await k.values(typed.map(([s]) => s)), after: S.rows('payments').length, empty: await k.text('#payments tbody tr td') };
+		// the refused entry is discarded on purpose, so the next scenario's navigation is not asked about it (CC-06 r2)
+		await k.click('#pay-discard');
+		r.discarded = await k.values(typed.map(([s]) => s));
 		return { pass: /Not an amount/.test(r.error) && J(r.values) === J(typed.map(([, v]) => v)) && r.after === before && /^No payments recorded/.test(r.empty ?? ''), evidence: { before, ...r } };
 	});
 
@@ -211,7 +218,8 @@ try {
 		const r = { error: await k.text('#pay-error'), values: await k.values(typed.map(([s]) => s)), during: S.rows('payments').length };
 		await S.start();
 		await k.click('#pay-add');
-		r.retry = await p.waitFor(`document.querySelectorAll('#payments tbody tr[data-row-id]').length === ${before + 1} || (document.getElementById('pay-error')?.textContent ?? '') !== ${J(r.error)}`, 20000).then(() => k.text('#pay-error'), (e) => String(e).slice(0, 200));
+		// the retry clears the error while it is sent (CC-06 r2): wait until it has answered (saved, or failed again)
+		r.retry = await p.waitFor(`!document.getElementById('pay-status') && (document.querySelectorAll('#payments tbody tr[data-row-id]').length === ${before + 1} || !!document.getElementById('pay-error'))`, 20000).then(() => k.text('#pay-error'), (e) => String(e).slice(0, 200));
 		r.after = S.rows('payments').length;
 		return { pass: /could not be reached/.test(r.error) && J(r.values) === J(typed.map(([, v]) => v)) && r.during === before && r.after === before + 1, evidence: { before, ...r } };
 	});
@@ -237,7 +245,7 @@ try {
 		await sleep(100);
 		const d = (await takeDownloads(p))[0];
 		const lines = d?.text.split('\r\n') ?? [];
-		return { pass: d?.name === 'invoices.csv' && lines.length === 4 && lines[0] === 'ref,no,date,amount,bundle,text_status,url' && lines[1].startsWith('OD-002,SYNINV1,2081-01-31,1150.00,Original,extracted,./') && lines[3] === 'OD-003,SYNINV3,,0.20,Supplementary,none,', evidence: { name: d?.name, lines: lines.length, head: lines[0], last: lines[3] } };
+		return { pass: d?.name === 'invoices.csv' && lines.length === 4 && lines[0] === 'ref,no,date,amount,bundle,text_status,url' && lines[1].startsWith('OD-002,SYNINV1,2081-01-31,1150.00,Original,extracted,./') && lines[3] === 'ZZ-406,SYNINV3,,0.20,Supplementary,none,', evidence: { name: d?.name, lines: lines.length, head: lines[0], last: lines[3] } };
 	});
 	await scenario('Q7-EXPORT-PRESCRIPTION', 'prescription_tab', 'the prescription export follows the active filter and the shown order (BA-17); the filter is in the URL and the controls show it', async () => {
 		await k.open(`${route('prescription_tab')}?risk=Not+yet+due+to+prescribe`, 'prescription_tab');
@@ -248,7 +256,7 @@ try {
 		await sleep(100);
 		const d = (await takeDownloads(p))[0];
 		const refs = (d?.text.split('\r\n') ?? []).slice(1).map((l) => l.split(',')[0]);
-		return { pass: J(shown) === J(['OD-003', 'SD-001']) && control === 'Not yet due to prescribe' && J(refs) === J(shown), evidence: { shown, control, refs } };
+		return { pass: J(shown) === J(['OD-003', 'SD-001', 'ZZ-405', 'OD-001', 'SD-001']) && control === 'Not yet due to prescribe' && J(refs) === J(shown), evidence: { shown, control, refs } };
 	});
 
 	// ---- 8. change a settlement assumption and observe the result ----------------------------------------------------------
@@ -274,7 +282,7 @@ try {
 		r.interest = { note: await p.evaluate(`document.querySelector('.narrative')?.textContent.trim() ?? null`), label: await k.text('#note-imported') };
 		const pass = r.note === 'Synthetic narrative: every invoice has prescribed.' && /^Imported narrative: not checked/.test(r.label ?? '') && /It counts 3 relying on interruption where 2 rows carry that label/.test(r.flag ?? '') &&
 			r.kpis[1]?.value === '3' && /legal rule \(leap day, < or ≤, interruption\) not approved/.test(r.caution ?? '') && /headline date 2094-01-10/.test(r.caution ?? '') &&
-			J(r.risk) === J(['Relies on interruption / 3-yr date passed', 'Relies on interruption / 3-yr date passed', 'Not yet due to prescribe / 3-yr date not reached', 'Not yet due to prescribe / 3-yr date not reached']) &&
+			J(r.risk) === J(['Relies on interruption / 3-yr date passed', 'Relies on interruption / 3-yr date passed', 'Not yet due to prescribe / 3-yr date not reached', 'Not yet due to prescribe / 3-yr date not reached', 'Not yet due to prescribe / 3-yr date passed', 'Not yet due to prescribe / 3-yr date passed', 'Not yet due to prescribe / 3-yr date not reached']) &&
 			r.interest.note === 'Synthetic basis narrative.' && /^Imported narrative/.test(r.interest.label ?? '');
 		return { pass, evidence: r };
 	});
@@ -290,7 +298,7 @@ try {
 		await p.evaluate(`document.getElementById('charging-link').click()`);
 		await p.waitFor(ready('chronology'), 20000);
 		const chron = await p.evaluate(`({ search: location.search, type: document.getElementById('f-type')?.value ?? null, q: document.getElementById('f-q')?.value ?? null })`);
-		const pass = q.headline?.[0] === 'Open source PDF' && q.headline?.[1] === `${vpath(sc.resultsVersion)}/doc/OD-002` && q.charging === `${vpath(sc.resultsVersion)}/chronology?type=charging+calculation` && q.ledger === 3 &&
+		const pass = q.headline?.[0] === 'Open source PDF' && q.headline?.[1] === `${vpath(sc.resultsVersion)}/doc/OD-002` && q.charging === `${vpath(sc.resultsVersion)}/chronology?type=charging+calculation` && q.ledger === 2 &&
 			J(recon.links) === J(['OD-002 ↗', 'SD-001 ↗']) && J(recon.broken) === J(['ZZ-404']) && chron.search === '?type=charging+calculation' && chron.q === '';
 		return { pass, evidence: { q, recon, chron } };
 	});
@@ -308,12 +316,16 @@ try {
 		await S.stop();
 		await S.start();
 		const c2 = await snap();
-		return { pass: /as-of date 2026-10-08 \(today\)/.test(a.presc) && /^.*2 of 4 rows have a prescription date on or before/m.test(a.presc) && /"R 10 493.90"/.test(a.interest) && J(a) === J(b2) && J(a) === J(c2), evidence: { a, same: J(a) === J(b2), sameAfterRestart: J(a) === J(c2) } };
+		return { pass: /as-of date 2026-10-08 \(today, South African time\)/.test(a.presc) && /^.*4 of 7 rows have a prescription date on or before/m.test(a.presc) && /"R 10 493.90"/.test(a.interest) && J(a) === J(b2) && J(a) === J(c2), evidence: { a, same: J(a) === J(b2), sameAfterRestart: J(a) === J(c2) } };
 	});
+	// ---- CC-06 r2: lost edits, limits, dates, URL values, links (r2.mjs) ----------------------------------------------------
+	await r2({ b, S, sc, c, scenario, base, route });
+
 	// ---- optional: synthetic screenshots of the product-visible changes (QUANTUM_SCREENS=<dir>; not a scenario) ---------
 	if (process.env.QUANTUM_SCREENS) {
 		mkdirSync(process.env.QUANTUM_SCREENS, { recursive: true });
 		const shot = async (name, path, view, act) => {
+			if (await k.exists('#pay-discard')) await k.click('#pay-discard');
 			await k.open(path, view);
 			if (act) await act();
 			await sleep(150);

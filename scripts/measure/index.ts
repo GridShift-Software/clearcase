@@ -9,9 +9,9 @@
 // HEAD, built from and run on a tree without modified or untracked (not ignored) files; otherwise exit 2 before the
 // runner starts, unless --allow-stale-build (the flag only; removed before the runner sees its arguments). The record,
 // with `evidence: false` and the reasons when stale or overridden, or when the runner file is not a committed review
-// input (fresh-build.ts uncommittedInputs: ccNN.mjs is found by listing this folder), goes to
-// <out>/build-evidence-CC-NN.json (--out, else $CLEARCASE_REPORT_DIR/measure, else .local/measure), the runner gets
-// CLEARCASE_BUILD_EVIDENCE=true|false, and the final status line says NOT EVIDENCE when it is false.
+// input under scripts/ with HEAD's bytes (fresh-build.ts uncommittedInputs: ccNN.mjs is found by listing this
+// folder), goes to <out>/build-evidence-CC-NN.json (--out, else $CLEARCASE_REPORT_DIR/measure, else .local/measure),
+// the runner gets CLEARCASE_BUILD_EVIDENCE=true|false, and the final status line says NOT EVIDENCE when it is false.
 // This file only spawns and imports the typed fresh-build module, so `tsc --noEmit -p .` checks it cleanly.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
@@ -43,7 +43,7 @@ const resolved = candidate ? spawnSync('git', ['-C', repo, 'rev-parse', '--verif
 const stamp: BuildStamp | null = candidate ? { revision: resolved, dirty: false } : existsSync(stampFile) ? readStamp(path.join(repo, 'build')) : { revision: spawnSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout?.trim() || null, dirty: false };
 const fresh = freshness(repo, stamp, candidate || !existsSync(stampFile) ? {} : { buildDir: path.join(repo, 'build') });
 const allowed = allowStale(argv);
-const record = { ticket, runner, underTest: candidate ? `--candidate ${candidate}` : existsSync(stampFile) ? 'build/clearcase-build.json' : 'worktree (no build)', ...evidenceRecord(fresh, allowed, notCommitted('the measure runner', repo, [path.join(repo, runner)])) };
+const record = { ticket, runner, underTest: candidate ? `--candidate ${candidate}` : existsSync(stampFile) ? 'build/clearcase-build.json' : 'worktree (no build)', ...evidenceRecord(fresh, allowed, notCommitted('the measure runner', repo, [path.join(repo, runner)], { within: 'scripts' })) };
 const outArg = opt('out');
 const out = path.resolve(outArg ?? (process.env.CLEARCASE_REPORT_DIR ? path.join(process.env.CLEARCASE_REPORT_DIR, 'measure') : path.join(repo, '.local', 'measure')));
 mkdirSync(out, { recursive: true });

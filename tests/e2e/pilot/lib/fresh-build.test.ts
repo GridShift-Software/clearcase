@@ -14,11 +14,11 @@
 // The cases that need a symlink skip, saying so in their title, where the platform refuses to create one (Windows
 // without Developer Mode); every other case runs everywhere.
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
-import { ALLOW_FLAG, allowStale, evidenceRecord, evidenceSuffix, freshness, gitEnv, notCommitted, readStamp, refusal, uncommittedInputs } from './fresh-build.ts';
+import { ALLOW_FLAG, allowStale, evidenceRecord, evidenceSuffix, freshness, gitBlobId, gitEnv, notCommitted, readStamp, refusal, uncommittedInputs } from './fresh-build.ts';
 
 const REPO = join(import.meta.dirname, '..', '..', '..', '..');
 const BUN = process.versions.bun ? process.execPath : 'bun';
@@ -311,17 +311,17 @@ describe('committed review inputs (uncommittedInputs)', () => {
 		const at = (...n: string[]) => n.map((x) => join(d, 'p', x));
 		expect(uncommittedInputs(d, at('tracked.json'))).toEqual([]);
 		expect(uncommittedInputs(d, [...at('tracked.json', '.local/over.json', 'new.json', 'staged.json', 'changed.json', 'hidden.json'), outside])).toEqual([
-			`${realpathSync(outside)} (outside the checkout ${realpathSync(d)})`,
 			'p/.local/over.json (ignored)',
 			'p/new.json (untracked)',
 			'p/staged.json (modified)',
 			'p/changed.json (modified)',
 			'p/hidden.json (hidden from git (assume-unchanged or skip-worktree))',
+			`${realpathSync(outside)} (outside the checkout ${realpathSync(d)})`,
 		]);
 		expect(notCommitted('register files', d, at('tracked.json'))).toEqual([]);
 		expect(notCommitted('register files', d, at('tracked.json', 'new.json'))).toEqual(['register files that the reviewed commit does not hold: p/new.json (untracked)']);
 	});
-	symlinkTest('a tracked symlink is judged by the file it resolves to (here an ignored one)', () => {
+	symlinkTest('a tracked symlink is judged as given and as resolved (here to an ignored file), and its target is not its HEAD blob', () => {
 		const { d } = repo();
 		mkdirSync(join(d, '.local'));
 		writeFileSync(join(d, '.local', 'over.json'), '{}');
@@ -329,7 +329,7 @@ describe('committed review inputs (uncommittedInputs)', () => {
 		git(d, 'add', 'link.json');
 		git(d, 'commit', '-q', '-m', 'link');
 		expect(git(d, 'status', '--porcelain')).toBe('');
-		expect(uncommittedInputs(d, [join(d, 'link.json')])).toEqual(['.local/over.json (ignored)']);
+		expect(uncommittedInputs(d, [join(d, 'link.json')])).toEqual(["link.json (resolves to .local/over.json, which is ignored; its bytes are not HEAD's)"]);
 	});
 	test('git answers for the directory itself: a subfolder of a checkout, a folder outside any, and GIT_* variables pointing elsewhere', () => {
 		const { d } = repo();
@@ -356,6 +356,27 @@ describe('committed review inputs (uncommittedInputs)', () => {
 			if (was.dir === undefined) delete process.env.GIT_DIR; else process.env.GIT_DIR = was.dir;
 			if (was.tree === undefined) delete process.env.GIT_WORK_TREE; else process.env.GIT_WORK_TREE = was.tree;
 		}
+	});
+	test("the bytes must be HEAD's blob at the path as given: an edit git's index does not show, the bytes a runner read, a file outside `within`", () => {
+		const { d } = repo();
+		const a = join(d, 'a.txt');
+		// git's own blob id, without filters
+		expect(gitBlobId(readFileSync(a))).toBe(git(d, 'hash-object', '--no-filters', 'a.txt'));
+		expect(uncommittedInputs(d, [a])).toEqual([]);
+		// the bytes the runner read count, not the file now
+		expect(uncommittedInputs(d, [a], { read: { [a]: Buffer.from('two\n') } })).toEqual(["a.txt (its bytes are not HEAD's)"]);
+		expect(uncommittedInputs(d, [a], { within: 'p' })).toEqual(['a.txt (outside p/)']);
+		// a same-size edit with the old mtime restored and core.trustctime=false: git status is clean, the bytes are not HEAD's
+		const old = 86_400; // an mtime long before the index write, in seconds
+		utimesSync(a, old, old);
+		git(d, 'update-index', '-q', '--refresh');
+		writeFileSync(a, 'two\n');
+		utimesSync(a, old, old);
+		git(d, 'config', 'core.trustctime', 'false');
+		expect(git(d, 'status', '--porcelain')).toBe('');
+		expect(uncommittedInputs(d, [a])).toEqual(["a.txt (its bytes are not HEAD's)"]);
+		// a file tracked in the index but not in HEAD is staged, so modified; one in neither is untracked
+		expect(uncommittedInputs(d, [join(d, 'nowhere.json')])).toEqual(['nowhere.json (untracked)']);
 	});
 });
 

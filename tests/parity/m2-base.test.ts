@@ -4,7 +4,7 @@
 // `test:e2e` runs tests/e2e/<category>/suite.mjs offline after the pilot suites; the root vitest config includes the
 // owners' test paths. Synthetic files in temp copies only: nothing here is written into the repository.
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
@@ -109,6 +109,20 @@ describe('measure dispatcher', () => {
 			expect(hidden.status, hidden.stderr).toBe(0);
 			expect(hidden.stderr).toMatch(/evidence=false/);
 			expect(JSON.parse(readFileSync(join(repo, 'report', 'measure', 'build-evidence-CC-98.json'), 'utf8'))).toMatchObject({ evidence: false, freshBuild: { fresh: true }, evidenceNote: 'NOT release evidence: the measure runner that the reviewed commit does not hold: scripts/measure/cc98.mjs (ignored)' });
+			// a committed runner whose edit a clean filter hid from git's index (git status clean): its bytes are not HEAD's
+			const rel = 'scripts/measure/cc99.mjs';
+			writeFileSync(join(repo, rel), echo('cc99') + '// an unreviewed edit\n');
+			utimesSync(join(repo, rel), 86_400, 86_400); // an mtime long before the index write, in seconds
+			put(join(repo, '.git', 'info', 'attributes'), `${rel} filter=hide\n`);
+			git(repo, 'config', 'filter.hide.clean', `sh -c 'cat >/dev/null; git cat-file blob HEAD:${rel}'`);
+			git(repo, 'add', rel);
+			rmSync(join(repo, '.git', 'info', 'attributes'));
+			git(repo, 'config', '--unset', 'filter.hide.clean');
+			expect(git(repo, 'status', '--porcelain')).toBe('');
+			const poisoned = go('--candidate', 'HEAD');
+			expect(poisoned.status, poisoned.stderr).toBe(7);
+			expect(poisoned.stderr).toMatch(/evidence=false/);
+			expect(JSON.parse(readFileSync(join(repo, 'report', 'measure', 'build-evidence-CC-99.json'), 'utf8'))).toMatchObject({ evidence: false, freshBuild: { fresh: true }, evidenceNote: `NOT release evidence: the measure runner that the reviewed commit does not hold: ${rel} (its bytes are not HEAD's)` });
 		});
 	});
 });

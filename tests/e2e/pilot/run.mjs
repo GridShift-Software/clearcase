@@ -14,7 +14,8 @@
 // without modified or untracked (not ignored) files; otherwise exit 2 before any step, unless --allow-stale-build,
 // which runs it with `evidence: false` in the summary and NOT EVIDENCE in the final status line. A run also records
 // `evidence: false` when a development knob covers less than the gate (E2E_ONLY, E2E_STOP_AFTER,
-// E2E_LATENCY_SIZES_MIB) or a suite it runs by file name is not a committed review input (e2eNonEvidence).
+// E2E_LATENCY_SIZES_MIB, CLEARCASE_E2E_TMP) or a suite it runs by file name is not a committed review input
+// (e2eNonEvidence; each suite's bytes are taken just before its step starts).
 // Results: $CLEARCASE_REPORT_DIR/e2e.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -47,16 +48,22 @@ export function discoverCategories({ e2eDir = join(appRoot, 'tests', 'e2e'), rou
 	return { suites, views, missing: views.filter((c) => !suites.includes(c)) };
 }
 
-/** The development knobs that make a run cover less than the gate, with what each does. */
-export const DEV_ENV = { E2E_ONLY: 'runs only the listed durability scenarios', E2E_STOP_AFTER: 'stops the browser suite early', E2E_LATENCY_SIZES_MIB: 'changes the durability latency file sizes' };
+/**
+ * The development knobs that make a run cover less than the gate, with what each does. CLEARCASE_E2E_TMP moves the
+ * durability suite's files off <worktree>/.local/tmp, which is disk-backed on purpose (large originals, sparse files,
+ * SIGKILL mid-write): on tmpfs or a network share the scenarios prove something else, and its path alone would not
+ * tell a reviewer which, so a run with it set is not evidence rather than merely recorded.
+ */
+export const DEV_ENV = { E2E_ONLY: 'runs only the listed durability scenarios', E2E_STOP_AFTER: 'stops the browser suite early', E2E_LATENCY_SIZES_MIB: 'changes the durability latency file sizes', CLEARCASE_E2E_TMP: 'moves the durability files off the disk-backed default folder' };
 
 /**
  * Why a run is not release evidence whatever its build: a knob from DEV_ENV set in `env` (even empty: an empty
  * E2E_LATENCY_SIZES_MIB is one size of 0 MiB), or a suite it runs by file name (`suites`: the pilot suites and each
- * category's suite.mjs) that is not a committed review input of this checkout (lib/fresh-build.ts
- * uncommittedInputs), say one a committed .gitignore hides.
+ * category's suite.mjs) that is not a committed review input of this checkout under tests/e2e/
+ * (lib/fresh-build.ts uncommittedInputs), say one a committed .gitignore hides or one whose bytes (`read`, by path, as
+ * the step started; else read now) are not HEAD's.
  */
-export const e2eNonEvidence = (env = process.env, suites = []) => [...Object.entries(DEV_ENV).filter(([k]) => env[k] !== undefined).map(([k, what]) => `${k}=${env[k]} ${what}`), ...notCommitted('suites run by file name', root, suites)];
+export const e2eNonEvidence = (env = process.env, suites = [], read = {}) => [...Object.entries(DEV_ENV).filter(([k]) => env[k] !== undefined).map(([k, what]) => `${k}=${env[k]} ${what}`), ...notCommitted('suites run by file name', root, suites, { within: 'tests/e2e', read })];
 
 /** Where a category suite writes what it ran. */
 export const suiteSummaryFile = (out, category) => join(out, category, 'summary.json');
@@ -118,11 +125,14 @@ async function main() {
 		...categorySteps(),
 	];
 	const results = [];
+	// each suite's bytes as its step starts, for the committed-input check
+	const read = {};
 	if (missing.length) console.error(`test:e2e: missing prerequisites: ${missing.join(', ')} (build first with bun run --bun build)`);
 	else for (const [name, [cmd, args], category] of steps) {
 		const t0 = Date.now();
 		console.log(`\n=== ${name}: ${cmd} ${args.join(' ')}`);
 		if (category) rmSync(suiteSummaryFile(dir, category), { force: true });
+		try { read[args.at(-1)] = readFileSync(args.at(-1)); } catch {}
 		const r = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', env: { ...process.env, CLEARCASE_E2E_OUT: dir } });
 		const res = { name, rc: r.status, ms: Date.now() - t0 };
 		if (category) {
@@ -134,7 +144,7 @@ async function main() {
 	}
 	const noSuite = cats.missing.map((c) => ({ name: `category ${c} has views but no suite`, rc: 1, ms: 0 }));
 	const ok = missing.length === 0 && results.length === steps.length && results.every((r) => r.rc === 0) && noSuite.length === 0;
-	const evidence = evidenceRecord(fresh, allowed, e2eNonEvidence(process.env, steps.map(([, [, args]]) => args.at(-1))));
+	const evidence = evidenceRecord(fresh, allowed, e2eNonEvidence(process.env, steps.map(([, [, args]]) => args.at(-1)), read));
 	writeFileSync(join(dir, 'summary.json'), JSON.stringify({ ok, prerequisites: pre, missing, bun: bunIdentity(), build, ...evidence, categories: cats, results: [...results, ...noSuite] }, null, 1));
 	console.log('\n' + [...results, ...noSuite].map((r) => `${r.rc === 0 ? 'PASS' : 'FAIL'} rc=${r.rc} ${(r.ms / 1000).toFixed(1)}s ${r.name}`).join('\n'));
 	console.log(`test:e2e: ${ok ? 'PASS' : 'FAIL'}${evidenceSuffix(evidence)}`);

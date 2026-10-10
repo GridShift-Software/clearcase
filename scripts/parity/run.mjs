@@ -21,9 +21,10 @@
 // evidence), or made from or run on a tree with modified or untracked (not ignored) files, unless --allow-stale-build,
 // which runs it with `evidence: false` in the scorecard and NOT EVIDENCE in the final status line;
 // tests/e2e/pilot/lib/fresh-build.ts). A run also records `evidence: false`, whatever its exit code, when a file it
-// read by name is not a committed review input (tracked, unmodified, not hidden from git): a register file (the main
-// file, --register FILE and every fragment it read), or an adapter, v5 spec or slot plug-in found by listing its folder
-// (lib/modules.mjs); with --register FILE outside docs/reference/parity/; and when it compares less than the gate:
+// read by name is not a committed review input (tracked, unmodified and not hidden from git as given and resolved,
+// inside its folder, and the bytes it read are HEAD's blob): a register file (the main file, --register FILE and every
+// fragment it read), or an adapter, v5 spec or slot plug-in found by listing its folder (lib/modules.mjs); with
+// --register FILE outside docs/reference/parity/; and when it compares less than the gate:
 // --no-sweeps, --no-exports, PARITY_MAX_COMBOS, or --app-v5-html (lib/register.mjs runNonEvidence). The scorecard
 // records the fixture identity it ran against: the accepted resultsVersion (GRS-38's view-content identity when the
 // converter emits view-content), the package's own resultsVersion and the pinned input hashes.
@@ -84,7 +85,7 @@ const { chronologyDims } = await import('./lib/sweeps.mjs');
 const { extractV5View, v5Nav } = await import('./adapters/v5/index.mjs');
 const { SPEC_DIR } = await import('./adapters/v5/specs.mjs');
 const { SLOTS_DIR } = await import('./adapters/app/_shell.mjs');
-const { moduleFiles } = await import('./lib/modules.mjs');
+const { IMPORTED, checkedModules, importModule, moduleFiles } = await import('./lib/modules.mjs');
 const { appFromAdapter, appWithoutAdapter, emptySnapshot } = await import('./lib/snapshot.mjs');
 
 const t0 = performance.now();
@@ -109,7 +110,7 @@ const adapters = {};
 const APP_ADAPTERS = join(import.meta.dirname, 'adapters', 'app');
 for (const file of moduleFiles(APP_ADAPTERS)) {
 	const f = basename(file);
-	const a = (await import(file)).default;
+	const a = (await importModule(file)).default;
 	if (!a?.view || typeof a.extract !== 'function') setup(`app adapter ${f} must export default { view, extract }`);
 	adapters[a.view] = a;
 }
@@ -195,9 +196,10 @@ const unused = unusedEntries(reg.entries, Object.keys(perView), used);
 writeFileSync(at('canary-hits.json'), JSON.stringify(canary.hits, null, 1) + '\n');
 writeFileSync(at('register-usage.json'), JSON.stringify({ used: [...used].sort(), unused, files: reg.files }, null, 1) + '\n');
 const nonFile = details.__requests?.v5NonFile ?? null;
-// every module the loaders import by listing a folder (they share moduleFiles), each of which must be committed
-const modules = [APP_ADAPTERS, SPEC_DIR, SLOTS_DIR].flatMap(moduleFiles);
-const nonEvidence = runNonEvidence({ register: opt('register'), appV5Html, loaded: reg.read, modules, noSweeps: flag('no-sweeps'), noExports: flag('no-exports'), maxCombos: process.env.PARITY_MAX_COMBOS });
+// every module the loaders list in a folder (they share moduleFiles) or imported, each of which must be committed; the
+// register files and the modules are checked against the bytes the run read (loadRegister's, importModule's)
+const modules = checkedModules([APP_ADAPTERS, SPEC_DIR, SLOTS_DIR]);
+const nonEvidence = runNonEvidence({ register: opt('register'), appV5Html, loaded: reg.read, bytes: { ...reg.bytes, ...Object.fromEntries(IMPORTED) }, modules, noSweeps: flag('no-sweeps'), noExports: flag('no-exports'), maxCombos: process.env.PARITY_MAX_COMBOS });
 // the fixture the verdict is about: the locator is local (case material), so its identities are recorded here
 const fixture = { profile: relative(REPO, PROFILE), acceptedResultsVersion: fx.accepted.resultsVersion, baseResultsVersion: fx.acceptedBase.resultsVersion, diagnosticsSha256: fx.accepted.diagnosticsSha256, packageResultsVersion: pkg.manifest.resultsVersion, packageReused: pkgRun.reused, sha256: fx.sha256 };
 const sc = scorecard(perView, {

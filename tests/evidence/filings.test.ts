@@ -44,11 +44,16 @@ describe('filings register', () => {
 		expect(registerEntries(viewSeeds([], [overlay('seed:a', 'h1', { deleted: true })]), [])).toEqual([]);
 	});
 
-	it('numbers new rows after the largest seq, and ignores an add without a filing as v5 does', () => {
+	it('numbers new rows after the largest seq', () => {
 		expect(nextSeq([])).toBe(1);
 		expect(nextSeq([user('a', 4, 'x'), user('b', 2, 'y')])).toBe(5);
-		const f = new Map([['filing', '  '], ['ref', 'OD-1']]);
-		expect(formFields((k) => f.get(k) ?? null)).toEqual({ ok: false, values: { filing: '  ', fdate: '', fparty: '', response: '', rdate: '', ref: 'OD-1' } });
+	});
+
+	it('refuses an empty Filing and accepts one of spaces, untrimmed, as v5 does (D17)', () => {
+		const f = new Map([['filing', ''], ['ref', 'OD-1']]);
+		expect(formFields((k) => f.get(k) ?? null)).toEqual({ ok: false, values: { filing: '', fdate: '', fparty: '', response: '', rdate: '', ref: 'OD-1' } });
+		f.set('filing', '   ');
+		expect(formFields((k) => f.get(k) ?? null)).toEqual({ ok: true, values: { filing: '   ', fdate: '', fparty: '', response: '', rdate: '', ref: 'OD-1' } });
 	});
 
 	it('exports the register in v5 columns, imported values unchanged and user-entered formulas neutralised', () => {
@@ -58,6 +63,20 @@ describe('filings register', () => {
 		expect(csv.split('\r\n')[0]).toBe('filing,fdate,fparty,response,rdate,ref,status');
 		expect(csv.split('\r\n')[1]).toBe('=SUM(A1),,Synthetic party,,,,');
 		expect(csv.split('\r\n')[2]!.startsWith("\"'=HYPERLINK(")).toBe(true);
+	});
+
+	it('keeps untouched imported values of an edited or conflicting seed unchanged in the export (D16)', () => {
+		const rec = { filing: '-Imported filing', fdate: '', fparty: '+Imported party', response: '', rdate: '', ref: '', status: '' };
+		const s = { datasetKey: 'filings', seedId: 'seed:a', seedSha256: 'h1', record: rec };
+		const line = (seeds: ReturnType<typeof viewSeeds>) => toCSV(registerCsvRows(registerEntries(seeds, []))).split('\r\n')[1];
+		expect(line(viewSeeds([s], []))).toBe('-Imported filing,,+Imported party,,,,');
+		// edited: only the field the user changed is user-entered
+		const edit = overlay('seed:a', 'h1', { ...rec, response: '=my reply', deleted: false });
+		expect(line(viewSeeds([s], [edit]))).toBe("-Imported filing,,+Imported party,'=my reply,,,");
+		// conflict: compared with the seed as imported now
+		expect(line(viewSeeds([{ ...s, seedSha256: 'h2', record: { ...rec, rdate: '2001-02-03' } }], [edit]))).toBe("-Imported filing,,+Imported party,'=my reply,,,");
+		// a user's own row stays fully user-entered
+		expect(toCSV(registerCsvRows(registerEntries([], [user('u', 1, '-typed')]))).split('\r\n')[1]).toBe("'-typed,,,,,,");
 	});
 
 	it('exports every group item in v5 columns and order (L2653)', () => {

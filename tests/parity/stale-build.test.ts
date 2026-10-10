@@ -3,8 +3,9 @@
 // absent synthetic locator) and the scorecard records evidence: false. The override is the flag only: an exported
 // CLEARCASE_ALLOW_STALE_BUILD does nothing. An --app-root build is never this repository's build/, so even one stamped
 // with HEAD is refused, and so is an --app-root copy whose build/ links to this repository's. A --register FILE outside
-// docs/reference/parity/ and --app-v5-html (self-parity) make the scorecard non-evidence. mutate.mjs passes the flag
-// to its own runs.
+// docs/reference/parity/, a register file or listed module that is not committed (committed-register.test.ts), a run
+// that compares less than the gate (--no-sweeps, --no-exports, PARITY_MAX_COMBOS) and --app-v5-html (self-parity) make
+// the scorecard non-evidence, and the scorecard records the fixture identity. mutate.mjs passes the flag to its own runs.
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -73,21 +74,39 @@ describe('parity refuses a stale build', () => {
 		expect(freshness(synth, readStamp(join(synth, 'build')), { buildDir: join(synth, 'build'), appRoot: synth })).toMatchObject({ fresh: true, reasons: [] });
 		expect(readFileSync(join(REPO, 'scripts', 'parity', 'run.mjs'), 'utf8')).toContain('freshness(REPO, readStamp(buildDir), { buildDir, appRoot })');
 	});
-	test('a register outside docs/reference/parity/ and v5 self-parity are never evidence', () => {
+	test('a register outside docs/reference/parity/, v5 self-parity and a run that compares less than the gate are never evidence', () => {
 		const dir = join(REPO, 'docs', 'reference', 'parity');
-		expect(runNonEvidence({})).toEqual([]);
-		expect(runNonEvidence({ register: join(dir, 'intentional-differences.json') })).toEqual([]);
+		// `loaded: []`: no register file to check, so these cases do not depend on this worktree's git state
+		const none = { loaded: [] };
+		expect(runNonEvidence(none)).toEqual([]);
+		expect(runNonEvidence({ ...none, register: join(dir, 'intentional-differences.json') })).toEqual([]);
 		const local = join(root, 'r.json');
-		expect(runNonEvidence({ register: local })).toEqual([`--register ${local} is not under ${dir}/`]);
+		expect(runNonEvidence({ ...none, register: local })).toEqual([`--register ${local} is not under ${dir}/`]);
 		// a path that only starts with the folder's name, or climbs out of it, is outside
-		expect(runNonEvidence({ register: `${dir}-copy/x.json` })).toHaveLength(1);
-		expect(runNonEvidence({ register: join(dir, '..', 'x.json') })).toHaveLength(1);
-		expect(runNonEvidence({ appV5Html: join(root, 'v5.html') })).toEqual(['--app-v5-html compares v5 with a copy of itself (self-parity)']);
-		expect(runNonEvidence({ register: local, appV5Html: 'x' })).toHaveLength(2);
+		expect(runNonEvidence({ ...none, register: `${dir}-copy/x.json` })).toHaveLength(1);
+		expect(runNonEvidence({ ...none, register: join(dir, '..', 'x.json') })).toHaveLength(1);
+		expect(runNonEvidence({ ...none, appV5Html: join(root, 'v5.html') })).toEqual(['--app-v5-html compares v5 with a copy of itself (self-parity)']);
+		expect(runNonEvidence({ ...none, register: local, appV5Html: 'x' })).toHaveLength(2);
+		// without `loaded`, the files --register FILE would read are checked: one outside the checkout is not committed
+		expect(runNonEvidence({ register: local })).toEqual([`--register ${local} is not under ${dir}/`, `register files the run read that the reviewed commit does not hold: ${local} (outside the checkout ${REPO})`]);
+		expect(runNonEvidence({ ...none, noSweeps: true, noExports: true, maxCombos: '5' })).toEqual(['--no-sweeps skips the interaction sweeps', '--no-exports skips the export capture', 'PARITY_MAX_COMBOS=5 compares only some chronology UI combinations']);
 	});
 	test('the scorecard carries the evidence record, and mutate.mjs runs its mutants with the override', () => {
 		const run = readFileSync(join(REPO, 'scripts', 'parity', 'run.mjs'), 'utf8');
-		expect(run).toContain("...evidenceRecord(fresh, allowedStale, runNonEvidence({ register: opt('register'), appV5Html })),");
+		expect(run).toContain("const nonEvidence = runNonEvidence({ register: opt('register'), appV5Html, loaded: reg.read, bytes: { ...reg.bytes, ...Object.fromEntries(IMPORTED) }, modules, noSweeps: flag('no-sweeps'), noExports: flag('no-exports'), maxCombos: process.env.PARITY_MAX_COMBOS });");
+		// every listed module is imported through importModule, which keeps the bytes it imported
+		expect(run).toContain('const a = (await importModule(file)).default;');
+		expect(readFileSync(join(REPO, 'scripts', 'parity', 'adapters', 'v5', 'specs.mjs'), 'utf8')).toContain('const spec = (await importModule(join(dir, name))).default;');
+		expect(readFileSync(join(REPO, 'scripts', 'parity', 'adapters', 'app', '_shell.mjs'), 'utf8')).toContain('const mod = await importModule(join(dir, f));');
+		expect(run).toContain('...evidenceRecord(fresh, allowedStale, nonEvidence),');
+		// the modules checked are the ones the three loaders list (they share one listing rule) and the ones they imported
+		expect(run).toContain('const modules = checkedModules([APP_ADAPTERS, SPEC_DIR, SLOTS_DIR]);');
+		expect(run).toContain('for (const file of moduleFiles(APP_ADAPTERS)) {');
+		expect(readFileSync(join(REPO, 'scripts', 'parity', 'adapters', 'v5', 'specs.mjs'), 'utf8')).toContain('const names = moduleFiles(dir).map((f) => basename(f));');
+		expect(readFileSync(join(REPO, 'scripts', 'parity', 'adapters', 'app', '_shell.mjs'), 'utf8')).toContain('for (const f of moduleFiles(dir).map((p) => basename(p))) {');
+		// the fixture identity the verdict is about
+		expect(run).toContain('acceptedResultsVersion: fx.accepted.resultsVersion, baseResultsVersion: fx.acceptedBase.resultsVersion, diagnosticsSha256: fx.accepted.diagnosticsSha256, packageResultsVersion: pkg.manifest.resultsVersion');
+		expect(run).toContain('fixture, clock, timezone,');
 		// the final status line says NOT EVIDENCE whenever the scorecard's evidence is false
 		expect(run).toContain('console.log(`parity: ${sc.result} (exit ${exitCode})${evidenceSuffix(sc)}:');
 		expect(run).toContain("`Evidence: ${sc.evidence ? 'yes (a fresh build of clean HEAD)' : `**no**: ${sc.evidenceNote}`}.`");

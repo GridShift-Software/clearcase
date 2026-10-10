@@ -2,10 +2,12 @@
 // E2E_ROOT's tree), the suite summary contract (each category suite proves what it ran), the fresh-build refusal
 // (exit 2 before any step, also for a build outside <repo>/build, an E2E_ROOT other than this checkout or a copy of the
 // runner that is not git's top level) and its override, the flag only (evidence: false in
-// the summary, NOT EVIDENCE in the final line). Synthetic trees, suites and stamps in a temp folder; the runner never
-// reaches a browser step here (the override run stops at a missing Chromium).
+// the summary, NOT EVIDENCE in the final line); a development knob or a suite run by file name that the reviewed
+// commit does not hold (one a committed .gitignore hides) makes a run non-evidence. Synthetic trees, suites and stamps
+// in a temp folder; the runner never reaches a browser step here (it stops at a missing Chromium, after writing its
+// evidence record).
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
@@ -16,6 +18,10 @@ const BUN = process.versions.bun ? process.execPath : 'bun';
 const root = mkdtempSync(join(tmpdir(), 'cc-e2e-run-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 const put = (p: string, s = '') => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, s); };
+/** An mtime long before any index write (seconds since the epoch), so git trusts the index entry's stat data. */
+const OLD_MTIME = 86_400;
+/** The development knobs, a value for each and what the evidence note says it does (an empty size list is one size of 0 MiB). */
+const DEV: Record<string, [string, string]> = { E2E_ONLY: ['S9,S10', 'runs only the listed durability scenarios'], E2E_STOP_AFTER: ['S3', 'stops the browser suite early'], E2E_LATENCY_SIZES_MIB: ['', 'changes the durability latency file sizes'], CLEARCASE_E2E_TMP: ['/dev/shm/e2e', 'moves the durability files off the disk-backed default folder'] };
 
 describe('category discovery', () => {
 	test('suites and views per category; views without a suite are listed as missing', async () => {
@@ -121,6 +127,55 @@ describe('fresh-build evidence', () => {
 		expect(r.summary.freshBuild).toMatchObject({ fresh: false, allowStaleBuild: true, buildDirty: true });
 		expect(r.summary.evidenceNote).toMatch(/^NOT release evidence \(--allow-stale-build\): the build is of 000000000000, not HEAD .*; the build was made from a tree with modified or untracked files/);
 		expect(r.stdout.trim().split('\n').at(-1)).toMatch(/^test:e2e: FAIL — NOT EVIDENCE \(NOT release evidence \(--allow-stale-build\)/);
+	});
+	test('a development knob, or a suite the reviewed commit does not hold, makes a run non-evidence', () => {
+		// a clean synthetic checkout holding this runner, with a build stamped with its HEAD and no Chromium: the runner
+		// stops at the missing prerequisite, but writes the evidence record a full run would
+		const repo = mkdtempSync(join(root, 'knobs-'));
+		const g = (...a: string[]) => { const x = spawnSync('git', ['-C', repo, '-c', 'user.name=synthetic', '-c', 'user.email=synthetic@example.invalid', '-c', 'commit.gpgsign=false', ...a], { encoding: 'utf8' }); if (x.status !== 0) throw new Error(x.stderr); return x.stdout.trim(); };
+		cpSync(HERE, join(repo, 'tests', 'e2e', 'pilot'), { recursive: true });
+		for (const f of ['view-registry.ts', 'overview-slots.ts']) cpSync(join(REPO, 'src', 'lib', 'components', f), join(repo, 'src', 'lib', 'components', f));
+		put(join(repo, '.gitignore'), readFileSync(join(REPO, '.gitignore'), 'utf8'));
+		const commit = (msg: string) => {
+			g('add', '-A');
+			g('commit', '-q', '-m', msg);
+			put(join(repo, 'build', 'handler.js'));
+			put(join(repo, 'build', 'clearcase-build.json'), JSON.stringify({ revision: g('rev-parse', 'HEAD'), dirty: false, buildId: 'synthetic' }));
+			expect(g('status', '--porcelain')).toBe('');
+		};
+		g('init', '-q');
+		commit('synthetic');
+		const env: NodeJS.ProcessEnv = { ...process.env, CLEARCASE_CHROMIUM: join(root, 'no-chromium') };
+		for (const k of ['E2E_ROOT', 'E2E_BUILD_DIR', ...Object.keys(DEV), ...Object.keys(env).filter((k) => k.startsWith('GIT_'))]) delete env[k];
+		const summary = (extra: Record<string, string> = {}) => {
+			const out = mkdtempSync(join(root, 'out-'));
+			const r = spawnSync(BUN, [join(repo, 'tests', 'e2e', 'pilot', 'run.mjs')], { cwd: repo, encoding: 'utf8', timeout: 60_000, env: { ...env, CLEARCASE_E2E_OUT: out, ...extra } });
+			expect(r.stderr).toMatch(/missing prerequisites: chromium/);
+			return JSON.parse(readFileSync(join(out, 'summary.json'), 'utf8'));
+		};
+		// the control: a fresh build of the clean checkout is evidence
+		expect(summary()).toMatchObject({ evidence: true, freshBuild: { fresh: true } });
+		for (const [k, v] of Object.entries(DEV)) expect(summary({ [k]: v[0] })).toMatchObject({ evidence: false, freshBuild: { fresh: true }, evidenceNote: `NOT release evidence: ${k}=${v[0]} ${v[1]}` });
+		// a committed tests/e2e/evidence/.gitignore hides that category's suite: git status is clean, the runner finds the
+		// suite and would run it, and the run is not evidence
+		put(join(repo, 'tests', 'e2e', 'evidence', '.gitignore'), 'suite.mjs\n');
+		commit('a committed rule hides the evidence suite');
+		put(join(repo, 'tests', 'e2e', 'evidence', 'suite.mjs'), '// an unreviewed suite\n');
+		expect(g('status', '--porcelain')).toBe('');
+		expect(summary()).toMatchObject({ categories: { suites: ['evidence'] }, evidence: false, freshBuild: { fresh: true }, evidenceNote: 'NOT release evidence: suites run by file name that the reviewed commit does not hold: tests/e2e/evidence/suite.mjs (ignored)' });
+		// a committed suite whose edit a clean filter hid from git's index (git status clean): its bytes are not HEAD's
+		const rel = 'tests/e2e/system/suite.mjs';
+		put(join(repo, rel), '// the reviewed suite\n');
+		commit('a committed system suite');
+		put(join(repo, rel), '// an unreviewed edit\n');
+		utimesSync(join(repo, rel), OLD_MTIME, OLD_MTIME);
+		put(join(repo, '.git', 'info', 'attributes'), `${rel} filter=hide\n`);
+		g('config', 'filter.hide.clean', `sh -c 'cat >/dev/null; git cat-file blob HEAD:${rel}'`);
+		g('add', rel);
+		rmSync(join(repo, '.git', 'info', 'attributes'));
+		g('config', '--unset', 'filter.hide.clean');
+		expect(g('status', '--porcelain')).toBe('');
+		expect(summary()).toMatchObject({ categories: { suites: ['evidence', 'system'] }, evidence: false, freshBuild: { fresh: true }, evidenceNote: `NOT release evidence: suites run by file name that the reviewed commit does not hold: tests/e2e/evidence/suite.mjs (ignored), ${rel} (its bytes are not HEAD's)` });
 	});
 	test('an exported CLEARCASE_ALLOW_STALE_BUILD=1 no longer overrides the refusal', () => {
 		const r = run(build('0000000000000000000000000000000000000000', true), [], { CLEARCASE_ALLOW_STALE_BUILD: '1' });

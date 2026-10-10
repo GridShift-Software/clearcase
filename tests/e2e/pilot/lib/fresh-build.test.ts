@@ -9,19 +9,28 @@
 // to the parent) is refused, GIT_* variables cannot point git elsewhere, untracked files show whatever
 // status.showUntrackedFiles says, and tracked files flagged assume-unchanged or skip-worktree are refused. An fsmonitor
 // hook cannot hide an edit, and in the build inputs only the committed .gitignore files may hide an untracked file: one
-// hidden by .git/info/exclude or a global excludes file, or by a .gitignore that ignores itself, is refused.
+// hidden by .git/info/exclude or a global excludes file, or by a .gitignore that ignores itself, is refused. A file a
+// runner reads by name is a committed review input only when tracked, unmodified and not hidden (uncommittedInputs).
+// The cases that need a symlink skip, saying so in their title, where the platform refuses to create one (Windows
+// without Developer Mode); every other case runs everywhere.
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
-import { ALLOW_FLAG, allowStale, evidenceRecord, evidenceSuffix, freshness, gitEnv, readStamp, refusal } from './fresh-build.ts';
+import { ALLOW_FLAG, allowStale, evidenceRecord, evidenceSuffix, freshness, gitBlobId, gitEnv, notCommitted, readStamp, refusal, uncommittedInputs } from './fresh-build.ts';
 
 const REPO = join(import.meta.dirname, '..', '..', '..', '..');
 const BUN = process.versions.bun ? process.execPath : 'bun';
 
 const root = mkdtempSync(join(tmpdir(), 'cc-fresh-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
+/** Whether this process may create a symlink: Windows refuses one (EPERM) without Developer Mode or elevation. */
+const canSymlink = (() => {
+	try { symlinkSync(root, join(root, 'symlink-probe'), 'dir'); return true; } catch (e) { if (['EPERM', 'EACCES'].includes((e as NodeJS.ErrnoException).code ?? '')) return false; throw e; }
+})();
+/** A case that needs a symlink: skipped, with the reason in its title, where the platform refuses to create one. */
+const symlinkTest = (name: string, fn: () => void) => (canSymlink ? test(name, fn) : test.skip(`${name} [skipped: this platform refuses to create symlinks]`, fn));
 const git = (repo: string, ...args: string[]) => {
 	const r = spawnSync('git', ['-C', repo, '-c', 'user.name=synthetic', '-c', 'user.email=synthetic@example.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' });
 	if (r.status !== 0) throw new Error(r.stderr);
@@ -110,7 +119,16 @@ describe('freshness', () => {
 		writeFileSync(join(b, 'clearcase-build.json'), JSON.stringify({ revision: head, dirty: false }));
 		expect(freshness(d, readStamp(b)).fresh).toBe(true);
 	});
-	test('an app tree under test other than the repository is refused, also when its build/ links to <repo>/build', () => {
+	test('an app tree under test other than the repository is refused', () => {
+		const { d, head } = repo();
+		mkdirSync(join(d, 'build'));
+		const copy = join(root, `plain-copy-${head.slice(0, 8)}`);
+		mkdirSync(copy);
+		const stamp = { revision: head, dirty: false };
+		expect(freshness(d, stamp, { buildDir: join(d, 'build'), appRoot: copy }).reasons).toEqual([`the app tree under test is ${copy}, not ${d} (its server entry, suites and routes would be unverified)`]);
+		expect(freshness(d, stamp, { buildDir: join(d, 'build'), appRoot: d }).fresh).toBe(true);
+	});
+	symlinkTest('an app tree under test other than the repository is refused, also when its build/ links to <repo>/build', () => {
 		const { d, head } = repo();
 		mkdirSync(join(d, 'build'));
 		const copy = join(root, `copy-${head.slice(0, 8)}`);
@@ -126,7 +144,7 @@ describe('freshness', () => {
 		expect(freshness(d, stamp, { buildDir: join(d, 'build'), appRoot: d }).fresh).toBe(true);
 		expect(freshness(d, stamp, { buildDir: join(d, 'build'), appRoot: join(root, `link-${head.slice(0, 8)}`) }).fresh).toBe(true);
 	});
-	test("the repository's .gitignore ignores a symlinked node_modules, so a worktree that links it is not dirty", () => {
+	symlinkTest("the repository's .gitignore ignores a symlinked node_modules, so a worktree that links it is not dirty", () => {
 		const { d, head } = repo();
 		copyFileSync(join(REPO, '.gitignore'), join(d, '.gitignore'));
 		git(d, 'commit', '-q', '-am', 'the repository .gitignore');
@@ -274,8 +292,96 @@ describe('freshness', () => {
 	});
 });
 
+describe('committed review inputs (uncommittedInputs)', () => {
+	test('a tracked, unmodified file counts; an ignored, untracked, modified, staged, hidden or outside file does not, each named with why', () => {
+		const { d } = repo();
+		mkdirSync(join(d, 'p', '.local'), { recursive: true });
+		for (const f of ['tracked.json', 'changed.json', 'hidden.json']) writeFileSync(join(d, 'p', f), '{}');
+		git(d, 'add', 'p');
+		git(d, 'commit', '-q', '-m', 'p');
+		writeFileSync(join(d, 'p', '.local', 'over.json'), '{}');
+		writeFileSync(join(d, 'p', 'new.json'), '{}');
+		writeFileSync(join(d, 'p', 'staged.json'), '{}');
+		git(d, 'add', 'p/staged.json');
+		writeFileSync(join(d, 'p', 'changed.json'), '{"x":1}');
+		git(d, 'update-index', '--assume-unchanged', 'p/hidden.json');
+		writeFileSync(join(d, 'p', 'hidden.json'), '{"x":1}');
+		const outside = join(root, 'outside.json');
+		writeFileSync(outside, '{}');
+		const at = (...n: string[]) => n.map((x) => join(d, 'p', x));
+		expect(uncommittedInputs(d, at('tracked.json'))).toEqual([]);
+		expect(uncommittedInputs(d, [...at('tracked.json', '.local/over.json', 'new.json', 'staged.json', 'changed.json', 'hidden.json'), outside])).toEqual([
+			'p/.local/over.json (ignored)',
+			'p/new.json (untracked)',
+			'p/staged.json (modified)',
+			'p/changed.json (modified)',
+			'p/hidden.json (hidden from git (assume-unchanged or skip-worktree))',
+			`${realpathSync(outside)} (outside the checkout ${realpathSync(d)})`,
+		]);
+		expect(notCommitted('register files', d, at('tracked.json'))).toEqual([]);
+		expect(notCommitted('register files', d, at('tracked.json', 'new.json'))).toEqual(['register files that the reviewed commit does not hold: p/new.json (untracked)']);
+	});
+	symlinkTest('a tracked symlink is judged as given and as resolved (here to an ignored file), and its target is not its HEAD blob', () => {
+		const { d } = repo();
+		mkdirSync(join(d, '.local'));
+		writeFileSync(join(d, '.local', 'over.json'), '{}');
+		symlinkSync(join('.local', 'over.json'), join(d, 'link.json'));
+		git(d, 'add', 'link.json');
+		git(d, 'commit', '-q', '-m', 'link');
+		expect(git(d, 'status', '--porcelain')).toBe('');
+		expect(uncommittedInputs(d, [join(d, 'link.json')])).toEqual(["link.json (resolves to .local/over.json, which is ignored; its bytes are not HEAD's)"]);
+	});
+	test('git answers for the directory itself: a subfolder of a checkout, a folder outside any, and GIT_* variables pointing elsewhere', () => {
+		const { d } = repo();
+		mkdirSync(join(d, 'sub'));
+		writeFileSync(join(d, 'sub', 'x.json'), '{}');
+		git(d, 'add', 'sub');
+		git(d, 'commit', '-q', '-m', 'sub');
+		expect(uncommittedInputs(d, [join(d, 'sub', 'x.json')])).toEqual([]);
+		expect(uncommittedInputs(join(d, 'sub'), [join(d, 'sub', 'x.json')])).toEqual([`x.json (unknown: ${realpathSync(join(d, 'sub'))} is not the top level of its git checkout)`]);
+		const plain = mkdtempSync(join(root, 'plain-'));
+		writeFileSync(join(plain, 'x.json'), '{}');
+		expect(uncommittedInputs(plain, [join(plain, 'x.json')])).toEqual([expect.stringMatching(/^x\.json \(unknown: .*not a git repository/)]);
+		// a repository where the file is tracked, named through GIT_DIR and GIT_WORK_TREE, changes nothing
+		const other = repo().d;
+		writeFileSync(join(other, 'new.json'), '{}');
+		git(other, 'add', 'new.json');
+		git(other, 'commit', '-q', '-m', 'new');
+		const { d: e } = repo();
+		writeFileSync(join(e, 'new.json'), '{}');
+		const was = { dir: process.env.GIT_DIR, tree: process.env.GIT_WORK_TREE };
+		process.env.GIT_DIR = join(other, '.git');
+		process.env.GIT_WORK_TREE = e;
+		try { expect(uncommittedInputs(e, [join(e, 'new.json')])).toEqual(['new.json (untracked)']); } finally {
+			if (was.dir === undefined) delete process.env.GIT_DIR; else process.env.GIT_DIR = was.dir;
+			if (was.tree === undefined) delete process.env.GIT_WORK_TREE; else process.env.GIT_WORK_TREE = was.tree;
+		}
+	});
+	test("the bytes must be HEAD's blob at the path as given: an edit git's index does not show, the bytes a runner read, a file outside `within`", () => {
+		const { d } = repo();
+		const a = join(d, 'a.txt');
+		// git's own blob id, without filters
+		expect(gitBlobId(readFileSync(a))).toBe(git(d, 'hash-object', '--no-filters', 'a.txt'));
+		expect(uncommittedInputs(d, [a])).toEqual([]);
+		// the bytes the runner read count, not the file now
+		expect(uncommittedInputs(d, [a], { read: { [a]: Buffer.from('two\n') } })).toEqual(["a.txt (its bytes are not HEAD's)"]);
+		expect(uncommittedInputs(d, [a], { within: 'p' })).toEqual(['a.txt (outside p/)']);
+		// a same-size edit with the old mtime restored and core.trustctime=false: git status is clean, the bytes are not HEAD's
+		const old = 86_400; // an mtime long before the index write, in seconds
+		utimesSync(a, old, old);
+		git(d, 'update-index', '-q', '--refresh');
+		writeFileSync(a, 'two\n');
+		utimesSync(a, old, old);
+		git(d, 'config', 'core.trustctime', 'false');
+		expect(git(d, 'status', '--porcelain')).toBe('');
+		expect(uncommittedInputs(d, [a])).toEqual(["a.txt (its bytes are not HEAD's)"]);
+		// a file tracked in the index but not in HEAD is staged, so modified; one in neither is untracked
+		expect(uncommittedInputs(d, [join(d, 'nowhere.json')])).toEqual(['nowhere.json (untracked)']);
+	});
+});
+
 describe('the build stamp (scripts/pilot/copy-pdfjs.ts)', () => {
-	/** A minimal app tree copy-pdfjs can stamp: the script and the guard it reads git with, the viewer files, pdfjs-dist (linked) and a vite build. */
+	/** A minimal app tree copy-pdfjs can stamp: the script and the guard it reads git with, the viewer files, pdfjs-dist (linked, or copied where symlinks are refused) and a vite build. */
 	function appTree(d: string) {
 		mkdirSync(join(d, 'scripts', 'pilot'), { recursive: true });
 		copyFileSync(join(REPO, 'scripts', 'pilot', 'copy-pdfjs.ts'), join(d, 'scripts', 'pilot', 'copy-pdfjs.ts'));
@@ -285,7 +391,9 @@ describe('the build stamp (scripts/pilot/copy-pdfjs.ts)', () => {
 		mkdirSync(join(d, viewer), { recursive: true });
 		for (const f of ['viewer.mjs', 'viewer.css', 'wrapper.mjs', 'frame.html']) copyFileSync(join(REPO, viewer, f), join(d, viewer, f));
 		mkdirSync(join(d, 'node_modules'), { recursive: true });
-		symlinkSync(join(REPO, 'node_modules', 'pdfjs-dist'), join(d, 'node_modules', 'pdfjs-dist'));
+		const pdfjs = join(REPO, 'node_modules', 'pdfjs-dist');
+		if (canSymlink) symlinkSync(pdfjs, join(d, 'node_modules', 'pdfjs-dist'));
+		else cpSync(pdfjs, join(d, 'node_modules', 'pdfjs-dist'), { recursive: true });
 		mkdirSync(join(d, 'build'), { recursive: true });
 		writeFileSync(join(d, 'build', 'handler.js'), '// synthetic\n');
 		return d;
@@ -295,7 +403,8 @@ describe('the build stamp (scripts/pilot/copy-pdfjs.ts)', () => {
 		if (r.status !== 0) throw new Error(r.stderr);
 		return JSON.parse(readFileSync(join(d, 'build', 'clearcase-build.json'), 'utf8'));
 	};
-	const noEnv = (d: string) => { const r = spawnSync('env', ['-u', 'CLEARCASE_SOURCE_REVISION', BUN, join(d, 'scripts', 'pilot', 'copy-pdfjs.ts')], { encoding: 'utf8', timeout: 60_000 }); if (r.status !== 0) throw new Error(r.stderr); return JSON.parse(readFileSync(join(d, 'build', 'clearcase-build.json'), 'utf8')); };
+	/** copy-pdfjs with CLEARCASE_SOURCE_REVISION unset. */
+	const noEnv = (d: string) => stampEnv(d, {});
 	const { d, head } = repo();
 	appTree(d);
 	git(d, 'add', '.');
@@ -332,7 +441,6 @@ describe('the build stamp (scripts/pilot/copy-pdfjs.ts)', () => {
 		// an exported revision does not paper over it
 		expect(stamp(e, { CLEARCASE_SOURCE_REVISION: at })).toMatchObject({ revision: at, dirty: null, exported: true });
 	});
-	/** A fresh committed app tree in its own repository. */
 	/** copy-pdfjs with CLEARCASE_SOURCE_REVISION unset and `env` added. */
 	const stampEnv = (d: string, env: Record<string, string>) => {
 		const e: NodeJS.ProcessEnv = { ...process.env, ...env };
@@ -341,6 +449,7 @@ describe('the build stamp (scripts/pilot/copy-pdfjs.ts)', () => {
 		if (r.status !== 0) throw new Error(r.stderr);
 		return JSON.parse(readFileSync(join(d, 'build', 'clearcase-build.json'), 'utf8'));
 	};
+	/** A fresh committed app tree in its own repository. */
 	const appRepo = () => { const { d: e } = repo(); appTree(e); git(e, 'add', '.'); git(e, 'commit', '-q', '-m', 'app tree'); return { e, at: git(e, 'rev-parse', 'HEAD') }; };
 	test('the stamp asks git about the app tree itself: GIT_DIR and GIT_WORK_TREE pointing at a clean clone change nothing', () => {
 		const { e, at } = appRepo();

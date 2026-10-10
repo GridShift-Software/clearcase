@@ -145,6 +145,9 @@ try {
 		const keyC = keys[1];
 		await p.evaluate(`(() => { const s = document.querySelector('tr[data-step="${keyC}"] select'); s.value = 'Done'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
 		const saved = await until(p, `!!document.querySelector('tr[data-step="${keyC}"] [data-saved]')`);
+		// as soon as it says Saved, the select shows the saved value (a form reset would put back the old one)
+		await sleep(100);
+		const immediate = await p.evaluate(`document.querySelector('tr[data-step="${keyC}"] select').value`);
 		await p.goto(`${V}${route('enforcement_tab')}`, ready('enforcement_tab'));
 		const after = await p.evaluate(`({ value: document.querySelector('tr[data-step="${keyC}"] select').value, imported: document.querySelector('tr[data-step="${keyC}"] [data-imported]')?.textContent.trim() ?? null, others: [...document.querySelectorAll('tr[data-step] select')].map((s) => s.value) })`);
 		const stored = savedRows().filter((r) => r.store === 'enforcement-status').map((r) => JSON.parse(r.fields));
@@ -159,14 +162,14 @@ try {
 		const back = await A.c.form(`/v/${encodeURIComponent(v2.resultsVersion)}/overview?/rollback`, { expect: v2.resultsVersion, to: main.resultsVersion });
 		const active1 = (await A.c.activeVersion()) === main.resultsVersion;
 		return all({
-			saved: saved === true, reloaded: after.value === 'Done', importedShown: after.imported === 'Imported status: Contingent', othersUnchanged: J(after.others) === J(['To do', 'Done', 'Awaiting counsel']),
+			saved: saved === true, shownAtOnce: immediate === 'Done', reloaded: after.value === 'Done', importedShown: after.imported === 'Imported status: Contingent', othersUnchanged: J(after.others) === J(['To do', 'Done', 'Awaiting counsel']),
 			stored: stored.length === 1 && stored[0].stepKey === keyC && stored[0].status === 'Done' && Number.isInteger(stored[0].seq),
 			v2Active: active2, followsStep: J(inV2) === J([['Synthetic step C', 'Done'], ['Synthetic step A', 'To do'], ['Synthetic step B', 'Awaiting counsel'], ['Synthetic twin', null], ['Synthetic twin', null]]),
 			rolledBack: active1, evidence: { after, stored, inV2, back: back.status },
 		});
 	});
 
-	await scenario('S2-status-busy', 'enforcement_tab', 'a status change while work.sqlite is locked (BEGIN IMMEDIATE held 13 s): the row shows the error and keeps the chosen value; after release, choosing again saves it', async () => {
+	await scenario('S2-status-busy', 'enforcement_tab', 'a status change while work.sqlite is locked (BEGIN IMMEDIATE held 13 s): the row shows the error and keeps the chosen value, also while another step saves; after release, choosing again saves it', async () => {
 		await p.goto(`${V}${route('enforcement_tab')}`, ready('enforcement_tab'));
 		const keyA = keys[0];
 		const before = savedRows().filter((r) => r.store === 'enforcement-status').length;
@@ -181,10 +184,18 @@ try {
 		while (Date.now() - t0 < 13000) await sleep(100);
 		lock.exec('ROLLBACK'); lock.close();
 		const heldMs = Date.now() - t0;
+		// another step saves: step A keeps its own error and its unsaved choice
+		const keyB = keys[2];
+		await p.evaluate(`(() => { const s = document.querySelector('tr[data-step="${keyB}"] select'); s.value = 'In progress'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+		const savedB = await until(p, `!!document.querySelector('tr[data-step="${keyB}"] [data-saved]')`);
+		const stillA = await p.evaluate(`({ error: document.querySelector('tr[data-step="${keyA}"] [data-save-error]')?.textContent.trim() ?? null, value: document.querySelector('tr[data-step="${keyA}"] select').value, saved: !!document.querySelector('tr[data-step="${keyA}"] [data-saved]') })`);
+		const aStoredBefore = savedRows().filter((r) => r.store === 'enforcement-status').map((r) => JSON.parse(r.fields)).filter((f) => f.stepKey === keyA).length;
 		await p.evaluate(`(() => { const s = document.querySelector('tr[data-step="${keyA}"] select'); s.value = 'Monitor'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
 		const saved = await until(p, `!!document.querySelector('tr[data-step="${keyA}"] [data-saved]')`);
 		const rows = savedRows().filter((r) => r.store === 'enforcement-status').map((r) => JSON.parse(r.fields)).filter((f) => f.stepKey === keyA);
-		return all({ errorVisible: /busy/.test(err ?? ''), keptChoice: kept === 'Monitor', nothingWritten: during === before, heldOver12s: heldMs > 12000, savedAfter: saved === true, oneRow: rows.length === 1 && rows[0].status === 'Monitor', evidence: { err, heldMs } });
+		return all({ errorVisible: /busy/.test(err ?? ''), keptChoice: kept === 'Monitor', nothingWritten: during === before, heldOver12s: heldMs > 12000,
+			otherStepSaved: savedB === true, errorStaysOnItsStep: /busy/.test(stillA.error ?? '') && stillA.value === 'Monitor' && !stillA.saved && aStoredBefore === 0,
+			savedAfter: saved === true, oneRow: rows.length === 1 && rows[0].status === 'Monitor', evidence: { err, heldMs, stillA } });
 	});
 
 	// ---- 3. legality ------------------------------------------------------------------------------------------------
@@ -376,7 +387,7 @@ try {
 	});
 
 	// ---- failed writes ----------------------------------------------------------------------------------------------
-	await scenario('FAIL-busy', 'crossexam_tab', 'a busy store (BEGIN IMMEDIATE on work.sqlite held 13 s across the submit): the error is visible, every typed field keeps its value, no row is written; after release one retry saves exactly one row', async () => {
+	await scenario('FAIL-busy', 'crossexam_tab', 'a busy store (BEGIN IMMEDIATE on work.sqlite held 13 s across the submit): the error is visible, every typed field keeps its value, no row is written (with JavaScript, and without it the 503 page re-fills the form); after release one retry saves exactly one row', async () => {
 		await p.goto(`${V}${route('crossexam_tab')}`, ready('crossexam_tab'));
 		const typed = { '#cx_w': 'Busy witness', '#cx_t': 'Busy topic', '#cx_put': 'Busy put', '#cx_docs': 'OD-002' };
 		await fill(p, typed);
@@ -384,8 +395,12 @@ try {
 		lock.exec('PRAGMA busy_timeout=0');
 		lock.exec('BEGIN IMMEDIATE');
 		const t0 = Date.now();
+		// the same add without JavaScript, at the same time: the server answers 503 with the form re-filled
+		const noJs = A.c.form(`${V.slice(A.origin.length)}${route('crossexam_tab')}?/add`, { witness: 'NoJS witness', topic: 'NoJS topic', put: 'NoJS put', docs: 'NoJS docs' });
 		await p.click('#cx-add-form');
 		const err = await until(p, `document.querySelector('#cx-error')?.textContent.trim() ?? ''`, 25000);
+		const nj = await noJs;
+		const noJsKept = nj.status === 503 && ['NoJS witness', 'NoJS topic', 'NoJS put', 'NoJS docs'].every((v) => nj.text.includes(`value="${v}"`)) && /local store is busy/.test(nj.text);
 		const kept = {};
 		for (const sel of Object.keys(typed)) kept[sel] = await val(p, sel);
 		const during = rowsWhere('crossexam', 'witness', 'Busy witness').length;
@@ -394,11 +409,16 @@ try {
 		const heldMs = Date.now() - t0;
 		await p.click('#cx-add-form');
 		const saved = await until(p, `[...document.querySelectorAll('#cx-table tbody tr[data-kind="user"]')].some((r) => r.cells[0].textContent.trim() === 'Busy witness') && !document.querySelector('#cx-error')`);
-		return all({ errorVisible: /busy/.test(err ?? ''), keptValues: J(kept) === J(typed), noRowWritten: during === 0, heldOver12s: heldMs > 12000, retrySaved: saved === true, exactlyOne: rowsWhere('crossexam', 'witness', 'Busy witness').length === 1, evidence: { err, heldMs } });
+		return all({ errorVisible: /busy/.test(err ?? ''), keptValues: J(kept) === J(typed), noRowWritten: during === 0, heldOver12s: heldMs > 12000, noJsFormRefilled: noJsKept, noJsNotWritten: rowsWhere('crossexam', 'witness', 'NoJS witness').length === 0, retrySaved: saved === true, exactlyOne: rowsWhere('crossexam', 'witness', 'Busy witness').length === 1, evidence: { err, heldMs, noJsStatus: nj.status } });
 	});
 
-	await scenario('FAIL-lost', 'heads_tab', 'lost transport (the server stopped before the submit): the error is visible, every typed field keeps its value, no row is written; after a restart one retry saves exactly one row', async () => {
+	await scenario('FAIL-lost', 'heads_tab', 'lost transport (the server stopped before the submit): the error is visible, every typed field keeps its value (also after deleting another row), no row is written; after a restart one retry saves exactly one row', async () => {
 		await p.goto(`${V}${route('heads_tab')}`, ready('heads_tab'));
+		// a row to delete later, after the failed add
+		await fill(p, { '#hd_head': 'Disposable heading', '#hd_sub': 'Disposable' });
+		const n0 = await count(p, '#heads-table tbody tr[data-row]');
+		await p.click('#hd-add-button');
+		await until(p, `document.querySelectorAll('#heads-table tbody tr[data-row]').length === ${n0 + 1}`);
 		const typed = { '#hd_head': 'Lost heading', '#hd_sub': 'Lost submission', '#hd_auth': 'Lost authority', '#hd_ref': 'OD-002' };
 		await fill(p, typed);
 		await A.stop();
@@ -408,9 +428,15 @@ try {
 		for (const sel of Object.keys(typed)) kept[sel] = await val(p, sel);
 		await A.start();
 		const during = rowsWhere('heads', 'head', 'Lost heading').length;
+		// deleting another row after the failed add leaves the typed fields alone
+		await p.evaluate(`[...document.querySelectorAll('#heads-table tbody tr[data-row]')].find((r) => r.cells[1].textContent.trim() === 'Disposable heading').querySelector('button').setAttribute('data-del', '1')`);
+		await p.click('[data-del="1"]');
+		const deleted = await until(p, `![...document.querySelectorAll('#heads-table tbody tr[data-row]')].some((r) => r.cells[1].textContent.trim() === 'Disposable heading')`);
+		const keptAfterDelete = {};
+		for (const sel of Object.keys(typed)) keptAfterDelete[sel] = await val(p, sel);
 		await p.click('#hd-add-button');
 		const saved = await until(p, `[...document.querySelectorAll('#heads-table tbody tr[data-row]')].some((r) => r.cells[1].textContent.trim() === 'Lost heading') && !document.querySelector('#hd-error')`);
-		return all({ errorVisible: /could not be reached/.test(err ?? ''), keptValues: J(kept) === J(typed), noRowWritten: during === 0, retrySaved: saved === true, exactlyOne: rowsWhere('heads', 'head', 'Lost heading').length === 1, evidence: { err } });
+		return all({ errorVisible: /could not be reached/.test(err ?? ''), keptValues: J(kept) === J(typed), noRowWritten: during === 0, otherDeleteSaved: deleted === true, keptAfterDelete: J(keptAfterDelete) === J(typed), retrySaved: saved === true, exactlyOne: rowsWhere('heads', 'head', 'Lost heading').length === 1, evidence: { err } });
 	});
 
 	// ---- restarts ---------------------------------------------------------------------------------------------------

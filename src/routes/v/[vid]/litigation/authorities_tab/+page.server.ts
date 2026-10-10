@@ -2,7 +2,7 @@ import { fail } from '@sveltejs/kit';
 import { app } from '$lib/local-case/app.server';
 import { datasetOf } from '$lib/local-case/results.server';
 import { AUTH_FIELDS, canAddAuthority, type AuthValues } from '$lib/views/litigation/authorities';
-import { STORES, field, guarded, knownRefs, nextSeq, orderedRows, text } from '$lib/views/litigation/register.server';
+import { STORES, addRow, field, guarded, knownRefs, orderedRows, text } from '$lib/views/litigation/register.server';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ parent }) => {
@@ -23,7 +23,7 @@ export const actions: Actions = {
 		const f = await request.formData();
 		const values = Object.fromEntries(AUTH_FIELDS.map((k) => [k, field(f, k)])) as AuthValues;
 		if (!canAddAuthority(values)) return fail(400, { values, message: null });
-		const r = await guarded(values, () => app().userWork.putRow(v.case_id, STORES.authorities, null, { ...values, seq: nextSeq(app().userWork.listRows(v.case_id, STORES.authorities)) }));
+		const r = await guarded(values, () => addRow(v.case_id, STORES.authorities, values));
 		return r.ok ? { added: r.value } : r.failure;
 	},
 };

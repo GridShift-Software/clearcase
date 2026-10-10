@@ -5,6 +5,9 @@ import { fail, isHttpError } from '@sveltejs/kit';
 import { citedRefs } from '$lib/components/cite';
 import { app } from '$lib/local-case/app.server';
 import { UserWorkError, type RegisterRow, type RegisterValue } from '$lib/local-case/user-work.server';
+import { serialized } from './serial.ts';
+
+export { serialized };
 
 /** The register stores this ticket writes (one per register; see the report's user-work design). */
 export const STORES = Object.freeze({ crossexam: 'crossexam', authorities: 'authorities', heads: 'heads', enforcement: 'enforcement-status' });
@@ -18,6 +21,10 @@ export function orderedRows(caseId: string, store: string): RegisterRow[] {
 
 /** The next `seq` of a store: one more than the largest stored. */
 export const nextSeq = (rows: readonly RegisterRow[]) => rows.reduce((m, r) => (typeof r.fields.seq === 'number' && Number.isFinite(r.fields.seq) && r.fields.seq > m ? r.fields.seq : m), 0) + 1;
+
+/** Insert a register row with the next `seq`, serialized per case and store. */
+export const addRow = (caseId: string, store: string, fields: Record<string, RegisterValue>) =>
+	serialized(`${caseId}\u0000${store}`, () => app().userWork.putRow(caseId, store, null, { ...fields, seq: nextSeq(app().userWork.listRows(caseId, store)) }));
 
 /** A form field as the user typed it (v5 `val()`: untrimmed, '' when absent). */
 export const field = (f: FormData, k: string) => { const v = f.get(k); return typeof v === 'string' ? v : ''; };

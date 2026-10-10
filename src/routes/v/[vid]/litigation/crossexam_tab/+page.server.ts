@@ -2,7 +2,7 @@ import { fail } from '@sveltejs/kit';
 import { app } from '$lib/local-case/app.server';
 import { viewContentOf, viewText } from '$lib/local-case/results.server';
 import { CX_FIELDS, canAddCx, crossexamRows, type CxValues } from '$lib/views/litigation/crossexam';
-import { STORES, field, guarded, knownRefs, nextSeq, orderedRows } from '$lib/views/litigation/register.server';
+import { STORES, addRow, field, guarded, knownRefs, orderedRows } from '$lib/views/litigation/register.server';
 import type { Actions, PageServerLoad } from './$types';
 
 const SEED = 'lit-crossexam-seed';
@@ -27,7 +27,7 @@ export const actions: Actions = {
 		const f = await request.formData();
 		const values = Object.fromEntries(CX_FIELDS.map((k) => [k, field(f, k)])) as CxValues;
 		if (!canAddCx(values)) return fail(400, { values, message: null });
-		const r = await guarded(values, () => app().userWork.putRow(v.case_id, STORES.crossexam, null, { ...values, seq: nextSeq(app().userWork.listRows(v.case_id, STORES.crossexam)) }));
+		const r = await guarded(values, () => addRow(v.case_id, STORES.crossexam, values));
 		return r.ok ? { added: r.value } : r.failure;
 	},
 	delete: async ({ params, request }) => {

@@ -1,23 +1,31 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { enhance } from '$app/forms';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import Narrative from '$lib/components/Narrative.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SourceNote from '$lib/views/litigation/SourceNote.svelte';
 	import { shownStatus, statusOptions } from '$lib/views/litigation/enforcement';
 	import { ANALYSIS_NOTE } from '$lib/views/litigation/notes';
-	import { keepInput } from '$lib/views/litigation/submit';
+	import { LOST, failureMessage } from '$lib/views/litigation/submit';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
-	// the value the user chose, kept when a save fails (busy store or lost request) until it is saved
-	let chosen = $state<Record<string, string>>({});
-	let pending = $state<string | null>(null);
-	let lost = $state<{ key: string; message: string } | null>(null);
+	// Each step's own save state: the value the user chose (kept when its save fails, until it is saved), its error and
+	// whether it saved. A save never resets the form (a reset would put the select back on its server-rendered option).
+	let steps = $state<Record<string, { value: string; error: string | null; saved: boolean }>>({});
+	// without JavaScript, the server-rendered failure names its step and value
 	const failed = $derived(form && 'values' in form && form.values ? (form.values as { stepKey: string; status: string }) : null);
-	const savedKey = $derived(form && 'saved' in form ? (form.saved as string) : null);
-	const errorFor = (key: string) => (lost?.key === key ? lost.message : failed?.stepKey === key && form && 'message' in form ? (form.message as string) : null);
-	const valueOf = (r: (typeof data.rows)[number]) => (r.key && chosen[r.key]) || (r.key && failed?.stepKey === r.key ? failed.status : null) || shownStatus(r);
-	const submit = keepInput((m) => { if (pending) lost = { key: pending, message: m }; }, () => { lost = null; });
+	const valueOf = (r: (typeof data.rows)[number]) => (r.key && steps[r.key]?.value) || (r.key && failed?.stepKey === r.key ? failed.status : null) || shownStatus(r);
+	const errorOf = (key: string) => (key in steps ? steps[key]!.error : failed?.stepKey === key && form && 'message' in form ? (form.message as string) : null);
+	const savedOf = (key: string) => (key in steps ? steps[key]!.saved : !!form && 'saved' in form && form.saved === key);
+	const save: SubmitFunction = ({ formData }) => {
+		const key = String(formData.get('stepKey')), value = String(formData.get('status'));
+		steps[key] = { value, error: null, saved: false };
+		return async ({ result, update }) => {
+			if (result.type === 'success') { steps[key] = { value, error: null, saved: true }; await update({ reset: false }); return; }
+			steps[key] = { value, error: result.type === 'failure' ? failureMessage(result.data) ?? 'Not saved.' : LOST, saved: false };
+		};
+	};
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>
@@ -40,14 +48,14 @@
 								<td class="ex"><Narrative text={r.basis} resultsVersion={vid} known={data.known} /></td>
 								<td>
 									{#if r.key}
-										<form method="POST" action="?/status" use:enhance={submit}>
+										<form method="POST" action="?/status" use:enhance={save}>
 											<input type="hidden" name="stepKey" value={r.key} />
-											<select name="status" aria-label="Status" value={valueOf(r)} onchange={(e) => { chosen[r.key!] = e.currentTarget.value; pending = r.key; e.currentTarget.form?.requestSubmit(); }}>
+											<select name="status" aria-label="Status" value={valueOf(r)} onchange={(e) => e.currentTarget.form?.requestSubmit()}>
 												{#each statusOptions(r.status) as o (o)}<option value={o}>{o}</option>{/each}
 											</select>
 											<noscript><button type="submit">Save</button></noscript>
-											{#if errorFor(r.key)}<small class="error" role="alert" data-save-error>{errorFor(r.key)}</small>
-											{:else if savedKey === r.key}<small class="ok" data-saved>Saved</small>{/if}
+											{#if errorOf(r.key)}<small class="error" role="alert" data-save-error>{errorOf(r.key)}</small>
+											{:else if savedOf(r.key)}<small class="ok" data-saved>Saved</small>{/if}
 											{#if r.override !== null && r.override !== r.status}<small data-imported>Imported status: {r.status}</small>{/if}
 										</form>
 									{:else}

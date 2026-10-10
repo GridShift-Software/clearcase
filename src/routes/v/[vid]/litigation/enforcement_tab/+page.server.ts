@@ -3,7 +3,7 @@ import { app } from '$lib/local-case/app.server';
 import { datasetOf, viewContentOf, viewText } from '$lib/local-case/results.server';
 import { enforcementRows, phasesOf, statusOptions } from '$lib/views/litigation/enforcement';
 import { stepKey } from '$lib/views/litigation/enforcement.server';
-import { STORES, field, guarded, knownRefs, nextSeq, orderedRows, text } from '$lib/views/litigation/register.server';
+import { STORES, field, guarded, knownRefs, nextSeq, orderedRows, serialized, text } from '$lib/views/litigation/register.server';
 import type { Actions, PageServerLoad } from './$types';
 
 /** The case's saved statuses by step key (one row per key; the latest by seq wins if a key repeats). */
@@ -36,14 +36,17 @@ export const actions: Actions = {
 		if (!v) return fail(404, { message: 'Unknown results version' });
 		const f = await request.formData();
 		const values = { stepKey: field(f, 'stepKey'), status: field(f, 'status') };
-		const { rows, saved } = rowsOf(v.id, v.case_id);
+		const { rows } = rowsOf(v.id, v.case_id);
 		const row = rows.find((r) => r.key !== null && r.key === values.stepKey);
 		if (!row) return fail(404, { values, message: 'Not saved: that step is not in this results version, or it is not unique.' });
 		if (!statusOptions(row.status).includes(values.status)) return fail(400, { values, message: 'Not saved: choose one of the listed statuses.' });
-		const prior = saved.get(values.stepKey);
-		// one row per step key: a change replaces that row's fields (keeping its seq), a first change inserts one
-		const seq = prior?.seq ?? nextSeq(orderedRows(v.case_id, STORES.enforcement));
-		const r = await guarded(values, () => app().userWork.putRow(v.case_id, STORES.enforcement, prior?.rowId ?? null, { stepKey: values.stepKey, status: values.status, seq }));
+		// one row per step key: a change replaces that row's fields (keeping its seq), a first change inserts one; the
+		// existing row is looked up inside the serialized section, so two changes never insert two rows for one key
+		const r = await guarded(values, () => serialized(`${v.case_id}\u0000${STORES.enforcement}`, async () => {
+			const prior = overrides(v.case_id).get(values.stepKey);
+			const seq = prior?.seq ?? nextSeq(orderedRows(v.case_id, STORES.enforcement));
+			return app().userWork.putRow(v.case_id, STORES.enforcement, prior?.rowId ?? null, { stepKey: values.stepKey, status: values.status, seq });
+		}));
 		return r.ok ? { saved: values.stepKey } : r.failure;
 	},
 };

@@ -10,10 +10,12 @@
 	import { keepInput } from '$lib/views/litigation/submit';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
-	let lost = $state<string | null>(null);
-	const message = $derived(lost ?? (form && 'message' in form ? form.message : null));
+	// a failed or lost submit is reported here and changes nothing else, so the typed values stay in their fields; the
+	// action's `values` re-fill the form only without JavaScript (a server-rendered failure)
+	let error = $state<string | null>(null);
+	const message = $derived(error ?? (form && 'message' in form ? (form.message as string | null) : null));
 	const values = $derived(form && 'values' in form ? (form.values as Record<string, string>) : null);
-	const submit = keepInput((m) => (lost = m), () => (lost = null));
+	const submit = keepInput((m) => (error = m), () => (error = null));
 	const exportText = () => download(HEADS_FILE, headsText(data.rows, data.caption), 'text/plain;charset=utf-8');
 	let ready = $state(false);
 	onMount(() => { ready = true; });

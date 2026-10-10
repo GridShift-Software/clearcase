@@ -3,7 +3,7 @@ import { app } from '$lib/local-case/app.server';
 import { documentRows } from '$lib/local-case/documents.server';
 import { viewContentOf, viewText } from '$lib/local-case/results.server';
 import { HEADS_FIELDS, canAddHead, evidenceTokens, type HeadsValues } from '$lib/views/litigation/heads';
-import { STORES, field, guarded, nextSeq, orderedRows, text } from '$lib/views/litigation/register.server';
+import { STORES, addRow, field, guarded, orderedRows, text } from '$lib/views/litigation/register.server';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ parent }) => {
@@ -28,7 +28,7 @@ export const actions: Actions = {
 		const f = await request.formData();
 		const values = Object.fromEntries(HEADS_FIELDS.map((k) => [k, field(f, k)])) as HeadsValues;
 		if (!canAddHead(values)) return fail(400, { values, message: null });
-		const r = await guarded(values, () => app().userWork.putRow(v.case_id, STORES.heads, null, { ...values, seq: nextSeq(app().userWork.listRows(v.case_id, STORES.heads)) }));
+		const r = await guarded(values, () => addRow(v.case_id, STORES.heads, values));
 		return r.ok ? { added: r.value } : r.failure;
 	},
 	delete: async ({ params, request }) => {

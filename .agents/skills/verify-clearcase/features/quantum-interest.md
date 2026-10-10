@@ -1,6 +1,6 @@
 # Interest Recalculator
 
-Reproduces the interest on a capital figure: simple (exact) or compound monthly (v5's formula), Actual/365.25 on calendar dates counted in UTC, compared with the imported amount due. The rate default comes from the package's view-content; the From and To defaults from the imported interest basis. The inputs live in the URL query, so a reload gives the same result, and `Reset to defaults` returns to the package defaults. Invalid and reversed inputs are refused visibly with the typed text kept.
+Reproduces the interest on a capital figure: simple (exact) or compound monthly (v5's formula), Actual/365.25 on calendar dates (years 1000 to 9999, counted by calendar arithmetic, so no time zone enters), compared with the imported amount due. The rate default comes from the package's view-content; the From and To defaults from the imported interest basis. The inputs live in the URL query, so a reload gives the same result, and `Reset to defaults` returns to the package defaults. Invalid and reversed inputs are refused visibly with the typed text kept.
 
 ## Sub-features
 

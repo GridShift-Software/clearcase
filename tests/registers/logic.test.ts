@@ -3,7 +3,7 @@
 process.env.TZ = 'UTC';
 import { describe, expect, it } from 'vitest';
 import { REGISTERS } from '../../src/lib/views/registers/defs';
-import { byDate, countdown, daysUntil, deadlineCalendar, entryFrom, foldLine, icsText, invalidReason, isBilled, isSkipped, openDeadlines, registerCsv, timesheetValue, unbilledHours, type Row } from '../../src/lib/views/registers/logic';
+import { byDate, countdown, daysUntil, deadlineCalendar, entryFrom, foldLine, icsText, invalidReason, isBilled, isSkipped, openDeadlines, registerCsv, timesheetValue, unbilledHours, unsavable, type Row } from '../../src/lib/views/registers/logic';
 import { seededUserWork } from '../../scripts/parity/lib/sweeps.mjs';
 
 const CLOCK = new Date('2026-10-08T09:00:00Z');
@@ -45,11 +45,11 @@ describe('the overview tiles on the seeded synthetic user work', () => {
 	});
 });
 
-describe('timesheet value (v5 money(hours × rate))', () => {
-	it('multiplies parsed hours and rate, 0 for a missing or non-numeric part', () => {
+describe('timesheet value (hours × rate in exact cents, S-timesheet_tab-3)', () => {
+	it('multiplies parsed hours and rate, 0 for a missing part as v5, and nothing for a part that does not parse', () => {
 		expect(timesheetValue({ hours: '2.5', rate: '1200' })).toBe('R 3 000.00');
 		expect(timesheetValue({ hours: '', rate: '1000' })).toBe('R 0.00');
-		expect(timesheetValue({ hours: 'Synthetic entry 1', rate: 'x' })).toBe('R 0.00');
+		expect(timesheetValue({ hours: 'Synthetic entry 1', rate: 'x' })).toBe('');
 	});
 });
 
@@ -60,6 +60,17 @@ describe('entries', () => {
 		expect(isSkipped(pv, entryFrom(pv, { basis: 'Other' }))).toBe(false);
 		expect(isSkipped(dl, entryFrom(dl, { title: 'x', cat: 'Filing' }))).toBe(true);
 		expect(isSkipped(dl, entryFrom(dl, { title: 'x', date: '2026-10-09', cat: 'Filing' }))).toBe(false);
+	});
+	it('says why Save stores nothing: silent for an empty Add (v5), a message for an emptied Edit or a deadline without title or date (D13)', () => {
+		const pp = REGISTERS.popia_tab;
+		expect(unsavable(pp, entryFrom(pp, {}), false)).toBe('');
+		expect(unsavable(pp, entryFrom(pp, {}), true)).toMatch(/cannot be saved empty.*use Delete/);
+		expect(unsavable(pp, entryFrom(pp, { activity: 'x' }), true)).toBeNull();
+		expect(unsavable(dl, entryFrom(dl, { cat: 'Filing' }), false)).toBe('');
+		expect(unsavable(dl, entryFrom(dl, { title: 'x', cat: 'Filing' }), false)).toBe('Title and Date must be filled in; nothing was saved. Your input is kept.');
+		expect(unsavable(dl, entryFrom(dl, { date: '2026-10-09', cat: 'Hearing' }), true)).toMatch(/^Title and Date must be filled in/);
+		expect(unsavable(dl, entryFrom(dl, { cat: 'Hearing' }), true)).toMatch(/use Delete/);
+		expect(unsavable(dl, entryFrom(dl, { title: 'x', date: '2026-10-09', cat: 'Filing' }), false)).toBeNull();
 	});
 	it('keeps values as typed and refuses values the form cannot produce', () => {
 		expect(entryFrom(ts, { hours: ' 2,5 ', other: 'x', rate: 7 })).toEqual({ date: '', fee_earner: '', activity: '', hours: ' 2,5 ', rate: '', billed: '' });
@@ -100,6 +111,13 @@ describe('calendar export (S-deadlines_tab-2, S-ics)', () => {
 	});
 	it('escapes TEXT and folds lines at 75 octets without splitting a character', () => {
 		expect(icsText('a\\b;c,d\r\ne\nf')).toBe('a\\\\b\\;c\\,d\\ne\\nf');
+		// D12: NEL, U+2028 and U+2029 are line breaks; every other control character but HTAB is removed
+		expect(icsText('T1\u2028ATTENDEE:mailto:x@y.invalid')).toBe('T1\\nATTENDEE:mailto:x@y.invalid');
+		expect(icsText('a\u0085b\u2029c\td')).toBe('a\\nb\\nc\td');
+		expect(icsText('v\u000bf\u000cs\u001cn\u0000e\u001bd\u007fc\u0080\u009f!')).toBe('vfsnedc!');
+		const ctl = deadlineCalendar([row('x', { title: 'a\u2028b\u000b', date: '2026-11-01', cat: 'Filing', note: 'n\u0085' })], { now: CLOCK, productId: null });
+		expect(ctl).not.toMatch(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\u2028\u2029]/);
+		expect(ctl).toContain('SUMMARY:a\\nb\r\n');
 		const long = `SUMMARY:${'é'.repeat(60)}`;
 		const folded = foldLine(long).split('\r\n');
 		for (const l of folded) expect(new TextEncoder().encode(l).length).toBeLessThanOrEqual(75);

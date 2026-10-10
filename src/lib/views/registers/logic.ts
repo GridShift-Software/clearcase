@@ -1,9 +1,11 @@
 // Pure register logic (GRS-17): entries from form input, deadline countdowns and order, timesheet value and the
 // overview totals, CSV and iCalendar export. v5 semantics are kept except where a source defect is corrected
 // (S-deadlines_tab-1 delete by row id, S-overview-1 / S-timesheet_tab-1 billed flag, S-deadlines_tab-2 / S-ics calendar
-// format, S-csv formula neutralisation). Browser-safe; the clock is always passed in (callers use now()).
-import { fmtR, money } from '../../components/format.ts';
+// format, S-csv formula neutralisation, S-disbursements_tab-1 / S-timesheet_tab-3 amounts by the grammar in amounts.ts).
+// Browser-safe; the clock is always passed in (callers use now()).
+import { fmtR } from '../../components/format.ts';
 import { toCSV, userCell } from '../../components/csv.ts';
+import { parseAmount, twoDp, valueCents, hoursTile } from './amounts.ts';
 import type { RegisterDef } from './defs.ts';
 
 export type Entry = Record<string, string>;
@@ -28,12 +30,29 @@ export function isSkipped(def: Shape, e: Entry): boolean {
 	return def.required ? def.required.some((k) => !e[k]) : def.fields.every((x) => !e[x.k]);
 }
 
-/** Why an entry cannot be stored (a value the form cannot produce), or null. v5's date inputs give '' or a date. */
+/**
+ * Why Save stores nothing: '' for an Add with nothing typed, which v5 ignores silently (a select that always holds an
+ * option does not count as typed); a message for an Edit emptied of every field, or an entry missing a required field
+ * (a deadline's title or date), which v5 also ignored silently; null when the entry can be saved.
+ */
+export function unsavable(def: Shape, e: Entry, editing: boolean): string | null {
+	const empty = def.fields.every((x) => !e[x.k] || (x.type === 'select' && x.placeholder === undefined));
+	if (empty) return editing ? 'An entry cannot be saved empty, so nothing was changed. To remove the entry, use Delete.' : '';
+	const missing = (def.required ?? []).filter((k) => !e[k]).map((k) => def.fields.find((x) => x.k === k)?.label ?? k);
+	if (missing.length) return `${(def.required ?? []).map((k) => def.fields.find((x) => x.k === k)?.label ?? k).join(' and ')} must be filled in; nothing was saved. Your input is kept.`;
+	return null;
+}
+
+/**
+ * Why an entry cannot be stored, or null: a value the form cannot produce (v5's date inputs give '' or a date), or an
+ * amount, rate or hours the grammar refuses (S-disbursements_tab-1, S-timesheet_tab-3). The typed text is kept.
+ */
 export function invalidReason(def: Shape, e: Entry): string | null {
 	for (const x of def.fields) {
 		const v = e[x.k] ?? '';
 		if (x.type === 'date' && v !== '' && !(DATE.test(v) && realDate(v))) return `${x.label} must be a date (YYYY-MM-DD).`;
 		if (x.type === 'select' && !(x.opts!.includes(v) || (x.placeholder !== undefined && v === ''))) return `${x.label} must be one of the listed options.`;
+		if (x.amount) { const p = parseAmount(v, x.amount); if (p.kind === 'bad') return `${x.label} ${p.why}. Nothing was saved; your input is kept.`; }
 	}
 	return null;
 }
@@ -71,8 +90,12 @@ export const openDeadlines = (rows: readonly Row[], now: Date): number => rows.f
 
 // ---- timesheet ----------------------------------------------------------------------------------------------------
 
-/** v5's derived Value column: money(hours × rate), each parsed with parseFloat and 0 when not a number. */
-export const timesheetValue = (e: Entry): string => fmtR((parseFloat(e.hours ?? '') || 0) * (parseFloat(e.rate ?? '') || 0));
+/**
+ * The derived Value column: hours × rate in exact cents, rounded once half-up (S-timesheet_tab-3: v5 multiplied
+ * parseFloat results); an empty part is 0 as in v5; '' when the hours or the rate does not parse (a stored row from a
+ * restore or a v5 import), which the table flags as not counted.
+ */
+export const timesheetValue = (e: Entry): string => { const c = valueCents(e.hours ?? '', e.rate ?? ''); return c === null ? '' : fmtR(twoDp(c)); };
 
 /**
  * Whether a time entry is billed. The Billed? select stores '' (left at its placeholder), 'no' or 'yes'; only 'yes'
@@ -80,15 +103,28 @@ export const timesheetValue = (e: Entry): string => fmtR((parseFloat(e.hours ?? 
  */
 export const isBilled = (v: string | undefined): boolean => (v ?? '').trim().toLowerCase() === 'yes';
 
-/** The overview's Unbilled time: the hours of every unbilled entry, one decimal and ' h', as v5 formats it. */
-export const unbilledHours = (rows: readonly Row[]): string => `${rows.filter((r) => !isBilled(r.values.billed)).reduce((s, r) => s + (parseFloat(r.values.hours ?? '') || 0), 0).toFixed(1)} h`;
+/**
+ * The overview's Unbilled time: the exact sum of every unbilled entry's hours, rounded once to one decimal, with ' h'
+ * as v5 formats it; hours that do not parse are not counted (and counted in `uncounted`), never coerced.
+ */
+export function unbilledTime(rows: readonly Row[]): { value: string; uncounted: number } {
+	let sum = 0n, uncounted = 0;
+	for (const r of rows) {
+		if (isBilled(r.values.billed)) continue;
+		const h = parseAmount(r.values.hours ?? '', 'hours');
+		if (h.kind === 'ok') sum += h.units;
+		else if (h.kind === 'bad') uncounted++;
+	}
+	return { value: `${hoursTile(sum)} h`, uncounted };
+}
+export const unbilledHours = (rows: readonly Row[]): string => unbilledTime(rows).value;
 
 // ---- table cells --------------------------------------------------------------------------------------------------
 
 /** A cell's display text for the plain kinds (refs, countdowns and categories render as their own elements). */
 export function cellText(kind: string, e: Entry, field: string | undefined): string {
 	const v = field ? (e[field] ?? '') : '';
-	if (kind === 'money') return money(v);
+	if (kind === 'money') { const p = parseAmount(v, 'signed-money'); return p.kind === 'ok' ? fmtR(twoDp(p.units)) : v; }
 	if (kind === 'value') return timesheetValue(e);
 	if (kind === 'date-or-dash') return v || '—';
 	if (kind === 'category') return v || 'Other';
@@ -104,8 +140,12 @@ export function cellText(kind: string, e: Entry, field: string | undefined): str
 export const registerCsv = (def: Shape, rows: readonly Row[]): string =>
 	toCSV([def.fields.map((x) => x.k), ...rows.map((r) => def.fields.map((x) => userCell(r.values[x.k] ?? '')))]);
 
-/** RFC 5545 TEXT: backslash, semicolon, comma and line breaks escaped. */
-export const icsText = (s: string): string => s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r\n|\r|\n/g, '\\n');
+/**
+ * RFC 5545 TEXT: backslash, semicolon, comma and line breaks escaped; NEL, U+2028 and U+2029 are line breaks too, and
+ * every other control character but HTAB is removed (TSAFE-CHAR excludes them).
+ */
+export const icsText = (s: string): string =>
+	s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r\n|[\r\n\u0085\u2028\u2029]/g, '\\n').replace(/[\x00-\x08\x0a-\x1f\x7f-\x9f]/g, '');
 
 /** RFC 5545 folding: lines longer than 75 octets continue on lines starting with a space, never inside a character. */
 export function foldLine(line: string): string {

@@ -5,18 +5,18 @@
     {
       "id": "IDR-350",
       "view": "discovery_tab",
-      "field": "table.table_1.row.*.document_s_description",
+      "field": "table.table_1.row.*.file_actions",
       "when": {
         "v5": {
-          "re": "OpenDownload$"
+          "re": "^OpenDownload( / OpenDownload)*$"
         },
         "app": {
-          "re": "not in the verified index; not served"
+          "re": "^(?=.*not in the verified index; not served)(OpenDownload|not in the verified index; not served)( / (OpenDownload|not in the verified index; not served))*$"
         }
       },
       "type": "known-gap",
       "source": "GRS-19",
-      "reason": "A schedule file whose locator does not decode to an indexed document path is not a package asset, so the app shows it as not in the verified index and does not serve it, where v5 links the file on disk. A separate unit is to index these files as verified package assets (shared-file request in the CC-09 report).",
+      "reason": "A schedule file whose locator does not decode to an indexed document path is not a package asset, so the app shows it as not in the verified index and does not serve it, where v5 links the file on disk. Only the file actions column (split from the description and file names, which compare exactly) is covered, on rows where some file is not served. A separate unit is to index these files as verified package assets (shared-file request in the CC-09 report).",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
       "approvedBy": null,
@@ -43,18 +43,16 @@
     {
       "id": "IDR-352",
       "view": "discovery_tab",
-      "field": "sweep.bundle.index_text",
+      "field": "sweep.bundle.index_incomplete",
       "when": {
-        "v5": {
-          "re": "^(?:(?!INCOMPLETE SELECTION).)*$"
-        },
+        "v5": "<absent>",
         "app": {
-          "re": "<div class=\"cap\"><b>INCOMPLETE SELECTION</b>: "
+          "re": "^<div class=\"cap\"><b>INCOMPLETE SELECTION</b>: [^<]+\\.</div>$"
         }
       },
       "type": "improvement",
       "source": "BA-10",
-      "reason": "The court bundle index says when the selection is incomplete (an item only partly selected, or selected files not in the verified index), so an incomplete export stays visibly incomplete.",
+      "reason": "The court bundle index says when the selection is incomplete (an item only partly selected, or selected files not in the verified index), so an incomplete export stays visibly incomplete. Only that line (its own key) is covered; the rest of the index compares exactly.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
       "approvedBy": null,
@@ -63,18 +61,14 @@
     {
       "id": "IDR-353",
       "view": "discovery_tab",
-      "field": "sweep.marks.cover_text",
+      "field": "sweep.marks.cover_co.0",
       "when": {
-        "v5": {
-          "re": "^(?:(?!<td class=\"co\">O</td>).)*$"
-        },
-        "app": {
-          "re": "<td class=\"co\">O</td>"
-        }
+        "v5": "C",
+        "app": "O"
       },
       "type": "defect-fix",
       "source": "S-discovery_tab-2",
-      "reason": "The certified cover page now follows the user's Copy/Original marks (all C, all O, or C&O per item); v5 printed the data-level value and ignored the marks. With no marks it equals v5.",
+      "reason": "The certified cover page now follows the user's Copy/Original marks (all C, all O, or C&O per item); v5 printed the data-level value and ignored the marks. With no marks it equals v5. Only the C/O cell of the item the sweep marks Original is covered; the rest of the cover compares exactly.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
       "approvedBy": null,
@@ -156,7 +150,7 @@
       },
       "type": "known-gap",
       "source": "GRS-19",
-      "reason": "The assembled bundle PDFs and index PDFs are not package assets (only chronology rows are indexed), so the app names them as not served where v5 links the files on disk. A separate unit is to index them as verified assets (shared-file request in the CC-09 report).",
+      "reason": "The assembled bundle PDFs and index PDFs are not package assets (only chronology rows are indexed), so the app names them as not served where v5 links the files on disk. A separate unit is to index them as verified assets (shared-file request in the CC-09 report). For the same reason the Word indexes leave out v5's hyperlinks into the bundle PDF (docxText reads only the text, so parity does not see it; listed in the CC-09-r2 report).",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
       "approvedBy": null,
@@ -181,15 +175,18 @@
     {
       "id": "IDR-360",
       "view": "court_bundle_tab",
-      "field": "sweep.bundle_tabs.items.r*",
+      "field": "sweep.bundle_tabs.items.r*.actions",
       "when": {
+        "v5": {
+          "re": "^(Open item( Save extract)?( / in the bundle at page \\d+)?|Open item opens the bundle at page \\d+)$"
+        },
         "app": {
-          "re": "not in the verified index; not served"
+          "re": "^(Extract \\(not in the verified index; not served\\)( / in the bundle at page \\d+( \\(not in the verified index; not served\\))?)?|Open item \\(not in the verified index; not served\\))$"
         }
       },
       "type": "known-gap",
       "source": "GRS-19",
-      "reason": "Open item, Save extract and the bundle page links point at extract and bundle PDFs that are not in the verified index, so the items tab names them as not served; source parts and the CaseLines original link to their document pages.",
+      "reason": "Open item, Save extract and the bundle page links point at extract and bundle PDFs that are not in the verified index, so the items tab names them as not served; source parts and the CaseLines original link to their document pages. Only the actions cell of each items row is covered (every other cell compares exactly). The Word indexes likewise leave out v5's hyperlinks into the bundle PDF while the bundle PDFs are not served (CC-09-r2 report).",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
       "approvedBy": null,
@@ -206,6 +203,60 @@
       "type": "improvement",
       "source": "BA-14",
       "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 leaves it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-362",
+      "view": "court_bundle_tab",
+      "field": "sweep.bundle_tabs.items.r*.from_link.*",
+      "when": {
+        "v5": {
+          "re": "^(↗|-)$"
+        },
+        "app": "not in the verified index; not served"
+      },
+      "type": "known-gap",
+      "source": "GRS-19",
+      "reason": "A source part of an items row whose file is not in the verified index is named but not served, where v5 links it (↗). Only that part's link state is covered; the Extracted-from text (name and page range) compares exactly.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-363",
+      "view": "court_bundle_tab",
+      "field": "text.subtitle",
+      "when": {
+        "v5": {
+          "re": "^\\d+ bundles · \\d+ index items · \\d+ paginated pages\\. Every bundle is a finished PDF: index first, then the extracted documents, numbered continuously from page 1\\.$"
+        },
+        "app": {
+          "re": "^\\d+ bundles · \\d+ index items · \\d+ paginated pages\\. Each index lists the extracted documents, numbered continuously from page 1\\.$"
+        }
+      },
+      "type": "known-gap",
+      "source": "GRS-19",
+      "reason": "The subtitle claims no finished PDFs while the builder (CC-09b) and the bundle PDFs as package assets are deferred: it says what each imported index lists; each bundle row says whether its PDF is served (L01-4).",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-364",
+      "view": "court_bundle_tab",
+      "field": "kpi.pages.sub",
+      "when": {
+        "v5": "assembled and numbered",
+        "app": "numbered in the indexes"
+      },
+      "type": "known-gap",
+      "source": "GRS-19",
+      "reason": "The Pages card claims no assembled PDFs while the builder and the bundle PDFs are deferred: the page numbers are those of the imported indexes (L01-4).",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
       "approvedBy": null,

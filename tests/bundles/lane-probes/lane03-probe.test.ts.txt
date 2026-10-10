@@ -1,0 +1,123 @@
+// Verification lane 03 probes (CC-09), synthetic data only. Not committed: the checkout is scratch.
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { docxText, unzip } from '../../scripts/parity/lib/exports.mjs';
+import { bundlesOf, header, headerRaw, indexFileName, slug, type Bundle } from '../../src/lib/views/bundles/court';
+import { indexDocx } from '../../src/lib/views/bundles/docx';
+import { crc32, storedZip } from '../../src/lib/views/bundles/zip';
+import { indexHtml } from '../../src/lib/views/bundles/print';
+import { bundleHTML, coverDoc, incompleteNotes, selectedFiles, type ScheduleItem } from '../../src/lib/views/bundles/discovery';
+import { linkedPath } from '../../src/lib/views/bundles/caselines';
+import { locatorPath, pathIndex, resolveLocator } from '../../src/lib/views/bundles/links';
+import { documentRoute } from '../../src/lib/case-package/render';
+
+const OUT = join(import.meta.dirname, '..', '..', '.local', 'lane03');
+mkdirSync(OUT, { recursive: true });
+const EVIL = `<script>alert(1)</script>"'><img src=x onerror=alert(2)>&amp;</w:t></w:r><w:r><w:t>INJECT]]></title>`;
+const ODD = `Ünïcødé 🧾 עברית ﷽ \u200b zero-width`;
+const bundle = (rows: number, extra: Partial<Record<string, unknown>> = {}): Bundle => bundlesOf({ list: [{ no: '1', name: 'Synthetic', title: 'T ' + EVIL, pages: rows, indexPages: 1, file: '', indexFile: '',
+	rows: Array.from({ length: rows }, (_, i) => ({ n: i + 1, key: 'K', desc: (i % 2 ? EVIL : ODD) + ' row ' + i, date: '1 Jan 2001', pages: 1, from: i + 1, to: i + 1, parts: [] })), ...extra }] })[0]!;
+const hdr = (over: Record<string, string> = {}) => header(headerRaw({ court: 'Court ' + EVIL, judge: 'J', intro: 'In the matter between:', caseNo: 'C/1', claimant: 'A\nB ' + ODD, claimantRole: 'P', defendant: 'D ' + EVIL, defendantRole: 'R' }, over)).h;
+
+describe('lane 03: ZIP writer and Word index', () => {
+	it('CRC-32 check value and agreement on large random data', () => {
+		expect(crc32(new TextEncoder().encode('123456789'))).toBe(0xcbf43926);
+		const big = new Uint8Array(3_000_000); for (let i = 0; i < big.length; i++) big[i] = (i * 2654435761) >>> 24;
+		writeFileSync(join(OUT, 'big.bin'), big);
+		writeFileSync(join(OUT, 'big.crc'), String(crc32(big)));
+	});
+	it('writes archives for external checks: odd entry names, empty archive, big entry', () => {
+		const te = new TextEncoder();
+		writeFileSync(join(OUT, 'odd-names.zip'), storedZip([{ name: 'a b/ü 🧾.txt', data: te.encode('x') }, { name: '../evil.txt', data: te.encode('y') }, { name: 'empty.txt', data: new Uint8Array() }]));
+		writeFileSync(join(OUT, 'empty.zip'), storedZip([]));
+		writeFileSync(join(OUT, 'one-big.zip'), storedZip([{ name: 'big.bin', data: new Uint8Array(20_000_000).fill(7) }]));
+	});
+	it('Word index: injection text stays text, odd characters survive, file names are safe', () => {
+		const b = bundle(4);
+		const bytes = indexDocx([b], hdr(), 'Creator ' + EVIL);
+		writeFileSync(join(OUT, 'inject.docx'), bytes);
+		const paras = docxText(bytes) as string[] | string;
+		const t = Array.isArray(paras) ? paras.join('\n') : String(paras);
+		expect(t).toContain(EVIL.toUpperCase().slice(0, 20)); // rows are upper-cased, header not
+		expect(t).toContain('Court ' + EVIL);
+		writeFileSync(join(OUT, 'inject-text.json'), JSON.stringify(paras, null, 1)); expect(t.replace(/\s+/g, ' ')).toContain('ÜNÏCØDÉ 🧾 עברית');
+		const doc = new TextDecoder().decode(unzip(bytes).get('word/document.xml')!);
+		expect(doc).not.toContain('<w:t>INJECT');
+		expect(indexFileName({ no: '../../etc', name: 'a/b\\c:d*?"<>|' })).toMatch(/^Index_[A-Za-z0-9_]*\.docx$/);
+		expect(slug('🧾')).toBe('');
+		expect(indexFileName({ no: '', name: '🧾' })).toBe('Index_.docx');
+	});
+	it('Word index: empty selections (no bundles, a bundle with no rows)', () => {
+		writeFileSync(join(OUT, 'no-bundles.docx'), indexDocx([], hdr(), 'c'));
+		writeFileSync(join(OUT, 'no-rows.docx'), indexDocx([bundle(0)], hdr(), 'c'));
+	});
+	it('Word index: control characters from a pasted header or imported description', () => {
+		const h = hdr({ claimant: 'Party\u000bwith vertical tab', defendant: 'Form\u000cfeed', court: 'NUL\u0000x' });
+		writeFileSync(join(OUT, 'control-header.docx'), indexDocx([bundle(1)], h, 'c'));
+		const b = bundlesOf({ list: [{ no: '1', name: 'n', rows: [{ n: 1, desc: 'Extracted\u000ctext\u0002', date: '', pages: 1, from: 1, to: 1 }] }] })[0]!;
+		writeFileSync(join(OUT, 'control-desc.docx'), indexDocx([b], hdr(), 'c'));
+		const s = new Uint8Array(0); void s;
+		// a lone surrogate (half an emoji, e.g. a field cut at 2000 UTF-16 units by the server's slice)
+		const cut = ('x'.repeat(1999) + '🧾').slice(0, 2000);
+		writeFileSync(join(OUT, 'surrogate-header.docx'), indexDocx([bundle(1)], hdr({ claimant: cut }), 'c'));
+		expect(cut.isWellFormed()).toBe(false);
+	});
+	it('Word index: very large selection (all bundles, 60,000 rows)', () => {
+		const many = Array.from({ length: 14 }, (_, k) => ({ ...bundle(60_000 / 14 | 0), no: String(k + 1) }));
+		const t0 = performance.now();
+		const bytes = indexDocx(many, hdr(), 'c');
+		const ms = performance.now() - t0;
+		writeFileSync(join(OUT, 'large.docx'), bytes);
+		writeFileSync(join(OUT, 'large.json'), JSON.stringify({ ms: Math.round(ms), bytes: bytes.length }));
+		expect(bytes.length).toBeGreaterThan(1_000_000);
+	});
+});
+
+describe('lane 03: HTML exports escape every value', () => {
+	const cap = { court: EVIL, division: EVIL, caseNumber: EVIL, plaintiff: EVIL, plaintiffCitation: EVIL, plaintiffRole: EVIL, defendant: EVIL, defendantCitation: EVIL, defendantRole: EVIL, bundleIndexName: EVIL };
+	const meta = { deed: EVIL, schedule: EVIL, file: EVIL, label: EVIL };
+	const items: ScheduleItem[] = [{ no: 1, date: EVIL, co: EVIL, desc: EVIL, nfiles: 1, files: [{ fn: EVIL, url: './x', co: EVIL, x: null, key: 'k1', ref: null }] }, { no: 2, date: '', co: 'C', desc: EVIL, nfiles: 0, files: [] }];
+	it('cover, bundle index and print index', () => {
+		const files = selectedFiles({ discovery: items, supplementary: [] }, new Set(['k1']), new Map());
+		const docs = { cover: coverDoc(cap, meta, items, new Map()), index: bundleHTML(cap, files, incompleteNotes(files, new Set(['k1']))), print: indexHtml(bundle(3), hdr()) };
+		for (const [k, html] of Object.entries(docs)) {
+			writeFileSync(join(OUT, `${k}.html`), html);
+			expect(html, k).not.toMatch(/<script|<img/i);
+		}
+	});
+	it('empty selection index', () => {
+		const html = bundleHTML(cap, [], []);
+		expect(html).toContain('(0 documents)');
+	});
+});
+
+describe('lane 03: links resolve only by exact indexed path', () => {
+	const idx = pathIndex([{ ref: 'R-2', ord: 2, originalPath: 'A/b.pdf', url: null }, { ref: 'R-1', ord: 1, originalPath: null, url: './A/b.pdf' }, { ref: 'R-3', ord: 3, originalPath: null, url: './../etc/passwd' }, { ref: '../../admin', ord: 4, originalPath: 'Z/z.pdf', url: null }]);
+	it('lowest ord wins, traversal locators are never indexed', () => {
+		expect(idx.get('A/b.pdf')).toBe('R-1');
+		expect([...idx.keys()].some((k) => k.includes('..'))).toBe(false);
+	});
+	it('traversal, absolute, encoded and fuzzy locators never resolve', () => {
+		for (const u of ['./../A/b.pdf', './A/../A/b.pdf', './A%2Fb.pdf', './A/b.pdf/', '/A/b.pdf', 'A/b.pdf', './a/b.pdf', './A/b.PDF', './A//b.pdf', './A/./b.pdf', 'file:///A/b.pdf', './A/b.pdf%00', './%2e%2e/A/b.pdf', 'C:\\A\\b.pdf'])
+			expect(resolveLocator(idx, u), u).toBeNull();
+		expect(resolveLocator(idx, './A/b.pdf#page=3')).toEqual({ ref: 'R-1', page: 3 });
+		expect(resolveLocator(idx, './A/b.pdf#page=0')).toEqual({ ref: 'R-1', page: null });
+		expect(resolveLocator(idx, './A/b.pdf#page=99999999')).toEqual({ ref: 'R-1', page: null });
+	});
+	it('a ref with separators is encoded into one path segment of the document route', () => {
+		expect(documentRoute('v1', '../../admin', 2)).toBe('/v/v1/doc/..%2F..%2Fadmin?page=2');
+	});
+	it('CaseLines link validator (the action\'s exact rule) refuses traversal and absolute paths', () => {
+		const encode = (path: string) => './' + path.split('/').map(encodeURIComponent).join('/');
+		const accepted = (raw: string) => { const p = linkedPath(raw); return p !== null && p.length <= 2048 && locatorPath(encode(p)) === p ? p : null; };
+		const res = Object.fromEntries(['../../etc/passwd', '/etc/passwd', '//server/share/x.pdf', 'C:\\Windows\\x.pdf', 'C:/x.pdf', 'a/../../b.pdf', './a/b.pdf', '.../x.pdf', 'a/%2e%2e/b.pdf', 'a\u0000b.pdf', 'a\\..\\b.pdf', 'A/b.pdf'].map((r) => [r, accepted(r)]));
+		writeFileSync(join(OUT, 'caselines-link.json'), JSON.stringify(res, null, 1));
+		expect(res['../../etc/passwd']).toBeNull();
+		expect(res['a/../../b.pdf']).toBeNull();
+		expect(res['C:\\Windows\\x.pdf']).toBeNull();
+		expect(res['C:/x.pdf']).toBeNull();
+		expect(res['a\\..\\b.pdf']).toBeNull();
+		expect(res['A/b.pdf']).toBe('A/b.pdf');
+	});
+});

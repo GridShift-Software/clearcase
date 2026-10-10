@@ -1,0 +1,73 @@
+// Verification lane 04 scratch test (CC-09), never committed: the bundle views' user work through exportAll/importAll,
+// and a multi-file mark write that meets a lock taken by another process between two rows.
+import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { afterAll, describe, expect, it, vi } from 'vitest';
+import { cleanup, service, tempRoot } from '../../src/lib/local-case/test-support.ts';
+import type { LocalCase } from '../../src/lib/local-case/service.server.ts';
+
+const g = globalThis as { __clearcase?: unknown };
+const roots: string[] = [];
+const open: LocalCase[] = [];
+afterAll(async () => { for (const l of open) try { l.close(); } catch { /* closed */ } for (const r of roots) await cleanup(r); });
+async function fresh(tag: string) {
+	const root = await tempRoot(tag); roots.push(root);
+	const lc = service(path.join(root, 'data')); open.push(lc);
+	g.__clearcase = { app: lc, originals: null, id: tag, startedAt: '', build: null };
+	vi.resetModules();
+	const s = await import('../../src/lib/views/bundles/store.server.ts');
+	return { lc, s, root };
+}
+
+describe('lane 04: bundle user work', () => {
+	it('round-trips marks, mode, header and links through exportAll/importAll into a fresh store, per case', async () => {
+		const { lc, s } = await fresh('l4-exp');
+		await s.writeMarks('case-1', ['X/a.pdf', 'X/b.pdf'], { selected: true });
+		await s.writeMarks('case-1', ['X/a.pdf'], { co: 'O' });
+		await s.writeMarks('case-2', ['X/a.pdf'], { selected: true });
+		await s.putSingle('case-1', s.HEADER_STORE, { court: 'C1', judge: '', intro: '', caseNo: '9', claimant: '', claimantRole: '', defendant: '', defendantRole: '' });
+		await s.putSingle('case-1', s.MODE_STORE, { mode: 'supplementary' });
+		await lc.userWork.putRow('case-1', s.LINKS_STORE, null, { path: 'P/x.pdf', seq: 1 });
+		const snap = lc.userWork.exportAll();
+		const t = snap.tables.find((x) => x.name === s.MARK_TABLE) as { rows: unknown[] } | undefined;
+		expect(t?.rows.length).toBe(3);
+		const { lc: lc2, s: s2 } = await fresh('l4-imp');
+		await lc2.userWork.importAll(snap);
+		await s2.marksTable(); // what the next process start does on the restored store
+		expect(await s2.readMarks('case-1')).toEqual([{ locator: 'X/a.pdf', selected: true, co: 'O' }, { locator: 'X/b.pdf', selected: true, co: null }]);
+		expect(await s2.readMarks('case-2')).toEqual([{ locator: 'X/a.pdf', selected: true, co: null }]);
+		expect(s2.singleRow('case-1', s2.HEADER_STORE)?.fields.court).toBe('C1');
+		expect(s2.readMode('case-1')).toBe('supplementary');
+		expect(s2.readMode('case-2')).toBe('discovery');
+		expect(lc2.userWork.listRows('case-1', s2.LINKS_STORE).map((r) => r.fields.path)).toEqual(['P/x.pdf']);
+		// a restore of case-1 after edits brings case-1 back and leaves case-2's later edits alone
+		await s2.clearSelection('case-1');
+		await s2.writeMarks('case-2', ['X/z.pdf'], { selected: true });
+		await s2.writeMarks('case-3', ['X/q.pdf'], { selected: true });
+		await lc2.userWork.importAll(snap);
+		expect((await s2.readMarks('case-1')).filter((m) => m.selected).length).toBe(2);
+		expect((await s2.readMarks('case-2')).map((m) => m.locator)).toEqual(['X/a.pdf']); // in the snapshot: replaced
+		expect((await s2.readMarks('case-3')).map((m) => m.locator)).toEqual(['X/q.pdf']); // not in it: untouched
+	});
+
+	it('a mark write over several files that meets a lock between two rows: what is stored, and what is said', async () => {
+		const { lc, s, root } = await fresh('l4-partial');
+		await s.marksTable();
+		const keys = ['X/1.pdf', 'X/2.pdf', 'X/3.pdf', 'X/4.pdf'];
+		// another process takes work.sqlite's write lock right after the first row is written
+		const uw = lc.userWork as unknown as { putTableRow: (...a: unknown[]) => Promise<void> };
+		const orig = uw.putTableRow.bind(uw);
+		let other: DatabaseSync | null = null;
+		uw.putTableRow = async (...a: unknown[]) => { await orig(...a); if (!other) { other = new DatabaseSync(path.join(root, 'data', 'work.sqlite')); other.exec('PRAGMA busy_timeout=0'); other.exec('BEGIN IMMEDIATE'); } };
+		let err: unknown = null;
+		try { await s.writeMarks('case-1', keys, { selected: true }); } catch (e) { err = e; }
+		other!.exec('ROLLBACK'); other!.close();
+		uw.putTableRow = orig;
+		const stored = (await s.readMarks('case-1')).filter((m) => m.selected).length;
+		const r = await s.guarded({}, async () => { throw err; });
+		const message = (r as { data?: { message?: string } }).data?.message ?? '';
+		console.log(JSON.stringify({ status: (err as { status?: number })?.status, stored, of: keys.length, message }));
+		expect((err as { status?: number })?.status).toBe(503);
+		expect(stored).toBe(0); // what the guarded() comment promises: nothing is half-saved
+	}, 60_000);
+});

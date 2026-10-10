@@ -29,7 +29,6 @@
 		const no = page.url.searchParams.get('b'), at = Number(page.url.searchParams.get('at') ?? 'x');
 		return Number.isInteger(at) && bs[at]?.no === no ? at : bs.findIndex((x) => x.no === no);
 	});
-	const served = $derived(data.links.filter((l) => l.file).length);
 	const b = $derived(cur >= 0 ? bs[cur]! : null);
 	const tab = $derived(({ items: 'items', view: 'view' } as Record<string, string>)[page.url.searchParams.get('tab') ?? ''] ?? 'index');
 	const go = (q: Record<string, string>) => goto(`?${new URLSearchParams(q)}`);
@@ -96,7 +95,7 @@
 {#snippet notServed(what: string)}<span class="not-served">{what} ({NOT_SERVED})</span>{/snippet}
 
 <main id="main" tabindex="-1" data-ready="court_bundle_tab" data-hydrated={ready ? '1' : null} data-busy={busy ? '1' : '0'}>
-	<PageHeader heading="Court Bundle" section="Court Bundle" caseName={data.version.titleName} subtitle="{bs.length} bundles · {ti} index items · {tp} paginated pages. Each bundle lists its index first, then the extracted documents, numbered continuously from page 1. {served && served === bs.length ? 'Every bundle PDF opens here.' : served ? `${served} of ${bs.length} bundle PDFs open here; the others are not served.` : 'The bundle PDFs are not served in this version.'}">
+	<PageHeader heading="Court Bundle" section="Court Bundle" caseName={data.version.titleName} subtitle="{bs.length} bundles · {ti} index items · {tp} paginated pages. Each index lists the extracted documents, numbered continuously from page 1.">
 		{#snippet actions()}<button type="button" class="btn sec" id="cb-word-all" disabled={off} onclick={wordAll}>All indexes (Word)</button> <button type="button" class="btn primary" id="cb-build" disabled={off} onclick={() => go({ view: 'build' })}>Build a bundle</button>{/snippet}
 	</PageHeader>
 	{#if off}<p class="notice" id="cb-nojs">The header, the Word and print exports and the bundle tabs need JavaScript, which is off or still loading; nothing on this page can be saved without it.</p>{/if}

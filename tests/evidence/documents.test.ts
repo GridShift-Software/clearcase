@@ -12,7 +12,7 @@ describe('documents', () => {
 	it('offers every bundle in order of first appearance, counted from the rows, and defaults to the first', () => {
 		const rows = [listRow('OD-1'), listRow('VDM-1', { bundle: 'Additional' }), listRow('EM-1', { bundle: 'Correspondence' }), listRow('VDM-2', { bundle: 'Additional' })];
 		const m = documentsModel(rows, { bundle: null, q: '', page: 1 });
-		expect(m.bundles).toEqual([{ name: 'Original', count: 1 }, { name: 'Additional', count: 2 }, { name: 'Correspondence', count: 1 }]);
+		expect(m.bundles.map(({ name, count }) => ({ name, count }))).toEqual([{ name: 'Original', count: 1 }, { name: 'Additional', count: 2 }, { name: 'Correspondence', count: 1 }]);
 		expect(m.bundle).toBe('Original');
 		expect(documentsModel(rows, { bundle: 'Additional', q: '', page: 1 }).page.slice.map((r) => r.ref)).toEqual(['VDM-1', 'VDM-2']);
 		expect(documentsModel(rows, { bundle: 'Nope', q: '', page: 1 })).toMatchObject({ bundle: 'Original', unknownBundle: true });

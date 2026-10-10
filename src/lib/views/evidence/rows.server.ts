@@ -25,19 +25,22 @@ export function evidenceRows(store: CaseStore, resultsVersion: string): Evidence
 	return hit;
 }
 
-const searchCache = new Map<string, readonly (ChronologyListRow & { cc: string })[]>();
+export interface SearchRows { rows: readonly (ChronologyListRow & { cc: string })[]; failed: EvidenceRows['failed'] }
+const searchCache = new Map<string, SearchRows>();
 /**
  * Search rows: each list row with its raw `cc` (v5's sender filter reads sender, to and cc), through documentRows,
- * cached per list ETag like evidenceRows. A non-text cc reads as v5's string concatenation would show it.
+ * cached per list ETag like evidenceRows, with the providers that failed (their rows are left out, and the views say
+ * so). A non-text cc reads as v5's string concatenation would show it.
  */
-export function searchRowsOf(store: CaseStore, resultsVersion: string): readonly (ChronologyListRow & { cc: string })[] | null {
+export function searchRowsOf(store: CaseStore, resultsVersion: string): SearchRows | null {
 	const l = listJson(store, resultsVersion);
 	if (!l) return null;
 	const key = `${resultsVersion}\0${l.etag}`;
 	let hit = searchCache.get(key);
 	if (!hit) {
 		const cc = (v: unknown) => (typeof v === 'string' ? v : v === null || v === undefined ? '' : Array.isArray(v) ? v.join(',') : String(v));
-		hit = Object.freeze(documentRows(store, resultsVersion).rows.map((d) => ({ ...d.list, cc: cc(d.row.cc) })));
+		const d = documentRows(store, resultsVersion);
+		hit = { rows: Object.freeze(d.rows.map((x) => ({ ...x.list, cc: cc(x.row.cc) }))), failed: l.failed };
 		if (searchCache.size >= MAX) searchCache.delete(searchCache.keys().next().value!);
 		searchCache.set(key, hit);
 	}

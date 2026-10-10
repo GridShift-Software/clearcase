@@ -2,10 +2,11 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { navigating, page } from '$app/state';
+	import DegradedRows from '$lib/components/DegradedRows.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { download } from '$lib/components/csv';
 	import { docPath } from '$lib/local-case/model';
-	import { dateCell, docLabel, n } from '$lib/views/evidence/common';
+	import { MAX_TEXT, dateCell, docLabel, n } from '$lib/views/evidence/common';
 	import { paramsOf } from '$lib/views/evidence/search';
 	let { data } = $props();
 	const vid = $derived(data.version.id);
@@ -36,15 +37,16 @@
 
 <main id="main" tabindex="-1" data-ready="search" data-hydrated={ready ? '1' : null} data-busy={navigating.to ? 'true' : null} data-result={phase} data-page={r?.kind === 'results' ? r.page.page : null} data-search={data.submitted ? paramsOf(q).toString() : ''}>
 	<PageHeader heading="Advanced Search" section="Advanced Search" caseName={data.version.titleName} subtitle="Cross-corpus search over document details and indexed text excerpts, with filters and action-item extraction" />
-	<p class="disclosure" id="search-coverage" data-documents={cov.documents} data-with-excerpt={cov.withExcerpt} data-max-excerpt={cov.maxExcerpt} data-none={cov.none} data-pending={cov.pending}>
-		Search reads file names, refs, subjects, senders, recipients and the indexed text excerpt of each document (at most {n(cov.maxExcerpt)} characters), not the full text. {n(cov.withExcerpt)} of {n(cov.documents)} documents have an excerpt; {n(cov.none)} have no extracted text (scan · none) and {n(cov.pending)} are pending.
+	<DegradedRows failed={data.failed} />
+	<p class="disclosure" id="search-coverage" data-documents={cov.documents} data-with-excerpt={cov.withExcerpt} data-max-excerpt={cov.maxExcerpt} data-none={cov.none} data-pending={cov.pending} data-left-out={data.failed.length ? data.failed.length : null}>
+		Search reads file names, refs, subjects, senders, To recipients and the indexed text excerpt of each document (at most {n(cov.maxExcerpt)} characters), not the full text. Cc recipients are searched only through Sender contains. {n(cov.withExcerpt)} of {n(cov.documents)} documents have an excerpt; {n(cov.none)} have no extracted text (scan · none) and {n(cov.pending)} are pending.{#if data.failed.length} Some documents are left out of the search and of these counts, because a document-row provider failed.{/if}
 	</p>
 	<form method="GET" class="card search-form" role="search" aria-label="Search the documents" data-sveltekit-keepfocus data-sveltekit-noscroll>
 		<div class="row">
-			<div><label class="fld" for="sq">Text</label><input class="in" id="sq" name="q" value={q.q} /></div>
-			<div><label class="fld" for="sb">Bundle</label><select class="in" id="sb" name="bundle" value={q.bundle}><option value="">All</option>{#each data.options.bundles as b (b)}<option value={b}>{b}</option>{/each}</select></div>
+			<div><label class="fld" for="sq">Text</label><input class="in" id="sq" name="q" value={q.q} maxlength={MAX_TEXT} /></div>
+			<div><label class="fld" for="sb">Bundle</label><select class="in" id="sb" name="bundle" value={q.bundle}><option value="">All</option>{#each data.options.bundles as b (b.value)}<option value={b.value}>{b.label}</option>{/each}</select></div>
 			<div><label class="fld" for="st">Type</label><select class="in" id="st" name="type" value={q.type}><option value="">All</option>{#each data.options.types as t (t)}<option value={t}>{t}</option>{/each}</select></div>
-			<div><label class="fld" for="ss">Sender contains</label><input class="in" id="ss" name="sender" value={q.sender} /></div>
+			<div><label class="fld" for="ss">Sender contains</label><input class="in" id="ss" name="sender" value={q.sender} maxlength={MAX_TEXT} /></div>
 		</div>
 		<div class="row">
 			<div><label class="fld" for="sf">From date</label><input class="in" id="sf" name="from" type="date" value={q.from} /></div>
@@ -73,6 +75,7 @@
 		{:else if r?.kind === 'invalid'}
 			<p class="error" role="alert" id="search-invalid">{r.reason} Nothing was searched.</p>
 		{:else if r?.kind === 'results'}
+			{#if data.pageNotice}<p class="warning" id="search-page-notice">{data.pageNotice}</p>{/if}
 			<div class="card pad0">
 				<div class="count" id="search-count">Showing {r.page.from}–{r.page.to} of {n(r.page.total)} results</div>
 				{#if !r.page.total}<p class="empty-result" id="search-empty" role="status">No documents match this search.</p>{:else}<p class="order-note" id="search-order">In register order; the export has the same order.</p>{/if}

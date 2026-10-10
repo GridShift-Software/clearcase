@@ -5,12 +5,16 @@
 //    as v5 does, S-search-3, copied); from/to compared as text with undated rows excluded; amounts by parseFloat with
 //    empty amounts excluded; the text a substring of filename, ref, subject, sender, to and excerpt (not cc).
 //  * BA-15 (S-search-5): a reversed date or amount interval, or an amount bound that is not a number, is rejected
-//    with a message and no result, distinct from a valid search that matches nothing.
+//    with a message and no result, distinct from a valid search that matches nothing. So is any URL value the form
+//    cannot show (D3): a bundle, type or text status that is not an option, a date that is not YYYY-MM-DD or not in
+//    the calendar, and a Text or Sender value longer than MAX_TEXT. Every reason is reported at once (D12).
 //  * Results keep register order (v5), and the page says so; the export has the same order (BA-17).
 //  * BA-08: what search covers is counted from the rows, never from summary metadata.
 import type { ChronologyListRow } from '../../local-case/model.ts';
 import type { Cell } from '../../components/csv.ts';
-import { cleanName, paginate, type Page } from './common.ts';
+import { MAX_TEXT, bundleLabel, bundleParam, cleanName, echo, paginate, type Page } from './common.ts';
+import { bundlesOf } from './documents.ts';
+import { optionsOf, statusOptions } from '../../local-case/chronology.ts';
 import { money } from '../../components/format.ts';
 
 export const PAGE_SIZE = 50;
@@ -29,20 +33,48 @@ export function queryFromParams(p: URLSearchParams): { query: SearchQuery; submi
 }
 
 const NUM = /^\s*[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?\s*$/;
+const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+/** Why a date bound cannot be used: not YYYY-MM-DD, or a day the calendar does not have; else null. */
+function dateProblem(label: string, v: string): string | null {
+	const m = DATE.exec(v);
+	if (!m) return `${label} ${echo(v)} is not a date (YYYY-MM-DD).`;
+	const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+	const t = new Date(0);
+	t.setUTCFullYear(y, mo - 1, d);
+	return t.getUTCFullYear() === y && t.getUTCMonth() === mo - 1 && t.getUTCDate() === d ? null : `${label} ${v} is not a day in the calendar.`;
+}
+
+/** The values the form's selects offer: a URL value outside them is refused (D3). Bundles are encoded (D4). */
+export interface SearchOptions { bundles: { value: string; label: string }[]; types: string[]; statuses: string[] }
+export const searchOptions = (rows: readonly ChronologyListRow[]): SearchOptions => ({
+	bundles: bundlesOf(rows).map((b) => ({ value: bundleParam(b.name), label: bundleLabel(b.name) })),
+	types: optionsOf(rows, 'docType'),
+	statuses: statusOptions(rows),
+});
+
 /** Why a search cannot run, or null. Each message names the fields; a valid search that matches nothing is not one. */
-export function invalidReason(q: SearchQuery): string | null {
+export function invalidReason(q: SearchQuery, opts?: SearchOptions): string | null {
 	const bad: string[] = [];
-	if (q.amin && !NUM.test(q.amin)) bad.push('Amount min is not a number.');
-	if (q.amax && !NUM.test(q.amax)) bad.push('Amount max is not a number.');
-	if (q.from && q.to && q.from > q.to) bad.push('From date is after To date: the date interval is reversed.');
-	if (!bad.length && q.amin && q.amax && parseFloat(q.amin) > parseFloat(q.amax)) bad.push('Amount min is greater than Amount max: the amount interval is reversed.');
+	if (opts && q.bundle && !opts.bundles.some((b) => b.value === q.bundle)) bad.push(`Bundle ${echo(q.bundle)} is not in this results version.`);
+	if (opts && q.type && !opts.types.includes(q.type)) bad.push(`Type ${echo(q.type)} is not in this results version.`);
+	if (opts && q.status && !opts.statuses.includes(q.status)) bad.push(`Text status ${echo(q.status)} is not one of the options.`);
+	if (q.q.length > MAX_TEXT) bad.push(`Text is longer than ${MAX_TEXT} characters.`);
+	if (q.sender.length > MAX_TEXT) bad.push(`Sender contains is longer than ${MAX_TEXT} characters.`);
+	const from = q.from ? dateProblem('From date', q.from) : null, to = q.to ? dateProblem('To date', q.to) : null;
+	if (from) bad.push(from);
+	if (to) bad.push(to);
+	if (q.from && q.to && !from && !to && q.from > q.to) bad.push('From date is after To date: the date interval is reversed.');
+	const amin = q.amin && !NUM.test(q.amin), amax = q.amax && !NUM.test(q.amax);
+	if (amin) bad.push('Amount min is not a number.');
+	if (amax) bad.push('Amount max is not a number.');
+	if (q.amin && q.amax && !amin && !amax && parseFloat(q.amin) > parseFloat(q.amax)) bad.push('Amount min is greater than Amount max: the amount interval is reversed.');
 	return bad.length ? bad.join(' ') : null;
 }
 
 /** v5 searchFiltered (L497-507), in register order. Run only on a valid query. */
 export function searchRows(rows: readonly SearchRow[], S: SearchQuery): SearchRow[] {
 	let a = rows.slice();
-	if (S.bundle) a = a.filter((r) => r.bundle === S.bundle);
+	if (S.bundle) a = a.filter((r) => bundleParam(r.bundle) === S.bundle);
 	if (S.type) a = a.filter((r) => r.docType === S.type);
 	if (S.status) a = a.filter((r) => r.textStatus === S.status);
 	if (S.sender) { const s = S.sender.toLowerCase(); a = a.filter((r) => `${r.sender}${r.to}${r.cc}`.toLowerCase().includes(s)); }
@@ -62,9 +94,9 @@ export type SearchResult =
 	| { kind: 'invalid'; reason: string }
 	| { kind: 'results'; page: Page<ResultLine> };
 
-export function runSearch(rows: readonly SearchRow[], query: SearchQuery, submitted: boolean, page: number): SearchResult {
+export function runSearch(rows: readonly SearchRow[], query: SearchQuery, submitted: boolean, page: number, opts: SearchOptions = searchOptions(rows)): SearchResult {
 	if (!submitted) return { kind: 'idle' };
-	const reason = invalidReason(query);
+	const reason = invalidReason(query, opts);
 	if (reason) return { kind: 'invalid', reason };
 	const p = paginate(searchRows(rows, query), page, PAGE_SIZE);
 	return { kind: 'results', page: { ...p, slice: p.slice.map(line) } };

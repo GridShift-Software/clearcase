@@ -3,30 +3,6 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-003",
-      "view": "quantum_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-16",
-      "reason": "The app does not implement Quantum & Interest yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-011",
-      "view": "invoice_ledger_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-16",
-      "reason": "The app does not implement Invoice Ledger yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
       "id": "IDR-026",
       "view": "prescription_tab",
       "field": "*",
@@ -334,6 +310,84 @@
       "type": "defect-fix",
       "source": "S-interest_calc_tab-3",
       "reason": "The refusal of a reversed period is a visible error line naming the problem (S-interest_calc_tab-3); the typed dates stay in the form.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-215",
+      "view": "quantum_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar link, as on every app view.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-216",
+      "view": "quantum_tab",
+      "field": "export.export_csv.name",
+      "when": {
+        "app": "invoices.csv"
+      },
+      "type": "defect-fix",
+      "source": "S-hardcoded-case",
+      "reason": "v5 prefixes the invoice export's file name with case-specific initials; the app uses a neutral name (as IDR-064 for the chronology). The columns and rows are v5's, unchanged.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-217",
+      "view": "invoice_ledger_tab",
+      "field": "title",
+      "when": {
+        "v5": "Open Invoice Ledger",
+        "app": "Invoice Ledger"
+      },
+      "type": "defect-fix",
+      "source": "S-invoice_ledger_tab-1",
+      "reason": "The page heading is the registry label (BA-18). v5's heading said Open Invoice Ledger although the ledger has no open or paid status and lists every invoice (S-invoice_ledger_tab-1).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-218",
+      "view": "invoice_ledger_tab",
+      "field": "export.export_csv.name",
+      "when": {
+        "app": "invoices.csv"
+      },
+      "type": "defect-fix",
+      "source": "S-hardcoded-case",
+      "reason": "v5 prefixes the invoice export's file name with case-specific initials; the app uses a neutral name (as IDR-064 for the chronology). The columns and rows are v5's, unchanged.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-219",
+      "view": "invoice_ledger_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar link, as on every app view.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
       "approvedBy": null,

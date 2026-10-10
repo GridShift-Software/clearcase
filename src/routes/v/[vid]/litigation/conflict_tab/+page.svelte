@@ -15,7 +15,9 @@
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'conflict_tab' : null}>
+<!-- the data is complete when the server renders the page, so data-ready is set from the start (the pilot checks read
+	it from the served HTML); data-hydrated marks when the page's controls work -->
+<main id="main" tabindex="-1" data-ready="conflict_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Conflict Check" section="Conflict Check" caseName={data.version.titleName} subtitle="Screen a party, firm or person against the parties and correspondents in this matter" />
 	<div class="card">
 		<div class="fields">

@@ -4,7 +4,7 @@
 // nothing in the run reads this view after it.
 import { parseDownload } from '../../lib/exports.mjs';
 import { fromRaw } from '../../lib/snapshot.mjs';
-import { registerEdit } from '../../../../tests/e2e/litigation/lib/parity.mjs';
+import { openHydrated, registerEdit } from '../../../../tests/e2e/litigation/lib/parity.mjs';
 import { navFocus, open, pressAndCapture } from './_shell.mjs';
 
 const VIEW = 'authorities_tab';
@@ -13,7 +13,7 @@ export default {
 	view: VIEW,
 	async extract(p, ctx) {
 		const nav = await navFocus(p, ctx, { from: '/overview', fromView: 'overview', view: VIEW });
-		await open(p, ctx, ctx.registry[VIEW].route, VIEW);
+		await openHydrated(p, ctx, VIEW);
 		const s = fromRaw(VIEW, 'app', await p.extract('#main'));
 		if (ctx.exports) s.exports.export_csv = (await pressAndCapture(p, '#auth-export', parseDownload))?.[0] ?? { name: '(nothing captured)' };
 		s.focus.after_nav = nav.focus;

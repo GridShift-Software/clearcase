@@ -128,7 +128,7 @@ async function measure() {
 		console.log('warm navigation ...');
 		const nav = [];
 		await P.navigate(`${origin}${vpath(RV)}${LIT[0].route}`);
-		await P.waitFor(`document.querySelector('main#main')?.dataset.ready === ${JSON.stringify(LIT[0].id)}`, 30000);
+		await P.waitFor(`document.querySelector('main#main')?.dataset.hydrated === '1' && document.querySelector('main#main')?.dataset.ready === ${JSON.stringify(LIT[0].id)}`, 30000);
 		for (let i = 0, at = 0; i < WARMUP + SAMPLES; i++) {
 			const to = LIT[(at + 1) % LIT.length];
 			await P.evaluate(`window.__cc.arm(${JSON.stringify({ kind: 'ready', view: to.id, route: to.route, trigger: `#nav-${to.id}` })})`);
@@ -143,7 +143,7 @@ async function measure() {
 		for (const s of SAVES) {
 			console.log(`${s.id} ...`);
 			await P.navigate(`${origin}${vpath(syn.resultsVersion)}${VIEWS.find((v) => v.id === s.view).route}`);
-			await P.waitFor(`document.querySelector('main#main')?.dataset.ready === ${JSON.stringify(s.view)}`, 30000);
+			await P.waitFor(`document.querySelector('main#main')?.dataset.hydrated === '1' && document.querySelector('main#main')?.dataset.ready === ${JSON.stringify(s.view)}`, 30000);
 			const raw = [];
 			const before = await P.evaluate(`document.querySelectorAll(${JSON.stringify(s.rows)}).length`);
 			for (let i = 0; i < WARMUP + SAMPLES; i++) {

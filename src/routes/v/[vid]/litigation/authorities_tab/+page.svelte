@@ -21,7 +21,9 @@
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'authorities_tab' : null}>
+<!-- the data is complete when the server renders the page, so data-ready is set from the start (the pilot checks read
+	it from the served HTML); data-hydrated marks when the page's controls work -->
+<main id="main" tabindex="-1" data-ready="authorities_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Authorities" section="Authorities" caseName={data.version.titleName} subtitle="The statutory and case-law framework — tie each proposition to its source">
 		{#snippet actions()}<button type="button" id="auth-export" onclick={exportCsv}>Export CSV</button>{/snippet}
 	</PageHeader>

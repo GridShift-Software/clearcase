@@ -561,7 +561,9 @@ try {
 			try {
 				await q.go(DB, 'discovery_tab');
 				await q2.go(DB, 'discovery_tab');
-				await withBusyStore(SB.dataDir, 3000, async () => { await q.click(chip('plain one.pdf')); await sleep(1000); await q2.click(coBtn('plain one.pdf', 'Original')); });
+				// lane 04's timing (V4-TWOTABS-LOCKED): tab 2 acts 1.2 s after tab 1, and the lock is held 8.2 s in all, under
+				// the store's ~9.5 s of retries, so tab 2's request is read while tab 1's write still waits
+				await withBusyStore(SB.dataDir, 8200, async () => { await q.click(chip('plain one.pdf')); await sleep(1200); await q2.click(coBtn('plain one.pdf', 'Original')); });
 				await pend(q); await pend(q2);
 				const r = { row: rowB('plain one.pdf'), e1: await q.evaluate(`!!document.getElementById('ds-error')`), e2: await q2.evaluate(`!!document.getElementById('ds-error')`) };
 				await q.go(DB, 'discovery_tab');

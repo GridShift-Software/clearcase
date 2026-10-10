@@ -164,25 +164,26 @@ try {
 		await p.click('section.category a.cite');
 		await p.waitFor(`location.pathname.endsWith('/doc/OD-002') && document.querySelector('main#main')?.dataset.ready === 'doc:OD-002'`, 30000);
 		const ok = nav.ok && J(cats.map((c) => c.sev)) === J(['HIGH', 'HIGH', 'LOW', 'INFO']) && J(cats.map((c) => c.count)) === J(['2 item(s)', '1 item(s)', '1 item(s)', '0 item(s)'])
-			&& J(cats[0].chips) === J([['OD-002 · R 100.00', 'OD-002'], ['OD-001', 'OD-001']]) && J(kpis) === J(['4', '3', '2', '1']) && J(checks) === J(['b-ok', 'b-dang', 'text'])
+			&& J(cats[0].chips) === J([['OD-002 · R 100.00', 'OD-002'], ['OD-001', 'OD-001']]) && J(kpis) === J(['4', '3', '2', '1']) && J(checks) === J(['b-ok', 'b-dang', 'text', 'b-dang'])
 			&& dl[0]?.name === 'contradictions.csv' && lines[0] === 'category,severity,item,detail,spread,refs' && lines.length === 5 && lines[4] === 'Invented duplicate,low,INV-1,Same number,3,OD-001';
 		return { pass: ok, evidence: { nav, cats, kpis, checks, csv: { name: dl[0]?.name, lines: lines.length, head: lines[0] } } };
 	});
 
-	await scenario('AN-06', 'risk_matrix_tab', 'Scenario 6 and BA-21: one risk with its mitigation reads on a 320 px screen; Risk Matrix, Defence & Rebuttal and Contradiction Tracker do not scroll sideways at 320 and 390 px and keep their tables at 1280 px (screenshots)', async () => {
+	await scenario('AN-06', 'risk_matrix_tab', 'Scenario 6 and BA-21: one risk with its mitigation reads on a 320 px screen; Risk Matrix, Defence & Rebuttal, Contradiction Tracker, Timeline and Matter do not scroll sideways at 320 and 390 px with long badge values, chips and URLs, and keep their tables at 1280 px (screenshots)', async () => {
 		const nav = await arrive(p, vid, 'risk_matrix_tab', name);
 		const out = { nav, widths: {} };
 		let ok = nav.ok;
-		for (const view of ['risk_matrix_tab', 'vdm_matrix_tab', 'contradictions_tab']) {
+		for (const view of ['risk_matrix_tab', 'vdm_matrix_tab', 'contradictions_tab', 'timeline', 'matter']) {
 			for (const w of [320, 390, 1280]) {
 				await p.viewport(w);
 				await p.goto(V(vid, view), L.ready(view));
 				await sleep(120);
 				const m = await p.evaluate(`(() => { const de = document.documentElement; const main = document.querySelector('main#main'); const tables = [...main.querySelectorAll('table')]; const over = [...main.querySelectorAll('td, th, p, h1, h2, a, span')].filter((e) => !e.closest('thead') && e.getClientRects().length && e.getBoundingClientRect().right > innerWidth + 1).length;
-					return { innerWidth, docScroll: de.scrollWidth, mainScroll: main.scrollWidth, mainClient: main.clientWidth, over, tableDisplay: tables.map((t) => getComputedStyle(t).display), theadHidden: tables.map((t) => t.tHead ? t.tHead.getBoundingClientRect().width <= 1 : null) }; })()`);
+					const longValues = [${J(L.LONG_URL)}, ${J(L.LONG_BADGE)}, ${J(L.TOKEN)}].filter((v) => main.textContent.includes(v)).length;
+					return { innerWidth, docScroll: de.scrollWidth, mainScroll: main.scrollWidth, mainClient: main.clientWidth, over, longValues, tableDisplay: tables.map((t) => getComputedStyle(t).display), theadHidden: tables.map((t) => t.tHead ? t.tHead.getBoundingClientRect().width <= 1 : null) }; })()`);
 				await p.shot(join(SCREENS, `${view}-${w}.png`));
 				const narrow = w < 640;
-				const fits = m.docScroll <= m.innerWidth && m.mainScroll <= m.mainClient + 1 && m.over === 0;
+				const fits = m.docScroll <= m.innerWidth && m.mainScroll <= m.mainClient + 1 && m.over === 0 && m.longValues > 0;
 				const layout = narrow ? m.tableDisplay.every((d) => d === 'block') : m.tableDisplay.every((d) => d === 'table');
 				out.widths[`${view}@${w}`] = { ...m, fits, layout };
 				if (!(narrow ? fits && layout : layout)) ok = false;

@@ -14,15 +14,19 @@ const OD2 = url('DISCOVERY A/OD-002 Invoice 1001.pdf');
 /** A long unbroken token and long sentences: the narrow-screen checks need text that cannot fit by luck. */
 export const TOKEN = 'Unbrokensyntheticidentifier'.repeat(3);
 const long = (s, n) => Array.from({ length: n }, (_, i) => `${s} ${i + 1}`).join(' ');
+/** A long URL and long spaced badge values (BA-21, CC-05 r2): ordinary imported values that must wrap on a phone. */
+export const LONG_URL = 'https://example.invalid/records/very/long/path/segment/that/keeps/going/for/a/while/document-reference-0001.pdf';
+export const LONG_BADGE = 'Medium to high, depending on the invented prescription argument';
 
 /** The analysis datasets of the main synthetic case: every view populated, with citations, missing refs and long text. */
 export function analysisData(r) {
 	const D = r.DATA;
 	D.matter.storyline = [{ h: 'Start', t: 'The agreement [[OD-001]] began the relationship; see also [[ZZ-404]].' }, { h: 'Second step', t: 'A second invented paragraph.' }];
-	D.matter.strategy = [{ h: 'Plan', t: 'Rely on [[OD-002#p2]].' }];
+	D.matter.strategy = [{ h: 'Plan', t: `Rely on [[OD-002#p2]]. Invented source list: ${LONG_URL}` }];
 	D.riskMatrix = [
 		{ issue: `Invented issue with a long identifier ${TOKEN}`, likelihood: 'High', impact: 'Medium', mitigation: long('Invented mitigation step', 30) },
 		{ issue: 'Second invented issue', likelihood: 'high', impact: 'Low', mitigation: 'Short invented mitigation' },
+		{ issue: 'Third invented issue', likelihood: LONG_BADGE, impact: 'Medium', mitigation: `Invented mitigation, see ${LONG_URL}` },
 	];
 	const doc = (ref, u) => ({ date: '2001-02-03', doc_type: 'SLA', filename: `${ref} invented.pdf`, ref, url: u });
 	D.defenceMatrix = [
@@ -38,11 +42,11 @@ export function analysisData(r) {
 		{ name: 'Ann Lee', role: 'Supply', willsay: 'States that the agreement [[OD-001]] was signed; see also [[ZZ-404]].' },
 		{ name: 'Ben Ode', role: 'Finance', willsay: 'A plain invented statement naming Ann Lee and OD-002 without citation tokens.' },
 	];
-	D.timeline.phases = [['2001', 'Phase one', 'Invented note one'], ['2002–2003', 'Phase two', 'Invented note two'], ['2004', 'Quiet phase', 'Invented quiet note']];
+	D.timeline.phases = [['2001', 'Phase one', `Invented note one; source list ${LONG_URL}`], ['2002–2003', 'Phase two', 'Invented note two'], ['2004', 'Quiet phase', 'Invented quiet note']];
 	D.timeline.events = [
 		{ date: '2001-02-03', kind: 'Contract', note: 'Invented note', ref: 'OD-001', title: 'Agreement & schedule <signed>', url: OD1 },
 		{ date: '2001-03-01', kind: 'Invoice', note: '', ref: 'OD-002', title: '(3) First invoice.pdf', url: OD2 },
-		{ date: '2002-05-05', kind: 'Letter', note: '', ref: 'OD-001', title: "Second 'letter'", url: OD1 },
+		{ date: '2002-05-05', kind: 'Letter from the invented counterparty about the invented schedule', note: '', ref: 'OD-001', title: "Second 'letter'", url: OD1 },
 		{ date: '', kind: 'Note', note: '', ref: 'OD-002', title: 'Undated invented event', url: OD2 },
 	];
 	D.timeline.yearCounts = { 2001: 7, 2002: 3, 2003: 1 };
@@ -53,11 +57,11 @@ export function analysisData(r) {
 				{ label: `Invented month ${TOKEN}`, detail: '', rates: { 'BID RATE': '10', 'OLD RATE': '12', 'NEW/STANDARD': '15' }, spread: '5', refs: [{ amount: '100', filename: 'OD-002 Invoice 1001.pdf', ref: 'OD-002', url: OD2 }] },
 				{ label: 'Second invented month', detail: '', rates: { 'BID RATE': '20', 'NEW RATE': '25' }, spread: '5', refs: [{ amount: '', filename: 'OD-001 Supply agreement.pdf', ref: 'OD-001', url: OD1 }] },
 			] },
-			{ key: 'units', title: 'Invented units divergence', severity: 'high', explain: long('Invented units explanation', 10), items: [{ label: 'Invented set', detail: long('Invented detail', 15), refs: [{ amount: '7', filename: 'OD-002 Invoice 1001.pdf', ref: 'OD-002', url: OD2 }] }] },
+			{ key: 'units', title: 'Invented units divergence', severity: 'high', explain: `${long('Invented units explanation', 10)} Source list: ${LONG_URL}`, items: [{ label: 'Invented set', detail: long('Invented detail', 15), refs: [{ amount: '7', filename: 'OD-002 Invoice 1001.pdf', ref: 'OD-002', url: OD2 }] }] },
 			{ key: 'dupamt', title: 'Invented duplicate', severity: 'low', explain: 'Invented', items: [{ label: 'INV-1', detail: 'Same number', spread: '3', refs: [{ amount: '', filename: 'OD-001 Supply agreement.pdf', ref: 'OD-001', url: OD1 }] }] },
 			{ key: 'odd', title: 'Invented unknown severity', severity: 'critical', explain: 'Invented', items: [] },
 		],
-		checks: [{ check: 'Invented check passes', n: 1, result: 'PASS' }, { check: 'Invented check flags', n: 2, result: '2 FLAGGED' }, { check: 'Invented count', n: 3, result: '3 invented items' }],
+		checks: [{ check: 'Invented check passes', n: 1, result: 'PASS' }, { check: 'Invented check flags', n: 2, result: '2 FLAGGED' }, { check: 'Invented count', n: 3, result: '3 invented items' }, { check: 'Invented rate check', n: 3, result: 'FLAG: 3 invented invoices billed at the old rate after the invented change date' }],
 		highCount: 3, total: 4,
 	};
 }

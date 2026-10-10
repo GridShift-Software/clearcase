@@ -123,7 +123,7 @@ try {
 
 	console.log('recalculation: interest ...');
 	await P.navigate(`${base}/quantum/interest_calc_tab`);
-	await P.waitFor(`!!document.querySelector('main[data-ready="interest_calc_tab"]')`, 30000);
+	await P.waitFor(`!!document.querySelector('main[data-ready="interest_calc_tab"][data-hydrated]')`, 30000);
 	await set('#ic_from', '2004-02-03'); await set('#ic_to', '2005-02-03'); await set('#ic_r', '10');
 	raw.recalcInterest = await series(SAMPLES, async (i) => {
 		const cap = i % 2 ? '100000' : '200000';
@@ -133,7 +133,7 @@ try {
 
 	console.log('recalculation: settlement ...');
 	await P.navigate(`${base}/quantum/settlement_tab`);
-	await P.waitFor(`!!document.querySelector('main[data-ready="settlement_tab"]')`, 30000);
+	await P.waitFor(`!!document.querySelector('main[data-ready="settlement_tab"][data-hydrated]')`, 30000);
 	raw.recalcSettlement = await series(SAMPLES, async (i) => {
 		const p = String(40 + (i % 2) * 20 + (i % 5));
 		await set('#se_p', p);
@@ -152,7 +152,7 @@ try {
 	// ---- numeric check: the app's figures against v5's formulas on the same data -----------------------------------------
 	console.log('numeric check against v5\'s formulas ...');
 	const kpis = (root = '#main') => P.evaluate(`Object.fromEntries([...document.querySelectorAll(${JSON.stringify(`${root} .kpi`)})].map((k) => [k.querySelector('.k').textContent.trim(), k.querySelector('.v').textContent.replace(/\\s+/g, ' ').trim()]))`);
-	const go = async (path, view) => { await P.navigate(`${base}${path}`); await P.waitFor(`!!document.querySelector('main[data-ready="${view}"]')`, 30000); };
+	const go = async (path, view) => { await P.navigate(`${base}${path}`); await P.waitFor(`!!document.querySelector('main[data-ready="${view}"][data-hydrated]')`, 30000); };
 	const checks = [];
 	const cmp = (view, what, app, v5) => checks.push({ view, what, app, v5, same: app === v5 });
 	await go('/quantum/quantum_tab', 'quantum_tab');

@@ -40,7 +40,7 @@
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'payments_tab' : null}>
+<main id="main" tabindex="-1" data-ready="payments_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Payments & Net Claim" section="Payments & Net Claim" caseName={data.version.titleName} subtitle={data.subtitle}>
 		{#snippet actions()}<button type="button" id="export-payments" onclick={() => download('payments.csv', paymentsCsv(rows))}>Export payments</button>{/snippet}
 	</PageHeader>
@@ -56,8 +56,8 @@
 				<div><label for="pay_date">Date</label><input id="pay_date" name="date" type="date" bind:value={fields.date} /></div>
 				<div><label for="pay_amount">Amount (R)</label><input id="pay_amount" name="amount" type="text" inputmode="decimal" autocomplete="off" bind:value={fields.amount} aria-invalid={form && 'field' in form && form.field === 'amount' ? 'true' : undefined} aria-describedby={error ? 'pay-error' : undefined} /></div>
 				<div><label for="pay_method">Method / reference</label><input id="pay_method" name="method" type="text" bind:value={fields.method} /></div>
-				<div style="flex:2"><label for="pay_note">Note</label><input id="pay_note" name="note" type="text" bind:value={fields.note} /></div>
-				<div style="flex:0"><button id="pay-add" disabled={busy}>Add</button></div>
+				<div class="q-grow2"><label for="pay_note">Note</label><input id="pay_note" name="note" type="text" bind:value={fields.note} /></div>
+				<div class="q-tight"><button id="pay-add" disabled={busy}>Add</button></div>
 			</div>
 		</form>
 		{#if error}<p class="error" role="alert" id="pay-error">{error}</p>{/if}
@@ -81,7 +81,7 @@
 	</div>
 	<div class="q-card">
 		<p class="q-chead">Monthly reconciliation chain ({data.recon.length} months) — invoice → statement → charging → proof of delivery → amount due</p>
-		<div class="q-wrap" style="max-height:520px">
+		<div class="q-wrap q-h520">
 			<table class="q-tbl" id="recon">
 				<thead><tr><th>Month</th><th>Invoice</th><th>Supporting stmt</th><th>Charging</th>{#if showPod}<th>POD</th>{/if}<th>Statement</th><th>Amount due</th></tr></thead>
 				<tbody>

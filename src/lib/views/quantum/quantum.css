@@ -14,3 +14,9 @@
 .q-flag { background: #fff6e0; border: 1px solid #e0c070; color: #5a4300; padding: .4rem .7rem; border-radius: 6px; font-size: .9em; }
 .q-chead { font-weight: 600; padding: .4rem 0; }
 .q-pager { display: flex; gap: .6rem; align-items: center; margin: .4rem 0; }
+.q-grow2 { flex: 2; }
+.q-tight { flex: 0; }
+.q-h460 { max-height: 460px; }
+.q-h520 { max-height: 520px; }
+.q-filter { max-width: 220px; }
+.q-push { margin-left: auto; }

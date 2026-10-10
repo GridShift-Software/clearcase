@@ -8,6 +8,9 @@ import { fromRaw } from '../../lib/snapshot.mjs';
 import { COMBOS, comboKey, EXPORT_COMBOS, exportValue, PROBES, readAll, RISKS, STALE } from '../v5/specs/prescription_tab.mjs';
 import { navFocus, open, pressAndCapture } from './_shell.mjs';
 
+/** Open one of this view's routes and wait until it is hydrated (data-ready is server-rendered; data-hydrated marks working controls). */
+const openView = async (p, ctx, route, view) => { await open(p, ctx, route, view); await p.waitFor(`!!document.querySelector('main[data-ready="${view}"][data-hydrated]')`, 30000); };
+
 const VIEW = 'prescription_tab';
 const APP = { table: '#prescription', pager: '#pr-pager' };
 const route = (ctx) => ctx.registry[VIEW].route;
@@ -23,7 +26,7 @@ export default {
 	view: VIEW,
 	async extract(p, ctx) {
 		const nav = await navFocus(p, ctx, { from: '/overview', fromView: 'overview', view: VIEW });
-		await open(p, ctx, route(ctx), VIEW);
+		await openView(p, ctx, route(ctx), VIEW);
 		const raw = await p.extract('#main');
 		// every page through Next, appended to the page-1 table (the v5 adapter's pageThrough)
 		const at = await p.evaluate(`[...document.querySelectorAll('#main table, #main [role=table]')].filter((x) => x.getClientRects().length).indexOf(document.getElementById('prescription'))`);
@@ -42,7 +45,7 @@ export default {
 		const m = /of ([\d,\s]+)\s*$/.exec(pager);
 		if (m) s.counts[`${id}.total`] = m[1].trim();
 		if (ctx.exports) {
-			await open(p, ctx, route(ctx), VIEW);
+			await openView(p, ctx, route(ctx), VIEW);
 			const got = await pressAndCapture(p, '#export-presc', parseDownload);
 			s.exports.export_csv = got?.[0] ?? { name: '(nothing captured)' };
 		}
@@ -54,7 +57,7 @@ export default {
 		async filters(p, ctx) {
 			const out = {};
 			for (const c of COMBOS) {
-				await open(p, ctx, route(ctx), VIEW);
+				await openView(p, ctx, route(ctx), VIEW);
 				await filter(p, c);
 				const r = await readAll(p, APP);
 				out[`${comboKey(c)}.rows`] = r.rows;
@@ -63,7 +66,7 @@ export default {
 			return out;
 		},
 		async stale(p, ctx) {
-			await open(p, ctx, route(ctx), VIEW);
+			await openView(p, ctx, route(ctx), VIEW);
 			await filter(p, STALE);
 			await p.click('#nav-overview');
 			await p.waitFor(`!!document.querySelector('[data-ready="overview"]')`, 30000);
@@ -77,7 +80,7 @@ export default {
 		async export(p, ctx) {
 			const out = {};
 			for (const c of EXPORT_COMBOS) {
-				await open(p, ctx, route(ctx), VIEW);
+				await openView(p, ctx, route(ctx), VIEW);
 				await filter(p, c);
 				const e = await exportValue(p, () => p.click('#export-presc'));
 				for (const [k, v] of Object.entries(e)) if (k !== 'name') out[`${comboKey(c)}.${k}`] = v;

@@ -6,13 +6,16 @@ import { fromRaw } from '../../lib/snapshot.mjs';
 import { CASES, FIELD_ID, fillScript, readOutput } from '../v5/specs/interest_calc_tab.mjs';
 import { navFocus, open } from './_shell.mjs';
 
+/** Open one of this view's routes and wait until it is hydrated (data-ready is server-rendered; data-hydrated marks working controls). */
+const openView = async (p, ctx, route, view) => { await open(p, ctx, route, view); await p.waitFor(`!!document.querySelector('main[data-ready="${view}"][data-hydrated]')`, 30000); };
+
 const VIEW = 'interest_calc_tab';
 
 export default {
 	view: VIEW,
 	async extract(p, ctx) {
 		const nav = await navFocus(p, ctx, { from: '/overview', fromView: 'overview', view: VIEW });
-		await open(p, ctx, ctx.registry[VIEW].route, VIEW);
+		await openView(p, ctx, ctx.registry[VIEW].route, VIEW);
 		const s = fromRaw(VIEW, 'app', await p.extract('#main'));
 		s.focus.after_nav = nav.focus;
 		s.texts['shell.crumb'] = nav.crumb;
@@ -22,7 +25,7 @@ export default {
 		async compute(p, ctx) {
 			const out = {};
 			for (const [name, c] of Object.entries(CASES)) {
-				await open(p, ctx, ctx.registry[VIEW].route, VIEW);
+				await openView(p, ctx, ctx.registry[VIEW].route, VIEW);
 				await p.evaluate(fillScript(Object.entries(c).map(([k, v]) => [FIELD_ID[k], v])));
 				await p.click('#ic-compute');
 				await p.waitFor(`location.search.length > 1 && !!document.querySelector('#ic_out .kpi, #ic-error')`, 15000);

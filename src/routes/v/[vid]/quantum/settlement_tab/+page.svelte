@@ -20,7 +20,7 @@
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'settlement_tab' : null}>
+<main id="main" tabindex="-1" data-ready="settlement_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Settlement / BATNA" section="Settlement / BATNA" caseName={data.version.titleName} subtitle={data.subtitle} />
 	{#if data.narrative}<div class="q-card"><Narrative text={data.narrative} resultsVersion={data.version.id} known={[]} /></div>{/if}
 	<div class="q-card">
@@ -31,8 +31,8 @@
 				<div><label for="se_y">Years to recover</label><input id="se_y" name="y" value={inputs.y} inputmode="decimal" autocomplete="off" aria-invalid={out.errors.y ? 'true' : undefined} /></div>
 				<div><label for="se_d">Discount rate (% p.a.)</label><input id="se_d" name="d" value={inputs.d} inputmode="decimal" autocomplete="off" aria-invalid={out.errors.d ? 'true' : undefined} /></div>
 				<div><label for="se_c">Enforcement cost (R)</label><input id="se_c" name="c" value={inputs.c} inputmode="decimal" autocomplete="off" aria-invalid={out.errors.c ? 'true' : undefined} /></div>
-				<div style="flex:0"><button id="se-model">Model</button></div>
-				<div style="flex:0"><a href={page.url.pathname} id="se-reset" data-sveltekit-replacestate data-sveltekit-noscroll>Reset to defaults</a></div>
+				<div class="q-tight"><button id="se-model">Model</button></div>
+				<div class="q-tight"><a href={page.url.pathname} id="se-reset" data-sveltekit-replacestate data-sveltekit-noscroll>Reset to defaults</a></div>
 			</div>
 		</form>
 		{#if data.payments.count}<p class="q-note" id="se-net">The claim value is prefilled net of {data.payments.counted} recorded {data.payments.counted === 1 ? 'payment' : 'payments'} ({R(data.payments.paid)}) on Payments &amp; Net Claim; the gross amount due is {R(data.payments.gross)} as at {data.payments.claimDate}.</p>{/if}

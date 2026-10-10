@@ -13,7 +13,7 @@
 	onMount(() => { ready = true; });
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'invoice_ledger_tab' : null}>
+<main id="main" tabindex="-1" data-ready="invoice_ledger_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Invoice Ledger" section="Invoice Ledger" caseName={data.version.titleName} subtitle={data.subtitle}>
 		{#snippet actions()}<button type="button" id="export-invoices" onclick={() => download('invoices.csv', invoicesCsv(data.ledger))}>Export CSV</button>{/snippet}
 	</PageHeader>

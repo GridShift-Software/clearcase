@@ -363,6 +363,224 @@ try {
 			}));
 		}
 	}
+
+	// 11-18. CC-07 r2: unsaved input is never lost or shown as saved (D1-D5), more edits and exports (D13-D15, D18).
+	// The busy store is caused from outside the app, as in SC10-busy: work.sqlite held with BEGIN IMMEDIATE.
+	const hold = () => { const l = new Database(join(A.dataDir, 'work.sqlite')); l.exec('PRAGMA busy_timeout=0; BEGIN IMMEDIATE'); let held = true; return () => { if (held) { held = false; l.exec('ROLLBACK'); l.close(); } }; };
+	const formState = () => p.evaluate(`({ save: document.getElementById('register-save')?.textContent.trim() ?? null, editing: document.querySelector('#register-form')?.dataset.editing ?? null, rowId: document.querySelector('#register-form input[name=rowId]')?.value ?? null,
+		fieldsDisabled: !!document.querySelector('#register-form fieldset')?.disabled, editDisabled: [...document.querySelectorAll('[data-edit]')].map((b) => b.disabled), deleteDisabled: [...document.querySelectorAll('[data-delete]')].map((b) => b.disabled),
+		cancelDisabled: document.getElementById('register-cancel')?.disabled ?? null, status: document.getElementById('register-status')?.textContent.trim() ?? null, error: document.querySelector('#register-error p')?.textContent.trim() ?? null,
+		retry: !!document.getElementById('register-retry'), deleteError: document.querySelector('#register-delete-error p')?.textContent.trim() ?? null, ask: document.getElementById('register-ask-text')?.textContent.trim() ?? null })`);
+	const dbField = (store, id, k) => stored(store).find((r) => r.id === id)?.fields[k] ?? null;
+	const editRow = async (id) => { await p.click(`#register-table tr[data-row-id="${id}"] [data-edit]`); await p.waitFor(`document.querySelector('#register-form')?.dataset.editing === ${J(id)}`, 5000); };
+	const idle = () => p.waitFor(`!document.getElementById('register-status')`, 30000);
+	const failSave = async () => { const release = hold(); try { await p.click('#register-save'); await p.waitFor(`!!document.getElementById('register-error')`, 30000); } finally { release(); } };
+	const descs = async () => (await rows()).map((r) => r.cells[1]);
+
+	await scenario('SC11-nojs', 'disbursements_tab', 'without JavaScript: Add then Add keeps both rows in order (a success never re-enters edit mode); a refused save re-renders with its message and every typed value; a deadline without a date says why (D1, D13)', async () => {
+		await clearView('disbursements_tab');
+		await p.s('Emulation.setScriptExecutionDisabled', { value: true });
+		try {
+			const at = async (view) => { await p.navigate(`${base()}/registers/${view}`); await p.waitFor(ready(view), 20000); };
+			const setVals = (o) => p.evaluate(`(() => { for (const [k, v] of Object.entries(${J(o)})) document.getElementById('in-' + k).value = v; return true; })()`);
+			const submit = async (view) => { await p.evaluate('window.__nojs = 1'); await p.click('#register-save'); await p.waitFor(`window.__nojs !== 1 && ${ready(view)}`, 20000); };
+			await at('disbursements_tab');
+			const hydrated = await p.evaluate(`!!document.querySelector('main#main[data-hydrated]')`);
+			await setVals({ date: '2026-10-02', desc: 'Synthetic no-JS first', payee: 'Synthetic payee', amount: '10' });
+			await submit('disbursements_tab');
+			const afterFirst = await formState();
+			await setVals({ desc: 'Synthetic no-JS second', amount: '20' });
+			await submit('disbursements_tab');
+			const afterSecond = { form: await formState(), rows: await descs() };
+			await setVals({ desc: 'Synthetic no-JS refused', amount: '1 500,50' });
+			await submit('disbursements_tab');
+			const refused = { form: await formState(), values: await fieldValues() };
+			const db = stored('disbursements').map((r) => r.fields.desc).sort();
+			await at('deadlines_tab');
+			await setVals({ title: 'Synthetic no-JS deadline', date: '' });
+			await submit('deadlines_tab');
+			const deadline = { form: await formState(), values: await fieldValues(), db: stored('deadlines').filter((r) => r.fields.title === 'Synthetic no-JS deadline').length };
+			return { evidence: { hydrated, afterFirst, afterSecond, refused, db, deadline },
+				checks: { noScripts: !hydrated, addMode: afterFirst.save === 'Add' && afterFirst.rowId === null && afterFirst.editing === null, bothRows: J(afterSecond.rows) === J(['Synthetic no-JS first', 'Synthetic no-JS second']) && afterSecond.form.save === 'Add',
+					refusedKept: /decimal comma/.test(refused.form.error ?? '') && refused.values.amount === '1 500,50' && refused.values.desc === 'Synthetic no-JS refused' && refused.form.save === 'Add', dbTwo: J(db) === J(['Synthetic no-JS first', 'Synthetic no-JS second']),
+					deadlineWhy: /^Title and Date must be filled in/.test(deadline.form.error ?? '') && deadline.values.title === 'Synthetic no-JS deadline' && deadline.db === 0 } };
+		} finally { await p.s('Emulation.setScriptExecutionDisabled', { value: false }); }
+	});
+
+	await scenario('SC12-inflight-edit', 'disbursements_tab', "a save in flight on a busy store makes the form, Cancel and every row's Edit and Delete inert and says so; Edit on another row then does nothing; the failure keeps row 1's typed edit in edit mode with Retry, and Retry saves it (D2)", async () => {
+		await clearView('disbursements_tab');
+		for (const n of [1, 2, 3]) await add({ date: `2026-10-0${n}`, desc: `Synthetic row ${n}`, payee: 'Synthetic payee', amount: `${n}0` });
+		const [r1, , r3] = await rows();
+		await editRow(r1.id);
+		await fill({ desc: 'Synthetic row 1 TYPED' });
+		const release = hold();
+		let during, afterEdit3, failed;
+		try {
+			await p.click('#register-save');
+			await p.waitFor(`!!document.getElementById('register-status')`, 5000);
+			during = await formState();
+			await p.click(`#register-table tr[data-row-id="${r3.id}"] [data-edit]`);
+			await sleep(200);
+			afterEdit3 = await formState();
+			await p.waitFor(`!!document.getElementById('register-error')`, 30000);
+			failed = { ...(await formState()), values: await fieldValues() };
+		} finally { release(); }
+		const dbFailed = dbField('disbursements', r1.id, 'desc');
+		await p.click('#register-retry');
+		await p.waitFor(`!document.getElementById('register-error') && !document.querySelector('#register-form[data-editing]') && !document.getElementById('register-status')`, 30000);
+		const after = { form: await formState(), db: dbField('disbursements', r1.id, 'desc'), rows: await descs() };
+		return { evidence: { during, afterEdit3, failed, after },
+			checks: { inert: during.fieldsDisabled && during.editDisabled.every(Boolean) && during.deleteDisabled.every(Boolean) && during.cancelDisabled === true, busyShown: /Saving/.test(during.status ?? ''), editIgnored: afterEdit3.editing === r1.id && !afterEdit3.ask,
+				failureKept: failed.editing === r1.id && failed.values.rowId === r1.id && failed.values.desc === 'Synthetic row 1 TYPED' && /not saved/.test(failed.error ?? '') && failed.retry, nothingWritten: dbFailed === 'Synthetic row 1',
+				retrySaved: after.db === 'Synthetic row 1 TYPED' && after.form.error === null && J(after.rows) === J(['Synthetic row 1 TYPED', 'Synthetic row 2', 'Synthetic row 3']) } };
+	});
+
+	await scenario('SC13-inflight-success', 'disbursements_tab', 'a save that succeeds after the store was busy for 1.5 s: nothing can be typed while it is in flight, the row holds what was submitted, then the form clears; an Add in flight likewise (D3)', async () => {
+		const [, r2] = await rows();
+		await editRow(r2.id);
+		await fill({ desc: 'Synthetic row 2 CORRECTED' });
+		let release = hold();
+		let during, typedDuring, addDuring, addTyped;
+		try {
+			await p.click('#register-save');
+			await p.waitFor(`!!document.getElementById('register-status')`, 5000);
+			during = await formState();
+			await p.type('#in-amount', '999');
+			typedDuring = await fieldValues();
+			await sleep(1500);
+		} finally { release(); }
+		await idle();
+		await p.waitFor(`!document.querySelector('#register-form[data-editing]')`, 30000);
+		const after = { form: await formState(), values: await fieldValues(), db: stored('disbursements').find((r) => r.id === r2.id)?.fields ?? null };
+		await fill({ date: '2026-10-09', desc: 'Synthetic add in flight', amount: '5' });
+		release = hold();
+		try {
+			await p.click('#register-save');
+			await p.waitFor(`!!document.getElementById('register-status')`, 5000);
+			addDuring = await formState();
+			await p.type('#in-payee', 'Synthetic typed in flight');
+			addTyped = await fieldValues();
+			await sleep(1500);
+		} finally { release(); }
+		await idle();
+		await p.waitFor(`document.querySelectorAll('#register-table tbody tr[data-row-id]').length === 4`, 30000);
+		const added = stored('disbursements').find((r) => r.fields.desc === 'Synthetic add in flight')?.fields ?? null;
+		const afterAdd = { form: await formState(), values: await fieldValues() };
+		return { evidence: { during, typedDuring, after, addDuring, addTyped, added, afterAdd },
+			checks: { inert: during.fieldsDisabled && during.editDisabled.every(Boolean), notTypable: typedDuring.amount === '20' && typedDuring.desc === 'Synthetic row 2 CORRECTED', saved: after.db?.desc === 'Synthetic row 2 CORRECTED' && after.db?.amount === '20',
+				cleared: after.form.editing === null && after.form.error === null && after.values.desc === '', addInert: addDuring.fieldsDisabled && addTyped.payee === '', addSaved: added?.payee === '' && added?.amount === '5' && afterAdd.form.error === null && afterAdd.values.desc === '' } };
+	});
+
+	await scenario('SC14-delete-errors', 'disbursements_tab', "a failed save stays visible with its unsaved edit when another row's Delete succeeds; a failed delete is shown apart and clears neither; Retry then saves the edit and leaves the delete error (D4)", async () => {
+		const [r1, r2, r3] = await rows();
+		const delOk = async (id) => { const n = await count(); await p.click(`#register-table tr[data-row-id="${id}"] [data-delete]`); await p.waitFor(`document.querySelectorAll('#register-table tbody tr[data-row-id]').length === ${n - 1} || !!document.getElementById('register-delete-error')`, 30000); await sleep(50); };
+		await editRow(r1.id);
+		await fill({ desc: 'Synthetic row 1 UNSAVED' });
+		await failSave();
+		await delOk(r2.id);
+		const afterDelete = { ...(await formState()), values: await fieldValues(), db: dbField('disbursements', r1.id, 'desc'), shown: (await rows()).find((r) => r.id === r1.id)?.cells[1], gone: !stored('disbursements').some((r) => r.id === r2.id) };
+		const release = hold();
+		try { await p.click(`#register-table tr[data-row-id="${r3.id}"] [data-delete]`); await p.waitFor(`!!document.getElementById('register-delete-error')`, 30000); } finally { release(); }
+		const afterFailedDelete = { ...(await formState()), values: await fieldValues(), kept: stored('disbursements').some((r) => r.id === r3.id) };
+		await p.click('#register-retry');
+		await p.waitFor(`!document.getElementById('register-error') && !document.querySelector('#register-form[data-editing]') && !document.getElementById('register-status')`, 30000);
+		const afterRetry = { ...(await formState()), db: dbField('disbursements', r1.id, 'desc') };
+		await p.click('#register-delete-dismiss');
+		const dismissed = await formState();
+		return { evidence: { afterDelete, afterFailedDelete, afterRetry, dismissed },
+			checks: { saveErrorKept: /not saved/.test(afterDelete.error ?? '') && afterDelete.retry && afterDelete.editing === r1.id && afterDelete.values.desc === 'Synthetic row 1 UNSAVED' && afterDelete.gone,
+				notShownAsSaved: afterDelete.db === 'Synthetic row 1 TYPED' && afterDelete.shown === 'Synthetic row 1 TYPED', deleteApart: /did not happen/.test(afterFailedDelete.deleteError ?? '') && /not saved/.test(afterFailedDelete.error ?? '') && afterFailedDelete.values.desc === 'Synthetic row 1 UNSAVED' && afterFailedDelete.kept,
+				retrySaved: afterRetry.db === 'Synthetic row 1 UNSAVED' && afterRetry.error === null && /did not happen/.test(afterRetry.deleteError ?? ''), dismissed: dismissed.deleteError === null } };
+	});
+
+	await scenario('SC15-discard-guard', 'disbursements_tab', 'after a failed save, Edit on another row, Cancel and a navigation link ask before the unsaved input is discarded; Keep leaves the input and its error; Discard drops it on purpose (D5)', async () => {
+		const [a, b] = await rows();
+		await editRow(a.id);
+		await fill({ desc: 'Synthetic UNSAVED for the guard' });
+		await failSave();
+		const ask = async (sel) => { await p.click(sel); await p.waitFor(`!!document.getElementById('register-ask')`, 5000); return formState(); };
+		const askedEdit = await ask(`#register-table tr[data-row-id="${b.id}"] [data-edit]`);
+		await p.click('#register-ask-keep');
+		const kept = { ...(await formState()), values: await fieldValues() };
+		const askedCancel = await ask('#register-cancel');
+		await p.click('#register-ask-keep');
+		const askedNav = { ...(await ask('#nav-timesheet_tab')), path: await p.evaluate('location.pathname') };
+		await p.click('#register-ask-keep');
+		const stayed = { ...(await formState()), values: await fieldValues(), path: await p.evaluate('location.pathname') };
+		await ask(`#register-table tr[data-row-id="${b.id}"] [data-edit]`);
+		await p.click('#register-ask-discard');
+		await p.waitFor(`document.querySelector('#register-form')?.dataset.editing === ${J(b.id)}`, 5000);
+		const discarded = { ...(await formState()), values: await fieldValues(), db: dbField('disbursements', a.id, 'desc') };
+		await p.click('#register-cancel');
+		const cleanCancel = await formState();
+		await fill({ desc: 'Synthetic typed, never saved' });
+		await ask('#nav-timesheet_tab');
+		await p.click('#register-ask-discard');
+		await p.waitFor(ready('timesheet_tab'), 15000);
+		return { evidence: { askedEdit, kept, askedCancel, askedNav, stayed, discarded, cleanCancel },
+			checks: { askEdit: /not saved/.test(askedEdit.ask ?? ''), keep: kept.editing === a.id && kept.values.desc === 'Synthetic UNSAVED for the guard' && /not saved/.test(kept.error ?? '') && kept.ask === null, askCancel: !!askedCancel.ask,
+				askNav: !!askedNav.ask && /disbursements_tab$/.test(askedNav.path), stayed: /disbursements_tab$/.test(stayed.path) && stayed.values.desc === 'Synthetic UNSAVED for the guard' && !!stayed.error,
+				discardOnPurpose: discarded.editing === b.id && discarded.error === null && discarded.values.desc === b.cells[1] && discarded.db === a.cells[1], cleanCancel: cleanCancel.editing === null && cleanCancel.ask === null, left: true } };
+	});
+
+	for (const [view, entry, change, empty] of [
+		['timesheet_tab', { date: '2026-10-05', fee_earner: 'Synthetic earner', activity: 'Synthetic edit me', hours: '1.5', rate: '1000', billed: 'no' }, { activity: 'Synthetic edited', hours: '2.25' }, { date: '', fee_earner: '', activity: '', hours: '', rate: '', billed: '' }],
+		['deadlines_tab', { title: 'Synthetic edit me', date: '2026-10-20', cat: 'Filing', note: '' }, { title: 'Synthetic edited', date: '2026-10-21', cat: 'Payment' }, { title: '', date: '', note: '' }],
+		['annotations_tab', { ref: 'Synthetic missing ref', date: '', note: 'Synthetic edit me' }, { note: 'Synthetic edited\nsecond line' }, { ref: '', date: '', note: '' }],
+	]) {
+		await scenario(`SC16-${view}`, view, 'an entry edited in place: same id and position, new values in the store and on the page; an emptied edit says to use Delete and saves nothing (D18, D13)', async () => {
+			await openView(view);
+			const before = (await rows()).map((r) => r.id);
+			await add(entry);
+			const id = (await rows()).map((r) => r.id).find((x) => !before.includes(x));
+			await editRow(id);
+			await fill(change);
+			await save(before.length + 1);
+			const db = stored(STORE[view]).find((r) => r.id === id)?.fields ?? null;
+			const shown = (await rows()).find((r) => r.id === id) ?? null;
+			await editRow(id);
+			await fill(empty);
+			await p.click('#register-save');
+			await p.waitFor(`!!document.getElementById('register-error')`, 5000);
+			const emptied = { ...(await formState()), dbAfter: stored(STORE[view]).find((r) => r.id === id)?.fields ?? null };
+			await p.click('#register-discard');
+			const after = await formState();
+			return { evidence: { db, shown, emptied, after },
+				checks: { sameId: shown?.id === id && stored(STORE[view]).filter((r) => r.id === id).length === 1, edited: Object.entries(change).every(([k, v]) => db?.[k] === v), why: /cannot be saved empty.*use Delete/.test(emptied.error ?? '') && emptied.editing === id,
+					nothingWritten: J(emptied.dbAfter) === J(db), discarded: after.editing === null && after.error === null } };
+		});
+	}
+
+	await scenario('SC17-altered', 'popia_tab', 'a register row altered on disk since it was saved is marked on the page (D15); an entry of 60 000 CJK characters, under the 64 KiB store limit, is saved (multipart, D14)', async () => {
+		await openView('popia_tab');
+		await add({ activity: 'Synthetic as saved', category: '', lawful: '', retention: '' });
+		const id = (await rows()).find((r) => r.cells[0] === 'Synthetic as saved')?.id;
+		const w = new Database(join(A.dataDir, 'work.sqlite'));
+		try { w.query("UPDATE register_row SET fields = replace(fields, 'Synthetic as saved', 'Synthetic altered') WHERE row_id = ?").run(id); } finally { w.close(); }
+		await openView('popia_tab');
+		const marked = await p.evaluate(`(() => { const r = document.querySelector('#register-table tr[data-row-id="${id}"]'); return { altered: r?.hasAttribute('data-altered') ?? false, note: r?.querySelector('.altered')?.textContent.trim() ?? null, others: document.querySelectorAll('#register-table tr[data-altered]').length }; })()`);
+		await openView('transcriptions_tab');
+		const n = await count();
+		const body = '\u5b57'.repeat(60000);
+		await fill({ title: 'Synthetic large transcript', body });
+		await save(n + 1);
+		const big = stored('transcripts').find((r) => r.fields.title === 'Synthetic large transcript');
+		const err = await errorText();
+		if (big) await del(big.id);
+		return { evidence: { marked, err, bigLength: big?.fields.body.length ?? null },
+			checks: { marked: marked.altered && /altered on disk/.test(marked.note ?? '') && marked.others === 1, largeSaved: err === null && big?.fields.body === body } };
+	});
+
+	await scenario('SC18-prodid', 'deadlines_tab', "the exported calendar's PRODID carries the case part from the package's view-content (read from the built synthetic package, raw text) (D18)", async () => {
+		const field = vc ? JSON.parse(new TextDecoder().decode(vc)).data?.deadlines_tab?.icsProductId : undefined;
+		const part = typeof field === 'string' ? field : null;
+		await openView('deadlines_tab');
+		const x = await exportNow();
+		const prodid = (x?.text ?? '').split('\r\n').find((l) => l.startsWith('PRODID:')) ?? null;
+		const esc = (s) => s.replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,');
+		return { evidence: { part: part !== null, prodid: prodid !== null },
+			checks: { fromData: part !== null && prodid === `PRODID:-//${esc(part)}//Workspace//EN` } };
+	});
 	ok = results.length > 0 && results.every((r) => r.pass);
 } catch (e) {
 	results.push({ id: 'HARNESS', view: '-', pass: false });

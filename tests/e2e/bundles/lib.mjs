@@ -60,3 +60,14 @@ export async function withBusyStore(dataDir, ms, during) {
 
 /** Rows of a work.sqlite table (read-only), for persistence checks. */
 export const workRows = (srv, sql, ...args) => srv.work(sql, ...args);
+
+/** Take work.sqlite's write lock from outside the app now; the returned function releases it (CC-09-r2). */
+export function holdStore(dataDir) {
+	const d = new Database(join(dataDir, 'work.sqlite'));
+	d.exec('PRAGMA busy_timeout=0');
+	d.exec('BEGIN IMMEDIATE');
+	return () => { d.exec('ROLLBACK'); d.close(); };
+}
+
+/** Every enabled control in #main (inputs, textareas, buttons) and the visible no-JS note, for the no-JavaScript checks. */
+export const usableControls = (p) => p.evaluate(`[...document.querySelectorAll('#main input, #main textarea, #main button, #main select')].filter((e) => !e.disabled).map((e) => e.id || e.outerHTML.slice(0, 80))`);

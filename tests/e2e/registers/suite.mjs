@@ -66,7 +66,7 @@ const rows = () => p.evaluate(`[...document.querySelectorAll('#register-table tb
 const emptyRow = () => p.evaluate(`document.querySelector('#register-table tbody tr:not([data-row-id])')?.textContent.trim() ?? null`);
 const fieldValues = () => p.evaluate(`Object.fromEntries([...document.querySelectorAll('#register-form [name]')].map((e) => [e.name, e.value]))`);
 const errorText = () => p.evaluate(`document.getElementById('register-error')?.textContent.trim() ?? null`);
-const openView = async (view) => { await p.goto(`${base()}/registers/${view}`, ready(view)); };
+const openView = async (view) => { await p.goto(`${base()}/registers/${view}`, `${ready(view)} && !!document.querySelector('main#main[data-hydrated]')`); };
 const screenshot = async (name) => { const r = await p.s('Page.captureScreenshot', { format: 'png' }); const f = join(SCREENS, `${name}.png`); writeFileSync(f, Buffer.from(r.data, 'base64')); return f; };
 
 /** Fill fields by v5 key: text inputs and textareas are typed, dates and selects are set as a user agent does. */

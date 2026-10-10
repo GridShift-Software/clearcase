@@ -5,13 +5,14 @@
 // replace adapter-node's build/index.js, which binds 0.0.0.0 unless HOST is set and skips the exact-Host check, with
 // a stub that refuses to start: scripts/pilot/start.ts is the only supported entry.
 // The pdf.js scripting sandbox (pdf.sandbox*.mjs), its QuickJS evaluator and the wasm binaries are NOT copied.
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gitState } from '../../tests/e2e/pilot/lib/fresh-build.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const real = (p: string) => { try { return realpathSync(p); } catch { return p; } };
 const src = join(root, 'node_modules', 'pdfjs-dist');
 const build = join(root, 'build');
 const out = join(build, 'pdfjs');
@@ -43,18 +44,18 @@ const walk = (d: string) => { for (const n of readdirSync(d)) { const p = join(d
 walk(out);
 writeFileSync(join(out, 'manifest.json'), JSON.stringify({ pdfjsVersion: version, files }, null, 1));
 
-const git = (...a: string[]) => { try { return execFileSync('git', a, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { return null; } };
-const real = (p: string) => { try { return realpathSync(p); } catch { return p; } };
-// git describes this tree only when the tree is its own checkout: a copy inside another worktree (say under .local/)
-// would otherwise borrow the enclosing worktree's HEAD and status. A copy's revision is unknown (null) unless its
-// caller exported it (an isolated build from `git archive` names the revision in CLEARCASE_SOURCE_REVISION).
-// `dirty` counts modified and untracked, not ignored, files (the default git status) whenever git works here, the
-// exported revision notwithstanding. It fails closed: when git cannot read this checkout's HEAD or status (say an
-// unreadable index), the revision or `dirty` is null, which the fresh-build guard refuses.
-const top = git('rev-parse', '--show-toplevel');
-const atRoot = top !== null && real(top) === real(root);
+// git describes this tree only when the tree is git's top level (gitState, the fresh-build guard's own reading: no
+// GIT_* variable, untracked files listed whatever the config says, assume-unchanged and skip-worktree entries found): a
+// copy inside another worktree (say under .local/) would otherwise borrow the enclosing worktree's HEAD and status. A
+// copy's revision is unknown (null) unless its caller exported it (an isolated build from `git archive` names the
+// revision in CLEARCASE_SOURCE_REVISION). `dirty` counts modified and untracked, not ignored, files whenever git works
+// here, the exported revision notwithstanding. It fails closed: when git cannot read this checkout's HEAD or status
+// (say an unreadable index), or is told not to look at some tracked files, the revision or `dirty` is null, which the
+// fresh-build guard refuses.
+const g = gitState(root);
+const atRoot = g.top !== null && g.top === real(root);
 const exported = process.env.CLEARCASE_SOURCE_REVISION ?? null;
-const status = atRoot ? git('status', '--porcelain') : '';
-const stamp = { revision: exported ?? (atRoot ? git('rev-parse', '--verify', 'HEAD') || null : null), dirty: status === null ? null : status !== '', exported: exported !== null, builtAt: new Date().toISOString(), bun: process.versions.bun ?? null, pdfjs: version, buildId: createHash('sha256').update(readFileSync(join(build, 'handler.js'))).digest('hex').slice(0, 16) };
+const dirty = !atRoot ? false : g.trackedDirty === null || g.hiddenPaths.length > 0 ? null : g.trackedDirty;
+const stamp = { revision: exported ?? (atRoot ? g.head : null), dirty, exported: exported !== null, builtAt: new Date().toISOString(), bun: process.versions.bun ?? null, pdfjs: version, buildId: createHash('sha256').update(readFileSync(join(build, 'handler.js'))).digest('hex').slice(0, 16) };
 writeFileSync(join(build, 'clearcase-build.json'), JSON.stringify(stamp, null, 1) + '\n');
 console.log(`pdf.js ${version} bundled: ${Object.keys(files).length} files -> ${relative(root, out)}; build ${stamp.buildId} from ${stamp.revision?.slice(0, 12) ?? 'unknown'}${stamp.dirty ? ' (dirty)' : stamp.dirty === null ? ' (working-tree state unknown: not fresh)' : ''}`);

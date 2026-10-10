@@ -1,11 +1,16 @@
 // Interest Recalculator (GRS-16): the calculator's inputs live in the URL query (BA-03), so a reload or a shared link
 // gives the same result; without a query the fields show the defaults (the rate from the package's view-content,
 // the dates from the imported interest basis). Validation is visible and keeps the typed text: an amount outside the
-// grammar (S-interest_calc_tab-1), a missing rate, an invalid or reversed period (S-interest_calc_tab-3). Pure.
+// grammar (S-interest_calc_tab-1), a missing rate, an invalid or reversed period (S-interest_calc_tab-3). CC-06 r2: a
+// rate above MAX_RATE, a year outside 1000 to 9999 (D7) and a result too large to compute or show (D5, D6) are refused
+// visibly too, the inputs kept; nothing here throws. Pure.
 import { fmtR } from '../../components/format.ts';
-import { daysBetween, isIsoDate } from '../../calculations/dates.ts';
+import { dateProblem, daysBetween } from '../../calculations/dates.ts';
 import { computeInterest, METHODS, type Method } from '../../calculations/interest.ts';
-import { centsText, centsToUnits, parseAmount, parseDecimal, unitsToCents } from '../../calculations/money.ts';
+import { centsText, centsToUnits, parseAmount, parseBounded, TOO_LARGE, unitsToCents, withinCap } from '../../calculations/money.ts';
+
+/** The rate's accepted range, % per annum (CC-06 r2, D6). */
+export const MAX_RATE = 100;
 
 export interface InterestInputs { p: string; r: string; m: string; from: string; to: string }
 export type InterestField = keyof InterestInputs;
@@ -23,7 +28,8 @@ export function queryInputs(q: URLSearchParams, d: InterestDefaults): InterestIn
 }
 
 export interface Kpi { label: string; value: string; sub: string }
-export interface InterestOutcome { errors: Partial<Record<InterestField, string>>; kpis: Kpi[] | null }
+/** Field errors, and `result` when the inputs are valid but the result is too large to compute or show. */
+export interface InterestOutcome { errors: Partial<Record<InterestField | 'result', string>>; kpis: Kpi[] | null }
 
 const R = (c: bigint) => fmtR(centsText(c));
 
@@ -36,18 +42,21 @@ export function interestOutcome(i: InterestInputs, headlineDueUnits: bigint | nu
 	const errors: InterestOutcome['errors'] = {};
 	let capital = 0n;
 	if (i.p.trim() !== '') { const a = parseAmount(i.p); if (a.ok) capital = a.value; else errors.p = a.error; }
-	const rate = parseDecimal(i.r, 'a rate');
+	const rate = parseBounded(i.r, 'a rate', MAX_RATE, `A rate is 0 to ${MAX_RATE} % per annum`);
 	if (!rate.ok) errors.r = rate.error;
 	const method = METHODS.includes(i.m as Method) ? (i.m as Method) : null;
-	if (!method) errors.m = 'Choose Simple or Compound (monthly).';
-	if (!isIsoDate(i.from)) errors.from = 'Enter a valid From (mora) date.';
-	if (!isIsoDate(i.to)) errors.to = 'Enter a valid To date.';
+	if (!method) errors.m = i.m === '' ? 'Choose Simple or Compound (monthly).' : `Method '${i.m}' is not one this calculator offers: choose Simple or Compound (monthly).`;
+	const fromProblem = dateProblem('From (mora)', i.from), toProblem = dateProblem('To', i.to);
+	if (fromProblem) errors.from = fromProblem;
+	if (toProblem) errors.to = toProblem;
 	const days = errors.from || errors.to ? null : daysBetween(i.from, i.to);
 	if (days !== null && days < 0) errors.to = 'The To date is before the From (mora) date: a reversed period is not computed.';
 	if (Object.keys(errors).length || !rate.ok || !method || days === null) return { errors, kpis: null };
-	const r = computeInterest(capital, rate.value, method, days);
+	let r: ReturnType<typeof computeInterest>;
+	try { r = computeInterest(capital, rate.value, method, days); } catch { return { errors: { result: TOO_LARGE }, kpis: null }; }
 	const head = headlineDueUnits ?? 0n;
 	const diff = unitsToCents(centsToUnits(r.total) - head);
+	if (![r.capital, r.interest, r.total, diff, unitsToCents(head)].every(withinCap)) return { errors: { result: TOO_LARGE }, kpis: null };
 	return {
 		errors,
 		kpis: [

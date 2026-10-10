@@ -11,6 +11,15 @@ export type Parsed<T> = { ok: true; value: T } | { ok: false; error: string };
 export const MAX_RAND_DIGITS = 13;
 
 /**
+ * The display cap (CC-06 r2, D6): no figure is shown beyond R 9 999 999 999 999.99 (13 digits of rand), in either
+ * sign. The shared fmtR reads its 2-dp string back into a double; up to this cap the double is within 0.001 of the
+ * decimal, so fmtR shows every cent exactly. A computed figure beyond it is refused visibly, never shown.
+ */
+export const MAX_SHOWN_CENTS = 10n ** BigInt(MAX_RAND_DIGITS + 2) - 1n;
+export const withinCap = (c: bigint) => (c < 0n ? -c : c) <= MAX_SHOWN_CENTS;
+export const TOO_LARGE = 'The result is too large to show (above R 9 999 999 999 999.99): check the dates, the rate and the amounts.';
+
+/**
  * The typed-amount grammar: an optional `R` and an optional space, then digits, with one kind of separator (space or
  * comma) only between groups of three, and an optional `.` with one or two decimals. `R 1 000.00` (the app's own
  * format), `R1,000`, `1000` and `1000.5` parse; a comma decimal (`1 000,50`), a negative, a sign, a currency word,
@@ -26,10 +35,14 @@ export function parseAmount(text: string): Parsed<bigint> {
 	const m = TYPED.exec(t);
 	if (!m) {
 		if (/^(?:R ?)?[\d ,]*\d,\d{1,2}$/.test(t)) return { ok: false, error: 'Use a full stop for cents (a comma decimal such as 1 000,50 is ambiguous).' };
+		const extra = /^(?:R ?)?[\d ,]*\d\.(\d{3,})$/.exec(t);
+		if (extra) return { ok: false, error: `At most 2 decimals (cents): ${t} has ${extra[1]!.length}. Nothing was rounded; correct the amount.` };
 		return { ok: false, error: 'Not an amount: write digits, optionally with R, spaces or commas between thousands and a full stop before cents.' };
 	}
+	// CC-06 r2, D20: a grouped amount whose first group starts with 0 (0,500, 01,000, 0 500) is ambiguous: refused
+	if (m[2] && m[1]!.startsWith('0')) return { ok: false, error: `${t} is ambiguous: a grouped amount cannot start with 0. Write 0.50 for cents or 500 for rand.` };
 	const rand = m[1]!.replace(/[ ,]/g, '');
-	if (rand.replace(/^0+(?=\d)/, '').length > MAX_RAND_DIGITS) return { ok: false, error: `Amounts above ${MAX_RAND_DIGITS} digits of rand are not accepted.` };
+	if (rand.replace(/^0+(?=\d)/, '').length > MAX_RAND_DIGITS) return { ok: false, error: `At most ${MAX_RAND_DIGITS} digits of rand (R 9 999 999 999 999.99): ${t} has more. Nothing was rounded; correct the amount.` };
 	return { ok: true, value: BigInt(rand) * 100n + BigInt((m[3] ?? '').padEnd(2, '0')) };
 }
 
@@ -66,10 +79,11 @@ export function centsText(c: bigint): string {
 
 /**
  * A floating-point result (compound interest, settlement discounting) in cents: the double's exact value rounded half
- * away from zero, which is what `Math.abs(x).toFixed(2)` computes; null when not finite.
+ * away from zero, which is what `Math.abs(x).toFixed(2)` computes; null when not finite or at or above 1e21, where
+ * toFixed gives exponent form (CC-06 r2, D5).
  */
 export function floatToCents(x: number): bigint | null {
-	if (!Number.isFinite(x)) return null;
+	if (!Number.isFinite(x) || Math.abs(x) >= 1e21) return null;
 	const [i, d] = Math.abs(x).toFixed(2).split('.');
 	const c = BigInt(i!) * 100n + BigInt(d!);
 	return x < 0 ? -c : c;
@@ -84,6 +98,13 @@ export const sumImported = (values: readonly (string | null | undefined)[]): big
 /** A non-negative decimal typed into a rate or model field ('10', '10.5'); returned as an exact fraction. */
 export interface Decimal { num: bigint; den: bigint; text: string; value: number }
 const DECIMAL = /^(\d{1,9})(?:\.(\d{1,6}))?$/;
+/** A decimal as parseDecimal reads it, refused visibly above `max` (CC-06 r2, D6 and D11: each field states its range). */
+export function parseBounded(text: string, what: string, max: number, range: string): Parsed<Decimal> {
+	const d = parseDecimal(text, what);
+	if (!d.ok) return d;
+	if (d.value.value > max) return { ok: false, error: `${range} (${d.value.text} is above ${max}).` };
+	return d;
+}
 export function parseDecimal(text: string, what = 'a number'): Parsed<Decimal> {
 	const t = text.trim();
 	if (t === '') return { ok: false, error: `Enter ${what}.` };

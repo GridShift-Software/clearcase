@@ -27,6 +27,10 @@
 	const risks = $derived(riskOptions(data.rows));
 	const arith = $derived(arithmetic(data.rows, data.asOf));
 	const check = $derived(data.summary ? summaryCheck(data.summary, data.rows) : null);
+	const summaryFlag = $derived(data.summary && check ? ['The imported summary differs from the rows.',
+		check.totalMatches ? '' : `It tracks ${data.summary.total} invoices where the list has ${data.rows.length}.`,
+		check.reliesMatches ? '' : `It counts ${data.summary.reliesOnInterruption} relying on interruption where ${check.reliesCount} rows carry that label.`,
+		'The imported figures are shown as given.'].filter(Boolean).join(' ') : '');
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>
@@ -42,7 +46,7 @@
 			<Kpi label="Key interruption" value="Award {data.summary.awardDate}" sub="+ acknowledgements & service" />
 		</div>
 		{#if check && (!check.totalMatches || !check.reliesMatches)}
-			<div class="q-flag" role="note" id="summary-flag">The imported summary differs from the rows:{#if !check.totalMatches} it tracks {data.summary.total} invoices where the list has {data.rows.length}.{/if}{#if !check.reliesMatches} It counts {data.summary.reliesOnInterruption} relying on interruption where {check.reliesCount} rows carry that label.{/if} The imported figures are shown as given.</div>
+			<div class="q-flag" role="note" id="summary-flag">{summaryFlag}</div>
 		{/if}
 	{/if}
 	{#if data.note}

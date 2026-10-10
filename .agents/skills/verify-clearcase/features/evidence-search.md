@@ -1,6 +1,6 @@
 # Advanced Search (evidence)
 
-Advanced Search finds documents by text (file name, ref, subject, sender, recipients and the indexed excerpt, not the full text), bundle, type, sender, a date interval, an amount interval and text status. Results keep register order, 50 per page; the export holds every result in the same order. A reversed date or amount interval, or an amount bound that is not a number, is rejected with a message, distinct from a valid search that matches nothing. The page states its coverage, counted from the rows.
+Advanced Search finds documents by text (file name, ref, subject, sender, To recipients and the indexed excerpt, not the full text; Cc only through Sender contains), bundle, type, sender, a date interval, an amount interval and text status. Results keep register order, 50 per page; the export holds every result in the same order. A reversed date or amount interval, an amount bound that is not a number, a date that is not YYYY-MM-DD or not a calendar day, a bundle, type or status that is not an option, and a Text or Sender value over 500 characters are rejected with a message (every reason at once), distinct from a valid search that matches nothing; the export refuses the same with 400. The empty-named bundle is the option `~`, labelled `(no bundle)`. The page states its coverage, counted from the rows.
 
 ## Sub-features
 
@@ -23,5 +23,6 @@ Advanced Search finds documents by text (file name, ref, subject, sender, recipi
 
 ## Gotchas
 
+- Bundle option values are encoded: the empty name is `~`, and a name starting with `~` gains one more.
 - `main[data-search]` is the submitted search's query string; compare it to know which search the page shows.
 - Export and action items use the submitted search, not unsaved form edits (v5's behaviour).

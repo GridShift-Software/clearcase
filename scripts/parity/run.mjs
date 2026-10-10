@@ -30,11 +30,6 @@
 // the register-edit mutation, where the pilot has no register yet). Register entries that covered nothing in the run
 // are reported as unused; --strict-register fails on them (an improvement that reverted to v5 behaviour matches v5,
 // so only its unused entry shows it).
-//
-// Fail fast (tests/e2e/pilot/lib/lifecycle.mjs): the browser setup and each view run under a deadline (setup 3 min,
-// a view 5 min; the slowest view, chronology, takes about 80 s) and end at once when Chromium exits or a page crashes.
-// The run then stops with exit 2, names the view and the cause, and its scorecard records `evidence: false` and
-// `aborted`, as for any aborted run; a launch that failed once and then worked is recorded in `browser`.
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { ensureOffline, gitIdentity, PORTS, REPO, treeStamp } from '../../tests/e2e/pilot/v5/env.mjs';
@@ -130,6 +125,10 @@ const dims = chronologyDims(pkg.chronology);
 const canary = await startCanary();
 let srv, b, exitCode = 0, aborted = null;
 const perView = {}, details = {};
+// Fail fast (tests/e2e/pilot/lib/lifecycle.mjs): the browser setup and each view run under a deadline (setup 3 min,
+// a view 5 min; the slowest view, chronology, takes about 80 s) and end at once when Chromium exits or a page crashes.
+// The run then stops with exit 2, names the view and the cause, and its scorecard records `evidence: false` and
+// `aborted`, as for any aborted run; a launch that failed once and then worked is recorded in `browser`.
 const SETUP_MS = deadline(3 * 60_000), VIEW_MS = deadline(5 * 60_000);
 try {
 	const port = PORTS.first + 40, origPort = port + 1;
@@ -201,13 +200,15 @@ writeFileSync(at('register-usage.json'), JSON.stringify({ used: [...used].sort()
 const nonFile = details.__requests?.v5NonFile ?? null;
 const sc = scorecard(perView, {
 	command: `bun run --bun parity -- ${argv.join(' ')}`, revision: git.head, dirty: git.dirty, build: { id: stamp.buildId, revision: stamp.revision, dirty: stamp.dirty ?? null, root: relative(REPO, appRoot) || '.' },
-	...evidenceRecord(fresh, allowedStale, [...runNonEvidence({ register: opt('register'), appV5Html }), ...(aborted ? [abortReason(aborted)] : [])]),
-	aborted, browser: b?.launch ?? null,
+	...evidenceRecord(fresh, allowedStale, runNonEvidence({ register: opt('register'), appV5Html })),
 	clock, timezone, register: { entries: reg.entries.length, approved: reg.entries.filter((e) => e.approvedBy).length, approvedOnly: flag('approved-only'), used: used.size, unused: unused.length, strict: flag('strict-register') },
 	appSide: opt('app-v5-html') ? 'v5 self-parity copy' : 'app build',
 	isolation: { offline: proof.pass, links: proof.links, v5NonFileRequests: nonFile, v5BrowserInternalRequests: details.__requests?.v5BrowserInternal ?? null, appNonLoopbackRequests: details.__requests?.appNonLoopback ?? null, canaryHits: otherHits, canaryBrowserServiceHits: serviceHits.length, fixtureUnchanged: treeBefore === treeAfter },
 	seconds: Math.round((performance.now() - t0) / 100) / 10,
 });
+// an aborted run proves nothing past the abort, whatever else its evidence record says
+if (aborted) Object.assign(sc, { evidence: false, evidenceNote: sc.evidence ? `NOT release evidence: ${abortReason(aborted)}` : `${sc.evidenceNote}; ${abortReason(aborted)}` });
+Object.assign(sc, { aborted, browser: b?.launch ?? null });
 const failures = exitCode === 0 ? runFailures(sc, { views: views.length, unused: unused.length, strict: flag('strict-register') }) : [];
 if (failures.length) { exitCode = 1; sc.result = 'FAIL'; console.error(`parity: FAIL: ${failures.join('; ')}`); }
 sc.exit = exitCode;

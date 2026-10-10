@@ -10,9 +10,7 @@
 // runner starts, unless --allow-stale-build (the flag only; removed before the runner sees its arguments). The record,
 // with `evidence: false` and the reasons when stale or overridden, goes to <out>/build-evidence-CC-NN.json (--out,
 // else $CLEARCASE_REPORT_DIR/measure, else .local/measure), the runner gets CLEARCASE_BUILD_EVIDENCE=true|false, and
-// the final status line says NOT EVIDENCE when it is false. A runner that aborted (a dead browser or a phase timeout,
-// tests/e2e/pilot/lib/lifecycle.mjs; its <out>/measure-CC-NN.json of this run has `aborted`) makes the record
-// `evidence: false` with the reason.
+// the final status line says NOT EVIDENCE when it is false.
 // This file only spawns and imports the typed fresh-build module, so `tsc --noEmit -p .` checks it cleanly.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -54,9 +52,12 @@ if (!fresh.fresh && !allowed) { console.error(refusal('measure', fresh)); proces
 const started = Date.now();
 const r = spawnSync(process.execPath, [path.join(repo, runner), ...args], { stdio: 'inherit', cwd: process.cwd(), env: { ...process.env, CLEARCASE_BUILD_EVIDENCE: String(record.evidence) } });
 if (r.error) { console.error(`measure: cannot run ${runner}: ${r.error.message}`); process.exit(2); }
+// A runner that aborted (a dead browser or a phase timeout, tests/e2e/pilot/lib/lifecycle.mjs: its
+// <out>/measure-CC-NN.json of this run has `aborted`) makes the record `evidence: false` with the reason added.
 const resultFile = path.join(out, `measure-${ticket}.json`);
 const aborted = (() => { try { return statSync(resultFile).mtimeMs >= started ? JSON.parse(readFileSync(resultFile, 'utf8')).aborted ?? null : null; } catch { return null; } })();
-const final = aborted ? { ...record, ...evidenceRecord(fresh, allowed, [`run aborted in ${aborted.step}: ${aborted.cause}`]), aborted } : record;
+const why = aborted && `run aborted in ${aborted.step}: ${aborted.cause}`;
+const final = aborted ? { ...record, evidence: false, evidenceNote: record.evidence ? `NOT release evidence: ${why}` : `${record.evidenceNote}; ${why}`, aborted } : record;
 if (aborted) writeFileSync(path.join(out, `build-evidence-${ticket}.json`), JSON.stringify(final, null, 1) + '\n');
 console.error(`measure: ${ticket} exit ${r.status ?? 1}${evidenceSuffix(final)}`);
 process.exit(r.status ?? 1);

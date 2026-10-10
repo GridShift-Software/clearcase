@@ -37,11 +37,23 @@ export const appRows = (p) => p.evaluate(`(() => {
 const rowCount = (p) => p.evaluate(`document.querySelectorAll('#register-table tbody tr[data-row-id]').length`);
 const rowIds = (p) => p.evaluate(`[...document.querySelectorAll('#register-table tbody tr[data-row-id]')].map((r) => r.dataset.rowId)`);
 
-async function waitRows(p, n, what) {
-	await p.waitFor(`document.querySelectorAll('#register-table tbody tr[data-row-id]').length === ${n} || !!document.getElementById('register-error')`, 30000);
-	const err = await p.evaluate(`document.getElementById('register-error')?.textContent ?? null`);
+/**
+ * Wait until the table holds `n` rows or the page shows a save or delete error. With `refusal`, a refused save is
+ * returned as its message after its input is discarded (the page asks before leaving a page with unsaved input);
+ * otherwise an error throws. Null when the rows arrived.
+ */
+async function waitRows(p, n, what, refusal = false) {
+	await p.waitFor(`document.querySelectorAll('#register-table tbody tr[data-row-id]').length === ${n} || !!document.getElementById('register-error') || !!document.getElementById('register-delete-error')`, 30000);
+	const err = await p.evaluate(`(document.getElementById('register-error') ?? document.getElementById('register-delete-error'))?.querySelector('p')?.textContent ?? null`);
+	if (err && refusal && (await p.evaluate(`!!document.getElementById('register-error')`))) {
+		await p.click('#register-discard');
+		await p.waitFor(`!document.getElementById('register-error')`, 5000);
+		await p.settled();
+		return err;
+	}
 	if (err) throw new Error(`register ${what}: ${err}`);
 	await p.settled();
+	return null;
 }
 
 /** Set one form field like a user agent does (value, then input and change events). */
@@ -63,10 +75,10 @@ export async function fillEntry(p, entry) {
 	for (const [k, v] of Object.entries(entry)) if (!(await setField(p, `#in-${k}`, v))) throw new Error(`register form has no field ${k}`);
 }
 
-/** Press Add (or Save while editing) and wait until the table holds `expect` rows. */
-export async function submit(p, expect) {
+/** Press Add (or Save while editing) and wait until the table holds `expect` rows; see waitRows for `refusal`. */
+export async function submit(p, expect, refusal = false) {
 	if (!(await p.click('#register-save'))) throw new Error('register: no Add control');
-	await waitRows(p, expect, 'save');
+	return waitRows(p, expect, 'save', refusal);
 }
 
 /** Add one entry through the form; returns its new row id. */
@@ -159,7 +171,9 @@ export const rowValues = (step, rows) => Object.fromEntries([[`${step}.rows`, St
 
 /**
  * The app side of v5's register_edit sweep: two synthetic entries through the app's own form, Delete on the first
- * shown row, then the overview tiles (readOverviewTiles); afterwards every row is deleted again.
+ * shown row, then the overview tiles (readOverviewTiles); afterwards every row is deleted again. The app refuses
+ * v5's synthetic text in an amount, rate or hours field (S-disbursements_tab-1, S-timesheet_tab-3), so a refused
+ * entry is discarded and the sweep goes on: its rows then differ from v5's, as registered.
  */
 export async function appRegisterEdit(p, ctx, view, readOverviewTiles) {
 	const out = {};
@@ -167,11 +181,12 @@ export async function appRegisterEdit(p, ctx, view, readOverviewTiles) {
 	await requireEmpty(p, view);
 	try {
 		for (let n = 0; n < 2; n++) {
+			const before = await rowCount(p);
 			await fillSynthetic(p, ctx, n);
-			await submit(p, n + 1);
+			await submit(p, before + 1, true);
 			Object.assign(out, rowValues(`add${n + 1}`, await appRows(p)));
 		}
-		await deleteRow(p);
+		if (await rowCount(p)) await deleteRow(p);
 		Object.assign(out, rowValues('delete', await appRows(p)));
 		for (const [label, t] of Object.entries(await readOverviewTiles(p, ctx))) out[`overview.${label}`] = t.value;
 	} finally {

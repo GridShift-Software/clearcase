@@ -15,8 +15,9 @@
 //   warmNavigation  one warm tab, after one unmeasured lap over the seven evidence views (their code loaded once): a
 //                   mouse click on the next evidence view's sidebar link -> main[data-ready=<view>] on that route with
 //                   no navigation pending, then the next rendered frame. Budget p95 <= 200 ms.
-//   corpusReloads   requests for the whole register (/api/v/<rv>/chronology) made while the search samples ran, and
-//                   the bytes each search transferred: 0 whole-corpus reloads per filter change is the budget.
+//   pageData        the real data path of every search (D18): each search must load its page data (__data.json),
+//                   and each payload's body must stay under 5% of the whole document list's (the chronology API's
+//                   body), so a search never ships the corpus. Bytes are body bytes (decodedBodySize).
 // "Next rendered frame" as in cc03.mjs: a MutationObserver installed before page scripts sees the condition; the mark
 // is taken in a task posted from the next requestAnimationFrame callback. Raw timings go to <out>/measure-CC-04.json
 // (default $CLEARCASE_REPORT_DIR/measure, else .local/measure). The fixture is case material: only counts are printed.
@@ -87,7 +88,7 @@ const result = {
 	ticket: 'CC-04', startedAt: new Date().toISOString(), command: `bun scripts/measure/index.ts ${process.argv.slice(2).join(' ')}`,
 	worktree: gitIdentity(), host: hostIdentity(), bun: bunIdentity(), chromium: chromiumIdentity(), offline: proof,
 	fixture: { sha256: fx.sha256, docCount: fx.summary.mainHtml.docCount, package: { resultsVersion: RV, convertMs: Math.round(pkgRun.ms) } },
-	method: { samples: SAMPLES, warmup: WARMUP, minSamples: MIN_SAMPLES, percentile: 'nearest-rank over the kept samples', budgetsP95Ms: BUDGETS, corpusReloadBudget: 0, clock: 'the click event timeStamp to the mark, both on the page clock' },
+	method: { samples: SAMPLES, warmup: WARMUP, minSamples: MIN_SAMPLES, percentile: 'nearest-rank over the kept samples', budgetsP95Ms: BUDGETS, pageDataBudget: 'every search loads page data, each payload under 5% of the list body', clock: 'the click event timeStamp to the mark, both on the page clock' },
 };
 let failure = null;
 const canary = await startCanary();
@@ -130,7 +131,7 @@ try {
 	for (const bundle of ['', bundles[0] ?? '']) for (const q of PROBES) combos.push({ q, bundle });
 	const FIELDS = ['q', 'bundle', 'type', 'sender', 'from', 'to', 'amin', 'amax', 'status'];
 	const search = [];
-	const corpus = [];
+	const dataLoads = [];
 	for (let i = 0; i < WARMUP + SAMPLES; i++) {
 		const c0 = combos[i % combos.length];
 		await P.evaluate(`(() => { const set = (id, v) => { const e = document.getElementById(id); e.value = v; e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); }; for (const id of ['sq', 'sb', 'st', 'ss', 'sf', 'sto', 'samin', 'samax', 'sst']) set(id, ''); set('sq', ${JSON.stringify(c0.q)}); set('sb', ${JSON.stringify(c0.bundle)}); })()`);
@@ -139,11 +140,12 @@ try {
 		const m = await measured({ kind: 'search', search: want }, '#search-run');
 		const got = await P.evaluate(`({ result: document.querySelector('main#main').dataset.result, shown: document.querySelectorAll('#search-table tbody tr').length })`);
 		const urls = reqs.slice(r0);
-		const reload = urls.filter((u) => /\/api\/v\/[^/]+\/chronology/.test(u)).length;
-		corpus.push(reload);
-		search.push({ i, warmup: i < WARMUP, ...m, result: got.result, rowsShown: got.shown, requests: urls.length, corpusReloads: reload });
+		const loads = urls.filter((u) => u.includes('__data.json')).length;
+		dataLoads.push(loads);
+		search.push({ i, warmup: i < WARMUP, ...m, result: got.result, rowsShown: got.shown, requests: urls.length, pageDataLoads: loads });
 	}
-	const searchBytes = await P.evaluate(`performance.getEntriesByType('resource').filter((e) => e.name.includes('__data.json')).map((e) => e.transferSize)`);
+	const searchBytes = await P.evaluate(`performance.getEntriesByType('resource').filter((e) => e.name.includes('__data.json')).map((e) => e.decodedBodySize)`);
+	const listBytes = await P.evaluate(`fetch(${JSON.stringify(`${origin}/api${vpath(RV)}/chronology`)}).then((r) => r.arrayBuffer()).then((b) => b.byteLength)`);
 
 	// warm navigation: one unmeasured lap loads every evidence view's code, then click from view to view
 	console.log('warm navigation ...');
@@ -171,7 +173,10 @@ try {
 		const s = stats(kept(result.raw[k]));
 		result.metrics[k] = { ...s, discardedWarmup: result.raw[k].filter((x) => x.warmup).length, budgetP95Ms: BUDGETS[k], enoughSamples: s.n >= MIN_SAMPLES, pass: s.n >= MIN_SAMPLES && s.p95Ms <= BUDGETS[k] };
 	}
-	result.metrics.corpusReloads = { searches: corpus.length, total: corpus.reduce((x, y) => x + y, 0), budget: 0, pass: corpus.every((n) => n === 0), dataBytesPerSearch: stats(searchBytes) };
+	// stats() names its fields for milliseconds; these are bytes
+	const bytes = (xs) => Object.fromEntries(Object.entries(stats(xs)).map(([k, v]) => [k.replace(/Ms$/, 'Bytes'), v]));
+	const budgetBytes = Math.floor(listBytes * 0.05);
+	result.metrics.pageData = { searches: dataLoads.length, dataLoads: dataLoads.reduce((x, y) => x + y, 0), listBytes, budgetBytes, bytesPerSearch: bytes(searchBytes), pass: listBytes > 0 && dataLoads.every((n) => n >= 1) && searchBytes.length >= dataLoads.length && searchBytes.every((n) => n > 0 && n <= budgetBytes) };
 	result.notes = { fullDocumentLoadsDuringWarmNavigation: fullLoads, firstLapMs: lap.map((x) => ({ view: x.view, ms: x.ms })), searchProbes: combos.length };
 } catch (e) { failure = String(e?.stack ?? e); console.error(`cc04: ${failure}`); }
 await br?.close().catch(() => {});
@@ -187,8 +192,8 @@ writeFileSync(join(out, 'measure-CC-04.json'), JSON.stringify(result, null, 1));
 if (result.metrics) {
 	console.log(`\nCC-04 candidate ${full.slice(0, 12)} (build ${result.build?.stamp?.buildId ?? '?'}); fixture ${result.fixture.docCount} documents`);
 	for (const k of ['search', 'warmNavigation']) { const m = result.metrics[k]; console.log(`${k.padEnd(15)} n=${m.n} p50 ${m.p50Ms} p95 ${m.p95Ms} max ${m.maxMs} ms (budget p95 <= ${m.budgetP95Ms}: ${m.pass ? 'PASS' : 'FAIL'})`); }
-	const c = result.metrics.corpusReloads;
-	console.log(`corpusReloads   ${c.total} whole-register requests over ${c.searches} searches (budget 0: ${c.pass ? 'PASS' : 'FAIL'}); data per search p95 ${c.dataBytesPerSearch.p95Ms ?? '?'} bytes`);
+	const c = result.metrics.pageData;
+	console.log(`pageData        ${c.dataLoads} page-data loads over ${c.searches} searches; body p95 ${c.bytesPerSearch.p95Bytes ?? '?'} max ${c.bytesPerSearch.maxBytes ?? '?'} bytes (budget each <= ${c.budgetBytes}, 5% of the list: ${c.pass ? 'PASS' : 'FAIL'})`);
 }
 if (!a.keep) rmSync(work, { recursive: true, force: true });
 console.log(`measure CC-04: ${result.ok ? 'PASS' : 'FAIL'} -> ${join(out, 'measure-CC-04.json')}`);

@@ -10,6 +10,8 @@
 	import { printIndex } from '$lib/views/bundles/print';
 	import { DOCX_TYPE, indexDocx } from '$lib/views/bundles/docx';
 	import { HEADER_FIELDS, HEADER_KEYS, TO_COMPLETE, cleanName, desc, header, indexFileName, pad, partRange, range, totals, type Bundle, type Header } from '$lib/views/bundles/court';
+	import Builder from '$lib/views/bundles/Builder.svelte';
+	import { blobs } from '$lib/views/bundles/builder.svelte';
 	let { data } = $props();
 	const vid = $derived(data.version.id);
 	const c = $derived(data.content);
@@ -33,6 +35,27 @@
 	const tab = $derived(({ items: 'items', view: 'view' } as Record<string, string>)[page.url.searchParams.get('tab') ?? ''] ?? 'index');
 	const go = (q: Record<string, string>) => goto(`?${new URLSearchParams(q)}`);
 	const href = (r: Resolved | null) => (r ? docPath(vid, r.ref, r.page) : null);
+	// a bundle saved from the builder this session: its PDF (v5 cbFileUrl over CBBLOB)
+	const blob = (x: Bundle) => (x.id ? (blobs[x.id] ?? null) : null);
+
+	// Delete a saved bundle (v5 cbDeleteBundle): asked first; each bundle keeps its own error, by its id, so an answer
+	// given while another delete is in flight never shows that delete's error on this row.
+	let delErrors = $state<Record<string, string>>({});
+	let deleting = $state<Record<string, true>>({});
+	const del = async (x: Bundle) => {
+		const id = x.id;
+		if (!id || deleting[id] || !confirm('Remove this bundle from the list? No document is deleted.')) return;
+		deleting[id] = true;
+		delete delErrors[id];
+		try {
+			const r = await postAction('delete', [['id', id]]);
+			if (!r.ok) { delErrors[id] = r.message; return; }
+			const u = blobs[id];
+			delete blobs[id];
+			if (u) URL.revokeObjectURL(u);
+			await invalidateAll();
+		} finally { delete deleting[id]; }
+	};
 
 	// Index header details: local values. Each action (Save, Restore, Clear) snapshots the fields it was pressed with
 	// and keeps its own error; a success takes from the stored header only the fields unchanged since that press, so
@@ -97,18 +120,14 @@
 {#snippet notServed(what: string)}<span class="not-served">{what} ({NOT_SERVED})</span>{/snippet}
 
 <main id="main" tabindex="-1" data-ready="court_bundle_tab" data-hydrated={ready ? '1' : null} data-busy={busy ? '1' : '0'}>
-	<PageHeader heading="Court Bundle" section="Court Bundle" caseName={data.version.titleName} subtitle="{bs.length} bundles · {ti} index items · {tp} paginated pages. Each index lists the extracted documents, numbered continuously from page 1.">
+	<PageHeader heading="Court Bundle" section="Court Bundle" caseName={data.version.titleName} subtitle="{bs.length} bundles · {ti} index items · {tp} paginated pages. Every bundle is a finished PDF: index first, then the extracted documents, numbered continuously from page 1.">
 		{#snippet actions()}<button type="button" class="btn sec" id="cb-word-all" disabled={off} onclick={wordAll}>All indexes (Word)</button> <button type="button" class="btn primary" id="cb-build" disabled={off} onclick={() => go({ view: 'build' })}>Build a bundle</button>{/snippet}
 	</PageHeader>
 	{#if off}<p class="notice" id="cb-nojs">The header, the Word and print exports and the bundle tabs need JavaScript, which is off or still loading; nothing on this page can be saved without it.</p>{/if}
 	{#if message}<p class="notice" role="status" id="cb-message">{message}</p>{/if}
 
 	{#if view === 'build'}
-		<section class="card" id="cb-builder" data-unavailable-feature="builder" aria-labelledby="cb-builder-h">
-			<h2 id="cb-builder-h">Bundle builder</h2>
-			<p id="cb-builder-state">The bundle builder is not available in this version. In v5 it assembled a numbered PDF bundle from PDFs you picked; ClearCase does not merge PDFs. The shipped bundles' indexes, Word indexes and print remain available.</p>
-			<button type="button" class="btn sec" id="cb-builder-back" disabled={off} onclick={() => go({})}>All bundles</button>
-		</section>
+		<Builder bundles={bs} h={hd.h} creator={creator()} {off} onback={() => go({})} />
 	{:else if view === 'bundle' && b}
 		{@const t = totals(b)}
 		{@const l = data.links[cur]!}
@@ -116,7 +135,7 @@
 			<h2 id="cb-bundle-h">{b.title}</h2>
 			<p class="sub" id="cb-bundle-sub">{t.items} items · {t.pages} pages, numbered 1 to {t.pages}{t.missing ? ` · ${t.missing} item(s) flagged for review` : ''}</p>
 			<div class="toolbar"><button type="button" class="btn sec" id="cb-all" disabled={off} onclick={() => go({})}>All bundles</button>
-				{#if href(l.file)}<a class="btn sec" href={href(l.file)} target="_blank" rel="noopener">Open bundle PDF</a> {#if data.downloads[l.file!.ref]}<a class="btn primary" href={data.downloads[l.file!.ref]} rel="noopener noreferrer" download>Download bundle</a>{/if}{:else if b.file}{@render notServed('Bundle PDF')}{/if}</div>
+				{#if href(l.file)}<a class="btn sec" href={href(l.file)} target="_blank" rel="noopener">Open bundle PDF</a> {#if data.downloads[l.file!.ref]}<a class="btn primary" href={data.downloads[l.file!.ref]} rel="noopener noreferrer" download>Download bundle</a>{/if}{:else if blob(b)}<a class="btn sec" href={blob(b)} target="_blank" rel="noopener">Open bundle PDF</a>{:else if b.file}{@render notServed('Bundle PDF')}{/if}</div>
 			<div class="toolbar" role="tablist" aria-label="Bundle">
 				{#each [['index', 'Index'], ['items', 'Items & page numbers'], ['view', 'View bundle']] as [k, label] (k)}<button type="button" role="tab" aria-selected={tab === k} class="btn sm" class:primary={tab === k} id="cb-tab-{k}" disabled={off} onclick={() => go({ ...bq(cur), tab: k })}>{label}</button>{/each}
 				{#if b.note}<span class="tag">{b.note}</span>{/if}
@@ -129,9 +148,10 @@
 							{@const lr = l.rows[i]!}
 							<tr><td class="mono"><b>{r.n}</b></td><td class="mono">{r.key || ''}</td>
 								<td><div>{r.desc || '—'}</div>{#if r.blank}<div class="ex"><span class="badge b-info">intentionally blank</span></div>{/if}{#if r.missing && !r.blank}<div class="ex"><span class="badge b-warn">no file located — supply it or strike the item</span></div>{/if}{#if r.review && !r.missing && !r.blank}<div class="ex"><span class="badge b-info">extent auto-detected — verify</span></div>{/if}</td>
-								<td>{#if !r.parts.length}<span class="tag">—</span>{/if}{#each r.parts as p, j (j)}<div>{#if href(lr.parts[j]!)}<a class="doc" href={href(lr.parts[j]!)}>{cleanName(p.name)} <span class="extlink">↗</span></a>{:else}{cleanName(p.name)} <span class="not-served">({NOT_SERVED})</span>{/if} <span class="tag">{partRange(p)}</span></div>{/each}{#if r.caselines}<div class="ex">CaseLines {r.caselines.stamps} · {#if href(lr.caselines)}<a href={href(lr.caselines)} target="_blank" rel="noopener">verify page {r.caselines.from}</a>{:else}verify page {r.caselines.from} <span class="not-served">({NOT_SERVED})</span>{/if}</div>{/if}</td>
+								<td>{#if !r.parts.length}<span class="tag">—</span>{/if}{#each r.parts as p, j (j)}<div>{#if href(lr.parts[j]!)}<a class="doc" href={href(lr.parts[j]!)}>{cleanName(p.name)} <span class="extlink">↗</span></a>{:else if p.url}{cleanName(p.name)} <span class="not-served">({NOT_SERVED})</span>{:else}{cleanName(p.name)}{/if} <span class="tag">{partRange(p)}</span></div>{/each}{#if r.caselines}<div class="ex">CaseLines {r.caselines.stamps} · {#if href(lr.caselines)}<a href={href(lr.caselines)} target="_blank" rel="noopener">verify page {r.caselines.from}</a>{:else}verify page {r.caselines.from} <span class="not-served">({NOT_SERVED})</span>{/if}</div>{/if}</td>
 								<td class="num">{r.pages || 0}</td><td class="num mono"><b>{#if range(r)}{range(r)}{:else}<span class="tag">—</span>{/if}</b></td>
 								<td>{#if r.sliceUrl}{#if href(lr.slice)}<a class="btn primary sm" href={href(lr.slice)} target="_blank" rel="noopener">Open item</a> {#if data.downloads[lr.slice!.ref]}<a class="btn ghost sm" href={data.downloads[lr.slice!.ref]} rel="noopener noreferrer" download>Save extract</a>{/if}{:else}{@render notServed('Extract')}{/if}{#if r.from}<div class="ex">{#if href(l.file)}<a href={docPath(vid, l.file!.ref, r.from + b.indexPages)} target="_blank" rel="noopener">in the bundle at page {pad(r.from)}</a>{:else}in the bundle at page {pad(r.from)} <span class="not-served">({NOT_SERVED})</span>{/if}</div>{/if}
+									{:else if blob(b) && r.from}<a class="btn primary sm" href="{blob(b)}#page={r.from + b.indexPages}" target="_blank" rel="noopener">Open item</a> <span class="tag">opens the bundle at page {pad(r.from)}</span>
 									{:else if b.file && r.from}{#if href(l.file)}<a class="btn primary sm" href={docPath(vid, l.file!.ref, r.from + b.indexPages)} target="_blank" rel="noopener">Open item</a> <span class="tag">opens the bundle at page {pad(r.from)}</span>{:else}{@render notServed('Open item')}{/if}
 									{:else if r.parts.length && href(lr.parts[0]!)}<a class="btn primary sm" href={href(lr.parts[0]!)} target="_blank" rel="noopener">Open item</a>
 									{:else}<span class="tag">—</span>{/if}</td></tr>
@@ -143,11 +163,13 @@
 					{#if href(l.file)}<div class="toolbar"><a class="btn primary" href={href(l.file)} target="_blank" rel="noopener">Open in a new tab</a>{#if data.downloads[l.file!.ref]}<a class="btn sec" href={data.downloads[l.file!.ref]} rel="noopener noreferrer" download>Download PDF</a>{/if}<button type="button" class="btn ghost" disabled={off} onclick={() => wordOne(b)}>Index (Word)</button><span class="tag">{b.pages || 0} pages</span></div>
 						<div class="empty">Bundles are large files. Open it through its document page, which shows it in the isolated viewer.</div>
 					{:else if b.file}<div class="toolbar"><button type="button" class="btn ghost" id="cb-view-word" disabled={off} onclick={() => wordOne(b)}>Index (Word)</button><span class="tag">{b.pages || 0} pages</span></div><div class="empty" id="cb-view-state">The assembled bundle PDF is {NOT_SERVED}, so it cannot be opened, downloaded or printed here.</div>
-					{:else}<div class="empty">This bundle has not been assembled yet. The bundle builder is not available in this version.</div>{/if}
+					{:else if blob(b)}<div class="toolbar" id="cb-view-session"><a class="btn primary" href={blob(b)} target="_blank" rel="noopener">Open in a new tab</a><a class="btn sec" href={blob(b)} download={`${b.name.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 60)}.pdf`}>Download PDF</a><button type="button" class="btn ghost" disabled={off} onclick={() => wordOne(b)}>Index (Word)</button><span class="tag">{b.pages || 0} pages</span></div>
+						<div class="empty">Built in this session: the PDF stays available until this window is closed.</div>
+					{:else}<div class="empty" id="cb-view-state">This bundle has not been assembled yet. Use the builder to create it.</div><div class="toolbar"><button type="button" class="btn primary" id="cb-open-builder" disabled={off} onclick={() => go({ view: 'build' })}>Open the builder</button></div>{/if}
 				</div>
 			{:else}
 				<div class="card" id="cb-index">
-					<div class="toolbar"><button type="button" class="btn primary" id="cb-word" disabled={off} onclick={() => wordOne(b)}>Download Word (.docx)</button><button type="button" class="btn sec" id="cb-print" disabled={off} onclick={() => print(b)}>Print index</button>{#if href(l.indexFile)}<a class="btn sec" href={href(l.indexFile)} target="_blank" rel="noopener">Index PDF</a>{:else if b.indexFile}{@render notServed('Index PDF')}{/if}{#if href(l.file)}<a class="btn sec" href={href(l.file)} target="_blank" rel="noopener">Full bundle</a>{:else if b.file}{@render notServed('Full bundle')}{/if}<button type="button" class="btn ghost" id="cb-edit-header" disabled={off} onclick={() => go({})}>Edit header details</button>{#if hd.blank.length}<span class="badge b-warn">{hd.blank.length} header field(s) blank — placeholders shown</span>{/if}</div>
+					<div class="toolbar"><button type="button" class="btn primary" id="cb-word" disabled={off} onclick={() => wordOne(b)}>Download Word (.docx)</button><button type="button" class="btn sec" id="cb-print" disabled={off} onclick={() => print(b)}>Print index</button>{#if href(l.indexFile)}<a class="btn sec" href={href(l.indexFile)} target="_blank" rel="noopener">Index PDF</a>{:else if b.indexFile}{@render notServed('Index PDF')}{/if}{#if href(l.file)}<a class="btn sec" href={href(l.file)} target="_blank" rel="noopener">Full bundle</a>{:else if blob(b)}<a class="btn sec" href={blob(b)} target="_blank" rel="noopener">Full bundle</a>{:else if b.file}{@render notServed('Full bundle')}{/if}<button type="button" class="btn ghost" id="cb-edit-header" disabled={off} onclick={() => go({})}>Edit header details</button>{#if hd.blank.length}<span class="badge b-warn">{hd.blank.length} header field(s) blank — placeholders shown</span>{/if}</div>
 					<div class="cbindex" id="cbindexdoc">
 						<p class="c">{hd.h.court}</p><p class="c">{hd.h.judge}</p><p class="cn">{hd.h.caseNo ? 'CASE NUMBER: ' + hd.h.caseNo : ''}</p><p>&nbsp;</p><p>{hd.h.intro}</p><p>&nbsp;</p>
 						<p class="pt"><span>{hd.h.claimant}</span><span>{hd.h.claimantRole}</span></p><p>&nbsp;</p><p>and</p><p>&nbsp;</p>
@@ -163,7 +185,7 @@
 		<div class="grid g12">
 			<div class="kpi"><div class="k">Bundles</div><div class="v">{bs.length}</div><div class="s">{c.kpiBundlesNote ?? 'imported bundle definitions'}</div></div>
 			<div class="kpi"><div class="k">Index items</div><div class="v">{ti}</div><div class="s">listed across all bundles</div></div>
-			<div class="kpi"><div class="k">Pages</div><div class="v">{tp}</div><div class="s">numbered in the indexes</div></div>
+			<div class="kpi"><div class="k">Pages</div><div class="v">{tp}</div><div class="s">assembled and numbered</div></div>
 			<div class="kpi"><div class="k">Extracts</div><div class="v">{extracts}</div><div class="s">{c.kpiExtractsNote ?? 'items with their own extract'}</div></div>
 		</div>
 		<div class="card" id="cb-header" aria-busy={busy !== null} data-changed={changed.length}>
@@ -186,8 +208,9 @@
 				{@const t = totals(x)}
 				{@const l = data.links[i]!}
 				<tr data-no={x.no}><td class="mono"><b>{x.no}</b>{#if repeated.has(x.no)}<span class="dup" title="Another bundle has the same number">repeated number</span>{/if}</td><td><div><b>{x.name}</b></div>{#if x.note}<div class="ex">{x.note}</div>{/if}</td><td class="num">{t.items}</td><td class="num">{t.pages}</td>
-					<td>{#if t.missing}<span class="badge b-warn">{t.missing} to review</span>{:else}<span class="badge b-ok">complete</span>{/if}</td>
-					<td><button type="button" class="btn primary sm" disabled={off} onclick={() => go({ ...bq(i), tab: 'index' })}>Open</button> {#if href(l.file)}<a class="btn sec sm" href={href(l.file)} target="_blank" rel="noopener">Bundle PDF</a>{:else if x.file}{@render notServed('Bundle PDF')}{:else}<button type="button" class="btn sec sm" disabled={off} onclick={() => go({ view: 'build' })}>Create</button>{/if} {#if href(l.indexFile)}<a class="btn ghost sm" href={href(l.indexFile)} target="_blank" rel="noopener">Index PDF</a>{:else if x.indexFile}{@render notServed('Index PDF')}{/if}{x.indexFile ? ' ' : ''}<button type="button" class="btn ghost sm" disabled={off} onclick={() => wordOne(x)}>Word</button></td></tr>
+					<td>{#if x.id}<span class="badge b-info">custom</span> {/if}{#if t.missing}<span class="badge b-warn">{t.missing} to review</span>{:else}<span class="badge b-ok">complete</span>{/if}</td>
+					<td><button type="button" class="btn primary sm" disabled={off} onclick={() => go({ ...bq(i), tab: 'index' })}>Open</button> {#if href(l.file)}<a class="btn sec sm" href={href(l.file)} target="_blank" rel="noopener">Bundle PDF</a>{:else if blob(x)}<a class="btn sec sm" href={blob(x)} target="_blank" rel="noopener">Bundle PDF</a>{:else if x.file}{@render notServed('Bundle PDF')}{:else}<button type="button" class="btn sec sm" disabled={off} onclick={() => go({ view: 'build' })}>Create</button>{/if} {#if href(l.indexFile)}<a class="btn ghost sm" href={href(l.indexFile)} target="_blank" rel="noopener">Index PDF</a>{:else if x.indexFile}{@render notServed('Index PDF')}{/if}{x.indexFile ? ' ' : ''}<button type="button" class="btn ghost sm" disabled={off} onclick={() => wordOne(x)}>Word</button>{#if x.id} <button type="button" class="btn ghost sm" data-delete={x.no} disabled={off || !!deleting[x.id]} onclick={() => del(x)}>Delete</button>{/if}
+						{#if x.id && delErrors[x.id]}<p class="error" role="alert" data-delete-error={x.no}>{delErrors[x.id]}</p>{/if}</td></tr>
 			{/each}
 		</tbody></table></div></div>
 		<div class="card"><h3>How the bundles are put together</h3><div class="narr">

@@ -188,9 +188,9 @@ export function importV5CustomBundles(raw: unknown): Custom[] {
 	return out;
 }
 /** v5 cbBundles for a custom entry: the list's bundle shape, with no file (S-court_bundle_tab-3: parts keep url ''). */
-export function toBundle(c: Custom): Bundle {
+export function toBundle(c: Custom, id?: string): Bundle {
 	return {
-		no: c.no, name: c.name, title: '(' + c.no + ') ' + c.name, note: c.note || 'Bundle created in this app.', pages: c.pages, indexPages: c.indexPages, file: '', indexFile: '',
+		...(id === undefined ? {} : { id }), no: c.no, name: c.name, title: '(' + c.no + ') ' + c.name, note: c.note || 'Bundle created in this app.', pages: c.pages, indexPages: c.indexPages, file: '', indexFile: '',
 		rows: c.rows.map((r) => row(r.n, r.desc, r.pages, r.from, r.to, r.parts.map((p) => ({ url: p.url, name: p.name, from: p.from, to: p.to })))),
 	};
 }

@@ -1,10 +1,10 @@
 // Court Bundle (v5 court_bundle_tab, L1837-2580): the index rules shared by the page, its Word export and the tests.
-// The bundles are imported data (`bundles`); the index header is user work over the imported header defaults.
-// The builder (PDF assembly, L2120-2382) is not in this version (GRS-19 follow-up).
+// The bundles are imported data (`bundles`) followed by the bundles saved from the builder (user work, `id` set); the
+// index header is user work over the imported header defaults. The builder itself is in $lib/bundles.
 
 export interface Part { url: string; name: string; from: number; to: number }
 export interface BundleRow { n: number | string; key: string; desc: string; date: string; blank: boolean; missing: boolean; review: boolean; pages: number; from: number; to: number; sliceUrl: string; caselines: { stamps: string; from: number } | null; parts: Part[] }
-export interface Bundle { no: string; name: string; title: string; note: string; rows: BundleRow[]; pages: number; indexPages: number; file: string; indexFile: string }
+export interface Bundle { no: string; name: string; title: string; note: string; rows: BundleRow[]; pages: number; indexPages: number; file: string; indexFile: string; /** a bundle saved from the builder: its output id */ id?: string }
 
 export const HEADER_KEYS = ['court', 'judge', 'intro', 'caseNo', 'claimant', 'claimantRole', 'defendant', 'defendantRole'] as const;
 export type HeaderKey = (typeof HEADER_KEYS)[number];

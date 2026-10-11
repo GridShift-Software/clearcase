@@ -53,7 +53,7 @@
 		<div class="q-two">
 			<div class="q-card">
 				<h3>Invoice ledger ({q.invoiceLedger.length})</h3>
-				<div class="toolbar"><button type="button" id="export-invoices" onclick={() => download('invoices.csv', invoicesCsv(q.invoiceLedger))}>Export CSV</button></div>
+				<div class="toolbar"><button type="button" id="export-invoices" onclick={() => download(data.exportName.name, invoicesCsv(q.invoiceLedger))}>Export CSV</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}</div>
 				<div class="q-wrap q-h460">
 					<table class="q-tbl" id="invoice-ledger">
 						<thead><tr><th>Ref</th><th>Invoice</th><th>Date</th><th class="num">Amount</th><th>Doc</th></tr></thead>

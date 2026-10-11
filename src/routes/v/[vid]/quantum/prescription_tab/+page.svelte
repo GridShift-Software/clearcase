@@ -50,7 +50,7 @@
 
 <main id="main" tabindex="-1" data-ready="prescription_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Prescription" section="Prescription" caseName={data.version.titleName} subtitle="Three-year extinctive prescription per invoice, and what interrupts it">
-		{#snippet actions()}<button type="button" id="export-presc" onclick={() => download('prescription.csv', prescriptionCsv(shown))}>Export CSV</button>{/snippet}
+		{#snippet actions()}<button type="button" id="export-presc" onclick={() => download(data.exportName.name, prescriptionCsv(shown))}>Export CSV</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}{/snippet}
 	</PageHeader>
 	{#if data.summary}
 		<div class="q-kpis">

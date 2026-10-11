@@ -245,7 +245,8 @@ try {
 		await sleep(100);
 		const d = (await takeDownloads(p))[0];
 		const lines = d?.text.split('\r\n') ?? [];
-		return { pass: d?.name === 'invoices.csv' && lines.length === 4 && lines[0] === 'ref,no,date,amount,bundle,text_status,url' && lines[1].startsWith('OD-002,SYNINV1,2081-01-31,1150.00,Original,extracted,./') && lines[3] === 'ZZ-406,SYNINV3,,0.20,Supplementary,none,', evidence: { name: d?.name, lines: lines.length, head: lines[0], last: lines[3] } };
+		const named = JSON.parse(new TextDecoder().decode(sc.files.get('datasets/view-content.json'))).data?.invoice_ledger_tab?.exportFileName;
+		return { pass: typeof named === 'string' && d?.name === named && lines.length === 4 && lines[0] === 'ref,no,date,amount,bundle,text_status,url' && lines[1].startsWith('OD-002,SYNINV1,2081-01-31,1150.00,Original,extracted,./') && lines[3] === 'ZZ-406,SYNINV3,,0.20,Supplementary,none,', evidence: { name: d?.name, lines: lines.length, head: lines[0], last: lines[3] } };
 	});
 	await scenario('Q7-EXPORT-PRESCRIPTION', 'prescription_tab', 'the prescription export follows the active filter and the shown order (BA-17); the filter is in the URL and the controls show it', async () => {
 		await k.open(`${route('prescription_tab')}?risk=Not+yet+due+to+prescribe`, 'prescription_tab');

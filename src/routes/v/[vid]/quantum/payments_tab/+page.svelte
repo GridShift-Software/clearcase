@@ -121,7 +121,7 @@
 
 <main id="main" tabindex="-1" data-ready="payments_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Payments & Net Claim" section="Payments & Net Claim" caseName={data.version.titleName} subtitle={data.subtitle}>
-		{#snippet actions()}<button type="button" id="export-payments" onclick={() => download('payments.csv', paymentsCsv(rows))}>Export payments</button>{/snippet}
+		{#snippet actions()}<button type="button" id="export-payments" onclick={() => download(data.exportName.name, paymentsCsv(rows))}>Export payments</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}{/snippet}
 	</PageHeader>
 	<div class="q-kpis">
 		<Kpi id="kpi-gross" label="Gross amount due" value={R(t.gross)} sub="as at {data.claimDate}" />

@@ -153,9 +153,11 @@ describe('register actions', () => {
 		const other = await lc.userWork.putRow('case-synthetic-other', 'disbursements', null, { ...v0, desc: 'Synthetic other case', seq: 1 });
 		const [o] = lc.userWork.listRows('case-synthetic-other', 'disbursements');
 		const { versionOf } = await import('../../src/lib/user-work/registers.server');
-		expect(await post(D, 'save', { rowId: other, version: versionOf(o!), ...v0, desc: 'Synthetic hijack' })).toMatchObject({ failed: 404 });
+		const res = await post(D, 'save', { rowId: other, version: versionOf(o!), ...v0, desc: 'Synthetic hijack' });
+		// the behaviour first; at a453147 it already held (a test gap: the old app refused with 404 too)
 		expect(lc.userWork.listRows('case-synthetic-other', 'disbursements').map((x) => x.fields.desc)).toEqual(['Synthetic other case']);
 		expect((await load(D)).rows).toEqual([]);
+		expect(res).toMatchObject({ failed: 404 });
 	});
 
 	it('report a failed delete as a delete, apart from any save failure (D4)', async () => {

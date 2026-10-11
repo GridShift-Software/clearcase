@@ -16,6 +16,11 @@ describe('the amount grammar', () => {
 		expect(parseAmount('R 1 000.00', 'signed-money')).toEqual(ok(100000n));
 		expect(parseAmount('R1000.5', 'signed-money')).toEqual(ok(100050n));
 		expect(parseAmount('1,500.25', 'signed-money')).toEqual(ok(150025n));
+		// decided by the product owner on 11 October 2026: '1,500' is R 1 500.00 for an amount or a rate, refused for
+		// hours, and a disbursement may be a credit (negative), as in v5
+		expect([parseAmount('1,500', 'signed-money'), parseAmount('1,500', 'rate')]).toEqual([ok(150000n), ok(150000n)]);
+		expect(parseAmount('1,500', 'hours')).toMatchObject({ kind: 'bad' });
+		expect(parseAmount('-150.00', 'signed-money')).toEqual(ok(-15000n));
 		expect(parseAmount(' 99.95 ', 'rate')).toEqual(ok(9995n));
 		expect(parseAmount('', 'signed-money')).toEqual({ kind: 'empty' });
 		expect(parseAmount('2.5', 'hours')).toEqual(ok(250n));

@@ -17,7 +17,7 @@ const { CHROME, launch } = await import('../pilot/lib/cdp.mjs');
 const { bunIdentity } = await import('../pilot/lib/server.mjs');
 const { appServer } = await import('../pilot/suite/context.mjs');
 const { INIT, openPage, sleep } = await import('../pilot/suite/browser.mjs');
-const { CASE_ID, emptyCase, mainCase, reorderedCase, viewContentText } = await import('./lib/cases.mjs');
+const { CASE_ID, changedCase, emptyCase, mainCase, reorderedCase, viewContentText } = await import('./lib/cases.mjs');
 
 const J = JSON.stringify;
 const ROOT = resolve(process.env.E2E_ROOT ?? join(import.meta.dirname, '..', '..', '..'));
@@ -61,6 +61,11 @@ const text = (p, sel) => p.evaluate(`(document.querySelector(${J(sel)})?.textCon
 const count = (p, sel) => p.evaluate(`document.querySelectorAll(${J(sel)}).length`);
 /** Fill a form's fields by selector (typing like a user). */
 async function fill(p, fields) { for (const [sel, v] of Object.entries(fields)) await p.type(sel, v); }
+/** Type at the end of a field, as a user adding to it (GRS-18 r2: typing while a save is in flight). */
+async function append(p, sel, text) { await p.click(sel); await p.evaluate(`(() => { const e = document.querySelector(${J(sel)}); e.setSelectionRange(e.value.length, e.value.length); return true; })()`); await p.s('Input.insertText', { text }); }
+/** Hold work.sqlite's write lock from outside the app (BEGIN IMMEDIATE); `release()` lets the app's retries through. */
+function holdLock() { const db = new Database(join(A.dataDir, 'work.sqlite')); db.exec('PRAGMA busy_timeout=0'); db.exec('BEGIN IMMEDIATE'); return { release: () => { db.exec('ROLLBACK'); db.close(); } }; }
+const vals = async (p, sels) => { const o = {}; for (const sel of sels) o[sel] = await val(p, sel); return o; };
 /** Wait until `expr` holds or `ms` passes; returns the last value. */
 async function until(p, expr, ms = 20000) { try { return await p.waitFor(expr, ms); } catch { return p.evaluate(expr).catch(() => null); } }
 
@@ -93,6 +98,13 @@ try {
 
 	b = await launch({ profileRoot: join(tmp, 'chromium') });
 	p = await openPage(b, { initScript: `${INIT};${HOOK}` });
+	// a register entry left typed makes the leave guard cancel a full navigation (the harness declines beforeunload), so
+	// each scenario's goto first discards what the previous one left in the add forms
+	const goto0 = p.goto;
+	p.goto = async (url, r, t) => {
+		await p.evaluate(`(() => { for (const b of document.querySelectorAll('[data-discard]')) b.click(); for (const e of document.querySelectorAll('form[id$="-add"] input:not([type=hidden])')) { e.value = ''; e.dispatchEvent(new Event('input', { bubbles: true })); } return true; })()`).catch(() => {});
+		return goto0(url, r, t);
+	};
 
 	// ---- every view: title, heading, focus after navigation, current entry (BA-14, BA-16, BA-18) --------------------
 	for (const v of LIT) {
@@ -101,7 +113,7 @@ try {
 			await p.click(`#nav-${v.id}`);
 			await until(p, `${ready(v.id)} && location.pathname.endsWith(${J(v.route)})`);
 			await sleep(80);
-			const got = await p.evaluate(`({ path: location.pathname, title: document.title, h1: document.querySelector('h1')?.textContent.trim(), focus: document.activeElement?.hasAttribute('data-page-heading') ?? false, current: document.querySelector('nav.views a[aria-current="page"]')?.id ?? null, unavailable: !!document.querySelector('[data-unavailable]'), note: !!document.querySelector('[data-source-note]') || !!document.querySelector('#conf-scope') })`);
+			const got = await p.evaluate(`({ path: location.pathname, title: document.title, h1: document.querySelector('h1')?.textContent.trim(), focus: document.activeElement?.hasAttribute('data-page-heading') ?? false, current: document.querySelector('nav.views a[aria-current="page"]')?.id ?? null, unavailable: !!document.querySelector('[data-unavailable]'), note: !!document.querySelector('[data-source-note]') })`);
 			return all({ path: got.path.endsWith(v.route), title: got.title === `${v.label} · ${titleName} · ClearCase`, heading: got.h1 === v.label, focus: got.focus, current: got.current === `nav-${v.id}`, available: !got.unavailable, scopeNote: got.note });
 		});
 	}
@@ -340,10 +352,16 @@ try {
 		const typed = { badge: await text(p, '#confres .badge'), kind: await p.evaluate(`document.querySelector('#confres .badge')?.dataset.result`), rows: await p.evaluate(`[...document.querySelectorAll('#confres tbody tr')].map((r) => [...r.cells].map((c) => c.textContent.trim()))`) };
 		const imported = ['Ann Lee', 'ann@x.test', 'Org A', 'Org A Ltd', 'supplier', viewContentText(main, 'conflict_tab', 'queryPlaceholder')].filter(Boolean);
 		const html = await p.evaluate(`document.querySelector('#main').innerHTML`);
+		// D15: the whole served document and the route's __data.json, not only #main
+		const vcPh = viewContentText(main, 'conflict_tab', 'queryPlaceholder');
+		const path = `${V.slice(A.origin.length)}${route('conflict_tab')}`;
+		const dataRes = await A.c.get(`${path}/__data.json`);
+		const served = { html: (await A.c.get(path)).text, dataStatus: dataRes.status, data: dataRes.text };
 		return all({
 			placeholderGeneric: typeof ph === 'string' && ph.length > 0 && !ph.includes('@') && imported.every((v) => !ph.toLowerCase().includes(v.toLowerCase())),
 			viewContentPlaceholderNotRendered: !html.includes(viewContentText(main, 'conflict_tab', 'queryPlaceholder')),
-			options: J(options) === J([['', '— choose from the matter —'], ['Org A Ltd', 'Org A Ltd — supplier'], ['Ann Lee <ann@x.test>', 'Ann Lee · ann@x.test (Org A)']]),
+			options: J(options) === J([['', '— choose from the matter —'], ['0', 'Org A Ltd — supplier'], ['1', 'Ann Lee · ann@x.test (Org A)'], ['2', 'Cy Ode · cy@y.test (Other Co)']]),
+			placeholderNotServed: !!vcPh && !served.html.includes(vcPh) && served.dataStatus === 200 && !served.data.includes(vcPh),
 			pickByName: picked.q === 'Ann Lee' && picked.badge === '1 potential match(es) — review before acting' && J(picked.rows) === J([['Correspondent', 'Ann Lee (ann@x.test)', 'Org A']]),
 			known: typed.kind === 'matches' && typed.badge === '2 potential match(es) — review before acting' && J(typed.rows) === J([['Correspondent', 'Ann Lee (ann@x.test)', 'Org A'], ['Entity', 'Org A Ltd', 'supplier']]),
 			evidence: { ph, picked, typed },
@@ -358,10 +376,17 @@ try {
 		const afterEnter = await count(p, '#confres .badge');
 		await p.click('#conf-check');
 		await sleep(100);
-		const got = await p.evaluate(`({ badge: document.querySelector('#confres .badge')?.textContent.trim(), cls: document.querySelector('#confres .badge')?.className, scope: document.querySelector('#conf-scope')?.textContent.trim(), page: document.querySelector('#main').textContent })`);
+		const got = await p.evaluate(`(() => { const b = document.querySelector('#confres .badge'); const cs = b ? getComputedStyle(b) : null; const ok = document.createElement('span'); ok.className = 'ok'; document.body.append(ok); const okColor = getComputedStyle(ok).color; ok.remove(); return { badge: b?.textContent.trim(), cls: b?.className, bg: cs?.backgroundColor, color: cs?.color, okColor, scope: document.querySelector('#conf-scope')?.textContent.trim(), page: document.querySelector('#main').textContent }; })()`);
+		// D21: Check with nothing to search for says so
+		await p.type('#confq', '   ');
+		await p.click('#conf-check');
+		await sleep(100);
+		const emptyMsg = await text(p, '#confres [data-result="empty"]');
 		return all({
 			enterIgnored: afterEnter === 0, wording: got.badge === 'No conflict match found for "zzz"', neutral: /\bneutral\b/.test(got.cls ?? '') && !/\b(ok|success|b-ok)\b/.test(got.cls ?? ''),
-			scope: got.scope === "Searches only this matter's 1 person and 1 entity from the imported results package. A match, or no match, is not a conflict clearance.",
+			neutralColours: got.bg === 'rgb(238, 240, 243)' && got.color === 'rgb(34, 34, 34)' && got.color !== got.okColor,
+			scope: got.scope === "Searches only this matter's 2 people and 1 entity from the imported results package. A match, or no match, is not a conflict clearance.",
+			emptyQuerySaid: emptyMsg === 'Enter a name, firm or e-mail address, or pick a party from the list, then press Check.',
 			noClearanceClaim: !/\b(cleared|no conflict exists|conflict-free)\b/i.test(got.page), evidence: { badge: got.badge, cls: got.cls, scope: got.scope },
 		});
 	});
@@ -439,6 +464,195 @@ try {
 		return all({ errorVisible: /could not be reached/.test(err ?? ''), keptValues: J(kept) === J(typed), noRowWritten: during === 0, otherDeleteSaved: deleted === true, keptAfterDelete: J(keptAfterDelete) === J(typed), retrySaved: saved === true, exactlyOne: rowsWhere('heads', 'head', 'Lost heading').length === 1, evidence: { err } });
 	});
 
+	// ---- lost edits and conflicting writes (GRS-18 r2, D1 to D9, D18) -------------------------------------------------
+	const at = (id) => `${V.slice(A.origin.length)}${route(id)}`;
+	const setVal = (sel, v) => p.evaluate(`(() => { const e = document.querySelector(${J(sel)}); e.value = ${J(v)}; e.dispatchEvent(new Event('input', { bubbles: true })); return true; })()`);
+	const rowButton = (table, cell, textOf) => p.evaluate(`(() => { const r = [...document.querySelectorAll('${table} tbody tr[data-row]')].find((r) => r.cells[${cell}].textContent.trim() === ${J(textOf)}); if (!r) return false; r.querySelector('button').setAttribute('data-pick', '1'); return true; })()`);
+	for (const r of [
+		{ view: 'heads_tab', form: '#hd-add', add: '#hd-add-button', fields: { '#hd_head': 'Inflight heading', '#hd_sub': 'Inflight submission' }, more: '#hd_sub', store: 'heads', key: 'head', field: 'sub' },
+		{ view: 'crossexam_tab', form: '#cx-add', add: '#cx-add-form', fields: { '#cx_w': 'Inflight witness', '#cx_t': 'Inflight topic' }, more: '#cx_t', store: 'crossexam', key: 'witness', field: 'topic' },
+		{ view: 'authorities_tab', form: '#au-add', add: '#au-add-button', fields: { '#au_topic': 'Inflight topic', '#au_auth': 'Inflight authority' }, more: '#au_topic', store: 'authorities', key: 'authority', field: 'topic' },
+	]) {
+		await scenario(`D1-inflight-${r.view}`, r.view, 'text typed while an Add is in flight (store locked 3 s) stays in its field and the row stores what was sent; the Add is busy (disabled, aria-busy, a status) and a second press stores nothing more (D1, D3)', async () => {
+			await p.goto(`${V}${route(r.view)}`, ready(r.view));
+			await fill(p, r.fields);
+			const sent = Object.values(r.fields);
+			const lock = holdLock();
+			const t0 = Date.now();
+			await p.click(r.add);
+			await sleep(400);
+			const busy = await p.evaluate(`({ disabled: document.querySelector(${J(r.add)}).disabled, aria: document.querySelector(${J(r.form)}).getAttribute('aria-busy'), status: document.querySelector('[data-saving]')?.textContent.trim() ?? null })`);
+			await p.click(r.add);
+			await p.evaluate(`document.querySelector(${J(r.form)}).requestSubmit(); true`);
+			await append(p, r.more, ' typed later');
+			while (Date.now() - t0 < 3000) await sleep(50);
+			lock.release();
+			const done = await until(p, `!document.querySelector('[data-saving]') && [...document.querySelectorAll('tbody tr')].some((t) => t.textContent.includes(${J(sent[0])}))`);
+			await sleep(200);
+			const after = await vals(p, Object.keys(r.fields));
+			const stored = rowsWhere(r.store, r.key, r.store === 'authorities' ? sent[1] : sent[0]).map((x) => JSON.parse(x.fields));
+			const moreSent = r.fields[r.more];
+			return all({ busy: busy.disabled === true && busy.aria === 'true' && busy.status === 'Saving the entry…', saved: done === true,
+				typedKept: after[r.more] === `${moreSent} typed later`, othersCleared: Object.keys(r.fields).filter((k) => k !== r.more).every((k) => after[k] === ''),
+				oneRow: stored.length === 1, storedAsSent: stored[0]?.[r.field] === (r.store === 'authorities' ? sent[0] : sent[1]), noError: !(await p.evaluate(`!!document.querySelector('[data-save-error]')`)), evidence: { busy, after, stored } });
+		});
+	}
+
+	await scenario('D3-repeat-post', 'heads_tab', 'the same Add form posted twice (no JavaScript, a double press) stores one row; another form stores its own (D3)', async () => {
+		await p.goto(`${V}${route('heads_tab')}`, ready('heads_tab'));
+		const addId = await p.evaluate(`document.querySelector('#hd-add input[name="addId"]').value`);
+		const f = { addId, head: 'Repeat heading', sub: 'Repeat', auth: '', ref: '' };
+		const a = await A.c.form(`${at('heads_tab')}?/add`, f), b = await A.c.form(`${at('heads_tab')}?/add`, f);
+		const once = rowsWhere('heads', 'head', 'Repeat heading').length;
+		await A.c.form(`${at('heads_tab')}?/add`, { ...f, addId: '0000aaaa-1111' });
+		return all({ answered: a.status === 200 && b.status === 200, oneRow: once === 1, otherForm: rowsWhere('heads', 'head', 'Repeat heading').length === 2, evidence: { a: a.status, b: b.status } });
+	});
+
+	for (const r of [
+		{ view: 'heads_tab', table: '#heads-table', cell: 1, err: '#hd-error', add: '#hd-add-button', big: '#hd_sub', other: '#hd_head', seed: { head: 'D2 disposable', sub: 'x', auth: '', ref: '' }, label: 'D2 disposable' },
+		{ view: 'crossexam_tab', table: '#cx-table', cell: 1, err: '#cx-error', add: '#cx-add-form', big: '#cx_put', other: '#cx_w', seed: { witness: 'D2 witness', topic: 'D2 disposable', put: '', docs: '' }, label: 'D2 disposable' },
+	]) {
+		await scenario(`D2-refused-${r.view}`, r.view, "a refused Add's error and entry stay after another row's Delete succeeds (D2)", async () => {
+			await A.c.form(`${at(r.view)}?/add`, r.seed);
+			await p.goto(`${V}${route(r.view)}`, ready(r.view));
+			await p.type(r.other, 'Refused entry');
+			await setVal(r.big, 'x'.repeat(70000));
+			await p.click(r.add);
+			const err = await until(p, `document.querySelector(${J(r.err)})?.textContent.trim() ?? ''`);
+			await rowButton(r.table, r.cell, r.label);
+			await p.click('[data-pick="1"]');
+			const gone = await until(p, `![...document.querySelectorAll('${r.table} tbody tr[data-row]')].some((t) => t.cells[${r.cell}].textContent.trim() === ${J(r.label)})`);
+			await sleep(200);
+			const still = await p.evaluate(`({ err: document.querySelector(${J(r.err)})?.textContent.trim() ?? null, other: document.querySelector(${J(r.other)}).value, big: document.querySelector(${J(r.big)}).value.length })`);
+			return all({ refused: /64 KiB/.test(err ?? ''), deleted: gone === true, errorKept: still.err === err, entryKept: still.other === 'Refused entry' && still.big === 70000, evidence: { err, still: { ...still } } });
+		});
+	}
+
+	for (const r of [
+		{ view: 'heads_tab', store: 'heads', key: 'head', seed: { head: 'D4 row', sub: 'x', auth: '', ref: '' }, typed: { head: 'NoJS kept heading', sub: 'NoJS kept submission', auth: '', ref: '' } },
+		{ view: 'crossexam_tab', store: 'crossexam', key: 'witness', seed: { witness: 'D4 row', topic: 't', put: '', docs: '' }, typed: { witness: 'NoJS kept witness', topic: 'NoJS kept topic', put: '', docs: '' } },
+	]) {
+		await scenario(`D4-nojs-${r.view}`, r.view, 'without JavaScript a Delete posts the add form, so the typed entry comes back with a note that it is not saved (D4)', async () => {
+			await A.c.form(`${at(r.view)}?/add`, r.seed);
+			const id = rowsWhere(r.store, r.key, 'D4 row')[0]?.row_id;
+			const res = await A.c.form(`${at(r.view)}?/delete`, { rowId: id, ...r.typed });
+			const values = Object.values(r.typed).filter(Boolean);
+			return all({ ok: res.status === 200, deleted: rowsWhere(r.store, r.key, 'D4 row').length === 0, refilled: values.every((v) => res.text.includes(`value="${v}"`)), noted: res.text.includes('Not saved yet: this entry is still only in the form.'), notStored: rowsWhere(r.store, r.key, values[0]).length === 0, evidence: { status: res.status } });
+		});
+	}
+
+	await scenario('D5-delete-busy', 'heads_tab', "a Delete refused by a busy store shows its own error by its row, in Delete wording, and leaves the add form's entry and slot alone (D5)", async () => {
+		await A.c.form(`${at('heads_tab')}?/add`, { head: 'D5 row', sub: 'x', auth: '', ref: '' });
+		await p.goto(`${V}${route('heads_tab')}`, ready('heads_tab'));
+		await p.type('#hd_head', 'Typed meanwhile');
+		await rowButton('#heads-table', 1, 'D5 row');
+		const lock = holdLock();
+		const t0 = Date.now();
+		await p.click('[data-pick="1"]');
+		const err = await until(p, `document.querySelector('[data-pick="1"]')?.closest('tr')?.querySelector('[data-delete-error]')?.textContent.trim() ?? ''`, 25000);
+		const slot = await p.evaluate(`document.querySelector('#hd-error')?.textContent ?? null`);
+		while (Date.now() - t0 < 13000) await sleep(100);
+		lock.release();
+		return all({ byRow: /^Not deleted: the local store is busy/.test(err ?? ''), addSlotEmpty: slot === null, entryKept: (await val(p, '#hd_head')) === 'Typed meanwhile', rowKept: rowsWhere('heads', 'head', 'D5 row').length === 1, evidence: { err, slot } });
+	});
+
+	await scenario('TWO-TAB-delete', 'heads_tab', 'a Delete of a row another tab already deleted says so once, with no error and no error page', async () => {
+		await A.c.form(`${at('heads_tab')}?/add`, { head: 'Twice deleted', sub: 'x', auth: '', ref: '' });
+		await p.goto(`${V}${route('heads_tab')}`, ready('heads_tab'));
+		await A.c.form(`${at('heads_tab')}?/delete`, { rowId: rowsWhere('heads', 'head', 'Twice deleted')[0].row_id });
+		await rowButton('#heads-table', 1, 'Twice deleted');
+		await p.click('[data-pick="1"]');
+		const notice = await until(p, `document.querySelector('[data-delete-notice]')?.textContent.trim() ?? ''`);
+		return all({ said: notice === 'This entry was already deleted elsewhere (in another tab or window). Nothing else was changed.', noError: (await count(p, '[data-delete-error]')) === 0, listed: (await until(p, `![...document.querySelectorAll('#heads-table tr[data-row]')].some((t) => t.cells[1].textContent.trim() === 'Twice deleted')`)) === true, evidence: { notice } });
+	});
+
+	await scenario('D18-too-large', 'heads_tab', 'an entry over the request size limit (HTTP 413) says it is too large and names the limit, keeps the entry and offers no retry', async () => {
+		await p.goto(`${V}${route('heads_tab')}`, ready('heads_tab'));
+		await setVal('#hd_sub', 'y'.repeat(600000));
+		await p.click('#hd-add-button');
+		const err = await until(p, `document.querySelector('#hd-error')?.textContent.trim() ?? ''`);
+		return all({ tooLarge: /too large to send/.test(err ?? '') && /512 KiB/.test(err ?? ''), notLost: !/could not be reached/.test(err ?? ''), kept: (await p.evaluate(`document.querySelector('#hd_sub').value.length`)) === 600000, noRetry: (await count(p, '[data-retry]')) === 0, evidence: { err: err?.slice(0, 200) } });
+	});
+
+	await scenario('LEAVE-guard', 'heads_tab', 'leaving a register with an unsaved entry asks first; Stay keeps the entry, Leave goes', async () => {
+		await p.goto(`${V}${route('heads_tab')}`, ready('heads_tab'));
+		await setVal('#hd_sub', '');
+		await p.type('#hd_head', 'Unsaved heading');
+		await p.click('#nav-authorities_tab');
+		const asked = await until(p, `!!document.querySelector('#lit-ask')`, 3000);
+		const stayedPath = await p.evaluate('location.pathname');
+		await p.click('#lit-ask-stay');
+		await sleep(100);
+		const kept = await val(p, '#hd_head');
+		await p.click('#nav-authorities_tab');
+		await until(p, `!!document.querySelector('#lit-ask')`, 3000);
+		await p.click('#lit-ask-leave');
+		const left = await until(p, ready('authorities_tab'));
+		return all({ asked: asked === true, stayed: stayedPath.endsWith(route('heads_tab')), kept: kept === 'Unsaved heading', left: left === true });
+	});
+
+	await scenario('CONFLICT-nojs', 'conflict_tab', 'without JavaScript the check is visibly inert: the served controls are disabled and a note says it needs JavaScript (D7)', async () => {
+		const html = (await A.c.get(at('conflict_tab'))).text;
+		const disabled = (id) => new RegExp(`<[^>]*id="${id}"[^>]*\\bdisabled\\b`).test(html) || new RegExp(`<[^>]*\\bdisabled\\b[^>]*id="${id}"`).test(html);
+		return all({ select: disabled('confsel'), input: disabled('confq'), button: disabled('conf-check'), note: /<noscript>[\s\S]*needs JavaScript[\s\S]*<\/noscript>/.test(html) });
+	});
+
+	await scenario('D6-nojs-two-steps', 'enforcement_tab', 'without JavaScript the roadmap is one form: one Save stores every changed step, against its shown version (D6)', async () => {
+		await p.goto(`${V}${route('enforcement_tab')}`, ready('enforcement_tab'));
+		const fields = await p.evaluate(`[...new FormData(document.querySelector('#enf-form'))]`);
+		const forms = await p.evaluate(`document.querySelectorAll('form[action="?/status"]').length`);
+		const [kA, kC] = [keys[0], keys[1]];
+		const changed = fields.map(([k, v]) => [k, k === `status:${kA}` ? 'Contingent' : k === `status:${kC}` ? 'Monitor' : v]);
+		const res = await A.c.form(`${at('enforcement_tab')}?/status`, changed);
+		const st = (k) => savedRows().filter((r) => r.store === 'enforcement-status').map((r) => JSON.parse(r.fields)).filter((f) => f.stepKey === k);
+		return all({ oneForm: forms === 1, ok: res.status === 200, aSaved: J(st(kA).map((f) => f.status)) === J(['Contingent']), cSaved: J(st(kC).map((f) => f.status)) === J(['Monitor']), evidence: { status: res.status } });
+	});
+
+	await scenario('D8-D9-changed-version', 'enforcement_tab', 'a saved status a later version no longer offers stays selected (served HTML, labelled) and a no-JS Save keeps it; a step with an empty imported status keeps one row through Done, blank, Done, blank; a change made in another tab is not overwritten silently (D8, D9)', async () => {
+		const kB = keys[2];
+		await A.c.form(`${at('enforcement_tab')}?/status`, { stepKey: kB, status: 'Awaiting counsel' });
+		const v3 = await changedCase(join(tmp, 'v3'), main.caseDir);
+		const i3 = await A.c.importPkg(main.caseDir, v3.pkgDir);
+		await A.c.activate(i3.importId, { ack: true });
+		const V3 = A.v(v3.resultsVersion), at3 = `${V3.slice(A.origin.length)}${route('enforcement_tab')}`;
+		const html = (await A.c.get(at3)).text;
+		const sel = /<select[^>]*name="status:([0-9a-f]+)"[^>]*>([\s\S]*?)<\/select>/g;
+		let servedB = null;
+		for (const m of html.matchAll(sel)) if (m[1] === kB) servedB = m[2];
+		const optB = servedB && /<option[^>]*>Awaiting counsel \(no longer offered\)<\/option>/.exec(servedB)?.[0];
+		await p.goto(`${V3}${route('enforcement_tab')}`, ready('enforcement_tab'));
+		const shownB = await p.evaluate(`(() => { const s = document.querySelector('tr[data-step="${kB}"] select'); return { value: s.value, label: s.selectedOptions[0]?.textContent }; })()`);
+		const form = await p.evaluate(`[...new FormData(document.querySelector('#enf-form'))]`);
+		const nojs = await A.c.form(`${at3}?/status`, form);
+		const st = (k) => savedRows().filter((r) => r.store === 'enforcement-status').map((r) => JSON.parse(r.fields)).filter((f) => f.stepKey === k);
+		const bAfterNoJs = st(kB).map((f) => f.status);
+		// D9: step E, imported '', through the UI
+		const kE = await p.evaluate(`[...document.querySelectorAll('tr[data-step]')].find((r) => r.cells[0].textContent.trim() === 'Synthetic step E')?.dataset.step`);
+		const cycle = [];
+		for (const v of ['Done', '', 'Done', '']) {
+			await p.evaluate(`(() => { const s = document.querySelector('tr[data-step="${kE}"] select'); s.value = ${J(v)}; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+			cycle.push(await until(p, `!document.querySelector('tr[data-step="${kE}"] [data-saving]') && !!document.querySelector('tr[data-step="${kE}"] [data-saved]') && document.querySelector('tr[data-step="${kE}"] select').value === ${J(v)}`));
+		}
+		// two tabs: another tab saves step A; this page's choice for A is refused, kept, and saved on Retry
+		const kA = keys[0];
+		await A.c.form(`${at3}?/status`, { stepKey: kA, status: 'Done' });
+		await p.evaluate(`(() => { const s = document.querySelector('tr[data-step="${kA}"] select'); s.value = 'Monitor'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+		const stale = await until(p, `document.querySelector('tr[data-step="${kA}"] [data-save-error]')?.textContent.trim() ?? ''`);
+		const aBetween = st(kA).map((f) => f.status);
+		const keptChoice = await p.evaluate(`document.querySelector('tr[data-step="${kA}"] select').value`);
+		await p.click(`tr[data-step="${kA}"] [data-retry]`);
+		const retried = await until(p, `!!document.querySelector('tr[data-step="${kA}"] [data-saved]')`);
+		await A.c.form(`/v/${encodeURIComponent(v3.resultsVersion)}/overview?/rollback`, { expect: v3.resultsVersion, to: main.resultsVersion });
+		return all({
+			servedSelected: !!optB && /\bselected\b/.test(optB) && /value="Awaiting counsel"/.test(optB), shown: shownB.value === 'Awaiting counsel' && shownB.label === 'Awaiting counsel (no longer offered)',
+			noJsKeeps: nojs.status === 200 && J(bAfterNoJs) === J(['Awaiting counsel']),
+			cycleSaved: cycle.every((c) => c === true), oneRowE: J(st(kE).map((f) => f.status)) === J(['']),
+			staleRefused: /changed elsewhere/.test(stale ?? '') && /“Done”/.test(stale ?? '') && J(aBetween) === J(['Done']) && keptChoice === 'Monitor',
+			retrySaved: retried === true && J(st(kA).map((f) => f.status)) === J(['Monitor']), rolledBack: (await A.c.activeVersion()) === main.resultsVersion,
+			evidence: { optB, shownB, bAfterNoJs, cycle, stale },
+		});
+	});
+
 	// ---- restarts ---------------------------------------------------------------------------------------------------
 	await scenario('RESTART', 'heads_tab', 'saved rows survive one SIGKILL restart and one graceful restart: every register row and seed overlay compared by id and fields, and the pages show them', async () => {
 		const snap = () => J({ rows: savedRows(), overlays: overlays() });
@@ -454,7 +668,7 @@ try {
 		const shown = await p.evaluate(`[...document.querySelectorAll('#heads-table tbody tr[data-row]')].map((r) => r.dataset.row)`);
 		const ids = savedRows().filter((r) => r.store === 'heads' && r.case_id === CASE_ID).map((r) => r.row_id).sort();
 		const counts = JSON.parse(before);
-		return all({ rowsSaved: counts.rows.length >= 4, killed: killed?.graceful === false || killed?.exit?.sig === 'SIGKILL', afterKill: afterKill === before, gracefulStop: graceful?.graceful === true, afterGraceful: afterGraceful === before, pageShowsRows: J([...shown].sort()) === J(ids) && ids.length === 2, evidence: { rows: counts.rows.length, overlays: counts.overlays.length } });
+		return all({ rowsSaved: counts.rows.length >= 4, killed: killed?.graceful === false || killed?.exit?.sig === 'SIGKILL', afterKill: afterKill === before, gracefulStop: graceful?.graceful === true, afterGraceful: afterGraceful === before, pageShowsRows: J([...shown].sort()) === J(ids) && ids.length >= 2, evidence: { rows: counts.rows.length, overlays: counts.overlays.length } });
 	});
 
 	// ---- empty states and an empty export ---------------------------------------------------------------------------

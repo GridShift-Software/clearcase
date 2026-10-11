@@ -32,6 +32,11 @@
 //
 // Isolation: outside the network namespace the runner re-execs itself through tests/e2e/pilot/offline.sh (see
 // tests/e2e/pilot/v5/env.mjs) and proves inside that it is offline; there is no online fallback.
+//
+// Fail fast (tests/e2e/pilot/lib/lifecycle.mjs): each revision's browser launch (2 min) and each phase (cold overview,
+// warm navigation, PDF first page, download start: 15 min each; a phase takes well under a minute) run under a
+// deadline and end at once when Chromium exits or a page crashes. The run then stops with exit 1, naming the phase and
+// the cause, and measure-CC-03.json records `aborted` and `evidence: false`; `browser` records each launch.
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -60,6 +65,8 @@ mkdirSync(out, { recursive: true });
 const { proveOffline } = await import('../../tests/e2e/pilot/lib/netproof.mjs');
 const { startCanary } = await import('../../tests/e2e/pilot/lib/canary.mjs');
 const { launch, newPage } = await import('../../tests/e2e/pilot/lib/cdp.mjs');
+const { abortOf, abortReason, deadline, exitWithin, guard } = await import('../../tests/e2e/pilot/lib/lifecycle.mjs');
+const PHASE_MS = deadline(15 * 60_000);
 const { client, vpath } = await import('../../tests/e2e/pilot/lib/client.mjs');
 const { startServer } = await import('../../tests/e2e/pilot/lib/server.mjs');
 const { isolatedBuild } = await import('../../tests/e2e/pilot/lib/isolated-build.mjs');
@@ -157,7 +164,8 @@ async function measureRevision(label, full, portBase) {
 		},
 	};
 
-	const br = await launch({ profileRoot: join(work, 'profiles') });
+	const br = await guard(`${label}: browser launch`, deadline(2 * 60_000), () => launch({ profileRoot: join(work, 'profiles') }));
+	r.browser = br.launch;
 	try {
 		const INIT = `(() => {
 			const cc = window.__cc = { marks: {}, armed: { overview: true }, pending: {}, t0: null };
@@ -178,38 +186,41 @@ async function measureRevision(label, full, portBase) {
 		// cold usable overview
 		console.log(`${label}: cold overview ...`);
 		const cold = [];
-		for (let i = 0; i < WARMUP + SAMPLES; i++) {
+		await guard(`${label}: cold overview`, PHASE_MS, async () => { for (let i = 0; i < WARMUP + SAMPLES; i++) {
 			const p = await newPage(br, { fresh: true, initScript: INIT });
 			try {
 				await p.navigate(`${origin}${vpath(RV)}/overview`, { waitLoad: false });
 				const m = await p.waitFor('window.__cc && window.__cc.marks.overview', 30000);
 				cold.push({ i, warmup: i < WARMUP, ms: +m.at.toFixed(1), conditionSeenMs: +m.seen.toFixed(1), frameMs: +m.frame.toFixed(1), navigation: await nav(p) });
 			} finally { await p.close(); }
-		}
+		} });
 
 		// warm client-side navigation overview -> chronology
 		console.log(`${label}: warm navigation ...`);
 		const warm = [];
-		const P = await newPage(br, { initScript: INIT });
-		await P.s('Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => {});
-		await P.navigate(`${origin}${vpath(RV)}/overview`);
-		await P.waitFor('window.__cc && window.__cc.marks.overview', 30000);
-		for (let i = 0; i < WARMUP + SAMPLES; i++) {
-			const xy = await box(P, '#nav-chronology');
-			if (!xy) throw new Error('no #nav-chronology link on the overview');
-			await P.evaluate(`window.__cc.arm('chronology')`);
-			await click(P, xy);
-			const m = await P.waitFor(`window.__cc.marks.chronology && window.__cc.t0 !== null && { at: window.__cc.marks.chronology.at, seen: window.__cc.marks.chronology.seen, frame: window.__cc.marks.chronology.frame, t0: window.__cc.t0, path: location.pathname, api: (() => { const e = performance.getEntriesByType('resource').filter((x) => x.name.includes('/api/v/') && x.name.endsWith('/chronology')).at(-1); return e ? { start: e.startTime, end: e.responseEnd, transfer: e.transferSize, status: e.responseStatus } : null; })() }`, 30000);
-			if (!m.path.endsWith('/chronology')) throw new Error(`warm navigation ended at ${m.path}`);
-			warm.push({ i, warmup: i < WARMUP, ms: +(m.at - m.t0).toFixed(1), conditionSeenMs: +(m.seen - m.t0).toFixed(1), frameMs: +(m.frame - m.t0).toFixed(1), chronologyApi: m.api && m.api.start >= m.t0 ? { startMs: +(m.api.start - m.t0).toFixed(1), endMs: +(m.api.end - m.t0).toFixed(1), transferSize: m.api.transfer, status: m.api.status } : null });
-			await P.evaluate(`window.__cc.disarm('chronology')`);
-			const back = await box(P, '#nav-overview');
-			if (!back) throw new Error('no #nav-overview link on the chronology');
-			await P.evaluate(`window.__cc.arm('overview')`);
-			await click(P, back);
-			await P.waitFor(`window.__cc.marks.overview && location.pathname.endsWith('/overview')`, 30000);
-		}
-		const fullLoads = await P.evaluate(`performance.getEntriesByType('navigation').length`);
+		let P;
+		const fullLoads = await guard(`${label}: warm navigation`, PHASE_MS, async () => {
+			P = await newPage(br, { initScript: INIT });
+			await P.s('Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => {});
+			await P.navigate(`${origin}${vpath(RV)}/overview`);
+			await P.waitFor('window.__cc && window.__cc.marks.overview', 30000);
+			for (let i = 0; i < WARMUP + SAMPLES; i++) {
+				const xy = await box(P, '#nav-chronology');
+				if (!xy) throw new Error('no #nav-chronology link on the overview');
+				await P.evaluate(`window.__cc.arm('chronology')`);
+				await click(P, xy);
+				const m = await P.waitFor(`window.__cc.marks.chronology && window.__cc.t0 !== null && { at: window.__cc.marks.chronology.at, seen: window.__cc.marks.chronology.seen, frame: window.__cc.marks.chronology.frame, t0: window.__cc.t0, path: location.pathname, api: (() => { const e = performance.getEntriesByType('resource').filter((x) => x.name.includes('/api/v/') && x.name.endsWith('/chronology')).at(-1); return e ? { start: e.startTime, end: e.responseEnd, transfer: e.transferSize, status: e.responseStatus } : null; })() }`, 30000);
+				if (!m.path.endsWith('/chronology')) throw new Error(`warm navigation ended at ${m.path}`);
+				warm.push({ i, warmup: i < WARMUP, ms: +(m.at - m.t0).toFixed(1), conditionSeenMs: +(m.seen - m.t0).toFixed(1), frameMs: +(m.frame - m.t0).toFixed(1), chronologyApi: m.api && m.api.start >= m.t0 ? { startMs: +(m.api.start - m.t0).toFixed(1), endMs: +(m.api.end - m.t0).toFixed(1), transferSize: m.api.transfer, status: m.api.status } : null });
+				await P.evaluate(`window.__cc.disarm('chronology')`);
+				const back = await box(P, '#nav-overview');
+				if (!back) throw new Error('no #nav-overview link on the chronology');
+				await P.evaluate(`window.__cc.arm('overview')`);
+				await click(P, back);
+				await P.waitFor(`window.__cc.marks.overview && location.pathname.endsWith('/overview')`, 30000);
+			}
+			return P.evaluate(`performance.getEntriesByType('navigation').length`);
+		});
 
 		// cited PDF: first rendered page in the viewer wrapper
 		console.log(`${label}: PDF first page ...`);
@@ -226,17 +237,17 @@ async function measureRevision(label, full, portBase) {
 				return st.readyMs;
 			} finally { await t.close(); }
 		};
-		for (const [i, { x, warmup }] of pdfOrder.entries()) pdf.push({ i, warmup, ref: x.ref, size: x.size, ms: await openPdf(x) });
+		await guard(`${label}: PDF first page`, PHASE_MS, async () => { for (const [i, { x, warmup }] of pdfOrder.entries()) pdf.push({ i, warmup, ref: x.ref, size: x.size, ms: await openPdf(x) }); });
 		// supplementary, not gated: the largest PDFs of the register, to show how first-page time scales with size
 		const largest = [...files.filter((x) => x.mediaType === 'application/pdf')].sort((p, q) => q.size - p.size).slice(0, LARGEST);
 		const pdfLarge = [];
-		for (const [i, x] of largest.entries()) pdfLarge.push({ i, ref: x.ref, size: x.size, ms: await openPdf(x) });
+		await guard(`${label}: PDF first page (largest)`, PHASE_MS, async () => { for (const [i, x] of largest.entries()) pdfLarge.push({ i, ref: x.ref, size: x.size, ms: await openPdf(x) }); });
 
 		// download start
 		console.log(`${label}: download start ...`);
 		const dl = [];
 		const dlOrder = [...dlSet.warm.map((x) => ({ x, warmup: true })), ...dlSet.main.map((x) => ({ x, warmup: false }))];
-		for (const [i, { x, warmup }] of dlOrder.entries()) {
+		await guard(`${label}: download start`, PHASE_MS, async () => { for (const [i, { x, warmup }] of dlOrder.entries()) {
 			await P.navigate(`${origin}${vpath(RV)}/doc/${encodeURIComponent(x.ref)}`);
 			await P.waitFor(`document.querySelector('main[data-ready=${JSON.stringify(`doc:${x.ref}`)}]') !== null`, 30000);
 			const xy = await box(P, '#download-original');
@@ -248,7 +259,7 @@ async function measureRevision(label, full, portBase) {
 			const d = await ev;
 			await br.send('Browser.cancelDownload', { guid: d.guid }).catch(() => {});
 			dl.push({ i, warmup, ref: x.ref, size: x.size, mediaType: x.mediaType, ms: +(d.at - t0).toFixed(1) });
-		}
+		} });
 		r.raw = { coldOverview: cold, warmNavigation: warm, pdfFirstPage: pdf, downloadStart: dl, processStart: ps };
 		r.supplement = { pdfLargest: { gated: false, note: `the ${LARGEST} largest PDF originals, one sample each after the gated series (same method)`, samples: pdfLarge, over500Ms: pdfLarge.filter((x) => x.ms > BUDGETS.pdfFirstPage).length } };
 		r.notes = { warmNavigationFullDocumentLoads: fullLoads };
@@ -279,16 +290,22 @@ const result = {
 	sampleSets: { pdf: { warmup: pdfSet.warm.map((x) => ({ ref: x.ref, size: x.size })), kept: pdfSet.main.map((x) => ({ ref: x.ref, size: x.size })) }, download: { warmup: dlSet.warm.map((x) => ({ ref: x.ref, size: x.size, mediaType: x.mediaType })), kept: dlSet.main.map((x) => ({ ref: x.ref, size: x.size, mediaType: x.mediaType })) } },
 	revisions: {},
 };
-let failure = null;
+let failure = null, aborted = null;
 try {
 	result.revisions.baseline = await measureRevision('baseline', rev(a.baseline), PORTS.first + 20);
 	result.revisions.candidate = await measureRevision('candidate', rev(a.candidate), PORTS.first + 30);
-} catch (e) { failure = String(e?.stack ?? e); console.error(`cc03: ${failure}`); }
+} catch (e) {
+	aborted = abortOf(e, 'the measurement')?.record ?? null;
+	if (aborted) exitWithin(30_000, 1, 'cc03');
+	failure = aborted ? abortReason(aborted) : String(e?.stack ?? e);
+	console.error(`cc03: ${failure}`);
+}
 await canary.close().catch(() => {});
 result.canaryHits = canary.hits.map((h) => ({ kind: h.kind, host: h.host ?? h.sni ?? null }));
 result.finishedAt = new Date().toISOString();
 const cand = result.revisions.candidate;
 result.error = failure;
+if (aborted) Object.assign(result, { aborted, evidence: false, evidenceNote: `NOT release evidence: ${abortReason(aborted)}` });
 result.ok = !failure && cand?.status === 'PASS';
 writeFileSync(join(out, 'measure-CC-03.json'), JSON.stringify(result, null, 1));
 if (cand?.metrics) {

@@ -32,7 +32,7 @@
 	</PageHeader>
 
 	<p id="backup-binaries" class="warning"><b>Binaries are not included.</b> {data.note}</p>
-	<p><small>The file covers every table of saved work, so a table a later version adds is carried too; it also replaces v5's browser backup, which missed five of v5's 21 stores. A restore checks the whole file before it changes anything, keeps a copy of the current work first, and replaces only this case's work; other cases are left as they are. Accepted warnings are never carried.</small></p>
+	<p><small>The file covers every table of saved work, so a table a later version adds is carried too; it also replaces v5's browser backup, which missed five of v5's 21 stores. A restore checks the whole file before it changes anything, keeps a copy of the current work first (a file you can import again), and replaces only this case's work; other cases are left as they are. Accepted warnings are never carried.</small></p>
 
 	<section aria-labelledby="tables-h">
 		<h2 id="tables-h">What a backup holds now ({plural(data.rows, 'row')})</h2>
@@ -41,6 +41,15 @@
 			<tbody>{#each data.tables as t (t.name)}<tr><td><code class="wrap">{t.name}</code></td><td>{t.owner}</td><td class="num">{t.rows}</td></tr>{/each}</tbody>
 		</table></div>
 	</section>
+
+	{#if data.excluded.length}
+		<section aria-labelledby="excluded-h">
+			<h2 id="excluded-h">Not in the backup</h2>
+			<ul id="backup-excluded" class="warning">
+				{#each data.excluded as x (x.name)}<li><b>Not in the backup:</b> <code class="wrap">{x.name}</code> ({plural(x.rows, 'row')}): <span class="wrap">{x.reason}</span></li>{/each}
+			</ul>
+		</section>
+	{/if}
 
 	<section aria-labelledby="restore-h">
 		<h2 id="restore-h">Import state</h2>
@@ -62,11 +71,11 @@
 		{#if tooLarge}<p class="error wrap" role="alert" id="restore-too-large">{tooLarge} Nothing was sent.</p>{/if}
 		{#if form && 'message' in form && form.message}<p class="error wrap" role="alert" id="restore-error" data-code={'code' in form ? form.code : ''}>{form.message}</p>{/if}
 		{#if form && 'restored' in form && form.restored}
-			<p role="status" id="restore-done">Restored {plural(form.restored.rows, 'row')} in {plural(form.restored.tables, 'table')} from the backup of {form.restored.createdAt.slice(0, 16).replace('T', ' ')}.{form.restored.sameVersion ? '' : ' The backup was made on another results version of this case; notes keep their anchors and show as detached where a document is not in this version.'} A copy of the work before the restore was kept.</p>
+			<p role="status" id="restore-done">Restored {plural(form.restored.rows, 'row')} in {plural(form.restored.tables, 'table')} from the backup of {form.restored.createdAt.slice(0, 16).replace('T', ' ')}.{form.restored.sameVersion ? '' : ' The backup was made on another results version of this case; notes keep their anchors and show as detached where a document is not in this version.'} A copy of the work before the restore was kept in <code class="wrap" id="restore-copy">{form.restored.preRestore}</code>; it is outside the rotating backups, so later saves never remove it, and Import state can restore it.</p>
 		{/if}
 		{#if form && 'legacy' in form && form.legacy}
 			<div role="status" id="restore-legacy">
-				<p>This is a v5 browser backup (ess_dcs_backup.json). {form.legacy.changed ? `${plural(form.legacy.rows, 'row')} imported.` : 'Nothing was changed: importing v5 browser state is not available in this version.'}{form.legacy.error ? ` Import stopped: ${form.legacy.error}` : ''}</p>
+				<p>This is a v5 browser backup (ess_dcs_backup.json). {form.legacy.changed ? `${plural(form.legacy.rows, 'row')} imported.` : 'Nothing was changed: importing v5 browser state is not available in this version.'}{form.legacy.error ? ` Import stopped: ${form.legacy.error}` : ''}{#if form.legacy.preRestore} A copy of the work before the import was kept in <code class="wrap" id="restore-copy">{form.legacy.preRestore}</code>.{/if}</p>
 				<div class="scroll"><table id="legacy-keys"><thead><tr><th scope="col">Key</th><th scope="col">Result</th></tr></thead>
 					<tbody>{#each form.legacy.keys as k (k.key)}<tr><td><code class="wrap">{k.key}</code></td><td>{LEGACY[k.status] ?? k.status}</td></tr>{/each}</tbody></table></div>
 			</div>

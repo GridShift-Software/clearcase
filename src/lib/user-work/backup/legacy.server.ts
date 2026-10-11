@@ -6,7 +6,8 @@
 //    ess_dcs_bundle_header_v1, ess_dcs_bundle_extents_v1, ess_dcs_bundle_overrides_v1), and any other ess_dcs_* key
 //    (reported as unknown, never imported unless an importer claims it).
 //  * A null value is an unused store (v5 writes null for those) and is skipped, as v5's own import skips it.
-//  * Importers run one at a time, after a work.sqlite backup; each must write all of its keys or none (one
+//  * Importers run one at a time, after a copy of the work (`copyFirst`: a work.sqlite backup and a JSON copy, which
+//    refuses the import when it cannot be made); each must write all of its keys or none (one
 //    transaction). One that throws stops the import and the result says which keys were imported before it.
 import type { LocalCase } from '../../local-case/service.server.ts';
 import { V5_KEY, V5_LEGACY_KEYS, V5_STORES } from './v5-keys.ts';
@@ -29,6 +30,8 @@ export interface LegacyResult {
 	keys: { key: string; status: LegacyKeyStatus; importer: string | null }[];
 	rows: number;
 	error: string | null;
+	/** the JSON copy of the work taken before any importer ran (null when none ran) */
+	preRestore: string | null;
 }
 
 const importers = new Map<string, LegacyImporter>();
@@ -56,7 +59,7 @@ const LIVE = new Set(V5_STORES.map((s) => s.key));
 const LEGACY = new Set(V5_LEGACY_KEYS);
 
 /** Hand a v5 backup to the registered importers. With none registered for its keys, nothing is written. */
-export async function importLegacy(lc: LocalCase, o: Record<string, unknown>, active: { caseId: string; resultsVersion: string }): Promise<LegacyResult> {
+export async function importLegacy(lc: LocalCase, o: Record<string, unknown>, active: { caseId: string; resultsVersion: string }, copyFirst: () => string): Promise<LegacyResult> {
 	const keys: LegacyResult['keys'] = [];
 	const plan = new Map<LegacyImporter, string[]>();
 	for (const key of Object.keys(o).sort()) {
@@ -65,9 +68,9 @@ export async function importLegacy(lc: LocalCase, o: Record<string, unknown>, ac
 		else if (imp) { keys.push({ key, status: 'not-run', importer: imp.id }); plan.set(imp, [...(plan.get(imp) ?? []), key]); }
 		else keys.push({ key, status: LEGACY.has(key) ? 'legacy-unused' : LIVE.has(key) ? 'no-importer' : 'unknown', importer: null });
 	}
-	const result: LegacyResult = { changed: false, keys, rows: 0, error: null };
+	const result: LegacyResult = { changed: false, keys, rows: 0, error: null, preRestore: null };
 	if (!plan.size) return result;
-	lc.backupNow('pre-legacy-import');
+	result.preRestore = copyFirst();
 	for (const [imp, ks] of plan) {
 		try {
 			const r = await imp.import({ lc, caseId: active.caseId, resultsVersion: active.resultsVersion }, Object.freeze(Object.fromEntries(ks.map((k) => [k, o[k]]))));

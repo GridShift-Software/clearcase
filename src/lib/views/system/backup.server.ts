@@ -6,6 +6,7 @@ import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { error, fail, isHttpError } from '@sveltejs/kit';
 import { app } from '$lib/local-case/app.server';
+import type { LocalCase } from '$lib/local-case/service.server';
 import { ensureRescanProvider } from '$lib/local-case/rescan/rescan.server';
 import { BackupError, BINARIES_NOTE, MAX_BACKUP_BYTES, backupName, createBackup, restoreBackup } from '$lib/user-work/backup/backup.server';
 import { V5_LEGACY_KEYS, V5_STORES } from '$lib/user-work/backup/v5-keys';
@@ -20,18 +21,25 @@ function versionOf(vid: string) {
 	return { a, v };
 }
 
-export const load = async ({ params }: { params: Record<string, string> }) => {
-	const { a, v } = versionOf(params.vid);
+/** What the page shows: the tables a backup holds now, and the ones the export leaves out (never dropped silently). */
+export function backupPage(a: LocalCase, vid: string) {
+	const v = a.store.getVersion(vid)!;
 	const b = createBackup(a, v.id);
 	const owner = new Map(b.userWork.tables.map((t) => [t.name, t.owner]));
 	return {
 		tables: Object.entries(b.counts).map(([name, rows]) => ({ name, rows, owner: owner.get(name) ?? '' })),
 		rows: Object.values(b.counts).reduce((n, x) => n + x, 0),
+		excluded: (b.userWork.excluded ?? []).map((x) => ({ name: x.name, rows: x.rows, reason: x.reason })),
 		name: backupName(b),
 		note: BINARIES_NOTE,
 		maxBytes: MAX_BACKUP_BYTES,
 		v5: { stores: V5_STORES.length, legacy: V5_LEGACY_KEYS.length },
 	};
+}
+
+export const load = async ({ params }: { params: Record<string, string> }) => {
+	const { a, v } = versionOf(params.vid);
+	return backupPage(a, v.id);
 };
 
 /** The backup file of a version, for the download endpoint. */
@@ -70,7 +78,7 @@ export const actions = {
 		try {
 			const out = await restoreBackup(a, text, { caseId: v.case_id, resultsVersion: v.id });
 			if (out.kind === 'legacy') return { legacy: out.legacy };
-			return { restored: { createdAt: out.summary.createdAt, rows: out.summary.rows, tables: out.summary.tables.length, sameVersion: out.summary.sameVersion, resultsVersion: out.summary.resultsVersion } };
+			return { restored: { createdAt: out.summary.createdAt, rows: out.summary.rows, tables: out.summary.tables.length, sameVersion: out.summary.sameVersion, resultsVersion: out.summary.resultsVersion, preRestore: out.preRestore } };
 		} catch (e) {
 			if (e instanceof BackupError) return fail(e.code === 'wrong-case' || e.code === 'refused' ? 409 : 400, { message: e.message, code: e.code, path: typed });
 			// a busy store (503): nothing was written

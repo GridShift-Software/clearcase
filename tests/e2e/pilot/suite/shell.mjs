@@ -80,7 +80,8 @@ async function tabThroughNav(p) {
 /**
  * At most 40rem (640 px) the navigation stacks above main, is not sticky and main spans the viewport; 641 and 1280 px
  * keep two columns. At 390 px Tab reaches every nav link inside the nav box and the viewport, with no sideways scroll.
- * A case whose 64-character id has no break opportunity does not make its pages scroll sideways at 320 or 390 px.
+ * A case whose 64-character id has no break opportunity does not make its pages scroll sideways at 320 or 390 px. The
+ * chronology's wide grid scrolls inside its own box: the document's scrollWidth equals the viewport at 320, 390 and 640 px.
  */
 export async function narrowShell(ctx) {
 	const { A, b, main } = ctx;
@@ -93,11 +94,13 @@ export async function narrowShell(ctx) {
 	const pages = [
 		{ name: 'overview', url: `${V}/overview`, ready: ready('overview') },
 		{ name: 'document', url: `${V}/doc/OD-001`, ready: ready('doc:OD-001') },
+		{ name: 'chronology', url: `${V}/chronology`, ready: `${ready('chronology')} && ${ROWS}.length > 0` },
 		...(ex ? [{ name: `unavailable:${ex.id}`, url: `${V}${ex.route}`, ready: ready(`view:${ex.id}`) }] : []),
 	];
 	const U = A.v(unbroken.resultsVersion);
 	const unbrokenPages = [
 		{ name: 'unbroken-id:overview', url: `${U}/overview`, ready: ready('overview'), unbroken: true },
+		{ name: 'unbroken-id:chronology', url: `${U}/chronology`, ready: `${ready('chronology')} && ${ROWS}.length > 0`, unbroken: true },
 		...(ex ? [{ name: `unbroken-id:unavailable:${ex.id}`, url: `${U}${ex.route}`, ready: ready(`view:${ex.id}`), unbroken: true }] : []),
 	];
 	const screens = join(outDir(), 'screens');
@@ -117,7 +120,7 @@ export async function narrowShell(ctx) {
 				const narrow = width <= 640;
 				const ok = (narrow
 					? l.columns === 1 && l.navPosition !== 'sticky' && l.navBottom <= l.mainTop + 0.5 && Math.abs(l.mainLeft) <= 0.5 && Math.abs(l.mainWidth - l.vw) <= 1 &&
-						l.navOverflowY === 'auto' && l.navMaxHeight !== 'none' && l.headerWrap === 'wrap' && l.scrollWidth <= l.vw
+						l.navOverflowY === 'auto' && l.navMaxHeight !== 'none' && l.headerWrap === 'wrap' && l.scrollWidth === l.vw
 					: l.columns === 2 && l.navPosition === 'sticky' && l.navRight <= l.mainLeft + 0.5 && l.mainTop < l.navBottom && l.headerWrap === 'nowrap') &&
 					(!pg.unbroken || (l.scrollWidth === l.vw && l.banners.some((t) => t.includes(UNBROKEN_ID))));
 				out[`${width}:${pg.name}`] = { ok, ...l, screenshot: file };

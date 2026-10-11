@@ -10,6 +10,10 @@
 	let busy = $state(false);
 	let ready = $state(false);
 	let tooLarge = $state<string | null>(null);
+	// the typed path is component state, so neither a submit nor its result clears it; without JavaScript a refused
+	// restore renders it back from the form result
+	const typedPath = () => (form && 'path' in form ? (form.path ?? '') : '');
+	let path = $state(typedPath());
 	onMount(() => { ready = true; performance.mark('cc-ready'); });
 	const mib = (n: number) => `${(n / 1024 / 1024).toFixed(0)} MiB`;
 	function picked(e: Event) {
@@ -23,7 +27,7 @@
 	<PageHeader heading="Backup / Restore" section="Backup / Restore" caseName={data.version.titleName} subtitle="Save this case's work to a file, or restore it from one">
 		{#snippet actions()}
 			<a id="backup-export" href="{versionPath(data.version.id)}/system/backup_tab/download" download={data.name}>Export all state</a>
-			<small class="export-note">{data.name}</small>
+			<small class="export-note wrap">{data.name}</small>
 		{/snippet}
 	</PageHeader>
 
@@ -49,7 +53,7 @@
 			<fieldset disabled={busy}>
 				<legend class="visually-hidden">Restore a backup</legend>
 				<p><label for="restore-file">Backup file (up to {mib(data.maxBytes)})</label><br /><input type="file" name="file" id="restore-file" accept="application/json,.json" onchange={picked} /></p>
-				<p><label for="restore-path">or its full path on this computer</label><br /><input type="text" name="path" id="restore-path" value={form && 'path' in form ? (form.path ?? '') : ''} autocomplete="off" spellcheck="false" placeholder="/home/me/clearcase-backup.json" /></p>
+				<p><label for="restore-path">or its full path on this computer</label><br /><input type="text" name="path" id="restore-path" bind:value={path} autocomplete="off" spellcheck="false" placeholder="/home/me/clearcase-backup.json" /></p>
 				<p><label><input type="checkbox" name="confirm" value="yes" required id="restore-confirm" /> Yes, replace this case’s work with the backup’s</label></p>
 				<button id="restore-submit">Import state</button>
 				{#if busy}<span role="status" id="restore-busy">Checking and restoring…</span>{/if}

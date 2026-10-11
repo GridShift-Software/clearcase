@@ -1,7 +1,7 @@
 // CC-06 r2 scenarios of the quantum browser suite (GRS-16), run by suite.mjs after its own scenarios on the same
 // server and synthetic case. Payments: one failure slot per action, text typed while a save is in flight, two tabs
 // adding under a busy store, a Delete of a changed or gone row, leaving the page, with and without JavaScript (D1 to
-// D4, D8, D18, D20, and lane 04's passing scenarios). The calculators: results too large to show, years outside 1000 to
+// D4, D8, D18, and lane 04's passing scenarios). The calculators: results too large to show, years outside 1000 to
 // 9999, bounds, Settlement after an overpayment, Reset, and a field typed while Compute is in flight (D4 to D7, D10,
 // D11, D17). Prescription: a URL filter the controls cannot show, the filter without JavaScript, same-route navigation,
 // the South African as-of date (D9, D12, D19). Links by ref and broken unknown refs (D13). Failures are caused from
@@ -394,19 +394,6 @@ export async function r2({ b, S, sc, c, scenario, base, route }) {
 			out.push({ date, status: r.status, named: /Date: /.test(r.text ?? '') });
 		}
 		return { pass: out.every((o) => o.status === 400 && o.named) && stored().length === 0, evidence: { out, stored: stored().length } };
-	});
-	await scenario('Q-R2-D20-ZERO-GROUP', 'payments_tab', 'JS: 0,500 is refused as ambiguous, the text kept (no R 500.00)', async () => {
-		await clearAll();
-		const { p, k } = await js();
-		try {
-			await k.open(PAY, 'payments_tab');
-			await fill(p, [['#pay_amount', '0,500']]);
-			await k.click('#pay-add');
-			await p.waitFor(`!!document.getElementById('pay-error')`, 15000);
-			const r = { error: await err(p), kept: (await vals(p))[1], stored: stored().length };
-			await k.click('#pay-discard');
-			return { pass: /^0,500 is ambiguous/.test(r.error ?? '') && r.kept === '0,500' && r.stored === 0, evidence: r };
-		} finally { await p.close(); }
 	});
 
 	// ---- leaving the page with an unsaved entry ----------------------------------------------------------------------------

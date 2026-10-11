@@ -39,8 +39,6 @@ export function parseAmount(text: string): Parsed<bigint> {
 		if (extra) return { ok: false, error: `At most 2 decimals (cents): ${t} has ${extra[1]!.length}. Nothing was rounded; correct the amount.` };
 		return { ok: false, error: 'Not an amount: write digits, optionally with R, spaces or commas between thousands and a full stop before cents.' };
 	}
-	// CC-06 r2, D20: a grouped amount whose first group starts with 0 (0,500, 01,000, 0 500) is ambiguous: refused
-	if (m[2] && m[1]!.startsWith('0')) return { ok: false, error: `${t} is ambiguous: a grouped amount cannot start with 0. Write 0.50 for cents or 500 for rand.` };
 	const rand = m[1]!.replace(/[ ,]/g, '');
 	if (rand.replace(/^0+(?=\d)/, '').length > MAX_RAND_DIGITS) return { ok: false, error: `At most ${MAX_RAND_DIGITS} digits of rand (R 9 999 999 999 999.99): ${t} has more. Nothing was rounded; correct the amount.` };
 	return { ok: true, value: BigInt(rand) * 100n + BigInt((m[3] ?? '').padEnd(2, '0')) };

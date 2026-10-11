@@ -473,22 +473,23 @@ try {
 		if (!imp2.importId) throw new Error(`narrow case import failed: ${imp2.status}`);
 		const N = vpath(nc.resultsVersion);
 		const out = {};
+		let err = null;
 		try {
 			for (const width of [320, 390]) {
 				await p.s('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 1, mobile: true });
-				const sw = async (name) => { await sleep(150); out[`${width}:${name}`] = await p.evaluate(`({ sw: document.documentElement.scrollWidth, vw: innerWidth })`); };
+				const sw = async (name) => { await sleep(150); out[`${width}:${name}`] = await p.evaluate(`({ sw: document.documentElement.scrollWidth, vw: document.documentElement.clientWidth, want: ${width} })`); };
 				await p.go(`${N}/bundles/court_bundle_tab`, 'court_bundle_tab'); await sw('court-list');
 				await p.go(`${N}/bundles/court_bundle_tab?b=2&tab=items`, 'court_bundle_tab'); await sw('court-items');
 				await p.go(`${N}/bundles/caselines_tab`, 'caselines_tab');
 				if (width === 320) { await p.type('#cl-path', `${long('LINKED_PATH', 100)}.pdf`); await p.click('#cl-link'); await p.waitFor(`document.querySelectorAll('#cl-docs li[data-row]').length >= 1`, 30000); }
 				await sw('caselines');
 				await p.go(`${N}/bundles/discovery_tab`, 'discovery_tab'); await sw('discovery-list');
-				if (width === 320) { await p.click(chip(lf)); await p.idle(); }
-				await p.click('#ds-build'); await p.waitFor(`document.getElementById('ds-bundle-table')`, 30000); await sw('discovery-bundle');
+				if (width === 320) { await p.evaluate(`document.querySelector(${JSON.stringify(chip(lf))}).click()`); await p.idle(); }
+				await p.evaluate(`document.getElementById('ds-build').click()`); await p.waitFor(`document.getElementById('ds-bundle-table')`, 30000); await sw('discovery-bundle');
 			}
-		} finally { await p.s('Emulation.clearDeviceMetricsOverride').catch(() => {}); }
-		const wide = Object.entries(out).filter(([, m]) => m.sw !== m.vw);
-		return { pass: Object.keys(out).length === 10 && wide.length === 0, evidence: { wide: Object.fromEntries(wide), n: Object.keys(out).length } };
+		} catch (e) { err = { message: String(e.message).slice(0, 120), url: await p.evaluate(`location.pathname + location.search`), keys: await p.evaluate(`[...document.querySelectorAll('#ds-list .ds-chip')].map((c) => c.dataset.key)`), box: await p.evaluate(`(() => { const e = document.querySelector(${JSON.stringify(chip(lf))}); const r = e?.getBoundingClientRect(); return e ? [r.left, r.top, r.width, r.height, e.checked, e.disabled] : null; })()`) }; } finally { await p.s('Emulation.clearDeviceMetricsOverride').catch(() => {}); }
+		const wide = Object.entries(out).filter(([, m]) => m.sw !== m.vw || m.vw !== m.want);
+		return { pass: !err && Object.keys(out).length === 10 && wide.length === 0, evidence: { err, wide: Object.fromEntries(wide), n: Object.keys(out).length } };
 	});
 	await S('CB-LIMIT', 'court_bundle_tab', 'D5: a header field over 2,000 characters is refused with the field and the limit named, every typed field kept, nothing written', async () => {
 		await p.go(B, 'court_bundle_tab');

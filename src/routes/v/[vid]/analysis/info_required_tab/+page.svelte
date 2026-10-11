@@ -8,39 +8,57 @@
 	let { data, form } = $props();
 	// Every unsaved choice, per item key, until the server has saved that key: in flight, or failed with its message.
 	// A failed key keeps its choice, its error and its Retry until that key saves; a save of another key never clears
-	// it. Without JavaScript the action's failure carries the choice back.
+	// it. At most one save per key is in flight: a later choice waits in `queued` and goes out when the first settles,
+	// so the stored value is the last choice. Without JavaScript the action carries the failures back (`pending`), and
+	// every form posts those still shown.
+	type Failure = { key: string; done: boolean; message: string };
 	let choice = $state<Record<string, boolean>>({});
 	let failures = $state<Record<string, { done: boolean; message: string }>>({});
-	const sent: Record<string, number> = {};
-	const noJsFailure = $derived(form && 'key' in form && 'message' in form ? { key: String(form.key), done: form.done === true, message: String(form.message) } : null);
+	const inflight: Record<string, true> = {};
+	const queued: Record<string, boolean> = {};
+	let hydrated = $state(false);
+	const noJs = $derived<Failure[]>(hydrated || !form ? [] : [
+		...('key' in form && 'message' in form ? [{ key: String(form.key), done: form.done === true, message: String(form.message) }] : []),
+		...('pending' in form && Array.isArray(form.pending) ? (form.pending as Failure[]) : []),
+	].filter((f, i, all) => all.findIndex((g) => g.key === f.key) === i));
+	const order = (key: string) => data.rows.findIndex((r) => r.key === key);
 	// listed in the table's order
-	const problems = $derived([
+	const problems = $derived<Failure[]>([
 		...Object.entries(failures).map(([key, f]) => ({ key, ...f })),
-		...(noJsFailure && !(noJsFailure.key in failures) && !(noJsFailure.key in choice) ? [noJsFailure] : []),
-	].sort((a, b) => data.rows.findIndex((r) => r.key === a.key) - data.rows.findIndex((r) => r.key === b.key)));
-	const shown = (r: { key: string; done: boolean }) => choice[r.key] ?? (noJsFailure?.key === r.key ? noJsFailure.done : r.done);
+		...noJs.filter((f) => !(f.key in failures) && !(f.key in choice)),
+	].sort((a, b) => order(a.key) - order(b.key)));
+	const shown = (r: { key: string; done: boolean }) => choice[r.key] ?? noJs.find((f) => f.key === r.key)?.done ?? r.done;
 	const busy = (key: string) => key in choice && !(key in failures);
-	const unsaved = (key: string) => key in failures || (noJsFailure?.key === key && !(key in choice));
-	const submit: SubmitFunction = ({ formData }) => {
+	const unsaved = (key: string) => key in failures || (!(key in choice) && noJs.some((f) => f.key === key));
+	// send a queued choice through the row's own form, as a tick does
+	const flush = (key: string, done: boolean) => {
+		const form = document.querySelector<HTMLFormElement>(`tr[data-key="${CSS.escape(key)}"] form`);
+		const box = form?.querySelector<HTMLInputElement>('input[type=checkbox]');
+		if (form && box) { box.checked = done; form.requestSubmit(); }
+	};
+	const submit: SubmitFunction = ({ formData, cancel }) => {
 		const key = String(formData.get('key'));
 		const done = formData.get('done') === 'true';
-		const n = (sent[key] = (sent[key] ?? 0) + 1);
 		choice[key] = done;
 		delete failures[key];
+		if (key in inflight) { queued[key] = done; cancel(); return; }
+		inflight[key] = true;
 		return async ({ result, update }) => {
-			const latest = sent[key] === n;
-			if (result.type === 'success') { await update({ reset: false }); if (latest) delete choice[key]; }
-			else if (!latest) return;
+			if (result.type === 'success') await update({ reset: false });
 			else if (result.type === 'failure') failures[key] = { done, message: String(result.data?.message ?? 'Not saved.') };
 			else if (result.type === 'error') failures[key] = { done, message: result.status ? `Not saved: ClearCase answered ${result.status}. Your choice is kept; retry.` : 'Not saved: ClearCase could not be reached. Your choice is kept; retry when it is running.' };
 			else await update();
+			const next = queued[key];
+			delete queued[key];
+			delete inflight[key];
+			if (next !== undefined && next !== done) flush(key, next);
+			else if (result.type === 'success') delete choice[key];
 		};
 	};
 	const itemOf = (key: string) => data.rows.find((r) => r.key === key)?.item ?? '';
-	let hydrated = $state(false);
 	onMount(() => {
-		// a failure the action answered before hydration becomes a tracked failure, so a later save of another item keeps it
-		if (noJsFailure) { choice[noJsFailure.key] = noJsFailure.done; failures[noJsFailure.key] = { done: noJsFailure.done, message: noJsFailure.message }; }
+		// failures the action answered before hydration become tracked failures, so a later save of another item keeps them
+		for (const f of noJs) { choice[f.key] = f.done; failures[f.key] = { done: f.done, message: f.message }; }
 		hydrated = true;
 	});
 </script>
@@ -55,6 +73,7 @@
 					<form method="POST" action="?/toggle" use:enhance={submit} class="no-print retry">
 						<input type="hidden" name="key" value={pr.key} />
 						<input type="hidden" name="done" value={String(pr.done)} />
+						{#if !hydrated}{#each problems as f (f.key)}<input type="hidden" name="pending" value={JSON.stringify(f)} />{/each}{/if}
 						<button class="info-retry" aria-label="Retry: {itemOf(pr.key)}">Retry</button>
 					</form>
 				</div>
@@ -73,6 +92,7 @@
 							<td>
 								<form method="POST" action="?/toggle" use:enhance={submit}>
 									<input type="hidden" name="key" value={r.key} />
+									{#if !hydrated}{#each problems as f (f.key)}<input type="hidden" name="pending" value={JSON.stringify(f)} />{/each}{/if}
 									<input type="checkbox" name="done" value="true" aria-label="Done: {r.item}" checked={shown(r)}
 										onchange={(e) => e.currentTarget.form?.requestSubmit()} />
 									<noscript><button>Save</button></noscript>

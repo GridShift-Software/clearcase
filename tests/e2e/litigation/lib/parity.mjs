@@ -69,8 +69,10 @@ export async function registerEdit(p, ctx, view, { cleanup } = {}) {
 export async function deleteRowsWith(p, marker) {
 	for (let i = 0; i < 50; i++) {
 		const before = await tableRows(p);
-		const hit = await p.evaluate(`(() => { const r = [...document.querySelectorAll('#main table tbody tr')].find((r) => r.textContent.includes(${JSON.stringify(marker)}) && r.querySelector('button')); if (!r) return false; [...r.querySelectorAll('button')].find((b) => /delete/i.test(b.textContent)).setAttribute('data-parity-clean', String(${i})); return true; })()`);
+		// a row whose Delete is still in flight (disabled, 'Deleting…') is waited for, not pressed again
+		const hit = await p.evaluate(`(() => { const rows = [...document.querySelectorAll('#main table tbody tr')].filter((r) => r.textContent.includes(${JSON.stringify(marker)}) && r.querySelector('button')); if (!rows.length) return false; const b = rows.map((r) => [...r.querySelectorAll('button')].find((b) => /^delete$/i.test(b.textContent.trim()) && !b.disabled)).find(Boolean); if (!b) return 'busy'; b.setAttribute('data-parity-clean', String(${i})); return true; })()`);
 		if (!hit) return;
+		if (hit === 'busy') { await new Promise((r) => setTimeout(r, 100)); continue; }
 		await p.click(`[data-parity-clean="${i}"]`);
 		await changed(p, before);
 	}

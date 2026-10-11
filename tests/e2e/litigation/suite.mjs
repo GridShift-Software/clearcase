@@ -356,6 +356,10 @@ try {
 		await p.click('#conf-check');
 		await sleep(100);
 		const typed = { badge: await text(p, '#confres .badge'), kind: await p.evaluate(`document.querySelector('#confres .badge')?.dataset.result`), rows: await p.evaluate(`[...document.querySelectorAll('#confres tbody tr')].map((r) => [...r.cells].map((c) => c.textContent.trim()))`) };
+		// the blank option clears the box and the result, as v5 does
+		await p.evaluate(`(() => { const s = document.querySelector('#confsel'); s.value = ''; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+		await sleep(100);
+		const blank = { q: await val(p, '#confq'), result: await p.evaluate(`document.querySelector('#confres')?.textContent.trim() ?? ''`) };
 		const imported = ['Ann Lee', 'ann@x.test', 'Org A', 'Org A Ltd', 'supplier', viewContentText(main, 'conflict_tab', 'queryPlaceholder')].filter(Boolean);
 		const html = await p.evaluate(`document.querySelector('#main').innerHTML`);
 		// D15: the whole served document and the route's __data.json, not only #main
@@ -370,7 +374,8 @@ try {
 			placeholderNotServed: !!vcPh && !served.html.includes(vcPh) && served.dataStatus === 200 && !served.data.includes(vcPh),
 			pickByName: picked.q === 'Ann Lee' && picked.badge === '1 potential match(es) — review before acting' && J(picked.rows) === J([['Correspondent', 'Ann Lee (ann@x.test)', 'Org A']]),
 			known: typed.kind === 'matches' && typed.badge === '2 potential match(es) — review before acting' && J(typed.rows) === J([['Correspondent', 'Ann Lee (ann@x.test)', 'Org A'], ['Entity', 'Org A Ltd', 'supplier']]),
-			evidence: { ph, picked, typed },
+			blankClears: blank.q === '' && blank.result === '',
+			evidence: { ph, picked, typed, blank },
 		});
 	});
 

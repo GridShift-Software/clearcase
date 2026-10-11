@@ -12,7 +12,8 @@
 	// v5 runConflict reads the box when Check is pressed or a party is picked; there is no Enter handler
 	// (S-conflict_tab-3, copied). Nothing to search for is said, not silently cleared (D21).
 	const run = () => { result = matchConflict(query, data.people, data.entities); empty = result === null; };
-	const pick = (v: string) => { const o = options[Number(v)]; if (v === '' || !o) return; query = o.query; run(); };
+	// the blank option clears the box and the result, as in v5
+	const pick = (v: string) => { const o = v === '' ? undefined : options[Number(v)]; if (!o) { query = ''; result = null; empty = false; return; } query = o.query; run(); };
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>

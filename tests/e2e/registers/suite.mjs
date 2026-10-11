@@ -621,22 +621,100 @@ try {
 		return { evidence: after,
 			checks: { deleteFailed: /did not happen/.test(after.deleteError ?? '') && after.kept === 'Synthetic ask 1 TYPED', formLeft: after.editing === null && after.values.desc === '' && after.error === null } };
 	});
-	await scenario('SC22-stale-rebase', 'disbursements_tab', "after a 409 (changed in another tab) 'Load the current entry and keep my changes' takes the current version and keeps the typed values; Save then replaces the entry with them (verify r2 low 6)", async () => {
+	await scenario('SC22-stale-rebase', 'disbursements_tab', "after a 409 (changed in another tab) 'Load the current entry and keep my changes' takes the current version and keeps the typed values; a field the other tab changed and this tab left alone (Payee) takes the other tab's value, the field both changed names itself in a note; Save then keeps both changes (verify r2 low 6, review H1)", async () => {
 		const [r1] = await rows();
 		await editRow(r1.id);
 		// another tab saves a change to the same entry with the version this form holds
-		const other = await p.evaluate(`(async () => { const fd = new FormData(document.getElementById('register-form')); fd.set('desc', 'Synthetic other tab'); const r = await fetch(location.pathname + '?/save', { method: 'POST', body: fd, headers: { 'x-sveltekit-action': 'true' } }); return r.status; })()`);
+		const other = await p.evaluate(`(async () => { const fd = new FormData(document.getElementById('register-form')); fd.set('desc', 'Synthetic other tab'); fd.set('payee', 'Synthetic other payee'); const r = await fetch(location.pathname + '?/save', { method: 'POST', body: fd, headers: { 'x-sveltekit-action': 'true' } }); return r.status; })()`);
 		await fill({ desc: 'Synthetic stale TYPED' });
 		await p.click('#register-save');
 		await p.waitFor(`!!document.getElementById('register-error') && !document.getElementById('register-status')`, 30000);
 		const stale = { ...(await formState()), rebase: await p.evaluate(`!!document.getElementById('register-rebase')`), db: dbField('disbursements', r1.id, 'desc') };
 		if (stale.rebase) await p.click('#register-rebase');
-		const rebased = { ...(await formState()), values: await fieldValues() };
+		const rebased = { ...(await formState()), values: await fieldValues(), note: await p.evaluate(`document.getElementById('register-rebase-note')?.textContent.trim() ?? null`) };
 		await save(await count());
-		const after = { form: await formState(), db: dbField('disbursements', r1.id, 'desc') };
+		const after = { form: await formState(), db: dbField('disbursements', r1.id, 'desc'), payee: dbField('disbursements', r1.id, 'payee'), noteGone: await p.evaluate(`!document.getElementById('register-rebase-note')`) };
 		return { evidence: { other, stale, rebased, after },
 			checks: { conflict: /changed elsewhere/.test(stale.error ?? '') && stale.db === 'Synthetic other tab' && stale.rebase, kept: rebased.error === null && rebased.editing === r1.id && rebased.values.desc === 'Synthetic stale TYPED',
-				saved: after.db === 'Synthetic stale TYPED' && after.form.error === null && after.form.editing === null } };
+				otherFieldTaken: rebased.values.payee === 'Synthetic other payee', noteNamesField: /Description/.test(rebased.note ?? '') && !/Payee/.test(rebased.note ?? ''),
+				saved: after.db === 'Synthetic stale TYPED' && after.form.error === null && after.form.editing === null, otherFieldSurvived: after.payee === 'Synthetic other payee', noteGone: after.noteGone } };
+	});
+
+	// H2 (review): the delete of the entry being edited makes the form inert, so text typed meanwhile is not lost on success
+	await scenario('SC23-delete-inflight', 'disbursements_tab', "Edit X, then Delete X on a busy store: the form and Save are inert while the delete is in flight, text typed meanwhile does not enter the form, and after the store frees the row is deleted and the form is empty (review H2)", async () => {
+		await openView('disbursements_tab');
+		const [x] = await rows();
+		await editRow(x.id);
+		const loaded = await fieldValues();
+		const release = hold();
+		let during, typed, saveDuring;
+		try {
+			await p.click(`#register-table tr[data-row-id="${x.id}"] [data-delete]`);
+			await p.waitFor(`/Deleting/.test(document.getElementById('register-status')?.textContent ?? '')`, 5000);
+			during = await formState();
+			await p.type('#in-desc', 'Synthetic TYPED during delete');
+			typed = await fieldValues();
+			saveDuring = await p.evaluate(`document.getElementById('register-save').disabled`);
+		} finally { release(); }
+		await p.waitFor(`!document.querySelector('#register-table tr[data-row-id="${x.id}"]') && !document.getElementById('register-status')`, 30000);
+		const after = { form: await formState(), values: await fieldValues(), db: dbField('disbursements', x.id, 'desc') };
+		return { evidence: { during, typed, after },
+			checks: { inert: during.fieldsDisabled === true && saveDuring === true, shown: /Deleting/.test(during.status ?? ''), nothingTyped: typed.desc === loaded.desc && !JSON.stringify(typed).includes('TYPED during delete'),
+				deleted: after.db === null, formReset: after.form.editing === null && !after.form.fieldsDisabled && after.values.desc === '' } };
+	});
+
+	// M1 (review): the leave/discard question takes focus; Keep it gives it back; Discard moves it to the first field
+	await scenario('SC24-dialog-focus', 'disbursements_tab', "Back with typed input: the question takes focus on Keep it and Keep it returns focus to the typed field, never <body>; Edit on another row then Keep it returns focus to that Edit button; Discard focuses the first field (review M1)", async () => {
+		const [a, b2] = await rows();
+		const active = () => p.evaluate(`(() => { const e = document.activeElement; return { id: e?.id || null, edit: e?.closest?.('tr[data-row-id]')?.dataset.rowId ?? null, body: e === document.body } })()`);
+		await openView('timesheet_tab');
+		await p.click('#nav-disbursements_tab');
+		await p.waitFor(`${ready('disbursements_tab')} && !!document.querySelector('main#main[data-hydrated]')`, 15000);
+		await fill({ desc: 'Synthetic typed before Back' });
+		await p.evaluate('history.back()');
+		await p.waitFor(`!!document.getElementById('register-ask')`, 5000);
+		await sleep(100);
+		const asked = await active();
+		await p.click('#register-ask-keep');
+		await sleep(100);
+		const keptBack = { ...(await active()), path: await p.evaluate('location.pathname'), value: (await fieldValues()).desc };
+		await p.click(`#register-table tr[data-row-id="${b2.id}"] [data-edit]`);
+		await p.waitFor(`!!document.getElementById('register-ask')`, 5000);
+		await sleep(100);
+		const askedEdit = await active();
+		await p.click('#register-ask-keep');
+		await sleep(100);
+		const keptEdit = await active();
+		await p.click(`#register-table tr[data-row-id="${b2.id}"] [data-edit]`);
+		await p.waitFor(`!!document.getElementById('register-ask')`, 5000);
+		await p.click('#register-ask-discard');
+		await p.waitFor(`document.querySelector('#register-form')?.dataset.editing === ${J(b2.id)}`, 5000);
+		await sleep(100);
+		const discarded = await active();
+		return { evidence: { asked, keptBack, askedEdit, keptEdit, discarded, a: a.id },
+			checks: { askFocused: asked.id === 'register-ask-keep' && askedEdit.id === 'register-ask-keep', keepBack: keptBack.id === 'in-desc' && !keptBack.body && /disbursements_tab$/.test(keptBack.path) && keptBack.value === 'Synthetic typed before Back',
+				keepEdit: !keptEdit.body && keptEdit.edit === b2.id, discardFirstField: discarded.id === 'in-date' } };
+	});
+
+	// L1 (review): a case id of 64 characters with no break opportunity does not make the register pages scroll sideways
+	await scenario('SC25-narrow', 'disbursements_tab', 'the seven register pages of a case whose 64-character id has no break opportunity do not scroll sideways at 320 and 390 px (review L1)', async () => {
+		const unbroken = 'syn_unbroken_case_id_'.padEnd(64, '0123456789abcdefghijklmnopqrstuvwxyz');
+		const c = await buildCase(join(tmp, 'unbroken-id'), { caseId: unbroken });
+		const imp = await A.c.importPkg(c.caseDir, c.pkgDir);
+		if (!imp.importId) throw new Error(`unbroken-id import failed: ${imp.status} ${imp.location}`);
+		const layouts = {};
+		try {
+			for (const width of [320, 390]) {
+				await p.s('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 1, mobile: true });
+				for (const view of REGISTER_VIEWS) {
+					await p.goto(`${A.origin}${vpath(c.resultsVersion)}/registers/${view}`, `${ready(view)} && !!document.querySelector('main#main[data-hydrated]')`);
+					await p.evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))');
+					layouts[`${width}:${view}`] = await p.evaluate(`(() => { const de = document.documentElement; return { vw: de.clientWidth, scrollWidth: de.scrollWidth, banner: [...document.querySelectorAll('.banner')].some((e) => e.textContent.includes(${J(unbroken)})) }; })()`);
+				}
+			}
+		} finally { await p.s('Emulation.clearDeviceMetricsOverride').catch(() => {}); }
+		return { evidence: { idLength: unbroken.length, layouts },
+			checks: { idLength: unbroken.length === 64, noSideways: Object.values(layouts).every((l) => l.scrollWidth === l.vw), idShown: Object.values(layouts).every((l) => l.banner), all: Object.keys(layouts).length === 2 * REGISTER_VIEWS.length } };
 	});
 
 	await scenario('SC17-altered', 'popia_tab', 'a register row altered on disk since it was saved is marked on the page (D15); an entry of 60 000 CJK characters, under the 64 KiB store limit, is saved (multipart, D14)', async () => {

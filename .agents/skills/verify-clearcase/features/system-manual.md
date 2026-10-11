@@ -17,9 +17,9 @@ The Manual explains, offline, how the workspace works: starting and importing a 
 
 Preconditions:
 
-- `system-rescan` passed: one rescan addition.
+- `activate` passed: the synthetic version (7 originals) is active. The Manual's steps run before `system-rescan` (name order), so the case has no rescan addition yet.
 
-- **Badges and link check.** Choose `#nav-manual`, then `Verify link sample` (`#manual-verify`). Step `system-manual`. `#manual-badges` reads `Documents 8 (+1 via rescan)`, and `#manual-verify-result` is `1 of 1 found in the case folder.` with `tr[data-result=found]`.
+- **Badges and link check.** Choose `#nav-manual`, then `Verify link sample` (`#manual-verify`). Step `system-manual`. `#manual-badges` starts `Documents 7 Emails`, and `#manual-verify-result` is `1 of 1 found in the case folder.` with `tr[data-result=found]`.
 - **Back keeps the place.** Choose `#manual-rescan`, then Back. Step `system-manual`. The manual shows `#manual-link-list` again and focus is on the page heading (`[data-page-heading]`).
 - **OCR list.** *Covered in `tests/e2e/system` (SY9).* `#manual-ocr` opens `#manual-ocr-list`.
 - **Proof.** The screenshot `system-manual-links`.

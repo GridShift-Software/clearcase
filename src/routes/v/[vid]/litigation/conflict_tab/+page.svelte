@@ -44,10 +44,10 @@
 					<div class="badge neutral" data-result="none">{noMatchText(result.query)}</div>
 				{:else}
 					<div class="badge danger" data-result="matches">{matchCountText(result.hits.length)}</div>
-					<table>
+					<div class="grid-table"><table>
 						<thead><tr><th>Kind</th><th>Match</th><th>Detail</th></tr></thead>
 						<tbody>{#each result.hits as h, i (i)}<tr><td>{h.kind}</td><td>{h.match}</td><td>{h.detail}</td></tr>{/each}</tbody>
-					</table>
+					</table></div>
 				{/if}
 			{/if}
 		</div>
@@ -58,7 +58,8 @@
 <style>
 	.fields { display: flex; flex-wrap: wrap; gap: 0.5rem 0.75rem; align-items: flex-end; }
 	.fields > div { display: flex; flex-direction: column; }
-	.fields > .wide { flex: 2 1 16rem; }
+	.fields > .wide { flex: 2 1 16rem; min-width: 0; }
+	.fields select { max-width: 100%; min-width: 0; }
 	.fields > .go { flex: 0 0 auto; }
 	.scope { font-size: 0.9rem; color: #444; margin: 0.75rem 0; }
 	.badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 4px; margin-bottom: 0.6rem; }

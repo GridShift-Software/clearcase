@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { navigating, page } from '$app/state';
 	import DegradedRows from '$lib/components/DegradedRows.svelte';
@@ -13,6 +13,21 @@
 	const q = $derived(data.query);
 	const r = $derived(data.result);
 	const cov = $derived(data.coverage);
+	/** The form's fields. A search that lands sets them to what it searched, except a field typed in while it was in
+	 *  flight: that keeps the newer text. Any other navigation (a page, Back) sets a field only when its value changed. */
+	type Q = typeof data.query;
+	const KEYS = Object.keys(untrack(() => data.query)) as (keyof Q)[];
+	let f = $state<Q>(untrack(() => ({ ...data.query })));
+	let prev = untrack(() => data.query);
+	let sent: Q | null = null;
+	$effect(() => {
+		const nq = data.query;
+		untrack(() => {
+			for (const k of KEYS) if (!(sent && f[k] !== sent[k]) && (sent || nq[k] !== prev[k])) f[k] = nq[k];
+			prev = nq;
+			sent = null;
+		});
+	});
 	/** The submitted search with one change (a page, or the action items), replacing the URL entry. */
 	function go(extra: Record<string, string>) {
 		goto(`${page.url.pathname}?${paramsOf(q, extra)}`, { replaceState: true, keepFocus: true, noScroll: true });
@@ -25,7 +40,7 @@
 		try {
 			const res = await fetch(`${page.url.pathname}/export${s ? `?${s}` : ''}`);
 			if (!res.ok) { exportError = `The export failed: ${(await res.text()).slice(0, 200)}`; return; }
-			download('search.csv', await res.text());
+			download(data.exportName.name, await res.text());
 		} catch { exportError = 'The export failed: the app did not answer.'; }
 	}
 	const phase = $derived(data.actions ? 'actions' : r?.kind === 'results' ? (r.page.total ? 'results' : 'empty') : (r?.kind ?? 'idle'));
@@ -41,23 +56,23 @@
 	<p class="disclosure" id="search-coverage" data-documents={cov.documents} data-with-excerpt={cov.withExcerpt} data-max-excerpt={cov.maxExcerpt} data-none={cov.none} data-pending={cov.pending} data-left-out={data.failed.length ? data.failed.length : null}>
 		Search reads file names, refs, subjects, senders, To recipients and the indexed text excerpt of each document (at most {n(cov.maxExcerpt)} characters), not the full text. Cc recipients are searched only through Sender contains. {n(cov.withExcerpt)} of {n(cov.documents)} documents have an excerpt; {n(cov.none)} have no extracted text (scan · none) and {n(cov.pending)} are pending.{#if data.failed.length} Some documents are left out of the search and of these counts, because a document-row provider failed.{/if}
 	</p>
-	<form method="GET" class="card search-form" role="search" aria-label="Search the documents" data-sveltekit-keepfocus data-sveltekit-noscroll>
+	<form method="GET" class="card search-form" onsubmit={() => (sent = { ...f })} role="search" aria-label="Search the documents" data-sveltekit-keepfocus data-sveltekit-noscroll>
 		<div class="row">
-			<div><label class="fld" for="sq">Text</label><input class="in" id="sq" name="q" value={q.q} maxlength={MAX_TEXT} /></div>
-			<div><label class="fld" for="sb">Bundle</label><select class="in" id="sb" name="bundle" value={q.bundle}><option value="">All</option>{#each data.options.bundles as b (b.value)}<option value={b.value}>{b.label}</option>{/each}</select></div>
-			<div><label class="fld" for="st">Type</label><select class="in" id="st" name="type" value={q.type}><option value="">All</option>{#each data.options.types as t (t)}<option value={t}>{t}</option>{/each}</select></div>
-			<div><label class="fld" for="ss">Sender contains</label><input class="in" id="ss" name="sender" value={q.sender} maxlength={MAX_TEXT} /></div>
+			<div><label class="fld" for="sq">Text</label><input class="in" id="sq" name="q" bind:value={f.q} maxlength={MAX_TEXT} /></div>
+			<div><label class="fld" for="sb">Bundle</label><select class="in" id="sb" name="bundle" bind:value={f.bundle}><option value="">All</option>{#each data.options.bundles as b (b.value)}<option value={b.value}>{b.label}</option>{/each}</select></div>
+			<div><label class="fld" for="st">Type</label><select class="in" id="st" name="type" bind:value={f.type}><option value="">All</option>{#each data.options.types as t (t)}<option value={t}>{t}</option>{/each}</select></div>
+			<div><label class="fld" for="ss">Sender contains</label><input class="in" id="ss" name="sender" bind:value={f.sender} maxlength={MAX_TEXT} /></div>
 		</div>
 		<div class="row">
-			<div><label class="fld" for="sf">From date</label><input class="in" id="sf" name="from" type="date" value={q.from} /></div>
-			<div><label class="fld" for="sto">To date</label><input class="in" id="sto" name="to" type="date" value={q.to} /></div>
-			<div><label class="fld" for="samin">Amount min</label><input class="in" id="samin" name="amin" value={q.amin} /></div>
-			<div><label class="fld" for="samax">Amount max</label><input class="in" id="samax" name="amax" value={q.amax} /></div>
-			<div><label class="fld" for="sst">Text status</label><select class="in" id="sst" name="status" value={q.status}><option value="">Any</option>{#each data.options.statuses as s (s)}<option value={s}>{s}</option>{/each}</select></div>
+			<div><label class="fld" for="sf">From date</label><input class="in" id="sf" name="from" type="date" bind:value={f.from} /></div>
+			<div><label class="fld" for="sto">To date</label><input class="in" id="sto" name="to" type="date" bind:value={f.to} /></div>
+			<div><label class="fld" for="samin">Amount min</label><input class="in" id="samin" name="amin" bind:value={f.amin} /></div>
+			<div><label class="fld" for="samax">Amount max</label><input class="in" id="samax" name="amax" bind:value={f.amax} /></div>
+			<div><label class="fld" for="sst">Text status</label><select class="in" id="sst" name="status" bind:value={f.status}><option value="">Any</option>{#each data.options.statuses as s (s)}<option value={s}>{s}</option>{/each}</select></div>
 		</div>
 		<div class="toolbar">
 			<button id="search-run">Search</button>
-			<button type="button" id="search-export" onclick={exportCsv}>Export CSV</button>
+			<button type="button" id="search-export" onclick={exportCsv}>Export CSV</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}
 			<button type="button" id="search-actions" onclick={() => go({ actions: '1' })}>Extract action items</button>
 		</div>
 		{#if exportError}<p class="error" role="alert">{exportError}</p>{/if}

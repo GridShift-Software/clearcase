@@ -17,6 +17,8 @@ const { outDir } = await import('../pilot/lib/record.mjs');
 const { appServer } = await import('../pilot/suite/context.mjs');
 const { INIT, openPage } = await import('../pilot/suite/browser.mjs');
 const { buildCase, row } = await import('../pilot/lib/fixtures.ts');
+const { vcText } = await import('../pilot/suite/shell.mjs');
+const { EXPORT_NAME_NOTE } = await import('../../../src/lib/local-case/results.server.ts');
 
 const ROOT = resolve(process.env.E2E_ROOT ?? join(import.meta.dirname, '..', '..', '..'));
 const BUILD = resolve(process.env.E2E_BUILD_DIR ?? join(ROOT, 'build'));
@@ -218,7 +220,7 @@ try {
 			coverageNamesRecipients: /To recipients and the indexed text excerpt/.test(cov.text) && /Cc recipients are searched only through Sender contains\./.test(cov.text),
 			literal: bulk.result === 'results' && J(bulk.refs) === J(bulkExpected.slice(0, 50)) && bulk.count === `Showing 1–50 of ${bulkExpected.length} results`,
 			queryKeptAcrossPages: J(page2.refs) === J(bulkExpected.slice(50)) && page2.query === 'Synthetic bulk' && /q=Synthetic\+bulk/.test(page2.url) && /page=2/.test(page2.url),
-			exportOrder: dl.name === 'search.csv' && J(exported) === J(bulkExpected),
+			exportOrder: dl.name === vcText(sc, 'search', 'exportFileName') && J(exported) === J(bulkExpected),
 			bundleAndType: J(additionalReport.refs) === J(['VDM-901', 'VDM-902']),
 			reversedDate: reversedDate.result === 'invalid' && /From date is after To date/.test(reversedDate.invalid ?? '') && reversedDate.refs.length === 0 && reversedDate.count === null,
 			reversedAmount: reversedAmount.result === 'invalid' && /Amount min is greater than Amount max/.test(reversedAmount.invalid ?? ''),
@@ -243,7 +245,7 @@ try {
 		const doc = await p.evaluate(`({ path: location.pathname, h1: document.querySelector('main#main h1')?.textContent.trim() ?? null, original: document.querySelector('[data-original-state]')?.dataset.originalState ?? null, open: [...document.querySelectorAll('section.original a')].map((a) => a.textContent.trim()).filter(Boolean) })`);
 		const checks = {
 			nav: nav.ok, disclosure: disclosure === 'unverified', row: contract?.[0] === 'OD-001' && contract?.[5] === 'open ↗',
-			export: dl.name === 'contracts.csv' && dl.text.split('\r\n')[0] === 'group,ref,date,title,note,text_status,url' && dl.text.split('\r\n').length === 2,
+			export: dl.name === vcText(sc, 'contracts_tab', 'exportFileName') && dl.text.split('\r\n')[0] === 'group,ref,date,title,note,text_status,url' && dl.text.split('\r\n').length === 2,
 			citation: doc.path.endsWith('/doc/OD-001') && doc.original === 'present' && doc.open.length > 0,
 		};
 		return { pass: Object.values(checks).every(Boolean), evidence: { checks, nav: nav.got, contract, exportHead: dl.text.split('\r\n')[0], doc } };
@@ -379,7 +381,7 @@ try {
 			lostError: /could not be saved: the app did not answer/.test(lost.error) && J(Object.values(lost.typed)) === J(want(lostEntry)) && lost.dbBeforeRetry === 0 && lost.retryRows === 1,
 			gracefulRestart: graceful.graceful === true && J(afterGraceful.db) === J(beforeRestart.db) && J(afterGraceful.shown) === J(beforeRestart.shown),
 			killRestart: J(afterKill.db) === J(beforeRestart.db) && J(afterKill.shown) === J(beforeRestart.shown),
-			export: dl.name === 'filing-register.csv' && csv[0] === 'filing,fdate,fparty,response,rdate,ref,status' && csv.at(-1).startsWith("'=1+2,") && csv.length === afterKill.shown.length + 2,
+			export: dl.name === vcText(sc, 'filings_tab', 'registerExportFileName') && csv[0] === 'filing,fdate,fparty,response,rdate,ref,status' && csv.at(-1).startsWith("'=1+2,") && csv.length === afterKill.shown.length + 2,
 		};
 		return { pass: Object.values(checks).every(Boolean), evidence: { checks, nav: nav.got, seeds0, added, edited, reloaded, db1, busy, lost, graceful, beforeRestart: beforeRestart.shown, afterGraceful: afterGraceful.shown, afterKill: afterKill.shown, csvHead: csv[0], csvLast: csv.at(-1) } };
 	});
@@ -572,6 +574,167 @@ try {
 			retrySavesOnce: ev.afterRetry?.stored === 1 && ev.afterRetry?.storedDelta === 0 && ev.afterRetry?.mode === 'add' && ev.afterRetry?.saveError === null && !ev.afterRetry?.url?.includes('?'),
 			refusedAddKeepsInput: ev.addFailed?.mode === 'add' && ev.addFailed?.values.fl_filing === 'No-JS added filing' && ev.addFailed?.values.fl_response === 'No-JS added reply' && /could not be saved: the local store is busy/.test(ev.addFailed?.saveError ?? '') && ev.addFailed?.storedDelta === 0,
 			searchRefusalKeepsInput: ev.search?.result === 'invalid' && /Amount min is greater than Amount max/.test(ev.search?.invalid ?? '') && ev.search?.q === 'Synthetic' && ev.search?.amin === '10' && ev.search?.amax === '1',
+		};
+		return { pass: !ev.error && Object.values(checks).every(Boolean), evidence: { checks, ...ev } };
+	});
+
+	// ---- CC-04 r3: the verifier's lows (text typed after a save or during a search, a row deleted elsewhere) --------------
+	await scenario('E-R3-DRAFTS', 'filings_tab', "Filings and Search (CC-04 r3): text typed after a completed Save, before its redirect lands, is kept; a 'row gone' refusal with JavaScript offers the Add with the input kept, and Add re-creates it once; without JavaScript, an edit draft of a row deleted elsewhere comes back from a Delete with that refusal, never silently in Add mode; text typed into Search while a search is in flight is kept", async () => {
+		const ev = {};
+		const slow = (pg, latency) => pg.s('Network.emulateNetworkConditions', { offline: false, latency, downloadThroughput: -1, uploadThroughput: -1 });
+		const addRow = async (name) => {
+			const n = (await regRows()).length;
+			await setFields(p, { fl_filing: name });
+			await p.click('#register-add');
+			await p.waitFor(`document.querySelectorAll('#filing-register tbody tr[data-key]').length === ${n + 1} && !document.getElementById('register-status')`, 20000);
+			return (await regRows()).find((r) => r.filing === name)?.key;
+		};
+		/** Delete a row as another tab would, with JavaScript. */
+		const deleteElsewhere = async (key) => {
+			const other = await openPage(b, { initScript: INIT });
+			try {
+				await other.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
+				await other.click(deleteOf(key));
+				await other.waitFor(`!document.querySelector(${J(`#filing-register tr[data-key="${key}"]`)}) && !document.getElementById('register-status')`, 20000);
+			} finally { await other.close().catch(() => {}); }
+		};
+		await p.s('Network.enable').catch(() => {});
+		try {
+			await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
+			const [kS, kG, kN, kM] = [await addRow('Synthetic r3 saved row'), await addRow('Synthetic r3 gone row'), await addRow('Synthetic r3 no-JS gone row'), await addRow('Synthetic r3 other row')];
+			ev.keys = [kS, kG, kN, kM];
+
+			// low 1: the form is enabled once the save is answered, before its redirect lands; text typed then is kept
+			await p.goto(`${V}/evidence/filings_tab?edit=${encodeURIComponent(kS)}`, `${R('filings_tab')} && document.getElementById('register-form').dataset.mode === 'edit'`);
+			await setFields(p, { fl_response: 'Synthetic r3 saved reply' });
+			await slow(p, 1500);
+			try {
+				await p.click('#register-save');
+				await p.waitFor(`document.getElementById('register-form')?.dataset.mode === 'add' && !document.querySelector('#register-form fieldset').disabled`, 20000);
+				ev.typedBeforeLanding = await p.evaluate(`location.search.includes('edit=')`);
+				await p.type('#fl_filing', 'Synthetic typed after save');
+				await p.waitFor(`!location.search.includes('edit=') && [...document.querySelectorAll('#filing-register tbody tr[data-key]')].some((r) => r.textContent.includes('Synthetic r3 saved reply'))`, 20000);
+				await sleep(300);
+			} finally { await slow(p, 0); }
+			ev.afterLanding = await formOf(p);
+			await setFields(p, { fl_filing: '' });
+
+			// low 3: the row is deleted elsewhere; Save is refused as gone and the form offers the Add, keeping the input
+			await p.goto(`${V}/evidence/filings_tab?edit=${encodeURIComponent(kG)}`, `${R('filings_tab')} && document.getElementById('register-form').dataset.mode === 'edit'`);
+			await setFields(p, { fl_response: 'Synthetic r3 gone reply' });
+			await deleteElsewhere(kG);
+			await p.click('#register-save');
+			await p.waitFor(`!!document.getElementById('register-error') && !document.getElementById('register-status')`, 20000);
+			ev.gone = { ...(await formOf(p)), code: await p.evaluate(`document.getElementById('register-error')?.dataset.code ?? null`), add: await p.evaluate(`!!document.getElementById('register-add')`) };
+			await p.click('#register-add');
+			await p.waitFor(`!document.getElementById('register-error') && [...document.querySelectorAll('#filing-register tbody tr[data-key]')].some((r) => r.textContent.includes('Synthetic r3 gone reply'))`, 20000).catch(() => null);
+			ev.goneAdded = { ...(await formOf(p)), stored: storedFilings().filter((r) => r.filing === 'Synthetic r3 gone row' && r.response === 'Synthetic r3 gone reply').length };
+
+			// low 4: without JavaScript, an edit draft of a row deleted elsewhere, then a Delete of another row
+			const q = await openPage(b, { initScript: INIT });
+			try {
+				await q.s('Emulation.setScriptExecutionDisabled', { value: true });
+				const r = await q.navigate(`${V}/evidence/filings_tab?edit=${encodeURIComponent(kN)}`);
+				if (r.errorText) throw new Error(r.errorText);
+				await q.waitFor(`document.querySelector('main#main')?.dataset.ready === 'filings_tab' && document.getElementById('register-form')?.dataset.mode === 'edit'`, 20000);
+				await setFields(q, { fl_response: 'Synthetic r3 no-JS draft' }, false);
+				await deleteElsewhere(kN);
+				const mk = await q.evaluate('(window.__mk = Math.random())');
+				await q.click(deleteOf(kM));
+				await q.waitFor(`window.__mk !== ${mk} && document.querySelector('main#main')?.dataset.ready === 'filings_tab'`, 40000);
+				await sleep(200);
+				ev.noJsGone = { ...(await formOf(q)), code: await q.evaluate(`document.getElementById('register-error')?.dataset.code ?? null`), mDeleted: !storedFilings().some((r) => `row:${r.id}` === kM) };
+			} finally { await q.close().catch(() => {}); }
+
+			// low 2: text typed into Search while a search is in flight is kept when its result lands
+			await p.goto(`${V}/evidence/search`, R('search'));
+			await setFields(p, { sq: 'Synthetic' });
+			await slow(p, 1500);
+			try {
+				await p.click('#search-run');
+				await sleep(300);
+				await p.type('#sq', 'Synthetic typed later');
+				await p.waitFor(`document.getElementById('main').dataset.result === 'results' && !document.getElementById('main').dataset.busy`, 20000);
+				await sleep(300);
+			} finally { await slow(p, 0); }
+			ev.search = await p.evaluate(`({ q: document.getElementById('sq').value, searched: document.getElementById('main').dataset.search })`);
+		} catch (e) { ev.error = String(e?.message ?? e).split('\n')[0]; }
+		const checks = {
+			typedAfterSaveKept: ev.typedBeforeLanding === true && ev.afterLanding?.mode === 'add' && ev.afterLanding?.values.fl_filing === 'Synthetic typed after save' && ev.afterLanding?.saveError === null,
+			goneOffersAdd: ev.gone?.code === 'gone' && ev.gone?.mode === 'add' && ev.gone?.add && ev.gone?.values.fl_filing === 'Synthetic r3 gone row' && ev.gone?.values.fl_response === 'Synthetic r3 gone reply' && /no longer exists/.test(ev.gone?.saveError ?? ''),
+			goneAddsOnce: ev.goneAdded?.stored === 1 && ev.goneAdded?.saveError === null && ev.goneAdded?.mode === 'add',
+			noJsGoneSaysSo: ev.noJsGone?.mDeleted && ev.noJsGone?.mode === 'add' && ev.noJsGone?.code === 'gone' && /no longer exists/.test(ev.noJsGone?.saveError ?? '') && ev.noJsGone?.values.fl_filing === 'Synthetic r3 no-JS gone row' && ev.noJsGone?.values.fl_response === 'Synthetic r3 no-JS draft',
+			searchTypingKept: ev.search?.q === 'Synthetic typed later' && /(^|&)q=Synthetic(&|$)/.test(ev.search?.searched ?? ''),
+		};
+		return { pass: !ev.error && Object.values(checks).every(Boolean), evidence: { checks, ...ev } };
+	});
+
+	// ---- CC-04 r3 (D5): export names and the register intro from the package's view-content -------------------------
+	await scenario('E-EXPORT-NAMES', 'filings_tab', "Export names (CC-04 r3 D5): the filings, filing-register, contracts and search exports are named by the package's view-content with no note, and the register intro is its registerIntro then the app's storage sentence; a package without view-content (viewCode: false) uses the neutral names, each with the fixed note beside its export, and the neutral intro", async () => {
+		const STORAGE = "Saved in this case's local work store; imported rows stay as imported and your changes are kept apart from them.";
+		const EXPORTS = [['filings_tab', '#export-filings', 'exportFileName', 'filings.csv'], ['filings_tab', '#export-register', 'registerExportFileName', 'filing-register.csv'], ['contracts_tab', '#export-contracts', 'exportFileName', 'contracts.csv'], ['search', '#search-export', 'exportFileName', 'search.csv']];
+		const pathOf = (rv, view) => `${A.v(rv)}/evidence/${view}`;
+		async function run(rv) {
+			const out = { names: [], notes: [] };
+			for (const [view, sel] of EXPORTS) {
+				await p.goto(pathOf(rv, view), R(view));
+				await takeDownloads();
+				await p.click(sel);
+				for (const t0 = Date.now(); Date.now() - t0 < 10000; await sleep(50)) if (await p.evaluate('window.__dl.length > 0')) break;
+				out.names.push((await takeDownloads()).map((d) => d.name));
+				out.notes.push(await p.evaluate(`[...document.querySelector(${J(sel)}).parentElement.querySelectorAll('[data-export-note]')].map((e) => e.textContent.trim())`));
+				if (sel === '#export-filings') out.intro = await p.evaluate(`document.querySelector('.register-intro')?.textContent.trim() ?? null`);
+			}
+			return out;
+		}
+		const ev = {};
+		try {
+			ev.expected = EXPORTS.map(([view, , field]) => vcText(sc, view, field));
+			ev.intro = vcText(sc, 'filings_tab', 'registerIntro');
+			ev.named = await run(sc.resultsVersion);
+			const neutral = await buildCase(join(tmp, 'neutral'), { caseId: 'e2e-evidence-neutral', viewCode: false });
+			const imp = await A.c.importPkg(neutral.caseDir, neutral.pkgDir);
+			if (!imp.importId) throw new Error(`neutral import failed: ${imp.status}`);
+			ev.neutralFields = EXPORTS.map(([view, , field]) => vcText(neutral, view, field)).concat(vcText(neutral, 'filings_tab', 'registerIntro'));
+			ev.generic = await run(neutral.resultsVersion);
+		} catch (e) { ev.error = String(e?.message ?? e).split('\n')[0]; }
+		const checks = {
+			namedFromPackage: ev.expected?.every((x, i) => typeof x === 'string' && x !== EXPORTS[i][3]) && J(ev.named?.names) === J(ev.expected?.map((x) => [x])) && ev.named?.notes.every((n) => n.length === 0),
+			introFromPackage: typeof ev.intro === 'string' && ev.named?.intro === `${ev.intro} ${STORAGE}`,
+			neutralNamesWithNote: ev.neutralFields?.every((x) => x === null) && J(ev.generic?.names) === J(EXPORTS.map((x) => [x[3]])) && ev.generic?.notes.every((n) => J(n) === J([EXPORT_NAME_NOTE])),
+			neutralIntro: ev.generic?.intro === `Log each filing and the responding/replying affidavit. ${STORAGE}`,
+		};
+		return { pass: !ev.error && Object.values(checks).every(Boolean), evidence: { checks, ...ev } };
+	});
+
+	// ---- CC-04 r3 (D8): the sidebar keeps Documents' and Search's state (the base's ViewNav, BASE-R2d) ----------------
+	await scenario('E-SIDEBAR', 'documents', 'Sidebar round trip (CC-04 r3 D8): Documents with a bundle, a filter and page 2, then Search and back through the sidebar, comes back with the same query string and bundle; a submitted Search with results, then Documents and back, shows the result again, not idle', async () => {
+		const ev = {};
+		const state = () => p.evaluate(`({ search: location.search, bundle: document.getElementById('main')?.dataset.bundle ?? null, page: document.getElementById('main')?.dataset.page ?? null, result: document.getElementById('main')?.dataset.result ?? null, searched: document.getElementById('main')?.dataset.search ?? null })`);
+		try {
+			await p.goto(`${V}/evidence/documents?bundle=Original&q=bulk&page=2`, `${R('documents')} && document.getElementById('main').dataset.page === '2'`);
+			ev.docsBefore = await state();
+			await p.click('#nav-search');
+			await p.waitFor(R('search'), 15000);
+			await p.click('#nav-documents');
+			await p.waitFor(R('documents'), 15000);
+			await sleep(100);
+			ev.docsAfter = await state();
+			await p.goto(`${V}/evidence/search`, R('search'));
+			await setFields(p, { sq: 'Synthetic' });
+			await p.click('#search-run');
+			await p.waitFor(`document.getElementById('main').dataset.result === 'results' && ${R('search')}`, 15000);
+			ev.searchBefore = await state();
+			await p.click('#nav-documents');
+			await p.waitFor(R('documents'), 15000);
+			await p.click('#nav-search');
+			await p.waitFor(R('search'), 15000);
+			await sleep(100);
+			ev.searchAfter = await state();
+		} catch (e) { ev.error = String(e?.message ?? e).split('\n')[0]; }
+		const checks = {
+			documentsBack: ev.docsBefore?.page === '2' && ev.docsBefore?.bundle === 'Original' && /q=bulk/.test(ev.docsBefore?.search ?? '') && ev.docsAfter?.search === ev.docsBefore?.search && ev.docsAfter?.bundle === 'Original' && ev.docsAfter?.page === '2',
+			searchBack: ev.searchBefore?.result === 'results' && ev.searchAfter?.result === 'results' && ev.searchAfter?.search === ev.searchBefore?.search && ev.searchAfter?.searched === ev.searchBefore?.searched,
 		};
 		return { pass: !ev.error && Object.values(checks).every(Boolean), evidence: { checks, ...ev } };
 	});

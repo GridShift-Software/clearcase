@@ -1,4 +1,4 @@
-// verify-clearcase self-test: the two failure modes the runner must catch, without building anything.
+// verify-clearcase self-test: the failure modes the runner must catch, without building anything.
 //  1. clean checkout: the runner in a `git archive` copy without node_modules stops at preflight (exit 3) with the
 //     install command, and never builds, never launches Chromium and never runs `bun install` (shims record every
 //     bun and Chromium invocation; the only bun run allowed is the runner itself), and opens no connection: the
@@ -6,11 +6,18 @@
 //  2. missing tool: the same with CLEARCASE_CHROMIUM naming nothing, in this checkout (whose node_modules exist).
 //  3. stale or wrong-build instance: the live doctor against a server on the app port that answers /api/health for
 //     another process, data directory, build, Bun or storage state, or nothing at all, FAILS; the matching answer PASSES.
+//  4. the feature index (static, nothing built or started): every committed feature file keeps the entry contract; a
+//     broken file in a scratch features directory fails it; a scratch features/<feature>.steps.mjs is discovered and
+//     appended after the pilot's steps in name order; a duplicate step id, a step naming another feature, a module
+//     without a feature file and a module that throws when loaded are refused, naming the module; a hidden name (a
+//     dangling editor lock link `.#x.md`) is not discovered, and an unreadable feature file is a problem of that file.
 // Results: <report>/selftest-<id>/self-test.json. Exit 0 only when every case holds.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { liveDoctor } from './live-doctor.mjs';
+import { pilotSteps } from './drive.mjs';
+import { discoverFeatures, driveSteps, featureIndex } from './features.mjs';
 
 export async function selfTest(_o, ctx) {
 	const { SKILL, REPO, CHROME, ports, reportRoot, scratchRoot } = ctx;
@@ -107,6 +114,60 @@ export async function selfTest(_o, ctx) {
 		} finally { server.stop(true); }
 		const gone = await liveDoctor({ url: `http://127.0.0.1:${port}`, expect, timeoutMs: 1500 });
 		record('live doctor, nothing listening: FAIL on reachable', !gone.pass && gone.checks[0]?.name === 'reachable', { checks: gone.checks });
+
+		// 4. the feature index, static
+		const committed = await featureIndex(pilotSteps);
+		record('feature index: every committed feature file keeps the entry contract and every pilot step names one',
+			committed.ok && committed.features.length >= 6 && committed.features.every((f) => f.title && f.summary), { problems: committed.problems, features: committed.features.map((f) => f.id) });
+		const feature = (title, { paras = ['A synthetic feature used by the self-test.'], sections = ['Sub-features', 'How to get to it (user POV)', 'Driving it with verify-clearcase', 'Gotchas'], h1 = true } = {}) =>
+			[h1 ? `# ${title}` : '', '', ...paras.flatMap((x) => [x, '']), ...sections.flatMap((h) => [`## ${h}`, '', '- synthetic', ''])].join('\n');
+		const fdir = (name, files) => { const d = join(scratch, name); mkdirSync(d); for (const [f, t] of Object.entries(files)) writeFileSync(join(d, f), t); return d; };
+		const stepsModule = (feature, ids) => `export const steps = [${ids.map((id) => `{ id: ${JSON.stringify(id)}, feature: ${JSON.stringify(feature)}, title: 'synthetic', async run() { return {}; } }`).join(', ')}];\n`;
+		const broken = fdir('features-broken', {
+			'alpha.md': feature('Alpha'), 'README.md': '# Not a feature\n',
+			'b-order.md': feature('Order', { sections: ['Sub-features', 'Driving it with verify-clearcase', 'How to get to it (user POV)', 'Gotchas'] }),
+			'b-missing.md': feature('Missing', { sections: ['Sub-features', 'How to get to it (user POV)', 'Driving it with verify-clearcase'] }),
+			'b-no-title.md': feature('No title', { h1: false }),
+			'b-two-paragraphs.md': feature('Two', { paras: ['One paragraph.', 'Another paragraph.'] }),
+			'b-list.md': feature('List', { paras: ['- a list, not a paragraph'] }),
+		});
+		const found = discoverFeatures(broken);
+		const flagged = found.filter((f) => f.problems.length).map((f) => f.id);
+		const brokenIx = await featureIndex([], broken);
+		record('feature index: a scratch directory with broken feature files fails, naming each one (README is not a feature)',
+			!brokenIx.ok && JSON.stringify(found.map((f) => f.id)) === JSON.stringify(['alpha', 'b-list', 'b-missing', 'b-no-title', 'b-order', 'b-two-paragraphs']) && JSON.stringify(flagged) === JSON.stringify(['b-list', 'b-missing', 'b-no-title', 'b-order', 'b-two-paragraphs']),
+			{ flagged, problems: brokenIx.problems });
+		const pilot = [{ id: 'pilot-one', feature: 'alpha', title: 'synthetic pilot step', run() {} }];
+		const appended = fdir('features-steps', { 'alpha.md': feature('Alpha'), 'beta.md': feature('Beta'), 'beta.steps.mjs': stepsModule('beta', ['beta-open', 'beta-export']), 'alpha.steps.mjs': stepsModule('alpha', ['alpha-open']) });
+		const all = await driveSteps(pilot, appended);
+		const ix = await featureIndex(pilot, appended);
+		record('feature index: scratch features/<feature>.steps.mjs modules are discovered and appended after the pilot steps, in name order',
+			JSON.stringify(all.map((x) => `${x.feature}:${x.id}`)) === JSON.stringify(['alpha:pilot-one', 'alpha:alpha-open', 'beta:beta-open', 'beta:beta-export']) && ix.ok && JSON.stringify(ix.modules) === JSON.stringify(['alpha.steps.mjs', 'beta.steps.mjs']),
+			{ steps: all.map((x) => x.id), modules: ix.modules });
+		const refusals = {
+			'a step id the pilot already uses': [{ 'alpha.md': feature('Alpha'), 'alpha.steps.mjs': stepsModule('alpha', ['pilot-one']) }, /step id pilot-one is already used/],
+			'a step id another module already uses': [{ 'alpha.md': feature('Alpha'), 'beta.md': feature('Beta'), 'alpha.steps.mjs': stepsModule('alpha', ['same']), 'beta.steps.mjs': stepsModule('beta', ['same']) }, /beta\.steps\.mjs: step id same is already used/],
+			'a step naming another feature': [{ 'alpha.md': feature('Alpha'), 'beta.md': feature('Beta'), 'alpha.steps.mjs': stepsModule('beta', ['alpha-open']) }, /names feature "beta", not its own feature alpha/],
+			'a module without a feature file': [{ 'alpha.md': feature('Alpha'), 'gamma.steps.mjs': stepsModule('gamma', ['gamma-open']) }, /gamma\.steps\.mjs: no feature file features\/gamma\.md/],
+			'a module that throws when loaded': [{ 'alpha.md': feature('Alpha'), 'alpha.steps.mjs': "throw new Error('synthetic import failure');\n" }, /^features\/alpha\.steps\.mjs: synthetic import failure$/],
+		};
+		let n = 0;
+		for (const [name, [files, want]] of Object.entries(refusals)) {
+			const d = fdir(`features-refuse-${n++}`, files);
+			const err = await driveSteps(pilot, d).then(() => null, (e) => String(e.message));
+			const refusedIx = await featureIndex(pilot, d);
+			record(`feature index: ${name} is refused`, err !== null && want.test(err) && !refusedIx.ok, { error: err, problems: refusedIx.problems });
+		}
+		// hidden names and unreadable files: a dangling editor lock link is skipped, a dangling feature link is a problem
+		const odd = fdir('features-odd', { 'alpha.md': feature('Alpha') });
+		symlinkSync('user@host.1234:1', join(odd, '.#alpha.md'));
+		const hidden = await featureIndex(pilot, odd).catch((e) => ({ ok: false, problems: [String(e?.message ?? e)] }));
+		record('feature index: a hidden name (a dangling editor lock link .#alpha.md) is not discovered',
+			hidden.ok && JSON.stringify(hidden.features?.map((f) => f.id)) === JSON.stringify(['alpha']), { problems: hidden.problems, features: hidden.features?.map((f) => f.id) });
+		symlinkSync(join(odd, 'no-such-file.md'), join(odd, 'beta.md'));
+		const unreadable = await featureIndex(pilot, odd).catch((e) => ({ ok: false, thrown: String(e?.message ?? e), problems: [] }));
+		record('feature index: an unreadable feature file (a dangling link) is a contract problem of that file, not a crash',
+			!unreadable.ok && !unreadable.thrown && JSON.stringify(unreadable.problems) === JSON.stringify(['features/beta.md: cannot be read: ENOENT']), { thrown: unreadable.thrown, problems: unreadable.problems });
 	} catch (e) {
 		record('self-test harness', false, { error: String(e?.stack ?? e) });
 	} finally {

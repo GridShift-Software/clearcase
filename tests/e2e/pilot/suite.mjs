@@ -6,6 +6,10 @@
 // fails unless the offline proof passes, every scenario passes, and no real canary hit or off-origin request happened
 // outside a labelled positive control. Results: $CLEARCASE_E2E_OUT/suite.json (lib/record.mjs).
 // Ports: app/originals 43000-43298, canary 43299 (CANARY_PORT). E2E_STOP_AFTER=<id> ends a development run early (recorded as a PARTIAL failure).
+// Fail fast (lib/lifecycle.mjs): the browser launch (2 min) and each scenario (3 min; the whole suite takes about a
+// minute) run under a deadline and end at once when a browser exits or a page crashes. The run then stops: the
+// scenario fails, an ABORTED record names it and the cause, suite.json has `aborted` and `evidence: false`, and the
+// process exits 1 within seconds. `browser` records the launch (a failed first launch is retried once).
 process.env.CANARY_PORT ??= '43299';
 const { existsSync, mkdtempSync, readFileSync, rmSync } = await import('node:fs');
 const { tmpdir } = await import('node:os');
@@ -13,6 +17,7 @@ const { join, resolve } = await import('node:path');
 const { proveOffline } = await import('./lib/netproof.mjs');
 const { recorder } = await import('./lib/record.mjs');
 const { CHROME, CANARY_PORT, launch } = await import('./lib/cdp.mjs');
+const { abortOf, abortReason, deadline, exitWithin, guard } = await import('./lib/lifecycle.mjs');
 const { startCanary } = await import('./lib/canary.mjs');
 const { bunIdentity } = await import('./lib/server.mjs');
 const { hostileOriginals } = await import('./lib/fixtures.ts');
@@ -22,6 +27,7 @@ const flow = await import('./suite/main-flow.mjs');
 const sec = await import('./suite/security.mjs');
 const state = await import('./suite/state.mjs');
 const hostile = await import('./suite/hostile.mjs');
+const shell = await import('./suite/shell.mjs');
 
 const ROOT = resolve(process.env.E2E_ROOT ?? join(import.meta.dirname, '..', '..', '..'));
 const BUILD = resolve(process.env.E2E_BUILD_DIR ?? join(ROOT, 'build'));
@@ -29,7 +35,15 @@ const stamp = existsSync(join(BUILD, 'clearcase-build.json')) ? JSON.parse(readF
 const R = recorder('suite', { bun: bunIdentity(), root: ROOT, build: BUILD, buildStamp: stamp, chromium: CHROME, ports: PORTS, canaryPort: CANARY_PORT });
 const STOP = process.env.E2E_STOP_AFTER ?? null;
 let stopped = false;
-const step = async (id, title, fn) => { if (stopped) return; await R.step(id, title, fn); if (id === STOP) stopped = true; };
+const SCENARIO_MS = deadline(3 * 60_000);
+/** One scenario under its deadline; an abort (a dead browser, a timeout) fails it and ends the run. */
+const step = async (id, title, fn) => {
+	if (stopped) return;
+	let abort = null;
+	await R.step(id, title, () => guard(`scenario ${id}`, SCENARIO_MS, fn).catch((e) => { abort = abortOf(e, `scenario ${id}`); throw e; }));
+	if (abort) throw abort;
+	if (id === STOP) stopped = true;
+};
 
 const offline = await proveOffline();
 R.rec('NET-OFFLINE', 'the run is offline: only lo, outbound TCP and DNS fail, loopback works (proveOffline)', offline.pass ? 'PASS' : 'FAIL', offline);
@@ -56,11 +70,11 @@ const ctx = {
 	titleName: (sc) => shellText(sc, 'documentTitle') ?? ctx.caseName(sc),
 	brandName: (sc) => shellText(sc, 'brandName') ?? ctx.caseName(sc),
 };
-let canary, b, sites;
+let canary, b, sites, aborted = null;
 try {
 	canary = await startCanary();
 	sites = ctx.sites = helperSites(hostileOriginals()['HOSTILE/HX-005 open-action.pdf']);
-	b = ctx.b = await launch({ profileRoot: join(tmp, 'chromium') });
+	b = ctx.b = await guard('browser launch', deadline(2 * 60_000), () => launch({ profileRoot: join(tmp, 'chromium') }));
 	ctx.L = ledger(b, canary);
 	const t0 = Date.now();
 	await step('NET-CANARY', 'positive control (labelled): a page request to a non-loopback host reaches the canary, never the network', () => sec.canaryControl(ctx));
@@ -70,6 +84,7 @@ try {
 	await step('S1b', 'Preview of the imported candidate shows the candidate banner and the document count; preview never activates', () => flow.s1(ctx));
 	await step('ACT', 'activation through the UI: refused without the acknowledgement (ACK_REQUIRED, nothing changes); with it the version is active', () => flow.activation(ctx));
 	await step('CHRON', 'chronology in the browser: filters (incl. a non-standard bundle, type, status, text), stable sorts (date asc/desc, amount with empty = 0), row count', () => flow.chronology(ctx));
+	await step('NAV-STATE', "sidebar keeps each view's query for the tab session: the chronology's ?q= survives Advanced Search and the way back by the sidebar and by Back; a view opened with its own query keeps it, opened plainly it forgets it; sessionStorage only", () => state.navState(ctx));
 	await step('S25', 'chronology grid: div rows with content-visibility:auto; per-version JSON private, no-cache, ETag = read-model digest, 304', () => flow.s25(ctx));
 	await step('CITE', 'citations: [[REF]] and [[REF#p2]] are client-side app links; Open shows the PDF in the sandboxed viewer, at page 2 for #p2', () => flow.citations(ctx));
 	await step('BA-14', "keyboard: skip link first (no history entry), Tab + Enter on nav links (the example: the first registry view without an owner route, or 'none left'), heading focused after each navigation and after Back (also after the skip link, across a full load and from an in-page #code- fragment link), one history entry each", () => flow.keyboard(ctx));
@@ -78,6 +93,8 @@ try {
 	await step('SLOTS', "overview widget slots: deadlines, unbilled-time and rescan-freshness render data-slot-status=filled with their heading when the owner's overview-widgets.ts fills them, else unavailable naming GRS-17/GRS-20; the old combined card is gone", () => flow.overviewSlots(ctx));
 	await step('BA-04', "date basis column hidden while no row has a basis ('undated' in the Date column); with supplied date_type/date_source, 'unknown', 'undated' and the supplied values", () => flow.dateBasis(ctx));
 	await step('BA-09', 'source routes: e-mail original direct, attachments through the parent; an original deleted before import, or after activation, is unavailable, has no link and is 410; restoring it brings the links back', () => flow.sourceRoutes(ctx));
+	await step('EXPORT-NAME', "chronology export: the download (Browser.downloadWillBegin) is named by the package's view-content chronology.exportFileName with no note; a package without view-content (viewCode: false) downloads chronology.csv with the fixed note beside the export button", () => shell.exportName(ctx));
+	await step('NARROW', 'narrow shell: at 320, 390 and 640 px (at most 40rem) the navigation stacks above main (not sticky, bounded and scrolling), main starts at the left edge and spans the viewport, the top bar wraps, and no page scrolls sideways (overview, a document, the chronology, an unavailable view; also for a case whose 64-character id has no break opportunity at 320 and 390 px); at 390 px Tab reaches every nav link inside the nav and the viewport; at 641 and 1280 px two columns and a sticky navigation', () => shell.narrowShell(ctx));
 	await step('S4', 'a note added through the document page form appears without a reload, renders as text and persists', () => state.notesUi(ctx));
 	await step('S28', 'viewer containment: script in the sandboxed pdf.js frame cannot navigate, open popups, read originals, set cookies or reach the wrapper', () => sec.s28(ctx));
 	await step('S29', '/_pdfjs allowlist: inherited keys and malformed escapes 404 with CSP; listed files 200', () => sec.s29(ctx));
@@ -95,7 +112,12 @@ try {
 	if (!stopped || STOP === 'S13') await step('NET-ZERO', 'no real canary hit and no off-origin request from any page, frame or worker during the run (controls excluded and labelled)', () => sec.netZero(ctx, t0));
 	if (STOP) R.rec('PARTIAL', `development run stopped after ${STOP} (E2E_STOP_AFTER): not a complete run`, 'FAIL', { stopAfter: STOP });
 } catch (e) {
-	R.rec('HARNESS', 'suite harness', 'FAIL', { error: String(e?.stack ?? e).slice(0, 4000) });
+	const a = abortOf(e, 'the suite harness');
+	if (a) {
+		aborted = a.record;
+		R.rec('ABORTED', `run aborted in ${a.step}: ${a.why}`, 'FAIL', aborted);
+		exitWithin(30_000, 1, 'suite');
+	} else R.rec('HARNESS', 'suite harness', 'FAIL', { error: String(e?.stack ?? e).slice(0, 4000) });
 } finally {
 	for (const s of [ctx.A, ctx.B]) {
 		const st = await s.stop().catch((e) => ({ error: String(e) }));
@@ -106,4 +128,4 @@ try {
 	await canary?.close().catch(() => {});
 	rmSync(tmp, { recursive: true, force: true });
 }
-process.exit(R.finish() ? 0 : 1);
+process.exit(R.finish({ browser: b?.launch ?? null, ...(aborted ? { aborted, evidence: false, evidenceNote: `NOT release evidence: ${abortReason(aborted)}` } : {}) }) ? 0 : 1);

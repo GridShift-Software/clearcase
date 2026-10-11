@@ -140,14 +140,15 @@ try {
 		const full = { verdict: await text('#rescan-verdict'), current: await p.evaluate(`document.getElementById('rescan-status').dataset.current`) };
 		const index = await fetchText('#rescan-index');
 		const rows = JSON.parse(index.text);
+		const exportName = await p.evaluate(`({ download: document.getElementById('rescan-index')?.getAttribute('download') ?? null, note: document.querySelector('[data-export-note]')?.textContent.trim() ?? null })`);
 		await p.goto(`${A.origin}${vpath(rv)}/overview`, ready('overview'));
 		const stamp = await text('#freshness-stamp');
 		const slot = await p.evaluate(`document.querySelector('[data-slot="rescan-freshness"]')?.dataset.slotStatus ?? null`);
 		const docs = await p.evaluate(`document.getElementById('count-documents')?.dataset.count ?? null`);
-		return { evidence: { first, second, refs, statusAdded, again, statusAgain, full, index: { status: index.status, disposition: index.disposition, refs: rows.map((r) => r.ref) }, stamp, slot, docs },
+		return { evidence: { first, second, refs, statusAdded, again, statusAgain, full, exportName, index: { status: index.status, disposition: index.disposition, refs: rows.map((r) => r.ref) }, stamp, slot, docs },
 			checks: { unchanged: /^New: 0 · Already indexed: 7 · Total scanned: 7/.test(first.status ?? '') && first.status === second.status, quickNotCurrent: first.current === 'false' && /not compared/.test(first.verdict ?? ''),
 				distinct: refs.length === 3 && J([...refs].sort()) === J(['OD-005', 'OD-006', 'OD-007']), idempotent: J(again) === J(refs) && statusAgain === statusAdded,
-				fullNotCurrentWithAdditions: full.current === 'false', index: index.status === 200 && /filename="ess_dcs_rescan_v1\.json"/.test(index.disposition ?? '') && J(rows.map((r) => r.ref).sort()) === J([...refs].sort()),
+				fullNotCurrentWithAdditions: full.current === 'false', index: index.status === 200 && /filename="rescan-additions\.json"/.test(index.disposition ?? '') && exportName.download === 'rescan-additions.json' && /view-content|results package/.test(exportName.note ?? '') && J(rows.map((r) => r.ref).sort()) === J([...refs].sort()),
 				stamp: slot === 'filled' && / · 10 documents indexed · \+3 via rescan$/.test((stamp ?? '').replace(/\.$/, '')), overviewCount: docs === '10' } };
 	});
 
@@ -253,6 +254,16 @@ try {
 		return { evidence: { brv, empty, r, back }, checks: { sameVersion: brv === rv, emptyBefore: empty.length === 0, restored: /^Restored /.test(r.done ?? ''), refs: J(back) === J(refs) } };
 	});
 
+	await scenario('SY11-large-upload', 'backup_tab', 'a backup file over 512 KB (the old default request limit) uploads and restores', async () => {
+		// the note is outside the checksum, so padding it makes a valid backup larger than 512 KB
+		const padded = join(tmp, 'padded.json');
+		writeFileSync(padded, J({ ...backup, note: `${backup.note} ${' '.repeat(700 * 1024)}` }));
+		await openView('backup_tab');
+		const r = await restore({ file: padded });
+		rmSync(padded);
+		return { evidence: { r, bytes: 700 * 1024 }, checks: { restored: /^Restored /.test(r.done ?? '') && r.error === null } };
+	});
+
 	// 4. Bug classes on the restore form.
 	await scenario('SY7-nojs', 'backup_tab', 'without JavaScript: a refused restore re-renders with its reason and the typed path; a valid one then restores', async () => {
 		const bad = join(tmp, 'nojs-bad.json');
@@ -334,6 +345,13 @@ try {
 			}
 		} finally { await p.s('Emulation.clearDeviceMetricsOverride').catch(() => {}); }
 		return { evidence: { idLength: unbroken.length, layouts }, checks: { idLength: unbroken.length === 64, noSideways: Object.values(layouts).every((l) => l.scrollWidth === l.vw), all: Object.keys(layouts).length === 8 } };
+	});
+	await scenario('SY12-restart-documents', 'rescan_tab', 'after a restart, before any system page loads, the chronology list includes the rescan additions', async () => {
+		await A.stop();
+		await A.start();
+		const list = await fetch(`${A.origin}/api/v/${encodeURIComponent(rv)}/chronology`).then(async (r) => ({ status: r.status, text: await r.text() }));
+		const found = refs.filter((ref) => list.text.includes(J(ref)));
+		return { evidence: { status: list.status, refs, found }, checks: { ok: list.status === 200, additions: refs.length === 3 && found.length === 3 } };
 	});
 	ok = results.length > 0 && results.every((r) => r.pass);
 } catch (e) {

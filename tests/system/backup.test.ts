@@ -1,6 +1,7 @@
 // Backup / Restore (GRS-20): a backup carries every registered table of the case (built in and defined), restores
 // into a fresh profile, and a corrupt, incompatible, altered, wrong-case or legacy file leaves the active data
 // unchanged. The legacy import hook is tested with a fake importer (importing v5 state is out of scope).
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildCase } from '../e2e/pilot/lib/fixtures.ts';
@@ -9,6 +10,7 @@ import type { LocalCase } from '../../src/lib/local-case/service.server.ts';
 import { ackFor, cleanup, service, tempRoot } from '../../src/lib/local-case/test-support.ts';
 import { putOriginal } from '../e2e/pilot/lib/fixtures.ts';
 import { BACKUP_FORMAT, backupName, checkBackup, createBackup, restoreBackup, type BackupFile } from '../../src/lib/user-work/backup/backup.server.ts';
+import { backupPage } from '../../src/lib/views/system/backup.server.ts';
 import { legacyBackup, registerLegacyImporter } from '../../src/lib/user-work/backup/legacy.server.ts';
 import { V5_LEGACY_KEYS, V5_STORES } from '../../src/lib/user-work/backup/v5-keys.ts';
 
@@ -142,6 +144,62 @@ describe('backup', () => {
 		expect(JSON.stringify(a.userWork.exportAll().tables)).toBe(before);
 		a.backupNow('test-recovered');
 		expect(a.warnings.has('backup-failed')).toBe(false);
+	});
+});
+
+describe('restore keeps no stale work (review H1, M1)', () => {
+	let lc: LocalCase, vid: string;
+	const ID = 'fresh-case';
+	const rows = (table: string) => lc.userWork.exportAll().tables.find((t) => t.name === table)!.rows.filter((r) => r.case_id === ID).length;
+	beforeAll(async () => { ({ lc, rv: { [ID]: vid } } = await profile('h1', [{ caseId: ID, dir: path.join(root, 'h1') }])); }, 120_000);
+
+	it('H1: restoring a backup of an empty case removes the note and the deadline added since', async () => {
+		const empty = textOf(createBackup(lc, vid));
+		await lc.userWork.addNote(ID, vid, 'OD-001', 'added after the backup');
+		await lc.userWork.putRow(ID, 'deadlines', null, { title: 'File reply', date: '2001-03-01', seq: 1 });
+		expect([rows('note'), rows('register_row')]).toEqual([1, 1]);
+		const out = await restoreBackup(lc, empty, { caseId: ID, resultsVersion: vid });
+		expect(out.kind).toBe('restored');
+		expect([rows('note'), rows('register_row')]).toEqual([0, 0]);
+	});
+
+	it('M1: the copy of the work before a restore is a JSON file outside the rotation, and its path is returned', async () => {
+		const good = textOf(createBackup(lc, vid));
+		await lc.userWork.addNote(ID, vid, 'OD-002', 'kept in the copy');
+		const out = await restoreBackup(lc, good, { caseId: ID, resultsVersion: vid });
+		if (out.kind !== 'restored') throw new Error('not restored');
+		const copy = out.preRestore;
+		expect(copy).toBe(path.join(lc.storage.backupDir, 'pre-restore', path.basename(copy)));
+		expect(JSON.parse(readFileSync(copy, 'utf8')).userWork.tables.find((t: { name: string }) => t.name === 'note').rows).toHaveLength(1);
+		for (let i = 0; i < 12; i++) lc.backupNow(`rotate-${i}`);
+		expect(readdirSync(lc.storage.backupDir).filter((n) => /^work-.*\.sqlite$/.test(n)).length).toBeLessThanOrEqual(10);
+		expect(existsSync(copy)).toBe(true);
+	});
+
+	it('M1: a copy that cannot be written refuses the restore and changes nothing (also for a v5 backup)', async () => {
+		const dir = path.join(lc.storage.backupDir, 'pre-restore');
+		rmSync(dir, { recursive: true, force: true });
+		writeFileSync(dir, 'a file where the directory should be');
+		const good = textOf(createBackup(lc, vid));
+		await lc.userWork.addNote(ID, vid, 'OD-003', 'not in the backup');
+		const before = JSON.stringify(lc.userWork.exportAll().tables);
+		const undo = registerLegacyImporter({ id: 'm1', owner: 'TEST', keys: ['ess_dcs_deadlines_v1'], import: async () => ({ rows: 1 }) });
+		try {
+			await expect(restoreBackup(lc, good, { caseId: ID, resultsVersion: vid })).rejects.toMatchObject({ code: 'refused' });
+			await expect(restoreBackup(lc, JSON.stringify({ ess_dcs_deadlines_v1: [{ title: 'x' }] }), { caseId: ID, resultsVersion: vid })).rejects.toMatchObject({ code: 'refused' });
+		} finally { undo(); rmSync(dir, { force: true }); mkdirSync(dir); }
+		expect(JSON.stringify(lc.userWork.exportAll().tables)).toBe(before);
+	});
+
+	it('M2: the page data lists the tables the export leaves out', () => {
+		lc.storage.db().exec('CREATE TABLE work.stray_nopk(a TEXT, b TEXT)');
+		lc.storage.db().exec("INSERT INTO work.stray_nopk VALUES ('x', 'y')");
+		try {
+			const page = backupPage(lc, vid);
+			expect(page.excluded).toEqual([expect.objectContaining({ name: 'stray_nopk', rows: 1, reason: expect.any(String) })]);
+			expect(page.excluded[0].reason.length).toBeGreaterThan(0);
+		} finally { lc.storage.db().exec('DROP TABLE work.stray_nopk'); }
+		expect(backupPage(lc, vid).excluded).toEqual([]);
 	});
 });
 

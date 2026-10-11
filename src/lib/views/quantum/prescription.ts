@@ -1,8 +1,8 @@
 // Prescription (GRS-16): v5's filters, pages and export, with the filter in the URL so the controls always show it
 // (S-prescription_tab-1) and the export following the shown rows (S-prescription_tab-3, BA-17); and the arithmetic
-// checks of BA-01: how many imported prescription dates equal invoice date + 3 years, and how many fall on or before
-// an explicit as-of date. The imported dates and risk labels are shown unchanged; the legal rule (leap day, < or <=,
-// interruption) is not decided here. Browser-safe and pure.
+// checks of BA-01: how many imported prescription dates equal invoice date + 3 years, and how many fall before
+// an explicit as-of date. The imported dates and risk labels are shown unchanged; the legal rule (interruption) is
+// not decided here. Browser-safe and pure.
 import { toCSV } from '../../components/csv.ts';
 import { addYears, isIsoDate } from '../../calculations/dates.ts';
 
@@ -67,14 +67,14 @@ export const PRESC_COLUMNS = ['ref', 'no', 'date', 'prescDate', 'risk'] as const
 export const prescriptionCsv = (rows: readonly PrescRow[]) => toCSV([[...PRESC_COLUMNS], ...rows.map((r) => PRESC_COLUMNS.map((k) => r[k]))]);
 
 export type AsOf = 'passed' | 'not-reached' | 'no-date';
-/** Whether a row's imported prescription date is on or before the as-of date (arithmetic only). */
-export const asOfStatus = (r: PrescRow, asOf: string): AsOf => (!isIsoDate(r.prescDate) ? 'no-date' : r.prescDate <= asOf ? 'passed' : 'not-reached');
+/** Whether a row's imported prescription date is before the as-of date (arithmetic only: on the as-of date itself the window is still open). */
+export const asOfStatus = (r: PrescRow, asOf: string): AsOf => (!isIsoDate(r.prescDate) ? 'no-date' : r.prescDate < asOf ? 'passed' : 'not-reached');
 export const AS_OF_TEXT: Record<AsOf, string> = { passed: '3-yr date passed', 'not-reached': '3-yr date not reached', 'no-date': 'no valid date' };
 
 export interface Arithmetic { rows: number; plusThree: number; leapInvoices: number; leapMovedTo28: number; passed: number; asOf: string }
 /**
  * BA-01's two figures: rows whose imported prescription date is invoice date + 3 calendar years (29 February moved to
- * 28 February when the target year is not leap), and rows whose prescription date is on or before `asOf`.
+ * 28 February when the target year is not leap), and rows whose prescription date is before `asOf`.
  */
 export function arithmetic(rows: readonly PrescRow[], asOf: string): Arithmetic {
 	const leap = rows.filter((r) => isIsoDate(r.date) && r.date.endsWith('-02-29'));

@@ -97,8 +97,8 @@
 	<div class="q-card" id="presc-arithmetic">
 		<h3>Arithmetic checks</h3>
 		<p id="arith-plus3">{arith.plusThree} of {arith.rows} imported prescription dates are the invoice date plus 3 calendar years.{arith.leapInvoices ? ` ${arith.leapInvoices} invoices are dated 29 February; ${arith.leapMovedTo28} of them prescribe on 28 February.` : ''}</p>
-		<p id="arith-asof">{arith.passed} of {arith.rows} rows have a prescription date on or before the as-of date {arith.asOf} (today, South African time).</p>
-		<p class="q-note" id="arith-caution">Arithmetic only; legal rule (leap day, &lt; or ≤, interruption) not approved. The Prescribes (3yr) and Risk columns are imported as given; the risk labels were classified against the headline date {data.headlineDate || '(not in this package)'}, not against the as-of date.</p>
+		<p id="arith-asof">{arith.passed} of {arith.rows} rows have a prescription date before the as-of date {arith.asOf} (today, South African time).</p>
+		<p class="q-note" id="arith-caution">Arithmetic only; legal rule (interruption) not approved. The Prescribes (3yr) and Risk columns are imported as given; the risk labels were classified against the headline date {data.headlineDate || '(not in this package)'}, not against the as-of date.</p>
 	</div>
 </main>
 

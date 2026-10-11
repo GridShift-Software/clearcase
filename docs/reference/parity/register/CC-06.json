@@ -459,12 +459,12 @@
       "when": {
         "v5": "<absent>",
         "app": {
-          "re": "^\\d+ of \\d+ rows have a prescription date on or before the as-of date \\d{4}-\\d{2}-\\d{2} \\(today, South African time\\)\\.$"
+          "re": "^\\d+ of \\d+ rows have a prescription date before the as-of date \\d{4}-\\d{2}-\\d{2} \\(today, South African time\\)\\.$"
         }
       },
       "type": "improvement",
       "source": "BA-01",
-      "reason": "The card's second sentence (BA-01): the rows due on or before an explicit as-of date, the South African calendar date of the clock (CC-06 r2, D9), arithmetic only (S-prescription_tab-2, S-prescription-frozen). Its count is checked against the shown rows by IDR-237, which must be exactly 0 (CC-06 r2, D14).",
+      "reason": "The card's second sentence (BA-01): the rows whose prescription date is before an explicit as-of date (on the as-of date itself the window is still open; PO decision, 11 October), the South African calendar date of the clock (CC-06 r2, D9), arithmetic only (S-prescription_tab-2, S-prescription-frozen). Its count is checked against the shown rows by IDR-237, which must be exactly 0 (CC-06 r2, D14).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
       "approvedBy": null,
@@ -482,7 +482,7 @@
       },
       "type": "improvement",
       "source": "BA-01",
-      "reason": "Each row gets an As-of status computed from its imported prescription date and the as-of date (arithmetic only), next to the imported Risk label, so a label frozen against the headline date is visible as such (S-prescription_tab-2, S-prescription-frozen). The parity report lists this cell for every row. Which status a row shows is checked by IDR-237 (count.check.as_of_status_disagreements must be exactly 0; CC-06 r2, D14).",
+      "reason": "Each row gets an As-of status computed from its imported prescription date and the as-of date (arithmetic only; a row has passed when its prescription date is before the as-of date, not on it), next to the imported Risk label, so a label frozen against the headline date is visible as such (S-prescription_tab-2, S-prescription-frozen). The parity report lists this cell for every row. Which status a row shows is checked by IDR-237 (count.check.as_of_status_disagreements must be exactly 0; CC-06 r2, D14).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
       "approvedBy": null,
@@ -581,12 +581,12 @@
       "when": {
         "v5": "<absent>",
         "app": {
-          "re": "^Arithmetic only; legal rule \\(leap day, < or ≤, interruption\\) not approved\\. The Prescribes \\(3yr\\) and Risk columns are imported as given;"
+          "re": "^Arithmetic only; legal rule \\(interruption\\) not approved\\. The Prescribes \\(3yr\\) and Risk columns are imported as given;"
         }
       },
       "type": "improvement",
       "source": "BA-01",
-      "reason": "The Arithmetic checks card states that its figures are arithmetic only and the legal rule (leap day, < or <=, interruption) is not approved, and that the Prescribes and Risk columns are imported, the labels classified against the headline date (S-prescription_tab-2, S-prescription-frozen).",
+      "reason": "The Arithmetic checks card states that its figures are arithmetic only and the legal rule (interruption) is not approved, and that the Prescribes and Risk columns are imported, the labels classified against the headline date (S-prescription_tab-2, S-prescription-frozen).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
       "approvedBy": null,

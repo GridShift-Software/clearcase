@@ -50,12 +50,19 @@ describe('BA-01 arithmetic (synthetic fixture)', () => {
 		const a = arithmetic(fixture, '2091-02-28');
 		expect([a.rows, a.plusThree, a.leapInvoices, a.leapMovedTo28]).toEqual([6, 4, 2, 1]);
 	});
-	it('counts rows due on or before the as-of date (the boundary day counts as passed)', () => {
-		expect(arithmetic(fixture, '2091-02-28').passed).toBe(3);
+	it('counts rows whose date is before the as-of date (on the as-of date the window is still open)', () => {
+		expect(arithmetic(fixture, '2091-02-28').passed).toBe(2);
+		expect(arithmetic(fixture, '2091-03-01').passed).toBe(3);
 		expect(arithmetic(fixture, '2091-02-27').passed).toBe(2);
-		expect(asOfStatus(fixture[0]!, '2091-02-28')).toBe('passed');
-		expect(asOfStatus(fixture[0]!, '2091-02-27')).toBe('not-reached');
+		expect(asOfStatus(fixture[0]!, '2091-02-28')).toBe('not-reached');
+		expect(asOfStatus(fixture[0]!, '2091-03-01')).toBe('passed');
 		expect(asOfStatus(fixture[5]!, '2091-02-28')).toBe('no-date');
+	});
+	it('a row whose prescription date is the as-of date is open, and the count is 0', () => {
+		const one = [R('OD-1', 'A', '2088-02-29', '2091-02-28')];
+		expect(asOfStatus(one[0]!, '2091-02-28')).toBe('not-reached');
+		expect(arithmetic(one, '2091-02-28').passed).toBe(0);
+		expect(arithmetic(one, '2091-03-01').passed).toBe(1);
 	});
 	it('is identical under the same fixed clock (no hidden clock read)', () => {
 		expect(arithmetic(fixture, '2091-02-28')).toEqual(arithmetic(fixture, '2091-02-28'));

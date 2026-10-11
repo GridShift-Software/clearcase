@@ -18,6 +18,7 @@ const { INIT, openPage } = await import('../pilot/suite/browser.mjs');
 const { appServer, vpath } = await import('../pilot/suite/context.mjs');
 const { startServer } = await import('../pilot/lib/server.mjs');
 const { buildCase } = await import('../pilot/lib/fixtures.ts');
+const { SYNTH_VIEW_CODE } = await import('../../case-package/fixtures/synth.ts');
 const { parseCsv, parseIcs } = await import('../../../scripts/parity/lib/exports.mjs');
 const { VIEWS } = await import('../../../src/lib/components/view-registry.ts');
 const { EXPORT_NAME_NOTE } = await import('../../../src/lib/local-case/results.server.ts');
@@ -119,7 +120,9 @@ try {
 		return A.srv;
 	};
 	await A.start();
-	const sc = await buildCase(join(tmp, 'case'), { caseId: 'e2e-registers', edit: (r) => { r.DATA.chronology.find((x) => x.ref === 'OD-002').sender = AUTOMATED; } });
+	// the calendar's case part gets a ';' and a ',' so SC18 covers its TEXT escaping
+	const viewCode = SYNTH_VIEW_CODE.replace(/PRODID:-\/\/([^/]+)\/\//, 'PRODID:-//$1; synthetic, part//');
+	const sc = await buildCase(join(tmp, 'case'), { caseId: 'e2e-registers', viewCode, edit: (r) => { r.DATA.chronology.find((x) => x.ref === 'OD-002').sender = AUTOMATED; } });
 	const imp = await A.c.importPkg(sc.caseDir, sc.pkgDir);
 	const act = await A.c.activate(imp.importId);
 	rv = await A.c.activeVersion();
@@ -399,13 +402,29 @@ try {
 			await submit('disbursements_tab');
 			const refused = { form: await formState(), values: await fieldValues() };
 			const db = stored('disbursements').map((r) => r.fields.desc).sort();
+			// a refused Add on a busy store, then Delete of another row: the refusal, its Retry and the typed values stay
+			// (the Delete is off, with a note) until Retry saves the entry
+			await setVals({ desc: 'Synthetic no-JS busy', amount: '30' });
+			const release = hold();
+			try { await submit('disbursements_tab'); } finally { release(); }
+			const busy = { form: await formState(), note: await p.evaluate(`document.getElementById('register-nojs-note')?.textContent.trim() ?? null`) };
+			await p.evaluate('window.__nojs = 1');
+			await p.click('#register-table tbody tr[data-row-id] [data-delete]');
+			await sleep(1500);
+			if (await p.evaluate('window.__nojs !== 1')) await p.waitFor(ready('disbursements_tab'), 20000);
+			const afterDelete = { form: await formState(), values: await fieldValues(), db: stored('disbursements').length };
+			if (afterDelete.form.retry) { await p.evaluate('window.__nojs = 1'); await p.click('#register-retry'); await p.waitFor(`window.__nojs !== 1 && ${ready('disbursements_tab')}`, 20000); }
+			const retried = { form: await formState(), db: stored('disbursements').map((r) => r.fields.desc).sort() };
 			await at('deadlines_tab');
 			await setVals({ title: 'Synthetic no-JS deadline', date: '' });
 			await submit('deadlines_tab');
 			const deadline = { form: await formState(), values: await fieldValues(), db: stored('deadlines').filter((r) => r.fields.title === 'Synthetic no-JS deadline').length };
-			return { evidence: { hydrated, afterFirst, afterSecond, refused, db, deadline },
+			return { evidence: { hydrated, afterFirst, afterSecond, refused, db, busy, afterDelete, retried, deadline },
 				checks: { noScripts: !hydrated, addMode: afterFirst.save === 'Add' && afterFirst.rowId === null && afterFirst.editing === null, bothRows: J(afterSecond.rows) === J(['Synthetic no-JS first', 'Synthetic no-JS second']) && afterSecond.form.save === 'Add',
 					refusedKept: /decimal comma/.test(refused.form.error ?? '') && refused.values.amount === '1 500,50' && refused.values.desc === 'Synthetic no-JS refused' && refused.form.save === 'Add', dbTwo: J(db) === J(['Synthetic no-JS first', 'Synthetic no-JS second']),
+					busyRefused: /not saved/.test(busy.form.error ?? '') && busy.form.retry && busy.form.deleteDisabled.every(Boolean) && /Retry or discard/.test(busy.note ?? ''),
+					keptAfterDelete: /not saved/.test(afterDelete.form.error ?? '') && afterDelete.form.retry && afterDelete.values.desc === 'Synthetic no-JS busy' && afterDelete.values.amount === '30' && afterDelete.db === 2,
+					retrySaved: retried.form.error === null && J(retried.db) === J(['Synthetic no-JS busy', 'Synthetic no-JS first', 'Synthetic no-JS second']),
 					deadlineWhy: /^Title and Date must be filled in/.test(deadline.form.error ?? '') && deadline.values.title === 'Synthetic no-JS deadline' && deadline.db === 0 } };
 		} finally { await p.s('Emulation.setScriptExecutionDisabled', { value: false }); }
 	});
@@ -554,6 +573,72 @@ try {
 		});
 	}
 
+	// 20-22. CC-07 r3 (verify r2): the discard question during a save, a failed delete after a confirmed discard, a 409.
+	const ENTRY = { disbursements_tab: (n) => ({ date: `2026-10-0${n}`, desc: `Synthetic ask ${n}`, payee: 'Synthetic payee', amount: `${n}0` }), popia_tab: (n) => ({ activity: `Synthetic ask ${n}`, category: 'Synthetic category' }) };
+	const FIELD = { disbursements_tab: 'desc', popia_tab: 'activity' };
+	for (const view of ['disbursements_tab', 'popia_tab']) {
+		const k = FIELD[view];
+		await scenario(`SC20-${view}`, view, "the discard question open when a save starts closes and cannot be answered while the save is in flight; the failure stays on the submitted entry and Retry saves exactly that entry, never the other row (verify r2 medium 2)", async () => {
+			await clearView(view);
+			for (const n of [1, 2]) await add(ENTRY[view](n));
+			const [r1, r2] = await rows();
+			await editRow(r1.id);
+			await fill({ [k]: 'Synthetic ask 1 TYPED' });
+			await p.click(`#register-table tr[data-row-id="${r2.id}"] [data-edit]`);
+			await p.waitFor(`!!document.getElementById('register-ask')`, 5000);
+			const release = hold();
+			let during, failed;
+			try {
+				await p.click('#register-save');
+				await p.waitFor(`!!document.getElementById('register-status')`, 5000);
+				const askOpen = await p.evaluate(`!!document.getElementById('register-ask-discard')`);
+				if (askOpen) await p.click('#register-ask-discard');
+				await sleep(200);
+				during = { ...(await formState()), askOpen };
+				await p.waitFor(`!!document.getElementById('register-error')`, 30000);
+				failed = { ...(await formState()), values: await fieldValues() };
+			} finally { release(); }
+			const dbFailed = [dbField(STORE[view], r1.id, k), dbField(STORE[view], r2.id, k)];
+			if (failed.retry) await p.click('#register-retry');
+			await p.waitFor(`!document.getElementById('register-error') && !document.querySelector('#register-form[data-editing]') && !document.getElementById('register-status')`, 30000);
+			const after = { form: await formState(), db: [dbField(STORE[view], r1.id, k), dbField(STORE[view], r2.id, k)] };
+			return { evidence: { during, failed, dbFailed, after },
+				checks: { askClosed: !during.askOpen && during.ask === null && during.editing === r1.id, failureOnSubmitted: failed.editing === r1.id && failed.values.rowId === r1.id && failed.values[k] === 'Synthetic ask 1 TYPED' && /not saved/.test(failed.error ?? '') && failed.retry,
+					nothingWritten: J(dbFailed) === J(['Synthetic ask 1', 'Synthetic ask 2']), retrySavedSubmitted: J(after.db) === J(['Synthetic ask 1 TYPED', 'Synthetic ask 2']) && after.form.error === null } };
+		});
+	}
+	await scenario('SC21-discard-then-delete-fails', 'disbursements_tab', 'a confirmed discard for Delete of the edited row, then a failed delete: the form leaves the entry, so the typed text is not shown as the stored entry (verify r2 low 3)', async () => {
+		await openView('disbursements_tab');
+		const [r1] = await rows();
+		await editRow(r1.id);
+		await fill({ desc: 'Synthetic discarded TYPED' });
+		await p.click(`#register-table tr[data-row-id="${r1.id}"] [data-delete]`);
+		await p.waitFor(`!!document.getElementById('register-ask')`, 5000);
+		const release = hold();
+		try { await p.click('#register-ask-discard'); await p.waitFor(`!!document.getElementById('register-delete-error')`, 30000); } finally { release(); }
+		const after = { ...(await formState()), values: await fieldValues(), kept: dbField('disbursements', r1.id, 'desc') };
+		await p.click('#register-delete-dismiss');
+		return { evidence: after,
+			checks: { deleteFailed: /did not happen/.test(after.deleteError ?? '') && after.kept === 'Synthetic ask 1 TYPED', formLeft: after.editing === null && after.values.desc === '' && after.error === null } };
+	});
+	await scenario('SC22-stale-rebase', 'disbursements_tab', "after a 409 (changed in another tab) 'Load the current entry and keep my changes' takes the current version and keeps the typed values; Save then replaces the entry with them (verify r2 low 6)", async () => {
+		const [r1] = await rows();
+		await editRow(r1.id);
+		// another tab saves a change to the same entry with the version this form holds
+		const other = await p.evaluate(`(async () => { const fd = new FormData(document.getElementById('register-form')); fd.set('desc', 'Synthetic other tab'); const r = await fetch(location.pathname + '?/save', { method: 'POST', body: fd, headers: { 'x-sveltekit-action': 'true' } }); return r.status; })()`);
+		await fill({ desc: 'Synthetic stale TYPED' });
+		await p.click('#register-save');
+		await p.waitFor(`!!document.getElementById('register-error') && !document.getElementById('register-status')`, 30000);
+		const stale = { ...(await formState()), rebase: await p.evaluate(`!!document.getElementById('register-rebase')`), db: dbField('disbursements', r1.id, 'desc') };
+		if (stale.rebase) await p.click('#register-rebase');
+		const rebased = { ...(await formState()), values: await fieldValues() };
+		await save(await count());
+		const after = { form: await formState(), db: dbField('disbursements', r1.id, 'desc') };
+		return { evidence: { other, stale, rebased, after },
+			checks: { conflict: /changed elsewhere/.test(stale.error ?? '') && stale.db === 'Synthetic other tab' && stale.rebase, kept: rebased.error === null && rebased.editing === r1.id && rebased.values.desc === 'Synthetic stale TYPED',
+				saved: after.db === 'Synthetic stale TYPED' && after.form.error === null && after.form.editing === null } };
+	});
+
 	await scenario('SC17-altered', 'popia_tab', 'a register row altered on disk since it was saved is marked on the page (D15); an entry of 60 000 CJK characters, under the 64 KiB store limit, is saved (multipart, D14)', async () => {
 		await openView('popia_tab');
 		await add({ activity: 'Synthetic as saved', category: '', lawful: '', retention: '' });
@@ -580,9 +665,9 @@ try {
 		await openView('deadlines_tab');
 		const x = await exportNow();
 		const prodid = (x?.text ?? '').split('\r\n').find((l) => l.startsWith('PRODID:')) ?? null;
-		const esc = (s) => s.replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,');
+		const esc = (s) => s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,');
 		return { evidence: { part: part !== null, prodid: prodid !== null },
-			checks: { fromData: part !== null && prodid === `PRODID:-//${esc(part)}//Workspace//EN` } };
+			checks: { semicolon: part?.includes(';') === true && part.includes(','), fromData: part !== null && prodid === `PRODID:-//${esc(part)}//Workspace//EN` } };
 	});
 	// last, as it imports a second package: a package without view-content (viewCode: false), previewed as a candidate
 	await scenario('SC19-neutral-export', 'deadlines_tab', "a package that names no calendar file or PRODID: Export .ics downloads deadlines.ics with the fixed note beside the export, and the neutral PRODID (BASE-R2 exportFileName, D18)", async () => {

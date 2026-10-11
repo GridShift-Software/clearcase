@@ -148,7 +148,7 @@ try {
 		return { evidence: { first, second, refs, statusAdded, again, statusAgain, full, exportName, index: { status: index.status, disposition: index.disposition, refs: rows.map((r) => r.ref) }, stamp, slot, docs },
 			checks: { unchanged: /^New: 0 · Already indexed: 7 · Total scanned: 7/.test(first.status ?? '') && first.status === second.status, quickNotCurrent: first.current === 'false' && /not compared/.test(first.verdict ?? ''),
 				distinct: refs.length === 3 && J([...refs].sort()) === J(['OD-005', 'OD-006', 'OD-007']), idempotent: J(again) === J(refs) && statusAgain === statusAdded,
-				fullNotCurrentWithAdditions: full.current === 'false', index: index.status === 200 && /filename="rescan-additions\.json"/.test(index.disposition ?? '') && exportName.download === 'rescan-additions.json' && /view-content|results package/.test(exportName.note ?? '') && J(rows.map((r) => r.ref).sort()) === J([...refs].sort()),
+				fullNotCurrentWithAdditions: full.current === 'false', index: index.status === 200 && /filename="syn-index\.json"/.test(index.disposition ?? '') && exportName.download === 'syn-index.json' && exportName.note === null && J(rows.map((r) => r.ref).sort()) === J([...refs].sort()),
 				stamp: slot === 'filled' && / · 10 documents indexed · \+3 via rescan$/.test((stamp ?? '').replace(/\.$/, '')), overviewCount: docs === '10' } };
 	});
 

@@ -282,8 +282,8 @@ try {
 		await k.open(route('interest_calc_tab'), 'interest_calc_tab');
 		r.interest = { note: await p.evaluate(`document.querySelector('.narrative')?.textContent.trim() ?? null`), label: await k.text('#note-imported') };
 		const pass = r.note === 'Synthetic narrative: every invoice has prescribed.' && /^Imported narrative: not checked/.test(r.label ?? '') && /It counts 3 relying on interruption where 2 rows carry that label/.test(r.flag ?? '') &&
-			r.kpis[1]?.value === '3' && /legal rule \(leap day, < or ≤, interruption\) not approved/.test(r.caution ?? '') && /headline date 2094-01-10/.test(r.caution ?? '') &&
-			J(r.risk) === J(['Relies on interruption / 3-yr date passed', 'Relies on interruption / 3-yr date passed', 'Not yet due to prescribe / 3-yr date not reached', 'Not yet due to prescribe / 3-yr date not reached', 'Not yet due to prescribe / 3-yr date passed', 'Not yet due to prescribe / 3-yr date passed', 'Not yet due to prescribe / 3-yr date not reached']) &&
+			r.kpis[1]?.value === '3' && /legal rule \(interruption\) not approved/.test(r.caution ?? '') && /headline date 2094-01-10/.test(r.caution ?? '') &&
+			J(r.risk) === J(['Relies on interruption / 3-yr date passed', 'Relies on interruption / 3-yr date passed', 'Not yet due to prescribe / 3-yr date not reached', 'Not yet due to prescribe / 3-yr date not reached', 'Not yet due to prescribe / 3-yr date not reached', 'Not yet due to prescribe / 3-yr date passed', 'Not yet due to prescribe / 3-yr date not reached']) &&
 			r.interest.note === 'Synthetic basis narrative.' && /^Imported narrative/.test(r.interest.label ?? '');
 		return { pass, evidence: r };
 	});
@@ -317,7 +317,7 @@ try {
 		await S.stop();
 		await S.start();
 		const c2 = await snap();
-		return { pass: /as-of date 2026-10-08 \(today, South African time\)/.test(a.presc) && /^.*4 of 7 rows have a prescription date before/m.test(a.presc) && /"R 10 493.90"/.test(a.interest) && J(a) === J(b2) && J(a) === J(c2), evidence: { a, same: J(a) === J(b2), sameAfterRestart: J(a) === J(c2) } };
+		return { pass: /as-of date 2026-10-08 \(today, South African time\)/.test(a.presc) && /^.*3 of 7 rows have a prescription date before/m.test(a.presc) && /"R 10 493.90"/.test(a.interest) && J(a) === J(b2) && J(a) === J(c2), evidence: { a, same: J(a) === J(b2), sameAfterRestart: J(a) === J(c2) } };
 	});
 	// ---- CC-06 r2: lost edits, limits, dates, URL values, links (r2.mjs) ----------------------------------------------------
 	await r2({ b, S, sc, c, scenario, base, route });

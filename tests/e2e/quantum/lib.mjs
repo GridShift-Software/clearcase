@@ -33,8 +33,8 @@ export function quantumCase(root) {
 				{ no: 'SYNP2', ref: 'OD-002', date: '1987-05-31', prescDate: '1990-05-31', risk: 'Relies on interruption', url: inv },
 				{ no: 'SYNP3', ref: 'OD-003', date: '2088-02-29', prescDate: '2091-02-28', risk: 'Not yet due to prescribe', url: '' },
 				{ no: 'SYNP4', ref: 'SD-001', date: '2081-12-31', prescDate: '2084-12-31', risk: 'Not yet due to prescribe', url: '' },
-				// CC-06 r2: an unknown ref with a url (D13); a prescription date equal to the clock's date (passed: the <= rule,
-				// D14's M2); the not-yet-due label on a date that has passed (D14's M7); the day after the clock's UTC date (D9)
+				// CC-06 r2: an unknown ref with a url (D13); a prescription date equal to the clock's date (still open: the < rule,
+				// D14's M2, PO decision of 11 October); the not-yet-due label on a date that has passed (D14's M7); the day after the clock's UTC date (D9)
 				{ no: 'SYNP5', ref: 'ZZ-405', date: '', prescDate: '2026-10-08', risk: 'Not yet due to prescribe', url: inv },
 				{ no: 'SYNP6', ref: 'OD-001', date: '1986-04-30', prescDate: '1989-04-30', risk: 'Not yet due to prescribe', url: '' },
 				{ no: 'SYNP7', ref: 'SD-001', date: '', prescDate: '2026-10-09', risk: 'Not yet due to prescribe', url: '' },

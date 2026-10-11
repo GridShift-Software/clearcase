@@ -230,10 +230,12 @@ export class Doc implements Resolver {
 				const count = lx.obj(this);
 				if (typeof start !== 'number' || typeof count !== 'number') break;
 				lx.ws();
-				for (let i = 0; i < count; i++) {
+				// an entry is at least 18 bytes, so a count beyond the bytes left is damage; stop at the end of the file
+				for (let i = 0, n = Math.min(count, Math.ceil((this.b.length - lx.p) / 18)); i < n; i++) {
 					const o = lx.obj(this);
 					lx.obj(this);
 					const ty = lx.token();
+					if (ty === null) break;
 					if (ty === 'n' && typeof o === 'number' && !this.xref.has(start + i)) this.xref.set(start + i, { off: o });
 				}
 			}
@@ -266,6 +268,7 @@ export class Doc implements Resolver {
 		const ix = s.d.get('Index');
 		const index = Array.isArray(ix) ? ix.map((x) => (typeof x === 'number' ? x : 0)) : [0, typeof size === 'number' ? size : 0];
 		const rl = w.reduce((a, x) => a + x, 0);
+		if (!(rl > 0)) return false;
 		let pos = 0;
 		for (let k = 0; k + 1 < index.length; k += 2) {
 			const st = index[k];

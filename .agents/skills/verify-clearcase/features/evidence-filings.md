@@ -8,7 +8,7 @@ Filings shows the imported filing groups and a filing ↔ replying-affidavit reg
 - `filings-add` adds a register row (`#register-add`); an empty Filing is refused and one of spaces is accepted, as in v5.
 - `filings-edit` edits a row (`Edit` → `?edit=<key>` → `#register-save`).
 - `filings-delete` deletes a row (`[data-delete]`, a submit button of `#register-form` that also posts the form's draft); a seed row is hidden by an overlay. The edited row's Delete is inert.
-- `filings-export` `filings.csv` and `filing-register.csv` (user-entered cells neutralised).
+- `filings-export` the filings and register exports, named by the package's view-content (`exportFileName`, `registerExportFileName`; else `filings.csv` and `filing-register.csv` with `[data-export-note]`), user-entered cells neutralised.
 
 ## How to get to it (user POV)
 

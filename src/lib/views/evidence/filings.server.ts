@@ -3,7 +3,7 @@
 // (see filings.ts).
 import { fail, isHttpError, redirect, type RequestEvent } from '@sveltejs/kit';
 import { app } from '../../local-case/app.server.ts';
-import { datasetOf, viewContentOf, viewText } from '../../local-case/results.server.ts';
+import { datasetOf, exportFileName, viewContentOf, viewText } from '../../local-case/results.server.ts';
 import { evidenceRows } from './rows.server.ts';
 import { REGISTER_STORE, SAVE_FAILURES, SEED_DATASET, asFields, formFields, nextSeq, registerEntries, rowVersion, saveFailure, type FilingsData, type SaveFailure, type SeedViewLike } from './filings.ts';
 
@@ -14,6 +14,11 @@ function register(caseId: string, rv: string) {
 	const rows = a.userWork.listRows(caseId, REGISTER_STORE);
 	return { seeds, rows, entries: registerEntries(seeds, rows) };
 }
+
+/** The app's own storage sentence: v5's said the register is saved in the browser, which is false here (S-seed-copy). */
+export const REGISTER_STORAGE = "Saved in this case's local work store; imported rows stay as imported and your changes are kept apart from them.";
+/** The register paragraph: the package's introduction (v5's case wording, view-content) or the neutral one, then the storage sentence. */
+export const registerIntro = (imported: string | null) => `${imported ?? 'Log each filing and the responding/replying affidavit.'} ${REGISTER_STORAGE}`;
 
 export const filingsLoad = async ({ parent, url }: { parent: () => Promise<{ version: { id: string; caseId: string } }>; url: URL }) => {
 	const { version } = await parent();
@@ -31,7 +36,9 @@ export const filingsLoad = async ({ parent, url }: { parent: () => Promise<{ ver
 		files,
 		entries,
 		editing: edit && entries.some((e) => e.key === edit) ? edit : null,
-		content: { subtitle: viewText(vc, 'filings_tab', 'subtitle'), orientation: viewText(vc, 'filings_tab', 'orientation') },
+		content: { subtitle: viewText(vc, 'filings_tab', 'subtitle'), orientation: viewText(vc, 'filings_tab', 'orientation'), registerIntro: registerIntro(viewText(vc, 'filings_tab', 'registerIntro')) },
+		// v5 hard-coded both export names (case content): read from the package's view-content, else the neutral name and a note
+		exportNames: { filings: exportFileName(vc, 'filings_tab', 'filings.csv'), register: exportFileName(vc, 'filings_tab', 'filing-register.csv', 'registerExportFileName') },
 	};
 };
 

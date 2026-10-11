@@ -1,13 +1,9 @@
 // Helpers of the analysis browser suite (GRS-15): synthetic packages for the seven analysis views and a page driver
 // over the pilot's CDP browser. Synthetic data only; nothing here comes from a case.
-import { mkdir, rm } from 'node:fs/promises';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { newPage, sleep } from '../pilot/lib/cdp.mjs';
 import { buildCase, url } from '../pilot/lib/fixtures.ts';
-import { convertV5 } from '../../../src/lib/case-package/v5/adapter.ts';
-import { writePackageDir } from '../../../src/lib/case-package/writer.ts';
-import { synthHtml, synthOriginals, synthRoots, writeCaseFolder } from '../../case-package/fixtures/synth.ts';
 
 const OD1 = url('DISCOVERY A/OD-001 Supply agreement.pdf');
 const OD2 = url('DISCOVERY A/OD-002 Invoice 1001.pdf');
@@ -82,27 +78,22 @@ export function emptyAnalysis(r) {
 	D.contradictions = { byCat: {}, categories: [], checks: [], highCount: 0, total: 0 };
 }
 
-/** A case like buildCase's, converted from a workspace without viewer code: its package has no view-content. */
-export async function buildCaseWithoutViewContent(root, { caseId, edit }) {
-	await mkdir(root, { recursive: true });
-	const caseDir = join(root, 'case'), pkgDir = join(root, 'pkg');
-	await rm(pkgDir, { recursive: true, force: true });
-	await rm(caseDir, { recursive: true, force: true });
-	await writeCaseFolder(caseDir, synthOriginals());
-	const roots = synthRoots();
-	edit?.(roots);
-	const result = await convertV5({ html: synthHtml(roots, [], { viewCode: false }), htmlName: 'workspace.html', caseFolder: caseDir, caseId });
-	if (!result.files || !result.manifest) throw new Error('synthetic conversion failed: ' + result.diagnostics.map((d) => d.code).join(','));
-	await writePackageDir(pkgDir, result.files);
-	return { root, caseDir, pkgDir, resultsVersion: result.manifest.resultsVersion, files: result.files };
-}
 export { buildCase };
 
+/** One field of a package's view-content dataset as stored, or undefined. */
+const viewContentField = (sc, view, field) => {
+	const f = sc.files.get('datasets/view-content.json');
+	return f ? JSON.parse(new TextDecoder().decode(f)).data?.[view]?.[field] : undefined;
+};
 /** One plain-text field of a package's view-content dataset, or null. */
 export function viewContentText(sc, view, field) {
-	const f = sc.files.get('datasets/view-content.json');
-	const v = f ? JSON.parse(new TextDecoder().decode(f)).data?.[view]?.[field] : undefined;
+	const v = viewContentField(sc, view, field);
 	return typeof v === 'string' && v.trim() ? v : null;
+}
+/** One list field of a package's view-content dataset, or null. */
+export function viewContentList(sc, view, field) {
+	const v = viewContentField(sc, view, field);
+	return Array.isArray(v) && v.every((x) => typeof x === 'string') ? v : null;
 }
 
 /** A view is ready when its main says so; an analysis view (data-analysis) also after hydration, so clicks are handled. */

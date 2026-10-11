@@ -4,7 +4,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { download } from '$lib/components/csv';
 	import { money } from '$lib/components/format';
-	import { CONTRADICTIONS_CSV_NAME, byCat, chipLabel, contradictionsCsv, rateCells, type Contradictions } from '$lib/views/analysis/contradictions';
+	import { byCat, chipLabel, contradictionsCsv, rateCells, type Contradictions } from '$lib/views/analysis/contradictions';
 	import { checkTone, severityBadge } from '$lib/views/analysis/tone';
 	import '$lib/views/analysis/analysis.css';
 	let { data } = $props();
@@ -15,7 +15,7 @@
 		...data.c, byCat: Object.fromEntries(data.c.byCat),
 		categories: data.c.categories.map((cat) => ({ ...cat, items: cat.items.map((it) => ({ ...it, rates: it.rates ? Object.fromEntries(it.rates) : undefined })) })),
 	} : null);
-	const exportCsv = () => { if (c) download(CONTRADICTIONS_CSV_NAME, contradictionsCsv(c)); };
+	const exportCsv = () => { if (c) download(data.exportName.name, contradictionsCsv(c)); };
 	let hydrated = $state(false);
 	onMount(() => { hydrated = true; });
 </script>
@@ -26,7 +26,7 @@
 
 <main id="main" tabindex="-1" data-analysis data-ready="contradictions_tab" data-hydrated={hydrated ? '' : null}>
 	<PageHeader heading="Contradiction Tracker" section="Contradiction Tracker" caseName={data.version.titleName} subtitle={c ? 'Inconsistencies computed automatically across the corpus at build time — no searching required' : null}>
-		{#snippet actions()}{#if c}<button type="button" onclick={exportCsv} id="export-csv">Export CSV</button>{/if}{/snippet}
+		{#snippet actions()}{#if c}<button type="button" onclick={exportCsv} id="export-csv">Export CSV</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}{/if}{/snippet}
 	</PageHeader>
 	{#if !c}
 		<div class="an-card"><div class="an-empty" id="contradictions-empty">No contradiction data.</div></div>

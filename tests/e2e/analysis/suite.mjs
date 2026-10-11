@@ -18,6 +18,9 @@ const { bunIdentity } = await import('../pilot/lib/server.mjs');
 const { appServer } = await import('../pilot/suite/context.mjs');
 const { VIEWS } = await import('../../../src/lib/components/view-registry.ts');
 const { pageTitle } = await import('../../../src/lib/components/titles.ts');
+const { EXPORT_COLUMNS_NOTE, EXPORT_NAME_NOTE } = await import('../../../src/lib/local-case/results.server.ts');
+const { DEFENCE_CSV_NAME, NEUTRAL_CSV_KEYS } = await import('../../../src/lib/views/analysis/defence.ts');
+const { CONTRADICTIONS_CSV_NAME } = await import('../../../src/lib/views/analysis/contradictions.ts');
 const L = await import('./lib.mjs');
 
 const ROOT = resolve(join(import.meta.dirname, '..', '..', '..'));
@@ -85,10 +88,14 @@ try {
 	const t0 = Date.now();
 	const main = await L.buildCase(join(tmp, 'main'), { caseId: 'e2e-analysis', edit: L.analysisData });
 	const empty = await L.buildCase(join(tmp, 'empty'), { caseId: 'e2e-analysis-empty', edit: L.emptyAnalysis });
-	const novc = await L.buildCaseWithoutViewContent(join(tmp, 'novc'), { caseId: 'e2e-analysis-novc', edit: L.analysisData });
+	const novc = await L.buildCase(join(tmp, 'novc'), { caseId: 'e2e-analysis-novc', edit: L.analysisData, viewCode: false });
+	let novcVid = null;
 	const vid = await importActivate(main);
 	const caseName = (sc) => { const m = JSON.parse(new TextDecoder().decode(sc.files.get('manifest.json'))); return L.viewContentText(sc, '_shell', 'documentTitle') ?? (m.case.label || m.case.id); };
 	const name = caseName(main);
+	// the package's export names and Defence CSV keys (synthetic `syn-…` values), read from the built package
+	const pkgExport = { contradictions: L.viewContentText(main, 'contradictions_tab', 'exportFileName'), defence: L.viewContentText(main, 'vdm_matrix_tab', 'exportFileName'), defenceKeys: L.viewContentList(main, 'vdm_matrix_tab', 'exportColumns') };
+	const notes = () => p.evaluate(`[...document.querySelectorAll('main [data-export-note]')].map((e) => e.textContent.trim())`);
 	const p = await L.appPage(b, A.origin);
 	ctx.p = p;
 
@@ -151,8 +158,9 @@ try {
 		return { pass: ok, evidence: { prints, shown, pdfBytes: Math.round(pdf.data.length * 0.75), pdf: 'screens/timeline-print.pdf', fullChronology: 'opened' } };
 	});
 
-	await scenario('AN-05', 'contradictions_tab', 'Scenario 5: contradiction categories with their severities, item counts and source chips; a chip opens its document; Export CSV has v5 columns', async () => {
+	await scenario('AN-05', 'contradictions_tab', 'Scenario 5: contradiction categories with their severities, item counts and source chips; a chip opens its document; Export CSV has v5 columns and the package\'s file name', async () => {
 		const nav = await arrive(p, vid, 'contradictions_tab', name);
+		const note = await notes();
 		await p.shot(join(SCREENS, 'contradictions_tab-desktop.png'));
 		const cats = await p.evaluate(`[...document.querySelectorAll('section.category')].map((s) => ({ sev: s.querySelector('.chead .badge').textContent, title: s.querySelector('.ctitle').textContent, count: s.querySelector('.count').textContent, chips: [...s.querySelectorAll('.chips a.cite')].map((a) => [a.textContent.trim(), a.getAttribute('href').replace(/^.*\\/doc\\//, '')]) }))`);
 		const kpis = await p.evaluate(`[...document.querySelectorAll('.an-kpis .kpi')].map((k) => k.querySelector('.v').textContent)`);
@@ -165,8 +173,8 @@ try {
 		await p.waitFor(`location.pathname.endsWith('/doc/OD-002') && document.querySelector('main#main')?.dataset.ready === 'doc:OD-002'`, 30000);
 		const ok = nav.ok && J(cats.map((c) => c.sev)) === J(['HIGH', 'HIGH', 'LOW', 'INFO']) && J(cats.map((c) => c.count)) === J(['2 item(s)', '1 item(s)', '1 item(s)', '0 item(s)'])
 			&& J(cats[0].chips) === J([['OD-002 · R 100.00', 'OD-002'], ['OD-001', 'OD-001']]) && J(kpis) === J(['4', '3', '2', '1']) && J(checks) === J(['b-ok', 'b-dang', 'text', 'b-dang'])
-			&& dl[0]?.name === 'contradictions.csv' && lines[0] === 'category,severity,item,detail,spread,refs' && lines.length === 5 && lines[4] === 'Invented duplicate,low,INV-1,Same number,3,OD-001';
-		return { pass: ok, evidence: { nav, cats, kpis, checks, csv: { name: dl[0]?.name, lines: lines.length, head: lines[0] } } };
+			&& pkgExport.contradictions !== null && dl[0]?.name === pkgExport.contradictions && note.length === 0 && lines[0] === 'category,severity,item,detail,spread,refs' && lines.length === 5 && lines[4] === 'Invented duplicate,low,INV-1,Same number,3,OD-001';
+		return { pass: ok, evidence: { nav, cats, kpis, checks, csv: { name: dl[0]?.name, expected: pkgExport.contradictions, lines: lines.length, head: lines[0] }, note } };
 	});
 
 	await scenario('AN-06', 'risk_matrix_tab', 'Scenario 6 and BA-21: one risk with its mitigation reads on a 320 px screen; Risk Matrix, Defence & Rebuttal, Contradiction Tracker, Timeline and Matter do not scroll sideways at 320 and 390 px with long badge values, chips and URLs, and keep their tables at 1280 px (screenshots)', async () => {
@@ -198,8 +206,9 @@ try {
 		return { pass: ok, evidence: { ...out, risk, screenshots: 'screens/<view>-<width>.png' } };
 	});
 
-	await scenario('AN-07', 'vdm_matrix_tab', 'Scenario 7: trace a defence to its evidence: document chips open their documents; the free-text refs are shown and exported after v5 columns (S-vdm_matrix_tab-1)', async () => {
+	await scenario('AN-07', 'vdm_matrix_tab', 'Scenario 7: trace a defence to its evidence: document chips open their documents; the free-text refs are shown and exported after the package\'s CSV keys, under the package\'s file name (S-vdm_matrix_tab-1)', async () => {
 		const nav = await arrive(p, vid, 'vdm_matrix_tab', name);
+		const note = await notes();
 		await p.shot(join(SCREENS, 'vdm_matrix_tab-desktop.png'));
 		const rows = await p.evaluate(`[...document.querySelectorAll('#defence-table tbody tr')].map((r) => ({ chips: [...r.querySelectorAll('.chips a.cite')].map((a) => a.textContent.trim()), dash: r.cells[3].textContent.trim(), refs: r.cells[5]?.textContent.trim() ?? null }))`);
 		const heads = await p.evaluate(`[...document.querySelectorAll('#defence-table thead th')].map((t) => t.textContent.trim())`);
@@ -210,8 +219,8 @@ try {
 		await p.click('#defence-table .chips a.cite');
 		await p.waitFor(`location.pathname.endsWith('/doc/OD-001') && document.querySelector('main#main')?.dataset.ready === 'doc:OD-001'`, 30000);
 		const ok = nav.ok && J(rows[0].chips) === J(['OD-001', 'OD-002']) && rows[1].dash === '—' && rows[0].refs === 'OD-001 – OD-002' && rows[1].refs === '' && heads.length === 6 && heads[5] === 'Refs'
-			&& dl[0]?.name === 'defence_rebuttal.csv' && lines[0] === 'dcs_point,dcs_case,ess_evidence,documents,rebuttal,refs' && lines[1].endsWith(',OD-001 – OD-002') && lines[2] === 'Point without documents,Invented case,Invented evidence,,Invented rebuttal,';
-		return { pass: ok, evidence: { nav, rows, heads, csv: { name: dl[0]?.name, head: lines[0], rows: lines.length - 1 } } };
+			&& pkgExport.defence !== null && pkgExport.defenceKeys?.length === 5 && dl[0]?.name === pkgExport.defence && note.length === 0 && lines[0] === [...pkgExport.defenceKeys, 'refs'].join(',') && lines[1].endsWith(',OD-001 – OD-002') && lines[2] === 'Point without documents,Invented case,Invented evidence,,Invented rebuttal,';
+		return { pass: ok, evidence: { nav, rows, heads, csv: { name: dl[0]?.name, head: lines[0], rows: lines.length - 1 }, expected: pkgExport, note } };
 	});
 
 	const infoRows = () => A.work("SELECT row_id, fields FROM register_row WHERE case_id = 'e2e-analysis' AND store = 'info-required' ORDER BY row_id").map((r) => ({ id: r.row_id, fields: JSON.parse(r.fields) }));
@@ -400,7 +409,7 @@ try {
 		const ev = {};
 		let ok = true;
 		const evid = await importActivate(empty);
-		const nvid = await importActivate(novc);
+		const nvid = novcVid ??= await importActivate(novc);
 		for (const [tag, v] of [['empty', evid], ['no-view-content', nvid]]) {
 			for (const view of ANALYSIS) {
 				const mk = b.mark();
@@ -419,6 +428,24 @@ try {
 		const heads = await p.evaluate(`[...document.querySelectorAll('#defence-table thead th')].map((t) => t.textContent.trim())`);
 		ok = ok && J(heads.slice(0, 5)) === J(['Point', 'Their case', 'Supporting evidence', 'Documents', 'Rebuttal']);
 		return { pass: ok, evidence: { views: ev, neutralHeadings: heads } };
+	});
+
+	await scenario('AN-11', 'vdm_matrix_tab', 'Without view-content, Defence & Rebuttal and Contradiction Tracker export under neutral file names, Defence with neutral CSV keys, and say so beside Export CSV', async () => {
+		const nvid = novcVid ??= await importActivate(novc);
+		const out = {};
+		for (const [view, csvName] of [['vdm_matrix_tab', DEFENCE_CSV_NAME], ['contradictions_tab', CONTRADICTIONS_CSV_NAME]]) {
+			await p.goto(V(nvid, view), L.ready(view));
+			const note = await notes();
+			await p.click('#export-csv');
+			await sleep(80);
+			const dl = await p.downloads();
+			out[view] = { name: dl[0]?.name, expected: csvName, head: dl[0]?.text.split('\r\n')[0], note, downloads: dl.length };
+		}
+		const d = out.vdm_matrix_tab, c = out.contradictions_tab;
+		const ok = L.viewContentText(novc, 'vdm_matrix_tab', 'exportFileName') === null && L.viewContentList(novc, 'vdm_matrix_tab', 'exportColumns') === null
+			&& d.downloads === 1 && d.name === DEFENCE_CSV_NAME && d.head === [...NEUTRAL_CSV_KEYS, 'refs'].join(',') && J(d.note) === J([EXPORT_NAME_NOTE, EXPORT_COLUMNS_NOTE])
+			&& c.downloads === 1 && c.name === CONTRADICTIONS_CSV_NAME && c.head === 'category,severity,item,detail,spread,refs' && J(c.note) === J([EXPORT_NAME_NOTE]);
+		return { pass: ok, evidence: out };
 	});
 
 	await scenario('AN-NET', 'all', 'no canary hit, no request off the loopback app origin, and no page error, console error or CSP violation outside the failed-write scenarios, during the whole run', async () => {

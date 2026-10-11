@@ -1,7 +1,7 @@
 import { analysisDataset, existingOf } from '$lib/analysis/data.server';
 import { app } from '$lib/local-case/app.server';
-import { viewContentOf, viewText } from '$lib/local-case/results.server';
-import { defenceHeadings, type DefenceRow } from '$lib/views/analysis/defence';
+import { EXPORT_COLUMNS_NOTE, exportColumns, exportFileName, viewContentOf, viewText } from '$lib/local-case/results.server';
+import { DEFENCE_CSV_NAME, NEUTRAL_CSV_KEYS, defenceCsvKeys, defenceHeadings, type DefenceRow } from '$lib/views/analysis/defence';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ parent }) => {
@@ -9,10 +9,14 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const rows = (analysisDataset<DefenceRow[]>(version.id, 'defence-matrix') ?? []).map((r) => ({ point: r.point, dcs: r.dcs, evidence: r.evidence, rebuttal: r.rebuttal, refs: r.refs, docs: r.docs.map((d) => ({ ref: d.ref })) }));
 	// The subtitle and column headings name the parties, so they are case content from view-content (GRS-38).
 	const vc = viewContentOf(app().store, version.id);
+	// v5 names the export and its five CSV keys after the parties in code (S-hardcoded-case): the package's, else neutral
+	// ones and a note.
 	return {
 		rows,
 		subtitle: viewText(vc, 'vdm_matrix_tab', 'subtitle'),
 		headings: [...defenceHeadings(vc.list('vdm_matrix_tab', 'columns'))],
+		exportName: exportFileName(vc, 'vdm_matrix_tab', DEFENCE_CSV_NAME),
+		exportColumns: defenceCsvKeys(exportColumns(vc, 'vdm_matrix_tab', NEUTRAL_CSV_KEYS), EXPORT_COLUMNS_NOTE),
 		known: existingOf(version.id, rows.flatMap((r) => r.docs.map((d) => d.ref))),
 	};
 };

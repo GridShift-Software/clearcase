@@ -28,4 +28,5 @@ export const byCat = (c: Contradictions, key: string) => (Object.hasOwn(c.byCat,
 /** v5's export: one row per item of every category; an item without refs exports an empty refs cell. */
 export const contradictionsCsv = (c: Contradictions) =>
 	toCSV([['category', 'severity', 'item', 'detail', 'spread', 'refs'], ...c.categories.flatMap((cat) => cat.items.map((it) => [cat.title, cat.severity, it.label, it.detail || '', it.spread || '', (it.refs ?? []).map((x) => x.ref).join(' ')]))]);
+/** The neutral export name; the package's name (view-content `exportFileName`) is used when it has one. */
 export const CONTRADICTIONS_CSV_NAME = 'contradictions.csv';

@@ -165,25 +165,6 @@
       "approvedOn": null
     },
     {
-      "id": "IDR-160",
-      "view": "vdm_matrix_tab",
-      "field": "export.export_csv.name",
-      "when": {
-        "v5": {
-          "re": "^[a-z]+_[a-z]+_defence_rebuttal\\.csv$"
-        },
-        "app": "defence_rebuttal.csv"
-      },
-      "type": "known-gap",
-      "source": "S-hardcoded-case",
-      "owner": "GRS-15",
-      "reason": "v5 names the export after the parties in code; the view-content map carries no export file name, so the app uses a neutral name until the map does (shared-file request in the CC-05 report).",
-      "productVisible": true,
-      "author": "CC-05 worker (GRS-15)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
       "id": "IDR-161",
       "view": "contradictions_tab",
       "field": "focus.after_nav",
@@ -194,25 +175,6 @@
       "type": "improvement",
       "source": "BA-14",
       "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
-      "productVisible": true,
-      "author": "CC-05 worker (GRS-15)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
-      "id": "IDR-162",
-      "view": "contradictions_tab",
-      "field": "export.export_csv.name",
-      "when": {
-        "v5": {
-          "re": "^[a-z]+_[a-z]+_contradictions\\.csv$"
-        },
-        "app": "contradictions.csv"
-      },
-      "type": "known-gap",
-      "source": "S-hardcoded-case",
-      "owner": "GRS-15",
-      "reason": "v5 names the export after the parties in code; the view-content map carries no export file name, so the app uses a neutral name until the map does (shared-file request in the CC-05 report).",
       "productVisible": true,
       "author": "CC-05 worker (GRS-15)",
       "approvedBy": null,

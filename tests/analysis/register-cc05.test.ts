@@ -51,7 +51,7 @@ describe('CC-05 register: no entry masks a wrong app value', () => {
 	});
 
 	it('names an owner on the known gaps', () => {
-		expect(entries.filter((e) => e.type === 'known-gap').map((e) => [e.id, e.owner])).toEqual([['IDR-160', 'GRS-15'], ['IDR-162', 'GRS-15'], ['IDR-168', 'GRS-15']]);
+		expect(entries.filter((e) => e.type === 'known-gap').map((e) => [e.id, e.owner])).toEqual([['IDR-168', 'GRS-15']]);
 	});
 });
 

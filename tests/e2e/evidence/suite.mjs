@@ -626,7 +626,7 @@ try {
 			await p.click('#register-save');
 			await p.waitFor(`!!document.getElementById('register-error') && !document.getElementById('register-status')`, 20000);
 			ev.gone = { ...(await formOf(p)), code: await p.evaluate(`document.getElementById('register-error')?.dataset.code ?? null`), add: await p.evaluate(`!!document.getElementById('register-add')`) };
-			await p.click('#register-add');
+			await p.click('#register-add').catch(() => {});
 			await p.waitFor(`!document.getElementById('register-error') && [...document.querySelectorAll('#filing-register tbody tr[data-key]')].some((r) => r.textContent.includes('Synthetic r3 gone reply'))`, 20000).catch(() => null);
 			ev.goneAdded = { ...(await formOf(p)), stored: storedFilings().filter((r) => r.filing === 'Synthetic r3 gone row' && r.response === 'Synthetic r3 gone reply').length };
 
@@ -646,18 +646,23 @@ try {
 				ev.noJsGone = { ...(await formOf(q)), code: await q.evaluate(`document.getElementById('register-error')?.dataset.code ?? null`), mDeleted: !storedFilings().some((r) => `row:${r.id}` === kM) };
 			} finally { await q.close().catch(() => {}); }
 
-			// low 2: text typed into Search while a search is in flight is kept when its result lands
-			await p.goto(`${V}/evidence/search`, R('search'));
-			await setFields(p, { sq: 'Synthetic' });
-			await slow(p, 1500);
+			// low 2: text typed into Search while a search is in flight is kept when its result lands (a fresh page: the
+			// register page may hold an unsaved draft)
+			const sp = await openPage(b, { initScript: INIT });
 			try {
-				await p.click('#search-run');
-				await sleep(300);
-				await p.type('#sq', 'Synthetic typed later');
-				await p.waitFor(`document.getElementById('main').dataset.result === 'results' && !document.getElementById('main').dataset.busy`, 20000);
-				await sleep(300);
-			} finally { await slow(p, 0); }
-			ev.search = await p.evaluate(`({ q: document.getElementById('sq').value, searched: document.getElementById('main').dataset.search })`);
+				await sp.s('Network.enable').catch(() => {});
+				await sp.goto(`${V}/evidence/search`, R('search'));
+				await setFields(sp, { sq: 'Synthetic' });
+				await slow(sp, 1500);
+				try {
+					await sp.click('#search-run');
+					await sleep(300);
+					await sp.type('#sq', 'Synthetic typed later');
+					await sp.waitFor(`document.getElementById('main').dataset.result === 'results' && !document.getElementById('main').dataset.busy`, 20000);
+					await sleep(300);
+				} finally { await slow(sp, 0); }
+				ev.search = await sp.evaluate(`({ q: document.getElementById('sq').value, searched: document.getElementById('main').dataset.search })`);
+			} finally { await sp.close().catch(() => {}); }
 		} catch (e) { ev.error = String(e?.message ?? e).split('\n')[0]; }
 		const checks = {
 			typedAfterSaveKept: ev.typedBeforeLanding === true && ev.afterLanding?.mode === 'add' && ev.afterLanding?.values.fl_filing === 'Synthetic typed after save' && ev.afterLanding?.saveError === null,
@@ -688,6 +693,8 @@ try {
 			return out;
 		}
 		const ev = {};
+		const p = await openPage(b, { initScript: `${INIT};${DL_HOOK}` });
+		const takeDownloads = () => p.evaluate(`Promise.all(window.__dl.splice(0).map(async (d) => ({ name: d.name, text: await d.blob.text() })))`);
 		try {
 			ev.expected = EXPORTS.map(([view, , field]) => vcText(sc, view, field));
 			ev.intro = vcText(sc, 'filings_tab', 'registerIntro');
@@ -697,7 +704,7 @@ try {
 			if (!imp.importId) throw new Error(`neutral import failed: ${imp.status}`);
 			ev.neutralFields = EXPORTS.map(([view, , field]) => vcText(neutral, view, field)).concat(vcText(neutral, 'filings_tab', 'registerIntro'));
 			ev.generic = await run(neutral.resultsVersion);
-		} catch (e) { ev.error = String(e?.message ?? e).split('\n')[0]; }
+		} catch (e) { ev.error = String(e?.message ?? e).split('\n')[0]; } finally { await p.close().catch(() => {}); }
 		const checks = {
 			namedFromPackage: ev.expected?.every((x, i) => typeof x === 'string' && x !== EXPORTS[i][3]) && J(ev.named?.names) === J(ev.expected?.map((x) => [x])) && ev.named?.notes.every((n) => n.length === 0),
 			introFromPackage: typeof ev.intro === 'string' && ev.named?.intro === `${ev.intro} ${STORAGE}`,
@@ -710,6 +717,7 @@ try {
 	// ---- CC-04 r3 (D8): the sidebar keeps Documents' and Search's state (the base's ViewNav, BASE-R2d) ----------------
 	await scenario('E-SIDEBAR', 'documents', 'Sidebar round trip (CC-04 r3 D8): Documents with a bundle, a filter and page 2, then Search and back through the sidebar, comes back with the same query string and bundle; a submitted Search with results, then Documents and back, shows the result again, not idle', async () => {
 		const ev = {};
+		const p = await openPage(b, { initScript: INIT });
 		const state = () => p.evaluate(`({ search: location.search, bundle: document.getElementById('main')?.dataset.bundle ?? null, page: document.getElementById('main')?.dataset.page ?? null, result: document.getElementById('main')?.dataset.result ?? null, searched: document.getElementById('main')?.dataset.search ?? null })`);
 		try {
 			await p.goto(`${V}/evidence/documents?bundle=Original&q=bulk&page=2`, `${R('documents')} && document.getElementById('main').dataset.page === '2'`);
@@ -731,7 +739,7 @@ try {
 			await p.waitFor(R('search'), 15000);
 			await sleep(100);
 			ev.searchAfter = await state();
-		} catch (e) { ev.error = String(e?.message ?? e).split('\n')[0]; }
+		} catch (e) { ev.error = String(e?.message ?? e).split('\n')[0]; } finally { await p.close().catch(() => {}); }
 		const checks = {
 			documentsBack: ev.docsBefore?.page === '2' && ev.docsBefore?.bundle === 'Original' && /q=bulk/.test(ev.docsBefore?.search ?? '') && ev.docsAfter?.search === ev.docsBefore?.search && ev.docsAfter?.bundle === 'Original' && ev.docsAfter?.page === '2',
 			searchBack: ev.searchBefore?.result === 'results' && ev.searchAfter?.result === 'results' && ev.searchAfter?.search === ev.searchBefore?.search && ev.searchAfter?.searched === ev.searchBefore?.searched,

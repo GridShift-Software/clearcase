@@ -9,7 +9,9 @@ a { color: #0b4f9c; }
 header.top { display: flex; gap: 1rem; align-items: baseline; padding: .5rem 1rem; background: #1d2b3a; color: #fff; }
 header.top a { color: #cfe3ff; }
 header.top .brand { font-weight: 700; }
-.banner { padding: .4rem 1rem; font-weight: 600; }
+/* A case name (up to 64 characters of a-z0-9._- from the case id) may have no break opportunity: wrap it anywhere,
+   inherited by the recovery banner's <code>, so no banner makes a page scroll sideways. */
+.banner { padding: .4rem 1rem; font-weight: 600; overflow-wrap: anywhere; }
 .banner.candidate { background: #fff1c2; color: #6a4b00; }
 .banner.active { background: #e3f4e3; color: #1d5b1d; }
 .banner.recovery { background: #fde8e8; color: #7a1010; }
@@ -55,8 +57,8 @@ textarea { max-width: 100%; box-sizing: border-box; }
 .diag-code { margin-top: 1rem; }
 details > summary { cursor: pointer; }
 .narrative p { margin: .3rem 0; }
-/* Below 40rem a phone has too little room beside the 15rem navigation column: the navigation stacks above the content
-   as a bounded list that scrolls, the top bar and page header wrap. At 40rem and wider nothing changes. */
+/* At most 40rem (640 px) wide, a phone has too little room beside the 15rem navigation column: the navigation stacks
+   above the content as a bounded list that scrolls, the top bar and page header wrap. Wider than 40rem nothing changes. */
 @media (max-width: 40rem) {
 	header.top { flex-wrap: wrap; }
 	.case-shell { grid-template-columns: minmax(0, 1fr); }

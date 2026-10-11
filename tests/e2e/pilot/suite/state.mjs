@@ -1,10 +1,10 @@
 // State scenarios on app server A: rollback and stale rollback forms (S27/S60), link capability across a restart
-// (S18), and Back with the back/forward cache (BFCACHE).
+// (S18), Back with the back/forward cache (BFCACHE), and each view's query kept for the tab session (NAV-STATE).
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import { openPage, sleep } from './browser.mjs';
 import { vpath } from './context.mjs';
-import { ready } from './main-flow.mjs';
+import { ready, ROWS } from './main-flow.mjs';
 
 const J = JSON.stringify;
 const docReady = (ref) => ready(`doc:${ref}`);
@@ -140,4 +140,57 @@ export async function notesUi(ctx) {
 	const n = after.notes.find((x) => x.text === body);
 	const ok = after.sameDocument && !!n && n.anchor === 'here' && !n.bold && after.cleared === '' && reloaded.includes(body);
 	return { pass: ok, evidence: { after, reloaded, body } };
+}
+
+/**
+ * NAV-STATE (CC-04 verification lane 01): the sidebar keeps each view's last query per case for the tab session. A text
+ * filter on the chronology survives a trip to Advanced Search and back by the sidebar, and by Back; a chronology opened
+ * with its own query keeps that query; opening it plainly forgets the saved one. Only sessionStorage holds it.
+ */
+export async function navState(ctx) {
+	const { A, p, main } = ctx;
+	const V = A.v(main.resultsVersion);
+	const chronology = `${vpath(main.resultsVersion)}/chronology`;
+	const state = () => p.evaluate(`({ path: location.pathname, search: location.search, q: document.querySelector('#f-q')?.value ?? null, rows: ${ROWS}, link: document.querySelector('#nav-chronology').getAttribute('href') })`);
+	const atChronology = (search) => `location.pathname === ${J(chronology)} && location.search === ${J(search)} && ${ready('chronology')}`;
+	const atSearch = `location.pathname.endsWith('/evidence/search') && /^(view:)?search$/.test(document.querySelector('main#main')?.dataset.ready ?? '')`;
+	const linkIs = (search) => `document.querySelector('#nav-chronology').getAttribute('href') === ${J(chronology + search)}`;
+	const stored = () => p.evaluate(`({ session: Object.keys(sessionStorage).filter((k) => k.startsWith('clearcase:view-query:')).map((k) => [k.split(':').at(-1), sessionStorage.getItem(k)]), local: Object.keys(localStorage).filter((k) => k.startsWith('clearcase:')).length })`);
+	await p.goto(`${V}/chronology`, ready('chronology'));
+	const all = (await state()).rows;
+	await p.type('#f-q', 'ZEBRA');
+	await p.waitFor(`location.search === '?q=ZEBRA' && ${ROWS}.length < ${all.length} && ${linkIs('?q=ZEBRA')}`, 5000).catch(() => null);
+	const filtered = await state();
+	await p.click('#nav-search');
+	await p.waitFor(atSearch, 15000).catch(() => null);
+	const onSearch = await state();
+	const storedOnSearch = await stored();
+	await p.click('#nav-chronology');
+	await p.waitFor(`${atChronology('?q=ZEBRA')} && ${ROWS}.length === ${filtered.rows.length}`, 15000).catch(() => null);
+	const viaSidebar = await state();
+	// Back to Advanced Search, Back again to the filtered chronology entry
+	await p.evaluate('history.back(); true');
+	await p.waitFor(atSearch, 15000).catch(() => null);
+	await p.evaluate('history.back(); true');
+	await p.waitFor(`${atChronology('?q=ZEBRA')} && ${ROWS}.length === ${filtered.rows.length}`, 15000).catch(() => null);
+	const viaBack = await state();
+	// opened with its own query: that query, not the saved one; then opened plainly: the saved query is forgotten
+	await p.goto(`${V}/chronology?q=em-000`, atChronology('?q=em-000'));
+	await p.waitFor(linkIs('?q=em-000'), 5000).catch(() => null);
+	const explicit = await state();
+	await p.goto(`${V}/chronology`, atChronology(''));
+	await p.waitFor(`!Object.keys(sessionStorage).some((k) => k.startsWith('clearcase:view-query:'))`, 5000).catch(() => null);
+	const plain = await state();
+	const storedAfter = await stored();
+	const same = (x) => x.path === chronology && x.search === '?q=ZEBRA' && x.q === 'ZEBRA' && J(x.rows) === J(filtered.rows);
+	const checks = {
+		filtered: filtered.search === '?q=ZEBRA' && filtered.rows.length > 0 && filtered.rows.length < all.length && filtered.link === `${chronology}?q=ZEBRA`,
+		searchLinkCarriesQuery: onSearch.path.endsWith('/evidence/search') && onSearch.link === `${chronology}?q=ZEBRA`,
+		storedInSessionOnly: J(storedOnSearch.session) === J([['chronology', '?q=ZEBRA']]) && storedOnSearch.local === 0,
+		backViaSidebar: same(viaSidebar),
+		backViaHistory: same(viaBack),
+		explicitQueryKept: explicit.search === '?q=em-000' && explicit.q === 'em-000' && explicit.link === `${chronology}?q=em-000`,
+		plainForgets: plain.search === '' && plain.q === '' && J(plain.rows) === J(all) && plain.link === chronology && storedAfter.session.length === 0 && storedAfter.local === 0,
+	};
+	return { pass: Object.values(checks).every(Boolean), evidence: { checks, rows: { all: all.length, filtered: filtered.rows }, filtered, onSearch, storedOnSearch, viaSidebar, viaBack, explicit, plain: { ...plain, rows: plain.rows.length }, storedAfter } };
 }

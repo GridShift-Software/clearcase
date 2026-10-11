@@ -14,7 +14,8 @@ const { launch, newPage, sleep } = await import('../pilot/lib/cdp.mjs');
 const { buildCase, putOriginal, pdf, row, url } = await import('../pilot/lib/fixtures.ts');
 const { appServer } = await import('../pilot/suite/context.mjs');
 const { vpath } = await import('../pilot/lib/client.mjs');
-const { docxText } = await import('../../../scripts/parity/lib/exports.mjs');
+const { docxText, pdfText, unzip } = await import('../../../scripts/parity/lib/exports.mjs');
+const { makePdf, SET } = await import('../../bundles/fixtures/make-pdfs.mjs');
 const { holdStore, page, text, titleAndFocus, usableControls, withBusyStore } = await import('./lib.mjs');
 
 const ROOT = resolve(process.env.E2E_ROOT ?? join(import.meta.dirname, '..', '..', '..'));
@@ -77,6 +78,13 @@ try {
 	const D = `${V}/bundles/discovery_tab`, C = `${V}/bundles/caselines_tab`, B = `${V}/bundles/court_bundle_tab`;
 	const marks = () => A.work('SELECT case_id, locator, selected, co FROM bundles_schedule_mark ORDER BY locator');
 	const chip = (fn) => `#ds-list .ds-chip[data-key$=${JSON.stringify('/' + fn)}] input[type=checkbox]`;
+	// CC-09 builder (GRS-19): synthetic PDFs from the committed generator (tests/bundles/fixtures/make-pdfs.mjs)
+	const PDFS = join(tmp, 'build-pdfs');
+	mkdirSync(PDFS, { recursive: true });
+	for (const [n, o] of Object.entries(SET)) writeFileSync(join(PDFS, n), makePdf(o));
+	const pick = async (pp, names, dir = PDFS) => { const { root } = await pp.s('DOM.getDocument'); const { nodeId } = await pp.s('DOM.querySelector', { nodeId: root.nodeId, selector: '#cbbfile' }); await pp.s('DOM.setFileInputFiles', { nodeId, files: names.map((n) => join(dir, n)) }); };
+	const until = async (fn, ms = 30000) => { const t = Date.now(); while (Date.now() - t < ms) { if (await fn()) return true; await sleep(100); } return false; };
+	const pdfPages = async (buf) => { const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs'); const t = pdfjs.getDocument({ data: new Uint8Array(buf), disableFontFace: true, useSystemFonts: false, verbosity: 0 }); const d = await t.promise; const n = d.numPages; await t.destroy(); return n; };
 
 	// ---- Discovery Schedule -----------------------------------------------------------------------------------
 	await S('DS-TITLE', 'discovery_tab', 'Discovery Schedule: document title, heading, focus on the heading after sidebar navigation', () => titleAndFocus(p, V, 'discovery_tab', 'Discovery Schedule'));
@@ -241,15 +249,14 @@ try {
 
 	// ---- Court Bundle -----------------------------------------------------------------------------------------
 	await S('CB-TITLE', 'court_bundle_tab', 'Court Bundle: document title, heading, focus on the heading after sidebar navigation', () => titleAndFocus(p, V, 'court_bundle_tab', 'Court Bundle'));
-	await S('CB-LIST', 'court_bundle_tab', 'list view: counts, statuses, unindexed bundle PDFs named but not served, builder explicitly not available', async () => {
+	await S('CB-LIST', 'court_bundle_tab', 'list view: counts, statuses, unindexed bundle PDFs named but not served; Build a bundle opens the builder', async () => {
 		await p.go(B, 'court_bundle_tab');
 		await shot('court-bundle-list');
 		const rows = await p.evaluate(`[...document.querySelectorAll('#cb-list tbody tr')].map((r) => [...r.cells].map((c) => c.textContent.replace(/\\s+/g, ' ').trim()).join('|'))`);
 		await p.click('#cb-build');
-		await p.waitFor(`document.getElementById('cb-builder-state')`);
-		const state = await p.text('#cb-builder-state');
-		await shot('court-bundle-builder-unavailable');
-		return { pass: rows.length === 2 && /^1\|Bundle AInvented\|1\|2\|complete\|Open Bundle PDF Index PDF Word$/.test(rows[0]) && /^2\|Bundle B\|1\|2\|complete\|Open Bundle PDF \(not in the verified index; not served\) Index PDF \(not in the verified index; not served\) Word$/.test(rows[1]) && /not available in this version/.test(state), evidence: { rows, state } };
+		await p.waitFor(`document.getElementById('cbbfile')`);
+		const state = await p.text('#cb-builder-h');
+		return { pass: rows.length === 2 && /^1\|Bundle AInvented\|1\|2\|complete\|Open Bundle PDF Index PDF Word$/.test(rows[0]) && /^2\|Bundle B\|1\|2\|complete\|Open Bundle PDF \(not in the verified index; not served\) Index PDF \(not in the verified index; not served\) Word$/.test(rows[1]) && state === 'Build a bundle', evidence: { rows, state } };
 	});
 	await S('CB-HEADER', 'court_bundle_tab', 'header: a busy store keeps all eight typed fields and writes nothing; retry saves one row; restore and clear; the index and Word export use it (scenario 5)', async () => {
 		await p.go(B, 'court_bundle_tab');
@@ -460,6 +467,8 @@ try {
 	await S('BUNDLES-NARROW', 'discovery_tab', 'review M2: no bundle view scrolls sideways at 320 or 390 px, with a 64-character case id and long unbroken file names (Court Bundle list and items, CaseLines, Discovery list and bundle view)', async () => {
 		const long = (tag, n = 90) => `SYN_${tag}_`.padEnd(n, 'abcdefghijklmnopqrstuvwxyz0123456789');
 		const lf = `${long('DISCOVERY_FILE')}.pdf`;
+		const longPdf = `${long('BUILDER_SOURCE', 120)}.pdf`;
+		writeFileSync(join(PDFS, longPdf), makePdf({ name: longPdf, pages: 2 }));
 		const nc = await buildCase(join(tmp, 'case-narrow'), {
 			caseId: 'syn_unbroken_case_id_'.padEnd(64, '0123456789abcdefghijklmnopqrstuvwxyz'),
 			edit: (r) => {
@@ -480,6 +489,8 @@ try {
 				const sw = async (name) => { await sleep(150); out[`${width}:${name}`] = await p.evaluate(`(() => { const sw = document.documentElement.scrollWidth, vw = document.documentElement.clientWidth; const over = sw > vw ? [...document.querySelectorAll('body *')].filter((e) => e.getBoundingClientRect().right > vw + 1 || (e.scrollWidth > e.clientWidth + 1 && !e.matches('.visually-hidden'))).slice(0, 12).map((e) => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + '.' + e.className + ':' + Math.round(e.getBoundingClientRect().right) + '/' + e.scrollWidth) : undefined; return { sw, vw, want: ${width}, over }; })()`); };
 				await p.go(`${N}/bundles/court_bundle_tab`, 'court_bundle_tab'); await sw('court-list');
 				await p.go(`${N}/bundles/court_bundle_tab?b=2&tab=items`, 'court_bundle_tab'); await sw('court-items');
+				await p.go(`${N}/bundles/court_bundle_tab?view=build`, 'court_bundle_tab');
+				await pick(p, [longPdf]); await p.waitFor(`document.querySelectorAll('#cbb-items tr[data-item]').length === 1`, 30000); await sw('court-build');
 				await p.go(`${N}/bundles/caselines_tab`, 'caselines_tab');
 				if (width === 320) { await p.type('#cl-path', `${long('LINKED_PATH', 100)}.pdf`); await p.click('#cl-link'); await p.waitFor(`document.querySelectorAll('#cl-docs li[data-row]').length >= 1`, 30000); }
 				await sw('caselines');
@@ -489,7 +500,7 @@ try {
 			}
 		} catch (e) { err = { message: String(e.message).slice(0, 120), url: await p.evaluate(`location.pathname + location.search`), keys: await p.evaluate(`[...document.querySelectorAll('#ds-list .ds-chip')].map((c) => c.dataset.key)`), box: await p.evaluate(`(() => { const e = document.querySelector(${JSON.stringify(chip(lf))}); const r = e?.getBoundingClientRect(); return e ? [r.left, r.top, r.width, r.height, e.checked, e.disabled] : null; })()`) }; } finally { await p.s('Emulation.clearDeviceMetricsOverride').catch(() => {}); }
 		const wide = Object.entries(out).filter(([, m]) => m.sw !== m.vw || m.vw !== m.want);
-		return { pass: !err && Object.keys(out).length === 10 && wide.length === 0, evidence: { err, wide: Object.fromEntries(wide), n: Object.keys(out).length } };
+		return { pass: !err && Object.keys(out).length === 12 && wide.length === 0, evidence: { err, wide: Object.fromEntries(wide), n: Object.keys(out).length } };
 	});
 	await S('CB-LIMIT', 'court_bundle_tab', 'D5: a header field over 2,000 characters is refused with the field and the limit named, every typed field kept, nothing written', async () => {
 		await p.go(B, 'court_bundle_tab');
@@ -521,17 +532,108 @@ try {
 			return { pass: /changed in another tab/.test(r.error) && r.conflict === 'SYN TAB ONE COURT' && r.judge === 'SYN TAB TWO JUDGE' && r.stored?.court === 'SYN TAB ONE COURT' && r.stored?.judge !== 'SYN TAB TWO JUDGE' && used.court === 'SYN TAB ONE COURT' && !used.error, evidence: { r: { ...r, stored: { court: r.stored?.court, judge: r.stored?.judge } }, used } };
 		} finally { await p2.close(); }
 	});
-	await S('NOJS', 'discovery_tab', 'D4: without JavaScript no control of the three views looks usable, and each view says saving needs JavaScript', async () => {
+	const customRows = () => A.work('SELECT case_id, id, no, name, rows FROM bundles_custom ORDER BY seq');
+	await S('CB-BUILD', 'court_bundle_tab', 'builder: pick two PDFs (a repeat skipped, a protected one refused), reorder, Create and Index only give valid PDFs, the Word index links into the bundle; text typed while Save is pending is kept; the saved bundle is listed after a reload; Back from the builder focuses the heading', async () => {
+		await p.go(B, 'court_bundle_tab');
+		await p.click('#cb-build');
+		await p.waitFor(`document.getElementById('cbbfile')`, 30000);
+		const mk = b.mark();
+		await pick(p, ['Alpha_Statement.pdf', 'Beta_Letter.pdf']);
+		await p.waitFor(`document.querySelectorAll('#cbbfiles tbody tr').length === 2 && !document.getElementById('cbbmsg').textContent`, 30000);
+		await pick(p, ['Alpha_Statement.pdf', 'Locked.pdf']);
+		const refused = await until(() => b.since(mk).dialogs.some((d) => /Locked\.pdf: the file is password-protected/.test(d.message)));
+		await p.waitFor(`!document.getElementById('cbbmsg').textContent`, 30000);
+		const files = await p.evaluate(`[...document.querySelectorAll('#cbbfiles tbody tr')].map((r) => r.cells[0].textContent.trim() + ':' + r.cells[1].textContent.trim())`);
+		const descs = () => p.evaluate(`[...document.querySelectorAll('#cbb-items tr[data-item] input[aria-label^="Description"]')].map((e) => e.value)`);
+		const before = await descs();
+		await p.click('button[aria-label="Move item 2 up"]');
+		const after = await descs();
+		const total = await p.text('#cbbtotal');
+		await p.type('#cbbname', 'Synthetic Build');
+		await p.click('#cbbrun');
+		await p.waitFor(`document.getElementById('cbbdownload')`, 60000);
+		await shot('court-bundle-builder');
+		await p.evaluate(`document.getElementById('cbbdownload').click()`);
+		await p.click('#cbbindex');
+		await p.click('#cbbword');
+		await sleep(300);
+		const dl = await p.downloads();
+		const get = (n) => { const d = dl.find((x) => x.name === n); return d ? Buffer.from(d.base64, 'base64') : null; };
+		const full = get('SYNTHETIC_BUILD.pdf'), idx = get('Index_SYNTHETIC_BUILD.pdf'), word = get('Index_SYNTHETIC_BUILD.docx');
+		const ft = full ? await pdfText(full) : '';
+		const pdfs = {
+			full: full && { pages: await pdfPages(full), order: ft.indexOf('BETA') >= 0 && ft.indexOf('BETA') < ft.indexOf('ALPHA'), goTo: /\/S\s*\/GoTo\b/.test(full.toString('latin1')) },
+			idx: idx && { pages: await pdfPages(idx), goToR: /\/S\s*\/GoToR/.test(idx.toString('latin1')) && idx.toString('latin1').includes('(SYNTHETIC_BUILD.pdf)') },
+			word: word && { text: /BETA/.test(docxText(word)), links: [...(unzip(word).get('word/_rels/document.xml.rels')?.toString('utf8') ?? '').matchAll(/Target="([^"]*#page=\d+)"/g)].map((m) => m[1]) },
+		};
+		// Save with the store held: text typed into an item while the save is pending stays in the builder
+		let during;
+		await withBusyStore(A.dataDir, 2500, async () => {
+			await p.click('#cbbsave');
+			await p.waitFor(`document.querySelector('#cbbout .saving')`, 5000);
+			await p.type('#cbb-items tr[data-item="1"] input', 'SYN TYPED WHILE SAVING');
+			during = await p.text('#cbbout .saving');
+		});
+		await p.waitFor(`new URLSearchParams(location.search).get('b') === 'C1'`, 30000);
+		const opened = await p.text('#cb-bundle-h');
+		await p.evaluate('history.back()');
+		await p.waitFor(`document.getElementById('cbbsaved')`, 30000);
+		const kept = { desc: (await descs())[0], saved: await p.text('#cbbsaved'), error: await p.evaluate(`document.getElementById('cbb-save-error')?.textContent ?? null`) };
+		await p.evaluate('history.back()');
+		await p.waitFor(`!new URLSearchParams(location.search).get('view') && document.getElementById('cb-list')`, 30000);
+		await sleep(200);
+		const back = await p.evaluate(`document.activeElement?.matches?.('h1[data-page-heading]') ?? false`);
+		const stored = customRows();
+		await p.go(B, 'court_bundle_tab');
+		const listed = await p.evaluate(`[...document.querySelectorAll('#cb-list tbody tr')].map((r) => [...r.cells].map((c) => c.textContent.replace(/\\s+/g, ' ').trim()).join('|'))`);
+		const sr = stored.length === 1 ? JSON.parse(stored[0].rows) : [];
+		return {
+			pass: refused && J(files) === J(['Alpha_Statement.pdf:3', 'Beta_Letter.pdf:2']) && J(before) === J(['ALPHA_STATEMENT', 'BETA_LETTER']) && J(after) === J(['BETA_LETTER', 'ALPHA_STATEMENT']) && total === 'Total: 2 items · 5 pages'
+				&& pdfs.full?.pages === 6 && pdfs.full.order && pdfs.full.goTo && pdfs.idx?.pages === 1 && pdfs.idx.goToR && pdfs.word?.text && J(pdfs.word.links) === J(['SYNTHETIC_BUILD.pdf#page=2', 'SYNTHETIC_BUILD.pdf#page=2', 'SYNTHETIC_BUILD.pdf#page=4', 'SYNTHETIC_BUILD.pdf#page=4'])
+				&& during === 'Saving…' && kept.desc === 'SYN TYPED WHILE SAVING' && kept.saved === 'Saved to the bundle list as C1' && kept.error === null && back
+				&& stored.length === 1 && stored[0].no === 'C1' && stored[0].name === 'SYNTHETIC BUILD' && J(sr.map((r) => [r.desc, r.from, r.to, r.parts.map((x) => x.name)])) === J([['BETA_LETTER', 1, 2, ['Beta_Letter.pdf']], ['ALPHA_STATEMENT', 3, 5, ['Alpha_Statement.pdf']]])
+				&& listed.length === 3 && /^C1\|.*SYNTHETIC BUILD.*\|2\|5\|custom complete\|.*Delete$/.test(listed[2]) && /SYNTHETIC BUILD/.test(opened),
+			evidence: { refused, files, before, after, total, pdfs, during, opened, kept, back, stored: stored.map((r) => ({ ...r, rows: r.rows.length })), sr, listed, dl: dl.map((d) => d.name) },
+		};
+	});
+	await S('CB-BUILD-DELETE', 'court_bundle_tab', 'saved bundles: a Delete refused by a busy store keeps its own error while another bundle\'s Delete dialog is answered (no error moves to that row); Delete asks first and removes only the list entry', async () => {
+		const entry = { name: 'SYN SECOND', pages: 1, indexPages: 1, filePages: 2, note: '', rows: [{ n: 1, key: '', desc: 'SYN ITEM', pages: 1, from: 1, to: 1, parts: [{ rel: 'x.pdf', url: '', name: 'x.pdf', from: 1, to: 1 }] }] };
+		await p.go(B, 'court_bundle_tab');
+		const posted = await p.evaluate(`(async () => { const f = new FormData(); f.append('id', 'osynsecond'); f.append('bundle', ${J(J(entry))}); const r = await fetch(location.pathname + '?/save', { method: 'POST', body: f, headers: { 'x-sveltekit-action': 'true', accept: 'application/json' } }); return r.status; })()`);
+		await p.go(B, 'court_bundle_tab');
+		const mk = b.mark();
+		const release = holdStore(A.dataDir);
+		let mid;
+		try {
+			await p.evaluate(`window.confirm = () => true`);
+			await p.click('[data-delete="C1"]');
+			await p.waitFor(`document.querySelector('[data-delete="C1"]')?.disabled`, 5000);
+			await p.evaluate(`window.confirm = () => false`);
+			await p.click('[data-delete="C2"]');
+			await p.waitFor(`document.querySelector('[data-delete-error="C1"]')`, 40000);
+			mid = { c1: await p.text('[data-delete-error="C1"]'), c2: await p.evaluate(`!!document.querySelector('[data-delete-error="C2"]')`), alerts: await p.evaluate(`document.querySelectorAll('#main [role="alert"]').length`) };
+		} finally { release(); }
+		const rowsMid = customRows().map((r) => r.no);
+		await p.evaluate(`window.confirm = () => true`);
+		await p.click('[data-delete="C1"]');
+		await p.waitFor(`!document.querySelector('[data-delete="C1"]')`, 30000);
+		const after = { rows: customRows().map((r) => r.no), error: await p.evaluate(`!!document.querySelector('[data-delete-error]')`) };
+		await p.click('[data-delete="C2"]');
+		await p.waitFor(`!document.querySelector('[data-delete="C2"]')`, 30000);
+		const dialogs = b.since(mk).dialogs.length;
+		return { pass: posted === 200 && /^Not removed: .*busy/.test(mid.c1) && !mid.c2 && mid.alerts === 1 && J(rowsMid) === J(['C1', 'C2']) && J(after.rows) === J(['C2']) && !after.error && customRows().length === 0 && dialogs === 0, evidence: { posted, mid, rowsMid, after, dialogs } };
+	});
+	await S('NOJS', 'discovery_tab', 'D4: without JavaScript no control of the three views looks usable, and each view says saving needs JavaScript; the bundle builder says it needs JavaScript', async () => {
 		const out = {};
 		await p.s('Emulation.setScriptExecutionDisabled', { value: true });
 		try {
-			for (const [view, path, note] of [['discovery_tab', D, '#ds-nojs'], ['court_bundle_tab', B, '#cb-nojs'], ['caselines_tab', C, '#cl-nojs']]) {
+			for (const [view, path, note] of [['discovery_tab', D, '#ds-nojs'], ['court_bundle_tab', B, '#cb-nojs'], ['caselines_tab', C, '#cl-nojs'], ['court_bundle_tab', `${B}?view=build`, '#cb-builder-nojs']]) {
 				await p.navigate(A.origin + path, { timeout: 30000 });
 				await p.waitFor(`document.querySelector('main[data-ready="${view}"]')`, 30000);
-				out[view] = { usable: await usableControls(p), note: await p.text(note), hydrated: await p.evaluate(`!!document.querySelector('main[data-hydrated]')`) };
+				out[path.endsWith('build') ? 'court_bundle_build' : view] = { usable: await usableControls(p), note: await p.text(note), hydrated: await p.evaluate(`!!document.querySelector('main[data-hydrated]')`) };
 			}
 		} finally { await p.s('Emulation.setScriptExecutionDisabled', { value: false }); }
-		return { pass: Object.values(out).every((o) => o.usable.length === 0 && /need JavaScript/.test(o.note) && !o.hydrated), evidence: out };
+		return { pass: Object.values(out).every((o) => o.usable.length === 0 && /needs? JavaScript/.test(o.note) && !o.hydrated) && Object.keys(out).length === 4, evidence: out };
 	});
 
 	// a second server and case: a repeated bundle number and page, a bulk supplementary schedule (40 x 100 files), an
@@ -591,7 +693,7 @@ try {
 			const ex = exceptions(mk);
 			return { pass: r.rows.join('|') === 'Synthetic original item|Synthetic repeated number|Synthetic plain item' && r.dup === 2 && r.hydrated && ex.length === 0, evidence: { r, ex } };
 		});
-		await S('CB-DUP', 'court_bundle_tab', 'D8 and D12: a repeated bundle number renders every row, flagged, each opening its own bundle; the copy claims no finished PDF', async () => {
+		await S('CB-DUP', 'court_bundle_tab', 'D8: a repeated bundle number renders every row, flagged, each opening its own bundle; the copy is v5\'s now that the builder assembles bundles (GRS-19)', async () => {
 			const mk = b.mark();
 			await q.go(BB, 'court_bundle_tab');
 			const r = await q.evaluate(`({ rows: [...document.querySelectorAll('#cb-list tbody tr')].map((t) => t.cells[1].textContent.trim()), dup: document.querySelectorAll('#cb-list .dup').length, sub: document.getElementById('main').textContent.replace(/\\s+/g, ' ') })`);
@@ -600,7 +702,7 @@ try {
 			await q.waitFor(`document.getElementById('cb-bundle-h')`);
 			const opened = { title: await q.text('#cb-bundle-h'), search: await q.evaluate('location.search') };
 			const ex = exceptions(mk);
-			return { pass: r.rows.length === 3 && r.dup === 2 && opened.title === 'Synthetic repeated bundle' && /[?&]b=1&at=1/.test(opened.search) && !/finished PDF|assembled and numbered/.test(r.sub) && /paginated pages\. Each index lists the extracted documents, numbered continuously from page 1\./.test(r.sub) && ex.length === 0, evidence: { rows: r.rows, dup: r.dup, opened, ex } };
+			return { pass: r.rows.length === 3 && r.dup === 2 && opened.title === 'Synthetic repeated bundle' && /[?&]b=1&at=1/.test(opened.search) && /paginated pages\. Every bundle is a finished PDF: index first, then the extracted documents, numbered continuously from page 1\./.test(r.sub) && /assembled and numbered/.test(r.sub) && ex.length === 0, evidence: { rows: r.rows, dup: r.dup, opened, ex } };
 		});
 		await S('CL-DUP', 'caselines_tab', 'D8: a page number the page-text index repeats renders every hit, flagged', async () => {
 			const mk = b.mark();

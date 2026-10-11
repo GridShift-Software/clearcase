@@ -49,7 +49,7 @@
 		delete delErrors[id];
 		try {
 			const r = await postAction('delete', [['id', id]]);
-			if (!r.ok) { delErrors[id] = r.message; return; }
+			if (!r.ok) { delErrors[id] = r.message.replace(/^Not saved:/, 'Not removed:'); return; }
 			const u = blobs[id];
 			delete blobs[id];
 			if (u) URL.revokeObjectURL(u);
@@ -208,7 +208,7 @@
 				{@const t = totals(x)}
 				{@const l = data.links[i]!}
 				<tr data-no={x.no}><td class="mono"><b>{x.no}</b>{#if repeated.has(x.no)}<span class="dup" title="Another bundle has the same number">repeated number</span>{/if}</td><td><div><b>{x.name}</b></div>{#if x.note}<div class="ex">{x.note}</div>{/if}</td><td class="num">{t.items}</td><td class="num">{t.pages}</td>
-					<td>{#if x.id}<span class="badge b-info">custom</span> {/if}{#if t.missing}<span class="badge b-warn">{t.missing} to review</span>{:else}<span class="badge b-ok">complete</span>{/if}</td>
+					<td>{#if x.id}<span class="badge b-info">custom</span>{' '}{/if}{#if t.missing}<span class="badge b-warn">{t.missing} to review</span>{:else}<span class="badge b-ok">complete</span>{/if}</td>
 					<td><button type="button" class="btn primary sm" disabled={off} onclick={() => go({ ...bq(i), tab: 'index' })}>Open</button> {#if href(l.file)}<a class="btn sec sm" href={href(l.file)} target="_blank" rel="noopener">Bundle PDF</a>{:else if blob(x)}<a class="btn sec sm" href={blob(x)} target="_blank" rel="noopener">Bundle PDF</a>{:else if x.file}{@render notServed('Bundle PDF')}{:else}<button type="button" class="btn sec sm" disabled={off} onclick={() => go({ view: 'build' })}>Create</button>{/if} {#if href(l.indexFile)}<a class="btn ghost sm" href={href(l.indexFile)} target="_blank" rel="noopener">Index PDF</a>{:else if x.indexFile}{@render notServed('Index PDF')}{/if}{x.indexFile ? ' ' : ''}<button type="button" class="btn ghost sm" disabled={off} onclick={() => wordOne(x)}>Word</button>{#if x.id} <button type="button" class="btn ghost sm" data-delete={x.no} disabled={off || !!deleting[x.id]} onclick={() => del(x)}>Delete</button>{/if}
 						{#if x.id && delErrors[x.id]}<p class="error" role="alert" data-delete-error={x.no}>{delErrors[x.id]}</p>{/if}</td></tr>
 			{/each}

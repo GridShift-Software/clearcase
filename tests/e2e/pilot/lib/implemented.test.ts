@@ -1,9 +1,10 @@
 // The pilot checks' implementation awareness (lib/implemented.mjs): in a scratch copy of the tree, a temporary owner
 // route and a filled overview slot switch the views42/titles/keyboard/slots and checkRegistry/checkSlots expectations
-// from unavailable to implemented, and back when they are removed. Nothing is written into the repository.
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+// from unavailable to implemented, and back when they are removed. Nothing is written into the repository, and the
+// committed tree is checked against its own routes, so the test holds whichever M2 views exist.
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join, sep } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 import { destinationOk, expectedSlot, filledSlots, firstUnimplemented, implementedViews, observedSlot, readyKind, registryOf, routeFile, slotsFromHtml } from './implemented.mjs';
 
@@ -22,10 +23,22 @@ const built = (v: { id: string; label: string }) => ({ h1: v.label, ready: v.id,
 const slotHtml = (id: string, title: string, status: string, body: string) => `<section class="card" aria-labelledby="slot-${id}" data-slot="${id}" data-slot-status="${status}"><h2 id="slot-${id}">${title}</h2><!--[-->${body}</section>`;
 
 describe('pilot checks follow the tree under test', () => {
-	test('the committed tree: no owner route, no filled slot, so every M2 view and slot is asserted unavailable', () => {
-		expect(implementedViews(REPO, views).size).toBe(0);
-		expect(filledSlots(REPO, slots).size).toBe(0);
-		expect(firstUnimplemented(views, new Set())?.id).toBe('matter');
+	test('the committed tree, whatever its owners have added: a view is implemented exactly when its route is on disk', () => {
+		// read the routes from disk, not through routeFile: each +page.svelte under src/routes/v/[vid]/, as a registry route
+		const base = join(REPO, 'src', 'routes', 'v', '[vid]');
+		const onDisk = new Set((readdirSync(base, { recursive: true }) as string[]).filter((f) => basename(f) === '+page.svelte').map((f) => `/${dirname(f).split(sep).join('/')}`));
+		const want = new Set(views.filter((v: { category: string | null; route: string }) => v.category && onDisk.has(v.route)).map((v: { id: string }) => v.id));
+		const impl = implementedViews(REPO, views);
+		expect(impl).toEqual(want);
+		expect(firstUnimplemented(views, impl)?.id ?? null).toBe(views.find((v: { id: string; category: string | null }) => v.category && !want.has(v.id))?.id ?? null);
+		// a filled slot is named by its owner's overview-widgets.ts, which must exist
+		for (const id of filledSlots(REPO, slots)) expect(existsSync(join(REPO, 'src', 'lib', 'views', slots.find((x: { id: string }) => x.id === id)!.category, 'overview-widgets.ts')), id).toBe(true);
+	});
+
+	test('a tree with no owner route and no filled slot: every M2 view and slot is unavailable, and the example is matter', () => {
+		expect(implementedViews(tree, views).size).toBe(0);
+		expect(filledSlots(tree, slots).size).toBe(0);
+		expect(firstUnimplemented(views, implementedViews(tree, views))?.id).toBe('matter');
 	});
 
 	test('a temporary owner route and filled slot switch the checks to implemented mode; removing them switches back', () => {
@@ -94,5 +107,41 @@ describe('pilot checks follow the tree under test', () => {
 		for (const f of ['destinationOk', 'expectedSlot', 'firstUnimplemented']) expect(flow).toContain(`${f}(`);
 		for (const f of ['implementedViews(C.build.root', 'filledSlots(C.build.root', 'firstUnimplemented(', 'expectedSlot(s, filled)']) expect(lanes).toContain(f);
 		expect(lanes).not.toContain("want.find((v) => v.status !== 'available')");
+	});
+});
+
+// The routes under src/routes/v/[vid]/ follow the M2 contract: the pilot's own route files, exactly as the base has
+// them, and an owner's route files inside the route folder of one of its registry views (the view's page and anything
+// below it, such as an export endpoint). A route file anywhere else fails.
+const PILOT_ROUTES = ['+layout.server.ts', '+layout.svelte', '+page.server.ts', '[category]/[view]/+page.server.ts', '[category]/[view]/+page.svelte', 'chronology/+page.server.ts', 'chronology/+page.svelte', 'chronology/+page.ts', 'doc/[ref]/+page.server.ts', 'doc/[ref]/+page.svelte', 'overview/+page.server.ts', 'overview/+page.svelte', 'search/+page.server.ts'];
+/** The route files (+…) under `root`'s src/routes/v/[vid]/ that lie inside no M2 view's route folder, sorted. */
+function routesOutsideViews(root: string) {
+	const base = join(root, 'src', 'routes', 'v', '[vid]');
+	const folders = views.filter((v: { category: string | null }) => v.category).map((v: { route: string }) => `${v.route.slice(1)}/`);
+	return (readdirSync(base, { recursive: true }) as string[]).map((f) => f.split(sep).join('/')).filter((f) => basename(f).startsWith('+') && !folders.some((d: string) => f.startsWith(d))).sort();
+}
+
+describe('routes under /v/[vid]: the pilot routes as they are, owner routes only inside their own views', () => {
+	test('the committed tree', () => {
+		expect(routesOutsideViews(REPO)).toEqual(PILOT_ROUTES);
+	});
+
+	test("an owner's view page and a route below it pass; a route outside every owner's view, an extra pilot route or a missing one fails", () => {
+		const root = mkdtempSync(join(tmpdir(), 'cc-routes-'));
+		try {
+			const at = (f: string) => join(root, 'src', 'routes', 'v', '[vid]', ...f.split('/'));
+			for (const f of PILOT_ROUTES) put(at(f), '');
+			expect(routesOutsideViews(root)).toEqual(PILOT_ROUTES);
+			const search = byId('search');
+			for (const f of [`${search.route.slice(1)}/+page.svelte`, `${search.route.slice(1)}/export/+server.ts`]) put(at(f), '');
+			expect(routesOutsideViews(root)).toEqual(PILOT_ROUTES);
+			for (const stray of [`${search.category}/+layout.svelte`, `${search.category}/not_a_view/+page.svelte`, 'chronology/extra/+page.svelte', 'reports/+page.svelte']) {
+				put(at(stray), '');
+				expect(routesOutsideViews(root), stray).toEqual([...PILOT_ROUTES, stray].sort());
+				rmSync(at(stray));
+			}
+			rmSync(at('chronology/+page.ts'));
+			expect(routesOutsideViews(root)).not.toEqual(PILOT_ROUTES);
+		} finally { rmSync(root, { recursive: true, force: true }); }
 	});
 });

@@ -14,6 +14,8 @@ RENDER.overview=function(el){
   kpis.forEach(k=>h+='<div class="kpi"><div class="k">'+esc(k[0])+'</div><div class="v">'+k[1]+'</div><div class="s">'+esc(k[2])+'</div></div>');
   el.innerHTML=h;
 };
+function exportChron(){const head=['ref','date','subject'];const rows=chronRows().map(r=>[r.ref,r.date,r.subject]);dl('syn-chronology.csv',toCSV([head,...rows]),'text/csv');}
+function exportSearch(){const head=['ref','date'];dl('syn-search.csv',toCSV([head,...searchRows()]),'text/csv');}
 RENDER.timeline=function(el){
   const T=DATA.timeline,Q=DATA.quantum,B=META.bundles;
   let h=pageHead('Timeline','SYN v ORG — an invented write-up built from '+META.docCount.toLocaleString()+' invented documents');
@@ -45,8 +47,9 @@ RENDER.quantum_tab=function(el){
   ].forEach(k=>h+='<div class="kpi">'+esc(k[0])+'</div>');
   el.innerHTML=h;
 };
+function exportInvoices(){const head=['no','date','amount'];dl('syn-invoices.csv',toCSV([head]),'text/csv');}
 RENDER.invoice_ledger_tab=function(el){const L=DATA.quantum.invoiceLedger;let h=pageHead('Ledger',L.length+' SYN-series invoices','<button class="btn">Export</button>');el.innerHTML=h;};
-function exportICS(){let ics='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//SYN v ORG//Workspace//EN\r\n';ics+='END:VCALENDAR';dl('syn.ics',ics,'text/calendar');}
+function exportICS(){let ics='BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//SYN v ORG//Workspace//EN\r\n';ics+='END:VCALENDAR';dl('syn-deadlines.ics',ics,'text/calendar');}
 RENDER.contracts_tab=function(el){
   const C=DATA.contracts;
   let h=pageHead('Contracts','The invented agreements behind the invented claim','<button class="btn">CSV</button>');
@@ -58,7 +61,13 @@ RENDER.contracts_tab=function(el){
   h+='<div class="card narr"><h3>Why</h3><p>An invented counsel note.</p></div>';
   el.innerHTML=h;
 };
-RENDER.filings_tab=function(el){let h=pageHead('Filings','Invented filings and affidavits');h+='<div class="card narr"><h3>Orientation</h3><p>An invented orientation paragraph.</p></div>';el.innerHTML=h;};
+function exportContracts(){dl('syn-contracts.csv',toCSV([['group','ref']]),'text/csv');}
+RENDER.filings_tab=function(el){let h=pageHead('Filings','Invented filings and affidavits');h+='<div class="card narr"><h3>Orientation</h3><p>An invented orientation paragraph.</p></div>';
+  h+='<div class="card"><h3>Register</h3>';
+  h+='<p style="margin:0 0 8px">An invented register of the invented bundle, kept by hand. It is saved in this browser (syn_register_v1).</p>';
+  h+='</div>';el.innerHTML=h;};
+function exportFilings(){dl('syn-filings.csv',toCSV([['ref']]),'text/csv');}
+function exportRegister(){dl('syn-filing-register.csv',toCSV([['date']]),'text/csv');}
 (function(){
   const ST={mode:'discovery'};
   const CAP = {
@@ -133,6 +142,7 @@ function cbIndexAllDocx(){const bs=cbBundles();if(!bs.length)return;
   };
 })();
 RENDER.contradictions_tab=function(el){let h=pageHead('Contradictions','');h+='<div class="card narr"><h3>How</h3><p>Flags compare all '+META.docCount.toLocaleString()+' invented items.</p></div>';el.innerHTML=h;};
+function exportContradictions(){dl('syn-contradictions.csv',toCSV([['ref_a','ref_b']]),'text/csv');}
 RENDER.vdm_matrix_tab=function(el){
   let h=pageHead('Defence','Each ORG point mapped to SYN evidence','<button class="btn">CSV</button>');
   h+='<div class="card pad0"><table class="tbl"><thead><tr><th>ORG point</th><th>Documents</th><th>SYN rebuttal</th></tr></thead><tbody>';
@@ -140,13 +150,17 @@ RENDER.vdm_matrix_tab=function(el){
   h+='</tbody></table></div>';
   el.innerHTML=h;
 };
+function exportDefence(){const head=['syn_point','documents','syn_rebuttal','org_answer','status'];const rows=DATA.defenceMatrix.map(r=>[r.point]);dl('syn-defence-matrix.csv',toCSV([head,...rows]),'text/csv');}
 RENDER.conflict_tab=function(el){let h=pageHead('Conflict','');h+='<div class="card"><input class="in" id="confq" placeholder="e.g. Invented Ltd, person@example.invalid"></div>';el.innerHTML=h;};
 RENDER.enforcement_tab=function(el){let h=pageHead('Enforcement','How SYN collects from ORG');h+='<div class="card narr"><h3>Why</h3><p>An invented enforcement path.</p></div>';el.innerHTML=h;};
 RENDER.legality_tab=function(el){let h=pageHead('Legality','Could an invented review change the claim?');el.innerHTML=h;};
 RENDER.interest_calc_tab=function(el){let h=pageHead('Interest','');h+='<div class="card"><input class="in" id="ic_r" value="7.25"></div>';el.innerHTML=h;};
+function exportPresc(){dl('syn-prescription.csv',toCSV([['ref','date']]),'text/csv');}
+function ledgerCSVp(){dl('syn-payments.csv',toCSV([['date','amount']]),'text/csv');}
 RENDER.payments_tab=function(el){let h=pageHead('Payments','Credit what ORG has paid','<button class="btn">x</button>');el.innerHTML=h;};
 RENDER.elements_tab=function(el){let h=pageHead('Cause of Action','Each element SYN must prove');h+='<div class="card pad0"><table class="tbl"><thead><tr><th>Element</th><th>What SYN must prove</th></tr></thead></table></div>';el.innerHTML=h;};
-function exportHeads(){let out='HEADS OF ARGUMENT — SYN v ORG\n\n';dl('syn.txt',out,'text/plain');}
+function exportHeads(){let out='HEADS OF ARGUMENT — SYN v ORG\n\n';dl('syn-heads.txt',out,'text/plain');}
+function exportAuth(){dl('syn-authorities.csv',toCSV([['name','cite']]),'text/csv');}
 RENDER.crossexam_tab=function(el){let h=pageHead('Cross-examination','');h+='<p class="tag">Tip: use the invented contradictions.</p>';el.innerHTML=h;};
 RENDER.settlement_tab=function(el){
   let h=pageHead('Settlement','Risk-adjusted value of an invented claim');
@@ -158,5 +172,7 @@ RENDER.settlement_tab=function(el){
     '<input class="in" id="se_c" value="1000"></div></div>';
   el.innerHTML=h;
 };
+function rescanWriteIndex(){dl('syn-index.json',JSON.stringify({v:1}),'application/json');}
+function backupExport(){dl('syn-backup.json',JSON.stringify({v:1}),'application/json');}
 async function rescanNow(){const fn='x.pdf';return /syn\d{4,6}/i.test(fn)?'invoice':'other';}
 function verifyLinks(){let h='<table class="tbl"></table><p class="tag" style="margin-top:6px">3 invented links were checked at build time.</p>';document.getElementById('noneList').innerHTML=h;}

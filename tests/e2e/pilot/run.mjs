@@ -12,13 +12,16 @@
 // empty, an entry has pass other than true, or an implemented view of the category is in no scenario (suiteProblems).
 // Fresh-build evidence (lib/fresh-build.ts): the build stamp must be HEAD's, made in <repo>/build, from and on a tree
 // without modified or untracked (not ignored) files; otherwise exit 2 before any step, unless --allow-stale-build,
-// which runs it with `evidence: false` in the summary and NOT EVIDENCE in the final status line.
+// which runs it with `evidence: false` in the summary and NOT EVIDENCE in the final status line. A run also records
+// `evidence: false` when a development knob covers less than the gate (E2E_ONLY, E2E_STOP_AFTER,
+// E2E_LATENCY_SIZES_MIB, CLEARCASE_E2E_TMP) or a suite it runs by file name is not a committed review input
+// (e2eNonEvidence; each suite's bytes are taken just before its step starts).
 // Results: $CLEARCASE_REPORT_DIR/e2e.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { CHROME, chromeAvailable } from './lib/cdp.mjs';
-import { allowStale, evidenceRecord, evidenceSuffix, freshLine, freshness, refusal } from './lib/fresh-build.ts';
+import { allowStale, evidenceRecord, evidenceSuffix, freshLine, freshness, notCommitted, readStamp, refusal } from './lib/fresh-build.ts';
 import { implementedViews, registryOf } from './lib/implemented.mjs';
 import { outDir } from './lib/record.mjs';
 import { bunIdentity } from './lib/server.mjs';
@@ -44,6 +47,23 @@ export function discoverCategories({ e2eDir = join(appRoot, 'tests', 'e2e'), rou
 	const views = CATEGORIES.filter((c) => hasFiles(join(routesDir, c)));
 	return { suites, views, missing: views.filter((c) => !suites.includes(c)) };
 }
+
+/**
+ * The development knobs that make a run cover less than the gate, with what each does. CLEARCASE_E2E_TMP moves the
+ * durability suite's files off <worktree>/.local/tmp, which is disk-backed on purpose (large originals, sparse files,
+ * SIGKILL mid-write): on tmpfs or a network share the scenarios prove something else, and its path alone would not
+ * tell a reviewer which, so a run with it set is not evidence rather than merely recorded.
+ */
+export const DEV_ENV = { E2E_ONLY: 'runs only the listed durability scenarios', E2E_STOP_AFTER: 'stops the browser suite early', E2E_LATENCY_SIZES_MIB: 'changes the durability latency file sizes', CLEARCASE_E2E_TMP: 'moves the durability files off the disk-backed default folder' };
+
+/**
+ * Why a run is not release evidence whatever its build: a knob from DEV_ENV set in `env` (even empty: an empty
+ * E2E_LATENCY_SIZES_MIB is one size of 0 MiB), or a suite it runs by file name (`suites`: the pilot suites and each
+ * category's suite.mjs) that is not a committed review input of this checkout under tests/e2e/
+ * (lib/fresh-build.ts uncommittedInputs), say one a committed .gitignore hides or one whose bytes (`read`, by path, as
+ * the step started; else read now) are not HEAD's.
+ */
+export const e2eNonEvidence = (env = process.env, suites = [], read = {}) => [...Object.entries(DEV_ENV).filter(([k]) => env[k] !== undefined).map(([k, what]) => `${k}=${env[k]} ${what}`), ...notCommitted('suites run by file name', root, suites, { within: 'tests/e2e', read })];
 
 /** Where a category suite writes what it ran. */
 export const suiteSummaryFile = (out, category) => join(out, category, 'summary.json');
@@ -71,6 +91,25 @@ export function suiteProblems(out, category, implemented) {
 	return problems;
 }
 
+// Fail fast: each step runs at most 15 minutes (CLEARCASE_SUITE_TIMEOUT_MS; the browser suite takes about one, the
+// durability suite about two) and is then stopped with SIGTERM, which fails it. A step that timed out, or a pilot step
+// whose record says its run aborted (a dead browser, a scenario timeout: lib/lifecycle.mjs), makes the summary
+// `evidence: false` with the reason.
+/** A step's time limit in ms. */
+export const STEP_TIMEOUT_MS = +(process.env.CLEARCASE_SUITE_TIMEOUT_MS ?? 15 * 60_000);
+/** The record each pilot step writes in the output directory (lib/record.mjs), by step name. */
+export const STEP_RECORDS = { 'browser suite (offline)': 'suite.json', 'durability suite (offline)': 'durability.json', 'loopback bind check (host namespace)': 'netcheck.json' };
+
+/** Why a step proves nothing even if it passed: it timed out, or its record says the run aborted; else null. */
+export function stepAbort(out, step) {
+	if (step.timedOut) return `${step.name}: no result within ${STEP_TIMEOUT_MS / 1000} s (timeout); stopped`;
+	if (!STEP_RECORDS[step.name]) return null;
+	try {
+		const a = JSON.parse(readFileSync(join(out, STEP_RECORDS[step.name]), 'utf8')).aborted;
+		return a ? `${step.name}: run aborted in ${a.step}: ${a.cause}` : null;
+	} catch { return null; }
+}
+
 if (import.meta.main) await main();
 
 async function main() {
@@ -81,8 +120,8 @@ async function main() {
 	const missing = Object.entries(pre).filter(([, v]) => !v).map(([k]) => k);
 	const dir = outDir();
 	mkdirSync(dir, { recursive: true });
-	const build = pre.build ? JSON.parse(readFileSync(join(buildDir, 'clearcase-build.json'), 'utf8')) : null;
-	const fresh = freshness(root, build, { buildDir });
+	const build = pre.build ? readStamp(buildDir) : null;
+	const fresh = freshness(root, build, { buildDir, appRoot });
 	const allowed = allowStale(process.argv.slice(2));
 	console.log(`test:e2e: ${freshLine(fresh)}`);
 	if (pre.build && !fresh.fresh && !allowed) {
@@ -97,6 +136,8 @@ async function main() {
 	const implementedIn = (c) => reg.views.filter((v) => v.category === c && implemented.has(v.id)).map((v) => v.id);
 	console.log(`test:e2e: categories with a suite: ${cats.suites.join(', ') || 'none'}; with views: ${cats.views.join(', ') || 'none'}`);
 	for (const c of cats.missing) console.error(`test:e2e: category ${c} has views but no suite`);
+	// remove the pilot steps' records first, so that only this run's can say it aborted (stepAbort)
+	for (const f of Object.values(STEP_RECORDS)) rmSync(join(dir, f), { force: true });
 	const offline = (file) => offlineStep(join(here, file));
 	const steps = [
 		['browser suite (offline)', offline('suite.mjs')],
@@ -105,13 +146,20 @@ async function main() {
 		...categorySteps(),
 	];
 	const results = [];
+	// each suite's bytes as its step starts, for the committed-input check
+	const read = {};
 	if (missing.length) console.error(`test:e2e: missing prerequisites: ${missing.join(', ')} (build first with bun run --bun build)`);
 	else for (const [name, [cmd, args], category] of steps) {
 		const t0 = Date.now();
 		console.log(`\n=== ${name}: ${cmd} ${args.join(' ')}`);
 		if (category) rmSync(suiteSummaryFile(dir, category), { force: true });
-		const r = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', env: { ...process.env, CLEARCASE_E2E_OUT: dir } });
+		try { read[args.at(-1)] = readFileSync(args.at(-1)); } catch {}
+		const r = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', env: { ...process.env, CLEARCASE_E2E_OUT: dir }, timeout: STEP_TIMEOUT_MS, killSignal: 'SIGTERM' });
 		const res = { name, rc: r.status, ms: Date.now() - t0 };
+		if (r.error?.code === 'ETIMEDOUT') {
+			console.error(`test:e2e: ${name}: no result within ${STEP_TIMEOUT_MS / 1000} s; stopped`);
+			Object.assign(res, { rc: 124, timedOut: true });
+		}
 		if (category) {
 			const problems = suiteProblems(dir, category, implementedIn(category));
 			for (const p of problems) console.error(`test:e2e: ${category} suite: ${p}`);
@@ -121,7 +169,7 @@ async function main() {
 	}
 	const noSuite = cats.missing.map((c) => ({ name: `category ${c} has views but no suite`, rc: 1, ms: 0 }));
 	const ok = missing.length === 0 && results.length === steps.length && results.every((r) => r.rc === 0) && noSuite.length === 0;
-	const evidence = evidenceRecord(fresh, allowed);
+	const evidence = evidenceRecord(fresh, allowed, [...e2eNonEvidence(process.env, steps.map(([, [, args]]) => args.at(-1)), read), ...results.map((r) => stepAbort(dir, r)).filter(Boolean)]);
 	writeFileSync(join(dir, 'summary.json'), JSON.stringify({ ok, prerequisites: pre, missing, bun: bunIdentity(), build, ...evidence, categories: cats, results: [...results, ...noSuite] }, null, 1));
 	console.log('\n' + [...results, ...noSuite].map((r) => `${r.rc === 0 ? 'PASS' : 'FAIL'} rc=${r.rc} ${(r.ms / 1000).toFixed(1)}s ${r.name}`).join('\n'));
 	console.log(`test:e2e: ${ok ? 'PASS' : 'FAIL'}${evidenceSuffix(evidence)}`);

@@ -394,6 +394,96 @@ try {
 		} finally { await restarted(); }
 	}, { expectsFailures: true });
 
+	/** A second page with page scripts switched off: the forms post natively and the server renders the answer. */
+	const noJsPage = async () => { const q = await L.appPage(b, A.origin); await q.s('Emulation.setScriptExecutionDisabled', { value: true }); return q; };
+	/** Submit a row's native form (checkbox, then the <noscript> Save button) and wait for the server's new page. */
+	const nativeSave = async (q, n, tick = true) => {
+		await q.evaluate(`window.__old = 1`);
+		if (tick) await q.click(`#info-table tbody tr:nth-child(${n}) input[type=checkbox]`);
+		await q.click(`#info-table tbody tr:nth-child(${n}) noscript button, #info-table tbody tr:nth-child(${n}) form > button`);
+		await q.waitFor(`!window.__old && document.querySelector('#info-table')`, 30000);
+	};
+
+	await scenario('AN-FW5', 'info_required_tab', 'Without JavaScript, a refused save survives another row\'s save: after a 503 on row A and a save of row B, A still shows its choice, its error and Retry and is not stored; Retry A then saves it', async () => {
+		const q = await noJsPage();
+		let released = false;
+		const lock = new Database(join(A.dataDir, 'work.sqlite'));
+		lock.exec('PRAGMA busy_timeout=0');
+		lock.exec('BEGIN IMMEDIATE');
+		const release = () => { if (!released) { released = true; lock.exec('ROLLBACK'); lock.close(); } };
+		try {
+			await q.goto(V(vid, 'info_required_tab'));
+			await q.waitFor(`document.querySelector('#info-table')`, 30000);
+			const before = infoRows();
+			const startState = await q.evaluate(`[...document.querySelectorAll('#info-table tbody tr')].map((r) => r.querySelector('input[type=checkbox]').checked)`);
+			const noscriptButtons = await q.evaluate(`document.querySelectorAll('#info-table tbody tr noscript button, #info-table tbody tr form > button').length`);
+			// row A, store busy: refused with its error
+			await nativeSave(q, 1);
+			const refused = await q.evaluate(`({ error: document.querySelector('#info-error')?.textContent ?? null })`);
+			release();
+			// row B saved: A's failure must still be shown
+			await nativeSave(q, 2);
+			const read = () => q.evaluate(`({ problems: [...document.querySelectorAll('#info-error .info-problem')].map((e) => ({ text: e.textContent, retry: !!e.querySelector('button') })), checked: [...document.querySelectorAll('#info-table tbody tr')].map((r) => r.querySelector('input[type=checkbox]').checked), marks: [...document.querySelectorAll('#info-table tbody tr')].map((r) => r.querySelector('.row-state')?.dataset.state ?? null) })`);
+			const mid = { ...(await read()), rows: infoRows() };
+			// Retry A: saved, the error goes
+			await q.evaluate(`window.__old = 1`);
+			await q.click(`#info-error .info-retry[aria-label=${J('Retry: Invented item A')}]`);
+			await q.waitFor(`!window.__old && document.querySelector('#info-table')`, 30000);
+			const end = { ...(await read()), error: await q.evaluate(`!!document.querySelector('#info-error')`), rows: infoRows() };
+			const checks = {
+				noscriptSaveButtons: noscriptButtons === 3,
+				firstRefused: /Not saved/.test(refused.error ?? ''),
+				otherRowSaved: doneOf(mid.rows, 'Invented item B') === !startState[1],
+				failureStillNamed: mid.problems.length === 1 && names(mid.problems, 'Invented item A'),
+				choiceKept: mid.checked[0] === !startState[0] && J(mid.marks) === J(['unsaved', null, null]),
+				failedNotStored: doneOf(mid.rows, 'Invented item A') === doneOf(before, 'Invented item A'),
+				retrySaves: doneOf(end.rows, 'Invented item A') === !startState[0] && !end.error && J(end.marks) === J([null, null, null]),
+			};
+			return { pass: Object.values(checks).every(Boolean), evidence: { checks, startState, refused: refused.error?.slice(0, 160), mid, end: { ...end, rows: end.rows.length } } };
+		} finally { release(); await q.close(); }
+	}, { expectsFailures: true });
+
+	await scenario('AN-FW6', 'info_required_tab', 'Two quick saves of one item under a held write lock are sent one at a time: at most one POST is in flight, the second is sent after the first settles, and the last choice is what is stored', async () => {
+		await p.goto(V(vid, 'info_required_tab'), L.ready('info_required_tab'));
+		const rowsBefore = infoRows();
+		const startState = await infoState();
+		// item C: tick then untick, so the last choice equals the stored start and a reordered write would leave the first choice stored
+		const start = startState[2][0];
+		await p.evaluate(`(() => { const f = window.fetch; window.__fl = { cur: 0, max: 0, n: 0 };
+			window.fetch = function (u, o) { if ((o?.method ?? 'GET') !== 'POST' || !String(u).includes('toggle')) return f.apply(this, arguments);
+				window.__fl.n++; window.__fl.max = Math.max(window.__fl.max, ++window.__fl.cur); return f.apply(this, arguments).finally(() => window.__fl.cur--); }; })()`);
+		const lock = new Database(join(A.dataDir, 'work.sqlite'));
+		lock.exec('PRAGMA busy_timeout=0');
+		lock.exec('BEGIN IMMEDIATE');
+		let released = false;
+		const release = () => { if (!released) { released = true; lock.exec('ROLLBACK'); lock.close(); } };
+		const mk = b.mark();
+		try {
+			await p.click('#info-table tbody tr:nth-child(3) input[type=checkbox]');
+			await sleep(120);
+			await p.click('#info-table tbody tr:nth-child(3) input[type=checkbox]');
+			await sleep(450);
+			const duringHold = await p.evaluate(`({ ...window.__fl })`);
+			release();
+			await saved();
+			await p.waitFor(`window.__fl.cur === 0 && !document.querySelector('#info-table [aria-busy="true"]')`, 30000);
+			await sleep(300);
+			const settled = await p.evaluate(`({ ...window.__fl, error: !!document.querySelector('#info-error'), shown: [...document.querySelectorAll('#info-table tbody tr')].map((r) => r.querySelector('input[type=checkbox]').checked) })`);
+			const posts = b.since(mk).requests.filter((r) => r.method === 'POST' && /toggle/.test(r.url)).length;
+			await p.goto(V(vid, 'info_required_tab'), L.ready('info_required_tab'));
+			const reloaded = await infoState();
+			const rowsAfter = infoRows();
+			const checks = {
+				atMostOneInFlight: settled.max === 1 && duringHold.max <= 1,
+				secondSentAfterFirst: settled.n === 2 && posts === 2,
+				noError: !settled.error,
+				shownLast: settled.shown[2] === start,
+				storedLast: reloaded[2][0] === start && doneOf(rowsAfter, 'Invented item C') === start && rowsAfter.length === rowsBefore.length,
+			};
+			return { pass: Object.values(checks).every(Boolean), evidence: { checks, start, duringHold, settled, posts, reloaded: reloaded[2], rows: [rowsBefore.length, rowsAfter.length] } };
+		} finally { release(); }
+	}, { expectsFailures: true });
+
 	await scenario('AN-09', 'witness_tab', 'Scenario 9: a will-say [[REF]] links to its document through Narrative.svelte; a missing ref renders broken; names and bare refs are never turned into links', async () => {
 		const nav = await arrive(p, vid, 'witness_tab', name);
 		await p.shot(join(SCREENS, 'witness_tab-desktop.png'));

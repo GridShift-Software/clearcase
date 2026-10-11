@@ -1,7 +1,8 @@
 // CC-06 r2 regressions on the pure functions (GRS-16), synthetic inputs only: results too large to compute or show
 // (D5, D6), the input bounds (D6, D11), years outside 1000 to 9999 (D7), payment entries (D8, D18), the South African
-// as-of date (D9), Settlement after an overpayment (D10), URL values the controls cannot show (D12) and a grouped
-// amount that starts with 0 (D20). Each repro is the lanes' (verify-findings.json); none may throw.
+// as-of date (D9), Settlement after an overpayment (D10), URL values the controls cannot show (D12) and the thousands
+// separator (a grouped amount that starts with 0 is R 500, not refused). Each repro is the lanes'
+// (verify-findings.json); none may throw.
 import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -128,8 +129,8 @@ describe('D9: the as-of date is the South African calendar date', () => {
 		const out = execFileSync(process.execPath, ['-e', `import { saDate } from ${JSON.stringify(src)}; console.log([saDate(new Date('2026-10-08T21:59:59Z')), saDate(new Date('2026-10-08T22:00:00Z'))].join(' '))`], { env: { ...process.env, TZ: tz }, encoding: 'utf8' }).trim();
 		expect(out).toBe('2026-10-08 2026-10-09');
 	});
-	it('a row due that day has passed', () => {
-		const rows: PrescRow[] = [{ no: 'SYN', ref: 'OD-001', date: '2023-10-09', prescDate: '2026-10-09', risk: 'x', url: '' }];
+	it('a row due the day before the South African date has passed, and one due that day has not', () => {
+		const rows: PrescRow[] = [{ no: 'SYN', ref: 'OD-001', date: '2023-10-08', prescDate: '2026-10-08', risk: 'x', url: '' }];
 		expect(arithmetic(rows, saDate(new Date('2026-10-08T22:30:00Z'))).passed).toBe(1);
 	});
 });
@@ -169,12 +170,13 @@ describe('D12: a URL value the controls cannot show never filters silently', () 
 	});
 });
 
-describe('D20: a grouped amount whose first group starts with 0 is refused', () => {
-	it.each(['0,500', '01,000', '0 500', 'R 0,500'])('%s', (t) => {
+describe('a comma or space between thousands is a thousands separator (PO decision, 11 October)', () => {
+	it.each([['0,500', 50000n], ['1,500', 150000n], ['R 0,500', 50000n], ['0 500', 50000n], ['1 000', 100000n], ['0.50', 50n], ['0500', 50000n]])('%s', (t, cents) => {
 		const r = parseAmount(t);
-		expect(r.ok ? null : r.error).toBe(`${t} is ambiguous: a grouped amount cannot start with 0. Write 0.50 for cents or 500 for rand.`);
+		expect(r.ok ? r.value : r.error).toBe(cents);
 	});
-	it('ungrouped and well-grouped amounts still parse', () => {
-		expect([parseAmount('0.50'), parseAmount('1,000'), parseAmount('0500')].map((r) => (r.ok ? r.value : r.error))).toEqual([50n, 100000n, 50000n]);
+	it('a comma before one or two digits is still refused as a comma decimal', () => {
+		expect(parseAmount('0,50').ok).toBe(false);
+		expect(parseAmount('1 000,50').ok).toBe(false);
 	});
 });

@@ -128,6 +128,21 @@ describe('backup', () => {
 		await expect(restoreBackup(a, textOf(bad), { caseId: CASE, resultsVersion: rv })).rejects.toMatchObject({ code: 'refused' });
 		expect(JSON.stringify(a.userWork.exportAll().tables)).toBe(before);
 	});
+
+	it('a restore whose copy of the current work fails is refused and changes nothing', async () => {
+		const good = createBackup(a, rv);
+		await a.userWork.addNote(CASE, rv, 'OD-004', 'not in the backup');
+		const before = JSON.stringify(a.userWork.exportAll().tables);
+		const store = (a as unknown as { store: { backupWork: (...x: unknown[]) => unknown } }).store;
+		const real = store.backupWork;
+		store.backupWork = () => { throw new Error('synthetic: no space left'); };
+		try {
+			await expect(restoreBackup(a, textOf(good), { caseId: CASE, resultsVersion: rv })).rejects.toMatchObject({ code: 'refused' });
+		} finally { store.backupWork = real; }
+		expect(JSON.stringify(a.userWork.exportAll().tables)).toBe(before);
+		a.backupNow('test-recovered');
+		expect(a.warnings.has('backup-failed')).toBe(false);
+	});
 });
 
 describe('legacy import hook (v5 browser backups)', () => {

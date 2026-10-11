@@ -16,7 +16,7 @@ function versionOf(vid: string) {
 	const a = app();
 	const v = a.store.getVersion(vid);
 	if (!v) error(404, 'Unknown results version');
-	ensureRescanProvider(a);
+	ensureRescanProvider(a, v.case_id);
 	return { a, v };
 }
 

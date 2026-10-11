@@ -533,7 +533,7 @@ try {
 		} finally { await p2.close(); }
 	});
 	const customRows = () => A.work('SELECT case_id, id, no, name, rows FROM bundles_custom ORDER BY seq');
-	await S('CB-BUILD', 'court_bundle_tab', 'builder: pick two PDFs (a repeat skipped, a protected one refused), reorder, Create and Index only give valid PDFs, the Word index links into the bundle; text typed while Save is pending is kept; the saved bundle is listed after a reload; Back from the builder focuses the heading', async () => {
+	await S('CB-BUILD', 'court_bundle_tab', 'builder: pick two PDFs (a repeat skipped, a protected one refused), reorder, Create and Index only give valid PDFs, the built PDF previews in the page (a frame of its blob URL), the Word index links into the bundle; text typed while Save is pending is kept; the saved bundle is listed after a reload; Back from the builder focuses the heading', async () => {
 		await p.go(B, 'court_bundle_tab');
 		await p.click('#cb-build');
 		await p.waitFor(`document.getElementById('cbbfile')`, 30000);
@@ -550,8 +550,21 @@ try {
 		const after = await descs();
 		const total = await p.text('#cbbtotal');
 		await p.type('#cbbname', 'Synthetic Build');
+		await p.evaluate(`window.__csp = []; document.addEventListener('securitypolicyviolation', (e) => window.__csp.push(e.violatedDirective + ' ' + e.blockedURI))`);
 		await p.click('#cbbrun');
 		await p.waitFor(`document.getElementById('cbbdownload')`, 60000);
+		// v5's in-page preview: the frame loads the builder's own blob URL (frame-src blob:) and Chromium's PDF viewer renders it.
+		// No sandbox: Chromium leaves a sandboxed PDF frame empty, whatever the sandbox tokens.
+		const preview = await p.evaluate(`new Promise((ok) => {
+			const f = document.getElementById('cbbpreview');
+			const done = () => { let d = null; try { d = f.contentDocument; } catch { /* cross-origin error page */ }
+				ok({ src: f?.getAttribute('src') ?? null, href: document.getElementById('cbbdownload').getAttribute('href'), sandbox: f?.getAttribute('sandbox') ?? null, url: d?.URL ?? null, type: d?.contentType ?? null, viewer: !!d?.querySelector('embed[type="application/pdf"], link[href$="/pdf_embedder.css"]'), csp: window.__csp }); };
+			if (!f) return done();
+			const loaded = () => f.contentDocument?.readyState === 'complete' && f.contentDocument.URL.startsWith('blob:');
+			if (loaded()) return setTimeout(done, 300);
+			f.addEventListener('load', () => setTimeout(done, 300), { once: true });
+			setTimeout(done, 15000);
+		})`);
 		await shot('court-bundle-builder');
 		await p.evaluate(`document.getElementById('cbbdownload').click()`);
 		await p.click('#cbbindex');
@@ -592,8 +605,9 @@ try {
 				&& pdfs.full?.pages === 6 && pdfs.full.order && pdfs.full.goTo && pdfs.idx?.pages === 1 && pdfs.idx.goToR && pdfs.word?.text && J(pdfs.word.links) === J(['SYNTHETIC_BUILD.pdf#page=2', 'SYNTHETIC_BUILD.pdf#page=2', 'SYNTHETIC_BUILD.pdf#page=4', 'SYNTHETIC_BUILD.pdf#page=4'])
 				&& during === 'Saving…' && kept.desc === 'SYN TYPED WHILE SAVING' && kept.saved === 'Saved to the bundle list as C1' && kept.error === null && back
 				&& stored.length === 1 && stored[0].no === 'C1' && stored[0].name === 'SYNTHETIC BUILD' && J(sr.map((r) => [r.desc, r.from, r.to, r.parts.map((x) => x.name)])) === J([['BETA_LETTER', 1, 2, ['Beta_Letter.pdf']], ['ALPHA_STATEMENT', 3, 5, ['Alpha_Statement.pdf']]])
-				&& listed.length === 3 && /^C1\|.*SYNTHETIC BUILD.*\|2\|5\|custom complete\|.*Delete$/.test(listed[2]) && /SYNTHETIC BUILD/.test(opened),
-			evidence: { refused, files, before, after, total, pdfs, during, opened, kept, back, stored: stored.map((r) => ({ ...r, rows: r.rows.length })), sr, listed, dl: dl.map((d) => d.name) },
+				&& listed.length === 3 && /^C1\|.*SYNTHETIC BUILD.*\|2\|5\|custom complete\|.*Delete$/.test(listed[2]) && /SYNTHETIC BUILD/.test(opened)
+				&& /^blob:/.test(preview.href) && preview.src === `${preview.href}#page=1` && preview.url === preview.src && preview.type === 'application/pdf' && preview.viewer && preview.sandbox === null && preview.csp.length === 0,
+			evidence: { refused, files, before, after, total, pdfs, preview, during, opened, kept, back, stored: stored.map((r) => ({ ...r, rows: r.rows.length })), sr, listed, dl: dl.map((d) => d.name) },
 		};
 	});
 	await S('CB-BUILD-DELETE', 'court_bundle_tab', 'saved bundles: a Delete refused by a busy store keeps its own error while another bundle\'s Delete dialog is answered (no error moves to that row); Delete asks first and removes only the list entry', async () => {

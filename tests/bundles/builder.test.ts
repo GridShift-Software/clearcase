@@ -122,14 +122,13 @@ describe('outputs', () => {
 	it('writes the linked Word index with one external hyperlink per linked cell (v5 cbCell)', () => {
 		const b = two(), o = output(b), h = header(headerRaw({}, null)).h;
 		const text = (u8: Uint8Array) => new TextDecoder().decode(u8);
-		const linked = text(indexDocx([docxBundle(plan(b), 'MY BUNDLE', o)], h, 'c', true));
+		const linked = text(indexDocx([docxBundle(plan(b), 'MY BUNDLE', o)], h, 'c'));
 		expect([...linked.matchAll(/Id="(rIdH\d+)"[^>]*Target="([^"]+)" TargetMode="External"/g)].map((m) => [m[1], m[2]])).toEqual([
 			['rIdH1', 'MY_BUNDLE.pdf#page=2'], ['rIdH2', 'MY_BUNDLE.pdf#page=2'], ['rIdH3', 'MY_BUNDLE.pdf#page=5'], ['rIdH4', 'MY_BUNDLE.pdf#page=5'],
 		]);
 		expect(linked).toContain('<w:hyperlink r:id="rIdH2"><w:r><w:rPr><w:rFonts w:ascii="Verdana" w:hAnsi="Verdana" w:cs="Arial"/><w:b/><w:color w:val="0D3399"/><w:u w:val="single"/></w:rPr><w:t xml:space="preserve">001 – 003</w:t>');
-		const plain = text(indexDocx([docxBundle(plan(b), 'OTHER', o)], h, 'c', true));
+		const plain = text(indexDocx([docxBundle(plan(b), 'OTHER', o)], h, 'c'));
 		expect(plain).not.toContain('w:hyperlink');
-		expect(text(indexDocx([docxBundle(plan(b), 'MY BUNDLE', o)], h, 'c'))).not.toContain('w:hyperlink');
 	});
 	it('saves the v5 bundle-list shape and numbers it with the lowest free C<i>', () => {
 		const c = savedBundle(output(), nextCustomNo([{ no: 'C1' }, { no: 'C3' }], [{ no: 'C2' }, { no: '1' }]));

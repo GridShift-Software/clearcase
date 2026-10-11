@@ -67,9 +67,11 @@ describe('register rows', () => {
 		const def = REGISTERS.popia_tab;
 		const other = await addEntry(lc.userWork, 'case-synthetic-2', def, entryFrom(def, { activity: 'Synthetic other case' }));
 		const v = listRegister(lc.userWork, 'case-synthetic-2', def)[0]!.version;
-		expect(await editEntry(lc.userWork, CASE, def, other, entryFrom(def, { activity: 'Synthetic hijack' }), null, v)).toBe('gone');
+		const res = await editEntry(lc.userWork, CASE, def, other, entryFrom(def, { activity: 'Synthetic hijack' }), null, v);
+		// the behaviour first; at a453147 it already held (a test gap), only the result's shape is new
 		expect(listRegister(lc.userWork, CASE, def)).toEqual([]);
 		expect(listRegister(lc.userWork, 'case-synthetic-2', def).map((r) => r.values.activity)).toEqual(['Synthetic other case']);
+		expect(res).toBe('gone');
 	});
 
 	it('keep a row without a numeric seq last when it is edited (D11)', async () => {
@@ -81,11 +83,12 @@ describe('register rows', () => {
 		await addEntry(lc.userWork, CASE, def, entryFrom(def, { activity: 'two' }));
 		const before = listRegister(lc.userWork, CASE, def).map((r) => r.values.activity);
 		expect(before.slice(0, 2)).toEqual(['one', 'two']);
-		expect(await editEntry(lc.userWork, CASE, def, loose, entryFrom(def, { activity: 'no-seq edited' }))).toBe('saved');
+		const res = await editEntry(lc.userWork, CASE, def, loose, entryFrom(def, { activity: 'no-seq edited' }));
 		const after = listRegister(lc.userWork, CASE, def);
 		expect(after.slice(0, 2).map((r) => r.values.activity)).toEqual(['one', 'two']);
 		expect(after.find((r) => r.rowId === loose)!.seq).toBe(Number.MAX_SAFE_INTEGER);
 		expect(lc.userWork.listRows(CASE, def.store).find((r) => r.rowId === loose)!.fields.seq).toBeUndefined();
+		expect(res).toBe('saved');
 	});
 
 	it('refuse an edit made from a stale copy of the row, by its version, even under the fixed clock (D7)', async () => {
@@ -94,12 +97,14 @@ describe('register rows', () => {
 		const v0 = { date: '2026-10-01', desc: 'Synthetic original', payee: 'p', amount: '10' };
 		const id = await addEntry(lc.userWork, CASE, def, v0);
 		const loaded = listRegister(lc.userWork, CASE, def)[0]!.version;
-		expect(await editEntry(lc.userWork, CASE, def, id, { ...v0, desc: 'Synthetic tab A' }, null, loaded)).toBe('saved');
-		const now = listRegister(lc.userWork, CASE, def)[0]!;
-		expect(now.updatedAt).toBe(listRegister(lc.userWork, CASE, def)[0]!.createdAt);
-		expect(now.version).not.toBe(loaded);
-		expect(await editEntry(lc.userWork, CASE, def, id, { ...v0, amount: '20' }, null, loaded)).toBe('stale');
+		const a = await editEntry(lc.userWork, CASE, def, id, { ...v0, desc: 'Synthetic tab A' }, null, loaded);
+		const b = await editEntry(lc.userWork, CASE, def, id, { ...v0, amount: '20' }, null, loaded);
+		// the behaviour first: tab B's edit from the stale copy did not overwrite tab A's
 		expect(persisted(lc, 'disbursements_tab')).toEqual([{ ...v0, desc: 'Synthetic tab A' }]);
+		expect([a, b]).toEqual(['saved', 'stale']);
+		const now = listRegister(lc.userWork, CASE, def)[0]!;
+		expect(now.updatedAt).toBe(now.createdAt);
+		expect(now.version).not.toBe(loaded);
 		expect(await editEntry(lc.userWork, CASE, def, id, { ...v0, desc: 'Synthetic tab A', amount: '20' }, null, now.version)).toBe('saved');
 	});
 

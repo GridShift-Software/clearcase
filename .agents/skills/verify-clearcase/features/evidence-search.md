@@ -8,7 +8,7 @@ Advanced Search finds documents by text (file name, ref, subject, sender, To rec
 - `search-pages` pages through results with the query kept.
 - `search-invalid` rejects reversed or malformed intervals (`#search-invalid`).
 - `search-empty` shows a genuine empty result (`#search-empty`).
-- `search-export` downloads `search.csv` for the submitted search.
+- `search-export` downloads the submitted search (the package's view-content `exportFileName`; without it the neutral name and `[data-export-note]` beside the button).
 - `search-actions` extracts action-item phrases from the submitted search.
 
 ## How to get to it (user POV)
@@ -19,7 +19,7 @@ Advanced Search finds documents by text (file name, ref, subject, sender, To rec
 
 - **Open.** Choose `#nav-search`. `main[data-ready=search]`, `data-result=idle`; the title is `Advanced Search · <case> · ClearCase` and the heading has focus. `#search-coverage` carries `data-documents`, `data-with-excerpt`, `data-max-excerpt`, `data-none` and `data-pending`.
 - **Search.** Fill `#sq` (and `#sb`, `#st`, `#ss`, `#sf`, `#sto`, `#samin`, `#samax`, `#sst`), choose `#search-run`, wait for `main[data-result]` other than `idle` and no `data-busy`. `results` lists `#search-table tbody tr[data-ref]` and `#search-count`; `empty` adds `#search-empty`; `invalid` shows `#search-invalid` and no table.
-- **Export.** Choose `#search-export`; the download `search.csv` has v5's columns and the result order.
+- **Export.** Choose `#search-export`; the download (`search.csv` when the package names none) has v5's columns and the result order.
 
 ## Gotchas
 

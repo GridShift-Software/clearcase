@@ -56,10 +56,20 @@ describe('CC-04 register entries cover only the differences they name', () => {
 		expect(by.get('IDR-128')!.when).toBeUndefined();
 	});
 
-	it('D5: each export name is pinned to its own export, so swapped names are unregistered', () => {
-		// synthetic case prefix: only the shape of v5's name is pinned
-		expect(cover('filings_tab', { path: 'export.export_csv.name', kind: 'value', v5: 'syn_filings.csv', app: 'filing-register.csv' })).toBeNull();
-		expect(cover('filings_tab', { path: 'export.export_register_csv.name', kind: 'value', v5: 'syn_filing_register.csv', app: 'filings.csv' })).toBeNull();
-		expect(cover('contracts_tab', { path: 'export.export_csv.name', kind: 'value', v5: 'syn_contracts.csv', app: 'search.csv' })).toBeNull();
+	it('D5: export names come from view-content, so no entry covers any export-name difference', () => {
+		for (const id of ['IDR-106', 'IDR-116', 'IDR-124', 'IDR-134']) expect(reg.entries.some((e: { id: string }) => e.id === id)).toBe(false);
+		expect(cover('filings_tab', { path: 'export.export_csv.name', kind: 'value', v5: 'syn_filings.csv', app: 'filings.csv' })).toBeNull();
+		expect(cover('filings_tab', { path: 'export.export_register_csv.name', kind: 'value', v5: 'syn_filing_register.csv', app: 'filing-register.csv' })).toBeNull();
+		expect(cover('contracts_tab', { path: 'export.export_csv.name', kind: 'value', v5: 'syn_contracts.csv', app: 'contracts.csv' })).toBeNull();
+		expect(cover('search', { path: 'export.export_csv.name', kind: 'value', v5: 'syn_search.csv', app: 'search.csv' })).toBeNull();
+	});
+
+	it('D5: IDR-101 covers only the storage sentence after the introduction', () => {
+		const path = 'text.filing_replying_affidavit_register.1';
+		const app = "Synthetic intro. Saved in this case's local work store; imported rows stay as imported and your changes are kept apart from them.";
+		expect(cover('filings_tab', { path, kind: 'value', v5: 'Synthetic intro. Saved in this browser (syn_key).', app })).toBe('IDR-101');
+		// the app's paragraph without its storage sentence, or v5's without the browser sentence, is a regression
+		expect(cover('filings_tab', { path, kind: 'value', v5: 'Synthetic intro. Saved in this browser (syn_key).', app: 'Synthetic intro.' })).toBeNull();
+		expect(cover('filings_tab', { path, kind: 'value', v5: 'Synthetic intro.', app })).toBeNull();
 	});
 });

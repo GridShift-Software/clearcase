@@ -1,5 +1,6 @@
 import { error } from '@sveltejs/kit';
 import { app } from '$lib/local-case/app.server';
+import { exportFileName, viewContentOf } from '$lib/local-case/results.server';
 import { pageNotice, pageParam } from '$lib/views/evidence/common';
 import { searchRowsOf } from '$lib/views/evidence/rows.server';
 import { actionItems, coverage, invalidReason, queryFromParams, runSearch, searchOptions, searchRows } from '$lib/views/evidence/search';
@@ -27,5 +28,7 @@ export const load: PageServerLoad = async ({ parent, url }) => {
 		options,
 		coverage: coverage(rows),
 		failed,
+		// v5 hard-coded the export name (case content): the package's view-content, else the neutral name and a note
+		exportName: exportFileName(viewContentOf(app().store, version.id), 'search', 'search.csv'),
 	};
 };

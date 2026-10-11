@@ -56,6 +56,7 @@ describe('export names and CSV keys for views', () => {
 	it("uses the package's CSV keys when they match the neutral count and are safe", () => {
 		const k = ['syn_point', 'documents', 'syn_rebuttal', 'org_answer', 'status'];
 		expect(keys(k)).toEqual({ keys: k, note: null });
+		expect(keys(['a', 'b', 'c', 'd', 'a=b-c+d@e'])).toEqual({ keys: ['a', 'b', 'c', 'd', 'a=b-c+d@e'], note: null }); // only a leading sign is refused
 		expect(keys(['a', 'b', 'c', 'd', 'e'.repeat(64)])).toEqual({ keys: ['a', 'b', 'c', 'd', 'e'.repeat(64)], note: null });
 	});
 
@@ -63,7 +64,7 @@ describe('export names and CSV keys for views', () => {
 		const five = (last: string) => ['syn_point', 'documents', 'syn_rebuttal', 'org_answer', last];
 		const refused: unknown[] = [
 			undefined, 'syn_point', ['syn_point'], five('status').concat('refs'), five('documents'), five(''), five('e'.repeat(65)),
-			five('a,b'), five('a"b'), five("a'b"), five('a\rb'), five('a\nb'), five('a\u0000b'), five('\u202estatus'), five('sta\u200btus'),
+			five('=SUM(A1)'), five('+1'), five('-1'), five('@x'), five('a,b'), five('a"b'), five("a'b"), five('a\rb'), five('a\nb'), five('a\u0000b'), five('\u202estatus'), five('sta\u200btus'),
 		];
 		for (const v of refused) expect(keys(v), JSON.stringify(v)).toEqual({ keys: NEUTRAL_KEYS, note: EXPORT_COLUMNS_NOTE });
 		expect(EXPORT_COLUMNS_NOTE).toMatch(/^[A-Z][^<>&]+\.$/);

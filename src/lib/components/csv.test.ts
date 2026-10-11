@@ -1,6 +1,7 @@
 // CSV quoting against spreadsheets that split on `;` or tab (CC-07 verify lane 03): a cell holding one is quoted, so it
 // stays one cell there when it is a row's first; `,`-separated values are unchanged. A user cell in a later column
-// (CC-08 verify lane 03) is kept safe by userCell: no `;`, tab or line segment of it starts with a formula character.
+// (CC-08 verify lane 03) is kept safe by userCell, and an imported cell by csvCell (BASE-R2g): no `;`, tab or line
+// segment of either starts with a formula character.
 import { describe, expect, it } from 'vitest';
 import { parseCsv } from '../../../scripts/parity/lib/exports.mjs';
 import { csvCell, toCSV, userCell, type Cell } from './csv.ts';
@@ -27,16 +28,16 @@ const before = (rows: readonly (readonly Cell[])[]) =>
 
 describe('CSV cells with a semicolon or tab', () => {
 	it('quotes a cell with a `;`, which a `;`-separated parse reads back as one cell', () => {
-		const value = 'x;=1+1'; // an imported value: exported unchanged
+		const value = 'x;y+1';
 		const csv = toCSV([['note'], [value]]);
-		expect(csv).toBe('note\r\n"x;=1+1"');
+		expect(csv).toBe('note\r\n"x;y+1"');
 		expect(parse(csv, ';')).toEqual([['note'], [value]]);
 		expect(parse(csv, ',')).toEqual([['note'], [value]]);
 	});
 
 	it('quotes a cell with a tab, which a tab-separated parse reads back as one cell', () => {
-		expect(csvCell('x\t=1+1')).toBe('"x\t=1+1"');
-		expect(parse(toCSV([['x\t=1+1']]), '\t')).toEqual([['x\t=1+1']]);
+		expect(csvCell('x\ty+1')).toBe('"x\ty+1"');
+		expect(parse(toCSV([['x\ty+1']]), '\t')).toEqual([['x\ty+1']]);
 	});
 
 	it('round-trips an array cell, now quoted because it is joined with "; "', () => {
@@ -103,8 +104,45 @@ describe('user cells in any column of a multi-column row (CC-08 verify lane 03)'
 			expect(fields.filter(formula)).toEqual([]);
 		});
 	});
-	it('keeps a plain cell, an inner sign and an imported value as they are', () => {
+	it('keeps a plain cell and an inner sign as they are', () => {
 		expect([userCell('a-b; c+d'), userCell('x;y'), userCell('1;2')]).toEqual(['a-b; c+d', 'x;y', '1;2']);
-		expect(csvCell('x;=1+1')).toBe('"x;=1+1"');
+		expect([csvCell('a-b; c+d'), csvCell('x;y'), csvCell('1;2')]).toEqual(['"a-b; c+d"', '"x;y"', '"1;2"']);
+	});
+	it('neutralises a quote that starts a segment, and is idempotent', () => {
+		expect(userCell('a;"=1+1"')).toBe(`a;'"=1+1"`);
+		expect(csvCell('a;"=1+1"')).toBe(`"a;'""=1+1"""`);
+		const csv = toCSV([['T', 'A', userCell('a;"=1+1"')]]);
+		expect(splitLike(csv, ';').flat().filter((f) => /^ *["=+\-@\t\r]/.test(f))).toEqual([]);
+		for (const typed of ['x;=1', 'x\r\n=1', 'a;"b"']) expect(userCell(userCell(typed))).toBe(userCell(typed));
+	});
+	it('joins a user array cell with "; " before the start and segment rules', () => {
+		expect(userCell(['=SUM(A1)', ' =x', 'ok'])).toBe(`'=SUM(A1);  '=x; ok`);
+		expect(userCell(['a', '=x'])).toBe(userCell('a; =x'));
+		expect(csvCell(['a', ' =x'])).toBe(`"a;  '=x"`);
+	});
+});
+
+describe('imported cells in any column of a multi-column row (BASE-R2g)', () => {
+	const cases: [string, string][] = [
+		['x;=HYPERLINK("http://a")', `x;'=HYPERLINK("http://a")`],
+		['x\t=1', "x\t'=1"],
+		['x\r\n=1', "x\r\n'=1"],
+		['x\n-1', "x\n'-1"],
+	];
+	const rowsFor = (cell: string) => ({ first: [cell, 'B', 'C'], later: ['T', 'A', cell] });
+	describe.each(cases)('%j', (imported, neutral) => {
+		it.each(['first', 'later'] as const)('in the %s column: one `,`-separated cell holding the neutralised text', (at) => {
+			const csv = toCSV([rowsFor(imported)[at]]);
+			expect(parseCsv(csv)).toEqual([rowsFor(neutral)[at]]);
+			expect(parse(csv, ',')).toEqual([rowsFor(neutral)[at]]);
+		});
+		it.each(['first', 'later'] as const)('in the %s column: no `;`, tab or line field starts with a formula character', (at) => {
+			const csv = toCSV([rowsFor(imported)[at]]);
+			const fields = [...splitLike(csv, ';').flat(), ...splitLike(csv, '\t').flat(), ...csv.split(/\r\n|\r|\n/)];
+			expect(fields.filter(formula)).toEqual([]);
+		});
+	});
+	it("leaves an imported cell's own first character alone (v5 parity)", () => {
+		expect([csvCell('=A1'), csvCell('-5'), csvCell(-5), csvCell('@x')]).toEqual(['=A1', '-5', '-5', '@x']);
 	});
 });

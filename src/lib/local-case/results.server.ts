@@ -71,12 +71,13 @@ export function exportFileName(vc: ViewContentReader, view: string, neutral: str
 	return ok ? { name: v, note: null } : { name: neutral, note: EXPORT_NAME_NOTE };
 }
 
-const UNSAFE_KEY = /[\p{Cc}\p{Cf},"']/u;
+const UNSAFE_KEY = /^[=+\-@]|[\p{Cc}\p{Cf},"']/u;
 
 /**
  * An export's CSV column keys from view-content (`field`, default `exportColumns`). The package's list is used only when
  * it has exactly `neutral.length` distinct keys of 1 to 64 characters with no control or format character, comma or
- * quote. Otherwise the caller's `neutral` keys are used and `note` says so.
+ * quote, and none starting with `=`, `+`, `-` or `@` (the header row is exported raw). Otherwise the caller's `neutral`
+ * keys are used and `note` says so.
  */
 export function exportColumns(vc: ViewContentReader, view: string, neutral: readonly string[], field = 'exportColumns'): { keys: string[]; note: string | null } {
 	const v = vc.list(view, field);

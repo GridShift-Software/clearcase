@@ -5,8 +5,6 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { sleep } from '../../../../../tests/e2e/pilot/lib/cdp.mjs';
-import { makePdf, SET } from '../../../../../tests/bundles/fixtures/make-pdfs.mjs';
-import { open as openPdf } from '../../../../../src/lib/bundles/pdf/index.ts';
 import { docxText, parseDownload, unzip } from '../../../lib/exports.mjs';
 
 const VIEW = 'court_bundle_tab';
@@ -125,7 +123,9 @@ async function pdfFacts(buf) {
 		pages.push({ items, links, inView: (it) => it.x >= x0 && it.x <= x1 && it.y >= y0 && it.y <= y1 });
 	}
 	await task.destroy();
-	// the font names each page's resources keep (S-court_bundle_tab-1), read with the engine's parser
+	// the font names each page's resources keep (S-court_bundle_tab-1), read with the engine's parser (imported here:
+	// a copy of the parity folder alone must still load this spec)
+	const { open: openPdf } = await import('../../../../../src/lib/bundles/pdf/index.ts');
 	const d = await openPdf(new Uint8Array(buf));
 	const fonts = d.pages().map((e) => { const res = d.get(e.dict.get('Resources') ?? e.inh.Resources); const f = res instanceof Map ? d.get(res.get('Font')) : null; return f instanceof Map ? [...f.keys()].sort().join(', ') : ''; });
 	return { pages, fonts };
@@ -163,6 +163,7 @@ const LIST_CUSTOM = (rows) => `[...document.querySelectorAll(${JSON.stringify(ro
  */
 async function builder(side, p, ctx) {
 	const out = {};
+	const { makePdf, SET } = await import('../../../../../tests/bundles/fixtures/make-pdfs.mjs');
 	const dir = mkdtempSync(join(tmpdir(), 'parity-cb-'));
 	try {
 		for (const [n, o] of Object.entries(SET)) writeFileSync(join(dir, n), makePdf(o));

@@ -8,7 +8,8 @@
 	// save keeps its input with its error and a Retry until that save succeeds, is retried or is discarded on purpose
 	// (Discard, or a confirmed Edit, Cancel, Delete of the edited row or navigation). Delete errors are kept apart and
 	// never clear a save failure, nor the reverse. Without JavaScript a refused save re-renders with the action's
-	// values, row id and version; a success never re-enters edit mode.
+	// values, row id and version, and every row's Edit and Delete stay off until it is retried or discarded; a success
+	// never re-enters edit mode.
 	import { onMount, tick, untrack } from 'svelte';
 	import { applyAction, enhance } from '$app/forms';
 	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
@@ -44,14 +45,16 @@
 	let version = $state<string | null>(saved?.version ?? null);
 	/** the form as last loaded or saved: input that differs from it is unsaved */
 	let base = $state<Entry>(untrack(() => blank()));
-	let saveError = $state<{ message: string; retry: boolean } | null>(saved ? { message: saved.message!, retry: saved.retry === true } : null);
+	type Draft = { rowId: string | null; version: string | null; values: Entry };
+	/** a refused save; `stale` after a 409, `draft` when the form no longer held what was submitted (restorable) */
+	let saveError = $state<{ message: string; retry: boolean; stale?: boolean; draft?: Draft } | null>(saved ? { message: saved.message!, retry: saved.retry === true } : null);
 	let deleteError = $state<{ rowId: string | null; message: string } | null>(untrack(() => (form?.op === 'delete' && form.message ? { rowId: form.rowId ?? null, message: form.message } : null)));
 	/** a save in flight */
 	let busy = $state(false);
 	/** the row whose delete is in flight */
 	let deleting = $state<string | null>(null);
 	/** an action waiting for the user to confirm that the unsaved input may be discarded */
-	let ask = $state<{ what: string; go: () => void } | null>(null);
+	let ask = $state<{ what: string; go: () => void; leave?: boolean } | null>(null);
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 
@@ -82,32 +85,38 @@
 		// v5 ignores an Add with nothing typed, silently; an emptied Edit or a deadline without title or date says why
 		const why = unsavable(reg, values, editing !== null);
 		if (why !== null) { cancel(); if (why) saveError = { message: why, retry: false }; return; }
-		// the result applies to what was submitted; the form is inert until it arrives
-		const sent = { rowId: editing, values: { ...values } };
+		// the result applies to what was submitted; the form is inert until it arrives, and a discard question asked
+		// before the save no longer applies
+		const sent: Draft = { rowId: editing, version, values: { ...values } };
 		busy = true;
 		saveError = null;
+		ask = null;
 		return async ({ result }) => {
 			try {
+				// the result changes the form only while the form still holds what was submitted
+				const holds = editing === sent.rowId && reg.fields.every((f) => (values[f.k] ?? '') === (sent.values[f.k] ?? ''));
 				if (result.type === 'success') {
 					await invalidateAll();
-					reset(sent.rowId ? {} : Object.fromEntries(reg.keepAfterAdd.map((k) => [k, sent.values[k]!])));
-				} else if (result.type === 'failure') {
-					saveError = { message: String(result.data?.message ?? 'The entry was not saved. Your input is kept; try again.'), retry: result.data?.retry === true };
+					if (holds) reset(sent.rowId ? {} : Object.fromEntries(reg.keepAfterAdd.map((k) => [k, sent.values[k]!])));
+				} else if (result.type === 'redirect') await applyAction(result);
+				else {
+					const failed = result.type === 'failure'
+						? { message: String(result.data?.message ?? 'The entry was not saved. Your input is kept; try again.'), retry: result.data?.retry === true, stale: result.status === 409 }
+						: { message: lost(sent.rowId ? 'The change' : 'The entry', result.status), retry: result.status !== 413 };
+					saveError = holds ? failed : { ...failed, retry: false, draft: sent };
 					// deleted or changed elsewhere: the list shows the entry as it is now, the form keeps the input
 					if (result.status === 404 || result.status === 409) await invalidateAll();
-				} else if (result.type === 'redirect') await applyAction(result);
-				else saveError = { message: lost(sent.rowId ? 'The change' : 'The entry', result.status), retry: result.status !== 413 };
+				}
 			} finally { busy = false; }
 		};
 	};
-	let confirmedDelete: string | null = null;
 	const remove: SubmitFunction = ({ formData, cancel, formElement }) => {
 		const id = String(formData.get('rowId'));
 		// deleting the entry being edited discards the form's input: ask first when it is unsaved (an emptied form, which
 		// the emptied-edit message sends to Delete, holds nothing to lose)
 		const typed = reg.fields.some((f) => values[f.k] && !(f.type === 'select' && f.placeholder === undefined));
-		if (id === editing && unsaved && typed && confirmedDelete !== id) { cancel(); ask = { what: question(), go: () => { confirmedDelete = id; formElement.requestSubmit(); } }; return; }
-		confirmedDelete = null;
+		// once confirmed the form leaves the entry at once, so a failed delete cannot show the typed text as stored
+		if (id === editing && unsaved && typed) { cancel(); ask = { what: question(), go: () => { reset(); formElement.requestSubmit(); } }; return; }
 		deleting = id;
 		return async ({ result }) => {
 			try {
@@ -140,8 +149,24 @@
 	}
 	function answer(yes: boolean) {
 		const a = ask;
+		// while a save is in flight its result decides the form: only leaving the page may be answered
+		if (!a || (busy && !a.leave)) return;
 		ask = null;
-		if (yes && a) { saveError = null; base = { ...values }; a.go(); }
+		if (yes) { saveError = null; base = { ...values }; a.go(); }
+	}
+	/** Put a failed draft back in the form, so Retry resubmits exactly it. */
+	function restore(d: Draft) {
+		values = { ...blank(), ...d.values };
+		editing = d.rowId;
+		version = d.version;
+		saveError = { message: saveError!.message, retry: true };
+	}
+	/** After a 409: take the entry's current version and stored values as the base and keep the typed values, so the
+	 *  next Save replaces the current entry with them. */
+	function rebase(r: ShownRow) {
+		version = r.version;
+		base = { ...blank(), ...r.values };
+		saveError = null;
 	}
 	// leaving the page drops the form: ask first when it holds unsaved input or a save is in flight (a page unload
 	// gets the browser's own prompt)
@@ -151,7 +176,7 @@
 		nav.cancel();
 		if (nav.type === 'leave' || !nav.to) return;
 		const url = nav.to.url;
-		ask = { what: busy ? 'A save is still in progress; leaving now may not show whether it worked. Leave anyway?' : question(), go: () => { leaving = true; void goto(url).finally(() => { leaving = false; }); } };
+		ask = { what: busy ? 'A save is still in progress; leaving now may not show whether it worked. Leave anyway?' : question(), go: () => { leaving = true; void goto(url).finally(() => { leaving = false; }); }, leave: true };
 	});
 	function exportNow() {
 		if (reg.export.kind === 'ics') download(data.exportName.name, deadlineCalendar(data.exportRows, { now: now(), productId: data.icsProductId }), 'text/calendar;charset=utf-8');
@@ -197,7 +222,10 @@
 		<div class="error" role="alert" id="register-error">
 			<p>{saveError.message}</p>
 			{#if saveError.retry}<button type="submit" form="register-form" id="register-retry" disabled={busy}>Retry</button>{/if}
+			{#if saveError.draft}{@const d = saveError.draft}<button type="button" id="register-restore" onclick={() => restore(d)}>Restore the entry that was not saved</button>{/if}
+			{#if saveError.stale && ready}{@const cur = data.rows.find((r) => r.rowId === editing)}{#if cur}<button type="button" id="register-rebase" onclick={() => rebase(cur)} disabled={busy}>Load the current entry and keep my changes</button>{/if}{/if}
 			<a href={page.url.pathname} id="register-discard" onclick={discard}>Discard the entry</a>
+			{#if !ready}<p id="register-nojs-note">Retry or discard this entry before you edit or delete another entry.</p>{/if}
 		</div>
 	{/if}
 	{#if deleteError}
@@ -230,8 +258,9 @@
 						{/each}
 						<td class="row-actions">
 							{#if !r.intact}<span class="altered">this entry was altered on disk since it was saved</span>{/if}
-							<button type="button" data-edit onclick={() => edit(r)} disabled={busy || deleting === r.rowId}>Edit</button>
-							<form method="POST" action="?/delete" use:enhance={remove}><input type="hidden" name="rowId" value={r.rowId} /><button data-delete disabled={busy || deleting === r.rowId}>Delete</button></form>
+							<!-- without JavaScript a Delete would re-render the page without the refused save: off until it is resolved -->
+							<button type="button" data-edit onclick={() => edit(r)} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)}>Edit</button>
+							<form method="POST" action="?/delete" use:enhance={remove}><input type="hidden" name="rowId" value={r.rowId} /><button data-delete disabled={busy || deleting === r.rowId || (saveError !== null && !ready)}>Delete</button></form>
 						</td>
 					</tr>
 				{/each}

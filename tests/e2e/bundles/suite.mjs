@@ -656,12 +656,17 @@ try {
 		await p.waitFor(`!document.querySelector('#cbbout .saving')`, 30000);
 		await p.click('#cb-builder-back');
 		await p.waitFor(`document.querySelector('#cb-list tr:has(.badge.b-info) a[href^="blob:"]')`, 30000);
-		const link = await p.evaluate(`(async () => {
+		// the CSP forbids fetch of a blob: URL (connect-src 'self'), so load it as the preview does: in a frame (frame-src blob:)
+		const link = await p.evaluate(`new Promise((ok) => {
 			const href = document.querySelector('#cb-list tr:has(.badge.b-info) a[href^="blob:"]').getAttribute('href');
-			try { const r = await fetch(href); const u = new Uint8Array(await r.arrayBuffer()); return { href, same: href === ${J(first)}, type: r.headers.get('content-type'), head: String.fromCharCode(...u.slice(0, 5)), size: u.length }; }
-			catch (e) { return { href, same: href === ${J(first)}, error: String(e) }; }
-		})()`);
-		return { pass: link.same && link.head === '%PDF-' && link.size > 500 && !link.error, evidence: { first, link } };
+			const f = document.createElement('iframe');
+			const done = () => { let d = null; try { d = f.contentDocument; } catch { /* an error page */ }
+				ok({ href, same: href === ${J(first)}, type: d?.contentType ?? null, url: d?.URL ?? null }); f.remove(); };
+			f.addEventListener('load', () => setTimeout(done, 300), { once: true });
+			setTimeout(done, 10000);
+			f.src = href; f.style.width = '300px'; f.style.height = '300px'; document.body.append(f);
+		})`);
+		return { pass: link.same && link.type === 'application/pdf' && /^blob:/.test(link.url ?? ''), evidence: { first, link } };
 	});
 	await S('NOJS', 'discovery_tab', 'D4: without JavaScript no control of the three views looks usable, and each view says saving needs JavaScript; the bundle builder says it needs JavaScript', async () => {
 		const out = {};

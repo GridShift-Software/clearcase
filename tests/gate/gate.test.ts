@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 // @ts-expect-error plain .mjs script, no declarations
-import { runGate, v5Prerequisite } from '../../scripts/gate.mjs';
+import { readHead, runGate, v5Prerequisite } from '../../scripts/gate.mjs';
 
 type Step = { name: string; cmd: string[]; browser?: boolean; needs?: () => string | null };
 const head = { sha: 'abc123def456', dirty: false };
@@ -16,7 +16,7 @@ const stub = (failing: string | null, noise = 40, ran: string[][] = []) => (cmd:
 	ran.push(cmd);
 	const failed = cmd.at(-1) === failing;
 	writeFileSync(logFile, Array.from({ length: failed ? noise : 1 }, (_, i) => `${cmd.at(-1)} line ${i}`).join('\n'));
-	return failed ? 1 : 0;
+	return { status: failed ? 1 : 0 };
 };
 const steps: Step[] = [{ name: 'a', cmd: ['a'] }, { name: 'b', cmd: ['b'], browser: true }, { name: 'c', cmd: ['c'] }];
 let t = 0;
@@ -41,6 +41,23 @@ describe('runGate', () => {
 		expect(r.lines).toContain('b line 499');
 		expect(r.lines).not.toContain('b line 0');
 		expect(readFileSync(join(repo, '.local', 'gate', 'b.log'), 'utf8').split('\n')).toHaveLength(500);
+	});
+
+	it.each([
+		['a spawn error', { status: null, error: new Error('spawn /x/lock ENOENT') }, 'gate: cannot run a: spawn /x/lock ENOENT'],
+		['a signal', { status: null, signal: 'SIGTERM' }, 'gate: killed by SIGTERM'],
+	])('fails %s and says why in the tail', (_n, result, line) => {
+		const r = runGate(steps, { repo, head, lock: null, run: () => result, now });
+		expect(r.pass).toBe(false);
+		expect(r.lines).toContain('FAIL a 2s');
+		expect(r.lines).toContain(line);
+		expect(r.lines.at(-1)).toBe('GATE FAIL a abc123def456');
+	});
+
+	it('fails a step that exits 75, the lock\'s own failure code', () => {
+		const r = runGate(steps, { repo, head, lock: null, run: () => ({ status: 75 }), now });
+		expect(r.lines).toContain('FAIL a 2s');
+		expect(r.lines.at(-1)).toBe('GATE FAIL a abc123def456');
 	});
 
 	it('marks a dirty tree on the first line', () => {
@@ -76,5 +93,18 @@ describe('v5Prerequisite', () => {
 		expect(v5Prerequisite(repo)).toMatch(/case folder/);
 		mkdirSync(join(repo, 'tree'));
 		expect(v5Prerequisite(repo)).toBeNull();
+	});
+});
+
+describe('readHead', () => {
+	const ok = (out: string) => ({ status: 0, stdout: `${out}\n` });
+	it('reads the sha and the dirty flag', () => {
+		expect(readHead((_c: string, a: string[]) => (a[0] === 'rev-parse' ? ok('abc') : ok(' M x')))).toEqual({ head: { sha: 'abc', dirty: true } });
+		expect(readHead((_c: string, a: string[]) => (a[0] === 'rev-parse' ? ok('abc') : ok('')))).toEqual({ head: { sha: 'abc', dirty: false } });
+	});
+	it('reports a git that exits non-zero or cannot spawn, instead of a clean tree', () => {
+		expect(readHead(() => ({ status: 128, stdout: '', stderr: 'fatal: detected dubious ownership\n' }))).toEqual({ error: 'rev-parse exited 128: fatal: detected dubious ownership' });
+		expect(readHead(() => ({ error: new Error('spawn git ENOENT'), stdout: null }))).toEqual({ error: 'spawn git ENOENT' });
+		expect(readHead((_c: string, a: string[]) => (a[0] === 'rev-parse' ? ok('abc') : { status: 1, stdout: '', stderr: '' }))).toEqual({ error: 'status exited 1: ' });
 	});
 });

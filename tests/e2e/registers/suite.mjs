@@ -665,6 +665,8 @@ try {
 
 	// M1 (review): the leave/discard question takes focus; Keep it gives it back; Discard moves it to the first field
 	await scenario('SC24-dialog-focus', 'disbursements_tab', "Back with typed input: the question takes focus on Keep it and Keep it returns focus to the typed field, never <body>; Edit on another row then Keep it returns focus to that Edit button; Discard focuses the first field (review M1)", async () => {
+		await openView('disbursements_tab');
+		while ((await count()) < 2) await add({ date: '2026-10-09', desc: `Synthetic focus row ${await count()}`, payee: 'Synthetic payee', amount: '5' });
 		const [a, b2] = await rows();
 		const active = () => p.evaluate(`(() => { const e = document.activeElement; return { id: e?.id || null, edit: e?.closest?.('tr[data-row-id]')?.dataset.rowId ?? null, body: e === document.body } })()`);
 		await openView('timesheet_tab');

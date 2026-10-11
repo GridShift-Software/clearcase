@@ -105,7 +105,7 @@
 	/** v5 cbBldIndexDocx: hyperlinked into the bundle only when it was assembled from these items under this name. */
 	function indexWord() {
 		const t = named();
-		downloadBlob(indexDocxName(t), indexDocx([docxBundle(pl, t, bld.out)], h, creator, true), DOCX_TYPE);
+		downloadBlob(indexDocxName(t), indexDocx([docxBundle(pl, t, bld.out)], h, creator), DOCX_TYPE);
 	}
 	/** v5 cbBldPrint. */
 	function print() {

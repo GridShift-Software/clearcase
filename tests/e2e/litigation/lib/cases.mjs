@@ -67,6 +67,14 @@ export const reorderedCase = (dir, caseDir) => buildCase(dir, { caseId: CASE_ID,
  */
 export const changedCase = (dir, caseDir) => buildCase(dir, { caseId: CASE_ID, caseDir, edit: (r) => { r.DATA.people = PEOPLE; r.DATA.entities = ENTITIES; lit(r, { enforcement: [ENFORCEMENT[0], { ...ENFORCEMENT[1], status: 'In progress' }, ENFORCEMENT[2], { phase: '2 · Next', step: 'Synthetic step E', basis: 'Invented basis E', status: '', note: '' }] }); } });
 
+/**
+ * A case whose 64-character id has no break opportunity and whose parties have long unbroken labels (GRS-18 r3: no
+ * litigation view may scroll sideways at 320 or 390 px).
+ */
+export const NARROW_ID = 'syn_unbroken_case_id_'.padEnd(64, '0123456789abcdefghijklmnopqrstuvwxyz');
+export const LONG_PERSON = { name: 'Longlabel Person', email: `${'a'.repeat(80)}@${'b'.repeat(40)}.test`, org: `Org ${'c'.repeat(60)}`, sent: 1, received: 1, total: 2, role: '' };
+export const narrowCase = (dir) => buildCase(dir, { caseId: NARROW_ID, edit: (r) => { r.DATA.people = [...PEOPLE, LONG_PERSON]; r.DATA.entities = ENTITIES; lit(r); } });
+
 /** Another case whose litigation tables are all empty (empty states, an empty export). */
 export const emptyCase = (dir) => buildCase(dir, { caseId: 'e2e-litigation-empty', edit: (r) => {
 	r.DATA.people = []; r.DATA.entities = [];

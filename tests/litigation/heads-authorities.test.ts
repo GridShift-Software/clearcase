@@ -52,6 +52,44 @@ describe('authoritiesCsv (v5 exportAuth)', () => {
 		expect(lines[2]).toMatch(/^T2,.+SUM\(A1\),mine$/);
 		expect(lines).toHaveLength(3);
 	});
+	// D17 (GRS-18 r2, L03-1): BASE-R2c quotes `;` and tab, and userCell neutralises a formula character after `;`, tab, CR
+	// or LF. A spreadsheet reading the file with `;` as its separator must still get no field that starts a formula.
+	const parse = (csv: string, sep: string) => {
+		const rows: string[][] = [[]];
+		let f = '', q = false, start = true;
+		for (let i = 0; i < csv.length; i++) {
+			const ch = csv[i]!;
+			if (q) { if (ch === '"' && csv[i + 1] === '"') { f += '"'; i++; } else if (ch === '"') q = false; else f += ch; continue; }
+			if (ch === '"' && start) { q = true; start = false; continue; }
+			start = false;
+			if (ch === sep) { rows.at(-1)!.push(f); f = ''; start = true; }
+			else if (ch === '\r' && csv[i + 1] === '\n') { rows.at(-1)!.push(f); rows.push([]); f = ''; start = true; i++; }
+			else if (ch === '\n' || ch === '\r') { rows.at(-1)!.push(f); rows.push([]); f = ''; start = true; }
+			else f += ch;
+		}
+		rows.at(-1)!.push(f);
+		return rows;
+	};
+	const hostile = ['x;=1+1', 'x\t=1+1', 'x; +1', 'x;@SUM(A1)', 'x\r\n-1', 'x\n=1'];
+	it.each(hostile)('D17 (a): a user cell %j in any column is one quoted cell; a comma reader gets it back with only the guard added', (v) => {
+		for (const col of [0, 1, 2]) {
+			const row = { topic: 'T', authority: 'A', proposition: 'P' };
+			const k = (['topic', 'authority', 'proposition'] as const)[col]!;
+			row[k] = v;
+			const csv = authoritiesCsv([], [row]);
+			const rows = parse(csv, ',');
+			expect(rows).toHaveLength(2);
+			expect(rows[1]).toHaveLength(3);
+			expect(rows[1]![col]!.replace("'", '')).toBe(v);
+			expect(csv).toContain(`"${rows[1]![col]}"`);
+		}
+	});
+	it('D17 (b): a `;`-separated reader of the whole file finds no field that starts a formula', () => {
+		const user = hostile.flatMap((v) => [{ topic: v, authority: 'A', proposition: 'P' }, { topic: 'T', authority: v, proposition: 'P' }, { topic: 'T', authority: 'A', proposition: v }]);
+		const fields = parse(authoritiesCsv([], user), ';').flat();
+		expect(fields.length).toBeGreaterThan(user.length);
+		expect(fields.filter((f) => /^[=+\-@\t\r]/.test(f))).toEqual([]);
+	});
 	it('needs an authority to add (v5 addAuth), and has a generic file name', () => {
 		expect(canAddAuthority({ topic: 'T', authority: '', proposition: 'P' })).toBe(false);
 		expect(canAddAuthority({ topic: '', authority: 'A', proposition: '' })).toBe(true);

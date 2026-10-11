@@ -9,13 +9,13 @@
 	import EntryState from '$lib/views/litigation/EntryState.svelte';
 	import LeaveGuard from '$lib/views/litigation/LeaveGuard.svelte';
 	import { EntryForm, type Answer } from '$lib/views/litigation/entry.svelte';
-	import { HEADS_FIELDS, HEADS_FILE, canAddHead, headsText, type HeadsValues } from '$lib/views/litigation/heads';
+	import { HEADS_FIELDS, canAddHead, headsText, type HeadsValues } from '$lib/views/litigation/heads';
 	import { ANALYSIS_NOTE, OWN_ROWS_NOTE } from '$lib/views/litigation/notes';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
 	// the entry and each row's Delete keep their own state (entry.svelte.ts); without JavaScript the answer re-fills it
 	const entry = new EntryForm(HEADS_FIELDS, (v) => canAddHead(v as HeadsValues), untrack(() => form as Answer));
-	const exportText = () => download(HEADS_FILE, headsText(data.rows, data.caption), 'text/plain;charset=utf-8');
+	const exportText = () => download(data.exportName.name, headsText(data.rows, data.caption), 'text/plain;charset=utf-8');
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>
@@ -24,7 +24,7 @@
 	it from the served HTML); data-hydrated marks when the page's controls work -->
 <main id="main" tabindex="-1" data-ready="heads_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Heads of Argument" section="Heads of Argument" caseName={data.version.titleName} subtitle="Build the skeleton — each submission tied to authority and evidence">
-		{#snippet actions()}<button type="button" id="heads-export" onclick={exportText}>Export</button>{/snippet}
+		{#snippet actions()}<button type="button" id="heads-export" onclick={exportText}>Export</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}{/snippet}
 	</PageHeader>
 	<div class="card">
 		<form method="POST" action="?/add" id="hd-add" class="fields" aria-busy={entry.adding ? 'true' : null} use:enhance={entry.submit}>

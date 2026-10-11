@@ -73,6 +73,9 @@ export const emptyCase = (dir) => buildCase(dir, { caseId: 'e2e-litigation-empty
 	Object.assign(r.DATA.lit, { enforcement: [], authorities: [], elements: [], crossexam_seed: [], legality: { intro: '', docs: [], scenarios: [], factors: [] } });
 } });
 
+/** A case whose package carries no view-content fields (built without viewer code): the exports' neutral names. */
+export const neutralCase = (dir) => buildCase(dir, { caseId: 'e2e-litigation-neutral', viewCode: false });
+
 /** A dataset's data as the built package carries it (`datasets/<key>.json`), or undefined. */
 export function pkgData(sc, key) {
 	const f = sc.files.get(`datasets/${key}.json`);

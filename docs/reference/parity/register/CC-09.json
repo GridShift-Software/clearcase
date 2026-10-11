@@ -447,6 +447,22 @@
       "author": "CC-09 worker (GRS-19)",
       "approvedBy": null,
       "approvedOn": null
+    },
+    {
+      "id": "IDR-378",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.word_edited.links",
+      "when": {
+        "v5": "SYNTHETIC_SWEEP.pdf#page=2 | SYNTHETIC_SWEEP.pdf#page=2 | SYNTHETIC_SWEEP.pdf#page=4 | SYNTHETIC_SWEEP.pdf#page=4 | SYNTHETIC_SWEEP.pdf#page=5 | SYNTHETIC_SWEEP.pdf#page=5",
+        "app": ""
+      },
+      "type": "defect-fix",
+      "source": "v5 L2352 (CC-09 review M3)",
+      "reason": "After Create Bundle, a page range is edited without creating again and Index (Word) is pressed: v5 still links each row into the bundle PDF at the pages it had when created, so after a range shrinks the rows link to the wrong pages (v5 L2352 compares only the title and the item count); the app links only when every item's bundle page numbers are unchanged, and otherwise writes the index without links.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
     }
   ]
 }

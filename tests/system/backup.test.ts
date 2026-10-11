@@ -151,7 +151,7 @@ describe('restore keeps no stale work (review H1, M1)', () => {
 	let lc: LocalCase, vid: string;
 	const ID = 'fresh-case';
 	const rows = (table: string) => lc.userWork.exportAll().tables.find((t) => t.name === table)!.rows.filter((r) => r.case_id === ID).length;
-	beforeAll(async () => { ({ lc, rv: { [ID]: vid } } = await profile('h1', [{ caseId: ID, dir: path.join(root, 'h1') }])); }, 120_000);
+	beforeAll(async () => { ({ lc, rv: { [ID]: vid } } = await profile('h1', [{ caseId: ID, dir: path.join(root, 'h1-case') }])); }, 120_000);
 
 	it('H1: restoring a backup of an empty case removes the note and the deadline added since', async () => {
 		const empty = textOf(createBackup(lc, vid));

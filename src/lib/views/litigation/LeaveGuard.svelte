@@ -5,12 +5,21 @@
 	let { unsaved, what }: { unsaved: boolean; what: string } = $props();
 	let ask = $state<URL | null>(null);
 	let leaving = false;
+	let opener: Element | null = null;
 	beforeNavigate((nav) => {
 		if (leaving || nav.type === 'form' || !unsaved) return;
 		nav.cancel();
 		if (nav.type === 'leave' || !nav.to) return;
+		if (!ask) opener = document.activeElement;
 		ask = nav.to.url;
 	});
+	// Stay puts focus back where it was when the dialog opened, or on main when that element is gone (GRS-18 r3)
+	function stay() {
+		ask = null;
+		const el = opener instanceof HTMLElement && opener !== document.body && opener.isConnected ? opener : document.getElementById('main');
+		opener = null;
+		el?.focus();
+	}
 	function leave() {
 		const url = ask;
 		ask = null;
@@ -24,7 +33,7 @@
 	<div class="ask" role="alertdialog" aria-modal="true" aria-labelledby="lit-ask-q" id="lit-ask">
 		<p id="lit-ask-q">{what} Leave this page and lose it?</p>
 		<!-- svelte-ignore a11y_autofocus -->
-		<button type="button" id="lit-ask-stay" autofocus onclick={() => (ask = null)}>Stay on this page</button>
+		<button type="button" id="lit-ask-stay" autofocus onclick={stay}>Stay on this page</button>
 		<button type="button" id="lit-ask-leave" onclick={leave}>Leave and discard it</button>
 	</div>
 {/if}

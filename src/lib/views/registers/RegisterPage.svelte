@@ -27,6 +27,7 @@
 		register: { view: string; label: string; subtitle: string; empty: string; fields: readonly FieldDef[]; columns: readonly { label: string; num?: boolean }[]; export: { label: string; kind: 'csv' | 'ics'; name: string }; keepAfterAdd: readonly string[]; required: readonly string[] | null };
 		rows: ShownRow[];
 		exportRows: { rowId: string; values: Entry }[];
+		exportName: { name: string; note: string | null };
 		icsProductId: string | null;
 	};
 	type Form = { op?: 'save' | 'delete'; values?: Entry; rowId?: string | null; version?: string | null; message?: string; retry?: boolean } | null;
@@ -153,8 +154,8 @@
 		ask = { what: busy ? 'A save is still in progress; leaving now may not show whether it worked. Leave anyway?' : question(), go: () => { leaving = true; void goto(url).finally(() => { leaving = false; }); } };
 	});
 	function exportNow() {
-		if (reg.export.kind === 'ics') download(reg.export.name, deadlineCalendar(data.exportRows, { now: now(), productId: data.icsProductId }), 'text/calendar;charset=utf-8');
-		else download(reg.export.name, registerCsv(reg, data.exportRows));
+		if (reg.export.kind === 'ics') download(data.exportName.name, deadlineCalendar(data.exportRows, { now: now(), productId: data.icsProductId }), 'text/calendar;charset=utf-8');
+		else download(data.exportName.name, registerCsv(reg, data.exportRows));
 	}
 </script>
 
@@ -163,7 +164,7 @@
 <main id="main" tabindex="-1" data-ready={reg.view} data-hydrated={ready ? '' : undefined}>
 	<PageHeader heading={reg.label} section={reg.label} caseName={data.version.titleName} subtitle={reg.subtitle}>
 		{#snippet actions()}
-			<button type="button" id="register-export" onclick={exportNow}>{reg.export.label}</button>
+			<button type="button" id="register-export" onclick={exportNow}>{reg.export.label}</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}
 			<button type="submit" form="register-form" id="register-save" disabled={busy}>{editing ? 'Save' : 'Add'}</button>
 			{#if editing}<button type="button" id="register-cancel" onclick={cancelEdit} disabled={busy}>Cancel</button>{/if}
 		{/snippet}

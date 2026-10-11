@@ -90,6 +90,16 @@ describe('authoritiesCsv (v5 exportAuth)', () => {
 		expect(fields.length).toBeGreaterThan(user.length);
 		expect(fields.filter((f) => /^[=+\-@\t\r]/.test(f))).toEqual([]);
 	});
+	// L05 (GRS-18 r3): an imported row skips userCell and keeps its first character (v5 parity), but the base now neutralises
+	// every segment after `;`, tab, CR or LF, so the same `;` reader finds no formula in an imported row either.
+	it('D17 (b): the same holds for imported rows (`x;=1`, a tab and a CR LF case) in any column', () => {
+		const imported = ['x;=1', 'x;=1+1', 'x\t=1', 'x\r\n=1', 'x\r\n+1', 'x; @SUM(A1)'].flatMap((v) => [{ topic: v, authority: 'A', proposition: 'P' }, { topic: 'T', authority: v, proposition: 'P' }, { topic: 'T', authority: 'A', proposition: v }]);
+		const csv = authoritiesCsv(imported, []);
+		const fields = parse(csv, ';').flat();
+		expect(fields.length).toBeGreaterThan(imported.length);
+		expect(fields.filter((f) => /^[=+\-@\t\r]/.test(f))).toEqual([]);
+		expect(parse(csv, ',')).toHaveLength(imported.length + 1);
+	});
 	it('needs an authority to add (v5 addAuth), and has a generic file name', () => {
 		expect(canAddAuthority({ topic: 'T', authority: '', proposition: 'P' })).toBe(false);
 		expect(canAddAuthority({ topic: '', authority: 'A', proposition: '' })).toBe(true);

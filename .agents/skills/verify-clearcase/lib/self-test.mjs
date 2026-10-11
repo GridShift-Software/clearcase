@@ -8,11 +8,12 @@
 //     another process, data directory, build, Bun or storage state, or nothing at all, FAILS; the matching answer PASSES.
 //  4. the feature index (static, nothing built or started): every committed feature file keeps the entry contract; a
 //     broken file in a scratch features directory fails it; a scratch features/<feature>.steps.mjs is discovered and
-//     appended after the pilot's steps in name order; a duplicate step id, a step naming another feature and a module
-//     without a feature file are refused.
+//     appended after the pilot's steps in name order; a duplicate step id, a step naming another feature, a module
+//     without a feature file and a module that throws when loaded are refused, naming the module; a hidden name (a
+//     dangling editor lock link `.#x.md`) is not discovered, and an unreadable feature file is a problem of that file.
 // Results: <report>/selftest-<id>/self-test.json. Exit 0 only when every case holds.
 import { spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { liveDoctor } from './live-doctor.mjs';
 import { pilotSteps } from './drive.mjs';
@@ -148,6 +149,7 @@ export async function selfTest(_o, ctx) {
 			'a step id another module already uses': [{ 'alpha.md': feature('Alpha'), 'beta.md': feature('Beta'), 'alpha.steps.mjs': stepsModule('alpha', ['same']), 'beta.steps.mjs': stepsModule('beta', ['same']) }, /beta\.steps\.mjs: step id same is already used/],
 			'a step naming another feature': [{ 'alpha.md': feature('Alpha'), 'beta.md': feature('Beta'), 'alpha.steps.mjs': stepsModule('beta', ['alpha-open']) }, /names feature "beta", not its own feature alpha/],
 			'a module without a feature file': [{ 'alpha.md': feature('Alpha'), 'gamma.steps.mjs': stepsModule('gamma', ['gamma-open']) }, /gamma\.steps\.mjs: no feature file features\/gamma\.md/],
+			'a module that throws when loaded': [{ 'alpha.md': feature('Alpha'), 'alpha.steps.mjs': "throw new Error('synthetic import failure');\n" }, /^features\/alpha\.steps\.mjs: synthetic import failure$/],
 		};
 		let n = 0;
 		for (const [name, [files, want]] of Object.entries(refusals)) {
@@ -156,6 +158,16 @@ export async function selfTest(_o, ctx) {
 			const refusedIx = await featureIndex(pilot, d);
 			record(`feature index: ${name} is refused`, err !== null && want.test(err) && !refusedIx.ok, { error: err, problems: refusedIx.problems });
 		}
+		// hidden names and unreadable files: a dangling editor lock link is skipped, a dangling feature link is a problem
+		const odd = fdir('features-odd', { 'alpha.md': feature('Alpha') });
+		symlinkSync('user@host.1234:1', join(odd, '.#alpha.md'));
+		const hidden = await featureIndex(pilot, odd).catch((e) => ({ ok: false, problems: [String(e?.message ?? e)] }));
+		record('feature index: a hidden name (a dangling editor lock link .#alpha.md) is not discovered',
+			hidden.ok && JSON.stringify(hidden.features?.map((f) => f.id)) === JSON.stringify(['alpha']), { problems: hidden.problems, features: hidden.features?.map((f) => f.id) });
+		symlinkSync(join(odd, 'no-such-file.md'), join(odd, 'beta.md'));
+		const unreadable = await featureIndex(pilot, odd).catch((e) => ({ ok: false, thrown: String(e?.message ?? e), problems: [] }));
+		record('feature index: an unreadable feature file (a dangling link) is a contract problem of that file, not a crash',
+			!unreadable.ok && !unreadable.thrown && JSON.stringify(unreadable.problems) === JSON.stringify(['features/beta.md: cannot be read: ENOENT']), { thrown: unreadable.thrown, problems: unreadable.problems });
 	} catch (e) {
 		record('self-test harness', false, { error: String(e?.stack ?? e) });
 	} finally {

@@ -45,18 +45,27 @@ export function parseFeature(text) {
 	return { title: h1?.text ?? null, summary: para, problems };
 }
 
+/** The names in `dir` that discovery considers: hidden ones (editor lock and swap files, `.#x.md`) never count. */
+const visible = (dir) => readdirSync(dir).filter((f) => !f.startsWith('.')).sort();
+
+/** A feature file's text and parse, or its read error (a dangling link, a folder) as a contract problem of that file. */
+function readFeature(file) {
+	try { return parseFeature(readFileSync(file, 'utf8')); }
+	catch (e) { return { title: null, summary: null, problems: [`cannot be read: ${e?.code ?? e?.message ?? e}`] }; }
+}
+
 /** The discovered feature files of `dir`, in name order: { id, file, title, summary, problems }. */
 export function discoverFeatures(dir = FEATURES_DIR) {
-	return readdirSync(dir).filter((f) => f.endsWith('.md') && f !== 'README.md').sort()
-		.map((f) => ({ id: f.slice(0, -'.md'.length), file: join(dir, f), ...parseFeature(readFileSync(join(dir, f), 'utf8')) }));
+	return visible(dir).filter((f) => f.endsWith('.md') && f !== 'README.md')
+		.map((f) => ({ id: f.slice(0, -'.md'.length), file: join(dir, f), ...readFeature(join(dir, f)) }));
 }
 
 /** The step modules of `dir` (features/<feature>.steps.mjs), in name order. */
-export const stepModules = (dir = FEATURES_DIR) => readdirSync(dir).filter((f) => f.endsWith(STEPS_SUFFIX)).sort().map((f) => join(dir, f));
+export const stepModules = (dir = FEATURES_DIR) => visible(dir).filter((f) => f.endsWith(STEPS_SUFFIX)).map((f) => join(dir, f));
 
 /**
  * The pilot's steps followed by every step module's `steps`, in name order. Throws, naming the module, when a module
- * has no feature file, exports no step array, or has a step without an id, title or run function, a step whose
+ * has no feature file, throws while it is loaded, exports no step array, or has a step without an id, title or run function, a step whose
  * `feature` is not the module's own feature, or a step id used before (pilot steps included).
  */
 export async function driveSteps(pilot, dir = FEATURES_DIR) {
@@ -67,7 +76,8 @@ export async function driveSteps(pilot, dir = FEATURES_DIR) {
 		const own = basename(file).slice(0, -STEPS_SUFFIX.length);
 		const where = `features/${basename(file)}`;
 		if (!features.has(own) || !existsSync(join(dir, `${own}.md`))) throw new Error(`${where}: no feature file features/${own}.md`);
-		const mod = await import(pathToFileURL(file).href);
+		let mod;
+		try { mod = await import(pathToFileURL(file).href); } catch (e) { throw new Error(`${where}: ${e?.message ?? e}`); }
 		if (!Array.isArray(mod.steps) || !mod.steps.length) throw new Error(`${where}: exports no steps array`);
 		for (const s of mod.steps) {
 			if (typeof s?.id !== 'string' || !s.id || typeof s.title !== 'string' || typeof s.run !== 'function') throw new Error(`${where}: a step needs a string id and title and a run function (${JSON.stringify(s?.id)})`);

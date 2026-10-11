@@ -172,8 +172,8 @@ describe('importV5CustomBundles', () => {
 		expect(importV5CustomBundles(JSON.stringify(v5))).toEqual(importV5CustomBundles(v5));
 		const out = importV5CustomBundles(v5);
 		expect(out.map((c) => c.no)).toEqual(['C1', '2']);
-		expect(out[0]).toEqual(v5[0]);
-		expect(out[1]).toEqual({ no: '2', name: '', pages: 0, indexPages: 0, filePages: 0, note: '', rows: [{ n: 1, key: '', desc: 'B', pages: 0, from: 0, to: 0, parts: [] }] });
+		expect(out[0]).toEqual({ ...v5[0], id: 'v5-C1' });
+		expect(out[1]).toEqual({ id: 'v5-2', no: '2', name: '', pages: 0, indexPages: 0, filePages: 0, note: '', rows: [{ n: 1, key: '', desc: 'B', pages: 0, from: 0, to: 0, parts: [] }] });
 	});
 	it('gives each entry the stable id the (case_id, id) key needs: the same v5 value twice gives the same ids (review of 6778457, M4)', () => {
 		const once = importV5CustomBundles(JSON.stringify(v5)), twice = importV5CustomBundles(v5);

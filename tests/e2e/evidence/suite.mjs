@@ -674,6 +674,92 @@ try {
 		return { pass: !ev.error && Object.values(checks).every(Boolean), evidence: { checks, ...ev } };
 	});
 
+	// ---- CC-04 r4 (H1): a save's redirect is not followed after the user has left ------------------------------------
+	await scenario('E-R4-LEAVE', 'filings_tab', "Filings (CC-04 r4 H1): a Save in flight while the user leaves for Search (dialog answered, query typed) or goes Back to another row's edit (dialog answered) lands without pulling the user back: the URL stays, the typed text and row B's form are kept", async () => {
+		const ev = {};
+		const slow = (pg, latency) => pg.s('Network.emulateNetworkConditions', { offline: false, latency, downloadThroughput: -1, uploadThroughput: -1 });
+		const FORM = `${R('filings_tab')} && document.getElementById('register-form')`;
+		const saved = (response) => storedFilings().filter((r) => r.response === response).length;
+		const settled = (pg) => pg.waitFor(`!document.getElementById('register-status') && !document.querySelector('#register-form fieldset')?.disabled`, 20000);
+		const addRow = async (pg, name) => {
+			const n = (await pg.evaluate(`document.querySelectorAll('#filing-register tbody tr[data-key]').length`));
+			await setFields(pg, { fl_filing: name });
+			await pg.click('#register-add');
+			await pg.waitFor(`document.querySelectorAll('#filing-register tbody tr[data-key]').length === ${n + 1} && !document.getElementById('register-status')`, 20000);
+			return (await pg.evaluate(`[...document.querySelectorAll('#filing-register tbody tr[data-key]')].map((r) => ({ key: r.dataset.key, filing: r.cells[0]?.querySelector('b')?.textContent ?? '' }))`)).find((r) => r.filing === name)?.key;
+		};
+		let keys = [];
+		const setup = await openPage(b, { initScript: INIT });
+		try {
+			await setup.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
+			keys = [await addRow(setup, 'Synthetic r4 row A'), await addRow(setup, 'Synthetic r4 row B')];
+		} catch (e) { ev.error = String(e?.message ?? e).split('\n')[0]; } finally { await setup.close().catch(() => {}); }
+		const [kA, kB] = keys;
+		ev.keys = keys;
+
+		// leave for Search during the save, answer the dialog, type a query; the save then succeeds
+		const lp = await openPage(b, { initScript: INIT });
+		try {
+			await lp.s('Network.enable').catch(() => {});
+			await lp.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
+			await setFields(lp, { fl_filing: 'Synthetic r4 add', fl_response: 'Synthetic r4 leave save' });
+			const release = holdStore();
+			try {
+				await lp.click('#register-add');
+				await sleep(400);
+				await lp.click('#nav-search');
+				ev.leaveAsk = await lp.waitFor(`document.getElementById('register-ask')?.textContent.includes('still being saved')`, 5000).then(() => true, () => false);
+				await lp.click('#register-ask-discard');
+				await lp.waitFor(R('search'), 15000);
+				await lp.type('#sq', 'Synthetic typed in search');
+				await sleep(300);
+			} finally { release(); }
+			for (const t0 = Date.now(); Date.now() - t0 < 20000 && saved('Synthetic r4 leave save') === 0; await sleep(100));
+			await sleep(2500);
+			ev.leave = { saved: saved('Synthetic r4 leave save'), path: await lp.evaluate('location.href'), q: await lp.evaluate(`document.getElementById('sq')?.value ?? null`) };
+		} catch (e) { ev.error ??= String(e?.message ?? e).split('\n')[0]; } finally { await lp.close().catch(() => {}); }
+
+		// Save row A, go Back to row B's edit during the save, answer the dialog; type into row B once the form is enabled
+		const bp = await openPage(b, { initScript: INIT });
+		try {
+			await bp.s('Network.enable').catch(() => {});
+			await bp.goto(`${V}/evidence/filings_tab?edit=${encodeURIComponent(kB)}`, `${FORM} && document.getElementById('register-form').dataset.mode === 'edit'`);
+			await bp.click(`#filing-register tr[data-key=${J(kA)}] [data-edit], #filing-register tr[data-key=${J(kA)}] .actions form:first-child button`);
+			await bp.waitFor(`document.querySelector('#register-form input[name=key]')?.value === ${J(kA)}`, 15000);
+			await setFields(bp, { fl_response: 'Synthetic r4 back save' });
+			const release = holdStore();
+			try {
+				await bp.click('#register-save');
+				await sleep(400);
+				await bp.evaluate('history.back()');
+				ev.backAsk = await bp.waitFor(`document.getElementById('register-ask')?.textContent.includes('still being saved')`, 5000).then(() => true, () => false);
+				await bp.click('#register-ask-discard');
+				await bp.waitFor(`location.search.includes('edit=') && document.querySelector('#register-form input[name=key]')?.value === ${J(kB)}`, 15000);
+			} finally {
+				await slow(bp, 1500);
+				release();
+			}
+			try {
+				await settled(bp);
+				await bp.type('#fl_response', 'Synthetic typed in B');
+				for (const t0 = Date.now(); Date.now() - t0 < 20000 && saved('Synthetic r4 back save') === 0; await sleep(100));
+				await sleep(2500);
+			} finally { await slow(bp, 0); }
+			ev.back = { ...(await formOf(bp)), saved: saved('Synthetic r4 back save'), path: await bp.evaluate('location.href') };
+		} catch (e) { ev.error ??= String(e?.message ?? e).split('\n')[0]; } finally { await bp.close().catch(() => {}); }
+		const checks = {
+			leaveAsked: ev.leaveAsk === true,
+			leaveSaveLanded: ev.leave?.saved === 1,
+			leaveStaysOnSearch: ev.leave?.path?.startsWith(`${V}/evidence/search`) === true,
+			leaveTextKept: ev.leave?.q === 'Synthetic typed in search',
+			backAsked: ev.backAsk === true,
+			backSaveLanded: ev.back?.saved === 1,
+			backKeepsRowB: ev.back?.mode === 'edit' && ev.back?.key === kB && ev.back?.path?.includes(`edit=${encodeURIComponent(kB)}`) === true,
+			backTextKept: ev.back?.values.fl_response === 'Synthetic typed in B',
+		};
+		return { pass: !ev.error && Object.values(checks).every(Boolean), evidence: { checks, ...ev } };
+	});
+
 	// ---- CC-04 r3 (D5): export names and the register intro from the package's view-content -------------------------
 	await scenario('E-EXPORT-NAMES', 'filings_tab', "Export names (CC-04 r3 D5): the filings, filing-register, contracts and search exports are named by the package's view-content with no note, and the register intro is its registerIntro then the app's storage sentence; a package without view-content (viewCode: false) uses the neutral names, each with the fixed note beside its export, and the neutral intro", async () => {
 		const STORAGE = "Saved in this case's local work store; imported rows stay as imported and your changes are kept apart from them.";

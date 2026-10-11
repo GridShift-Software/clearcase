@@ -1,6 +1,6 @@
 # Run the ClearCase delivery queue
 
-Use this protocol with pstack's `playbooks/orchestrate.md`. The coordinator owns the program and delegates implementation. Start with the V1 queue and leave hosted delivery and processing automation behind their phase gates.
+Use this protocol with pstack's `playbooks/orchestrate.md`. The coordinator owns the program and delegates implementation. Run checks with `bun run --bun gate`. Start with the V1 queue and leave hosted delivery and processing automation behind their phase gates.
 
 ## Establish authority and current state
 
@@ -27,7 +27,7 @@ Workers cannot edit sibling worktrees, shared planning files, source archives or
 
 Every brief states the goal, allowed paths, forbidden paths, upstream evidence, acceptance criteria, exact verification commands, timebox, report format and standing orders. A worker may inspect other files but cannot silently widen its write scope. A missing prerequisite or undefined command is resolved before the worker starts that dependent step.
 
-Choose models from the live T3 catalog. No Cursor. Opus always uses high reasoning. Use a different model family for substantial independent review where available. Do not substitute Opus max because a skill's default says so. Do not change global model settings for this project.
+Choose models from the live T3 catalog. No Cursor. Models, effort and budgets per role are the table in the workspace `AGENTS.md`, which overrides any effort named in a skill, brief or older text here. Do not change global model settings for this project.
 
 Retain each delegated task ID. Read completion once, reconcile it with the reserved scope and reviewed revision, and start a fresh agent for a fix/review round. A callback is a queue event, not evidence of acceptance. Do not poll a completed worker or launch duplicate work because it is slow.
 

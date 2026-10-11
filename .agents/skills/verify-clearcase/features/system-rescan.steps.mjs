@@ -6,9 +6,11 @@ import { join } from 'node:path';
 const must = (cond, msg) => { if (!cond) throw new Error(msg); };
 async function scan(x) {
 	await x.page.evaluate(`(() => { window.__busySeen = false; const o = new MutationObserver(() => { if (document.getElementById('scan-busy')) { window.__busySeen = true; o.disconnect(); } }); o.observe(document.body, { childList: true, subtree: true }); return true; })()`);
+	const t0 = Date.now();
 	await x.click('#rescan-now');
+	const t1 = Date.now();
 	await x.page.waitFor(`window.__busySeen && !document.getElementById('scan-busy') && !!document.getElementById('count-new')`, 30000);
-	return x.page.evaluate(`({ added: document.getElementById('count-new').textContent, scanned: document.getElementById('count-scanned').textContent, current: document.getElementById('rescan-status').dataset.current, refs: [...document.querySelectorAll('#rescan-added tr[data-ref]')].map((r) => r.dataset.ref) })`);
+	return x.page.evaluate(`({ added: document.getElementById('count-new').textContent, scanned: document.getElementById('count-scanned').textContent, current: document.getElementById('rescan-status').dataset.current, refs: [...document.querySelectorAll('#rescan-added tr[data-ref]')].map((r) => r.dataset.ref), verdict: document.getElementById('rescan-verdict')?.textContent.trim() })`).then((r) => ({ ...r, clickMs: t1 - t0, ms: Date.now() - t0 }));
 }
 
 export const steps = [

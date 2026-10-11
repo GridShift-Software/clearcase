@@ -75,17 +75,30 @@
 	}
 	// Edit, Cancel and Back change the URL's ?edit=; the form follows once the navigation (confirmed, if it drops
 	// unsaved input) is done. A completed save's redirect keeps the form it already emptied: the form is enabled before
-	// the redirect lands, and text typed in between is the user's next entry.
+	// the redirect lands, and text typed in between is the user's next entry. A save's redirect is followed only if the
+	// user has not navigated since the save was sent (and this page is still shown); otherwise the user has gone
+	// elsewhere on purpose and the redirect would pull them back and drop what they typed there.
 	let landing = false;
+	let navs = 0;
+	let alive = true;
 	afterNavigate((nav) => {
+		navs++;
 		if (nav.type !== 'enter' && !(landing && editing === data.editing)) load(data.editing);
 		landing = false;
 	});
-	let leaving = false;
-	const go = (url: URL | string) => { leaving = true; void goto(url, { noScroll: true, keepFocus: true }).finally(() => { leaving = false; }); };
+	/** the navigation count and URL a write was sent at */
+	const mark = () => ({ navs, href: page.url.href });
+	const stayed = (at: { navs: number; href: string }) => alive && navs === at.navs && page.url.href === at.href;
+	/** the one navigation this page starts itself (a confirmed one, or a save's redirect): it is not asked about again */
+	let leaving: string | null = null;
+	const go = (url: URL | string) => {
+		const href = new URL(url, page.url).href;
+		leaving = href;
+		void goto(href, { noScroll: true, keepFocus: true }).finally(() => { if (leaving === href) leaving = null; });
+	};
 	const question = () => `${saveError ? 'The entry in the form was not saved.' : 'The entry in the form has changes that are not saved.'} Discard it?`;
 	beforeNavigate((nav) => {
-		if (leaving || !(busy || unsaved)) return;
+		if ((leaving !== null && nav.to?.url.href === leaving) || !(busy || unsaved)) return;
 		// leaving the page gets the browser's own prompt; any other navigation asks here first
 		nav.cancel();
 		if (nav.type === 'leave' || !nav.to) return;
@@ -108,15 +121,16 @@
 	const submit: SubmitFunction = ({ submitter, cancel }) => {
 		if (busy) { cancel(); return; }
 		if (submitter?.getAttribute('name') === 'delete') return remove(submitter.getAttribute('value') ?? '');
-		const sent = { key: editing, version, values: { ...values } };
+		const sent = { key: editing, version, values: { ...values }, at: mark() };
 		busy = { op: editing ? 'save' : 'add', key: editing };
 		saveError = null;
+		ask = null;
 		return async ({ result }) => {
 			try {
 				if (result.type === 'success' || result.type === 'redirect') {
 					// done: the form empties only while it still holds what was sent (it is inert in flight, so it does)
 					if (editing === sent.key && same(values, sent.values)) load(null);
-					if (result.type === 'redirect') {
+					if (result.type === 'redirect' && stayed(sent.at)) {
 						landing = editing === null;
 						go(result.location);
 					} else await invalidateAll();
@@ -135,6 +149,7 @@
 		};
 	};
 	function remove(target: string): ReturnType<SubmitFunction> {
+		const at = mark();
 		busy = { op: 'delete', key: target };
 		return async ({ result }) => {
 			try {
@@ -144,7 +159,10 @@
 				} else if (result.type === 'failure') {
 					deleteError = { key: target, message: String(result.data?.message ?? 'The entry could not be deleted; try again.') };
 					if (result.status === 404) await invalidateAll();
-				} else if (result.type === 'redirect') go(result.location);
+				} else if (result.type === 'redirect') {
+					if (stayed(at)) go(result.location);
+					else await invalidateAll();
+				}
 				else deleteError = { key: target, message: 'The entry may not have been deleted: the app did not answer. Check the register, then try again.' };
 			} finally { busy = null; }
 		};
@@ -154,7 +172,7 @@
 	// the data is complete when the page renders (data-ready, also in the server's HTML); data-hydrated marks the
 	// moment its controls respond
 	let ready = $state(false);
-	onMount(() => { ready = true; });
+	onMount(() => { ready = true; return () => { alive = false; }; });
 	/** without JavaScript a row's Edit would drop a refused save's input: it waits until that is retried or discarded */
 	const held = $derived(!ready && saveError !== null);
 </script>

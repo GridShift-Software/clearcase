@@ -1,6 +1,6 @@
 # Prescription
 
-The imported prescription list (invoice, invoice date, imported prescription date and risk label) with v5's text and risk filters, pages of 80 and a CSV export, plus the BA-01 arithmetic: how many imported dates equal invoice date + 3 years (29 February to 28 February), how many fall on or before the as-of date from the clock, and an As-of status per row. Arithmetic only: the legal rule is not approved. The imported summary note is labelled as unchecked narrative and the summary KPIs are flagged when they contradict the rows.
+The imported prescription list (invoice, invoice date, imported prescription date and risk label) with v5's text and risk filters, pages of 80 and a CSV export, plus the BA-01 arithmetic: how many imported dates equal invoice date + 3 years (29 February to 28 February), how many fall before the as-of date from the clock, and an As-of status per row. Arithmetic only: the legal rule is not approved. The imported summary note is labelled as unchecked narrative and the summary KPIs are flagged when they contradict the rows.
 
 ## Sub-features
 

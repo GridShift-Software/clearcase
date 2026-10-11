@@ -24,13 +24,13 @@ const STATUS = { passed: '3-yr date passed', not: '3-yr date not reached', none:
 /**
  * CC-06 r2, D14: the arithmetic card checked against the rows the page shows, by an oracle written here (not the
  * app's code). `check.as_of_status_disagreements` counts the rows whose shown As-of status differs from their shown
- * prescription date against the card's as-of date (<=); `check.arithmetic_disagreements` counts the card's figures
+ * prescription date against the card's as-of date (<); `check.arithmetic_disagreements` counts the card's figures
  * (the +3-year count, the passed count, the row count) that differ from the rows. Both are 0 when the page is right;
  * v5 has neither, so the register pins the app to exactly '0'. No case value enters the register.
  */
 function checks(rows, card) {
 	const asOf = /as-of date (\d{4}-\d{2}-\d{2})/.exec(card.asof)?.[1] ?? null;
-	const expect = (r) => (!ymd(r.prescribes_3yr) ? STATUS.none : asOf !== null && r.prescribes_3yr <= asOf ? STATUS.passed : STATUS.not);
+	const expect = (r) => (!ymd(r.prescribes_3yr) ? STATUS.none : asOf !== null && r.prescribes_3yr < asOf ? STATUS.passed : STATUS.not);
 	const shown3 = /^(\d+) of (\d+) imported/.exec(card.plus3), shownPassed = /^(\d+) of (\d+) rows have/.exec(card.asof);
 	const figures = [
 		[shown3?.[1], rows.filter((r) => plus3(r.invoice_date) === r.prescribes_3yr).length],

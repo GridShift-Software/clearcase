@@ -42,7 +42,7 @@ describe('interest_calc_tab: the separated capital', () => {
 describe('prescription_tab: the arithmetic card and the as-of statuses', () => {
 	it('covers the card\'s two sentences on exact paths and the per-row status wording', () => {
 		expect(cover('prescription_tab', 'text.arithmetic_checks.1', '<absent>', '5 of 7 imported prescription dates are the invoice date plus 3 calendar years. 2 invoices are dated 29 February; 2 of them prescribe on 28 February.')).toBe('IDR-224');
-		expect(cover('prescription_tab', 'text.arithmetic_checks.2', '<absent>', '4 of 7 rows have a prescription date on or before the as-of date 2026-10-08 (today, South African time).')).toBe('IDR-238');
+		expect(cover('prescription_tab', 'text.arithmetic_checks.2', '<absent>', '4 of 7 rows have a prescription date before the as-of date 2026-10-08 (today, South African time).')).toBe('IDR-238');
 		expect(cover('prescription_tab', 'table.table_1.row.ZZ-1.as_of_status', '<absent>', '3-yr date passed')).toBe('IDR-225');
 	});
 	it('covers the check keys only at exactly 0', () => {
@@ -52,9 +52,9 @@ describe('prescription_tab: the arithmetic card and the as-of statuses', () => {
 	it('leaves wrong statuses, swapped labels and wrong counts unregistered', () => {
 		expect(cover('prescription_tab', 'count.check.as_of_status_disagreements', '<absent>', '3')).toBeNull();
 		expect(cover('prescription_tab', 'count.check.arithmetic_disagreements', '<absent>', '1')).toBeNull();
-		expect(cover('prescription_tab', 'text.arithmetic_checks.9', '<absent>', '1 of 2 rows have a prescription date on or before the as-of date 2026-10-08 (today, South African time).')).toBeNull();
-		expect(cover('prescription_tab', 'text.arithmetic_checks.2', '<absent>', '1 of 2 rows have a prescription date on or before the as-of date 2026-10-08 (today, South African time). Extra')).toBeNull();
-		expect(cover('prescription_tab', 'text.arithmetic_checks.1', '<absent>', '1 of 2 rows have a prescription date on or before the as-of date 2026-10-08 (today, South African time).')).toBeNull();
+		expect(cover('prescription_tab', 'text.arithmetic_checks.9', '<absent>', '1 of 2 rows have a prescription date before the as-of date 2026-10-08 (today, South African time).')).toBeNull();
+		expect(cover('prescription_tab', 'text.arithmetic_checks.2', '<absent>', '1 of 2 rows have a prescription date before the as-of date 2026-10-08 (today, South African time). Extra')).toBeNull();
+		expect(cover('prescription_tab', 'text.arithmetic_checks.1', '<absent>', '1 of 2 rows have a prescription date before the as-of date 2026-10-08 (today, South African time).')).toBeNull();
 	});
 	it('IDR-226 cites S-prescription_tab-2, as IDR-224, IDR-225 and IDR-229 do (D15)', () => {
 		for (const id of ['IDR-224', 'IDR-225', 'IDR-226', 'IDR-229', 'IDR-238']) expect(entries.find((e) => e.id === id)?.reason).toContain('S-prescription_tab-2');

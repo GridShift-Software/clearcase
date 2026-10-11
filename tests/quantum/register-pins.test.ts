@@ -5,12 +5,10 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-// @ts-expect-error: a JavaScript module of the parity harness, without type declarations
 import { covering } from '../../scripts/parity/lib/compare.mjs';
 
-type Entry = { id: string; view: string; reason: string };
-const entries: Entry[] = JSON.parse(readFileSync(resolve(import.meta.dirname, '../../docs/reference/parity/register/CC-06.json'), 'utf8')).entries;
-const cover = (view: string, path: string, v5: string, app: string): string | null => (covering(entries, view, { kind: 'value', path, v5, app }) as Entry | null)?.id ?? null;
+const entries: Parameters<typeof covering>[0] = JSON.parse(readFileSync(resolve(import.meta.dirname, '../../docs/reference/parity/register/CC-06.json'), 'utf8')).entries;
+const cover = (view: string, path: string, v5: string, app: string): string | null => covering(entries, view, { kind: 'value', path, v5, app })?.id ?? null;
 
 describe('payments_tab: the payments total and the net claim', () => {
 	it('covers the separated payments exactly as the sweep types them', () => {

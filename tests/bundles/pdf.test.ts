@@ -8,7 +8,7 @@ import type { Doc, IndexSpec } from '../../src/lib/bundles/pdf/index.ts';
 import { isDict, isName } from '../../src/lib/bundles/pdf/objects.ts';
 
 const read = async (bytes: Uint8Array) => {
-	const pdf = await getDocument({ data: bytes.slice(), isEvalSupported: false, disableFontFace: true, useSystemFonts: false, verbosity: 0 }).promise;
+	const pdf = await getDocument({ data: bytes.slice(), disableFontFace: true, useSystemFonts: false, verbosity: 0 }).promise;
 	const pages: { text: string[]; links: { dest?: unknown; url?: string; unsafeUrl?: string; newWindow?: boolean }[] }[] = [];
 	for (let i = 1; i <= pdf.numPages; i++) {
 		const pg = await pdf.getPage(i);
@@ -20,7 +20,7 @@ const read = async (bytes: Uint8Array) => {
 };
 const docs = async () => {
 	const d: Record<string, Doc> = {};
-	for (const [f, o] of Object.entries(SET)) if (!('encrypt' in o)) d[f] = await open(makePdf(o));
+	for (const [f, o] of Object.entries(SET)) if (!o.encrypt) d[f] = await open(makePdf(o));
 	return d;
 };
 const header = { court: 'SYNTHETIC COURT', judge: 'DIVISION', intro: 'In the matter between:', caseNo: '1/2026', claimant: 'A PARTY', claimantRole: 'PLAINTIFF', defendant: 'B PARTY', defendantRole: 'DEFENDANT' };
@@ -55,7 +55,7 @@ describe('assemble', () => {
 		expect(pages[3]!.text).toEqual(['Synthetic Beta page 1', '3', '3']);
 		expect(pages[8]!.text).toContain('8');
 		const dests = pages[0]!.links.map((l) => l.dest as [{ num: number; gen: number }, { name: string }, ...number[]]);
-		const targets = dests.map((x) => refs.findIndex((r) => r.num === x[0].num && r.gen === x[0].gen) + 1);
+		const targets = dests.map((x) => refs.findIndex((r) => r?.num === x[0].num && r?.gen === x[0].gen) + 1);
 		// Each row links on its description and its page numbers (and the row number): all to the item's first page.
 		expect(new Set(targets.slice(0, targets.length / 2))).toEqual(new Set([2]));
 		expect(new Set(targets.slice(targets.length / 2))).toEqual(new Set([4]));

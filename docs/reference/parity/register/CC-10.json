@@ -5,70 +5,537 @@
     {
       "id": "IDR-038",
       "view": "rescan_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-20",
-      "reason": "The app does not implement Rescan & Update yet; GRS-20 (CC-10) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-039",
-      "view": "backup_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-20",
-      "reason": "The app does not implement Backup / Restore yet; GRS-20 (CC-10) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-040",
-      "view": "manual",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-20",
-      "reason": "The app does not implement Manual yet; GRS-20 (CC-10) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-051",
-      "view": "overview",
-      "field": "text.freshness.1",
+      "field": "text.subtitle",
       "when": {
+        "v5": {
+          "re": "^Keep the index current without a full rebuild"
+        },
+        "app": "Compare the case folder with this results version"
+      },
+      "type": "improvement",
+      "reason": "The app compares the case folder registered at import with the results version in place; it needs no folder connection and no Chrome / Edge, so the subtitle says what the page does.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-400",
+      "view": "rescan_tab",
+      "field": "text.page.1",
+      "when": {
+        "v5": {
+          "re": "^Connect the root case folder"
+        },
         "app": {
-          "re": "^Not yet available — owned by GRS-20"
+          "re": "^Case folder: "
         }
       },
-      "type": "not-yet-implemented",
-      "owner": "GRS-20",
-      "reason": "The freshness card is an overview widget slot owned by the system ticket (rescan); until it fills it the slot says so.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
+      "type": "improvement",
+      "reason": "v5 asks the user to connect the case folder through the browser; the app already knows the folder the case was imported from and shows its path.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
     },
     {
-      "id": "IDR-068",
-      "view": "overview",
-      "field": "text.freshness.2",
+      "id": "IDR-401",
+      "view": "rescan_tab",
+      "field": "control.button:Connect case folder",
+      "when": {
+        "v5": "1",
+        "app": "<absent>"
+      },
+      "type": "improvement",
+      "reason": "No folder connection is needed: the app scans the case folder the case was imported from.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-402",
+      "view": "rescan_tab",
+      "field": "text.honest_limitation.1",
       "when": {
         "app": "<absent>"
       },
-      "type": "not-yet-implemented",
+      "type": "improvement",
+      "reason": "v5's limitation note is replaced by the app's own account of what a quick and a full scan compare and that additions stay “not yet indexed” until processing includes them (text.page.2).",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-403",
+      "view": "rescan_tab",
+      "field": "text.page.2",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^A quick scan compares each file"
+        }
+      },
+      "type": "improvement",
+      "reason": "Says what a quick scan (path, size, date) and a full scan (SHA-256 of every file) compare, how bundles and ref prefixes are chosen, and that additions are listed in every document view as not yet indexed.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-404",
+      "view": "rescan_tab",
+      "field": "control.button:Full scan (reads every file)",
+      "when": {
+        "v5": "<absent>",
+        "app": "1"
+      },
+      "type": "improvement",
+      "reason": "A full scan reads every file and compares its SHA-256, so it finds a file changed without a change of size; v5 compares names and sizes only.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-405",
+      "view": "rescan_tab",
+      "field": [
+        "text.last_scan.1",
+        "text.changed_or_removed_originals_*.1"
+      ],
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^(This version's case folder has not been scanned yet\\.|None found\\.)$"
+        }
+      },
+      "type": "improvement",
+      "reason": "The app reports the last scan (counts and whether it supports calling the analysis current) and the changed or removed originals; v5 reports neither. Before a first scan they say so.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-406",
+      "view": "rescan_tab",
+      "field": "table.rescan_additions_*",
+      "when": {
+        "app": "<absent>"
+      },
+      "type": "improvement",
+      "reason": "Before a scan has found additions the app says so in a sentence instead of an empty table with a placeholder row; the table, with v5's columns, appears once there are additions.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-407",
+      "view": "rescan_tab",
+      "field": "text.additions_*.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^No files in the case folder are missing from this version"
+        }
+      },
+      "type": "improvement",
+      "reason": "The sentence that stands in for the empty additions table.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-408",
+      "view": "rescan_tab",
+      "field": "control.button:Clear rescan additions",
+      "when": {
+        "v5": "1",
+        "app": "<absent>"
+      },
+      "type": "improvement",
+      "reason": "Clearing is offered only when there are additions, behind a confirmation checkbox.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-409",
+      "view": "rescan_tab",
+      "field": "control.button:Write updated index to file",
+      "when": {
+        "v5": "1",
+        "app": "<absent>"
+      },
+      "type": "improvement",
+      "reason": "The index file is a download link (it works without JavaScript); same label and v5's ess_dcs_rescan_v1.json file name.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-410",
+      "view": "rescan_tab",
+      "field": "control.link:Write updated index to file",
+      "when": {
+        "v5": "<absent>",
+        "app": "1"
+      },
+      "type": "improvement",
+      "reason": "The download link that replaces v5's button.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-411",
+      "view": "rescan_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-412",
+      "view": "backup_tab",
+      "field": "text.subtitle",
+      "when": {
+        "v5": {
+          "re": "^Export or import every saved register"
+        },
+        "app": "Save this case's work to a file, or restore it from one"
+      },
+      "type": "improvement",
+      "reason": "The backup holds all of one case's saved work (every table, not only the registers) and is restored into that case only.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-413",
+      "view": "backup_tab",
+      "field": "table.table_1.*",
+      "when": {
+        "app": "<absent>"
+      },
+      "type": "improvement",
+      "reason": "v5 lists its 20 localStorage keys; the app lists the tables that hold the case's work, with their owner and row count, which also covers the five v5 stores v5's backup missed.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-414",
+      "view": "backup_tab",
+      "field": "table.what_a_backup_holds_now_*",
+      "when": {
+        "v5": "<absent>"
+      },
+      "type": "improvement",
+      "reason": "The app's list of the tables a backup holds now (table, owner, rows).",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-415",
+      "view": "backup_tab",
+      "field": [
+        "text.page.1",
+        "text.page.2"
+      ],
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^(Binaries are not included\\.|The file covers every table of saved work)"
+        }
+      },
+      "type": "improvement",
+      "reason": "States that binaries (originals, results package) are not included, what the file covers, and that a restore is checked, case-scoped and keeps a copy of the current work.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-416",
+      "view": "backup_tab",
+      "field": "control.button:Export all state",
+      "when": {
+        "v5": "1",
+        "app": "<absent>"
+      },
+      "type": "improvement",
+      "reason": "Export is a download link (it works without JavaScript) with the same label.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-417",
+      "view": "backup_tab",
+      "field": "control.link:Export all state",
+      "when": {
+        "v5": "<absent>",
+        "app": "1"
+      },
+      "type": "improvement",
+      "reason": "The download link that replaces v5's button.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-418",
+      "view": "backup_tab",
+      "field": "export.export_all_state.*",
+      "when": {
+        "app": "<absent>"
+      },
+      "type": "improvement",
+      "reason": "The app's file is not v5's ess_dcs_backup.json: it is one case's work in a versioned format (clearcase.backup/1) with the case identity, the results version, a checksum and binaries: false. The adapter does not press the link; tests/system/backup.test.ts and tests/e2e/system check the file and its round trip.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-419",
+      "view": "backup_tab",
+      "field": [
+        "text.import_state.*",
+        "control.input:file:*",
+        "control.input:text:*",
+        "control.input:checkbox:*",
+        "control.button:Import state"
+      ],
+      "when": {
+        "v5": "<absent>"
+      },
+      "type": "improvement",
+      "reason": "The restore form: a backup file (size checked before sending) or its full path for a file larger than the upload limit, a required confirmation, and Import state.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-420",
+      "view": "backup_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-421",
+      "view": "manual",
+      "field": "text.subtitle",
+      "when": {
+        "v5": {
+          "re": "^How the workspace, the reference system and Rescan work"
+        },
+        "app": "How this workspace works"
+      },
+      "type": "improvement",
+      "reason": "The manual is rewritten for the app: starting, importing, search coverage, freshness and rescans, work and backups, link checks.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-422",
+      "view": "manual",
+      "field": [
+        "text.document_reference_system.1",
+        "text.freshness_stamp.1",
+        "text.tabs.1",
+        "text.amounts_quantum.1",
+        "text.build_report.*"
+      ],
+      "when": {
+        "app": "<absent>"
+      },
+      "type": "improvement",
+      "reason": "v5's sections describe v5 (the single-file workspace, its top bar, its build script); the app's sections describe the app and keep their substance (refs, freshness, amounts, documents without text).",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-423",
+      "view": "manual",
+      "field": [
+        "text.starting_and_importing.*",
+        "text.what_search_covers.*",
+        "text.freshness_and_rescans.1",
+        "text.your_work_and_backups.*",
+        "text.checking_links_to_originals.1"
+      ],
+      "when": {
+        "v5": "<absent>"
+      },
+      "type": "improvement",
+      "reason": "The app's manual sections.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-424",
+      "view": "manual",
+      "field": "list.list_*",
+      "when": {
+        "v5": "<absent>"
+      },
+      "type": "improvement",
+      "source": "S-meta-counts",
+      "reason": "v5's build-report badges as a list. Like the overview tiles (IDR-049), the email and documents-without-text figures are counted from the rows, not taken from the build metadata (S-meta-counts), so they can differ from v5's.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-425",
+      "view": "manual",
+      "field": [
+        "control.button:List scanned documents needing OCR (#)",
+        "control.button:Verify link sample"
+      ],
+      "when": {
+        "v5": "1",
+        "app": "<absent>"
+      },
+      "type": "improvement",
+      "reason": "Both lists are links (?list=ocr, ?list=links), so they work without JavaScript and Back returns to them.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-426",
+      "view": "manual",
+      "field": [
+        "control.link:List scanned documents needing OCR (#)",
+        "control.link:Verify link sample (#)",
+        "control.link:Backup / Restore"
+      ],
+      "when": {
+        "v5": "<absent>",
+        "app": "1"
+      },
+      "type": "improvement",
+      "reason": "The two list links that replace v5's buttons, and a link to Backup / Restore from the backups section.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-427",
+      "view": "manual",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-428",
+      "view": "overview",
+      "field": "text.freshness.1",
+      "when": {
+        "v5": {
+          "re": "^Built on .+ · [0-9]+ documents indexed\\.$"
+        },
+        "app": {
+          "re": "^Built on .+ · [0-9,]+ documents indexed( · \\+[0-9,]+ via rescan)?\\.$"
+        }
+      },
+      "type": "improvement",
       "owner": "GRS-20",
-      "reason": "The freshness card's pointer to Rescan & Update belongs to the freshness slot, which the system ticket (rescan) fills; until then the slot shows only its availability line.",
-      "productVisible": false,
-      "author": "M1-INT worker (integration)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
+      "reason": "The freshness stamp writes the document count with a thousands separator, as the rest of the app does, and adds the rescan additions (“+k via rescan”) when there are any.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-429",
+      "view": "overview",
+      "field": "text.freshness.2",
+      "when": {
+        "v5": {
+          "re": "^New files in the folder\\?"
+        },
+        "app": {
+          "re": "^(The case folder has not been rescanned for this version\\.|Last rescan .+) Rescan & Update$"
+        }
+      },
+      "type": "improvement",
+      "owner": "GRS-20",
+      "reason": "The card's second line reports the last rescan of this version (when, quick or full, and its verdict) or that there has been none, and links to Rescan & Update; v5 only suggests opening it.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-430",
+      "view": "overview",
+      "field": "control.link:Rescan & Update",
+      "when": {
+        "v5": "1",
+        "app": "2"
+      },
+      "type": "improvement",
+      "owner": "GRS-20",
+      "reason": "Rescan & Update is linked from the freshness card as well as from the quick links.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
     }
   ]
 }

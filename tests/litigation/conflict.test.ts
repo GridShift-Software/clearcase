@@ -40,12 +40,12 @@ describe('matchConflict (checklist examples)', () => {
 });
 
 describe('conflictOptions (index-coded, GRS-18 r2 D21)', () => {
-	it('lists entities, then people, in data order, with v5 labels; a pick searches the name', () => {
+	it('lists entities, then people, in data order, with v5 labels and their kind (the parity scope check counts them); a pick searches the name', () => {
 		expect(conflictOptions([...entities, { name: 'X', role: '' }], [...people, { name: 'P', email: '', org: '' }])).toEqual([
-			{ value: '0', label: 'Org A Ltd — supplier', query: 'Org A Ltd' },
-			{ value: '1', label: 'X — entity', query: 'X' },
-			{ value: '2', label: 'Ann Lee · ann@x.test (Org A)', query: 'Ann Lee' },
-			{ value: '3', label: 'P', query: 'P' },
+			{ value: '0', kind: 'entity', label: 'Org A Ltd — supplier', query: 'Org A Ltd' },
+			{ value: '1', kind: 'entity', label: 'X — entity', query: 'X' },
+			{ value: '2', kind: 'person', label: 'Ann Lee · ann@x.test (Org A)', query: 'Ann Lee' },
+			{ value: '3', kind: 'person', label: 'P', query: 'P' },
 		]);
 	});
 	it('an entity named with a trailing <…> and a person whose e-mail holds > are searched in full', () => {

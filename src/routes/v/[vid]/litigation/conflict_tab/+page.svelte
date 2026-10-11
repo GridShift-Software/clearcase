@@ -26,7 +26,7 @@
 			<div class="wide"><label for="confsel">Pick a party / correspondent</label>
 				<select id="confsel" disabled={!ready} onchange={(e) => pick(e.currentTarget.value)}>
 					<option value="">— choose from the matter —</option>
-					{#each options as o, i (i)}<option value={o.value}>{o.label}</option>{/each}
+					{#each options as o, i (i)}<option value={o.value} data-kind={o.kind}>{o.label}</option>{/each}
 				</select></div>
 			<div class="wide"><label for="confq">…or type a name / firm / email</label><input id="confq" placeholder={QUERY_PLACEHOLDER} bind:value={query} autocomplete="off" disabled={!ready} /></div>
 			<div class="go"><button type="button" class="primary" id="conf-check" disabled={!ready} onclick={run}>Check</button></div>

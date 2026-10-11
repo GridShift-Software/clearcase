@@ -3,8 +3,8 @@
 /** Every `lit-*` dataset is authored analysis supplied with the results package (docs/results-package.md). */
 export const ANALYSIS_NOTE = 'Supplied analysis from the imported results package, shown as supplied. ClearCase has not verified it: check each legal assertion and authority before relying on it.';
 
-/** The same, for a register that also holds the user's own entries. */
-export const REGISTER_NOTE = `${ANALYSIS_NOTE} Rows you add are your own work, kept on this computer.`;
+/** A register's second paragraph: it also holds the user's own entries. */
+export const OWN_ROWS_NOTE = 'Rows you add are your own work, kept on this computer.';
 
 /** Conflict Check's scope (acceptance): what was searched, with counts from the data, and what a result is not. */
 export const conflictScope = (people: number, entities: number) =>

@@ -17,9 +17,14 @@ const { CHROME, launch } = await import('../pilot/lib/cdp.mjs');
 const { bunIdentity } = await import('../pilot/lib/server.mjs');
 const { appServer } = await import('../pilot/suite/context.mjs');
 const { INIT, openPage, sleep } = await import('../pilot/suite/browser.mjs');
-const { CASE_ID, changedCase, emptyCase, mainCase, reorderedCase, viewContentText } = await import('./lib/cases.mjs');
+const { CASE_ID, changedCase, emptyCase, mainCase, pkgData, reorderedCase, viewContentText } = await import('./lib/cases.mjs');
 
 const J = JSON.stringify;
+// each view's Source and scope note, in full (UI wording, GRS-18 r2 D11): a changed tail must fail
+const ANALYSIS = 'Supplied analysis from the imported results package, shown as supplied. ClearCase has not verified it: check each legal assertion and authority before relying on it.';
+const REGISTER = [ANALYSIS, 'Rows you add are your own work, kept on this computer.'];
+const NOTES = { enforcement_tab: [ANALYSIS], legality_tab: [ANALYSIS], elements_tab: [ANALYSIS], heads_tab: REGISTER, crossexam_tab: REGISTER, authorities_tab: REGISTER,
+	conflict_tab: ["Parties and correspondents as listed in the imported results package, compared as supplied. ClearCase has not checked that the list is complete: search your firm's own conflict records as well."] };
 const ROOT = resolve(process.env.E2E_ROOT ?? join(import.meta.dirname, '..', '..', '..'));
 const BUILD = resolve(process.env.E2E_BUILD_DIR ?? join(ROOT, 'build'));
 const OUT = join(outDir(), 'litigation');
@@ -113,8 +118,8 @@ try {
 			await p.click(`#nav-${v.id}`);
 			await until(p, `${ready(v.id)} && location.pathname.endsWith(${J(v.route)})`);
 			await sleep(80);
-			const got = await p.evaluate(`({ path: location.pathname, title: document.title, h1: document.querySelector('h1')?.textContent.trim(), focus: document.activeElement?.hasAttribute('data-page-heading') ?? false, current: document.querySelector('nav.views a[aria-current="page"]')?.id ?? null, unavailable: !!document.querySelector('[data-unavailable]'), note: !!document.querySelector('[data-source-note]') })`);
-			return all({ path: got.path.endsWith(v.route), title: got.title === `${v.label} · ${titleName} · ClearCase`, heading: got.h1 === v.label, focus: got.focus, current: got.current === `nav-${v.id}`, available: !got.unavailable, scopeNote: got.note });
+			const got = await p.evaluate(`({ path: location.pathname, title: document.title, h1: document.querySelector('h1')?.textContent.trim(), focus: document.activeElement?.hasAttribute('data-page-heading') ?? false, current: document.querySelector('nav.views a[aria-current="page"]')?.id ?? null, unavailable: !!document.querySelector('[data-unavailable]'), note: [...document.querySelectorAll('.source-note p')].map((e) => e.textContent.trim()) })`);
+			return all({ path: got.path.endsWith(v.route), title: got.title === `${v.label} · ${titleName} · ClearCase`, heading: got.h1 === v.label, focus: got.focus, current: got.current === `nav-${v.id}`, available: !got.unavailable, scopeNote: J(got.note) === J(NOTES[v.id]) });
 		});
 	}
 
@@ -217,12 +222,13 @@ try {
 			chips: [...document.querySelectorAll('[data-chip]')].map((e) => [e.textContent.trim(), e.dataset.chip]),
 			docs: [...document.querySelectorAll('#legality-docs tbody tr')].map((r) => [...r.cells].map((c) => c.textContent.trim())),
 			hrefs: [...document.querySelectorAll('#legality-docs a.cite')].map((a) => a.getAttribute('href')),
+			caption: [...document.querySelectorAll('#main .chead')].map((e) => e.textContent.trim()).find((t) => t.startsWith('Documents in the bundle')) ?? null,
 			intro: document.querySelector('.risk .narrative a.cite')?.getAttribute('href') ?? null })`);
 		await p.click('#legality-docs a.cite');
 		const opened = await until(p, ready('doc:OD-001'));
 		return all({
 			chips: J(got.chips) === J([['Base case', 'ok'], ['Material risk', 'danger'], ['Possible', 'warn']]),
-			docs: J(got.docs) === J([['OD-001', '2001-02-03', 'Synthetic agreement', 'open ↗'], ['OD-002', '—', 'Synthetic invoice', 'open ↗']]),
+			caption: got.caption === `Documents in the bundle (${pkgData(main, 'lit-legality').docs.length})`, docs: J(got.docs) === J([['OD-001', '2001-02-03', 'Synthetic agreement', 'open ↗'], ['OD-002', '—', 'Synthetic invoice', 'open ↗']]),
 			links: J(got.hrefs) === J(['OD-001', 'OD-002'].map((r) => `/v/${encodeURIComponent(main.resultsVersion)}/doc/${r}`)),
 			introCitation: got.intro === `/v/${encodeURIComponent(main.resultsVersion)}/doc/OD-001`, documentOpens: opened === true, evidence: got,
 		});

@@ -9,7 +9,7 @@
 	import LeaveGuard from '$lib/views/litigation/LeaveGuard.svelte';
 	import { CX_FIELDS, canAddCx, type CxValues } from '$lib/views/litigation/crossexam';
 	import { EntryForm, type Answer } from '$lib/views/litigation/entry.svelte';
-	import { REGISTER_NOTE } from '$lib/views/litigation/notes';
+	import { ANALYSIS_NOTE, OWN_ROWS_NOTE } from '$lib/views/litigation/notes';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
 	// the entry and each row's Delete keep their own state (entry.svelte.ts); without JavaScript the answer re-fills it
@@ -57,7 +57,7 @@
 		</table>
 	</div>
 	{#if data.tip}<p class="tag">{data.tip}</p>{/if}
-	<SourceNote text={REGISTER_NOTE} />
+	<SourceNote text={ANALYSIS_NOTE} more={OWN_ROWS_NOTE} />
 	<LeaveGuard unsaved={entry.unsaved} what="Your Cross-Exam entry is not saved." />
 </main>
 

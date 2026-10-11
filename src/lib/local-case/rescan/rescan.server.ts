@@ -174,6 +174,7 @@ export function rescan(lc: LocalCase, resultsVersion: string, mode: ScanMode): P
 		const ms = Math.round(performance.now() - started);
 		const at = now().toISOString();
 		await lc.userWork.putTableRow(RUN_TABLE, { case_id: v.case_id, results_version: resultsVersion, mode, at, ms, counts: JSON.stringify(out.counts), issued: JSON.stringify(out.issued), verdict: JSON.stringify(ver) }, { owner: OWNER });
+		ensureRescanProvider(lc, v.case_id);
 		return { mode, at, ms, counts: out.counts, issued: out.issued, current: ver.current, verdict: ver.text, rows: out.rows, skipped };
 	});
 }
@@ -214,11 +215,14 @@ export function additions(lc: LocalCase, caseId: string, resultsVersion: string)
 let registered: { lc: LocalCase; undo: () => void } | null = null;
 /**
  * Publish the additions of `lc` through the document-row read contract (provider 'rescanned', owner GRS-20). Called
- * by every page that can show rescan state (the overview's freshness loader, the system pages); a later call with
- * another LocalCase (tests) re-registers. An id already taken by someone else is left alone.
+ * by every page that can show rescan state (the overview's freshness loader, the system pages) and by a scan; a later
+ * call with another LocalCase (tests) re-registers. An id already taken by someone else is left alone. It registers
+ * only once `caseId` has an addition: a registered provider changes every document list's ETag, so until a scan finds
+ * a file the lists and their ETags stay exactly the imported ones.
  */
-export function ensureRescanProvider(lc: LocalCase): void {
+export function ensureRescanProvider(lc: LocalCase, caseId: string): void {
 	if (registered?.lc === lc) return;
+	if (!isDefined(lc, FILE_TABLE) || !lc.userWork.listTableRows(FILE_TABLE, { caseId }).some((r) => r.kind === 'added')) return;
 	registered?.undo();
 	registered = null;
 	try {

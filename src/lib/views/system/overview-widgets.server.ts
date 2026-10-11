@@ -11,7 +11,7 @@ import type { FreshnessData } from './freshness';
 export const loaders: OverviewWidgetLoader<FreshnessData, LocalCase>[] = [{
 	slot: 'rescan-freshness',
 	load({ app, caseId, resultsVersion }) {
-		ensureRescanProvider(app);
+		ensureRescanProvider(app, caseId);
 		const v = app.store.getVersion(resultsVersion);
 		const o = v ? (JSON.parse(v.overview) as OverviewModel) : null;
 		const rows = documentRows(app.store, resultsVersion).rows;

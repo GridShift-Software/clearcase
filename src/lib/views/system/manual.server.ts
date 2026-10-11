@@ -25,7 +25,7 @@ export const load = async ({ params, url }: { params: Record<string, string>; ur
 	const a = app();
 	const v = a.store.getVersion(params.vid);
 	if (!v) error(404, 'Unknown results version');
-	ensureRescanProvider(a);
+	ensureRescanProvider(a, v.case_id);
 	const o = JSON.parse(v.overview) as OverviewModel;
 	const docs = documentRows(a.store, v.id);
 	const status = (s: string) => o.counts.byTextStatus[s] ?? 0;

@@ -5,7 +5,7 @@ import { readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildCase, putOriginal } from '../e2e/pilot/lib/fixtures.ts';
-import { documentRows } from '../../src/lib/local-case/documents.server.ts';
+import { documentRows, listJson } from '../../src/lib/local-case/documents.server.ts';
 import { additions, clearAdditions, ensureRescanProvider, FILE_TABLE, rescan, rescanRows, walk } from '../../src/lib/local-case/rescan/rescan.server.ts';
 import { compare, dateFromName, docTypeOf, folderRules } from '../../src/lib/local-case/rescan/rules.ts';
 import type { LocalCase } from '../../src/lib/local-case/service.server.ts';
@@ -24,7 +24,7 @@ beforeAll(async () => {
 	rv = c.resultsVersion;
 	caseDir = c.caseDir;
 	caseId = lc.store.getVersion(rv)!.case_id;
-	ensureRescanProvider(lc);
+	ensureRescanProvider(lc, caseId);
 }, 60_000);
 afterAll(async () => { lc?.shutdown(); if (root) await cleanup(root); });
 
@@ -39,6 +39,8 @@ describe('rescan of the synthetic case', () => {
 		expect(b.rows).toEqual(a.rows);
 		expect(stored()).toEqual(before);
 		expect(before).toEqual([]);
+		// no addition yet, so the provider is not registered and the list's ETag is the imported read model's digest
+		expect(listJson(lc.store, rv)!.etag).toBe(`"${lc.store.getVersion(rv)!.read_model_sha256}"`);
 	});
 
 	it('a quick scan never claims the analysis is current; a full scan of an unchanged folder does', async () => {
@@ -70,6 +72,7 @@ describe('rescan of the synthetic case', () => {
 		const refs = d.rows.map((x) => x.ref);
 		expect(new Set(refs).size).toBe(refs.length);
 		expect(d.rows.filter((x) => x.source === 'provider:rescanned').map((x) => x.ref)).toEqual(['OD-005', 'OD-006', 'OD-007', 'EM-0003']);
+		expect(listJson(lc.store, rv)!.etag).toMatch(/\|rescanned=r-[\w-]{43}"$/);
 		expect(d.dropped).toEqual([]);
 		expect(d.rows.find((x) => x.ref === 'OD-005')?.state.flags).toContain('processing-pending');
 	});

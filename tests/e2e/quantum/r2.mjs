@@ -582,14 +582,15 @@ export async function r2({ b, S, sc, c, scenario, base, route }) {
 	});
 
 	// ---- D9: the South African as-of date, by the server's clock and time zone -----------------------------------------
-	await scenario('Q-R2-D9-AS-OF', 'prescription_tab', 'TZ=Africa/Johannesburg, clock 2026-10-08T22:30Z (00:30 on 9 October locally): the as-of date is 2026-10-09 (today) and the row due that day has passed', async () => {
+	await scenario('Q-R2-D9-AS-OF', 'prescription_tab', 'TZ=Africa/Johannesburg, clock 2026-10-08T22:30Z (00:30 on 9 October locally): the as-of date is 2026-10-09 (today); the row due on 8 October has passed and the row due that day has not', async () => {
 		await S.stop();
 		await S.start({ TZ: 'Africa/Johannesburg', CLEARCASE_FIXED_NOW: '2026-10-08T22:30:00Z' });
 		const { p, k } = await js();
 		try {
 			await k.open(route('prescription_tab'), 'prescription_tab');
-			const r = { asof: await k.text('#arith-asof'), row: await p.evaluate(`[...document.querySelectorAll('#prescription tbody tr')].find((tr) => tr.cells[1].textContent.trim() === 'SYNP7')?.querySelector('[data-as-of]')?.dataset.asOf ?? null`) };
-			return { pass: /as-of date 2026-10-09 \(today, South African time\)/.test(r.asof ?? '') && /^5 of 7 rows/.test(r.asof ?? '') && r.row === 'passed', evidence: r };
+			const status = (no) => p.evaluate(`[...document.querySelectorAll('#prescription tbody tr')].find((tr) => tr.cells[1].textContent.trim() === '${no}')?.querySelector('[data-as-of]')?.dataset.asOf ?? null`);
+			const r = { asof: await k.text('#arith-asof'), before: await status('SYNP5'), onTheDay: await status('SYNP7') };
+			return { pass: /as-of date 2026-10-09 \(today, South African time\)/.test(r.asof ?? '') && /^4 of 7 rows/.test(r.asof ?? '') && r.before === 'passed' && r.onTheDay === 'not-reached', evidence: r };
 		} finally { await p.close(); await S.stop(); await S.start(); }
 	});
 

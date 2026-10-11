@@ -43,12 +43,6 @@ main[data-analysis] { overflow-wrap: anywhere; }
 	main[data-analysis] :is(.badge, .chips a.cite, .chips .cite-broken) { white-space: normal; max-width: 100%; }
 	.an-stack td[data-label]::before { content: attr(data-label); display: block; font-size: .78em; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: #555; }
 	.an-scroll { overflow-x: visible; }
-	/* The shared shell keeps its 15rem navigation column at every width, which leaves a phone too little room. On an
-	   analysis page only (main[data-analysis]), the navigation stacks above the content; a shared-file request asks
-	   for this in the shell itself. */
-	.case-shell:has(> main[data-analysis]) { grid-template-columns: minmax(0, 1fr); }
-	.case-shell:has(> main[data-analysis]) > nav.views { position: static; max-height: 14rem; border-right: 0; border-bottom: 1px solid #ddd; }
-	body:has(main[data-analysis]) header.top { flex-wrap: wrap; }
 }
 
 /* Printing an analysis page prints its content only (v5's print CSS hides its shell the same way). */

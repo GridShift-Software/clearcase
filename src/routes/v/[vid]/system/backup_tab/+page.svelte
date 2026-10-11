@@ -23,7 +23,7 @@
 	const LEGACY: Record<string, string> = { imported: 'imported', empty: 'empty in the file (skipped)', 'no-importer': 'not imported: no importer for this store yet', 'legacy-unused': 'not imported: v5 never used this key', unknown: 'not imported: unknown key', failed: 'failed', 'not-run': 'not imported (an earlier importer failed)' };
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'backup_tab' : null} data-hydrated={ready ? '' : undefined}>
+<main id="main" tabindex="-1" data-ready="backup_tab" data-hydrated={ready ? '' : undefined}>
 	<PageHeader heading="Backup / Restore" section="Backup / Restore" caseName={data.version.titleName} subtitle="Save this case's work to a file, or restore it from one">
 		{#snippet actions()}
 			<a id="backup-export" href="{versionPath(data.version.id)}/system/backup_tab/download" download={data.name}>Export all state</a>

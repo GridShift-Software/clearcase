@@ -327,7 +327,7 @@ try {
 				await openView('rescan_tab', A, c.resultsVersion);
 				if (width === 320) await scan();
 				for (const [view, url] of [...SYSTEM_VIEWS.map((v) => [v, `/system/${v}`]), ['overview', '/overview']]) {
-					await p.goto(`${A.origin}${vpath(c.resultsVersion)}${url}`, ready(view));
+					await p.goto(`${A.origin}${vpath(c.resultsVersion)}${url}`, view === 'overview' ? ready(view) : hydrated(view));
 					await p.evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))');
 					layouts[`${width}:${view}`] = await p.evaluate(`(() => { const de = document.documentElement; return { vw: de.clientWidth, scrollWidth: de.scrollWidth }; })()`);
 				}

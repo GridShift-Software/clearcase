@@ -19,7 +19,7 @@
 	const BUNDLE_HELP = 'Bundle and ref prefix follow the top-level folder: the prefix most used there in this version, else the folder name (ORIGINAL, SUPPLEMENTARY, CORRESPONDENCE, PLEADINGS).';
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'rescan_tab' : null} data-hydrated={ready ? '' : undefined}>
+<main id="main" tabindex="-1" data-ready="rescan_tab" data-hydrated={ready ? '' : undefined}>
 	<PageHeader heading="Rescan & Update" section="Rescan & Update" caseName={data.version.titleName} subtitle="Compare the case folder with this results version">
 		{#snippet actions()}
 			<a id="rescan-index" href="{versionPath(data.version.id)}/system/rescan_tab/index.json" download="ess_dcs_rescan_v1.json">Write updated index to file</a>

@@ -427,8 +427,8 @@ try {
 			const mid = { ...(await read()), rows: infoRows() };
 			// Retry A: saved, the error goes
 			await q.evaluate(`window.__old = 1`);
-			await q.click(`#info-error .info-retry[aria-label=${J('Retry: Invented item A')}]`);
-			await q.waitFor(`!window.__old && document.querySelector('#info-table')`, 30000);
+			const retryFound = await q.click(`#info-error .info-retry[aria-label=${J('Retry: Invented item A')}]`);
+			if (retryFound) await q.waitFor(`!window.__old && document.querySelector('#info-table')`, 30000);
 			const end = { ...(await read()), error: await q.evaluate(`!!document.querySelector('#info-error')`), rows: infoRows() };
 			const checks = {
 				noscriptSaveButtons: noscriptButtons === 3,
@@ -437,7 +437,7 @@ try {
 				failureStillNamed: mid.problems.length === 1 && names(mid.problems, 'Invented item A'),
 				choiceKept: mid.checked[0] === !startState[0] && J(mid.marks) === J(['unsaved', null, null]),
 				failedNotStored: doneOf(mid.rows, 'Invented item A') === doneOf(before, 'Invented item A'),
-				retrySaves: doneOf(end.rows, 'Invented item A') === !startState[0] && !end.error && J(end.marks) === J([null, null, null]),
+				retrySaves: retryFound && doneOf(end.rows, 'Invented item A') === !startState[0] && !end.error && J(end.marks) === J([null, null, null]),
 			};
 			return { pass: Object.values(checks).every(Boolean), evidence: { checks, startState, refused: refused.error?.slice(0, 160), mid, end: { ...end, rows: end.rows.length } } };
 		} finally { release(); await q.close(); }

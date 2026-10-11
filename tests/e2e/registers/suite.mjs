@@ -668,7 +668,7 @@ try {
 		await openView('disbursements_tab');
 		while ((await count()) < 2) await add({ date: '2026-10-09', desc: `Synthetic focus row ${await count()}`, payee: 'Synthetic payee', amount: '5' });
 		const [a, b2] = await rows();
-		const active = () => p.evaluate(`(() => { const e = document.activeElement; return { id: e?.id || null, edit: e?.closest?.('tr[data-row-id]')?.dataset.rowId ?? null, body: e === document.body } })()`);
+		const active = () => p.evaluate(`(() => { const e = document.activeElement; return { id: e?.id || null, tag: e?.tagName ?? null, cls: e?.className || null, edit: e?.closest?.('tr[data-row-id]')?.dataset.rowId ?? null, body: e === document.body } })()`);
 		await openView('timesheet_tab');
 		await p.click('#nav-disbursements_tab');
 		await p.waitFor(`${ready('disbursements_tab')} && !!document.querySelector('main#main[data-hydrated]')`, 15000);

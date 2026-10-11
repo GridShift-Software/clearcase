@@ -31,6 +31,10 @@ describe('filters and pages (v5)', () => {
 	it('offers v5\'s risk options first, then any other imported risk', () => {
 		expect(riskOptions([...rows, R('X-1', 'N', '', '', 'Low')])).toEqual(['Relies on interruption', 'Not yet due to prescribe', 'Low']);
 	});
+	it('the export goes through the base CSV encoder: an imported cell is neutralised after a semicolon', () => {
+		const csv = prescriptionCsv([{ ...R('OD-1', 'INV1', '2081-01-31', '2084-01-31'), risk: 'x;=1+1' }]).split('\r\n');
+		expect(csv[1]).toBe('OD-1,INV1,2081-01-31,2084-01-31,"x;\'=1+1"');
+	});
 	it('exports the shown rows in order with v5\'s columns (url omitted)', () => {
 		const csv = prescriptionCsv(filterRows(rows, { q: 'inv2', risk: '' })).split('\r\n');
 		expect(csv).toEqual(['ref,no,date,prescDate,risk', 'SD-2,INV20,2082-02-28,2085-02-28,Not yet due to prescribe']);

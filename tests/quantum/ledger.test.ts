@@ -16,6 +16,11 @@ describe('invoice ledger', () => {
 		expect(csv[1]).toBe('OD-902,SYN902,,5.00,Original,extracted,./x/OD-902.pdf');
 		expect(csv).toHaveLength(3);
 	});
+	it('goes through the base CSV encoder: an imported cell is neutralised where a formula starts a segment after ; or a line break', () => {
+		const csv = invoicesCsv([row('OD-902', '5.00', { text_status: 'ok;=1+1', bundle: 'a\r\n=2+2' })]).split('\r\n').join('|');
+		expect(csv).toContain('"ok;\'=1+1"');
+		expect(csv).not.toMatch(/[;|]=/);
+	});
 	it('shows imported amounts rounded exact half-up; empty stays empty', () => {
 		expect(importedMoney('2.675')).toBe('R 2.68');
 		expect(importedMoney('')).toBe('');

@@ -40,7 +40,9 @@
 			return { values: { ...blank(), ...f.values }, editing: e?.key ?? null, version: f.version ?? versionOf(e), saveError: failure(saveFailure(f.code) ?? 'busy'), deleteError: null };
 		}
 		if (f?.op === 'delete' && f.draft) {
-			const code = saveFailure(f.draft.failed), e = entryOf(f.draft.editing);
+			const e = entryOf(f.draft.editing);
+			// an edit draft of a row deleted elsewhere comes back in Add mode with the refusal that says so, never silently
+			const code = f.draft.editing && !e ? 'gone' : saveFailure(f.draft.failed);
 			return { values: { ...blank(), ...f.draft.values }, editing: e?.key ?? null, version: f.draft.version ?? versionOf(e), saveError: code ? failure(code) : null, deleteError: f.message ? { key: f.target ?? '', message: f.message } : null };
 		}
 		const e = entryOf(data.editing);
@@ -72,8 +74,13 @@
 		saveError = null;
 	}
 	// Edit, Cancel and Back change the URL's ?edit=; the form follows once the navigation (confirmed, if it drops
-	// unsaved input) is done
-	afterNavigate((nav) => { if (nav.type !== 'enter') load(data.editing); });
+	// unsaved input) is done. A completed save's redirect keeps the form it already emptied: the form is enabled before
+	// the redirect lands, and text typed in between is the user's next entry.
+	let landing = false;
+	afterNavigate((nav) => {
+		if (nav.type !== 'enter' && !(landing && editing === data.editing)) load(data.editing);
+		landing = false;
+	});
 	let leaving = false;
 	const go = (url: URL | string) => { leaving = true; void goto(url, { noScroll: true, keepFocus: true }).finally(() => { leaving = false; }); };
 	const question = () => `${saveError ? 'The entry in the form was not saved.' : 'The entry in the form has changes that are not saved.'} Discard it?`;
@@ -109,14 +116,18 @@
 				if (result.type === 'success' || result.type === 'redirect') {
 					// done: the form empties only while it still holds what was sent (it is inert in flight, so it does)
 					if (editing === sent.key && same(values, sent.values)) load(null);
-					if (result.type === 'redirect') go(result.location);
-					else await invalidateAll();
+					if (result.type === 'redirect') {
+						landing = editing === null;
+						go(result.location);
+					} else await invalidateAll();
 				} else {
 					// refused or unanswered: the form shows what was sent, for the row it was sent for
+					const code = result.type === 'failure' ? (saveFailure(result.data?.code) ?? 'busy') : 'lost';
 					values = sent.values;
-					editing = sent.key;
-					version = sent.version;
-					saveError = failure(result.type === 'failure' ? (saveFailure(result.data?.code) ?? 'busy') : 'lost');
+					// the row is gone: the form offers the Add its refusal names, as it does without JavaScript
+					editing = code === 'gone' ? null : sent.key;
+					version = code === 'gone' ? null : sent.version;
+					saveError = failure(code);
 					// deleted or changed elsewhere: the register shows the row as it is now, the form keeps the input
 					if (result.type === 'failure' && (result.status === 404 || result.status === 409)) await invalidateAll();
 				}
@@ -138,8 +149,8 @@
 			} finally { busy = null; }
 		};
 	}
-	const exportFilings = () => download('filings.csv', toCSV(filingsCsvRows(data.groups ?? [])));
-	const exportRegister = () => download('filing-register.csv', toCSV(registerCsvRows(data.entries)));
+	const exportFilings = () => download(data.exportNames.filings.name, toCSV(filingsCsvRows(data.groups ?? [])));
+	const exportRegister = () => download(data.exportNames.register.name, toCSV(registerCsvRows(data.entries)));
 	// the data is complete when the page renders (data-ready, also in the server's HTML); data-hydrated marks the
 	// moment its controls respond
 	let ready = $state(false);
@@ -150,7 +161,7 @@
 
 <main id="main" tabindex="-1" data-ready="filings_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Filings & Affidavits" section="Filings & Affidavits" caseName={data.version.titleName} subtitle={data.content.subtitle}>
-		{#snippet actions()}<button type="button" id="export-filings" onclick={exportFilings} disabled={!data.groups}>Export CSV</button>{/snippet}
+		{#snippet actions()}<button type="button" id="export-filings" onclick={exportFilings} disabled={!data.groups}>Export CSV</button>{#if data.exportNames.filings.note}<span class="export-note" data-export-note>{data.exportNames.filings.note}</span>{/if}{/snippet}
 	</PageHeader>
 	<p class="disclosure" id="classification-status" data-verification="unverified">Filing groups and document types are imported classifications; they have not been verified against the documents.</p>
 	{#if data.content.orientation}
@@ -180,7 +191,7 @@
 
 	<section class="card register" aria-labelledby="register-heading">
 		<h2 id="register-heading">Filing ↔ Replying-affidavit register</h2>
-		<p class="register-intro">Log each filing and the responding/replying affidavit. Saved in this case's local work store; imported rows stay as imported and your changes are kept apart from them.</p>
+		<p class="register-intro">{data.content.registerIntro}</p>
 		<form method="POST" action={editing ? '?/save' : '?/add'} class="register-form" use:enhance={submit} id="register-form" data-mode={editing ? 'edit' : 'add'} aria-busy={busy !== null}>
 			{#if editing}<input type="hidden" name="key" value={editing} /><input type="hidden" name="version" value={version ?? ''} />{/if}
 			{#if saveError}<input type="hidden" name="failed" value={saveError.code} />{/if}
@@ -216,7 +227,7 @@
 				<button type="button" id="register-ask-keep" onclick={() => answer(false)}>Keep it</button>
 			</div>
 		{/if}
-		<div class="toolbar"><button type="button" id="export-register" onclick={exportRegister}>Export register CSV</button></div>
+		<div class="toolbar"><button type="button" id="export-register" onclick={exportRegister}>Export register CSV</button>{#if data.exportNames.register.note}<span class="export-note" data-export-note>{data.exportNames.register.note}</span>{/if}</div>
 		<table class="tbl" id="filing-register">
 			<thead><tr><th>Filing</th><th>Filed</th><th>By</th><th>Replying / responding affidavit</th><th>Responded</th><th>Ref</th><th>Status</th><th></th></tr></thead>
 			<tbody>

@@ -29,7 +29,7 @@ describe('contracts', () => {
 		for (const note of ['not signed', 'never signed', 'yet to be signed', 'not executed', 'never executed', 'yet to be executed', 'not yet countersigned', 'has not been signed', 'NOT FINALISED']) expect(signedChip({ title: 'Lease', note }), note).toBe('—');
 		for (const title of ['Finalized agreement', 'Executed lease', 'Countersigned deed']) expect(signedChip({ title, note: '' }), title).toBe('signed');
 		// adverbs between the negation and the signed form, and contracted negations (r3, verifier low 5)
-		for (const note of ['not properly executed', "isn't signed", "wasn't executed", "hasn't been countersigned", 'has not yet been duly signed', 'Isn’t finalised', 'not final', 'without execution', 'no signed copy'])
+		for (const note of ['not properly executed', "isn't signed", "wasn't executed", "hasn't been countersigned", 'has not yet been duly signed', 'Isn’t finalised', 'not final', 'without execution', 'no signed copy', 'not to be signed', 'not-signed'])
 			expect(signedChip({ title: 'Lease', note }), note).toBe('—');
 		// a negation elsewhere in the text does not undo a plain signed form
 		expect(signedChip({ title: 'Signed lease', note: 'not dated; see annexure' })).toBe('signed');

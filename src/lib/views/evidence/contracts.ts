@@ -8,7 +8,7 @@ export interface ContractsData { count: number; groups: ContractGroup[] }
 const SIGNED = '(?:counter)?signed|executed|finali[sz]ed';
 /** Negated wording ('not executed', 'never signed', 'yet to be signed', 'not properly executed', "isn't signed", 'has not
  * yet been countersigned'): a negation, up to three words, then a signed form reads as uncertain, so '—'. */
-const NEGATED = new RegExp(`(?:\\b(?:not|never|no|without)|n['’]t|\\byet\\s+to)(?:\\s+[a-z]+){0,3}?\\s+(?:${SIGNED}|final|execution)\\b`, 'i');
+const NEGATED = new RegExp(`(?:\\b(?:not|never|no|without)|n['’]t|\\byet\\s+to)(?:[\\s-]+[a-z]+){0,3}?[\\s-]+(?:${SIGNED}|final|execution)\\b`, 'i');
 const POSITIVE = new RegExp(`\\b(?:${SIGNED}|final|execution)\\b`, 'i');
 /**
  * The Signed marker, read from the title and note as words (S-contracts_tab-1, corrected). v5 tested 'unsigned' in the

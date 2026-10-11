@@ -17,7 +17,10 @@ const { CHROME, launch } = await import('../pilot/lib/cdp.mjs');
 const { bunIdentity } = await import('../pilot/lib/server.mjs');
 const { appServer } = await import('../pilot/suite/context.mjs');
 const { INIT, openPage, sleep } = await import('../pilot/suite/browser.mjs');
-const { CASE_ID, changedCase, emptyCase, mainCase, pkgData, reorderedCase, viewContentText } = await import('./lib/cases.mjs');
+const { CASE_ID, changedCase, emptyCase, mainCase, neutralCase, pkgData, reorderedCase, viewContentText } = await import('./lib/cases.mjs');
+const { EXPORT_NAME_NOTE } = await import('../../../src/lib/local-case/results.server.ts');
+const { AUTH_FILE } = await import('../../../src/lib/views/litigation/authorities.ts');
+const { HEADS_FILE } = await import('../../../src/lib/views/litigation/heads.ts');
 
 const J = JSON.stringify;
 // each view's Source and scope note, in full (UI wording, GRS-18 r2 D11): a changed tail must fail
@@ -274,7 +277,9 @@ try {
 		return all({
 			ignored, added: added === true, cleared,
 			order: J(rows.map((r) => r[0])) === J(['imported', 'imported', 'user']) && J(rows[2]) === J(['user', 'User topic', 'User authority', '=1+1']),
-			exportName: dl[0]?.name === 'authorities.csv',
+			// the package's view-content names the file (GRS-38); the neutral name and its note are EXPORT-neutral's
+			exportName: !!dl[0]?.name && dl[0].name === viewContentText(main, 'authorities_tab', 'exportFileName') && dl[0].name !== AUTH_FILE,
+			noExportNote: (await count(p, '[data-export-note]')) === 0,
 			exportRows: lines.length === 4 && lines[0] === 'topic,authority,proposition' && lines[1].startsWith('Synthetic topic 1,Invented v Invented,') && lines[2] === 'Synthetic topic 2,"Invented Act 1 of 2001, s1","Another, with a comma"',
 			userCellNeutralised: lines[3]?.startsWith('User topic,User authority,') && !lines[3].endsWith(',=1+1'),
 			stored: rowsWhere('authorities', 'authority', 'User authority').length === 1, evidence: { rows, lines },
@@ -416,7 +421,8 @@ try {
 		const opened = await until(p, ready('doc:OD-001'));
 		const caption = viewContentText(main, 'heads_tab', 'exportCaption');
 		return all({
-			name: dl[0]?.name === 'heads_of_argument.txt',
+			name: !!dl[0]?.name && dl[0].name === viewContentText(main, 'heads_tab', 'exportFileName') && dl[0].name !== HEADS_FILE,
+			noExportNote: (await count(p, '[data-export-note]')) === 0,
 			text: dl[0]?.text === `HEADS OF ARGUMENT — ${caption}\n\n1. Synthetic heading\n   Synthetic submission\n   Authority: Invented authority\n   Evidence: OD-001, XX-9 OD-1;SD-2\n\n`,
 			citationsResolve: hrefs.length === 1 && pages.every((s) => s === 200), opened: opened === true, evidence: { name: dl[0]?.name, hrefs, pages },
 		});
@@ -575,6 +581,23 @@ try {
 		await p.click('[data-pick="1"]');
 		const notice = await until(p, `document.querySelector('[data-delete-notice]')?.textContent.trim() ?? ''`);
 		return all({ said: notice === 'This entry was already deleted elsewhere (in another tab or window). Nothing else was changed.', noError: (await count(p, '[data-delete-error]')) === 0, listed: (await until(p, `![...document.querySelectorAll('#heads-table tr[data-row]')].some((t) => t.cells[1].textContent.trim() === 'Twice deleted')`)) === true, evidence: { notice } });
+	});
+
+	await scenario('EXPORT-neutral', 'heads_tab', 'a package without view-content export names: Heads of Argument and Authorities export under their neutral names, each with the generic-name note beside its export button', async () => {
+		const neutral = await neutralCase(join(tmp, 'neutral'));
+		const imp = await A.c.importPkg(neutral.caseDir, neutral.pkgDir);
+		if (!imp.importId) throw new Error(`neutral import failed: ${J(imp)}`);
+		const VN = A.v(neutral.resultsVersion), got = {};
+		for (const [view, button] of [['heads_tab', '#heads-export'], ['authorities_tab', '#auth-export']]) {
+			await p.goto(`${VN}${route(view)}`, ready(view));
+			await takeDownloads(p);
+			await p.click(button);
+			await sleep(300);
+			const notes = await p.evaluate(`[...document.querySelectorAll('[data-export-note]')].map((e) => ({ text: e.textContent.trim(), besideExport: !!e.closest('.page-actions')?.querySelector(${J(button)}) }))`);
+			got[view] = { downloads: (await takeDownloads(p)).map((d) => d.name), notes, field: viewContentText(neutral, view, 'exportFileName') };
+		}
+		const ok = (view, file) => got[view].field === null && J(got[view].downloads) === J([file]) && J(got[view].notes) === J([{ text: EXPORT_NAME_NOTE, besideExport: true }]);
+		return all({ heads: ok('heads_tab', HEADS_FILE), authorities: ok('authorities_tab', AUTH_FILE), evidence: got });
 	});
 
 	await scenario('D18-too-large', 'heads_tab', 'an entry over the request size limit (HTTP 413) says it is too large and names the limit, keeps the entry and offers no retry', async () => {

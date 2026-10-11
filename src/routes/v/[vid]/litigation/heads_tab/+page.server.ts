@@ -2,14 +2,15 @@ import { randomUUID } from 'node:crypto';
 import { fail } from '@sveltejs/kit';
 import { app } from '$lib/local-case/app.server';
 import { documentRows } from '$lib/local-case/documents.server';
-import { viewContentOf, viewText } from '$lib/local-case/results.server';
-import { HEADS_FIELDS, canAddHead, evidenceTokens, type HeadsValues } from '$lib/views/litigation/heads';
+import { exportFileName, viewContentOf, viewText } from '$lib/local-case/results.server';
+import { HEADS_FIELDS, HEADS_FILE, canAddHead, evidenceTokens, type HeadsValues } from '$lib/views/litigation/heads';
 import { STORES, addAction, deleteAnswer, deleteRowChecked, deleteTarget, deleteValue, field, formAddId, orderedRows, rowVersion, text, valuesOf } from '$lib/views/litigation/register.server';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ parent }) => {
 	const { version } = await parent();
 	const a = app();
+	const vc = viewContentOf(a.store, version.id);
 	const saved = orderedRows(version.caseId, STORES.heads);
 	// evidence refs resolve against every document row of the version, provider (rescan) rows included
 	const docs = saved.some((r) => text(r.fields.ref)) ? new Set(documentRows(a.store, version.id).rows.map((d) => d.ref)) : new Set<string>();
@@ -18,7 +19,9 @@ export const load: PageServerLoad = async ({ parent }) => {
 			const v = Object.fromEntries(HEADS_FIELDS.map((k) => [k, text(r.fields[k])])) as HeadsValues;
 			return { rowId: r.rowId, del: deleteValue(r.rowId, rowVersion(r)), ...v, evidence: evidenceTokens(v.ref, (t) => docs.has(t)) };
 		}),
-		caption: viewText(viewContentOf(a.store, version.id), 'heads_tab', 'exportCaption'),
+		caption: viewText(vc, 'heads_tab', 'exportCaption'),
+		// the export's file name is case content (GRS-38): the package's view-content field, else the neutral name and a note
+		exportName: exportFileName(vc, 'heads_tab', HEADS_FILE),
 		addId: randomUUID(),
 	};
 };

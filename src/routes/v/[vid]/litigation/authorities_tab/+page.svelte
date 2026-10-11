@@ -7,14 +7,14 @@
 	import SourceNote from '$lib/views/litigation/SourceNote.svelte';
 	import EntryState from '$lib/views/litigation/EntryState.svelte';
 	import LeaveGuard from '$lib/views/litigation/LeaveGuard.svelte';
-	import { AUTH_FIELDS, AUTH_FILE, authoritiesCsv, canAddAuthority, type AuthValues } from '$lib/views/litigation/authorities';
+	import { AUTH_FIELDS, authoritiesCsv, canAddAuthority, type AuthValues } from '$lib/views/litigation/authorities';
 	import { EntryForm, type Answer } from '$lib/views/litigation/entry.svelte';
 	import { ANALYSIS_NOTE, OWN_ROWS_NOTE } from '$lib/views/litigation/notes';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
 	// the entry keeps its own state (entry.svelte.ts); without JavaScript the answer re-fills it
 	const entry = new EntryForm(AUTH_FIELDS, (v) => canAddAuthority(v as AuthValues), untrack(() => form as Answer));
-	const exportCsv = () => download(AUTH_FILE, authoritiesCsv(data.imported, data.user));
+	const exportCsv = () => download(data.exportName.name, authoritiesCsv(data.imported, data.user));
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>
@@ -23,7 +23,7 @@
 	it from the served HTML); data-hydrated marks when the page's controls work -->
 <main id="main" tabindex="-1" data-ready="authorities_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Authorities" section="Authorities" caseName={data.version.titleName} subtitle="The statutory and case-law framework — tie each proposition to its source">
-		{#snippet actions()}<button type="button" id="auth-export" onclick={exportCsv}>Export CSV</button>{/snippet}
+		{#snippet actions()}<button type="button" id="auth-export" onclick={exportCsv}>Export CSV</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}{/snippet}
 	</PageHeader>
 	<div class="card">
 		<form method="POST" action="?/add" id="au-add" class="fields" aria-busy={entry.adding ? 'true' : null} use:enhance={entry.submit}>

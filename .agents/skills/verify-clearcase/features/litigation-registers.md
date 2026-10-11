@@ -8,9 +8,9 @@ Three preparation registers (GRS-18). Cross-Exam Prep shows the package's seed t
 - `crossexam-add` both Add buttons (page header and form) submit one form; a topic needs a witness or a topic.
 - `crossexam-delete` a user row is deleted by row id; a seed by a `{deleted: true}` overlay; with nothing left, "No cross-exam topics yet."
 - `heads-add` a submission needs a heading or a submission; numbered rows; evidence refs split on spaces and commas.
-- `heads-export` `heads_of_argument.txt`: `HEADS OF ARGUMENT — <view-content caption>`, a blank line, then the numbered submissions.
+- `heads-export`, named by the package's view-content `heads_tab.exportFileName`, else `heads_of_argument.txt` with the `[data-export-note]` note beside the button: `HEADS OF ARGUMENT — <view-content caption>`, a blank line, then the numbered submissions.
 - `authorities-add` an entry needs an authority; no edit or delete (as v5).
-- `authorities-export` `authorities.csv`: header, imported rows unchanged, then user rows through `userCell`.
+- `authorities-export`, named by `authorities_tab.exportFileName`, else `authorities.csv` with the note (`EXPORT-neutral`): header, imported rows unchanged, then user rows through `userCell`.
 - `register-failure` a busy store or a lost request shows `[role=alert]` and keeps every typed field.
 
 ## How to get to it (user POV)

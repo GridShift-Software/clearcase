@@ -60,4 +60,9 @@ describe('export', () => {
 		expect(lines[2]!.startsWith(',20,,')).toBe(true);
 		expect(lines[2]).not.toMatch(/,=HYPERLINK/);
 	});
+	it('keeps a formula after `;` or tab inert for a reader that splits on them (D16, BASE-R2c)', () => {
+		const csv = paymentsCsv([pay('a', '1', 1, { method: 'x\t=1+1', note: 'x;=1+1' })]);
+		expect(csv.split('\r\n')[1]).toBe(`,1,"x\t'=1+1","x;'=1+1"`);
+		for (const seg of csv.split(/[,;\t\r\n]/)) expect(seg).not.toMatch(/^ *"?[=+\-@]/);
+	});
 });

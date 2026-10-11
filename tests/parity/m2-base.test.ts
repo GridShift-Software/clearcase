@@ -1,9 +1,10 @@
 // The M2 base: the shared files parallel M2 owners would otherwise all edit discover each owner's own file instead.
-// `bun run --bun measure --ticket CC-NN` runs scripts/measure/ccNN.mjs when it exists (CC-02 and CC-03 unchanged);
+// `bun run --bun measure --ticket CC-NN` runs scripts/measure/ccNN.mjs when it exists (CC-02 and CC-03 unchanged), and
+// its record is evidence only when the reviewed commit holds that runner;
 // `test:e2e` runs tests/e2e/<category>/suite.mjs offline after the pilot suites; the root vitest config includes the
 // owners' test paths. Synthetic files in temp copies only: nothing here is written into the repository.
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
@@ -97,6 +98,31 @@ describe('measure dispatcher', () => {
 			const dirty = go();
 			expect(dirty.status).toBe(2);
 			expect(dirty.stderr).toMatch(/files are modified or untracked: scripts\/measure\/cc99\.mjs/);
+			writeFileSync(join(repo, 'scripts', 'measure', 'cc99.mjs'), echo('cc99'));
+			// a runner a committed .gitignore hides: git status is clean and the build fresh, but the record is not evidence
+			put(join(repo, 'scripts', 'measure', '.gitignore'), 'cc98.mjs\n');
+			git(repo, 'add', '.');
+			git(repo, 'commit', '-q', '-m', 'a committed rule hides cc98.mjs');
+			put(join(repo, 'scripts', 'measure', 'cc98.mjs'), echo('cc98'));
+			expect(git(repo, 'status', '--porcelain')).toBe('');
+			const hidden = spawnSync(BUN, [join(repo, 'scripts', 'measure', 'index.ts'), '--ticket', 'CC-98', '--candidate', 'HEAD'], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, CLEARCASE_REPORT_DIR: join(repo, 'report') } });
+			expect(hidden.status, hidden.stderr).toBe(0);
+			expect(hidden.stderr).toMatch(/evidence=false/);
+			expect(JSON.parse(readFileSync(join(repo, 'report', 'measure', 'build-evidence-CC-98.json'), 'utf8'))).toMatchObject({ evidence: false, freshBuild: { fresh: true }, evidenceNote: 'NOT release evidence: the measure runner that the reviewed commit does not hold: scripts/measure/cc98.mjs (ignored)' });
+			// a committed runner whose edit a clean filter hid from git's index (git status clean): its bytes are not HEAD's
+			const rel = 'scripts/measure/cc99.mjs';
+			writeFileSync(join(repo, rel), echo('cc99') + '// an unreviewed edit\n');
+			utimesSync(join(repo, rel), 86_400, 86_400); // an mtime long before the index write, in seconds
+			put(join(repo, '.git', 'info', 'attributes'), `${rel} filter=hide\n`);
+			git(repo, 'config', 'filter.hide.clean', `sh -c 'cat >/dev/null; git cat-file blob HEAD:${rel}'`);
+			git(repo, 'add', rel);
+			rmSync(join(repo, '.git', 'info', 'attributes'));
+			git(repo, 'config', '--unset', 'filter.hide.clean');
+			expect(git(repo, 'status', '--porcelain')).toBe('');
+			const poisoned = go('--candidate', 'HEAD');
+			expect(poisoned.status, poisoned.stderr).toBe(7);
+			expect(poisoned.stderr).toMatch(/evidence=false/);
+			expect(JSON.parse(readFileSync(join(repo, 'report', 'measure', 'build-evidence-CC-99.json'), 'utf8'))).toMatchObject({ evidence: false, freshBuild: { fresh: true }, evidenceNote: `NOT release evidence: the measure runner that the reviewed commit does not hold: ${rel} (its bytes are not HEAD's)` });
 		});
 	});
 });

@@ -453,7 +453,9 @@
       "view": "court_bundle_tab",
       "field": "sweep.builder.word_edited.links",
       "when": {
-        "v5": "SYNTHETIC_SWEEP.pdf#page=2 | SYNTHETIC_SWEEP.pdf#page=2 | SYNTHETIC_SWEEP.pdf#page=4 | SYNTHETIC_SWEEP.pdf#page=4 | SYNTHETIC_SWEEP.pdf#page=5 | SYNTHETIC_SWEEP.pdf#page=5",
+        "v5": {
+          "re": "^[A-Z_]+\\.pdf#page=[0-9]+( \\| [A-Z_]+\\.pdf#page=[0-9]+)*$"
+        },
         "app": ""
       },
       "type": "defect-fix",

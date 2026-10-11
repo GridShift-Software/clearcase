@@ -421,6 +421,75 @@ try {
 		await sleep(200);
 		return { pass: dialogs.includes('confirm') && kept.court === 'SYN DRAFT COURT' && kept.error && kept.stored !== 'SYN DRAFT COURT' && storedHeader()?.court === 'SYN DRAFT COURT' && !(await p.evaluate(`!!document.getElementById('cb-error')`)), evidence: { dialogs, kept } };
 	});
+	await S('CB-HEADER-INFLIGHT', 'court_bundle_tab', 'review M1: a Restore fails, Save is held in flight, and Retry and Discard are both disabled; the Restore posts nothing after the Save', async () => {
+		await p.go(B, 'court_bundle_tab');
+		await p.evaluate(`window.confirm = () => true`);
+		await p.type('#cbh_court', 'SYN RETRY COURT');
+		await withBusyStore(A.dataDir, 12500, async () => { await p.click('#cb-restore'); await p.waitFor(`document.getElementById('cb-error-restore')`, 20000); });
+		let during;
+		await withBusyStore(A.dataDir, 2500, async () => {
+			await p.click('#cb-save');
+			await p.waitFor(`document.querySelector('#main').dataset.busy === '1'`, 5000);
+			during = await p.evaluate(`({ retry: document.getElementById('cb-retry-restore')?.disabled ?? null, discard: document.getElementById('cb-discard')?.disabled ?? null })`);
+			await p.click('#cb-retry-restore');
+		});
+		await idleBusy(p);
+		await sleep(500);
+		const after = { conflict: await p.evaluate(`!!document.getElementById('cb-conflict')`), court: await val(p, 'cbh_court'), stored: storedHeader()?.court ?? null };
+		await p.click('#cb-discard');
+		await sleep(200);
+		return { pass: during.retry === true && during.discard === true && !after.conflict && after.court === 'SYN RETRY COURT' && after.stored === 'SYN RETRY COURT', evidence: { during, after } };
+	});
+	await S('CL-RETRY-INFLIGHT', 'caselines_tab', 'review L1: Retry pressed during a link in flight is disabled and the path is linked once', async () => {
+		await p.go(C, 'caselines_tab');
+		const path = 'Synthetic/retry once.pdf';
+		await p.type('#cl-path', path);
+		await withBusyStore(A.dataDir, 12500, async () => { await p.click('#cl-link'); await p.waitFor(`document.getElementById('cl-error')`, 20000); });
+		let during;
+		await withBusyStore(A.dataDir, 2500, async () => {
+			await p.click('#cl-retry');
+			await p.waitFor(`document.querySelector('#main').dataset.busy === '1'`, 5000);
+			during = await p.evaluate(`({ retry: document.getElementById('cl-retry')?.disabled ?? null, link: document.getElementById('cl-link').disabled })`);
+			await p.click('#cl-retry');
+		});
+		await idleBusy(p);
+		await sleep(500);
+		const rows = A.work("SELECT fields FROM register_row WHERE store = 'caselines-links'").filter((x) => JSON.parse(x.fields).path === path).length;
+		return { pass: during.retry === true && during.link === true && rows === 1, evidence: { during, rows } };
+	});
+	await S('BUNDLES-NARROW', 'discovery_tab', 'review M2: no bundle view scrolls sideways at 320 or 390 px, with a 64-character case id and long unbroken file names (Court Bundle list and items, CaseLines, Discovery list and bundle view)', async () => {
+		const long = (tag, n = 90) => `SYN_${tag}_`.padEnd(n, 'abcdefghijklmnopqrstuvwxyz0123456789');
+		const lf = `${long('DISCOVERY_FILE')}.pdf`;
+		const nc = await buildCase(join(tmp, 'case-narrow'), {
+			caseId: 'syn_unbroken_case_id_'.padEnd(64, '0123456789abcdefghijklmnopqrstuvwxyz'),
+			edit: (r) => {
+				r.SCHED.discovery.push({ no: 2, date: '04/02/2001', desc: long('DESCRIPTION', 70), co: 'C', nfiles: 1, files: [{ fn: lf, url: url(`DISCOVERY A/${lf}`), co: 'C' }] });
+				const bl = r.DATA.bundles.list;
+				bl.push({ ...bl[0], no: '2', name: long('BUNDLE_NAME', 70), title: long('BUNDLE_NAME', 70), note: long('NOTE', 70),
+					rows: [{ key: long('KEY', 40), n: 1, desc: long('ITEM_DESC', 90), date: '', from: 1, to: 3, pages: 3, parts: [{ url: url(`NOT INDEXED/${lf}`), name: `(1) ${lf}`, rel: lf, from: 2, to: 4 }] }] });
+			},
+		});
+		const imp2 = await A.c.importPkg(nc.caseDir, nc.pkgDir);
+		if (!imp2.importId) throw new Error(`narrow case import failed: ${imp2.status}`);
+		const N = vpath(nc.resultsVersion);
+		const out = {};
+		try {
+			for (const width of [320, 390]) {
+				await p.s('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 1, mobile: true });
+				const sw = async (name) => { await sleep(150); out[`${width}:${name}`] = await p.evaluate(`({ sw: document.documentElement.scrollWidth, vw: innerWidth })`); };
+				await p.go(`${N}/bundles/court_bundle_tab`, 'court_bundle_tab'); await sw('court-list');
+				await p.go(`${N}/bundles/court_bundle_tab?b=2&tab=items`, 'court_bundle_tab'); await sw('court-items');
+				await p.go(`${N}/bundles/caselines_tab`, 'caselines_tab');
+				if (width === 320) { await p.type('#cl-path', `${long('LINKED_PATH', 100)}.pdf`); await p.click('#cl-link'); await p.waitFor(`document.querySelectorAll('#cl-docs li[data-row]').length >= 1`, 30000); }
+				await sw('caselines');
+				await p.go(`${N}/bundles/discovery_tab`, 'discovery_tab'); await sw('discovery-list');
+				if (width === 320) { await p.click(chip(lf)); await p.idle(); }
+				await p.click('#ds-build'); await p.waitFor(`document.getElementById('ds-bundle-table')`, 30000); await sw('discovery-bundle');
+			}
+		} finally { await p.s('Emulation.clearDeviceMetricsOverride').catch(() => {}); }
+		const wide = Object.entries(out).filter(([, m]) => m.sw !== m.vw);
+		return { pass: Object.keys(out).length === 10 && wide.length === 0, evidence: { wide: Object.fromEntries(wide), n: Object.keys(out).length } };
+	});
 	await S('CB-LIMIT', 'court_bundle_tab', 'D5: a header field over 2,000 characters is refused with the field and the limit named, every typed field kept, nothing written', async () => {
 		await p.go(B, 'court_bundle_tab');
 		const before = storedHeader();

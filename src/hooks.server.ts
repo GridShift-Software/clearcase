@@ -1,10 +1,16 @@
 import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit';
 import { building } from '$app/environment';
 import { app, initApp } from '$lib/local-case/app.server';
+import { ensureRescanProvider } from '$lib/local-case/rescan/rescan.server';
 
 export const init: ServerInit = async () => {
 	if (building) return;
 	await initApp();
+	// the rescan additions are document rows for every reader (chronology, documents, search), so the provider is
+	// registered at start-up, not when a system page first loads
+	// (a storage problem is shown by the first request; the system pages then register it as before)
+	if (app().storageError) return;
+	try { for (const p of app().store.activePointers()) ensureRescanProvider(app(), p.case_id); } catch (e) { console.error('rescan provider not registered at start-up:', e); }
 };
 
 // Exact Host allowlist: only 127.0.0.1:<PORT>. 'localhost:<PORT>' (or any *.localhost) is refused on purpose: the

@@ -119,8 +119,9 @@ export class UserWorkError extends Error {
 }
 /** importAll options. `replace: 'cases'` (default) replaces the snapshot's cases in case tables and merges store
  *  tables by key; `'tables'` replaces every snapshot table wholesale, deleting other cases' and other keys' rows too (a
- *  full restore of one store into another). */
-export interface ImportOptions { replace?: 'cases' | 'tables' }
+ *  full restore of one store into another). `cases` names the cases to replace; without it they are the case_id values
+ *  of the snapshot's case rows, so a snapshot that holds none replaces nothing. */
+export interface ImportOptions { replace?: 'cases' | 'tables'; cases?: string[] }
 /**
  * What a restore did to one snapshot table. `replaced-for-cases`: a case table's rows of the snapshot's cases were
  * replaced (other cases' rows kept); `no-cases`: a case table left unchanged because the snapshot holds no case rows;
@@ -457,6 +458,7 @@ export class UserWork {
 		if (!isRecord(snapshot) || snapshot.format !== USER_WORK_EXPORT || !Array.isArray(snapshot.tables)) throw new UserWorkError(`not a ${USER_WORK_EXPORT} export`);
 		const replace = opts?.replace ?? 'cases';
 		if (replace !== 'cases' && replace !== 'tables') throw new UserWorkError("replace is 'cases' or 'tables'");
+		if (opts?.cases !== undefined && !(Array.isArray(opts.cases) && opts.cases.every((c) => typeof c === 'string'))) throw new UserWorkError('cases is a list of case ids');
 		const plans: Plan[] = [];
 		let cases: string[] = [];
 		const restored: TableRestoreReport[] = [];
@@ -474,7 +476,7 @@ export class UserWork {
 				if ('code' in p) throw new UserWorkError(`table ${name}: ${p.message}; nothing was restored`, p.code);
 				plans.push(p);
 			}
-			cases = [...new Set(plans.filter((p) => p.scope === 'case' && p.def.name !== TRUST).flatMap((p) => p.rows.map((r) => cellOf(r, CASE_COLUMN) as string)))].sort();
+			cases = opts?.cases ? [...new Set(opts.cases)].sort() : [...new Set(plans.filter((p) => p.scope === 'case' && p.def.name !== TRUST).flatMap((p) => p.rows.map((r) => cellOf(r, CASE_COLUMN) as string)))].sort();
 			const json = JSON.stringify(cases);
 			// before any write: in case scope a case table keeps other cases' rows, so a snapshot key they hold would clash
 			if (replace === 'cases') for (const p of plans) {

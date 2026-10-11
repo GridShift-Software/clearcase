@@ -7,10 +7,14 @@
 //  * Accepted warnings (trusted_warning) are left out: a restore never creates trust (the contract drops them anyway).
 //  * Restore is checked before anything is written: size, JSON, format and version, checksum, the case (every
 //    case-table row must belong to the active case), and the contract's own restore checks. It takes a work.sqlite
-//    backup first, then replaces this case's rows of every table in the file in one transaction (other cases' rows
-//    are kept, store tables are merged by key). Any refusal or failure leaves the active data unchanged.
+//    backup and a JSON copy of this case's work first (the JSON copy is kept in backups/pre-restore/, outside the
+//    rotation, and refused if it cannot be written), then replaces this case's rows of every table in one
+//    transaction, whatever the file holds for it (other cases' rows are kept, store tables are merged by key). Any
+//    refusal or failure leaves the active data unchanged.
 //  * A v5 browser backup (ess_dcs_backup.json: an object of ess_dcs_* keys) goes to the legacy import hook.
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
+import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, writeFileSync } from 'node:fs';
+import path from 'node:path';
 import { now } from '../../components/clock.ts';
 import type { LocalCase } from '../../local-case/service.server.ts';
 import { USER_WORK_EXPORT, UserWorkError, type ImportResult, type UserWorkExport } from '../../local-case/user-work.server.ts';
@@ -110,24 +114,51 @@ export function checkBackup(text: string, active: { caseId: string; resultsVersi
 	return { file, summary: { createdAt: String(o.createdAt ?? ''), caseId: c.caseId, caseLabel: typeof c.caseLabel === 'string' ? c.caseLabel : null, resultsVersion: c.resultsVersion, sameVersion: c.resultsVersion === active.resultsVersion, tables, rows: tables.reduce((n, t) => n + t.rows, 0) } };
 }
 
-export type RestoreOutcome = { kind: 'restored'; summary: BackupSummary; result: ImportResult } | { kind: 'legacy'; legacy: LegacyResult };
+export type RestoreOutcome = { kind: 'restored'; summary: BackupSummary; result: ImportResult; preRestore: string } | { kind: 'legacy'; legacy: LegacyResult };
+
+/** Where the copies taken before a restore are kept: next to the rotating work.sqlite backups, never pruned by them. */
+export const PRE_RESTORE_DIR = 'pre-restore';
+const fsyncPath = (p: string) => { const fd = openSync(p, 'r'); try { fsyncSync(fd); } finally { closeSync(fd); } };
 
 /**
- * Restore a backup into the active case: check it, back work.sqlite up, then replace this case's rows of the file's
- * tables in one transaction. A refusal (BackupError) or a failed write leaves the active data unchanged.
+ * Copy the work before a restore or a v5 import writes: a work.sqlite backup, and this case's work as a backup file in
+ * `backups/pre-restore/` (written and synced before the rename, never rotated away, restorable by Import state). A
+ * copy that cannot be made refuses the write. Returns the path of the JSON file.
+ */
+function copyBeforeWrite(lc: LocalCase, active: { resultsVersion: string }, label: string): string {
+	const refuse = (why: string) => new BackupError(`The current work could not be copied before the restore (${why}), so nothing was restored. Nothing was changed.`, 'refused');
+	lc.backupNow(label);
+	// backupNow records a failure as a warning instead of throwing
+	if (lc.warnings.has('backup-failed')) throw refuse('work.sqlite could not be backed up');
+	try {
+		const dir = path.join(lc.storage.backupDir, PRE_RESTORE_DIR);
+		mkdirSync(dir, { recursive: true, mode: 0o700 });
+		const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+		const dest = path.join(dir, `${label}-${stamp}-${randomBytes(3).toString('hex')}.json`);
+		const tmp = path.join(dir, `.tmp-${process.pid}-${path.basename(dest)}`);
+		writeFileSync(tmp, `${JSON.stringify(createBackup(lc, active.resultsVersion), null, 2)}\n`, { mode: 0o600 });
+		fsyncPath(tmp);
+		renameSync(tmp, dest);
+		fsyncPath(dir);
+		return dest;
+	} catch (e) { throw refuse(String((e as Error).message ?? e).slice(0, 200)); }
+}
+
+/**
+ * Restore a backup into the active case: check it, copy the current work, then replace this case's rows of the file's
+ * tables in one transaction (the case is named, so a backup with no rows for it still clears the work added since). A
+ * refusal (BackupError) or a failed write leaves the active data unchanged.
  */
 export async function restoreBackup(lc: LocalCase, text: string, active: { caseId: string; resultsVersion: string }): Promise<RestoreOutcome> {
 	let checked: ReturnType<typeof checkBackup>;
 	try { checked = checkBackup(text, active); } catch (e) {
-		if (e instanceof BackupError && e.code === 'legacy') return { kind: 'legacy', legacy: await importLegacy(lc, JSON.parse(text), active) };
+		if (e instanceof BackupError && e.code === 'legacy') return { kind: 'legacy', legacy: await importLegacy(lc, JSON.parse(text), active, () => copyBeforeWrite(lc, active, 'pre-legacy-import')) };
 		throw e;
 	}
-	lc.backupNow('pre-restore');
-	// backupNow records a failure as a warning instead of throwing; a restore without its copy of the work is refused
-	if (lc.warnings.has('backup-failed')) throw new BackupError('The current work could not be copied before the restore, so nothing was restored. Nothing was changed.', 'refused');
+	const preRestore = copyBeforeWrite(lc, active, 'pre-restore');
 	try {
-		const result = await lc.userWork.importAll(checked.file.userWork, { replace: 'cases' });
-		return { kind: 'restored', summary: checked.summary, result };
+		const result = await lc.userWork.importAll(checked.file.userWork, { replace: 'cases', cases: [active.caseId] });
+		return { kind: 'restored', summary: checked.summary, result, preRestore };
 	} catch (e) {
 		if (e instanceof UserWorkError) throw new BackupError(`The backup cannot be restored here: ${e.message}. Nothing was changed.`, 'refused');
 		throw e;

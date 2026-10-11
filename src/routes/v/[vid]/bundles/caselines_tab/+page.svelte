@@ -122,9 +122,9 @@
 </main>
 
 <style>
-	.cl-hero { display: flex; gap: 12px; align-items: center; margin: 0 0 12px; }
+	.cl-hero { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 0 0 12px; }
 	.cl-hero .t { font-weight: 700; }
-	.cl-hero .sp { margin-left: auto; display: flex; gap: 8px; }
+	.cl-hero .sp { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; }
 	.cl-card { border: 1px solid #ddd; border-radius: 6px; padding: 10px 12px; margin: 12px 0; }
 	.cl-card .hd { font-size: 1rem; margin: 0 0 8px; }
 	.cl-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
@@ -138,7 +138,8 @@
 	.cl-drop.drag { border-color: #1d4ed8; }
 	.browse { text-decoration: underline; cursor: pointer; font-weight: 700; }
 	.browse input { display: none; }
-	.cl-doclist li { display: flex; gap: 10px; align-items: center; }
+	.cl-doclist li { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+	.cl-doclist .nm { overflow-wrap: anywhere; }
 	.not-served { color: #92400e; font-style: italic; }
 	.error { color: #b91c1c; }
 	.saving { color: #92400e; font-weight: 700; }

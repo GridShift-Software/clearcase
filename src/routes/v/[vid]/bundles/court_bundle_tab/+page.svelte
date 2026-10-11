@@ -123,7 +123,7 @@
 			</div>
 			{#if tab === 'items'}
 				<div class="card pad0"><div class="chead">Items — every page number below is the number printed on the page</div>
-					<div class="wrap"><table class="tbl" id="cb-items"><thead><tr><th>Item</th><th>Ref</th><th>Description</th><th>Extracted from</th><th class="num">Pages</th><th class="num">Page nos.</th><th></th></tr></thead><tbody>
+					<div class="grid-table wrap"><table class="tbl" id="cb-items"><thead><tr><th>Item</th><th>Ref</th><th>Description</th><th>Extracted from</th><th class="num">Pages</th><th class="num">Page nos.</th><th></th></tr></thead><tbody>
 						{#if !b.rows.length}<tr><td colspan="7"><div class="empty">This bundle has no items yet.</div></td></tr>{/if}
 						{#each b.rows as r, i (i)}
 							{@const lr = l.rows[i]!}
@@ -200,22 +200,24 @@
 </main>
 
 <style>
-	.grid.g12 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
-	.kpi { border: 1px solid #ddd; border-radius: 6px; padding: 10px; }
+	.grid.g12 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+	@media (max-width: 40rem) { .grid.g12 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+	.kpi { border: 1px solid #ddd; border-radius: 6px; padding: 10px; overflow-wrap: anywhere; }
 	.kpi .k { font-size: 0.85em; color: #555; }
 	.kpi .v { font-size: 1.6em; font-weight: 700; }
 	.kpi .s { font-size: 0.8em; color: #555; }
 	.card { border: 1px solid #ddd; border-radius: 6px; padding: 12px; margin: 12px 0; }
 	.card.pad0 { padding: 0; }
+	#cb-bundle-h { overflow-wrap: anywhere; }
 	.chead { font-weight: 700; padding: 8px 12px; }
 	.row { display: flex; flex-wrap: wrap; gap: 10px; }
 	.fld { min-width: 230px; flex: 1; display: flex; flex-direction: column; }
-	.fld.ml { min-width: 320px; flex: 2; }
+	.fld.ml { min-width: min(320px, 100%); flex: 2; }
 	.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
 	.tbl { width: 100%; border-collapse: collapse; }
 	.tbl td, .tbl th { border-bottom: 1px solid #eee; padding: 4px 8px; text-align: left; vertical-align: top; }
 	.num { text-align: right; }
-	.ex, .tag { font-size: 0.85em; color: #555; }
+	.ex, .tag { font-size: 0.85em; color: #555; overflow-wrap: anywhere; }
 	.badge { border-radius: 8px; padding: 1px 6px; font-size: 0.8em; }
 	.b-ok { background: #dcfce7; } .b-warn { background: #fef3c7; } .b-info { background: #dbeafe; }
 	.not-served { color: #92400e; font-style: italic; }

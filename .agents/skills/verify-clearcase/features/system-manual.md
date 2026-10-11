@@ -28,3 +28,4 @@ Preconditions:
 
 - With networking disabled every link stays on 127.0.0.1; the manual has no external link.
 - The badge counts come from the register rows, like the overview tiles, not from the source's build metadata.
+- The pilot's viewer step leaves the PDF tab in front. Each system module's first step calls `Page.bringToFront` on the main tab: a hidden tab gets no frames, so its screenshots and client navigations stall for a minute or more.

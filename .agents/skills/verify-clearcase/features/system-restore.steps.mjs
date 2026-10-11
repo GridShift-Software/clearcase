@@ -19,6 +19,8 @@ export const steps = [
 	{
 		id: 'system-backup-export', feature: 'system-restore', title: 'Backup / Restore: Export all state downloads the case work without binaries',
 		async run(x) {
+			// the viewer step leaves the PDF tab in front; a hidden tab gets no frames, so screenshots and navigations stall
+			await x.b.send('Page.bringToFront', {}, x.page.sessionId);
 			await x.click('#nav-backup_tab');
 			await x.waitReady('backup_tab');
 			const binaries = await x.text('#backup-binaries');

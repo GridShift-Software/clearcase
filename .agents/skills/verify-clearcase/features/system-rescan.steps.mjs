@@ -17,6 +17,8 @@ export const steps = [
 	{
 		id: 'system-rescan', feature: 'system-rescan', title: 'Rescan & Update: an unchanged folder adds nothing; one new file gets one ref that a repeat scan keeps',
 		async run(x) {
+			// the viewer step leaves the PDF tab in front; a hidden tab gets no frames, so screenshots and navigations stall
+			await x.b.send('Page.bringToFront', {}, x.page.sessionId);
 			await x.click('#nav-rescan_tab');
 			await x.waitReady('rescan_tab');
 			const unchanged = await scan(x);

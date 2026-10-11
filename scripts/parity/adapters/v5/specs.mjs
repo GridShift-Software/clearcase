@@ -3,11 +3,11 @@
 // generic extraction, export capture, focus check and (for any view with an Add control) the register sweep.
 // An M2 owner adds a view's spec as its own module, specs/<view-id>.mjs, whose default export has the shape of one
 // SPECS entry; loadSpecs() discovers those modules by dynamic import over the folder, so no owner edits this file.
-import { existsSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { sleep } from '../../../../tests/e2e/pilot/lib/cdp.mjs';
 import { FNV_SRC, SORTS, engineCombos, seededUserWork, seqValue, syntheticInput, uiCombos } from '../../lib/sweeps.mjs';
 import { domExtract } from '../../lib/dom.mjs';
+import { importModule, moduleFiles } from '../../lib/modules.mjs';
 import { tableFromRaw } from '../../lib/snapshot.mjs';
 
 const V5_SORT = { date: 'Date', ref: 'Ref', docType: 'Type', bundle: 'Bundle', amount: 'Amount' };
@@ -167,13 +167,13 @@ export function loadSpecs(dir = SPEC_DIR, { views } = {}) {
 	if (!loaded.has(dir)) loaded.set(dir, (async () => {
 		const known = views ?? (await import('../../lib/register.mjs')).viewIds();
 		const out = { ...SPECS };
-		const names = existsSync(dir) ? readdirSync(dir).filter((n) => n.endsWith('.mjs') && !n.startsWith('_')).sort() : [];
+		const names = moduleFiles(dir).map((f) => basename(f));
 		for (const name of names) {
 			const view = name.slice(0, -'.mjs'.length);
 			const bad = (why) => { throw new Error(`v5 spec ${join(dir, name)}: ${why}`); };
 			if (!known.includes(view)) bad(`${view} is not a v5 navigation id`);
 			if (SPECS[view]) bad(`${view}'s spec is defined in specs.mjs`);
-			const spec = (await import(join(dir, name))).default;
+			const spec = (await importModule(join(dir, name))).default;
 			if (!spec || typeof spec !== 'object' || Array.isArray(spec)) bad('the default export must be one SPECS entry (an object)');
 			for (const k of Object.keys(spec)) if (!SPEC_KEYS.has(k)) bad(`unknown key ${k}`);
 			for (const sw of spec.sweeps ?? []) if (typeof sw?.id !== 'string' || typeof sw.v5 !== 'function') bad('each sweep needs an id and a v5 driver function');

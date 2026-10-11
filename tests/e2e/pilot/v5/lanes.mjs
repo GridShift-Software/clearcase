@@ -385,8 +385,10 @@ export async function lane7(C, L) {
 	const { fx, pkg } = C;
 	const copy = join(C.work, 'case-missing');
 	rmSync(copy, { recursive: true, force: true });
-	L.cmd(`cp -a --reflink=always ${fx.caseFolder} ${copy}`);
-	const cp = spawnSync('cp', ['-a', '--reflink=always', fx.caseFolder, copy], { encoding: 'utf8' });
+	// the copy takes default modes (--no-preserve=mode), so it is writable when the case folder is read-only (files
+	// 0444, folders 0555); the source keeps its own (as verify:package lane 09 copies it)
+	L.cmd(`cp -a --reflink=always --no-preserve=mode ${fx.caseFolder} ${copy}`);
+	const cp = spawnSync('cp', ['-a', '--reflink=always', '--no-preserve=mode', fx.caseFolder, copy], { encoding: 'utf8' });
 	L.need('disposable reflink copy of the case folder (the filesystem must support reflinks; no full copy)', 0, cp.status);
 	C.cleanup.push(copy);
 	const pathCount = countBy(Object.values(pkg.assets).filter((a) => a.kind === 'file'), (a) => a.path);
@@ -522,6 +524,10 @@ export async function checkRegistry(C, L) {
 	const cov = JSON.parse(readFileSync(join(REPO, 'docs', 'plan', 'view-coverage.json'), 'utf8'));
 	L.need('accepted inventory: 42 views', 42, cov.views.length);
 	const P = C.P;
+	await P.goto(`${C.origin}${vpath(rv)}/overview`, ready('overview'));
+	// the routes as a fresh tab shows them: a sidebar link carries its view's last query of this tab session
+	// (ViewNav.svelte), and lane 4 left the chronology filtered
+	await P.evaluate(`Object.keys(sessionStorage).filter((k) => k.startsWith('clearcase:view-query:')).forEach((k) => sessionStorage.removeItem(k))`);
 	await P.goto(`${C.origin}${vpath(rv)}/overview`, ready('overview'));
 	const nav = await P.evaluate(`[...document.querySelectorAll('nav.views a[data-view]')].map((a) => { const c = a.cloneNode(true); c.querySelectorAll('.visually-hidden').forEach((x) => x.remove()); return { id: a.dataset.view, label: c.textContent.trim(), group: a.closest('section').querySelector('h2').textContent.trim(), status: a.dataset.status, href: a.getAttribute('href') }; })`);
 	const want = cov.views.map((v) => ({ id: v.id, label: v.label, group: v.group, status: v.owner === 'CC-03' ? 'available' : `unavailable-until:${linearOf(v.owner)}`, href: `${vpath(rv)}${v.owner === 'CC-03' ? `/${v.id}` : `/${OWNER_CATEGORY[v.owner]}/${v.id}`}` }));

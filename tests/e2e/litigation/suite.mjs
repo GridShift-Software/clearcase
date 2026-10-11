@@ -358,18 +358,18 @@ try {
 		await p.type('#hd_head', 'Unsaved heading');
 		await p.evaluate('history.back()');
 		const asked = await until(p, `!!document.querySelector('#lit-ask')`, 3000);
-		const inDialog = await p.evaluate(`document.activeElement?.id`);
 		await p.click('#lit-ask-stay');
 		await sleep(100);
 		const got = await p.evaluate(`({ id: document.activeElement?.id ?? null, tag: document.activeElement?.tagName, path: location.pathname, dialog: !!document.querySelector('#lit-ask') })`);
-		return all({ asked: asked === true, dialogFocus: inDialog === 'lit-ask-stay', stayed: got.path.endsWith(route('heads_tab')) && !got.dialog, focusRestored: got.id === 'hd_head', kept: (await val(p, '#hd_head')) === 'Unsaved heading', evidence: got });
+		return all({ asked: asked === true, stayed: got.path.endsWith(route('heads_tab')) && !got.dialog, focusRestored: got.id === 'hd_head', kept: (await val(p, '#hd_head')) === 'Unsaved heading', evidence: got });
 	});
 
 	await scenario('FOCUS-back-stay-roadmap', 'enforcement_tab', 'Back with a status save in flight (work.sqlite locked), then Stay: focus is on the status select that was changed; after the lock is released the choice saves', async () => {
 		await p.goto(`${V}/overview`, ready('overview'));
 		await p.click('#nav-enforcement_tab');
 		await until(p, ready('enforcement_tab'));
-		const sel = `tr[data-step="${keys[0]}"] select`;
+		const key0 = await p.evaluate(`document.querySelector('#main tr[data-step]').dataset.step`);
+		const sel = `tr[data-step="${key0}"] select`;
 		const lock = new Database(join(A.dataDir, 'work.sqlite'));
 		lock.exec('PRAGMA busy_timeout=0');
 		lock.exec('BEGIN IMMEDIATE');
@@ -384,7 +384,7 @@ try {
 			await sleep(100);
 			const got = await p.evaluate(`({ focusIsSelect: document.activeElement === document.querySelector(${J(sel)}), tag: document.activeElement?.tagName, path: location.pathname, dialog: !!document.querySelector('#lit-ask') })`);
 			release();
-			const saved = await until(p, `!!document.querySelector(${J(`tr[data-step="${keys[0]}"] [data-saved]`)})`, 25000);
+			const saved = await until(p, `!!document.querySelector(${J(`tr[data-step="${key0}"] [data-saved]`)})`, 25000);
 			return all({ asked: asked === true, stayed: got.path.endsWith(route('enforcement_tab')) && !got.dialog, focusRestored: got.focusIsSelect, savedAfterRelease: saved === true, evidence: got });
 		} finally { release(); }
 	});

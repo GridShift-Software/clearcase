@@ -9,7 +9,7 @@
 	import LeaveGuard from '$lib/views/litigation/LeaveGuard.svelte';
 	import { AUTH_FIELDS, AUTH_FILE, authoritiesCsv, canAddAuthority, type AuthValues } from '$lib/views/litigation/authorities';
 	import { EntryForm, type Answer } from '$lib/views/litigation/entry.svelte';
-	import { REGISTER_NOTE } from '$lib/views/litigation/notes';
+	import { ANALYSIS_NOTE, OWN_ROWS_NOTE } from '$lib/views/litigation/notes';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
 	// the entry keeps its own state (entry.svelte.ts); without JavaScript the answer re-fills it
@@ -53,7 +53,7 @@
 		</table>
 	</div>
 	<p class="tag">Framework provided as a working aide — confirm citations and current status before relying on them.</p>
-	<SourceNote text={REGISTER_NOTE} />
+	<SourceNote text={ANALYSIS_NOTE} more={OWN_ROWS_NOTE} />
 	<LeaveGuard unsaved={entry.unsaved} what="Your Authorities entry is not saved." />
 </main>
 

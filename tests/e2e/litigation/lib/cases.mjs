@@ -73,6 +73,12 @@ export const emptyCase = (dir) => buildCase(dir, { caseId: 'e2e-litigation-empty
 	Object.assign(r.DATA.lit, { enforcement: [], authorities: [], elements: [], crossexam_seed: [], legality: { intro: '', docs: [], scenarios: [], factors: [] } });
 } });
 
+/** A dataset's data as the built package carries it (`datasets/<key>.json`), or undefined. */
+export function pkgData(sc, key) {
+	const f = sc.files.get(`datasets/${key}.json`);
+	return f ? JSON.parse(new TextDecoder().decode(f)).data : undefined;
+}
+
 /** One plain-text field of a package's view-content dataset, or null. */
 export function viewContentText(sc, view, field) {
 	const f = sc.files.get('datasets/view-content.json');

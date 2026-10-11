@@ -10,7 +10,7 @@
 	import LeaveGuard from '$lib/views/litigation/LeaveGuard.svelte';
 	import { EntryForm, type Answer } from '$lib/views/litigation/entry.svelte';
 	import { HEADS_FIELDS, HEADS_FILE, canAddHead, headsText, type HeadsValues } from '$lib/views/litigation/heads';
-	import { REGISTER_NOTE } from '$lib/views/litigation/notes';
+	import { ANALYSIS_NOTE, OWN_ROWS_NOTE } from '$lib/views/litigation/notes';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
 	// the entry and each row's Delete keep their own state (entry.svelte.ts); without JavaScript the answer re-fills it
@@ -58,7 +58,7 @@
 			</tbody>
 		</table>
 	</div>
-	<SourceNote text={REGISTER_NOTE} />
+	<SourceNote text={ANALYSIS_NOTE} more={OWN_ROWS_NOTE} />
 	<LeaveGuard unsaved={entry.unsaved} what="Your Heads of Argument entry is not saved." />
 </main>
 

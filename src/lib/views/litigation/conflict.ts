@@ -18,10 +18,10 @@ const has = (v: unknown) => !!v; // JavaScript truthiness, as v5's `p.email?` an
  * index (GRS-18 r2, D21): the query a pick runs is the party's name, never parsed back out of the option text, so a
  * name or e-mail containing `<` or `>` is searched as it is (v5 stripped any trailing `<…>`).
  */
-export function conflictOptions(entities: readonly Readonly<Record<string, unknown>>[], people: readonly Readonly<Record<string, unknown>>[]): { value: string; label: string; query: string }[] {
+export function conflictOptions(entities: readonly Readonly<Record<string, unknown>>[], people: readonly Readonly<Record<string, unknown>>[]): { value: string; kind: 'entity' | 'person'; label: string; query: string }[] {
 	return [
-		...entities.map((e) => ({ label: `${cat(e.name)} — ${has(e.role) ? cat(e.role) : 'entity'}`, query: cat(e.name) })),
-		...people.map((p) => ({ label: cat(p.name) + (has(p.email) ? ` · ${cat(p.email)}` : '') + (has(p.org) ? ` (${cat(p.org)})` : ''), query: cat(p.name) })),
+		...entities.map((e) => ({ kind: 'entity' as const, label: `${cat(e.name)} — ${has(e.role) ? cat(e.role) : 'entity'}`, query: cat(e.name) })),
+		...people.map((p) => ({ kind: 'person' as const, label: cat(p.name) + (has(p.email) ? ` · ${cat(p.email)}` : '') + (has(p.org) ? ` (${cat(p.org)})` : ''), query: cat(p.name) })),
 	].map((o, i) => ({ value: String(i), ...o }));
 }
 

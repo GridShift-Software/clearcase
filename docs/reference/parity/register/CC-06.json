@@ -534,20 +534,18 @@
       "id": "IDR-227",
       "view": "prescription_tab",
       "field": [
-        "sweep.stale.rows",
-        "sweep.stale.pager"
+        "sweep.stale.input",
+        "sweep.stale.select"
       ],
       "when": {
-        "v5": {
-          "re": "^(\\d+\\|[0-9a-f]+:[0-9a-f]+|Prev Page \\d+ / \\d+ Next Showing \\d+–\\d+ of [\\d,]+)$"
-        },
+        "v5": "",
         "app": {
-          "re": "^(\\d+\\|[0-9a-f]+:[0-9a-f]+|Prev Page \\d+ / \\d+ Next Showing \\d+–\\d+ of [\\d,]+)$"
+          "re": "^.+$"
         }
       },
       "type": "defect-fix",
       "source": "S-prescription_tab-1",
-      "reason": "The filter lives in the URL and the controls show it. Returning through the navigation opens the unfiltered list with empty controls; v5 kept the old filter hidden behind empty controls, so its table was silently filtered (S-prescription_tab-1, medium). Back restores the filtered URL with its controls.",
+      "reason": "The filter lives in the URL and the controls show it. Returning through the navigation now restores the view's last query (the base's sidebar, BASE-R2d; CC-06 r2, D19), so the table shows the filtered rows v5 shows, and the search box and Risk select show the filter that applies. v5 kept the old filter applied behind empty controls, so its table was silently filtered (S-prescription_tab-1, medium).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
       "approvedBy": null,

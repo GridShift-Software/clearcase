@@ -9,3 +9,6 @@ export const REGISTER_NOTE = `${ANALYSIS_NOTE} Rows you add are your own work, k
 /** Conflict Check's scope (acceptance): what was searched, with counts from the data, and what a result is not. */
 export const conflictScope = (people: number, entities: number) =>
 	`Searches only this matter's ${people} ${people === 1 ? 'person' : 'people'} and ${entities} ${entities === 1 ? 'entity' : 'entities'} from the imported results package. A match, or no match, is not a conflict clearance.`;
+
+/** Conflict Check's source note (GRS-18 r2, D20): where the parties come from, without repeating the scope line. */
+export const CONFLICT_NOTE = 'Parties and correspondents as listed in the imported results package, compared as supplied. ClearCase has not checked that the list is complete: search your firm\'s own conflict records as well.';

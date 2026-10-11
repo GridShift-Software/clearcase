@@ -19,10 +19,18 @@ export const evidenceTokens = (ref: string, isDocument: (ref: string) => boolean
 /** The skeleton's first line: the literal heading and the case caption from view-content, when the package has it. */
 export const headsTitle = (caption: string | null) => (caption ? `HEADS OF ARGUMENT — ${caption}` : 'HEADS OF ARGUMENT');
 
+/**
+ * A user field as one line of the export (GRS-18 r2, D19; normalised when exporting, the stored text stays as typed):
+ * each run of line and paragraph separators (CR, LF, NEL, LS, PS, VT, FF) becomes one space, and the other C0 controls
+ * and DEL are dropped, so a field can never start a forged numbered line.
+ */
+export const exportLine = (v: string) => (v || '').replace(/[\r\n\v\f\u0085\u2028\u2029]+/g, ' ').replace(/[\u0000-\u0008\u000e-\u001f\u007f]/g, '');
+
 /** v5 exportHeads: the title, a blank line, then each submission numbered with its authority and evidence. */
 export function headsText(rows: readonly HeadsValues[], caption: string | null): string {
 	let out = `${headsTitle(caption)}\n\n`;
-	rows.forEach((x, i) => { out += `${i + 1}. ${x.head || ''}\n   ${x.sub || ''}\n   Authority: ${x.auth || ''}\n   Evidence: ${x.ref || ''}\n\n`; });
+	const f = exportLine;
+	rows.forEach((x, i) => { out += `${i + 1}. ${f(x.head)}\n   ${f(x.sub)}\n   Authority: ${f(x.auth)}\n   Evidence: ${f(x.ref)}\n\n`; });
 	return out;
 }
 

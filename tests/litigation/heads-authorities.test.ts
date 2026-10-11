@@ -2,7 +2,7 @@
 // empty), and the authorities CSV (imported rows unchanged, then user rows through userCell).
 import { describe, expect, it } from 'vitest';
 import { AUTH_FILE, authoritiesCsv, canAddAuthority } from '../../src/lib/views/litigation/authorities.ts';
-import { HEADS_FILE, canAddHead, evidenceTokens, headsText, splitRefs } from '../../src/lib/views/litigation/heads.ts';
+import { HEADS_FILE, canAddHead, evidenceTokens, exportLine, headsText, splitRefs } from '../../src/lib/views/litigation/heads.ts';
 
 describe('heads evidence refs', () => {
 	it('splits on spaces and commas only (S-heads_tab-2, copied)', () => {
@@ -56,5 +56,26 @@ describe('authoritiesCsv (v5 exportAuth)', () => {
 		expect(canAddAuthority({ topic: 'T', authority: '', proposition: 'P' })).toBe(false);
 		expect(canAddAuthority({ topic: '', authority: 'A', proposition: '' })).toBe(true);
 		expect(AUTH_FILE).toBe('authorities.csv');
+	});
+});
+
+describe('headsText normalises user fields (GRS-18 r2, D19)', () => {
+	it('a heading with CRLF and a numbered line cannot forge a second submission', () => {
+		const out = headsText([{ head: 'H\r\n2. Forged heading', sub: 'S', auth: '', ref: '' }], null);
+		expect(out).toBe('HEADS OF ARGUMENT\n\n1. H 2. Forged heading\n   S\n   Authority: \n   Evidence: \n\n');
+		expect(out.split('\n').filter((l) => /^\d+\. /.test(l))).toHaveLength(1);
+	});
+	it.each([['CR', '\r'], ['LF', '\n'], ['CRLF', '\r\n'], ['NEL', '\u0085'], ['LS', '\u2028'], ['PS', '\u2029'], ['VT', '\v'], ['FF', '\f']])('%s becomes one space', (_n, c) => {
+		expect(exportLine(`a${c}b`)).toBe('a b');
+		expect(exportLine(`a${c}${c}b`)).toBe('a b');
+	});
+	it.each([['NUL', '\u0000'], ['BEL', '\u0007'], ['BS', '\b'], ['ESC', '\u001b'], ['US', '\u001f'], ['DEL', '\u007f']])('%s is dropped', (_n, c) => {
+		expect(exportLine(`a${c}b`)).toBe('ab');
+	});
+	it('keeps tabs and ordinary text, and leaves the stored value alone', () => {
+		const row = { head: 'a\tb', sub: 'é ß', auth: '', ref: '' };
+		expect(exportLine(row.head)).toBe('a\tb');
+		headsText([row], null);
+		expect(row.head).toBe('a\tb');
 	});
 });

@@ -1,19 +1,19 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { enhance } from '$app/forms';
 	import Narrative from '$lib/components/Narrative.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import SourceNote from '$lib/views/litigation/SourceNote.svelte';
+	import DeleteCell from '$lib/views/litigation/DeleteCell.svelte';
+	import EntryState from '$lib/views/litigation/EntryState.svelte';
+	import LeaveGuard from '$lib/views/litigation/LeaveGuard.svelte';
+	import { CX_FIELDS, canAddCx, type CxValues } from '$lib/views/litigation/crossexam';
+	import { EntryForm, type Answer } from '$lib/views/litigation/entry.svelte';
 	import { REGISTER_NOTE } from '$lib/views/litigation/notes';
-	import { keepInput } from '$lib/views/litigation/submit';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
-	// a failed or lost submit is reported here and changes nothing else, so the typed values stay in their fields; the
-	// action's `values` re-fill the form only without JavaScript (a server-rendered failure)
-	let error = $state<string | null>(null);
-	const message = $derived(error ?? (form && 'message' in form ? (form.message as string | null) : null));
-	const values = $derived(form && 'values' in form ? (form.values as Record<string, string>) : null);
-	const submit = keepInput((m) => (error = m), () => (error = null));
+	// the entry and each row's Delete keep their own state (entry.svelte.ts); without JavaScript the answer re-fills it
+	const entry = new EntryForm(CX_FIELDS, (v) => canAddCx(v as CxValues), untrack(() => form as Answer));
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>
@@ -23,17 +23,18 @@
 <main id="main" tabindex="-1" data-ready="crossexam_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Cross-Exam Prep" section="Cross-Exam Prep" caseName={data.version.titleName} subtitle="Per-witness topics, what to put, and the documents to confront them with">
 		<!-- S-crossexam_tab-3 (copied): v5 has a second Add in the page header; it submits the same form -->
-		{#snippet actions()}<button type="submit" form="cx-add" class="primary" id="cx-add-header">Add</button>{/snippet}
+		{#snippet actions()}<button type="submit" form="cx-add" class="primary" id="cx-add-header" disabled={entry.adding}>Add</button>{/snippet}
 	</PageHeader>
 	<div class="card">
-		<form method="POST" action="?/add" id="cx-add" class="fields" use:enhance={submit}>
-			<div><label for="cx_w">Witness</label><input id="cx_w" name="witness" value={values?.witness ?? ''} /></div>
-			<div><label for="cx_t">Topic</label><input id="cx_t" name="topic" value={values?.topic ?? ''} /></div>
-			<div class="wide"><label for="cx_put">What to put</label><input id="cx_put" name="put" value={values?.put ?? ''} /></div>
-			<div><label for="cx_docs">Documents</label><input id="cx_docs" name="docs" value={values?.docs ?? ''} /></div>
-			<div class="go"><button type="submit" id="cx-add-form">Add</button></div>
+		<form method="POST" action="?/add" id="cx-add" class="fields" aria-busy={entry.adding ? 'true' : null} use:enhance={entry.submit}>
+			<input type="hidden" name="addId" value={data.addId} />
+			<div><label for="cx_w">Witness</label><input id="cx_w" name="witness" bind:value={entry.values.witness} /></div>
+			<div><label for="cx_t">Topic</label><input id="cx_t" name="topic" bind:value={entry.values.topic} /></div>
+			<div class="wide"><label for="cx_put">What to put</label><input id="cx_put" name="put" bind:value={entry.values.put} /></div>
+			<div><label for="cx_docs">Documents</label><input id="cx_docs" name="docs" bind:value={entry.values.docs} /></div>
+			<div class="go"><button type="submit" id="cx-add-form" disabled={entry.adding}>Add</button></div>
 		</form>
-		{#if message}<p class="error" role="alert" id="cx-error">{message}</p>{/if}
+		<EntryState {entry} form="cx-add" errorId="cx-error" />
 	</div>
 	<div class="card pad0">
 		<table id="cx-table">
@@ -46,10 +47,7 @@
 						<td>{#if r.authored}<Narrative text={r.put} resultsVersion={vid} known={data.known} />{:else}{r.put}{/if}</td>
 						<td>{r.docs}</td>
 						<td>
-							<form method="POST" action="?/delete" use:enhance={submit}>
-								{#if 'rowId' in r.target}<input type="hidden" name="rowId" value={r.target.rowId} />{:else}<input type="hidden" name="seedId" value={r.target.seedId} />{/if}
-								<button type="submit" class="ghost">Delete</button>
-							</form>
+							<DeleteCell {entry} form="cx-add" name={'rowId' in r.target ? 'rowId' : 'seedId'} value={r.del} />
 						</td>
 					</tr>
 				{:else}
@@ -60,6 +58,7 @@
 	</div>
 	{#if data.tip}<p class="tag">{data.tip}</p>{/if}
 	<SourceNote text={REGISTER_NOTE} />
+	<LeaveGuard unsaved={entry.unsaved} what="Your Cross-Exam entry is not saved." />
 </main>
 
 <style>
@@ -71,5 +70,4 @@
 	small { display: block; }
 	.empty { color: #555; padding: 1rem; text-align: center; }
 	.tag { font-size: 0.9rem; color: #444; }
-	td form { margin: 0; }
 </style>

@@ -1,21 +1,20 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { enhance } from '$app/forms';
 	import CitationLink from '$lib/components/CitationLink.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { download } from '$lib/components/csv';
 	import SourceNote from '$lib/views/litigation/SourceNote.svelte';
-	import { HEADS_FILE, headsText } from '$lib/views/litigation/heads';
+	import DeleteCell from '$lib/views/litigation/DeleteCell.svelte';
+	import EntryState from '$lib/views/litigation/EntryState.svelte';
+	import LeaveGuard from '$lib/views/litigation/LeaveGuard.svelte';
+	import { EntryForm, type Answer } from '$lib/views/litigation/entry.svelte';
+	import { HEADS_FIELDS, HEADS_FILE, canAddHead, headsText, type HeadsValues } from '$lib/views/litigation/heads';
 	import { REGISTER_NOTE } from '$lib/views/litigation/notes';
-	import { keepInput } from '$lib/views/litigation/submit';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
-	// a failed or lost submit is reported here and changes nothing else, so the typed values stay in their fields; the
-	// action's `values` re-fill the form only without JavaScript (a server-rendered failure)
-	let error = $state<string | null>(null);
-	const message = $derived(error ?? (form && 'message' in form ? (form.message as string | null) : null));
-	const values = $derived(form && 'values' in form ? (form.values as Record<string, string>) : null);
-	const submit = keepInput((m) => (error = m), () => (error = null));
+	// the entry and each row's Delete keep their own state (entry.svelte.ts); without JavaScript the answer re-fills it
+	const entry = new EntryForm(HEADS_FIELDS, (v) => canAddHead(v as HeadsValues), untrack(() => form as Answer));
 	const exportText = () => download(HEADS_FILE, headsText(data.rows, data.caption), 'text/plain;charset=utf-8');
 	let ready = $state(false);
 	onMount(() => { ready = true; });
@@ -28,14 +27,15 @@
 		{#snippet actions()}<button type="button" id="heads-export" onclick={exportText}>Export</button>{/snippet}
 	</PageHeader>
 	<div class="card">
-		<form method="POST" action="?/add" id="hd-add" class="fields" use:enhance={submit}>
-			<div><label for="hd_head">Heading</label><input id="hd_head" name="head" value={values?.head ?? ''} /></div>
-			<div class="wide"><label for="hd_sub">Submission</label><input id="hd_sub" name="sub" value={values?.sub ?? ''} /></div>
-			<div><label for="hd_auth">Authority</label><input id="hd_auth" name="auth" value={values?.auth ?? ''} /></div>
-			<div><label for="hd_ref">Evidence ref(s)</label><input id="hd_ref" name="ref" placeholder="e.g. OD-1, SD-2" value={values?.ref ?? ''} /></div>
-			<div class="go"><button type="submit" class="primary" id="hd-add-button">Add</button></div>
+		<form method="POST" action="?/add" id="hd-add" class="fields" aria-busy={entry.adding ? 'true' : null} use:enhance={entry.submit}>
+			<input type="hidden" name="addId" value={data.addId} />
+			<div><label for="hd_head">Heading</label><input id="hd_head" name="head" bind:value={entry.values.head} /></div>
+			<div class="wide"><label for="hd_sub">Submission</label><input id="hd_sub" name="sub" bind:value={entry.values.sub} /></div>
+			<div><label for="hd_auth">Authority</label><input id="hd_auth" name="auth" bind:value={entry.values.auth} /></div>
+			<div><label for="hd_ref">Evidence ref(s)</label><input id="hd_ref" name="ref" placeholder="e.g. OD-1, SD-2" bind:value={entry.values.ref} /></div>
+			<div class="go"><button type="submit" class="primary" id="hd-add-button" disabled={entry.adding}>Add</button></div>
 		</form>
-		{#if message}<p class="error" role="alert" id="hd-error">{message}</p>{/if}
+		<EntryState {entry} form="hd-add" errorId="hd-error" />
 	</div>
 	<div class="card pad0">
 		<table id="heads-table">
@@ -49,10 +49,7 @@
 						<td>{r.auth}</td>
 						<td>{#each r.evidence as t, j (j)}{j ? ' ' : ''}{#if t.ref}<CitationLink resultsVersion={vid} ref={t.text} />{:else}<span>{t.text}</span>{/if}{/each}</td>
 						<td>
-							<form method="POST" action="?/delete" use:enhance={submit}>
-								<input type="hidden" name="rowId" value={r.rowId} />
-								<button type="submit" class="ghost">Delete</button>
-							</form>
+							<DeleteCell {entry} form="hd-add" name="rowId" value={r.del} />
 						</td>
 					</tr>
 				{:else}
@@ -62,6 +59,7 @@
 		</table>
 	</div>
 	<SourceNote text={REGISTER_NOTE} />
+	<LeaveGuard unsaved={entry.unsaved} what="Your Heads of Argument entry is not saved." />
 </main>
 
 <style>
@@ -71,5 +69,4 @@
 	.fields > .go { flex: 0 0 auto; }
 	.pad0 { padding: 0; overflow-x: auto; }
 	.empty { color: #555; padding: 1rem; text-align: center; }
-	td form { margin: 0; }
 </style>

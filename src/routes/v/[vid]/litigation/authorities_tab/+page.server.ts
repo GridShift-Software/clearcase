@@ -1,8 +1,9 @@
+import { randomUUID } from 'node:crypto';
 import { fail } from '@sveltejs/kit';
 import { app } from '$lib/local-case/app.server';
 import { datasetOf } from '$lib/local-case/results.server';
 import { AUTH_FIELDS, canAddAuthority, type AuthValues } from '$lib/views/litigation/authorities';
-import { STORES, addRow, field, guarded, knownRefs, orderedRows, text } from '$lib/views/litigation/register.server';
+import { STORES, addAction, formAddId, knownRefs, orderedRows, text, valuesOf } from '$lib/views/litigation/register.server';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ parent }) => {
@@ -13,7 +14,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 		return Object.fromEntries(AUTH_FIELDS.map((k) => [k, o[k] === null || o[k] === undefined ? '' : String(o[k])])) as AuthValues;
 	});
 	const user = orderedRows(version.caseId, STORES.authorities).map((r) => ({ rowId: r.rowId, ...(Object.fromEntries(AUTH_FIELDS.map((k) => [k, text(r.fields[k])])) as AuthValues) }));
-	return { present: Array.isArray(raw), imported, user, known: knownRefs(version.id, imported.map((r) => r.proposition)) };
+	return { present: Array.isArray(raw), imported, user, known: knownRefs(version.id, imported.map((r) => r.proposition)), addId: randomUUID() };
 };
 
 export const actions: Actions = {
@@ -21,9 +22,8 @@ export const actions: Actions = {
 		const v = app().store.getVersion(params.vid);
 		if (!v) return fail(404, { message: 'Unknown results version' });
 		const f = await request.formData();
-		const values = Object.fromEntries(AUTH_FIELDS.map((k) => [k, field(f, k)])) as AuthValues;
-		if (!canAddAuthority(values)) return fail(400, { values, message: null });
-		const r = await guarded(values, () => addRow(v.case_id, STORES.authorities, values));
-		return r.ok ? { added: r.value } : r.failure;
+		const values = valuesOf(f, AUTH_FIELDS) as AuthValues;
+		if (!canAddAuthority(values)) return fail(400, { op: 'add', values, message: null });
+		return addAction(v.case_id, STORES.authorities, values, formAddId(f));
 	},
 };

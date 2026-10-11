@@ -1,29 +1,80 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
-	import { enhance } from '$app/forms';
+	import { onMount, untrack } from 'svelte';
+	import { applyAction, enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import Narrative from '$lib/components/Narrative.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import LeaveGuard from '$lib/views/litigation/LeaveGuard.svelte';
 	import SourceNote from '$lib/views/litigation/SourceNote.svelte';
 	import { shownStatus, statusOptions } from '$lib/views/litigation/enforcement';
 	import { ANALYSIS_NOTE } from '$lib/views/litigation/notes';
-	import { LOST, failureMessage } from '$lib/views/litigation/submit';
+	import { lostMessage, refused, type Failure } from '$lib/views/litigation/submit';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
-	// Each step's own save state: the value the user chose (kept when its save fails, until it is saved), its error and
-	// whether it saved. A save never resets the form (a reset would put the select back on its server-rendered option).
-	let steps = $state<Record<string, { value: string; error: string | null; saved: boolean }>>({});
-	// without JavaScript, the server-rendered failure names its step and value
-	const failed = $derived(form && 'values' in form && form.values ? (form.values as { stepKey: string; status: string }) : null);
-	const valueOf = (r: (typeof data.rows)[number]) => (r.key && steps[r.key]?.value) || (r.key && failed?.stepKey === r.key ? failed.status : null) || shownStatus(r);
-	const errorOf = (key: string) => (key in steps ? steps[key]!.error : failed?.stepKey === key && form && 'message' in form ? (form.message as string) : null);
-	const savedOf = (key: string) => (key in steps ? steps[key]!.saved : !!form && 'saved' in form && form.saved === key);
-	const save: SubmitFunction = ({ formData }) => {
-		const key = String(formData.get('stepKey')), value = String(formData.get('status'));
-		steps[key] = { value, error: null, saved: false };
-		return async ({ result, update }) => {
-			if (result.type === 'success') { steps[key] = { value, error: null, saved: true }; await update({ reset: false }); return; }
-			steps[key] = { value, error: result.type === 'failure' ? failureMessage(result.data) ?? 'Not saved.' : LOST, saved: false };
+	type Row = (typeof data.rows)[number];
+	// Each step's own save state (GRS-18 r2): the choice not yet saved (null: show what is stored), what its last save
+	// sent, whether a save is in flight or another choice waits for it, its error, and whether it saved. Saves of one
+	// step run one after another, each against the version of the step the page last loaded; a choice made while one
+	// is in flight is saved after it, and "Saved" shows only while the step shows what was saved.
+	type Step = { value: string | null; sent: string | null; busy: boolean; pending: boolean; error: Failure | null; saved: boolean };
+	const blank = (): Step => ({ value: null, sent: null, busy: false, pending: false, error: null, saved: false });
+	// without JavaScript the answer names each step's choice, error and save (the whole roadmap is one form)
+	type Answer = { op?: string; choices?: Record<string, string>; errors?: Record<string, Failure>; savedKeys?: string[] } | null;
+	let steps = $state<Record<string, Step>>(untrack(() => {
+		const a = form as Answer, out: Record<string, Step> = {};
+		if (a?.op !== 'status') return out;
+		for (const [k, v] of Object.entries(a.choices ?? {})) {
+			if (a.errors?.[k]) out[k] = { ...blank(), value: v, sent: v, error: a.errors[k]! };
+			else if (a.savedKeys?.includes(k)) out[k] = { ...blank(), sent: v, saved: true };
+		}
+		return out;
+	}));
+	const stepOf = (key: string) => (steps[key] ??= blank());
+	const valueOf = (r: Row) => (r.key && steps[r.key]?.value) ?? shownStatus(r);
+	const savedOf = (r: Row) => !!r.key && !!steps[r.key]?.saved && steps[r.key]!.value === null && shownStatus(r) === steps[r.key]!.sent;
+	const unsaved = $derived(Object.values(steps).some((s) => s.busy || s.error !== null || s.value !== null));
+	let formEl = $state<HTMLFormElement>();
+	let current: string | null = null;
+	function save(key: string) {
+		const s = stepOf(key);
+		if (s.busy) { s.pending = true; return; }
+		current = key;
+		formEl?.requestSubmit();
+	}
+	function choose(key: string, value: string) {
+		const s = stepOf(key);
+		s.value = value;
+		s.saved = false;
+		save(key);
+	}
+	const submit: SubmitFunction = ({ formData, cancel }) => {
+		const key = current;
+		current = null;
+		if (!key) { cancel(); return; }
+		const s = stepOf(key), row = data.rows.find((r) => r.key === key);
+		const value = s.value ?? (row ? shownStatus(row) : '');
+		for (const k of [...formData.keys()]) formData.delete(k);
+		formData.set('stepKey', key);
+		formData.set('status', value);
+		formData.set('version', row?.version ?? 'none');
+		Object.assign(s, { busy: true, pending: false, error: null, saved: false, sent: value });
+		return async ({ result }) => {
+			try {
+				if (result.type === 'success') {
+					await invalidateAll();
+					if (s.value === value) Object.assign(s, { value: null, saved: true });
+				} else if (result.type === 'failure') {
+					s.error = refused(result.data, 'Not saved.');
+					// changed elsewhere: the page now shows what is stored, the choice stays selected with Retry
+					if (result.status === 409) await invalidateAll();
+				} else if (result.type === 'redirect') await applyAction(result);
+				else s.error = lostMessage('status', result.status);
+			} finally {
+				s.busy = false;
+			}
+			// a choice made in flight is saved next; after an error it waits for Retry
+			if (s.pending) { s.pending = false; if (!s.error && s.value !== null && s.value !== value) save(key); }
 		};
 	};
 	let ready = $state(false);
@@ -37,6 +88,7 @@
 	{#if data.content.why}
 		<div class="card narr"><h3>Why this matters</h3><Narrative text={data.content.why} resultsVersion={vid} known={data.known} /></div>
 	{/if}
+	<form method="POST" action="?/status" id="enf-form" bind:this={formEl} use:enhance={submit}>
 	{#each data.phases as ph (ph)}
 		<div class="card pad0">
 			<div class="chead">{ph}</div>
@@ -50,16 +102,19 @@
 								<td class="ex"><Narrative text={r.basis} resultsVersion={vid} known={data.known} /></td>
 								<td>
 									{#if r.key}
-										<form method="POST" action="?/status" use:enhance={save}>
-											<input type="hidden" name="stepKey" value={r.key} />
-											<select name="status" aria-label="Status" value={valueOf(r)} onchange={(e) => e.currentTarget.form?.requestSubmit()}>
-												{#each statusOptions(r.status) as o (o)}<option value={o}>{o}</option>{/each}
-											</select>
-											<noscript><button type="submit">Save</button></noscript>
-											{#if errorOf(r.key)}<small class="error" role="alert" data-save-error>{errorOf(r.key)}</small>
-											{:else if savedOf(r.key)}<small class="ok" data-saved>Saved</small>{/if}
-											{#if r.override !== null && r.override !== r.status}<small data-imported>Imported status: {r.status}</small>{/if}
-										</form>
+										{@const key = r.key}
+										<input type="hidden" name={`was:${key}`} value={shownStatus(r)} />
+										<input type="hidden" name={`ver:${key}`} value={r.version} />
+										<select name={`status:${key}`} aria-label="Status" value={valueOf(r)} aria-busy={steps[key]?.busy ? 'true' : null} onchange={(e) => choose(key, e.currentTarget.value)}>
+											{#each statusOptions(r.status, r.override) as o (o.value)}<option value={o.value}>{o.label}</option>{/each}
+										</select>
+										<noscript><button type="submit">Save</button></noscript>
+										{#if steps[key]?.busy}<small role="status" data-saving>Saving…</small>{/if}
+										{#if steps[key]?.error}
+											<small class="error" role="alert" data-save-error>{steps[key].error.message}</small>
+											{#if steps[key].error.retry}<button type="button" class="ghost" data-retry disabled={steps[key].busy} onclick={() => save(key)}>Retry</button>{/if}
+										{:else if savedOf(r)}<small class="ok" data-saved>Saved</small>{/if}
+										{#if r.override !== null && r.override !== r.status}<small data-imported>Imported status: {r.status}</small>{/if}
 									{:else}
 										{r.status} <small class="warning-inline" data-duplicate>Another step has the same phase and name, so no status can be saved for it.</small>
 									{/if}
@@ -74,8 +129,10 @@
 	{:else}
 		<div class="card"><div class="empty">{data.present ? 'No enforcement steps in this results package.' : 'This results package has no enforcement roadmap.'}</div></div>
 	{/each}
+	</form>
 	<p class="tag">Legal framework is a working aide — verify each authority (see Authorities tab) before relying on it.</p>
 	<SourceNote text={ANALYSIS_NOTE} />
+	<LeaveGuard {unsaved} what="A status you chose is not saved." />
 </main>
 
 <style>
@@ -84,6 +141,6 @@
 	small { display: block; }
 	.empty { color: #555; padding: 1rem; text-align: center; }
 	.tag { font-size: 0.9rem; color: #444; }
-	td form { margin: 0; }
+	#enf-form { margin: 0; }
 	select { max-width: 150px; }
 </style>

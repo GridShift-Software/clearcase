@@ -227,36 +227,222 @@
       "approvedOn": null
     },
     {
-      "id": "IDR-363",
+      "id": "IDR-365",
       "view": "court_bundle_tab",
-      "field": "text.subtitle",
+      "field": "sweep.builder.pdf.body*.fonts",
       "when": {
         "v5": {
-          "re": "^\\d+ bundles · \\d+ index items · \\d+ paginated pages\\. Every bundle is a finished PDF: index first, then the extracted documents, numbered continuously from page 1\\.$"
+          "re": "^F1, ZaPgNo$"
         },
-        "app": {
-          "re": "^\\d+ bundles · \\d+ index items · \\d+ paginated pages\\. Each index lists the extracted documents, numbered continuously from page 1\\.$"
-        }
+        "app": "F1, F2, ZaPgNo"
       },
-      "type": "known-gap",
-      "source": "GRS-19",
-      "reason": "The subtitle claims no finished PDFs while the builder (CC-09b) and the bundle PDFs as package assets are deferred: it says what each imported index lists; each bundle row says whether its PDF is served (L01-4).",
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-1",
+      "reason": "Builder sweep, Gamma_Report.pdf: its page text is drawn by a Form XObject that borrows font F2 from the page. v5's Form XObject check never fires, so F2 is pruned from the copied page and that text loses its font; the app keeps every resource a form uses.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
       "approvedBy": null,
       "approvedOn": null
     },
     {
-      "id": "IDR-364",
+      "id": "IDR-366",
       "view": "court_bundle_tab",
-      "field": "kpi.pages.sub",
+      "field": "sweep.builder.list.custom.C1.link",
       "when": {
-        "v5": "assembled and numbered",
-        "app": "numbered in the indexes"
+        "v5": "revoked",
+        "app": "live"
       },
-      "type": "known-gap",
-      "source": "GRS-19",
-      "reason": "The Pages card claims no assembled PDFs while the builder and the bundle PDFs are deferred: the page numbers are those of the imported indexes (L01-4).",
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-2",
+      "reason": "After Save to the bundle list, pressing Create Bundle again revokes the saved bundle's session PDF in v5, so its Bundle PDF link in the list is dead; the app keeps a saved bundle's PDF for the session.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-367",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.saved.items.r*.from_link.*",
+      "when": {
+        "v5": "↗",
+        "app": "-"
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-3",
+      "reason": "After a reload a saved builder bundle has no PDF. For a part that starts after page 1, v5 links the item to '#page=N' on the app itself; the app shows no link.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-368",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.saved.items.r*.actions",
+      "when": {
+        "v5": {
+          "re": "^Open item$"
+        },
+        "app": "—"
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-3",
+      "reason": "The same saved part: v5 offers Open item for the '#page=N' self-link; the app offers nothing to open, as the PDF is gone.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-369",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.leave_during_create",
+      "when": {
+        "v5": "the builder replaced the other view",
+        "app": "the other view stays"
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-5",
+      "reason": "Pressing Create Bundle and moving to another view before it finishes: v5 renders the builder over the other view when assembly ends; the app stays on the view the user chose.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-370",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.*.index0.text",
+      "when": {
+        "v5": {
+          "re": "DCLARATION UKASZ NAVE"
+        },
+        "app": {
+          "re": "DÉCLARATION LUKASZ NAÏVE"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-6",
+      "reason": "PDF index (bundle and Index only): v5 drops every non-ASCII character from a description; the app keeps what the index font can show (é, ï) and folds the rest to its base letter (Ł to L). The rest of the page compares through the same key.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-371",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.*.index0.ranges",
+      "when": {
+        "v5": {
+          "re": "^\\d{3} - \\d{3}( \\| \\d{3} - \\d{3})*$"
+        },
+        "app": {
+          "re": "^\\d{3} – \\d{3}( \\| \\d{3} – \\d{3})*$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-7",
+      "reason": "PDF index page ranges: v5 writes ' - ' where its HTML and Word indexes use ' – '; the app's PDF index uses ' – ' like the others.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-372",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.pdf.body*.stamp",
+      "when": {
+        "v5": "",
+        "app": {
+          "re": "^\\d+$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-8",
+      "reason": "Beta_Letter.pdf has a CropBox inside its MediaBox and /Rotate 90. v5 places the page number from the MediaBox, outside what a viewer shows; the app places it inside the visible box.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-373",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.pdf.body*.stamp_visible",
+      "when": {
+        "v5": "no stamp on the visible page",
+        "app": "inside the visible page"
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-8",
+      "reason": "The same pages: where the page number sits relative to the visible (crop) box.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-374",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.save.second",
+      "when": {
+        "v5": "(C2) SYNTHETIC SWEEP",
+        "app": "(C1) SYNTHETIC SWEEP"
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-12",
+      "reason": "Saving the same output twice: v5 adds a second bundle (C2); the app updates the first and keeps its number.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-375",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.list.custom",
+      "when": {
+        "v5": "C1 | C2",
+        "app": "C1"
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-12",
+      "reason": "The list after saving one output twice: v5 lists the duplicate; the app lists the bundle once.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-376",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.list.custom.C2.link",
+      "when": {
+        "v5": "revoked",
+        "app": "<absent>"
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-12",
+      "reason": "v5's duplicate bundle from saving twice (its link is also dead, S-2); the app has no duplicate.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-377",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.debug.console",
+      "when": {
+        "v5": "DBG lines logged",
+        "app": "none"
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-14",
+      "reason": "With a global PDFKDBG defined, v5's assembler writes a debug line per page to the console; the app has no debug hook.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
       "approvedBy": null,

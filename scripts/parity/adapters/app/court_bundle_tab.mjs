@@ -4,13 +4,34 @@
 import { sleep } from '../../../../tests/e2e/pilot/lib/cdp.mjs';
 import { fromRaw } from '../../lib/snapshot.mjs';
 import { navFocus, open } from './_shell.mjs';
-import { runSweeps } from '../v5/specs/court_bundle_tab.mjs';
+import { openRow, runSweeps, until } from '../v5/specs/court_bundle_tab.mjs';
 
 const VIEW = 'court_bundle_tab';
 const at = (sel) => `!!document.querySelector(${JSON.stringify(sel)})`;
 // data-ready is server-rendered; controls work once the page has hydrated
 const openView = async (p, ctx) => { await open(p, ctx, ctx.registry[VIEW].route, VIEW); await p.waitFor(`document.querySelector('main[data-hydrated]')`, 60000); };
+const LIST = '#cb-list tbody tr';
 const APP = {
+	bld: {
+		open: async (p, ctx) => { await openView(p, ctx); await p.click('#cb-build'); await p.waitFor(at('#cbbfile'), 30000); },
+		back: async (p) => { await p.evaluate('history.back()'); await until(p, at('#cbbname')); await sleep(100); },
+		toList: async (p) => { await p.click('#cb-builder-back'); await until(p, at('#cb-list')); await sleep(100); },
+		fromList: async (p) => { await p.click('#cb-build'); await until(p, at('#cbbname')); },
+		leave: `document.getElementById('nav-overview').click();`,
+		reload: openView,
+		openRow: async (p, no) => { await openRow(p, LIST, no); await until(p, at('#cb-index')); },
+		listRows: LIST,
+		/** The saved bundles go again, so the case store is as the run found it. */
+		cleanup: async (p, ctx) => {
+			await openView(p, ctx);
+			await p.evaluate('window.confirm = () => true');
+			for (let n = await p.evaluate(`document.querySelectorAll('[data-delete]').length`), k = 0; n > 0 && k < 10; k++) {
+				await p.click('[data-delete]');
+				await until(p, `document.querySelectorAll('[data-delete]').length < ${n}`, 15000);
+				n = await p.evaluate(`document.querySelectorAll('[data-delete]').length`);
+			}
+		},
+	},
 	fresh: openView,
 	wordAll: (p) => p.click('#cb-word-all'),
 	openFirst: async (p) => { await p.click('#cb-list tbody tr:first-child button'); await p.waitFor(at('#cb-index'), 30000); await sleep(40); },

@@ -350,6 +350,45 @@ try {
 	});
 
 	// ---- 8 and 9. conflict check ------------------------------------------------------------------------------------
+	// ---- Back with unsaved input, then Stay: focus returns to where it was (GRS-18 r3, M2) -----------------------------
+	await scenario('FOCUS-back-stay', 'heads_tab', 'Back with a typed register entry, then Stay: the dialog opens, the entry is kept and focus is on the field that had it (not on body)', async () => {
+		await p.goto(`${V}/overview`, ready('overview'));
+		await p.click('#nav-heads_tab');
+		await until(p, ready('heads_tab'));
+		await p.type('#hd_head', 'Unsaved heading');
+		await p.evaluate('history.back()');
+		const asked = await until(p, `!!document.querySelector('#lit-ask')`, 3000);
+		const inDialog = await p.evaluate(`document.activeElement?.id`);
+		await p.click('#lit-ask-stay');
+		await sleep(100);
+		const got = await p.evaluate(`({ id: document.activeElement?.id ?? null, tag: document.activeElement?.tagName, path: location.pathname, dialog: !!document.querySelector('#lit-ask') })`);
+		return all({ asked: asked === true, dialogFocus: inDialog === 'lit-ask-stay', stayed: got.path.endsWith(route('heads_tab')) && !got.dialog, focusRestored: got.id === 'hd_head', kept: (await val(p, '#hd_head')) === 'Unsaved heading', evidence: got });
+	});
+
+	await scenario('FOCUS-back-stay-roadmap', 'enforcement_tab', 'Back with a status save in flight (work.sqlite locked), then Stay: focus is on the status select that was changed; after the lock is released the choice saves', async () => {
+		await p.goto(`${V}/overview`, ready('overview'));
+		await p.click('#nav-enforcement_tab');
+		await until(p, ready('enforcement_tab'));
+		const sel = `tr[data-step="${keys[0]}"] select`;
+		const lock = new Database(join(A.dataDir, 'work.sqlite'));
+		lock.exec('PRAGMA busy_timeout=0');
+		lock.exec('BEGIN IMMEDIATE');
+		let released = false;
+		const release = () => { if (!released) { released = true; lock.exec('ROLLBACK'); lock.close(); } };
+		try {
+			await p.evaluate(`(() => { const s = document.querySelector(${J(sel)}); s.focus(); s.value = 'Monitor'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+			await sleep(200);
+			await p.evaluate('history.back()');
+			const asked = await until(p, `!!document.querySelector('#lit-ask')`, 3000);
+			await p.click('#lit-ask-stay');
+			await sleep(100);
+			const got = await p.evaluate(`({ focusIsSelect: document.activeElement === document.querySelector(${J(sel)}), tag: document.activeElement?.tagName, path: location.pathname, dialog: !!document.querySelector('#lit-ask') })`);
+			release();
+			const saved = await until(p, `!!document.querySelector(${J(`tr[data-step="${keys[0]}"] [data-saved]`)})`, 25000);
+			return all({ asked: asked === true, stayed: got.path.endsWith(route('enforcement_tab')) && !got.dialog, focusRestored: got.focusIsSelect, savedAfterRelease: saved === true, evidence: got });
+		} finally { release(); }
+	});
+
 	await scenario('S8-conflict-known', 'conflict_tab', 'a known conflict search (the checklist example): picking a person searches by name; "org a" finds the correspondent, then the entity; the input hint holds no e-mail address and no imported value (S-conflict_tab-1)', async () => {
 		await p.goto(`${V}${route('conflict_tab')}`, ready('conflict_tab'));
 		const ph = await p.evaluate(`document.querySelector('#confq').getAttribute('placeholder')`);

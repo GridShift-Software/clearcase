@@ -162,8 +162,7 @@
 				} else if (result.type === 'redirect') {
 					if (stayed(at)) go(result.location);
 					else await invalidateAll();
-				}
-				else deleteError = { key: target, message: 'The entry may not have been deleted: the app did not answer. Check the register, then try again.' };
+				} else deleteError = { key: target, message: 'The entry may not have been deleted: the app did not answer. Check the register, then try again.' };
 			} finally { busy = null; }
 		};
 	}

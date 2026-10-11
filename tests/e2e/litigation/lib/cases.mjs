@@ -5,7 +5,8 @@ import { buildCase } from '../../pilot/lib/fixtures.ts';
 export const CASE_ID = 'e2e-litigation';
 
 /** The checklist's literal conflict example (docs/reference/view-checklist.md, Conflict Check). */
-export const PEOPLE = [{ name: 'Ann Lee', email: 'ann@x.test', org: 'Org A', sent: 1, received: 1, total: 2, role: '' }];
+// a second person (GRS-18 r2, D12) makes a swap or an off-by-one in the scope line's counts fail
+export const PEOPLE = [{ name: 'Ann Lee', email: 'ann@x.test', org: 'Org A', sent: 1, received: 1, total: 2, role: '' }, { name: 'Cy Ode', email: 'cy@y.test', org: 'Other Co', sent: 0, received: 1, total: 1, role: '' }];
 export const ENTITIES = [{ name: 'Org A Ltd', role: 'supplier', note: '' }];
 
 /**
@@ -59,6 +60,12 @@ export const mainCase = (dir) => buildCase(dir, { caseId: CASE_ID, edit: (r) => 
 
 /** v2 of the main case on the same folder: the enforcement steps reordered (S-index-keys). */
 export const reorderedCase = (dir, caseDir) => buildCase(dir, { caseId: CASE_ID, caseDir, edit: (r) => { r.DATA.people = PEOPLE; r.DATA.entities = ENTITIES; lit(r, { enforcement: [ENFORCEMENT[2], ENFORCEMENT[1], ENFORCEMENT[0], ENFORCEMENT[3], ENFORCEMENT[4]] }); } });
+
+/**
+ * v3 of the main case on the same folder (GRS-18 r2, D8 and D9): step B's imported status changed to one in ENF_OPTS,
+ * so a saved "Awaiting counsel" is no longer offered, and a new step E whose imported status is ''.
+ */
+export const changedCase = (dir, caseDir) => buildCase(dir, { caseId: CASE_ID, caseDir, edit: (r) => { r.DATA.people = PEOPLE; r.DATA.entities = ENTITIES; lit(r, { enforcement: [ENFORCEMENT[0], { ...ENFORCEMENT[1], status: 'In progress' }, ENFORCEMENT[2], { phase: '2 · Next', step: 'Synthetic step E', basis: 'Invented basis E', status: '', note: '' }] }); } });
 
 /** Another case whose litigation tables are all empty (empty states, an empty export). */
 export const emptyCase = (dir) => buildCase(dir, { caseId: 'e2e-litigation-empty', edit: (r) => {

@@ -4,7 +4,7 @@
 // computer (the app is local: the server reads the same disk the user does).
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { error, fail } from '@sveltejs/kit';
+import { error, fail, isHttpError } from '@sveltejs/kit';
 import { app } from '$lib/local-case/app.server';
 import { ensureRescanProvider } from '$lib/local-case/rescan/rescan.server';
 import { BackupError, BINARIES_NOTE, MAX_BACKUP_BYTES, backupName, createBackup, restoreBackup } from '$lib/user-work/backup/backup.server';
@@ -62,15 +62,19 @@ export const actions = {
 	restore: async ({ params, request }: Event) => {
 		const { a, v } = versionOf(params.vid);
 		const f = await request.formData();
-		if (f.get('confirm') !== 'yes') return fail(400, { message: 'Tick “Yes, replace this case’s work” to restore. Nothing was changed.' });
+		// the typed path comes back with a refusal, so a page re-rendered without JavaScript keeps it
+		const typed = String(f.get('path') ?? '').slice(0, 4096);
+		if (f.get('confirm') !== 'yes') return fail(400, { message: 'Tick “Yes, replace this case’s work” to restore. Nothing was changed.', path: typed });
 		const text = await fileText(f);
-		if (typeof text !== 'string') return fail(400, { message: text.refused });
+		if (typeof text !== 'string') return fail(400, { message: text.refused, path: typed });
 		try {
 			const out = await restoreBackup(a, text, { caseId: v.case_id, resultsVersion: v.id });
 			if (out.kind === 'legacy') return { legacy: out.legacy };
 			return { restored: { createdAt: out.summary.createdAt, rows: out.summary.rows, tables: out.summary.tables.length, sameVersion: out.summary.sameVersion, resultsVersion: out.summary.resultsVersion } };
 		} catch (e) {
-			if (e instanceof BackupError) return fail(e.code === 'wrong-case' || e.code === 'refused' ? 409 : 400, { message: e.message, code: e.code });
+			if (e instanceof BackupError) return fail(e.code === 'wrong-case' || e.code === 'refused' ? 409 : 400, { message: e.message, code: e.code, path: typed });
+			// a busy store (503): nothing was written
+			if (isHttpError(e)) return fail(e.status, { message: e.body.message, code: 'busy', path: typed });
 			throw e;
 		}
 	},

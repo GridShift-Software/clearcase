@@ -49,7 +49,7 @@
 			<fieldset disabled={busy}>
 				<legend class="visually-hidden">Restore a backup</legend>
 				<p><label for="restore-file">Backup file (up to {mib(data.maxBytes)})</label><br /><input type="file" name="file" id="restore-file" accept="application/json,.json" onchange={picked} /></p>
-				<p><label for="restore-path">or its full path on this computer</label><br /><input type="text" name="path" id="restore-path" autocomplete="off" spellcheck="false" placeholder="/home/me/clearcase-backup.json" /></p>
+				<p><label for="restore-path">or its full path on this computer</label><br /><input type="text" name="path" id="restore-path" value={form && 'path' in form ? (form.path ?? '') : ''} autocomplete="off" spellcheck="false" placeholder="/home/me/clearcase-backup.json" /></p>
 				<p><label><input type="checkbox" name="confirm" value="yes" required id="restore-confirm" /> Yes, replace this case’s work with the backup’s</label></p>
 				<button id="restore-submit">Import state</button>
 				{#if busy}<span role="status" id="restore-busy">Checking and restoring…</span>{/if}

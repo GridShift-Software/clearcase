@@ -1,6 +1,6 @@
 // Rescan & Update (GRS-20): the page's data and actions. The scan itself is $lib/local-case/rescan; this module only
 // reads its state for one results version and runs it on a form post (works without JavaScript).
-import { error, fail } from '@sveltejs/kit';
+import { error, fail, isHttpError } from '@sveltejs/kit';
 import { app } from '$lib/local-case/app.server';
 import { docPath } from '$lib/local-case/model';
 import { additions, clearAdditions, ensureRescanProvider, lastRun, rescan, rescanRows, rescanTables, ScanError } from '$lib/local-case/rescan/rescan.server';
@@ -39,14 +39,17 @@ export const actions = {
 			return { scanned: { mode, newlyAdded: r.counts.newlyAdded, skipped: r.skipped } };
 		} catch (e) {
 			if (e instanceof ScanError) return fail(409, { message: `The scan did not run: ${e.message}. Nothing was changed.` });
+			if (isHttpError(e)) return fail(e.status, { message: `The scan did not finish: ${e.body.message}` });
 			throw e;
 		}
 	},
 	clear: async ({ params, request }: Event) => {
 		const { a, v } = versionOf(params.vid);
 		if ((await request.formData()).get('confirm') !== 'yes') return fail(400, { message: 'Tick “Yes, clear the additions” to clear them. Nothing was changed.' });
-		const n = await clearAdditions(a, v.id);
-		return { cleared: n };
+		try { return { cleared: await clearAdditions(a, v.id) }; } catch (e) {
+			if (isHttpError(e)) return fail(e.status, { message: `The additions were not cleared: ${e.body.message}` });
+			throw e;
+		}
 	},
 };
 

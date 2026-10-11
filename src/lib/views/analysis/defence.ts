@@ -17,9 +17,15 @@ export const REFS_HEADING = 'Refs';
 /**
  * v5's export (exportDefence: point, case, evidence, documents as refs joined by one space, rebuttal), with the
  * free-text refs v5 never exported appended as a last column (S-vdm_matrix_tab-1), so v5's column order is kept.
- * Imported values are exported unchanged.
+ * v5 hard-codes its five keys with the parties' abbreviations, so the server reads them from view-content
+ * (`exportColumns`) and these neutral keys stand in without them. Imported values are exported unchanged.
  */
-export const DEFENCE_CSV_COLUMNS = ['dcs_point', 'dcs_case', 'ess_evidence', 'documents', 'rebuttal', 'refs'] as const;
-export const defenceCsv = (rows: readonly DefenceRow[]) =>
-	toCSV([[...DEFENCE_CSV_COLUMNS], ...rows.map((r) => [r.point, r.dcs, r.evidence, r.docs.map((d) => d.ref).join(' '), r.rebuttal, r.refs])]);
+export const NEUTRAL_CSV_KEYS = ['point', 'case', 'evidence', 'documents', 'rebuttal'] as const;
+export const REFS_KEY = 'refs';
+export const defenceCsv = (keys: readonly string[], rows: readonly DefenceRow[]) =>
+	toCSV([[...keys, REFS_KEY], ...rows.map((r) => [r.point, r.dcs, r.evidence, r.docs.map((d) => d.ref).join(' '), r.rebuttal, r.refs])]);
+/** The package's keys unless one equals the app's own `refs` key, which would repeat a header; then the neutral keys. */
+export const defenceCsvKeys = (cols: { keys: string[]; note: string | null }, note: string): { keys: string[]; note: string | null } =>
+	(cols.keys.includes(REFS_KEY) ? { keys: [...NEUTRAL_CSV_KEYS], note } : cols);
+/** The neutral export name; the package's name (view-content `exportFileName`) is used when it has one. */
 export const DEFENCE_CSV_NAME = 'defence_rebuttal.csv';

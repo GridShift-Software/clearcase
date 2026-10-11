@@ -19,6 +19,13 @@ export interface SynthOptions {
 	edit?: (r: SynthRoots) => void;
 	/** case folder to reuse instead of writing a new one (several packages against one folder) */
 	caseDir?: string;
+	/**
+	 * Viewer code of the workspace HTML (default: the synthetic v5-shaped code, whose invented export names and case
+	 * wording become the package's view-content dataset). `false` builds a package without view-content fields (only
+	 * the page title), so a view shows its neutral names and notes; a string replaces the code (e.g. a changed anchor).
+	 * Read expected values from the built package's `datasets/view-content.json` (`files`), never from a literal.
+	 */
+	viewCode?: string | false;
 }
 
 const enc = (s: string) => new TextEncoder().encode(s);
@@ -44,7 +51,7 @@ export async function buildCase(root: string, opts: SynthOptions = {}): Promise<
 	const roots = synthRoots();
 	if (opts.rows) (roots.DATA.chronology as J[]).push(...opts.rows);
 	opts.edit?.(roots);
-	const result = await convertV5({ html: synthHtml(roots), htmlName: 'workspace.html', caseFolder: caseDir, caseId: opts.caseId ?? 'e2e-case' });
+	const result = await convertV5({ html: synthHtml(roots, [], { viewCode: opts.viewCode }), htmlName: 'workspace.html', caseFolder: caseDir, caseId: opts.caseId ?? 'e2e-case' });
 	if (!result.files || !result.manifest) throw new Error('synthetic conversion failed: ' + result.diagnostics.map((d) => d.code).join(','));
 	await writePackageDir(pkgDir, result.files);
 	return { root, caseDir, pkgDir, resultsVersion: result.manifest.resultsVersion, files: result.files, diagnostics: result.diagnostics };

@@ -7,7 +7,7 @@ The chronology lists every document of a results version in the register's sourc
 - `chronology-list` lists every register row with a link to its document.
 - `chronology-filter` filters by text, ref or filename, bundle, type and text status, with a live row count.
 - `chronology-sort` sorts by date, ref, type, bundle or amount.
-- `chronology-export` downloads the filtered rows as `chronology.csv`.
+- `chronology-export` downloads the filtered rows as CSV, named by the package (`chronology.exportFileName` in view-content), else `chronology.csv` with a note beside the button (`[data-export-note]`).
 - `chronology-back` returns from a document to the same filtered list.
 
 ## How to get to it (user POV)
@@ -24,7 +24,7 @@ Preconditions:
 
 - **Open the list.** Choose `#nav-chronology`. Step `chronology`. `main[data-ready=chronology]` appears, `#row-count[data-count]` is 7, `[data-ref=OD-001]` is listed and `#nav-chronology` is the `aria-current` entry.
 - **Filter.** *Not yet driven.* Type `OD-00` into `#f-q`. `#row-count[data-count]` drops to the matching rows (OD-001 to OD-004) and the URL gains `?q=OD-00`.
-- **Export.** *Not yet driven.* Choose `#export-csv`. The browser download (CDP `Browser.downloadWillBegin`) is named `chronology.csv` and holds one header and one line per filtered row.
+- **Export.** *Not yet driven.* Choose `#export-csv`. The browser download (CDP `Browser.downloadWillBegin`) is named by the package's `chronology.exportFileName` (read the expected name from the built package's `datasets/view-content.json`, never from a literal) with no `[data-export-note]`; on a package without that field it is `chronology.csv` and `[data-export-note]` says a generic name is used. It holds one header and one line per filtered row.
 - **Proof.** `screens/06-chronology.png`, with the count and refs in `inner.json`.
 
 ## Gotchas

@@ -13,7 +13,7 @@
 	const RESULT = { found: 'found in the case folder', missing: 'not found in the case folder', outside: 'not a path inside the case folder' } as const;
 </script>
 
-<main id="main" tabindex="-1" data-ready={ready ? 'manual' : null} data-hydrated={ready ? '' : undefined}>
+<main id="main" tabindex="-1" data-ready="manual" data-hydrated={ready ? '' : undefined}>
 	<PageHeader heading="Manual" section="Manual" caseName={data.version.titleName} subtitle="How this workspace works" />
 
 	<ul class="badges" id="manual-badges">

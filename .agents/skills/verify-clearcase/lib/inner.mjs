@@ -1,12 +1,12 @@
 // Runs INSIDE the offline network namespace (tests/e2e/pilot/offline.sh), started by main.mjs:
 //   bun inner.mjs CONFIG.json
 // Proves the namespace is offline, builds the synthetic case, boots the isolated build's scripts/pilot/start.ts under
-// Bun, runs the live doctor (and its negative controls against the same server), drives every step of drive.mjs in
-// Chromium, checks the canary, and stops the server and browser it started. Results: <evidence>/inner.json.
+// Bun, runs the live doctor (and its negative controls against the same server), drives every step of drive.mjs (the
+// pilot's and the discovered features/*.steps.mjs) in Chromium, checks the canary, and stops the server and browser it started. Results: <evidence>/inner.json.
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { formatDoctor, liveDoctor } from './live-doctor.mjs';
-import { steps as driveSteps } from './drive.mjs';
+import { steps as allSteps } from './drive.mjs';
 
 const cfg = JSON.parse(readFileSync(process.argv[2], 'utf8'));
 const L = (rel) => import(join(cfg.harness, rel));
@@ -154,7 +154,8 @@ if (!failed) {
 			throw new Error(`clicking ${sel} opened no tab at ${urlPrefix}…`);
 		},
 	};
-	for (const s of driveSteps) await step(s.id, s.title, () => s.run(x), { feature: s.feature });
+	// the pilot's steps and the discovered features/<feature>.steps.mjs (main.mjs has checked them before the build)
+	for (const s of await allSteps()) await step(s.id, s.title, () => s.run(x), { feature: s.feature });
 }
 
 await step('no-egress', 'the canary saw no connection and the browser requested only the app and originals origins', async () => {

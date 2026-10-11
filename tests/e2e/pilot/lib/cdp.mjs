@@ -11,7 +11,6 @@ export const chromeAvailable = () => existsSync(CHROME);
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export const CANARY_PORT = +(process.env.CANARY_PORT ?? 41199);
 
-/** Launch a headless Chromium with its own profile under `profileRoot`; every non-loopback host maps to the canary. */
 /** Browser PIDs this process started; killed on exit (PID-owned teardown). */
 const b_pids = new Set();
 process.on('exit', () => { for (const p of b_pids) try { process.kill(p, 'SIGKILL'); } catch {} });
@@ -19,8 +18,49 @@ process.on('exit', () => { for (const p of b_pids) try { process.kill(p, 'SIGKIL
 /** Features every test browser runs without (no background network); a caller adding features extends this list. */
 export const DISABLED_FEATURES = 'Translate,OptimizationHints,MediaRouter,AutofillServerCommunication,CertificateTransparencyComponentUpdater';
 
-export async function launch({ profileRoot, extra = [] }) {
-	if (!chromeAvailable()) throw new Error(`Chromium not found at ${CHROME} (set CLEARCASE_CHROMIUM)`);
+/** How long one launch waits for Chromium's DevTools endpoint and connection (CLEARCASE_LAUNCH_TIMEOUT_MS overrides). */
+export const LAUNCH_TIMEOUT_MS = +(process.env.CLEARCASE_LAUNCH_TIMEOUT_MS ?? 30000);
+
+/** A browser this process launched died (it exited, or a page or frame of it crashed): it is unusable from then on. */
+export class BrowserDied extends Error {}
+/** Chromium did not come up, twice (the first failure is retried once with a fresh browser and profile). */
+export class LaunchFailed extends Error {}
+
+// Fail fast (lib/lifecycle.mjs): browsers launched and not closed, and who hears of the first death of one of them.
+const live = new Set();
+const deathListeners = new Set();
+/** Target types whose crash kills the run: pages (tabs, popups) and out-of-process frames. */
+const CRASHES = new Set(['page', 'iframe']);
+/** The death of a live browser, or null: a step that starts after it fails at once. */
+export const browserDeath = () => { for (const b of live) if (b.fatal) return b.fatal; return null; };
+/** Call fn(err) when a live browser dies (not when it is closed); returns the unsubscribe function. */
+export const onBrowserDeath = (fn) => (deathListeners.add(fn), () => deathListeners.delete(fn));
+
+/**
+ * Launch a headless Chromium with its own profile under `profileRoot`; every non-loopback host maps to the canary.
+ * A launch that fails before it returns (Chromium exits or crashes, or gives no DevTools endpoint within
+ * LAUNCH_TIMEOUT_MS) is retried once with a fresh browser and profile; `b.launch` records the attempts and the first
+ * failure. From then on the browser fails fast: when Chromium exits or a target of it crashes, every pending and later
+ * command rejects with BrowserDied, every `once` waiter too, and onBrowserDeath listeners hear of it.
+ */
+export async function launch({ profileRoot, extra = [], chrome = CHROME }) {
+	if (!existsSync(chrome)) throw new Error(`Chromium not found at ${chrome} (set CLEARCASE_CHROMIUM)`);
+	try {
+		const b = await launchOnce({ profileRoot, extra, chrome });
+		b.launch = { attempts: 1 };
+		return b;
+	} catch (e) {
+		if (!(e instanceof LaunchFailed)) throw e;
+		console.error(`chromium: launch failed (${e.message}); retrying once with a fresh browser and profile`);
+		let b;
+		try { b = await launchOnce({ profileRoot, extra, chrome }); }
+		catch (e2) { throw new LaunchFailed(`Chromium failed to launch twice: ${e.message}; then ${e2.message}`); }
+		b.launch = { attempts: 2, retried: e.message };
+		return b;
+	}
+}
+
+async function launchOnce({ profileRoot, extra, chrome }) {
 	mkdirSync(profileRoot, { recursive: true });
 	const dir = mkdtempSync(join(profileRoot, 'chrome-'));
 	const dl = join(dir, 'downloads');
@@ -32,21 +72,39 @@ export async function launch({ profileRoot, extra = [] }) {
 		// Any non-loopback hostname resolves to the canary, so exfiltration attempts are observable (and never leave the box).
 		`--host-resolver-rules=MAP * 127.0.0.1:${CANARY_PORT}, EXCLUDE localhost, EXCLUDE *.localhost, EXCLUDE 127.0.0.1`,
 		...extra, 'about:blank'];
-	const proc = spawn(CHROME, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+	const proc = spawn(chrome, args, { stdio: ['ignore', 'ignore', 'pipe'] });
 	b_pids.add(proc.pid);
+	// the last of Chromium's stderr (a FATAL line says why it died), and how it exited
+	let tail = '', exited = null, b;
+	const why = () => { const f = tail.split('\n').filter((l) => /FATAL|Check failed|crash/i.test(l)).at(-1); return f ? `: ${f.trim().slice(0, 300)}` : ''; };
+	const exitText = () => `Chromium exited (${exited.signal ? `signal ${exited.signal}` : `code ${exited.code}`})${why()}`;
+	proc.stderr.on('data', (d) => { tail = (tail + d).slice(-8192); });
+	/** Not up yet: this attempt is a launch failure (launch() retries it once). */
+	const failed = (e) => {
+		if (b) b.closing = true;
+		try { proc.kill('SIGKILL'); } catch {}
+		b_pids.delete(proc.pid);
+		rmSync(dir, { recursive: true, force: true });
+		throw e instanceof LaunchFailed ? e : new LaunchFailed(e instanceof BrowserDied ? e.message : `DevTools setup failed: ${e.message}`);
+	};
 	const wsUrl = await new Promise((res, rej) => {
-		let buf = '';
-		proc.stderr.on('data', (d) => { buf += d; const m = /DevTools listening on (ws:\S+)/.exec(buf); if (m) res(m[1]); });
-		proc.on('exit', (c) => rej(new Error(`chrome exited ${c}: ${buf.slice(-2000)}`)));
-	});
-	const b = await connect(wsUrl);
+		const t = setTimeout(() => rej(new LaunchFailed(`no DevTools endpoint within ${LAUNCH_TIMEOUT_MS} ms`)), LAUNCH_TIMEOUT_MS);
+		proc.stderr.on('data', () => { const m = /DevTools listening on (ws:\S+)/.exec(tail); if (m) { clearTimeout(t); res(m[1]); } });
+		proc.on('error', (e) => { clearTimeout(t); rej(new LaunchFailed(`Chromium did not start: ${e.message}`)); });
+		proc.on('exit', (code, signal) => { exited = { code, signal }; clearTimeout(t); rej(new LaunchFailed(`${exitText()} before its DevTools endpoint`)); });
+	}).catch(failed);
+	b = await connect(wsUrl).catch(failed);
 	b.proc = proc;
 	b.profileDir = dir;
 	b.downloadDir = dl;
 	b.events = { dialogs: [], requests: [], downloads: [], titles: [], console: [], targets: [] };
 	b.sessions = new Map(); // sessionId -> targetInfo (live sessions only)
 	b.contexts = []; // { sessionId, ctx } from Runtime.executionContextCreated (all frames of every attached target)
-	await b.send('Browser.setDownloadBehavior', { behavior: 'allowAndName', downloadPath: dl, eventsEnabled: true });
+	// a death from now on is the browser's: Chromium exited, or a page, frame or worker of it crashed
+	const died = (msg) => b.fail(new BrowserDied(msg));
+	if (exited) died(exitText());
+	proc.on('exit', (code, signal) => { exited = { code, signal }; b_pids.delete(proc.pid); died(exitText()); });
+	await b.send('Browser.setDownloadBehavior', { behavior: 'allowAndName', downloadPath: dl, eventsEnabled: true }).catch(failed);
 	b.on((m) => {
 		const s = m.sessionId;
 		const t = s ? b.sessions.get(s) : null;
@@ -60,6 +118,16 @@ export async function launch({ profileRoot, extra = [] }) {
 			}
 			case 'Target.detachedFromTarget':
 				b.sessions.delete(m.params.sessionId);
+				break;
+			// A page or frame whose renderer crashed or was killed. Not a worker: disposing a fresh browser context ends the
+			// service worker of Chromium's built-in component extension there with a crash event, every time.
+			case 'Target.targetCrashed': {
+				const ti = [...b.sessions.values()].find((x) => x.targetId === m.params.targetId);
+				if (CRASHES.has(ti?.type)) died(`a ${ti.type} crashed (${m.params.status}, error code ${m.params.errorCode})`);
+				break;
+			}
+			case 'Inspector.targetCrashed':
+				if (CRASHES.has(t?.type)) died(`a ${t.type} crashed`);
 				break;
 			case 'Runtime.executionContextCreated':
 				b.contexts.push({ sessionId: s, ctx: m.params.context });
@@ -94,9 +162,16 @@ export async function launch({ profileRoot, extra = [] }) {
 				break;
 		}
 	});
-	await b.send('Target.setDiscoverTargets', { discover: true });
-	await b.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
+	await b.send('Target.setDiscoverTargets', { discover: true }).catch(failed);
+	await b.send('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }).catch(failed);
+	if (b.fatal) failed(b.fatal);
+	// up: from now on its death is the run's (a step that waits on it ends at once; lib/lifecycle.mjs)
+	live.add(b);
+	b.onFatal((e) => { if (!b.closing) for (const f of deathListeners) f(e); });
 	b.close = async () => {
+		// closing is not a death: pending commands reject with 'the browser was closed', and no listener hears of it
+		b.closing = true;
+		live.delete(b);
 		try { await Promise.race([b.send('Browser.close'), sleep(2000)]); } catch {}
 		try { proc.kill('SIGKILL'); } catch {}
 		b_pids.delete(proc.pid);
@@ -112,7 +187,7 @@ async function setupSession(b, sessionId, info, waiting) {
 	// Do not await the enables before resuming: a target paused on start may not answer until resumed.
 	const s = (method, params = {}) => b.send(method, params, sessionId).catch(() => {});
 	if (info.type === 'page' || info.type === 'iframe') {
-		s('Page.enable'); s('Network.enable'); s('Runtime.enable'); s('Log.enable');
+		s('Page.enable'); s('Network.enable'); s('Runtime.enable'); s('Log.enable'); s('Inspector.enable'); // Inspector: a crash
 		s('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });
 	} else if (/worker/.test(info.type)) {
 		s('Network.enable'); s('Runtime.enable');
@@ -120,11 +195,27 @@ async function setupSession(b, sessionId, info, waiting) {
 	if (waiting) await s('Runtime.runIfWaitingForDebugger');
 }
 
-export async function connect(url) {
+/**
+ * A DevTools connection. When the socket closes, or `fail(err)` is called (Chromium exited, a target crashed), every
+ * pending command rejects with that error, later commands reject at once, `once` waiters reject, and onFatal listeners
+ * run; `fatal` holds the error. Once `closing` is set, that error is 'the browser was closed' instead.
+ */
+export async function connect(url, timeout = LAUNCH_TIMEOUT_MS) {
 	const ws = new WebSocket(url);
-	await new Promise((res, rej) => { ws.onopen = res; ws.onerror = rej; });
-	let id = 0;
-	const pending = new Map(), listeners = new Set();
+	await new Promise((res, rej) => {
+		const t = setTimeout(() => { rej(new Error(`no DevTools connection within ${timeout} ms`)); try { ws.close(); } catch {} }, timeout);
+		ws.onopen = () => { clearTimeout(t); res(); };
+		ws.onerror = () => { clearTimeout(t); rej(new Error('the DevTools connection failed')); };
+	});
+	let id = 0, fatal = null;
+	const pending = new Map(), listeners = new Set(), fatalListeners = new Set();
+	const fail = (err) => {
+		if (fatal) return;
+		fatal = c.closing ? new Error('the browser was closed') : err; // closing is not a death
+		for (const { rej } of pending.values()) rej(err);
+		pending.clear();
+		for (const f of [...fatalListeners]) f(err);
+	};
 	ws.onmessage = (ev) => {
 		const msg = JSON.parse(ev.data);
 		if (msg.id && pending.has(msg.id)) {
@@ -133,22 +224,30 @@ export async function connect(url) {
 			msg.error ? rej(new Error(msg.error.message)) : res(msg.result);
 		} else for (const l of listeners) l(msg);
 	};
+	// a closed socket is a dead browser; the short delay lets Chromium's exit, which names the signal, be reported first
+	ws.onclose = () => setTimeout(() => fail(new BrowserDied('the DevTools connection closed')), 250);
+	ws.onerror = () => setTimeout(() => fail(new BrowserDied('the DevTools connection failed')), 250);
 	const send = (method, params = {}, sessionId) => new Promise((res, rej) => {
+		if (fatal) return rej(fatal);
 		const i = ++id;
 		pending.set(i, { res, rej });
 		ws.send(JSON.stringify({ id: i, method, params, sessionId }));
 	});
 	const on = (fn) => (listeners.add(fn), () => listeners.delete(fn));
+	const onFatal = (fn) => (fatalListeners.add(fn), () => fatalListeners.delete(fn));
 	const once = (pred, timeout = 15000) => {
-		let off;
+		let off, offFatal;
 		const p = new Promise((res, rej) => {
-			const t = setTimeout(() => { off(); rej(new Error('timeout waiting for event')); }, timeout);
-			off = on((m) => { if (pred(m)) { clearTimeout(t); off(); res(m); } });
+			if (fatal) return rej(fatal);
+			const t = setTimeout(() => { off(); offFatal(); rej(new Error('timeout waiting for event')); }, timeout);
+			off = on((m) => { if (pred(m)) { clearTimeout(t); off(); offFatal(); res(m); } });
+			offFatal = onFatal((e) => { clearTimeout(t); off(); offFatal(); rej(e); });
 		});
 		p.catch(() => {});
 		return p;
 	};
-	return { send, on, once, ws };
+	const c = { send, on, once, ws, fail, onFatal, closing: false, get fatal() { return fatal; } };
+	return c;
 }
 
 /** New tab (optionally in a fresh browser context). Returns helpers bound to its session. */
@@ -178,6 +277,7 @@ export async function newPage(b, { fresh = false, initScript } = {}) {
 		const t0 = Date.now();
 		let last;
 		for (;;) {
+			if (b.fatal) throw b.fatal;
 			try { const v = await evaluate(expr); if (v) return v; last = v; } catch (e) { last = String(e); }
 			if (Date.now() - t0 > timeout) throw new Error(`timeout (${timeout} ms): ${expr.slice(0, 200)} last=${String(last).slice(0, 200)}`);
 			await sleep(15);
@@ -187,6 +287,7 @@ export async function newPage(b, { fresh = false, initScript } = {}) {
 		const loaded = b.once((x) => x.sessionId === sessionId && (x.method === 'Page.loadEventFired' || x.method === 'Page.navigatedWithinDocument'), timeout);
 		const r = await s('Page.navigate', { url });
 		if (!r.errorText && waitLoad) await loaded.catch(() => {});
+		if (b.fatal) throw b.fatal;
 		return r;
 	};
 	const close = async () => {
@@ -205,6 +306,7 @@ export async function frameEvaluator(b, pageSessionId, urlRe, timeout = 15000) {
 	const t0 = Date.now();
 	const find = (ft) => { if (ft.frame.parentId && urlRe.test(ft.frame.url)) return ft.frame; for (const c of ft.childFrames ?? []) { const f = find(c); if (f) return f; } return null; };
 	for (;;) {
+		if (b.fatal) throw b.fatal;
 		for (const [sid, info] of [...b.sessions].reverse())
 			if (info.type === 'iframe' && urlRe.test(info.url) && info.parentSession === pageSessionId) {
 				const ev = async (expression) => { const r = await b.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, sid); if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text); return r.result.value; };

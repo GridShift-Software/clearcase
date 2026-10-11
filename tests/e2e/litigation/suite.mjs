@@ -17,7 +17,7 @@ const { CHROME, launch } = await import('../pilot/lib/cdp.mjs');
 const { bunIdentity } = await import('../pilot/lib/server.mjs');
 const { appServer } = await import('../pilot/suite/context.mjs');
 const { INIT, openPage, sleep } = await import('../pilot/suite/browser.mjs');
-const { CASE_ID, changedCase, emptyCase, mainCase, neutralCase, pkgData, reorderedCase, viewContentText } = await import('./lib/cases.mjs');
+const { CASE_ID, LONG_PERSON, NARROW_ID, changedCase, emptyCase, mainCase, narrowCase, neutralCase, pkgData, reorderedCase, viewContentText } = await import('./lib/cases.mjs');
 const { EXPORT_NAME_NOTE } = await import('../../../src/lib/local-case/results.server.ts');
 const { AUTH_FILE } = await import('../../../src/lib/views/litigation/authorities.ts');
 const { HEADS_FILE } = await import('../../../src/lib/views/litigation/heads.ts');
@@ -735,6 +735,31 @@ try {
 			headsExport: heads?.text === `HEADS OF ARGUMENT — ${caption}\n\n`,
 			authoritiesExport: auth?.text === 'topic,authority,proposition', evidence: got,
 		});
+	});
+
+	// ---- narrow viewports: the 64-character case id and a long party label never widen the document (GRS-18 r3, M1) ----
+	await scenario('NARROW-litigation', 'conflict_tab', 'every litigation view at 320 and 390 px, for a case with a 64-character unbroken id and a party with a long unbroken label: the document is exactly the viewport wide (Conflict Check also with the long party picked and its result table shown)', async () => {
+		const narrow = await narrowCase(join(tmp, 'narrow'));
+		const ni = await A.c.importPkg(narrow.caseDir, narrow.pkgDir);
+		if (!ni.importId) throw new Error(`narrow import failed: ${J(ni)}`);
+		const N = A.v(narrow.resultsVersion);
+		const layouts = {};
+		try {
+			for (const width of [320, 390]) {
+				await p.s('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 1, mobile: true });
+				for (const v of LIT) {
+					await p.goto(`${N}${v.route}`, ready(v.id));
+					if (v.id === 'conflict_tab') {
+						await p.evaluate(`(() => { const s = document.querySelector('#confsel'); const o = [...s.options].find((o) => o.textContent.includes(${J(LONG_PERSON.email)})); s.value = o.value; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+						await until(p, `!!document.querySelector('#confres tbody tr')`, 3000);
+					}
+					await p.evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))');
+					const l = await p.evaluate(`(() => { const de = document.documentElement; return { vw: de.clientWidth, scrollWidth: de.scrollWidth, banner: document.body.innerText.includes(${J(NARROW_ID)}), rows: document.querySelectorAll('#confres tbody tr').length }; })()`);
+					layouts[`${width}:${v.id}`] = { ok: l.scrollWidth === width && l.vw === width && (v.id !== 'conflict_tab' || l.rows > 0), ...l };
+				}
+			}
+		} finally { await p.s('Emulation.clearDeviceMetricsOverride').catch(() => {}); }
+		return { pass: Object.keys(layouts).length === 2 * LIT.length && Object.values(layouts).every((x) => x.ok), evidence: layouts };
 	});
 
 	offLoopback = b.events.requests.filter((r) => r.ttype === 'page' && !/^(https?:\/\/(127\.0\.0\.1|[a-z0-9-]+\.localhost)(:\d+)?\/|data:|blob:|about:|chrome-error:)/.test(r.url)).map((r) => r.url.slice(0, 120));

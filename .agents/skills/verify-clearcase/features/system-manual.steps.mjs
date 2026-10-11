@@ -6,6 +6,8 @@ export const steps = [
 	{
 		id: 'system-manual', feature: 'system-manual', title: 'Manual: badges, Verify link sample, then Rescan & Update and Back',
 		async run(x) {
+			// the viewer step leaves the PDF tab in front; a hidden tab gets no frames, so screenshots and navigations stall
+			await x.b.send('Page.bringToFront', {}, x.page.sessionId);
 			await x.click('#nav-manual');
 			await x.waitReady('manual');
 			const badges = await x.page.evaluate(`document.getElementById('manual-badges').textContent.replace(/\\s+/g, ' ').trim()`);

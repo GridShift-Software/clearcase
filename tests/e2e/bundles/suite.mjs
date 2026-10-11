@@ -637,6 +637,32 @@ try {
 		const dialogs = b.since(mk).dialogs.length;
 		return { pass: posted === 200 && /^Not removed: .*busy/.test(mid.c1) && !mid.c2 && mid.alerts === 1 && J(rowsMid) === J(['C1', 'C2']) && J(after.rows) === J(['C2']) && !after.error && customRows().length === 0 && dialogs === 0, evidence: { posted, mid, rowsMid, after, dialogs } };
 	});
+	await S('CB-BUILD-RACE', 'court_bundle_tab', 'builder: Create Bundle pressed while Save is pending does not revoke the PDF being saved; the saved bundle\'s Bundle PDF link still loads a PDF (IDR-366)', async () => {
+		await p.go(B, 'court_bundle_tab');
+		await p.click('#cb-build');
+		await p.waitFor(`document.getElementById('cbbfile')`, 30000);
+		await pick(p, ['Alpha_Statement.pdf', 'Beta_Letter.pdf']);
+		await p.waitFor(`document.querySelectorAll('#cbbfiles tbody tr').length === 2 && !document.getElementById('cbbmsg').textContent`, 30000);
+		await p.type('#cbbname', 'Synthetic Race');
+		await p.click('#cbbrun');
+		await p.waitFor(`document.getElementById('cbbdownload')`, 60000);
+		const first = await p.evaluate(`document.getElementById('cbbdownload').getAttribute('href')`);
+		await withBusyStore(A.dataDir, 2500, async () => {
+			await p.click('#cbbsave');
+			await p.waitFor(`document.querySelector('#cbbout .saving')`, 5000);
+			await p.click('#cbbrun');
+			await p.waitFor(`document.getElementById('cbbdownload')?.getAttribute('href') !== ${J(first)}`, 60000);
+		});
+		await p.waitFor(`!document.querySelector('#cbbout .saving')`, 30000);
+		await p.click('#cb-builder-back');
+		await p.waitFor(`document.querySelector('#cb-list tr:has(.badge.b-info) a[href^="blob:"]')`, 30000);
+		const link = await p.evaluate(`(async () => {
+			const href = document.querySelector('#cb-list tr:has(.badge.b-info) a[href^="blob:"]').getAttribute('href');
+			try { const r = await fetch(href); const u = new Uint8Array(await r.arrayBuffer()); return { href, same: href === ${J(first)}, type: r.headers.get('content-type'), head: String.fromCharCode(...u.slice(0, 5)), size: u.length }; }
+			catch (e) { return { href, same: href === ${J(first)}, error: String(e) }; }
+		})()`);
+		return { pass: link.same && link.head === '%PDF-' && link.size > 500 && !link.error, evidence: { first, link } };
+	});
 	await S('NOJS', 'discovery_tab', 'D4: without JavaScript no control of the three views looks usable, and each view says saving needs JavaScript; the bundle builder says it needs JavaScript', async () => {
 		const out = {};
 		await p.s('Emulation.setScriptExecutionDisabled', { value: true });

@@ -119,6 +119,21 @@ describe('outputs', () => {
 		newRow(b);
 		expect(docxBundle(plan(b), 'MY BUNDLE', o)).toMatchObject({ file: '', indexPages: 0 });
 	});
+	it('stops linking the Word index once an item\'s range is edited after Create (v5 L2352; review of 6778457, M3)', () => {
+		const b = two(), o = output(b);
+		expect(plan(b).rows.map((r) => [r.from, r.to])).toEqual([[1, 3], [4, 5]]);
+		setSeg(b, 0, 0, 'to', 2);
+		expect(plan(b).rows.map((r) => [r.from, r.to])).toEqual([[1, 2], [3, 4]]);
+		expect(linkable(o, plan(b), 'MY BUNDLE')).toBe(false);
+		expect(docxBundle(plan(b), 'MY BUNDLE', o)).toMatchObject({ file: '', indexPages: 0 });
+		setSeg(b, 0, 0, 'to', 3);
+		expect(linkable(o, plan(b), 'MY BUNDLE')).toBe(true);
+		// a different source range with the same size lands on the same bundle pages, so the links stay right
+		setSeg(b, 0, 0, 'from', 2);
+		setSeg(b, 0, 0, 'to', 3);
+		setSeg(b, 0, 0, 'from', 1);
+		expect(linkable(o, plan(b), 'MY BUNDLE')).toBe(true);
+	});
 	it('writes the linked Word index with one external hyperlink per linked cell (v5 cbCell)', () => {
 		const b = two(), o = output(b), h = header(headerRaw({}, null)).h;
 		const text = (u8: Uint8Array) => new TextDecoder().decode(u8);
@@ -159,6 +174,15 @@ describe('importV5CustomBundles', () => {
 		expect(out.map((c) => c.no)).toEqual(['C1', '2']);
 		expect(out[0]).toEqual(v5[0]);
 		expect(out[1]).toEqual({ no: '2', name: '', pages: 0, indexPages: 0, filePages: 0, note: '', rows: [{ n: 1, key: '', desc: 'B', pages: 0, from: 0, to: 0, parts: [] }] });
+	});
+	it('gives each entry the stable id the (case_id, id) key needs: the same v5 value twice gives the same ids (review of 6778457, M4)', () => {
+		const once = importV5CustomBundles(JSON.stringify(v5)), twice = importV5CustomBundles(v5);
+		expect(once.map((c) => c.id)).toEqual(twice.map((c) => c.id));
+		expect(once.map((c) => c.id)).toEqual(['v5-C1', 'v5-2']);
+		const odd = importV5CustomBundles([{ no: 'C 1' }, { no: 'C_1' }, { no: 'C/1' }, { no: 'X'.repeat(200) }, { no: 'Y'.repeat(200) }]);
+		expect(new Set(odd.map((c) => c.id)).size).toBe(5);
+		for (const c of odd) expect(c.id).toMatch(/^[A-Za-z0-9_-]{1,64}$/);
+		expect(importV5CustomBundles([{ no: 'C 1' }])[0]!.id).toBe(odd[0]!.id);
 	});
 	it('returns nothing for missing or broken data', () => {
 		for (const raw of [null, undefined, '', '{', '{}', 42, { no: 'C1' }]) expect(importV5CustomBundles(raw)).toEqual([]);

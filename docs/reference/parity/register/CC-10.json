@@ -3,23 +3,6 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-038",
-      "view": "rescan_tab",
-      "field": "text.subtitle",
-      "when": {
-        "v5": {
-          "re": "^Keep the index current without a full rebuild"
-        },
-        "app": "Compare the case folder with this results version"
-      },
-      "type": "improvement",
-      "reason": "The app compares the case folder registered at import with the results version in place; it needs no folder connection and no Chrome / Edge, so the subtitle says what the page does.",
-      "productVisible": true,
-      "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
       "id": "IDR-400",
       "view": "rescan_tab",
       "field": "text.page.1",
@@ -532,6 +515,23 @@
       "type": "improvement",
       "owner": "GRS-20",
       "reason": "Rescan & Update is linked from the freshness card as well as from the quick links.",
+      "productVisible": true,
+      "author": "CC-10 worker (GRS-20)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-431",
+      "view": "rescan_tab",
+      "field": "text.subtitle",
+      "when": {
+        "v5": {
+          "re": "^Keep the index current without a full rebuild"
+        },
+        "app": "Compare the case folder with this results version"
+      },
+      "type": "improvement",
+      "reason": "The app compares the case folder registered at import with the results version in place; it needs no folder connection and no Chrome / Edge, so the subtitle says what the page does.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
       "approvedBy": null,

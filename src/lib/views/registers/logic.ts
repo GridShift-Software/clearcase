@@ -139,7 +139,7 @@ export function cellText(kind: string, e: Entry, field: string | undefined): str
 
 /**
  * The register as v5's CSV: the field keys as the header, then every row in stored order. Every value is user-entered,
- * so each passes through userCell (formula neutralisation, S-csv); toCSV quotes a quote, comma, CR or LF.
+ * so each passes through userCell (formula neutralisation, S-csv); toCSV quotes a quote, comma, semicolon, tab, CR or LF.
  */
 export const registerCsv = (def: Shape, rows: readonly Row[]): string =>
 	toCSV([def.fields.map((x) => x.k), ...rows.map((r) => def.fields.map((x) => userCell(r.values[x.k] ?? '')))]);

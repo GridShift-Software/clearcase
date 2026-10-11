@@ -20,6 +20,7 @@ const { startServer } = await import('../pilot/lib/server.mjs');
 const { buildCase } = await import('../pilot/lib/fixtures.ts');
 const { parseCsv, parseIcs } = await import('../../../scripts/parity/lib/exports.mjs');
 const { VIEWS } = await import('../../../src/lib/components/view-registry.ts');
+const { EXPORT_NAME_NOTE } = await import('../../../src/lib/local-case/results.server.ts');
 
 const ROOT = resolve(join(import.meta.dirname, '..', '..', '..'));
 const BUILD = join(ROOT, 'build');
@@ -126,6 +127,8 @@ try {
 	const manifest = JSON.parse(new TextDecoder().decode(sc.files.get('manifest.json')));
 	const vc = sc.files.get('datasets/view-content.json');
 	const shellTitle = vc ? JSON.parse(new TextDecoder().decode(vc)).data?._shell?.documentTitle : null;
+	/** the calendar's file name from the built synthetic package's view-content (never a literal) */
+	const icsName = vc ? JSON.parse(new TextDecoder().decode(vc)).data?.deadlines_tab?.exportFileName ?? null : null;
 	titleName = typeof shellTitle === 'string' && shellTitle.trim() ? shellTitle : manifest.case.label || manifest.case.id;
 	b = await launch({ profileRoot: join(tmp, 'chromium') });
 	p = await openPage(b, { initScript: `${INIT};${HOOK}` });
@@ -199,7 +202,7 @@ try {
 				tones: J(tones) === J(['muted', 'muted', 'danger', 'warning', 'success']),
 				openTile: t.deadlines?.status === 'filled' && t.deadlines?.value === '3' && t.deadlines?.sub === 'in the deadline tracker',
 				deletedShown: firstShown.cells[2] === 'Synthetic earlier' && J(left) === J([{ title: 'Synthetic later', date: '2026-12-03', cat: 'Filing', note: '' }]),
-				crlf: ics.text.endsWith('END:VCALENDAR\r\n') && !/[^\r]\n/.test(ics.text) && ics.name === 'deadlines.ics' && /text\/calendar/.test(ics.type),
+				crlf: ics.text.endsWith('END:VCALENDAR\r\n') && !/[^\r]\n/.test(ics.text) && typeof icsName === 'string' && icsName !== 'deadlines.ics' && ics.name === icsName && /text\/calendar/.test(ics.type),
 				events: parsed.rows.length === 2 && parsed.columns.join(',') === 'DESCRIPTION,DTSTAMP,DTSTART,SUMMARY,UID',
 				uids: J(parsed.rows.map((r) => r[4]).sort()) === J(ids.map((id) => `${id}@clearcase`).sort()),
 				fields: parsed.rows.some((r) => r[3] === 'Synthetic hearing\\, room 2\\; floor 1' && r[0] === 'Hearing bring\\\\files' && r[2] === '20261120T090000' && r[1] === '20261008T090000Z'),
@@ -580,6 +583,20 @@ try {
 		const esc = (s) => s.replace(/\\/g, '\\\\').replace(/;/g, '\;').replace(/,/g, '\\,');
 		return { evidence: { part: part !== null, prodid: prodid !== null },
 			checks: { fromData: part !== null && prodid === `PRODID:-//${esc(part)}//Workspace//EN` } };
+	});
+	// last, as it imports a second package: a package without view-content (viewCode: false), previewed as a candidate
+	await scenario('SC19-neutral-export', 'deadlines_tab', "a package that names no calendar file or PRODID: Export .ics downloads deadlines.ics with the fixed note beside the export, and the neutral PRODID (BASE-R2 exportFileName, D18)", async () => {
+		const neutral = await buildCase(join(tmp, 'neutral'), { caseId: 'e2e-registers-neutral', viewCode: false });
+		const imp = await A.c.importPkg(neutral.caseDir, neutral.pkgDir);
+		if (!imp.importId) throw new Error(`neutral import failed: ${imp.status} ${imp.location}`);
+		await p.goto(`${A.origin}${vpath(neutral.resultsVersion)}/registers/deadlines_tab`, `${ready('deadlines_tab')} && !!document.querySelector('main#main[data-hydrated]')`);
+		const note = await p.evaluate(`(() => { const n = [...document.querySelectorAll('[data-export-note]')]; const e = document.getElementById('register-export'); return { texts: n.map((x) => x.textContent.trim()), beside: n.length === 1 && n[0].parentElement === e?.parentElement }; })()`);
+		const x = await exportNow();
+		const nvc = neutral.files.get('datasets/view-content.json');
+		const fields = nvc ? JSON.parse(new TextDecoder().decode(nvc)).data?.deadlines_tab ?? {} : {};
+		return { evidence: { note, name: x?.name ?? null, fields: Object.keys(fields) },
+			checks: { noField: fields.exportFileName === undefined && fields.icsProductId === undefined, neutralName: x?.name === 'deadlines.ics', note: J(note.texts) === J([EXPORT_NAME_NOTE]) && note.beside,
+				neutralProdid: (x?.text ?? '').split('\r\n').includes('PRODID:-//ClearCase//Deadlines//EN') } };
 	});
 	ok = results.length > 0 && results.every((r) => r.pass);
 } catch (e) {

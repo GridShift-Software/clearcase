@@ -9,7 +9,7 @@ import { now } from '../../components/clock.ts';
 import { viewAt } from '../../components/views.ts';
 import { app } from '../../local-case/app.server.ts';
 import { documentRowProviders, documentRows } from '../../local-case/documents.server.ts';
-import { viewContentOf, viewText } from '../../local-case/results.server.ts';
+import { exportFileName, viewContentOf, viewText } from '../../local-case/results.server.ts';
 import type { LocalCase } from '../../local-case/service.server.ts';
 import { addEntry, deleteEntry, editEntry, listRegister, type StoredRow } from '../../user-work/registers.server.ts';
 import { parseAmount } from './amounts.ts';
@@ -73,12 +73,16 @@ export function registerLoad(view: RegisterView) {
 		const targets = refTargets(a, version.id, stored, def);
 		const at = now();
 		const shown = view === 'deadlines_tab' ? byDate(stored) : stored;
+		// the calendar's file name and PRODID are case content v5 hard-coded in its export: read from the package's
+		// view-content, else the neutral name with a note beside the export (the six ledgers keep their neutral names)
+		const vc = view === 'deadlines_tab' ? viewContentOf(a.store, version.id) : null;
 		return {
 			register: { view, label: viewAt('registers', view)!.label, subtitle: def.subtitle, empty: def.empty, fields: def.fields, columns: def.columns, export: def.export, keepAfterAdd: def.keepAfterAdd ?? [], required: def.required ?? null },
 			rows: shown.map((r): ShownRow => ({ rowId: r.rowId, values: r.values, cells: cells(def, r, targets, at), version: r.version, intact: r.intact })),
 			/** stored order, for the exports (v5 exports its store, not the shown order) */
 			exportRows: stored.map((r) => ({ rowId: r.rowId, values: r.values })),
-			icsProductId: view === 'deadlines_tab' ? viewText(viewContentOf(a.store, version.id), 'deadlines_tab', 'icsProductId') : null,
+			exportName: vc ? exportFileName(vc, 'deadlines_tab', def.export.name) : { name: def.export.name, note: null },
+			icsProductId: vc ? viewText(vc, 'deadlines_tab', 'icsProductId') : null,
 		};
 	};
 }

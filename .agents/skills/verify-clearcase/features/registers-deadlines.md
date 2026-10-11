@@ -7,7 +7,7 @@ The Deadlines register (GRS-17, store `deadlines`) lists deadlines by date with 
 - `deadline-add`: Add needs a title and a date (otherwise nothing is saved, silently, as in v5); the category keeps its last value after Add.
 - `deadline-countdown`: `—`, `<n>d ago`, `today`, `in <n>d` (warning within 7 days, success beyond), from `now()`.
 - `deadline-delete`: removes the row it is pressed on, by row id (S-deadlines_tab-1: v5 removed the stored row at the shown position).
-- `deadline-export`: `deadlines.ics`, CRLF lines, TEXT escaping, 75-octet folding, `DTSTAMP` from the clock, `UID:<row id>@clearcase`, v5's `DTSTART:<date>T090000`.
+- `deadline-export`: the file name from the package's view-content (`exportFileName`), else `deadlines.ics` with the fixed note beside the export; CRLF lines, TEXT escaping, 75-octet folding, `DTSTAMP` from the clock, `UID:<row id>@clearcase`, v5's `DTSTART:<date>T090000`.
 - `overview-deadlines`: `Open deadlines` counts dated deadlines from today on.
 - `overview-unbilled`: `Unbilled time` sums the hours of entries not billed `yes` (S-overview-1: v5 counted `no` as billed).
 

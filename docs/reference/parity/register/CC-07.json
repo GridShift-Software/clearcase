@@ -158,21 +158,6 @@
       "approvedOn": null
     },
     {
-      "id": "IDR-267",
-      "view": "deadlines_tab",
-      "field": "export.export_ics.name",
-      "when": {
-        "app": "deadlines.ics"
-      },
-      "type": "defect-fix",
-      "source": "S-hardcoded-case",
-      "reason": "v5 names the export after its browser storage key, which carries case-specific initials; the app uses a neutral name. The exported columns and rows are compared and equal.",
-      "productVisible": true,
-      "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
       "id": "IDR-254",
       "view": "privilege_tab",
       "field": "focus.after_nav",

@@ -477,7 +477,7 @@ try {
 		try {
 			for (const width of [320, 390]) {
 				await p.s('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 1, mobile: true });
-				const sw = async (name) => { await sleep(150); out[`${width}:${name}`] = await p.evaluate(`({ sw: document.documentElement.scrollWidth, vw: document.documentElement.clientWidth, want: ${width} })`); };
+				const sw = async (name) => { await sleep(150); out[`${width}:${name}`] = await p.evaluate(`(() => { const sw = document.documentElement.scrollWidth, vw = document.documentElement.clientWidth; const over = sw > vw ? [...document.querySelectorAll('body *')].filter((e) => e.getBoundingClientRect().right > vw + 1 || (e.scrollWidth > e.clientWidth + 1 && !e.matches('.visually-hidden'))).slice(0, 12).map((e) => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + '.' + e.className + ':' + Math.round(e.getBoundingClientRect().right) + '/' + e.scrollWidth) : undefined; return { sw, vw, want: ${width}, over }; })()`); };
 				await p.go(`${N}/bundles/court_bundle_tab`, 'court_bundle_tab'); await sw('court-list');
 				await p.go(`${N}/bundles/court_bundle_tab?b=2&tab=items`, 'court_bundle_tab'); await sw('court-items');
 				await p.go(`${N}/bundles/caselines_tab`, 'caselines_tab');

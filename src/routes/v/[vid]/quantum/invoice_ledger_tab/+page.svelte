@@ -15,7 +15,7 @@
 
 <main id="main" tabindex="-1" data-ready="invoice_ledger_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Invoice Ledger" section="Invoice Ledger" caseName={data.version.titleName} subtitle={data.subtitle}>
-		{#snippet actions()}<button type="button" id="export-invoices" onclick={() => download('invoices.csv', invoicesCsv(data.ledger))}>Export CSV</button>{/snippet}
+		{#snippet actions()}<button type="button" id="export-invoices" onclick={() => download(data.exportName.name, invoicesCsv(data.ledger))}>Export CSV</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}{/snippet}
 	</PageHeader>
 	<div class="q-kpis"><Kpi label="Gross invoiced (sum, unreconciled)" value={unitsMoney(ledgerSum(data.ledger))} sub="Authoritative claim = running Amount Due on the Quantum tab" /></div>
 	<div class="q-card">

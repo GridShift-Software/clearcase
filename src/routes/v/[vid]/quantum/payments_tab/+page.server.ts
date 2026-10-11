@@ -1,5 +1,5 @@
 import { app } from '$lib/local-case/app.server';
-import { viewText } from '$lib/local-case/results.server';
+import { exportFileName, viewText } from '$lib/local-case/results.server';
 import { caseOf, content, dataset, DELETE_MESSAGES, guardedWrite, payments, resolvableRefs, type ReconRow, type Settlement } from '$lib/views/quantum/data.server';
 import { checkEntry } from '$lib/views/quantum/payments';
 import { addPayment, deletePayment } from '$lib/views/quantum/writes.server';
@@ -17,6 +17,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 		claim: settlement?.claim ?? '',
 		claimDate: settlement?.claimDate ?? '',
 		recon,
+		exportName: exportFileName(content(version.id), 'payments_tab', 'payments.csv'),
 		known: [...cited].filter((r) => known.has(r)),
 		// stored amounts travel as text: page data cannot carry a BigInt through every path
 		payments: payments(version.caseId).map((p) => ({ ...p, amountCents: p.amountCents === null ? null : String(p.amountCents) })),

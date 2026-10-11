@@ -11,7 +11,9 @@ import { createHash } from 'node:crypto';
 import { Database } from 'bun:sqlite';
 import { join } from 'node:path';
 import { newPage, sleep } from '../pilot/lib/cdp.mjs';
+import { buildCase } from '../pilot/lib/fixtures.ts';
 import { vpath } from '../pilot/lib/client.mjs';
+import { EXPORT_NAME_NOTE } from '../../../src/lib/local-case/results.server.ts';
 import { CAPTURE, J, fieldsHash, holdStore, pageKit, ready, rewriteRow, takeDownloads } from './lib.mjs';
 
 export async function r2({ b, S, sc, c, scenario, base, route }) {
@@ -602,5 +604,33 @@ export async function r2({ b, S, sc, c, scenario, base, route }) {
 			const r = { asof: await k.text('#arith-asof'), row: await p.evaluate(`[...document.querySelectorAll('#prescription tbody tr')].find((tr) => tr.cells[1].textContent.trim() === 'SYNP7')?.querySelector('[data-as-of]')?.dataset.asOf ?? null`) };
 			return { pass: /as-of date 2026-10-09 \(today, South African time\)/.test(r.asof ?? '') && /^5 of 7 rows/.test(r.asof ?? '') && r.row === 'passed', evidence: r };
 		} finally { await p.close(); await S.stop(); await S.start(); }
+	});
+
+	// ---- BASE-R2 step 6: the four export names come from the package's view-content ---------------------------------------
+	await scenario('Q-R2-EXPORT-NAMES', 'payments_tab', "Quantum, Invoice Ledger, Prescription and Payments exports are named by the package's view-content exportFileName with no note; a package without view-content (viewCode: false) gives the neutral names, each with the note beside its export", async () => {
+		const EX = [['quantum_tab', '#export-invoices', 'invoices.csv'], ['invoice_ledger_tab', '#export-invoices', 'invoices.csv'], ['prescription_tab', '#export-presc', 'prescription.csv'], ['payments_tab', '#export-payments', 'payments.csv']];
+		// the expected names are read from the built synthetic package, never written here
+		const vcText = (pkg, view) => { const f = pkg.files.get('datasets/view-content.json'); const v = f ? JSON.parse(new TextDecoder().decode(f)).data?.[view]?.exportFileName : undefined; return typeof v === 'string' ? v : null; };
+		const neutral = await buildCase(join(sc.root, '..', 'neutral-r2'), { caseId: 'e2e-quantum-neutral', viewCode: false });
+		const imp = await c.importPkg(neutral.caseDir, neutral.pkgDir);
+		if (!imp.importId) throw new Error(`neutral import failed: ${imp.status} ${imp.location}`);
+		const p = await newPage(b, { initScript: CAPTURE });
+		const read = async (pkg) => {
+			const k = pageKit(p, `${S.origin}${vpath(pkg.resultsVersion)}`);
+			const out = {};
+			for (const [view, sel] of EX) {
+				await k.open(route(view), view);
+				await takeDownloads(p);
+				await k.click(sel); await sleep(200);
+				out[view] = { names: (await takeDownloads(p)).map((d) => d.name), notes: await p.evaluate(`[...document.querySelectorAll('[data-export-note]')].map((e) => e.textContent.trim())`) };
+			}
+			return out;
+		};
+		try {
+			const named = await read(sc), generic = await read(neutral);
+			const pass = EX.every(([view, , neutralName]) => { const want = vcText(sc, view); return typeof want === 'string' && want !== neutralName && J(named[view].names) === J([want]) && named[view].notes.length === 0 &&
+				vcText(neutral, view) === null && J(generic[view].names) === J([neutralName]) && J(generic[view].notes) === J([EXPORT_NAME_NOTE]); });
+			return { pass, evidence: { named, generic, neutral: { resultsVersion: neutral.resultsVersion, import: imp.location } } };
+		} finally { await p.close(); }
 	});
 }

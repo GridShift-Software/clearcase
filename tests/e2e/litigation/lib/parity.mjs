@@ -22,13 +22,15 @@ export async function tableRows(p) {
 	return tab.rows.map((r) => tab.columns.map((c) => r[c.id]).join(' | '));
 }
 
-/** Wait until the first table's rows differ from `before` (a form round trip and the page's reload of its data). */
+/** Wait until the first table's rows differ from `before` and nothing is in flight (a form round trip and the page's reload of its data). */
 async function changed(p, before, timeout = 15000) {
 	const t0 = Date.now();
 	for (;;) {
 		await p.settled();
+		// a Delete or Add still in flight ('Deleting…', 'Saving the entry…') is not the new state yet
+		const busy = await p.evaluate(`!!document.querySelector('#main [aria-busy="true"], #main [data-saving]')`);
 		const now = await tableRows(p);
-		if (JSON.stringify(now) !== JSON.stringify(before)) return now;
+		if (!busy && JSON.stringify(now) !== JSON.stringify(before)) return now;
 		if (Date.now() - t0 > timeout) return now;
 		await sleep(20);
 	}

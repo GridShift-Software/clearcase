@@ -42,8 +42,11 @@
         "sweep.register_edit.overview.Unbilled time"
       ],
       "when": {
+        "v5": {
+          "re": "^[0-9][0-9,.]*( h)?$"
+        },
         "app": {
-          "re": "^Not yet available — owned by GRS-17$"
+          "re": "^Not yet available — owned by GRS-17 \\(CC-07\\)\\.$"
         }
       },
       "type": "not-yet-implemented",
@@ -200,8 +203,11 @@
         "sweep.register_edit.overview.Unbilled time"
       ],
       "when": {
+        "v5": {
+          "re": "^[0-9][0-9,.]*( h)?$"
+        },
         "app": {
-          "re": "^Not yet available — owned by GRS-17$"
+          "re": "^Not yet available — owned by GRS-17 \\(CC-07\\)\\.$"
         }
       },
       "type": "not-yet-implemented",
@@ -308,8 +314,11 @@
         "sweep.register_edit.overview.Unbilled time"
       ],
       "when": {
+        "v5": {
+          "re": "^[0-9][0-9,.]*( h)?$"
+        },
         "app": {
-          "re": "^Not yet available — owned by GRS-17$"
+          "re": "^Not yet available — owned by GRS-17 \\(CC-07\\)\\.$"
         }
       },
       "type": "not-yet-implemented",

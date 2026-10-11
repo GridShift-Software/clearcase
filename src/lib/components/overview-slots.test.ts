@@ -1,14 +1,16 @@
 // The overview widget-slot registry: owners fill only their own declared slots from their own subtree; unfilled
 // slots name their owner; a failing widget loader marks its slot and never breaks the overview. Which slots are
 // filled follows the tree (filledSlots, tests/e2e/pilot/lib/implemented.mjs), as the pilot checks do: every unfilled
-// slot shows as unavailable and every filled slot has a loader, here and in a synthetic tree that fills one.
+// slot shows as unavailable and every filled slot has a loader, here and in a synthetic tree that fills one. An owner's
+// widget is a real Svelte component: a synthetic plug-in whose .svelte widget imports from $lib loads under the suite's
+// config.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { filledSlots } from '../../../tests/e2e/pilot/lib/implemented.mjs';
 import { loadersFrom, slotStates } from '../local-case/overview-widgets.server.ts';
-import { collect, OVERVIEW_SLOTS, type OverviewWidgetLoader, type SlotId } from './overview-slots.ts';
+import { collect, OVERVIEW_SLOTS, type OverviewWidget, type OverviewWidgetLoader, type SlotId } from './overview-slots.ts';
 import { widgets } from './overview-widgets.ts';
 
 const ctx = { app: null, caseId: 'c', caseName: 'Case', resultsVersion: 'sha256:' + '0'.repeat(64) };
@@ -42,6 +44,16 @@ describe('overview slots', () => {
 		await expectSlotsFollow(filled, loadersFrom({ '/src/lib/views/registers/overview-widgets.server.ts': { loaders: [{ slot: 'deadlines', load: () => ({ open: 1 }) }] } }));
 		// a filled slot with no loader is caught
 		await expect(expectSlotsFollow(filled, loadersFrom({}))).rejects.toThrow(/deadlines is filled in the tree but has no loader/);
+	});
+	it('loads a widget plug-in whose component is a .svelte file importing from $lib (synthetic plug-in)', async () => {
+		const dir = join(tmp, 'svelte-plugin', 'src', 'lib', 'views', 'registers');
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, 'SyntheticWidget.svelte'), '<script lang="ts">\n\timport { OVERVIEW_SLOTS } from \'$lib/components/overview-slots.ts\';\n\tlet { data }: { data: { value: string } } = $props();\n</script>\n\n<p class="num" title={OVERVIEW_SLOTS[0].title}>{data.value}</p>\n');
+		writeFileSync(join(dir, 'overview-widgets.ts'), "import W from './SyntheticWidget.svelte';\nexport const widgets = [{ slot: 'deadlines', component: W }];\n");
+		const mod = await import(/* @vite-ignore */ join(dir, 'overview-widgets.ts'));
+		const found = collect<OverviewWidget>({ '/src/lib/views/registers/overview-widgets.ts': mod }, 'widgets');
+		expect([...found.keys()]).toEqual(['deadlines']);
+		expect(typeof found.get('deadlines')!.component).toBe('function');
 	});
 	it('runs owners loaders and isolates a failure to its slot', async () => {
 		const loaders = loadersFrom({

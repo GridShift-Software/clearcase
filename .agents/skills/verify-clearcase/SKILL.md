@@ -61,7 +61,7 @@ It exits 0 only when every check passes. Do not drive an instance whose live doc
 
 ## Drive
 
-`lib/drive.mjs` holds the steps. Each step names its feature file under [`features/`](features/README.md) and acts through Chromium over CDP (`tests/e2e/pilot/lib/cdp.mjs`): clicks on the real controls, typed form values, and new tabs opened by real links. The selectors are the app's stable handles:
+`lib/drive.mjs` holds the pilot's steps; each `features/<feature>.steps.mjs` an owner adds is appended after them, in name order (`lib/features.mjs`). Each step names its feature file under [`features/`](features/README.md) and acts through Chromium over CDP (`tests/e2e/pilot/lib/cdp.mjs`): clicks on the real controls, typed form values, and new tabs opened by real links. The selectors are the app's stable handles:
 
 | Step | User action | Handles | Proof |
 | --- | --- | --- | --- |
@@ -111,25 +111,30 @@ All of these go through `bin/verify-clearcase`, which runs `lib/main.mjs` under 
 | `preflight [--rev REV]` | local checks only, prints the facts | 0 or 3 |
 | `live-doctor --url … --pid … --data-dir … --build-stamp …` | check one instance | 0 or 1 |
 | `cleanup [--run-id ID]` | stranded scratch and PIDs | 0 or 1 |
+| `features` | the feature index found by discovery, with each feature's drive steps | 0, or 1 on a contract breach or an invalid step module |
 | `self-test` | failure modes, without building | 0 or 1 |
 | `--help` | usage | 0 |
 
-`self-test` covers two failure modes:
+`self-test` covers three failure modes:
 
 - **Clean checkout.** The runner runs in a `git archive` copy that has no `node_modules`, and again with Chromium missing. It must exit 3 with the install command, run no bun other than itself, launch no Chromium, build nothing and open no connection. A local listener stands in for the package registry and every proxy variable, and it must see nothing.
 - **Stale or wrong-build instances.** The live doctor runs against a fake `/api/health` that differs from the expected instance in exactly one way at a time: another PID, data directory, build ID, revision or `builtAt`, no stamp, another Bun, other ports, a rollback journal, `synchronous=1`, a storage error, no pragmas, a PID that does not run this run's `start.ts`, or nothing listening. Each must FAIL, and the matching answer must PASS.
+
+- **A broken feature index.** Static cases, with nothing built or started: every committed feature file keeps the entry contract; a scratch features directory with broken files (wrong H2 order, a missing H2, no title, two paragraphs, a list for the paragraph) fails, naming each; scratch `.steps.mjs` modules are discovered and appended after the pilot's steps in name order; a reused step id, a step naming another feature and a module without a feature file are refused.
 
 `tests/agent-tools/run.sh` runs the self-test as well. Self-test evidence goes to `<report>/selftest-<id>/self-test.json`.
 
 ## Extending
 
-[`features/README.md`](features/README.md#extending) lists what an M2 owner proves and which shared contracts to check against: document rows (`documents.server.ts`), user work and its enumeration (`user-work.server.ts`) and the overview widget slots (`overview-slots.ts`). Your feature file is yours; `SKILL.md`, `lib/` and `bin/` are coordinator-serialized (`docs/development.md`, Adding a view), so a new drive step goes through the coordinator. M2 owners add their view in two places:
+[`features/README.md`](features/README.md#extending) lists what an M2 owner proves and which shared contracts to check against: document rows (`documents.server.ts`), user work and its enumeration (`user-work.server.ts`) and the overview widget slots (`overview-slots.ts`). Your feature files and step modules are yours; `SKILL.md`, `lib/` and `bin/` are coordinator-serialized (`docs/development.md`, Adding a view). There is no hand-written index: `bin/verify-clearcase features` lists every `features/*.md` (README aside) in name order, checks each against the entry contract and checks every step module, exiting 1 on a breach, and each run records the list in its `summary.json`. M2 owners add their view in one or two places:
 
-1. **A feature file**: `features/<feature>.md` in the shape of [`features/README.md`](features/README.md): H1, one paragraph, then `Sub-features`, `How to get to it (user POV)`, `Driving it with verify-clearcase` and `Gotchas`. Add it to the README index. If your view replaces an unavailable registry entry, update `features/unavailable-views.md`.
-2. **A drive step**: append to `steps` in `lib/drive.mjs`:
+1. **A feature file**: `features/<category>-<feature>.md` (for example `features/analysis-matrix.md`) in the shape of [`features/README.md`](features/README.md): H1, one paragraph, then `Sub-features`, `How to get to it (user POV)`, `Driving it with verify-clearcase` and `Gotchas`. Discovery indexes it; there is no list to edit. If your view replaces an unavailable registry entry, update `features/unavailable-views.md`.
+2. **Optionally, drive steps**: `features/<category>-<feature>.steps.mjs`, beside the feature file, exporting `steps`. Each step's `feature` is that module's own feature id (the file name without `.steps.mjs`), and its `id` is unique across all steps; a module without a feature file, a step naming another feature, or a reused id fails `features` and the run before anything is built:
 
    ```js
-   { id: 'documents', feature: 'documents', title: 'Documents: filter by bundle and open a row',
+   // features/evidence-documents.steps.mjs
+   export const steps = [
+   { id: 'documents', feature: 'evidence-documents', title: 'Documents: filter by bundle and open a row',
      async run(x) {
        await x.click('#nav-documents');
        await x.waitReady('view:documents');          // your page's main[data-ready], set after mount
@@ -137,9 +142,10 @@ All of these go through `bin/verify-clearcase`, which runs `lib/main.mjs` under 
        if (n !== x.synth.rows) throw new Error(`rows ${n}`);
        return { rows: n, shot: await x.shot('documents') };
      } },
+   ];
    ```
 
-   Use `x.click`, `x.fill`, `x.text`, `x.waitReady`, `x.shot`, `x.openTab(sel, urlPrefix)` with `x.tab(sid)` for links that open a new tab, `x.frame(sid, /re/)` for frames, `x.c` for the HTTP second view, and `x.state` to pass values between steps. Throw to fail. Return what you observed. Steps run in order, so start from the state the previous step left, or navigate explicitly.
+   Use `x.click`, `x.fill`, `x.text`, `x.waitReady`, `x.shot`, `x.openTab(sel, urlPrefix)` with `x.tab(sid)` for links that open a new tab, `x.frame(sid, /re/)` for frames, `x.c` for the HTTP second view, and `x.state` to pass values between steps. Throw to fail. Return what you observed. Steps run in order (the pilot's, then each module's in name order), so start from the state the previous step left, or navigate explicitly.
 
    If the synthetic case lacks data your view needs, extend it in the `synthetic-case` step of `lib/inner.mjs` through `buildCase`'s `edit`, `rows` or `originals` options. Keep it invented. Then run `bin/verify-clearcase run` and `bin/verify-clearcase self-test`, and keep `features/` in step with what the drive proves. `/maintain-verification-skill` audits the map against the app.
 

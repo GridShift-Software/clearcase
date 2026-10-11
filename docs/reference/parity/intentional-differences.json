@@ -299,21 +299,6 @@
       "approvedOn": null
     },
     {
-      "id": "IDR-064",
-      "view": "chronology",
-      "field": "export.export_csv.name",
-      "when": {
-        "app": "chronology.csv"
-      },
-      "type": "defect-fix",
-      "source": "S-hardcoded-case",
-      "reason": "v5 prefixes the export file name with case-specific initials; the app uses a neutral name. The exported columns and rows are compared and equal.",
-      "productVisible": true,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
       "id": "IDR-065",
       "view": "overview",
       "field": "kpi.scanned_need_ocr.label",

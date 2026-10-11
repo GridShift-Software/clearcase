@@ -203,6 +203,8 @@
 			{#if bld.out}
 				<div class="toolbar out" id="cbbout"><a class="btn primary" id="cbbdownload" href={bld.out.url} download={bld.out.file}>Download PDF</a><a class="btn sec" href={bld.out.url} target="_blank" rel="noopener">Open in a new tab</a><button type="button" class="btn sec" onclick={print}>Print</button><button type="button" class="btn ghost" id="cbbsave" disabled={bld.saving} onclick={save}>Save to the bundle list</button><span class="badge b-ok">{bld.out.pages} pages ({bld.out.indexPages} index + {bld.out.bodyPages} numbered)</span>{#if bld.saving}<span class="saving" role="status">Saving…</span>{:else if bld.out.saved}<span class="tag" id="cbbsaved">Saved to the bundle list as {bld.out.saved}</span>{/if}</div>
 				{#if bld.saveError}<p class="error" role="alert" id="cbb-save-error">{bld.saveError} <button type="button" class="btn sm" disabled={bld.saving} onclick={save}>Retry</button></p>{/if}
+				<!-- v5 shows the built PDF in the page (CSP frame-src blob: only). No sandbox: Chromium does not render a PDF in a sandboxed frame. -->
+				<div class="preview"><iframe id="cbbpreview" src="{bld.out.url}#page=1" title="New bundle"></iframe></div>
 			{/if}
 		</div>
 	{/if}
@@ -215,6 +217,8 @@
 	.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
 	.toolbar.pad { padding: 0 12px; }
 	.toolbar.out { border-top: 1px solid #ddd; padding-top: 12px; }
+	.preview { margin-top: 12px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; }
+	.preview iframe { display: block; width: 100%; height: 70vh; border: 0; }
 	.toolbar h2 { margin: 0; flex: 1; overflow-wrap: anywhere; }
 	.tbl { width: 100%; border-collapse: collapse; }
 	.tbl td, .tbl th { border-bottom: 1px solid #eee; padding: 4px 8px; text-align: left; vertical-align: top; }

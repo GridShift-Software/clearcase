@@ -28,4 +28,4 @@ The Court Bundle view lists the imported bundles (`bundles`) with items, pages a
 
 - Bundle, index and extract PDFs are not package assets yet: they are named with `not in the verified index; not served`.
 - Word hyperlinks into the bundle PDFs are not written (the PDFs are not served).
-- The builder has no in-page preview: the CSP blocks frames (`frame-src 'none'`); `Open in a new tab` shows the PDF.
+- After Create Bundle the built PDF shows in the page in `#cbbpreview`, a frame of the builder's own blob URL (CSP `frame-src blob:`, no sandbox: Chromium leaves a sandboxed PDF frame empty). `Open in a new tab` also shows it.

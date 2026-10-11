@@ -1,4 +1,4 @@
-// Drive steps of features/system-backup.md (GRS-20): export the case's work, clear the rescan addition, restore it by
+// Drive steps of features/system-restore.md (GRS-20): export the case's work, clear the rescan addition, restore it by
 // path, and refuse another case's backup. The files are written beside the synthetic case folder (the run's scratch).
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -17,7 +17,7 @@ async function restore(x, path) {
 
 export const steps = [
 	{
-		id: 'system-backup-export', feature: 'system-backup', title: 'Backup / Restore: Export all state downloads the case work without binaries',
+		id: 'system-backup-export', feature: 'system-restore', title: 'Backup / Restore: Export all state downloads the case work without binaries',
 		async run(x) {
 			await x.click('#nav-backup_tab');
 			await x.waitReady('backup_tab');
@@ -32,7 +32,7 @@ export const steps = [
 		},
 	},
 	{
-		id: 'system-restore', feature: 'system-backup', title: 'Clear the rescan addition, then Import state from the backup: the addition is back with its ref',
+		id: 'system-restore', feature: 'system-restore', title: 'Clear the rescan addition, then Import state from the backup: the addition is back with its ref',
 		async run(x) {
 			await x.click('#nav-rescan_tab');
 			await x.waitReady('rescan_tab');
@@ -50,7 +50,7 @@ export const steps = [
 		},
 	},
 	{
-		id: 'system-restore-refused', feature: 'system-backup', title: 'Import state refuses another case\'s backup and changes nothing',
+		id: 'system-restore-refused', feature: 'system-restore', title: 'Import state refuses another case\'s backup and changes nothing',
 		async run(x) {
 			const other = join(dirname(x.synth.caseDir), 'other-case-backup.json');
 			writeFileSync(other, JSON.stringify({ ...x.state.backup, case: { ...x.state.backup.case, caseId: 'another-synthetic-case' } }));

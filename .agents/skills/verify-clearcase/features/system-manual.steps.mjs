@@ -20,7 +20,7 @@ export const steps = [
 			await x.page.waitFor(`document.querySelector('main')?.dataset.ready === 'manual' && !!document.getElementById('manual-link-list')`, 20000);
 			await new Promise((r) => setTimeout(r, 150));
 			const focus = await x.page.evaluate(`document.activeElement?.hasAttribute('data-page-heading') ?? false`);
-			must(/^Documents 8 \(\+1 via rescan\) /.test(badges) && verified === '1 of 1 found in the case folder.' && found === 1 && focus, `manual ${JSON.stringify({ badges, verified, found, focus })}`);
+			must(/^Documents 7 Emails /.test(badges) && verified === '1 of 1 found in the case folder.' && found === 1 && focus, `manual ${JSON.stringify({ badges, verified, found, focus })}`);
 			return { badges, verified, found, focus, shot };
 		},
 	},

@@ -22,7 +22,7 @@ Rescan & Update compares the case folder the version was imported from with the 
 
 Preconditions:
 
-- `activate` passed: the synthetic version (7 originals) is active.
+- `activate` passed: the synthetic version (7 originals) is active, and nothing has scanned its case folder (`system-manual` only opens this page).
 
 - **Unchanged folder.** Choose `#nav-rescan_tab`, then `Rescan now` (`#rescan-now`). Step `system-rescan`. `#count-new` is 0, `#count-scanned` 7 and `#rescan-status[data-current=false]`.
 - **An addition.** Write `DISCOVERY A/OD-009 Added letter.pdf` into the synthetic case folder, choose `Rescan now` twice. Step `system-rescan`. `#rescan-added tr[data-ref]` holds exactly `OD-005` after both scans.

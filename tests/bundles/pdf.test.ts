@@ -1,5 +1,9 @@
 // The builder's PDF engine (GRS-19): synthetic PDFs opened, assembled and read back with pdf.js, as the parity harness
 // reads them: page count, stamps, index text, link annotations and their targets; encrypted files refused.
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { makePdf, SET } from './fixtures/make-pdfs.mjs';
@@ -37,6 +41,40 @@ describe('open', () => {
 	});
 	it('rejects bytes with no readable page', async () => {
 		await expect(open(new TextEncoder().encode('not a pdf at all'))).rejects.toThrow('no pages could be read');
+	});
+});
+
+/** Open `text` (a synthetic PDF) in a child process that is killed after a second: a hang fails the test instead of the run. */
+const probe = (text: string) => {
+	const dir = mkdtempSync(join(tmpdir(), 'cc-pdf-'));
+	try {
+		const f = join(dir, 'broken.pdf');
+		writeFileSync(f, text, 'latin1');
+		const t0 = Date.now();
+		const r = spawnSync(process.versions.bun ? process.execPath : 'bun', [join(import.meta.dirname, 'fixtures/open-probe.mjs'), f], { timeout: 1000, encoding: 'utf8' });
+		return { ms: Date.now() - t0, timedOut: r.error?.name === 'Error' && /ETIMEDOUT/.test(String(r.error.message)), out: r.stdout.trim() };
+	} finally {
+		rmSync(dir, { recursive: true, force: true });
+	}
+};
+const objs = '%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>\nendobj\n';
+describe('open: a malformed cross-reference table never hangs (review of 6778457, H1)', () => {
+	it('settles a classic table whose subsection claims four billion entries', () => {
+		const r = probe(`${objs}xref\n0 4000000000\ntrailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n${objs.length}\n%%EOF\n`);
+		expect(r.timedOut).toBe(false);
+		expect(r.ms).toBeLessThan(1000);
+		expect(JSON.parse(r.out)).toEqual({ ok: true, pages: 1 });
+	});
+	it('settles a cross-reference stream whose W sums to 0 with a huge Index', () => {
+		const r = probe(`${objs}4 0 obj\n<< /Type /XRef /W [0 0 0] /Index [0 4000000000] /Size 4 /Root 1 0 R /Length 0 >>\nstream\n\nendstream\nendobj\nstartxref\n${objs.length}\n%%EOF\n`);
+		expect(r.timedOut).toBe(false);
+		expect(r.ms).toBeLessThan(1000);
+		expect(JSON.parse(r.out)).toEqual({ ok: true, pages: 1 });
+	});
+	it('refuses, with a message, a damaged file that has no page to recover', () => {
+		const r = probe(`%PDF-1.4\nxref\n0 4000000000\ntrailer\n<< /Size 1 >>\nstartxref\n9\n%%EOF\n`);
+		expect(r.timedOut).toBe(false);
+		expect(JSON.parse(r.out)).toEqual({ ok: false, message: 'no pages could be read from it' });
 	});
 });
 

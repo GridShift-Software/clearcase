@@ -17,6 +17,9 @@
 //                  state and Open link. Baseline.
 //   largeDocViewer that Open link (the isolated viewer at the original) in a new tab: navigation start -> the
 //                  viewer's first page (body[data-ready=1], its readyMs). Baseline (CC-03 budgets 500 ms for cited PDFs).
+//   assembly200    Court Bundle builder, one synthetic 200-page PDF picked (tests/bundles/fixtures/make-pdfs.mjs, no case
+//                  material): click on Create Bundle -> the new PDF's Download link rendered (index + 200 numbered
+//                  pages, assembled in the page). Baseline.
 // "Next rendered frame": a MutationObserver installed before page scripts sees the condition; the mark is taken in a
 // task posted from the next requestAnimationFrame callback. Raw timings go to <out>/measure-CC-09.json (default
 // $CLEARCASE_REPORT_DIR/measure, else .local/measure); they hold refs and sizes of the sample, which are case
@@ -84,7 +87,7 @@ const result = {
 	ticket: 'CC-09', startedAt: new Date().toISOString(), command: `bun scripts/measure/index.ts ${process.argv.slice(2).join(' ')}`,
 	worktree: gitIdentity(), host: hostIdentity(), bun: bunIdentity(), chromium: chromiumIdentity(), offline: proof,
 	fixture: { sha256: fx.sha256, size: fixtureSize, package: { resultsVersion: pkg.manifest.resultsVersion, convertMs: Math.round(pkgRun.ms) } },
-	method: { samples: SAMPLES, warmup: WARMUP, minSamples: MIN_SAMPLES, percentile: 'nearest-rank over the kept samples', budgetsP95Ms: BUDGETS, baselines: 'coverExport, wordIndexes, largeDocPage and largeDocViewer are recorded as baselines; CC-01 recorded no export or large-document figures, so no speedup is claimed' },
+	method: { samples: SAMPLES, warmup: WARMUP, minSamples: MIN_SAMPLES, percentile: 'nearest-rank over the kept samples', budgetsP95Ms: BUDGETS, baselines: 'coverExport, wordIndexes, largeDocPage, largeDocViewer and assembly200 are recorded as baselines; CC-01 recorded no export or large-document figures, so no speedup is claimed' },
 };
 let failure = null;
 const raw = {};
@@ -182,6 +185,25 @@ try {
 			raw.largeDocViewer.push({ i, warmup: i < WARMUP, ms: st.readyMs });
 		} finally { await t.close(); }
 	}
+	// the builder: a 200-page assembly, from Create Bundle to the new PDF's Download link
+	console.log('assembly ...');
+	const { makePdf } = await import('../../tests/bundles/fixtures/make-pdfs.mjs');
+	const src = join(work, 'Assembly_200.pdf');
+	writeFileSync(src, makePdf({ name: 'Assembly', pages: 200 }));
+	await P.navigate(`${V}/bundles/court_bundle_tab?view=build`);
+	await P.waitFor(`document.querySelector('main[data-ready="court_bundle_tab"][data-hydrated]') && document.getElementById('cbbfile')`, 60000);
+	const { root } = await P.s('DOM.getDocument');
+	const { nodeId } = await P.s('DOM.querySelector', { nodeId: root.nodeId, selector: '#cbbfile' });
+	await P.s('DOM.setFileInputFiles', { nodeId, files: [src] });
+	await P.waitFor(`document.getElementById('cbbtotal')?.textContent.includes('200 pages')`, 60000);
+	raw.assembly200 = [];
+	for (let i = 0; i < N; i++) {
+		await P.evaluate(`(() => { const cc = window.__cc; cc.t0 = null; cc.asm = null; const prev = document.getElementById('cbbdownload')?.href ?? ''; new MutationObserver((_, o) => { const a = document.getElementById('cbbdownload'); if (a && a.href !== prev) { cc.asm = performance.now(); o.disconnect(); } }).observe(document.body, { subtree: true, childList: true, attributes: true }); })()`);
+		await click('#cbbrun');
+		const m = await P.waitFor(`window.__cc.asm !== null && window.__cc.t0 !== null && { at: window.__cc.asm, t0: window.__cc.t0, out: document.querySelector('#cbbout .badge')?.textContent ?? '' }`, 120000);
+		if (!/\(\d+ index \+ 200 numbered\)/.test(m.out)) throw new Error(`the assembly gave ${m.out}`);
+		raw.assembly200.push({ i, warmup: i < WARMUP, ms: +(m.at - m.t0).toFixed(1) });
+	}
 	const largest = pkg.chronology.map((r) => ({ ref: r.ref, ...pkg.assets[r.ref] })).filter((x) => x.kind === 'file' && x.mediaType === 'application/pdf').sort((p, q) => q.size - p.size)[0];
 	result.largeDocument = { note: 'the CaseLines source original, opened from the CaseLines view', largestPdfBytesInRegister: largest?.size ?? null };
 } catch (e) { failure = String(e?.stack ?? e); console.error(`cc09: ${failure}`); }
@@ -194,7 +216,7 @@ result.canaryHits = canary.hits.map((h) => ({ kind: h.kind, host: h.host ?? h.sn
 const kept = (xs) => (xs ?? []).filter((x) => !x.warmup).map((x) => x.ms);
 result.raw = raw;
 result.metrics = {};
-for (const k of ['selection', 'coverExport', 'wordIndexes', 'largeDocPage', 'largeDocViewer']) {
+for (const k of ['selection', 'coverExport', 'wordIndexes', 'largeDocPage', 'largeDocViewer', 'assembly200']) {
 	const s = stats(kept(raw[k]));
 	const budget = BUDGETS[k] ?? null;
 	result.metrics[k] = { ...s, discardedWarmup: (raw[k] ?? []).filter((x) => x.warmup).length, budgetP95Ms: budget, gated: budget !== null, enoughSamples: s.n >= MIN_SAMPLES, pass: budget === null ? null : s.n >= MIN_SAMPLES && s.p95Ms <= budget };

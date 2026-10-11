@@ -237,4 +237,12 @@
 	.error { color: #b91c1c; }
 	.saving { color: #92400e; font-weight: 700; }
 	.empty { padding: 8px 0; color: #555; }
+	/* narrow screens: each item stacks, so nothing scrolls sideways */
+	@media (max-width: 40rem) {
+		.items thead { display: none; }
+		.items tr, .items td { display: block; }
+		.items td.num { text-align: left; }
+		.items tr { border-bottom: 1px solid #ddd; padding: 6px 0; }
+		.items td { border: 0; }
+	}
 </style>

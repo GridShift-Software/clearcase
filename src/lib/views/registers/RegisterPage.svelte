@@ -53,6 +53,10 @@
 	let busy = $state(false);
 	/** the row whose delete is in flight */
 	let deleting = $state<string | null>(null);
+	/** the form is inert while a save, or the delete of the entry being edited, is in flight: nothing can be typed and lost */
+	const locked = $derived(busy || (editing !== null && deleting === editing));
+	/** fields where the other tab's change and the typed change collided in the last rebase */
+	let rebaseNote = $state<string | null>(null);
 	/** an action waiting for the user to confirm that the unsaved input may be discarded */
 	let ask = $state<{ what: string; go: () => void; leave?: boolean } | null>(null);
 	let ready = $state(false);
@@ -73,6 +77,7 @@
 		editing = null;
 		version = null;
 		saveError = null;
+		rebaseNote = null;
 	}
 
 	// the request may or may not have reached the app, so the message does not claim either; a 413 is refused before
@@ -90,6 +95,7 @@
 		const sent: Draft = { rowId: editing, version, values: { ...values } };
 		busy = true;
 		saveError = null;
+		rebaseNote = null;
 		ask = null;
 		return async ({ result }) => {
 			try {
@@ -138,8 +144,9 @@
 			values = { ...blank(), ...r.values };
 			base = { ...values };
 			saveError = null;
+			rebaseNote = null;
 			await tick();
-			document.getElementById(`in-${reg.fields[0]!.k}`)?.focus();
+			firstField()?.focus();
 		});
 	}
 	const cancelEdit = () => guard(() => reset());
@@ -147,12 +154,33 @@
 		e.preventDefault();
 		reset();
 	}
+	const firstField = () => document.getElementById(`in-${reg.fields[0]!.k}`);
+	/** what had focus when the question opened, so Keep it can give focus back */
+	let opener: HTMLElement | null = null;
+	// the question takes focus (on Keep it, the safe answer); the removed button would otherwise drop it to <body>
+	$effect(() => {
+		if (!ask) return;
+		const active = document.activeElement;
+		if (!(active instanceof HTMLElement) || active === document.body) opener = null;
+		else if (!active.closest('#register-ask')) opener = active;
+		void tick().then(() => document.getElementById('register-ask-keep')?.focus());
+	});
+	/** Focus the first of `targets` that can take it: an element that is gone or disabled falls through to the next. */
+	async function focusFirst(...targets: (HTMLElement | null | undefined)[]) {
+		await tick();
+		for (const t of [...targets, document.getElementById('main')]) {
+			if (!t?.isConnected) continue;
+			t.focus();
+			if (document.activeElement === t) return;
+		}
+	}
 	function answer(yes: boolean) {
 		const a = ask;
 		// while a save is in flight its result decides the form: only leaving the page may be answered
 		if (!a || (busy && !a.leave)) return;
 		ask = null;
-		if (yes) { saveError = null; base = { ...values }; a.go(); }
+		if (yes) { saveError = null; base = { ...values }; a.go(); void focusFirst(firstField()); }
+		else void focusFirst(opener, firstField());
 	}
 	/** Put a failed draft back in the form, so Retry resubmits exactly it. */
 	function restore(d: Draft) {
@@ -161,12 +189,24 @@
 		version = d.version;
 		saveError = { message: saveError!.message, retry: true };
 	}
-	/** After a 409: take the entry's current version and stored values as the base and keep the typed values, so the
-	 *  next Save replaces the current entry with them. */
+	/** After a 409, a 3-way merge of the entry's current stored values into the form: a field the user left as loaded
+	 *  takes the current value (the other tab's change is kept), a field the user changed keeps the typed value. Where
+	 *  both changed the same field to different values the typed value wins and the note names the field. The current
+	 *  values become the base, so the next Save replaces the current entry with the merged form. */
 	function rebase(r: ShownRow) {
+		const current = { ...blank(), ...r.values };
+		const clash: string[] = [];
+		const merged = { ...values };
+		for (const f of reg.fields) {
+			const mine = values[f.k] ?? '', loaded = base[f.k] ?? '', theirs = current[f.k] ?? '';
+			if (mine === loaded) merged[f.k] = theirs;
+			else if (theirs !== loaded && theirs !== mine) clash.push(f.label);
+		}
+		values = merged;
 		version = r.version;
-		base = { ...blank(), ...r.values };
+		base = current;
 		saveError = null;
+		rebaseNote = clash.length ? `${clash.join(', ')} ${clash.length > 1 ? 'were' : 'was'} also changed elsewhere; your typed ${clash.length > 1 ? 'values are' : 'value is'} kept.` : null;
 	}
 	// leaving the page drops the form: ask first when it holds unsaved input or a save is in flight (a page unload
 	// gets the browser's own prompt)
@@ -190,15 +230,15 @@
 	<PageHeader heading={reg.label} section={reg.label} caseName={data.version.titleName} subtitle={reg.subtitle}>
 		{#snippet actions()}
 			<button type="button" id="register-export" onclick={exportNow}>{reg.export.label}</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}
-			<button type="submit" form="register-form" id="register-save" disabled={busy}>{editing ? 'Save' : 'Add'}</button>
-			{#if editing}<button type="button" id="register-cancel" onclick={cancelEdit} disabled={busy}>Cancel</button>{/if}
+			<button type="submit" form="register-form" id="register-save" disabled={locked}>{editing ? 'Save' : 'Add'}</button>
+			{#if editing}<button type="button" id="register-cancel" onclick={cancelEdit} disabled={locked}>Cancel</button>{/if}
 		{/snippet}
 	</PageHeader>
 
 	<!-- multipart, so only the store's 64 KiB limit applies to an entry (an urlencoded body triples non-ASCII text) -->
-	<form id="register-form" class="entry" method="POST" action="?/save" enctype="multipart/form-data" use:enhance={save} data-editing={editing ?? undefined} aria-busy={busy}>
+	<form id="register-form" class="entry" method="POST" action="?/save" enctype="multipart/form-data" use:enhance={save} data-editing={editing ?? undefined} aria-busy={locked}>
 		{#if editing}<input type="hidden" name="rowId" value={editing} /><input type="hidden" name="version" value={version ?? ''} />{/if}
-		<fieldset class="fields" disabled={busy}>
+		<fieldset class="fields" disabled={locked}>
 			<legend class="visually-hidden">{editing ? 'Edit the entry' : 'New entry'}</legend>
 			{#each reg.fields as f (f.k)}
 				<div class="field" class:wide={f.type === 'textarea' || f.k === 'note'}>
@@ -221,13 +261,14 @@
 	{#if saveError}
 		<div class="error" role="alert" id="register-error">
 			<p>{saveError.message}</p>
-			{#if saveError.retry}<button type="submit" form="register-form" id="register-retry" disabled={busy}>Retry</button>{/if}
+			{#if saveError.retry}<button type="submit" form="register-form" id="register-retry" disabled={locked}>Retry</button>{/if}
 			{#if saveError.draft}{@const d = saveError.draft}<button type="button" id="register-restore" onclick={() => restore(d)}>Restore the entry that was not saved</button>{/if}
 			{#if saveError.stale && ready}{@const cur = data.rows.find((r) => r.rowId === editing)}{#if cur}<button type="button" id="register-rebase" onclick={() => rebase(cur)} disabled={busy}>Load the current entry and keep my changes</button>{/if}{/if}
 			<a href={page.url.pathname} id="register-discard" onclick={discard}>Discard the entry</a>
 			{#if !ready}<p id="register-nojs-note">Retry or discard this entry before you edit or delete another entry.</p>{/if}
 		</div>
 	{/if}
+	{#if rebaseNote}<p class="status" role="status" id="register-rebase-note">{rebaseNote}</p>{/if}
 	{#if deleteError}
 		<div class="error" role="alert" id="register-delete-error">
 			<p>{deleteError.message}</p>

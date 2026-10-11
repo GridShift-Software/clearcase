@@ -1,6 +1,6 @@
 # ClearCase agent instructions
 
-Read `docs/product-brief.md`, `docs/delivery-plan.md`, `docs/orchestration.md` and `GLOSSARY.md` before work. The current repository contains planning artifacts, not an implemented app.
+Read `docs/product-brief.md`, `docs/delivery-plan.md`, `docs/orchestration.md` and `GLOSSARY.md` before work. The workspace `AGENTS.md` above this repository (models and effort, budgets, the build-review-fix-ship loop, git and push rules) overrides this file and `docs/orchestration.md` where they conflict.
 
 ## Scope and evidence
 
@@ -9,6 +9,10 @@ Read `docs/product-brief.md`, `docs/delivery-plan.md`, `docs/orchestration.md` a
 - Keep original case files, extracted text, credentials and personal case analysis out of Git and external test services. Use local ignored fixtures and synthetic committed examples.
 - The existing hosted results-import endpoint is unverified. Do not treat client upload APIs as that endpoint.
 - A test that is skipped, mocked at the acceptance boundary or run against a different revision is not release evidence.
+
+## Checks
+
+`bun run --bun gate` is the one command that runs the checks (details in `docs/development.md`). Run it until it is green, and report PASS or FAIL at the exact SHA it printed.
 
 ## App toolchain
 
@@ -20,7 +24,7 @@ Linear is the issue tracker. Read `docs/agents/issue-tracker.md`. The glossary i
 
 Apply the installed Matt Pocock skill principles to the spec, task graph, domain language and behavior-focused tests. Apply pstack's multi-phase planning and Orchestrate disciplines with the T3 adaptations in `docs/orchestration.md`. The `to-spec`, `to-tickets` and `implement-spec` leaf skills were not found during planning; do not claim they were run or install replacements automatically.
 
-Use the current user instructions ahead of defaults. No Cursor agents. Every Opus agent uses high reasoning effort. Other supported model families remain available for independent review; the user did not require every role to use Opus.
+Use the current user instructions ahead of defaults. No Cursor agents. Models, effort and budgets per role come from the table in the workspace `AGENTS.md`; set them explicitly on every launch.
 
 ## Agent tooling
 

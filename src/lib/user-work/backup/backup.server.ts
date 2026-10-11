@@ -123,6 +123,8 @@ export async function restoreBackup(lc: LocalCase, text: string, active: { caseI
 		throw e;
 	}
 	lc.backupNow('pre-restore');
+	// backupNow records a failure as a warning instead of throwing; a restore without its copy of the work is refused
+	if (lc.warnings.has('backup-failed')) throw new BackupError('The current work could not be copied before the restore, so nothing was restored. Nothing was changed.', 'refused');
 	try {
 		const result = await lc.userWork.importAll(checked.file.userWork, { replace: 'cases' });
 		return { kind: 'restored', summary: checked.summary, result };

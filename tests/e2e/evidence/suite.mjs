@@ -701,11 +701,11 @@ try {
 		const lp = await openPage(b, { initScript: INIT });
 		try {
 			await lp.s('Network.enable').catch(() => {});
-			await lp.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
-			await setFields(lp, { fl_filing: 'Synthetic r4 add', fl_response: 'Synthetic r4 leave save' });
+			await lp.goto(`${V}/evidence/filings_tab?edit=${encodeURIComponent(kA)}`, `${FORM} && document.getElementById('register-form').dataset.mode === 'edit'`);
+			await setFields(lp, { fl_response: 'Synthetic r4 leave save' });
 			const release = holdStore();
 			try {
-				await lp.click('#register-add');
+				await lp.click('#register-save');
 				await sleep(400);
 				await lp.click('#nav-search');
 				ev.leaveAsk = await lp.waitFor(`document.getElementById('register-ask')?.textContent.includes('still being saved')`, 5000).then(() => true, () => false);

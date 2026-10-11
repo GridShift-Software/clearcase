@@ -22,8 +22,8 @@
 <main id="main" tabindex="-1" data-ready="rescan_tab" data-hydrated={ready ? '' : undefined}>
 	<PageHeader heading="Rescan & Update" section="Rescan & Update" caseName={data.version.titleName} subtitle="Compare the case folder with this results version">
 		{#snippet actions()}
-			<a id="rescan-index" href="{versionPath(data.version.id)}/system/rescan_tab/index.json" download="ess_dcs_rescan_v1.json">Write updated index to file</a>
-			<small class="export-note">The additions as v5's ess_dcs_rescan_v1.json; the imported results are not changed.</small>
+			<a id="rescan-index" href="{versionPath(data.version.id)}/system/rescan_tab/index.json" download={data.exportName.name}>Write updated index to file</a>
+			<small class="export-note">The additions as v5's rescan index, {data.exportName.name}; the imported results are not changed.{#if data.exportName.note} <span data-export-note>{data.exportName.note}</span>{/if}</small>
 		{/snippet}
 	</PageHeader>
 

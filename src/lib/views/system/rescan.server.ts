@@ -3,6 +3,7 @@
 import { error, fail, isHttpError } from '@sveltejs/kit';
 import { app } from '$lib/local-case/app.server';
 import { docPath } from '$lib/local-case/model';
+import { exportFileName, viewContentOf } from '$lib/local-case/results.server';
 import { additions, clearAdditions, ensureRescanProvider, lastRun, rescan, rescanRows, rescanTables, ScanError } from '$lib/local-case/rescan/rescan.server';
 
 type Event = { params: Record<string, string>; request: Request };
@@ -22,6 +23,7 @@ export const load = async ({ params }: { params: Record<string, string> }) => {
 	const row = (r: (typeof rows)[number]) => ({ path: r.path, filename: r.path.split('/').pop() ?? r.path, ref: r.ref, date: r.date, docType: r.docType, bundle: r.bundle, evidence: r.evidence, processing: r.processing, href: r.kind === 'added' ? docPath(v.id, r.ref) : null });
 	return {
 		caseFolder: v.case_folder,
+		exportName: indexName(v.id),
 		run: lastRun(a, v.case_id, v.id),
 		added: rows.filter((r) => r.kind === 'added').map(row),
 		withdrawn: rows.filter((r) => r.kind === 'withdrawn').map(row),
@@ -53,7 +55,10 @@ export const actions = {
 	},
 };
 
-/** The additions as v5's ess_dcs_rescan_v1.json ("Write updated index to file"): an array of v5 rescan rows. */
+/** The file name of "Write updated index to file": view-content's, else a neutral name with a note. */
+export const indexName = (vid: string) => exportFileName(viewContentOf(app().store, vid), 'rescan_tab', 'rescan-additions.json');
+
+/** The additions as v5's rescan index ("Write updated index to file"): an array of v5 rescan rows. */
 export function indexFile(vid: string): string {
 	const { a, v } = versionOf(vid);
 	return `${JSON.stringify(additions(a, v.case_id, v.id).map((p) => p.row), null, 2)}\n`;

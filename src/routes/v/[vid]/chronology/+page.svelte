@@ -42,7 +42,7 @@
 	const cleanName = (s: string) => s.replace(/^\(\d+\)\s*/, '').replace(/\.(pdf|eml|msg)$/i, '');
 	const exportCsv = () => {
 		const keys = ['ref', 'date', 'filename', 'subject', 'sender', 'to', 'doc_type', 'bundle', 'amount', 'also_in', 'text_status', 'url'];
-		download('chronology.csv', toCSV([keys, ...rows.map((r) => [r.ref, r.date, r.filename, r.subject, r.sender, r.to, r.docType, r.bundle, r.amount, r.alsoIn, r.textStatus, r.url])]));
+		download(data.exportName.name, toCSV([keys, ...rows.map((r) => [r.ref, r.date, r.filename, r.subject, r.sender, r.to, r.docType, r.bundle, r.amount, r.alsoIn, r.textStatus, r.url])]));
 	};
 	let ready = $state(false);
 	onMount(() => { ready = true; });
@@ -50,7 +50,7 @@
 
 <main id="main" tabindex="-1" data-ready={ready ? 'chronology' : null}>
 	<PageHeader heading="Chronology" section="Chronology" caseName={data.version.titleName} subtitle="{data.rows.length.toLocaleString('en')} items · sorted by date">
-		{#snippet actions()}<button type="button" onclick={exportCsv} id="export-csv">Export CSV ({rows.length.toLocaleString('en')} rows)</button>{/snippet}
+		{#snippet actions()}<button type="button" onclick={exportCsv} id="export-csv">Export CSV ({rows.length.toLocaleString('en')} rows)</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}{/snippet}
 	</PageHeader>
 	<DegradedRows failed={data.failed} />
 	<form class="filters" role="search" aria-label="Filter the chronology" onsubmit={(e) => e.preventDefault()}>

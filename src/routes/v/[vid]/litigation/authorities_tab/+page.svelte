@@ -1,21 +1,19 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { enhance } from '$app/forms';
 	import Narrative from '$lib/components/Narrative.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { download } from '$lib/components/csv';
 	import SourceNote from '$lib/views/litigation/SourceNote.svelte';
-	import { AUTH_FILE, authoritiesCsv } from '$lib/views/litigation/authorities';
+	import EntryState from '$lib/views/litigation/EntryState.svelte';
+	import LeaveGuard from '$lib/views/litigation/LeaveGuard.svelte';
+	import { AUTH_FIELDS, AUTH_FILE, authoritiesCsv, canAddAuthority, type AuthValues } from '$lib/views/litigation/authorities';
+	import { EntryForm, type Answer } from '$lib/views/litigation/entry.svelte';
 	import { REGISTER_NOTE } from '$lib/views/litigation/notes';
-	import { keepInput } from '$lib/views/litigation/submit';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
-	// a failed or lost submit is reported here and changes nothing else, so the typed values stay in their fields; the
-	// action's `values` re-fill the form only without JavaScript (a server-rendered failure)
-	let error = $state<string | null>(null);
-	const message = $derived(error ?? (form && 'message' in form ? (form.message as string | null) : null));
-	const values = $derived(form && 'values' in form ? (form.values as Record<string, string>) : null);
-	const submit = keepInput((m) => (error = m), () => (error = null));
+	// the entry keeps its own state (entry.svelte.ts); without JavaScript the answer re-fills it
+	const entry = new EntryForm(AUTH_FIELDS, (v) => canAddAuthority(v as AuthValues), untrack(() => form as Answer));
 	const exportCsv = () => download(AUTH_FILE, authoritiesCsv(data.imported, data.user));
 	let ready = $state(false);
 	onMount(() => { ready = true; });
@@ -28,13 +26,14 @@
 		{#snippet actions()}<button type="button" id="auth-export" onclick={exportCsv}>Export CSV</button>{/snippet}
 	</PageHeader>
 	<div class="card">
-		<form method="POST" action="?/add" id="au-add" class="fields" use:enhance={submit}>
-			<div><label for="au_topic">Topic</label><input id="au_topic" name="topic" value={values?.topic ?? ''} /></div>
-			<div class="wide"><label for="au_auth">Authority</label><input id="au_auth" name="authority" value={values?.authority ?? ''} /></div>
-			<div class="wide"><label for="au_prop">Proposition</label><input id="au_prop" name="proposition" value={values?.proposition ?? ''} /></div>
-			<div class="go"><button type="submit" class="primary" id="au-add-button">Add</button></div>
+		<form method="POST" action="?/add" id="au-add" class="fields" aria-busy={entry.adding ? 'true' : null} use:enhance={entry.submit}>
+			<input type="hidden" name="addId" value={data.addId} />
+			<div><label for="au_topic">Topic</label><input id="au_topic" name="topic" bind:value={entry.values.topic} /></div>
+			<div class="wide"><label for="au_auth">Authority</label><input id="au_auth" name="authority" bind:value={entry.values.authority} /></div>
+			<div class="wide"><label for="au_prop">Proposition</label><input id="au_prop" name="proposition" bind:value={entry.values.proposition} /></div>
+			<div class="go"><button type="submit" class="primary" id="au-add-button" disabled={entry.adding}>Add</button></div>
 		</form>
-		{#if message}<p class="error" role="alert" id="au-error">{message}</p>{/if}
+		<EntryState {entry} form="au-add" errorId="au-error" />
 	</div>
 	<div class="card pad0">
 		<!-- v5 has no edit or delete for authorities (S-authorities_tab-1, copied) -->
@@ -55,6 +54,7 @@
 	</div>
 	<p class="tag">Framework provided as a working aide — confirm citations and current status before relying on them.</p>
 	<SourceNote text={REGISTER_NOTE} />
+	<LeaveGuard unsaved={entry.unsaved} what="Your Authorities entry is not saved." />
 </main>
 
 <style>

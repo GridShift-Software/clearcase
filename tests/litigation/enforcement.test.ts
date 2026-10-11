@@ -2,7 +2,7 @@
 // (S-enforcement_tab-1, S-index-keys); an imported status outside ENF_OPTS is its own selected option
 // (S-enforcement_tab-2, corrected); a duplicate {phase, step} is disclosed and gets no status.
 import { describe, expect, it } from 'vitest';
-import { ENF_OPTS, enforcementRows, mapV5EnfStatus, phasesOf, shownStatus, statusOptions } from '../../src/lib/views/litigation/enforcement.ts';
+import { ENF_OPTS, allowedStatus, enforcementRows, mapV5EnfStatus, phasesOf, shownStatus, statusOptions } from '../../src/lib/views/litigation/enforcement.ts';
 import { stepKey } from '../../src/lib/views/litigation/enforcement.server.ts';
 
 const step = (phase: string, s: string, status = 'To do') => ({ phase, step: s, basis: 'B', status, note: 'N' });
@@ -38,14 +38,26 @@ describe('enforcementRows', () => {
 	});
 });
 
-describe('statusOptions (S-enforcement_tab-2, corrected)', () => {
+describe('statusOptions (S-enforcement_tab-2, corrected; D8)', () => {
+	const values = (o: { value: string }[]) => o.map((x) => x.value);
 	it('lists ENF_OPTS for a known status', () => {
-		expect(statusOptions('Contingent')).toEqual([...ENF_OPTS]);
+		expect(values(statusOptions('Contingent'))).toEqual([...ENF_OPTS]);
 	});
 	it('keeps an imported status outside ENF_OPTS as its own option instead of showing "To do"', () => {
-		const opts = statusOptions('Awaiting counsel');
+		const opts = values(statusOptions('Awaiting counsel'));
 		expect(opts).toEqual([...ENF_OPTS, 'Awaiting counsel']);
 		expect(opts.indexOf('Awaiting counsel')).toBeGreaterThan(0);
+	});
+	it('D8: a saved status outside ENF_OPTS and the imported one stays an option, labelled no longer offered', () => {
+		const opts = statusOptions('Done', 'Awaiting counsel');
+		expect(values(opts)).toEqual([...ENF_OPTS, 'Awaiting counsel']);
+		expect(opts.at(-1)!.label).toBe('Awaiting counsel (no longer offered)');
+		expect(values(statusOptions('Awaiting counsel', 'Awaiting counsel'))).toEqual([...ENF_OPTS, 'Awaiting counsel']);
+	});
+	it('D8: the server accepts re-saving the shown saved status, and nothing outside the options', () => {
+		expect(allowedStatus({ status: 'Done', override: 'Awaiting counsel' }, 'Awaiting counsel')).toBe(true);
+		expect(allowedStatus({ status: 'Done', override: null }, 'Awaiting counsel')).toBe(false);
+		expect(allowedStatus({ status: 'Done', override: 'Monitor' }, 'Done')).toBe(true);
 	});
 });
 

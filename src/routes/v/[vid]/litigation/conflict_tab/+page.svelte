@@ -1,16 +1,18 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
-	import { QUERY_PLACEHOLDER, conflictOptions, matchConflict, matchCountText, noMatchText, pickedQuery, type ConflictResult } from '$lib/views/litigation/conflict';
-	import { conflictScope } from '$lib/views/litigation/notes';
+	import SourceNote from '$lib/views/litigation/SourceNote.svelte';
+	import { EMPTY_QUERY, QUERY_PLACEHOLDER, conflictOptions, matchConflict, matchCountText, noMatchText, type ConflictResult } from '$lib/views/litigation/conflict';
+	import { CONFLICT_NOTE, conflictScope } from '$lib/views/litigation/notes';
 	let { data } = $props();
 	const options = $derived(conflictOptions(data.entities, data.people));
 	let query = $state('');
 	let result = $state<ConflictResult | null>(null);
+	let empty = $state(false);
 	// v5 runConflict reads the box when Check is pressed or a party is picked; there is no Enter handler
-	// (S-conflict_tab-3, copied)
-	const run = () => { result = matchConflict(query, data.people, data.entities); };
-	const pick = (v: string) => { query = pickedQuery(v); run(); };
+	// (S-conflict_tab-3, copied). Nothing to search for is said, not silently cleared (D21).
+	const run = () => { result = matchConflict(query, data.people, data.entities); empty = result === null; };
+	const pick = (v: string) => { const o = options[Number(v)]; if (v === '' || !o) return; query = o.query; run(); };
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>
@@ -22,16 +24,21 @@
 	<div class="card">
 		<div class="fields">
 			<div class="wide"><label for="confsel">Pick a party / correspondent</label>
-				<select id="confsel" onchange={(e) => pick(e.currentTarget.value)}>
+				<select id="confsel" disabled={!ready} onchange={(e) => pick(e.currentTarget.value)}>
 					<option value="">— choose from the matter —</option>
 					{#each options as o, i (i)}<option value={o.value}>{o.label}</option>{/each}
 				</select></div>
-			<div class="wide"><label for="confq">…or type a name / firm / email</label><input id="confq" placeholder={QUERY_PLACEHOLDER} bind:value={query} autocomplete="off" /></div>
-			<div class="go"><button type="button" class="primary" id="conf-check" onclick={run}>Check</button></div>
+			<div class="wide"><label for="confq">…or type a name / firm / email</label><input id="confq" placeholder={QUERY_PLACEHOLDER} bind:value={query} autocomplete="off" disabled={!ready} /></div>
+			<div class="go"><button type="button" class="primary" id="conf-check" disabled={!ready} onclick={run}>Check</button></div>
 		</div>
+		<!-- the check runs in the page only, so a party's name is never sent anywhere; without JavaScript the controls
+			stay disabled and say why (D7) -->
+		<noscript><p class="note" data-needs-js>The conflict check runs in your browser and needs JavaScript. Turn it on to use this page.</p></noscript>
 		<p class="scope" id="conf-scope">{conflictScope(data.people.length, data.entities.length)}</p>
 		<div id="confres" aria-live="polite">
-			{#if result}
+			{#if empty}
+				<p class="note" data-result="empty">{EMPTY_QUERY}</p>
+			{:else if result}
 				{#if result.hits.length === 0}
 					<div class="badge neutral" data-result="none">{noMatchText(result.query)}</div>
 				{:else}
@@ -44,6 +51,7 @@
 			{/if}
 		</div>
 	</div>
+	<SourceNote text={CONFLICT_NOTE} />
 </main>
 
 <style>

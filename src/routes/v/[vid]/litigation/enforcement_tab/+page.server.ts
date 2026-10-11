@@ -1,25 +1,27 @@
 import { fail } from '@sveltejs/kit';
 import { app } from '$lib/local-case/app.server';
 import { datasetOf, viewContentOf, viewText } from '$lib/local-case/results.server';
-import { enforcementRows, phasesOf, statusOptions } from '$lib/views/litigation/enforcement';
+import { allowedStatus, enforcementRows, phasesOf } from '$lib/views/litigation/enforcement';
 import { stepKey } from '$lib/views/litigation/enforcement.server';
-import { STORES, field, guarded, knownRefs, nextSeq, orderedRows, serialized, text } from '$lib/views/litigation/register.server';
+import { STORES, field, guarded, knownRefs, text } from '$lib/views/litigation/register.server';
+import { saveStatus, stepRows, stepVersion } from '$lib/views/litigation/writes.server';
 import type { Actions, PageServerLoad } from './$types';
 
-/** The case's saved statuses by step key (one row per key; the latest by seq wins if a key repeats). */
+/**
+ * The case's saved status per step key, and the version of what is stored for each key (GRS-18 r2, D9): the latest row
+ * by seq wins, whatever its status ('' included), so a saved '' is a saved status and never a reason for a second row.
+ */
 function overrides(caseId: string) {
-	const out = new Map<string, { rowId: string; status: string; seq: number | null }>();
-	for (const r of orderedRows(caseId, STORES.enforcement)) {
-		const k = text(r.fields.stepKey), s = text(r.fields.status);
-		if (k && s) out.set(k, { rowId: r.rowId, status: s, seq: typeof r.fields.seq === 'number' ? r.fields.seq : null });
-	}
-	return out;
+	const all = app().userWork.listRows(caseId, STORES.enforcement);
+	const keys = new Set(all.map((r) => text(r.fields.stepKey)).filter(Boolean));
+	return new Map([...keys].map((k) => { const mine = stepRows(all, k); return [k, { status: text(mine.at(-1)!.fields.status), version: stepVersion(mine) }]; }));
 }
 
 const rowsOf = (rv: string, caseId: string) => {
 	const raw = datasetOf<unknown[]>(app().store, rv, 'lit-enforcement');
 	const saved = overrides(caseId);
-	return { present: Array.isArray(raw), rows: enforcementRows(Array.isArray(raw) ? raw : [], stepKey, new Map([...saved].map(([k, v]) => [k, v.status]))), saved };
+	const rows = enforcementRows(Array.isArray(raw) ? raw : [], stepKey, new Map([...saved].map(([k, v]) => [k, v.status])));
+	return { present: Array.isArray(raw), rows: rows.map((r) => ({ ...r, version: (r.key && saved.get(r.key)?.version) || 'none' })) };
 };
 
 export const load: PageServerLoad = async ({ parent }) => {
@@ -30,23 +32,57 @@ export const load: PageServerLoad = async ({ parent }) => {
 	return { present, rows, phases: phasesOf(rows), content, known: knownRefs(version.id, [content.why, ...rows.flatMap((r) => [r.basis, r.note])]) };
 };
 
+const BUSY = 'Not saved: the local store is busy. Your choice is kept; try again in a moment.';
+const stale = (now: string) => `Not saved: this step's status was changed elsewhere (in another tab or window) to “${now || 'no status'}”. Your choice is kept; press Retry to save it over that change.`;
+
+type Change = { stepKey: string; status: string; version: string | null };
+
+/**
+ * The changes a post asks for. With JavaScript (or a script): one step, `stepKey`, `status` and the optional `version`
+ * the page showed. Without JavaScript the whole roadmap is one form: every step whose chosen status differs from the
+ * one the page showed (`was:<key>`) is saved, against its version (`ver:<key>`), so one step's Save never drops another
+ * step's choice.
+ */
+function changesOf(f: FormData): { changes: Change[]; choices: Record<string, string> } {
+	if (f.has('stepKey')) {
+		const c = { stepKey: field(f, 'stepKey'), status: field(f, 'status'), version: field(f, 'version') || null };
+		return { changes: [c], choices: { [c.stepKey]: c.status } };
+	}
+	const changes: Change[] = [], choices: Record<string, string> = {};
+	for (const [k, v] of f) {
+		if (!k.startsWith('status:') || typeof v !== 'string') continue;
+		const key = k.slice(7);
+		choices[key] = v;
+		if (v !== field(f, `was:${key}`)) changes.push({ stepKey: key, status: v, version: field(f, `ver:${key}`) || null });
+	}
+	return { changes, choices };
+}
+
 export const actions: Actions = {
 	status: async ({ params, request }) => {
 		const v = app().store.getVersion(params.vid);
 		if (!v) return fail(404, { message: 'Unknown results version' });
-		const f = await request.formData();
-		const values = { stepKey: field(f, 'stepKey'), status: field(f, 'status') };
-		const { rows } = rowsOf(v.id, v.case_id);
-		const row = rows.find((r) => r.key !== null && r.key === values.stepKey);
-		if (!row) return fail(404, { values, message: 'Not saved: that step is not in this results version, or it is not unique.' });
-		if (!statusOptions(row.status).includes(values.status)) return fail(400, { values, message: 'Not saved: choose one of the listed statuses.' });
-		// one row per step key: a change replaces that row's fields (keeping its seq), a first change inserts one; the
-		// existing row is looked up inside the serialized section, so two changes never insert two rows for one key
-		const r = await guarded(values, () => serialized(`${v.case_id}\u0000${STORES.enforcement}`, async () => {
-			const prior = overrides(v.case_id).get(values.stepKey);
-			const seq = prior?.seq ?? nextSeq(orderedRows(v.case_id, STORES.enforcement));
-			return app().userWork.putRow(v.case_id, STORES.enforcement, prior?.rowId ?? null, { stepKey: values.stepKey, status: values.status, seq });
-		}));
-		return r.ok ? { saved: values.stepKey } : r.failure;
+		const { changes, choices } = changesOf(await request.formData());
+		const errors: Record<string, { message: string; retry: boolean }> = {};
+		const saved: string[] = [];
+		let code = 0;
+		for (const c of changes) {
+			const row = rowsOf(v.id, v.case_id).rows.find((r) => r.key !== null && r.key === c.stepKey);
+			if (!row) { errors[c.stepKey] = { message: 'Not saved: that step is not in this results version, or it is not unique.', retry: false }; code ||= 404; continue; }
+			if (!allowedStatus(row, c.status)) { errors[c.stepKey] = { message: 'Not saved: choose one of the listed statuses.', retry: false }; code ||= 400; continue; }
+			const r = await guarded({}, () => saveStatus(app().userWork, v.case_id, STORES.enforcement, c.stepKey, c.status, c.version), {}, BUSY);
+			if (!r.ok) { const d = r.failure.data as { message: string; retry: boolean }; errors[c.stepKey] = { message: d.message, retry: d.retry }; code ||= r.failure.status; continue; }
+			if (r.value === 'stale') {
+				const now = rowsOf(v.id, v.case_id).rows.find((x) => x.key === c.stepKey);
+				errors[c.stepKey] = { message: stale(now ? now.override ?? now.status : ''), retry: true };
+				code ||= 409;
+				continue;
+			}
+			saved.push(c.stepKey);
+		}
+		const one = changes.length === 1 ? changes[0]! : null;
+		// `values` and `message` keep the single-step answer's earlier shape (scripted posts and their checks)
+		const answer = { op: 'status', saved: one && saved.length ? one.stepKey : null, savedKeys: saved, errors, choices, values: one ? { stepKey: one.stepKey, status: one.status } : null, message: one ? errors[one.stepKey]?.message ?? null : null, retry: one ? errors[one.stepKey]?.retry ?? false : false };
+		return code ? fail(code, answer) : answer;
 	},
 };

@@ -1,9 +1,10 @@
+import { randomUUID } from 'node:crypto';
 import { fail } from '@sveltejs/kit';
 import { app } from '$lib/local-case/app.server';
 import { documentRows } from '$lib/local-case/documents.server';
 import { viewContentOf, viewText } from '$lib/local-case/results.server';
 import { HEADS_FIELDS, canAddHead, evidenceTokens, type HeadsValues } from '$lib/views/litigation/heads';
-import { STORES, addRow, field, guarded, orderedRows, text } from '$lib/views/litigation/register.server';
+import { STORES, addAction, deleteAnswer, deleteRowChecked, deleteTarget, deleteValue, field, formAddId, orderedRows, rowVersion, text, valuesOf } from '$lib/views/litigation/register.server';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ parent }) => {
@@ -15,9 +16,10 @@ export const load: PageServerLoad = async ({ parent }) => {
 	return {
 		rows: saved.map((r) => {
 			const v = Object.fromEntries(HEADS_FIELDS.map((k) => [k, text(r.fields[k])])) as HeadsValues;
-			return { rowId: r.rowId, ...v, evidence: evidenceTokens(v.ref, (t) => docs.has(t)) };
+			return { rowId: r.rowId, del: deleteValue(r.rowId, rowVersion(r)), ...v, evidence: evidenceTokens(v.ref, (t) => docs.has(t)) };
 		}),
 		caption: viewText(viewContentOf(a.store, version.id), 'heads_tab', 'exportCaption'),
+		addId: randomUUID(),
 	};
 };
 
@@ -26,16 +28,16 @@ export const actions: Actions = {
 		const v = app().store.getVersion(params.vid);
 		if (!v) return fail(404, { message: 'Unknown results version' });
 		const f = await request.formData();
-		const values = Object.fromEntries(HEADS_FIELDS.map((k) => [k, field(f, k)])) as HeadsValues;
-		if (!canAddHead(values)) return fail(400, { values, message: null });
-		const r = await guarded(values, () => addRow(v.case_id, STORES.heads, values));
-		return r.ok ? { added: r.value } : r.failure;
+		const values = valuesOf(f, HEADS_FIELDS) as HeadsValues;
+		if (!canAddHead(values)) return fail(400, { op: 'add', values, message: null });
+		return addAction(v.case_id, STORES.heads, values, formAddId(f));
 	},
+	// a row's Delete submits the add form (formaction), so the typed entry travels with it and comes back in the answer
 	delete: async ({ params, request }) => {
 		const v = app().store.getVersion(params.vid);
 		if (!v) return fail(404, { message: 'Unknown results version' });
-		const rowId = field(await request.formData(), 'rowId');
-		const r = await guarded({}, () => app().userWork.deleteRow(v.case_id, STORES.heads, rowId));
-		return r.ok ? { deleted: rowId } : r.failure;
+		const f = await request.formData();
+		const { id, version } = deleteTarget(field(f, 'rowId'));
+		return deleteAnswer(id, valuesOf(f, HEADS_FIELDS), () => deleteRowChecked(v.case_id, STORES.heads, id, version));
 	},
 };

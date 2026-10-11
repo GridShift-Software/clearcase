@@ -23,11 +23,23 @@ export const stepOf = (o: unknown): EnfStep => {
 /** Phases in first-appearance order (v5: [...new Set(steps.map(s => s.phase))]). */
 export const phasesOf = (steps: readonly { phase: string }[]) => [...new Set(steps.map((s) => s.phase))];
 
+export interface StatusOption { value: string; label: string }
+
 /**
- * The options of a step's select: ENF_OPTS, and the current value as its own option when it is outside them
- * (S-enforcement_tab-2, corrected: v5 left no option selected, so the browser showed "To do").
+ * The options of a step's select: ENF_OPTS, the imported status as its own option when it is outside them
+ * (S-enforcement_tab-2, corrected: v5 left no option selected, so the browser showed "To do"), and the user's saved
+ * status when it is outside both (GRS-18 r2, D8: a status saved against another results version, or one no longer
+ * offered), labelled so, so the select always shows what is saved and never silently shows another option.
  */
-export const statusOptions = (current: string): string[] => (ENF_OPTS.includes(current) ? [...ENF_OPTS] : [...ENF_OPTS, current]);
+export function statusOptions(imported: string, saved: string | null = null): StatusOption[] {
+	const out = ENF_OPTS.map((v) => ({ value: v, label: v }));
+	if (!ENF_OPTS.includes(imported)) out.push({ value: imported, label: imported });
+	if (saved !== null && !out.some((o) => o.value === saved)) out.push({ value: saved, label: `${saved} (no longer offered)` });
+	return out;
+}
+
+/** Whether a status can be saved on a step: one of its options (re-saving a no-longer-offered status included). */
+export const allowedStatus = (r: Pick<EnfRow, 'status' | 'override'>, status: string) => statusOptions(r.status, r.override).some((o) => o.value === status);
 
 /** Rows with their keys and overrides; `keyOf` digests a step's canonical {phase, step}. */
 export function enforcementRows(raw: readonly unknown[], keyOf: (s: { phase: string; step: string }) => string, overrides: ReadonlyMap<string, string>): EnfRow[] {

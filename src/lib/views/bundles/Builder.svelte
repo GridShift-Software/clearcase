@@ -46,7 +46,8 @@
 	}
 	function clear() {
 		if (!confirm('Clear the builder? Files and page selections are discarded.')) return;
-		if (bld.out && !bld.out.saved) URL.revokeObjectURL(bld.out.url);
+		// a save in flight still has this output's PDF to keep (blobs[o.id] is set when it lands)
+		if (bld.out && !bld.out.saved && !bld.saving) URL.revokeObjectURL(bld.out.url);
 		bld.b = { ...emptyBuilder(), name: bld.b.name, seq: bld.b.seq };
 		docs.clear();
 		bld.out = null;
@@ -83,7 +84,7 @@
 			const t0 = performance.now();
 			const sources = sourcesOf(snap).map((s) => ({ doc: docs.get(s.fileId)!, from: s.from, to: s.to }));
 			const res = await assemble(sources, { start: 1, index: spec(snap, t, h), onProgress: (d, n, pages) => void (bld.prog = `Assembling… ${d} of ${n} ranges, ${pages} pages`) });
-			if (bld.out && !bld.out.saved) URL.revokeObjectURL(bld.out.url);
+			if (bld.out && !bld.out.saved && !bld.saving) URL.revokeObjectURL(bld.out.url);
 			const url = URL.createObjectURL(new Blob([res.bytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' }));
 			bld.out = { id: newId(), title: t, file: pdfName(t), pages: res.pages, indexPages: res.indexPages, bodyPages: res.bodyPages, plan: snap, url, saved: null };
 			bld.saveError = null;
@@ -129,6 +130,7 @@
 			const r = await postAction('save', [['id', o.id], ['bundle', JSON.stringify(entry)]]);
 			if (!r.ok) {
 				if (bld.out?.id === o.id) bld.saveError = r.message;
+				else URL.revokeObjectURL(o.url); // replaced meanwhile and not saved: nothing links to it now
 				return;
 			}
 			const no = String(r.data?.no ?? '');

@@ -199,6 +199,11 @@ async function builder(side, p, ctx) {
 		if (idx) pdfKeys(out, 'index_only', await pdfFacts(idx.buf), 99);
 		const [word] = await rawDownloads(p, () => clickText(p, '', 'button', 'Index (Word)'));
 		docxKeys(out, 'word', word);
+		// a range edited after Create, then the Word index again (L2352): v5 still links into the bundle, to the old pages
+		await typeCommit(p, `${ITEMS}[1]?.cells[2].querySelectorAll('input')[1]`, '2');
+		const [edited] = await rawDownloads(p, () => clickText(p, '', 'button', 'Index (Word)'));
+		out['word_edited.links'] = edited ? [...(unzip(edited.buf).get('word/_rels/document.xml.rels')?.toString('utf8') ?? '').matchAll(/Target="([^"]*)" TargetMode="External"/g)].map((m) => m[1]).join(' | ') : '';
+		await typeCommit(p, `${ITEMS}[1]?.cells[2].querySelectorAll('input')[1]`, '3');
 		// Save twice from one output (S-12), then Create again (S-2)
 		await clickText(p, '', 'button', 'Save to the bundle list');
 		await until(p, `!document.getElementById('cbbname')`);

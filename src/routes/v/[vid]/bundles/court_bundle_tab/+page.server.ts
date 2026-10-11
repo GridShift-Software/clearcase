@@ -4,7 +4,8 @@ import { datasetOf, viewContentOf, viewText } from '$lib/local-case/results.serv
 import { HEADER_FIELDS, HEADER_KEYS, bundlesOf, headerRaw } from '$lib/views/bundles/court';
 import { resolveLocator } from '$lib/views/bundles/links';
 import { bundleDownloads, bundlePathIndex } from '$lib/views/bundles/links.server';
-import { HEADER_STORE, deleteSingle, guarded, putSingle, serial, singleHash, singleRow } from '$lib/views/bundles/store.server';
+import { HEADER_STORE, deleteCustom, deleteSingle, guarded, putSingle, readCustom, saveCustom, serial, singleHash, singleRow } from '$lib/views/bundles/store.server';
+import { customOf, toBundle } from '$lib/bundles/builder';
 import type { Actions, PageServerLoad } from './$types';
 
 /** Per header field; over it a save is refused with the field named and every typed field kept (never cut). */
@@ -15,17 +16,20 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const { version } = await parent();
 	const a = app();
 	const raw = datasetOf<Raw>(a.store, version.id, 'bundles');
-	const bundles = bundlesOf(raw);
+	const shipped = bundlesOf(raw);
+	const custom = (await readCustom(version.caseId)).map((c) => toBundle(c, c.id));
 	const paths = bundlePathIndex(a.store, version.id);
-	// links resolve only by exact indexed path; parts open at their first page when it is above 1, as v5's docLink does
-	const links = bundles.map((b) => ({
+	// links resolve only by exact indexed path; parts open at their first page when it is above 1, as v5's docLink does.
+	// A saved builder bundle has no file on disk: its PDF lives in the page session, and its parts have no url (S-3).
+	const links = [...shipped.map((b) => ({
 		file: resolveLocator(paths, b.file), indexFile: resolveLocator(paths, b.indexFile),
 		rows: b.rows.map((r) => ({
 			slice: r.sliceUrl ? resolveLocator(paths, r.sliceUrl) : null,
 			parts: r.parts.map((p) => resolveLocator(paths, p.url, p.from > 1 ? p.from : null)),
 			caselines: r.caselines && typeof raw?.caselinesSrc === 'string' ? resolveLocator(paths, raw.caselinesSrc, r.caselines.from || null) : null,
 		})),
-	}));
+	})), ...custom.map((b) => ({ file: null, indexFile: null, rows: b.rows.map((r) => ({ slice: null, parts: r.parts.map(() => null), caselines: null })) }))];
+	const bundles = [...shipped, ...custom];
 	const vc = viewContentOf(a.store, version.id);
 	const t = (f: string) => viewText(vc, 'court_bundle_tab', f);
 	const str = (v: unknown) => (typeof v === 'string' && v ? v : null);
@@ -69,6 +73,8 @@ function headerWrite(vid: string, c: string, version: string, values: Record<str
 	}));
 }
 const versionOf = (f: FormData) => String(f.get('version') ?? '');
+/** A saved bundle's item list over this many rows, or its JSON over this many characters, is refused. */
+const MAX_ROWS = 5000, MAX_JSON = 2_000_000;
 
 export const actions: Actions = {
 	/** Save header: all eight fields (v5 cbHdrSave); a field over MAX_FIELD is refused, never cut. */
@@ -90,5 +96,28 @@ export const actions: Actions = {
 	clear: async ({ request, params }) => {
 		const c = versionCase(params.vid); if (!c) return fail(404, { message: 'Unknown results version' });
 		return headerWrite(params.vid, c, versionOf(await request.formData()), {}, () => putSingle(c, HEADER_STORE, Object.fromEntries(HEADER_KEYS.map((k) => [k, '']))));
+	},
+	/** Save to the bundle list (v5 cbBldSave): the builder output `id` and its entry as JSON; saving one output again
+	 * updates its entry and keeps its number. */
+	save: async ({ request, params }) => {
+		const c = versionCase(params.vid); if (!c) return fail(404, { message: 'Unknown results version' });
+		const f = await request.formData();
+		const id = String(f.get('id') ?? ''), json = String(f.get('bundle') ?? '');
+		if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return fail(400, { message: 'Not saved: the bundle has no valid id.' });
+		if (json.length > MAX_JSON) return fail(400, { message: 'Not saved: the item list is too large to keep.' });
+		let parsed: unknown = null;
+		try { parsed = JSON.parse(json); } catch { parsed = null; }
+		const entry = customOf(parsed && typeof parsed === 'object' ? { ...parsed, no: 'C' } : null);
+		if (!entry) return fail(400, { message: 'Not saved: the bundle could not be read.' });
+		if (entry.rows.length > MAX_ROWS) return fail(400, { message: `Not saved: a saved bundle keeps at most ${MAX_ROWS.toLocaleString('en')} items.` });
+		const shipped = bundlesOf(datasetOf<Raw>(app().store, params.vid, 'bundles'));
+		return guarded({ id }, async () => ({ saved: true, id, no: await saveCustom(c, id, entry, shipped) }));
+	},
+	/** Delete a saved bundle from the list (v5 cbDeleteBundle); the page asks first. */
+	delete: async ({ request, params }) => {
+		const c = versionCase(params.vid); if (!c) return fail(404, { message: 'Unknown results version' });
+		const id = String((await request.formData()).get('id') ?? '');
+		if (!/^[A-Za-z0-9_-]{1,64}$/.test(id)) return fail(400, { message: 'Not deleted: the bundle has no valid id.' });
+		return guarded({ id }, async () => { await deleteCustom(c, id); return { deleted: true, id }; });
 	},
 };

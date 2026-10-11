@@ -6,6 +6,9 @@
 // - register store discovery-mode: one row {mode} (v5 ess_dcs_schedule_mode_v1).
 // - register store bundle-header: one row of the 8 index header fields (v5 ess_dcs_bundle_header_v2).
 // - register store caselines-links: {path, seq} per linked file (v5 ess_dcs_caselines_docs_v1).
+// - table bundles_custom (case scope, key case_id + id): the bundles saved from the builder (v5
+//   ess_dcs_custom_bundles_v1), keyed by the id of the builder output they were saved from, so saving one output
+//   twice updates its entry (S-court_bundle_tab-12). `no` is C<i>, `rows` the v5 rows as JSON, `seq` the list order.
 // Every write runs in one in-process queue per case and store (serial), re-reading what it changes just before it
 // writes; a form sends the fields-hash of what it loaded, and a write over another tab's change is refused (409).
 import { createHash } from 'node:crypto';
@@ -13,6 +16,7 @@ import { fail, isHttpError } from '@sveltejs/kit';
 import { app } from '../../local-case/app.server.ts';
 import { UserWorkError, type RegisterRow, type RegisterValue } from '../../local-case/user-work.server.ts';
 import type { CO, Mode } from './discovery.ts';
+import { customOf, nextCustomNo, type Custom } from '../../bundles/builder.ts';
 
 export const OWNER = 'GRS-19';
 export const MARK_TABLE = 'bundles_schedule_mark';
@@ -96,6 +100,51 @@ export function writeMarks(caseId: string, changes: readonly MarkChange[], patch
 		return { saved, conflicts: [] };
 	});
 }
+
+export const CUSTOM_TABLE = 'bundles_custom';
+let customDefined: Promise<void> | null = null;
+export function customTable(): Promise<void> {
+	customDefined ??= app().userWork.defineTable({
+		name: CUSTOM_TABLE, owner: OWNER, scope: 'case',
+		description: 'Court bundles saved from the bundle builder: number, name, page counts and item list, keyed by the builder output they were saved from (GRS-19)',
+		columns: [
+			{ name: 'case_id', type: 'TEXT', notNull: true }, { name: 'id', type: 'TEXT', notNull: true }, { name: 'no', type: 'TEXT', notNull: true }, { name: 'name', type: 'TEXT' },
+			{ name: 'pages', type: 'INTEGER' }, { name: 'index_pages', type: 'INTEGER' }, { name: 'file_pages', type: 'INTEGER' }, { name: 'note', type: 'TEXT' }, { name: 'rows', type: 'TEXT' }, { name: 'seq', type: 'INTEGER' },
+		],
+		primaryKey: ['case_id', 'id'],
+	}).catch((e) => { customDefined = null; throw e; });
+	return customDefined;
+}
+export type SavedCustom = Custom & { id: string; seq: number };
+/** The saved bundles in list order; a row whose fields do not read as a bundle is left out. */
+export async function readCustom(caseId: string): Promise<SavedCustom[]> {
+	await customTable();
+	const out: SavedCustom[] = [];
+	for (const r of app().userWork.listTableRows(CUSTOM_TABLE, { caseId })) {
+		let rows: unknown = [];
+		try { rows = JSON.parse(String(r.rows ?? '[]')); } catch { rows = []; }
+		const c = customOf({ no: r.no, name: r.name, pages: r.pages, indexPages: r.index_pages, filePages: r.file_pages, note: r.note, rows });
+		if (c) out.push({ ...c, id: String(r.id), seq: Number(r.seq) || 0 });
+	}
+	return out.sort((a, b) => a.seq - b.seq || (a.id < b.id ? -1 : 1));
+}
+/** Save `c` under the builder output `id` in the custom queue: an existing entry keeps its number and place; a new
+ * one takes the lowest free C<i> (none of the saved or `shipped` numbers) and goes last. Returns its number. */
+export function saveCustom(caseId: string, id: string, c: Omit<Custom, 'no'>, shipped: readonly { no: string }[]): Promise<string> {
+	return serial(caseId, CUSTOM_TABLE, async () => {
+		const cur = await readCustom(caseId);
+		const old = cur.find((x) => x.id === id);
+		const no = old?.no ?? nextCustomNo(cur, shipped);
+		const seq = old?.seq ?? Math.max(0, ...cur.map((x) => x.seq)) + 1;
+		await app().userWork.putTableRow(CUSTOM_TABLE, { case_id: caseId, id, no, name: c.name, pages: c.pages, index_pages: c.indexPages, file_pages: c.filePages, note: c.note, rows: JSON.stringify(c.rows), seq }, { owner: OWNER });
+		return no;
+	});
+}
+/** Remove the saved bundle of output `id` (no document is deleted); removing one already gone is not an error. */
+export const deleteCustom = (caseId: string, id: string) => serial(caseId, CUSTOM_TABLE, async () => {
+	await customTable();
+	await app().userWork.deleteTableRow(CUSTOM_TABLE, { case_id: caseId, id }, { owner: OWNER });
+});
 
 /** A one-row register store: its single row (the first by seq, then id), or null. */
 export function singleRow(caseId: string, store: string): RegisterRow | null {

@@ -11,5 +11,7 @@ export const LEGACY: Readonly<Record<string, string[]>>;
 export function registryKeys(root?: string): Promise<Record<string, string>>;
 type Opts = { views?: string[]; owners?: Record<string, string> | null; keys?: Record<string, string> | null };
 export function validateRegister(doc: unknown, opts?: Opts & { fragment?: string | null; ids?: Set<unknown> }): string[];
-export function loadRegister(file?: string, opts?: Opts): { entries: Entry[]; problems: string[]; files: Record<string, string> };
+export function registerFiles(file?: string): string[];
+export function loadRegister(file?: string, opts?: Opts): { entries: Entry[]; problems: string[]; files: Record<string, string>; read: string[]; bytes: Record<string, Uint8Array> };
 export function unusedEntries(entries: Entry[], ran: string[], used: Set<string>): string[];
+export function runNonEvidence(opts?: { register?: string; appV5Html?: string; loaded?: readonly string[]; bytes?: Readonly<Record<string, Uint8Array>>; modules?: readonly string[]; noSweeps?: boolean; noExports?: boolean; maxCombos?: string }): string[];

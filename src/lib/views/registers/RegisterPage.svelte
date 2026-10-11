@@ -165,6 +165,13 @@
 		else if (!active.closest('#register-ask')) opener = active;
 		void tick().then(() => document.getElementById('register-ask-keep')?.focus());
 	});
+	// A cancelled Back is undone with a popstate, after which the layout moves focus to the heading (BA-14): the open
+	// question takes it back
+	onMount(() => {
+		const h = () => setTimeout(() => { if (ask) document.getElementById('register-ask-keep')?.focus(); });
+		addEventListener('popstate', h);
+		return () => removeEventListener('popstate', h);
+	});
 	/** Focus the first of `targets` that can take it: an element that is gone or disabled falls through to the next. */
 	async function focusFirst(...targets: (HTMLElement | null | undefined)[]) {
 		await tick();

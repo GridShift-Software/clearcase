@@ -57,3 +57,16 @@ describe('people and entities (BA-07)', () => {
 		expect(anyRole([automated])).toBe(true);
 	});
 });
+
+/** Synthetic imported values that would become a formula in a reader that splits on `;`, tab, CR or LF (CC-04 r4 M1). */
+const HOSTILE = ['x;=1+1', 'x\t=2', 'a\r\n=HYPERLINK("http://a")', 'x\n-1'];
+const segmentStarts = (csv: string) => csv.split(/[;\t\r\n]/).map((s) => s.trimStart()[0] ?? '');
+
+describe('the contracts export neutralises imported values for a `;`, tab or line-split reader (CC-04 r4 M1)', () => {
+	it('starts no field after a separator with a formula character', () => {
+		const csv = toCSV(contractsCsvRows([{ key: 'G1', items: HOSTILE.map((h, i) => ({ ref: `OD-${i}`, date: '', title: h, note: h, text_status: 'none', url: h })) }]));
+		expect(segmentStarts(csv).filter((c) => '=+-@'.includes(c) && c !== '')).toEqual([]);
+		expect(csv).toContain("x;'=1+1");
+		expect(csv).toContain("x\n'-1");
+	});
+});

@@ -97,3 +97,17 @@ describe('BA-08 coverage and action items', () => {
 		expect(actionItems(corpus)).toEqual({ total: 1, shown: [{ ref: 'OD-003', date: '2001-03-01', t: 'Please submit payment by 3 March.' }] });
 	});
 });
+
+/** Synthetic imported values that would become a formula in a reader that splits on `;`, tab, CR or LF (CC-04 r4 M1). */
+const HOSTILE = ['x;=1+1', 'x\t=2', 'a\r\n=HYPERLINK("http://a")', 'x\n-1'];
+const segmentStarts = (csv: string) => csv.split(/[;\t\r\n]/).map((s) => s.trimStart()[0] ?? '');
+
+describe('the search export neutralises imported values for a `;`, tab or line-split reader (CC-04 r4 M1)', () => {
+	it('starts no field after a separator with a formula character', () => {
+		const rows: SearchRow[] = HOSTILE.map((h, i) => ({ ...listRow(`SD-${i}`, { subject: h, sender: h, filename: h, bundle: h, url: h }), cc: '' }));
+		const csv = toCSV(exportRows(rows));
+		expect(segmentStarts(csv).filter((c) => '=+-@'.includes(c) && c !== '')).toEqual([]);
+		expect(csv).toContain("x;'=1+1");
+		expect(csv).toContain("x\n'-1");
+	});
+});

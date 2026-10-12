@@ -79,10 +79,11 @@ const objs = (v: JsonValue | undefined): JsonObject[] => arr(v).filter(isObject)
 
 /**
  * The locators of the files the bundle views link (GRS-45): each bundle's PDF and index PDF, each item's extract and
- * source parts, the CaseLines source, and every discovery and supplementary schedule file. Source order.
+ * source parts, the CaseLines source (both spellings), and every discovery and supplementary schedule file. Source order.
  */
-export function packageLocators(bundles: JsonValue | undefined, sched: JsonValue | undefined): string[] {
-  const out: JsonValue[] = [];
+export function packageLocators(bundles: JsonValue | undefined, sched: JsonValue | undefined, caselinesUrl?: JsonValue): string[] {
+  // the CaseLines tab links the viewer code's own BUNDLE.url (view-content), which v5 spells apart from caselinesSrc
+  const out: JsonValue[] = [caselinesUrl ?? null];
   if (isObject(bundles)) {
     out.push(bundles.caselinesSrc ?? null);
     for (const b of objs(bundles.list)) {
@@ -171,7 +172,7 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   // path (or one that folds to it), a folder and a locator that does not decode are not package files; the dataset
   // link scan reports unsafe locators.
   const taken = new Set(jobs.map((j) => foldPath(j.path)));
-  for (const u of packageLocators(DATA.bundles, roots['window.__SCHED__'])) {
+  for (const u of packageLocators(DATA.bundles, roots['window.__SCHED__'], (vc.data.caselines_tab as JsonObject | undefined)?.url as JsonValue | undefined)) {
     const d = decodeLegacyLocator(u);
     if (!d.ok || d.directory || taken.has(foldPath(d.path))) continue;
     taken.add(foldPath(d.path));

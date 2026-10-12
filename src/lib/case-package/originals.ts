@@ -13,6 +13,7 @@ import type { At, DiagSink } from './diagnostics.ts';
 import type { Limits } from './limits.ts';
 import { contentContradictsType } from './media.ts';
 import { checkRelPath, foldPath, isReservedPath } from './paths.ts';
+import { isPathKey } from './refs.ts';
 import type { Asset, FileAsset } from './schema.ts';
 import { escapePointer } from './strict-json.ts';
 
@@ -173,6 +174,11 @@ export async function verifyOriginals(root: string, assets: Record<string, Asset
     const at = assetAt(ref, a);
     if (loc.kind === 'missing') { unavailable.add(ref); sink.add('ORIG_MISSING', 'original not found in the selected case folder; the document stays flagged as missing', at); }
     else if (loc.kind === 'escape') { unavailable.add(ref); sink.add('ORIG_ESCAPE', 'original resolves outside the case folder; refused', at); }
+    else if (isPathKey(ref) && (loc.kind === 'reserved' || loc.kind === 'not-file' || loc.kind === 'unreadable')) {
+      // a package file is a link target: one that is no longer a readable file is not served; it never refuses the case
+      unavailable.add(ref);
+      sink.add('ORIG_MISSING', `the linked file is not served (${loc.kind}); its link shows as not served`, at);
+    }
     else if (loc.kind === 'reserved') { unavailable.add(ref); sink.add('ASSET_PATH_RESERVED', 'original resolves into the reserved .clearcase/ area; refused', at); }
     else if (loc.kind === 'not-file') { unavailable.add(ref); sink.add('ORIG_NOT_FILE', 'original is not a regular file; refused', at); }
     else if (loc.kind === 'unreadable') { unavailable.add(ref); sink.add('ORIG_UNREADABLE', 'original cannot be read', at); }
@@ -213,6 +219,7 @@ export async function verifyOriginals(root: string, assets: Record<string, Asset
       } catch (e) {
         if (e instanceof Interrupted) throw e;
         progress.done++;
+        if (isPathKey(ref)) { unavailable.add(ref); sink.add('ORIG_MISSING', 'the linked file cannot be read; its link shows as not served', at); continue; }
         sink.add('ORIG_UNREADABLE', `original cannot be read (${(e as NodeJS.ErrnoException).code ?? 'error'})`, at);
         continue;
       }

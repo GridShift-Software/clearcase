@@ -1,6 +1,6 @@
 // GRS-45 (BASE-R3): bundle, index, extract, part and schedule files outside the document register are package
 // assets under a non-ref key P-<sha256(path)[:16]>, verified at import like every original. Synthetic data only.
-import { chmod, mkdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { convertV5, importCandidate, readCandidate, type ImportResult } from '../../src/lib/case-package/index.ts';
@@ -71,9 +71,11 @@ describe('the v5 adapter indexes package files', () => {
     const assets = assetsOf(b.files);
     const pkg = Object.entries(assets).filter(([k]) => k.startsWith('P-'));
     const byPath: Record<string, { key: string; kind: string }> = Object.fromEntries(pkg.map(([k, a]) => [a.path, { key: k, kind: a.kind }]));
-    expect(Object.keys(byPath).sort()).toEqual([...Object.keys(ON_DISK), 'BUNDLES/extracts/Gone.pdf'].sort());
+    // BUNDLE.url of the viewer code (the CaseLines tab's own link) is not on disk here
+    expect(Object.keys(byPath).sort()).toEqual([...Object.keys(ON_DISK), 'BUNDLES/extracts/Gone.pdf', 'INVENTED FOLDER/INVENTED BUNDLE.pdf'].sort());
     for (const [p, v] of Object.entries(byPath)) expect(v.key).toBe(pathAssetKey(p));
     expect(byPath['BUNDLES/extracts/Gone.pdf']!.kind).toBe('missing');
+    expect(byPath['INVENTED FOLDER/INVENTED BUNDLE.pdf']!.kind).toBe('missing');
     for (const p of Object.keys(ON_DISK)) {
       expect(byPath[p]!.kind).toBe('file');
       expect(assets[byPath[p]!.key]).toMatchObject({ sha256: sha256Hex(ON_DISK[p as keyof typeof ON_DISK]), size: ON_DISK[p as keyof typeof ON_DISK].byteLength, mediaType: 'application/pdf' });
@@ -89,7 +91,7 @@ describe('the v5 adapter indexes package files', () => {
     expect(errors(r)).toEqual([]);
     // no orphan, text or shared-content diagnostics for package files (the part is byte-identical to the schedule
     // file and the bundle may equal a document); the missing extract is reported as missing
-    expect(r.diagnostics.filter((d) => d.subject?.startsWith('P-')).map((d) => d.code).sort()).toEqual(['ASSET_MISSING_AT_BUILD']);
+    expect(r.diagnostics.filter((d) => d.subject?.startsWith('P-')).map((d) => d.code).sort()).toEqual(['ASSET_MISSING_AT_BUILD', 'ASSET_MISSING_AT_BUILD']);
     expect(r.diagnostics.filter((d) => d.code === 'ASSET_DUPLICATE_CONTENT' && d.subject === sha256Hex(ON_DISK['BUNDLES/extracts/Item 1.pdf']).slice(0, 16))).toEqual([]);
     const key = pathAssetKey('BUNDLES/Bundle C.pdf');
     expect(r.candidate!.original(key)).toMatchObject({ path: 'BUNDLES/Bundle C.pdf', status: 'verified' });
@@ -164,5 +166,37 @@ describe('one odd bundle or schedule locator does not refuse the case (review M1
         if (odd.indexed) expect(r.candidate!.isUnavailable(key)).toBe(true);
       });
     }
+  }
+});
+
+describe('the CaseLines tab link (review L1)', () => {
+  it('indexes the viewer code BUNDLE.url as a package file even when bundles.caselinesSrc names another path', async () => {
+    const b = await packageFiles('pkgcl');
+    const bytes = pdf('invented consolidated pack');
+    await writeFile(path.join(b.caseDir, 'SOURCES', 'Consolidated pack.pdf'), bytes);
+    const html = new TextDecoder().decode(b.html).replace('./INVENTED%20FOLDER/INVENTED%20BUNDLE.pdf', url('SOURCES/Consolidated pack.pdf'));
+    const r = await convertV5({ html: new TextEncoder().encode(html), htmlName: 'workspace.html', caseFolder: b.caseDir, caseId: 'synthetic-case' });
+    expect(r.ok).toBe(true);
+    // the tab looks up view-content caselines_tab.url, so the file must be indexed under that path
+    expect(assetsOf(r.files!)[pathAssetKey('SOURCES/Consolidated pack.pdf')]).toMatchObject({ kind: 'file', path: 'SOURCES/Consolidated pack.pdf', sha256: sha256Hex(bytes) });
+  });
+});
+
+describe('a package file that changed after conversion does not refuse the import (review M1, import path)', () => {
+  const key = pathAssetKey('SOURCES/Part one.pdf');
+  const cases: Record<string, (dir: string) => Promise<void>> = {
+    'became a folder': async (dir) => { await rm(path.join(dir, 'SOURCES', 'Part one.pdf')); await mkdir(path.join(dir, 'SOURCES', 'Part one.pdf')); },
+    'became unreadable': async (dir) => { await chmod(path.join(dir, 'SOURCES', 'Part one.pdf'), 0o000); },
+  };
+  for (const [name, change] of Object.entries(cases)) {
+    it(`one that ${name} is unavailable and not served; the rest imports`, async () => {
+      const b = await packageFiles('pkgchanged');
+      await change(b.caseDir);
+      const r = await importCandidate({ files: b.files }, b.caseDir);
+      expect(errors(r)).toEqual([]);
+      expect(r.verdict).not.toBe('reject');
+      expect(r.candidate!.isUnavailable(key)).toBe(true);
+      expect(r.candidate!.original(pathAssetKey('BUNDLES/Bundle C.pdf'))).toMatchObject({ status: 'verified' });
+    });
   }
 });

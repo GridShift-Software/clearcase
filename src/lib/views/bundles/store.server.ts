@@ -140,6 +140,20 @@ export function saveCustom(caseId: string, id: string, c: Omit<Custom, 'no'>, sh
 		return no;
 	});
 }
+/** Write bundles imported from v5 under their stable ids (the legacy import, GRS-20): an id already saved keeps its place
+ * and takes the imported content, a new one goes last in the given order, so importing one file twice writes the same
+ * rows. Each bundle is its own transaction (the user-work API has no multi-row one); a repeat finishes a stopped import. */
+export function importCustom(caseId: string, list: readonly (Custom & { id: string })[]): Promise<number> {
+	return serial(caseId, CUSTOM_TABLE, async () => {
+		const cur = await readCustom(caseId);
+		let seq = Math.max(0, ...cur.map((x) => x.seq));
+		for (const c of list) {
+			const old = cur.find((x) => x.id === c.id);
+			await app().userWork.putTableRow(CUSTOM_TABLE, { case_id: caseId, id: c.id, no: c.no, name: c.name, pages: c.pages, index_pages: c.indexPages, file_pages: c.filePages, note: c.note, rows: JSON.stringify(c.rows), seq: old?.seq ?? ++seq }, { owner: OWNER });
+		}
+		return list.length;
+	});
+}
 /** Remove the saved bundle of output `id` (no document is deleted); removing one already gone is not an error. */
 export const deleteCustom = (caseId: string, id: string) => serial(caseId, CUSTOM_TABLE, async () => {
 	await customTable();

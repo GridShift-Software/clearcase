@@ -24,6 +24,11 @@
 // expectedExamples {path, sha256 = the profile pin}, accepted {resultsVersion, diagnosticsSha256}, optional
 // pilot {workDir, packageDir}) and everything derived from it stay in .local/ and the report directory. This file
 // holds no case values. The canonical fixture is read only; negative controls use disposable copies in workDir.
+//
+// Fail fast (lib/lifecycle.mjs): the browser launch and first page (2 min) and each lane or check (3 min; the slowest
+// takes about 5 s) run under a deadline and end at once when Chromium exits or a page crashes. The run then stops:
+// that lane fails, the rest are not run, lanes-v5.json and criteria.json record `aborted` and `evidence: false`, and
+// the process exits 1 within seconds. `browser` records the launch (a failed first launch is retried once).
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
@@ -43,6 +48,7 @@ ensureOffline(import.meta.filename);
 const { proveOffline } = await import('./lib/netproof.mjs');
 const { startCanary } = await import('./lib/canary.mjs');
 const { launch } = await import('./lib/cdp.mjs');
+const { abortOf, abortReason, deadline, exitWithin, guard } = await import('./lib/lifecycle.mjs');
 const { client } = await import('./lib/client.mjs');
 const { startServer } = await import('./lib/server.mjs');
 const { isolatedBuild } = await import('./lib/isolated-build.mjs');
@@ -89,7 +95,7 @@ if (iso) {
 	fresh = freshness(REPO, b.stamp, { buildDir: b.buildDir, appRoot: b.root });
 	if (!fresh.fresh && !allowedStale) die(2, refusal('verify:pilot:v5', fresh).replace(/^verify:pilot:v5: /, '')); // refused above; the tree changed since
 }
-const evidence = evidenceRecord(fresh, allowedStale);
+let evidence = evidenceRecord(fresh, allowedStale);
 console.log(`verify:pilot:v5: ${freshLine(fresh)}`);
 const buildMatchesHead = build.stamp?.revision === git.head && !build.stamp?.dirty;
 // When the stamp names another commit, list what differs between it and HEAD (an app-equivalence note, not a pass).
@@ -177,23 +183,30 @@ async function checkStack(C, Ln) {
 
 const order = [2, 3, 1, 4, 5, 6, 'stack', 'registry', 'slots', 'dates', 9, 7, 'routes', 'pages', 8, 10, 'contracts', 'isolation'];
 const bodies = { 1: L.lane1, 2: L.lane2, 3: L.lane3, 4: L.lane4, 5: L.lane5, 6: L.lane6, 7: L.lane7, 8: L.lane8, 9: L.lane9, 10: L.lane10, stack: checkStack, registry: L.checkRegistry, dates: L.checkDates, routes: L.checkRoutes, pages: L.checkPages, contracts: L.checkContracts, slots: L.checkSlots, isolation: L.checkIsolation };
-let b;
+let b, abort = null;
+const LANE_MS = deadline(3 * 60_000);
+const laneName = (id) => (typeof id === 'number' ? `lane-${String(id).padStart(2, '0')}` : `check-${id}`);
 try {
 	if (!pkg) throw new Error(`no v5 package: ${pkgRun.stderr}`);
 	await start();
-	b = await launch({ profileRoot: join(work, 'profiles') });
-	C.b = b;
-	C.P = await openPage(b);
+	await guard('setup (browser launch and first page)', deadline(2 * 60_000), async () => {
+		b = await launch({ profileRoot: join(work, 'profiles') });
+		C.b = b;
+		C.P = await openPage(b);
+	});
 	let aborted = null;
 	for (const id of order) {
 		const lane = new Lane(id, TITLES[id] ?? EXTRA[id], { negativeControl: id === 7 || id === 8 });
 		C.lanes.set(id, lane);
 		if (aborted) { lane.status = 'FAIL'; lane.note(`not run: ${aborted}`); continue; }
-		await runLane(lane, (x) => bodies[id](C, x));
-		if (C.srv?.exited) aborted = `the server exited (${JSON.stringify(C.srv.exited)}); see ${logFile}`;
+		await runLane(lane, (x) => guard(laneName(id), LANE_MS, () => bodies[id](C, x)).catch((e) => { abort = abortOf(e, laneName(id)); throw e; }));
+		if (abort) { aborted = abortReason(abort); console.error(`verify:pilot:v5: ${aborted}`); exitWithin(30_000, 1, 'verify:pilot:v5'); }
+		else if (C.srv?.exited) aborted = `the server exited (${JSON.stringify(C.srv.exited)}); see ${logFile}`;
 	}
 } catch (e) {
-	console.error(`run aborted: ${e?.stack ?? e}`);
+	abort = abortOf(e, 'setup');
+	if (abort) exitWithin(30_000, 1, 'verify:pilot:v5');
+	console.error(`run aborted${abort ? ` in ${abort.step}: ${abort.why}` : `: ${e?.stack ?? e}`}`);
 	for (const id of order) if (!C.lanes.has(id)) { const lane = new Lane(id, TITLES[id] ?? EXTRA[id]); lane.status = 'FAIL'; lane.note(`not run: ${String(e).slice(0, 500)}`); C.lanes.set(id, lane); }
 } finally {
 	await b?.close().catch(() => {});
@@ -202,6 +215,7 @@ try {
 }
 
 // ---- outputs --------------------------------------------------------------------------------------------------------
+if (abort) evidence = evidenceRecord(fresh, allowedStale, [abortReason(abort)]);
 const hdr = header();
 const files = {};
 for (const lane of C.lanes.values()) files[lane.id] = writeLane(out, lane, hdr);
@@ -224,7 +238,7 @@ const CRITERIA = [
 ];
 const matrix = CRITERIA.map(([id, text, ids]) => ({ criterion: id, text, evidence: ev(ids), files: ids.map((x) => files[x]).filter(Boolean), status: ids.every((x) => st(x) === 'PASS') ? 'PASS' : 'FAIL' }));
 const ok = [...C.lanes.values()].every((l) => l.status === 'PASS') && C.lanes.size === order.length;
-const meta = { ok, ...evidence, revision: git, build: { mode: build.mode, root: build.root, buildDir: build.buildDir, stamp: build.stamp, matchesHead: buildMatchesHead, deltaToHead: buildDelta }, bun, chromium, host, fixture: fx.sha256, offline: proof, canaryHits: canary.hits.length, command: `bun tests/e2e/pilot/v5-lanes.mjs ${argv.join(' ')}`, reportDir: out };
+const meta = { ok, ...evidence, aborted: abort?.record ?? null, browser: b?.launch ?? null, revision: git, build: { mode: build.mode, root: build.root, buildDir: build.buildDir, stamp: build.stamp, matchesHead: buildMatchesHead, deltaToHead: buildDelta }, bun, chromium, host, fixture: fx.sha256, offline: proof, canaryHits: canary.hits.length, command: `bun tests/e2e/pilot/v5-lanes.mjs ${argv.join(' ')}`, reportDir: out };
 writeFileSync(join(out, 'criteria.json'), JSON.stringify({ ...meta, matrix }, null, 1));
 writeFileSync(join(out, 'criteria.md'), [
 	'# GRS-12 (CC-03) real-v5 criteria matrix', '',

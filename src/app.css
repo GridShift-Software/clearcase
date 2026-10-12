@@ -52,6 +52,7 @@ textarea, input[size], select { max-width: 100%; box-sizing: border-box; }
 /* A table or grid wider than the viewport (the chronology's fixed tracks) scrolls inside its own box, never the
    document: TableScroll.svelte, a labelled region that takes focus. */
 .table-scroll { overflow-x: auto; max-width: 100%; }
+@media print { .table-scroll { overflow: visible; } }
 .grid-row { display: grid; gap: 0 8px; padding: 2px 8px; border-bottom: 1px solid #eee; }
 .chrono-grid .grid-row { grid-template-columns: 6.5em 7em 7.5em minmax(0, 1fr) 9em 8em 8em 6em 6em; }
 .grid-row:not(.grid-head) { content-visibility: auto; contain-intrinsic-size: auto 22px; }

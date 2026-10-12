@@ -47,6 +47,9 @@ const TARGET = process.env.CLASSES_TARGET ? new RegExp(process.env.CLASSES_TARGE
 const wanted = (s) => !TARGET || TARGET.test(s);
 /** The formula payload: one segment after each of ;, tab, CR and LF. A text input drops CR and LF; a textarea keeps them. */
 const PAYLOAD = ' Syn;=CCX(1)\t+CCX(2)\r-CCX(3)\n@CCX(4)';
+/** A URL in two documents' excerpts: the unbroken text a diff of them shows (hoa_diff, class narrow). */
+const LONG_URL = 'https://synthetic.invalid/' + 'a1b2c3d4e5'.repeat(12);
+const withLongUrl = (r) => { for (const row of r.DATA.chronology) if (row.ref === 'OD-001' || row.ref === 'OD-002') row.excerpt = `Terms of ${row.ref} are at ${LONG_URL}${row.ref.slice(-1)} and nowhere else.`; };
 const UNBROKEN = 'syn_unbroken_case_id_'.padEnd(64, '0123456789abcdefghijklmnopqrstuvwxyz');
 
 const results = [];
@@ -449,23 +452,24 @@ async function csv(route, url, viewId, forms) {
  * The page's layout at 320 and 390 px: the document's scroll width and what sticks out; whether the 64-character id is
  * shown and sticks out; every visible table (<table>, role=table or grid) and, for one wider than the viewport, the
  * scroll container it sits in (its own box or the nearest ancestor with overflow-x auto or scroll), whether that box
- * fits the viewport, takes keyboard focus and is a labelled region; and every heading of the page that an export or
+ * fits the viewport, takes keyboard focus and is a labelled region (a box that fits its table is not a tab stop); and every heading of the page that an export or
  * page control (the page header's actions, a button or link named export, csv or download) overlaps.
  */
-async function measure(url) {
+async function measure(url, expect = null) {
 	const layouts = {};
 	try {
 		for (const width of [320, 390]) {
 			await p.s('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 1, mobile: true });
 			await open(url);
-			layouts[width] = await p.evaluate(`(() => { const se = document.scrollingElement; const vw = se.clientWidth; const out = (e) => e.getBoundingClientRect().right > vw + 1 && getComputedStyle(e).position !== 'fixed';
+			// every <details> is opened: what a closed one holds is a state the reader reaches by a click
+			layouts[width] = await p.evaluate(`(() => { const closed = [...document.querySelectorAll('details:not([open])')]; closed.forEach((d) => { d.open = true; }); const se = document.scrollingElement; const vw = se.clientWidth; const out = (e) => e.getBoundingClientRect().right > vw + 1 && getComputedStyle(e).position !== 'fixed';
 				const vis = ${VIS};
 				const name = (e) => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + (e.className && typeof e.className === 'string' ? '.' + e.className.split(' ')[0] : '') + (e.getAttribute('aria-label') ? '[' + e.getAttribute('aria-label').slice(0, 30) + ']' : '');
 				const holders = [...document.querySelectorAll('body *')].filter((e) => [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.includes(${J(UNBROKEN)})) || (e.value ?? '').includes?.(${J(UNBROKEN)}));
 				const scroller = (e) => { for (let x = e; x && x !== document.body; x = x.parentElement) if (/auto|scroll/.test(getComputedStyle(x).overflowX)) return x; return null; };
 				const tables = [...document.querySelectorAll('main table, main [role=table], main [role=grid]')].filter(vis).filter((e) => !e.parentElement.closest('table, [role=table], [role=grid]')).map((e) => {
 					const w = Math.max(e.getBoundingClientRect().width, e.scrollWidth);
-					if (w <= vw + 1) return { name: name(e), width: Math.round(w) };
+					if (w <= vw + 1) { const t = e.closest('.table-scroll'); return { name: name(e), width: Math.round(w), idleTabStop: !!t && t.getAttribute('tabindex') === '0' && t.scrollWidth <= t.clientWidth }; }
 					const box = scroller(e);
 					const r = box?.getBoundingClientRect();
 					return { name: name(e), width: Math.round(w), box: box && name(box), fits: !!box && r.left >= -1 && r.right <= vw + 1, focusable: !!box && box.getAttribute('tabindex') === '0', region: box?.getAttribute('role') === 'region' && !!(box.getAttribute('aria-label') || box.getAttribute('aria-labelledby')) };
@@ -475,7 +479,8 @@ async function measure(url) {
 				const controls = [...document.querySelectorAll('main button, main a, main [role=button]')].filter(vis).filter((e) => !inTable(e) && (e.closest('.page-actions') || /export|csv|download/i.test((e.id || '') + ' ' + e.textContent)));
 				const meet = (a, b) => { const r = a.getBoundingClientRect(), s = b.getBoundingClientRect(); return Math.min(r.right, s.right) - Math.max(r.left, s.left) > 1 && Math.min(r.bottom, s.bottom) - Math.max(r.top, s.top) > 1; };
 				const overlaps = headings.flatMap((h) => controls.filter((c) => !h.contains(c) && !c.contains(h) && meet(h, c)).map((c) => name(h) + ' x ' + name(c)));
-				return { vw, scrollWidth: se.scrollWidth, wide: [...document.querySelectorAll('body *')].filter(out).slice(0, 3).map(name), idShown: holders.length > 0, idOut: holders.filter(out).map(name),
+				const main = document.querySelector('main#main'); const nav = performance.getEntriesByType('navigation')[0];
+				return { vw, rendered: !!main && !/^error/.test(main.dataset.ready ?? '') && (nav?.responseStatus ?? 200) < 400, status: nav?.responseStatus ?? null, ready: main?.dataset.ready ?? null, stateShown: ${J(expect)} ? !!document.querySelector(${J(expect)}) : true, detailsOpened: closed.length, scrollWidth: se.scrollWidth, wide: [...document.querySelectorAll('body *')].filter(out).slice(0, 3).map(name), idShown: holders.length > 0, idOut: holders.filter(out).map(name),
 					tables, controls: controls.length, overlaps, controlsOut: controls.filter((c) => { const r = c.getBoundingClientRect(); return r.left < -1 || r.right > vw + 1; }).map(name) }; })()`);
 		}
 	} finally { await p.s('Emulation.clearDeviceMetricsOverride').catch(() => {}); }
@@ -489,21 +494,30 @@ const TABLE_SOURCE = /<table\b|role="(table|grid)"/;
  * the page does not scroll sideways; every table wider than the viewport scrolls inside its own box, which fits the
  * viewport, takes keyboard focus (tabindex 0) and is a labelled region; no heading overlaps an export or page control,
  * and none of those controls sticks out. A page whose source renders a table and that shows none at a width fails,
- * unless declared.mjs NO_TABLE says why (and then it must show none); TABLE_QUERY names the query that shows it.
+ * unless declared.mjs NO_TABLE says why (and then it must show none); TABLE_QUERY names the query that shows it. It also
+ * fails a page that did not render (error page, failed load). Page states that exist only after a choice are opened
+ * through declared.mjs CHOICE_STATES (a state that did not come up fails); every <details> is opened first.
  */
-async function narrow(t, idKind) {
-	return scenario(`narrow:${t.route}${t.route.endsWith('[view]') ? ':' + t.view : ''}@${idKind}`, t.view, `with ${idKind === 'long' ? 'a 64-character case id without break opportunity' : 'an ordinary case id'} the page does not scroll sideways at 320 or 390 px; wide tables scroll in a labelled, focusable box; headings and export controls do not overlap`, async () => {
-		const url = t.url + (D.TABLE_QUERY[t.route]?.query ?? '');
-		const layouts = await measure(url);
+async function narrow(t, idKind, state = null) {
+	return scenario(`narrow:${t.route}${t.route.endsWith('[view]') ? ':' + t.view : ''}${state ? '#' + state.name : ''}@${idKind}`, t.view, `with ${idKind === 'long' ? 'a 64-character case id without break opportunity' : 'an ordinary case id'} the page${state ? ` in its ${state.name} state` : ''} does not scroll sideways at 320 or 390 px; wide tables scroll in a labelled, focusable box; headings and export controls do not overlap`, async () => {
+		const url = t.url + (state ? state.query : D.TABLE_QUERY[t.route]?.query ?? '');
+		const layouts = await measure(url, state?.expect ?? null);
 		const all = Object.values(layouts);
 		const expects = pageUses(ROOT, t.route, TABLE_SOURCE);
-		const declared = D.NO_TABLE[t.route];
+		const declared = state ? null : D.NO_TABLE[t.route];
 		const wide = all.flatMap((l) => l.tables.filter((x) => x.width > l.vw + 1));
-		const checks = { noSideways: all.every((l) => l.scrollWidth <= l.vw), wideTablesScrollInBox: wide.every((x) => !!x.box && x.fits), scrollBoxesFocusable: wide.every((x) => x.focusable), scrollBoxesLabelled: wide.every((x) => x.region), headingsClearOfControls: all.every((l) => l.overlaps.length === 0), controlsInView: all.every((l) => l.controlsOut.length === 0) };
+		// a page that did not render (an error page, a failed load) has nothing to measure: it fails, never passes by being empty
+		const checks = { rendered: all.every((l) => l.rendered), ...(state ? { stateShown: all.every((l) => l.stateShown) } : {}), noSideways: all.every((l) => l.scrollWidth <= l.vw), wideTablesScrollInBox: wide.every((x) => !!x.box && x.fits), scrollBoxesFocusable: wide.every((x) => x.focusable), scrollBoxesLabelled: wide.every((x) => x.region), scrollBoxesTabStopOnlyWhenWide: all.every((l) => l.tables.every((x) => !x.idleTabStop)), headingsClearOfControls: all.every((l) => l.overlaps.length === 0), controlsInView: all.every((l) => l.controlsOut.length === 0) };
 		if (declared) checks.declaredNoTable = all.every((l) => l.tables.length === 0);
-		else if (expects) checks.tableRendered = all.every((l) => l.tables.length > 0);
-		return { evidence: { url, expectsTable: expects, declaredNoTable: declared ?? null, layouts }, checks };
+		else if (expects && !state) checks.tableRendered = all.every((l) => l.tables.length > 0);
+		return { evidence: { url, state: state?.name ?? null, expectsTable: expects, declaredNoTable: declared ?? null, layouts }, checks };
 	});
+}
+
+/** narrow for a page and, after it, for each of its declared choice states (declared.mjs CHOICE_STATES). */
+async function narrowAll(t, idKind) {
+	await narrow(t, idKind);
+	for (const state of D.CHOICE_STATES[t.route] ?? []) await narrow(t, idKind, state);
 }
 
 /**
@@ -574,7 +588,7 @@ let ok = false;
 try {
 	A = appServer({ name: 'classes', root: ROOT, buildDir: BUILD, port: 43800, origPort: 43801, dir: tmp, env: { CLEARCASE_FIXED_NOW: CLOCK, TZ: 'UTC' } });
 	await A.start();
-	const main = await buildCase(join(tmp, 'case'), { caseId: 'e2e-classes' });
+	const main = await buildCase(join(tmp, 'case'), { caseId: 'e2e-classes', edit: withLongUrl });
 	const imp = await A.c.importPkg(main.caseDir, main.pkgDir);
 	await A.c.activate(imp.importId);
 	const rv = await A.c.activeVersion();
@@ -582,10 +596,14 @@ try {
 	b = await launch({ profileRoot: join(tmp, 'chromium') });
 	await fresh();
 	const pages = pagesOf(rv, imp.importId);
+	if (runs('narrow')) {
+		for (const route of Object.keys(D.CHOICE_STATES)) if (!pages.some((x) => x.route === route && x.url)) await undriven('narrow', route, route, 'a declared choice state of a page the suite opens', 'declared in CHOICE_STATES but the route is not a page the suite opens: remove or fix the declaration');
+		for (const [state, why] of Object.entries(D.NO_CHOICE_STATE)) notApplicable('narrow', state, why);
+	}
 	// narrow at the ordinary id: every page, before a 64-character id is imported and listed (/import lists every import)
-	if (runs('narrow')) for (const t of pages.filter((x) => x.url && wanted(x.route))) await narrow(t, 'short');
+	if (runs('narrow')) for (const t of pages.filter((x) => x.url && wanted(x.route))) await narrowAll(t, 'short');
 	// the narrow case: the main case's data under a 64-character id without break opportunity (a candidate)
-	const long = await buildCase(join(tmp, 'long'), { caseId: UNBROKEN });
+	const long = await buildCase(join(tmp, 'long'), { caseId: UNBROKEN, edit: withLongUrl });
 	const limp = await A.c.importPkg(long.caseDir, long.pkgDir);
 	if (!limp.importId) throw new Error(`64-character id import failed: ${limp.status} ${limp.location}`);
 	// the hostile case: every free-text field of the workspace data carries the formula payload (a candidate)
@@ -645,7 +663,7 @@ try {
 			await csv(route, t.url, t.view, actions);
 		}
 	}
-	if (runs('narrow')) for (const t of pagesOf(long.resultsVersion, limp.importId).filter((x) => x.url && wanted(x.route))) await narrow(t, 'long');
+	if (runs('narrow')) for (const t of pagesOf(long.resultsVersion, limp.importId).filter((x) => x.url && wanted(x.route))) await narrowAll(t, 'long');
 	if (runs('back')) for (const t of pages.filter((x) => x.url && wanted(x.route))) {
 		if (!t.url.startsWith('/v/')) {
 			if (D.NO_BACK[t.route]) notApplicable('back', t.route, D.NO_BACK[t.route]);

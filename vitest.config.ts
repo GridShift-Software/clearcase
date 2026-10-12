@@ -26,5 +26,7 @@ export default defineConfig({
     ],
     pool: 'forks',
     testTimeout: 60_000,
+    // each test's line in the JSON report, so scripts/ci/summary.ts can point at a failing test
+    includeTaskLocation: true,
   },
 });

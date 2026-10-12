@@ -121,14 +121,22 @@ export class UserWorkError extends Error {
  *  tables by key; `'tables'` replaces every snapshot table wholesale, deleting other cases' and other keys' rows too (a
  *  full restore of one store into another). `cases` names the cases to replace; without it they are the case_id values
  *  of the snapshot's case rows, so a snapshot that holds none replaces nothing. */
-export interface ImportOptions { replace?: 'cases' | 'tables'; cases?: string[] }
+export interface ImportOptions {
+	replace?: 'cases' | 'tables'; cases?: string[];
+	/** with `replace: 'cases'`: also delete the named cases' rows from every case table this store has that the
+	 *  snapshot does not list (a table first defined after the snapshot was taken), in the same transaction. Tables an
+	 *  export leaves out (this store's or the snapshot's own `excluded`) cannot be backed up, so they are kept and
+	 *  reported as `kept-excluded`. Other cases' rows and store tables are never touched. */
+	clearAbsent?: boolean;
+}
 /**
  * What a restore did to one snapshot table. `replaced-for-cases`: a case table's rows of the snapshot's cases were
  * replaced (other cases' rows kept); `no-cases`: a case table left unchanged because the snapshot holds no case rows;
  * `merged`: a store table's snapshot rows replaced same-key rows, other rows kept; `replaced`: the whole table replaced
- * (`replace: 'tables'`); `dropped`: never written (trusted_warning).
+ * (`replace: 'tables'`); `dropped`: never written (trusted_warning); with `clearAbsent`, `cleared-for-cases`: a case
+ * table the snapshot does not list lost the cases' rows, `kept-excluded`: one an export leaves out kept them.
  */
-export type TableRestore = 'replaced-for-cases' | 'no-cases' | 'merged' | 'replaced' | 'dropped';
+export type TableRestore = 'replaced-for-cases' | 'no-cases' | 'merged' | 'replaced' | 'dropped' | 'cleared-for-cases' | 'kept-excluded';
 /** `rows`: snapshot rows written; `deleted`: rows removed before writing (merged rows are not counted). Only on
  *  `merged`: `inserted` (rows with a key new here) and `replaced` (rows whose key was already here; their row is now
  *  the snapshot's), which add up to `rows`. Only on `replaced-for-cases`: `cases`, the snapshot's cases this table had
@@ -458,6 +466,7 @@ export class UserWork {
 		if (!isRecord(snapshot) || snapshot.format !== USER_WORK_EXPORT || !Array.isArray(snapshot.tables)) throw new UserWorkError(`not a ${USER_WORK_EXPORT} export`);
 		const replace = opts?.replace ?? 'cases';
 		if (replace !== 'cases' && replace !== 'tables') throw new UserWorkError("replace is 'cases' or 'tables'");
+		if (opts?.clearAbsent !== undefined && typeof opts.clearAbsent !== 'boolean') throw new UserWorkError('clearAbsent is true or false');
 		if (opts?.cases !== undefined && !(Array.isArray(opts.cases) && opts.cases.every((c) => typeof c === 'string'))) throw new UserWorkError('cases is a list of case ids');
 		const plans: Plan[] = [];
 		let cases: string[] = [];
@@ -518,6 +527,19 @@ export class UserWork {
 				if (action === 'merged') { const inserted = count() - before; Object.assign(report, { inserted, replaced: p.rows.length - inserted }); }
 				if (action === 'replaced-for-cases') report.cases = [...new Set([...touched, ...p.rows.map((x) => cellOf(x, CASE_COLUMN) as string)])].sort();
 				restored.push(report);
+			}
+			if (opts?.clearAbsent && replace === 'cases' && cases.length) {
+				const listed = new Set(plans.map((p) => p.def.name.toLowerCase()));
+				const named = (list: unknown) => (Array.isArray(list) ? list : []).flatMap((x) => (isRecord(x) && typeof x.name === 'string' ? [x.name.toLowerCase()] : []));
+				const kept = new Set([...named(snapshot.excluded), ...named(this.exportAll().excluded)]);
+				for (const t of this.tables()) {
+					const lower = t.name.toLowerCase();
+					if (t.scope !== 'case' || t.kind === 'activation' || t.name === TRUST || at.state.has(lower) || listed.has(lower)) continue;
+					current = t.name;
+					if (kept.has(lower)) { restored.push({ name: t.name, scope: 'case', action: 'kept-excluded', rows: 0, deleted: 0 }); continue; }
+					const deleted = Number(d.prepare(`DELETE FROM work.${q(t.name)} WHERE ${q(CASE_COLUMN)} IN (SELECT value FROM json_each(?))`).run(json).changes);
+					restored.push({ name: t.name, scope: 'case', action: 'cleared-for-cases', rows: 0, deleted });
+				}
 			}
 		});
 		this.onWrite();

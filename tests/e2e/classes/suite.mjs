@@ -12,10 +12,13 @@
 //   narrow    no page of a case with a 64-character id without break opportunity scrolls sideways at 320 or 390 px;
 //   back      after Back to a page, focus is on an element of the page, never <body>; after Back with typed input
 //             answered "keep" or "stay", focus returns to the typed field.
-// A target a class does not apply to is listed with its reason (declared.mjs, or what the page showed). The in-flight
-// window is made in the browser (CDP Fetch holds the action's request), so it is the same for every form.
+// Every scenario checks that its precondition happened (text typed, question asked and answered, request held, another
+// row's action clicked, the refusal shown) and fails when it did not. The only way out of a class for a target is a
+// reason in declared.mjs, which the suite checks against the page; nothing is excluded at run time, and a class with no
+// PASS fails the suite. The in-flight window is made in the browser (CDP Fetch holds the action's request).
 // Synthetic data only. Results: $CLEARCASE_E2E_OUT/classes/<scenario>.json and summary.json ({scenarios, excluded}).
-// CLASSES_ONLY=<class,...> runs only those classes (for the proof runs; the summary records it).
+// CLASSES_ONLY=<class,...> runs only those classes, CLASSES_TARGET=<regex> only the targets (route or route + action) that
+// match (for the proof runs and debugging; the summary records both and a run with either is not evidence).
 process.env.CANARY_PORT ??= '43899';
 const { mkdirSync, mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
 const { tmpdir } = await import('node:os');
@@ -27,8 +30,8 @@ const { INIT, openPage } = await import('../pilot/suite/browser.mjs');
 const { appServer, vpath } = await import('../pilot/suite/context.mjs');
 const { buildCase } = await import('../pilot/lib/fixtures.ts');
 const { VIEWS } = await import('../../../src/lib/components/view-registry.ts');
-const { csvExports, hasActions, pageTargets } = await import('./targets.mjs');
-const { NO_FORM, NOT_APPLICABLE, NOT_CSV, QUERY } = await import('./declared.mjs');
+const { csvExports, hasActions, hasEditRows, hasLeaveGuard, pageTargets } = await import('./targets.mjs');
+const D = await import('./declared.mjs');
 
 const ROOT = resolve(join(import.meta.dirname, '..', '..', '..'));
 const BUILD = resolve(process.env.E2E_BUILD_DIR ?? join(ROOT, 'build'));
@@ -39,13 +42,16 @@ const J = JSON.stringify;
 const CLASSES = ['inflight', 'nojs', 'dialog', 'csv', 'narrow', 'back'];
 const ONLY = process.env.CLASSES_ONLY ? process.env.CLASSES_ONLY.split(',') : CLASSES;
 const runs = (c) => ONLY.includes(c);
+const TARGET = process.env.CLASSES_TARGET ? new RegExp(process.env.CLASSES_TARGET) : null;
+const wanted = (s) => !TARGET || TARGET.test(s);
 /** The formula payload: one segment after each of ;, tab, CR and LF. A text input drops CR and LF; a textarea keeps them. */
 const PAYLOAD = ' Syn;=CCX(1)\t+CCX(2)\r-CCX(3)\n@CCX(4)';
 const UNBROKEN = 'syn_unbroken_case_id_'.padEnd(64, '0123456789abcdefghijklmnopqrstuvwxyz');
 
 const results = [];
 const excluded = [];
-const exclude = (cls, target, reason) => { excluded.push({ class: cls, target, reason }); console.log(`N/A     ${cls} ${target}: ${reason}`); };
+/** A class that does not apply to a target, with the reason declared.mjs gives (never a reason made up at run time). */
+const notApplicable = (cls, target, reason) => { excluded.push({ class: cls, target, reason }); console.log(`N/A     ${cls} ${target}: ${reason}`); };
 async function scenario(id, view, title, fn) {
 	const t0 = Date.now();
 	let pass = false, evidence = {};
@@ -68,6 +74,14 @@ const HOOK = `(() => { window.__downloads = []; const C = URL.createObjectURL.bi
 	const click = HTMLAnchorElement.prototype.click;
 	HTMLAnchorElement.prototype.click = function () { const o = blobs.get(this.href); if (this.download && o) { o.text().then((t) => window.__downloads.push({ name: this.download, type: o.type, text: t })); return; } return click.call(this); };
 })();`;
+
+/** Whether an element is on screen (position:fixed elements have no offsetParent). Source of an in-page function. */
+const VIS = `(e) => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden'`;
+/** A scenario that fails because a target could not be driven or declared: `why` says what to do. */
+const undriven = (cls, key, view, title, why) => scenario(`${cls}:${key}`, view, title, async () => ({ evidence: { why }, checks: { driven: false } }));
+
+/** The question a page asks before it drops input (a dialog on screen), as an in-page expression. */
+const ASK = `[...document.querySelectorAll('[role=alertdialog], [role=dialog], dialog[open]')].find(${VIS})`;
 
 let p, b, A, tmp;
 /**
@@ -113,9 +127,9 @@ const FORMS = `(() => {
 		const els = [...f.elements];
 		const fields = els.filter(textLike);
 		fields.forEach((e, j) => (e.dataset.ccF = i + '-' + j));
-		const sub = els.find((e) => isSubmit(e) && !e.hasAttribute('formaction') && e.offsetParent !== null) ?? els.find((e) => isSubmit(e) && !e.hasAttribute('formaction'));
+		const sub = els.find((e) => isSubmit(e) && !e.hasAttribute('formaction') && (${VIS})(e)) ?? els.find((e) => isSubmit(e) && !e.hasAttribute('formaction'));
 		if (sub) sub.dataset.ccS = String(i);
-		const others = [...document.querySelectorAll('button, input[type=submit]')].filter((e) => isSubmit(e) && e !== sub && e.form && (e.form.getAttribute('method') || '').toUpperCase() === 'POST' && e.offsetParent !== null && (e.form !== f || (e.hasAttribute('formaction') && e.getAttribute('formaction') !== a)) && !/retry|discard/i.test(e.textContent || e.value || ''));
+		const others = [...document.querySelectorAll('button, input[type=submit]')].filter((e) => isSubmit(e) && e !== sub && e.form && (e.form.getAttribute('method') || '').toUpperCase() === 'POST' && (${VIS})(e) && (e.form !== f || (e.hasAttribute('formaction') && e.getAttribute('formaction') !== a)) && !/retry|discard/i.test(e.textContent || e.value || ''));
 		others.forEach((e, k) => e.setAttribute('data-cc-o' + i, String(k)));
 		out.push({ i, action, id: f.id || null, fields: fields.map((e) => ({ sel: '[data-cc-f="' + i + '-' + fields.indexOf(e) + '"]', name: e.name, tag: e.tagName, disabled: e.disabled || e.readOnly })), submit: sub ? '[data-cc-s="' + i + '"]' : null, others: others.map((e, k) => ({ sel: '[data-cc-o' + i + '="' + k + '"]', text: (e.textContent || e.value || '').trim().slice(0, 40), formaction: e.getAttribute('formaction') })) });
 		i++;
@@ -143,7 +157,7 @@ const value = (sel) => p.evaluate(`document.querySelector(${J(sel)})?.value ?? n
 /** Every typed value on the page (inputs and textareas), to look for text that must not be lost. */
 const allValues = () => p.evaluate(`[...document.querySelectorAll('input, textarea')].filter((e) => !['hidden', 'checkbox', 'radio', 'submit', 'file'].includes(e.type)).map((e) => e.value)`);
 /** The visible error and alert messages on the page, and notes on an entry carried back unsaved ([data-unsaved]). */
-const errors = () => p.evaluate(`[...document.querySelectorAll('[role=alert], [id$="-error"], .error, [data-unsaved]')].filter((e) => e.offsetParent !== null && e.textContent.trim()).map((e) => ({ id: e.id || null, text: e.textContent.trim().replace(/\\s+/g, ' ').slice(0, 200), form: e.closest('form')?.dataset.cc ?? null }))`);
+const errors = () => p.evaluate(`[...document.querySelectorAll('[role=alert], [id$="-error"], .error, [data-unsaved]')].filter((e) => (${VIS})(e) && e.textContent.trim()).map((e) => ({ id: e.id || null, text: e.textContent.trim().replace(/\\s+/g, ' ').slice(0, 200), form: e.closest('form')?.dataset.cc ?? null }))`);
 /** Click at the end of a field and type `text` there (CDP insertText, as from a keyboard). Returns the field's value. */
 async function typeAtEnd(sel, text) {
 	await p.click(sel).catch(() => {});
@@ -190,46 +204,82 @@ const pagesOf = (rv, importId) => pageTargets(ROOT, { vpath, rv, ref: 'OD-001', 
 async function formTargets(pages) {
 	const out = [];
 	for (const t of pages) {
-		if (!hasActions(ROOT, t.route) || !t.url) continue;
+		if (!hasActions(ROOT, t.route) || !t.url || !wanted(t.route)) continue;
 		await open(t.url);
 		const forms = await p.evaluate(FORMS);
 		if (!forms.length) {
-			if (NO_FORM[t.route]) for (const c of ['inflight', 'nojs', 'dialog']) exclude(c, t.route, NO_FORM[t.route]);
-			else for (const c of ['inflight', 'nojs', 'dialog']) if (runs(c)) await scenario(`${c}:${t.route}`, t.view, 'a route with form actions renders a POST form to drive', async () => ({ evidence: { url: t.url }, checks: { formFound: false, declared: false } }));
+			for (const c of ['inflight', 'nojs', 'dialog']) {
+				if (!runs(c)) continue;
+				if (D.NO_FORM[t.route]) notApplicable(c, t.route, D.NO_FORM[t.route]);
+				else await undriven(c, t.route, t.view, 'a route with form actions renders a POST form to drive', 'the route exports form actions but its page renders no POST form: drive it, or declare it in declared.mjs NO_FORM');
+			}
 			continue;
 		}
 		for (const f of forms) out.push({ ...t, action: f.action, key: `${t.route} ${f.action}`, form: f });
 	}
 	return out;
 }
-const na = (t, cls) => NOT_APPLICABLE[t.key]?.[cls];
+const na = (t, cls) => D.NOT_APPLICABLE[t.key]?.[cls];
 
 // ---- the classes ---------------------------------------------------------------------------------------------------
 
-/** inflight: type while the save is held, then let it succeed (ok) or fail (fail): the typed text is kept or never accepted. */
-async function inflight(t, mode) {
-	return scenario(`inflight-${mode}:${t.key}`, t.view, `text typed while the ${t.action} save is in flight is kept when the save ${mode === 'ok' ? 'succeeds' : 'fails'}, or the field takes no input`, async () => {
+/** What the user sees of a refused or lost save: a message that says it was not saved. */
+const NOT_SAVED = /not saved|not been saved|could not be saved|was not saved|nothing was (changed|written)|lost|did not answer|try again/i;
+
+/**
+ * inflight: type while the save is held, then let it succeed (ok) or fail (fail). The scenario fails unless text was
+ * typed into the field in flight (and then it must be kept), or the field was disabled, readonly or inert at that time.
+ */
+async function inflight(t, mode, edit = false) {
+	return scenario(`inflight-${mode}${edit ? '-edit' : ''}:${t.key}`, t.view, `text typed while the ${edit ? 'edit' : t.action} save is in flight is kept when the save ${mode === 'ok' ? 'succeeds' : 'fails'}, or the field takes no input`, async () => {
 		await open(t.url);
-		const [f] = (await p.evaluate(FORMS)).filter((x) => x.action === t.action);
+		let editing = null;
+		if (edit) {
+			// edit mode: a saved row first, then its Edit; the form then posts to ?/save (or the page's edit action)
+			if (!(await p.evaluate(`document.querySelectorAll('[data-edit]').length`))) {
+				const [a] = (await p.evaluate(FORMS)).filter((x) => x.action === t.action);
+				await fillForm(a.i, '(n) => `Synthetic row ${n}`');
+				await p.click(a.submit);
+				await quiet();
+			}
+			await p.click('[data-edit]');
+			await sleep(200);
+			editing = await p.evaluate(`!!document.querySelector('[data-editing], [data-mode=edit]')`);
+		}
+		const [f] = (await p.evaluate(FORMS)).filter((x) => edit ? x.id === t.form.id || x.action !== t.action : x.action === t.action);
 		const field = f.fields.find((x) => !x.disabled);
 		await fillForm(f.i, '(n) => `Synthetic ${n}`');
 		const h = await holdAction();
-		let typed = null, paused = null;
+		let typed = null, paused = null, inert = null;
 		try {
 			await p.click(f.submit);
 			paused = await h.paused;
-			if (paused) typed = await typeAtEnd(field.sel, ' TYPED-IN-FLIGHT');
+			if (paused) {
+				inert = await p.evaluate(`(() => { const e = document.querySelector(${J(field.sel)}); return !!e && (e.matches(':disabled') || !!e.readOnly || !!e.closest('[inert]')); })()`);
+				if (!inert) typed = await typeAtEnd(field.sel, ' TYPED-IN-FLIGHT');
+			}
 		} finally { await h.release(mode === 'fail'); }
 		await quiet();
 		const values = await allValues();
 		const accepted = !!typed?.value?.includes('TYPED-IN-FLIGHT');
 		const kept = values.some((v) => v.includes('TYPED-IN-FLIGHT'));
-		return { evidence: { url: t.url, field: field.name, request: paused?.request?.url ?? null, typed, accepted, kept, errors: await errors() },
-			checks: { requestHeld: !!paused, notLost: !accepted || kept } };
+		const errs = await errors();
+		return { evidence: { url: t.url, edit, formAction: f.action, field: field.name, request: paused?.request?.url ?? null, inert, typed, accepted, kept, errors: errs },
+			checks: { requestHeld: !!paused, ...(edit ? { editing } : {}),
+				// the precondition: text went into the field in flight, or the field refused input (disabled, readonly, inert)
+				typedOrInert: inert === true || accepted,
+				notLost: !accepted || kept,
+				// a lost request shows a message; a successful one shows none of a refusal
+				failureShown: mode !== 'fail' || errs.some((e) => NOT_SAVED.test(e.text)) } };
 	});
 }
 
-/** nojs: a refused save keeps its message and typed values through another row's action on the page. */
+/**
+ * nojs: a refused save keeps its message and typed values through another row's action. The scenario fails unless the
+ * refusal was shown (its own message) and another row's enabled action was clicked, after which the message and the typed
+ * values must still be there. A page that leaves no enabled row action while a refusal is pending needs an
+ * OTHER_ACTION_OFF reason, which the page's state after the refusal must bear out.
+ */
 async function nojs(t) {
 	return scenario(`nojs:${t.key}`, t.view, `without JavaScript a refused ${t.action} save keeps its message and typed values through another row's action`, async () => {
 		await p.s('Emulation.setScriptExecutionDisabled', { value: true });
@@ -239,7 +289,7 @@ async function nojs(t) {
 			let f = forms.find((x) => x.action === t.action);
 			// another row first: a saved entry gives the page a row action to take
 			let seeded = false;
-			if (!f.others.length) {
+			if (!f.others.length && !D.OTHER_ACTION_OFF[t.key]) {
 				await fillForm(f.i, '(n) => `Synthetic seed ${n}`');
 				await clickNoJs(f.submit);
 				seeded = true;
@@ -252,33 +302,38 @@ async function nojs(t) {
 			try { await clickNoJs(f.submit); } finally { release(); }
 			forms = await p.evaluate(FORMS);
 			f = forms.find((x) => x.action === t.action);
-			const refused = { errors: await errors(), kept: (await allValues()).includes(typed) };
-			const other = f?.others[0] ?? null;
-			let after = null, otherDisabled = null;
-			if (other) {
-				otherDisabled = await p.evaluate(`document.querySelector(${J(other.sel)})?.disabled ?? null`);
-				if (!otherDisabled) await clickNoJs(other.sel);
-				after = { errors: await errors(), kept: (await allValues()).includes(typed) };
+			const errs = await errors();
+			const refused = { errors: errs, shown: errs.some((e) => NOT_SAVED.test(e.text)), kept: (await allValues()).includes(typed) };
+			const others = f?.others ?? [];
+			const states = others.length ? await p.evaluate(`${J(others.map((o) => o.sel))}.map((s) => document.querySelector(s)?.disabled ?? null)`) : [];
+			const enabled = others.find((_, i) => states[i] === false) ?? null;
+			let after = null;
+			if (enabled) {
+				await clickNoJs(enabled.sel);
+				const e2 = await errors();
+				after = { errors: e2, shown: e2.length > 0, kept: (await allValues()).includes(typed) };
 			}
 			const hydrated = await p.evaluate('!!window.__ccMounted');
-			return { evidence: { url: t.url, seeded, filled, refused, other, otherDisabled, after },
-				checks: { noScripts: !hydrated, refusedShown: refused.errors.length > 0, refusedKept: refused.kept,
-					// a page with no other row action, even with a saved entry, keeps only the refusal checks
-					keptAfterOther: !other || otherDisabled === true || (!!after && after.kept && after.errors.length > 0) } };
+			return { evidence: { url: t.url, seeded, filled, refused, others, states, clicked: !!enabled, after },
+				checks: { noScripts: !hydrated, refusedShown: refused.shown, refusedKept: refused.kept,
+					// the precondition: another row's enabled action was clicked, or none is on (declared.mjs OTHER_ACTION_OFF, borne out here)
+					otherClicked: enabled ? !D.OTHER_ACTION_OFF[t.key] : !!D.OTHER_ACTION_OFF[t.key],
+					keptAfterOther: !enabled || (!!after && after.kept && after.shown) } };
 		} finally { await p.s('Emulation.setScriptExecutionDisabled', { value: false }); }
 	});
 }
 
 /**
  * dialog: the page's question (Back with typed input, or Edit on another row) and a failing save in flight, in both
- * orders. After the failure, an error on the page means the form still holds the submitted entry (its typed text).
+ * orders. Each scenario fails unless the question was asked and answered (discard) and the save was held; then the
+ * failed save's own error shows with its own entry (the form still holding the submitted text), or, when the answer
+ * left the page, no error of it shows on the page left for.
  */
 async function dialog(t) {
-	const ASK = `[...document.querySelectorAll('[role=alertdialog], [role=dialog], dialog[open]')].find((e) => e.offsetParent !== null)`;
 	const answer = (re) => p.evaluate(`(() => { const d = ${ASK}; const btn = d && [...d.querySelectorAll('button')].find((x) => ${re}.test(x.textContent)); if (!btn || btn.disabled) return btn ? 'disabled' : null; btn.click(); return btn.id || btn.textContent.trim(); })()`);
 	/** Open the page by client navigation, so Back stays in the app, and edit the first row when rows are editable. */
 	const start = async () => {
-		await open(t.url.replace(/\/[^/]+$/, '/overview').replace(/\/v\/([^/]+)\/.*$/, '/v/$1/overview'));
+		await open(t.url.replace(/\/v\/([^/]+)\/.*$/, '/v/$1/overview'));
 		const nav = await p.evaluate(`(() => { const a = [...document.querySelectorAll('a[href]')].find((x) => new URL(x.href).pathname === ${J(t.url)}); if (!a) return false; a.click(); return true; })()`);
 		if (!nav) await open(t.url);
 		else { await p.waitFor(`location.pathname === ${J(t.url)} && !!document.querySelector('main#main')`, 15000); await settle(); }
@@ -292,16 +347,21 @@ async function dialog(t) {
 		const typed = `Synthetic asked ${t.action.replace(/\W/g, '')}`;
 		if (edits < 2) await fillForm(f.i, '(n) => `Synthetic ${n}`');
 		await p.type(field.sel, typed);
-		return { f, field, typed, edits };
+		return { f, field, typed, edits, viaLink: nav, href: await p.evaluate('location.pathname + location.search') };
 	};
+	/** Raise the question: Edit on another row when that is on, else Back (a page switches Edit off while a save is in flight). */
 	const trigger = async (edits) => {
-		if (edits >= 2) await p.evaluate(`document.querySelectorAll('[data-edit]')[1]?.click()`);
+		const via = edits >= 2 && (await p.evaluate(`!document.querySelectorAll('[data-edit]')[1]?.disabled`)) ? 'edit' : 'back';
+		if (via === 'edit') await p.evaluate(`document.querySelectorAll('[data-edit]')[1]?.click()`);
 		else await p.evaluate('history.back()');
-		try { await p.waitFor(`!!(${ASK})`, 2000); return true; } catch { return false; }
+		try { await p.waitFor(`!!(${ASK})`, 2000); } catch { return null; }
+		// a person reads the question before answering it: let a cancelled Back finish restoring the history entry first
+		await settle(); await sleep(400);
+		return via;
 	};
 	const outcome = async (typed, field) => {
 		const errs = await errors();
-		const here = await p.evaluate('location.pathname');
+		const here = await p.evaluate('location.pathname + location.search');
 		const holds = (await value(field.sel)) === typed || (await allValues()).includes(typed);
 		return { errors: errs, path: here, holds };
 	};
@@ -314,24 +374,20 @@ async function dialog(t) {
 		await p.click(f.submit);
 		await quiet();
 	}
-	// probe: does any question guard this form at all?
-	await fresh();
-	const probe = await start();
-	const asks = await trigger(probe.edits);
-	if (asks) await answer('/keep|stay/i');
-	if (!asks) { exclude('dialog', t.key, 'no question opens for Back or another row\'s Edit while the form holds typed input'); return true; }
 	let ok = true;
 	for (const order of ['ask-then-save', 'save-then-ask']) {
 		ok = (await scenario(`dialog-${order}:${t.key}`, t.view, order === 'ask-then-save' ? 'a save started while the question is open, then the question answered with discard while it is in flight, then the save fails: its error stays with the submitted entry' : 'the question raised and answered with discard while a save is in flight, then the save fails: its error stays with the submitted entry', async () => {
-			const { f, field, typed, edits } = await start();
+			const { f, field, typed, edits, viaLink, href } = await start();
 			const h = await holdAction();
-			let asked = false, answered = null, paused = null;
+			let asked = null, answered = null, paused = null, closedBySave = false;
 			try {
 				if (order === 'ask-then-save') {
 					asked = await trigger(edits);
 					await p.evaluate(`document.querySelector(${J(f.submit)})?.click()`);
 					paused = await h.paused;
-					answered = await answer('/discard/i');
+					answered = asked ? await answer('/discard/i') : null;
+					// the page took the question back itself when the save began: nothing is left to answer
+					closedBySave = !!asked && answered === null;
 				} else {
 					await p.click(f.submit);
 					paused = await h.paused;
@@ -339,12 +395,16 @@ async function dialog(t) {
 					answered = asked ? await answer('/discard/i') : null;
 				}
 				await sleep(150);
-			} finally { await h.release(true); }
+				} finally { await h.release(true); }
 			await quiet();
 			const o = await outcome(typed, field);
-			const onPage = o.path === t.url;
-			return { evidence: { url: t.url, edits, asked, answered, request: paused?.request?.url ?? null, ...o },
-				checks: { requestHeld: !!paused, errorWithItsEntry: o.errors.length === 0 || (onPage && o.holds) } };
+			const onPage = o.path === href;
+			return { evidence: { url: t.url, edits, viaLink, asked, answered, closedBySave, request: paused?.request?.url ?? null, onPage, ...o },
+				checks: { inApp: edits >= 2 || viaLink, requestHeld: !!paused, asked: !!asked,
+					// answered with discard, or the answer is switched off while the save is in flight (a register allows only leaving then)
+					answered: !!answered || closedBySave,
+					// the failed save's own error shows with its own entry; when the answer left the page, none shows on the page left for
+					ownError: onPage ? o.errors.some((e) => NOT_SAVED.test(e.text)) && o.holds : o.errors.length === 0 } };
 		})) && ok;
 		// leave the page settled for the next order (answer any open question, no pending input)
 		await answer('/discard/i').catch(() => {});
@@ -355,7 +415,7 @@ async function dialog(t) {
 /** csv: every CSV download of the page (and a typed entry first, where the page has a form) is checked. */
 async function csv(route, url, viewId, forms) {
 	return scenario(`csv:${route}`, viewId, 'no formula starts unneutralised after ;, tab, CR or LF in any column of the export', async () => {
-		await open(url + (QUERY[route] ? `?${QUERY[route]}` : ''));
+		await open(url);
 		const typed = [];
 		for (const f of (await p.evaluate(FORMS)).filter((x) => x.fields.length && forms.has(x.action))) {
 			const filled = await fillForm(f.i, `(n, tag) => 'Synthetic ' + n + (tag === 'TEXTAREA' ? ${J(PAYLOAD)} : ${J(PAYLOAD.split('\r')[0])})`);
@@ -364,18 +424,23 @@ async function csv(route, url, viewId, forms) {
 			typed.push({ action: f.action, filled, errors: await errors() });
 		}
 		await p.evaluate('window.__downloads.length = 0');
-		const controls = await p.evaluate(`[...document.querySelectorAll('main button, main a')].filter((e) => /export|csv/i.test((e.id || '') + ' ' + e.textContent) && e.offsetParent !== null && !e.disabled).map((e, i) => { e.dataset.ccX = String(i); return { sel: '[data-cc-x="' + i + '"]', id: e.id || null, text: e.textContent.trim().slice(0, 40) }; })`);
+		const controls = await p.evaluate(`[...document.querySelectorAll('main button, main a')].filter((e) => /export|csv/i.test((e.id || '') + ' ' + e.textContent) && (${VIS})(e) && !e.disabled).map((e, i) => { e.dataset.ccX = String(i); return { sel: '[data-cc-x="' + i + '"]', id: e.id || null, text: e.textContent.trim().slice(0, 40) }; })`);
 		for (const c of controls) { await p.click(c.sel); await sleep(300); }
 		await p.waitFor('window.__downloads.length > 0', 5000).catch(() => {});
 		await sleep(300);
-		const files = (await p.evaluate('window.__downloads')).filter((d) => /\.csv$/i.test(d.name) || /csv/.test(d.type));
+		const downloads = await p.evaluate('window.__downloads');
+		const isCsv = (d) => /\.csv$/i.test(d.name) || /csv/.test(d.type);
+		// a download that is not CSV passes only with its extension declared (declared.mjs NON_CSV_DOWNLOADS)
+		const other = downloads.filter((d) => !isCsv(d));
+		const undeclared = other.filter((d) => !Object.keys(D.NON_CSV_DOWNLOADS).some((x) => d.name.toLowerCase().endsWith(x))).map((d) => d.name);
+		const files = downloads.filter(isCsv);
 		const checked = files.map((d) => {
 			const marks = [...d.text.matchAll(/[=+\-@"]CCX\(/g)];
 			const bad = marks.filter((m) => /[;\t\r\n] *$/.test(d.text.slice(Math.max(0, m.index - 20), m.index)));
 			return { name: d.name, bytes: d.text.length, marks: marks.length, bad: bad.length, sample: bad.slice(0, 3).map((m) => J(d.text.slice(Math.max(0, m.index - 30), m.index + 8))) };
 		});
-		return { evidence: { url, typed, controls, files: checked },
-			checks: { exported: checked.length > 0, hostileReached: checked.every((c) => c.marks > 0), noFormula: checked.every((c) => c.bad === 0) } };
+		return { evidence: { url, typed, controls, files: checked, nonCsv: other.map((d) => d.name), undeclared },
+			checks: { exported: downloads.length > 0, typedSaved: typed.every((x) => x.errors.length === 0), onlyDeclaredNonCsv: undeclared.length === 0, hostileReached: checked.every((c) => c.marks > 0), noFormula: checked.every((c) => c.bad === 0) } };
 	});
 }
 
@@ -409,7 +474,11 @@ async function narrow(t, base) {
 	});
 }
 
-/** back: Back to the page focuses an element of it; Back with typed input answered keep/stay returns focus to the field. */
+/**
+ * back: Back to the page focuses an element of it; Back with typed input answered keep/stay returns focus to the field.
+ * `form` is the page's form with a typed field, when it has one: Back with input in it must then be asked about (the
+ * scenario fails when no question opens), unless the page is declared to have no leave question (NO_GUARD).
+ */
 async function back(t, form) {
 	return scenario(`back:${t.route}${t.route.endsWith('[view]') ? ':' + t.view : ''}`, t.view, 'after Back to the page focus is on the page, never <body>; with typed input, keep or stay after Back returns focus to the typed field', async () => {
 		await open(t.url);
@@ -425,6 +494,7 @@ async function back(t, form) {
 		const onBody = await p.evaluate('document.activeElement === document.body || !document.activeElement');
 		let guard = null;
 		if (form) {
+			guard = { typed: false, asked: false };
 			const [f] = (await p.evaluate(FORMS)).filter((x) => x.action === form.action);
 			const field = f?.fields.find((x) => !x.disabled);
 			if (field) {
@@ -436,10 +506,12 @@ async function back(t, form) {
 				await p.waitFor(`location.pathname === ${J(t.url)} && !!document.querySelector('main#main')`, 15000);
 				await settle();
 				const [g] = (await p.evaluate(FORMS)).filter((x) => x.action === form.action);
-				await p.type(g.fields.find((x) => !x.disabled).sel, 'Synthetic typed before Back');
+				const sel = g.fields.find((x) => !x.disabled).sel;
+				await p.type(sel, 'Synthetic typed before Back');
+				const typed = (await value(sel)) === 'Synthetic typed before Back';
 				await p.evaluate('history.back()');
-				const ASK = `[...document.querySelectorAll('[role=alertdialog], [role=dialog], dialog[open]')].find((e) => e.offsetParent !== null)`;
 				const asked = await p.waitFor(`!!(${ASK})`, 2000).then(() => true, () => false);
+				guard = { typed, asked, path: await p.evaluate('location.pathname') };
 				if (asked) {
 					await settle(); await sleep(150);
 					// the question holds focus once Back is cancelled (the layout's move to the heading does not win)
@@ -447,12 +519,14 @@ async function back(t, form) {
 					const keep = await p.evaluate(`(() => { const b = [...(${ASK}).querySelectorAll('button')].find((x) => /keep|stay/i.test(x.textContent)); if (!b) return null; b.dataset.ccKeep = '1'; return b.id || b.textContent.trim(); })()`);
 					if (keep) await p.click('[data-cc-keep]');
 					await settle(); await sleep(150);
-					guard = { asked, askFocused, keep, path: await p.evaluate('location.pathname'), onField: await p.evaluate(`document.activeElement === document.querySelector(${J(g.fields.find((x) => !x.disabled).sel)})`), focus: await p.active() };
-				} else guard = { asked, path: await p.evaluate('location.pathname') };
+					Object.assign(guard, { askFocused, keep, path: await p.evaluate('location.pathname'), onField: await p.evaluate(`document.activeElement === document.querySelector(${J(sel)})`), focus: await p.active() });
+				}
 			}
 		}
 		return { evidence: { url: t.url, away, focus, guard },
-			checks: { focusOnPage: !onBody, askHoldsFocus: !guard?.asked || guard.askFocused, keepReturnsFocus: !guard?.asked || (guard.path === t.url && guard.onField) } };
+			checks: { focusOnPage: !onBody,
+				// with a form: the input was typed, the question was asked, held focus, and Keep or Stay gave focus back to the field
+				...(form ? { typed: guard.typed === true, asked: guard.asked === true, askHoldsFocus: guard.askFocused === true, keepFound: !!guard.keep, keepReturnsFocus: guard.path === t.url && guard.onField === true } : {}) } };
 	});
 }
 
@@ -492,45 +566,76 @@ try {
 	const himp = await A.c.importPkg(hostile.caseDir, hostile.pkgDir);
 	if (!himp.importId) throw new Error(`hostile import failed: ${himp.status} ${himp.location}`);
 	console.log(`classes: the hostile case carries the formula payload in ${hostileFields} fields`);
-	for (const t of pages.filter((x) => !x.url)) for (const c of ['narrow', 'back']) exclude(c, t.route, t.reason);
+	for (const t of pages.filter((x) => !x.url)) for (const c of ['narrow', 'back']) if (runs(c)) await undriven(c, t.route, t.view, 'a page whose route params the suite can fill', `${t.reason}: the suite cannot open this page; fill its params in targets.mjs pageTargets`);
 	const targets = await formTargets(pages);
 	console.log(`classes: ${pages.length} pages, ${targets.length} forms (${targets.map((t) => t.key).join('; ')})`);
 	const formOf = (route) => targets.find((t) => t.route === route && t.form.fields.length);
 
-	for (const t of targets) {
+	for (const t of targets.filter((x) => wanted(x.key))) {
 		const textual = t.form.fields.length > 0 && !!t.form.submit;
+		const guarded = hasLeaveGuard(ROOT, t.route);
 		for (const c of ['inflight', 'nojs', 'dialog']) {
 			if (!runs(c)) continue;
-			if (na(t, c)) { exclude(c, t.key, na(t, c)); continue; }
-			if (!textual) { exclude(c, t.key, t.form.submit ? 'the form has no typed field' : 'the form has no submit button'); continue; }
-			if (c === 'inflight') { await inflight(t, 'ok'); await inflight(t, 'fail'); }
-			if (c === 'nojs') await nojs(t);
-			if (c === 'dialog') await dialog(t);
+			if (na(t, c)) { notApplicable(c, t.key, na(t, c)); continue; }
+			// declared as having no typed field or no submit button: the form must bear that out
+			if (D.NO_TYPED_FIELD[t.key]) {
+				if (textual) await undriven(c, t.key, t.view, 'a declared form without a typed field', 'declared in NO_TYPED_FIELD but the form has a typed field and a submit button: drive it, and remove the declaration');
+				else notApplicable(c, t.key, D.NO_TYPED_FIELD[t.key]);
+				continue;
+			}
+			if (!textual) { await undriven(c, t.key, t.view, 'a form with a typed field and a submit button to drive', `${t.form.submit ? 'the form has no typed field' : 'the form has no submit button'}: drive it, or declare it in declared.mjs NO_TYPED_FIELD`); continue; }
+			if (c === 'inflight') {
+				await inflight(t, 'ok'); await inflight(t, 'fail');
+				if (hasEditRows(ROOT, t.route)) { await inflight(t, 'ok', true); await inflight(t, 'fail', true); }
+			}
+			if (c === 'nojs') {
+				await nojs(t);
+			}
+			if (c === 'dialog') {
+				if (guarded && D.NO_GUARD[t.route]) await undriven(c, t.key, t.view, 'a declared page without a leave question', 'declared in NO_GUARD but the page has a LeaveGuard or beforeNavigate: drive it, and remove the declaration');
+				else if (guarded) await dialog(t);
+				else if (D.NO_GUARD[t.route]) notApplicable(c, t.key, D.NO_GUARD[t.route]);
+				else await undriven(c, t.key, t.view, 'a page that asks before it drops typed input', 'the page has no LeaveGuard or beforeNavigate: add one, or declare it in declared.mjs NO_GUARD');
+			}
 		}
 	}
 
 	if (runs('csv')) {
-		const ex = csvExports(ROOT);
+		const ex = csvExports(ROOT, { notProducers: D.NOT_PRODUCERS, helpers: D.HELPERS });
 		const hpages = pagesOf(hostile.resultsVersion, himp.importId);
+		// a file that hands content to the user and is neither a CSV producer nor declared fails; so does a declared one that builds CSV
+		for (const f of ex.unrecognised) await undriven('csv', f, f, 'every file that hands content to the user is a CSV producer, a helper or declared not to produce CSV', 'unrecognised producer: its output is unchecked; declare it in declared.mjs NOT_PRODUCERS (or HELPERS) with what it produces');
+		for (const f of ex.declaredButCsv) await undriven('csv', f, f, 'a file declared not to produce CSV builds none', 'declared in NOT_PRODUCERS but it now carries a CSV mark (text/csv, a csv download, toCSV): remove the declaration so its page is checked');
 		// a server export counts for the page that requests it (its parent route)
 		for (const s of ex.servers) { const parent = s.replace(/\/[^/]+$/, ''); if (!ex.pages.includes(parent)) await scenario(`csv:${s}`, s, 'a server CSV export is requested by a page that is checked', async () => ({ evidence: { parent }, checks: { pageChecked: false } })); }
-		for (const route of ex.pages) {
-			if (NOT_CSV[route]) { exclude('csv', route, NOT_CSV[route]); continue; }
+		for (const route of ex.pages.filter(wanted)) {
 			const t = hpages.find((x) => x.route === route);
 			const actions = new Set(targets.filter((x) => x.route === route).map((x) => x.action));
 			await csv(route, t.url, t.view, actions);
 		}
 	}
-	if (runs('narrow')) for (const t of pagesOf(long.resultsVersion, limp.importId).filter((x) => x.url)) {
+	if (runs('narrow')) for (const t of pagesOf(long.resultsVersion, limp.importId).filter((x) => x.url && wanted(x.route))) {
 		const short = pages.find((x) => x.route === t.route && x.view === t.view);
 		await narrow(t, () => baseline.get(t.route) ?? (short?.url ? measure(short.url) : null));
 	}
-	if (runs('back')) for (const t of pages.filter((x) => x.url)) {
-		if (!t.url.startsWith('/v/')) { exclude('back', t.route, 'outside a case version there is no case navigation to leave by and come back'); continue; }
+	if (runs('back')) for (const t of pages.filter((x) => x.url && wanted(x.route))) {
+		if (!t.url.startsWith('/v/')) {
+			if (D.NO_BACK[t.route]) notApplicable('back', t.route, D.NO_BACK[t.route]);
+			else await undriven('back', t.route, t.view, 'a page with case navigation to leave by and come back', 'the page is outside a case version and not declared: declare it in declared.mjs NO_BACK');
+			continue;
+		}
+		// a page with a typed form must ask before Back drops the input (the scenario fails when it does not), or be declared (NO_GUARD)
 		const f = formOf(t.route);
-		await back(t, f && !na(f, 'dialog') ? f : null);
+		const guarded = hasLeaveGuard(ROOT, t.route);
+		if (!f || na(f, 'dialog')) await back(t, null);
+		else if (guarded && !D.NO_GUARD[t.route]) await back(t, f);
+		else if (!guarded && D.NO_GUARD[t.route]) { notApplicable('back', `${t.route} (Keep or Stay)`, D.NO_GUARD[t.route]); await back(t, null); }
+		else await undriven('back', `${t.route} (leave question)`, t.view, 'a page with a typed form asks before Back drops the input', guarded ? 'declared in NO_GUARD but the page has a leave question: drive it, and remove the declaration' : 'the page has a typed form and no leave question: add one, or declare it in declared.mjs NO_GUARD');
 	}
+	// a class that was run and has no PASS proves nothing: it fails the suite
+	if (!TARGET) for (const c of CLASSES.filter(runs)) if (!results.some((r) => r.pass && r.id.startsWith(c) && /^[-:]/.test(r.id.slice(c.length)))) results.push({ id: `${c}:NO-PASS`, view: '-', pass: false });
 	ok = results.length > 0 && results.every((r) => r.pass);
+
 } catch (e) {
 	results.push({ id: 'HARNESS', view: '-', pass: false });
 	writeFileSync(join(OUT, 'HARNESS.json'), J({ error: String(e?.stack ?? e).slice(0, 4000) }, null, 1));
@@ -541,6 +646,6 @@ try {
 	if (tmp) rmSync(tmp, { recursive: true, force: true });
 }
 const byClass = Object.fromEntries(CLASSES.map((c) => [c, { pass: results.filter((r) => r.id.startsWith(c)).filter((r) => r.pass).length, fail: results.filter((r) => r.id.startsWith(c) && !r.pass).length, excluded: excluded.filter((x) => x.class === c).length }]));
-writeFileSync(join(OUT, 'summary.json'), J({ ok, offline: true, clock: CLOCK, only: ONLY, ms: Date.now() - t0, byClass, excluded, scenarios: results }, null, 1));
+writeFileSync(join(OUT, 'summary.json'), J({ ok, offline: true, clock: CLOCK, only: ONLY, target: process.env.CLASSES_TARGET ?? null, ms: Date.now() - t0, byClass, excluded, scenarios: results }, null, 1));
 console.log(`classes: ${results.filter((r) => r.pass).length} PASS, ${results.filter((r) => !r.pass).length} FAIL, ${excluded.length} not applicable in ${((Date.now() - t0) / 1000).toFixed(0)} s; ${Object.entries(byClass).map(([c, n]) => `${c} ${n.pass}/${n.pass + n.fail} (${n.excluded} n/a)`).join(', ')} -> ${join(OUT, 'summary.json')}`);
 process.exit(ok ? 0 : 1);

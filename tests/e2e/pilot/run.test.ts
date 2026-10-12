@@ -21,7 +21,7 @@ const put = (p: string, s = '') => { mkdirSync(join(p, '..'), { recursive: true 
 /** An mtime long before any index write (seconds since the epoch), so git trusts the index entry's stat data. */
 const OLD_MTIME = 86_400;
 /** The development knobs, a value for each and what the evidence note says it does (an empty size list is one size of 0 MiB). */
-const DEV: Record<string, [string, string]> = { E2E_ONLY: ['S9,S10', 'runs only the listed durability scenarios'], E2E_STOP_AFTER: ['S3', 'stops the browser suite early'], E2E_LATENCY_SIZES_MIB: ['', 'changes the durability latency file sizes'], CLEARCASE_E2E_TMP: ['/dev/shm/e2e', 'moves the durability files off the disk-backed default folder'], CLASSES_ONLY: ['narrow', 'runs only the listed UI classes'] };
+const DEV: Record<string, [string, string]> = { E2E_ONLY: ['S9,S10', 'runs only the listed durability scenarios'], E2E_STOP_AFTER: ['S3', 'stops the browser suite early'], E2E_LATENCY_SIZES_MIB: ['', 'changes the durability latency file sizes'], CLEARCASE_E2E_TMP: ['/dev/shm/e2e', 'moves the durability files off the disk-backed default folder'], CLASSES_ONLY: ['narrow', 'runs only the listed UI classes'], CLASSES_TARGET: ['filings', 'runs the UI class scenarios of the targets matching a pattern only'] };
 
 describe('category discovery', () => {
 	test('suites and views per category; views without a suite are listed as missing', async () => {
@@ -209,6 +209,14 @@ describe('the suite summary contract', () => {
 		expect((await suite('uncovered', write([{ id: 'S1', view: 'deadlines_tab', pass: true }]), ['deadlines_tab', 'timesheet_tab'])).join()).toMatch(/implemented view\(s\) in no scenario: timesheet_tab: add a scenario/);
 		expect((await suite('shape', write([{ id: 'S1', pass: true }]), [])).join()).toMatch(/lack a string id, a string view or a boolean pass/);
 		expect((await suite('garbage', "writeFileSync(join(dir, 'summary.json'), '{');", [])).join()).toMatch(/does not parse/);
+	});
+	test('a suite that groups scenarios in classes fails when a class it ran has no passing scenario', async () => {
+		const ok = [{ id: 'a:1', view: 'v', pass: true }];
+		const withClasses = (byClass: unknown, only?: string[]) => `writeFileSync(join(dir, 'summary.json'), JSON.stringify(${JSON.stringify({ scenarios: ok, byClass, ...(only ? { only } : {}) })}));`;
+		expect(await suite('classes-ok', withClasses({ a: { pass: 1 }, b: { pass: 3 } }), ['v'])).toEqual([]);
+		expect((await suite('classes-empty', withClasses({ a: { pass: 1 }, b: { pass: 0 } }), ['v'])).join()).toMatch(/class\(es\) with no passing scenario: b:/);
+		// a run restricted to some classes (a dev run) is judged on those
+		expect(await suite('classes-only', withClasses({ a: { pass: 1 }, b: { pass: 0 } }, ['a']), ['v'])).toEqual([]);
 	});
 	test("the runner checks each category step's summary after the suite ran, and clears an old one first", () => {
 		const src = readFileSync(join(HERE, 'run.mjs'), 'utf8');

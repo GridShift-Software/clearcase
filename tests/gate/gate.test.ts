@@ -1,11 +1,11 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 // @ts-expect-error plain .mjs script, no declarations
-import { readHead, runGate, v5Prerequisite } from '../../scripts/gate.mjs';
+import { readHead, runGate, v5Current, v5Prerequisite } from '../../scripts/gate.mjs';
 
-type Step = { name: string; cmd: string[]; browser?: boolean; needs?: () => string | null; summary?: { dir: string; file: string; env?: string } };
+type Step = { name: string; cmd: string[]; browser?: boolean; needs?: () => string | null | Promise<string | null>; summary?: { dir: string; file: string; env?: string } };
 const head = { sha: 'abc123def456', dirty: false };
 let repo: string;
 beforeEach(() => { repo = mkdtempSync(join(tmpdir(), 'gate-test-')); });
@@ -23,15 +23,15 @@ let t = 0;
 const now = () => (t += 2000);
 
 describe('runGate', () => {
-	it('passes: one PASS line per step between the head line and GATE PASS', () => {
-		const r = runGate(steps, { repo, env: {}, head, lock: null, run: stub(null), now });
+	it('passes: one PASS line per step between the head line and GATE PASS', async () => {
+		const r = await runGate(steps, { repo, env: {}, head, lock: null, run: stub(null), now });
 		expect(r.pass).toBe(true);
 		expect(r.lines).toEqual(['gate abc123def456 clean tree', 'PASS a 2s', 'PASS b 2s', 'PASS c 2s', 'GATE PASS abc123def456']);
 	});
 
-	it('stops at the first failure, skips the rest, and prints a bounded log tail', () => {
+	it('stops at the first failure, skips the rest, and prints a bounded log tail', async () => {
 		const ran: string[][] = [];
-		const r = runGate(steps, { repo, env: {}, head, lock: null, run: stub('b', 500, ran), now });
+		const r = await runGate(steps, { repo, env: {}, head, lock: null, run: stub('b', 500, ran), now });
 		expect(r.pass).toBe(false);
 		expect(r.failed).toBe('b');
 		expect(ran).toEqual([['a'], ['b']]);
@@ -46,42 +46,46 @@ describe('runGate', () => {
 	it.each([
 		['a spawn error', { status: null, error: new Error('spawn /x/lock ENOENT') }, 'gate: cannot run a: spawn /x/lock ENOENT'],
 		['a signal', { status: null, signal: 'SIGTERM' }, 'gate: killed by SIGTERM'],
-	])('fails %s and says why in the tail', (_n, result, line) => {
-		const r = runGate(steps, { repo, env: {}, head, lock: null, run: () => result, now });
+	])('fails %s and says why in the tail', async (_n, result, line) => {
+		const r = await runGate(steps, { repo, env: {}, head, lock: null, run: () => result, now });
 		expect(r.pass).toBe(false);
 		expect(r.lines).toContain('FAIL a 2s');
 		expect(r.lines).toContain(line);
 		expect(r.lines.at(-1)).toBe('GATE FAIL a abc123def456');
 	});
 
-	it('fails a step that exits 75, the lock\'s own failure code', () => {
-		const r = runGate(steps, { repo, env: {}, head, lock: null, run: () => ({ status: 75 }), now });
+	it('fails a step that exits 75, the lock\'s own failure code', async () => {
+		const r = await runGate(steps, { repo, env: {}, head, lock: null, run: () => ({ status: 75 }), now });
 		expect(r.lines).toContain('FAIL a 2s');
 		expect(r.lines.at(-1)).toBe('GATE FAIL a abc123def456');
 	});
 
-	it('marks a dirty tree on the first line', () => {
-		const r = runGate(steps, { repo, env: {}, head: { ...head, dirty: true }, lock: null, run: stub(null), now });
+	it('marks a dirty tree on the first line', async () => {
+		const r = await runGate(steps, { repo, env: {}, head: { ...head, dirty: true }, lock: null, run: stub(null), now });
 		expect(r.lines[0]).toMatch(/DIRTY/);
 	});
 
-	it('wraps only browser steps in the lock command, and only when it is set', () => {
+	it('wraps only browser steps in the lock command, and only when it is set', async () => {
 		const withLock: string[][] = [];
-		runGate(steps, { repo, env: {}, head, lock: '/x/lock', run: stub(null, 0, withLock), now });
+		await runGate(steps, { repo, env: {}, head, lock: '/x/lock', run: stub(null, 0, withLock), now });
 		expect(withLock).toEqual([['a'], ['/x/lock', 'b'], ['c']]);
 		const without: string[][] = [];
-		runGate(steps, { repo, env: {}, head, lock: null, run: stub(null, 0, without), now });
+		await runGate(steps, { repo, env: {}, head, lock: null, run: stub(null, 0, without), now });
 		expect(without).toEqual([['a'], ['b'], ['c']]);
 	});
 
-	it('fails, never skips, a step whose prerequisite is missing, without running it', () => {
+	it('checks every prerequisite before the first step: a missing one fails its step and nothing runs', async () => {
 		const ran: string[][] = [];
-		const needy: Step[] = [{ name: 'a', cmd: ['a'], needs: () => 'missing prerequisite: x' }, steps[2]];
-		const r = runGate(needy, { repo, env: {}, head, lock: null, run: stub(null, 0, ran), now });
+		const checks: string[] = [];
+		const ok = () => { checks.push('ok'); return null; };
+		const missing = async () => { checks.push('missing'); return 'stale prerequisite: x\nRefresh: y'; };
+		const needy: Step[] = [{ name: 'a', cmd: ['a'], needs: ok }, steps[2], { name: 'p:q', cmd: ['p'], needs: missing }, { name: 'r', cmd: ['r'], needs: missing }];
+		const r = await runGate(needy, { repo, env: {}, head, lock: null, run: stub(null, 0, ran), now });
 		expect(ran).toEqual([]);
-		expect(r.lines).toContain('FAIL a 2s');
-		expect(r.lines).toContain('missing prerequisite: x');
-		expect(r.lines.at(-1)).toBe('GATE FAIL a abc123def456');
+		expect(checks).toEqual(['ok', 'missing']);
+		expect(r.failed).toBe('p:q');
+		expect(r.lines).toEqual(['gate abc123def456 clean tree', 'FAIL p:q prerequisite (no step ran)', 'stale prerequisite: x', 'Refresh: y', `see ${join('.local', 'gate', 'p-q.log')}`, 'GATE FAIL p:q abc123def456']);
+		expect(readFileSync(join(repo, '.local', 'gate', 'p-q.log'), 'utf8')).toBe('stale prerequisite: x\nRefresh: y\n');
 	});
 });
 
@@ -96,46 +100,46 @@ const good = { ok: true, evidence: true, freshBuild: { head: `${head.sha}0000000
 const gate = (s: Step) => runGate([s], { repo, env: {}, head, lock: null, now });
 
 describe('evidence-qualified summaries', () => {
-	it('fails a child that exits 0 and writes evidence: false', () => {
-		const r = gate(probe({ ...good, evidence: false, evidenceNote: 'NOT release evidence: E2E_ONLY=x' }));
+	it('fails a child that exits 0 and writes evidence: false', async () => {
+		const r = await gate(probe({ ...good, evidence: false, evidenceNote: 'NOT release evidence: E2E_ONLY=x' }));
 		expect(r.pass).toBe(false);
 		expect(r.lines).toContain('FAIL probe 2s');
 		expect(r.lines).toContain('probe: summary says evidence is not true: NOT release evidence: E2E_ONLY=x');
 		expect(r.lines.at(-1)).toBe('GATE FAIL probe abc123def456');
 	});
 
-	it('fails a summary of another revision', () => {
-		const r = gate(probe({ ...good, freshBuild: { head: 'f'.repeat(40) } }));
+	it('fails a summary of another revision', async () => {
+		const r = await gate(probe({ ...good, freshBuild: { head: 'f'.repeat(40) } }));
 		expect(r.lines.at(-1)).toBe('GATE FAIL probe abc123def456');
 		expect(r.lines.join('\n')).toMatch(/summary is for revision ffffffffffff, not HEAD abc123def456/);
 	});
 
-	it('fails when the child writes no summary, and a leftover one from an earlier run does not count', () => {
+	it('fails when the child writes no summary, and a leftover one from an earlier run does not count', async () => {
 		const dir = join(repo, '.local', 'gate', 'probe-out');
 		mkdirSync(dir, { recursive: true });
 		writeFileSync(join(dir, 'summary.json'), JSON.stringify(good));
-		const r = gate(probe(null));
+		const r = await gate(probe(null));
 		expect(r.lines.at(-1)).toBe('GATE FAIL probe abc123def456');
 		expect(r.lines.join('\n')).toMatch(/probe: no summary at .*summary\.json/);
 	});
 
-	it('fails a summary with ok: false or one that does not parse', () => {
-		expect(gate(probe({ ...good, ok: false })).pass).toBe(false);
-		expect(gate(probeWith('{')).lines.join('\n')).toMatch(/probe: summary does not parse/);
+	it('fails a summary with ok: false or one that does not parse', async () => {
+		expect((await gate(probe({ ...good, ok: false }))).pass).toBe(false);
+		expect((await gate(probeWith('{'))).lines.join('\n')).toMatch(/probe: summary does not parse/);
 	});
 
-	it('passes a fresh evidence: true summary for HEAD', () => {
-		const r = gate(probe(good));
+	it('passes a fresh evidence: true summary for HEAD', async () => {
+		const r = await gate(probe(good));
 		expect(r.pass).toBe(true);
 		expect(r.lines.at(-1)).toBe('GATE PASS abc123def456');
 	});
 });
 
 describe('reduced runs', () => {
-	it.each(['E2E_ONLY', 'E2E_STOP_AFTER', 'E2E_LATENCY_SIZES_MIB', 'CLEARCASE_E2E_TMP', 'PARITY_MAX_COMBOS'])('refuses to start when %s is set, even empty', (name) => {
+	it.each(['E2E_ONLY', 'E2E_STOP_AFTER', 'E2E_LATENCY_SIZES_MIB', 'CLEARCASE_E2E_TMP', 'PARITY_MAX_COMBOS'])('refuses to start when %s is set, even empty', async (name) => {
 		for (const value of ['1', '']) {
 			const ran: string[][] = [];
-			const r = runGate(steps, { repo, env: { [name]: value }, head, lock: null, run: stub(null, 0, ran), now });
+			const r = await runGate(steps, { repo, env: { [name]: value }, head, lock: null, run: stub(null, 0, ran), now });
 			expect(ran).toEqual([]);
 			expect(r.pass).toBe(false);
 			expect(r.lines.join('\n')).toContain(`${name} is set`);
@@ -152,6 +156,58 @@ describe('v5Prerequisite', () => {
 		expect(v5Prerequisite(repo)).toMatch(/case folder/);
 		mkdirSync(join(repo, 'tree'));
 		expect(v5Prerequisite(repo)).toBeNull();
+	});
+});
+
+describe('v5Current', () => {
+	const id = (c: string) => `sha256:${c.repeat(64)}`;
+	const fx = (viewContent: boolean) => {
+		const accepted = { resultsVersion: id('a'), diagnosticsSha256: id('d') };
+		return { cfg: { mainHtml: { path: '/v5.html' } }, caseFolder: '/case', caseId: 'c', acceptedBase: accepted, accepted: viewContent ? { ...accepted, resultsVersion: id('b') } : accepted };
+	};
+	/** A converter stub that writes a manifest with `resultsVersion` and returns a report with `diagnosticsSha256` (the accepted one by default), or fails. */
+	const converter = (resultsVersion: string | null, seen: string[] = [], report: object | null = { diagnosticsSha256: id('d') }) => ({ out }: { out: string }) => {
+		seen.push(out);
+		if (resultsVersion === null) return { exit: 1, stderr: 'boom\n' };
+		mkdirSync(out, { recursive: true });
+		writeFileSync(join(out, 'manifest.json'), JSON.stringify({ resultsVersion }));
+		return { exit: 0, stderr: '', report };
+	};
+
+	it('passes when the conversion carries the accepted resultsVersion, and removes it', async () => {
+		const seen: string[] = [];
+		expect(await v5Current(repo, { load: async () => fx(true), convert: converter(id('b'), seen) })).toBeNull();
+		expect(seen).toEqual([join(repo, '.local', 'gate', 'v5-preflight', 'pkg')]);
+		expect(existsSync(join(repo, '.local', 'gate', 'v5-preflight'))).toBe(false);
+	});
+
+	it('names the accepted and the expected resultsVersion, the field to change and how to refresh', async () => {
+		const problem = await v5Current(repo, { load: async () => fx(true), convert: converter(id('c')) });
+		expect(problem).toMatch(new RegExp(`^stale prerequisite: .*v5-verification\\.json accepts resultsVersion ${id('b')}\n`));
+		expect(problem).toContain(`converts the v5 sample to ${id('c')}`);
+		expect(problem).toContain(`set acceptedViewContent.resultsVersion\nto ${id('c')}`);
+		expect(problem).toMatch(/Refresh: copy the coordinator's current locator/);
+		expect(problem!.split('\n').every((l: string) => l.length <= 160)).toBe(true);
+		expect(await v5Current(repo, { load: async () => fx(false), convert: converter(id('c')) })).toContain(`set accepted.resultsVersion\nto ${id('c')}`);
+	});
+
+	it('names a stale accepted diagnosticsSha256, and refuses a conversion report without one', async () => {
+		const stale = await v5Current(repo, { load: async () => fx(true), convert: converter(id('b'), [], { diagnosticsSha256: id('e') }) });
+		expect(stale).toMatch(new RegExp(`^stale prerequisite: .*v5-verification\\.json accepts diagnosticsSha256 ${id('d')}\n`));
+		expect(stale).toContain(`converts the v5 sample to ${id('e')}`);
+		expect(stale).toContain('set accepted.diagnosticsSha256');
+		expect(stale!.split('\n').every((l: string) => l.length <= 160)).toBe(true);
+		expect(await v5Current(repo, { load: async () => fx(true), convert: converter(id('b'), [], {}) })).toContain('carries no diagnosticsSha256 (no such field)');
+		expect(await v5Current(repo, { load: async () => fx(true), convert: converter(id('b'), [], null) })).toContain('carries no diagnosticsSha256 (no report)');
+		const both = await v5Current(repo, { load: async () => fx(true), convert: converter(id('c'), [], { diagnosticsSha256: id('e') }) });
+		expect(both).toContain('accepts resultsVersion');
+		expect(both).toContain('accepts diagnosticsSha256');
+	});
+
+	it('reports a locator loadConfig refuses, and a failed conversion', async () => {
+		const refuse = async () => { throw new Error('/x/v5-verification.json: caseId is required'); };
+		expect(await v5Current(repo, { load: refuse, convert: converter(id('b')) })).toBe('invalid prerequisite: /x/v5-verification.json: caseId is required');
+		expect(await v5Current(repo, { load: async () => fx(true), convert: converter(null) })).toBe('v5 conversion failed (exit 1): boom');
 	});
 });
 

@@ -10,7 +10,29 @@ CI (`.github/workflows/ci.yml`) runs `bun run --bun check` and `bun run --bun te
 | pc1 host | `/var/lib/clearcase-ci/` (`disk.qcow2`, `seed.iso`, `console.log`, `powerdown`), system user `clearcase-ci`, `/etc/systemd/system/clearcase-ci-vm.service`, `/etc/clearcase-ci-vm.nft` and the nftables table `inet clearcase_ci_vm` it loads while the VM runs, packages `qemu-system-x86`, `qemu-img`, `libisoburn`, `nftables`, `socat` | `scripts/ci/vm-host.sh` |
 | Guest | Ubuntu 24.04 cloud image, 4 vCPU, 8 GiB, 40 GiB sparse disk; admin user `ciadmin`; runner user `runner` (no sudo); Bun 1.4.2 in `/usr/local/bin`; runner in `/home/runner/actions-runner`; service `actions.runner.GridShift-Software-clearcase.clearcase-pc1-vm` | `scripts/ci/guest-provision.sh`, installed as `/usr/local/sbin/clearcase-ci-guest` |
 
-The runner is repository-scoped, with labels `self-hosted`, `Linux`, `X64` and `clearcase-pc1` (the workflow names them in that case). The job installs Chrome for Testing 148.0.7778.96 into the runner's home with `scripts/ci/install-chrome.sh` and wraps each check in `scripts/agent-tools/receipt --base origin/dev` after a full-history checkout. The receipts and a `run-metadata.json` (run ID and attempt, `GITHUB_SHA`, event, ref, pull request head SHA where there is one, runner name; no environment dump) are uploaded as the `receipts` artifact, which fails the job when it is empty. A newer run of a pull request cancels the superseded one. A push never cancels a run in progress, but GitHub keeps only one pending run per branch and replaces it with a newer one, so quick successive pushes can lose the middle commits' results (the last push always runs).
+The runner is repository-scoped, with labels `self-hosted`, `Linux`, `X64` and `clearcase-pc1` (the workflow names them in that case). The job installs Chrome for Testing 148.0.7778.96 into the runner's home with `scripts/ci/install-chrome.sh` (it unpacks a tree again only when the tree's `.zip-sha256` stamp does not name the checked zip) and wraps each check in `scripts/agent-tools/receipt --base origin/dev` after a full-history checkout. The receipts, Vitest's JSON report `vitest.json`, the summary and a `run-metadata.json` (run ID and attempt, `GITHUB_SHA`, event, ref, pull request head SHA where there is one, runner name; no environment dump) are uploaded as the `receipts` artifact, which fails the job when it is empty.
+
+CI runs for pull requests (on GitHub's merge commit), pushes to `dev` and manual runs (`workflow_dispatch`). A push to a feature branch runs nothing until its pull request exists. That push run used to duplicate the PR run of the same commit on the one runner, so the PR run queued behind it for 110-140 s. The cost: a branch gets no CI before its pull request is opened. The worker's local `bun run --bun gate`, which is required anyway, covers that stretch, and a manual run covers a branch on request (`gh workflow run CI --ref BRANCH`). A newer run of a pull request cancels the superseded one. A push to `dev` never cancels a run in progress, but GitHub keeps only one pending run per branch and replaces it with a newer one, so quick successive pushes can lose the middle commits' results (the last push always runs).
+
+## Test step and timings
+
+The test step puts its temporary files (`TMPDIR` and `CLEARCASE_TEST_TMP`) in a fresh directory on `/dev/shm`, removed when the step ends, and runs Vitest with six workers and its JSON reporter. The reasons, from GRS-60's measurements on this VM (synthetic data only, scratch checkouts and caches):
+
+- The limiter was disk sync. The unit tests commit to SQLite with `synchronous=FULL`, and on the VM's ext4 disk in qcow2 each fsync is slow: a store's startup took about 200 ms there. On tmpfs the test files' summed time fell from 216 s to 117 s. Workers' machines already have tmpfs `/tmp`, so CI now matches them. Durability under power loss was never something a unit test could observe. The test files used under 64 MB of `/dev/shm`.
+- The other limiter was sleeping. Four unit tests hold `work.sqlite`'s write lock through every attempt and expect the 503, and each waited the production 9.5 s (4 × `busy_timeout` 2,000 ms plus 1.5 s of backoff). They now use `withoutBusyWait` (`src/lib/local-case/test-support.ts`), which sets the connection's `busy_timeout` to 0 for that write only, so the held lock, `SQLITE_BUSY`, the four attempts, the backoff and the 503 all stay real. `src/lib/local-case/busy.test.ts` runs the production budget end to end and fails if `busy_timeout` or the backoff changes. Tests that release the lock during the wait keep the production timing, and so do the e2e lanes in the local gate.
+- `vitest.config.ts` starts the files that wait longest first (`SLOW`). On a fresh checkout Vitest otherwise orders files by size, which put them last.
+- Six workers on four vCPUs, because much of the run is asleep. The run takes about 85 CPU-seconds, so four vCPUs set a floor of about 21 s. Eight workers came within 1 s of that floor, but the load average reached 9, and one of six trials with eight workers failed `tests/gate/pidfile.test.ts` because an orphan was not reaped in time. Six workers ran clean.
+
+## What a failed run tells an agent
+
+The `summary` step runs even after a failure. It writes the job summary, and `summary.md` and `summary.json` into the `receipts` artifact. It fails the job, with exit 1, unless the `check` and `test` receipts both exist for the checked-out HEAD, ran on a clean tree, and say PASS with exit 0, and unless `vitest.json` lists every tracked `*.test.ts` file (except `tests/acceptance/`, which Vitest never collects) with at least one test, none failed and none skipped. A skipped test fails the job, because a skip usually means a missing tool. Each problem names:
+
+- its check (`check` or `test`);
+- the file and line where there is one: `tsc`'s `file(line,col): error TSnnnn`, `svelte-check`'s machine output, `source-check`'s `path:line:col: error [rule]`, or a failing test's line from Vitest's task location;
+- the raw diagnostic, or the contract that failed (a missing receipt, a receipt for another revision, a skipped test, a test file missing from the report);
+- the command that reproduces it, such as `bun run --bun test tests/a.test.ts -t 'name'` or the receipt's own command.
+
+Read it with `gh run view RUN_ID` (the summary) or `gh run download RUN_ID -n receipts` (`summary.json`, and the full logs in each receipt's `stdout.txt` and `stderr.txt`). `bun scripts/ci/summary.ts DIR check test` runs the same verdict on local receipts.
 
 ## Isolation
 
@@ -69,7 +91,8 @@ git branch -f ci-bundle HEAD && git bundle create /tmp/ci.bundle ci-bundle && gi
 scripts/ci/pc1-vm ssh 'sudo systemctl stop actions.runner.GridShift-Software-clearcase.clearcase-pc1-vm'   # only when no job is running
 scripts/ci/pc1-vm ssh 'cat > /tmp/ci.bundle && chmod 644 /tmp/ci.bundle' < /tmp/ci.bundle
 scripts/ci/pc1-vm ssh 'sudo -u runner -H bash -c "cd && rm -rf by-hand && git clone -q -b ci-bundle /tmp/ci.bundle by-hand && cd by-hand &&
-  scripts/ci/install-chrome.sh && bun install --frozen-lockfile && bun run --bun check && bun run --bun test"'
+  scripts/ci/install-chrome.sh && bun install --frozen-lockfile && bun run --bun check &&
+  t=\$(mktemp -d /dev/shm/by-hand.XXXXXX) && TMPDIR=\$t CLEARCASE_TEST_TMP=\$t bun run --bun test --maxWorkers=6; s=\$?; rm -rf \$t; exit \$s"'
 scripts/ci/pc1-vm ssh 'sudo systemctl start actions.runner.GridShift-Software-clearcase.clearcase-pc1-vm'
 ```
 
@@ -80,7 +103,7 @@ Recreating the VM registers a new runner ID under the same name and labels, so t
 Accepted and not fixed in GRS-57:
 
 - The receipts compare against a hardcoded `origin/dev`, whatever a pull request's base is, so a stacked pull request is compared with `dev`, not its parent branch.
-- The `receipts` artifact and `run-metadata.json` are evidence about a run, not a guarantee that the `check` and `test` receipts exist: `if-no-files-found: error` only fails an empty upload. The pass/fail gate is the exit status of the two check steps.
+- `run-metadata.json` is evidence about a run, not a check. Since GRS-60 the `summary` step fails the job when a `check` or `test` receipt is missing, belongs to another revision, or is not a PASS.
 - If guest provisioning fails while the runner is stopped for an upgrade (for example in the `tar` unpack), the runner service stays stopped. Rerun `scripts/ci/pc1-vm provision`, or start the service in the guest.
 - `wait_guest` runs a second SSH command for `cloud-init status --wait`; if that command fails with an SSH error it is reported as a cloud-init error with exit 255.
 - `nft flush ruleset` on pc1 removes the boundary table until the VM restarts, a host reboot has not been tested, and the busy check can race a job that starts just after it.

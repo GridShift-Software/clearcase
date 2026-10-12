@@ -49,12 +49,13 @@ rm -rf /var/lib/clearcase-ci && userdel clearcase-ci
 
 ## Running the CI checks by hand in the guest
 
+The guest holds no GitHub credential, so send the source over the SSH link as a bundle and run the job's commands as `runner`:
+
 ```sh
-scripts/ci/pc1-vm ssh
-sudo -iu runner
-git clone https://github.com/GridShift-Software/clearcase.git  # needs a token for the private repo; or copy a bundle
-cd clearcase && ~/clearcase/scripts/ci/install-chrome.sh && bun install --frozen-lockfile
-bun run --bun check && bun run --bun test
+git branch -f ci-bundle HEAD && git bundle create /tmp/ci.bundle ci-bundle && git branch -D ci-bundle
+scripts/ci/pc1-vm ssh 'cat > /tmp/ci.bundle && chmod 644 /tmp/ci.bundle' < /tmp/ci.bundle
+scripts/ci/pc1-vm ssh 'sudo -u runner -H bash -c "cd && rm -rf by-hand && git clone -q -b ci-bundle /tmp/ci.bundle by-hand && cd by-hand &&
+  scripts/ci/install-chrome.sh && bun install --frozen-lockfile && bun run --bun check && bun run --bun test"'
 ```
 
-The guest holds no GitHub credential, so get the source in with `git bundle` over the SSH link rather than putting a token in the VM.
+Recreating the VM registers a new runner ID under the same name and labels, so the workflow needs no change.

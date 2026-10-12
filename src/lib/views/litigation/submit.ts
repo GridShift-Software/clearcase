@@ -5,7 +5,7 @@
 
 export const LOST = 'Not saved: the app could not be reached. Your entry is kept below; try again once it is running.';
 
-/** The server's request size limit (adapter-node's BODY_SIZE_LIMIT default; launch configuration, not changed here). */
+/** The app's request size limit for a form post (request-limit.server.ts DEFAULT_BODY_LIMIT; a test keeps the two equal). */
 export const REQUEST_LIMIT = '512 KiB';
 
 export type Op = 'add' | 'delete' | 'status';

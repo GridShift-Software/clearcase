@@ -27,7 +27,7 @@ Affects GRS-18 (PR #17).
 
 ## Bundles (item 6)
 
-Mark exports as Copy or Original. Show a notice when a selection is incomplete. Produce one download per export. Embed PDF fonts and resources, and number pages visibly. Use the correct characters in the index. Keep session links working. Avoid duplicate saves and stale Word links.
+Mark exports as Copy or Original. Show a notice when a selection is incomplete. Produce one download per export. Embed PDF fonts and resources, and number pages visibly. Use the correct characters in the index. Keep session links working. Avoid duplicate saves and stale range links.
 
 Missing package-file links remain required fixes under GRS-45 and are not accepted gaps.
 

@@ -427,7 +427,7 @@ export async function assemble(
 				try {
 					pruned = await pruneRes(src.doc, resSrc, await contentBytes(src.doc, p.dict), 0, new Set());
 				} catch {
-					pruned = undefined;
+					pruned = src.doc.get(resSrc); // unpruned, resolved in the source: the page keeps its fonts
 				}
 			}
 			const shallow: PDict = new Map(p.dict);

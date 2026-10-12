@@ -3,7 +3,7 @@
 // and random files, /proc counters, and package variants built from GRS-10's real converter output.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { closeSync, existsSync, ftruncateSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, statSync, writeFileSync, writeSync } from 'node:fs';
+import { closeSync, existsSync, ftruncateSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, realpathSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import http from 'node:http';
 import net from 'node:net';
 import { join } from 'node:path';
@@ -156,6 +156,18 @@ export function openDb(dataDir, { readOnly = false } = {}) {
 	const wf = join(dataDir, 'work.sqlite');
 	if (existsSync(wf)) d.prepare('ATTACH DATABASE ? AS work').run(wf);
 	return d;
+}
+/** Files under dir that this process still has open (/proc/self/fd). */
+export const heldUnder = (dir, real = realpathSync(dir)) => readdirSync('/proc/self/fd').map((fd) => { try { return readlinkSync(`/proc/self/fd/${fd}`); } catch { return null; } }).filter((p) => p?.startsWith(`${real}/`));
+/**
+ * Under Bun, DatabaseSync.close() leaves the connection open while a prepared statement is still uncollected; it
+ * really closes at a later GC. If that lands after the server was SIGKILLed, this process holds the last connection
+ * and its close checkpoints results.sqlite-wal into results.sqlite and deletes the -wal and -shm. Collect until no
+ * handle under dataDir is left; returns what is still held (empty on success).
+ */
+export async function releaseStoreHandles(dataDir) {
+	for (let i = 0; i < 10 && heldUnder(dataDir).length; i++) { globalThis.Bun?.gc(true); await sleep(10); }
+	return heldUnder(dataDir);
 }
 export function q(dataDir, sql, ...args) { const d = openDb(dataDir); try { return d.prepare(sql).all(...args).map((r) => ({ ...r })); } finally { d.close(); } }
 export function q1(dataDir, sql, ...args) { return q(dataDir, sql, ...args)[0]; }

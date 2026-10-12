@@ -30,7 +30,7 @@
 		noteError = null;
 		return async ({ result, update }) => {
 			noteBusy = false;
-			if (result.type === 'error') { noteError = `The note was not saved: ${result.status ? (result.error as { message?: string })?.message ?? `the app answered ${result.status}.` : 'the app did not answer.'} Your text is kept; try again.`; return; }
+			if (result.type === 'error') { noteError = result.status && (result.error as { message?: string } | undefined)?.message || `The note was not saved: ${result.status ? `the app answered ${result.status}.` : 'the app did not answer.'} Your text is kept; try again.`; return; }
 			await update({ reset: result.type === 'success' });
 		};
 	};

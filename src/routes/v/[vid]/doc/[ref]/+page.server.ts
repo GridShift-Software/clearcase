@@ -1,10 +1,10 @@
-import { error, fail, isHttpError } from '@sveltejs/kit';
+import { error } from '@sveltejs/kit';
+import { actionCase, guarded, type Say } from '$lib/local-case/answer.server';
 import { app, originals } from '$lib/local-case/app.server';
 import { documentRow, resolveRefs } from '$lib/local-case/documents.server';
 import type { AttachmentRow, OriginalLinks } from '$lib/local-case/model';
 import { OriginalsServer } from '$lib/local-case/originals.server';
 import { inTurn } from '$lib/local-case/registers.server';
-import { UserWorkError } from '$lib/local-case/user-work.server';
 import type { Actions, PageServerLoad } from './$types';
 
 // note writes run in the case's register queue, so a restore of the case holds them back
@@ -62,27 +62,30 @@ export const load: PageServerLoad = async ({ params, parent, url }) => {
 	};
 };
 
+/** What the note actions say when a write fails: the page shows it beside the form, with the typed text kept. */
+const SAY: Say = {
+	busy: 'The note was not saved: the store is busy or unavailable. Your text is kept; try again.',
+	refused: (e) => `The note was not saved: ${e.message}`,
+	failed: 'The note was not saved: something went wrong. Your text is kept; try again.',
+};
+
 export const actions: Actions = {
 	note: async ({ request, params }) => {
-		const a = app();
-		const v = a.store.getVersion(params.vid);
-		if (!v) return fail(404, { message: 'Unknown results version' });
+		const { caseId } = actionCase(params);
 		const body = String((await request.formData()).get('body') ?? '');
-		// a refusal (invalid, or the store busy) comes back with the typed text, so a page without JavaScript keeps it
-		try { await inTurn(a.userWork, v.case_id, NOTES, () => a.userWork.addNote(v.case_id, v.id, params.ref, body)); } catch (e) {
-			if (e instanceof UserWorkError) return fail(400, { message: e.message, body });
-			// an enhanced request keeps the error's status (a busy store's 503 with Retry-After); its page keeps the text
-			if (isHttpError(e) && request.headers.get('x-sveltekit-action') !== 'true') return fail(e.status, { message: `The note was not saved: ${e.body.message}`, body });
-			throw e;
+		const w = await guarded('note', { body }, () => inTurn(app().userWork, caseId, NOTES, () => app().userWork.addNote(caseId, params.vid, params.ref, body)), SAY, { body });
+		if (!w.ok) {
+			// a form enhanced by SvelteKit asks for JSON: a busy store is a real 503 with Retry-After for it (durability S54),
+			// and its page keeps the text; without JavaScript the answer re-renders the page with the text
+			if (w.failure.status === 503 && request.headers.get('accept')?.includes('application/json')) error(503, w.failure.data.message);
+			return w.failure;
 		}
 		return { saved: true };
 	},
 	delnote: async ({ request, params }) => {
-		const a = app();
-		const v = a.store.getVersion(params.vid);
-		if (!v) return fail(404, { message: 'Unknown results version' });
+		const { caseId } = actionCase(params);
 		const id = String((await request.formData()).get('id') ?? '');
-		await inTurn(a.userWork, v.case_id, NOTES, () => a.userWork.deleteNote(v.case_id, id));
-		return { deleted: true };
+		const w = await guarded('delete', null, () => inTurn(app().userWork, caseId, NOTES, () => app().userWork.deleteNote(caseId, id)), SAY);
+		return w.ok ? { deleted: true } : w.failure;
 	},
 };

@@ -27,8 +27,9 @@ if (!newer(process.versions.bun!, MIN_BUN)) die(`Bun >= ${MIN_BUN} is required (
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const pidFile = (p: string | undefined) => join(root, '.local', 'pilot', `start-${p ?? 41101}.pid`);
 if (process.argv.includes('--stop')) {
-	console.log(`start --stop: ${await stopPidFile(pidFile(process.env.PORT))}`);
-	process.exit(0);
+	const { ok, message } = await stopPidFile(pidFile(process.env.PORT));
+	console.log(`start --stop: ${message}`);
+	process.exit(ok ? 0 : 1);
 }
 const build = resolve(process.env.BUILD_DIR ?? join(root, 'build'));
 for (const f of ['handler.js', 'pdfjs/manifest.json', 'clearcase-build.json'])

@@ -12,7 +12,7 @@ import { buildCase } from '../../../tests/e2e/pilot/lib/fixtures.ts';
 import type * as Documents from './documents.server.ts';
 import type { ChronologyListRow, DocumentStateRow } from './model.ts';
 import type { LocalCase } from './service.server.ts';
-import { ackFor, cleanup, tempRoot } from './test-support.ts';
+import { ackFor, cleanup, devServerLock, tempRoot } from './test-support.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '../../..');
 const freePort = () => new Promise<number>((resolve) => { const s = netServer().listen(0, '127.0.0.1', () => { const p = (s.address() as { port: number }).port; s.close(() => resolve(p)); }); });
@@ -21,7 +21,9 @@ let root: string, vite: ViteDevServer, http: Server, origin: string, rv: string,
 let docs: typeof Documents;
 const saved = { ...process.env };
 
+let unlock: (() => void) | undefined;
 beforeAll(async () => {
+	unlock = await devServerLock(ROOT);
 	root = await tempRoot('ssr');
 	const [port, originalsPort] = [await freePort(), await freePort()];
 	Object.assign(process.env, { CLEARCASE_DATA_DIR: path.join(root, 'data'), PORT: String(port), ORIGINALS_PORT: String(originalsPort), CLEARCASE_USERWORK_BACKUP_DELAY_MS: '60000' });
@@ -49,6 +51,7 @@ afterAll(async () => {
 	delete g.__clearcase;
 	process.env = saved;
 	if (root) await cleanup(root);
+	unlock?.();
 });
 
 const state: DocumentStateRow = { file: 'missing', preview: 'none', text: 'pending', mediaType: null, flags: ['rescan'], original: null, self: null };

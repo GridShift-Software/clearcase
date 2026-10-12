@@ -32,6 +32,8 @@ process.env.HOST = '127.0.0.1';
 process.env.PORT = String(port);
 process.env.ORIGIN = `http://127.0.0.1:${port}`;
 process.env.ORIGINALS_PORT ??= String(port + 1);
+// adapter-node refuses a request body over 512 KB by default; a backup upload is up to 64 MiB (plus the form's overhead)
+process.env.BODY_SIZE_LIMIT ??= '65M';
 process.env.ORIGINALS_HOSTNAME ||= 'clearcase-originals.localhost';
 process.env.CLEARCASE_DATA_DIR = resolveDataDir();
 process.env.CLEARCASE_BUILD_DIR = build;

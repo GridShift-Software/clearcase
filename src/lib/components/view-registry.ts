@@ -62,9 +62,9 @@ export const VIEWS: readonly ViewEntry[] = Object.freeze([
 	{ id: 'popia_tab', label: 'POPIA Register', group: 'Registers', owner: 'CC-07', linear: 'GRS-17', category: 'registers', route: '/registers/popia_tab', status: 'unavailable-until:GRS-17' },
 	{ id: 'annotations_tab', label: 'Annotations', group: 'Registers', owner: 'CC-07', linear: 'GRS-17', category: 'registers', route: '/registers/annotations_tab', status: 'unavailable-until:GRS-17' },
 	{ id: 'transcriptions_tab', label: 'Transcripts', group: 'Registers', owner: 'CC-07', linear: 'GRS-17', category: 'registers', route: '/registers/transcriptions_tab', status: 'unavailable-until:GRS-17' },
-	{ id: 'rescan_tab', label: 'Rescan & Update', group: 'System', owner: 'CC-10', linear: 'GRS-20', category: 'system', route: '/system/rescan_tab', status: 'unavailable-until:GRS-20' },
-	{ id: 'backup_tab', label: 'Backup / Restore', group: 'System', owner: 'CC-10', linear: 'GRS-20', category: 'system', route: '/system/backup_tab', status: 'unavailable-until:GRS-20' },
-	{ id: 'manual', label: 'Manual', group: 'System', owner: 'CC-10', linear: 'GRS-20', category: 'system', route: '/system/manual', status: 'unavailable-until:GRS-20' },
+	{ id: 'rescan_tab', label: 'Rescan & Update', group: 'System', owner: 'CC-10', linear: 'GRS-20', category: 'system', route: '/system/rescan_tab', status: 'available' },
+	{ id: 'backup_tab', label: 'Backup / Restore', group: 'System', owner: 'CC-10', linear: 'GRS-20', category: 'system', route: '/system/backup_tab', status: 'available' },
+	{ id: 'manual', label: 'Manual', group: 'System', owner: 'CC-10', linear: 'GRS-20', category: 'system', route: '/system/manual', status: 'available' },
 ].map((e) => Object.freeze(e as ViewEntry)));
 
 export const VIEW_GROUPS: readonly string[] = Object.freeze(['Matter', 'Evidence', 'Case management', 'Analysis', 'Litigation strategy', 'Registers', 'System']);

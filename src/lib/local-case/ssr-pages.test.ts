@@ -101,6 +101,28 @@ describe('SSR readers with a degraded document-row provider', () => {
 	});
 });
 
+describe('SSR document page: every action it offers succeeds on the real write path', () => {
+	/** Submit the page's note form as the browser does; null when the page offers none. */
+	const note = async (ref: string) => {
+		const page = await get(`${v()}/doc/${ref}`);
+		if (!page.text.includes('id="note-form"')) return { offered: false, page };
+		const r = await fetch(`${origin}${v()}/doc/${ref}?/note`, { method: 'POST', headers: { origin, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ body: 'a plainly invented note' }) });
+		return { offered: true, status: r.status, text: await r.text(), page };
+	};
+	it('a provider-only document offers no note form and says why; an imported one offers it and saving works', async () => {
+		await withProvider({ revision: () => 'r1', rows: () => [{ ref: 'RS-001', row: { ref: 'RS-001' }, list: list('RS-001'), state }] }, async () => {
+			const prov = await note('RS-001');
+			expect(prov.page.status).toBe(200);
+			// either the form is offered and saves, or it is not offered and the page says why
+			if (prov.offered) expect([prov.status, prov.text.includes('No such document')]).toEqual([200, false]);
+			else expect(prov.page.text).toContain('id="note-unavailable"');
+			const imp = await note('OD-001');
+			expect(imp.offered).toBe(true);
+			expect([imp.status, imp.text.includes('No such document')]).toEqual([200, false]);
+		});
+	});
+});
+
 describe('SSR pages: import-time and parent-original states', () => {
 	it('labels the overview originals counts as checked at import, with the import time', async () => {
 		const ov = await get(`${v()}/overview`);

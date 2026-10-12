@@ -12,7 +12,8 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-import { canonicalJson, canonicalText } from '../../src/lib/case-package/canonical.ts';
+import { canonicalBytes, canonicalJson, canonicalText } from '../../src/lib/case-package/canonical.ts';
+import { isPathKey } from '../../src/lib/case-package/refs.ts';
 import type { ImportResult } from '../../src/lib/case-package/candidate.ts';
 import { resultsVersionOf, sha256Hex } from '../../src/lib/case-package/hash.ts';
 import { importCandidate } from '../../src/lib/case-package/import.ts';
@@ -276,7 +277,7 @@ lane(10, 'Reject an unsupported package version', async (log) => {
   }
 });
 
-lane(11, 'Carry code-embedded view content as data; every other file keeps the accepted identity', async (log) => {
+lane(11, 'Carry code-embedded view content as data; every other file, package files aside, keeps the accepted identity', async (log) => {
   const vc = main.viewContent!;
   const extracted = vc.fields.filter((f) => f.status === 'extracted');
   const perView = new Map<string, number>();
@@ -295,10 +296,17 @@ lane(11, 'Carry code-embedded view content as data; every other file keeps the a
   const rd = readViewContent(env!.data);
   const templates = rd.views().flatMap((v) => rd.fields(v).filter((f) => (rd.params(v, f) ?? []).length > 0));
   check(log, rd.views().length === mapViews && rd.views().reduce((n, v) => n + rd.fields(v).length, 0) === VIEW_CONTENT_MAP.length, `typed reader: ${rd.views().length} views, ${templates.length} templates with params`);
-  const files = main.manifest!.files.filter((f) => f.path !== `datasets/${VIEW_CONTENT.key}.json`);
+  // GRS-45 package files (P- keys) joined assets.json later: the asset index without them must be GRS-10's bytes
+  const index = parseStrictJson(new TextDecoder().decode(main.files!.get('assets.json')!)) as { index: string; root: string; assets: Record<string, unknown> };
+  const docAssets = Object.fromEntries(Object.entries(index.assets).filter(([k]) => !isPathKey(k)));
+  const packageFiles = Object.keys(index.assets).length - Object.keys(docAssets).length;
+  const baseAssets = canonicalBytes({ index: index.index, root: index.root, assets: docAssets });
+  log(`package files in the asset index (GRS-45): ${packageFiles}`);
+  const files = main.manifest!.files.filter((f) => f.path !== `datasets/${VIEW_CONTENT.key}.json`)
+    .map((f) => (f.path === 'assets.json' ? { ...f, count: Object.keys(docAssets).length, sha256: sha256Hex(baseAssets), size: baseAssets.byteLength } : f));
   const without = resultsVersionOf({ formatVersion: main.manifest!.formatVersion, caseId: main.manifest!.case.id, inputRevisionId: main.manifest!.inputRevision.id, files });
   check(log, !!cfg.accepted, 'the fixture configuration names the accepted pre-view-content identity');
-  check(log, without === cfg.accepted!.resultsVersion, `every other file byte-identical: the manifest without view-content gives ${without} (accepted ${cfg.accepted!.resultsVersion}); with it: ${main.manifest!.resultsVersion}`);
+  check(log, without === cfg.accepted!.resultsVersion, `every other file byte-identical: the manifest without view-content and package files gives ${without} (accepted ${cfg.accepted!.resultsVersion}); with them: ${main.manifest!.resultsVersion}`);
 });
 
 // ---- run ------------------------------------------------------------------------------------

@@ -3,7 +3,7 @@ import { app } from '$lib/local-case/app.server';
 import { datasetOf, viewContentOf, viewText } from '$lib/local-case/results.server';
 import { HEADER_FIELDS, HEADER_KEYS, bundlesOf, headerRaw } from '$lib/views/bundles/court';
 import { resolveLocator } from '$lib/views/bundles/links';
-import { bundleDownloads, bundlePathIndex } from '$lib/views/bundles/links.server';
+import { bundleDownloads, bundleLinks } from '$lib/views/bundles/links.server';
 import { HEADER_STORE, deleteCustom, deleteSingle, guarded, putSingle, readCustom, saveCustom, serial, singleHash, singleRow } from '$lib/views/bundles/store.server';
 import { customOf, toBundle } from '$lib/bundles/builder';
 import type { Actions, PageServerLoad } from './$types';
@@ -18,8 +18,8 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const raw = datasetOf<Raw>(a.store, version.id, 'bundles');
 	const shipped = bundlesOf(raw);
 	const custom = (await readCustom(version.caseId)).map((c) => toBundle(c, c.id));
-	const paths = bundlePathIndex(a.store, version.id);
-	// links resolve only by exact indexed path; parts open at their first page when it is above 1, as v5's docLink does.
+	const { paths, files } = await bundleLinks(a.store, version.id);
+	// links resolve only by exact indexed path (a document, or a package file served now); parts open at their first page when it is above 1, as v5's docLink does.
 	// A saved builder bundle has no file on disk: its PDF lives in the page session, and its parts have no url (S-3).
 	const links = [...shipped.map((b) => ({
 		file: resolveLocator(paths, b.file), indexFile: resolveLocator(paths, b.indexFile),
@@ -38,6 +38,8 @@ export const load: PageServerLoad = async ({ parent }) => {
 	return {
 		present: raw !== null,
 		bundles, links,
+		// package-file key -> its originals-site link (GRS-45)
+		files,
 		content: {
 			kpiBundlesNote: t('kpiBundlesNote'), kpiExtractsValue: vc.number('court_bundle_tab', 'kpiExtractsValue'), kpiExtractsNote: t('kpiExtractsNote'),
 			extentNarrative: t('extentNarrative'),

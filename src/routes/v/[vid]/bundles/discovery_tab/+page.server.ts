@@ -2,7 +2,7 @@ import { fail } from '@sveltejs/kit';
 import { app } from '$lib/local-case/app.server';
 import { datasetOf, viewContentOf, viewText } from '$lib/local-case/results.server';
 import { locatorPath } from '$lib/views/bundles/links';
-import { bundleDownloads, bundlePathIndex } from '$lib/views/bundles/links.server';
+import { bundleDownloads, bundleLinks } from '$lib/views/bundles/links.server';
 import { MODES, type Caption, type Mode, type ModeMeta, type ScheduleItem } from '$lib/views/bundles/discovery';
 import { MODE_STORE, guarded, putSingle, readMarks, readMode, serial, writeMarks } from '$lib/views/bundles/store.server';
 import type { Actions, PageServerLoad } from './$types';
@@ -15,7 +15,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const { version } = await parent();
 	const a = app();
 	const raw = datasetOf<Record<string, unknown>>(a.store, version.id, 'discovery-schedules');
-	const index = bundlePathIndex(a.store, version.id);
+	const { paths: index, files } = await bundleLinks(a.store, version.id);
 	const items = (m: Mode): ScheduleItem[] => (Array.isArray(raw?.[m]) ? (raw[m] as RawItem[]) : []).filter((i) => i && typeof i === 'object').map((i) => ({
 		no: typeof i.no === 'number' ? i.no : Number(i.no) || 0, date: str(i.date), co: str(i.co), desc: str(i.desc), nfiles: typeof i.nfiles === 'number' ? i.nfiles : 0,
 		files: (Array.isArray(i.files) ? (i.files as RawFile[]) : []).filter((f) => f && typeof f === 'object').map((f) => {
@@ -36,6 +36,8 @@ export const load: PageServerLoad = async ({ parent }) => {
 	return {
 		present: raw !== null,
 		schedules,
+		// package-file key -> its originals-site link (GRS-45)
+		files,
 		// the original's download link (attachment, nosniff, sandbox CSP from the originals site) per served ref
 		downloads: Object.fromEntries(await bundleDownloads(version.id, refs)),
 		caption, meta,

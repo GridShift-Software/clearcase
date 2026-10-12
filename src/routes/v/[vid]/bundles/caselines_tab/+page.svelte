@@ -3,15 +3,14 @@
 	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
 	import PageHeader from '$lib/components/PageHeader.svelte';
-	import { docPath } from '$lib/local-case/model';
-	import { NOT_SERVED } from '$lib/views/bundles/links';
+	import { NOT_SERVED, hrefOf } from '$lib/views/bundles/links';
 	import { postAction } from '$lib/views/bundles/post';
 	import { sizeLabel, uploadUrl } from '$lib/views/bundles/caselines';
 	let { data } = $props();
 	const vid = $derived(data.version.id);
 	const c = $derived(data.content);
 	const pagesLabel = $derived(data.pages === null ? '' : data.pages.toLocaleString('en'));
-	const bundleHref = (p: number | null = null) => (data.bundle ? docPath(vid, data.bundle.ref, p) : null);
+	const bundleHref = (p: number | null = null) => hrefOf(vid, data.files, data.bundle, p);
 
 	let q = $state(page.url.searchParams.get('q') ?? '');
 	const search = () => goto(`?${new URLSearchParams(q.trim() ? { q: q.trim() } : {})}`, { keepFocus: true, noScroll: true, replaceState: true });
@@ -114,7 +113,7 @@
 		{#if linkError}<p class="error" role="alert" id="cl-error">{linkError} <button type="button" class="ds-btn" id="cl-retry" disabled={off || linking} onclick={link}>Retry</button></p>{/if}
 		<div class="cl-hint">Linked files are remembered for this case and open through the document page when they are in the verified index. Files added for this session can only be downloaded while this page stays open; to keep one, save it into the case folder and link it by path.</div>
 		<ul class="cl-doclist" id="cl-docs">
-			{#each data.links as l (l.rowId)}<li data-row={l.rowId}><span class="nm" title={l.name}>📄 {l.name} <span class="dim">(linked)</span></span>{#if l.ref}<a href={docPath(vid, l.ref)}>Open</a>{#if data.downloads[l.ref]}<a href={data.downloads[l.ref]} rel="noopener noreferrer" download>Download</a>{/if}{:else}<span class="not-served">{NOT_SERVED}</span>{/if}<button type="button" class="rm" disabled={off} onclick={() => unlink(l.rowId)}>Remove</button>{#if removeErrors[l.rowId]}<span class="error" role="alert" data-remove-error={l.rowId}>{removeErrors[l.rowId]} <button type="button" class="ds-btn" onclick={() => unlink(l.rowId)}>Retry</button></span>{/if}</li>{/each}
+			{#each data.links as l (l.rowId)}<li data-row={l.rowId}><span class="nm" title={l.name}>📄 {l.name} <span class="dim">(linked)</span></span>{#if l.ref}<a href={hrefOf(vid, data.files, { ref: l.ref, page: null })}>Open</a>{#if data.downloads[l.ref]}<a href={data.downloads[l.ref]} rel="noopener noreferrer" download>Download</a>{/if}{:else}<span class="not-served">{NOT_SERVED}</span>{/if}<button type="button" class="rm" disabled={off} onclick={() => unlink(l.rowId)}>Remove</button>{#if removeErrors[l.rowId]}<span class="error" role="alert" data-remove-error={l.rowId}>{removeErrors[l.rowId]} <button type="button" class="ds-btn" onclick={() => unlink(l.rowId)}>Retry</button></span>{/if}</li>{/each}
 			{#each uploads as u (u.id)}<li><span class="nm" title={u.name}>⬆️ {u.name} <span class="dim">(this session · {sizeLabel(u.size)})</span></span><a href={u.url} download={u.name}>Download</a><button type="button" class="rm" disabled={off} onclick={() => removeUpload(u)}>Remove</button></li>{/each}
 			{#if !data.links.length && !uploads.length}<li class="dim">No additional documents yet.</li>{/if}
 		</ul>

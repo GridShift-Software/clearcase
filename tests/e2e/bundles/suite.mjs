@@ -713,11 +713,30 @@ try {
 			];
 		},
 	});
+	// case D (GRS-45): a bundle whose PDF, index PDF, extract and source part, and a schedule file, are package files on
+	// disk outside the register; a second extract and a second schedule file are deleted after import
+	const PKG = { bundle: 'PKG/Bundle D.pdf', index: 'PKG/Index D.pdf', extract: 'PKG/extracts/Item 1.pdf', part: 'PKG/sources/Part one.pdf', sched: 'PKG/sched/Schedule one.pdf', goneExtract: 'PKG/extracts/Gone.pdf', goneSched: 'PKG/sched/Gone.pdf', caselines: 'INVENTED FOLDER/INVENTED BUNDLE.pdf' };
+	const pkgBytes = Object.fromEntries(Object.entries(PKG).map(([k, f]) => [f, pdf(`synthetic package file ${k}`)]));
+	const caseD = await buildCase(join(tmp, 'case-d'), {
+		caseId: 'e2e-case-d',
+		originals: pkgBytes,
+		edit: (r) => {
+			const bl = r.DATA.bundles.list;
+			bl.splice(0, bl.length, { ...bl[0], no: '1', name: 'Bundle D', title: 'Bundle D', file: url(PKG.bundle), indexFile: url(PKG.index), indexPages: 1, rows: [
+				{ key: 'OD-1', n: 1, desc: 'Synthetic item', date: '', from: 1, to: 2, pages: 2, sliceUrl: url(PKG.extract), parts: [{ url: url(PKG.part), name: '(1) Part one.pdf', rel: 'Part one.pdf', from: 2, to: 3 }] },
+				{ key: 'OD-2', n: 2, desc: 'Synthetic deleted extract', date: '', from: 3, to: 3, pages: 1, sliceUrl: url(PKG.goneExtract), parts: [] },
+				// review M1: a folder named without a slash and a path under .clearcase/ leave their links not served
+				{ key: 'OD-3', n: 3, desc: 'Synthetic folder extract', date: '', from: 4, to: 4, pages: 1, sliceUrl: url('PKG/extracts'), parts: [] },
+				{ key: 'OD-4', n: 4, desc: 'Synthetic reserved extract', date: '', from: 5, to: 5, pages: 1, sliceUrl: url('.clearcase/x.pdf'), parts: [] },
+			] });
+			r.SCHED.discovery = [{ no: 1, date: '', desc: 'Synthetic package files', co: 'C', nfiles: 2, files: [{ fn: 'Schedule one.pdf', url: url(PKG.sched), co: 'C' }, { fn: 'Gone.pdf', url: url(PKG.goneSched), co: 'C' }] }];
+		},
+	});
 	const SB = appServer({ name: 'b', root: ROOT, buildDir: BUILD, port: 43102, origPort: 43103, dir: tmp });
 	const { startServer } = await import('../pilot/lib/server.mjs');
 	SB.srv = await startServer({ root: ROOT, port: SB.port, origPort: SB.origPort, dataDir: SB.dataDir, buildDir: BUILD, logFile: SB.logFile, env });
 	try {
-		for (const sc2 of [caseB, caseC]) {
+		for (const sc2 of [caseB, caseC, caseD]) {
 			const imp2 = await SB.c.importPkg(sc2.caseDir, sc2.pkgDir);
 			const act2 = await SB.c.activate(imp2.importId);
 			if (!imp2.importId || act2.status >= 400) throw new Error(`import/activate failed: ${JSON.stringify({ imp: imp2.status, act: act2.status })}`);
@@ -730,6 +749,62 @@ try {
 		const coBtn = (fn, label) => `#ds-list .ds-chip[data-key$=${J('/' + fn)}] button[aria-label=${label}]`;
 		const pend = (pp, t = 120000) => pp.waitFor(`document.querySelector('#main')?.dataset.pending === '0'`, t);
 		const exceptions = (mk) => b.since(mk).console.filter((c) => c.kind === 'exception');
+
+		// ---- package files (GRS-45) --------------------------------------------------------------------------------
+		rmSync(join(caseD.caseDir, ...PKG.goneExtract.split('/')));
+		rmSync(join(caseD.caseDir, ...PKG.goneSched.split('/')));
+		const VD = vpath(caseD.resultsVersion), RD = caseD.resultsVersion;
+		// a link to a package file is the originals site's, for its P- key; its bytes there are the file's
+		const pkgLink = (href) => typeof href === 'string' && href.startsWith(`${SB.orig}/`) && /\/(view|o)\/sha256(:|%3A)[0-9a-f]{64}\/P-[0-9a-f]{16}[/?]/.test(href);
+		const nows = (t) => t.replace(/\s+/g, '');
+		const served = async (href, f) => { const u = new URL(href); const r = await SB.o(u.pathname + u.search); return r.status === 200 && Buffer.compare(r.body, Buffer.from(pkgBytes[f])) === 0; };
+		await S('PKG-DS', 'discovery_tab', 'GRS-45: a schedule file outside the register opens and downloads from the originals site with its verified bytes; a file deleted after import is not served', async () => {
+			await q.go(`${VD}/bundles/discovery_tab`, 'discovery_tab');
+			const chip = (fn) => `[...document.querySelectorAll('#ds-list .ds-chip')].find((c) => c.querySelector('.fn')?.textContent === ${J(fn)})`;
+			const r = await q.evaluate(`(() => { const a = ${chip('Schedule one.pdf')}, g = ${chip('Gone.pdf')}; return { open: a?.querySelector('a.cite')?.href ?? null, openText: a?.querySelector('a.cite')?.textContent ?? null, dl: a?.querySelector('a.dl')?.href ?? null, gone: g?.querySelector('.not-served')?.textContent ?? null, goneLinks: g?.querySelectorAll('a').length ?? -1, info: document.getElementById('ds-info').textContent.replace(/\\s+/g, ' ').trim() }; })()`);
+			const bytes = r.dl ? await served(r.dl, PKG.sched) : false;
+			return { pass: pkgLink(r.open) && r.openText === 'Open' && pkgLink(r.dl) && bytes && r.gone === 'not in the verified index; not served' && r.goneLinks === 0 && /2 files linked · 1 not in the verified index/.test(r.info), evidence: { r, bytes } };
+		});
+		await S('PKG-CB-LIST', 'court_bundle_tab', 'GRS-45: the bundle list links the bundle PDF and the index PDF from the originals site (IDR-358, IDR-359 closed)', async () => {
+			await q.go(`${VD}/bundles/court_bundle_tab`, 'court_bundle_tab');
+			const r = await q.evaluate(`(() => { const row = document.querySelector('#cb-list tbody tr'); const a = (t) => [...row.querySelectorAll('a')].find((x) => x.textContent.trim() === t)?.href ?? null; return { text: row.cells[row.cells.length - 1].textContent.replace(/\\s+/g, ' ').trim(), bundle: a('Bundle PDF'), index: a('Index PDF') }; })()`);
+			// a PDF opens in the viewer wrapper (its raw bytes are checked through Download on the view tab)
+			const wrappers = await Promise.all([r.bundle, r.index].map(async (h) => (h ? (await SB.o(new URL(h).pathname + new URL(h).search)).status : 0)));
+			return { pass: /^Open Bundle PDF Index PDF Word$/.test(r.text) && pkgLink(r.bundle) && pkgLink(r.index) && r.bundle !== r.index && wrappers.every((x) => x === 200), evidence: { r, wrappers } };
+		});
+		await S('PKG-CB-VIEW', 'court_bundle_tab', 'GRS-45: the bundle view opens and downloads the assembled bundle PDF with its verified bytes', async () => {
+			await q.go(`${VD}/bundles/court_bundle_tab?b=1&tab=view`, 'court_bundle_tab');
+			const r = await q.evaluate(`(() => { const a = (t) => [...document.querySelectorAll('#main .toolbar a')].find((x) => x.textContent.trim() === t)?.href ?? null; return { open: a('Open in a new tab'), dl: a('Download PDF'), state: document.getElementById('cb-view-state')?.textContent ?? null }; })()`);
+			const bytes = r.dl ? await served(r.dl, PKG.bundle) : false;
+			const viewer = r.open ? (await SB.o(new URL(r.open).pathname + new URL(r.open).search)).status : 0;
+			return { pass: pkgLink(r.open) && pkgLink(r.dl) && bytes && viewer === 200 && r.state === null, evidence: { r, bytes, viewer } };
+		});
+		await S('PKG-CB-ITEMS', 'court_bundle_tab', 'GRS-45: Open item and Save extract serve the extract, the bundle-page link opens the bundle at its page, the source part opens at its page (↗); a deleted extract is not served (IDR-360, IDR-362 closed)', async () => {
+			await q.go(`${VD}/bundles/court_bundle_tab?b=1&tab=items`, 'court_bundle_tab');
+			const r = await q.evaluate(`[...document.querySelectorAll('#cb-items tbody tr')].map((tr) => ({ actions: tr.cells[tr.cells.length - 1].textContent.replace(/\\s+/g, ' ').trim(), from: tr.cells[3].textContent.replace(/\\s+/g, ' ').trim(), links: Object.fromEntries([...tr.querySelectorAll('a')].map((a) => [a.textContent.replace(/\\s+/g, ' ').trim(), a.href])) }))`);
+			const [one, gone] = r;
+			const bytes = one?.links['Save extract'] ? await served(one.links['Save extract'], PKG.extract) : false;
+			const atPage = one?.links['in the bundle at page 001'] ?? '';
+			const part = one?.links['Part one ↗'] ?? '';
+			return {
+				pass: r.length === 4 && nows(one.actions) === nows('Open item Save extract in the bundle at page 001') && pkgLink(one.links['Open item']) && bytes && pkgLink(atPage) && atPage.endsWith('#page=2') && pkgLink(part) && part.endsWith('#page=2') && one.from.startsWith('Part one ↗')
+					&& nows(gone.actions) === nows('Extract (not in the verified index; not served) in the bundle at page 003') && Object.keys(gone.links).join() === 'in the bundle at page 003',
+				evidence: { r, bytes },
+			};
+		});
+
+		await S('PKG-ODD', 'court_bundle_tab', 'GRS-45 review M1: an extract named by a folder without a slash, or under .clearcase/, leaves the case importable and its link not served', async () => {
+			await q.go(`${VD}/bundles/court_bundle_tab?b=1&tab=items`, 'court_bundle_tab');
+			const r = await q.evaluate(`[...document.querySelectorAll('#cb-items tbody tr')].map((tr) => ({ actions: tr.cells[tr.cells.length - 1].textContent.replace(/\\s+/g, ' ').trim(), links: [...tr.querySelectorAll('a')].map((a) => a.textContent.replace(/\\s+/g, ' ').trim()) }))`);
+			const odd = r.slice(2);
+			return { pass: r.length === 4 && odd.every((x) => /^Extract \(not in the verified index; not served\)/.test(x.actions) && !x.links.includes('Open item') && !x.links.includes('Save extract')), evidence: { r } };
+		});
+		await S('PKG-CL', 'caselines_tab', 'GRS-45 review L1: the CaseLines tab opens and downloads the viewer code BUNDLE.url file, a package file the register does not hold', async () => {
+			await q.go(`${VD}/bundles/caselines_tab`, 'caselines_tab');
+			const r = await q.evaluate(`({ open: document.getElementById('cl-open')?.href ?? null, dl: document.getElementById('cl-download')?.href ?? null, none: document.getElementById('cl-not-served')?.textContent ?? null })`);
+			const bytes = r.dl ? await served(r.dl, PKG.caselines) : false;
+			return { pass: pkgLink(r.open) && pkgLink(r.dl) && bytes && r.none === null, evidence: { r, bytes } };
+		});
 
 		await S('DS-DUP', 'discovery_tab', 'D8: a repeated item number renders every row, hydrates without an exception and is flagged', async () => {
 			const mk = b.mark();

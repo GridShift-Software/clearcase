@@ -220,19 +220,25 @@ try {
 	});
 
 	// ---- 3. legality ------------------------------------------------------------------------------------------------
+	const legalityCaption = (sc, n) => {
+		const t = JSON.parse(new TextDecoder().decode(sc.files.get('datasets/view-content.json'))).data?.legality_tab?.docsHeading?.template;
+		return Array.isArray(t) ? t.map((x) => (typeof x === 'string' ? x : String(n))).join('') : null;
+	};
 	await scenario('S3-legality', 'legality_tab', 'a legality scenario and its evidence: likelihood chips by v5 rule, documents linked by ref to their document pages, cleaned titles and the dash for a missing date', async () => {
 		await p.goto(`${V}${route('legality_tab')}`, ready('legality_tab'));
 		const got = await p.evaluate(`({
 			chips: [...document.querySelectorAll('[data-chip]')].map((e) => [e.textContent.trim(), e.dataset.chip]),
 			docs: [...document.querySelectorAll('#legality-docs tbody tr')].map((r) => [...r.cells].map((c) => c.textContent.trim())),
 			hrefs: [...document.querySelectorAll('#legality-docs a.cite')].map((a) => a.getAttribute('href')),
-			caption: [...document.querySelectorAll('#main .chead')].map((e) => e.textContent.trim()).find((t) => t.startsWith('Documents in the bundle')) ?? null,
+			caption: document.getElementById('legality-docs')?.closest('.card')?.querySelector('.chead')?.textContent.trim() ?? null,
+			action: document.querySelector('#legality-scenarios thead th:nth-child(4)')?.textContent.trim() ?? null,
 			intro: document.querySelector('.risk .narrative a.cite')?.getAttribute('href') ?? null })`);
 		await p.click('#legality-docs a.cite');
 		const opened = await until(p, ready('doc:OD-001'));
 		return all({
 			chips: J(got.chips) === J([['Base case', 'ok'], ['Material risk', 'danger'], ['Possible', 'warn']]),
-			caption: got.caption === `Documents in the bundle (${pkgData(main, 'lit-legality').docs.length})`, docs: J(got.docs) === J([['OD-001', '2001-02-03', 'Synthetic agreement', 'open ↗'], ['OD-002', '—', 'Synthetic invoice', 'open ↗']]),
+			// the package's view-content wording (GRS-45): the caption template filled with the document count, and the action heading
+			caption: got.caption === legalityCaption(main, pkgData(main, 'lit-legality').docs.length), action: got.action === viewContentText(main, 'legality_tab', 'scenarioActionHeading'), docs: J(got.docs) === J([['OD-001', '2001-02-03', 'Synthetic agreement', 'open ↗'], ['OD-002', '—', 'Synthetic invoice', 'open ↗']]),
 			links: J(got.hrefs) === J(['OD-001', 'OD-002'].map((r) => `/v/${encodeURIComponent(main.resultsVersion)}/doc/${r}`)),
 			introCitation: got.intro === `/v/${encodeURIComponent(main.resultsVersion)}/doc/OD-001`, documentOpens: opened === true, evidence: got,
 		});

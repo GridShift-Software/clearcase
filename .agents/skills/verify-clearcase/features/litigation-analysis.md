@@ -25,5 +25,5 @@ Preconditions:
 
 ## Gotchas
 
-- The documents card caption and the scenarios' last column heading carried case wording in v5 that view-content does not carry yet; the app shows neutral wording (register IDR-323, IDR-324).
+- The documents card caption and the scenarios' last column heading come from view-content (`legality_tab.docsHeading`, a template on the document count, and `scenarioActionHeading`, GRS-45); without them the app shows the neutral wording.
 - The Cause of Action columns come from view-content (`elements_tab.columns`); without all five the app shows neutral headings.

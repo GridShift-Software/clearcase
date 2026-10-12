@@ -530,10 +530,11 @@ export async function checkRegistry(C, L) {
 	await P.evaluate(`Object.keys(sessionStorage).filter((k) => k.startsWith('clearcase:view-query:')).forEach((k) => sessionStorage.removeItem(k))`);
 	await P.goto(`${C.origin}${vpath(rv)}/overview`, ready('overview'));
 	const nav = await P.evaluate(`[...document.querySelectorAll('nav.views a[data-view]')].map((a) => { const c = a.cloneNode(true); c.querySelectorAll('.visually-hidden').forEach((x) => x.remove()); return { id: a.dataset.view, label: c.textContent.trim(), group: a.closest('section').querySelector('h2').textContent.trim(), status: a.dataset.status, href: a.getAttribute('href') }; })`);
-	// a view whose owner route exists in the build's tree is implemented and available (generate-view-registry.ts AVAILABLE)
+	// a view whose owner route exists in the build's tree is implemented; its entry is available once its owner added it to
+	// generate-view-registry.ts AVAILABLE (quantum and litigation have not yet), else it keeps its unavailable entry
 	const reg = await registryOf(C.build.root);
 	const implemented = implementedViews(C.build.root, reg.views);
-	const want = cov.views.map((v) => ({ id: v.id, label: v.label, group: v.group, status: v.owner === 'CC-03' || implemented.has(v.id) ? 'available' : `unavailable-until:${linearOf(v.owner)}`, href: `${vpath(rv)}${v.owner === 'CC-03' ? `/${v.id}` : `/${OWNER_CATEGORY[v.owner]}/${v.id}`}` }));
+	const want = cov.views.map((v) => ({ id: v.id, label: v.label, group: v.group, status: v.owner === 'CC-03' || (implemented.has(v.id) && reg.views.find((x) => x.id === v.id)?.status === 'available') ? 'available' : `unavailable-until:${linearOf(v.owner)}`, href: `${vpath(rv)}${v.owner === 'CC-03' ? `/${v.id}` : `/${OWNER_CATEGORY[v.owner]}/${v.id}`}` }));
 	L.check('navigation: all 42 entries in inventory order with id, task label, group, status and route', want, nav);
 	// heading = label, data-ready="<id>", no unavailable state and aria-current on an implemented view's entry; every
 	// other M2 view keeps the unavailable state and its owner

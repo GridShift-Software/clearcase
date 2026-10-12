@@ -7,6 +7,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { plural } from '$lib/components/format';
 	import { versionPath } from '$lib/local-case/model';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data, form } = $props();
 	const run = $derived(data.run);
 	let busy = $state<string | null>(null);
@@ -54,14 +55,14 @@
 	<section aria-labelledby="added-h">
 		<h2 id="added-h">Additions ({data.added.length})</h2>
 		{#if data.added.length}
-			<div class="scroll"><table id="rescan-added">
+			<TableScroll label="Additions"><table id="rescan-added">
 				<thead><tr><th scope="col">Ref</th><th scope="col">Date</th><th scope="col">Filename</th><th scope="col">Type</th><th scope="col">Bundle</th><th scope="col">Status</th><th scope="col">Doc</th></tr></thead>
 				<tbody>
 					{#each data.added as r (r.path)}
 						<tr data-ref={r.ref}><td>{r.ref}</td><td>{r.date}</td><td class="wrap">{r.path}</td><td>{r.docType}</td><td>{r.bundle}</td><td>{r.processing} processing</td><td><a href={r.href}>open</a></td></tr>
 					{/each}
 				</tbody>
-			</table></div>
+			</table></TableScroll>
 			<form method="POST" action="?/clear" use:enhance={submit('clear')} id="clear-form">
 				<fieldset disabled={busy !== null}>
 					<legend>Clear rescan additions</legend>
@@ -80,13 +81,13 @@
 	<section aria-labelledby="changed-h">
 		<h2 id="changed-h">Changed or removed originals ({data.changed.length + data.removed.length})</h2>
 		{#if data.changed.length + data.removed.length}
-			<div class="scroll"><table id="rescan-changed">
+			<TableScroll label="Changed or removed originals"><table id="rescan-changed">
 				<thead><tr><th scope="col">Ref</th><th scope="col">Path</th><th scope="col">Finding</th></tr></thead>
 				<tbody>
 					{#each data.changed as r (r.path)}<tr data-ref={r.ref}><td>{r.ref}</td><td class="wrap">{r.path}</td><td>Changed ({r.evidence === 'sha256' ? 'content differs, same size' : 'size differs'})</td></tr>{/each}
 					{#each data.removed as r (r.path)}<tr data-ref={r.ref}><td>{r.ref}</td><td class="wrap">{r.path}</td><td>Removed from the case folder</td></tr>{/each}
 				</tbody>
-			</table></div>
+			</table></TableScroll>
 			<p><small>The analysis of these documents comes from the files as they were at import. Process the case folder again for analysis of the current files.</small></p>
 		{:else}
 			<p>None found{run && run.mode === 'quick' ? ' (a quick scan cannot see a change that keeps the size; run a full scan)' : ''}.</p>
@@ -95,7 +96,6 @@
 </main>
 
 <style>
-	.scroll { overflow-x: auto; max-width: 100%; }
 	fieldset { border: 0; padding: 0; margin: .4rem 0; display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 	td, th { padding: 2px 8px; text-align: left; vertical-align: top; }
 	tbody tr { border-bottom: 1px solid #eee; }

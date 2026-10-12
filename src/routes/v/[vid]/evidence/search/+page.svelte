@@ -8,6 +8,7 @@
 	import { docPath } from '$lib/local-case/model';
 	import { MAX_TEXT, dateCell, docLabel, n } from '$lib/views/evidence/common';
 	import { paramsOf } from '$lib/views/evidence/search';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
 	const vid = $derived(data.version.id);
 	const q = $derived(data.query);
@@ -84,7 +85,7 @@
 				{:else}
 					<h3>Action items ({data.actions.total})</h3>
 					{#if !data.actions.total}<div class="empty">No action-item phrases found in the current result set.</div>
-					{:else}<table class="tbl"><thead><tr><th>Date</th><th>Ref</th><th>Extracted action</th></tr></thead><tbody>{#each data.actions.shown as i, k (k)}<tr><td class="mono">{dateCell(i.date)}</td><td class="mono">{i.ref}</td><td>{i.t}</td></tr>{/each}</tbody></table>{/if}
+					{:else}<TableScroll label="Action items"><table class="tbl"><thead><tr><th>Date</th><th>Ref</th><th>Extracted action</th></tr></thead><tbody>{#each data.actions.shown as i, k (k)}<tr><td class="mono">{dateCell(i.date)}</td><td class="mono">{i.ref}</td><td>{i.t}</td></tr>{/each}</tbody></table></TableScroll>{/if}
 				{/if}
 			</div>
 		{:else if r?.kind === 'invalid'}
@@ -94,7 +95,7 @@
 			<div class="card pad0">
 				<div class="count" id="search-count">Showing {r.page.from}–{r.page.to} of {n(r.page.total)} results</div>
 				{#if !r.page.total}<p class="empty-result" id="search-empty" role="status">No documents match this search.</p>{:else}<p class="order-note" id="search-order">In register order; the export has the same order.</p>{/if}
-				<table class="tbl" id="search-table">
+				<TableScroll label="Search results"><table class="tbl" id="search-table">
 					<thead><tr><th>Date</th><th>Ref</th><th>Title / subject</th><th>Type</th><th>Bundle</th><th class="num">Amount</th><th>Doc</th></tr></thead>
 					<tbody>
 						{#each r.page.slice as x (x.ref)}
@@ -106,7 +107,7 @@
 							</tr>
 						{/each}
 					</tbody>
-				</table>
+				</table></TableScroll>
 				<div class="pager" id="search-pager">
 					<button type="button" disabled={r.page.page <= 1} onclick={() => go({ page: String(r.page.page - 1) })}>Prev</button>
 					<span>Page {r.page.page} / {r.page.pages}</span>

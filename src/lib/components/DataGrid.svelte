@@ -9,6 +9,7 @@
 	// allows no inline style attributes. Long lists render their first FIRST rows at once and the rest in following
 	// frames, so a navigation is usable before every row exists; `data-complete` says when all rows are in the DOM.
 	import type { Snippet } from 'svelte';
+	import TableScroll from './TableScroll.svelte';
 	let { columns, rows, rowKey, label, gridClass, sort = null, onsort, cell, rowAttrs = () => ({}) }: {
 		columns: readonly Column[]; rows: readonly T[]; rowKey: (r: T) => string; label: string; gridClass: string;
 		sort?: { key: string; dir: 1 | -1 } | null; onsort?: (key: string) => void; cell: Snippet<[T, Column]>;
@@ -27,7 +28,7 @@
 	const shown = $derived(rows.length <= limit ? rows : rows.slice(0, limit));
 </script>
 
-<div class="grid-table {gridClass}" role="table" aria-label={label} aria-rowcount={rows.length + 1} data-complete={shown.length === rows.length}>
+<TableScroll {label}><div class="grid-table {gridClass}" role="table" aria-label={label} aria-rowcount={rows.length + 1} data-complete={shown.length === rows.length}>
 	<div class="grid-row grid-head" role="row">
 		{#each columns as c (c.key)}
 			<span role="columnheader" aria-sort={sort?.key === c.key ? (sort.dir === 1 ? 'ascending' : 'descending') : undefined} class:end={c.align === 'end'}>
@@ -40,4 +41,4 @@
 			{#each columns as c (c.key)}<span role="cell" class:end={c.align === 'end'}>{@render cell(r, c)}</span>{/each}
 		</div>
 	{/each}
-</div>
+</div></TableScroll>

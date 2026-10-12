@@ -2,6 +2,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { plural } from '$lib/components/format';
 	import { versionPath } from '$lib/local-case/model';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data, form } = $props();
 	const r = $derived(data.report);
 	const caseName = $derived(r.caseLabel || r.caseId);
@@ -67,16 +68,16 @@
 
 	<h2>Diagnostics</h2>
 	<p id="diag-summary">{plural(r.errors, 'error')}, {plural(r.warnings, 'warning')} ({data.newWarnings.length} new for this case){data.groups.length ? '' : '; nothing to report'}.</p>
-	<table id="diag-counts"><thead><tr><th>Code</th><th>Severity</th><th class="num">Count</th><th class="num">New</th></tr></thead><tbody>
+	<TableScroll label="Diagnostics by code"><table id="diag-counts"><thead><tr><th>Code</th><th>Severity</th><th class="num">Count</th><th class="num">New</th></tr></thead><tbody>
 		{#each data.groups as g (g.code)}<tr><td><a href="#code-{g.code}">{g.code}</a></td><td>{g.severity}</td><td class="num">{g.total}</td><td class="num">{g.severity === 'warning' ? g.newCount : ''}</td></tr>{/each}
-	</tbody></table>
+	</tbody></table></TableScroll>
 	{#each data.groups as g (g.code)}
 		<details class="diag-code" id="code-{g.code}" data-code={g.code} data-severity={g.severity} open={g.severity === 'error'}>
 			<summary><strong>{g.code}</strong> ({g.severity}, {g.cls}): {g.total}{g.total > g.items.length ? `, first ${g.items.length} listed` : ''}</summary>
 			<p><em>{g.hint}</em></p>
-			<table><thead><tr><th>Subject</th><th>File</th><th>Where</th><th>Message</th><th></th></tr></thead><tbody>
+			<TableScroll label="{g.code} diagnostics"><table><thead><tr><th>Subject</th><th>File</th><th>Where</th><th>Message</th><th></th></tr></thead><tbody>
 				{#each g.items as d, i (i)}<tr><td class="wrap">{d.subject}</td><td>{d.file}</td><td class="wrap">{d.pointer}</td><td class="wrap">{d.message}</td><td>{d.isNew ? 'new' : ''}</td></tr>{/each}
-			</tbody></table>
+			</tbody></table></TableScroll>
 		</details>
 	{/each}
 </main>

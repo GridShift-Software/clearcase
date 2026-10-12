@@ -10,6 +10,7 @@
 	import { shownStatus, statusOptions } from '$lib/views/litigation/enforcement';
 	import { ANALYSIS_NOTE } from '$lib/views/litigation/notes';
 	import { lostMessage, refused, type Failure } from '$lib/views/litigation/submit';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
 	type Row = (typeof data.rows)[number];
@@ -93,7 +94,7 @@
 		<div class="card pad0">
 			<div class="chead">{ph}</div>
 			<div class="wrap">
-				<table>
+				<TableScroll label={ph}><table>
 					<thead><tr><th>Step</th><th>Legal basis</th><th>Status</th><th>Note</th></tr></thead>
 					<tbody>
 						{#each data.rows.filter((r) => r.phase === ph) as r, i (r.key ?? `dup:${ph}:${i}`)}
@@ -123,7 +124,7 @@
 							</tr>
 						{/each}
 					</tbody>
-				</table>
+				</table></TableScroll>
 			</div>
 		</div>
 	{:else}
@@ -136,7 +137,7 @@
 </main>
 
 <style>
-	.pad0 { padding: 0; overflow-x: auto; }
+	.pad0 { padding: 0; }
 	.chead { font-weight: 600; padding: 0.5rem 0.75rem; border-bottom: 1px solid #d5d9e0; }
 	small { display: block; }
 	.empty { color: #555; padding: 1rem; text-align: center; }

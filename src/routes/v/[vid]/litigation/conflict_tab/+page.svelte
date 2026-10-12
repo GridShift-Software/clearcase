@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	import SourceNote from '$lib/views/litigation/SourceNote.svelte';
 	import { EMPTY_QUERY, QUERY_PLACEHOLDER, conflictOptions, matchConflict, matchCountText, noMatchText, type ConflictResult } from '$lib/views/litigation/conflict';
 	import { CONFLICT_NOTE, conflictScope } from '$lib/views/litigation/notes';
@@ -44,10 +45,10 @@
 					<div class="badge neutral" data-result="none">{noMatchText(result.query)}</div>
 				{:else}
 					<div class="badge danger" data-result="matches">{matchCountText(result.hits.length)}</div>
-					<div class="grid-table"><table>
+					<TableScroll label="Conflict check matches"><table>
 						<thead><tr><th>Kind</th><th>Match</th><th>Detail</th></tr></thead>
 						<tbody>{#each result.hits as h, i (i)}<tr><td>{h.kind}</td><td>{h.match}</td><td>{h.detail}</td></tr>{/each}</tbody>
-					</table></div>
+					</table></TableScroll>
 				{/if}
 			{/if}
 		</div>

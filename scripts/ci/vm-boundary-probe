@@ -3,9 +3,12 @@
 # Ethernet frames to QEMU's user-mode network, which turns them into pc1 host sockets, so this tests what pc1's
 # firewall lets the QEMU process reach. Exits 1 when the guest reaches any denied host port or a control fails.
 #   - pc1 runs throwaway TCP and UDP listeners as `nobody` on 127.0.0.1, 127.0.0.53, 127.0.0.57 and ::1 on one random
-#     port. They prove they receive before the probe starts, record every later hit and stop when this script exits.
+#     port. A wildcard UDP listener on the next port joins the synthetic group 239.255.57.57 and also receives IPv4
+#     broadcast. They prove they receive before the probe starts, record every later hit and stop when this script exits.
 #   - Guest root sends TCP SYNs to those and to pc1's real listeners (KDE Connect 1716, LLMNR 5355, CUPS 631, the SSH
-#     forward 2257); a SYN-ACK or RST means the packet reached pc1's loopback. UDP goes to the throwaway listeners.
+#     forward 2257); a SYN-ACK or RST means the packet reached pc1's loopback. UDP goes to the throwaway listeners,
+#     and so do raw UDP datagrams to the synthetic multicast group and to 255.255.255.255, which leave pc1 through its
+#     LAN interface rather than lo and loop back to wildcard listeners.
 #   - Controls that must work: raw SYN to 1.1.1.1:443 and to the resolver's 127.0.0.53:53, DNS over UDP and TCP
 #     through 10.0.2.3, HTTPS to github.com as the runner user, and management SSH (this probe runs over it).
 # It touches no service and doesn't stop the runner, so it is safe while a job runs.
@@ -17,20 +20,33 @@ out=$(mktemp)
 trap 'rm -f "$out"' EXIT
 
 listener=$(base64 -w0 <<'PY'
-import select, socket, sys, time
+import select, socket, struct, sys, time
 port = int(sys.argv[1])
+group = "239.255.57.57"
 socks = {}
 for addr, fam in (("127.0.0.1", socket.AF_INET), ("127.0.0.53", socket.AF_INET), ("127.0.0.57", socket.AF_INET),
                   ("::1", socket.AF_INET6)):
     t = socket.socket(fam, socket.SOCK_STREAM)
     t.bind((addr, port))
     t.listen(16)
-    socks[t] = ("tcp", addr)
+    socks[t] = ("tcp", addr, port)
     u = socket.socket(fam, socket.SOCK_DGRAM)
     u.bind((addr, port))
-    socks[u] = ("udp", addr)
-for s, (proto, addr) in socks.items():
-    if proto == "tcp":
+    socks[u] = ("udp", addr, port)
+w = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+w.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+w.bind(("0.0.0.0", port + 1))
+w.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, socket.inet_aton(group) + socket.inet_aton("0.0.0.0"))
+socks[w] = ("udp", "0.0.0.0", port + 1)
+for s, (proto, addr, p) in socks.items():
+    if s is w:
+        for dst in (group, "255.255.255.255"):
+            sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sender.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            sender.sendto(b"self", (dst, p))
+            s.settimeout(2)
+            s.recvfrom(64)
+    elif proto == "tcp":
         socket.create_connection((addr, port), 2).close()
         s.accept()[0].close()
     else:
@@ -46,13 +62,13 @@ while time.time() < end:
     for s in ready:
         if s is sys.stdin:
             continue
-        proto, addr = socks[s]
+        proto, addr, p = socks[s]
         if proto == "tcp":
             conn, peer = s.accept()
             conn.close()
         else:
             peer = s.recvfrom(2048)[1]
-        print(f"hit {proto} [{addr}]:{port} from {peer[0]}", flush=True)
+        print(f"hit {proto} [{addr}]:{p} from {peer[0]}", flush=True)
 print("done", flush=True)
 PY
 )
@@ -110,6 +126,8 @@ for i, (dst, dport) in enumerate(controls + denied):
     raw.send(frame(dst, 6, struct.pack("!HHIIBBHHH", sport, dport, random.getrandbits(32), 0, 5 << 4, 0x02, 64240, 0, 0)))
 for dst in ("127.0.0.1", "127.0.0.53", "127.0.0.57", "10.0.2.2"):
     raw.send(frame(dst, 17, struct.pack("!HHHH", 42000, port, 8 + 9, 0) + b"guest-raw"))
+for dst in ("239.255.57.57", "255.255.255.255"):  # multicast and broadcast: the wildcard listener is on port + 1
+    raw.send(frame(dst, 17, struct.pack("!HHHH", 42000, port + 1, 8 + 9, 0) + b"guest-raw"))
 end = time.time() + 5
 while time.time() < end:
     if not select.select([raw], [], [], 0.5)[0]:

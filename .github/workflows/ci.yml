@@ -12,7 +12,8 @@ permissions:
   contents: read
 
 # A newer run of a pull request replaces a superseded one, so the single runner isn't kept busy by stale commits. Pushes,
-# including to dev, queue instead, so each pushed commit keeps its result.
+# including to dev, never cancel a run in progress, but GitHub keeps at most one pending run per group and replaces it
+# with a newer one, so quick successive pushes can lose the middle commits' results.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

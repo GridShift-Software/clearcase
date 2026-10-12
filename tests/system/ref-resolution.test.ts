@@ -28,6 +28,7 @@ const cite = (r: SynthRoots) => {
 	lit.prescription.push({ ...lit.prescription[0], ref: NEW }, { ...lit.prescription[0], ref: NONE });
 	lit.prescSummary.note = lit.interestBasis.note = `See [[${NEW}]] and [[${NONE}]].`;
 	lit.recon[0].supporting = [NEW, NONE];
+	D.chronology[0].refs = [NEW, NONE];
 	D.defenceMatrix[0].docs.push({ ...D.defenceMatrix[0].docs[0], ref: NEW }, { ...D.defenceMatrix[0].docs[0], ref: NONE });
 	D.contradictions.categories[0].items[0].refs.push({ ...D.contradictions.categories[0].items[0].refs[0], ref: NEW }, { ...D.contradictions.categories[0].items[0].refs[0], ref: NONE });
 };
@@ -72,6 +73,7 @@ const ROUTES: Record<string, () => Promise<unknown>> = {
 	'quantum/payments_tab': () => import('../../src/routes/v/[vid]/quantum/payments_tab/+page.server'),
 	'quantum/prescription_tab': () => import('../../src/routes/v/[vid]/quantum/prescription_tab/+page.server'),
 	'quantum/interest_calc_tab': () => import('../../src/routes/v/[vid]/quantum/interest_calc_tab/+page.server'),
+	'doc/[ref]': () => import('../../src/routes/v/[vid]/doc/[ref]/+page.server'),
 	'litigation/heads_tab': () => import('../../src/routes/v/[vid]/litigation/heads_tab/+page.server'),
 };
 const route = (p: string) => ROUTES[p]!() as Promise<Loader>;
@@ -101,5 +103,9 @@ describe('a provider-only ref links on every view (one ref rule)', () => {
 		await register(caseId, STORES.heads).add({ head: 'H', sub: 'S', auth: 'A', ref: `${NEW}, ${NONE}` }, { addId: null });
 		const rows = (await load('litigation/heads_tab')).rows as { evidence: { text: string; ref: boolean }[] }[];
 		expect(rows.at(-1)!.evidence).toEqual([{ text: NEW, ref: true }, { text: NONE, ref: false }]);
+	});
+	it('doc/[ref] › related links the provider-only ref and not a ref nothing names', async () => {
+		const page = (await (await route('doc/[ref]')).load({ params: { vid: rv, ref: 'OD-001' }, url: new URL(`http://127.0.0.1/v/${rv}/doc/OD-001`), parent: async () => ({ version: { id: rv, caseId } }) })) as { related: { ref: string; exists: boolean }[] };
+		expect(page.related.filter((x) => x.ref === NEW || x.ref === NONE)).toEqual([{ ref: NEW, exists: true }, { ref: NONE, exists: false }]);
 	});
 });

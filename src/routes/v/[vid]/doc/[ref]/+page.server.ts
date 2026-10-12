@@ -30,7 +30,9 @@ export const load: PageServerLoad = async ({ params, parent, url }) => {
 		const name = asset.real_path.slice(asset.real_path.lastIndexOf('/') + 1);
 		return { links: { presentation: OriginalsServer.presentation(asset), open: o.originalHref(version.id, key, name), download: o.downloadHref(version.id, key, name), viewer: o.viewerHref(version.id, key) }, onDisk: null };
 	};
-	const attachments = d ? await Promise.all((JSON.parse(d.attachments_json) as AttachmentRow[]).map(async (x) => ({ ...x, hasDocument: !!a.store.document(version.id, x.key), links: x.route === 'direct' ? (await linksFor(x.key)).links : null }))) : [];
+	const atts = d ? (JSON.parse(d.attachments_json) as AttachmentRow[]) : [];
+	const attDocs = resolveRefs(a.store, version.id, atts.map((x) => x.key));
+	const attachments = await Promise.all(atts.map(async (x) => ({ ...x, hasDocument: attDocs.has(x.key), links: x.route === 'direct' ? (await linksFor(x.key)).links : null })));
 	const own = d ? await linksFor(d.ref) : { links: NONE, onDisk: null };
 	const refs = Array.isArray(row.refs) ? row.refs.map(str) : [];
 	const parentRef = state.self?.parentRef ?? (typeof row.pr === 'string' ? row.pr : null);

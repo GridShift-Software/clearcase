@@ -1,7 +1,7 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { citedRefs } from '$lib/components/cite';
 import { app } from '$lib/local-case/app.server';
-import { anyDateBasis, documentCounts } from '$lib/local-case/documents.server';
+import { anyDateBasis, documentCounts, resolveRefs } from '$lib/local-case/documents.server';
 import { viewContentOf, viewText } from '$lib/local-case/results.server';
 import { slotStates } from '$lib/local-case/overview-widgets.server';
 import { versionPath, type OverviewModel } from '$lib/local-case/model';
@@ -39,7 +39,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 		// the originals counts are the import-time check (a live re-check of every original would be expensive)
 		originalsCheckedAt: v.stored_at,
 		narrative,
-		known: narrative ? [...a.store.existingRefs(v.id, citedRefs([narrative]))] : [],
+		known: narrative ? [...resolveRefs(a.store, v.id, citedRefs([narrative]))] : [],
 		notes: a.userWork.summary(v.case_id, v.id),
 		previous: isActive ? a.previousVersion(v.case_id) : null,
 		slots: await slotStates({ app: a, caseId: v.case_id, caseName: version.caseName, resultsVersion: v.id }),

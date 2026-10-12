@@ -2,13 +2,14 @@
 // exist in it (a ref that does not exist renders broken; nothing is matched by similarity).
 import { app } from '../local-case/app.server.ts';
 import { citedRefs } from '../components/cite.ts';
+import { resolveRefs } from '../local-case/documents.server.ts';
 import { datasetOf } from '../local-case/results.server.ts';
 
 /** The `data` of a recognized dataset of this version, or null when the package lacks it. */
 export const analysisDataset = <T>(resultsVersion: string, key: string): T | null => datasetOf<T>(app().store, resultsVersion, key);
 
-/** Of these refs, the ones that name a document of this version (sorted; plain data for the page). */
-export const existingOf = (resultsVersion: string, refs: Iterable<string>): string[] => [...app().store.existingRefs(resultsVersion, [...new Set(refs)])].sort();
+/** Of these refs, the ones that name a document row of this version, imported or provided (sorted; plain data for the page). */
+export const existingOf = (resultsVersion: string, refs: Iterable<string>): string[] => [...resolveRefs(app().store, resultsVersion, refs)].sort();
 
 /** The refs cited with [[REF]] tokens in these narrative texts that exist in this version. */
 export const citedExisting = (resultsVersion: string, texts: Iterable<string>): string[] => existingOf(resultsVersion, citedRefs(texts));

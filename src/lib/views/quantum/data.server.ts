@@ -3,7 +3,7 @@
 // Imported values are returned unchanged; nothing here corrects or recomputes them.
 import type { Say } from '../../local-case/answer.server.ts';
 import { app } from '../../local-case/app.server.ts';
-import { documentRows } from '../../local-case/documents.server.ts';
+import { resolveRefs } from '../../local-case/documents.server.ts';
 import { datasetOf, viewContentOf } from '../../local-case/results.server.ts';
 import { listPayments } from './writes.server.ts';
 
@@ -26,8 +26,8 @@ export const dataset = <T>(vid: string, key: string): T | null => datasetOf<T>(a
 /** The version's view-content reader (GRS-38). */
 export const content = (vid: string) => viewContentOf(app().store, vid);
 
-/** The refs that resolve in this version: every document row, imported or provided (v5's allRows()). */
-export const resolvableRefs = (vid: string): Set<string> => new Set(documentRows(app().store, vid).rows.map((r) => r.ref));
+/** Of these refs, the ones that resolve in this version: a document row, imported or provided (v5's allRows()). */
+export const resolvableRefs = (vid: string, refs: Iterable<string>): Set<string> => resolveRefs(app().store, vid, refs);
 
 /** The case's recorded payments, in insertion order, each with the hash of its stored fields (the Delete check). */
 export const payments = (caseId: string) => listPayments(app().userWork, caseId);

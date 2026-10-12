@@ -1,7 +1,8 @@
 // Checks of the committed sources that tsc and svelte-check never see: JavaScript syntax and relative imports in the
 // .mjs/.js files (tsconfig has allowJs: false, and the e2e suites, gate and parity runner are plain .mjs that CI never
-// runs), bash syntax of the shell scripts, Python syntax, and the CI workflows (every action pinned to a full commit
-// SHA, every script a step runs by path executable). It reads only tracked files (`git ls-files` from the working
+// runs), bash syntax of the shell scripts, Python syntax, and the CI workflows and composite actions (every action,
+// reusable workflow and image pinned to a full commit SHA or image digest, every script a step runs by path
+// executable). It reads only tracked files (`git ls-files` from the working
 // directory's repository) and changes nothing.
 //
 // Usage: bun scripts/ci/source-check.ts [--json FILE]
@@ -101,29 +102,42 @@ function checkPython(files: string[]): Problem[] {
 	return rows.map(([file, line, col, message]: [string, number, number, string]) => ({ rule: 'py-syntax' as const, file, line, col, message }));
 }
 
+/** Why a `uses:` value is not an immutable reference, or null when it is: a local path, an image digest or a full commit SHA. */
+function unpinned(uses: unknown): string | null {
+	if (typeof uses !== 'string') return `uses must be a string, found ${JSON.stringify(uses)}`;
+	if (uses.startsWith('./')) return null;
+	if (uses.startsWith('docker://')) return /^docker:\/\/[^\s@]+@sha256:[0-9a-f]{64}$/.test(uses) ? null : `${uses} is not pinned to an image digest (docker://image@sha256:<64 hex>)`;
+	return /^[^\s@]+@[0-9a-f]{40}$/.test(uses) ? null : `${uses} is not pinned to a full commit SHA (owner/action@<40 hex>)`;
+}
+
+/** Every `uses:` in the file as written: a job's reusable workflow, a step's action, and the steps of a composite action. */
+function usesOf(doc: unknown): { has: boolean; uses: unknown; run: unknown }[] {
+	const obj = (v: unknown): Record<string, unknown> => (typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+	const steps = (v: unknown) => (Array.isArray(v) ? v : []).map(obj);
+	const jobs = Object.values(obj(obj(doc).jobs)).map(obj);
+	return [...jobs, ...steps(obj(obj(doc).runs).steps), ...jobs.flatMap((j) => steps(j.steps))].map((o) => ({ has: 'uses' in o, uses: o.uses, run: o.run }));
+}
+
 function checkWorkflows(files: string[], modes: Map<string, string>): Problem[] {
 	const out: Problem[] = [];
 	for (const file of files) {
 		const src = readFileSync(file, 'utf8');
 		const doc: unknown = Bun.YAML.parse(src);
-		const jobs = typeof doc === 'object' && doc !== null ? (doc as { jobs?: unknown }).jobs : undefined;
+		const isAction = /^\.github\/actions\//.test(file);
+		const jobs = typeof doc === 'object' && doc !== null ? (doc as { jobs?: unknown; runs?: unknown })[isAction ? 'runs' : 'jobs'] : undefined;
 		if (typeof jobs !== 'object' || jobs === null) {
-			out.push({ rule: 'workflow-pin', file, line: 1, col: 1, message: 'no jobs: not a workflow this check can read' });
+			out.push({ rule: 'workflow-pin', file, line: 1, col: 1, message: `no ${isAction ? 'runs' : 'jobs'}: not a ${isAction ? 'composite action' : 'workflow'} this check can read` });
 			continue;
 		}
-		for (const job of Object.values(jobs)) {
-			const steps: unknown = (job as { steps?: unknown }).steps;
-			for (const step of Array.isArray(steps) ? steps : []) {
-				const { uses, run } = step as { uses?: unknown; run?: unknown };
-				if (typeof uses === 'string' && !uses.startsWith('./') && !uses.startsWith('docker://') && !/@[0-9a-f]{40}$/.test(uses))
-					out.push({ rule: 'workflow-pin', file, ...locate(src, uses), message: `${uses} is not pinned to a full commit SHA (owner/action@<40 hex>)` });
-				if (typeof run !== 'string') continue;
-				for (const cmd of run.matchAll(/(?:^|[;&|(]|\bthen\b|\bdo\b)\s*(?:\w+=\S*\s+)*((?:scripts|tests)\/[\w./-]+)/gm)) {
-					const target = cmd[1]!;
-					const mode = modes.get(target);
-					if (mode === '100755') continue;
-					out.push({ rule: 'workflow-exec', file, ...locate(src, target), message: mode ? `runs ${target}, which is tracked with mode ${mode}, not 100755` : `runs ${target}, which is not a tracked file` });
-				}
+		for (const { has, uses, run } of usesOf(doc)) {
+			const why = has ? unpinned(uses) : null;
+			if (why) out.push({ rule: 'workflow-pin', file, ...locate(src, typeof uses === 'string' ? uses : 'uses:'), message: why });
+			if (typeof run !== 'string') continue;
+			for (const cmd of run.matchAll(/(?:^|[;&|(]|\bthen\b|\bdo\b)\s*(?:\w+=\S*\s+)*((?:scripts|tests)\/[\w./-]+)/gm)) {
+				const target = cmd[1]!;
+				const mode = modes.get(target);
+				if (mode === '100755') continue;
+				out.push({ rule: 'workflow-exec', file, ...locate(src, target), message: mode ? `runs ${target}, which is tracked with mode ${mode}, not 100755` : `runs ${target}, which is not a tracked file` });
 			}
 		}
 	}
@@ -142,17 +156,18 @@ function main(): number {
 	const tracked = new Set(modes.keys());
 	const ext = (...e: string[]) => list.filter((t) => e.includes(path.extname(t.file))).map((t) => t.file);
 	const shebang = (t: Tracked) => { try { return /^#!.*\b(ba)?sh\b/.test(readFileSync(t.file, 'utf8').slice(0, 64).split('\n')[0]!); } catch { return false; } };
+	const workflows = list.filter((t) => /^\.github\/(workflows\/[^/]+|actions\/(.+\/)?action)\.ya?ml$/.test(t.file)).map((t) => t.file);
 	const inputs: Record<Rule, string[]> = {
 		'js-syntax': ext('.mjs', '.js', '.cjs'),
 		'js-import': ext('.mjs', '.js', '.cjs'),
 		'sh-syntax': [...ext('.sh'), ...list.filter((t) => t.mode === '100755' && path.extname(t.file) === '' && shebang(t)).map((t) => t.file)],
 		'py-syntax': ext('.py'),
-		'workflow-pin': list.filter((t) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(t.file)).map((t) => t.file),
-		'workflow-exec': list.filter((t) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(t.file)).map((t) => t.file),
+		'workflow-pin': workflows,
+		'workflow-exec': workflows,
 	};
 	const empty = RULES.filter((r) => inputs[r].length === 0);
 	if (empty.length) throw new SetupError(`no tracked files for ${empty.join(', ')}: refusing to report a pass over nothing`);
-	const problems = [...checkJs(inputs['js-syntax'], tracked), ...checkShell(inputs['sh-syntax']), ...checkPython(inputs['py-syntax']), ...checkWorkflows(inputs['workflow-pin'], modes)];
+	const problems = [...checkJs(inputs['js-syntax'], tracked), ...checkShell(inputs['sh-syntax']), ...checkPython(inputs['py-syntax']), ...checkWorkflows(workflows, modes)];
 	for (const p of problems) console.log(`${p.file}:${p.line}:${p.col}: error [${p.rule}] ${p.message}`);
 	const counts = Object.fromEntries(RULES.map((r) => [r, { files: inputs[r].length, problems: problems.filter((p) => p.rule === r).length }]));
 	const reproduce = 'bun scripts/ci/source-check.ts';

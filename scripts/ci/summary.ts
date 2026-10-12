@@ -12,12 +12,14 @@ import path from 'node:path';
 
 type Problem = { check: string; where: string | null; detail: string; reproduce: string };
 type Receipt = { name: string; result: string; exitCode: number | null; reason: string | null; command: string[]; durationSeconds: number | null; revision: { head: string | null; dirty: boolean | null } };
-type VitestAssertion = { fullName: string; status: string; failureMessages: string[]; location?: { line: number; column: number } };
+type VitestAssertion = { fullName: string; title?: string; ancestorTitles?: string[]; status: string; failureMessages: string[]; location?: { line: number; column: number } };
 type VitestReport = { numTotalTests: number; numFailedTests: number; numPendingTests: number; numTodoTests: number; testResults: { name: string; status: string; message: string; assertionResults: VitestAssertion[] }[] };
 
 const MAX_LINES = 12;
 const clip = (s: string, n = MAX_LINES) => { const l = s.trimEnd().split('\n'); return l.length > n ? [...l.slice(0, n), `… ${l.length - n} more lines in the receipt`].join('\n') : l.join('\n'); };
 const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
+const shellWord = (s: string) => (/^[\w@%+=:,./-]+$/.test(s) ? s : quote(s));
+const escapeRegExp = (s: string) => s.replace(/[\\^$.*+?()[\]{}|/]/g, '\\$&');
 
 /** Compiler and checker diagnostics in a failed check's output, as file:line plus the message. */
 const DIAGNOSTICS: [RegExp, (m: RegExpMatchArray) => [string, string]][] = [
@@ -57,7 +59,10 @@ function receiptProblems(dir: string, names: string[], head: string): { problems
 }
 
 function testProblems(reportFile: string, root: string): { problems: Problem[]; line: string } {
-	const run = (file: string, name?: string) => `bun run --bun test ${file}${name ? ` -t ${quote(name)}` : ''}`;
+	// Vitest's -t is a regex over the test's names joined with ' > ' (its JSON report's fullName joins them with a space),
+	// so the selector is built from the report's own titles, escaped and anchored. Without the titles the whole file runs.
+	const select = (a: VitestAssertion) => (a.title && Array.isArray(a.ancestorTitles) ? ` -t ${quote(`^${[...a.ancestorTitles, a.title].map(escapeRegExp).join(' > ')}$`)}` : '');
+	const run = (file: string, a?: VitestAssertion) => `bun run --bun test ${shellWord(file)}${a ? select(a) : ''}`;
 	if (!existsSync(reportFile)) return { problems: [{ check: 'test', where: null, detail: `no Vitest report at ${reportFile}`, reproduce: run('') }], line: 'no report' };
 	const report: VitestReport = JSON.parse(readFileSync(reportFile, 'utf8'));
 	const problems: Problem[] = [];
@@ -70,7 +75,7 @@ function testProblems(reportFile: string, root: string): { problems: Problem[]; 
 			if (a.status === 'passed') continue;
 			const where = `${rel}${a.location ? `:${a.location.line}:${a.location.column}` : ''}`;
 			const detail = a.status === 'failed' ? `${a.fullName}\n${clip(a.failureMessages.join('\n'))}` : `${a.fullName}: ${a.status}, not run (a skipped test is not evidence)`;
-			problems.push({ check: 'test', where, detail, reproduce: run(rel, a.fullName) });
+			problems.push({ check: 'test', where, detail, reproduce: run(rel, a) });
 		}
 	}
 	const tracked = execFileSync('git', ['ls-files', '*.test.ts'], { cwd: root, encoding: 'utf8' }).split('\n').filter((f) => f && !f.startsWith('tests/acceptance/'));

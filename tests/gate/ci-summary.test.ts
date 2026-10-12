@@ -1,7 +1,7 @@
 // scripts/ci/summary.ts on synthetic receipts and Vitest reports in a disposable Git checkout: it passes only a
 // complete, clean, revision-bound run, and names each other case with its check, location, diagnostic and the command
 // that reproduces it.
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -70,8 +70,13 @@ describe('CI summary', () => {
 			{ check: 'check', where: 'run.sh:4:1', detail: '[sh-syntax] syntax error: unexpected end of file' }],
 		['a failure without a known diagnostic, by the tail of its output', () => { receipt('check', { exitCode: 1, stdout: 'something broke\n' }); receipt('test'); report(); },
 			{ check: 'check', where: null, detail: 'FAIL, exit 1: check exit=1\nsomething broke' }],
-		['a failed test', () => { receipt('check'); receipt('test', { exitCode: 1 }); report([{ fullName: 'a breaks', status: 'failed', failureMessages: ['AssertionError: expected 1 to be 2'], location: { line: 9, column: 3 } }]); },
-			{ check: 'test', where: 'tests/a.test.ts:9:3', detail: 'a breaks\nAssertionError: expected 1 to be 2', reproduce: "bun run --bun test tests/a.test.ts -t 'a breaks'" }],
+		['a failed test', () => { receipt('check'); receipt('test', { exitCode: 1 }); report([{ fullName: 'a breaks', ancestorTitles: [], title: 'a breaks', status: 'failed', failureMessages: ['AssertionError: expected 1 to be 2'], location: { line: 9, column: 3 } }]); },
+			{ check: 'test', where: 'tests/a.test.ts:9:3', detail: 'a breaks\nAssertionError: expected 1 to be 2', reproduce: "bun run --bun test tests/a.test.ts -t '^a breaks$'" }],
+		// Vitest's -t is a regex over the names joined with ' > ', not over the report's space-joined fullName
+		['a failed test under a describe whose name holds regex metacharacters and a quote', () => { receipt('check'); receipt('test', { exitCode: 1 }); report([{ fullName: "statusOptions (S-1, corrected; D8) lists [a]+b? it's", ancestorTitles: ['statusOptions (S-1, corrected; D8)'], title: "lists [a]+b? it's", status: 'failed', failureMessages: ['Error: x'], location: { line: 4, column: 2 } }]); },
+			{ check: 'test', where: 'tests/a.test.ts:4:2', reproduce: String.raw`bun run --bun test tests/a.test.ts -t '^statusOptions \(S-1, corrected; D8\) > lists \[a\]\+b\? it'\''s$'` }],
+		['a failed test whose report lacks the titles runs the whole file rather than a selector that matches nothing', () => { receipt('check'); receipt('test', { exitCode: 1 }); report([{ fullName: 'a (b) breaks', status: 'failed', failureMessages: ['Error: x'] }]); },
+			{ check: 'test', where: 'tests/a.test.ts', reproduce: 'bun run --bun test tests/a.test.ts' }],
 		['a skipped test', () => { receipt('check'); receipt('test'); report([passed, { fullName: 'a needs symlinks', status: 'skipped', failureMessages: [] }]); },
 			{ check: 'test', detail: 'a needs symlinks: skipped, not run (a skipped test is not evidence)' }],
 		['a tracked test file missing from the report', () => { receipt('check'); receipt('test'); report([passed], []); }, { check: 'test', where: 'tests/a.test.ts', detail: expect.stringMatching(/^tracked test file missing from the report/) }],
@@ -85,6 +90,45 @@ describe('CI summary', () => {
 		expect(r.json?.problems, r.shown).toContainEqual(expect.objectContaining(want));
 		expect(r.out).toContain(`## CI FAIL at ${head}`);
 	});
+
+	it('the reproduce command of each failed test runs that test alone under real Vitest and shows its own failure', async () => {
+		const names: [string[], string][] = [
+			[['parens (S-1, corrected; D8)'], 'fails: [a] + b? | c'],
+			[['parens (S-1, corrected; D8)', 'nested $ ^ . * {x} \\ /'], "it's 'quoted' \\ back/slash"],
+			[[], 'prefix'],
+			[[], 'prefix and more'],
+			[['a > b'], 'c > d'],
+		];
+		const fails = (title: string, i: number) => `it(${JSON.stringify(title)}, () => { throw new Error('MARK-${i}'); });`;
+		const body = names.map(([parents, title], i) => parents.reduceRight((inner, p) => `describe(${JSON.stringify(p)}, () => { ${inner} });`, fails(title, i))).join('\n') + "\nit('passes', () => {});\n";
+		writeFileSync(path.join(dir, 'tests', 'a.test.ts'), body);
+		writeFileSync(path.join(dir, 'vitest.config.mjs'), 'export default { test: { globals: true, includeTaskLocation: true, include: ["tests/**/*.test.ts"], exclude: ["tests/acceptance/**"] } };\n');
+		writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ scripts: { test: `bun --bun ${path.resolve('node_modules/vitest/vitest.mjs')} run` } }));
+		git('add', '-A');
+		git('-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'real fixture');
+		head = git('rev-parse', 'HEAD');
+		const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('VITEST')));
+		const sh = (cmd: string) => new Promise<{ status: number | null; out: string }>((resolve) => {
+			const c = spawn('sh', ['-c', cmd], { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'] });
+			let out = '';
+			c.stdout.on('data', (d) => (out += d)); c.stderr.on('data', (d) => (out += d));
+			c.on('close', (status) => resolve({ status, out }));
+		});
+		const made = await sh(`bun run --bun test --reporter=json --outputFile=${path.join(receipts, 'vitest.json')}`);
+		expect(made.status, made.out).toBe(1);
+		receipt('check'); receipt('test', { exitCode: 1 });
+		const r = summary('check', 'test');
+		expect(r.status, r.shown).toBe(1);
+		const problems = ((r.json?.problems ?? []) as { detail: string; reproduce: string }[]).filter((p) => p.detail.includes('MARK-')); // not the receipt's own FAIL line
+		expect(problems, r.shown).toHaveLength(names.length);
+		const runs = await Promise.all(problems.map(async (p) => ({ p, ...(await sh(p.reproduce)) })));
+		for (const { p, status, out } of runs) {
+			const mark = /MARK-\d+/.exec(p.detail)![0];
+			expect(status, `${p.reproduce}\n${out}`).toBe(1);
+						expect([...out.matchAll(/^Error: (MARK-\d+)/gm)].map((m) => m[1]), `${p.reproduce}\n${out}`).toEqual([mark]); // the code frame shows neighbouring lines, so only the thrown errors count
+			expect(out, p.reproduce).toMatch(/Tests\s+1 failed \| \d+ skipped/);
+		}
+	}, 120_000);
 
 	it('exits 2 without receipt names', () => {
 		expect(summary().status).toBe(2);

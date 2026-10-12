@@ -1,7 +1,7 @@
 // The legacy import hook (GRS-20): where a v5 browser backup (ess_dcs_backup.json, an object of ess_dcs_* keys, as v5's
-// "Export all state" writes it) enters ClearCase. Importing v5 browser state is not part of GRS-20: no importer is
-// registered, so Restore recognises the file, says what it holds and changes nothing. A later ticket registers an
-// importer per key (or group of keys); restore then hands each importer its keys' values.
+// "Export all state" writes it) enters ClearCase. GRS-20 ships the hook only; a key with no registered importer is
+// recognised and reported, never written. Importers are registered per key (or group of keys) in v5-importers.server.ts
+// (today: the court bundles, GRS-56); restore then hands each importer its keys' values.
 //  * Keys: the 21 live v5 stores (V5_STORES), v5's four keys no v5 code used (V5_LEGACY_KEYS: ess_dcs_courtbundle_v1,
 //    ess_dcs_bundle_header_v1, ess_dcs_bundle_extents_v1, ess_dcs_bundle_overrides_v1), and any other ess_dcs_* key
 //    (reported as unknown, never imported unless an importer claims it).

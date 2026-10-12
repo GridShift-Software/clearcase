@@ -10,9 +10,13 @@ export const DEFAULT_BODY_LIMIT = 512 * KIB;
 /** Backup restore posts the backup file itself, with the form's other fields. */
 export const BACKUP_BODY_LIMIT = MAX_BACKUP_BYTES + 1024 * KIB;
 
+/** The court bundle page saves a bundle's item list (the route refuses over 2,000,000 characters or 5,000 items itself); a v5-size list is far over the default. */
+export const COURT_BUNDLE_BODY_LIMIT = 2 * 1024 * KIB;
+
 const BACKUP_ROUTE = /^\/v\/[^/]+\/system\/backup_tab\/?$/;
+const COURT_BUNDLE_ROUTE = /^\/v\/[^/]+\/bundles\/court_bundle_tab\/?$/;
 /** The most a request to this path may carry in its body, in bytes. */
-export const bodyLimit = (pathname: string) => (BACKUP_ROUTE.test(pathname) ? BACKUP_BODY_LIMIT : DEFAULT_BODY_LIMIT);
+export const bodyLimit = (pathname: string) => (BACKUP_ROUTE.test(pathname) ? BACKUP_BODY_LIMIT : COURT_BUNDLE_ROUTE.test(pathname) ? COURT_BUNDLE_BODY_LIMIT : DEFAULT_BODY_LIMIT);
 
 const size = (n: number) => (n >= 1024 * KIB ? `${n / (1024 * KIB)} MiB` : `${n / KIB} KiB`);
 

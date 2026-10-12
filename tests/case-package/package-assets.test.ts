@@ -1,6 +1,6 @@
 // GRS-45 (BASE-R3): bundle, index, extract, part and schedule files outside the document register are package
 // assets under a non-ref key P-<sha256(path)[:16]>, verified at import like every original. Synthetic data only.
-import { mkdir, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 import { convertV5, importCandidate, readCandidate, type ImportResult } from '../../src/lib/case-package/index.ts';
@@ -125,4 +125,44 @@ describe('the v5 adapter indexes package files', () => {
     expect(r.ok).toBe(false);
     expect(r.diagnostics.find((d) => d.code === 'ORIG_ESCAPE')?.subject).toBe(pathAssetKey('BUNDLES/Escape.pdf'));
   });
+});
+
+describe('one odd bundle or schedule locator does not refuse the case (review M1)', () => {
+  // a locator the converter cannot serve becomes a "missing" package file (or none, where import would refuse the path):
+  // the rest of the case converts and imports, and the link is not served
+  const ODD: Record<string, { locator: string; indexed: boolean; prep?: (dir: string) => Promise<void> }> = {
+    'a folder named without a trailing slash': { locator: url('SOURCES'), indexed: true },
+    'an unreadable file': { locator: url('SOURCES/Locked.pdf'), indexed: true, prep: async (dir) => { await writeFile(path.join(dir, 'SOURCES', 'Locked.pdf'), pdf('locked')); await chmod(path.join(dir, 'SOURCES', 'Locked.pdf'), 0o000); } },
+    'a path under .clearcase/': { locator: url('.clearcase/x.pdf'), indexed: false },
+  };
+  for (const [name, odd] of Object.entries(ODD)) {
+    for (const where of ['bundle extract', 'schedule file'] as const) {
+      it(`${name} as a ${where} converts, imports and is not served`, async () => {
+        const b = await buildSynth('pkgodd', (r) => {
+          (r.DATA.bundles as any).list[0].rows.push({ key: 'OD-9', n: 9, desc: 'Invented', from: 1, to: 1, pages: 1, sliceUrl: where === 'bundle extract' ? odd.locator : url('SOURCES/Part one.pdf'), parts: [{ url: url('SOURCES/Part one.pdf'), name: 'Part one.pdf', rel: 'Part one.pdf', from: 1, to: 1 }] });
+          if (where === 'schedule file') (r.SCHED as any).discovery.push({ no: 2, date: '', desc: 'Invented', co: 'C', nfiles: 2, files: [{ fn: 'Odd', url: odd.locator, co: 'C' }, { fn: 'Good', url: url('SOURCES/Part one.pdf'), co: 'C' }] });
+        });
+        roots.push(b.root);
+        await mkdir(path.join(b.caseDir, 'SOURCES'), { recursive: true });
+        await writeFile(path.join(b.caseDir, 'SOURCES', 'Part one.pdf'), pdf('invented part'));
+        await odd.prep?.(b.caseDir);
+        const conv = await convertV5({ html: b.html, htmlName: 'workspace.html', caseFolder: b.caseDir, caseId: 'synthetic-case' });
+        expect(conv.diagnostics.filter((d) => d.severity === 'error').map((d) => d.code)).toEqual([]);
+        expect(conv.ok).toBe(true);
+        const assets = assetsOf(conv.files!);
+        const oddPath = decodeURIComponent(odd.locator.slice(2));
+        const key = pathAssetKey(oddPath);
+        // the good neighbour is still indexed
+        expect(assets[pathAssetKey('SOURCES/Part one.pdf')]).toMatchObject({ kind: 'file' });
+        if (odd.indexed) expect(assets[key]).toMatchObject({ kind: 'missing', path: oddPath });
+        else expect(assets[key]).toBeUndefined();
+        const r = await importCandidate({ files: conv.files! }, b.caseDir);
+        expect(errors(r)).toEqual([]);
+        expect(r.verdict).not.toBe('reject');
+        // not served: no verified original answers to the path
+        expect(r.candidate!.original(key)?.status ?? 'unavailable').not.toBe('verified');
+        if (odd.indexed) expect(r.candidate!.isUnavailable(key)).toBe(true);
+      });
+    }
+  }
 });

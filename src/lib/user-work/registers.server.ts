@@ -58,15 +58,16 @@ export function addEntry(w: Work, caseId: string, def: RegisterDef, e: Entry, an
 /**
  * Replace one entry's fields (and anchor), keeping its id and position. 'gone' when the row no longer exists (nothing
  * is written: an edit never inserts), 'stale' when `version` is given and the stored row's differs. A row without a
- * numeric seq (a restore, a v5 import) keeps none, so it stays last.
+ * numeric seq (a restore, a v5 import) keeps none, so it stays last. `anchor` may be a function of the current row, run
+ * inside the serialized edit, so an edit that leaves the document ref alone can keep the row's own anchor.
  */
-export function editEntry(w: Work, caseId: string, def: RegisterDef, rowId: string, e: Entry, anchor: DocumentAnchor | null = null, version: string | null = null): Promise<EditResult> {
+export function editEntry(w: Work, caseId: string, def: RegisterDef, rowId: string, e: Entry, anchor: DocumentAnchor | null | ((cur: StoredRow) => DocumentAnchor | null) = null, version: string | null = null): Promise<EditResult> {
 	return serial(w, caseId, def.store, async () => {
 		const cur = w.listRows(caseId, def.store).find((r) => r.rowId === rowId);
 		if (!cur) return 'gone';
 		if (version !== null && versionOf(cur) !== version) return 'stale';
 		const seq = seqOf(cur);
-		await w.putRow(caseId, def.store, rowId, { ...fieldsOf(def, e), ...(seq === null ? {} : { seq }) }, anchor);
+		await w.putRow(caseId, def.store, rowId, { ...fieldsOf(def, e), ...(seq === null ? {} : { seq }) }, typeof anchor === 'function' ? anchor(stored(def, cur)) : anchor);
 		return 'saved';
 	});
 }

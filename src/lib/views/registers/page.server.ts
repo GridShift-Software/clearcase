@@ -34,9 +34,10 @@ function refTargets(a: LocalCase, rv: string, rows: readonly StoredRow[], def: R
 		const ref = r.values[refField]!;
 		if (!ref) continue;
 		let target: string | null = imported.has(ref) || provided.has(ref) ? ref : null;
-		// an anchor made in another version follows its original's fingerprint, exactly; an ambiguous or missing match
-		// is not guessed (the ref renders broken), and a ref that names nothing is never fuzzy-matched
-		if (r.anchor && r.anchor.resultsVersion !== rv && r.anchor.sha256) {
+		// an anchor made in another version follows its original's fingerprint, exactly; an ambiguous, missing or
+		// unfingerprinted anchor is not guessed (the ref renders broken: a reused ref is not proof of identity across
+		// versions), and a ref that names nothing is never fuzzy-matched
+		if (r.anchor && r.anchor.resultsVersion !== rv) {
 			const m = a.userWork.resolve(r.anchor, rv, (fps ??= a.store.fingerprints(rv)));
 			target = m.status === 'exact' ? m.refs[0]! : m.status === 'here' ? ref : null;
 		}
@@ -57,9 +58,14 @@ function cells(def: RegisterDef, r: StoredRow, targets: Map<string, string | nul
 	});
 }
 
-/** The anchor for a typed ref that names an imported document of this version, else none (the ref is kept as typed). */
-function anchorOf(a: LocalCase, def: RegisterDef, caseId: string, rv: string, e: Entry): DocumentAnchor | null {
-	const ref = e[def.fields.find((x) => x.docRef)?.k ?? ''];
+/**
+ * The anchor for a typed ref that names an imported document of this version, else none (the ref is kept as typed).
+ * `cur` is the row being edited: while its ref is unchanged it keeps its own anchor, made in whichever version.
+ */
+function anchorOf(a: LocalCase, def: RegisterDef, caseId: string, rv: string, e: Entry, cur?: StoredRow): DocumentAnchor | null {
+	const k = def.fields.find((x) => x.docRef)?.k ?? '';
+	const ref = e[k];
+	if (cur && (cur.values[k] ?? '') === (ref ?? '')) return cur.anchor;
 	if (!ref || !a.store.existingRefs(rv, [ref]).has(ref)) return null;
 	return a.userWork.anchorFor(caseId, rv, ref);
 }
@@ -123,12 +129,12 @@ export function registerActions(view: RegisterView) {
 			if (rowId && !version) return refuse(409, STALE);
 			const a = app();
 			try {
-				const anchor = anchorOf(a, def, c.caseId, c.rv, values);
 				if (rowId) {
-					const r = await editEntry(a.userWork, c.caseId, def, rowId, values, anchor, version);
+					// read inside the serialized edit: the row's current anchor, not the page's copy
+					const r = await editEntry(a.userWork, c.caseId, def, rowId, values, (cur) => anchorOf(a, def, c.caseId, c.rv, values, cur), version);
 					return r === 'saved' ? { saved: true } : refuse(r === 'gone' ? 404 : 409, r === 'gone' ? GONE : STALE);
 				}
-				return { saved: true, savedId: await addEntry(a.userWork, c.caseId, def, values, anchor) };
+				return { saved: true, savedId: await addEntry(a.userWork, c.caseId, def, values, anchorOf(a, def, c.caseId, c.rv, values)) };
 			} catch (e) {
 				const x = failure(e, rowId ? 'The change' : 'The entry');
 				return refuse(x.status, x.message, x.retry);

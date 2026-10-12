@@ -9,8 +9,11 @@
 //    case-table row must belong to the active case), and the contract's own restore checks. It takes a work.sqlite
 //    backup and a JSON copy of this case's work first (the JSON copy is kept in backups/pre-restore/, outside the
 //    rotation, and refused if it cannot be written), then replaces this case's rows of every table in one
-//    transaction, whatever the file holds for it (other cases' rows are kept, store tables are merged by key). Any
-//    refusal or failure leaves the active data unchanged.
+//    transaction, whatever the file holds for it (other cases' rows are kept, store tables are merged by key). That
+//    includes a case table first defined after the backup was made (a rescan's, for one): its rows of this case are
+//    cleared, except in tables an export cannot carry, which are kept and reported. Every table in the file must
+//    declare its scope, and a case table's rows must all belong to the case. Any refusal or failure leaves the active
+//    data unchanged.
 //  * A v5 browser backup (ess_dcs_backup.json: an object of ess_dcs_* keys) goes to the legacy import hook.
 import { createHash, randomBytes } from 'node:crypto';
 import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, writeFileSync } from 'node:fs';
@@ -107,6 +110,9 @@ export function checkBackup(text: string, active: { caseId: string; resultsVersi
 	for (const t of uw.tables as unknown[]) {
 		if (!isRecord(t) || typeof t.name !== 'string' || !Array.isArray(t.rows)) throw new BackupError('The backup is damaged (a table entry is malformed). Nothing was changed.', 'corrupt');
 		if (NOT_CARRIED.has(t.name)) throw new BackupError(`The backup carries ${t.name}, which a backup never holds. Nothing was changed.`, 'corrupt');
+		// the scope decides whether rows are checked, and importAll would infer an omitted one: require it, so every
+		// case row below is checked against this case
+		if (t.scope !== 'case' && t.scope !== 'store') throw new BackupError(`The backup is damaged (table ${t.name.slice(0, 80)} has no valid scope). Nothing was changed.`, 'corrupt');
 		if (t.scope === 'case' && (t.rows as unknown[]).some((r) => !isRecord(r) || r[CASE_COLUMN] !== active.caseId)) throw new BackupError(`The backup holds rows of another case (table ${t.name.slice(0, 80)}). Nothing was changed.`, 'wrong-case');
 		tables.push({ name: t.name, rows: (t.rows as unknown[]).length });
 	}
@@ -146,7 +152,8 @@ function copyBeforeWrite(lc: LocalCase, active: { resultsVersion: string }, labe
 
 /**
  * Restore a backup into the active case: check it, copy the current work, then replace this case's rows of the file's
- * tables in one transaction (the case is named, so a backup with no rows for it still clears the work added since). A
+ * tables, and clears the case's rows of case tables the file does not list, in one transaction (the case is named, so
+ * a backup with no rows for it still clears the work added since). A
  * refusal (BackupError) or a failed write leaves the active data unchanged.
  */
 export async function restoreBackup(lc: LocalCase, text: string, active: { caseId: string; resultsVersion: string }): Promise<RestoreOutcome> {
@@ -157,7 +164,7 @@ export async function restoreBackup(lc: LocalCase, text: string, active: { caseI
 	}
 	const preRestore = copyBeforeWrite(lc, active, 'pre-restore');
 	try {
-		const result = await lc.userWork.importAll(checked.file.userWork, { replace: 'cases', cases: [active.caseId] });
+		const result = await lc.userWork.importAll(checked.file.userWork, { replace: 'cases', cases: [active.caseId], clearAbsent: true });
 		return { kind: 'restored', summary: checked.summary, result, preRestore };
 	} catch (e) {
 		if (e instanceof UserWorkError) throw new BackupError(`The backup cannot be restored here: ${e.message}. Nothing was changed.`, 'refused');

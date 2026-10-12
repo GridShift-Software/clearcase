@@ -1,0 +1,64 @@
+#!/bin/bash
+# Creates, provisions, registers, reaches and destroys the ClearCase CI runner VM on pc1 from a workstation with root
+# SSH to pc1 and an admin `gh` login. See docs/ci-runner.md.
+set -euo pipefail
+here=$(cd "${BASH_SOURCE[0]%/*}" && pwd)
+host=${CLEARCASE_CI_HOST:-root@ci-host.example.invalid}
+state=${CLEARCASE_CI_STATE:-$HOME/.config/clearcase-ci}
+key=$state/pc1-vm_ed25519
+repo=GridShift-Software/clearcase
+name=clearcase-pc1-vm
+
+guest() {
+  ssh -i "$key" -o IdentitiesOnly=yes -o UserKnownHostsFile="$state/known_hosts" -o HostKeyAlias=$name \
+    -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -J "$host" -p 2257 ciadmin@127.0.0.1 "$@"
+}
+wait_guest() {
+  for _ in $(seq 60); do
+    guest true 2>/dev/null && guest cloud-init status --wait >/dev/null && return
+    sleep 5
+  done
+  echo "pc1-vm: the guest did not answer SSH within 5 minutes" >&2
+  return 1
+}
+runner_id() { gh api "repos/$repo/actions/runners" --jq ".runners[] | select(.name == \"$name\") | .id"; }
+
+case ${1:-} in
+create)
+  install -d -m 0700 "$state"
+  [[ -f $key ]] || ssh-keygen -q -t ed25519 -N '' -C $name -f "$key"
+  rm -f "$state/known_hosts"
+  ssh "$host" bash -s -- setup "'$(cat "$key.pub")'" <"$here/vm-host.sh"
+  wait_guest
+  "$0" provision
+  "$0" register
+  ;;
+provision)
+  guest 'sudo tee /usr/local/sbin/clearcase-ci-guest >/dev/null && sudo chmod 0755 /usr/local/sbin/clearcase-ci-guest' \
+    <"$here/guest-provision.sh"
+  release=$(gh api repos/actions/runner/releases/latest \
+    --jq '(.tag_name | ltrimstr("v")) + " " + (.body | capture("<!-- BEGIN SHA linux-x64 -->(?<h>[0-9a-f]{64})").h)')
+  guest sudo clearcase-ci-guest provision $release
+  ;;
+register)
+  # The short-lived registration token goes straight from gh to the guest's stdin.
+  gh api -X POST "repos/$repo/actions/runners/registration-token" --jq .token | guest sudo clearcase-ci-guest register
+  ;;
+ssh)
+  shift
+  guest "$@"
+  ;;
+start | stop | restart | status)
+  ssh "$host" systemctl "$1" --no-pager clearcase-ci-vm.service
+  ;;
+destroy)
+  id=$(runner_id)
+  [[ -z $id ]] || gh api -X DELETE "repos/$repo/actions/runners/$id"
+  ssh "$host" bash -s -- destroy <"$here/vm-host.sh"
+  rm -f "$state/known_hosts"
+  ;;
+*)
+  echo "usage: scripts/ci/pc1-vm create | provision | register | ssh [COMMAND] | start | stop | restart | status | destroy" >&2
+  exit 2
+  ;;
+esac

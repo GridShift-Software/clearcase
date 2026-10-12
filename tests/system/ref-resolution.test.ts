@@ -24,6 +24,12 @@ const cite = (r: SynthRoots) => {
 	lit.legality.intro = `See [[${NEW}]] and [[${NONE}]].`;
 	lit.authorities[0].proposition = `Relies on [[${NEW}]] and [[${NONE}]].`;
 	D.timeline.events.push({ ...D.timeline.events[0], ref: NEW }, { ...D.timeline.events[0], ref: NONE });
+	q.amountDueSeries.push({ ...q.amountDueSeries[0], ref: NEW }, { ...q.amountDueSeries[0], ref: NONE });
+	lit.prescription.push({ ...lit.prescription[0], ref: NEW }, { ...lit.prescription[0], ref: NONE });
+	lit.prescSummary.note = lit.interestBasis.note = `See [[${NEW}]] and [[${NONE}]].`;
+	lit.recon[0].supporting = [NEW, NONE];
+	D.defenceMatrix[0].docs.push({ ...D.defenceMatrix[0].docs[0], ref: NEW }, { ...D.defenceMatrix[0].docs[0], ref: NONE });
+	D.contradictions.categories[0].items[0].refs.push({ ...D.contradictions.categories[0].items[0].refs[0], ref: NEW }, { ...D.contradictions.categories[0].items[0].refs[0], ref: NONE });
 };
 
 const state: DocumentStateRow = { file: 'missing', preview: 'none', text: 'pending', mediaType: null, flags: ['rescan'], original: null, self: null };
@@ -60,6 +66,13 @@ const ROUTES: Record<string, () => Promise<unknown>> = {
 	'litigation/legality_tab': () => import('../../src/routes/v/[vid]/litigation/legality_tab/+page.server'),
 	'litigation/authorities_tab': () => import('../../src/routes/v/[vid]/litigation/authorities_tab/+page.server'),
 	'analysis/timeline': () => import('../../src/routes/v/[vid]/analysis/timeline/+page.server'),
+	'analysis/vdm_matrix_tab': () => import('../../src/routes/v/[vid]/analysis/vdm_matrix_tab/+page.server'),
+	'analysis/contradictions_tab': () => import('../../src/routes/v/[vid]/analysis/contradictions_tab/+page.server'),
+	'quantum/quantum_tab': () => import('../../src/routes/v/[vid]/quantum/quantum_tab/+page.server'),
+	'quantum/payments_tab': () => import('../../src/routes/v/[vid]/quantum/payments_tab/+page.server'),
+	'quantum/prescription_tab': () => import('../../src/routes/v/[vid]/quantum/prescription_tab/+page.server'),
+	'quantum/interest_calc_tab': () => import('../../src/routes/v/[vid]/quantum/interest_calc_tab/+page.server'),
+	'litigation/heads_tab': () => import('../../src/routes/v/[vid]/litigation/heads_tab/+page.server'),
 };
 const route = (p: string) => ROUTES[p]!() as Promise<Loader>;
 const load = async (p: string) => (await (await route(p)).load({ params: { vid: rv }, parent: async () => ({ version: { id: rv, caseId } }) })) as Record<string, unknown>;
@@ -72,8 +85,21 @@ describe('a provider-only ref links on every view (one ref rule)', () => {
 		['litigation/legality_tab', 'known'],
 		['litigation/authorities_tab', 'known'],
 		['analysis/timeline', 'known'],
+		['analysis/vdm_matrix_tab', 'known'],
+		['analysis/contradictions_tab', 'known'],
+		['quantum/quantum_tab', 'known'],
+		['quantum/payments_tab', 'known'],
+		['quantum/prescription_tab', 'known'],
+		['quantum/prescription_tab', 'noteKnown'],
+		['quantum/interest_calc_tab', 'known'],
 	])('%s › %s links the provider-only ref and not a ref nothing names', async (view, key) => {
 		const refs = linked((await load(view))[key]);
 		expect([...refs].filter((r) => r === NEW || r === NONE)).toEqual([NEW]);
+	});
+	it('litigation/heads_tab › evidence links the provider-only ref and not a ref nothing names', async () => {
+		const { STORES, register } = await import('../../src/lib/views/litigation/register.server');
+		await register(caseId, STORES.heads).add({ head: 'H', sub: 'S', auth: 'A', ref: `${NEW}, ${NONE}` }, { addId: null });
+		const rows = (await load('litigation/heads_tab')).rows as { evidence: { text: string; ref: boolean }[] }[];
+		expect(rows.at(-1)!.evidence).toEqual([{ text: NEW, ref: true }, { text: NONE, ref: false }]);
 	});
 });

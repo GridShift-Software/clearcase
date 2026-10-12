@@ -3,8 +3,12 @@ import { app, originals } from '$lib/local-case/app.server';
 import { documentRow } from '$lib/local-case/documents.server';
 import type { AttachmentRow, OriginalLinks } from '$lib/local-case/model';
 import { OriginalsServer } from '$lib/local-case/originals.server';
+import { inTurn } from '$lib/local-case/registers.server';
 import { UserWorkError } from '$lib/local-case/user-work.server';
 import type { Actions, PageServerLoad } from './$types';
+
+// note writes run in the case's register queue, so a restore of the case holds them back
+const NOTES = 'note\u0000';
 
 const str = (v: unknown) => (typeof v === 'string' ? v : v === undefined || v === null ? '' : String(v));
 
@@ -62,14 +66,15 @@ export const actions: Actions = {
 		const v = a.store.getVersion(params.vid);
 		if (!v) return fail(404, { message: 'Unknown results version' });
 		const body = String((await request.formData()).get('body') ?? '');
-		try { await a.userWork.addNote(v.case_id, v.id, params.ref, body); } catch (e) { if (e instanceof UserWorkError) return fail(400, { message: e.message }); throw e; }
+		try { await inTurn(a.userWork, v.case_id, NOTES, () => a.userWork.addNote(v.case_id, v.id, params.ref, body)); } catch (e) { if (e instanceof UserWorkError) return fail(400, { message: e.message }); throw e; }
 		return { saved: true };
 	},
 	delnote: async ({ request, params }) => {
 		const a = app();
 		const v = a.store.getVersion(params.vid);
 		if (!v) return fail(404, { message: 'Unknown results version' });
-		await a.userWork.deleteNote(v.case_id, String((await request.formData()).get('id') ?? ''));
+		const id = String((await request.formData()).get('id') ?? '');
+		await inTurn(a.userWork, v.case_id, NOTES, () => a.userWork.deleteNote(v.case_id, id));
 		return { deleted: true };
 	},
 };

@@ -11,6 +11,13 @@ import type { LocalCase } from '../../src/lib/local-case/service.server.ts';
 import { ackFor, cleanup, service, tempRoot } from '../../src/lib/local-case/test-support.ts';
 import { createBackup, restoreBackup } from '../../src/lib/user-work/backup/backup.server.ts';
 import { registerLegacyImporter } from '../../src/lib/user-work/backup/legacy.server.ts';
+import { addEntry } from '../../src/lib/user-work/registers.server.ts';
+import { REGISTERS } from '../../src/lib/views/registers/defs.ts';
+import { addLink } from '../../src/lib/views/bundles/store.server.ts';
+import { filingsActions } from '../../src/lib/views/evidence/filings.server.ts';
+import { itemKeys, saveDone } from '../../src/lib/analysis/info-required.server.ts';
+import { rescan } from '../../src/lib/local-case/rescan/rescan.server.ts';
+import { actions as docActions } from '../../src/routes/v/[vid]/doc/[ref]/+page.server.ts';
 
 const CASE = 'lock-case';
 const OTHER = 'lock-other';
@@ -111,5 +118,38 @@ describe('restore takes the case register lock', () => {
 			await expect(restoreBackup(lc, text, { caseId: CASE, resultsVersion: rv[CASE]! })).rejects.toThrow('synthetic failure');
 			await expect(registers(lc.userWork).open(CASE, 'after-failure').add({ k: 'after' })).resolves.toMatchObject({ repeated: false });
 		} finally { spy.mockRestore(); }
+	});
+
+	it("every other writer of the case's user work waits for a restore: registers, bundles, filings, info required, rescan, notes", async () => {
+		let open = () => {};
+		const gate = new Promise<void>((r) => { open = r; });
+		const undo = registerLegacyImporter({ id: 'slow-sweep', owner: 'TEST', keys: ['ess_dcs_deadlines_v1'], import: async () => { await gate; return { rows: 1 }; } });
+		const g = globalThis as { __clearcase?: { app: LocalCase } };
+		g.__clearcase = { app: lc };
+		try {
+			const order: string[] = [];
+			const done = (name: string) => (x: unknown) => { order.push(name); return x; };
+			const items = [{ item: 'synthetic item', owner: 'TEST', status: 'open' }];
+			const fd = new FormData();
+			fd.set('filing', 'synthetic filing');
+			const note = new FormData();
+			note.set('body', 'synthetic note');
+			const restore = restoreBackup(lc, JSON.stringify({ ess_dcs_deadlines_v1: [{ title: 'synthetic' }] }), { caseId: CASE, resultsVersion: rv[CASE]! }).then(done('restore'));
+			await tick();
+			const writes = [
+				addEntry(lc.userWork, CASE, REGISTERS.deadlines_tab, { title: 'synthetic' }).then(done('register')),
+				addLink(CASE, 'DISCOVERY A/OD-001 Synthetic.pdf').then(done('bundles')),
+				filingsActions.add({ params: { vid: rv[CASE]! }, request: new Request('http://localhost/', { method: 'POST', body: fd }) } as never).then(done('filings')),
+				saveDone(lc.userWork, CASE, rv[CASE]!, items, itemKeys(items)[0]!, true).then(done('info required')),
+				rescan(lc, rv[CASE]!, 'quick').then(done('rescan')),
+				(docActions.note as (e: unknown) => Promise<unknown>)({ params: { vid: rv[CASE]!, ref: 'OD-001' }, request: new Request('http://localhost/', { method: 'POST', body: note }) }).then(done('notes')),
+			];
+			await tick(50);
+			expect(order).toEqual([]);
+			open();
+			await Promise.all([restore, ...writes]);
+			expect(order[0]).toBe('restore');
+			expect(order.slice(1).sort()).toEqual(['bundles', 'filings', 'info required', 'notes', 'register', 'rescan']);
+		} finally { undo(); delete g.__clearcase; }
 	});
 });

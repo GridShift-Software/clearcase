@@ -222,4 +222,47 @@ describe('exclusive()', () => {
 		await registers(w).open('c', 'heads').add({ head: 'x' });
 		expect(seqs(w)).toEqual([1]);
 	});
+	// Re-entry: a write made from inside the run it was queued behind would wait on that run for ever (it settles only when
+	// `fn` does), and every later write of the case behind it. Each case below must settle; 500 ms is the hang detector.
+	it('a write through the store from inside the run runs in it, in order, and the case stays usable', { timeout: 500 }, async () => {
+		const w = memoryWork();
+		const r = registers(w);
+		const out = await r.exclusive('c', async () => {
+			const a = await r.open('c', 'heads').add({ head: 'inside 1' });
+			await Promise.all([r.open('c', 'heads').add({ head: 'inside 2' }), r.open('c', 'payments').add({ p: 1 })]);
+			return a.rowId;
+		});
+		expect(out).toMatch(/^row-/);
+		expect(seqs(w)).toEqual([1, 2]);
+		expect(seqs(w, 'payments')).toEqual([1]);
+		await r.open('c', 'heads').add({ head: 'after' });
+		expect(r.open('c', 'heads').rows().map((x) => x.fields.head)).toEqual(['inside 1', 'inside 2', 'after']);
+	});
+	it("inside a run, another case's write and a nested exclusive of the same case still settle", { timeout: 500 }, async () => {
+		const w = memoryWork();
+		const r = registers(w);
+		await r.exclusive('c', async () => {
+			await r.open('c2', 'heads').add({ head: 'other' });
+			await r.exclusive('c', async () => { await r.open('c', 'heads').add({ head: 'nested' }); });
+		});
+		expect(w.listRows('c', 'heads').map((x) => x.fields.head)).toEqual(['nested']);
+	});
+});
+
+describe('re-entry from batch()', () => {
+	it('a write to the same store from inside a batch runs in it instead of waiting on it', { timeout: 500 }, async () => {
+		const w = memoryWork();
+		const s = registers(w).open('c', 'enf');
+		await s.batch(async () => { await s.add({ k: 'inside' }); });
+		await s.add({ k: 'after' });
+		expect(s.rows().map((x) => x.fields.k)).toEqual(['inside', 'after']);
+	});
+	it('a write to another store, or an exclusive run, from inside a batch throws at once and names the rule', { timeout: 500 }, async () => {
+		const w = memoryWork();
+		const r = registers(w);
+		await expect(r.open('c', 'enf').batch(() => r.open('c', 'other').add({ k: 1 }))).rejects.toThrow(/inside a batch/);
+		await expect(r.open('c', 'enf').batch(() => r.exclusive('c', async () => 1))).rejects.toThrow(/inside a batch/);
+		await r.open('c', 'enf').add({ k: 'usable' });
+		expect(w.listRows('c', 'enf')).toHaveLength(1);
+	});
 });

@@ -1,4 +1,5 @@
 import { app } from '$lib/local-case/app.server';
+import { resolveRefs } from '$lib/local-case/documents.server';
 import { datasetOf, viewContentOf, viewText } from '$lib/local-case/results.server';
 import { cleanName } from '$lib/views/litigation/readonly';
 import { knownRefs } from '$lib/views/litigation/register.server';
@@ -18,7 +19,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const intro = s(L?.intro);
 	// documents are linked by ref against the version (a missing ref renders broken, never fuzzy-matched)
 	const vc = viewContentOf(a.store, version.id);
-	const exists = [...a.store.existingRefs(version.id, docs.map((d) => d.ref).filter(Boolean))];
+	const exists = [...resolveRefs(a.store, version.id, docs.map((d) => d.ref).filter(Boolean))];
 	return {
 		present: L !== null, intro, docs, scenarios, factors, exists,
 		subtitle: viewText(vc, 'legality_tab', 'subtitle'),

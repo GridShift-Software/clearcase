@@ -68,9 +68,13 @@
 				</li>
 			{:else}<li>No notes.</li>{/each}
 		</ul>
-		<form method="POST" action="?/note" use:enhance id="note-form">
-			<label for="note-body">Add a note</label><br /><textarea name="body" rows="3" cols="80" id="note-body"></textarea><br /><button id="note-add">Add note</button>
-			{#if form?.message}<span class="error" role="alert">{form.message}</span>{/if}
-		</form>
+		{#if data.source === 'results'}
+			<form method="POST" action="?/note" use:enhance id="note-form">
+				<label for="note-body">Add a note</label><br /><textarea name="body" rows="3" cols="80" id="note-body"></textarea><br /><button id="note-add">Add note</button>
+				{#if form?.message}<span class="error" role="alert">{form.message}</span>{/if}
+			</form>
+		{:else}
+			<p id="note-unavailable">Notes are not available on this document: it has no imported original to anchor a note to, so a note would be lost when a new results version is imported.</p>
+		{/if}
 	</section>
 </main>

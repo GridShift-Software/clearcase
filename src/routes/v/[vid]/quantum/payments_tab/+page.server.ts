@@ -11,8 +11,8 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const { version } = await parent();
 	const settlement = dataset<Settlement>(version.id, 'lit-settlement');
 	const recon = dataset<ReconRow[]>(version.id, 'lit-recon') ?? [];
-	const known = resolvableRefs(version.id);
 	const cited = new Set(recon.flatMap((m) => [...m.invoice, ...m.supporting, ...m.charging, ...m.pod, ...m.statement, ...m.amountdue]));
+	const known = resolvableRefs(version.id, cited);
 	return {
 		subtitle: viewText(content(version.id), 'payments_tab', 'subtitle'),
 		claim: settlement?.claim ?? '',

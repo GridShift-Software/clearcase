@@ -1,9 +1,11 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 // @ts-expect-error plain .mjs script, no declarations
 import { readHead, runGate, v5Current, v5Prerequisite } from '../../scripts/gate.mjs';
+import { readPidFile } from '../../scripts/pidfile.ts';
 
 type Step = { name: string; cmd: string[]; browser?: boolean; needs?: () => string | null | Promise<string | null>; summary?: { dir: string; file: string; env?: string } };
 const head = { sha: 'abc123def456', dirty: false };
@@ -221,5 +223,179 @@ describe('readHead', () => {
 		expect(readHead(() => ({ status: 128, stdout: '', stderr: 'fatal: detected dubious ownership\n' }))).toEqual({ error: 'rev-parse exited 128: fatal: detected dubious ownership' });
 		expect(readHead(() => ({ error: new Error('spawn git ENOENT'), stdout: null }))).toEqual({ error: 'spawn git ENOENT' });
 		expect(readHead((_c: string, a: string[]) => (a[0] === 'rev-parse' ? ok('abc') : { status: 1, stdout: '', stderr: '' }))).toEqual({ error: 'status exited 1: ' });
+	});
+});
+
+describe('admission', () => {
+	const child = join(import.meta.dirname, 'admit-child.mjs');
+	const REPO = resolve(import.meta.dirname, '../..');
+	type Kid = { name: string; pid: number; out: string; exited: boolean };
+	let kids: Kid[] = [];
+	afterEach(() => {
+		for (const k of kids.splice(0)) try { process.kill(-k.pid, 'SIGKILL'); } catch {}
+	});
+	/** Starts admit-child.mjs as a gate leader would run: a process group of its own, with the leader marker set. */
+	const start = (name: string, opts: Record<string, unknown> = {}): Kid => {
+		const p = spawn(process.execPath, [child, JSON.stringify({ pidFile: join(repo, 'pid'), ctl: repo, name, ...opts })], { detached: true, stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, CLEARCASE_GATE_LEADER: REPO } });
+		const k: Kid = { name, pid: p.pid!, out: '', exited: false };
+		p.stdout!.on('data', (d) => (k.out += d));
+		p.on('close', () => (k.exited = true));
+		kids.push(k);
+		return k;
+	};
+	const tick = () => new Promise((r) => setTimeout(r, 5));
+	const settled = (k: Kid) => k.out.trim() !== '' || k.exited;
+	/** Waits until `k` is held at `label`, or has printed its outcome because its path never reaches that step. */
+	const at = async (k: Kid, label: string) => { while (!existsSync(join(repo, `${k.name}@${label}`)) && !settled(k)) await tick(); };
+	const resume = (k: Kid, label: string) => writeFileSync(join(repo, `${k.name}@${label}.go`), '');
+	const outcome = async (k: Kid) => { while (!settled(k)) await tick(); return k.out.trim(); };
+	const gone = async (k: Kid) => { while (!k.exited) await tick(); };
+	/** The admitted children that still hold their claim: there must be one, and the pid file must name it. */
+	const holders = async (...ks: Kid[]) => {
+		for (const k of ks) await outcome(k);
+		const live = ks.filter((k) => k.out.trim() === 'ADMITTED' && !k.exited);
+		return { live: live.map((k) => k.name), recorded: readPidFile(join(repo, 'pid'))?.pid === live[0]?.pid };
+	};
+	const deadRecord = async () => {
+		const dead = spawn('true');
+		await new Promise((r) => dead.on('close', r));
+		writeFileSync(join(repo, 'pid'), `${dead.pid} 1\n`);
+	};
+
+	it('admits exactly one of several gates that start at the same moment, and the rest say they are busy', async () => {
+		for (let round = 0; round < 3; round++) {
+			const startAt = Date.now() + 1500;
+			const ks = ['a', 'b', 'c', 'd'].map((n) => start(`${round}${n}`, { pidFile: join(repo, `round${round}`, 'pid'), startAt }));
+			const outs = await Promise.all(ks.map(outcome));
+			expect(outs.filter((o) => o === 'ADMITTED')).toHaveLength(1);
+			expect(outs.filter((o) => o.startsWith('GATE FAIL busy: a gate (pid '))).toHaveLength(3);
+		}
+	});
+
+	it('takes over a claim whose owner is dead: exactly one of several simultaneous gates wins it', async () => {
+		await deadRecord();
+		const startAt = Date.now() + 1500;
+		const outs = await Promise.all(['a', 'b', 'c', 'd'].map((n) => outcome(start(n, { startAt }))));
+		expect(outs.filter((o) => o === 'ADMITTED')).toHaveLength(1);
+		expect(outs.filter((o) => o.startsWith('GATE FAIL busy: a gate (pid '))).toHaveLength(3);
+	});
+
+	// Each interleaving below admitted two gates, or dropped a live claim, at 36f2382, where a stale record was removed
+	// by whoever judged it stale (`recover:*`, `guard:stale`) and `--stop` removed the record it read. A child is held at a
+	// step only when its path reaches it; the flock(2) claim has no recovery steps, so such a child runs straight through.
+	it('two gates released at the same instant just before they claim: one is admitted', async () => {
+		const a = start('a', { pauses: ['claim:begin'] }), b = start('b', { pauses: ['claim:begin'] });
+		await at(a, 'claim:begin');
+		await at(b, 'claim:begin');
+		resume(a, 'claim:begin');
+		resume(b, 'claim:begin');
+		expect(await holders(a, b)).toEqual({ live: [expect.any(String)], recorded: true });
+	});
+
+	it('a gate recovering a dead record never removes the claim another gate made after the record went', async () => {
+		await deadRecord();
+		const b = start('b', { pauses: ['claim:contended', 'recover:remove'] });
+		await at(b, 'claim:contended');
+		const a = start('a', { pauses: ['recover:released'] });
+		await at(a, 'recover:released');
+		resume(b, 'claim:contended');
+		await at(b, 'recover:remove');
+		resume(a, 'recover:released');
+		await outcome(a);
+		resume(b, 'recover:remove');
+		expect(await holders(a, b)).toEqual({ live: [expect.any(String)], recorded: true });
+	});
+
+	it('a gate that found the owner gone never removes the claim a third gate made meanwhile', async () => {
+		const x = start('x');
+		expect(await outcome(x)).toBe('ADMITTED');
+		const b = start('b', { pauses: ['claim:contended', 'recover:remove'] });
+		await at(b, 'claim:contended');
+		writeFileSync(join(repo, 'x.release'), '');
+		await gone(x);
+		resume(b, 'claim:contended');
+		await at(b, 'recover:remove');
+		const a = start('a');
+		await outcome(a);
+		resume(b, 'recover:remove');
+		expect(await holders(a, b)).toEqual({ live: [expect.any(String)], recorded: true });
+	});
+
+	it('gate --stop finding a dead record never removes the claim a gate made meanwhile', async () => {
+		await deadRecord();
+		const s = start('s', { mode: 'stop', pauses: ['stop:done', 'recover:remove'] });
+		await at(s, 'stop:done');
+		const a = start('a', { pauses: ['recover:released'] });
+		await at(a, 'recover:released');
+		resume(s, 'stop:done');
+		await at(s, 'recover:remove');
+		resume(a, 'recover:released');
+		await outcome(a);
+		resume(s, 'recover:remove');
+		await gone(s);
+		const c = start('c');
+		expect(await holders(a, c)).toEqual({ live: ['a'], recorded: true });
+	});
+
+	it('gate --stop never removes the claim a gate made while the stop waited for the old gate to exit', async () => {
+		const l = start('l');
+		expect(await outcome(l)).toBe('ADMITTED');
+		const s = start('s', { mode: 'stop', pauses: ['stop:done'] });
+		await at(s, 'stop:done');
+		await gone(l);
+		const a = start('a');
+		await outcome(a);
+		resume(s, 'stop:done');
+		expect(await outcome(s)).toMatch(/^stop: stopped process group \d+ \(SIGTERM\)$/);
+		await gone(s);
+		const c = start('c');
+		expect(await holders(a, c)).toEqual({ live: ['a'], recorded: true });
+	});
+
+	it('two gates clearing a crashed recovery guard never both get in', async () => {
+		await deadRecord();
+		mkdirSync(join(repo, 'pid.recover'));
+		const old = new Date(Date.now() - 60_000);
+		utimesSync(join(repo, 'pid.recover'), old, old);
+		const w2 = start('w2', { pauses: ['guard:stale'] });
+		await at(w2, 'guard:stale');
+		const w1 = start('w1', { pauses: ['recover:remove'] });
+		await at(w1, 'recover:remove');
+		resume(w2, 'guard:stale');
+		await outcome(w2);
+		resume(w1, 'recover:remove');
+		expect(await holders(w1, w2)).toEqual({ live: [expect.any(String)], recorded: true });
+	});
+
+	it('admits the next gate after an admitted one is SIGKILLed: the kernel let go of its claim', async () => {
+		const l = start('l');
+		expect(await outcome(l)).toBe('ADMITTED');
+		process.kill(l.pid, 'SIGKILL');
+		await gone(l);
+		expect(await holders(start('a'))).toEqual({ live: ['a'], recorded: true });
+	});
+
+	it('a gate that holds the lock but has not yet written its record is never overtaken', async () => {
+		await deadRecord();
+		const a = start('a', { pauses: ['claim:locked'] });
+		await at(a, 'claim:locked');
+		const b = start('b'), s = start('s', { mode: 'stop' });
+		expect(await outcome(b)).toBe('GATE FAIL busy: another gate is claiming this worktree right now; try again in a few seconds');
+		expect(await outcome(s)).toMatch(/^stop: nothing to stop/);
+		resume(a, 'claim:locked');
+		const c = start('c');
+		expect(await holders(a, b, c)).toEqual({ live: ['a'], recorded: true });
+	});
+
+	it('refuses a gate whose earlier gate\'s leader died after the gate looked for orphans, and keeps the record --stop needs', async () => {
+		const l = start('l', { grandchild: true });
+		expect(await outcome(l)).toBe('ADMITTED');
+		const a = start('a', { pauses: ['claim:begin'] });
+		await at(a, 'claim:begin');
+		process.kill(l.pid, 'SIGKILL');
+		await gone(l);
+		resume(a, 'claim:begin');
+		expect(await outcome(a)).toMatch(new RegExp(`^GATE FAIL busy: processes of an earlier gate \\(group ${l.pid}\\) still run`));
+		expect(readPidFile(join(repo, 'pid'))?.pid).toBe(l.pid);
 	});
 });

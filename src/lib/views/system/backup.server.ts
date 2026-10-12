@@ -9,6 +9,7 @@ import { app } from '$lib/local-case/app.server';
 import type { LocalCase } from '$lib/local-case/service.server';
 import { ensureRescanProvider } from '$lib/local-case/rescan/rescan.server';
 import { BackupError, BINARIES_NOTE, MAX_BACKUP_BYTES, backupName, createBackup, restoreBackup } from '$lib/user-work/backup/backup.server';
+import { registerV5Importers } from '$lib/user-work/backup/v5-importers.server';
 import { V5_LEGACY_KEYS, V5_STORES } from '$lib/user-work/backup/v5-keys';
 
 type Event = { params: Record<string, string>; request: Request };
@@ -18,6 +19,8 @@ function versionOf(vid: string) {
 	const v = a.store.getVersion(vid);
 	if (!v) error(404, 'Unknown results version');
 	ensureRescanProvider(a, v.case_id);
+	// start-up registers the v5 importers too; a start-up that stopped early (a storage error) leaves it to the first page use
+	registerV5Importers();
 	return { a, v };
 }
 

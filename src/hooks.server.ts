@@ -3,10 +3,13 @@ import { building } from '$app/environment';
 import { app, initApp } from '$lib/local-case/app.server';
 import { discardBody, oversize } from '$lib/local-case/request-limit.server';
 import { ensureRescanProvider } from '$lib/local-case/rescan/rescan.server';
+import { registerV5Importers } from '$lib/user-work/backup/v5-importers.server';
 
 export const init: ServerInit = async () => {
 	if (building) return;
 	await initApp();
+	// the v5 importers touch no storage: registered before the storage check, so a start-up error does not skip them
+	registerV5Importers();
 	// the rescan additions are document rows for every reader (chronology, documents, search), so the provider is
 	// registered at start-up, not when a system page first loads
 	// (a storage problem is shown by the first request; the system pages then register it as before)

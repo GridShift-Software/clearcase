@@ -5,7 +5,7 @@ import type { PageServerLoad } from './$types';
 export const load: PageServerLoad = async ({ parent }) => {
 	const { version } = await parent();
 	const ledger = dataset<Quantum>(version.id, 'quantum')?.invoiceLedger ?? [];
-	const known = resolvableRefs(version.id);
+	const known = resolvableRefs(version.id, ledger.map((r) => r.ref));
 	return {
 		ledger,
 		// the subtitle is case wording from view-content; its count is the imported ledger's length

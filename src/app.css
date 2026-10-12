@@ -9,7 +9,9 @@ a { color: #0b4f9c; }
 header.top { display: flex; gap: 1rem; align-items: baseline; padding: .5rem 1rem; background: #1d2b3a; color: #fff; }
 header.top a { color: #cfe3ff; }
 header.top .brand { font-weight: 700; }
-.banner { padding: .4rem 1rem; font-weight: 600; }
+/* A case name (up to 64 characters of a-z0-9._- from the case id) may have no break opportunity: wrap it anywhere,
+   inherited by the recovery banner's <code>, so no banner makes a page scroll sideways. */
+.banner { padding: .4rem 1rem; font-weight: 600; overflow-wrap: anywhere; }
 .banner.candidate { background: #fff1c2; color: #6a4b00; }
 .banner.active { background: #e3f4e3; color: #1d5b1d; }
 .banner.recovery { background: #fde8e8; color: #7a1010; }
@@ -27,6 +29,7 @@ main:focus, h1:focus { outline: none; }
 .page-head { display: flex; justify-content: space-between; align-items: start; gap: 1rem; margin-bottom: .75rem; }
 .page-head h1 { margin: 0; font-size: 1.5rem; }
 .subtitle { margin: .2rem 0 0; color: #555; }
+.export-note { display: block; max-width: 24rem; margin-top: .2rem; font-size: .85em; color: #555; }
 table { border-collapse: collapse; }
 td, th { padding: 2px 8px; border-bottom: 1px solid #eee; text-align: left; vertical-align: top; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }
@@ -34,6 +37,8 @@ td, th { padding: 2px 8px; border-bottom: 1px solid #eee; text-align: left; vert
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 .wrap { overflow-wrap: anywhere; white-space: pre-wrap; }
 .clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* a textarea sized in columns (the document page's notes form has cols=80) never pushes a narrow page sideways */
+textarea { max-width: 100%; box-sizing: border-box; }
 .filters { display: flex; flex-wrap: wrap; gap: .6rem; align-items: end; margin-bottom: .6rem; }
 .missing, .error { background: #fde8e8; border: 1px solid #e0a0a0; color: #7a1010; padding: .5rem .8rem; border-radius: 6px; }
 .warning { background: #fff6dc; border: 1px solid #e8cf7a; padding: .5rem .8rem; border-radius: 6px; }
@@ -43,6 +48,8 @@ td, th { padding: 2px 8px; border-bottom: 1px solid #eee; text-align: left; vert
 .basis { color: #666; }
 .route { font-weight: 600; }
 .unavailable-view { background: #f2f2f2; border: 1px dashed #999; padding: .8rem 1rem; border-radius: 6px; max-width: 60rem; }
+/* A grid wider than the viewport (the chronology's fixed tracks) scrolls inside its own box, never the document. */
+.grid-table { overflow-x: auto; }
 .grid-row { display: grid; gap: 0 8px; padding: 2px 8px; border-bottom: 1px solid #eee; }
 .chrono-grid .grid-row { grid-template-columns: 6.5em 7em 7.5em minmax(0, 1fr) 9em 8em 8em 6em 6em; }
 .grid-row:not(.grid-head) { content-visibility: auto; contain-intrinsic-size: auto 22px; }
@@ -52,3 +59,11 @@ td, th { padding: 2px 8px; border-bottom: 1px solid #eee; text-align: left; vert
 .diag-code { margin-top: 1rem; }
 details > summary { cursor: pointer; }
 .narrative p { margin: .3rem 0; }
+/* At most 40rem (640 px) wide, a phone has too little room beside the 15rem navigation column: the navigation stacks
+   above the content as a bounded list that scrolls, the top bar and page header wrap. Wider than 40rem nothing changes. */
+@media (max-width: 40rem) {
+	header.top { flex-wrap: wrap; }
+	.case-shell { grid-template-columns: minmax(0, 1fr); }
+	nav.views { position: static; max-height: 14rem; border-right: 0; border-bottom: 1px solid #ddd; }
+	.page-head { flex-wrap: wrap; }
+}

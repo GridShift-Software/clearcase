@@ -91,6 +91,25 @@ export function suiteProblems(out, category, implemented) {
 	return problems;
 }
 
+// Fail fast: each step runs at most 15 minutes (CLEARCASE_SUITE_TIMEOUT_MS; the browser suite takes about one, the
+// durability suite about two) and is then stopped with SIGTERM, which fails it. A step that timed out, or a pilot step
+// whose record says its run aborted (a dead browser, a scenario timeout: lib/lifecycle.mjs), makes the summary
+// `evidence: false` with the reason.
+/** A step's time limit in ms. */
+export const STEP_TIMEOUT_MS = +(process.env.CLEARCASE_SUITE_TIMEOUT_MS ?? 15 * 60_000);
+/** The record each pilot step writes in the output directory (lib/record.mjs), by step name. */
+export const STEP_RECORDS = { 'browser suite (offline)': 'suite.json', 'durability suite (offline)': 'durability.json', 'loopback bind check (host namespace)': 'netcheck.json' };
+
+/** Why a step proves nothing even if it passed: it timed out, or its record says the run aborted; else null. */
+export function stepAbort(out, step) {
+	if (step.timedOut) return `${step.name}: no result within ${STEP_TIMEOUT_MS / 1000} s (timeout); stopped`;
+	if (!STEP_RECORDS[step.name]) return null;
+	try {
+		const a = JSON.parse(readFileSync(join(out, STEP_RECORDS[step.name]), 'utf8')).aborted;
+		return a ? `${step.name}: run aborted in ${a.step}: ${a.cause}` : null;
+	} catch { return null; }
+}
+
 if (import.meta.main) await main();
 
 async function main() {
@@ -117,6 +136,8 @@ async function main() {
 	const implementedIn = (c) => reg.views.filter((v) => v.category === c && implemented.has(v.id)).map((v) => v.id);
 	console.log(`test:e2e: categories with a suite: ${cats.suites.join(', ') || 'none'}; with views: ${cats.views.join(', ') || 'none'}`);
 	for (const c of cats.missing) console.error(`test:e2e: category ${c} has views but no suite`);
+	// remove the pilot steps' records first, so that only this run's can say it aborted (stepAbort)
+	for (const f of Object.values(STEP_RECORDS)) rmSync(join(dir, f), { force: true });
 	const offline = (file) => offlineStep(join(here, file));
 	const steps = [
 		['browser suite (offline)', offline('suite.mjs')],
@@ -133,8 +154,12 @@ async function main() {
 		console.log(`\n=== ${name}: ${cmd} ${args.join(' ')}`);
 		if (category) rmSync(suiteSummaryFile(dir, category), { force: true });
 		try { read[args.at(-1)] = readFileSync(args.at(-1)); } catch {}
-		const r = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', env: { ...process.env, CLEARCASE_E2E_OUT: dir } });
+		const r = spawnSync(cmd, args, { cwd: root, stdio: 'inherit', env: { ...process.env, CLEARCASE_E2E_OUT: dir }, timeout: STEP_TIMEOUT_MS, killSignal: 'SIGTERM' });
 		const res = { name, rc: r.status, ms: Date.now() - t0 };
+		if (r.error?.code === 'ETIMEDOUT') {
+			console.error(`test:e2e: ${name}: no result within ${STEP_TIMEOUT_MS / 1000} s; stopped`);
+			Object.assign(res, { rc: 124, timedOut: true });
+		}
 		if (category) {
 			const problems = suiteProblems(dir, category, implementedIn(category));
 			for (const p of problems) console.error(`test:e2e: ${category} suite: ${p}`);
@@ -144,7 +169,7 @@ async function main() {
 	}
 	const noSuite = cats.missing.map((c) => ({ name: `category ${c} has views but no suite`, rc: 1, ms: 0 }));
 	const ok = missing.length === 0 && results.length === steps.length && results.every((r) => r.rc === 0) && noSuite.length === 0;
-	const evidence = evidenceRecord(fresh, allowed, e2eNonEvidence(process.env, steps.map(([, [, args]]) => args.at(-1)), read));
+	const evidence = evidenceRecord(fresh, allowed, [...e2eNonEvidence(process.env, steps.map(([, [, args]]) => args.at(-1)), read), ...results.map((r) => stepAbort(dir, r)).filter(Boolean)]);
 	writeFileSync(join(dir, 'summary.json'), JSON.stringify({ ok, prerequisites: pre, missing, bun: bunIdentity(), build, ...evidence, categories: cats, results: [...results, ...noSuite] }, null, 1));
 	console.log('\n' + [...results, ...noSuite].map((r) => `${r.rc === 0 ? 'PASS' : 'FAIL'} rc=${r.rc} ${(r.ms / 1000).toFixed(1)}s ${r.name}`).join('\n'));
 	console.log(`test:e2e: ${ok ? 'PASS' : 'FAIL'}${evidenceSuffix(evidence)}`);

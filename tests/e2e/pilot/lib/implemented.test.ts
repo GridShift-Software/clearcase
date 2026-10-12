@@ -109,3 +109,39 @@ describe('pilot checks follow the tree under test', () => {
 		expect(lanes).not.toContain("want.find((v) => v.status !== 'available')");
 	});
 });
+
+// The routes under src/routes/v/[vid]/ follow the M2 contract: the pilot's own route files, exactly as the base has
+// them, and an owner's route files inside the route folder of one of its registry views (the view's page and anything
+// below it, such as an export endpoint). A route file anywhere else fails.
+const PILOT_ROUTES = ['+layout.server.ts', '+layout.svelte', '+page.server.ts', '[category]/[view]/+page.server.ts', '[category]/[view]/+page.svelte', 'chronology/+page.server.ts', 'chronology/+page.svelte', 'chronology/+page.ts', 'doc/[ref]/+page.server.ts', 'doc/[ref]/+page.svelte', 'overview/+page.server.ts', 'overview/+page.svelte', 'search/+page.server.ts'];
+/** The route files (+…) under `root`'s src/routes/v/[vid]/ that lie inside no M2 view's route folder, sorted. */
+function routesOutsideViews(root: string) {
+	const base = join(root, 'src', 'routes', 'v', '[vid]');
+	const folders = views.filter((v: { category: string | null }) => v.category).map((v: { route: string }) => `${v.route.slice(1)}/`);
+	return (readdirSync(base, { recursive: true }) as string[]).map((f) => f.split(sep).join('/')).filter((f) => basename(f).startsWith('+') && !folders.some((d: string) => f.startsWith(d))).sort();
+}
+
+describe('routes under /v/[vid]: the pilot routes as they are, owner routes only inside their own views', () => {
+	test('the committed tree', () => {
+		expect(routesOutsideViews(REPO)).toEqual(PILOT_ROUTES);
+	});
+
+	test("an owner's view page and a route below it pass; a route outside every owner's view, an extra pilot route or a missing one fails", () => {
+		const root = mkdtempSync(join(tmpdir(), 'cc-routes-'));
+		try {
+			const at = (f: string) => join(root, 'src', 'routes', 'v', '[vid]', ...f.split('/'));
+			for (const f of PILOT_ROUTES) put(at(f), '');
+			expect(routesOutsideViews(root)).toEqual(PILOT_ROUTES);
+			const search = byId('search');
+			for (const f of [`${search.route.slice(1)}/+page.svelte`, `${search.route.slice(1)}/export/+server.ts`]) put(at(f), '');
+			expect(routesOutsideViews(root)).toEqual(PILOT_ROUTES);
+			for (const stray of [`${search.category}/+layout.svelte`, `${search.category}/not_a_view/+page.svelte`, 'chronology/extra/+page.svelte', 'reports/+page.svelte']) {
+				put(at(stray), '');
+				expect(routesOutsideViews(root), stray).toEqual([...PILOT_ROUTES, stray].sort());
+				rmSync(at(stray));
+			}
+			rmSync(at('chronology/+page.ts'));
+			expect(routesOutsideViews(root)).not.toEqual(PILOT_ROUTES);
+		} finally { rmSync(root, { recursive: true, force: true }); }
+	});
+});

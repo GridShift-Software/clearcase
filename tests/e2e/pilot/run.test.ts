@@ -216,3 +216,23 @@ describe('the suite summary contract', () => {
 		expect(src).toContain("if (problems.length) Object.assign(res, { rc: res.rc === 0 ? 1 : res.rc, summaryProblems: problems });");
 	});
 });
+
+describe('a step that timed out or aborted is not evidence (fail fast)', () => {
+	test("stepAbort names a timeout and an aborted suite's record, and nothing for a finished or missing one", async () => {
+		const { STEP_TIMEOUT_MS, stepAbort } = await import(join(HERE, 'run.mjs'));
+		const out = mkdtempSync(join(root, 'abort-'));
+		writeFileSync(join(out, 'suite.json'), JSON.stringify({ ok: false, aborted: { step: 'scenario S1', cause: 'Chromium exited (signal SIGTRAP)', kind: 'browser' } }));
+		writeFileSync(join(out, 'durability.json'), JSON.stringify({ ok: true }));
+		expect(stepAbort(out, { name: 'browser suite (offline)' })).toBe('browser suite (offline): run aborted in scenario S1: Chromium exited (signal SIGTRAP)');
+		expect(stepAbort(out, { name: 'durability suite (offline)' })).toBeNull();
+		expect(stepAbort(out, { name: 'loopback bind check (host namespace)' })).toBeNull(); // no record written
+		expect(stepAbort(out, { name: 'evidence suite (offline)' })).toBeNull(); // a category suite has none
+		expect(stepAbort(out, { name: 'durability suite (offline)', timedOut: true })).toBe(`durability suite (offline): no result within ${STEP_TIMEOUT_MS / 1000} s (timeout); stopped`);
+	});
+	test('the runner bounds each step, clears its record first and passes every abort to the evidence record', () => {
+		const src = readFileSync(join(HERE, 'run.mjs'), 'utf8');
+		expect(src).toContain('for (const f of Object.values(STEP_RECORDS)) rmSync(join(dir, f), { force: true });');
+		expect(src).toContain("timeout: STEP_TIMEOUT_MS, killSignal: 'SIGTERM' });");
+		expect(src).toContain('const evidence = evidenceRecord(fresh, allowed, [...e2eNonEvidence(process.env, steps.map(([, [, args]]) => args.at(-1)), read), ...results.map((r) => stepAbort(dir, r)).filter(Boolean)]);');
+	});
+});

@@ -13,6 +13,9 @@
 // removes or writes anything, --out is checked as the runner checks its own (scripts/parity/lib/outdir.mjs): by
 // realpath, it must not overlap a fixture input the locator names, it must lie inside .local/, and every path written
 // below it (<id>/, mutation-proof.json) must resolve to itself, so no symlink there leads a removal into the fixture.
+// Fail fast: a mutant's build may take 15 minutes and its parity run 20 (both take one or two); a run that times out
+// is stopped with SIGTERM. A mutant whose run timed out or aborted (a dead browser, a view timeout: the scorecard's
+// `aborted`) is MISSED with the cause, and mutation-proof.json records `evidence: false`.
 import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
@@ -54,7 +57,8 @@ const local = canonical(join(REPO, '.local')), rel = relative(local, canonical(o
 if (!(out + '/').startsWith(join(REPO, '.local') + '/') || rel === '..' || rel.startsWith('../') || isAbsolute(rel)) die(`--out must lie inside ${join(REPO, '.local')}/, symlinks resolved (mutants and diffs are local evidence)`);
 const results = [];
 const HEAD = execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-const run = (args, cwd = REPO) => spawnSync(process.execPath, args, { cwd, encoding: 'utf8', maxBuffer: 1 << 26, env: process.env });
+const RUN_MS = 20 * 60_000, BUILD_MS = 15 * 60_000;
+const run = (args, cwd = REPO) => spawnSync(process.execPath, args, { cwd, encoding: 'utf8', maxBuffer: 1 << 26, env: process.env, timeout: RUN_MS, killSignal: 'SIGTERM' });
 const replaceOnce = (text, find, repl, where) => {
 	const n = text.split(find).length - 1;
 	if (n !== 1) die(`${where}: the mutation text occurs ${n} times (must be exactly once)`);
@@ -85,7 +89,8 @@ for (const m of selected) {
 		if (cp.status !== 0) die(`copying node_modules failed: ${cp.stderr}`);
 		// stamp the mutant as what it is: `git` inside .local/ would otherwise report the worktree's HEAD, and the scorecard
 		// would call a mutant a fresh build of HEAD (it now says evidence: false, naming the mutant)
-		const b = spawnSync(process.execPath, ['run', '--bun', 'build'], { cwd: src, encoding: 'utf8', maxBuffer: 1 << 26, env: { ...process.env, CLEARCASE_SOURCE_REVISION: `mutant:${m.id}@${HEAD}` } });
+		const b = spawnSync(process.execPath, ['run', '--bun', 'build'], { cwd: src, encoding: 'utf8', maxBuffer: 1 << 26, env: { ...process.env, CLEARCASE_SOURCE_REVISION: `mutant:${m.id}@${HEAD}` }, timeout: BUILD_MS, killSignal: 'SIGTERM' });
+		if (b.error?.code === 'ETIMEDOUT') die(`${m.id}: build gave no result within ${BUILD_MS / 60_000} min; stopped`);
 		if (b.status !== 0) die(`${m.id}: build failed:\n${(b.stdout + b.stderr).slice(-2000)}`);
 		args.push('--app-root', src);
 	}
@@ -97,14 +102,17 @@ for (const m of selected) {
 		const f = join(dir, 'out', 'views', `${v}.json`);
 		if (existsSync(f)) for (const d of JSON.parse(readFileSync(f, 'utf8')).unregistered) hits.push(d.path);
 	}
+	const aborted = r.error?.code === 'ETIMEDOUT' ? { step: `the parity run of ${m.id}`, cause: `no result within ${RUN_MS / 60_000} min (timeout); stopped`, kind: 'timeout' } : sc?.aborted ?? null;
 	const usage = existsSync(join(dir, 'out', 'register-usage.json')) ? JSON.parse(readFileSync(join(dir, 'out', 'register-usage.json'), 'utf8')) : { unused: [] };
 	const caught = m.control ? r.status === 0 && hits.length === 0 : m.strict ? r.status === 1 && usage.unused.length > 0 : r.status === 1 && hits.some((p) => m.expect.test(p));
-	results.push({ id: m.id, category: m.category, what: m.what, views: m.views, exit: r.status, unregistered: hits.length, unusedEntries: usage.unused.length, matchingPaths: m.expect ? hits.filter((p) => m.expect.test(p)).length : 0, caught, seconds: Math.round((performance.now() - t0) / 1000), compared: sc?.total.compared ?? null });
+	results.push({ id: m.id, category: m.category, what: m.what, views: m.views, exit: r.status, ...(aborted ? { aborted } : {}), unregistered: hits.length, unusedEntries: usage.unused.length, matchingPaths: m.expect ? hits.filter((p) => m.expect.test(p)).length : 0, caught, seconds: Math.round((performance.now() - t0) / 1000), compared: sc?.total.compared ?? null });
 	console.log(`${caught ? 'CAUGHT' : 'MISSED'} ${m.id.padEnd(17)} ${m.category.padEnd(17)} exit ${r.status} unregistered ${hits.length}${m.control ? ' (control)' : m.strict ? `, unused register entries ${usage.unused.length} (strict)` : `, ${results.at(-1).matchingPaths} on ${m.expect}`} ${results.at(-1).seconds} s`);
+	if (aborted) console.error(`mutate: ${m.id}: run aborted in ${aborted.step}: ${aborted.cause}`);
 	if (r.status === 2) console.error(r.stderr.slice(-1500));
 	if (!argv.includes('--keep')) for (const x of ['src', 'v5-copy.html']) rmSync(at(m.id, x), { recursive: true, force: true });
 }
 const ok = results.length > 0 && results.every((x) => x.caught);
-writeFileSync(at('mutation-proof.json'), JSON.stringify({ ok, revision: HEAD, results }, null, 1) + '\n');
+const aborts = results.filter((x) => x.aborted).map((x) => `${x.id}: run aborted in ${x.aborted.step}: ${x.aborted.cause}`);
+writeFileSync(at('mutation-proof.json'), JSON.stringify({ ok, revision: HEAD, ...(aborts.length ? { evidence: false, evidenceNote: `NOT release evidence: ${aborts.join('; ')}` } : {}), results }, null, 1) + '\n');
 console.log(`mutate: ${ok ? 'PASS' : 'FAIL'}: ${results.filter((x) => x.caught).length}/${results.length} caught -> ${join(out, 'mutation-proof.json')}`);
 process.exit(ok ? 0 : 1);

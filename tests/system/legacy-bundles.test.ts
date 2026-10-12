@@ -59,6 +59,20 @@ describe('legacy import of custom bundles', () => {
 		expect((await store.readCustom(caseId)).map((c) => [c.id, c.no])).toEqual([['v5-C1', 'C1'], ['v5-C2', 'C2'], ['builder-out', 'C3'], ['v5-C4', 'C4']]);
 	});
 
+	it('a write that fails part-way leaves no bundle of the file and says the import failed and nothing changed', async () => {
+		// a busy or failing store on the 2nd bundle: a trigger refuses the row of C8 (whatever way the rows are written)
+		await lc.storage.tx((d) => { d.exec("CREATE TRIGGER work.refuse_c8 BEFORE INSERT ON bundles_custom WHEN NEW.id = 'v5-C8' BEGIN SELECT RAISE(ABORT, 'store busy'); END"); });
+		const before = (await store.readCustom(caseId)).map((c) => c.id);
+		try {
+			const out = await backup.restoreBackup(lc, v5File([{ no: 'C7', name: 'Seventh', rows: [] }, { no: 'C8', name: 'Eighth', rows: [] }, { no: 'C9', name: 'Ninth', rows: [] }]), { caseId, resultsVersion: rv });
+			expect(out).toMatchObject({ kind: 'legacy', legacy: { changed: false, rows: 0, keys: [{ key: KEY, status: 'failed' }] } });
+			expect((out as { legacy: { error: string } }).legacy.error).toMatch(/v5-custom-bundles: .*nothing was written/);
+			expect((await store.readCustom(caseId)).map((c) => c.id)).toEqual(before);
+		} finally {
+			await lc.storage.tx((d) => { d.exec('DROP TRIGGER work.refuse_c8'); });
+		}
+	});
+
 	it('a value that holds no bundle writes nothing and says so; another case is untouched', async () => {
 		const before = lc.userWork.listTableRows(store.CUSTOM_TABLE, { caseId }).length;
 		const out = await backup.restoreBackup(lc, JSON.stringify({ [KEY]: 'not json' }), { caseId, resultsVersion: rv });

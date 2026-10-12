@@ -14,13 +14,13 @@ export const PORTS = Object.freeze({ A: 43000, A_ORIG: 43001, B: 43010, B_ORIG: 
 export const ORIGINALS_HOSTNAME = 'clearcase-originals.localhost';
 
 /** One app server under test (its own ports and data directory), restartable on the same data directory. */
-export function appServer({ name, root, buildDir, port, origPort, dir }) {
+export function appServer({ name, root, buildDir, port, origPort, dir, env }) {
 	const a = {
 		name, port, origPort, dataDir: join(dir, `data-${name}`), logFile: join(dir, `server-${name}.log`),
 		origin: `http://127.0.0.1:${port}`, origHost: `${ORIGINALS_HOSTNAME}:${origPort}`, orig: `http://${ORIGINALS_HOSTNAME}:${origPort}`,
 		c: client(port), srv: null, starts: [],
 		async start() {
-			a.srv = await startServer({ root, port, origPort, dataDir: a.dataDir, buildDir, logFile: a.logFile });
+			a.srv = await startServer({ root, port, origPort, dataDir: a.dataDir, buildDir, logFile: a.logFile, env });
 			a.starts.push({ pid: a.srv.pid, readyMs: Math.round(a.srv.readyMs), build: a.srv.health?.instance?.build ?? null });
 			return a.srv;
 		},

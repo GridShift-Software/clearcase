@@ -3,88 +3,521 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-004",
-      "view": "documents",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-14",
-      "reason": "The app does not implement Documents yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-005",
-      "view": "contracts_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-14",
-      "reason": "The app does not implement Contracts yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-006",
+      "id": "IDR-100",
       "view": "filings_tab",
-      "field": "*",
+      "field": [
+        "sweep.register_edit.overview.Open deadlines",
+        "sweep.register_edit.overview.Unbilled time"
+      ],
+      "when": {
+        "app": {
+          "re": "^Not yet available — owned by GRS-17"
+        }
+      },
       "type": "not-yet-implemented",
-      "owner": "GRS-14",
-      "reason": "The app does not implement Filings & Affidavits yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
+      "owner": "GRS-17",
+      "reason": "The register_edit sweep ends on the overview tiles; Open deadlines and Unbilled time are GRS-17's overview slots, unfilled at this base. The coordinator deletes this entry when CC-07 merges.",
       "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
     },
     {
-      "id": "IDR-007",
-      "view": "search",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-14",
-      "reason": "The app does not implement Advanced Search yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
+      "id": "IDR-101",
+      "view": "filings_tab",
+      "field": "text.filing_replying_affidavit_register.1",
+      "when": {
+        "v5": {
+          "re": "^.+\\. Saved in this browser \\([A-Za-z_][A-Za-z0-9_]*\\)\\.$"
+        },
+        "app": {
+          "re": "^.+\\. Saved in this case's local work store; imported rows stay as imported and your changes are kept apart from them\\.$"
+        }
+      },
+      "type": "improvement",
+      "source": "S-seed-copy",
+      "reason": "The register paragraph's introduction is the package's view-content (filings_tab.registerIntro, v5's case wording, read by the view); only the closing storage sentence differs. v5 says the register is saved in the browser under a storage key, which is false in the app; the app says it is kept in the case's local work store, apart from the imported seed rows. Both sides are pinned by shape: no storage key or case value appears here.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
     },
     {
-      "id": "IDR-008",
+      "id": "IDR-102",
+      "view": "filings_tab",
+      "field": "table.filing_replying_affidavit_register.row.*._",
+      "when": {
+        "v5": "Delete",
+        "app": "Edit Delete"
+      },
+      "type": "improvement",
+      "source": "GRS-14",
+      "reason": "Acceptance (edit and reload a filing relationship): each register row has an Edit control beside v5s Delete. An edit of an imported row is a seed overlay; a user row is replaced in place.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-103",
+      "view": "filings_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation the app focuses the page heading (BA-14), as the pilot views do; v5 leaves focus on the navigation link.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-104",
+      "view": "filings_tab",
+      "field": "text.page.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Filing groups and document types are imported classifications; they have not been verified against the documents\\.$"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-05",
+      "reason": "BA-05: the filing groups and document types are imported classifications with no verification state; the view says they are unverified.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-105",
+      "view": "filings_tab",
+      "field": "sweep.register_edit.overview.Scanned (need OCR)",
+      "type": "defect-fix",
+      "source": "S-meta-counts",
+      "reason": "The register sweep ends on the overview tiles; the app counts rows without text from the register (as the overview does, IDR-049, with the same visibility), v5 shows META.textNone. The value is a case count, which a when cannot hold (and the validator refuses runs of four or more digits), so it has no condition, as IDR-049 has none; the overview's text-status sweep checks the derived count.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-108",
+      "view": "documents",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation the app focuses the page heading (BA-14), as the pilot views do; v5 leaves focus on the navigation link.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-109",
+      "view": "documents",
+      "field": "text.page.1",
+      "when": {
+        "v5": "<absent>",
+        "app": "Ordered by type, then date (undated first). Types are imported classifications and have not been verified."
+      },
+      "type": "improvement",
+      "source": "BA-17",
+      "reason": "BA-17: the list states its order; BA-05: document types are imported classifications without a verification state.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-110",
+      "view": "documents",
+      "field": "control.button:Additional (#)",
+      "when": {
+        "v5": "<absent>",
+        "app": "1"
+      },
+      "type": "defect-fix",
+      "source": "S-documents-1",
+      "reason": "S-bundle4 and S-documents-1: v5 hard-codes four bundle buttons, so the Additional bundle cannot be shown; the app offers a button for every imported bundle.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-111",
+      "view": "documents",
+      "field": "sweep.bundle_filter.*",
+      "when": {
+        "v5": "no-option"
+      },
+      "type": "defect-fix",
+      "source": "S-documents-1",
+      "reason": "S-bundle4 and S-documents-1: combinations with a bundle v5 offers no button for (no-option) show that bundle's rows in the app.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-107",
+      "view": "documents",
+      "field": [
+        "table.table_1.order",
+        "sweep.bundle_filter.b3.q0.order",
+        "sweep.bundle_filter.b3.q1.order",
+        "sweep.bundle_filter.b3.q2.order",
+        "sweep.bundle_filter.b3.q4.order"
+      ],
+      "type": "improvement",
+      "source": "BA-17",
+      "reason": "BA-17, S-documents-3: v5 sorts by type and date concatenated, so a type that prefixes another interleaves with it by date; the app orders by type, then date, undated first, as its note says. The rows are the same; only the order differs, in the default table and four filter states of one bundle, so exactly those paths are listed. The value is a ref sequence (case values), so no when pins it: tests/evidence/documents.test.ts guards the order within these paths, tests/evidence/register-cover.test.ts that nothing else is covered.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-112",
       "view": "people",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-14",
-      "reason": "The app does not implement People yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation the app focuses the page heading (BA-14), as the pilot views do; v5 leaves focus on the navigation link.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
     },
     {
-      "id": "IDR-009",
+      "id": "IDR-113",
+      "view": "people",
+      "field": "text.page.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Names, organisations and roles are inferred from e-mail headers and have not been checked; no professional identity shown here is confirmed\\.$"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-07",
+      "reason": "BA-07: the people list is inferred from e-mail headers; the view says no identity is confirmed, so an automated sender is never presented as a verified attorney.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-114",
       "view": "entity_ledger_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-14",
-      "reason": "The app does not implement Entities yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation the app focuses the page heading (BA-14), as the pilot views do; v5 leaves focus on the navigation link.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
     },
     {
-      "id": "IDR-010",
+      "id": "IDR-115",
+      "view": "entity_ledger_tab",
+      "field": "text.page.1",
+      "when": {
+        "v5": "<absent>",
+        "app": "Roles and notes are imported from processing and have not been verified."
+      },
+      "type": "improvement",
+      "source": "BA-07",
+      "reason": "BA-07: entity roles are imported inferences without a verification state; the view says so.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-117",
+      "view": "contracts_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation the app focuses the page heading (BA-14), as the pilot views do; v5 leaves focus on the navigation link.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-118",
+      "view": "contracts_tab",
+      "field": "text.classification_status.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Contract groups and the Signed marker are derived from imported titles and notes; they have not been verified\\.$"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-05",
+      "reason": "BA-05: contract groups and the Signed marker are imported or heuristic classifications without a verification state; the view says so.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-119",
+      "view": "search",
+      "field": "text.subtitle",
+      "when": {
+        "v5": "Cross-corpus search over every field, with filters and action-item extraction",
+        "app": "Cross-corpus search over document details and indexed text excerpts, with filters and action-item extraction"
+      },
+      "type": "improvement",
+      "source": "BA-08",
+      "reason": "BA-08: v5 claims a search over every field, but it reads metadata and a short excerpt only; the app says what it searches.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-120",
+      "view": "search",
+      "field": "list.select.all.count",
+      "when": {
+        "v5": "5",
+        "app": "6"
+      },
+      "type": "defect-fix",
+      "source": "S-search-4",
+      "reason": "S-bundle4 and S-search-4: v5 hard-codes four bundle options; the app offers every imported bundle (one more on this package).",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-121",
+      "view": "search",
+      "field": "list.select.all.item.3",
+      "when": {
+        "v5": "Correspondence",
+        "app": "Additional"
+      },
+      "type": "defect-fix",
+      "source": "S-search-4",
+      "reason": "S-bundle4 and S-search-4: the bundle options are every imported bundle in order of first appearance, so the Additional bundle comes third and the later options move down one. One entry per option, each pinned to its own pair, so a wrong order is not covered.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-132",
+      "view": "search",
+      "field": "list.select.all.item.4",
+      "when": {
+        "v5": "Pleadings",
+        "app": "Correspondence"
+      },
+      "type": "defect-fix",
+      "source": "S-search-4",
+      "reason": "S-bundle4 and S-search-4: the bundle options are every imported bundle in order of first appearance, so the Additional bundle comes third and the later options move down one. One entry per option, each pinned to its own pair, so a wrong order is not covered.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-133",
+      "view": "search",
+      "field": "list.select.all.item.5",
+      "when": {
+        "v5": "<absent>",
+        "app": "Pleadings"
+      },
+      "type": "defect-fix",
+      "source": "S-search-4",
+      "reason": "S-bundle4 and S-search-4: the bundle options are every imported bundle in order of first appearance, so the Additional bundle comes third and the later options move down one. One entry per option, each pinned to its own pair, so a wrong order is not covered.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-122",
+      "view": "search",
+      "field": "sweep.search_filters.*",
+      "when": {
+        "v5": "no-option"
+      },
+      "type": "defect-fix",
+      "source": "S-search-4",
+      "reason": "S-bundle4 and S-search-4: combinations with a bundle v5 offers no option for (no-option) search that bundle in the app.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-123",
+      "view": "search",
+      "field": [
+        "sweep.search_filters.d3.*",
+        "sweep.search_filters.m3.*",
+        "sweep.search_filters.m4.*"
+      ],
+      "when": {
+        "v5": {
+          "re": "^0\\|"
+        },
+        "app": "rejected"
+      },
+      "type": "improvement",
+      "source": "BA-15",
+      "reason": "BA-15 (and S-search-5 for a bound that is not a number): a reversed date or amount interval is rejected with a message instead of an empty result; a valid search that matches nothing still shows the empty result (combinations d4, m5, p2 compare equal).",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-125",
+      "view": "search",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation the app focuses the page heading (BA-14), as the pilot views do; v5 leaves focus on the navigation link.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-126",
+      "view": "search",
+      "field": "text.page.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Search reads file names, refs, subjects, senders, To recipients and the indexed text excerpt .+, not the full text\\. Cc recipients are searched only through Sender contains\\. .+$"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-08",
+      "reason": "BA-08: the view discloses what search covers and how much text is absent, with counts derived from the rows, never from summary metadata.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-127",
       "view": "hoa_diff_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-14",
-      "reason": "The app does not implement Document Diff yet; GRS-14 (CC-04) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
+      "field": "title",
+      "when": {
+        "v5": "Document / Version Diff",
+        "app": "Document Diff"
+      },
+      "type": "improvement",
+      "source": "BA-18",
+      "reason": "BA-18: the page heading is the navigation label (Document Diff); v5 heads the page Document / Version Diff, which also suggests a version relationship the app does not establish (BA-06).",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-128",
+      "view": "hoa_diff_tab",
+      "field": [
+        "list.select.pick.count",
+        "list.select.pick_2.count"
+      ],
+      "type": "defect-fix",
+      "source": "S-hoa_diff_tab-1",
+      "reason": "S-hoa_diff_tab-1: v5 offers only the first 1,200 documents with an excerpt in each pick list; the app offers every document with an excerpt, so the lists are longer. The counts are case values, so the entry has no when: the item paths are the guard (the options v5 shows still compare item by item, and IDR-129 covers only options v5 lacks).",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-129",
+      "view": "hoa_diff_tab",
+      "field": [
+        "list.select.pick.item.*",
+        "list.select.pick_2.item.*"
+      ],
+      "when": {
+        "v5": "<absent>"
+      },
+      "type": "defect-fix",
+      "source": "S-hoa_diff_tab-1",
+      "reason": "S-hoa_diff_tab-1: the documents after v5s first 1,200 excerpt-bearing ones can be chosen in the app (options only the app has; the earlier options still compare). The when pins only v5's side, because the app's options are case values: tests/evidence/diff.test.ts guards the candidate list (every row with an excerpt and no other).",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-130",
+      "view": "hoa_diff_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation the app focuses the page heading (BA-14), as the pilot views do; v5 leaves focus on the navigation link.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-131",
+      "view": "hoa_diff_tab",
+      "field": "text.page.2",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^You choose the two documents; they are compared because you chose them, not because they are known versions of each other\\. .+$"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-06",
+      "reason": "BA-06 and BA-08: the comparison needs an explicit user-chosen pair and says so; the page counts, from the rows, how many documents have an excerpt to compare and how long excerpts are.",
+      "productVisible": true,
+      "author": "CC-04 worker (GRS-14)",
+      "approvedBy": null,
+      "approvedOn": null
     }
   ]
 }

@@ -2,12 +2,67 @@
 # Runs on pc1 as root, streamed over SSH by scripts/ci/pc1-vm (docs/ci-runner.md). It owns /var/lib/clearcase-ci, the
 # clearcase-ci system user and clearcase-ci-vm.service, and touches nothing else on the host.
 #   setup PUBKEY  create and start a fresh VM that lets PUBKEY in as ciadmin
+#   unit          rewrite the service unit with pc1's current networks and restart the VM (disk and runner stay)
 #   destroy       stop the VM and delete everything setup created (the packages stay)
 set -euo pipefail
 dir=/var/lib/clearcase-ci
 unit=/etc/systemd/system/clearcase-ci-vm.service
 image=noble-server-cloudimg-amd64.img
 image_url=https://cloud-images.ubuntu.com/noble/current
+
+# QEMU's user-mode network connects out from the QEMU process, so the unit keeps the guest off everything on the host
+# but the internet: private ranges, the tailnet, pc1's own networks (read now, so refresh after they change) and
+# loopback. The guest reaches pc1's loopback services through 10.0.2.2, so only the SSH forward address 127.0.0.57 and
+# the resolver 127.0.0.53, where QEMU forwards the guest's DNS, stay open.
+write_unit() {
+  local deny="10.0.0.0/8 100.64.0.0/10 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 127.0.0.0/8 ::1/128 fc00::/7 fe80::/10 fec0::/10"
+  deny+=" $(ip -o addr show scope global | awk '{print $4}' | python3 -c 'import ipaddress, sys
+print(" ".join(sorted({str(ipaddress.ip_interface(a).network) for a in sys.stdin.read().split()})))')"
+  cat >"$unit" <<UNIT
+[Unit]
+Description=ClearCase CI runner VM (GRS-57, docs/ci-runner.md)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=clearcase-ci
+Group=clearcase-ci
+SupplementaryGroups=kvm
+RuntimeDirectory=clearcase-ci
+RuntimeDirectoryMode=0700
+ExecStart=/usr/bin/qemu-system-x86_64 -name clearcase-ci-vm -machine q35,accel=kvm -cpu host -smp 4 -m 8G \\
+  -display none -serial file:$dir/console.log -qmp unix:/run/clearcase-ci/qmp.sock,server=on,wait=off \\
+  -drive file=$dir/disk.qcow2,if=virtio,format=qcow2,cache=none,discard=unmap \\
+  -drive file=$dir/seed.iso,if=virtio,format=raw,readonly=on \\
+  -netdev user,id=net0,hostfwd=tcp:127.0.0.57:2257-:22 -device virtio-net-pci,netdev=net0 \\
+  -device virtio-rng-pci
+ExecStop=$dir/powerdown \$MAINPID
+TimeoutStopSec=120
+Restart=always
+RestartSec=10
+MemoryMax=11G
+IPAddressDeny=$deny
+IPAddressAllow=127.0.0.57 127.0.0.53
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=$dir
+DevicePolicy=closed
+DeviceAllow=/dev/kvm rw
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+}
 
 case ${1:-} in
 setup)
@@ -65,56 +120,15 @@ for _ in range(100):
     time.sleep(1)
 POWERDOWN
 
-  # QEMU's user-mode network connects out from the QEMU process, so these rules keep the guest off the host's own
-  # networks, the tailnet and private ranges. Loopback stays open for the SSH forward; the guest drops 10.0.2.2.
-  deny="10.0.0.0/8 100.64.0.0/10 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 fc00::/7 fe80::/10"
-  deny+=" $(ip -o addr show scope global | awk '{print $4}' | python3 -c 'import ipaddress, sys
-print(" ".join(sorted({str(ipaddress.ip_interface(a).network) for a in sys.stdin.read().split()})))')"
-  cat >"$unit" <<UNIT
-[Unit]
-Description=ClearCase CI runner VM (GRS-57, docs/ci-runner.md)
-Wants=network-online.target
-After=network-online.target
-
-[Service]
-User=clearcase-ci
-Group=clearcase-ci
-SupplementaryGroups=kvm
-RuntimeDirectory=clearcase-ci
-RuntimeDirectoryMode=0700
-ExecStart=/usr/bin/qemu-system-x86_64 -name clearcase-ci-vm -machine q35,accel=kvm -cpu host -smp 4 -m 8G \\
-  -display none -serial file:$dir/console.log -qmp unix:/run/clearcase-ci/qmp.sock,server=on,wait=off \\
-  -drive file=$dir/disk.qcow2,if=virtio,format=qcow2,cache=none,discard=unmap \\
-  -drive file=$dir/seed.iso,if=virtio,format=raw,readonly=on \\
-  -netdev user,id=net0,hostfwd=tcp:127.0.0.1:2257-:22 -device virtio-net-pci,netdev=net0 \\
-  -device virtio-rng-pci
-ExecStop=$dir/powerdown \$MAINPID
-TimeoutStopSec=120
-Restart=always
-RestartSec=10
-MemoryMax=11G
-IPAddressDeny=$deny
-NoNewPrivileges=yes
-ProtectSystem=strict
-ProtectHome=yes
-PrivateTmp=yes
-ReadWritePaths=$dir
-DevicePolicy=closed
-DeviceAllow=/dev/kvm rw
-ProtectKernelTunables=yes
-ProtectKernelModules=yes
-ProtectControlGroups=yes
-ProtectClock=yes
-ProtectHostname=yes
-RestrictNamespaces=yes
-RestrictSUIDSGID=yes
-LockPersonality=yes
-
-[Install]
-WantedBy=multi-user.target
-UNIT
+  write_unit
   systemctl daemon-reload
   systemctl enable --now clearcase-ci-vm.service
+  ;;
+unit)
+  [[ -f $dir/disk.qcow2 ]] || { echo "unit: no VM in $dir; run setup" >&2; exit 1; }
+  write_unit
+  systemctl daemon-reload
+  systemctl restart clearcase-ci-vm.service
   ;;
 destroy)
   systemctl disable --now clearcase-ci-vm.service 2>/dev/null || true
@@ -125,7 +139,7 @@ destroy)
   ! id clearcase-ci &>/dev/null || userdel clearcase-ci
   ;;
 *)
-  echo "usage: vm-host.sh setup PUBKEY | destroy" >&2
+  echo "usage: vm-host.sh setup PUBKEY | unit | destroy" >&2
   exit 2
   ;;
 esac

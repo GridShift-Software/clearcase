@@ -11,27 +11,47 @@ on:
 permissions:
   contents: read
 
+# A newer run of the same ref replaces a superseded one, so the single runner isn't kept busy by stale commits.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   check:
-    # The runner is a VM on pc1 (docs/ci-runner.md) that runs only this repository's own code, so a pull request
-    # from a fork never reaches it.
+    # The runner is a VM on pc1 (docs/ci-runner.md) that runs only this repository's own code. This guard skips a fork's
+    # pull request, but the control is the repository's private, no-forking and no-fork-workflows settings: a fork
+    # could supply its own workflow file with these labels.
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, linux, x64, clearcase-pc1]
+    runs-on: [self-hosted, Linux, X64, clearcase-pc1]
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
+      # Written before the checks, so a failing check still uploads it. Only ids, names and SHAs, no environment dump.
+      - run: |
+          mkdir -p "$RUNNER_TEMP/receipts"
+          python3 - "$RUNNER_TEMP/receipts/run-metadata.json" <<'PY'
+          import json, os, subprocess, sys
+          keys = ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_SHA", "GITHUB_EVENT_NAME", "GITHUB_REF", "RUNNER_NAME", "PR_HEAD_SHA")
+          meta = {k: os.environ.get(k, "") for k in keys}
+          meta["checkout_head"] = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          with open(sys.argv[1], "w") as f:
+              json.dump(meta, f, indent=2)
+          PY
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
       - run: scripts/ci/install-chrome.sh
       - run: bun install --frozen-lockfile
-      - run: scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base HEAD --name check --tool bun -- bun run --bun check
-      - run: scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base HEAD --name test --tool bun -- bun run --bun test
+      - run: scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base origin/dev --name check --tool bun -- bun run --bun check
+      - run: scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base origin/dev --name test --tool bun -- bun run --bun test
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: receipts
           path: ${{ runner.temp }}/receipts
-          if-no-files-found: ignore
+          if-no-files-found: error

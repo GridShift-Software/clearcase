@@ -105,7 +105,7 @@ describe('SSR document page: every action it offers succeeds on the real write p
 	/** Submit the page's note form as the browser does; null when the page offers none. */
 	const note = async (ref: string) => {
 		const page = await get(`${v()}/doc/${ref}`);
-		if (!page.text.includes('id="note-form"')) return { offered: false, page };
+		if (!page.text.includes('id="note-form"')) return { offered: false, status: 0, text: '', page };
 		const r = await fetch(`${origin}${v()}/doc/${ref}?/note`, { method: 'POST', headers: { origin, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ body: 'a plainly invented note' }) });
 		return { offered: true, status: r.status, text: await r.text(), page };
 	};

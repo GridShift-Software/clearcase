@@ -71,7 +71,8 @@ export const actions: Actions = {
 		// a refusal (invalid, or the store busy) comes back with the typed text, so a page without JavaScript keeps it
 		try { await inTurn(a.userWork, v.case_id, NOTES, () => a.userWork.addNote(v.case_id, v.id, params.ref, body)); } catch (e) {
 			if (e instanceof UserWorkError) return fail(400, { message: e.message, body });
-			if (isHttpError(e)) return fail(e.status, { message: `The note was not saved: ${e.body.message}`, body });
+			// an enhanced request keeps the error's status (a busy store's 503 with Retry-After); its page keeps the text
+			if (isHttpError(e) && request.headers.get('x-sveltekit-action') !== 'true') return fail(e.status, { message: `The note was not saved: ${e.body.message}`, body });
 			throw e;
 		}
 		return { saved: true };

@@ -1,7 +1,7 @@
 import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit';
 import { building } from '$app/environment';
 import { app, initApp } from '$lib/local-case/app.server';
-import { oversize } from '$lib/local-case/request-limit.server';
+import { discardBody, oversize } from '$lib/local-case/request-limit.server';
 import { ensureRescanProvider } from '$lib/local-case/rescan/rescan.server';
 
 export const init: ServerInit = async () => {
@@ -42,7 +42,10 @@ export const handle: Handle = async ({ event, resolve }) => {
 		}
 		// Each route's own size limit, from the declared size and before the body is read; independent of BODY_SIZE_LIMIT.
 		const big = oversize(event.request, event.url.pathname);
-		if (big) return plain(big.status, big.message);
+		if (big) {
+			if (big.status === 413) await discardBody(event.request);
+			return plain(big.status, big.message);
+		}
 		// '?/default' is reserved by SvelteKit (it throws, i.e. 500): no form here posts to it.
 		if (event.request.method === 'POST' && event.url.searchParams.has('/default')) return plain(400, 'unknown form action');
 		await a.retryStartupIfDue();

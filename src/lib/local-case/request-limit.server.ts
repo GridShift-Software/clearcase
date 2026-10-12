@@ -29,3 +29,20 @@ export function oversize(request: Pick<Request, 'method' | 'headers'>, pathname:
 	if (!Number.isSafeInteger(n)) return { status: 411, message: 'the request must declare its size (Content-Length)' };
 	return n > limit ? { status: 413, message: `request too large: this page accepts at most ${size(limit)} in one request` } : null;
 }
+
+/**
+ * Reads and discards an over-limit body (nothing is kept), up to `cap` bytes, so the refusal reaches the browser: a server
+ * that answers while the body is still arriving and closes the connection makes the browser's fetch fail with no status.
+ */
+export async function discardBody(request: Pick<Request, 'body'>, cap = BACKUP_BODY_LIMIT) {
+	const reader = request.body?.getReader();
+	if (!reader) return;
+	try {
+		for (let seen = 0; seen < cap;) {
+			const { done, value } = await reader.read();
+			if (done) return;
+			seen += value.byteLength;
+		}
+		await reader.cancel();
+	} catch { /* the client went away: nothing left to refuse */ }
+}

@@ -62,7 +62,7 @@ function testProblems(reportFile: string, root: string): { problems: Problem[]; 
 	// Vitest's -t is a regex over the test's names joined with ' > ' (its JSON report's fullName joins them with a space),
 	// so the selector is built from the report's own titles, escaped and anchored. Without the titles the whole file runs.
 	const select = (a: VitestAssertion) => (a.title && Array.isArray(a.ancestorTitles) ? ` -t ${quote(`^${[...a.ancestorTitles, a.title].map(escapeRegExp).join(' > ')}$`)}` : '');
-	const run = (file: string, a?: VitestAssertion) => `bun run --bun test ${shellWord(file)}${a ? select(a) : ''}`;
+	const run = (file: string, a?: VitestAssertion) => `bun run --bun test${file ? ` ${shellWord(file)}` : ''}${a ? select(a) : ''}`; // no file: the whole suite, never an empty filter
 	if (!existsSync(reportFile)) return { problems: [{ check: 'test', where: null, detail: `no Vitest report at ${reportFile}`, reproduce: run('') }], line: 'no report' };
 	const report: VitestReport = JSON.parse(readFileSync(reportFile, 'utf8'));
 	const problems: Problem[] = [];

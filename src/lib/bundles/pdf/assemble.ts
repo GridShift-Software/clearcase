@@ -432,7 +432,7 @@ export async function assemble(
 			}
 			const shallow: PDict = new Map(p.dict);
 			// these go before the deep copy, or the whole page tree comes with it
-			for (const k of ['Resources', 'Parent', 'Annots', 'B', 'StructParents', 'Tabs']) shallow.delete(k);
+			for (const k of ['Resources', 'Contents', 'Parent', 'Annots', 'B', 'StructParents', 'Tabs']) shallow.delete(k);
 			const d = cp.copy(src.doc, shallow);
 			if (!isDict(d)) continue;
 			if (pruned !== undefined) d.set('Resources', cp.copy(src.doc, pruned));
@@ -440,12 +440,15 @@ export async function assemble(
 			d.set('Type', nm('Page'));
 
 			const vb = visibleBox(src.doc, p);
-			const r0 = src.doc.get(d.get('Rotate'));
+			// read in source space: the copied value may be a reference into the output, not the source
+			const r0 = src.doc.get(p.dict.get('Rotate') ?? p.inh.Rotate);
 			const rot = typeof r0 === 'number' ? (((Math.round(r0) % 360) + 360) % 360) : 0;
 
 			// wrap the original content so the stamp starts from a clean graphics state
-			const cur = d.get('Contents');
-			const arr = Array.isArray(cur) ? cur.slice() : cur !== undefined && cur !== null ? [cur] : [];
+			// /Contents is a stream or an array of streams, direct or indirect: resolve it in the source, then flatten
+			const c0 = p.dict.get('Contents');
+			const cur = src.doc.get(c0);
+			const arr = (Array.isArray(cur) ? cur : c0 !== undefined && c0 !== null ? [c0] : []).map((x) => cp.copy(src.doc, x));
 			const pre = out.add(new PStream(new Map(), enc('q\n')));
 			const post = out.add(new PStream(new Map(), enc('Q\n' + stampOps(String(n), vb, rot))));
 			d.set('Contents', [pre, ...arr, post]);

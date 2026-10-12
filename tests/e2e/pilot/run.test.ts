@@ -21,7 +21,7 @@ const put = (p: string, s = '') => { mkdirSync(join(p, '..'), { recursive: true 
 /** An mtime long before any index write (seconds since the epoch), so git trusts the index entry's stat data. */
 const OLD_MTIME = 86_400;
 /** The development knobs, a value for each and what the evidence note says it does (an empty size list is one size of 0 MiB). */
-const DEV: Record<string, [string, string]> = { E2E_ONLY: ['S9,S10', 'runs only the listed durability scenarios'], E2E_STOP_AFTER: ['S3', 'stops the browser suite early'], E2E_LATENCY_SIZES_MIB: ['', 'changes the durability latency file sizes'], CLEARCASE_E2E_TMP: ['/dev/shm/e2e', 'moves the durability files off the disk-backed default folder'] };
+const DEV: Record<string, [string, string]> = { E2E_ONLY: ['S9,S10', 'runs only the listed durability scenarios'], E2E_STOP_AFTER: ['S3', 'stops the browser suite early'], E2E_LATENCY_SIZES_MIB: ['', 'changes the durability latency file sizes'], CLEARCASE_E2E_TMP: ['/dev/shm/e2e', 'moves the durability files off the disk-backed default folder'], CLASSES_ONLY: ['narrow', 'runs only the listed UI classes'] };
 
 describe('category discovery', () => {
 	test('suites and views per category; views without a suite are listed as missing', async () => {

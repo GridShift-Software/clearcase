@@ -14,7 +14,7 @@
 	{#if data.noop}<p class="card" id="noop-msg">This exact package (same results version, byte-identical manifest and files, same case folder) is already stored as import #{data.imp.id} and still verifies. Nothing was written.</p>{/if}
 	{#if data.repaired}<p class="card" id="repaired-msg">The stored copy of this results version failed verification; it was rebuilt from this freshly validated package in one transaction.</p>{/if}
 	<p>Package <code class="wrap">{data.imp.packageSource}</code> against case folder <code class="wrap">{data.imp.caseFolder}</code>.</p>
-	{#if rv}<p>Case <strong>{caseName}</strong> (<code>{r.caseId}</code>), results version <code id="results-version" class="wrap">{rv}</code>, manifest sha256 <code>{r.manifestSha256?.slice(0, 16)}…</code>.</p>{/if}
+	{#if rv}<p>Case <strong class="wrap">{caseName}</strong> (<code class="wrap">{r.caseId}</code>), results version <code id="results-version" class="wrap">{rv}</code>, manifest sha256 <code>{r.manifestSha256?.slice(0, 16)}…</code>.</p>{/if}
 
 	{#if r.verdict === 'reject'}
 		<p class="error" id="verdict-msg" role="alert">Rejected: nothing of this package was stored and the active version is unchanged{data.active ? ` (${data.active})` : ''}. Fix the errors below in the producer and export again.</p>

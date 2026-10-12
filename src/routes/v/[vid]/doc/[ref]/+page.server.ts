@@ -1,4 +1,4 @@
-import { error, fail } from '@sveltejs/kit';
+import { error, fail, isHttpError } from '@sveltejs/kit';
 import { app, originals } from '$lib/local-case/app.server';
 import { documentRow, resolveRefs } from '$lib/local-case/documents.server';
 import type { AttachmentRow, OriginalLinks } from '$lib/local-case/model';
@@ -68,7 +68,12 @@ export const actions: Actions = {
 		const v = a.store.getVersion(params.vid);
 		if (!v) return fail(404, { message: 'Unknown results version' });
 		const body = String((await request.formData()).get('body') ?? '');
-		try { await inTurn(a.userWork, v.case_id, NOTES, () => a.userWork.addNote(v.case_id, v.id, params.ref, body)); } catch (e) { if (e instanceof UserWorkError) return fail(400, { message: e.message }); throw e; }
+		// a refusal (invalid, or the store busy) comes back with the typed text, so a page without JavaScript keeps it
+		try { await inTurn(a.userWork, v.case_id, NOTES, () => a.userWork.addNote(v.case_id, v.id, params.ref, body)); } catch (e) {
+			if (e instanceof UserWorkError) return fail(400, { message: e.message, body });
+			if (isHttpError(e)) return fail(e.status, { message: `The note was not saved: ${e.body.message}`, body });
+			throw e;
+		}
 		return { saved: true };
 	},
 	delnote: async ({ request, params }) => {

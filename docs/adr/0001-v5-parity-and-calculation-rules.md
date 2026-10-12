@@ -9,7 +9,7 @@ V1 reproduces every function of the v5 sample. A v5 feature is never accepted as
 
 - **Interest basis.** Interest uses a 365.25-day year.
 - **Prescription.** Use v5's prescription arithmetic against a live as-of date that the user can change. A claim has prescribed only when `prescDate < asOf`; a prescription date equal to the as-of date is still open.
-- **Credits.** Negative disbursement and payment credits are allowed.
+- **Credits.** Negative disbursement credits are allowed.
 - **Grouped numbers.** `1,500` means one thousand five hundred for amounts and rates. Hours refuse a grouped value instead of guessing.
 - **Conflict names.** Conflict Check keeps the wider name folding that the user approved.
 

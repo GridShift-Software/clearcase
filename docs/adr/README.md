@@ -6,7 +6,7 @@ These ADRs record the product decisions the user confirmed on 11 and 12 October 
 | --- | --- | --- | --- |
 | [0001](0001-v5-parity-and-calculation-rules.md) | Full v5 parity and calculation rules | Accepted, 11 Oct | GRS-16 (#16), GRS-17 (#18), GRS-18 (#17), GRS-21 |
 | [0002](0002-approved-v1-behaviour-corrections.md) | Approved V1 behaviour corrections (items 3–6 and 8) | Accepted, 12 Oct | GRS-14 (#19), GRS-15 (#20), GRS-16 (#16), GRS-17 (#18), GRS-18 (#17), GRS-19 (#22), GRS-45 |
-| [0003](0003-analysis-additions-behind-a-flag.md) | Analysis additions behind a default-off flag (item 2) | Conditional, 12 Oct | GRS-15 (#20), GRS-48 |
+| [0003](0003-analysis-additions-behind-a-flag.md) | Analysis additions behind a default-off flag (item 2); escaping fixes apply in both states | Conditional, 12 Oct | GRS-15 (#20), GRS-48 |
 | [0004](0004-local-rescan-backup-and-case-import.md) | Local rescan, backup and per-case import/update (item 7) | Accepted, 12 Oct; importer design pending | GRS-20 (#21), GRS-47 |
 | [0005](0005-numeric-monetary-csv-credits.md) | Validated monetary credits stay numeric in CSV (item 9, option A) | Accepted, 12 Oct; implementation pending | GRS-49, GRS-13 (#15) |
 

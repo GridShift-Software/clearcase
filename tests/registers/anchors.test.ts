@@ -7,6 +7,7 @@ process.env.CLEARCASE_FIXED_NOW = '2026-10-08T09:00:00Z';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildCase } from '../e2e/pilot/lib/fixtures';
+import type { SynthRoots } from '../case-package/fixtures/synth';
 import type { LocalCase } from '../../src/lib/local-case/service.server';
 import { ackFor, cleanup, tempRoot } from '../../src/lib/local-case/test-support';
 
@@ -52,7 +53,7 @@ const load = async (rv: string, caseId: string, view: View) => (await P.register
 const refCell = (l: Loaded, i = 0) => l.rows[i]!.cells.find((c) => c.kind === 'ref')!;
 
 /** V2 calls the invoice OD-001 and the agreement OD-002: the same refs, swapped originals. */
-const swapRefs = (r: { DATA: { chronology: unknown } }) => {
+const swapRefs = (r: SynthRoots) => {
 	const ch = r.DATA.chronology as { ref: string }[];
 	ch[0]!.ref = 'OD-002';
 	ch[1]!.ref = 'OD-001';

@@ -17,7 +17,8 @@ export default {
 				'img-src': ['self'],
 				'connect-src': ['self'],
 				'object-src': ['none'],
-				'frame-src': ['none'],
+				// the bundle builder previews its own built PDF (a blob: URL) in the page, as v5 does
+				'frame-src': ['blob:'],
 				'base-uri': ['none'],
 				'form-action': ['self'],
 				'frame-ancestors': ['none']

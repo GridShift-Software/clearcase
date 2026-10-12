@@ -145,9 +145,9 @@ async function main() {
 		['durability suite (offline)', offline('durability.mjs')],
 		['loopback bind check (host namespace)', [process.execPath, [join(here, 'netcheck.mjs')]]],
 		...categorySteps(),
-		// the UI bug classes over every form, register, export and page (GRS-59); summary as a category suite's
-		['UI class suite (offline)', offlineStep(join(here, '..', 'classes', 'suite.mjs')), 'classes'],
 	];
+	// the UI bug classes over every form, register, export and page (GRS-59); summary as a category suite's
+	steps.push(['UI class suite (offline)', offlineStep(join(here, '..', 'classes', 'suite.mjs')), 'classes']);
 	const results = [];
 	// each suite's bytes as its step starts, for the committed-input check
 	const read = {};

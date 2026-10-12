@@ -1,9 +1,11 @@
-// Links from the bundle datasets (schedule files, bundle parts, the CaseLines source) to documents of the version.
-// Originals outside the document index are never served: only chronology rows are package assets, so a v5 locator
-// resolves only when its decoded path is exactly the indexed path of a document row. Anything else is shown as text
-// marked "not in the verified index; not served". No fuzzy matching, and item keys such as OD-10 are never refs
-// (S-catalogue-refs). Browser-safe.
+// Links from the bundle datasets (schedule files, bundle parts, the CaseLines source) to documents of the version and
+// to its package files (GRS-45: bundle, index, extract, part and schedule files outside the register, verified as P-
+// assets). A v5 locator resolves only when its decoded path is exactly the indexed path of a document row or of a
+// package file that is verified and on disk now. Anything else is shown as text marked "not in the verified index;
+// not served". No fuzzy matching, and item keys such as OD-10 are never refs (S-catalogue-refs). Browser-safe.
 import { decodeLegacyLocator } from '../../case-package/paths.ts';
+import { isPathKey } from '../../case-package/refs.ts';
+import { documentRoute } from '../../case-package/render.ts';
 
 export const NOT_SERVED = 'not in the verified index; not served';
 
@@ -45,4 +47,15 @@ export function resolveLocator(index: ReadonlyMap<string, string>, url: unknown,
 	const path = locatorPath(url);
 	const ref = path === null ? undefined : index.get(path);
 	return ref === undefined ? null : { ref, page };
+}
+
+/**
+ * Where a resolved locator opens: a document's page in the app, or a package file's originals-site link (`files`, key
+ * -> link, only for files served now) with the page as a '#page=N' fragment. `page` overrides the locator's own page.
+ * A package-file key without a link is null (not served), never a document link.
+ */
+export function hrefOf(vid: string, files: Readonly<Record<string, string>>, r: Resolved | null, page: number | null = r?.page ?? null): string | null {
+	if (!r) return null;
+	if (Object.hasOwn(files, r.ref)) return page ? `${files[r.ref]}#page=${page}` : files[r.ref]!;
+	return isPathKey(r.ref) ? null : documentRoute(vid, r.ref, page);
 }

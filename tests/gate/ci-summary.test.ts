@@ -74,9 +74,9 @@ describe('CI summary', () => {
 			{ check: 'test', where: 'tests/a.test.ts:9:3', detail: 'a breaks\nAssertionError: expected 1 to be 2', reproduce: "bun run --bun test tests/a.test.ts -t '^a breaks$'" }],
 		// Vitest's -t is a regex over the names joined with ' > ', not over the report's space-joined fullName
 		['a failed test under a describe whose name holds regex metacharacters and a quote', () => { receipt('check'); receipt('test', { exitCode: 1 }); report([{ fullName: "statusOptions (S-1, corrected; D8) lists [a]+b? it's", ancestorTitles: ['statusOptions (S-1, corrected; D8)'], title: "lists [a]+b? it's", status: 'failed', failureMessages: ['Error: x'], location: { line: 4, column: 2 } }]); },
-			{ check: 'test', where: 'tests/a.test.ts:4:2', reproduce: String.raw`bun run --bun test tests/a.test.ts -t '^statusOptions \(S-1, corrected; D8\) > lists \[a\]\+b\? it'\''s$'` }],
+			{ check: 'test', where: 'tests/a.test.ts:4:2', detail: "statusOptions (S-1, corrected; D8) lists [a]+b? it's\nError: x", reproduce: String.raw`bun run --bun test tests/a.test.ts -t '^statusOptions \(S-1, corrected; D8\) > lists \[a\]\+b\? it'\''s$'` }],
 		['a failed test whose report lacks the titles runs the whole file rather than a selector that matches nothing', () => { receipt('check'); receipt('test', { exitCode: 1 }); report([{ fullName: 'a (b) breaks', status: 'failed', failureMessages: ['Error: x'] }]); },
-			{ check: 'test', where: 'tests/a.test.ts', reproduce: 'bun run --bun test tests/a.test.ts' }],
+			{ check: 'test', where: 'tests/a.test.ts', detail: 'a (b) breaks\nError: x', reproduce: 'bun run --bun test tests/a.test.ts' }],
 		['a skipped test', () => { receipt('check'); receipt('test'); report([passed, { fullName: 'a needs symlinks', status: 'skipped', failureMessages: [] }]); },
 			{ check: 'test', detail: 'a needs symlinks: skipped, not run (a skipped test is not evidence)' }],
 		['a tracked test file missing from the report', () => { receipt('check'); receipt('test'); report([passed], []); }, { check: 'test', where: 'tests/a.test.ts', detail: expect.stringMatching(/^tracked test file missing from the report/) }],

@@ -116,9 +116,7 @@ describe('runner', () => {
 		const dir = mkdtempSync(join(tmpdir(), 'parity-register-'));
 		try {
 			const bad = structuredClone(doc);
-			// the committed register may hold no whole-view entry once every view is implemented: add one
-			let e = bad.entries.find((x: any) => x.field === '*' && x.type === 'not-yet-implemented');
-			if (!e) bad.entries.push(e = { ...good, field: '*', type: 'not-yet-implemented', owner: owners.chronology, source: owners.chronology });
+			const e = bad.entries.find((x: any) => x.field === '*' && x.type === 'not-yet-implemented');
 			e.owner = 'GRS-999';
 			writeFileSync(join(dir, 'register.json'), JSON.stringify(bad));
 			const r = spawnSync(process.versions.bun ? process.execPath : 'bun', [join(REPO, 'scripts', 'parity', 'run.mjs'), '--view', e.view, '--fixture-config', join(dir, 'absent.json'), '--out', join(dir, 'out'), '--register', join(dir, 'register.json')], { encoding: 'utf8', timeout: 30_000 });

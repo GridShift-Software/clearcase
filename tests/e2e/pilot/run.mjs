@@ -4,7 +4,8 @@
 // host namespace, then each M2 category's suite, tests/e2e/<category>/suite.mjs, where one exists (offline in its own
 // namespace like the pilot suites, reported as its own step). It prints the categories it discovered, and a category
 // with route files under src/routes/v/[vid]/<category>/ but no suite fails the run ("category <c> has views but no
-// suite"); a category with neither is skipped. With E2E_ROOT set, categories, suites and implemented views are read
+// suite"); a category with neither is skipped. Last, the UI class suite (tests/e2e/classes/suite.mjs, GRS-59), whose
+// summary is checked like a category suite's. With E2E_ROOT set, categories, suites and implemented views are read
 // from E2E_ROOT's tree. Every server runs under Bun via scripts/pilot/start.ts. Exit 0 only when every step passes;
 // a missing tool (unshare, ip, Chromium) or a failed isolation proof fails the run.
 // Suite summary contract: each category suite writes $CLEARCASE_E2E_OUT/<category>/summary.json as
@@ -54,7 +55,7 @@ export function discoverCategories({ e2eDir = join(appRoot, 'tests', 'e2e'), rou
  * SIGKILL mid-write): on tmpfs or a network share the scenarios prove something else, and its path alone would not
  * tell a reviewer which, so a run with it set is not evidence rather than merely recorded.
  */
-export const DEV_ENV = { E2E_ONLY: 'runs only the listed durability scenarios', E2E_STOP_AFTER: 'stops the browser suite early', E2E_LATENCY_SIZES_MIB: 'changes the durability latency file sizes', CLEARCASE_E2E_TMP: 'moves the durability files off the disk-backed default folder' };
+export const DEV_ENV = { E2E_ONLY: 'runs only the listed durability scenarios', E2E_STOP_AFTER: 'stops the browser suite early', E2E_LATENCY_SIZES_MIB: 'changes the durability latency file sizes', CLEARCASE_E2E_TMP: 'moves the durability files off the disk-backed default folder', CLASSES_ONLY: 'runs only the listed UI classes' };
 
 /**
  * Why a run is not release evidence whatever its build: a knob from DEV_ENV set in `env` (even empty: an empty
@@ -144,6 +145,8 @@ async function main() {
 		['durability suite (offline)', offline('durability.mjs')],
 		['loopback bind check (host namespace)', [process.execPath, [join(here, 'netcheck.mjs')]]],
 		...categorySteps(),
+		// the UI bug classes over every form, register, export and page (GRS-59); summary as a category suite's
+		['UI class suite (offline)', offlineStep(join(here, '..', 'classes', 'suite.mjs')), 'classes'],
 	];
 	const results = [];
 	// each suite's bytes as its step starts, for the committed-input check

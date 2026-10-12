@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import { enhance } from '$app/forms';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import CitationLink from '$lib/components/CitationLink.svelte';
 	import DateValue from '$lib/components/DateValue.svelte';
 	import OriginalOpen from '$lib/components/OriginalOpen.svelte';
@@ -18,6 +19,21 @@
 	] as [string, string][]);
 	let ready = $state(false);
 	onMount(() => { ready = true; });
+	// the note field takes no input while its save is in flight, so nothing typed then is lost when the form resets;
+	// a save the app did not answer keeps the text with a message instead of replacing the page
+	let noteBusy = $state(false);
+	// a refused note's text lives only in this page; a Delete would reload it without that text, so it waits
+	const noteRefused = $derived(!!form && 'body' in form);
+	let noteError = $state<string | null>(null);
+	const submitNote: SubmitFunction = () => {
+		noteBusy = true;
+		noteError = null;
+		return async ({ result, update }) => {
+			noteBusy = false;
+			if (result.type === 'error') { noteError = 'The note was not saved: the app did not answer. Your text is kept; try again.'; return; }
+			await update({ reset: result.type === 'success' });
+		};
+	};
 </script>
 
 <main id="main" tabindex="-1" data-ready={ready ? `doc:${data.ref}` : null}>
@@ -64,14 +80,15 @@
 				<li data-note={n.id} data-anchor={n.status}><span class="wrap">{n.body}</span> <small>({n.createdAt}{n.status === 'exact' ? `, written on ${n.refAtCreation} in an earlier version and re-attached by its original's fingerprint` : ''})</small>
 					{#if n.status === 'ambiguous'}<strong class="warning-inline">This note was written on {n.refAtCreation} in another version; its original's bytes are shared by {n.candidates.join(', ')} here, so it is shown on each.</strong>{/if}
 					{#if !n.intact}<strong class="unresolved" data-note-integrity="mismatch">this note was altered on disk since it was saved</strong>{/if}
-					{#if n.status === 'here'}<form method="POST" action="?/delnote" use:enhance><input type="hidden" name="id" value={n.id} /><button aria-label="Delete note">Delete</button></form>{/if}
+					{#if n.status === 'here'}<form method="POST" action="?/delnote" use:enhance><input type="hidden" name="id" value={n.id} /><button aria-label="Delete note" disabled={noteRefused}>Delete</button></form>{/if}
 				</li>
 			{:else}<li>No notes.</li>{/each}
 		</ul>
 		{#if data.source === 'results'}
-			<form method="POST" action="?/note" use:enhance id="note-form">
-				<label for="note-body">Add a note</label><br /><textarea name="body" rows="3" cols="80" id="note-body"></textarea><br /><button id="note-add">Add note</button>
-				{#if form?.message}<span class="error" role="alert">{form.message}</span>{/if}
+			<form method="POST" action="?/note" use:enhance={submitNote} id="note-form">
+				<label for="note-body">Add a note</label><br /><textarea name="body" rows="3" cols="80" id="note-body" readonly={noteBusy} value={form && 'body' in form ? String(form.body) : ''}></textarea><br /><button id="note-add" disabled={noteBusy}>Add note</button>
+				{#if noteError ?? form?.message}<span class="error" role="alert">{noteError ?? form?.message}</span>{/if}
+				{#if noteRefused}<p class="note" id="note-delete-off">Delete is off until this note is saved: add it again, or reload the page to discard it.</p>{/if}
 			</form>
 		{:else}
 			<p id="note-unavailable">Notes are not available on this document: it has no imported original to anchor a note to, so a note would be lost when a new results version is imported.</p>

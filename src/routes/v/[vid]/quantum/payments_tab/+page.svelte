@@ -28,16 +28,16 @@
 	// stays. Without JavaScript every answer (an Add's or a Delete's, which is submitted through the Add form) carries
 	// the typed entry back, and a refused entry's reason with it.
 	type Entry = Record<EntryField, string>;
-	type Answer = { op?: 'add' | 'delete'; values?: Entry; error?: string; field?: EntryField | null; retry?: boolean; rowId?: string; gone?: boolean; addError?: string } | null;
+	type Answer = { op?: 'add' | 'delete'; values?: Entry; message?: string | null; field?: EntryField | null; retry?: boolean; target?: string; gone?: boolean; addError?: string } | null;
 	const FIELDS = ['date', 'amount', 'method', 'note'] as const;
 	const blank = (): Entry => ({ date: '', amount: '', method: '', note: '' });
 	const answered = untrack(() => form as unknown as Answer);
 	let fields = $state<Entry>({ ...blank(), ...answered?.values });
 	let addError = $state<{ message: string; field: EntryField | null; retry: boolean } | null>(
-		answered?.op === 'add' && answered.error ? { message: answered.error, field: answered.field ?? null, retry: answered.retry === true }
+		answered?.op === 'add' && answered.message ? { message: answered.message, field: answered.field ?? null, retry: answered.retry === true }
 		: answered?.op === 'delete' && answered.addError ? { message: answered.addError, field: answered.field ?? null, retry: false } : null);
-	let deleteErrors = $state<Record<string, string>>(answered?.op === 'delete' && answered.error && !answered.gone && answered.rowId ? { [answered.rowId]: answered.error } : {});
-	let goneNotice = $state<string | null>(answered?.op === 'delete' && answered.gone && answered.error ? answered.error : null);
+	let deleteErrors = $state<Record<string, string>>(answered?.op === 'delete' && answered.message && !answered.gone && answered.target ? { [answered.target]: answered.message } : {});
+	let goneNotice = $state<string | null>(answered?.op === 'delete' && answered.gone && answered.message ? answered.message : null);
 	/** the entry an Add in flight submitted, and the row whose Delete is in flight */
 	let sending = $state<Entry | null>(null);
 	let deleting = $state<string | null>(null);
@@ -65,7 +65,7 @@
 					await update({ reset: false });
 					for (const k of FIELDS) if (fields[k] === sent[k]) fields[k] = '';
 				} else if (result.type === 'failure') {
-					addError = { message: String(result.data?.error ?? 'Not saved. Your entry is kept.'), field: (result.data?.field as EntryField | undefined) ?? null, retry: result.data?.retry === true };
+					addError = { message: String(result.data?.message ?? 'Not saved. Your entry is kept.'), field: (result.data?.field as EntryField | undefined) ?? null, retry: result.data?.retry === true };
 				} else if (result.type === 'redirect') await applyAction(result);
 				else addError = { message: lost(result.status), field: null, retry: result.status !== 413 };
 			} finally { sending = null; }
@@ -80,7 +80,7 @@
 			try {
 				if (result.type === 'success') await invalidateAll();
 				else if (result.type === 'failure') {
-					const message = String(result.data?.error ?? 'Not deleted; try again.');
+					const message = String(result.data?.message ?? 'Not deleted; try again.');
 					if (result.data?.gone) goneNotice = message;
 					else deleteErrors = { ...deleteErrors, [id]: message };
 					// gone or changed elsewhere: the table shows the payments as stored now

@@ -3,40 +3,468 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-015",
+      "id": "IDR-350",
       "view": "discovery_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-19",
-      "reason": "The app does not implement Discovery Schedule yet; GRS-19 (CC-09) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
+      "field": "table.table_1.row.*.file_actions",
+      "when": {
+        "v5": {
+          "re": "^OpenDownload( / OpenDownload)*$"
+        },
+        "app": {
+          "re": "^(?=.*not in the verified index; not served)(OpenDownload|not in the verified index; not served)( / (OpenDownload|not in the verified index; not served))*$"
+        }
+      },
+      "type": "known-gap",
+      "source": "GRS-19",
+      "reason": "A schedule file whose locator does not decode to an indexed document path is not a package asset, so the app shows it as not in the verified index and does not serve it, where v5 links the file on disk. Only the file actions column (split from the description and file names, which compare exactly) is covered, on rows where some file is not served. GRS-45 (BASE-R3) owns this gap: it indexes these files as verified package assets.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
     },
     {
-      "id": "IDR-016",
-      "view": "court_bundle_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-19",
-      "reason": "The app does not implement Court Bundle yet; GRS-19 (CC-09) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
+      "id": "IDR-351",
+      "view": "discovery_tab",
+      "field": "sweep.modes.cover_after_switches",
+      "when": {
+        "v5": {
+          "re": "^([2-9]|[1-9][0-9]+)$"
+        },
+        "app": "1"
+      },
+      "type": "defect-fix",
+      "source": "S-discovery_tab-1",
+      "reason": "v5 adds its click listeners again on every render, so after three schedule switches one press of Download cover page gives several downloads; the app gives exactly one.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
     },
     {
-      "id": "IDR-017",
+      "id": "IDR-352",
+      "view": "discovery_tab",
+      "field": "sweep.bundle.index_incomplete",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^<div class=\"cap\"><b>INCOMPLETE SELECTION</b>: [^<]+\\.</div>$"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-10",
+      "reason": "The court bundle index says when the selection is incomplete (an item only partly selected, or selected files not in the verified index), so an incomplete export stays visibly incomplete. Only that line (its own key) is covered; the rest of the index compares exactly.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-353",
+      "view": "discovery_tab",
+      "field": "sweep.marks.cover_co.0",
+      "when": {
+        "v5": "C",
+        "app": "O"
+      },
+      "type": "defect-fix",
+      "source": "S-discovery_tab-2",
+      "reason": "The certified cover page now follows the user's Copy/Original marks (all C, all O, or C&O per item); v5 printed the data-level value and ignored the marks. With no marks it equals v5. Only the C/O cell of the item the sweep marks Original is covered; the rest of the cover compares exactly.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-354",
+      "view": "discovery_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 leaves it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-355",
       "view": "caselines_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-19",
-      "reason": "The app does not implement CaseLines yet; GRS-19 (CC-09) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 leaves it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-356",
+      "view": "caselines_tab",
+      "field": "text.page.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^(Search covers the page-text index only: .+ without text.*|This package has no page-text index, so the bundle cannot be searched here\\.)$"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-08",
+      "reason": "The page says what CaseLines search covers: only its page-text index, with the number of pages indexed and without text derived from the imported index, and which pages have no text.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-357",
+      "view": "court_bundle_tab",
+      "field": "title",
+      "when": {
+        "v5": "Court Bundles",
+        "app": "Court Bundle"
+      },
+      "type": "improvement",
+      "source": "BA-18",
+      "reason": "The page heading is the navigation label (BA-18); v5's list view says Court Bundles.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-358",
+      "view": "court_bundle_tab",
+      "field": "table.index_header_details.row.*._",
+      "when": {
+        "v5": "Open Bundle PDF Index PDF Word",
+        "app": "Open Bundle PDF (not in the verified index; not served) Index PDF (not in the verified index; not served) Word"
+      },
+      "type": "known-gap",
+      "source": "GRS-19",
+      "reason": "The assembled bundle PDFs and index PDFs are not package assets (only chronology rows are indexed), so the app names them as not served where v5 links the files on disk. GRS-45 (BASE-R3) owns this gap: it indexes them as verified package assets.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-359",
+      "view": "court_bundle_tab",
+      "field": "control.row:link:?",
+      "when": {
+        "v5": "1",
+        "app": "<absent>"
+      },
+      "type": "known-gap",
+      "source": "GRS-19",
+      "reason": "The bundle list rows have no Bundle PDF or Index PDF link because those PDFs are not in the verified index (see IDR-358). GRS-45 (BASE-R3) owns this gap: it indexes these files as verified package assets.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-360",
+      "view": "court_bundle_tab",
+      "field": "sweep.bundle_tabs.items.r*.actions",
+      "when": {
+        "v5": {
+          "re": "^(Open item( Save extract)?( / in the bundle at page \\d+)?|Open item opens the bundle at page \\d+)$"
+        },
+        "app": {
+          "re": "^(Extract \\(not in the verified index; not served\\)( / in the bundle at page \\d+( \\(not in the verified index; not served\\))?)?|Open item \\(not in the verified index; not served\\))$"
+        }
+      },
+      "type": "known-gap",
+      "source": "GRS-19",
+      "reason": "Open item, Save extract and the bundle page links point at extract and bundle PDFs that are not in the verified index, so the items tab names them as not served; source parts and the CaseLines original link to their document pages. Only the actions cell of each items row is covered (every other cell compares exactly). GRS-45 (BASE-R3) owns this gap: it indexes these files as verified package assets.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-361",
+      "view": "court_bundle_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 leaves it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-362",
+      "view": "court_bundle_tab",
+      "field": "sweep.bundle_tabs.items.r*.from_link.*",
+      "when": {
+        "v5": {
+          "re": "^(↗|-)$"
+        },
+        "app": "not in the verified index; not served"
+      },
+      "type": "known-gap",
+      "source": "GRS-19",
+      "reason": "A source part of an items row whose file is not in the verified index is named but not served, where v5 links it (↗). Only that part's link state is covered; the Extracted-from text (name and page range) compares exactly. GRS-45 (BASE-R3) owns this gap: it indexes these files as verified package assets.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-365",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.pdf.body*.fonts",
+      "when": {
+        "v5": {
+          "re": "^F1, ZaPgNo$"
+        },
+        "app": "F1, F2, ZaPgNo"
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-1",
+      "reason": "Builder sweep, Gamma_Report.pdf: its page text is drawn by a Form XObject that borrows font F2 from the page. v5's Form XObject check never fires, so F2 is pruned from the copied page and that text loses its font; the app keeps every resource a form uses.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-366",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.list.custom.C1.link",
+      "when": {
+        "v5": "revoked",
+        "app": "live"
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-2",
+      "reason": "After Save to the bundle list, pressing Create Bundle again revokes the saved bundle's session PDF in v5, so its Bundle PDF link in the list is dead; the app keeps a saved bundle's PDF for the session.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-367",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.saved.items.r*.from_link.*",
+      "when": {
+        "v5": "↗",
+        "app": "-"
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-3",
+      "reason": "After a reload a saved builder bundle has no PDF. For a part that starts after page 1, v5 links the item to '#page=N' on the app itself; the app shows no link.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-368",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.saved.items.r*.actions",
+      "when": {
+        "v5": {
+          "re": "^Open item$"
+        },
+        "app": "—"
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-3",
+      "reason": "The same saved part: v5 offers Open item for the '#page=N' self-link; the app offers nothing to open, as the PDF is gone.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-369",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.leave_during_create",
+      "when": {
+        "v5": "the builder replaced the other view",
+        "app": "the other view stays"
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-5",
+      "reason": "Pressing Create Bundle and moving to another view before it finishes: v5 renders the builder over the other view when assembly ends; the app stays on the view the user chose.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-370",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.*.index0.text",
+      "when": {
+        "v5": {
+          "re": "DCLARATION UKASZ NAVE"
+        },
+        "app": {
+          "re": "DÉCLARATION LUKASZ NAÏVE"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-6",
+      "reason": "PDF index (bundle and Index only): v5 drops every non-ASCII character from a description; the app keeps what the index font can show (é, ï) and folds the rest to its base letter (Ł to L). The rest of the page compares through the same key.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-371",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.*.index0.ranges",
+      "when": {
+        "v5": {
+          "re": "^\\d{3} - \\d{3}( \\| \\d{3} - \\d{3})*$"
+        },
+        "app": {
+          "re": "^\\d{3} – \\d{3}( \\| \\d{3} – \\d{3})*$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-7",
+      "reason": "PDF index page ranges: v5 writes ' - ' where its HTML and Word indexes use ' – '; the app's PDF index uses ' – ' like the others.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-372",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.pdf.body*.stamp",
+      "when": {
+        "v5": "",
+        "app": {
+          "re": "^\\d+$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-8",
+      "reason": "Beta_Letter.pdf has a CropBox inside its MediaBox and /Rotate 90. v5 places the page number from the MediaBox, outside what a viewer shows; the app places it inside the visible box.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-373",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.pdf.body*.stamp_visible",
+      "when": {
+        "v5": "no stamp on the visible page",
+        "app": "inside the visible page"
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-8",
+      "reason": "The same pages: where the page number sits relative to the visible (crop) box.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-374",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.save.second",
+      "when": {
+        "v5": "(C2) SYNTHETIC SWEEP",
+        "app": "(C1) SYNTHETIC SWEEP"
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-12",
+      "reason": "Saving the same output twice: v5 adds a second bundle (C2); the app updates the first and keeps its number.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-375",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.list.custom",
+      "when": {
+        "v5": "C1 | C2",
+        "app": "C1"
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-12",
+      "reason": "The list after saving one output twice: v5 lists the duplicate; the app lists the bundle once.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-376",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.list.custom.C2.link",
+      "when": {
+        "v5": "revoked",
+        "app": "<absent>"
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-12",
+      "reason": "v5's duplicate bundle from saving twice (its link is also dead, S-2); the app has no duplicate.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-377",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.debug.console",
+      "when": {
+        "v5": "DBG lines logged",
+        "app": "none"
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-14",
+      "reason": "With a global PDFKDBG defined, v5's assembler writes a debug line per page to the console; the app has no debug hook.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-378",
+      "view": "court_bundle_tab",
+      "field": "sweep.builder.word_edited.links",
+      "when": {
+        "v5": {
+          "re": "^[A-Z_]+\\.pdf#page=[0-9]+( \\| [A-Z_]+\\.pdf#page=[0-9]+)*$"
+        },
+        "app": ""
+      },
+      "type": "defect-fix",
+      "source": "S-court_bundle_tab-15",
+      "reason": "After Create Bundle, a page range is edited without creating again and Index (Word) is pressed: v5 still links each row into the bundle PDF at the pages it had when created, so after a range shrinks the rows link to the wrong pages (v5 L2352 compares only the title and the item count; found in the CC-09 review, so it is not in the view checklist); the app links only when every item's bundle page numbers are unchanged, and otherwise writes the index without links.",
+      "productVisible": true,
+      "author": "CC-09 worker (GRS-19)",
+      "approvedBy": null,
+      "approvedOn": null
     }
   ]
 }

@@ -107,12 +107,12 @@ describe('CI summary', () => {
 		git('add', '-A');
 		git('-c', 'user.name=t', '-c', 'user.email=t@example.invalid', 'commit', '-qm', 'real fixture');
 		head = git('rev-parse', 'HEAD');
-		const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('VITEST')));
+		const env = { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !k.startsWith('VITEST'))), FORCE_COLOR: '1', NO_COLOR: '' }; // colored on purpose: a CI runner colors Vitest's output, and the assertions must not depend on plain text
 		const sh = (cmd: string) => new Promise<{ status: number | null; out: string }>((resolve) => {
 			const c = spawn('sh', ['-c', cmd], { cwd: dir, env, stdio: ['ignore', 'pipe', 'pipe'] });
 			let out = '';
 			c.stdout.on('data', (d) => (out += d)); c.stderr.on('data', (d) => (out += d));
-			c.on('close', (status) => resolve({ status, out }));
+			c.on('close', (status) => resolve({ status, out: out.replace(/\x1b\[[0-9;]*m/g, '') }));
 		});
 		const made = await sh(`bun run --bun test --reporter=json --outputFile=${path.join(receipts, 'vitest.json')}`);
 		expect(made.status, made.out).toBe(1);

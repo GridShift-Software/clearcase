@@ -165,6 +165,6 @@ function main(): number {
 try {
 	process.exitCode = main();
 } catch (e) {
-	console.error(`source-check: ERROR ${e instanceof SetupError || e instanceof TypeError ? e.message : String(e)}`);
+	console.error(`source-check: ERROR ${e instanceof Error ? e.message : String(e)}`);
 	process.exitCode = 2;
 }

@@ -55,7 +55,7 @@ export function discoverCategories({ e2eDir = join(appRoot, 'tests', 'e2e'), rou
  * SIGKILL mid-write): on tmpfs or a network share the scenarios prove something else, and its path alone would not
  * tell a reviewer which, so a run with it set is not evidence rather than merely recorded.
  */
-export const DEV_ENV = { E2E_ONLY: 'runs only the listed durability scenarios', E2E_STOP_AFTER: 'stops the browser suite early', E2E_LATENCY_SIZES_MIB: 'changes the durability latency file sizes', CLEARCASE_E2E_TMP: 'moves the durability files off the disk-backed default folder', CLASSES_ONLY: 'runs only the listed UI classes' };
+export const DEV_ENV = { E2E_ONLY: 'runs only the listed durability scenarios', E2E_STOP_AFTER: 'stops the browser suite early', E2E_LATENCY_SIZES_MIB: 'changes the durability latency file sizes', CLEARCASE_E2E_TMP: 'moves the durability files off the disk-backed default folder', CLASSES_ONLY: 'runs only the listed UI classes', CLASSES_TARGET: 'runs the UI class scenarios of the targets matching a pattern only' };
 
 /**
  * Why a run is not release evidence whatever its build: a knob from DEV_ENV set in `env` (even empty: an empty
@@ -86,6 +86,11 @@ export function suiteProblems(out, category, implemented) {
 	if (bad.length) problems.push(`${bad.length} scenario(s) lack a string id, a string view or a boolean pass: give every scenario all three`);
 	const failed = sc.filter((x) => x?.pass !== true).map((x) => x?.id ?? '?');
 	if (failed.length) problems.push(`scenario(s) not passed: ${failed.join(', ')}: fix them and rerun`);
+	// a suite that groups its scenarios in classes (`byClass`, and `only` when it ran some of them) proves nothing for a class with no PASS
+	if (doc.byClass && typeof doc.byClass === 'object') {
+		const empty = Object.entries(doc.byClass).filter(([c, n]) => (!Array.isArray(doc.only) || doc.only.includes(c)) && !(n?.pass > 0)).map(([c]) => c);
+		if (empty.length) problems.push(`class(es) with no passing scenario: ${empty.join(', ')}: every class must run at least one scenario that passes`);
+	}
 	const seen = new Set(sc.map((x) => x?.view));
 	const uncovered = [...implemented].filter((v) => !seen.has(v));
 	if (uncovered.length) problems.push(`implemented view(s) in no scenario: ${uncovered.join(', ')}: add a scenario with "view" set to each`);

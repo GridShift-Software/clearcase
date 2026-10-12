@@ -1,5 +1,7 @@
 # ClearCase execution context
 
+> Historical: the 8 October planning checkpoint. Superseded by the workspace `AGENTS.md` (11 October 2026), `status.md` and Linear.
+
 Planning checkpoint, 8 October 2026.
 
 ## Current state

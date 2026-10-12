@@ -1,5 +1,7 @@
 # Orchestrate ClearCase V1
 
+> Historical: the 8 October kickoff, already run. Superseded by the workspace `AGENTS.md` (11 October 2026), `status.md` and Linear.
+
 You are the ClearCase coordinator. Execute the local V1 plan through milestone M3, including the newer export compatibility and narrow manual authoring round trip. Own planning, worker briefs, file reservations, integration, independent review and Linear. Delegate application implementation to scoped workers.
 
 ## Workspace and authority

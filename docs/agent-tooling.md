@@ -76,14 +76,11 @@ To remove, run `scripts/agent-tools/bootstrap --remove`. It deletes only `.local
 
 ### Bun
 
-Every app ticket from GRS-10 (CC-02) on builds and runs with Bun, so the doctor fails unless `bun --version` prints a version at least the app's minimum. Which minimum applies:
-
-- While the repository has no `package.json`, the minimum is `MIN_BUN`, 1.4.2, in `scripts/agent-tools/agent_tools.py`.
-- Once GRS-10 adds `package.json`, the minimum is its `packageManager` field, `bun@MAJOR.MINOR.PATCH` with an optional `+hash` suffix, and `MIN_BUN` no longer applies. A `package.json` that cannot be read, is not JSON, or pins no `bun@` version fails the doctor. The doctor's receipt then also fingerprints `package.json`.
+The app builds and runs with Bun, so the doctor fails unless `bun --version` prints a version at least the app's minimum. The minimum is `package.json`'s `packageManager` field, `bun@MAJOR.MINOR.PATCH` with an optional `+hash` suffix, and the doctor's receipt fingerprints `package.json`. A `package.json` that cannot be read, is not JSON, or pins no `bun@` version fails the doctor. `MIN_BUN` (1.4.2, in `scripts/agent-tools/agent_tools.py`) applies only to a checkout without `package.json`, such as the tests' fixtures.
 
 The doctor uses `CLEARCASE_BUN` when it is set, otherwise the `bun` on PATH. It fails, with a fix, when no bun is found, when the version is older than the minimum, and when `bun --version` does not print exactly one version. That means it fails when `--version` exits nonzero, writes anything to stderr, even with exit 0, or prints on stdout anything other than one line holding a version such as `1.4.2`. White space around that line is ignored; a second line is not. Versions compare as numbers, and a prerelease such as `1.4.2-canary.1` counts as older than `1.4.2`. The row names the bun it checked and where the minimum came from, and the receipt lists that bun's path and its whole stdout as the version.
 
-To move the pin, run `bun upgrade --stable` (`pacman -Syu bun` for the distribution package) and record the `bun --version` it installs. Then change `MIN_BUN`, or `packageManager` once it exists, in a reviewed commit into `dev`. The tools never upgrade Bun or change the pin themselves.
+To move the pin, run `bun upgrade --stable` (`pacman -Syu bun` for the distribution package) and record the `bun --version` it installs. Then change `packageManager` (and `MIN_BUN` with it) in a reviewed commit into `dev`. The tools never upgrade Bun or change the pin themselves.
 
 ## Entry points
 

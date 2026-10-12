@@ -131,10 +131,10 @@ describe('register files must be committed review inputs', () => {
 		commit('a committed rule hides CC-10');
 		// git status is clean and the build fresh, but the loader still reads the hidden fragment
 		expect(g('status', '--porcelain')).toBe('');
-		expect(readFileSync(frag, 'utf8')).toContain('IDR-038');
+		expect(readFileSync(frag, 'utf8')).toContain('IDR-400');
 		const ignored = record('', 'loaded');
 		expect(ignored).toMatchObject({ problems: [], fresh: true, evidence: false });
-		expect(ignored.ids).toContain('IDR-038');
+		expect(ignored.ids).toContain('IDR-400');
 		expect(ignored.evidenceNote).toBe('NOT release evidence: register files the run read that the reviewed commit does not hold: docs/reference/parity/register/CC-10.json (ignored)');
 	});
 	test('a parity module found by listing its folder and hidden by the committed .env.* rule: not evidence', async () => {

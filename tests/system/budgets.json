@@ -1,0 +1,13 @@
+{
+  "$comment": "GRS-20 (CC-10) budgets, set before the rescan and backup code was written (11 October 2026). tests/system/measure.ts measures them on the accepted fixture under Bun and exits 1 on a breach. Peak memory is the process's peak resident set (getrusage maxrss) after the workload, minus the resident set before it, so it counts what the workflow itself adds. The unchanged quick scan is timed as runs of scansPerRun scans each; its baseline is the median run, recorded with --record.",
+  "fixture": {
+    "case": "tests/e2e/pilot/lib/fixtures.ts buildCase (the synthetic v5-shaped case) plus 40 synthetic additions in the case folder",
+    "userWork": "5,000 register rows over 7 stores, 1,000 notes and one defined table of 1,000 rows, all synthetic"
+  },
+  "backup": { "maxMs": 2000, "maxPeakRssMiB": 200 },
+  "restore": { "maxMs": 4000, "maxPeakRssMiB": 300, "maxFileMiB": 64 },
+  "rescan": {
+    "unchangedQuickScan": { "baselineMedianMs": 71.4, "runs": 5, "scansPerRun": 50, "regressionFactor": 1.25 },
+    "fullScanMaxMs": 3000
+  }
+}

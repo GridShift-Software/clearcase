@@ -12,7 +12,7 @@ import { isRedirect } from '@sveltejs/kit';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildCase } from '../e2e/pilot/lib/fixtures';
 import type { LocalCase } from '../../src/lib/local-case/service.server';
-import { ackFor, cleanup, tempRoot } from '../../src/lib/local-case/test-support';
+import { ackFor, cleanup, tempRoot, withoutBusyWait } from '../../src/lib/local-case/test-support';
 
 let root: string, lc: LocalCase, rv: string, caseId: string;
 let S: typeof import('../../src/lib/views/evidence/filings.server');
@@ -67,9 +67,9 @@ describe('filings register actions', () => {
 		expect(await post('add', { ...blank, filing: 'Synthetic row one' })).toMatchObject({ ok: true, op: 'add', saved: true });
 		expect(await post('add', { ...blank, filing: 'Synthetic row two' })).toMatchObject({ ok: true });
 		const [one, two] = (await entries()).filter((e) => e.state === 'user');
-		const release = hold();
+		const release = hold(), wait = withoutBusyWait(lc.storage);
 		let r: Out;
-		try { r = await post('delete', { key: one!.key, ...typed, delete: two!.key }); } finally { release(); }
+		try { r = await post('delete', { key: one!.key, ...typed, delete: two!.key }); } finally { release(); wait(); }
 		expect(r).toMatchObject({ failed: 503, op: 'delete', target: two!.key, draft: { values: typed, editing: one!.key, failed: null } });
 		expect(r).not.toHaveProperty('values');
 		expect(String(r.message)).toMatch(/^The entry could not be deleted: the local store is busy or unavailable\. Nothing was changed and the entry is still in the register/);
@@ -78,10 +78,10 @@ describe('filings register actions', () => {
 
 	it('a refused save of an edit names the row, its code and its values, so a page re-rendered from it stays in edit mode (D2)', async () => {
 		const one = (await entries()).find((e) => e.fields.filing === 'Synthetic row one')!;
-		const release = hold();
+		const release = hold(), wait = withoutBusyWait(lc.storage);
 		let r: Out;
 		const version = await versionOf(one.key);
-		try { r = await post('save', { key: one.key, version, ...typed }); } finally { release(); }
+		try { r = await post('save', { key: one.key, version, ...typed }); } finally { release(); wait(); }
 		expect(r).toMatchObject({ failed: 503, op: 'save', code: 'busy', editing: one.key, version, values: typed, retry: true });
 		expect((await entries()).find((e) => e.key === one.key)!.fields.filing).toBe('Synthetic row one');
 		// an empty Filing is refused for the row being edited, not as an Add

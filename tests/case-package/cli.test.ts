@@ -56,4 +56,39 @@ describe('cli', () => {
     expect(cli('frobnicate').status).toBe(2);
     expect((await readdir(caseDir, { recursive: true })).sort()).toEqual(before);
   });
+
+  it('answers each usage or input error with exit 2 and one stderr line naming it, never a stack trace', async () => {
+    const root = await tempDir('cli-usage');
+    dirs.push(root);
+    const caseDir = path.join(root, 'case');
+    await writeCaseFolder(caseDir);
+    const html = path.join(root, 'workspace.html');
+    await writeFile(html, synthHtml(synthRoots()));
+    await writeFile(path.join(root, 'not-json.json'), 'not json');
+    await writeFile(path.join(root, 'object.json'), '{}');
+    const T = (p: string) => path.join(root, p);
+    const cases: [string[], RegExp][] = [
+      [[], /^error: usage: cli\.ts convert\|validate\|acknowledge \[flags\]$/],
+      [['frobnicate'], /^error: usage: cli\.ts convert\|validate\|acknowledge \[flags\]$/],
+      [['convert', '--bogus'], /^error: Unknown option '--bogus'/],
+      [['convert', '--html', html], /^error: convert needs --html, --case-folder, --case-id and --out$/],
+      [['convert', '--html', T('missing.html'), '--case-folder', caseDir, '--case-id', 'x', '--out', T('o1')], /^error: --html cannot be read$/],
+      [['convert', '--html', html, '--case-folder', T('missing'), '--case-id', 'x', '--out', T('o2')], /^error: --case-folder is not a directory$/],
+      [['convert', '--html', html, '--case-folder', caseDir, '--case-id', 'x', '--out', T('o3'), '--report', path.join(caseDir, 'r.json')], /^error: --report is inside the case folder; ClearCase never writes there$/],
+      [['validate'], /^error: validate needs --package and --case-folder$/],
+      [['validate', '--package', T('p'), '--case-folder', caseDir, '--baseline', T('missing.json')], /^error: --baseline \S+missing\.json cannot be read as JSON: ENOENT/],
+      [['validate', '--package', T('p'), '--case-folder', caseDir, '--baseline', T('not-json.json')], /^error: --baseline \S+not-json\.json cannot be read as JSON: /],
+      [['validate', '--package', T('p'), '--case-folder', caseDir, '--baseline', T('object.json')], /^error: --baseline must be a JSON array of fingerprints$/],
+      [['acknowledge', '--report', T('r.json')], /^error: acknowledge needs --report and --out$/],
+      [['acknowledge', '--report', T('missing.json'), '--out', T('ack.json')], /^error: --report \S+missing\.json cannot be read as JSON: ENOENT/],
+      [['acknowledge', '--report', T('not-json.json'), '--out', T('ack.json')], /^error: --report \S+not-json\.json cannot be read as JSON: /],
+    ];
+    for (const [args, stderr] of cases) {
+      const r = cli(...args);
+      const shown = `bun scripts/case-package/cli.ts ${args.join(' ')}\nexpected exit 2 and stderr ${stderr}\ngot exit ${r.status} (signal ${r.signal}), stderr:\n${r.stderr}`;
+      expect(r.status, shown).toBe(2);
+      expect(r.stderr.trimEnd().split('\n'), shown).toHaveLength(1);
+      expect(r.stderr.trimEnd(), shown).toMatch(stderr);
+    }
+  });
 });

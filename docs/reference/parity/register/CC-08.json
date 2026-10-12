@@ -3,88 +3,539 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-023",
-      "view": "conflict_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-18",
-      "reason": "The app does not implement Conflict Check yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-024",
-      "view": "enforcement_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-18",
-      "reason": "The app does not implement Enforcement Roadmap yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-025",
-      "view": "legality_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-18",
-      "reason": "The app does not implement Legality & SIU Risk yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-029",
-      "view": "elements_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-18",
-      "reason": "The app does not implement Cause of Action yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-030",
-      "view": "authorities_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-18",
-      "reason": "The app does not implement Authorities yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-031",
-      "view": "heads_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-18",
-      "reason": "The app does not implement Heads of Argument yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-032",
+      "id": "IDR-300",
       "view": "crossexam_tab",
-      "field": "*",
+      "field": "title",
+      "when": {
+        "v5": "Cross-Examination Prep",
+        "app": "Cross-Exam Prep"
+      },
+      "type": "improvement",
+      "source": "BA-18",
+      "reason": "The page heading is the navigation label (BA-18), so the destination matches the task the user chose; v5 headed this view \"Cross-Examination Prep\".",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-301",
+      "view": "crossexam_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 left it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-302",
+      "view": "crossexam_tab",
+      "field": [
+        "sweep.register_edit.overview.Open deadlines",
+        "sweep.register_edit.overview.Unbilled time"
+      ],
+      "when": {
+        "v5": {
+          "re": "^[0-9][0-9,.]*( h)?$"
+        },
+        "app": {
+          "re": "^Not yet available — owned by GRS-17 \\(CC-07\\)\\.$"
+        }
+      },
       "type": "not-yet-implemented",
-      "owner": "GRS-18",
-      "reason": "The app does not implement Cross-Exam Prep yet; GRS-18 (CC-08) owns it and adds its app adapter when the view lands.",
+      "owner": "GRS-17",
+      "reason": "The overview tiles that register_edit reads after the sweep: the deadline and timesheet slots stay unfilled until GRS-17 (CC-07) lands them.",
       "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-303",
+      "view": "crossexam_tab",
+      "field": "sweep.register_edit.overview.Scanned (need OCR)",
+      "when": {
+        "v5": {
+          "re": "^[0-9,]+$"
+        },
+        "app": {
+          "re": "^[0-9,]+$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-meta-counts",
+      "reason": "The overview tile read after the sweep: the app counts register rows with text status none instead of repeating the source META figure, as on the overview itself (S-meta-counts, IDR-049).",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-304",
+      "view": "crossexam_tab",
+      "field": "text.source_and_scope.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Supplied analysis from the imported results package, shown as supplied\\. ClearCase has not verified it: check each legal assertion and authority before relying on it\\.$"
+        }
+      },
+      "type": "improvement",
+      "source": "GRS-18",
+      "reason": "GRS-18 acceptance: the view labels its content as supplied analysis that ClearCase has not verified (every lit-* dataset is authored analysis); v5 showed no such note.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-305",
+      "view": "enforcement_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 left it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-306",
+      "view": "enforcement_tab",
+      "field": "text.source_and_scope.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Supplied analysis from the imported results package, shown as supplied\\. ClearCase has not verified it: check each legal assertion and authority before relying on it\\.$"
+        }
+      },
+      "type": "improvement",
+      "source": "GRS-18",
+      "reason": "GRS-18 acceptance: the view labels its content as supplied analysis that ClearCase has not verified (every lit-* dataset is authored analysis); v5 showed no such note.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-307",
+      "view": "conflict_tab",
+      "field": "title",
+      "when": {
+        "v5": "Conflict-of-Interest Check",
+        "app": "Conflict Check"
+      },
+      "type": "improvement",
+      "source": "BA-18",
+      "reason": "The page heading is the navigation label (BA-18), so the destination matches the task the user chose; v5 headed this view \"Conflict-of-Interest Check\".",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-308",
+      "view": "conflict_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 left it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-309",
+      "view": "conflict_tab",
+      "field": "text.page.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Searches only this matter's \\d+ (person|people) and \\d+ (entity|entities) from the imported results package\\. A match, or no match, is not a conflict clearance\\.$"
+        }
+      },
+      "type": "improvement",
+      "source": "GRS-18",
+      "reason": "GRS-18 acceptance: the check always says it searched only this matter's people and entities (counted from the data) and that a result is not a conflict clearance; v5 said nothing about scope.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-310",
+      "view": "heads_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 left it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-311",
+      "view": "heads_tab",
+      "field": [
+        "sweep.register_edit.overview.Open deadlines",
+        "sweep.register_edit.overview.Unbilled time"
+      ],
+      "when": {
+        "v5": {
+          "re": "^[0-9][0-9,.]*( h)?$"
+        },
+        "app": {
+          "re": "^Not yet available — owned by GRS-17 \\(CC-07\\)\\.$"
+        }
+      },
+      "type": "not-yet-implemented",
+      "owner": "GRS-17",
+      "reason": "The overview tiles that register_edit reads after the sweep: the deadline and timesheet slots stay unfilled until GRS-17 (CC-07) lands them.",
+      "productVisible": false,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-312",
+      "view": "heads_tab",
+      "field": "sweep.register_edit.overview.Scanned (need OCR)",
+      "when": {
+        "v5": {
+          "re": "^[0-9,]+$"
+        },
+        "app": {
+          "re": "^[0-9,]+$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-meta-counts",
+      "reason": "The overview tile read after the sweep: the app counts register rows with text status none instead of repeating the source META figure, as on the overview itself (S-meta-counts, IDR-049).",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-313",
+      "view": "heads_tab",
+      "field": "text.source_and_scope.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Supplied analysis from the imported results package, shown as supplied\\. ClearCase has not verified it: check each legal assertion and authority before relying on it\\.$"
+        }
+      },
+      "type": "improvement",
+      "source": "GRS-18",
+      "reason": "GRS-18 acceptance: the view labels its content as supplied analysis that ClearCase has not verified (every lit-* dataset is authored analysis); v5 showed no such note.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-315",
+      "view": "authorities_tab",
+      "field": "title",
+      "when": {
+        "v5": "Legal Authorities",
+        "app": "Authorities"
+      },
+      "type": "improvement",
+      "source": "BA-18",
+      "reason": "The page heading is the navigation label (BA-18), so the destination matches the task the user chose; v5 headed this view \"Legal Authorities\".",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-316",
+      "view": "authorities_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 left it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-317",
+      "view": "authorities_tab",
+      "field": [
+        "sweep.register_edit.overview.Open deadlines",
+        "sweep.register_edit.overview.Unbilled time"
+      ],
+      "when": {
+        "v5": {
+          "re": "^[0-9][0-9,.]*( h)?$"
+        },
+        "app": {
+          "re": "^Not yet available — owned by GRS-17 \\(CC-07\\)\\.$"
+        }
+      },
+      "type": "not-yet-implemented",
+      "owner": "GRS-17",
+      "reason": "The overview tiles that register_edit reads after the sweep: the deadline and timesheet slots stay unfilled until GRS-17 (CC-07) lands them.",
+      "productVisible": false,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-318",
+      "view": "authorities_tab",
+      "field": "sweep.register_edit.overview.Scanned (need OCR)",
+      "when": {
+        "v5": {
+          "re": "^[0-9,]+$"
+        },
+        "app": {
+          "re": "^[0-9,]+$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-meta-counts",
+      "reason": "The overview tile read after the sweep: the app counts register rows with text status none instead of repeating the source META figure, as on the overview itself (S-meta-counts, IDR-049).",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-319",
+      "view": "authorities_tab",
+      "field": "text.source_and_scope.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Supplied analysis from the imported results package, shown as supplied\\. ClearCase has not verified it: check each legal assertion and authority before relying on it\\.$"
+        }
+      },
+      "type": "improvement",
+      "source": "GRS-18",
+      "reason": "GRS-18 acceptance: the view labels its content as supplied analysis that ClearCase has not verified (every lit-* dataset is authored analysis); v5 showed no such note.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-321",
+      "view": "legality_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 left it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-322",
+      "view": "legality_tab",
+      "field": "text.source_and_scope.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Supplied analysis from the imported results package, shown as supplied\\. ClearCase has not verified it: check each legal assertion and authority before relying on it\\.$"
+        }
+      },
+      "type": "improvement",
+      "source": "GRS-18",
+      "reason": "GRS-18 acceptance: the view labels its content as supplied analysis that ClearCase has not verified (every lit-* dataset is authored analysis); v5 showed no such note.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-323",
+      "view": "legality_tab",
+      "field": "text.the_risk.2",
+      "when": {
+        "v5": {
+          "re": "^.+ documents in the bundle$"
+        },
+        "app": "Documents in the bundle"
+      },
+      "type": "known-gap",
+      "owner": "GRS-38",
+      "source": "GRS-38",
+      "reason": "v5 hard-codes case wording (the related proceedings) in this card caption, and the view-content map has no field for it, so the app shows the neutral caption until the map carries it; the count is split off and compared on its own (kpi.documents_in_the_bundle_count) (shared-file request in the CC-08 report).",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-324",
+      "view": "legality_tab",
+      "field": "table.scenarios.col.ess_action",
+      "when": {
+        "v5": {
+          "re": "^\\S+ action$"
+        },
+        "app": "Action"
+      },
+      "type": "known-gap",
+      "owner": "GRS-38",
+      "source": "GRS-38",
+      "reason": "v5 names a party in this column heading, and the view-content map has no field for it, so the app shows the neutral heading Action (same column, same cells) until the map carries it (shared-file request in the CC-08 report).",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-325",
+      "view": "elements_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 left it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-326",
+      "view": "elements_tab",
+      "field": "text.source_and_scope.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Supplied analysis from the imported results package, shown as supplied\\. ClearCase has not verified it: check each legal assertion and authority before relying on it\\.$"
+        }
+      },
+      "type": "improvement",
+      "source": "GRS-18",
+      "reason": "GRS-18 acceptance: the view labels its content as supplied analysis that ClearCase has not verified (every lit-* dataset is authored analysis); v5 showed no such note.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-327",
+      "view": "conflict_tab",
+      "field": "text.source_and_scope.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Parties and correspondents as listed in the imported results package, compared as supplied\\. ClearCase has not checked that the list is complete: search your firm's own conflict records as well\\.$"
+        }
+      },
+      "type": "improvement",
+      "source": "GRS-18",
+      "reason": "GRS-18 acceptance (r2, D20): Conflict Check ends with the same Source and scope note as the other litigation views, saying where its parties come from and that the list is unchecked; v5 showed no such note.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-328",
+      "view": "conflict_tab",
+      "field": "text.scope_counts",
+      "when": {
+        "v5": "<absent>",
+        "app": "ok"
+      },
+      "type": "improvement",
+      "source": "GRS-18",
+      "reason": "A parity check, not shown text (r2, D12): the app adapter compares the scope line's people and entity counts with the parties the page offers, per kind, and reports ok or the figures. v5 has no scope line.",
+      "productVisible": false,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-329",
+      "view": "crossexam_tab",
+      "field": "text.source_and_scope.2",
+      "when": {
+        "v5": "<absent>",
+        "app": "Rows you add are your own work, kept on this computer."
+      },
+      "type": "improvement",
+      "source": "GRS-18",
+      "reason": "GRS-18 acceptance: the register's Source and scope note goes on to say that rows the user adds are their own work, kept on this computer; v5 showed no such note.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-330",
+      "view": "heads_tab",
+      "field": "text.source_and_scope.2",
+      "when": {
+        "v5": "<absent>",
+        "app": "Rows you add are your own work, kept on this computer."
+      },
+      "type": "improvement",
+      "source": "GRS-18",
+      "reason": "GRS-18 acceptance: the register's Source and scope note goes on to say that rows the user adds are their own work, kept on this computer; v5 showed no such note.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-331",
+      "view": "authorities_tab",
+      "field": "text.source_and_scope.2",
+      "when": {
+        "v5": "<absent>",
+        "app": "Rows you add are your own work, kept on this computer."
+      },
+      "type": "improvement",
+      "source": "GRS-18",
+      "reason": "GRS-18 acceptance: the register's Source and scope note goes on to say that rows the user adds are their own work, kept on this computer; v5 showed no such note.",
+      "productVisible": true,
+      "author": "CC-08 worker (GRS-18)",
+      "approvedBy": null,
+      "approvedOn": null
     }
   ]
 }

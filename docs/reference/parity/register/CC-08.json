@@ -35,29 +35,6 @@
       "approvedOn": null
     },
     {
-      "id": "IDR-302",
-      "view": "crossexam_tab",
-      "field": [
-        "sweep.register_edit.overview.Open deadlines",
-        "sweep.register_edit.overview.Unbilled time"
-      ],
-      "when": {
-        "v5": {
-          "re": "^[0-9][0-9,.]*( h)?$"
-        },
-        "app": {
-          "re": "^Not yet available — owned by GRS-17 \\(CC-07\\)\\.$"
-        }
-      },
-      "type": "not-yet-implemented",
-      "owner": "GRS-17",
-      "reason": "The overview tiles that register_edit reads after the sweep: the deadline and timesheet slots stay unfilled until GRS-17 (CC-07) lands them.",
-      "productVisible": false,
-      "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
       "id": "IDR-303",
       "view": "crossexam_tab",
       "field": "sweep.register_edit.overview.Scanned (need OCR)",
@@ -196,29 +173,6 @@
       "approvedOn": null
     },
     {
-      "id": "IDR-311",
-      "view": "heads_tab",
-      "field": [
-        "sweep.register_edit.overview.Open deadlines",
-        "sweep.register_edit.overview.Unbilled time"
-      ],
-      "when": {
-        "v5": {
-          "re": "^[0-9][0-9,.]*( h)?$"
-        },
-        "app": {
-          "re": "^Not yet available — owned by GRS-17 \\(CC-07\\)\\.$"
-        }
-      },
-      "type": "not-yet-implemented",
-      "owner": "GRS-17",
-      "reason": "The overview tiles that register_edit reads after the sweep: the deadline and timesheet slots stay unfilled until GRS-17 (CC-07) lands them.",
-      "productVisible": false,
-      "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
       "id": "IDR-312",
       "view": "heads_tab",
       "field": "sweep.register_edit.overview.Scanned (need OCR)",
@@ -284,29 +238,6 @@
       "source": "BA-14",
       "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 left it on the navigation link.",
       "productVisible": true,
-      "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
-      "id": "IDR-317",
-      "view": "authorities_tab",
-      "field": [
-        "sweep.register_edit.overview.Open deadlines",
-        "sweep.register_edit.overview.Unbilled time"
-      ],
-      "when": {
-        "v5": {
-          "re": "^[0-9][0-9,.]*( h)?$"
-        },
-        "app": {
-          "re": "^Not yet available — owned by GRS-17 \\(CC-07\\)\\.$"
-        }
-      },
-      "type": "not-yet-implemented",
-      "owner": "GRS-17",
-      "reason": "The overview tiles that register_edit reads after the sweep: the deadline and timesheet slots stay unfilled until GRS-17 (CC-07) lands them.",
-      "productVisible": false,
       "author": "CC-08 worker (GRS-18)",
       "approvedBy": null,
       "approvedOn": null

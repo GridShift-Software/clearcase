@@ -129,4 +129,49 @@ describe('filings register actions', () => {
 		expect(await post('save', { key: s1.key, version: sv, ...blank, filing: s1.fields.filing, response: 'Seed first tab' })).toEqual({ redirect: page().pathname });
 		expect(await post('save', { key: s1.key, version: sv, ...blank, filing: s1.fields.filing, response: 'Seed second tab' })).toMatchObject({ failed: 409, code: 'stale' });
 	});
+	// Two tabs post one row version while the store is write-locked from outside (BEGIN IMMEDIATE on work.sqlite) and
+	// the lock is released after both have been sent: the second save of that version is refused, never a second 303.
+	async function overlap(key: string, extra: (response: string) => Record<string, string>) {
+		const version = await versionOf(key);
+		const one = (r: string) => ({ key, version, ...blank, ...extra(r) });
+		const release = hold();
+		let a: Promise<Out>, b: Promise<Out>;
+		try {
+			a = post('save', one('First tab'));
+			b = post('save', one('Second tab'));
+			await new Promise((r) => setTimeout(r, 500));
+		} finally { release(); }
+		return Promise.all([a, b]);
+	}
+
+	it('two overlapping saves of one row version while the store is locked: the first stores, the second is refused as stale (lost update)', async () => {
+		expect(await post('add', { ...blank, filing: 'Synthetic overlap row' })).toMatchObject({ ok: true });
+		const row = (await entries()).find((e) => e.fields.filing === 'Synthetic overlap row')!;
+		const [first, second] = await overlap(row.key, (response) => ({ filing: 'Synthetic overlap row', response }));
+		expect(first).toEqual({ redirect: page().pathname });
+		expect(second).toMatchObject({ failed: 409, op: 'save', code: 'stale', editing: row.key, values: { response: 'Second tab' }, retry: false });
+		expect((await entries()).find((e) => e.key === row.key)!.fields.response).toBe('First tab');
+	}, 60_000);
+
+	it('the same overlap on an imported seed: one overlay edit stores, the other is refused as stale', async () => {
+		const seed = (await entries()).find((e) => e.key.startsWith('seed:'))!;
+		const [first, second] = await overlap(seed.key, (response) => ({ filing: seed.fields.filing!, response }));
+		expect(first).toEqual({ redirect: page().pathname });
+		expect(second).toMatchObject({ failed: 409, op: 'save', code: 'stale', editing: seed.key });
+		expect((await entries()).find((e) => e.key === seed.key)!.fields.response).toBe('First tab');
+	}, 60_000);
+
+	it('two overlapping Adds while the store is locked get different seq numbers', async () => {
+		const release = hold();
+		let a: Promise<Out>, b: Promise<Out>;
+		try {
+			a = post('add', { ...blank, filing: 'Synthetic concurrent add A' });
+			b = post('add', { ...blank, filing: 'Synthetic concurrent add B' });
+			await new Promise((r) => setTimeout(r, 500));
+		} finally { release(); }
+		expect(await Promise.all([a, b])).toMatchObject([{ ok: true }, { ok: true }]);
+		const seqs = lc.userWork.listRows(caseId, 'filings-register').filter((r) => /^Synthetic concurrent add/.test(String(r.fields.filing))).map((r) => r.fields.seq);
+		expect(seqs).toHaveLength(2);
+		expect(new Set(seqs).size).toBe(2);
+	}, 60_000);
 });

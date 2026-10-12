@@ -134,6 +134,7 @@ describe('fresh-build evidence', () => {
 		const repo = mkdtempSync(join(root, 'knobs-'));
 		const g = (...a: string[]) => { const x = spawnSync('git', ['-C', repo, '-c', 'user.name=synthetic', '-c', 'user.email=synthetic@example.invalid', '-c', 'commit.gpgsign=false', ...a], { encoding: 'utf8' }); if (x.status !== 0) throw new Error(x.stderr); return x.stdout.trim(); };
 		cpSync(HERE, join(repo, 'tests', 'e2e', 'pilot'), { recursive: true });
+		cpSync(join(HERE, '..', 'classes'), join(repo, 'tests', 'e2e', 'classes'), { recursive: true });
 		for (const f of ['view-registry.ts', 'overview-slots.ts']) cpSync(join(REPO, 'src', 'lib', 'components', f), join(repo, 'src', 'lib', 'components', f));
 		put(join(repo, '.gitignore'), readFileSync(join(REPO, '.gitignore'), 'utf8'));
 		const commit = (msg: string) => {

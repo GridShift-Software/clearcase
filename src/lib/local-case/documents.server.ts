@@ -198,6 +198,21 @@ export function documentRow(store: CaseStore, resultsVersion: string, ref: strin
 }
 
 /**
+ * Which of `refs` name a document row of the version, imported or provided (GRS-51): the one rule every view uses to
+ * decide whether a ref is a link. Exact refs only; a ref nothing names is left out (it renders broken, never matched).
+ */
+export function resolveRefs(store: CaseStore, resultsVersion: string, refs: Iterable<string>): Set<string> {
+	const want = [...new Set(refs)];
+	const found = store.existingRefs(resultsVersion, want);
+	if (providers.size === 0 || found.size === want.length) return found;
+	const v = store.getVersion(resultsVersion);
+	if (!v) return found;
+	const open = new Set(want.filter((r) => !found.has(r)));
+	for (const { x } of fromProviders(v.case_id, resultsVersion, (ref) => !!store.document(resultsVersion, ref)).rows) if (open.has(x.ref)) found.add(x.ref);
+	return found;
+}
+
+/**
  * Whether any imported register row has a source-supplied date type (BA-04). Reads the stored list JSON without
  * parsing it: JSON escapes every quote inside a string value, so the unescaped `"dateType":"` occurs only as the key
  * of a string value (a missing basis is stored as null).

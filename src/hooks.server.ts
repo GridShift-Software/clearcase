@@ -3,6 +3,7 @@ import { building } from '$app/environment';
 import { app, initApp } from '$lib/local-case/app.server';
 import { discardBody, oversize } from '$lib/local-case/request-limit.server';
 import { ensureRescanProvider } from '$lib/local-case/rescan/rescan.server';
+import { registerV5Importers } from '$lib/user-work/backup/v5-importers.server';
 
 export const init: ServerInit = async () => {
 	if (building) return;
@@ -11,6 +12,7 @@ export const init: ServerInit = async () => {
 	// registered at start-up, not when a system page first loads
 	// (a storage problem is shown by the first request; the system pages then register it as before)
 	if (app().storageError) return;
+	registerV5Importers();
 	try { for (const p of app().store.activePointers()) ensureRescanProvider(app(), p.case_id); } catch (e) { console.error('rescan provider not registered at start-up:', e); }
 };
 

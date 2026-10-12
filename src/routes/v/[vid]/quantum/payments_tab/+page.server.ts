@@ -28,9 +28,10 @@ export const load: PageServerLoad = async ({ parent }) => {
 const FIELDS = ['date', 'amount', 'method', 'note'] as const;
 const entryOf = (f: FormData) => Object.fromEntries(FIELDS.map((k) => [k, String(f.get(k) ?? '')])) as Record<(typeof FIELDS)[number], string>;
 
-// CC-06 r2: every write goes through one queue per case (writes.server.ts). Each answer names its action (`op`), the
-// row a Delete targets (`target`), and carries the Add form's entry back (`values`): a Delete is submitted through the Add form (its button belongs to it),
-// so without JavaScript the page that answers a Delete still holds what the user had typed, refused or not.
+// CC-06 r2: every write goes through one queue per case (writes.server.ts). Each answer names its action (`op`) and a
+// Delete's row (`target`), and carries the Add form's entry back (`values`): a Delete is submitted through the Add form
+// (its button belongs to it), so without JavaScript the page that answers a Delete still holds what the user had
+// typed, refused or not.
 export const actions: Actions = {
 	add: async ({ params, request }) => {
 		const values = entryOf(await request.formData());

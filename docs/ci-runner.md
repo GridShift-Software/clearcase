@@ -23,6 +23,17 @@ The test step puts its temporary files (`TMPDIR` and `CLEARCASE_TEST_TMP`) in a 
 - `vitest.config.ts` starts the files that wait longest first (`SLOW`). On a fresh checkout Vitest otherwise orders files by size, which put them last.
 - Six workers on four vCPUs, because much of the run is asleep. The run takes about 85 CPU-seconds, so four vCPUs set a floor of about 21 s. Eight workers came within 1 s of that floor, but the load average reached 9, and one of six trials with eight workers failed `tests/gate/pidfile.test.ts` because an orphan was not reaped in time. Six workers ran clean.
 
+Measured on 12 October 2026 by running each commit's own workflow steps in scratch homes on this VM. Each side had one cold run (empty home: Chrome download, empty Bun cache), then five warm runs, alternating with the other side. Times are medians in seconds, with the warm range; the queue is not included. Both sides passed every run: 1943 tests before, 1979 after (the 36 new ones are GRS-60's).
+
+| step | before (`6edaff0`) warm | after (`f8f48ef`) warm | before cold | after cold |
+| --- | --- | --- | --- | --- |
+| install Chrome | 3.7 (3.7-3.8) | 0.2 (0.2-0.2) | 34.4 | 34.1 |
+| `check` | 10.1 (9.9-10.1) | 10.3 (10.2-10.4) | 10.8 | 11.2 |
+| `test` | 86.7 (85.5-88.3) | 25.3 (25.2-25.3) | 87.1 | 25.5 |
+| whole job | 100.8 (99.8-102.7) | 36.2 (36.1-36.3) | 138.9 | 77.4 |
+
+`check` grew 0.2 s with `source-check`. Removing the duplicate push run saves queue time, which this table does not show: on 12 October such a run held the runner for 110-140 s while the pull request run waited.
+
 ## What a failed run tells an agent
 
 The `summary` step runs even after a failure. It writes the job summary, and `summary.md` and `summary.json` into the `receipts` artifact. It fails the job, with exit 1, unless the `check` and `test` receipts both exist for the checked-out HEAD, ran on a clean tree, and say PASS with exit 0, and unless `vitest.json` lists every tracked `*.test.ts` file (except `tests/acceptance/`, which Vitest never collects) with at least one test, none failed and none skipped. A skipped test fails the job, because a skip usually means a missing tool. Each problem names:

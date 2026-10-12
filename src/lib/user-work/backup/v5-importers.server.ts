@@ -1,5 +1,6 @@
 // The importers the legacy import hook (legacy.server.ts) runs for a v5 browser backup. Each hands a v5 store's value
-// to its owner's storage under stable ids, so importing one file twice writes the same rows. Registered at start-up.
+// to its owner's storage under stable ids, so importing one file twice writes the same rows. Registered at start-up and, if that did not
+// happen (a storage error stopped it), by the first backup page use.
 import { importV5CustomBundles } from '../../bundles/builder.ts';
 import { importCustom } from '../../views/bundles/store.server.ts';
 import { legacyImporters, registerLegacyImporter } from './legacy.server.ts';

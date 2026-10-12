@@ -14,7 +14,7 @@ export const V5_STORES: readonly { key: string; owner: string; inV5Backup: boole
 	{ key: 'ess_dcs_enf_status_v1', owner: 'GRS-18', inV5Backup: true },
 	{ key: 'ess_dcs_filings_v1', owner: 'GRS-14', inV5Backup: true },
 	{ key: 'ess_dcs_heads_v1', owner: 'GRS-18', inV5Backup: true },
-	{ key: 'ess_dcs_info_done_v1', owner: 'GRS-18', inV5Backup: true },
+	{ key: 'ess_dcs_info_done_v1', owner: 'GRS-15', inV5Backup: true },
 	{ key: 'ess_dcs_payments_v1', owner: 'GRS-16', inV5Backup: true },
 	{ key: 'ess_dcs_popia_v1', owner: 'GRS-17', inV5Backup: true },
 	{ key: 'ess_dcs_privilege_v1', owner: 'GRS-17', inV5Backup: true },

@@ -10,6 +10,7 @@
 	let busy = $state(false);
 	let ready = $state(false);
 	let tooLarge = $state<string | null>(null);
+	let lost = $state<string | null>(null);
 	// the typed path is component state, so neither a submit nor its result clears it; without JavaScript a refused
 	// restore renders it back from the form result
 	const typedPath = () => (form && 'path' in form ? (form.path ?? '') : '');
@@ -57,7 +58,13 @@
 			use:enhance={({ cancel }) => {
 				if (tooLarge) { cancel(); return; }
 				busy = true;
-				return async ({ update }) => { await update({ reset: false }); busy = false; };
+				lost = null;
+				return async ({ result, update }) => {
+					// a request the app did not answer: say so beside the form instead of replacing the page with an error, so the typed path stays
+					if (result.type === 'error') { lost = 'The restore got no answer from the app, so it may not have happened. Your path is kept: check the case\u2019s work, then try again.'; busy = false; return; }
+					await update({ reset: false });
+					busy = false;
+				};
 			}}>
 			<fieldset disabled={busy}>
 				<legend class="visually-hidden">Restore a backup</legend>
@@ -68,6 +75,7 @@
 				{#if busy}<span role="status" id="restore-busy">Checking and restoring…</span>{/if}
 			</fieldset>
 		</form>
+		{#if lost}<p class="error wrap" role="alert" id="restore-lost">{lost}</p>{/if}
 		{#if tooLarge}<p class="error wrap" role="alert" id="restore-too-large">{tooLarge} Nothing was sent.</p>{/if}
 		{#if form && 'message' in form && form.message}<p class="error wrap" role="alert" id="restore-error" data-code={'code' in form ? form.code : ''}>{form.message}</p>{/if}
 		{#if form && 'restored' in form && form.restored}

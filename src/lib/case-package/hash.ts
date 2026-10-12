@@ -5,6 +5,9 @@ import { FORMAT, type InputSource, type ManifestFile } from './schema.ts';
 
 export const sha256Hex = (data: string | Uint8Array): string => createHash('sha256').update(data).digest('hex');
 
+/** The package-file asset key of a literal case-folder path (refs.ts PATH_KEY_PATTERN). */
+export const pathAssetKey = (path: string): string => 'P-' + sha256Hex(path).slice(0, 16);
+
 const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
 
 /** inputRevision.id = 'sha256:' + sha256(compactJcs(sorted [{role, sha256, size}])). Names are provenance only. */

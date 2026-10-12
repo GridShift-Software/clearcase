@@ -11,6 +11,7 @@ import type { Static } from 'typebox';
 import type * as R from './records.ts';
 import { KNOWN_SCHEMAS, SEED_DATASETS } from './registry.ts';
 import type { Asset } from './schema.ts';
+import { isPathKey } from './refs.ts';
 import type { SeedRow } from './user-work.ts';
 import { seedRows, textOf } from './validate.ts';
 
@@ -66,7 +67,7 @@ export function readCandidate(candidate: Candidate) {
   const documentState = (ref: string): DocumentState | null => {
     const row = byRef.get(ref);
     const a = assets.get(ref);
-    if (!row && !a) return null;
+    if (!row && (!a || isPathKey(ref))) return null; // a package file is not a document
     const ts = row?.text_status;
     const text: DocumentState['text'] = a?.textStatus ?? (ts === 'extracted' || ts === 'ocr' || ts === 'none' || ts === 'pending' ? ts : 'unknown');
     const original = candidate.original(ref);
@@ -151,8 +152,8 @@ export function readCandidate(candidate: Candidate) {
     resolveAttachment,
     derivedCounts,
     seeds,
-    /** fingerprint-based identity for anchors: every verified original */
-    originals: (): { ref: string; sha256: string }[] => candidate.originalRefs().map((ref) => ({ ref, sha256: candidate.original(ref)!.sha256 })),
+    /** fingerprint-based identity for anchors: every verified original except package files (P- keys, never documents) */
+    originals: (): { ref: string; sha256: string }[] => candidate.originalRefs().filter((ref) => !isPathKey(ref)).map((ref) => ({ ref, sha256: candidate.original(ref)!.sha256 })),
   };
 }
 

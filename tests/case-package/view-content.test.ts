@@ -50,6 +50,13 @@ describe('view-content extraction', () => {
     expect(Object.values(r.data).reduce((n, v) => n + Object.keys(v).length, 0)).toBe(VIEW_CONTENT_MAP.length);
   });
 
+  it('carries the legality docs card caption (a template on the document count) and the scenario action heading (GRS-45)', () => {
+    const { data, fields } = extract();
+    expect(fields.filter((f) => f.view === 'legality_tab' && f.field !== 'subtitle').map((f) => [f.field, f.status])).toEqual([['docsHeading', 'extracted'], ['scenarioActionHeading', 'extracted']]);
+    expect(data.legality_tab!.docsHeading).toEqual({ template: ['Invented review documents in the bundle (', { param: 'count' }, ')'] });
+    expect(data.legality_tab!.scenarioActionHeading).toBe('Org A action');
+  });
+
   it('reads every value kind: text, markup text, template, number, list', () => {
     const { data } = extract();
     expect(data.overview!.subtitle).toBe('Synthetic Holdings Ltd v Example Department');
@@ -93,7 +100,7 @@ describe('view-content extraction', () => {
 
   it('reports an ambiguous anchor and extracts nothing for it', () => {
     const twice = extract(swap("let h=pageHead('Legality','Could an invented review change the claim?');", "let h=pageHead('Legality','One');h+=pageHead('Legality','Two');"));
-    expect(twice.data.legality_tab).toBeUndefined();
+    expect(twice.data.legality_tab?.subtitle).toBeUndefined();
     expect(twice.diagnostics.map((d) => [d.code, d.subject])).toEqual([['V5_VIEW_CONTENT_AMBIGUOUS', 'legality_tab.subtitle']]);
     const bindings = extract(swap('const q=DATA.quantum;\n  const kpis=[', "const kpis=[['x','y','z']];\n  const q=DATA.quantum;\n  const kpis=["));
     expect(bindings.data.overview).toEqual({ subtitle: 'Synthetic Holdings Ltd v Example Department' });
@@ -119,7 +126,7 @@ describe('view-content extraction', () => {
     const { data, diagnostics } = extract(hostile);
     expect(data.discovery_tab!.plaintiff).toBe('<script>alert(1)</script> ‮LTD {"param":"x"} ${x}');
     expect(data.contracts_tab!.counselNote).toBe('<img src=x onerror=alert(1)> [[OD-001]] javascript:alert(4)');
-    expect(data.legality_tab).toBeUndefined();
+    expect(data.legality_tab?.subtitle).toBeUndefined();
     expect(diagnostics.map((d) => d.subject)).toEqual(['legality_tab.subtitle']);
     const html = renderNarrative(data.contracts_tab!.counselNote as string, { resolveCitationHref: () => '/v/x/doc/OD-001' });
     expect(html).not.toMatch(/<img|<script/);

@@ -3,8 +3,7 @@
 	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
 	import PageHeader from '$lib/components/PageHeader.svelte';
-	import { docPath } from '$lib/local-case/model';
-	import { NOT_SERVED, type Resolved } from '$lib/views/bundles/links';
+	import { NOT_SERVED, hrefOf, type Resolved } from '$lib/views/bundles/links';
 	import { downloadBlob } from '$lib/views/bundles/download';
 	import { postAction } from '$lib/views/bundles/post';
 	import { printIndex } from '$lib/views/bundles/print';
@@ -34,7 +33,8 @@
 	const b = $derived(cur >= 0 ? bs[cur]! : null);
 	const tab = $derived(({ items: 'items', view: 'view' } as Record<string, string>)[page.url.searchParams.get('tab') ?? ''] ?? 'index');
 	const go = (q: Record<string, string>) => goto(`?${new URLSearchParams(q)}`);
-	const href = (r: Resolved | null) => (r ? docPath(vid, r.ref, r.page) : null);
+	// a document's page, or a package file's originals-site link (GRS-45); `page` overrides the locator's page
+	const href = (r: Resolved | null, page?: number) => hrefOf(vid, data.files, r, page);
 	// a bundle saved from the builder this session: its PDF (v5 cbFileUrl over CBBLOB)
 	const blob = (x: Bundle) => (x.id ? (blobs[x.id] ?? null) : null);
 
@@ -150,9 +150,9 @@
 								<td><div>{r.desc || '—'}</div>{#if r.blank}<div class="ex"><span class="badge b-info">intentionally blank</span></div>{/if}{#if r.missing && !r.blank}<div class="ex"><span class="badge b-warn">no file located — supply it or strike the item</span></div>{/if}{#if r.review && !r.missing && !r.blank}<div class="ex"><span class="badge b-info">extent auto-detected — verify</span></div>{/if}</td>
 								<td>{#if !r.parts.length}<span class="tag">—</span>{/if}{#each r.parts as p, j (j)}<div>{#if href(lr.parts[j]!)}<a class="doc" href={href(lr.parts[j]!)}>{cleanName(p.name)} <span class="extlink">↗</span></a>{:else if p.url}{cleanName(p.name)} <span class="not-served">({NOT_SERVED})</span>{:else}{cleanName(p.name)}{/if} <span class="tag">{partRange(p)}</span></div>{/each}{#if r.caselines}<div class="ex">CaseLines {r.caselines.stamps} · {#if href(lr.caselines)}<a href={href(lr.caselines)} target="_blank" rel="noopener">verify page {r.caselines.from}</a>{:else}verify page {r.caselines.from} <span class="not-served">({NOT_SERVED})</span>{/if}</div>{/if}</td>
 								<td class="num">{r.pages || 0}</td><td class="num mono"><b>{#if range(r)}{range(r)}{:else}<span class="tag">—</span>{/if}</b></td>
-								<td>{#if r.sliceUrl}{#if href(lr.slice)}<a class="btn primary sm" href={href(lr.slice)} target="_blank" rel="noopener">Open item</a> {#if data.downloads[lr.slice!.ref]}<a class="btn ghost sm" href={data.downloads[lr.slice!.ref]} rel="noopener noreferrer" download>Save extract</a>{/if}{:else}{@render notServed('Extract')}{/if}{#if r.from}<div class="ex">{#if href(l.file)}<a href={docPath(vid, l.file!.ref, r.from + b.indexPages)} target="_blank" rel="noopener">in the bundle at page {pad(r.from)}</a>{:else}in the bundle at page {pad(r.from)} <span class="not-served">({NOT_SERVED})</span>{/if}</div>{/if}
+								<td>{#if r.sliceUrl}{#if href(lr.slice)}<a class="btn primary sm" href={href(lr.slice)} target="_blank" rel="noopener">Open item</a> {#if data.downloads[lr.slice!.ref]}<a class="btn ghost sm" href={data.downloads[lr.slice!.ref]} rel="noopener noreferrer" download>Save extract</a>{/if}{:else}{@render notServed('Extract')}{/if}{#if r.from}<div class="ex">{#if href(l.file)}<a href={href(l.file, r.from + b.indexPages)} target="_blank" rel="noopener">in the bundle at page {pad(r.from)}</a>{:else}in the bundle at page {pad(r.from)} <span class="not-served">({NOT_SERVED})</span>{/if}</div>{/if}
 									{:else if blob(b) && r.from}<a class="btn primary sm" href="{blob(b)}#page={r.from + b.indexPages}" target="_blank" rel="noopener">Open item</a> <span class="tag">opens the bundle at page {pad(r.from)}</span>
-									{:else if b.file && r.from}{#if href(l.file)}<a class="btn primary sm" href={docPath(vid, l.file!.ref, r.from + b.indexPages)} target="_blank" rel="noopener">Open item</a> <span class="tag">opens the bundle at page {pad(r.from)}</span>{:else}{@render notServed('Open item')}{/if}
+									{:else if b.file && r.from}{#if href(l.file)}<a class="btn primary sm" href={href(l.file, r.from + b.indexPages)} target="_blank" rel="noopener">Open item</a> <span class="tag">opens the bundle at page {pad(r.from)}</span>{:else}{@render notServed('Open item')}{/if}
 									{:else if r.parts.length && href(lr.parts[0]!)}<a class="btn primary sm" href={href(lr.parts[0]!)} target="_blank" rel="noopener">Open item</a>
 									{:else}<span class="tag">—</span>{/if}</td></tr>
 						{/each}

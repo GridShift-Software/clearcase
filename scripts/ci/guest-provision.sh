@@ -25,7 +25,8 @@ provision)
 
   id runner &>/dev/null || useradd --create-home --shell /bin/bash runner
 
-  # Jobs run as runner and reach only the internet: not the host behind 10.0.2.2, the LAN or the tailnet.
+  # Jobs run as runner and reach only the internet: not the host behind 10.0.2.2, the LAN or the tailnet. The VM's
+  # service unit on pc1 enforces the same for every uid; this is a second layer.
   cat >/etc/nftables.conf <<'NFT'
 #!/usr/sbin/nft -f
 table inet clearcase_ci
@@ -56,12 +57,17 @@ NFT
     curl -fsSLo "$work/runner.tar.gz" \
       "https://github.com/actions/runner/releases/download/v$version/actions-runner-linux-x64-$version.tar.gz"
     echo "$sha  $work/runner.tar.gz" | sha256sum -c -
+    # Unpacking over a running service, or one that has updated itself, would mix two versions.
+    [[ ! -f $runner_dir/.service ]] || (cd "$runner_dir" && ./svc.sh stop)
     install -d -o runner -g runner "$runner_dir"
     tar -xzf "$work/runner.tar.gz" -C "$runner_dir"
     chown -R runner:runner "$runner_dir"
     echo "$version" >"$runner_dir/.clearcase-version"
+    [[ ! -f $runner_dir/.service ]] || (cd "$runner_dir" && ./svc.sh start)
   fi
   "$runner_dir/bin/installdependencies.sh" >/dev/null
+  # Recorded in docs/ci-runner.md and the handoff: the image, kernel and tools are not pinned.
+  echo "versions: $(. /etc/os-release && echo "$PRETTY_NAME"), kernel $(uname -r), actions/runner $version, bun $(/usr/local/bin/bun --version)"
   ;;
 register)
   ACTIONS_RUNNER_INPUT_TOKEN=$(head -c 200)

@@ -9,16 +9,26 @@ key=$state/pc1-vm_ed25519
 repo=GridShift-Software/clearcase
 name=clearcase-pc1-vm
 
+# The service allows only 127.0.0.57 on pc1's loopback, so socat on pc1 binds that source address for the forward.
 guest() {
   ssh -i "$key" -o IdentitiesOnly=yes -o UserKnownHostsFile="$state/known_hosts" -o HostKeyAlias=$name \
-    -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 -J "$host" -p 2257 ciadmin@127.0.0.1 "$@"
+    -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 \
+    -o ProxyCommand="ssh $host socat - TCP:127.0.0.57:2257,bind=127.0.0.57" ciadmin@127.0.0.57 "$@"
 }
 wait_guest() {
+  local answered= rc
   for _ in $(seq 60); do
-    guest true 2>/dev/null && guest cloud-init status --wait >/dev/null && return
+    if guest true 2>/dev/null; then
+      answered=1
+      rc=0
+      guest cloud-init status --wait >/dev/null 2>&1 || rc=$?
+      # 2 is cloud-init finished degraded, which a booted guest with working SSH tolerates.
+      [[ $rc == 0 || $rc == 2 ]] && return
+    fi
     sleep 5
   done
-  echo "pc1-vm: the guest did not answer SSH within 5 minutes" >&2
+  if [[ -n $answered ]]; then echo "pc1-vm: the guest answers SSH but cloud-init reports an error (exit $rc)" >&2
+  else echo "pc1-vm: the guest did not answer SSH within 5 minutes" >&2; fi
   return 1
 }
 runner_id() { gh api "repos/$repo/actions/runners" --jq ".runners[] | select(.name == \"$name\") | .id"; }
@@ -48,6 +58,11 @@ ssh)
   shift
   guest "$@"
   ;;
+refresh)
+  # Rewrite the service unit with pc1's current networks and restart the VM; the disk and the runner stay.
+  ssh "$host" bash -s -- unit <"$here/vm-host.sh"
+  wait_guest
+  ;;
 start | stop | restart | status)
   ssh "$host" systemctl "$1" --no-pager clearcase-ci-vm.service
   ;;
@@ -58,7 +73,7 @@ destroy)
   rm -f "$state/known_hosts"
   ;;
 *)
-  echo "usage: scripts/ci/pc1-vm create | provision | register | ssh [COMMAND] | start | stop | restart | status | destroy" >&2
+  echo "usage: scripts/ci/pc1-vm create | provision | register | refresh | ssh [COMMAND] | start | stop | restart | status | destroy" >&2
   exit 2
   ;;
 esac

@@ -45,39 +45,39 @@ describe('D9: the Discovery index and marked cover', () => {
 	});
 });
 
-describe('D10: schedule cells and items rows that show the not-served marker', () => {
+describe('D10 after GRS-45: package files are served, so the not-served marker is never registered', () => {
 	const raw = (desc: string, chips: string[]): Raw => ({ tables: [{ header: ['', 'Item', 'Document(s) & description', 'Date'], rows: [[[], ['3.'], [desc, ...chips], ['01/02/2001']]] }] });
 	const cells = (r: Raw) => { splitFileActions(r); const t = r.tables[0]!; return Object.fromEntries(t.header.map((h, j) => [h.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'c' + j, (t.rows[0]![j] ?? []).join(' / ')])); };
 	const v5 = cells(raw('Synthetic description', ['(1) a.pdfCOOpenDownload', '(2) b.pdfCOOpenDownload']));
-	it('only the file actions column differs for a not-served file, and IDR-350 covers it', () => {
-		const ds = diffs(v5, cells(raw('Synthetic description', ['(1) a.pdfCOOpenDownload', `(2) b.pdfCO${NS}`])), 'table.table_1.row.4.');
-		expect(ds.map((d) => [d.path, by('discovery_tab', d)])).toEqual([['table.table_1.row.4.file_actions', 'IDR-350']]);
+	it('a served schedule file compares equal; a not-served one is unregistered (IDR-350 deleted)', () => {
+		expect(diffs(v5, cells(raw('Synthetic description', ['(1) a.pdfCOOpenDownload', '(2) b.pdfCOOpenDownload'])), 'table.table_1.row.4.')).toEqual([]);
+		expect(unregistered('discovery_tab', diffs(v5, cells(raw('Synthetic description', ['(1) a.pdfCOOpenDownload', `(2) b.pdfCO${NS}`])), 'table.table_1.row.4.'))).toEqual(['table.table_1.row.4.file_actions']);
 	});
-	it('a wrong description or file name in a cell that also shows the marker is unregistered', () => {
-		expect(unregistered('discovery_tab', diffs(v5, cells(raw('Changed description', ['(1) a.pdfCOOpenDownload', `(2) b.pdfCO${NS}`])), 'table.table_1.row.4.'))).toEqual(['table.table_1.row.4.document_s_description']);
-		expect(unregistered('discovery_tab', diffs(v5, cells(raw('Synthetic description', ['(1) a.pdfCOOpenDownload', `(2) wrong.pdfCO${NS}`])), 'table.table_1.row.4.'))).toEqual(['table.table_1.row.4.document_s_description']);
+	it('a wrong description or file name is unregistered', () => {
+		expect(unregistered('discovery_tab', diffs(v5, cells(raw('Changed description', ['(1) a.pdfCOOpenDownload', '(2) b.pdfCOOpenDownload'])), 'table.table_1.row.4.'))).toEqual(['table.table_1.row.4.document_s_description']);
+		expect(unregistered('discovery_tab', diffs(v5, cells(raw('Synthetic description', ['(1) a.pdfCOOpenDownload', '(2) wrong.pdfCOOpenDownload'])), 'table.table_1.row.4.'))).toEqual(['table.table_1.row.4.document_s_description']);
 	});
-	it('a missing Download on a served file is unregistered (only the marker is a known gap)', () => {
+	it('a missing Download on a served file is unregistered', () => {
 		expect(unregistered('discovery_tab', diffs(v5, cells(raw('Synthetic description', ['(1) a.pdfCOOpen', '(2) b.pdfCOOpenDownload'])), 'table.table_1.row.4.'))).toEqual(['table.table_1.row.4.file_actions']);
 	});
 	const row = (n: string, ref: string, desc: string, from: string, pages: string, nos: string, actions: string) => [n, ref, desc, from, pages, nos, actions];
 	const V5ROW = row('1', 'OD-1', 'Synthetic letter', 'Synthetic.pdf ↗ pp 1–3 of source / CaseLines 001 – 003 · verify page 4', '3', '001 – 003', 'Open item Save extract / in the bundle at page 001');
-	const APPROW = row('1', 'OD-1', 'Synthetic letter', `Synthetic.pdf (${NS}) pp 1–3 of source / CaseLines 001 – 003 · verify page 4`, '3', '001 – 003', `Extract (${NS}) / in the bundle at page 001 (${NS})`);
 	const P = 'sweep.bundle_tabs.';
-	it('the actions cell and the not-served part\'s link state are covered (IDR-360, IDR-362); the Extracted-from text compares exactly', () => {
-		const ds = diffs(itemCells(0, V5ROW), itemCells(0, APPROW), P);
-		expect(ds.map((d) => [d.path, by('court_bundle_tab', d)])).toEqual([['sweep.bundle_tabs.items.r0.from_link.0', 'IDR-362'], ['sweep.bundle_tabs.items.r0.actions', 'IDR-360']]);
+	it('a served items row compares equal; a not-served extract or part is unregistered (IDR-360, IDR-362 deleted)', () => {
+		expect(diffs(itemCells(0, V5ROW), itemCells(0, [...V5ROW]), P)).toEqual([]);
+		const app = row('1', 'OD-1', 'Synthetic letter', `Synthetic.pdf (${NS}) pp 1–3 of source / CaseLines 001 – 003 · verify page 4`, '3', '001 – 003', `Extract (${NS}) / in the bundle at page 001 (${NS})`);
+		expect(unregistered('court_bundle_tab', diffs(itemCells(0, V5ROW), itemCells(0, app), P))).toEqual(['sweep.bundle_tabs.items.r0.from_link.0', 'sweep.bundle_tabs.items.r0.actions']);
 	});
 	it.each([[4, '99', 'M2: a wrong page count'], [1, 'OD-9', 'a wrong ref'], [2, 'Changed letter', 'a wrong description'], [5, '900 – 999', 'a wrong page range']] as const)('%s', (j, v, _what) => {
-		const app = [...APPROW]; app[j] = v;
+		const app = [...V5ROW]; app[j] = v;
 		expect(unregistered('court_bundle_tab', diffs(itemCells(0, V5ROW), itemCells(0, app), P))).toHaveLength(1);
 	});
-	it('a wrong part (source file or its pages) in a not-served row is unregistered', () => {
-		const app = [...APPROW]; app[3] = `Other.pdf (${NS}) pp 9–9 of source / CaseLines 001 – 003 · verify page 4`;
+	it('a wrong part (source file or its pages) is unregistered', () => {
+		const app = [...V5ROW]; app[3] = 'Other.pdf ↗ pp 9–9 of source / CaseLines 001 – 003 · verify page 4';
 		expect(unregistered('court_bundle_tab', diffs(itemCells(0, V5ROW), itemCells(0, app), P))).toEqual(['sweep.bundle_tabs.items.r0.from']);
 	});
 	it('an extra app-only items row is unregistered', () => {
-		const ds = diffs({}, itemCells(9, APPROW), P);
+		const ds = diffs({}, itemCells(9, V5ROW), P);
 		expect(unregistered('court_bundle_tab', ds).sort()).toEqual(ds.map((d) => d.path).sort());
 	});
 	it('the shared differ sees the same paths', () => {

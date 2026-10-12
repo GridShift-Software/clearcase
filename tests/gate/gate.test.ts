@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 // @ts-expect-error plain .mjs script, no declarations
 import { readHead, runGate, v5Prerequisite } from '../../scripts/gate.mjs';
 
-type Step = { name: string; cmd: string[]; browser?: boolean; needs?: () => string | null };
+type Step = { name: string; cmd: string[]; browser?: boolean; needs?: () => string | null; summary?: { dir: string; file: string; env?: string } };
 const head = { sha: 'abc123def456', dirty: false };
 let repo: string;
 beforeEach(() => { repo = mkdtempSync(join(tmpdir(), 'gate-test-')); });
@@ -24,14 +24,14 @@ const now = () => (t += 2000);
 
 describe('runGate', () => {
 	it('passes: one PASS line per step between the head line and GATE PASS', () => {
-		const r = runGate(steps, { repo, head, lock: null, run: stub(null), now });
+		const r = runGate(steps, { repo, env: {}, head, lock: null, run: stub(null), now });
 		expect(r.pass).toBe(true);
 		expect(r.lines).toEqual(['gate abc123def456 clean tree', 'PASS a 2s', 'PASS b 2s', 'PASS c 2s', 'GATE PASS abc123def456']);
 	});
 
 	it('stops at the first failure, skips the rest, and prints a bounded log tail', () => {
 		const ran: string[][] = [];
-		const r = runGate(steps, { repo, head, lock: null, run: stub('b', 500, ran), now });
+		const r = runGate(steps, { repo, env: {}, head, lock: null, run: stub('b', 500, ran), now });
 		expect(r.pass).toBe(false);
 		expect(r.failed).toBe('b');
 		expect(ran).toEqual([['a'], ['b']]);
@@ -47,7 +47,7 @@ describe('runGate', () => {
 		['a spawn error', { status: null, error: new Error('spawn /x/lock ENOENT') }, 'gate: cannot run a: spawn /x/lock ENOENT'],
 		['a signal', { status: null, signal: 'SIGTERM' }, 'gate: killed by SIGTERM'],
 	])('fails %s and says why in the tail', (_n, result, line) => {
-		const r = runGate(steps, { repo, head, lock: null, run: () => result, now });
+		const r = runGate(steps, { repo, env: {}, head, lock: null, run: () => result, now });
 		expect(r.pass).toBe(false);
 		expect(r.lines).toContain('FAIL a 2s');
 		expect(r.lines).toContain(line);
@@ -55,33 +55,92 @@ describe('runGate', () => {
 	});
 
 	it('fails a step that exits 75, the lock\'s own failure code', () => {
-		const r = runGate(steps, { repo, head, lock: null, run: () => ({ status: 75 }), now });
+		const r = runGate(steps, { repo, env: {}, head, lock: null, run: () => ({ status: 75 }), now });
 		expect(r.lines).toContain('FAIL a 2s');
 		expect(r.lines.at(-1)).toBe('GATE FAIL a abc123def456');
 	});
 
 	it('marks a dirty tree on the first line', () => {
-		const r = runGate(steps, { repo, head: { ...head, dirty: true }, lock: null, run: stub(null), now });
+		const r = runGate(steps, { repo, env: {}, head: { ...head, dirty: true }, lock: null, run: stub(null), now });
 		expect(r.lines[0]).toMatch(/DIRTY/);
 	});
 
 	it('wraps only browser steps in the lock command, and only when it is set', () => {
 		const withLock: string[][] = [];
-		runGate(steps, { repo, head, lock: '/x/lock', run: stub(null, 0, withLock), now });
+		runGate(steps, { repo, env: {}, head, lock: '/x/lock', run: stub(null, 0, withLock), now });
 		expect(withLock).toEqual([['a'], ['/x/lock', 'b'], ['c']]);
 		const without: string[][] = [];
-		runGate(steps, { repo, head, lock: null, run: stub(null, 0, without), now });
+		runGate(steps, { repo, env: {}, head, lock: null, run: stub(null, 0, without), now });
 		expect(without).toEqual([['a'], ['b'], ['c']]);
 	});
 
 	it('fails, never skips, a step whose prerequisite is missing, without running it', () => {
 		const ran: string[][] = [];
 		const needy: Step[] = [{ name: 'a', cmd: ['a'], needs: () => 'missing prerequisite: x' }, steps[2]];
-		const r = runGate(needy, { repo, head, lock: null, run: stub(null, 0, ran), now });
+		const r = runGate(needy, { repo, env: {}, head, lock: null, run: stub(null, 0, ran), now });
 		expect(ran).toEqual([]);
 		expect(r.lines).toContain('FAIL a 2s');
 		expect(r.lines).toContain('missing prerequisite: x');
 		expect(r.lines.at(-1)).toBe('GATE FAIL a abc123def456');
+	});
+});
+
+/** A real child process that writes `body` (a file's text) as its summary and exits 0; null writes nothing. The gate passes the folder in $PROBE_OUT. */
+const probeWith = (body: string | null): Step => ({
+	name: 'probe',
+	cmd: [process.execPath, '-e', `const fs = require('node:fs'); const d = process.env.PROBE_OUT ?? ${JSON.stringify(join(repo, '.local', 'gate', 'probe-out'))}; fs.mkdirSync(d, { recursive: true }); if (${JSON.stringify(body)} !== null) fs.writeFileSync(d + '/summary.json', ${JSON.stringify(body)})`],
+	summary: { dir: join('.local', 'gate', 'probe-out'), file: 'summary.json', env: 'PROBE_OUT' },
+});
+const probe = (doc: object | null) => probeWith(doc && JSON.stringify(doc));
+const good = { ok: true, evidence: true, freshBuild: { head: `${head.sha}0000000000000000000000000000` } };
+const gate = (s: Step) => runGate([s], { repo, env: {}, head, lock: null, now });
+
+describe('evidence-qualified summaries', () => {
+	it('fails a child that exits 0 and writes evidence: false', () => {
+		const r = gate(probe({ ...good, evidence: false, evidenceNote: 'NOT release evidence: E2E_ONLY=x' }));
+		expect(r.pass).toBe(false);
+		expect(r.lines).toContain('FAIL probe 2s');
+		expect(r.lines).toContain('probe: summary says evidence is not true: NOT release evidence: E2E_ONLY=x');
+		expect(r.lines.at(-1)).toBe('GATE FAIL probe abc123def456');
+	});
+
+	it('fails a summary of another revision', () => {
+		const r = gate(probe({ ...good, freshBuild: { head: 'f'.repeat(40) } }));
+		expect(r.lines.at(-1)).toBe('GATE FAIL probe abc123def456');
+		expect(r.lines.join('\n')).toMatch(/summary is for revision ffffffffffff, not HEAD abc123def456/);
+	});
+
+	it('fails when the child writes no summary, and a leftover one from an earlier run does not count', () => {
+		const dir = join(repo, '.local', 'gate', 'probe-out');
+		mkdirSync(dir, { recursive: true });
+		writeFileSync(join(dir, 'summary.json'), JSON.stringify(good));
+		const r = gate(probe(null));
+		expect(r.lines.at(-1)).toBe('GATE FAIL probe abc123def456');
+		expect(r.lines.join('\n')).toMatch(/probe: no summary at .*summary\.json/);
+	});
+
+	it('fails a summary with ok: false or one that does not parse', () => {
+		expect(gate(probe({ ...good, ok: false })).pass).toBe(false);
+		expect(gate(probeWith('{')).lines.join('\n')).toMatch(/probe: summary does not parse/);
+	});
+
+	it('passes a fresh evidence: true summary for HEAD', () => {
+		const r = gate(probe(good));
+		expect(r.pass).toBe(true);
+		expect(r.lines.at(-1)).toBe('GATE PASS abc123def456');
+	});
+});
+
+describe('reduced runs', () => {
+	it.each(['E2E_ONLY', 'E2E_STOP_AFTER', 'E2E_LATENCY_SIZES_MIB', 'CLEARCASE_E2E_TMP', 'PARITY_MAX_COMBOS'])('refuses to start when %s is set, even empty', (name) => {
+		for (const value of ['1', '']) {
+			const ran: string[][] = [];
+			const r = runGate(steps, { repo, env: { [name]: value }, head, lock: null, run: stub(null, 0, ran), now });
+			expect(ran).toEqual([]);
+			expect(r.pass).toBe(false);
+			expect(r.lines.join('\n')).toContain(`${name} is set`);
+			expect(r.lines.at(-1)).toBe('GATE FAIL env abc123def456');
+		}
 	});
 });
 

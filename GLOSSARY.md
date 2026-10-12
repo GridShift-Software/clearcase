@@ -33,11 +33,11 @@ A versioned set of processed case data and its mappings to the originals, identi
 _Avoid_: Backup when referring to processing output.
 
 **resultsVersion**:
-The content identity of a results package. Any change to its data or to an original it maps gives a new resultsVersion; the same content always gives the same one.
+The content identity of a results package. Any change to its data or to an original it maps gives a new resultsVersion; the same content always gives the same one. Routes and pages call it `vid`, and test code `rv`; both mean the resultsVersion.
 _Avoid_: Version number, build id.
 
 **Accepted identity**:
-The resultsVersion that a reviewed conversion of the v5 sample produced, recorded so that any later change in conversion output is noticed.
+The pair {resultsVersion, diagnosticsSha256} that a reviewed conversion of the v5 sample produced, recorded so that any later change in conversion output or diagnostics is noticed.
 _Avoid_: Expected hash.
 
 **Candidate**:
@@ -63,6 +63,34 @@ _Avoid_: Generated analysis for user-entered records.
 **Register**:
 A list of user work that people maintain in a view, such as deadlines, filings or authorities.
 _Avoid_: Register alone for the intentional-differences register.
+
+**Store**:
+A local database the app owns. The results store holds the imported results versions; the user-work store holds user work, apart from results, and survives a change of results version.
+_Avoid_: Workspace store, local store and case store in user messages; say which store.
+
+**Seed**:
+A row that a results package supplies for a register, with an id that stays the same across versions.
+_Avoid_: Imported topic, default row.
+
+**Overlay**:
+A user's edit or deletion of a seed, kept in user work and keyed by the seed's id. The seed itself is never changed.
+_Avoid_: Override, patch.
+
+**Orphaned**:
+The state of an overlay whose seed is gone from the active results version. The edit is kept and shown.
+_Avoid_: Dangling, deleted.
+
+**Document row**:
+One entry in a version's document list: an imported row from the results package, in source order, or a provider row. It is addressed by its ref.
+_Avoid_: Document alone for the row.
+
+**Provider row**:
+A document row that a registered provider adds after the imported rows, for a document the results package does not list. When a provider row and an imported row share a ref, the imported row wins.
+_Avoid_: Extra document.
+
+**Ref**:
+The identifier of a document row, unique within a results version. A citation resolves only when its ref names a document row.
+_Avoid_: Document id.
 
 ### Matching v5
 

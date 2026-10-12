@@ -80,7 +80,7 @@ const { abortOf, abortReason, deadline, exitWithin, guard } = await import('../.
 const { client, vpath } = await import('../../tests/e2e/pilot/lib/client.mjs');
 const { startServer } = await import('../../tests/e2e/pilot/lib/server.mjs');
 const { ConfigError, loadConfig, PROFILE, v5Package, readPackage } = await import('../../tests/e2e/pilot/v5/fixture.mjs');
-const { v5Page, appPage } = await import('./lib/browser.mjs');
+const { v5Page, appPage, BROWSER_INTERNAL } = await import('./lib/browser.mjs');
 const { classify, diff, runFailures, scorecard, TYPES } = await import('./lib/compare.mjs');
 const { chronologyDims } = await import('./lib/sweeps.mjs');
 const { extractV5View, v5Nav } = await import('./adapters/v5/index.mjs');
@@ -185,7 +185,7 @@ try {
 		console.log(`  ${view.padEnd(20)} v5 ${s5.status.padEnd(6)} app ${sa.status.padEnd(15)} compared ${String(r.compared).padStart(6)} matched ${String(r.matched).padStart(6)} registered ${r.registered.length}${reg2 ? ` (${reg2})` : ''} unregistered ${r.unregistered.length} ${perView[view].ms} ms`);
 	});
 	writeFileSync(at('v5-requests.json'), JSON.stringify({ network: [...v5.nonFile, ...(selfV5?.nonFile ?? [])], browserInternal: [...v5.internal, ...(selfV5?.internal ?? [])] }, null, 1) + '\n');
-	details.__requests = { v5BrowserInternal: v5.internal.length + (selfV5?.internal.length ?? 0), v5NonFile: v5.nonFile.length + (selfV5?.nonFile.length ?? 0), appNonLoopback: app.requests.filter((u) => !/^(https?:\/\/(127\.0\.0\.1|[a-z0-9-]+\.localhost)(:\d+)?\/|data:|blob:|about:)/.test(u)).length };
+	details.__requests = { v5BrowserInternal: v5.internal.length + (selfV5?.internal.length ?? 0), v5NonFile: v5.nonFile.length + (selfV5?.nonFile.length ?? 0), appNonLoopback: app.requests.filter((u) => !/^(https?:\/\/(127\.0\.0\.1|[a-z0-9-]+\.localhost)(:\d+)?\/|data:|blob:|about:)/.test(u) && !BROWSER_INTERNAL.test(u)).length };
 } catch (e) {
 	const a = abortOf(e, 'the run');
 	if (a) console.error(`parity: run aborted in ${a.step}: ${a.why}`);

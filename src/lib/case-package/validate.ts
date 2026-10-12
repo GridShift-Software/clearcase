@@ -304,7 +304,8 @@ function checkAssets(assets: Record<string, Asset>, register: Set<string>, sink:
     if (a.kind === 'embedded' && ref !== `${a.parentRef}.a${a.ordinal}`) sink.add('ID_REF_INVALID', 'an embedded asset key must be <parentRef>.a<ordinal>', at(''));
     if (a.kind === 'missing') sink.add('ASSET_MISSING_AT_BUILD', 'the converter found no original for this document', at('/path'));
     if (a.kind === 'file') {
-      bySha.set(a.sha256, [...(bySha.get(a.sha256) ?? []), ref]);
+      // shared content matters for re-anchoring documents; a package file is not a candidate
+      if (!isPathKey(ref)) bySha.set(a.sha256, [...(bySha.get(a.sha256) ?? []), ref]);
       if (a.size > L.originalBytes) sink.add('ASSET_TOO_LARGE', `declared size ${a.size} exceeds ${L.originalBytes} bytes`, at('/size'));
       if (byPath.get(a.path) === ref) declared += a.size;
     }

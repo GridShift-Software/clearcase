@@ -19,7 +19,8 @@ const pdf = (s: string) => new TextEncoder().encode(`%PDF-1.4\n% ${s}\n%%EOF\n`)
 const ON_DISK = {
   'BUNDLES/Bundle C.pdf': pdf('invented bundle'),
   'BUNDLES/Index C.pdf': pdf('invented index'),
-  'BUNDLES/extracts/Item 1.pdf': pdf('invented extract'),
+  // byte-identical to the register original OD-001 (an extract of a whole document)
+  'BUNDLES/extracts/Item 1.pdf': pdf('synthetic agreement'),
   'SOURCES/Part one.pdf': pdf('invented part'),
   'SOURCES/Schedule file.pdf': pdf('invented schedule file'),
 };
@@ -86,8 +87,10 @@ describe('the v5 adapter indexes package files', () => {
     const b = await packageFiles('pkgimport');
     const r = await importCandidate({ files: b.files }, b.caseDir);
     expect(errors(r)).toEqual([]);
-    // no orphan or text warnings for package files; the missing extract is reported as missing
+    // no orphan, text or shared-content diagnostics for package files (the part is byte-identical to the schedule
+    // file and the bundle may equal a document); the missing extract is reported as missing
     expect(r.diagnostics.filter((d) => d.subject?.startsWith('P-')).map((d) => d.code).sort()).toEqual(['ASSET_MISSING_AT_BUILD']);
+    expect(r.diagnostics.filter((d) => d.code === 'ASSET_DUPLICATE_CONTENT' && d.subject === sha256Hex(ON_DISK['BUNDLES/extracts/Item 1.pdf']).slice(0, 16))).toEqual([]);
     const key = pathAssetKey('BUNDLES/Bundle C.pdf');
     expect(r.candidate!.original(key)).toMatchObject({ path: 'BUNDLES/Bundle C.pdf', status: 'verified' });
     expect(r.candidate!.isUnavailable(pathAssetKey('BUNDLES/extracts/Gone.pdf'))).toBe(true);

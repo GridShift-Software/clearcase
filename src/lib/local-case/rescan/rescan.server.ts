@@ -16,6 +16,7 @@ import path from 'node:path';
 import { now } from '../../components/clock.ts';
 import { registerDocumentRowProvider, type ProviderRow } from '../documents.server.ts';
 import type { ChronologyListRow, DocumentStateRow } from '../model.ts';
+import { inTurn } from '../registers.server.ts';
 import type { LocalCase } from '../service.server.ts';
 import type { TableCell } from '../user-work.server.ts';
 import { compare, verdict, type IndexedOriginal, type RescanFile, type ScanMode, type ScanOutcome, type WalkedFile } from './rules.ts';
@@ -129,12 +130,8 @@ export async function walk(root: string, opts: { skip?: readonly string[]; hash?
 	return { files, skipped };
 }
 
-const queues = new Map<string, Promise<unknown>>();
-function serial<T>(key: string, fn: () => Promise<T>): Promise<T> {
-	const run = (queues.get(key) ?? Promise.resolve()).then(fn);
-	queues.set(key, run.then(() => undefined, () => undefined));
-	return run;
-}
+// one scan per case at a time, in the case's register queue: a restore of the case waits for a scan, and a scan for it
+const serial = <T>(lc: LocalCase, caseId: string, fn: () => Promise<T>): Promise<T> => inTurn(lc.userWork, caseId, 'rescan\u0000', fn);
 
 const cellsOf = (caseId: string, rv: string, r: RescanFile): Record<string, TableCell> => ({
 	case_id: caseId, results_version: rv, path: r.path, kind: r.kind, ref: r.ref, size: r.size, mtime_ms: r.mtimeMs, sha256: r.sha256,
@@ -151,7 +148,7 @@ export interface ScanResult extends RunSummary { rows: RescanFile[]; skipped: nu
 export function rescan(lc: LocalCase, resultsVersion: string, mode: ScanMode): Promise<ScanResult> {
 	const v = lc.store.getVersion(resultsVersion);
 	if (!v) return Promise.reject(new ScanError('unknown results version'));
-	return serial(v.case_id, async () => {
+	return serial(lc, v.case_id, async () => {
 		await rescanTables(lc);
 		const started = performance.now();
 		const { indexed, taken } = indexedOf(lc, resultsVersion);
@@ -184,7 +181,7 @@ export function rescan(lc: LocalCase, resultsVersion: string, mode: ScanMode): P
 export function clearAdditions(lc: LocalCase, resultsVersion: string): Promise<number> {
 	const v = lc.store.getVersion(resultsVersion);
 	if (!v) return Promise.reject(new ScanError('unknown results version'));
-	return serial(v.case_id, async () => {
+	return serial(lc, v.case_id, async () => {
 		let n = 0;
 		for (const r of rescanRows(lc, v.case_id, resultsVersion)) {
 			if (r.kind !== 'added' && r.kind !== 'withdrawn') continue;

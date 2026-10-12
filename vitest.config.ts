@@ -18,6 +18,7 @@ export default defineConfig({
       'src/lib/local-case/**/*.test.ts',
       'src/lib/components/**/*.test.ts',
       'tests/parity/**/*.test.ts',
+      'tests/gate/**/*.test.ts',
       'tests/{evidence,analysis,quantum,calculations,registers,litigation,bundles,system}/**/*.test.ts',
       'src/lib/{evidence,analysis,calculations,litigation,bundles,views,user-work}/**/*.test.ts',
       'src/routes/**/*.test.ts',

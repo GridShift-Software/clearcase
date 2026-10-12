@@ -1,10 +1,11 @@
-// Payment writes (GRS-16, CC-06 r2, D1 to D3): one queue per case, seq computed inside it, and the Delete's
-// stored-fields check. A fake store whose writes wait on a gate stands in for a busy work.sqlite (the real store's busy
+// Payment writes (GRS-16, CC-06 r2, D1 to D3) on the register store: one queue per case, seq computed inside it, and
+// the Delete's stored-fields check, as the payments view uses them. The store's races, stale and gone are tested once
+// in src/lib/local-case/registers.test.ts. A fake store whose writes wait on a gate stands in for a busy work.sqlite (the real store's busy
 // retries await for about 10 s); the browser suite drives the same races through the production entry.
 import { describe, expect, it } from 'vitest';
 import type { RegisterRow, RegisterValue } from '../../src/lib/local-case/user-work.server';
 import { PAYMENTS_STORE } from '../../src/lib/views/quantum/payments';
-import { addPayment, deletePayment, fieldsHash, listPayments, type Work } from '../../src/lib/views/quantum/writes.server';
+import { addPayment, deletePayment, listPayments, type Work } from '../../src/lib/views/quantum/writes.server';
 
 /** An in-memory store: every write first awaits `gate` (held: the store is busy). */
 function fakeStore() {
@@ -96,11 +97,15 @@ describe('the Delete recheck (D1 to D3)', () => {
 		expect([await add.then(() => 'added'), await del]).toEqual(['added', 'deleted']);
 		expect(listPayments(w, 'c1').map((p) => [p.note, p.seq])).toEqual([['Synthetic in flight', 2]]);
 	});
-	it('hashes the stored fields, not updatedAt: equal fields hash equally, any changed field differs', () => {
-		const f = { date: '2089-04-01', amount: '2.00', amountCents: 200, method: 'Synthetic', note: 'n', seq: 1 };
-		expect(fieldsHash(f)).toBe(fieldsHash({ ...f }));
-		expect(fieldsHash({ ...f, note: 'n2' })).not.toBe(fieldsHash(f));
-		expect(fieldsHash({ ...f, seq: 2 })).not.toBe(fieldsHash(f));
+	it('a payment\'s hash is the version of its stored fields: rewriting the same fields keeps it, a changed field does not', async () => {
+		const w = fakeStore();
+		const id = await addPayment(w, 'c1', entry('Synthetic n'), 200n);
+		const h = listPayments(w, 'c1')[0]!.hash;
+		const row = w.rows.get(id)!;
+		w.rows.set(id, { ...row, updatedAt: '2026-10-09T09:00:00.000Z', fields: { ...row.fields } });
+		expect(listPayments(w, 'c1')[0]!.hash).toBe(h);
+		w.rows.set(id, { ...row, fields: { ...row.fields, note: 'Synthetic n2' } });
+		expect(listPayments(w, 'c1')[0]!.hash).not.toBe(h);
 	});
 	it('lists the store the page reads', () => expect(PAYMENTS_STORE).toBe('payments'));
 });

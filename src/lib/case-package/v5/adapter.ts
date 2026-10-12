@@ -7,7 +7,7 @@ import { pathAssetKey, sha256Hex } from '../hash.ts';
 import { withLimits, type Limits } from '../limits.ts';
 import { capabilityOf, mediaTypeForName, type TextStatus } from '../media.ts';
 import { fingerprintOriginal, Interrupted, openCaseFolder } from '../originals.ts';
-import { checkRelPath, decodeLegacyLocator, foldPath } from '../paths.ts';
+import { checkRelPath, decodeLegacyLocator, foldPath, isReservedPath } from '../paths.ts';
 import { isRef } from '../refs.ts';
 import { CONVERSION_REPORT, LAYOUT, OPAQUE_SCHEMA, V5_DATASETS, V5_SPLIT_PARENTS, VIEW_CONTENT } from '../registry.ts';
 import type { Asset, Manifest } from '../schema.ts';
@@ -175,6 +175,11 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
     const d = decodeLegacyLocator(u);
     if (!d.ok || d.directory || taken.has(foldPath(d.path))) continue;
     taken.add(foldPath(d.path));
+    if (isReservedPath(d.path)) {
+      // the .clearcase/ area is the application's: such a link is not a package file, whether or not the path exists
+      sink.add('ORIG_MISSING', `the linked file for ${pathAssetKey(d.path)} is not served (reserved)`, { file: 'input', subject: pathAssetKey(d.path) });
+      continue;
+    }
     const mediaType = mediaTypeForName(d.path);
     jobs.push({ ref: pathAssetKey(d.path), path: d.path, mediaType, textStatus: capabilityOf(mediaType) === 'text' ? 'pending' : 'unsupported', claimed: undefined, packageFile: true });
   }
@@ -191,6 +196,16 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
       } catch (e) {
         if (e instanceof Interrupted) throw e;
         fp = { kind: 'unreadable' };
+      }
+      if (j.packageFile && (fp.kind === 'not-file' || fp.kind === 'unreadable' || fp.kind === 'too-large' || fp.kind === 'reserved')) {
+        // a package file is only a link target: one that cannot be served leaves that link "not served" and never
+        // refuses the case. A path under .clearcase/ cannot be an asset at all (import refuses it), so it gets none.
+        sink.add('ORIG_MISSING', `the linked file for ${j.ref} is not served (${fp.kind})`, { file: 'input', subject: j.ref });
+        if (fp.kind !== 'reserved') {
+          assets[j.ref] = { kind: 'missing', path: j.path, mediaType: j.mediaType, textStatus: j.textStatus };
+          stats.assetsMissing++;
+        }
+        continue;
       }
       if (fp.kind !== 'file' && fp.kind !== 'missing') {
         // never downgrade a refused original to "missing": these are errors

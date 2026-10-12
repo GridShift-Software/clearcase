@@ -76,6 +76,7 @@ ensureOffline(import.meta.filename);
 const { proveOffline } = await import('../../tests/e2e/pilot/lib/netproof.mjs');
 const { startCanary } = await import('../../tests/e2e/pilot/lib/canary.mjs');
 const { launch, DISABLED_FEATURES } = await import('../../tests/e2e/pilot/lib/cdp.mjs');
+const { abortOf, abortReason, deadline, exitWithin, guard } = await import('../../tests/e2e/pilot/lib/lifecycle.mjs');
 const { client, vpath } = await import('../../tests/e2e/pilot/lib/client.mjs');
 const { startServer } = await import('../../tests/e2e/pilot/lib/server.mjs');
 const { ConfigError, loadConfig, PROFILE, v5Package, readPackage } = await import('../../tests/e2e/pilot/v5/fixture.mjs');
@@ -133,8 +134,13 @@ if (pkg.manifest.resultsVersion !== fx.accepted.resultsVersion) setup(`converted
 const dims = chronologyDims(pkg.chronology);
 
 const canary = await startCanary();
-let srv, b, exitCode = 0;
+let srv, b, exitCode = 0, aborted = null;
 const perView = {}, details = {};
+// Fail fast (tests/e2e/pilot/lib/lifecycle.mjs): the browser setup and each view run under a deadline (setup 3 min,
+// a view 5 min; the slowest view, chronology, takes about 80 s) and end at once when Chromium exits or a page crashes.
+// The run then stops with exit 2, names the view and the cause, and its scorecard records `evidence: false` and
+// `aborted`, as for any aborted run; a launch that failed once and then worked is recorded in `browser`.
+const SETUP_MS = deadline(3 * 60_000), VIEW_MS = deadline(5 * 60_000);
 try {
 	const port = PORTS.first + 40, origPort = port + 1;
 	srv = await startServer({ root: appRoot, port, origPort, dataDir: join(work, 'data'), buildDir, logFile: join(work, 'server.log'), env: { CLEARCASE_FIXED_NOW: clock, TZ: timezone } });
@@ -146,14 +152,17 @@ try {
 	if (vid !== fx.accepted.resultsVersion) throw Object.assign(new Error(`activation failed: ${JSON.stringify(act)}`), { setup: true });
 	// the browser's own services (network time, push messaging, phishing lists) are background traffic, not the
 	// page's: switch them off (the last --disable-features wins, so it repeats the shared list)
-	b = await launch({ profileRoot: join(work, 'profiles'), extra: [`--disable-features=${DISABLED_FEATURES},NetworkTimeServiceQuerying,PushMessaging,BackgroundFetch`, '--disable-notifications', '--disable-default-apps', '--disable-client-side-phishing-detection', '--disable-component-extensions-with-background-pages'] });
-	const v5 = await v5Page(b, { html: fx.cfg.mainHtml.path, clock, timezone });
-	const app = await appPage(b, { origin: c.origin, timezone });
-	const selfV5 = opt('app-v5-html') ? await v5Page(b, { html: resolve(opt('app-v5-html')), clock, timezone }) : null;
-	const ctx = { clock, timezone, dims, vid, base: vpath(vid), origin: c.origin, appRoot, pkg, sweeps: !flag('no-sweeps'), exports: !flag('no-exports'), registry };
-	await v5.load({});
-	ctx.v5Nav = await v5Nav(v5);
-	for (const view of views) {
+	const { v5, app, selfV5, ctx } = await guard('setup (browser and pages)', SETUP_MS, async () => {
+		b = await launch({ profileRoot: join(work, 'profiles'), extra: [`--disable-features=${DISABLED_FEATURES},NetworkTimeServiceQuerying,PushMessaging,BackgroundFetch`, '--disable-notifications', '--disable-default-apps', '--disable-client-side-phishing-detection', '--disable-component-extensions-with-background-pages'] });
+		const v5 = await v5Page(b, { html: fx.cfg.mainHtml.path, clock, timezone });
+		const app = await appPage(b, { origin: c.origin, timezone });
+		const selfV5 = opt('app-v5-html') ? await v5Page(b, { html: resolve(opt('app-v5-html')), clock, timezone }) : null;
+		const ctx = { clock, timezone, dims, vid, base: vpath(vid), origin: c.origin, appRoot, pkg, sweeps: !flag('no-sweeps'), exports: !flag('no-exports'), registry };
+		await v5.load({});
+		ctx.v5Nav = await v5Nav(v5);
+		return { v5, app, selfV5, ctx };
+	});
+	for (const view of views) await guard(`view ${view}`, VIEW_MS, async () => {
 		const tv = performance.now();
 		let s5, sa;
 		try { s5 = await extractV5View(v5, view, ctx); if (view === 'overview') s5.lists.navigation = ctx.v5Nav; }
@@ -174,12 +183,16 @@ try {
 		if (flag('keep-snapshots')) writeFileSync(at('views', `${view}.snapshots.json`), JSON.stringify({ v5: s5, app: sa }));
 		const reg2 = TYPES.map((t) => [t, r.registered.filter((d) => d.type === t).length]).filter(([, n]) => n).map(([t, n]) => `${t} ${n}`).join(', ');
 		console.log(`  ${view.padEnd(20)} v5 ${s5.status.padEnd(6)} app ${sa.status.padEnd(15)} compared ${String(r.compared).padStart(6)} matched ${String(r.matched).padStart(6)} registered ${r.registered.length}${reg2 ? ` (${reg2})` : ''} unregistered ${r.unregistered.length} ${perView[view].ms} ms`);
-	}
+	});
 	writeFileSync(at('v5-requests.json'), JSON.stringify({ network: [...v5.nonFile, ...(selfV5?.nonFile ?? [])], browserInternal: [...v5.internal, ...(selfV5?.internal ?? [])] }, null, 1) + '\n');
 	details.__requests = { v5BrowserInternal: v5.internal.length + (selfV5?.internal.length ?? 0), v5NonFile: v5.nonFile.length + (selfV5?.nonFile.length ?? 0), appNonLoopback: app.requests.filter((u) => !/^(https?:\/\/(127\.0\.0\.1|[a-z0-9-]+\.localhost)(:\d+)?\/|data:|blob:|about:)/.test(u)).length };
 } catch (e) {
-	console.error(`parity: ${e.setup ? 'setup error' : 'run aborted'}: ${e.stack ?? e}`);
+	const a = abortOf(e, 'the run');
+	if (a) console.error(`parity: run aborted in ${a.step}: ${a.why}`);
+	else console.error(`parity: ${e.setup ? 'setup error' : 'run aborted'}: ${e.stack ?? e}`);
+	aborted = a?.record ?? { step: e.setup ? 'setup' : 'the run', cause: String(e.message ?? e).slice(0, 300), kind: e.setup ? 'setup' : 'error' };
 	exitCode = 2;
+	exitWithin(30_000, 2, 'parity');
 } finally {
 	await b?.close().catch(() => {});
 	await srv?.stop().catch(() => {});
@@ -210,6 +223,9 @@ const sc = scorecard(perView, {
 	isolation: { offline: proof.pass, links: proof.links, v5NonFileRequests: nonFile, v5BrowserInternalRequests: details.__requests?.v5BrowserInternal ?? null, appNonLoopbackRequests: details.__requests?.appNonLoopback ?? null, canaryHits: otherHits, canaryBrowserServiceHits: serviceHits.length, fixtureUnchanged: treeBefore === treeAfter },
 	seconds: Math.round((performance.now() - t0) / 100) / 10,
 });
+// an aborted run proves nothing past the abort, whatever else its evidence record says
+if (aborted) Object.assign(sc, { evidence: false, evidenceNote: sc.evidence ? `NOT release evidence: ${abortReason(aborted)}` : `${sc.evidenceNote}; ${abortReason(aborted)}` });
+Object.assign(sc, { aborted, browser: b?.launch ?? null });
 const failures = exitCode === 0 ? runFailures(sc, { views: views.length, unused: unused.length, strict: flag('strict-register') }) : [];
 if (failures.length) { exitCode = 1; sc.result = 'FAIL'; console.error(`parity: FAIL: ${failures.join('; ')}`); }
 sc.exit = exitCode;

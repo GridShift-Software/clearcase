@@ -14,7 +14,7 @@
 // the runner gets CLEARCASE_BUILD_EVIDENCE=true|false, and the final status line says NOT EVIDENCE when it is false.
 // This file only spawns and imports the typed fresh-build module, so `tsc --noEmit -p .` checks it cleanly.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { ALLOW_FLAG, allowStale, type BuildStamp, evidenceRecord, evidenceSuffix, freshLine, freshness, notCommitted, readStamp, refusal } from '../../tests/e2e/pilot/lib/fresh-build.ts';
 
@@ -50,7 +50,15 @@ mkdirSync(out, { recursive: true });
 writeFileSync(path.join(out, `build-evidence-${ticket}.json`), JSON.stringify(record, null, 1) + '\n');
 console.error(`measure: ${freshLine(fresh)}`);
 if (!fresh.fresh && !allowed) { console.error(refusal('measure', fresh)); process.exit(2); }
+const started = Date.now();
 const r = spawnSync(process.execPath, [path.join(repo, runner), ...args], { stdio: 'inherit', cwd: process.cwd(), env: { ...process.env, CLEARCASE_BUILD_EVIDENCE: String(record.evidence) } });
 if (r.error) { console.error(`measure: cannot run ${runner}: ${r.error.message}`); process.exit(2); }
-console.error(`measure: ${ticket} exit ${r.status ?? 1}${evidenceSuffix(record)}`);
+// A runner that aborted (a dead browser or a phase timeout, tests/e2e/pilot/lib/lifecycle.mjs: its
+// <out>/measure-CC-NN.json of this run has `aborted`) makes the record `evidence: false` with the reason added.
+const resultFile = path.join(out, `measure-${ticket}.json`);
+const aborted = (() => { try { return statSync(resultFile).mtimeMs >= started ? JSON.parse(readFileSync(resultFile, 'utf8')).aborted ?? null : null; } catch { return null; } })();
+const why = aborted && `run aborted in ${aborted.step}: ${aborted.cause}`;
+const final = aborted ? { ...record, evidence: false, evidenceNote: record.evidence ? `NOT release evidence: ${why}` : `${record.evidenceNote}; ${why}`, aborted } : record;
+if (aborted) writeFileSync(path.join(out, `build-evidence-${ticket}.json`), JSON.stringify(final, null, 1) + '\n');
+console.error(`measure: ${ticket} exit ${r.status ?? 1}${evidenceSuffix(final)}`);
 process.exit(r.status ?? 1);

@@ -28,7 +28,7 @@ describe('committed register', () => {
 		expect(loaded.problems).toEqual([]);
 		expect(registerProblems()).toEqual([]);
 	});
-	test("an owner's id in its own fragment passes; the same id in the main file fails (synthetic register)", () => {
+	test("an owner's id in its own fragment passes; the same id in the main file fails, and so does a fragment id outside its owner's range (synthetic register)", () => {
 		const dir = mkdtempSync(join(tmpdir(), 'parity-register-ranges-'));
 		try {
 			mkdirSync(join(dir, 'register'));
@@ -39,6 +39,9 @@ describe('committed register', () => {
 			writeFileSync(join(dir, 'register', 'CC-05.json'), JSON.stringify({ version: 1, entries: [] }));
 			writeFileSync(main, JSON.stringify({ version: 1, entries: [good, { ...good, id: 'IDR-150' }] }));
 			expect(registerProblems(main).join('\n')).toMatch(/IDR-150: in CC-05's id range; it belongs in register\/CC-05\.json/);
+			writeFileSync(main, JSON.stringify({ version: 1, entries: [good] }));
+			writeFileSync(join(dir, 'register', 'CC-05.json'), JSON.stringify({ version: 1, entries: [{ ...good, id: 'IDR-120' }] }));
+			expect(registerProblems(main).join('\n')).toMatch(/register\/CC-05\.json: IDR-120: outside CC-05's id range/);
 		} finally { rmSync(dir, { recursive: true, force: true }); }
 	});
 	test('the 42 views are the v5 navigation ids', () => {

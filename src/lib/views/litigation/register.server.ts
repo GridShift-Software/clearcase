@@ -1,28 +1,22 @@
-// Server helpers shared by the litigation views (GRS-18): flat user registers in app().userWork kept in insertion
-// order by an explicit integer `seq` (listRows orders by createdAt, which ties under a fixed clock), the guard that
-// turns a busy store into a visible failure that keeps the typed values, and the refs authored text cites. Every write
-// goes through the write queue in writes.server.ts.
-import { fail, isHttpError } from '@sveltejs/kit';
+// Server helpers shared by the litigation views (GRS-18): flat user registers in app().userWork, each written through
+// the register store (local-case/registers.server.ts: insertion order, versions, the write queue), the failure answer
+// that turns a busy store into a visible failure that keeps the typed values (local-case/answer.server.ts), and the refs
+// authored text cites.
+import { fail } from '@sveltejs/kit';
 import { citedRefs } from '$lib/components/cite';
+import { guarded, type Say } from '$lib/local-case/answer.server';
 import { app } from '$lib/local-case/app.server';
-import { UserWorkError, type RegisterRow, type RegisterValue } from '$lib/local-case/user-work.server';
-import { serialized } from './serial.ts';
-import { addEntry, deleteEntry, nextSeq, rowVersion, type DeleteResult } from './writes.server.ts';
-
-export { nextSeq, rowVersion, serialized };
+import { registers, type DeleteResult, type VersionedRow } from '$lib/local-case/registers.server';
+import type { RegisterValue, UserWorkError } from '$lib/local-case/user-work.server';
 
 /** The register stores this ticket writes (one per register; see the report's user-work design). */
 export const STORES = Object.freeze({ crossexam: 'crossexam', authorities: 'authorities', heads: 'heads', enforcement: 'enforcement-status' });
 
-const seqOf = (r: RegisterRow) => (typeof r.fields.seq === 'number' && Number.isFinite(r.fields.seq) ? r.fields.seq : Number.MAX_SAFE_INTEGER);
+/** A case's register store. */
+export const register = (caseId: string, store: string) => registers(app().userWork).open(caseId, store);
 
-/** A case's rows of one store in insertion order: by `seq`, then by creation time and id for rows without one. */
-export function orderedRows(caseId: string, store: string): RegisterRow[] {
-	return app().userWork.listRows(caseId, store).sort((a, b) => seqOf(a) - seqOf(b) || (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0) || (a.rowId < b.rowId ? -1 : 1));
-}
-
-/** Insert a register row with the next `seq`, in the write queue; `addId` (the form's) keeps a repeated post from adding twice. */
-export const addRow = (caseId: string, store: string, fields: Record<string, RegisterValue>, addId: string | null = null) => addEntry(app().userWork, caseId, store, fields, addId);
+/** A case's rows of one store in insertion order, each with its version. */
+export const orderedRows = (caseId: string, store: string): VersionedRow[] => register(caseId, store).rows();
 
 /** A form field as the user typed it (v5 `val()`: untrimmed, '' when absent). */
 export const field = (f: FormData, k: string) => { const v = f.get(k); return typeof v === 'string' ? v : ''; };
@@ -49,23 +43,15 @@ export const DELETE_BUSY = 'Not deleted: the local store is busy. Nothing was ch
 export const DELETE_GONE = 'This entry was already deleted elsewhere (in another tab or window). Nothing else was changed.';
 export const DELETE_STALE = 'Not deleted: this entry was changed elsewhere after this page was loaded. It is shown as it is now; delete it again if you still want it gone.';
 
-/**
- * Run a user-work write. A busy store (the API's 503 after its retries) and a refused write become `fail` with the
- * typed values, so the form keeps the user's input and shows the error; anything else is a real fault.
- */
-export async function guarded<T, V extends Record<string, string>>(values: V, write: () => Promise<T>, extra: Record<string, unknown> = {}, busy = BUSY) {
-	try {
-		return { ok: true as const, value: await write() };
-	} catch (e) {
-		if (isHttpError(e) && e.status === 503) return { ok: false as const, failure: fail(503, { ...extra, values, message: busy, retry: true }) };
-		if (e instanceof UserWorkError) return { ok: false as const, failure: fail(400, { ...extra, values, message: `Not saved: ${e.message}`, retry: false }) };
-		throw e;
-	}
-}
+export const FAILED = 'Not saved: the app hit an error while saving. Your entry is kept below.';
+export const DELETE_FAILED = 'Not deleted: the app hit an error. Check the table before you delete the entry again.';
+const refused = (e: UserWorkError) => `Not saved: ${e.message}`;
+/** What the litigation forms say when a write fails (answer.server.ts). */
+export const SAY = { add: { busy: BUSY, refused, failed: FAILED }, delete: { busy: DELETE_BUSY, refused, failed: DELETE_FAILED } } satisfies Record<string, Say>;
 
 /** An Add action's answer: the new row, or the refusal with the typed values. */
 export async function addAction<V extends Record<string, string>>(caseId: string, store: string, values: V, addId: string | null) {
-	const r = await guarded(values, () => addRow(caseId, store, values, addId), { op: 'add' });
+	const r = await guarded('add', values, () => register(caseId, store).add(values, { addId }), SAY.add);
 	return r.ok ? { op: 'add' as const, added: r.value.rowId } : r.failure;
 }
 
@@ -74,16 +60,13 @@ export async function addAction<V extends Record<string, string>>(caseId: string
  * form, so a typed or refused entry comes back in the answer). Already gone is said, never an error page.
  */
 export async function deleteAnswer<V extends Record<string, string>>(target: string, values: V, write: () => Promise<DeleteResult | 'absent'>) {
-	const r = await guarded(values, write, { op: 'delete', target }, DELETE_BUSY);
+	const r = await guarded('delete', values, write, SAY.delete, { target });
 	if (!r.ok) return r.failure;
 	if (r.value === 'deleted') return { op: 'delete' as const, target, deleted: target, values };
 	if (r.value === 'gone') return { op: 'delete' as const, target, gone: true, message: DELETE_GONE, values };
 	if (r.value === 'stale') return fail(409, { op: 'delete', target, values, message: DELETE_STALE, retry: false });
 	return fail(404, { op: 'delete', target, values, message: 'Not deleted: that topic is not in this results version.', retry: false });
 }
-
-/** Delete a register row through the queue, re-checked against the version the page showed. */
-export const deleteRowChecked = (caseId: string, store: string, rowId: string, version: string | null) => deleteEntry(app().userWork, caseId, store, rowId, version);
 
 /** The refs cited by `[[REF]]` tokens in authored texts that exist in the version (for Narrative). */
 export const knownRefs = (resultsVersion: string, texts: Iterable<unknown>) =>

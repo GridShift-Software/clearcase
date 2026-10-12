@@ -8,11 +8,12 @@ import { registerV5Importers } from '$lib/user-work/backup/v5-importers.server';
 export const init: ServerInit = async () => {
 	if (building) return;
 	await initApp();
+	// the v5 importers touch no storage: registered before the storage check, so a start-up error does not skip them
+	registerV5Importers();
 	// the rescan additions are document rows for every reader (chronology, documents, search), so the provider is
 	// registered at start-up, not when a system page first loads
 	// (a storage problem is shown by the first request; the system pages then register it as before)
 	if (app().storageError) return;
-	registerV5Importers();
 	try { for (const p of app().store.activePointers()) ensureRescanProvider(app(), p.case_id); } catch (e) { console.error('rescan provider not registered at start-up:', e); }
 };
 

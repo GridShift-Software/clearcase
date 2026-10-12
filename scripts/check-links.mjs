@@ -6,7 +6,7 @@
 // and absolute paths do not. Prints one `file:line: link: problem` line per broken link and exits 1 when there is one.
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { dirname, join, normalize, resolve } from 'node:path';
+import { join, posix, resolve } from 'node:path';
 
 const REPO = resolve(import.meta.dirname, '..');
 
@@ -62,7 +62,7 @@ export function links(text) {
 	return out;
 }
 
-/** Problems with the relative links in `files` (repo-relative tracked paths), read through `read`. */
+/** Problems with the relative links in `files` (repo-relative tracked paths, always `/`-separated like `git ls-files`), read through `read`. Targets resolve with `path.posix`; native paths are only for reading files. */
 export function check(files, read) {
 	const tracked = new Set(files);
 	const dirs = new Set(files.flatMap((f) => f.split('/').slice(0, -1).map((_, i, parts) => parts.slice(0, i + 1).join('/'))));
@@ -75,7 +75,7 @@ export function check(files, read) {
 			const [rawPath, fragment] = target.split('#', 2);
 			let path;
 			try {
-				path = rawPath ? normalize(join(dirname(file), decodeURIComponent(rawPath))).replace(/\/$/, '') : file;
+				path = rawPath ? posix.normalize(posix.join(posix.dirname(file), decodeURIComponent(rawPath))).replace(/\/$/, '') : file;
 			} catch {
 				problems.push(`${file}:${n}: ${target}: cannot decode the path`);
 				continue;

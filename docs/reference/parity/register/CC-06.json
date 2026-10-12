@@ -143,27 +143,6 @@
       "approvedOn": null
     },
     {
-      "id": "IDR-206",
-      "view": "payments_tab",
-      "field": [
-        "sweep.register_edit.overview.Open deadlines",
-        "sweep.register_edit.overview.Unbilled time"
-      ],
-      "when": {
-        "app": {
-          "re": "^Not yet available — owned by GRS-17"
-        }
-      },
-      "type": "not-yet-implemented",
-      "source": "GRS-17",
-      "owner": "GRS-17",
-      "reason": "The register sweep ends on the overview tiles; the deadline and unbilled-time tiles are overview slots that GRS-17 (CC-07) fills, so the app still shows their unavailable state there.",
-      "productVisible": false,
-      "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
       "id": "IDR-207",
       "view": "payments_tab",
       "field": "sweep.register_edit.overview.Scanned (need OCR)",

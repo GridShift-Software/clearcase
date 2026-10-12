@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { livePid, processStart, readPidFile, removePidFile, stopPidFile, writePidFile } from '../../scripts/pidfile.ts';
+import { livePid, orphanedGroup, processStart, readPidFile, removePidFile, stopPidFile, writePidFile } from '../../scripts/pidfile.ts';
 
 let dir: string;
 const kids: ChildProcess[] = [];
@@ -34,7 +34,7 @@ describe('pid files', () => {
 		expect(livePid(f)).toBeNull();
 		expect(existsSync(f)).toBe(false);
 		writeFileSync(f, `${k.pid} 1\n`);
-		expect(await stopPidFile(f)).toMatch(/^nothing to stop/);
+		expect(await stopPidFile(f)).toMatchObject({ ok: true, message: expect.stringMatching(/^nothing to stop/) });
 		expect(running(k.pid!)).toBe(true);
 	});
 
@@ -42,7 +42,7 @@ describe('pid files', () => {
 		const target = sleeper(), bystander = sleeper();
 		const f = join(dir, 'pid');
 		writePidFile(f, target.pid);
-		expect(await stopPidFile(f, { graceMs: 2000 })).toMatch(/^stopped process \d+ \(SIGTERM\)$/);
+		expect((await stopPidFile(f, { graceMs: 2000 })).message).toMatch(/^stopped process \d+ \(SIGTERM\)$/);
 		await exited(target);
 		expect(running(bystander.pid!)).toBe(true);
 		expect(existsSync(f)).toBe(false);
@@ -55,7 +55,7 @@ describe('pid files', () => {
 		const bystander = sleeper();
 		const f = join(dir, 'pid');
 		writePidFile(f, leader.pid);
-		expect(await stopPidFile(f, { group: true, graceMs: 2000 })).toMatch(/^stopped process group/);
+		expect((await stopPidFile(f, { group: true, graceMs: 2000 })).message).toMatch(/^stopped process group/);
 		expect(processStart(grandchild)).toBeNull();
 		expect(running(bystander.pid!)).toBe(true);
 	});
@@ -66,6 +66,55 @@ describe('pid files', () => {
 		await new Promise((r) => setTimeout(r, 200));
 		const f = join(dir, 'pid');
 		writePidFile(f, k.pid);
-		expect(await stopPidFile(f, { graceMs: 500 })).toMatch(/SIGKILL after SIGTERM\)$/);
+		expect((await stopPidFile(f, { graceMs: 500 })).message).toMatch(/SIGKILL after SIGTERM\)$/);
+	});
+
+	// A group whose leader was SIGKILLed: the leader's children keep running in the group (the gate's e2e servers and Chromium).
+	const MARK = { name: 'PIDFILE_TEST_LEADER', value: '/repo/a' };
+	const orphan = async (env: Record<string, string>) => {
+		const leader = spawn('sh', ['-c', 'sleep 60 & echo $!; wait'], { detached: true, stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, ...env } });
+		kids.push(leader);
+		const child = Number(await new Promise<string>((r) => leader.stdout!.once('data', (d) => r(String(d).trim()))));
+		const f = join(dir, 'pid');
+		writePidFile(f, leader.pid);
+		process.kill(leader.pid!, 'SIGKILL');
+		await exited(leader);
+		return { f, child, leader: leader.pid! };
+	};
+
+	it('stops the orphaned group of a SIGKILLed leader when a member carries the marker', async () => {
+		const { f, child, leader } = await orphan({ [MARK.name]: MARK.value });
+		expect(running(child)).toBe(true);
+		expect(orphanedGroup(f, MARK)).toBe(leader);
+		const r = await stopPidFile(f, { group: true, graceMs: 2000, marker: MARK });
+		expect(r).toMatchObject({ ok: true, message: expect.stringMatching(/^stopped process group \d+ \(SIGTERM, its leader had already died\)$/) });
+		expect(processStart(child)).toBeNull();
+		expect(existsSync(f)).toBe(false);
+	});
+
+	it('leaves an orphaned group alone when no member carries this repo\'s marker', async () => {
+		for (const env of [{}, { [MARK.name]: '/repo/other' }]) {
+			const { f, child } = await orphan(env);
+			expect(orphanedGroup(f, MARK)).toBeNull();
+			expect(await stopPidFile(f, { group: true, graceMs: 500, marker: MARK })).toMatchObject({ ok: true, message: expect.stringMatching(/^nothing to stop/) });
+			expect(running(child)).toBe(true);
+			expect(existsSync(f)).toBe(false);
+		}
+	});
+
+	it('does not touch an orphaned group without a marker option', async () => {
+		const { f, child } = await orphan({ [MARK.name]: MARK.value });
+		expect((await stopPidFile(f, { group: true, graceMs: 500 })).message).toMatch(/^nothing to stop/);
+		expect(running(child)).toBe(true);
+	});
+
+	it('reports a failed stop: ok is false and the file stays when the process is still running', async () => {
+		const k = sleeper();
+		const f = join(dir, 'pid');
+		writePidFile(f, k.pid);
+		const r = await stopPidFile(f, { graceMs: 200, killMs: 200, send: () => {} });
+		expect(r).toMatchObject({ ok: false, message: expect.stringMatching(/but it is still running$/) });
+		expect(existsSync(f)).toBe(true);
+		expect(running(k.pid!)).toBe(true);
 	});
 });

@@ -21,7 +21,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import { join, resolve } from 'node:path';
 import { DEV_ENV } from '../tests/e2e/pilot/run.mjs';
 import { convert as convertV5, loadConfig } from '../tests/e2e/pilot/v5/fixture.mjs';
-import { livePid, removePidFile, stopPidFile, writePidFile } from './pidfile.ts';
+import { livePid, orphanedGroup, removePidFile, stopPidFile, writePidFile } from './pidfile.ts';
 
 const REPO = resolve(import.meta.dirname, '..');
 const LOCATOR = join('.local', 'v5-verification.json');
@@ -226,14 +226,20 @@ export function readHead(spawn = spawnSync, repo = REPO) {
  */
 async function main() {
 	if (process.argv.includes('--stop')) {
-		console.log(`gate --stop: ${await stopPidFile(PID_FILE, { group: true, graceMs: 15_000 })}`);
-		return 0;
+		const { ok, message } = await stopPidFile(PID_FILE, { group: true, graceMs: 15_000, marker: { name: LEADER_ENV, value: REPO } });
+		console.log(`gate --stop: ${message}`);
+		return ok ? 0 : 1;
 	}
 	if (process.env[LEADER_ENV] !== REPO) {
 		const child = spawn(process.execPath, [import.meta.filename, ...process.argv.slice(2)], { cwd: REPO, stdio: 'inherit', detached: true, env: { ...process.env, [LEADER_ENV]: REPO } });
 		for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { try { process.kill(-child.pid, sig); } catch {} });
 		const [code, signal] = await new Promise((res) => child.on('exit', (c, s) => res([c, s])));
 		return code ?? (signal ? 1 : 0);
+	}
+	const orphan = orphanedGroup(PID_FILE, { name: LEADER_ENV, value: REPO });
+	if (orphan) {
+		console.log(`GATE FAIL busy: processes of an earlier gate (group ${orphan}) still run after their leader died; stop them with \`bun run --bun gate --stop\``);
+		return 1;
 	}
 	const running = livePid(PID_FILE);
 	if (running) {

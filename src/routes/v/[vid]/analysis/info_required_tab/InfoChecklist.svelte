@@ -41,11 +41,14 @@
 	const shown = (r: { key: string; done: boolean }) => choice[r.key] ?? noJs.find((f) => f.key === r.key)?.done ?? r.done;
 	const busy = (key: string) => key in choice && !(key in failures);
 	const unsaved = (key: string) => key in failures || (!(key in choice) && noJs.some((f) => f.key === key));
-	// send a queued choice through the row's own form, as a tick does
+	// send a queued choice through the row's own form, as a tick does; false when this component has no such form
 	const flush = (key: string, done: boolean) => {
 		const form = rowForms.get(key);
 		const box = form?.querySelector<HTMLInputElement>('input[type=checkbox]');
-		if (form && box) { box.checked = done; form.requestSubmit(); }
+		if (!form || !box) return false;
+		box.checked = done;
+		form.requestSubmit();
+		return true;
 	};
 	// the page is gone: save the last queued choice to the case it was made in (the action URL captured at submit)
 	const sendToOwnCase = (action: URL, key: string, done: boolean) => {
@@ -62,23 +65,19 @@
 		if (key in inflight) { queued[key] = done; cancel(); return; }
 		inflight[key] = true;
 		return async ({ result, update }) => {
-			if (!alive) {
-				// left the page: the answer has no page to show it on, and `update` would act on the new page
-				const next = queued[key];
-				delete queued[key];
-				delete inflight[key];
-				if (next !== undefined && next !== done) await sendToOwnCase(action, key, next);
-				return;
+			// once the operator has left, the answer has no page to show it on, and `update` would act on the new page
+			if (alive) {
+				if (result.type === 'success') await update({ reset: false });
+				else if (result.type === 'failure') failures[key] = { done, message: String(result.data?.message ?? 'Not saved.') };
+				else if (result.type === 'error') failures[key] = { done, message: result.status ? `Not saved: ClearCase answered ${result.status}. Your choice is kept; retry.` : 'Not saved: ClearCase could not be reached. Your choice is kept; retry when it is running.' };
+				else await update();
 			}
-			if (result.type === 'success') await update({ reset: false });
-			else if (result.type === 'failure') failures[key] = { done, message: String(result.data?.message ?? 'Not saved.') };
-			else if (result.type === 'error') failures[key] = { done, message: result.status ? `Not saved: ClearCase answered ${result.status}. Your choice is kept; retry.` : 'Not saved: ClearCase could not be reached. Your choice is kept; retry when it is running.' };
-			else await update();
+			// `alive` is read again here: the operator may have left during the awaited update, taking the row forms with it
 			const next = queued[key];
 			delete queued[key];
 			delete inflight[key];
-			if (next !== undefined && next !== done) flush(key, next);
-			else if (result.type === 'success') delete choice[key];
+			if (next !== undefined && next !== done) { if (!(alive && flush(key, next))) await sendToOwnCase(action, key, next); }
+			else if (alive && result.type === 'success') delete choice[key];
 		};
 	};
 	const itemOf = (key: string) => data.rows.find((r) => r.key === key)?.item ?? '';

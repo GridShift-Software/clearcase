@@ -1,0 +1,181 @@
+#!/bin/bash
+# Proves the CI VM's host boundary from the guest's most privileged position (docs/ci-runner.md). Guest root sends raw
+# Ethernet frames to QEMU's user-mode network, which turns them into pc1 host sockets, so this tests what pc1's
+# firewall lets the QEMU process reach. Exits 1 when the guest reaches any denied host port or a control fails.
+#   - pc1 runs throwaway TCP and UDP listeners as `nobody` on 127.0.0.1, 127.0.0.53, 127.0.0.57 and ::1 on one random
+#     port. They prove they receive before the probe starts, record every later hit and stop when this script exits.
+#   - Guest root sends TCP SYNs to those and to pc1's real listeners (KDE Connect 1716, LLMNR 5355, CUPS 631, the SSH
+#     forward 2257); a SYN-ACK or RST means the packet reached pc1's loopback. UDP goes to the throwaway listeners.
+#   - Controls that must work: raw SYN to 1.1.1.1:443 and to the resolver's 127.0.0.53:53, DNS over UDP and TCP
+#     through 10.0.2.3, HTTPS to github.com as the runner user, and management SSH (this probe runs over it).
+# It touches no service and doesn't stop the runner, so it is safe while a job runs.
+set -euo pipefail
+here=$(cd "${BASH_SOURCE[0]%/*}" && pwd)
+host=${CLEARCASE_CI_HOST:-root@100.80.13.122}
+port=$((40000 + RANDOM % 20000))
+out=$(mktemp)
+trap 'rm -f "$out"' EXIT
+
+listener=$(base64 -w0 <<'PY'
+import select, socket, sys, time
+port = int(sys.argv[1])
+socks = {}
+for addr, fam in (("127.0.0.1", socket.AF_INET), ("127.0.0.53", socket.AF_INET), ("127.0.0.57", socket.AF_INET),
+                  ("::1", socket.AF_INET6)):
+    t = socket.socket(fam, socket.SOCK_STREAM)
+    t.bind((addr, port))
+    t.listen(16)
+    socks[t] = ("tcp", addr)
+    u = socket.socket(fam, socket.SOCK_DGRAM)
+    u.bind((addr, port))
+    socks[u] = ("udp", addr)
+for s, (proto, addr) in socks.items():
+    if proto == "tcp":
+        socket.create_connection((addr, port), 2).close()
+        s.accept()[0].close()
+    else:
+        socket.socket(s.family, socket.SOCK_DGRAM).sendto(b"self", (addr, port))
+        s.settimeout(2)
+        s.recvfrom(64)
+print("ready", flush=True)
+end = time.time() + 110
+while time.time() < end:
+    ready = select.select([*socks, sys.stdin], [], [], 1)[0]
+    if sys.stdin in ready and not sys.stdin.readline():
+        break
+    for s in ready:
+        if s is sys.stdin:
+            continue
+        proto, addr = socks[s]
+        if proto == "tcp":
+            conn, peer = s.accept()
+            conn.close()
+        else:
+            peer = s.recvfrom(2048)[1]
+        print(f"hit {proto} [{addr}]:{port} from {peer[0]}", flush=True)
+print("done", flush=True)
+PY
+)
+
+echo "== pc1 boundary state"
+ssh -o BatchMode=yes "$host" 'systemctl show clearcase-ci-vm.service -p ActiveState -p NRestarts -p IPAddressAllow
+  nft list table inet clearcase_ci_vm 2>&1 || true'
+
+# The listener stops when this script closes its stdin, or after 110 seconds.
+coproc LISTEN { ssh -o BatchMode=yes "$host" "exec setpriv --reuid=nobody --regid=nobody --clear-groups --no-new-privs \
+  timeout 120 python3 -c \"import base64; exec(base64.b64decode('$listener'))\" $port" >"$out" 2>&1; }
+listen_pid=$LISTEN_PID listen_in=${LISTEN[1]}
+for _ in $(seq 40); do grep -q '^ready' "$out" && break; sleep 0.5; done
+grep -q '^ready' "$out" || { echo "FAIL host listeners on port $port did not start:"; cat "$out"; exit 1; }
+echo "PASS host listeners on port $port receive from pc1 itself"
+
+rc=0
+"$here/pc1-vm" ssh "sudo python3 - $port" <<'PY' || rc=1
+import fcntl, os, random, select, socket, struct, subprocess, sys, time
+port = int(sys.argv[1])
+fails = []
+def check(label, ok, detail):
+    print(f"{'PASS' if ok else 'FAIL'} {label}: {detail}", flush=True)
+    if not ok:
+        fails.append(label)
+check("management ssh to the guest", True, "root shell answered")
+
+ifname = next(n for n in sorted(os.listdir("/sys/class/net")) if n != "lo")
+raw = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.htons(0x0800))
+raw.bind((ifname, 0))
+mac = raw.getsockname()[4]
+src = fcntl.ioctl(socket.socket(), 0x8915, struct.pack("256s", ifname.encode()))[20:24]  # SIOCGIFADDR
+gateway_mac = bytes.fromhex("52550a000202")  # QEMU user-mode network's host side
+
+def csum(b):
+    b += b"\0" * (len(b) % 2)
+    t = sum(struct.unpack(f"!{len(b) // 2}H", b))
+    t = (t >> 16) + (t & 0xFFFF)
+    return ~(t + (t >> 16)) & 0xFFFF
+def frame(dst, proto, l4):
+    d = socket.inet_aton(dst)
+    l4 = l4[:16 if proto == 6 else 6] + struct.pack("!H", csum(src + d + struct.pack("!BBH", 0, proto, len(l4)) + l4)) \
+        + l4[18 if proto == 6 else 8:]
+    ip = struct.pack("!BBHHHBBH4s4s", 0x45, 0, 20 + len(l4), random.getrandbits(16), 0, 64, proto, 0, src, d)
+    return gateway_mac + mac + b"\x08\x00" + ip[:10] + struct.pack("!H", csum(ip)) + ip[12:] + l4
+
+controls = [("1.1.1.1", 443), ("127.0.0.53", 53)]
+denied = [("127.0.0.1", 631), ("127.0.0.53", 1716), ("127.0.0.57", 1716), ("127.0.0.53", 5355), ("127.0.0.57", 5355),
+          ("127.0.0.57", 2257), ("127.0.0.57", 33117), ("10.0.2.2", port)] + [(a, port) for a in
+          ("127.0.0.1", "127.0.0.53", "127.0.0.57")]
+replies = {}
+for i, (dst, dport) in enumerate(controls + denied):
+    sport = 41000 + i
+    replies[(dst, dport, sport)] = "no reply"
+    raw.send(frame(dst, 6, struct.pack("!HHIIBBHHH", sport, dport, random.getrandbits(32), 0, 5 << 4, 0x02, 64240, 0, 0)))
+for dst in ("127.0.0.1", "127.0.0.53", "127.0.0.57", "10.0.2.2"):
+    raw.send(frame(dst, 17, struct.pack("!HHHH", 42000, port, 8 + 9, 0) + b"guest-raw"))
+end = time.time() + 5
+while time.time() < end:
+    if not select.select([raw], [], [], 0.5)[0]:
+        continue
+    ip = raw.recv(65535)[14:]
+    if len(ip) < 40 or ip[9] != 6:
+        continue
+    ihl = (ip[0] & 15) * 4
+    key = (socket.inet_ntoa(ip[12:16]), *struct.unpack("!HH", ip[ihl:ihl + 4]))
+    flags = ip[ihl + 13]
+    if replies.get(key) == "no reply":
+        replies[key] = "SYN-ACK" if flags & 0x12 == 0x12 else "RST" if flags & 0x04 else f"flags {flags:#x}"
+for (dst, dport, _), reply in replies.items():
+    if (dst, dport) in controls:
+        check(f"raw tcp {dst}:{dport} (allowed)", reply == "SYN-ACK", reply)
+    else:
+        check(f"raw tcp {dst}:{dport} (denied)", reply not in ("SYN-ACK", "RST"), reply)
+
+for addr, fam in (("10.0.2.2", socket.AF_INET), ("fec0::2", socket.AF_INET6)):
+    try:
+        socket.create_connection((addr, port), 3).close()
+        check(f"socket tcp [{addr}]:{port} (denied)", False, "connected")
+    except OSError as e:
+        check(f"socket tcp [{addr}]:{port} (denied)", True, type(e).__name__)
+    try:
+        socket.socket(fam, socket.SOCK_DGRAM).sendto(b"guest-socket", (addr, port))
+    except OSError:
+        pass
+
+query = struct.pack("!HHHHHH", 0x5157, 0x0100, 1, 0, 0, 0) + b"\6github\3com\0" + struct.pack("!HH", 1, 1)
+def answered(resp):
+    return len(resp) > 12 and resp[:2] == query[:2] and resp[3] & 0xF == 0 and struct.unpack("!H", resp[6:8])[0] > 0
+try:
+    u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    u.settimeout(5)
+    u.sendto(query, ("10.0.2.3", 53))
+    check("dns udp 10.0.2.3 github.com", answered(u.recv(4096)), "answer")
+except OSError as e:
+    check("dns udp 10.0.2.3 github.com", False, repr(e))
+try:
+    t = socket.create_connection(("10.0.2.3", 53), 5)
+    t.sendall(struct.pack("!H", len(query)) + query)
+    resp = b""
+    while len(resp) < 2 or len(resp) < 2 + struct.unpack("!H", resp[:2])[0]:
+        chunk = t.recv(4096)
+        if not chunk:
+            break
+        resp += chunk
+    check("dns tcp 10.0.2.3 github.com", answered(resp[2:]), "answer")
+except OSError as e:
+    check("dns tcp 10.0.2.3 github.com", False, repr(e))
+code = subprocess.run(["runuser", "-u", "runner", "--", "curl", "-sS", "-o", "/dev/null", "-w", "%{http_code}",
+                       "--max-time", "20", "https://github.com"], capture_output=True, text=True).stdout
+check("https github.com as runner", code == "200", code or "no response")
+time.sleep(2)  # let QEMU deliver the last datagrams before the host listeners stop
+sys.exit(1 if fails else 0)
+PY
+
+exec {listen_in}>&-
+wait "$listen_pid" || true
+if grep '^hit' "$out"; then
+  echo "FAIL the guest reached pc1 host listeners above"
+  rc=1
+else
+  echo "PASS no guest traffic reached the host listeners"
+fi
+grep -q '^done' "$out" || { echo "FAIL host listeners did not finish cleanly:"; cat "$out"; rc=1; }
+[[ $rc == 0 ]] && echo "boundary: PASS" || echo "boundary: FAIL"
+exit $rc

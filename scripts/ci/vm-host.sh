@@ -10,11 +10,34 @@ unit=/etc/systemd/system/clearcase-ci-vm.service
 image=noble-server-cloudimg-amd64.img
 image_url=https://cloud-images.ubuntu.com/noble/current
 
+nft_rules=/etc/clearcase-ci-vm.nft
+
 # QEMU's user-mode network connects out from the QEMU process, so the unit keeps the guest off everything on the host
 # but the internet: private ranges, the tailnet, pc1's own networks (read now, so refresh after they change) and
-# loopback. The guest reaches pc1's loopback services through 10.0.2.2, so only the SSH forward address 127.0.0.57 and
-# the resolver 127.0.0.53, where QEMU forwards the guest's DNS, stay open.
+# loopback. IPAddressAllow= is per address, not per port, and guest root can send QEMU frames for any address, so the
+# unit also loads an nftables table that drops everything QEMU's user sends to pc1 itself (anything routed through lo)
+# except DNS to the resolver 127.0.0.53, where QEMU forwards the guest's DNS, and replies on connections that came in
+# to the SSH forward 127.0.0.57:2257. The table matches only that user and is created and deleted with the service.
 write_unit() {
+  cat >"$nft_rules" <<'NFT'
+#!/usr/sbin/nft -f
+# Loaded and deleted by clearcase-ci-vm.service (GRS-57, docs/ci-runner.md).
+table inet clearcase_ci_vm
+delete table inet clearcase_ci_vm
+table inet clearcase_ci_vm {
+	chain output {
+		type filter hook output priority filter; policy accept;
+		oifname "lo" meta skuid "clearcase-ci" jump qemu_to_host
+	}
+	chain qemu_to_host {
+		ip daddr 127.0.0.53 meta l4proto { tcp, udp } th dport 53 accept
+		ip saddr 127.0.0.57 tcp sport 2257 ct direction reply ct state established accept
+		counter drop
+	}
+}
+NFT
+  chmod 0644 "$nft_rules"
+
   local deny="10.0.0.0/8 100.64.0.0/10 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 127.0.0.0/8 ::1/128 fc00::/7 fe80::/10 fec0::/10"
   deny+=" $(ip -o addr show scope global | awk '{print $4}' | python3 -c 'import ipaddress, sys
 print(" ".join(sorted({str(ipaddress.ip_interface(a).network) for a in sys.stdin.read().split()})))')"
@@ -22,7 +45,7 @@ print(" ".join(sorted({str(ipaddress.ip_interface(a).network) for a in sys.stdin
 [Unit]
 Description=ClearCase CI runner VM (GRS-57, docs/ci-runner.md)
 Wants=network-online.target
-After=network-online.target
+After=network-online.target nftables.service
 
 [Service]
 User=clearcase-ci
@@ -30,6 +53,7 @@ Group=clearcase-ci
 SupplementaryGroups=kvm
 RuntimeDirectory=clearcase-ci
 RuntimeDirectoryMode=0700
+ExecStartPre=+/usr/bin/nft -f $nft_rules
 ExecStart=/usr/bin/qemu-system-x86_64 -name clearcase-ci-vm -machine q35,accel=kvm -cpu host -smp 4 -m 8G \\
   -display none -serial file:$dir/console.log -qmp unix:/run/clearcase-ci/qmp.sock,server=on,wait=off \\
   -drive file=$dir/disk.qcow2,if=virtio,format=qcow2,cache=none,discard=unmap \\
@@ -37,6 +61,7 @@ ExecStart=/usr/bin/qemu-system-x86_64 -name clearcase-ci-vm -machine q35,accel=k
   -netdev user,id=net0,hostfwd=tcp:127.0.0.57:2257-:22 -device virtio-net-pci,netdev=net0 \\
   -device virtio-rng-pci
 ExecStop=$dir/powerdown \$MAINPID
+ExecStopPost=-+/usr/bin/nft delete table inet clearcase_ci_vm
 TimeoutStopSec=120
 Restart=always
 RestartSec=10
@@ -70,7 +95,7 @@ setup)
   [[ $pubkey =~ ^ssh-ed25519\ [A-Za-z0-9+/=]+(\ [A-Za-z0-9._@-]+)?$ ]] || { echo "setup: expected an ssh-ed25519 public key" >&2; exit 2; }
   [[ ! -e $dir/disk.qcow2 ]] || { echo "setup: $dir/disk.qcow2 exists; run destroy first" >&2; exit 1; }
   # No -y: installing without a sync never partially upgrades the host.
-  pacman -S --needed --noconfirm qemu-system-x86 qemu-img libisoburn
+  pacman -S --needed --noconfirm qemu-system-x86 qemu-img libisoburn nftables socat
   id clearcase-ci &>/dev/null || useradd --system --home-dir "$dir" --shell /usr/bin/nologin --groups kvm clearcase-ci
   install -d -o clearcase-ci -g clearcase-ci -m 0750 "$dir"
   work=$(mktemp -d)
@@ -132,8 +157,9 @@ unit)
   ;;
 destroy)
   systemctl disable --now clearcase-ci-vm.service 2>/dev/null || true
-  rm -f "$unit"
+  rm -f "$unit" "$nft_rules"
   systemctl daemon-reload
+  nft delete table inet clearcase_ci_vm 2>/dev/null || true
   systemctl reset-failed clearcase-ci-vm.service 2>/dev/null || true
   rm -rf /var/lib/clearcase-ci
   ! id clearcase-ci &>/dev/null || userdel clearcase-ci

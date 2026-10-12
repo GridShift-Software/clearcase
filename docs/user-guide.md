@@ -46,7 +46,7 @@ Notes and every register you fill in are saved on this computer as you work, per
 
 To move a case to another computer, import the same case folder and package there first, then restore the backup into it. A backup made on another results version of the same case restores too: notes keep their anchors and show as detached where a document is not in this version.
 
-A v5 browser backup (`ess_dcs_backup.json`) is recognised and each of its stores is listed with what happened to it. Importing v5 browser state is not available in this version, so nothing is changed.
+A v5 browser backup (`ess_dcs_backup.json`) is recognised and each of its stores is listed with what happened to it. This version imports one v5 store, the saved court bundles (`ess_dcs_custom_bundles_v1`), as bundles `v5-<number>`; importing the same file again writes the same bundles. The other stores are listed as not imported, and a file with none of the court bundles changes nothing.
 
 ## Checking links to originals
 

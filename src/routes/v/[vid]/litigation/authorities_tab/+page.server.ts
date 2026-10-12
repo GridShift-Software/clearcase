@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { fail } from '@sveltejs/kit';
+import { actionCase } from '$lib/local-case/answer.server';
 import { app } from '$lib/local-case/app.server';
 import { datasetOf, exportFileName, viewContentOf } from '$lib/local-case/results.server';
 import { AUTH_FIELDS, AUTH_FILE, canAddAuthority, type AuthValues } from '$lib/views/litigation/authorities';
@@ -21,11 +22,10 @@ export const load: PageServerLoad = async ({ parent }) => {
 
 export const actions: Actions = {
 	add: async ({ params, request }) => {
-		const v = app().store.getVersion(params.vid);
-		if (!v) return fail(404, { message: 'Unknown results version' });
+		const { caseId } = actionCase(params);
 		const f = await request.formData();
 		const values = valuesOf(f, AUTH_FIELDS) as AuthValues;
 		if (!canAddAuthority(values)) return fail(400, { op: 'add', values, message: null });
-		return addAction(v.case_id, STORES.authorities, values, formAddId(f));
+		return addAction(caseId, STORES.authorities, values, formAddId(f));
 	},
 };

@@ -25,14 +25,14 @@ The test step puts its temporary files (`TMPDIR` and `CLEARCASE_TEST_TMP`) in a 
 
 Measured on 12 October 2026 by running each commit's own workflow steps in scratch homes on this VM. Each side had one cold run (empty home: Chrome download, empty Bun cache), then five warm runs, alternating with the other side. Times are medians in seconds, with the warm range; the queue is not included. Both sides passed every run: 1943 tests before, 1979 after (the 36 new ones are GRS-60's).
 
-| step | before (`6edaff0`) warm | after (`f8f48ef`) warm | before cold | after cold |
+| step | before (`6edaff0`) warm | after (`cd6845e`) warm | before cold | after cold |
 | --- | --- | --- | --- | --- |
-| install Chrome | 3.7 (3.7-3.8) | 0.2 (0.2-0.2) | 34.4 | 34.1 |
-| `check` | 10.1 (9.9-10.1) | 10.3 (10.2-10.4) | 10.8 | 11.2 |
-| `test` | 86.7 (85.5-88.3) | 25.3 (25.2-25.3) | 87.1 | 25.5 |
-| whole job | 100.8 (99.8-102.7) | 36.2 (36.1-36.3) | 138.9 | 77.4 |
+| install Chrome | 3.7 (3.7-3.7) | 0.2 (0.2-0.2) | 32.7 | 33.7 |
+| `check` | 10.0 (10.0-10.1) | 10.3 (10.1-10.5) | 10.5 | 10.8 |
+| `test` | 87.2 (84.4-90.2) | 25.4 (25.2-25.5) | 84.3 | 25.3 |
+| whole job | 101.3 (98.5-104.4) | 36.3 (35.9-36.4) | 134.1 | 76.4 |
 
-`check` grew 0.2 s with `source-check`. Removing the duplicate push run saves queue time, which this table does not show: on 12 October such a run held the runner for 110-140 s while the pull request run waited.
+`check` grew 0.3 s with `source-check`. Removing the duplicate push run saves queue time, which this table does not show: on 12 October such a run held the runner for 110-140 s while the pull request run waited.
 
 ## What a failed run tells an agent
 

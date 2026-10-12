@@ -1,6 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { win32 } from 'node:path';
+import { describe, expect, it, vi } from 'vitest';
 // @ts-expect-error plain .mjs script, no declarations
 import { anchors, check, slug } from '../../scripts/check-links.mjs';
+
+// Make node:path behave as on Windows (backslash join/normalize); `posix` stays reachable as win32.posix, as in Node.
+vi.mock('node:path', async () => {
+	const { win32 } = await vi.importActual<typeof import('node:path')>('node:path');
+	return { ...win32, default: win32 };
+});
 
 const run = (files: Record<string, string>) => check(Object.keys(files), (f: string) => files[f]);
 
@@ -37,5 +44,14 @@ describe('check-links', () => {
 
 	it('ignores links in code spans and fenced blocks', () => {
 		expect(run({ 'a.md': 'calls `RENDER[tab](#main)`\n```\n[x](missing.md)\n```\n' })).toEqual([]);
+	});
+
+	it('looks links up with / separators whatever the native path flavour is (Windows)', () => {
+		expect(win32.sep).toBe('\\');
+		expect(run({
+			'README.md': '[dev](docs/development.md#setup) [up](docs/../docs/a/b.md) [dir](docs/a/)',
+			'docs/development.md': '## Setup\n[back](../README.md) [sib](a/b.md)',
+			'docs/a/b.md': '# B',
+		})).toEqual([]);
 	});
 });

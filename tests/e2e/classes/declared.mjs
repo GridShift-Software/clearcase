@@ -120,3 +120,30 @@ export const NO_TABLE = {
 	'/v/[vid]/litigation/conflict_tab': 'the matches table shows only after Check is pressed in the browser; the conflict suite (GRS-18) drives it',
 	'/v/[vid]/system/rescan_tab': 'the additions and changes tables show only after a scan finds files the version did not index; the suite\'s case folder has none',
 };
+
+/**
+ * Page states that appear only after a choice (class narrow) and that the suite opens as well as the page's default
+ * state: `query` is the URL the choice makes (every such choice in the app is a query, a GET form or a link), `expect`
+ * a selector that must then be on the page (a state that did not come up fails). Each state is measured at 320 and
+ * 390 px under both ids, like the page itself. Opened `<details>` are not listed: the check opens them all.
+ */
+export const CHOICE_STATES = {
+	'/v/[vid]/evidence/hoa_diff_tab': [{ name: 'two-documents', query: '?a=OD-001&b=OD-002', expect: '#diff-body', why: 'the diff shows only once two documents are chosen; its text is user data (a URL in an excerpt)' }],
+	'/v/[vid]/evidence/search': [{ name: 'action-items', query: '?actions=1', expect: '#action-items', why: 'Extract action items replaces the results by the action-item table' }],
+	'/v/[vid]/evidence/documents': [{ name: 'filtered', query: '?bundle=Original&q=Synthetic', expect: 'main table, main [role=table]', why: 'a bundle and a filter change the rows' }],
+	'/v/[vid]/bundles/caselines_tab': [{ name: 'searched', query: '?q=Invented', expect: '#cl-summary', why: 'a search lists the matching bundle pages' }],
+	'/v/[vid]/bundles/court_bundle_tab': [
+		{ name: 'bundle-index', query: '?b=1', expect: '#cb-index', why: 'a chosen bundle opens on its index' },
+		{ name: 'bundle-items', query: '?b=1&tab=items', expect: '#cb-items', why: 'the Items tab holds the page-number table' },
+		{ name: 'bundle-view', query: '?b=1&tab=view', expect: '#cb-tab-view[aria-selected=true]', why: 'the View tab shows the bundle file' },
+		{ name: 'builder', query: '?view=build', expect: '#cbb-create', why: 'the builder lists the items to choose' },
+	],
+	'/import/[id]': [{ name: 'noop-repaired', query: '?noop=1&repaired=1', expect: '#noop-msg', why: 'the notices an import shows after a repeat or a repair' }],
+};
+
+/** Page states that appear after a choice and that the suite does not open, with why (reported as N/A in the narrow class). */
+export const NO_CHOICE_STATE = {
+	'/v/[vid]/bundles/discovery_tab: supplementary': 'a client-side switch that saves the mode to the case; it shows the same items table in the same TableScroll box as the default mode (discovery_tab: one {#each items} block), and driving it would change the case for the later scenarios',
+	'edit rows and add forms (registers, filings, litigation)': 'inline forms open inside the table\'s TableScroll box or in the page flow, whose width the other states fix; the inflight and dialog classes drive them',
+	'alertdialog (the question before leaving with typed input)': 'RegisterPage, filings and payments show it in flow with flex-wrap, and LeaveGuard as position:fixed with a max-width inside the viewport; the dialog class drives it',
+};

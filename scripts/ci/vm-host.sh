@@ -1,6 +1,7 @@
 #!/bin/bash
 # Runs on pc1 as root, streamed over SSH by scripts/ci/pc1-vm (docs/ci-runner.md). It owns /var/lib/clearcase-ci, the
-# clearcase-ci system user and clearcase-ci-vm.service, and touches nothing else on the host.
+# clearcase-ci system user, clearcase-ci-vm.service, /etc/clearcase-ci-vm.nft and the nftables table inet
+# clearcase_ci_vm that the service loads. Apart from installing packages at setup it touches nothing else on the host.
 #   setup PUBKEY  create and start a fresh VM that lets PUBKEY in as ciadmin
 #   unit          rewrite the service unit with pc1's current networks and restart the VM (disk and runner stay)
 #   destroy       stop the VM and delete everything setup created (the packages stay)
@@ -17,7 +18,9 @@ nft_rules=/etc/clearcase-ci-vm.nft
 # loopback. IPAddressAllow= is per address, not per port, and guest root can send QEMU frames for any address, so the
 # unit also loads an nftables table that drops everything QEMU's user sends to pc1 itself (anything routed through lo)
 # except DNS to the resolver 127.0.0.53, where QEMU forwards the guest's DNS, and replies on connections that came in
-# to the SSH forward 127.0.0.57:2257. The table matches only that user and is created and deleted with the service.
+# to the SSH forward 127.0.0.57:2257. Multicast and broadcast leave through the LAN interface, not lo, and wildcard
+# listeners on pc1 (mDNS, LLMNR) receive them by multicast loopback, so the table drops that user's multicast and
+# broadcast whatever the interface. The table matches only that user and is created and deleted with the service.
 write_unit() {
   cat >"$nft_rules" <<'NFT'
 #!/usr/sbin/nft -f
@@ -27,6 +30,8 @@ delete table inet clearcase_ci_vm
 table inet clearcase_ci_vm {
 	chain output {
 		type filter hook output priority filter; policy accept;
+		meta skuid "clearcase-ci" ip daddr { 224.0.0.0/4, 255.255.255.255 } counter drop
+		meta skuid "clearcase-ci" ip6 daddr ff00::/8 counter drop
 		oifname "lo" meta skuid "clearcase-ci" jump qemu_to_host
 	}
 	chain qemu_to_host {
@@ -38,7 +43,7 @@ table inet clearcase_ci_vm {
 NFT
   chmod 0644 "$nft_rules"
 
-  local deny="10.0.0.0/8 100.64.0.0/10 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 127.0.0.0/8 ::1/128 fc00::/7 fe80::/10 fec0::/10"
+  local deny="10.0.0.0/8 100.64.0.0/10 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16 127.0.0.0/8 ::1/128 fc00::/7 fe80::/10 fec0::/10 224.0.0.0/4 ff00::/8 255.255.255.255"
   deny+=" $(ip -o addr show scope global | awk '{print $4}' | python3 -c 'import ipaddress, sys
 print(" ".join(sorted({str(ipaddress.ip_interface(a).network) for a in sys.stdin.read().split()})))')"
   cat >"$unit" <<UNIT

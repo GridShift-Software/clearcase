@@ -20,6 +20,14 @@ The workspace `AGENTS.md` above this repository sets models, budgets, the build-
 - The hosted results-import endpoint is unverified. Client upload APIs are a different thing; do not treat them as that endpoint.
 - Write ADRs under `docs/adr/` only for decisions that earn a permanent record.
 
+## Case data and evidence
+
+These hold in a clean clone, where the workspace `AGENTS.md` is absent.
+
+- `RAWS/` (the original case archives) and the hosted production system are read-only.
+- Original case files, extracted case text, private screenshots and credentials stay out of Git and out of external services, including test services. Committed fixtures are synthetic; real data stays in ignored `.local/` files.
+- A test that is skipped, mocked at the acceptance boundary or run against a different revision is not evidence. Report PASS or FAIL at an exact SHA.
+
 ## Checks and local data
 
 - A new worktree needs the coordinator's current `.local/v5-verification.json` (ignored; it locates the real v5 sample). The gate checks it before the first step and names the expected resultsVersion when it is stale.

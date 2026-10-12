@@ -20,7 +20,7 @@ export const slug = (heading) =>
 		.replace(/[^\p{L}\p{N}\s_-]/gu, '')
 		.replace(/\s/g, '-');
 
-/** Lines outside fenced code blocks, with code spans blanked; each `{ n, text }` keeps its 1-based line number. */
+/** Lines outside fenced code blocks; each `{ n, raw, text }` keeps its 1-based line number, the line as written and the line with code spans blanked. */
 function proseLines(text) {
 	const out = [];
 	let fence = null;
@@ -29,7 +29,7 @@ function proseLines(text) {
 		if (fence) {
 			if (open && open[1][0] === fence[0] && open[1].length >= fence.length) fence = null;
 		} else if (open) fence = open[1];
-		else out.push({ n: i + 1, text: line.replace(/(`+)(?:(?!\1).)+?\1/g, '') });
+		else out.push({ n: i + 1, raw: line, text: line.replace(/(`+)(?:(?!\1).)+?\1/g, '') });
 	});
 	return out;
 }
@@ -38,8 +38,8 @@ function proseLines(text) {
 export function anchors(text) {
 	const seen = new Map();
 	const out = new Set();
-	for (const { text: line } of proseLines(text)) {
-		const h = line.match(/^#{1,6}\s+(.*?)\s*#*\s*$/);
+	for (const { raw, text: line } of proseLines(text)) {
+		const h = raw.match(/^#{1,6}\s+(.*?)\s*#*\s*$/);
 		if (h) {
 			const base = slug(h[1]);
 			const k = seen.get(base) ?? 0;

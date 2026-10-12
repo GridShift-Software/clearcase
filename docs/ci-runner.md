@@ -56,11 +56,11 @@ Stop the runner service first, so a live job doesn't race this run for `~/.cache
 
 ```sh
 git branch -f ci-bundle HEAD && git bundle create /tmp/ci.bundle ci-bundle && git branch -D ci-bundle
-scripts/ci/pc1-vm ssh 'sudo systemctl stop "actions.runner.*"'   # only when no job is running
+scripts/ci/pc1-vm ssh 'sudo systemctl stop actions.runner.GridShift-Software-clearcase.clearcase-pc1-vm'   # only when no job is running
 scripts/ci/pc1-vm ssh 'cat > /tmp/ci.bundle && chmod 644 /tmp/ci.bundle' < /tmp/ci.bundle
 scripts/ci/pc1-vm ssh 'sudo -u runner -H bash -c "cd && rm -rf by-hand && git clone -q -b ci-bundle /tmp/ci.bundle by-hand && cd by-hand &&
   scripts/ci/install-chrome.sh && bun install --frozen-lockfile && bun run --bun check && bun run --bun test"'
-scripts/ci/pc1-vm ssh 'sudo systemctl start "actions.runner.*"'
+scripts/ci/pc1-vm ssh 'sudo systemctl start actions.runner.GridShift-Software-clearcase.clearcase-pc1-vm'
 ```
 
 Recreating the VM registers a new runner ID under the same name and labels, so the workflow needs no change.

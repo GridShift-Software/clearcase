@@ -20,6 +20,7 @@ import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, writeFileSync } 
 import path from 'node:path';
 import { now } from '../../components/clock.ts';
 import type { LocalCase } from '../../local-case/service.server.ts';
+import { registers } from '../../local-case/registers.server.ts';
 import { USER_WORK_EXPORT, UserWorkError, type ImportResult, type UserWorkExport } from '../../local-case/user-work.server.ts';
 import { importLegacy, legacyBackup, type LegacyResult } from './legacy.server.ts';
 
@@ -154,20 +155,25 @@ function copyBeforeWrite(lc: LocalCase, active: { resultsVersion: string }, labe
  * Restore a backup into the active case: check it, copy the current work, then replace this case's rows of the file's
  * tables, and clears the case's rows of case tables the file does not list, in one transaction (the case is named, so
  * a backup with no rows for it still clears the work added since). A
- * refusal (BackupError) or a failed write leaves the active data unchanged.
+ * refusal (BackupError) or a failed write leaves the active data unchanged. The copy and the write (a v5 import too)
+ * run inside the case's register lock: a register write of the case posted meanwhile waits, then re-checks against
+ * the restored rows.
  */
 export async function restoreBackup(lc: LocalCase, text: string, active: { caseId: string; resultsVersion: string }): Promise<RestoreOutcome> {
 	let checked: ReturnType<typeof checkBackup>;
+	const locked = <T>(fn: () => Promise<T>) => registers(lc.userWork).exclusive(active.caseId, fn);
 	try { checked = checkBackup(text, active); } catch (e) {
-		if (e instanceof BackupError && e.code === 'legacy') return { kind: 'legacy', legacy: await importLegacy(lc, JSON.parse(text), active, () => copyBeforeWrite(lc, active, 'pre-legacy-import')) };
+		if (e instanceof BackupError && e.code === 'legacy') return locked(async () => ({ kind: 'legacy', legacy: await importLegacy(lc, JSON.parse(text), active, () => copyBeforeWrite(lc, active, 'pre-legacy-import')) }));
 		throw e;
 	}
-	const preRestore = copyBeforeWrite(lc, active, 'pre-restore');
-	try {
-		const result = await lc.userWork.importAll(checked.file.userWork, { replace: 'cases', cases: [active.caseId], clearAbsent: true });
-		return { kind: 'restored', summary: checked.summary, result, preRestore };
-	} catch (e) {
-		if (e instanceof UserWorkError) throw new BackupError(`The backup cannot be restored here: ${e.message}. Nothing was changed.`, 'refused');
-		throw e;
-	}
+	return locked(async () => {
+		const preRestore = copyBeforeWrite(lc, active, 'pre-restore');
+		try {
+			const result = await lc.userWork.importAll(checked.file.userWork, { replace: 'cases', cases: [active.caseId], clearAbsent: true });
+			return { kind: 'restored', summary: checked.summary, result, preRestore };
+		} catch (e) {
+			if (e instanceof UserWorkError) throw new BackupError(`The backup cannot be restored here: ${e.message}. Nothing was changed.`, 'refused');
+			throw e;
+		}
+	});
 }

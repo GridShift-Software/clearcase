@@ -247,7 +247,18 @@ describe('exclusive()', () => {
 		});
 		expect(w.listRows('c', 'heads').map((x) => x.fields.head)).toEqual(['nested']);
 	});
+	it('a write a settled nested run left on a timer runs in the enclosing run while that is still open', { timeout: 500 }, async () => {
+		const w = memoryWork();
+		const r = registers(w);
+		await r.exclusive('c', async () => {
+			let late: Promise<unknown> = DONE;
+			await r.exclusive('c', async () => { late = new Promise((done) => setTimeout(() => done(r.open('c', 'heads').add({ head: 'late' })), 10)); });
+			await late;
+		});
+		expect(seqs(w)).toEqual([1]);
+	});
 });
+const DONE = Promise.resolve();
 
 describe('re-entry from batch()', () => {
 	it('a write to the same store from inside a batch runs in it instead of waiting on it', { timeout: 500 }, async () => {

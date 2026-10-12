@@ -7,9 +7,10 @@
 // row just before putRow with no other register write of this process in between: an edit never re-creates a row
 // another tab deleted (putRow upserts), and an edit made from a stale copy of the row is refused by its version (a
 // hash of the stored fields, anchor and updatedAt; under CLEARCASE_FIXED_NOW updatedAt never changes, the fields do).
-// One server process serves a data directory; a write outside this module (a restore) is not in the queue.
+// The queue is the register store's (local-case/registers.server.ts), so a restore of the case holds these writes back.
 import { createHash } from 'node:crypto';
 import type { DocumentAnchor } from '../case-package/index.ts';
+import { inTurn } from '../local-case/registers.server.ts';
 import type { RegisterRow, UserWork } from '../local-case/user-work.server.ts';
 import type { RegisterDef } from '../views/registers/defs.ts';
 import type { Entry, Row } from '../views/registers/logic.ts';
@@ -31,18 +32,8 @@ function stored(def: RegisterDef, r: RegisterRow): StoredRow {
 	return { rowId: r.rowId, values, seq: seqOf(r) ?? Number.MAX_SAFE_INTEGER, anchor: r.anchor, createdAt: r.createdAt, updatedAt: r.updatedAt, intact: r.intact, version: versionOf(r) };
 }
 
-const queues = new WeakMap<object, Map<string, Promise<unknown>>>();
 /** Run one register write after every earlier write of the same store, case and service (a failed write does not block the queue). */
-function serial<T>(w: Work, caseId: string, store: string, fn: () => Promise<T>): Promise<T> {
-	let m = queues.get(w);
-	if (!m) queues.set(w, (m = new Map()));
-	const key = JSON.stringify([caseId, store]);
-	const run = (m.get(key) ?? Promise.resolve()).then(fn);
-	const tail = run.then(() => undefined, () => undefined);
-	m.set(key, tail);
-	void tail.then(() => { if (m.get(key) === tail) m.delete(key); });
-	return run;
-}
+const serial = <T>(w: Work, caseId: string, store: string, fn: () => Promise<T>): Promise<T> => inTurn(w, caseId, store, fn);
 
 /** Every row of a case's register, in register (insertion) order. */
 export const listRegister = (w: Work, caseId: string, def: RegisterDef): StoredRow[] => w.listRows(caseId, def.store).map((r) => stored(def, r)).sort(order);

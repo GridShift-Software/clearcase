@@ -60,7 +60,7 @@ Both listeners bind 127.0.0.1 only. A case folder that equals, contains or lies 
   - `service.server.ts`: import, activation, rollback, recovery, backups (below).
   - `originals.server.ts` and `viewer/`: the originals site and the pdf.js viewer.
   - `user-work.server.ts`: notes, seed overlays and register rows in `work.sqlite`.
-  - `registers.server.ts`: the register store (GRS-52). Every view writes its register rows and seed deletions through `registers(userWork)`: a queue per case and store, insertion order, row versions (`stale`/`gone`), and `exclusive(caseId, fn)` for a restore.
+  - `registers.server.ts`: the register store (GRS-52). Every view writes its register rows and seed deletions through `registers(userWork)`: a queue per case and store, insertion order, row versions (`stale`/`gone`), and `exclusive(caseId, fn)`, which a restore takes. A writer of a case's user work that does not go through the store (a defined table, rescan, notes) runs its write in `inTurn(userWork, caseId, key, fn)`, so a restore holds it back.
   - `answer.server.ts`: the one answer to a failed form write (`guarded`, `answer`) and `actionCase`, the case of the version an action posts to.
   - `results.server.ts`: typed dataset access for views.
 - `src/lib/components/`: the generated view registry and the shared view contracts.

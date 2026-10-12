@@ -26,5 +26,5 @@ The Discovery Schedule reproduces the two imported affidavit schedules (`discove
 
 ## Gotchas
 
-- A schedule file opens only when its decoded path is a document of the version; otherwise the chip says `not in the verified index; not served`.
+- A schedule file opens when its decoded path is a document of the version (its document page) or a package file on disk (the originals site, GRS-45); otherwise the chip says `not in the verified index; not served`.
 - Marks are never cleared by Clear (as in v5); Clear and Empty bundle only unselect.

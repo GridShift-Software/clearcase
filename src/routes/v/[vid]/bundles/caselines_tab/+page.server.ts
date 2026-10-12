@@ -3,7 +3,7 @@ import { app } from '$lib/local-case/app.server';
 import { datasetOf, viewContentOf, viewText } from '$lib/local-case/results.server';
 import { MAX_QUERY, MAX_SHOWN, coverage, linkedName, linkedPath, searchPages, type PageText } from '$lib/views/bundles/caselines';
 import { locatorPath, resolveLocator } from '$lib/views/bundles/links';
-import { bundleDownloads, bundlePathIndex } from '$lib/views/bundles/links.server';
+import { bundleDownloads, bundleLinks } from '$lib/views/bundles/links.server';
 import { LINKS_STORE as LINKS, addLink, guarded, serial } from '$lib/views/bundles/store.server';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -25,7 +25,7 @@ export const load: PageServerLoad = async ({ parent, url }) => {
 	// the page count from the index, else the source's fallback figure (view-content), else unknown
 	const fallback = vc.number('caselines_tab', 'pageCountFallback');
 	const pages = typeof raw?.pages === 'number' && raw.pages > 0 ? raw.pages : typeof fallback === 'number' ? fallback : null;
-	const paths = bundlePathIndex(a.store, version.id);
+	const { paths, files } = await bundleLinks(a.store, version.id);
 	const src = vc.text('caselines_tab', 'url');
 	const bundle = resolveLocator(paths, src, null);
 	// a query over MAX_QUERY is refused visibly (qTooLong), never cut and searched
@@ -46,6 +46,8 @@ export const load: PageServerLoad = async ({ parent, url }) => {
 		present: raw !== null,
 		pages,
 		bundle,
+		// package-file key -> its originals-site link (GRS-45)
+		files,
 		cover: coverage(index, pages),
 		q,
 		qTooLong,

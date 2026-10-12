@@ -51,7 +51,7 @@ export function v5Prerequisite(repo = REPO) {
 }
 
 /**
- * The locator's accepted resultsVersion must be the one this revision's converter produces from the v5 sample: a
+ * The locator's accepted resultsVersion and diagnosticsSha256 must be the ones this revision's converter produces from the v5 sample: a
  * locator copied before a converter change (a view-content map change, say) otherwise fails parity only at its setup,
  * after the build and the test suites. Converts the sample (about 3 s) into .local/gate/v5-preflight and removes it.
  * Returns the problem, or null. `load` and `convert` are tests/e2e/pilot/v5/fixture.mjs's, injectable for tests.
@@ -73,14 +73,16 @@ export async function v5Current(repo = REPO, { load = loadConfig, convert = conv
 		if (r.exit !== 0 || !existsSync(manifest)) return `v5 conversion failed (exit ${r.exit}): ${r.stderr.trim().split('\n').at(-1) ?? ''}`;
 		const expected = JSON.parse(readFileSync(manifest, 'utf8')).resultsVersion;
 		const accepted = fx.accepted.resultsVersion;
-		if (expected === accepted) return null;
-		const field = fx.accepted === fx.acceptedBase ? 'accepted.resultsVersion' : 'acceptedViewContent.resultsVersion';
-		return [
-			`stale prerequisite: ${LOCATOR} accepts resultsVersion ${accepted}`,
-			`but this revision converts the v5 sample to ${expected}.`,
-			`Refresh: copy the coordinator's current locator to ${LOCATOR}. If this branch changes the converter output`,
-			`on purpose, set ${field} to ${expected} instead and report the new value.`,
-		].join('\n');
+		const diagnostics = r.report?.diagnosticsSha256;
+		const problems = [];
+		if (expected !== accepted) {
+			const field = fx.accepted === fx.acceptedBase ? 'accepted.resultsVersion' : 'acceptedViewContent.resultsVersion';
+			problems.push(`${LOCATOR} accepts resultsVersion ${accepted}`, `but this revision converts the v5 sample to ${expected}.`, `If this branch changes the converter output on purpose, set ${field}`, `to ${expected} instead and report the new value.`);
+		}
+		if (typeof diagnostics !== 'string') problems.push(`the v5 conversion report carries no diagnosticsSha256 (${r.report ? 'no such field' : 'no report'}), so ${LOCATOR} accepted.diagnosticsSha256 cannot be checked.`);
+		else if (diagnostics !== fx.accepted.diagnosticsSha256) problems.push(`${LOCATOR} accepts diagnosticsSha256 ${fx.accepted.diagnosticsSha256}`, `but this revision converts the v5 sample to ${diagnostics}.`, 'If this branch changes the diagnostics on purpose, set accepted.diagnosticsSha256', `to ${diagnostics} instead and report the new value.`);
+		if (!problems.length) return null;
+		return [`stale prerequisite: ${problems[0]}`, ...problems.slice(1), `Refresh: copy the coordinator's current locator to ${LOCATOR}.`].join('\n');
 	} finally {
 		rmSync(out, { recursive: true, force: true });
 	}

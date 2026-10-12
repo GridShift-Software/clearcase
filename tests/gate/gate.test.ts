@@ -165,13 +165,13 @@ describe('v5Current', () => {
 		const accepted = { resultsVersion: id('a'), diagnosticsSha256: id('d') };
 		return { cfg: { mainHtml: { path: '/v5.html' } }, caseFolder: '/case', caseId: 'c', acceptedBase: accepted, accepted: viewContent ? { ...accepted, resultsVersion: id('b') } : accepted };
 	};
-	/** A converter stub that writes a manifest with `resultsVersion`, or fails. */
-	const converter = (resultsVersion: string | null, seen: string[] = []) => ({ out }: { out: string }) => {
+	/** A converter stub that writes a manifest with `resultsVersion` and returns a report with `diagnosticsSha256` (the accepted one by default), or fails. */
+	const converter = (resultsVersion: string | null, seen: string[] = [], report: object | null = { diagnosticsSha256: id('d') }) => ({ out }: { out: string }) => {
 		seen.push(out);
 		if (resultsVersion === null) return { exit: 1, stderr: 'boom\n' };
 		mkdirSync(out, { recursive: true });
 		writeFileSync(join(out, 'manifest.json'), JSON.stringify({ resultsVersion }));
-		return { exit: 0, stderr: '' };
+		return { exit: 0, stderr: '', report };
 	};
 
 	it('passes when the conversion carries the accepted resultsVersion, and removes it', async () => {
@@ -185,10 +185,23 @@ describe('v5Current', () => {
 		const problem = await v5Current(repo, { load: async () => fx(true), convert: converter(id('c')) });
 		expect(problem).toMatch(new RegExp(`^stale prerequisite: .*v5-verification\\.json accepts resultsVersion ${id('b')}\n`));
 		expect(problem).toContain(`converts the v5 sample to ${id('c')}`);
-		expect(problem).toContain(`set acceptedViewContent.resultsVersion to ${id('c')}`);
+		expect(problem).toContain(`set acceptedViewContent.resultsVersion\nto ${id('c')}`);
 		expect(problem).toMatch(/Refresh: copy the coordinator's current locator/);
 		expect(problem!.split('\n').every((l: string) => l.length <= 160)).toBe(true);
-		expect(await v5Current(repo, { load: async () => fx(false), convert: converter(id('c')) })).toContain(`set accepted.resultsVersion to ${id('c')}`);
+		expect(await v5Current(repo, { load: async () => fx(false), convert: converter(id('c')) })).toContain(`set accepted.resultsVersion\nto ${id('c')}`);
+	});
+
+	it('names a stale accepted diagnosticsSha256, and refuses a conversion report without one', async () => {
+		const stale = await v5Current(repo, { load: async () => fx(true), convert: converter(id('b'), [], { diagnosticsSha256: id('e') }) });
+		expect(stale).toMatch(new RegExp(`^stale prerequisite: .*v5-verification\\.json accepts diagnosticsSha256 ${id('d')}\n`));
+		expect(stale).toContain(`converts the v5 sample to ${id('e')}`);
+		expect(stale).toContain('set accepted.diagnosticsSha256');
+		expect(stale!.split('\n').every((l: string) => l.length <= 160)).toBe(true);
+		expect(await v5Current(repo, { load: async () => fx(true), convert: converter(id('b'), [], {}) })).toContain('carries no diagnosticsSha256 (no such field)');
+		expect(await v5Current(repo, { load: async () => fx(true), convert: converter(id('b'), [], null) })).toContain('carries no diagnosticsSha256 (no report)');
+		const both = await v5Current(repo, { load: async () => fx(true), convert: converter(id('c'), [], { diagnosticsSha256: id('e') }) });
+		expect(both).toContain('accepts resultsVersion');
+		expect(both).toContain('accepts diagnosticsSha256');
 	});
 
 	it('reports a locator loadConfig refuses, and a failed conversion', async () => {

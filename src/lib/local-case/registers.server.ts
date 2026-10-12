@@ -9,9 +9,10 @@
 // that takes it cannot land between a write's re-check and its write. A write made from inside `exclusive` or `batch`
 // runs in that step (see `Registers.exclusive`); it never waits on the step it is part of.
 //
-// One server process serves a data directory (an exclusive instance lock). A write that bypasses this module (another
-// process on the same directory, a restore that does not take `exclusive`) can still land between a re-check and its
-// write's own transaction.
+// A restore takes `exclusive`; the case's other writers (GRS-17 registers, bundles, filings, info required, rescan) run
+// in the same queue through `inTurn`. One server process serves a data directory (an exclusive instance lock). A write
+// that bypasses this module (another process on the same directory) can still land between a re-check and its write's
+// own transaction.
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import type { SeedView } from '../case-package/browser.ts';
@@ -85,7 +86,7 @@ const DONE: Promise<unknown> = Promise.resolve();
  * which keeps its async context) is no longer part of it: it is part of the step `up` that holds this one if that has not
  * settled, and otherwise queues like any other.
  */
-type Held = { w: Work; caseId: string; store: string | null; tail: Promise<unknown>; done: boolean; up: Held | undefined };
+type Held = { w: object; caseId: string; store: string | null; tail: Promise<unknown>; done: boolean; up: Held | undefined };
 const holding = new AsyncLocalStorage<Held>();
 const NOOP = () => undefined;
 type CaseQueue = { all: Promise<unknown>; stores: Map<string, Promise<unknown>> };
@@ -97,7 +98,7 @@ async function step<T>(h: Held, fn: () => Promise<T>): Promise<T> {
 }
 
 /** Run `fn` after the case's earlier exclusive run and, for a store, its earlier writes (`store` null: after every earlier write of the case). A failure does not block later calls. */
-function queued<T>(w: Work, caseId: string, store: string | null, fn: () => Promise<T>): Promise<T> {
+function queued<T>(w: object, caseId: string, store: string | null, fn: () => Promise<T>): Promise<T> {
 	let open = holding.getStore();
 	while (open?.done) open = open.up;
 	const held = open;
@@ -121,6 +122,13 @@ function queued<T>(w: Work, caseId: string, store: string | null, fn: () => Prom
 	});
 	return run;
 }
+
+/**
+ * Run a write of a case's user work outside this module (a register, table or rescan writer) in the case's queue,
+ * under `key` (its store): after the case's earlier writes under that key and any exclusive run (a restore), and
+ * before a later one. `w` is the app's userWork.
+ */
+export const inTurn = <T>(w: object, caseId: string, key: string, fn: () => Promise<T>): Promise<T> => queued(w, caseId, key, fn);
 
 // Adds seen per user-work, by the form's one-time add id and the fields sent: a second post of the same form (a double
 // press without JavaScript, a retry of a request that did arrive) answers with the row the first one stored.

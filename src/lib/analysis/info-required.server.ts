@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto';
 import { error } from '@sveltejs/kit';
 import { UserWorkError, type UserWork } from '../local-case/user-work.server.ts';
+import { inTurn } from '../local-case/registers.server.ts';
 
 export const INFO_STORE = 'info-required';
 
@@ -62,7 +63,8 @@ export async function saveDone(uw: UserWork, caseId: string, resultsVersion: str
 	const i = itemKeys(items).indexOf(key);
 	if (i < 0) return false;
 	try {
-		await uw.putRow(caseId, INFO_STORE, key, { item: items[i]!.item, done, resultsVersion });
+		// in the case's register queue, so a restore of the case holds it back
+		await inTurn(uw, caseId, INFO_STORE, () => uw.putRow(caseId, INFO_STORE, key, { item: items[i]!.item, done, resultsVersion }));
 	} catch (e) {
 		if (e instanceof UserWorkError) error(413, 'this item’s text is too long to store its check (over 64 KiB).');
 		throw e;

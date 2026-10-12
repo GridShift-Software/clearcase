@@ -81,7 +81,8 @@ describe('CI summary', () => {
 			{ check: 'test', detail: 'a needs symlinks: skipped, not run (a skipped test is not evidence)' }],
 		['a tracked test file missing from the report', () => { receipt('check'); receipt('test'); report([passed], []); }, { check: 'test', where: 'tests/a.test.ts', detail: expect.stringMatching(/^tracked test file missing from the report/) }],
 		['a test file with no test', () => { receipt('check'); receipt('test'); report([], ['tests/a.test.ts']); }, { check: 'test', where: 'tests/a.test.ts', detail: 'no test ran in this file' }],
-		['a missing Vitest report', () => { receipt('check'); receipt('test'); }, { check: 'test', detail: expect.stringMatching(/^no Vitest report at /) }],
+		['a missing Vitest report', () => { receipt('check'); receipt('test'); }, { check: 'test', where: null, detail: expect.stringMatching(/^no Vitest report at /), reproduce: 'bun run --bun test' }],
+		['a report with no tests at all', () => { receipt('check'); receipt('test'); report([], []); }, { check: 'test', where: null, detail: 'the report lists no tests', reproduce: 'bun run --bun test' }],
 	])('fails %s with exit 1 and names it', (_, arrange, problem) => {
 		arrange();
 		const r = summary('check', 'test');

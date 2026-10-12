@@ -198,11 +198,11 @@ The register is `intentional-differences.json` plus one fragment per M2 owner in
 | `type` | `improvement`; `defect-fix` (with `source` `S-…`); `data-correction-deferred-to-pipeline`; `not-yet-implemented` (with `owner` `GRS-…`; for a whole view, the owner in the generated view registry, `src/lib/components/view-registry.ts`, which every run checks); or `known-gap`. |
 | `source` | The `S-…` source defect, `BA-…` finding or `GRS-…` ticket behind it. |
 | `reason`, `productVisible` | Why. `true` puts it on the list of product-visible changes for the user. |
-| `author`, `approvedBy`, `approvedOn` | The author proposes the entry with `approvedBy: null`. The coordinator approves by filling both fields. The approver is never the author: the two are compared after NFKC normalization and case folding, with zero-width characters and all spaces, non-breaking ones included, removed. |
+| `author`, `approvedBy`, `approvedOn` | The author proposes the entry with `approvedBy: null`. For an entry with `productVisible: false` the coordinator approves by filling both fields; for any other entry (a missing or non-boolean `productVisible` counts as visible) only the user does, in a PR or on GitHub, and the workspace pre-push hook refuses an agent's push that approves one. The approver is never the author: the two are compared after NFKC normalization and case folding, with zero-width characters and all spaces, non-breaking ones included, removed. |
 
 - **No case values.** A field names structure and a `when` names UI wording or markers. The validator refuses digit runs of four or more and `@`. Refer to a row by a glob (`table.table_1.row.*.date`), never by its ref.
 - **Make entries narrow.** An entry without `when` covers any value of its field, so a later regression in that field would pass unnoticed. Prefer `when`, and keep the field list short.
-- **Approval.** Commit proposed entries with the adapter. The coordinator reviews them, sets `approvedBy` and `approvedOn`, and lists the `productVisible` improvements for the user. Proposed entries cover differences in an ordinary run and count under *pending approval*. With `--approved-only` (the gate) they do not.
+- **Approval.** Commit proposed entries with the adapter. The coordinator reviews them, sets `approvedBy` and `approvedOn` on the entries that are not product-visible, and lists the `productVisible` improvements for the user, who approves them. Proposed entries cover differences in an ordinary run and count under *pending approval*. With `--approved-only` (the gate) they do not.
 
 ### Fragments
 

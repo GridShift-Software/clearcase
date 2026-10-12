@@ -6,13 +6,18 @@ on:
   pull_request:
   push:
     branches: [dev, 'feature/**']
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
   check:
-    runs-on: ubuntu-24.04
+    # The runner is a VM on pc1 (docs/ci-runner.md) that runs only this repository's own code, so a pull request
+    # from a fork never reaches it.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, linux, x64, clearcase-pc1]
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -20,24 +25,13 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
-      # The browser unit tests (tests/case-package/render.test.ts, tests/e2e/pilot/lib/lifecycle.test.ts) look for
-      # Chrome for Testing 148.0.7778.96 in Playwright's cache layout, full Chrome and the headless shell.
-      - name: Install Chrome for Testing 148.0.7778.96
-        run: |
-          set -euo pipefail
-          base=https://storage.googleapis.com/chrome-for-testing-public/148.0.7778.96/linux64
-          fetch() { # zip name, its sha256, Playwright cache directory
-            curl -fsSLo "$RUNNER_TEMP/$1.zip" "$base/$1.zip"
-            echo "$2  $RUNNER_TEMP/$1.zip" | sha256sum -c -
-            mkdir -p "$HOME/.cache/ms-playwright/$3"
-            unzip -q "$RUNNER_TEMP/$1.zip" -d "$HOME/.cache/ms-playwright/$3"
-          }
-          fetch chrome-linux64 e58a0612f6156ad287ff392c681f6e1154d0c938feccf631d0c5d7abf3bbf81a chromium-1223
-          fetch chrome-headless-shell-linux64 88817c574c1838a39f88fda0bbd043b4481fd385fb10e92c323e230844d636ce chromium_headless_shell-1223
-      # Those tests run Chromium offline in their own network namespace (unshare -rn), which Ubuntu 24.04's AppArmor
-      # policy refuses to unprivileged users by default.
-      - name: Allow unprivileged user namespaces
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: scripts/ci/install-chrome.sh
       - run: bun install --frozen-lockfile
-      - run: bun run --bun check
-      - run: bun run --bun test
+      - run: scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base HEAD --name check --tool bun -- bun run --bun check
+      - run: scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base HEAD --name test --tool bun -- bun run --bun test
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: receipts
+          path: ${{ runner.temp }}/receipts
+          if-no-files-found: ignore

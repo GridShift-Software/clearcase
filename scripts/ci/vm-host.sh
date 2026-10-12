@@ -84,7 +84,7 @@ RuntimeDirectory=clearcase-ci
 RuntimeDirectoryMode=0700
 ExecStart=/usr/bin/qemu-system-x86_64 -name clearcase-ci-vm -machine q35,accel=kvm -cpu host -smp 4 -m 8G \\
   -display none -serial file:$dir/console.log -qmp unix:/run/clearcase-ci/qmp.sock,server=on,wait=off \\
-  -drive file=$dir/disk.qcow2,if=virtio,format=qcow2,discard=unmap \\
+  -drive file=$dir/disk.qcow2,if=virtio,format=qcow2,cache=none,discard=unmap \\
   -drive file=$dir/seed.iso,if=virtio,format=raw,readonly=on \\
   -netdev user,id=net0,hostfwd=tcp:127.0.0.1:2257-:22 -device virtio-net-pci,netdev=net0 \\
   -device virtio-rng-pci
@@ -92,7 +92,7 @@ ExecStop=$dir/powerdown \$MAINPID
 TimeoutStopSec=120
 Restart=always
 RestartSec=10
-MemoryMax=10G
+MemoryMax=11G
 IPAddressDeny=$deny
 NoNewPrivileges=yes
 ProtectSystem=strict

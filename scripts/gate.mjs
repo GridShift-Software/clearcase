@@ -219,6 +219,19 @@ export function readHead(spawn = spawnSync, repo = REPO) {
 }
 
 /**
+ * Admits the calling gate leader or refuses it: returns null when it may run (and has recorded itself in `pidFile`), else
+ * the `GATE FAIL busy` line to print.
+ */
+export function admit(pidFile = PID_FILE) {
+	const orphan = orphanedGroup(pidFile, { name: LEADER_ENV, value: REPO });
+	if (orphan) return `GATE FAIL busy: processes of an earlier gate (group ${orphan}) still run after their leader died; stop them with \`bun run --bun gate --stop\``;
+	const running = livePid(pidFile);
+	if (running) return `GATE FAIL busy: a gate (pid ${running.pid}) is already running in this worktree; wait for it, or stop it with \`bun run --bun gate --stop\``;
+	writePidFile(pidFile);
+	return null;
+}
+
+/**
  * Runs the gate in a process group of its own: the gate re-runs itself as a group leader (`detached`), which writes
  * its pid to PID_FILE, and every step, browser and server it starts stays in that group. `gate --stop` signals that
  * group and nothing else, so it never reaches another worktree's gate the way `pkill -f scripts/gate.mjs` would.
@@ -236,17 +249,11 @@ async function main() {
 		const [code, signal] = await new Promise((res) => child.on('exit', (c, s) => res([c, s])));
 		return code ?? (signal ? 1 : 0);
 	}
-	const orphan = orphanedGroup(PID_FILE, { name: LEADER_ENV, value: REPO });
-	if (orphan) {
-		console.log(`GATE FAIL busy: processes of an earlier gate (group ${orphan}) still run after their leader died; stop them with \`bun run --bun gate --stop\``);
+	const refused = admit();
+	if (refused) {
+		console.log(refused);
 		return 1;
 	}
-	const running = livePid(PID_FILE);
-	if (running) {
-		console.log(`GATE FAIL busy: a gate (pid ${running.pid}) is already running in this worktree; wait for it, or stop it with \`bun run --bun gate --stop\``);
-		return 1;
-	}
-	writePidFile(PID_FILE);
 	process.on('exit', () => removePidFile(PID_FILE));
 	const { head, error } = readHead();
 	if (error) {

@@ -1,3 +1,4 @@
+import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -221,5 +222,39 @@ describe('readHead', () => {
 		expect(readHead(() => ({ status: 128, stdout: '', stderr: 'fatal: detected dubious ownership\n' }))).toEqual({ error: 'rev-parse exited 128: fatal: detected dubious ownership' });
 		expect(readHead(() => ({ error: new Error('spawn git ENOENT'), stdout: null }))).toEqual({ error: 'spawn git ENOENT' });
 		expect(readHead((_c: string, a: string[]) => (a[0] === 'rev-parse' ? ok('abc') : { status: 1, stdout: '', stderr: '' }))).toEqual({ error: 'status exited 1: ' });
+	});
+});
+
+describe('admission', () => {
+	const child = join(import.meta.dirname, 'admit-child.mjs');
+	/** Starts `n` real processes that try to be the gate at the same instant; resolves each one's output line. */
+	const race = async (pidFile: string, n: number, hold = 1500) => {
+		const startAt = Date.now() + 1500;
+		return Promise.all(Array.from({ length: n }, () => new Promise<string>((res) => {
+			const p = spawn(process.execPath, [child, pidFile, String(startAt), String(hold)], { stdio: ['ignore', 'pipe', 'inherit'] });
+			let out = '';
+			p.stdout.on('data', (d) => (out += d));
+			p.on('close', () => res(out.trim()));
+		})));
+	};
+
+	it('admits exactly one of several gates that start at the same moment, and the rest say they are busy', async () => {
+		for (let round = 0; round < 3; round++) {
+			const pidFile = join(repo, `round${round}`, 'pid');
+			const outs = await race(pidFile, 4);
+			expect(outs.filter((o) => o === 'ADMITTED')).toHaveLength(1);
+			expect(outs.filter((o) => o.startsWith('GATE FAIL busy: a gate (pid '))).toHaveLength(3);
+		}
+	});
+
+	it('takes over a claim whose owner is dead: exactly one of several simultaneous gates wins it', async () => {
+		const pidFile = join(repo, 'pid');
+		const dead = spawn('true');
+		await new Promise((r) => dead.on('close', r));
+		mkdirSync(repo, { recursive: true });
+		writeFileSync(pidFile, `${dead.pid} 1\n`);
+		const outs = await race(pidFile, 4);
+		expect(outs.filter((o) => o === 'ADMITTED')).toHaveLength(1);
+		expect(outs.filter((o) => o.startsWith('GATE FAIL busy: a gate (pid '))).toHaveLength(3);
 	});
 });

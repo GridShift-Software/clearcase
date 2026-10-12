@@ -1,9 +1,9 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { livePid, orphanedGroup, processStart, readPidFile, removePidFile, stopPidFile, writePidFile } from '../../scripts/pidfile.ts';
+import { claimPidFile, livePid, orphanedGroup, processStart, readPidFile, removePidFile, stopPidFile, writePidFile } from '../../scripts/pidfile.ts';
 
 let dir: string;
 const kids: ChildProcess[] = [];
@@ -116,5 +116,50 @@ describe('pid files', () => {
 		expect(r).toMatchObject({ ok: false, message: expect.stringMatching(/but it is still running$/) });
 		expect(existsSync(f)).toBe(true);
 		expect(running(k.pid!)).toBe(true);
+	});
+
+	describe('claimPidFile', () => {
+		it('claims a free file with a whole record, refuses a live owner, and leaves no temporary files', () => {
+			const f = join(dir, 'a', 'pid');
+			const a = sleeper();
+			expect(claimPidFile(f, process.pid)).toEqual({ claimed: true });
+			expect(readPidFile(f)).toEqual({ pid: process.pid, start: processStart(process.pid) });
+			expect(claimPidFile(f, a.pid)).toEqual({ claimed: false, owner: { pid: process.pid, start: processStart(process.pid) } });
+			expect(readPidFile(f)?.pid).toBe(process.pid);
+			expect(readdirSync(join(dir, 'a'))).toEqual(['pid']);
+		});
+
+		it('takes over a record of a dead process and of a reused pid', () => {
+			const f = join(dir, 'pid');
+			const k = sleeper();
+			for (const rec of ['2147483000 1', `${k.pid} 1`]) {
+				writeFileSync(f, `${rec}\n`);
+				expect(claimPidFile(f)).toEqual({ claimed: true });
+				expect(readPidFile(f)?.pid).toBe(process.pid);
+				rmSync(f);
+			}
+			expect(running(k.pid!)).toBe(true);
+		});
+
+		it('takes over a malformed record', () => {
+			const f = join(dir, 'pid');
+			writeFileSync(f, '');
+			expect(claimPidFile(f)).toEqual({ claimed: true });
+		});
+
+		it('clears a recovery guard left by a crashed process, but waits for a fresh one', () => {
+			const f = join(dir, 'pid');
+			writeFileSync(f, '2147483000 1\n');
+			mkdirSync(`${f}.recover`);
+			const old = new Date(Date.now() - 60_000);
+			utimesSync(`${f}.recover`, old, old);
+			expect(claimPidFile(f)).toEqual({ claimed: true });
+			expect(existsSync(`${f}.recover`)).toBe(false);
+			rmSync(f);
+			writeFileSync(f, '2147483000 1\n');
+			mkdirSync(`${f}.recover`);
+			expect(claimPidFile(f)).toEqual({ claimed: false, owner: null });
+			expect(readPidFile(f)?.pid).toBe(2147483000);
+		});
 	});
 });

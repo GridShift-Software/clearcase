@@ -21,7 +21,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import { join, resolve } from 'node:path';
 import { DEV_ENV } from '../tests/e2e/pilot/run.mjs';
 import { convert as convertV5, loadConfig } from '../tests/e2e/pilot/v5/fixture.mjs';
-import { livePid, orphanedGroup, removePidFile, stopPidFile, writePidFile } from './pidfile.ts';
+import { claimPidFile, orphanedGroup, removePidFile, stopPidFile } from './pidfile.ts';
 
 const REPO = resolve(import.meta.dirname, '..');
 const LOCATOR = join('.local', 'v5-verification.json');
@@ -219,16 +219,18 @@ export function readHead(spawn = spawnSync, repo = REPO) {
 }
 
 /**
- * Admits the calling gate leader or refuses it: returns null when it may run (and has recorded itself in `pidFile`), else
- * the `GATE FAIL busy` line to print.
+ * Admits the calling gate leader or refuses it: returns null when it may run, else the `GATE FAIL busy` line to print.
+ * Admission is the atomic claim of `pidFile` (see `claimPidFile`), made before any work starts and held until the
+ * leader exits (`main` removes it), so of any number of simultaneous gates exactly one is admitted. The claim is also the
+ * record `gate --stop` reads, so it names the process group to stop.
  */
 export function admit(pidFile = PID_FILE) {
 	const orphan = orphanedGroup(pidFile, { name: LEADER_ENV, value: REPO });
 	if (orphan) return `GATE FAIL busy: processes of an earlier gate (group ${orphan}) still run after their leader died; stop them with \`bun run --bun gate --stop\``;
-	const running = livePid(pidFile);
-	if (running) return `GATE FAIL busy: a gate (pid ${running.pid}) is already running in this worktree; wait for it, or stop it with \`bun run --bun gate --stop\``;
-	writePidFile(pidFile);
-	return null;
+	const claim = claimPidFile(pidFile);
+	if (claim.claimed) return null;
+	if (!claim.owner) return 'GATE FAIL busy: another gate is claiming this worktree right now; try again in a few seconds';
+	return `GATE FAIL busy: a gate (pid ${claim.owner.pid}) is already running in this worktree; wait for it, or stop it with \`bun run --bun gate --stop\``;
 }
 
 /**

@@ -3,12 +3,16 @@
 # Ethernet frames to QEMU's user-mode network, which turns them into pc1 host sockets, so this tests what pc1's
 # firewall lets the QEMU process reach. Exits 1 when the guest reaches any denied host port or a control fails.
 #   - pc1 runs throwaway TCP and UDP listeners as `nobody` on 127.0.0.1, 127.0.0.53, 127.0.0.57 and ::1 on one random
-#     port. A wildcard UDP listener on the next port joins the synthetic group 239.255.57.57 and also receives IPv4
-#     broadcast. They prove they receive before the probe starts, record every later hit and stop when this script exits.
+#     port. They prove they receive before the probe starts, record every later hit and stop when this script exits.
+#   - Multicast and broadcast can't be caught by a socket: pc1's UFW drops its own looped-back copies on the LAN
+#     interface (`[UFW BLOCK] IN=<lan> SRC=<pc1 lan ip>`). So the same process first opens an AF_PACKET tap (before
+#     dropping root), which sees IPv4 frames as they leave an interface, after netfilter OUTPUT and the cgroup BPF
+#     filter. As `nobody` it sends a multicast and a broadcast datagram out of the default-route interface and
+#     requires the tap to see both there before the probe starts; later hits to the synthetic group or 255.255.255.255
+#     on the next port are recorded as leaks. A packet nft or IPAddressDeny drops never reaches the tap.
 #   - Guest root sends TCP SYNs to those and to pc1's real listeners (KDE Connect 1716, LLMNR 5355, CUPS 631, the SSH
 #     forward 2257); a SYN-ACK or RST means the packet reached pc1's loopback. UDP goes to the throwaway listeners,
-#     and so do raw UDP datagrams to the synthetic multicast group and to 255.255.255.255, which leave pc1 through its
-#     LAN interface rather than lo and loop back to wildcard listeners.
+#     and the tap sees raw UDP datagrams to the synthetic multicast group and to 255.255.255.255.
 #   - Controls that must work: raw SYN to 1.1.1.1:443 and to the resolver's 127.0.0.53:53, DNS over UDP and TCP
 #     through 10.0.2.3, HTTPS to github.com as the runner user, and management SSH (this probe runs over it).
 # It touches no service and doesn't stop the runner, so it is safe while a job runs.
@@ -20,9 +24,15 @@ out=$(mktemp)
 trap 'rm -f "$out"' EXIT
 
 listener=$(base64 -w0 <<'PY'
-import select, socket, struct, sys, time
+import os, select, socket, struct, subprocess, sys, time
 port = int(sys.argv[1])
 group = "239.255.57.57"
+tap = socket.socket(socket.AF_PACKET, socket.SOCK_DGRAM, socket.htons(0x0800))  # needs root: opened before the drop
+route = subprocess.run(["ip", "-4", "route", "get", "1.1.1.1"], capture_output=True, text=True, check=True).stdout.split()
+egress, lan_ip = route[route.index("dev") + 1], route[route.index("src") + 1]
+os.setgroups([])
+os.setgid(65534)
+os.setuid(65534)
 socks = {}
 for addr, fam in (("127.0.0.1", socket.AF_INET), ("127.0.0.53", socket.AF_INET), ("127.0.0.57", socket.AF_INET),
                   ("::1", socket.AF_INET6)):
@@ -33,34 +43,46 @@ for addr, fam in (("127.0.0.1", socket.AF_INET), ("127.0.0.53", socket.AF_INET),
     u = socket.socket(fam, socket.SOCK_DGRAM)
     u.bind((addr, port))
     socks[u] = ("udp", addr, port)
-w = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-w.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-w.bind(("0.0.0.0", port + 1))
-w.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, socket.inet_aton(group) + socket.inet_aton("0.0.0.0"))
-socks[w] = ("udp", "0.0.0.0", port + 1)
+
+def tapped(timeout=None):
+    """Yield (interface, dst, payload) for IPv4 UDP datagrams to the multicast and broadcast test targets."""
+    while select.select([tap], [], [], timeout)[0]:
+        ip, (ifname, *_rest) = tap.recvfrom(65535)
+        ihl = (ip[0] & 15) * 4
+        dst = socket.inet_ntoa(ip[16:20])
+        if ip[9] == 17 and dst in (group, "255.255.255.255") and struct.unpack("!H", ip[ihl + 2:ihl + 4])[0] == port + 1:
+            yield ifname, dst, ip[ihl + 8:]
+        timeout = 0
+
+sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sender.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+sender.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(lan_ip))
+for dst in (group, "255.255.255.255"):
+    sender.sendto(b"self", (dst, port + 1))
+    deadline = time.time() + 2
+    while not any(seen == (egress, dst, b"self") for seen in tapped(max(0, deadline - time.time()))):
+        if time.time() >= deadline:
+            raise SystemExit(f"tap did not see self-sent {dst} leaving {egress}")
 for s, (proto, addr, p) in socks.items():
-    if s is w:
-        for dst in (group, "255.255.255.255"):
-            sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            sender.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            sender.sendto(b"self", (dst, p))
-            s.settimeout(2)
-            s.recvfrom(64)
-    elif proto == "tcp":
+    if proto == "tcp":
         socket.create_connection((addr, port), 2).close()
         s.accept()[0].close()
     else:
         socket.socket(s.family, socket.SOCK_DGRAM).sendto(b"self", (addr, port))
         s.settimeout(2)
         s.recvfrom(64)
-print("ready", flush=True)
+print(f"ready {egress} {lan_ip}", flush=True)
 end = time.time() + 110
 while time.time() < end:
-    ready = select.select([*socks, sys.stdin], [], [], 1)[0]
+    ready = select.select([*socks, tap, sys.stdin], [], [], 1)[0]
     if sys.stdin in ready and not sys.stdin.readline():
         break
     for s in ready:
         if s is sys.stdin:
+            continue
+        if s is tap:
+            for ifname, dst, payload in tapped(0):
+                print(f"hit udp {dst}:{port + 1} out of {ifname} {payload!r}", flush=True)
             continue
         proto, addr, p = socks[s]
         if proto == "tcp":
@@ -73,17 +95,19 @@ print("done", flush=True)
 PY
 )
 
-echo "== pc1 boundary state"
-ssh -o BatchMode=yes "$host" 'systemctl show clearcase-ci-vm.service -p ActiveState -p NRestarts -p IPAddressAllow
+boundary_state() {
+  ssh -o BatchMode=yes "$host" 'systemctl show clearcase-ci-vm.service -p ActiveState -p NRestarts -p IPAddressAllow
   nft list table inet clearcase_ci_vm 2>&1 || true'
+}
+echo "== pc1 boundary state before"
+boundary_state
 
 # The listener stops when this script closes its stdin, or after 110 seconds.
-coproc LISTEN { ssh -o BatchMode=yes "$host" "exec setpriv --reuid=nobody --regid=nobody --clear-groups --no-new-privs \
-  timeout 120 python3 -c \"import base64; exec(base64.b64decode('$listener'))\" $port" >"$out" 2>&1; }
+coproc LISTEN { ssh -o BatchMode=yes "$host" "exec timeout 120 python3 -c \"import base64; exec(base64.b64decode('$listener'))\" $port" >"$out" 2>&1; }
 listen_pid=$LISTEN_PID listen_in=${LISTEN[1]}
 for _ in $(seq 40); do grep -q '^ready' "$out" && break; sleep 0.5; done
 grep -q '^ready' "$out" || { echo "FAIL host listeners on port $port did not start:"; cat "$out"; exit 1; }
-echo "PASS host listeners on port $port receive from pc1 itself"
+echo "PASS host listeners on port $port receive from pc1 itself, and the tap saw self-sent $(grep '^ready' "$out" | cut -d' ' -f2) multicast and broadcast"
 
 rc=0
 "$here/pc1-vm" ssh "sudo python3 - $port" <<'PY' || rc=1
@@ -194,6 +218,9 @@ if grep '^hit' "$out"; then
 else
   echo "PASS no guest traffic reached the host listeners"
 fi
+echo "== pc1 boundary state after (nft drop counters count only what reached the nft output chain; traffic that"
+echo "== systemd's IPAddressDeny, QEMU or the guest stopped earlier leaves them at zero, so only the listener result proves it)"
+boundary_state
 grep -q '^done' "$out" || { echo "FAIL host listeners did not finish cleanly:"; cat "$out"; rc=1; }
 [[ $rc == 0 ]] && echo "boundary: PASS" || echo "boundary: FAIL"
 exit $rc

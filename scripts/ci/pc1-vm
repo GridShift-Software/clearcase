@@ -32,6 +32,11 @@ wait_guest() {
   return 1
 }
 runner_id() { gh api "repos/$repo/actions/runners" --jq ".runners[] | select(.name == \"$name\") | .id"; }
+# provision, refresh and restart stop the runner or the VM, which would kill a running job.
+not_busy() {
+  [[ $(gh api "repos/$repo/actions/runners" --jq ".runners[] | select(.name == \"$name\") | .busy") != true ]] ||
+    { echo "pc1-vm: $name is running a job; try again when it is idle" >&2; exit 1; }
+}
 
 case ${1:-} in
 create)
@@ -44,6 +49,7 @@ create)
   "$0" register
   ;;
 provision)
+  not_busy
   guest 'sudo tee /usr/local/sbin/clearcase-ci-guest >/dev/null && sudo chmod 0755 /usr/local/sbin/clearcase-ci-guest' \
     <"$here/guest-provision.sh"
   release=$(gh api repos/actions/runner/releases/latest \
@@ -59,11 +65,14 @@ ssh)
   guest "$@"
   ;;
 refresh)
-  # Rewrite the service unit with pc1's current networks and restart the VM; the disk and the runner stay.
+  # Rewrite the service unit and firewall table with pc1's current networks and restart the VM; the disk and the runner
+  # stay.
+  not_busy
   ssh "$host" bash -s -- unit <"$here/vm-host.sh"
   wait_guest
   ;;
 start | stop | restart | status)
+  [[ $1 != restart ]] || not_busy
   ssh "$host" systemctl "$1" --no-pager clearcase-ci-vm.service
   ;;
 destroy)

@@ -1,10 +1,12 @@
 // Pid files for `gate --stop` and `start --stop`, so an agent stops only the run it started and never matches another
 // worktree's gate or server by command line (`pkill -f`). A pid file holds `<pid> <start time>`, the start time being
 // field 22 of /proc/<pid>/stat, so a pid the kernel has since reused for another process is never signalled. Linux only:
-// elsewhere `processStart` returns null and nothing is ever stopped. When a group leader is SIGKILLed, its children
+// elsewhere `processStart` returns null and nothing is ever stopped, and a claim (flock(2) through glibc) throws. When a group leader is SIGKILLed, its children
 // keep running in the group; such an orphaned group is signalled only if a member carries the launcher's marker
 // variable in its environment (`/proc/<pid>/environ`), so a pgid the kernel has reused for another group is never hit.
-import { existsSync, linkSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+// @ts-expect-error bun:ffi has no type declarations here: tsconfig's types are node's only
+import { dlopen, FFIType, read } from 'bun:ffi';
+import { closeSync, mkdirSync, openSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 type Stat = { pgrp: number; state: string; start: string };
@@ -52,7 +54,7 @@ function hasMarker(pid: number, m: Marker): boolean {
 	}
 }
 
-/** Records this process in `file`, replacing any record. The file appears whole (rename), never half-written. For an exclusive claim use `claimPidFile`. */
+/** Records `pid` in `file`, replacing any record. The file appears whole (rename), never half-written. For an exclusive claim use `claimPidFile`. */
 export function writePidFile(file: string, pid = process.pid): void {
 	mkdirSync(dirname(file), { recursive: true });
 	const tmp = `${file}.${pid}.tmp`;
@@ -60,81 +62,76 @@ export function writePidFile(file: string, pid = process.pid): void {
 	renameSync(tmp, file);
 }
 
-/** Test seam: called at each named step of a claim, a stale recovery and a stop, so a test can hold one process there while others run. */
+/** Test seam: called at each named step of a claim and a stop, so a test can hold one process there while others run. */
 export const steps = { at: (_label: string): void => {} };
 
 const sleepSync = (ms: number) => void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-/** A recovery guard older than this was left by a crashed process (its critical section takes microseconds). */
-const GUARD_STALE_MS = 30_000;
+const LOCK_EX = 2, LOCK_NB = 4, EWOULDBLOCK = 11;
+type Libc = { flock: (fd: number, op: number) => number; __errno_location: () => unknown };
+let libc: Libc | undefined;
 
-/**
- * Runs `fn` while holding `<file>.recover`, a lock directory (mkdir is atomic), so that only one entrant at a time may
- * judge a record stale and remove it. Returns false, without running `fn`, when the guard stays held for about 2 s.
- */
-function withRecoveryGuard(file: string, fn: () => void): boolean {
-	const guard = `${file}.recover`;
-	for (let i = 0; i < 100; i++) {
-		try {
-			mkdirSync(guard);
-		} catch (e) {
-			if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
-			try { if (Date.now() - statSync(guard).mtimeMs > GUARD_STALE_MS) { steps.at('guard:stale'); rmdirSync(guard); } } catch {}
-			sleepSync(20);
-			continue;
-		}
-		try {
-			fn();
-		} finally {
-			try { rmdirSync(guard); } catch {}
-		}
-		return true;
-	}
-	return false;
+/** flock(2) `fd` exclusively without waiting: true when taken, false when another open of the file holds it. Linux only. */
+function tryLock(fd: number): boolean {
+	const c: Libc = (libc ??= dlopen('libc.so.6', { flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 }, __errno_location: { args: [], returns: FFIType.ptr } }).symbols);
+	if (c.flock(fd, LOCK_EX | LOCK_NB) === 0) return true;
+	const errno: number = read.i32(c.__errno_location(), 0);
+	if (errno === EWOULDBLOCK) return false;
+	throw new Error(`flock(${fd}) failed with errno ${errno}`);
 }
 
-/** Removes `file` if it does not name a live process. The check and the removal happen inside the guard, so a record another entrant has just claimed is never removed. */
-function dropStale(file: string): boolean {
-	const done = withRecoveryGuard(file, () => {
-		const rec = readPidFile(file);
-		steps.at('recover:remove');
-		if (!(rec && alive(rec.pid, rec.start))) rmSync(file, { force: true });
-	});
-	steps.at('recover:released');
-	return done;
+/** The record `file` holds when its process is alive (not a zombie, same start time), else null. */
+function liveRecord(file: string): { pid: number; start: string } | null {
+	const rec = readPidFile(file);
+	return rec && alive(rec.pid, rec.start) ? rec : null;
 }
 
-export type Claim = { claimed: true } | { claimed: false; owner: { pid: number; start: string } | null };
+/** The lock descriptors of the claims this process holds, by record file. */
+const held = new Map<string, number>();
+
+export type Claim = { claimed: true } | { claimed: false; owner: { pid: number; start: string } | null; orphan?: number };
 
 /**
- * Claims `file` for this process atomically: the complete record is written to a temporary file and hard-linked to
- * `file`, which fails with EEXIST when any record exists, so exactly one of any number of simultaneous entrants wins
- * and no reader sees a half-written record. The claim is held until the owner dies or `removePidFile` runs. A record
- * whose process is dead (or whose pid the kernel has reused, see `alive`) is stale: it is removed under a guard
- * that re-reads it first, so only one entrant recovers it and none removes a live claim. Returns `owner: null` when
- * the claim stays contended without a live owner (a guard held for seconds).
+ * Claims `file` for this process: takes an exclusive flock(2) on `<file>.lock`, then records this process in `file`.
+ * The kernel holds the lock until `releasePidFile` runs or the process dies, however it dies, so exactly one of any
+ * number of simultaneous entrants gets it and a dead owner's claim needs no recovery. Only the holder writes or removes
+ * `file`; a record left by an owner that died is replaced by the next one. The lock file is never removed: a second
+ * claimant would lock a new file. A record that still names a live process (written without the lock, or a lock file
+ * removed while held) refuses the claim. With `marker`, so does a dead owner's group that still runs marked members
+ * (see `orphanedGroup`); the lock is let go and the record kept, so `stopPidFile` can find that group.
+ * Returns `owner: null` when the lock stays held for about 1 s without a live record (a claimant stuck between its
+ * lock and its record).
  */
-export function claimPidFile(file: string, pid = process.pid): Claim {
+export function claimPidFile(file: string, { marker }: { marker?: Marker } = {}): Claim {
 	steps.at('claim:begin');
 	mkdirSync(dirname(file), { recursive: true });
-	const tmp = `${file}.${pid}.claim`;
-	writeFileSync(tmp, `${pid} ${processStart(pid)}\n`);
+	const fd = openSync(`${file}.lock`, 'a');
 	try {
-		for (let i = 0; i < 20; i++) {
-			try {
-				linkSync(tmp, file);
-				return { claimed: true };
-			} catch (e) {
-				if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
-			}
+		for (let i = 0; !tryLock(fd); i++) {
 			steps.at('claim:contended');
-			const rec = readPidFile(file);
-			if (rec && alive(rec.pid, rec.start)) return { claimed: false, owner: rec };
-			if (!dropStale(file)) break;
+			const owner = liveRecord(file);
+			if (owner || i === 50) return { claimed: false, owner };
+			sleepSync(20);
 		}
-		return { claimed: false, owner: null };
+		steps.at('claim:locked');
+		const owner = liveRecord(file);
+		if (owner) return { claimed: false, owner };
+		const orphan = marker ? orphanedGroup(file, marker) : null;
+		if (orphan !== null) return { claimed: false, owner: null, orphan };
+		writePidFile(file);
+		held.set(file, fd);
+		return { claimed: true };
 	} finally {
-		rmSync(tmp, { force: true });
+		if (held.get(file) !== fd) closeSync(fd);
 	}
+}
+
+/** Ends this process's claim on `file` (see `claimPidFile`): removes its record, then lets go of the lock. */
+export function releasePidFile(file: string): void {
+	const fd = held.get(file);
+	if (fd === undefined) return;
+	held.delete(file);
+	rmSync(file, { force: true });
+	closeSync(fd);
 }
 
 /** Reads `file` as `{ pid, start }`, or null when it is missing or malformed. */
@@ -147,17 +144,9 @@ export function readPidFile(file: string): { pid: number; start: string } | null
 	}
 }
 
-/** Removes `file` if it still names `pid` (a later run may have replaced it). */
+/** Removes `file` if it still names `pid` (a later run may have replaced it). For a claim, use `releasePidFile`. */
 export function removePidFile(file: string, pid = process.pid): void {
 	if (readPidFile(file)?.pid === pid) rmSync(file, { force: true });
-}
-
-/** The live process `file` names, or null (a stale file is removed). */
-export function livePid(file: string): { pid: number; start: string } | null {
-	const rec = readPidFile(file);
-	if (rec && alive(rec.pid, rec.start)) return rec;
-	if (existsSync(file)) dropStale(file);
-	return null;
 }
 
 /**
@@ -186,13 +175,14 @@ export type StopOptions = {
  * Stops the process `file` names with SIGTERM, then SIGKILL after `graceMs`. With `group`, the pid is a process group
  * leader and the whole group is signalled; only a group whose leader is still the recorded process, or an orphaned
  * group with a `marker` member (see `orphanedGroup`), is touched. A missing or stale file stops nothing and is fine.
+ * It never removes `file`: only the process it names does, and every reader ignores a record whose process is dead.
  * Returns a one-line outcome and `ok: false` when the process or a group member still runs afterwards.
  */
 export async function stopPidFile(file: string, { group = false, graceMs = 10_000, killMs = 5000, marker, send = process.kill }: StopOptions = {}): Promise<{ ok: boolean; message: string }> {
 	const rec = readPidFile(file);
 	const orphaned = !!(group && marker && orphanedGroup(file, marker) !== null);
 	if (!rec || (!alive(rec.pid, rec.start) && !orphaned)) {
-		if (existsSync(file)) { steps.at('stop:recover'); dropStale(file); }
+		steps.at('stop:done');
 		return { ok: true, message: `nothing to stop: no live process in ${file}` };
 	}
 	const target = group ? -rec.pid : rec.pid;
@@ -208,7 +198,6 @@ export async function stopPidFile(file: string, { group = false, graceMs = 10_00
 	}
 	if (orphaned) how += ', its leader had already died';
 	const ok = gone();
-	steps.at('stop:remove');
-	if (ok) rmSync(file, { force: true });
+	steps.at('stop:done');
 	return { ok, message: `stopped ${group ? 'process group' : 'process'} ${rec.pid} (${how})${ok ? '' : ', but it is still running'}` };
 }

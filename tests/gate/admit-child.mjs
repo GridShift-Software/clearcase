@@ -9,7 +9,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { admit } from '../../scripts/gate.mjs';
-import { removePidFile, steps, stopPidFile } from '../../scripts/pidfile.ts';
+import { releasePidFile, steps, stopPidFile } from '../../scripts/pidfile.ts';
 
 const o = { pauses: [], hold: 20_000, ...JSON.parse(process.argv[2]) };
 const flag = (suffix) => join(o.ctl ?? '.', `${o.name}${suffix}`);
@@ -31,6 +31,6 @@ if (o.mode === 'stop') {
 	console.log(refused ?? 'ADMITTED');
 	if (!refused) {
 		for (const end = Date.now() + o.hold; !existsSync(flag('.release')) && Date.now() < end; ) await new Promise((r) => setTimeout(r, 10));
-		removePidFile(o.pidFile);
+		releasePidFile(o.pidFile);
 	}
 }

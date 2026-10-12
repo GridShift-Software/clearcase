@@ -1,11 +1,12 @@
 // Backup / Restore (GRS-20): a backup carries every registered table of the case (built in and defined), restores
 // into a fresh profile, and a corrupt, incompatible, altered, wrong-case or legacy file leaves the active data
 // unchanged. The legacy import hook is tested with a fake importer (importing v5 state is out of scope).
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildCase } from '../e2e/pilot/lib/fixtures.ts';
-import { rescan } from '../../src/lib/local-case/rescan/rescan.server.ts';
+import { additions, lastRun, rescan, rescanRows } from '../../src/lib/local-case/rescan/rescan.server.ts';
 import type { LocalCase } from '../../src/lib/local-case/service.server.ts';
 import { ackFor, cleanup, service, tempRoot } from '../../src/lib/local-case/test-support.ts';
 import { putOriginal } from '../e2e/pilot/lib/fixtures.ts';
@@ -200,6 +201,92 @@ describe('restore keeps no stale work (review H1, M1)', () => {
 			expect(page.excluded[0].reason.length).toBeGreaterThan(0);
 		} finally { lc.storage.db().exec('DROP TABLE work.stray_nopk'); }
 		expect(backupPage(lc, vid).excluded).toEqual([]);
+	});
+});
+
+describe('restore reconciles tables and scopes the backup cannot vouch for (PR #21 review, P2-a, P2-b)', () => {
+	let lc: LocalCase, caseDirs: Record<string, string>;
+	const P = 'prfix-case', Q = 'prfix-other';
+	let pv: string, qv: string;
+	const resum = (b: BackupFile) => { b.sha256 = createHash('sha256').update(JSON.stringify(b.userWork)).digest('hex'); return b; };
+	beforeAll(async () => {
+		({ lc, rv: { [P]: pv, [Q]: qv } } = await profile('prfix', [{ caseId: P, dir: path.join(root, 'p-case') }, { caseId: Q, dir: path.join(root, 'q-case') }]));
+		caseDirs = { [P]: lc.store.getVersion(pv)!.case_root, [Q]: lc.store.getVersion(qv)!.case_root };
+		await lc.userWork.addNote(P, pv, 'OD-001', 'P note');
+		await lc.userWork.addNote(Q, qv, 'OD-001', 'Q note');
+		await lc.userWork.putRow(Q, 'deadlines', null, { title: 'Q deadline', date: '2001-03-01', seq: 1 });
+	}, 120_000);
+
+	it('P2-a: a backup taken before the first rescan removes the added document and the rescan state on restore', async () => {
+		// no rescan has run here, so neither rescan table exists yet and the backup cannot list them
+		expect(lc.userWork.tables().some((t) => t.name === 'rescan_file' || t.name === 'rescan_run')).toBe(false);
+		const text = textOf(createBackup(lc, pv));
+		expect(JSON.parse(text).userWork.tables.map((t: { name: string }) => t.name)).not.toContain('rescan_file');
+		for (const id of [P, Q]) await putOriginal(caseDirs[id], 'DISCOVERY A/OD-005 Added.pdf', new TextEncoder().encode('%PDF-1.4 x'));
+		await rescan(lc, pv, 'quick');
+		await rescan(lc, qv, 'quick');
+		// a table first defined after the backup, case and store scope
+		await lc.userWork.defineTable({ name: 'late_marks', owner: 'TEST', scope: 'case', description: 'synthetic', columns: [{ name: 'case_id', type: 'TEXT', notNull: true }, { name: 'k', type: 'TEXT', notNull: true }], primaryKey: ['case_id', 'k'] });
+		await lc.userWork.putTableRow('late_marks', { case_id: P, k: 'p' }, { owner: 'TEST' });
+		await lc.userWork.putTableRow('late_marks', { case_id: Q, k: 'q' }, { owner: 'TEST' });
+		await lc.userWork.defineTable({ name: 'late_prefs', owner: 'TEST', scope: 'store', description: 'synthetic', columns: [{ name: 'k', type: 'TEXT', notNull: true }, { name: 'v', type: 'TEXT' }], primaryKey: ['k'] });
+		await lc.userWork.putTableRow('late_prefs', { k: 'theme', v: 'plain' }, { owner: 'TEST' });
+		expect([additions(lc, P, pv).map((r) => r.ref), rescanRows(lc, P, pv).length, lastRun(lc, P, pv) !== null]).toEqual([['OD-005'], 1, true]);
+		const other = workOf(lc, Q);
+		const out = await restoreBackup(lc, text, { caseId: P, resultsVersion: pv });
+		expect(out.kind).toBe('restored');
+		expect([additions(lc, P, pv), rescanRows(lc, P, pv), lastRun(lc, P, pv)]).toEqual([[], [], null]);
+		expect(lc.userWork.listTableRows('late_marks', { caseId: P })).toEqual([]);
+		// another case's work and the store tables are untouched
+		expect(workOf(lc, Q)).toEqual(other);
+		expect(additions(lc, Q, qv).map((r) => r.ref)).toEqual(['OD-005']);
+		expect(lastRun(lc, Q, qv)).not.toBeNull();
+		expect(lc.userWork.listTableRows('late_marks', { caseId: Q })).toHaveLength(1);
+		expect(lc.userWork.listTableRows('late_prefs')).toEqual([{ k: 'theme', v: 'plain' }]);
+		expect(lc.userWork.notesFor(P, pv, 'OD-001').map((n) => n.body)).toEqual(['P note']);
+	});
+
+	it('P2-a: a case table the export cannot carry keeps its rows, and the restore says so', async () => {
+		const text = textOf(createBackup(lc, pv));
+		await lc.userWork.putTableRow('late_marks', { case_id: P, k: 'again' }, { owner: 'TEST' });
+		// a copy of the registered table in a collation a restore refuses is left out of every export
+		lc.storage.db().exec('CREATE TABLE work.odd_marks(case_id TEXT NOT NULL COLLATE NOCASE, k TEXT NOT NULL, PRIMARY KEY(case_id, k)) WITHOUT ROWID');
+		lc.storage.db().prepare("INSERT INTO work.odd_marks VALUES (?, 'k')").run(P);
+		lc.storage.db().exec("INSERT INTO work.userwork_catalog(name, kind, owner, description) VALUES ('odd_marks', 'user-work', 'TEST', 'synthetic')");
+		lc.storage.db().exec("INSERT INTO work.userwork_catalog_scope(name, scope) VALUES ('odd_marks', 'case')");
+		try {
+			expect(lc.userWork.exportAll().excluded?.map((x) => x.name)).toEqual(['odd_marks']);
+			const out = await restoreBackup(lc, text, { caseId: P, resultsVersion: pv });
+			if (out.kind !== 'restored') throw new Error('not restored');
+			expect(lc.userWork.listTableRows('late_marks', { caseId: P })).toEqual([]);
+			expect((lc.storage.db().prepare('SELECT count(*) AS n FROM work.odd_marks WHERE case_id = ?').get(P) as { n: number }).n).toBe(1);
+			expect(out.result.restored.find((x) => x.name === 'odd_marks')).toMatchObject({ action: 'kept-excluded', deleted: 0 });
+		} finally {
+			lc.storage.db().exec("DROP TABLE work.odd_marks; DELETE FROM work.userwork_catalog WHERE name = 'odd_marks'; DELETE FROM work.userwork_catalog_scope WHERE name = 'odd_marks'");
+		}
+	});
+
+	it('P2-b: a backup whose table has no scope, with another case\'s row and a recomputed checksum, is refused before any write', async () => {
+		await lc.userWork.putRow(P, 'deadlines', null, { title: 'P deadline', date: '2001-03-02', seq: 1 });
+		const forged = createBackup(lc, pv);
+		const reg = forged.userWork.tables.find((t) => t.name === 'register_row')!;
+		delete (reg as { scope?: string }).scope;
+		reg.rows.push({ ...reg.rows[0], case_id: Q, row_id: 'foreign-row' });
+		resum(forged);
+		expect(() => checkBackup(textOf(forged), { caseId: P, resultsVersion: pv })).toThrow(expect.objectContaining({ code: 'corrupt' }));
+		const before = [workOf(lc, P), workOf(lc, Q)];
+		await expect(restoreBackup(lc, textOf(forged), { caseId: P, resultsVersion: pv })).rejects.toMatchObject({ code: 'corrupt' });
+		expect([workOf(lc, P), workOf(lc, Q)]).toEqual(before);
+		expect(lc.userWork.listRows(P, 'deadlines')).toHaveLength(1);
+		expect(lc.userWork.listRows(Q, 'deadlines').map((r) => r.fields.title)).toEqual(['Q deadline']);
+	});
+
+	it('P2-b: a scope that is not case or store is refused too', () => {
+		for (const scope of [null, 'Case', 7, '']) {
+			const forged = createBackup(lc, pv);
+			(forged.userWork.tables.find((t) => t.name === 'note') as { scope: unknown }).scope = scope;
+			expect(() => checkBackup(textOf(resum(forged)), { caseId: P, resultsVersion: pv }), String(scope)).toThrow(expect.objectContaining({ code: 'corrupt' }));
+		}
 	});
 });
 

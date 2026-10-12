@@ -20,15 +20,9 @@ export function paymentOf(rowId: string, f: Fields): Payment {
 	return { rowId, seq: typeof f.seq === 'number' && Number.isSafeInteger(f.seq) ? f.seq : 0, date: str(f.date), amount: str(f.amount), amountCents: typeof c === 'number' && Number.isSafeInteger(c) ? BigInt(c) : null, method: str(f.method), note: str(f.note) };
 }
 
-/** Insertion order: by `seq`, ties (never written by the app) by row id. listRows order is not insertion order. */
-export const ordered = (rows: readonly Payment[]) => [...rows].sort((a, b) => a.seq - b.seq || (a.rowId < b.rowId ? -1 : a.rowId > b.rowId ? 1 : 0));
-
-/** The next row's `seq`: one more than the largest stored. */
-export const nextSeq = (rows: readonly Payment[]) => rows.reduce((m, r) => Math.max(m, r.seq), 0) + 1;
-
-/** The fields stored for a new payment: the text as typed, the parsed cents, and its position. */
-export const paymentFields = (p: { date: string; amount: string; method: string; note: string }, cents: bigint, seq: number): Fields =>
-	({ date: p.date, amount: p.amount, amountCents: Number(cents), method: p.method, note: p.note, seq });
+/** The fields stored for a new payment: the text as typed and the parsed cents (the register store adds its position, `seq`). */
+export const paymentFields = (p: { date: string; amount: string; method: string; note: string }, cents: bigint): Fields =>
+	({ date: p.date, amount: p.amount, amountCents: Number(cents), method: p.method, note: p.note });
 
 /**
  * The longest text each field takes, in characters (CC-06 r2, D18). JSON writes a character in at most 6 bytes, so the
@@ -62,6 +56,6 @@ export function totals(claimUnits: bigint, rows: readonly Payment[]): Totals {
 	return { gross: unitsToCents(claimUnits), paid, net: unitsToCents(claimUnits - centsToUnits(paid)), receipts: rows.length, uncounted: rows.filter((r) => r.amountCents === null).length };
 }
 
-/** v5's payments export: date, amount, method, note as typed, in insertion order; user-typed cells are neutralised. */
+/** v5's payments export: date, amount, method, note as typed, in the table's (insertion) order; user-typed cells are neutralised. */
 export const paymentsCsv = (rows: readonly Payment[]) =>
-	toCSV([['date', 'amount', 'method', 'note'], ...ordered(rows).map((r) => [r.date, r.amount, r.method, r.note].map(userCell))]);
+	toCSV([['date', 'amount', 'method', 'note'], ...rows.map((r) => [r.date, r.amount, r.method, r.note].map(userCell))]);

@@ -2,6 +2,8 @@
 
 Planning baseline, 8 October 2026. Build a local case workspace that faithfully reproduces the supplied v5 sample, then add hosted client intake and controlled publication. Processing remains manual initially. The [delivery plan](delivery-plan.md) and [Linear project](https://linear.app/vaper/project/clearcase-realignment-e64366f52809) turn this scope into dependency-linked work and independent gates. Application implementation has not started.
 
+Decisions made since this baseline are recorded in the [decision records](adr/README.md).
+
 ## Agreed direction
 
 - V1 runs fully locally. A local development server is acceptable. Improve the layout and usability while preserving the sample's useful functions.

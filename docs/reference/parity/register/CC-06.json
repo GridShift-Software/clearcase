@@ -3,76 +3,650 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-003",
-      "view": "quantum_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-16",
-      "reason": "The app does not implement Quantum & Interest yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-011",
-      "view": "invoice_ledger_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-16",
-      "reason": "The app does not implement Invoice Ledger yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-026",
-      "view": "prescription_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-16",
-      "reason": "The app does not implement Prescription yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-027",
-      "view": "interest_calc_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-16",
-      "reason": "The app does not implement Interest Recalculator yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-028",
+      "id": "IDR-200",
       "view": "payments_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-16",
-      "reason": "The app does not implement Payments & Net Claim yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar link, as on every app view.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
     },
     {
-      "id": "IDR-033",
-      "view": "settlement_tab",
-      "field": "*",
+      "id": "IDR-201",
+      "view": "payments_tab",
+      "field": "table.table_2.row.*.pod",
+      "when": {
+        "v5": "",
+        "app": "<absent>"
+      },
+      "type": "improvement",
+      "source": "S-payments_tab-4",
+      "reason": "The reconciliation chain hides the POD column when no month has a proof-of-delivery ref (every POD cell is empty in v5's data, S-payments_tab-4); product rule: a column that carries no information on the imported data is hidden.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-202",
+      "view": "payments_tab",
+      "field": [
+        "table.table_2.col.pod",
+        "table.table_2.columns"
+      ],
+      "when": {
+        "v5": {
+          "re": "^(POD|month \\| invoice \\| supporting_stmt \\| charging \\| pod \\| statement \\| amount_due)$"
+        },
+        "app": {
+          "re": "^(<absent>|month \\| invoice \\| supporting_stmt \\| charging \\| statement \\| amount_due)$"
+        }
+      },
+      "type": "improvement",
+      "source": "S-payments_tab-4",
+      "reason": "The POD column header is left out with its empty column (S-payments_tab-4): no month of the imported chain has a proof-of-delivery ref.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-203",
+      "view": "payments_tab",
+      "field": "sweep.separators.kpi.Payments recorded",
+      "when": {
+        "v5": "R 252.50 · 4 receipts",
+        "app": "R 2 750.75 · 4 receipts"
+      },
+      "type": "defect-fix",
+      "source": "S-payments_tab-1",
+      "reason": "Amounts typed with separators or an R prefix (R 1 000.00 is the app's own format) count in full: the payments total uses the same parsed cents as the table. v5 summed parseFloat (1 000 counted as 1, R 500 as 0) while its table showed the full amounts (S-payments_tab-1, high). Pinned exactly (CC-06 r2, D14): both figures come only from the sweep's four synthetic payments (1 000, R 500, 250.50, 1,000.25).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-233",
+      "view": "payments_tab",
+      "field": "sweep.separators.kpi.Net claim",
+      "when": {
+        "v5": {
+          "re": "^-?R[\\d]+\\.\\d{2}$"
+        },
+        "app": {
+          "re": "^-?R[\\d]+\\.\\d{2}$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-payments_tab-1",
+      "reason": "The net claim after the separated payments (IDR-203) differs because the payments total does; it depends on the imported claim, so only its shape is registered here (CC-06 r2, D14). Its arithmetic is checked by sweep.separators.net_identity, which each driver computes from its own page (shown Net = shown Gross − shown Payments) and which must match ('ok' on both sides): a wrong net claim fails parity.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-204",
+      "view": "payments_tab",
+      "field": [
+        "sweep.register_edit.add1.row.0",
+        "sweep.register_edit.add2.row.0",
+        "sweep.register_edit.add2.row.1",
+        "sweep.register_edit.delete.row.0"
+      ],
+      "when": {
+        "v5": {
+          "re": "^\\d+-\\d+-\\d+ \\| R \\d\\.00 \\| Synthetic entry \\d \\| Synthetic entry \\d \\| Delete$"
+        },
+        "app": {
+          "re": "^(<absent>|No payments recorded — the claim is currently gross\\.[ |]*)$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-payments_tab-2",
+      "reason": "A non-numeric amount (the sweep types Synthetic entry N) is refused with a visible error and the typed text kept, so no payment is stored; v5 stored it, showed R 1.00 or R 2.00 and counted it as a receipt (S-payments_tab-2).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-205",
+      "view": "payments_tab",
+      "field": [
+        "sweep.register_edit.add2.rows",
+        "sweep.register_edit.delete.rows",
+        "sweep.register_edit.delete"
+      ],
+      "when": {
+        "v5": {
+          "re": "^(1|2|<absent>)$"
+        },
+        "app": {
+          "re": "^(1|<absent>|no-delete-control)$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-payments_tab-2",
+      "reason": "Because the two non-numeric amounts are refused (S-payments_tab-2), the table keeps its empty-state row and has no row to delete; v5 had two stored rows and deleted one.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-206",
+      "view": "payments_tab",
+      "field": [
+        "sweep.register_edit.overview.Open deadlines",
+        "sweep.register_edit.overview.Unbilled time"
+      ],
+      "when": {
+        "app": {
+          "re": "^Not yet available — owned by GRS-17"
+        }
+      },
       "type": "not-yet-implemented",
-      "owner": "GRS-16",
-      "reason": "The app does not implement Settlement / BATNA yet; GRS-16 (CC-06) owns it and adds its app adapter when the view lands.",
+      "source": "GRS-17",
+      "owner": "GRS-17",
+      "reason": "The register sweep ends on the overview tiles; the deadline and unbilled-time tiles are overview slots that GRS-17 (CC-07) fills, so the app still shows their unavailable state there.",
       "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-207",
+      "view": "payments_tab",
+      "field": "sweep.register_edit.overview.Scanned (need OCR)",
+      "when": {
+        "v5": {
+          "re": "^\\d+$"
+        },
+        "app": {
+          "re": "^\\d+$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-meta-counts",
+      "reason": "The overview tile read at the end of the register sweep counts the register rows without extracted text instead of the build metadata figure (S-meta-counts, as IDR-049 on the overview).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-209",
+      "view": "interest_calc_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar link, as on every app view.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-210",
+      "view": "interest_calc_tab",
+      "field": "text.page.2",
+      "when": {
+        "v5": "<absent>",
+        "app": "Imported narrative: not checked against the dates or figures computed here."
+      },
+      "type": "improvement",
+      "source": "BA-02",
+      "reason": "The imported interest-basis note is labelled as imported narrative that the calculator does not check against its computed dates or figures, so it cannot pass as a verified conclusion (BA-02). The note itself is shown unchanged.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-211",
+      "view": "interest_calc_tab",
+      "field": "control.link:Reset to defaults",
+      "when": {
+        "v5": "<absent>",
+        "app": "1"
+      },
+      "type": "improvement",
+      "source": "BA-03",
+      "reason": "The calculator's inputs live in the URL query, so a reload gives the same result, and a Reset to defaults link returns to the package defaults (BA-03; v5 kept no input and reset on every visit).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-212",
+      "view": "interest_calc_tab",
+      "field": "sweep.compute.separated.k0.value",
+      "when": {
+        "v5": "R100.00",
+        "app": {
+          "re": "^R10{5}\\.00$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-interest_calc_tab-1",
+      "reason": "A capital typed with the app's own thousands separator (100 000) is the full amount; v5's parseFloat read it as 100, so capital, interest, total and the comparison line differ (S-interest_calc_tab-1, medium). Pinned exactly (CC-06 r2, D14): the sweep types every input of this figure. IDR-234 and IDR-235 pin the interest and the total; IDR-236 covers the comparison with the imported amount due by shape. The app value is an exact single-string pattern, written without a run of four digits (the register's case-value check).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-234",
+      "view": "interest_calc_tab",
+      "field": "sweep.compute.separated.k1.value",
+      "when": {
+        "v5": "R10.02",
+        "app": {
+          "re": "^R10[0]20\\.53$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-interest_calc_tab-1",
+      "reason": "The interest on the separated capital (IDR-212): R 100 000 at 10% simple for 366 days on the app, v5's R 100. Pinned exactly: every input is the sweep's own (CC-06 r2, D14). The app value is an exact single-string pattern, written without a run of four digits (the register's case-value check).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-235",
+      "view": "interest_calc_tab",
+      "field": "sweep.compute.separated.k2.value",
+      "when": {
+        "v5": "R110.02",
+        "app": {
+          "re": "^R11[0]{2}20\\.53$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-interest_calc_tab-1",
+      "reason": "The total on the separated capital (IDR-212): capital plus interest. Pinned exactly: every input is the sweep's own (CC-06 r2, D14). The app value is an exact single-string pattern, written without a run of four digits (the register's case-value check).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-236",
+      "view": "interest_calc_tab",
+      "field": "sweep.compute.separated.k3.sub",
+      "when": {
+        "v5": {
+          "re": "^[-+]?R[\\d .]+ vs your calc$"
+        },
+        "app": {
+          "re": "^[-+]?R[\\d .]+ vs your calc$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-interest_calc_tab-1",
+      "reason": "The comparison of the separated total with the imported amount due (IDR-212) differs because the total does; the imported amount is case data, so only the line's shape is registered (CC-06 r2, D14). The total itself is pinned by IDR-235.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-213",
+      "view": "interest_calc_tab",
+      "field": "sweep.compute.reversed.k*",
+      "when": {
+        "app": "<absent>"
+      },
+      "type": "defect-fix",
+      "source": "S-interest_calc_tab-3",
+      "reason": "A reversed period (To before From) is refused visibly and nothing is computed; v5 showed a negative interest under a 0 yrs label (S-interest_calc_tab-3).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-214",
+      "view": "interest_calc_tab",
+      "field": "sweep.compute.reversed.error",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^The To date is before the From \\(mora\\) date: a reversed period is not computed\\.$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-interest_calc_tab-3",
+      "reason": "The refusal of a reversed period is a visible error line naming the problem (S-interest_calc_tab-3); the typed dates stay in the form.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-215",
+      "view": "quantum_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar link, as on every app view.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-217",
+      "view": "invoice_ledger_tab",
+      "field": "title",
+      "when": {
+        "v5": "Open Invoice Ledger",
+        "app": "Invoice Ledger"
+      },
+      "type": "defect-fix",
+      "source": "S-invoice_ledger_tab-1",
+      "reason": "The page heading is the registry label (BA-18). v5's heading said Open Invoice Ledger although the ledger has no open or paid status and lists every invoice (S-invoice_ledger_tab-1).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-219",
+      "view": "invoice_ledger_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar link, as on every app view.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-220",
+      "view": "prescription_tab",
+      "field": "title",
+      "when": {
+        "v5": "Prescription Tracker",
+        "app": "Prescription"
+      },
+      "type": "improvement",
+      "source": "BA-18",
+      "reason": "The page heading is the registry label, the task name the navigation uses (BA-18); v5's heading was Prescription Tracker.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-221",
+      "view": "prescription_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar link, as on every app view.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-223",
+      "view": "prescription_tab",
+      "field": "text.page.2",
+      "when": {
+        "v5": "<absent>",
+        "app": "Imported narrative: not checked against the computed dates."
+      },
+      "type": "improvement",
+      "source": "BA-02",
+      "reason": "The imported prescription summary note is labelled as imported narrative that is not checked against the computed dates, so it cannot pass as a verified conclusion (BA-02); the note itself is shown unchanged.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-224",
+      "view": "prescription_tab",
+      "field": "text.arithmetic_checks.1",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^\\d+ of \\d+ imported prescription dates are the invoice date plus 3 calendar years\\.( \\d+ invoices are dated 29 February; \\d+ of them prescribe on 28 February\\.)?$"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-01",
+      "reason": "An Arithmetic checks card counts the imported prescription dates that equal invoice date + 3 years (29 February moved to 28 February), labelled arithmetic only with the legal rule not approved. It answers S-prescription_tab-2 and S-prescription-frozen; approval of the legal rule stays with the user. Narrowed to this sentence (CC-06 r2, D14); IDR-238 covers the as-of sentence, and IDR-237's check keys must be exactly 0.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-238",
+      "view": "prescription_tab",
+      "field": "text.arithmetic_checks.2",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^\\d+ of \\d+ rows have a prescription date before the as-of date \\d{4}-\\d{2}-\\d{2} \\(today, South African time\\)\\.$"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-01",
+      "reason": "The card's second sentence (BA-01): the rows whose prescription date is before an explicit as-of date (on the as-of date itself the window is still open; PO decision, 11 October), the South African calendar date of the clock (CC-06 r2, D9), arithmetic only (S-prescription_tab-2, S-prescription-frozen). Its count is checked against the shown rows by IDR-237, which must be exactly 0 (CC-06 r2, D14).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-225",
+      "view": "prescription_tab",
+      "field": "table.table_1.row.*.as_of_status",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^(3-yr date passed|3-yr date not reached|no valid date)$"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-01",
+      "reason": "Each row gets an As-of status computed from its imported prescription date and the as-of date (arithmetic only; a row has passed when its prescription date is before the as-of date, not on it), next to the imported Risk label, so a label frozen against the headline date is visible as such (S-prescription_tab-2, S-prescription-frozen). The parity report lists this cell for every row. Which status a row shows is checked by IDR-237 (count.check.as_of_status_disagreements must be exactly 0; CC-06 r2, D14).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-226",
+      "view": "prescription_tab",
+      "field": [
+        "table.table_1.col.as_of_status",
+        "table.table_1.columns"
+      ],
+      "when": {
+        "v5": {
+          "re": "^(<absent>|ref \\| invoice \\| invoice_date \\| prescribes_3yr \\| risk \\| doc)$"
+        },
+        "app": {
+          "re": "^(As-of status|ref \\| invoice \\| invoice_date \\| prescribes_3yr \\| risk \\| as_of_status \\| doc)$"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-01",
+      "reason": "The As-of status column (BA-01; S-prescription_tab-2, S-prescription-frozen) stands between the imported Risk label and the document link.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-237",
+      "view": "prescription_tab",
+      "field": [
+        "count.check.as_of_status_disagreements",
+        "count.check.arithmetic_disagreements"
+      ],
+      "when": {
+        "v5": "<absent>",
+        "app": "0"
+      },
+      "type": "improvement",
+      "source": "BA-01",
+      "reason": "Check keys of the app adapter (CC-06 r2, D14): an oracle in the adapter recomputes each row's As-of status from its shown prescription date and the card's as-of date, and the card's +3-year and passed counts from the shown rows, and counts the disagreements. v5 has no such card (S-prescription_tab-2, S-prescription-frozen). Pinned to exactly 0: a wrong status, a swapped label or a wrong count fails parity, with no case value in the register.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-227",
+      "view": "prescription_tab",
+      "field": [
+        "sweep.stale.input",
+        "sweep.stale.select"
+      ],
+      "when": {
+        "v5": "",
+        "app": {
+          "re": "^.+$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-prescription_tab-1",
+      "reason": "The filter lives in the URL and the controls show it. Returning through the navigation now restores the view's last query (the base's sidebar, BASE-R2d; CC-06 r2, D19), so the table shows the filtered rows v5 shows, and the search box and Risk select show the filter that applies. v5 kept the old filter applied behind empty controls, so its table was silently filtered (S-prescription_tab-1, medium).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-228",
+      "view": "prescription_tab",
+      "field": [
+        "sweep.export.q1.r0.rows",
+        "sweep.export.q0.r2.rows"
+      ],
+      "when": {
+        "v5": {
+          "re": "^\\d+\\|[0-9a-f]+:[0-9a-f]+$"
+        },
+        "app": {
+          "re": "^\\d+\\|[0-9a-f]+:[0-9a-f]+$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-prescription_tab-3",
+      "reason": "The export writes the rows the filters show, in the shown order (S-prescription_tab-3, BA-17); v5 always exported every row. Without a filter the export equals v5's.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-229",
+      "view": "prescription_tab",
+      "field": "text.arithmetic_checks.*",
+      "when": {
+        "v5": "<absent>",
+        "app": {
+          "re": "^Arithmetic only; legal rule \\(interruption\\) not approved\\. The Prescribes \\(3yr\\) and Risk columns are imported as given;"
+        }
+      },
+      "type": "improvement",
+      "source": "BA-01",
+      "reason": "The Arithmetic checks card states that its figures are arithmetic only and the legal rule (interruption) is not approved, and that the Prescribes and Risk columns are imported, the labels classified against the headline date (S-prescription_tab-2, S-prescription-frozen).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-230",
+      "view": "settlement_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar link, as on every app view.",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-231",
+      "view": "settlement_tab",
+      "field": "control.link:Reset to defaults",
+      "when": {
+        "v5": "<absent>",
+        "app": "1"
+      },
+      "type": "improvement",
+      "source": "BA-03",
+      "reason": "The model's inputs live in the URL query, so a reload gives the same result, and a Reset to defaults link returns to the package defaults and the prefilled claim (BA-03; v5 kept no input and reset on every visit).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-232",
+      "view": "settlement_tab",
+      "field": [
+        "sweep.model.claim_separated.k0.value",
+        "sweep.model.claim_separated.k1.value",
+        "sweep.model.claim_separated.k2.value"
+      ],
+      "when": {
+        "v5": {
+          "re": "^-?R[\\d.]+$"
+        },
+        "app": {
+          "re": "^-?R[\\d.]+$"
+        }
+      },
+      "type": "defect-fix",
+      "source": "S-settlement_tab-3",
+      "reason": "A claim typed with the app's own thousands separator (1 000 000) is the full amount: every amount on the quantum views is parsed with one grammar. v5's parseFloat read it as 1, so all three scenarios differ (the separator half of S-settlement_tab-3; the whole-rand prefill is kept).",
+      "productVisible": true,
+      "author": "CC-06 worker (GRS-16)",
+      "approvedBy": null,
+      "approvedOn": null
     }
   ]
 }

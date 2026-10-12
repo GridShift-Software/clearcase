@@ -24,6 +24,7 @@ The workspace `AGENTS.md` above this repository sets models, budgets, the build-
 
 - A new worktree needs the coordinator's current `.local/v5-verification.json` (ignored; it locates the real v5 sample). The gate checks it before the first step and names the expected resultsVersion when it is stale.
 - Start a worker or reviewer session with `scripts/agent-tools/doctor`. Run checks other than the gate through `scripts/agent-tools/verify` or `scripts/agent-tools/receipt`, so they leave a receipt.
+- Stop your own gate with `bun run --bun gate --stop` and your own server with `bun run --bun start --stop` (same `PORT`). Never use `pkill` or `pkill -f`: other worktrees run the same scripts on this host.
 - `bun upgrade --stable` moves Bun. Record the version it installs, then change `packageManager` in a reviewed commit. Older npm or Node instructions in planning artifacts and spike reports are superseded.
 - The `to-spec`, `to-tickets` and `implement-spec` skills are not part of this project's process. Name in a report only the skills you invoked.
 

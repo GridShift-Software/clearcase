@@ -89,6 +89,8 @@ try {
 	const main = await L.buildCase(join(tmp, 'main'), { caseId: 'e2e-analysis', edit: L.analysisData });
 	const empty = await L.buildCase(join(tmp, 'empty'), { caseId: 'e2e-analysis-empty', edit: L.emptyAnalysis });
 	const novc = await L.buildCase(join(tmp, 'novc'), { caseId: 'e2e-analysis-novc', edit: L.analysisData, viewCode: false });
+	// a second case with the same checklist item text as the main case (AN-FW7)
+	const other = await L.buildCase(join(tmp, 'other'), { caseId: 'e2e-analysis-b', edit: L.analysisData });
 	let novcVid = null;
 	const vid = await importActivate(main);
 	const caseName = (sc) => { const m = JSON.parse(new TextDecoder().decode(sc.files.get('manifest.json'))); return L.viewContentText(sc, '_shell', 'documentTitle') ?? (m.case.label || m.case.id); };
@@ -223,7 +225,8 @@ try {
 		return { pass: ok, evidence: { nav, rows, heads, csv: { name: dl[0]?.name, head: lines[0], rows: lines.length - 1 }, expected: pkgExport, note } };
 	});
 
-	const infoRows = () => A.work("SELECT row_id, fields FROM register_row WHERE case_id = 'e2e-analysis' AND store = 'info-required' ORDER BY row_id").map((r) => ({ id: r.row_id, fields: JSON.parse(r.fields) }));
+	const infoRowsOf = (caseId) => A.work(`SELECT row_id, fields FROM register_row WHERE case_id = '${caseId}' AND store = 'info-required' ORDER BY row_id`).map((r) => ({ id: r.row_id, fields: JSON.parse(r.fields) }));
+	const infoRows = () => infoRowsOf('e2e-analysis');
 	const infoState = () => p.evaluate(`[...document.querySelectorAll('#info-table tbody tr')].map((r) => [r.querySelector('input[type=checkbox]').checked, r.cells[1].classList.contains('struck')])`);
 	const saved = () => p.waitFor(`!document.querySelector('#info-table [aria-busy="true"]')`, 30000);
 	/**
@@ -483,6 +486,48 @@ try {
 			return { pass: Object.values(checks).every(Boolean), evidence: { checks, start, duringHold, settled, posts, reloaded: reloaded[2], rows: [rowsBefore.length, rowsAfter.length] } };
 		} finally { release(); }
 	}, { expectsFailures: true });
+
+	await scenario('AN-FW7', 'info_required_tab', 'A queued Info Required choice stays with its case: tick then untick in case A while the first save is held, leave for case B (same item text) before it answers; B is not touched and A ends with its last choice', async () => {
+		const bvid = await importActivate(other);
+		await p.goto(V(vid, 'info_required_tab'), L.ready('info_required_tab'));
+		const item = 'Invented item B';
+		const aBefore = infoRows(), bBefore = infoRowsOf('e2e-analysis-b');
+		const startA = (await infoState())[1][0];
+		// hold only the first save of the page (the tick), as a slow server would; later saves go out at once
+		await p.evaluate(`(() => { const f = window.fetch; let release; const held = new Promise((r) => (release = r));
+			window.__fl = { posts: [], cur: 0, release, same: 1 };
+			window.fetch = function (u, o) { if ((o?.method ?? 'GET') !== 'POST' || !String(u).includes('toggle')) return f.apply(this, arguments);
+				const first = window.__fl.posts.length === 0; window.__fl.posts.push(new URL(String(u), location.href).pathname); window.__fl.cur++;
+				return (first ? held.then(() => f.apply(this, arguments)) : f.apply(this, arguments)).finally(() => window.__fl.cur--); }; })()`);
+		await p.click('#info-table tbody tr:nth-child(2) input[type=checkbox]');
+		await p.waitFor(`window.__fl.posts.length === 1`, 10000);
+		await sleep(100);
+		await p.click('#info-table tbody tr:nth-child(2) input[type=checkbox]');
+		await sleep(150);
+		const queued = await p.evaluate(`({ posts: window.__fl.posts.length, busy: document.querySelector('#info-table tbody tr:nth-child(2)')?.getAttribute('aria-busy') })`);
+		// leave for case B through the app's client-side router (a link in the page), before the save has answered
+		await p.evaluate(`(() => { const a = document.createElement('a'); a.id = 'to-case-b'; a.href = ${J(V(bvid, 'info_required_tab'))}; a.textContent = 'Case B'; a.style.cssText = 'position:fixed;top:0;left:0;z-index:99999;background:#fff;padding:8px'; document.body.append(a); })()`);
+		await p.click('#to-case-b');
+		await p.waitFor(`location.pathname === ${J(V(bvid, 'info_required_tab'))} && ${L.ready('info_required_tab')}`, 30000);
+		const onB = await p.evaluate(`({ sameDocument: window.__fl?.same === 1, state: [...document.querySelectorAll('#info-table tbody tr')].map((r) => [r.querySelector('input[type=checkbox]').checked, r.getAttribute('aria-busy') === 'true']), error: !!document.querySelector('#info-error'), marks: document.querySelectorAll('#info-table .row-state').length })`);
+		await p.evaluate(`window.__fl.release()`);
+		await p.waitFor(`window.__fl.posts.length >= 2 && window.__fl.cur === 0`, 20000).catch(() => {});
+		await sleep(600);
+		const end = await p.evaluate(`({ posts: window.__fl.posts, cur: window.__fl.cur, state: [...document.querySelectorAll('#info-table tbody tr')].map((r) => r.querySelector('input[type=checkbox]').checked), error: !!document.querySelector('#info-error'), path: location.pathname })`);
+		const aAfter = infoRows(), bAfter = infoRowsOf('e2e-analysis-b');
+		const aPath = V(vid, 'info_required_tab');
+		const checks = {
+			secondChoiceWaited: queued.posts === 1 && queued.busy === 'true',
+			clientSideNavigation: onB.sameDocument && end.path === V(bvid, 'info_required_tab'),
+			bUntouchedWhileHeld: J(onB.state) === J([[false, false], [false, false], [false, false]]) && !onB.error && onB.marks === 0,
+			noPostToB: end.posts.length >= 1 && end.posts.every((x) => x === aPath || x.startsWith(`${aPath}?`)),
+			bStoredUnchanged: J(bAfter) === J(bBefore),
+			bShownUnchanged: J(end.state) === J([false, false, false]) && !end.error,
+			aEndsWithLastChoice: end.posts.length === 2 && doneOf(aAfter, item) === startA,
+			aOnlyThatRowChanged: aAfter.filter((r) => !aBefore.some((x) => x.id === r.id && J(x.fields) === J(r.fields))).every((r) => r.fields.item === item),
+		};
+		return { pass: Object.values(checks).every(Boolean), evidence: { checks, startA, queued, onB, end, a: [aBefore.length, aAfter.length], b: [bBefore.length, bAfter.length] } };
+	});
 
 	await scenario('AN-09', 'witness_tab', 'Scenario 9: a will-say [[REF]] links to its document through Narrative.svelte; a missing ref renders broken; names and bare refs are never turned into links', async () => {
 		const nav = await arrive(p, vid, 'witness_tab', name);

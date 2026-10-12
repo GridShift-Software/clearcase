@@ -22,7 +22,7 @@ const quote = (s: string) => `'${s.replaceAll("'", `'\\''`)}'`;
 /** Compiler and checker diagnostics in a failed check's output, as file:line plus the message. */
 const DIAGNOSTICS: [RegExp, (m: RegExpMatchArray) => [string, string]][] = [
 	[/^(\S[^(\n]*)\((\d+),(\d+)\): error (TS\d+: .*)$/gm, (m) => [`${m[1]}:${m[2]}:${m[3]}`, m[4]!]], // tsc
-	[/^(\/\S+):(\d+):(\d+)\n(Error|Warn): (.*)$/gm, (m) => [`${m[1]}:${m[2]}:${m[3]}`, `${m[4]}: ${m[5]}`]], // svelte-check
+	[/^\d+ (ERROR|WARNING) "(.+?)" (\d+):(\d+) "(.*)"$/gm, (m) => [`${m[2]}:${m[3]}:${m[4]}`, `${m[1]}: ${m[5]}`]], // svelte-check, machine output off a TTY
 	[/^(\S+):(\d+):(\d+): error (\[[\w-]+\] .*)$/gm, (m) => [`${m[1]}:${m[2]}:${m[3]}`, m[4]!]], // source-check
 ];
 

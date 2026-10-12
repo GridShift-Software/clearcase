@@ -6,7 +6,7 @@
 #     port. They prove they receive before the probe starts, record every later hit and stop when this script exits.
 #   - Multicast and broadcast can't be caught by a socket: pc1's UFW drops its own looped-back copies on the LAN
 #     interface (`[UFW BLOCK] IN=<lan> SRC=<pc1 lan ip>`). So the same process first opens an AF_PACKET tap (before
-#     dropping root), which sees IPv4 frames as they leave an interface, after netfilter OUTPUT and the cgroup BPF
+#     dropping root), which sees IPv4 packets as they leave an interface, after netfilter OUTPUT and the cgroup BPF
 #     filter. As `nobody` it sends a multicast and a broadcast datagram out of the default-route interface and
 #     requires the tap to see both there before the probe starts; later hits to the synthetic group or 255.255.255.255
 #     on the next port are recorded as leaks. A packet nft or IPAddressDeny drops never reaches the tap.
@@ -27,7 +27,7 @@ listener=$(base64 -w0 <<'PY'
 import os, select, socket, struct, subprocess, sys, time
 port = int(sys.argv[1])
 group = "239.255.57.57"
-tap = socket.socket(socket.AF_PACKET, socket.SOCK_DGRAM, socket.htons(0x0800))  # needs root: opened before the drop
+tap = socket.socket(socket.AF_PACKET, socket.SOCK_DGRAM, socket.htons(3))  # ETH_P_ALL: outgoing frames reach only these taps; needs root, so opened before the drop
 route = subprocess.run(["ip", "-4", "route", "get", "1.1.1.1"], capture_output=True, text=True, check=True).stdout.split()
 egress, lan_ip = route[route.index("dev") + 1], route[route.index("src") + 1]
 os.setgroups([])
@@ -47,7 +47,9 @@ for addr, fam in (("127.0.0.1", socket.AF_INET), ("127.0.0.53", socket.AF_INET),
 def tapped(timeout=None):
     """Yield (interface, dst, payload) for IPv4 UDP datagrams to the multicast and broadcast test targets."""
     while select.select([tap], [], [], timeout)[0]:
-        ip, (ifname, *_rest) = tap.recvfrom(65535)
+        ip, (ifname, ethertype, pkttype, *_rest) = tap.recvfrom(65535)
+        if ethertype != 0x0800 or pkttype != 4:  # IPv4 that left pc1 (PACKET_OUTGOING)
+            continue
         ihl = (ip[0] & 15) * 4
         dst = socket.inet_ntoa(ip[16:20])
         if ip[9] == 17 and dst in (group, "255.255.255.255") and struct.unpack("!H", ip[ihl + 2:ihl + 4])[0] == port + 1:

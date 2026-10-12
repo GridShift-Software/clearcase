@@ -116,6 +116,9 @@ const ENTRIES: E[] = [
   sub('enforcement_tab', 'S-enforcement_tab-3; L2874'),
   { view: 'enforcement_tab', field: 'whyNarrative', checklist: 'S-enforcement_tab-3; L2875', scope: R('enforcement_tab'), sel: { html: 'div.card.narr > p' }, kind: 'text' },
   sub('legality_tab', 'S-legality_tab-1; L2893'),
+  // the docs card caption and the scenario action heading name case wording (GRS-45, formerly IDR-323 and IDR-324)
+  { view: 'legality_tab', field: 'docsHeading', checklist: 'S-hardcoded-case; L2895', scope: R('legality_tab'), sel: { html: 'div.card.pad0 > div.chead' }, kind: 'template', params: [p('count', 'L.docs.length')] },
+  { view: 'legality_tab', field: 'scenarioActionHeading', checklist: 'S-hardcoded-case; L2898', scope: R('legality_tab'), sel: { html: 'div.card:eq(2) th:eq(3)' }, kind: 'text' },
   dlName('prescription_tab', 'exportPresc', 'L2929'),
   { view: 'interest_calc_tab', field: 'defaultRate', checklist: 'S-interest_calc_tab-2; L1229, L2938', scope: R('interest_calc_tab'), sel: { html: 'input#ic_r', attr: 'value' }, kind: 'number' },
   sub('payments_tab', 'S-payments_tab-5; L2965'),

@@ -22,8 +22,7 @@
 	{:else}
 		<div class="card narr risk"><h3>The risk</h3>{#if data.intro}<Narrative text={data.intro} resultsVersion={vid} known={data.known} />{/if}</div>
 		<div class="card pad0">
-			<!-- v5's caption named the case's proceedings; that wording is not in view-content yet (known gap) -->
-			<div class="chead">Documents in the bundle ({data.docs.length})</div>
+			<div class="chead">{data.docsHeading}</div>
 			<div class="wrap"><table id="legality-docs">
 				<thead><tr><th>Ref</th><th>Date</th><th>Document</th><th>Doc</th></tr></thead>
 				<tbody>
@@ -36,7 +35,7 @@
 			</table></div>
 		</div>
 		<div class="card"><h3>Scenarios</h3><div class="wrap"><table id="legality-scenarios">
-			<thead><tr><th>Scenario</th><th>Effect on the claim</th><th>Likelihood</th><th>Action</th></tr></thead>
+			<thead><tr><th>Scenario</th><th>Effect on the claim</th><th>Likelihood</th><th>{data.actionHeading}</th></tr></thead>
 			<tbody>
 				{#each data.scenarios as x, i (i)}
 					<tr><td><b>{x.scenario}</b></td><td class="ex"><Narrative text={x.effect} resultsVersion={vid} known={data.known} /></td><td><span class="badge {likelihoodClass(x.prob)}" data-chip={likelihoodClass(x.prob)}>{x.prob}</span></td><td class="ex"><Narrative text={x.action} resultsVersion={vid} known={data.known} /></td></tr>

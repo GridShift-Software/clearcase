@@ -3,88 +3,267 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-001",
-      "view": "matter",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-15",
-      "reason": "The app does not implement Matter & Strategy yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-002",
-      "view": "timeline",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-15",
-      "reason": "The app does not implement Timeline yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-018",
-      "view": "contradictions_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-15",
-      "reason": "The app does not implement Contradiction Tracker yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-019",
-      "view": "risk_matrix_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-15",
-      "reason": "The app does not implement Risk Matrix yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-020",
-      "view": "vdm_matrix_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-15",
-      "reason": "The app does not implement Defence & Rebuttal yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
-    },
-    {
-      "id": "IDR-021",
+      "id": "IDR-150",
       "view": "info_required_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
-      "owner": "GRS-15",
-      "reason": "The app does not implement Info Required yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
+      "field": "title",
+      "when": {
+        "v5": "Information & Documents Required",
+        "app": "Info Required"
+      },
+      "type": "improvement",
+      "source": "BA-18",
+      "reason": "The page heading is the navigation label (BA-18), so the destination names the task the operator chose; v5 shows a longer heading than its own navigation entry.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
     },
     {
-      "id": "IDR-022",
+      "id": "IDR-151",
+      "view": "info_required_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-152",
+      "view": "matter",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-153",
+      "view": "risk_matrix_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-154",
       "view": "witness_tab",
-      "field": "*",
-      "type": "not-yet-implemented",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-155",
+      "view": "vdm_matrix_tab",
+      "field": "title",
+      "when": {
+        "v5": "Defence & Rebuttal Matrix",
+        "app": "Defence & Rebuttal"
+      },
+      "type": "improvement",
+      "source": "BA-18",
+      "reason": "The page heading is the navigation label (BA-18), so the destination names the task the operator chose; v5 adds Matrix to its heading only.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-156",
+      "view": "vdm_matrix_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-157",
+      "view": "vdm_matrix_tab",
+      "field": "table.table_1.columns",
+      "when": {
+        "v5": "dcs_point | dcs_case | ess_supporting_evidence | documents | ess_rebuttal",
+        "app": "dcs_point | dcs_case | ess_supporting_evidence | documents | ess_rebuttal | refs"
+      },
+      "type": "defect-fix",
+      "source": "S-vdm_matrix_tab-1",
+      "reason": "v5 never shows the defence matrix free-text refs; the app adds them as a last table column, after v5's columns in v5's exact order (pinned: any other order or column set is unregistered).",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-158",
+      "view": "vdm_matrix_tab",
+      "field": "table.table_1.col.refs",
+      "when": {
+        "v5": "<absent>",
+        "app": "Refs"
+      },
+      "type": "defect-fix",
+      "source": "S-vdm_matrix_tab-1",
+      "reason": "The heading of the refs column v5 never shows.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-159",
+      "view": "vdm_matrix_tab",
+      "field": [
+        "table.table_1.row.*.refs",
+        "export.export_csv.row.*.refs"
+      ],
+      "when": {
+        "v5": "<absent>"
+      },
+      "type": "defect-fix",
+      "source": "S-vdm_matrix_tab-1",
+      "reason": "Each row shows and exports its imported free-text refs unchanged (empty where the row has none); v5 drops them.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-161",
+      "view": "contradictions_tab",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-163",
+      "view": "timeline",
+      "field": "title",
+      "when": {
+        "v5": "Chronology & Timeline",
+        "app": "Timeline"
+      },
+      "type": "defect-fix",
+      "source": "S-timeline-4",
+      "reason": "v5 heads the page Chronology & Timeline while its navigation and crumb say Timeline; the heading is the navigation label (BA-18).",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-164",
+      "view": "timeline",
+      "field": "focus.after_nav",
+      "when": {
+        "v5": "nav-link",
+        "app": "heading"
+      },
+      "type": "improvement",
+      "source": "BA-14",
+      "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-167",
+      "view": "timeline",
+      "field": "sweep.timeline_events.*.escaped",
+      "when": {
+        "v5": "twice",
+        "app": "once"
+      },
+      "type": "defect-fix",
+      "source": "S-double-escape",
+      "reason": "v5 escapes event titles twice, so a title or link label shows an entity such as &amp;; the app shows it once, as text. The v5 side's titles and link labels are unescaped once before comparing, so the app's must equal the unescaped v5 value exactly; this entry covers only the per-event record that v5 showed an entity and the app did not.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-168",
+      "view": "timeline",
+      "field": "export.print_pdf.print.text",
+      "when": {
+        "v5": {
+          "re": "^Skip to content .+ Chronology & Timeline .+$"
+        },
+        "app": {
+          "re": "^Timeline .+$"
+        }
+      },
+      "type": "known-gap",
+      "source": "GRS-12",
       "owner": "GRS-15",
-      "reason": "The app does not implement Witnesses yet; GRS-15 (CC-05) owns it and adds its app adapter when the view lands.",
-      "productVisible": false,
-      "author": "CC-29 worker (GRS-37)",
-      "approvedBy": "coordinator",
-      "approvedOn": "2026-10-09"
+      "reason": "Harness capture, not a product difference: the print capture is the whole page text. The app adapter trims it to the page's main (heading on); the v5 capture keeps v5's shell, which no v5 spec hook can trim (shared-file request in the CC-05 r2 report). The printed content after the heading is compared exactly in sweep.timeline_print.content.",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-169",
+      "view": "vdm_matrix_tab",
+      "field": "export.export_csv.columns",
+      "when": {
+        "v5": "dcs_point | dcs_case | ess_evidence | documents | rebuttal",
+        "app": "dcs_point | dcs_case | ess_evidence | documents | rebuttal | refs"
+      },
+      "type": "defect-fix",
+      "source": "S-vdm_matrix_tab-1",
+      "reason": "v5 never exports the defence matrix free-text refs; the app adds them as a last CSV column, after v5's columns in v5's exact order (pinned: any other order or column set is unregistered).",
+      "productVisible": true,
+      "author": "CC-05 worker (GRS-15)",
+      "approvedBy": null,
+      "approvedOn": null
     }
   ]
 }

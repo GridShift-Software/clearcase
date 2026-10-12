@@ -14,14 +14,21 @@
 // resultsVersion that this revision's converter still produces. Every step's prerequisite is checked before the first
 // step runs, so a missing or stale locator fails the gate in seconds, not after the build and the test suites; a
 // failed prerequisite fails its step, it is never skipped.
-import { spawnSync } from 'node:child_process';
+// The gate runs in its own process group and records it in .local/gate/pid; `bun run --bun gate --stop` stops that
+// group only. One gate at a time per worktree: a second one fails with `GATE FAIL busy`.
+import { spawn, spawnSync } from 'node:child_process';
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { DEV_ENV } from '../tests/e2e/pilot/run.mjs';
 import { convert as convertV5, loadConfig } from '../tests/e2e/pilot/v5/fixture.mjs';
+import { claimPidFile, releasePidFile, stopPidFile } from './pidfile.ts';
 
 const REPO = resolve(import.meta.dirname, '..');
 const LOCATOR = join('.local', 'v5-verification.json');
+/** The running gate's process group leader (see `main`). */
+const PID_FILE = join(REPO, '.local', 'gate', 'pid');
+/** Set, to the repository path, in the group leader's environment. */
+const LEADER_ENV = 'CLEARCASE_GATE_LEADER';
 const TAIL_LINES = 14;
 const MAX_WIDTH = 160;
 
@@ -211,13 +218,54 @@ export function readHead(spawn = spawnSync, repo = REPO) {
 	return { head: { sha: sha.out, dirty: status.out !== '' } };
 }
 
-if (import.meta.main) {
+/**
+ * Admits the calling gate leader or refuses it: returns null when it may run, else the `GATE FAIL busy` line to print.
+ * Admission is the claim of `pidFile` (see `claimPidFile`): an exclusive flock(2) taken before any work starts, which
+ * the kernel holds until the leader exits (`main` releases it) or dies, so of any number of simultaneous gates exactly
+ * one is admitted and a gate that died leaves nothing to recover. The claim writes the record `gate --stop` reads, which
+ * names the process group to stop. An earlier gate's orphans are looked for while the lock is held, so none can appear
+ * between that check and the admission.
+ */
+export function admit(pidFile = PID_FILE) {
+	const claim = claimPidFile(pidFile, { marker: { name: LEADER_ENV, value: REPO } });
+	if (claim.claimed) return null;
+	if (claim.orphan) return `GATE FAIL busy: processes of an earlier gate (group ${claim.orphan}) still run after their leader died; stop them with \`bun run --bun gate --stop\``;
+	if (!claim.owner) return 'GATE FAIL busy: another gate is claiming this worktree right now; try again in a few seconds';
+	return `GATE FAIL busy: a gate (pid ${claim.owner.pid}) is already running in this worktree; wait for it, or stop it with \`bun run --bun gate --stop\``;
+}
+
+/**
+ * Runs the gate in a process group of its own: the gate re-runs itself as a group leader (`detached`), which writes
+ * its pid to PID_FILE, and every step, browser and server it starts stays in that group. `gate --stop` signals that
+ * group and nothing else, so it never reaches another worktree's gate the way `pkill -f scripts/gate.mjs` would.
+ * The launcher forwards SIGINT, SIGTERM and SIGHUP to the group and exits with the leader's code.
+ */
+async function main() {
+	if (process.argv.includes('--stop')) {
+		const { ok, message } = await stopPidFile(PID_FILE, { group: true, graceMs: 15_000, marker: { name: LEADER_ENV, value: REPO } });
+		console.log(`gate --stop: ${message}`);
+		return ok ? 0 : 1;
+	}
+	if (process.env[LEADER_ENV] !== REPO) {
+		const child = spawn(process.execPath, [import.meta.filename, ...process.argv.slice(2)], { cwd: REPO, stdio: 'inherit', detached: true, env: { ...process.env, [LEADER_ENV]: REPO } });
+		for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { try { process.kill(-child.pid, sig); } catch {} });
+		const [code, signal] = await new Promise((res) => child.on('exit', (c, s) => res([c, s])));
+		return code ?? (signal ? 1 : 0);
+	}
+	const refused = admit();
+	if (refused) {
+		console.log(refused);
+		return 1;
+	}
+	process.on('exit', () => releasePidFile(PID_FILE));
 	const { head, error } = readHead();
 	if (error) {
 		console.log(`GATE FAIL git ${error}`);
-		process.exit(1);
+		return 1;
 	}
 	const { pass, lines } = await runGate(STEPS, { head });
 	console.log(lines.join('\n'));
-	process.exit(pass ? 0 : 1);
+	return pass ? 0 : 1;
 }
+
+if (import.meta.main) process.exit(await main());

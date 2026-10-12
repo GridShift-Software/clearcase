@@ -9,9 +9,10 @@
 // that takes it cannot land between a write's re-check and its write. A write made from inside `exclusive` or `batch`
 // runs in that step (see `Registers.exclusive`); it never waits on the step it is part of.
 //
-// One server process serves a data directory (an exclusive instance lock). A write that bypasses this module (another
-// process on the same directory, a restore that does not take `exclusive`) can still land between a re-check and its
-// write's own transaction.
+// A restore takes `exclusive`; the case's other writers (GRS-17 registers, bundles, filings, info required, rescan) run
+// in the same queue through `inTurn`. One server process serves a data directory (an exclusive instance lock). A write
+// that bypasses this module (another process on the same directory) can still land between a re-check and its write's
+// own transaction.
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import type { SeedView } from '../case-package/browser.ts';
@@ -59,7 +60,8 @@ export interface Registers {
 	 * Run `fn` once every queued write of the case has settled; the case's later writes wait until it settles.
 	 * Contract: `fn` may write through the store for the same case (a restore does); those writes run inside `fn`, one
 	 * after another, without waiting on the queue, so `fn` must await each of them before it returns (a write left
-	 * running after `fn` settles is no longer held back). A nested `exclusive` of the same case runs inside `fn` too.
+	 * running after `fn` settles is no longer held back, and one `fn` starts later, from a timer or callback, queues like
+	 * any other write). A nested `exclusive` of the same case runs inside `fn` too.
 	 * Other cases are not held, and their writes queue as usual.
 	 */
 	exclusive<T>(caseId: string, fn: () => Promise<T>): Promise<T>;
@@ -78,19 +80,31 @@ const isDeleted = (f: Readonly<Record<string, unknown>>) => f.deleted === true;
 // ---- the queue: per user-work, per case; a store's writes run in turn, an exclusive run alone ----------------------
 
 const DONE: Promise<unknown> = Promise.resolve();
-/** The step a call runs in: its writes are part of it, in turn on `tail`, and never queue behind it. `store` null: the whole case. */
-type Held = { w: Work; caseId: string; store: string | null; tail: Promise<unknown> };
+/**
+ * The step a call runs in: its writes are part of it, in turn on `tail`, and never queue behind it. `store` null: the
+ * whole case. `done` once the step has settled: a write started after that (from a timer or callback the step left,
+ * which keeps its async context) is no longer part of it: it is part of the step `up` that holds this one if that has not
+ * settled, and otherwise queues like any other.
+ */
+type Held = { w: object; caseId: string; store: string | null; tail: Promise<unknown>; done: boolean; up: Held | undefined };
 const holding = new AsyncLocalStorage<Held>();
 const NOOP = () => undefined;
 type CaseQueue = { all: Promise<unknown>; stores: Map<string, Promise<unknown>> };
 const queues = new WeakMap<object, Map<string, CaseQueue>>();
 
+/** Run `fn` as the step `h`, which ends when `fn` settles. */
+async function step<T>(h: Held, fn: () => Promise<T>): Promise<T> {
+	try { return await holding.run(h, fn); } finally { h.done = true; }
+}
+
 /** Run `fn` after the case's earlier exclusive run and, for a store, its earlier writes (`store` null: after every earlier write of the case). A failure does not block later calls. */
-function queued<T>(w: Work, caseId: string, store: string | null, fn: () => Promise<T>): Promise<T> {
-	const held = holding.getStore();
+function queued<T>(w: object, caseId: string, store: string | null, fn: () => Promise<T>): Promise<T> {
+	let open = holding.getStore();
+	while (open?.done) open = open.up;
+	const held = open;
 	if (held && held.w === w && held.caseId === caseId) {
 		if (held.store !== null && held.store !== store) return Promise.reject(new Error(`register store: ${store === null ? 'an exclusive run' : `a write to store "${store.replace(/\0.*/s, '')}"`} inside a batch of store "${held.store}" would wait on that batch; take the exclusive run around it, or write after the batch`));
-		const run = held.tail.then(() => holding.run({ ...held, tail: DONE }, fn)); // its own writes queue on a tail of their own, never behind it
+		const run = held.tail.then(() => step({ ...held, tail: DONE, done: false, up: held }, fn)); // its own writes queue on a tail of their own, never behind it
 		held.tail = run.then(NOOP, NOOP);
 		return run;
 	}
@@ -98,7 +112,7 @@ function queued<T>(w: Work, caseId: string, store: string | null, fn: () => Prom
 	if (!cases) queues.set(w, (cases = new Map()));
 	let q = cases.get(caseId);
 	if (!q) cases.set(caseId, (q = { all: DONE, stores: new Map() }));
-	const run = Promise.all(store === null ? [q.all, ...q.stores.values()] : [q.all, q.stores.get(store) ?? DONE]).then(() => holding.run({ w, caseId, store, tail: DONE }, fn));
+	const run = Promise.all(store === null ? [q.all, ...q.stores.values()] : [q.all, q.stores.get(store) ?? DONE]).then(() => step({ w, caseId, store, tail: DONE, done: false, up: undefined }, fn));
 	const settled = run.then(() => undefined, () => undefined);
 	if (store === null) q.all = settled; else q.stores.set(store, settled);
 	const cq = q, cs = cases;
@@ -108,6 +122,13 @@ function queued<T>(w: Work, caseId: string, store: string | null, fn: () => Prom
 	});
 	return run;
 }
+
+/**
+ * Run a write of a case's user work outside this module (a register, table or rescan writer) in the case's queue,
+ * under `key` (its store): after the case's earlier writes under that key and any exclusive run (a restore), and
+ * before a later one. `w` is the app's userWork.
+ */
+export const inTurn = <T>(w: object, caseId: string, key: string, fn: () => Promise<T>): Promise<T> => queued(w, caseId, key, fn);
 
 // Adds seen per user-work, by the form's one-time add id and the fields sent: a second post of the same form (a double
 // press without JavaScript, a retry of a request that did arrive) answers with the row the first one stored.

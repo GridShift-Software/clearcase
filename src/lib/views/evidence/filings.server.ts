@@ -4,7 +4,7 @@
 import { fail, isHttpError, redirect, type RequestEvent } from '@sveltejs/kit';
 import { app } from '../../local-case/app.server.ts';
 import { datasetOf, exportFileName, viewContentOf, viewText } from '../../local-case/results.server.ts';
-import { serialized } from '../litigation/serial.ts';
+import { inTurn } from '../../local-case/registers.server.ts';
 import { evidenceRows } from './rows.server.ts';
 import { REGISTER_STORE, SAVE_FAILURES, SEED_DATASET, asFields, formFields, nextSeq, registerEntries, rowVersion, saveFailure, type FilingsData, type SaveFailure, type SeedViewLike } from './filings.ts';
 
@@ -61,8 +61,9 @@ const DELETE_GONE = 'That register row no longer exists; nothing was deleted.';
 // Every write of the register runs in one in-process queue per case (one server process holds the store), and reads the
 // register again inside it: the row lookup, the version check and the write are one step, so a second save made from a
 // row version that the first has changed meets the changed row and is refused as stale, even when both waited out a
-// busy store. A write from outside this queue (another process on the data directory) is not covered.
-const queued = <T>(caseId: string, fn: () => Promise<T>) => serialized(`${caseId}\u0000${REGISTER_STORE}`, fn);
+// busy store. The queue is the register store's, so a restore of the case holds these writes back. A write from outside
+// it (another process on the data directory) is not covered.
+const queued = <T>(caseId: string, fn: () => Promise<T>) => inTurn(app().userWork, caseId, REGISTER_STORE, fn);
 
 /** Run a store write; a store busy beyond its retries (503) or any other failure is reported, never thrown. */
 async function write(fn: () => Promise<unknown>): Promise<number | null> {

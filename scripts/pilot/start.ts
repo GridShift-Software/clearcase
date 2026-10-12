@@ -6,6 +6,8 @@
 // Env: PORT (41101), ORIGINALS_PORT (PORT+1), ORIGINALS_HOSTNAME, CLEARCASE_DATA_DIR
 // (default ${XDG_DATA_HOME:-~/.local/share}/clearcase), CLEARCASE_KEEP_CANDIDATES (3), CLEARCASE_KEEP_BACKUPS (10),
 // BUILD_DIR (./build). SIGTERM/SIGINT close both listeners, write a pending backup and checkpoint SQLite.
+// The server records itself in .local/pilot/start-$PORT.pid; `bun run --bun start --stop` (same PORT) stops that server
+// only, so nobody needs `pkill -f scripts/pilot/start.ts`, which also matches other worktrees' servers.
 //
 // The listener wraps adapter-node's handler with the exact Host check, so static build assets are covered too
 // (adapter-node serves them before hooks.server.ts runs; prototype finding W-HOST-03).
@@ -14,6 +16,7 @@ import { createServer } from 'node:http';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { resolveDataDir } from '../../src/lib/local-case/config.server.ts';
+import { removePidFile, stopPidFile, writePidFile } from '../pidfile.ts';
 
 const die = (msg: string): never => { console.error(`start: ${msg}`); process.exit(1); };
 const MIN_BUN = '1.4.2';
@@ -22,6 +25,12 @@ if (!process.versions.bun) die('ClearCase runs under Bun: use `bun run --bun sta
 if (!newer(process.versions.bun!, MIN_BUN)) die(`Bun >= ${MIN_BUN} is required (this is ${process.versions.bun})`);
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
+const pidFile = (p: string | undefined) => join(root, '.local', 'pilot', `start-${p ?? 41101}.pid`);
+if (process.argv.includes('--stop')) {
+	const { ok, message } = await stopPidFile(pidFile(process.env.PORT));
+	console.log(`start --stop: ${message}`);
+	process.exit(ok ? 0 : 1);
+}
 const build = resolve(process.env.BUILD_DIR ?? join(root, 'build'));
 for (const f of ['handler.js', 'pdfjs/manifest.json', 'clearcase-build.json'])
 	if (!existsSync(join(build, f))) die(`${join(build, f)} is missing. Build first: bun install --frozen-lockfile && bun run --bun build`);
@@ -52,7 +61,11 @@ const server = createServer((req, res) => {
 	handler(req, res);
 });
 server.on('error', (e: NodeJS.ErrnoException) => { console.error(`FATAL: the app listener cannot bind ${appHost} (${e.code ?? e.message}). Exiting.`); process.emit('sveltekit:shutdown' as never, 'bind-error' as never); process.exit(1); });
-server.listen(port, '127.0.0.1', () => console.log(`app listening on ${appHost}`));
+server.listen(port, '127.0.0.1', () => {
+	writePidFile(pidFile(String(port)));
+	console.log(`app listening on ${appHost}`);
+});
+process.on('exit', () => removePidFile(pidFile(String(port))));
 
 let stopping = false;
 const stop = (reason: string) => {

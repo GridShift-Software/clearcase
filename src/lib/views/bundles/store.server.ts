@@ -14,6 +14,7 @@
 import { createHash } from 'node:crypto';
 import { fail, isHttpError } from '@sveltejs/kit';
 import { app } from '../../local-case/app.server.ts';
+import { inTurn } from '../../local-case/registers.server.ts';
 import { UserWorkError, type RegisterRow, type RegisterValue } from '../../local-case/user-work.server.ts';
 import type { CO, Mode } from './discovery.ts';
 import { customOf, nextCustomNo, type Custom } from '../../bundles/builder.ts';
@@ -38,18 +39,10 @@ export async function readMarks(caseId: string): Promise<Mark[]> {
 	return app().userWork.listTableRows(MARK_TABLE, { caseId }).map((r) => ({ locator: String(r.locator), selected: Number(r.selected) === 1, co: r.co === 'C' || r.co === 'O' ? r.co : null }));
 }
 
-// One server process serves a data directory, so this queue orders every tab's CC-09 writes of a case and store. A
-// write outside it (a user-work restore, another process on the same store) is not ordered by it.
-const queues = new Map<string, Promise<unknown>>();
+// One server process serves a data directory, so this queue (the register store's) orders every tab's CC-09 writes of
+// a case and store, and a restore of the case. A write from another process on the same store is not ordered by it.
 /** Run `fn` after every earlier CC-09 write of the same case and store (a failed write does not block the queue). */
-export function serial<T>(caseId: string, store: string, fn: () => Promise<T>): Promise<T> {
-	const key = JSON.stringify([caseId, store]);
-	const run = (queues.get(key) ?? Promise.resolve()).then(fn);
-	const tail = run.then(() => undefined, () => undefined);
-	queues.set(key, tail);
-	void tail.then(() => { if (queues.get(key) === tail) queues.delete(key); });
-	return run;
-}
+export const serial = <T>(caseId: string, store: string, fn: () => Promise<T>): Promise<T> => inTurn(app().userWork, caseId, store, fn);
 
 /** The fields-hash a form sends back: of the stored fields, not updatedAt (which never changes under CLEARCASE_FIXED_NOW). */
 export const fieldsHash = (fields: unknown): string => createHash('sha256').update(JSON.stringify(fields ?? null)).digest('hex').slice(0, 24);
@@ -138,6 +131,17 @@ export function saveCustom(caseId: string, id: string, c: Omit<Custom, 'no'>, sh
 		const seq = old?.seq ?? Math.max(0, ...cur.map((x) => x.seq)) + 1;
 		await app().userWork.putTableRow(CUSTOM_TABLE, { case_id: caseId, id, no, name: c.name, pages: c.pages, index_pages: c.indexPages, file_pages: c.filePages, note: c.note, rows: JSON.stringify(c.rows), seq }, { owner: OWNER });
 		return no;
+	});
+}
+/** Write bundles imported from v5 under their stable ids (the legacy import, GRS-20): an id already saved keeps its place
+ * and takes the imported content, a new one goes last in the given order, so importing one file twice writes the same
+ * rows. One transaction: a refused or failing row leaves none of the file's bundles written. */
+export function importCustom(caseId: string, list: readonly (Custom & { id: string })[]): Promise<number> {
+	return serial(caseId, CUSTOM_TABLE, async () => {
+		const cur = await readCustom(caseId);
+		let seq = Math.max(0, ...cur.map((x) => x.seq));
+		await app().userWork.putTableRows(CUSTOM_TABLE, list.map((c) => ({ case_id: caseId, id: c.id, no: c.no, name: c.name, pages: c.pages, index_pages: c.indexPages, file_pages: c.filePages, note: c.note, rows: JSON.stringify(c.rows), seq: cur.find((x) => x.id === c.id)?.seq ?? ++seq })), { owner: OWNER });
+		return list.length;
 	});
 }
 /** Remove the saved bundle of output `id` (no document is deleted); removing one already gone is not an error. */

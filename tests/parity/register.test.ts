@@ -115,10 +115,9 @@ describe('runner', () => {
 	test('a whole-view entry with the wrong owner is a register error: exit 2 before anything starts', () => {
 		const dir = mkdtempSync(join(tmpdir(), 'parity-register-'));
 		try {
-			const bad = structuredClone(doc);
-			const e = bad.entries.find((x: any) => x.field === '*' && x.type === 'not-yet-implemented');
-			e.owner = 'GRS-999';
-			writeFileSync(join(dir, 'register.json'), JSON.stringify(bad));
+			// a synthetic whole-view entry: the live register holds none once every view is implemented
+			const e = { id: 'IDR-999', view: 'people', field: '*', type: 'not-yet-implemented', owner: 'GRS-999', reason: 'A synthetic reason long enough.', productVisible: false, author: 'worker', approvedBy: null, approvedOn: null };
+			writeFileSync(join(dir, 'register.json'), JSON.stringify({ version: 1, entries: [e] }));
 			const r = spawnSync(process.versions.bun ? process.execPath : 'bun', [join(REPO, 'scripts', 'parity', 'run.mjs'), '--view', e.view, '--fixture-config', join(dir, 'absent.json'), '--out', join(dir, 'out'), '--register', join(dir, 'register.json')], { encoding: 'utf8', timeout: 30_000 });
 			expect(r.status).toBe(2);
 			expect(r.stderr).toMatch(new RegExp(`register invalid:[\\s\\S]*${e.id}: owner GRS-999 is not the view's owner ${owners[e.view]}`));

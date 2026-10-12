@@ -4,7 +4,7 @@ CaseLines shows the consolidated court bundle named by the package (`view-conten
 
 ## Sub-features
 
-- `caselines-open` `Open in app`, `Open in new tab`, `Download`: the bundle's document page when its path is indexed, else `not in the verified index; not served`.
+- `caselines-open` `Open in app`, `Open in new tab`, `Download`: the bundle's document page when its path is a document, its originals-site link when it is a package file on disk (GRS-45), else `not in the verified index; not served`.
 - `caselines-search` `Search <n> pages` or Enter: pages with the phrase in page order, occurrences, snippets; each result opens the document page at that page.
 - `caselines-coverage` `#cl-coverage` states what search covers: pages indexed, pages without text (listed).
 - `caselines-goto` `Go to page` + `Open`.

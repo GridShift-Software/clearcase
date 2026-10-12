@@ -1,9 +1,11 @@
 // Rescan & Update (GRS-20) on the synthetic v5-shaped case: a repeat scan is idempotent, same-prefix additions get
 // distinct refs, a same-name same-size change is found by a full scan only, removed originals are reported,
 // processing-pending state survives a rescan, and a quick scan never claims the analysis is current.
+import { spawnSync } from 'node:child_process';
 import { readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { pathAssetKey } from '../../src/lib/case-package/hash.ts';
 import { buildCase, putOriginal } from '../e2e/pilot/lib/fixtures.ts';
 import { documentRows, listJson } from '../../src/lib/local-case/documents.server.ts';
 import { additions, clearAdditions, ensureRescanProvider, FILE_TABLE, rescan, rescanRows, walk } from '../../src/lib/local-case/rescan/rescan.server.ts';
@@ -159,5 +161,22 @@ describe('rescan rules', () => {
 	it("a v5-style './'-encoded path and the walked path are one file (S-rescan_tab-1)", () => {
 		const out = compare({ mode: 'quick', walked: [{ path: 'A B/x.pdf', size: 1, mtimeMs: 1 }], indexed: [{ ref: 'OD-001', path: 'A B/x.pdf', size: 1, sha256: null, bundle: 'Original' }], previous: [], issued: {}, takenRefs: new Set(['OD-001']) });
 		expect(out.rows).toEqual([]);
+	});
+	it("a package file's key is not a document ref: a numeric P- key neither sets a prefix nor starts the numbering, and a change to the file is still found (Dian, PR #30)", () => {
+		const bundle = 'BUNDLES/Bundle 97331.pdf', key = pathAssetKey(bundle);
+		// the all-digit key from review: it would parse as prefix P, number 9088790694423876, and 'n++' cannot move that number
+		expect(key).toBe('P-9088790694423876');
+		// run in a child process with a timeout: a regression is an endless loop that no in-process test timeout can interrupt
+		const script = `
+			const { compare } = await import(process.argv[1]);
+			const indexed = [{ ref: process.argv[2], path: process.argv[3], size: 10, sha256: null, bundle: '' }];
+			const walked = [{ path: process.argv[3], size: 11, mtimeMs: 1 }, { path: 'BUNDLES/New.pdf', size: 1, mtimeMs: 1 }];
+			console.log(JSON.stringify(compare({ mode: 'quick', walked, indexed, previous: [], issued: {}, takenRefs: new Set([process.argv[2]]) }).rows));`;
+		const run = spawnSync(process.execPath, ['--eval', script, path.resolve('src/lib/local-case/rescan/rules.ts'), key, bundle], { timeout: 10_000, encoding: 'utf8' });
+		expect(run.error, 'compare did not finish (timeout)').toBeUndefined();
+		const rows = JSON.parse(run.stdout) as { path: string; kind: string; ref: string }[];
+		expect(rows.map((r) => [r.path, r.kind, r.ref.startsWith('P-') && r.ref !== key])).toEqual([[bundle, 'changed', false], ['BUNDLES/New.pdf', 'added', false]]);
+		expect(rows[0].ref).toBe(key);
+		expect(rows[1].ref).toBe('OD-001');
 	});
 });

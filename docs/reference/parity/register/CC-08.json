@@ -315,44 +315,6 @@
       "approvedOn": null
     },
     {
-      "id": "IDR-323",
-      "view": "legality_tab",
-      "field": "text.the_risk.2",
-      "when": {
-        "v5": {
-          "re": "^.+ documents in the bundle$"
-        },
-        "app": "Documents in the bundle"
-      },
-      "type": "known-gap",
-      "owner": "GRS-38",
-      "source": "GRS-38",
-      "reason": "v5 hard-codes case wording (the related proceedings) in this card caption, and the view-content map has no field for it, so the app shows the neutral caption until the map carries it; the count is split off and compared on its own (kpi.documents_in_the_bundle_count) (shared-file request in the CC-08 report).",
-      "productVisible": true,
-      "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
-      "id": "IDR-324",
-      "view": "legality_tab",
-      "field": "table.scenarios.col.ess_action",
-      "when": {
-        "v5": {
-          "re": "^\\S+ action$"
-        },
-        "app": "Action"
-      },
-      "type": "known-gap",
-      "owner": "GRS-38",
-      "source": "GRS-38",
-      "reason": "v5 names a party in this column heading, and the view-content map has no field for it, so the app shows the neutral heading Action (same column, same cells) until the map carries it (shared-file request in the CC-08 report).",
-      "productVisible": true,
-      "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
       "id": "IDR-325",
       "view": "elements_tab",
       "field": "focus.after_nav",

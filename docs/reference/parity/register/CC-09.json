@@ -3,26 +3,6 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-350",
-      "view": "discovery_tab",
-      "field": "table.table_1.row.*.file_actions",
-      "when": {
-        "v5": {
-          "re": "^OpenDownload( / OpenDownload)*$"
-        },
-        "app": {
-          "re": "^(?=.*not in the verified index; not served)(OpenDownload|not in the verified index; not served)( / (OpenDownload|not in the verified index; not served))*$"
-        }
-      },
-      "type": "known-gap",
-      "source": "GRS-19",
-      "reason": "A schedule file whose locator does not decode to an indexed document path is not a package asset, so the app shows it as not in the verified index and does not serve it, where v5 links the file on disk. Only the file actions column (split from the description and file names, which compare exactly) is covered, on rows where some file is not served. GRS-45 (BASE-R3) owns this gap: it indexes these files as verified package assets.",
-      "productVisible": true,
-      "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
       "id": "IDR-351",
       "view": "discovery_tab",
       "field": "sweep.modes.cover_after_switches",
@@ -141,58 +121,6 @@
       "approvedOn": null
     },
     {
-      "id": "IDR-358",
-      "view": "court_bundle_tab",
-      "field": "table.index_header_details.row.*._",
-      "when": {
-        "v5": "Open Bundle PDF Index PDF Word",
-        "app": "Open Bundle PDF (not in the verified index; not served) Index PDF (not in the verified index; not served) Word"
-      },
-      "type": "known-gap",
-      "source": "GRS-19",
-      "reason": "The assembled bundle PDFs and index PDFs are not package assets (only chronology rows are indexed), so the app names them as not served where v5 links the files on disk. GRS-45 (BASE-R3) owns this gap: it indexes them as verified package assets.",
-      "productVisible": true,
-      "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
-      "id": "IDR-359",
-      "view": "court_bundle_tab",
-      "field": "control.row:link:?",
-      "when": {
-        "v5": "1",
-        "app": "<absent>"
-      },
-      "type": "known-gap",
-      "source": "GRS-19",
-      "reason": "The bundle list rows have no Bundle PDF or Index PDF link because those PDFs are not in the verified index (see IDR-358). GRS-45 (BASE-R3) owns this gap: it indexes these files as verified package assets.",
-      "productVisible": true,
-      "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
-      "id": "IDR-360",
-      "view": "court_bundle_tab",
-      "field": "sweep.bundle_tabs.items.r*.actions",
-      "when": {
-        "v5": {
-          "re": "^(Open item( Save extract)?( / in the bundle at page \\d+)?|Open item opens the bundle at page \\d+)$"
-        },
-        "app": {
-          "re": "^(Extract \\(not in the verified index; not served\\)( / in the bundle at page \\d+( \\(not in the verified index; not served\\))?)?|Open item \\(not in the verified index; not served\\))$"
-        }
-      },
-      "type": "known-gap",
-      "source": "GRS-19",
-      "reason": "Open item, Save extract and the bundle page links point at extract and bundle PDFs that are not in the verified index, so the items tab names them as not served; source parts and the CaseLines original link to their document pages. Only the actions cell of each items row is covered (every other cell compares exactly). GRS-45 (BASE-R3) owns this gap: it indexes these files as verified package assets.",
-      "productVisible": true,
-      "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
       "id": "IDR-361",
       "view": "court_bundle_tab",
       "field": "focus.after_nav",
@@ -203,24 +131,6 @@
       "type": "improvement",
       "source": "BA-14",
       "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 leaves it on the navigation link.",
-      "productVisible": true,
-      "author": "CC-09 worker (GRS-19)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
-      "id": "IDR-362",
-      "view": "court_bundle_tab",
-      "field": "sweep.bundle_tabs.items.r*.from_link.*",
-      "when": {
-        "v5": {
-          "re": "^(↗|-)$"
-        },
-        "app": "not in the verified index; not served"
-      },
-      "type": "known-gap",
-      "source": "GRS-19",
-      "reason": "A source part of an items row whose file is not in the verified index is named but not served, where v5 links it (↗). Only that part's link state is covered; the Extracted-from text (name and page range) compares exactly. GRS-45 (BASE-R3) owns this gap: it indexes these files as verified package assets.",
       "productVisible": true,
       "author": "CC-09 worker (GRS-19)",
       "approvedBy": null,

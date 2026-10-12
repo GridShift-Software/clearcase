@@ -5,6 +5,7 @@
 // on the freshly revalidated candidate at activation, and the read-model digest must agree.
 import { createHash } from 'node:crypto';
 import { canonicalJson, readCandidate, type Candidate } from '../case-package/index.ts';
+import { isPathKey } from '../case-package/refs.ts';
 import type { ChronologyListRow, DocumentStateRow, AttachmentRow, OverviewModel } from './model.ts';
 
 export interface DocumentRowW { ref: string; ord: number; row_json: string; state_json: string; attachments_json: string }
@@ -87,7 +88,9 @@ export function project(candidate: Candidate, counts: Readonly<Record<string, nu
 	const meta = r.sourceMeta as Record<string, unknown> | null;
 	const quantum = r.dataset<Record<string, unknown>>('quantum');
 	const contra = r.dataset<Record<string, unknown>>('contradictions');
-	const tallyStatus = (s: string) => assets.filter((a) => a.status === s).length;
+	// the overview counts document originals: package files (P- keys: bundle, index, extract and schedule files) are not documents
+	const docAssets = assets.filter((a) => !isPathKey(a.key));
+	const tallyStatus = (s: string) => docAssets.filter((a) => a.status === s).length;
 	const overview: OverviewModel = {
 		caseId: candidate.caseId,
 		caseLabel: candidate.manifest.case.label ?? null,
@@ -98,7 +101,7 @@ export function project(candidate: Candidate, counts: Readonly<Record<string, nu
 		producer: `${candidate.manifest.producer.name} ${candidate.manifest.producer.version}`,
 		counts: r.derivedCounts(),
 		dates: { min: dated[0] ?? null, max: dated.at(-1) ?? null, undated: list.length - dated.length },
-		originals: { verified: tallyStatus('verified'), caseMismatch: tallyStatus('case-mismatch'), missing: tallyStatus('missing') + tallyStatus('unavailable'), embedded: tallyStatus('embedded'), downloadOnly: assets.filter((a) => a.download_only).length },
+		originals: { verified: tallyStatus('verified'), caseMismatch: tallyStatus('case-mismatch'), missing: tallyStatus('missing') + tallyStatus('unavailable'), embedded: tallyStatus('embedded'), downloadOnly: docAssets.filter((a) => a.download_only).length },
 		sourceClaims: meta ? Object.fromEntries(Object.entries(meta).filter(([, v]) => typeof v === 'number' || typeof v === 'string').sort(([a], [b]) => (a < b ? -1 : 1))) as Record<string, string | number> : {},
 		diagnostics: { ...counts },
 		quantum: quantum ? { headlineDue: str(quantum.headline_due), headlineRef: str(quantum.headline_ref), headlineDate: str(quantum.headline_date), invoiceCount: typeof quantum.invoiceCount === 'number' ? quantum.invoiceCount : null } : null,

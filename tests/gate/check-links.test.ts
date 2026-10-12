@@ -11,6 +11,11 @@ describe('check-links', () => {
 		expect([...anchors('# A\n## A\n<a id="here"></a>\n```\n# not a heading\n```\n')]).toEqual(['a', 'a-1', 'here']);
 	});
 
+	it('slugs a heading with a code span through anchors() and check()', () => {
+		expect([...anchors('## The `gate` command\n')]).toEqual(['the-gate-command']);
+		expect(run({ 'a.md': '[ok](b.md#the-gate-command) [bad](b.md#the--command)', 'b.md': '## The `gate` command\n' })).toEqual(['a.md:1: b.md#the--command: no anchor #the--command in b.md']);
+	});
+
 	it('passes links to tracked files, directories and anchors', () => {
 		expect(run({
 			'README.md': '[dev](docs/development.md#setup) [docs](docs/) [self](#top) ![i](assets/icon.svg)\n# Top\n[ref]: docs/development.md',

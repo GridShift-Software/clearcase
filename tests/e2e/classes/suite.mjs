@@ -9,7 +9,8 @@
 //             save's error beside another entry;
 //   csv       every CSV export of a case whose free-text fields carry a formula after ;, tab, CR and LF (and a typed
 //             entry that does, on pages with a form) has no unneutralised formula start after one of them;
-//   narrow    no page of a case with a 64-character id without break opportunity scrolls sideways at 320 or 390 px;
+//   narrow    at 320 and 390 px, under an ordinary id and a 64-character id without break opportunity, no page scrolls
+//             sideways, a wide table scrolls in its own labelled, focusable box, and no heading overlaps an export control;
 //   back      after Back to a page, focus is on an element of the page, never <body>; after Back with typed input
 //             answered "keep" or "stay", focus returns to the typed field.
 // Every scenario checks that its precondition happened (text typed, question asked and answered, request held, another
@@ -30,7 +31,7 @@ const { INIT, openPage } = await import('../pilot/suite/browser.mjs');
 const { appServer, vpath } = await import('../pilot/suite/context.mjs');
 const { buildCase } = await import('../pilot/lib/fixtures.ts');
 const { VIEWS } = await import('../../../src/lib/components/view-registry.ts');
-const { csvExports, hasActions, hasEditRows, hasLeaveGuard, pageTargets } = await import('./targets.mjs');
+const { csvExports, hasActions, hasEditRows, hasLeaveGuard, pageTargets, pageUses } = await import('./targets.mjs');
 const D = await import('./declared.mjs');
 
 const ROOT = resolve(join(import.meta.dirname, '..', '..', '..'));
@@ -444,33 +445,64 @@ async function csv(route, url, viewId, forms) {
 	});
 }
 
-/** The page's width at 320 and 390 px: its scroll width, what sticks out, and whether the 64-character id does. */
+/**
+ * The page's layout at 320 and 390 px: the document's scroll width and what sticks out; whether the 64-character id is
+ * shown and sticks out; every visible table (<table>, role=table or grid) and, for one wider than the viewport, the
+ * scroll container it sits in (its own box or the nearest ancestor with overflow-x auto or scroll), whether that box
+ * fits the viewport, takes keyboard focus and is a labelled region; and every heading of the page that an export or
+ * page control (the page header's actions, a button or link named export, csv or download) overlaps.
+ */
 async function measure(url) {
 	const layouts = {};
 	try {
 		for (const width of [320, 390]) {
 			await p.s('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 1, mobile: true });
 			await open(url);
-			layouts[width] = await p.evaluate(`(() => { const de = document.documentElement; const vw = de.clientWidth; const out = (e) => e.getBoundingClientRect().right > vw + 1 && getComputedStyle(e).position !== 'fixed';
-				const name = (e) => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + (e.className && typeof e.className === 'string' ? '.' + e.className.split(' ')[0] : '');
+			layouts[width] = await p.evaluate(`(() => { const se = document.scrollingElement; const vw = se.clientWidth; const out = (e) => e.getBoundingClientRect().right > vw + 1 && getComputedStyle(e).position !== 'fixed';
+				const vis = ${VIS};
+				const name = (e) => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + (e.className && typeof e.className === 'string' ? '.' + e.className.split(' ')[0] : '') + (e.getAttribute('aria-label') ? '[' + e.getAttribute('aria-label').slice(0, 30) + ']' : '');
 				const holders = [...document.querySelectorAll('body *')].filter((e) => [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.includes(${J(UNBROKEN)})) || (e.value ?? '').includes?.(${J(UNBROKEN)}));
-				return { vw, scrollWidth: de.scrollWidth, wide: [...document.querySelectorAll('body *')].filter(out).slice(0, 3).map(name), idShown: holders.length > 0, idOut: holders.filter(out).map(name) }; })()`);
+				const scroller = (e) => { for (let x = e; x && x !== document.body; x = x.parentElement) if (/auto|scroll/.test(getComputedStyle(x).overflowX)) return x; return null; };
+				const tables = [...document.querySelectorAll('main table, main [role=table], main [role=grid]')].filter(vis).filter((e) => !e.parentElement.closest('table, [role=table], [role=grid]')).map((e) => {
+					const w = Math.max(e.getBoundingClientRect().width, e.scrollWidth);
+					if (w <= vw + 1) return { name: name(e), width: Math.round(w) };
+					const box = scroller(e);
+					const r = box?.getBoundingClientRect();
+					return { name: name(e), width: Math.round(w), box: box && name(box), fits: !!box && r.left >= -1 && r.right <= vw + 1, focusable: !!box && box.getAttribute('tabindex') === '0', region: box?.getAttribute('role') === 'region' && !!(box.getAttribute('aria-label') || box.getAttribute('aria-labelledby')) };
+				});
+				const inTable = (e) => !!e.closest('table, [role=table], [role=grid], [role=region]');
+				const headings = [...document.querySelectorAll('main h1, main h2, main h3')].filter(vis);
+				const controls = [...document.querySelectorAll('main button, main a, main [role=button]')].filter(vis).filter((e) => !inTable(e) && (e.closest('.page-actions') || /export|csv|download/i.test((e.id || '') + ' ' + e.textContent)));
+				const meet = (a, b) => { const r = a.getBoundingClientRect(), s = b.getBoundingClientRect(); return Math.min(r.right, s.right) - Math.max(r.left, s.left) > 1 && Math.min(r.bottom, s.bottom) - Math.max(r.top, s.top) > 1; };
+				const overlaps = headings.flatMap((h) => controls.filter((c) => !h.contains(c) && !c.contains(h) && meet(h, c)).map((c) => name(h) + ' x ' + name(c)));
+				return { vw, scrollWidth: se.scrollWidth, wide: [...document.querySelectorAll('body *')].filter(out).slice(0, 3).map(name), idShown: holders.length > 0, idOut: holders.filter(out).map(name),
+					tables, controls: controls.length, overlaps, controlsOut: controls.filter((c) => { const r = c.getBoundingClientRect(); return r.left < -1 || r.right > vw + 1; }).map(name) }; })()`);
 		}
 	} finally { await p.s('Emulation.clearDeviceMetricsOverride').catch(() => {}); }
 	return layouts;
 }
 
+/** A page whose source (or a component it imports) renders a table: it must show one at each width, unless declared (NO_TABLE). */
+const TABLE_SOURCE = /<table\b|role="(table|grid)"/;
 /**
- * narrow: at 320 and 390 px the page of the 64-character id case does not scroll sideways; where the same page of
- * the short-id case is wider than the viewport too (a wide table), the id must not widen it further.
+ * narrow: at 320 and 390 px, for the case under an ordinary id and under a 64-character id without break opportunity,
+ * the page does not scroll sideways; every table wider than the viewport scrolls inside its own box, which fits the
+ * viewport, takes keyboard focus (tabindex 0) and is a labelled region; no heading overlaps an export or page control,
+ * and none of those controls sticks out. A page whose source renders a table and that shows none at a width fails,
+ * unless declared.mjs NO_TABLE says why (and then it must show none); TABLE_QUERY names the query that shows it.
  */
-async function narrow(t, base) {
-	return scenario(`narrow:${t.route}${t.route.endsWith('[view]') ? ':' + t.view : ''}`, t.view, 'a 64-character case id without break opportunity does not make the page scroll sideways at 320 or 390 px', async () => {
-		const layouts = await measure(t.url);
-		const fits = Object.values(layouts).every((l) => l.scrollWidth <= l.vw);
-		const short = fits ? null : await base();
-		const sameAsShort = !!short && Object.entries(layouts).every(([w, l]) => l.scrollWidth <= Math.max(l.vw, short[w]?.scrollWidth ?? 0));
-		return { evidence: { url: t.url, layouts, short, wideWithShortId: !fits && sameAsShort }, checks: { noSidewaysFromId: fits || sameAsShort } };
+async function narrow(t, idKind) {
+	return scenario(`narrow:${t.route}${t.route.endsWith('[view]') ? ':' + t.view : ''}@${idKind}`, t.view, `with ${idKind === 'long' ? 'a 64-character case id without break opportunity' : 'an ordinary case id'} the page does not scroll sideways at 320 or 390 px; wide tables scroll in a labelled, focusable box; headings and export controls do not overlap`, async () => {
+		const url = t.url + (D.TABLE_QUERY[t.route]?.query ?? '');
+		const layouts = await measure(url);
+		const all = Object.values(layouts);
+		const expects = pageUses(ROOT, t.route, TABLE_SOURCE);
+		const declared = D.NO_TABLE[t.route];
+		const wide = all.flatMap((l) => l.tables.filter((x) => x.width > l.vw + 1));
+		const checks = { noSideways: all.every((l) => l.scrollWidth <= l.vw), wideTablesScrollInBox: wide.every((x) => !!x.box && x.fits), scrollBoxesFocusable: wide.every((x) => x.focusable), scrollBoxesLabelled: wide.every((x) => x.region), headingsClearOfControls: all.every((l) => l.overlaps.length === 0), controlsInView: all.every((l) => l.controlsOut.length === 0) };
+		if (declared) checks.declaredNoTable = all.every((l) => l.tables.length === 0);
+		else if (expects) checks.tableRendered = all.every((l) => l.tables.length > 0);
+		return { evidence: { url, expectsTable: expects, declaredNoTable: declared ?? null, layouts }, checks };
 	});
 }
 
@@ -550,9 +582,8 @@ try {
 	b = await launch({ profileRoot: join(tmp, 'chromium') });
 	await fresh();
 	const pages = pagesOf(rv, imp.importId);
-	// narrow: each page outside a case version at the short id, before a 64-character id is imported and listed
-	const baseline = new Map();
-	if (runs('narrow')) for (const t of pages.filter((x) => x.url && !x.url.startsWith('/v/') && !x.route.includes('['))) baseline.set(t.route, await measure(t.url));
+	// narrow at the ordinary id: every page, before a 64-character id is imported and listed (/import lists every import)
+	if (runs('narrow')) for (const t of pages.filter((x) => x.url && wanted(x.route))) await narrow(t, 'short');
 	// the narrow case: the main case's data under a 64-character id without break opportunity (a candidate)
 	const long = await buildCase(join(tmp, 'long'), { caseId: UNBROKEN });
 	const limp = await A.c.importPkg(long.caseDir, long.pkgDir);
@@ -614,10 +645,7 @@ try {
 			await csv(route, t.url, t.view, actions);
 		}
 	}
-	if (runs('narrow')) for (const t of pagesOf(long.resultsVersion, limp.importId).filter((x) => x.url && wanted(x.route))) {
-		const short = pages.find((x) => x.route === t.route && x.view === t.view);
-		await narrow(t, () => baseline.get(t.route) ?? (short?.url ? measure(short.url) : null));
-	}
+	if (runs('narrow')) for (const t of pagesOf(long.resultsVersion, limp.importId).filter((x) => x.url && wanted(x.route))) await narrow(t, 'long');
 	if (runs('back')) for (const t of pages.filter((x) => x.url && wanted(x.route))) {
 		if (!t.url.startsWith('/v/')) {
 			if (D.NO_BACK[t.route]) notApplicable('back', t.route, D.NO_BACK[t.route]);

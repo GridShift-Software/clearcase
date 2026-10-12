@@ -11,6 +11,7 @@
 	import { EntryForm, type Answer } from '$lib/views/litigation/entry.svelte';
 	import { HEADS_FIELDS, canAddHead, headsText, type HeadsValues } from '$lib/views/litigation/heads';
 	import { ANALYSIS_NOTE, OWN_ROWS_NOTE } from '$lib/views/litigation/notes';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
 	// the entry and each row's Delete keep their own state (entry.svelte.ts); without JavaScript the answer re-fills it
@@ -38,7 +39,7 @@
 		<EntryState {entry} form="hd-add" errorId="hd-error" />
 	</div>
 	<div class="card pad0">
-		<table id="heads-table">
+		<TableScroll label="Heads of argument"><table id="heads-table">
 			<thead><tr><th>#</th><th>Heading</th><th>Submission</th><th>Authority</th><th>Evidence</th><th></th></tr></thead>
 			<tbody>
 				{#each data.rows as r, i (r.rowId)}
@@ -56,7 +57,7 @@
 					<tr><td colspan="6"><div class="empty">No submissions yet — build your skeleton argument here.</div></td></tr>
 				{/each}
 			</tbody>
-		</table>
+		</table></TableScroll>
 	</div>
 	<SourceNote text={ANALYSIS_NOTE} more={OWN_ROWS_NOTE} />
 	<LeaveGuard unsaved={entry.unsaved} what="Your Heads of Argument entry is not saved." />
@@ -67,6 +68,6 @@
 	.fields > div { display: flex; flex-direction: column; flex: 1 1 9rem; }
 	.fields > .wide { flex: 2 1 16rem; }
 	.fields > .go { flex: 0 0 auto; }
-	.pad0 { padding: 0; overflow-x: auto; }
+	.pad0 { padding: 0; }
 	.empty { color: #555; padding: 1rem; text-align: center; }
 </style>

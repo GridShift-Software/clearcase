@@ -4,6 +4,7 @@
 	import { onMount } from 'svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { viewById, viewHref } from '$lib/components/views';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
 	const b = $derived(data.badges);
 	const vid = $derived(data.version.id);
@@ -35,8 +36,8 @@
 		<p>Search finds words only in documents that have extracted text. Documents without it can be found by their ref, filename and other metadata only: {b.textNone.toLocaleString('en')} have no text (scanned images that still need OCR) and {b.textPending.toLocaleString('en')} are pending. Files a rescan found have no extracted text until a new results package from processing includes them.</p>
 		<p><a id="manual-ocr" href="?list=ocr" data-sveltekit-noscroll>List scanned documents needing OCR ({data.ocrCount})</a></p>
 		{#if data.ocr}
-			<div class="scroll box"><table id="manual-ocr-list"><thead><tr><th scope="col">Ref</th><th scope="col">Bundle</th><th scope="col">Filename</th></tr></thead>
-				<tbody>{#each data.ocr as r (r.ref)}<tr><td><a href={r.href}>{r.ref}</a></td><td>{r.bundle}</td><td class="wrap">{r.filename}</td></tr>{/each}</tbody></table></div>
+			<TableScroll label="Scanned documents needing OCR" class="box"><table id="manual-ocr-list"><thead><tr><th scope="col">Ref</th><th scope="col">Bundle</th><th scope="col">Filename</th></tr></thead>
+				<tbody>{#each data.ocr as r (r.ref)}<tr><td><a href={r.href}>{r.ref}</a></td><td>{r.bundle}</td><td class="wrap">{r.filename}</td></tr>{/each}</tbody></table></TableScroll>
 		{/if}
 	</section>
 
@@ -57,8 +58,8 @@
 			<p><a id="manual-verify" href="?list=links" data-sveltekit-noscroll>Verify link sample ({data.sampleCount})</a> checks each link of the package's sample against the case folder now.</p>
 			{#if data.links}
 				<p role="status" id="manual-verify-result">{data.links.filter((l) => l.result === 'found').length} of {data.links.length} found in the case folder.</p>
-				<div class="scroll box"><table id="manual-link-list"><thead><tr><th scope="col">Ref</th><th scope="col">Bundle</th><th scope="col">Filename</th><th scope="col">Result</th></tr></thead>
-					<tbody>{#each data.links as r, i (i)}<tr data-result={r.result}><td><a href={r.href}>{r.ref}</a></td><td>{r.bundle}</td><td class="wrap">{r.filename}</td><td>{RESULT[r.result]}</td></tr>{/each}</tbody></table></div>
+				<TableScroll label="Link check results" class="box"><table id="manual-link-list"><thead><tr><th scope="col">Ref</th><th scope="col">Bundle</th><th scope="col">Filename</th><th scope="col">Result</th></tr></thead>
+					<tbody>{#each data.links as r, i (i)}<tr data-result={r.result}><td><a href={r.href}>{r.ref}</a></td><td>{r.bundle}</td><td class="wrap">{r.filename}</td><td>{RESULT[r.result]}</td></tr>{/each}</tbody></table></TableScroll>
 			{/if}
 		{:else}
 			<p>This results package has no link sample. Every original was checked when the version was imported; a document page checks its original again when it is opened.</p>
@@ -69,8 +70,7 @@
 <style>
 	.badges { display: flex; flex-wrap: wrap; gap: .4rem; list-style: none; padding: 0; }
 	.badges li { background: #eef2f6; border-radius: 4px; padding: .15rem .5rem; }
-	.scroll { overflow-x: auto; max-width: 100%; }
-	.box { max-height: 360px; overflow-y: auto; }
+	:global(.table-scroll.box) { max-height: 360px; overflow-y: auto; }
 	td, th { padding: 2px 8px; text-align: left; }
 	section { max-width: 60rem; }
 </style>

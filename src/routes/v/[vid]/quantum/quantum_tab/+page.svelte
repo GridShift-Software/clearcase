@@ -7,6 +7,7 @@
 	import Kpi from '$lib/views/quantum/Kpi.svelte';
 	import { chart, importedMoney, invoicesCsv, reconcile, unitsMoney } from '$lib/views/quantum/ledger';
 	import '$lib/views/quantum/quantum.css';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
 	const vid = $derived(data.version.id);
 	const q = $derived(data.quantum);
@@ -43,23 +44,23 @@
 				<svg viewBox="0 0 {c.width} {c.height}" width="100%" height="160" role="img" aria-label="Amount due by date">{#each c.bars as b, i (i)}<rect x={b.x} y={b.y} width={b.w} height={b.h} fill="#1E3A5F"><title>{b.title}</title></rect>{/each}</svg>
 				<p class="tag">{c.caption}</p>
 			{/if}
-			<div class="q-wrap">
+			<TableScroll label="Running amount due balance" class="q-wrap">
 				<table class="q-tbl" id="amount-due-series">
 					<thead><tr><th>As at</th><th>Ref</th><th class="num">Amount due</th><th>Source</th></tr></thead>
 					<tbody>{#each q.amountDueSeries.toReversed() as s, i (i)}<tr><td class="mono">{s.date}</td><td class="mono">{s.ref}</td><td class="num">{importedMoney(s.amount)}</td><td><CitationLink resultsVersion={vid} ref={s.ref} exists={known.has(s.ref)} label={known.has(s.ref) ? 'open ↗' : s.ref} /></td></tr>{/each}</tbody>
 				</table>
-			</div>
+			</TableScroll>
 		</div>
 		<div class="q-two">
 			<div class="q-card">
 				<h3>Invoice ledger ({q.invoiceLedger.length})</h3>
 				<div class="toolbar"><button type="button" id="export-invoices" onclick={() => download(data.exportName.name, invoicesCsv(q.invoiceLedger))}>Export CSV</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}</div>
-				<div class="q-wrap q-h460">
+				<TableScroll label="Invoice ledger" class="q-wrap q-h460">
 					<table class="q-tbl" id="invoice-ledger">
 						<thead><tr><th>Ref</th><th>Invoice</th><th>Date</th><th class="num">Amount</th><th>Doc</th></tr></thead>
 						<tbody>{#each q.invoiceLedger as r, i (i)}<tr><td class="mono">{r.ref}</td><td class="mono">{r.no}</td><td class="mono">{r.date || '—'}</td><td class="num">{importedMoney(r.amount)}</td><td><CitationLink resultsVersion={vid} ref={r.ref} exists={known.has(r.ref)} label={known.has(r.ref) ? 'open ↗' : r.ref} /></td></tr>{/each}</tbody>
 					</table>
-				</div>
+				</TableScroll>
 			</div>
 			<div class="q-card">
 				<h3>Charging & statements</h3>
@@ -76,5 +77,5 @@
 </main>
 
 <style>
-	.q-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: .8rem; }
+	.q-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: .8rem; }
 </style>

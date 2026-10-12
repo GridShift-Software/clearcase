@@ -13,6 +13,7 @@
 	import RefLinks from '$lib/views/quantum/RefLinks.svelte';
 	import { checkEntry, MAX_LENGTH, paymentsCsv, totals, type EntryField, type Payment } from '$lib/views/quantum/payments';
 	import '$lib/views/quantum/quantum.css';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
 	const known = $derived(new Set(data.known));
@@ -158,7 +159,7 @@
 				<button type="button" id="pay-ask-stay" onclick={() => answer(false)}>Stay</button>
 			</div>
 		{/if}
-		<div class="q-wrap">
+		<TableScroll label="Payments received" class="q-wrap">
 			<table class="q-tbl" id="payments">
 				<thead><tr><th>Date</th><th class="num">Amount</th><th>Method</th><th>Note</th><th></th></tr></thead>
 				<tbody>
@@ -177,11 +178,11 @@
 					{/each}
 				</tbody>
 			</table>
-		</div>
+		</TableScroll>
 	</div>
 	<div class="q-card">
 		<p class="q-chead">Monthly reconciliation chain ({data.recon.length} months) — invoice → statement → charging → proof of delivery → amount due</p>
-		<div class="q-wrap q-h520">
+		<TableScroll label="Monthly reconciliation chain" class="q-wrap q-h520">
 			<table class="q-tbl" id="recon">
 				<thead><tr><th>Month</th><th>Invoice</th><th>Supporting stmt</th><th>Charging</th>{#if showPod}<th>POD</th>{/if}<th>Statement</th><th>Amount due</th></tr></thead>
 				<tbody>
@@ -198,6 +199,6 @@
 					{/each}
 				</tbody>
 			</table>
-		</div>
+		</TableScroll>
 	</div>
 </main>

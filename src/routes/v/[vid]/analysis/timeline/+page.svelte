@@ -6,6 +6,7 @@
 	import { viewById, viewHref } from '$lib/components/views';
 	import { cleanName, type TimelineEvent } from '$lib/views/analysis/timeline';
 	import '$lib/views/analysis/analysis.css';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
 	const vid = $derived(data.version.id);
 	const known = $derived(new Set(data.known));
@@ -88,10 +89,10 @@
 		<h2>Principal correspondents</h2>
 		{#if c.correspondentsIntro}<p class="wrap">{c.correspondentsIntro}</p>{/if}
 		{#if data.people.length}
-			<div class="an-scroll"><table class="an-table an-stack">
+			<TableScroll label="Principal correspondents" class="an-scroll"><table class="an-table an-stack">
 				<thead><tr><th>Name</th><th>Email</th><th>Organisation</th><th class="num">Touchpoints</th></tr></thead>
 				<tbody>{#each data.people as p, i (i)}<tr><td data-label="Name">{p.name}</td><td data-label="Email" class="mono">{p.email}</td><td data-label="Organisation">{p.org || '—'}</td><td data-label="Touchpoints" class="num">{p.total}</td></tr>{/each}</tbody>
-			</table></div>
+			</table></TableScroll>
 		{:else}
 			<p class="an-empty">No correspondents in this results version.</p>
 		{/if}

@@ -7,6 +7,7 @@
 	import { byCat, chipLabel, contradictionsCsv, rateCells, type Contradictions } from '$lib/views/analysis/contradictions';
 	import { checkTone, severityBadge } from '$lib/views/analysis/tone';
 	import '$lib/views/analysis/analysis.css';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
 	const vid = $derived(data.version.id);
 	const known = $derived(new Set(data.known));
@@ -39,10 +40,10 @@
 		</div>
 		<section class="an-card" aria-labelledby="checks-heading">
 			<h2 id="checks-heading">Consistency checks</h2>
-			<div class="an-scroll"><table class="an-table an-stack" id="checks-table">
+			<TableScroll label="Consistency checks" class="an-scroll"><table class="an-table an-stack" id="checks-table">
 				<thead><tr><th>Check</th><th>Result</th></tr></thead>
 				<tbody>{#each c.checks as x, i (i)}{@const tone = checkTone(x.result)}<tr><td data-label="Check">{x.check}</td><td data-label="Result">{#if tone}<span class="badge {tone}">{x.result}</span>{:else}{x.result}{/if}</td></tr>{/each}</tbody>
-			</table></div>
+			</table></TableScroll>
 		</section>
 		{#if c.categories.length === 0}<div class="an-card"><div class="an-empty" id="contradictions-none">No contradiction categories in this results version.</div></div>{/if}
 		{#each c.categories as k, ci (ci)}
@@ -50,7 +51,7 @@
 			<section class="an-card pad0 category" data-category={ci}>
 				<p class="chead" role="heading" aria-level="2"><span class="badge {sev.cls}">{sev.label}</span><span class="ctitle">{k.title}</span><span class="an-tag count">{k.items.length} item(s)</span></p>
 				<p class="explain">{k.explain}</p>
-				<div class="an-scroll">
+				<TableScroll label={k.title} class="an-scroll">
 					{#if k.key === 'rate'}
 						<table class="an-table an-stack">
 							<thead><tr><th>Month</th><th class="num">Bid rate</th><th class="num">Old rate</th><th class="num">New / standard</th><th class="num">Spread</th><th>Sources</th></tr></thead>
@@ -73,7 +74,7 @@
 							</tr>{/each}</tbody>
 						</table>
 					{/if}
-				</div>
+				</TableScroll>
 			</section>
 		{/each}
 		{#if data.methodNote}

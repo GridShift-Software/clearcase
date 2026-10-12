@@ -6,6 +6,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { infoTone } from '$lib/views/analysis/tone';
 	import '$lib/views/analysis/analysis.css';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 	// Every unsaved choice, per item key, until the server has saved that key: in flight, or failed with its message.
 	// A failed key keeps its choice, its error and its Retry until that key saves; a save of another key never clears
@@ -108,7 +109,7 @@
 	{#if data.rows.length === 0}
 		<div class="an-card"><div class="an-empty" id="info-empty">No information-required items in this results version.</div></div>
 	{:else}
-		<div class="an-card pad0"><div class="an-scroll">
+		<div class="an-card pad0"><TableScroll label="Information required" class="an-scroll">
 			<table class="an-table an-stack" id="info-table">
 				<thead><tr><th aria-label="Done"></th><th>Item</th><th>Status</th><th>Owner</th></tr></thead>
 				<tbody>
@@ -130,7 +131,7 @@
 					{/each}
 				</tbody>
 			</table>
-		</div></div>
+		</TableScroll></div>
 		{#if data.detached}<p class="an-tag" id="info-detached">{data.detached} saved {data.detached === 1 ? 'check belongs' : 'checks belong'} to items that are not in this results version; they are kept.</p>{/if}
 	{/if}
 </main>

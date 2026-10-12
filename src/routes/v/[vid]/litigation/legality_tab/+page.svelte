@@ -6,6 +6,7 @@
 	import SourceNote from '$lib/views/litigation/SourceNote.svelte';
 	import { ANALYSIS_NOTE } from '$lib/views/litigation/notes';
 	import { likelihoodClass } from '$lib/views/litigation/readonly';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
 	const vid = $derived(data.version.id);
 	const exists = $derived(new Set(data.exists));
@@ -23,7 +24,7 @@
 		<div class="card narr risk"><h3>The risk</h3>{#if data.intro}<Narrative text={data.intro} resultsVersion={vid} known={data.known} />{/if}</div>
 		<div class="card pad0">
 			<div class="chead">{data.docsHeading}</div>
-			<div class="wrap"><table id="legality-docs">
+			<div class="wrap"><TableScroll label={data.docsHeading}><table id="legality-docs">
 				<thead><tr><th>Ref</th><th>Date</th><th>Document</th><th>Doc</th></tr></thead>
 				<tbody>
 					{#each data.docs as d, i (i)}
@@ -32,9 +33,9 @@
 						<tr><td colspan="4"><div class="empty">No documents listed.</div></td></tr>
 					{/each}
 				</tbody>
-			</table></div>
+			</table></TableScroll></div>
 		</div>
-		<div class="card"><h3>Scenarios</h3><div class="wrap"><table id="legality-scenarios">
+		<div class="card"><h3>Scenarios</h3><div class="wrap"><TableScroll label="Scenarios"><table id="legality-scenarios">
 			<thead><tr><th>Scenario</th><th>Effect on the claim</th><th>Likelihood</th><th>{data.actionHeading}</th></tr></thead>
 			<tbody>
 				{#each data.scenarios as x, i (i)}
@@ -43,8 +44,8 @@
 					<tr><td colspan="4"><div class="empty">No scenarios listed.</div></td></tr>
 				{/each}
 			</tbody>
-		</table></div></div>
-		<div class="card"><h3>Factors to assess</h3><div class="wrap"><table id="legality-factors">
+		</table></TableScroll></div></div>
+		<div class="card"><h3>Factors to assess</h3><div class="wrap"><TableScroll label="Factors to assess"><table id="legality-factors">
 			<thead><tr><th>Factor</th><th>Note</th></tr></thead>
 			<tbody>
 				{#each data.factors as x, i (i)}
@@ -53,14 +54,14 @@
 					<tr><td colspan="2"><div class="empty">No factors listed.</div></td></tr>
 				{/each}
 			</tbody>
-		</table></div></div>
+		</table></TableScroll></div></div>
 	{/if}
 	<SourceNote text={ANALYSIS_NOTE} />
 </main>
 
 <style>
 	.risk { border-left: 3px solid #b42318; }
-	.pad0 { padding: 0; overflow-x: auto; }
+	.pad0 { padding: 0; }
 	.chead { font-weight: 600; padding: 0.5rem 0.75rem; border-bottom: 1px solid #d5d9e0; }
 	.empty { color: #555; padding: 1rem; text-align: center; }
 	.badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.85rem; }

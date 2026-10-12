@@ -105,3 +105,18 @@ export const NON_CSV_DOWNLOADS = {
 	'.ics': 'an iCalendar file, not CSV; the registers suite checks its TEXT escaping (SC4, SC18)',
 	'.txt': 'a plain-text outline (the Heads of Argument export), not CSV',
 };
+
+/** Pages that show their table only for a query in the URL (class narrow): the suite opens them with it, and the table must then show. */
+export const TABLE_QUERY = {
+	'/v/[vid]/evidence/search': { query: '?q=synthetic', why: 'the results table shows only for a submitted search' },
+	'/v/[vid]/system/manual': { query: '?list=ocr', why: 'the list of scanned documents needing OCR shows only when asked for' },
+};
+
+/**
+ * Pages whose source renders a table (class narrow) but that show none in the suite's state, with why. Checked: the
+ * page must show no table at 320 and 390 px; one it shows fails the declaration, since it must then be measured.
+ */
+export const NO_TABLE = {
+	'/v/[vid]/litigation/conflict_tab': 'the matches table shows only after Check is pressed in the browser; the conflict suite (GRS-18) drives it',
+	'/v/[vid]/system/rescan_tab': 'the additions and changes tables show only after a scan finds files the version did not index; the suite\'s case folder has none',
+};

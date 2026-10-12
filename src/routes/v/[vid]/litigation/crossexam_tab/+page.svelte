@@ -10,6 +10,7 @@
 	import { CX_FIELDS, canAddCx, type CxValues } from '$lib/views/litigation/crossexam';
 	import { EntryForm, type Answer } from '$lib/views/litigation/entry.svelte';
 	import { ANALYSIS_NOTE, OWN_ROWS_NOTE } from '$lib/views/litigation/notes';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
 	// the entry and each row's Delete keep their own state (entry.svelte.ts); without JavaScript the answer re-fills it
@@ -37,7 +38,7 @@
 		<EntryState {entry} form="cx-add" errorId="cx-error" />
 	</div>
 	<div class="card pad0">
-		<table id="cx-table">
+		<TableScroll label="Cross-examination topics"><table id="cx-table">
 			<thead><tr><th>Witness</th><th>Topic</th><th>What to put</th><th>Documents</th><th></th></tr></thead>
 			<tbody>
 				{#each data.rows as r (r.key)}
@@ -54,7 +55,7 @@
 					<tr><td colspan="5"><div class="empty">No cross-exam topics yet.</div></td></tr>
 				{/each}
 			</tbody>
-		</table>
+		</table></TableScroll>
 	</div>
 	{#if data.tip}<p class="tag">{data.tip}</p>{/if}
 	<SourceNote text={ANALYSIS_NOTE} more={OWN_ROWS_NOTE} />
@@ -66,7 +67,7 @@
 	.fields > div { display: flex; flex-direction: column; flex: 1 1 10rem; }
 	.fields > .wide { flex: 2 1 16rem; }
 	.fields > .go { flex: 0 0 auto; }
-	.pad0 { padding: 0; overflow-x: auto; }
+	.pad0 { padding: 0; }
 	small { display: block; }
 	.empty { color: #555; padding: 1rem; text-align: center; }
 	.tag { font-size: 0.9rem; color: #444; }

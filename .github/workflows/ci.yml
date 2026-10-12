@@ -6,38 +6,54 @@ on:
   pull_request:
   push:
     branches: [dev, 'feature/**']
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+# A newer run of a pull request replaces a superseded one, so the single runner isn't kept busy by stale commits. Pushes,
+# including to dev, never cancel a run in progress, but GitHub keeps at most one pending run per group and replaces it
+# with a newer one, so quick successive pushes can lose the middle commits' results.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   check:
-    runs-on: ubuntu-24.04
+    # The runner is a VM on pc1 (docs/ci-runner.md) that runs only this repository's own code. This guard skips a fork's
+    # pull request, but the control is the repository's private, no-forking and no-fork-workflows settings: a fork
+    # could supply its own workflow file with these labels.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, Linux, X64, clearcase-pc1]
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0
+      # Written before the checks, so a failing check still uploads it. Only ids, names and SHAs, no environment dump.
+      - run: |
+          mkdir -p "$RUNNER_TEMP/receipts"
+          python3 - "$RUNNER_TEMP/receipts/run-metadata.json" <<'PY'
+          import json, os, subprocess, sys
+          keys = ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_SHA", "GITHUB_EVENT_NAME", "GITHUB_REF", "RUNNER_NAME", "PR_HEAD_SHA")
+          meta = {k: os.environ.get(k, "") for k in keys}
+          meta["checkout_head"] = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
+          with open(sys.argv[1], "w") as f:
+              json.dump(meta, f, indent=2)
+          PY
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
-      # The browser unit tests (tests/case-package/render.test.ts, tests/e2e/pilot/lib/lifecycle.test.ts) look for
-      # Chrome for Testing 148.0.7778.96 in Playwright's cache layout, full Chrome and the headless shell.
-      - name: Install Chrome for Testing 148.0.7778.96
-        run: |
-          set -euo pipefail
-          base=https://storage.googleapis.com/chrome-for-testing-public/148.0.7778.96/linux64
-          fetch() { # zip name, its sha256, Playwright cache directory
-            curl -fsSLo "$RUNNER_TEMP/$1.zip" "$base/$1.zip"
-            echo "$2  $RUNNER_TEMP/$1.zip" | sha256sum -c -
-            mkdir -p "$HOME/.cache/ms-playwright/$3"
-            unzip -q "$RUNNER_TEMP/$1.zip" -d "$HOME/.cache/ms-playwright/$3"
-          }
-          fetch chrome-linux64 e58a0612f6156ad287ff392c681f6e1154d0c938feccf631d0c5d7abf3bbf81a chromium-1223
-          fetch chrome-headless-shell-linux64 88817c574c1838a39f88fda0bbd043b4481fd385fb10e92c323e230844d636ce chromium_headless_shell-1223
-      # Those tests run Chromium offline in their own network namespace (unshare -rn), which Ubuntu 24.04's AppArmor
-      # policy refuses to unprivileged users by default.
-      - name: Allow unprivileged user namespaces
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - run: scripts/ci/install-chrome.sh
       - run: bun install --frozen-lockfile
-      - run: bun run --bun check
-      - run: bun run --bun test
+      - run: scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base origin/dev --name check --tool bun -- bun run --bun check
+      - run: scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base origin/dev --name test --tool bun -- bun run --bun test
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: receipts
+          path: ${{ runner.temp }}/receipts
+          if-no-files-found: error

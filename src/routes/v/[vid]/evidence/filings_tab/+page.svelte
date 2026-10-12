@@ -12,6 +12,7 @@
 	import { afterNavigate, beforeNavigate, goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { SubmitFunction } from '@sveltejs/kit';
+	import { askFocus } from '$lib/components/ask-focus.svelte';
 	import CitationLink from '$lib/components/CitationLink.svelte';
 	import Narrative from '$lib/components/Narrative.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
@@ -105,10 +106,12 @@
 		const url = nav.to.url;
 		ask = { what: busy ? 'A change is still being saved; leaving now may not show whether it worked. Leave anyway?' : question(), go: () => go(url) };
 	});
+	const askFocusing = askFocus(() => ask !== null, 'register-ask', 'register-ask-keep');
 	function answer(yes: boolean) {
 		const a = ask;
 		ask = null;
 		if (yes && a) a.go();
+		else askFocusing.back();
 	}
 	function discard(e: MouseEvent) {
 		e.preventDefault();

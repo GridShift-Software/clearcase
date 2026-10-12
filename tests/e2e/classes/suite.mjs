@@ -282,8 +282,9 @@ async function dialog(t) {
 		const nav = await p.evaluate(`(() => { const a = [...document.querySelectorAll('a[href]')].find((x) => new URL(x.href).pathname === ${J(t.url)}); if (!a) return false; a.click(); return true; })()`);
 		if (!nav) await open(t.url);
 		else { await p.waitFor(`location.pathname === ${J(t.url)} && !!document.querySelector('main#main')`, 15000); await settle(); }
-		const edits = await p.evaluate(`document.querySelectorAll('[data-edit]').length`);
+		let edits = await p.evaluate(`document.querySelectorAll('[data-edit]').length`);
 		if (edits >= 2) { await p.click('[data-edit]'); await sleep(150); }
+		edits = Math.min(edits, 2);
 		const all = await p.evaluate(FORMS);
 		// an edited row may post to another action of the same form (filings: ?/add becomes ?/save)
 		const f = all.find((x) => x.action === t.action) ?? all.find((x) => t.form.id && x.id === t.form.id);
@@ -304,6 +305,15 @@ async function dialog(t) {
 		const holds = (await value(field.sel)) === typed || (await allValues()).includes(typed);
 		return { errors: errs, path: here, holds };
 	};
+	// two saved entries first, so a page whose rows are edited in this form has another row to ask about
+	await fresh();
+	for (let n = 0; n < 2; n++) {
+		await open(t.url);
+		const [f] = (await p.evaluate(FORMS)).filter((x) => x.action === t.action);
+		await fillForm(f.i, `(k) => 'Synthetic row ${n} ' + k`);
+		await p.click(f.submit);
+		await quiet();
+	}
 	// probe: does any question guard this form at all?
 	await fresh();
 	const probe = await start();
@@ -334,7 +344,7 @@ async function dialog(t) {
 			const o = await outcome(typed, field);
 			const onPage = o.path === t.url;
 			return { evidence: { url: t.url, edits, asked, answered, request: paused?.request?.url ?? null, ...o },
-				checks: { requestHeld: !!paused, errorWithItsEntry: !onPage || o.errors.length === 0 || o.holds } };
+				checks: { requestHeld: !!paused, errorWithItsEntry: o.errors.length === 0 || (onPage && o.holds) } };
 		})) && ok;
 		// leave the page settled for the next order (answer any open question, no pending input)
 		await answer('/discard/i').catch(() => {});
@@ -418,18 +428,31 @@ async function back(t, form) {
 			const [f] = (await p.evaluate(FORMS)).filter((x) => x.action === form.action);
 			const field = f?.fields.find((x) => !x.disabled);
 			if (field) {
-				await p.type(field.sel, 'Synthetic typed before Back');
+				// in again by the app's own link, so Back stays in the app and the page's question can answer it
+				await p.click('[data-cc-away]');
+				await p.waitFor(`location.pathname !== ${J(t.url)}`, 15000);
+				await settle();
+				await p.evaluate(`[...document.querySelectorAll('a[href]')].find((x) => new URL(x.href).pathname === ${J(t.url)})?.click()`);
+				await p.waitFor(`location.pathname === ${J(t.url)} && !!document.querySelector('main#main')`, 15000);
+				await settle();
+				const [g] = (await p.evaluate(FORMS)).filter((x) => x.action === form.action);
+				await p.type(g.fields.find((x) => !x.disabled).sel, 'Synthetic typed before Back');
 				await p.evaluate('history.back()');
-				const asked = await p.waitFor(`!![...document.querySelectorAll('[role=alertdialog], [role=dialog], dialog[open]')].find((e) => e.offsetParent !== null)`, 2000).then(() => true, () => false);
+				const ASK = `[...document.querySelectorAll('[role=alertdialog], [role=dialog], dialog[open]')].find((e) => e.offsetParent !== null)`;
+				const asked = await p.waitFor(`!!(${ASK})`, 2000).then(() => true, () => false);
 				if (asked) {
-					const answered = await p.evaluate(`(() => { const d = [...document.querySelectorAll('[role=alertdialog], [role=dialog], dialog[open]')].find((e) => e.offsetParent !== null); const btn = [...d.querySelectorAll('button')].find((x) => /keep|stay/i.test(x.textContent)); btn?.focus(); btn?.click(); return btn?.id ?? null; })()`);
 					await settle(); await sleep(150);
-					guard = { asked, answered, path: await p.evaluate('location.pathname'), onField: await p.evaluate(`document.activeElement === document.querySelector(${J(field.sel)})`), focus: await p.active() };
+					// the question holds focus once Back is cancelled (the layout's move to the heading does not win)
+					const askFocused = await p.evaluate(`!!(${ASK})?.contains(document.activeElement)`);
+					const keep = await p.evaluate(`(() => { const b = [...(${ASK}).querySelectorAll('button')].find((x) => /keep|stay/i.test(x.textContent)); if (!b) return null; b.dataset.ccKeep = '1'; return b.id || b.textContent.trim(); })()`);
+					if (keep) await p.click('[data-cc-keep]');
+					await settle(); await sleep(150);
+					guard = { asked, askFocused, keep, path: await p.evaluate('location.pathname'), onField: await p.evaluate(`document.activeElement === document.querySelector(${J(g.fields.find((x) => !x.disabled).sel)})`), focus: await p.active() };
 				} else guard = { asked, path: await p.evaluate('location.pathname') };
 			}
 		}
 		return { evidence: { url: t.url, away, focus, guard },
-			checks: { focusOnPage: !onBody, keepReturnsFocus: !guard?.asked || (guard.path === t.url && guard.onField) } };
+			checks: { focusOnPage: !onBody, askHoldsFocus: !guard?.asked || guard.askFocused, keepReturnsFocus: !guard?.asked || (guard.path === t.url && guard.onField) } };
 	});
 }
 

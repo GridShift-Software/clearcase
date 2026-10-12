@@ -10,6 +10,8 @@
 //  * S-rescan_tab-7: every new file is pending processing; nothing claims extracted text that was never extracted.
 // Dates parsed from a file name must be real calendar dates (v5 accepted 2001-13-40).
 
+import { isPathKey } from '../../case-package/refs.ts';
+
 export type ScanMode = 'quick' | 'full';
 /** A file found in the case folder: its path relative to the folder ('/'-separated), size and modification time. */
 export interface WalkedFile { path: string; size: number; mtimeMs: number; sha256?: string | null }
@@ -74,6 +76,9 @@ export function docTypeOf(name: string): string {
 }
 
 const REF = /^([A-Za-z]+)-(\d+)$/;
+/** A document ref's prefix and number; null for anything else, and for a package file's key (P- plus 16 hex digits,
+ *  which can be all digits): that names a linked file, never a document, so it must not set a prefix or a number. */
+const docRef = (ref: string) => (isPathKey(ref) ? null : REF.exec(ref));
 const top = (p: string) => (p.includes('/') ? p.slice(0, p.indexOf('/')) : '');
 
 /** Where a new file's ref and bundle come from: the indexed originals of the same top-level folder (their most
@@ -81,7 +86,7 @@ const top = (p: string) => (p.includes('/') ? p.slice(0, p.indexOf('/')) : '');
 export function folderRules(indexed: readonly IndexedOriginal[]): (path: string) => { prefix: string; bundle: string } {
 	const by = new Map<string, Map<string, { n: number; bundle: string }>>();
 	for (const o of indexed) {
-		const m = REF.exec(o.ref);
+		const m = docRef(o.ref);
 		if (!m) continue;
 		const t = top(o.path);
 		const tally = by.get(t) ?? new Map();
@@ -106,7 +111,7 @@ export function folderRules(indexed: readonly IndexedOriginal[]): (path: string)
 export function refUse(refs: Iterable<string>): Map<string, { max: number; width: number }> {
 	const out = new Map<string, { max: number; width: number }>();
 	for (const r of refs) {
-		const m = REF.exec(r);
+		const m = docRef(r);
 		if (!m) continue;
 		const e = out.get(m[1]) ?? { max: 0, width: 0 };
 		e.max = Math.max(e.max, Number(m[2]));

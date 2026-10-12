@@ -95,6 +95,8 @@ export async function narrowShell(ctx) {
 		{ name: 'overview', url: `${V}/overview`, ready: ready('overview') },
 		{ name: 'document', url: `${V}/doc/OD-001`, ready: ready('doc:OD-001') },
 		{ name: 'chronology', url: `${V}/chronology`, ready: `${ready('chronology')} && ${ROWS}.length > 0` },
+		// the bundle views (GRS-19): their tables and builder must not widen the page at 320 and 390 px
+		...['discovery_tab', 'caselines_tab', 'court_bundle_tab'].map((id) => ({ name: id, url: `${V}/bundles/${id}`, ready: ready(id) })),
 		...(ex ? [{ name: `unavailable:${ex.id}`, url: `${V}${ex.route}`, ready: ready(`view:${ex.id}`) }] : []),
 	];
 	const U = A.v(unbroken.resultsVersion);

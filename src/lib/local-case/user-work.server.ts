@@ -363,26 +363,41 @@ export class UserWork {
 	 * text SQLite stores as a non-finite number is `invalid`. One transaction; schedules the work.sqlite backup like putRow.
 	 */
 	async putTableRow(table: string, row: Record<string, TableCell>, opts: { owner: string }): Promise<void> {
+		await this.putTableRows(table, [row], opts);
+	}
+
+	/**
+	 * putTableRow for several rows in ONE transaction: every row is checked first and the rows are written in order, so
+	 * a refused or failing row leaves none of them written (`nothing was written`). A later row replaces an earlier one
+	 * with the same key. Schedules the work.sqlite backup once.
+	 */
+	async putTableRows(table: string, rows: readonly Record<string, TableCell>[], opts: { owner: string }): Promise<void> {
 		const t = this.definedTable(table, opts?.owner ?? null);
 		const def = definitionOf(t);
-		if (!isRecord(row)) throw new UserWorkError(`table ${t.name}: a row is an object`);
-		const extra = Object.keys(row).find((k) => !def.columns.some((c) => c.name === k));
-		if (extra !== undefined) throw new UserWorkError(`table ${t.name}: the row has a column the table lacks${TABLE.test(extra) ? ` (${extra})` : ''}`);
-		// each cell is read once, so what is checked is what is written
-		const r = Object.fromEntries(def.columns.map((c) => [c.name, cellOf(row, c.name)])) as Record<string, Cell>;
-		const bad = rowsProblem(this.d, def, t.scope, [r]) ?? numberInText(def, r);
-		if (bad) throw new UserWorkError(`table ${t.name}: ${bad.message}; nothing was written`, bad.code);
+		if (!rows.length) return;
 		const cols = def.columns.map((c) => c.name);
+		const checked = rows.map((row) => {
+			if (!isRecord(row)) throw new UserWorkError(`table ${t.name}: a row is an object`);
+			const extra = Object.keys(row).find((k) => !def.columns.some((c) => c.name === k));
+			if (extra !== undefined) throw new UserWorkError(`table ${t.name}: the row has a column the table lacks${TABLE.test(extra) ? ` (${extra})` : ''}`);
+			// each cell is read once, so what is checked is what is written
+			const r = Object.fromEntries(cols.map((c) => [c, cellOf(row, c)])) as Record<string, Cell>;
+			const bad = rowsProblem(this.d, def, t.scope, [r]) ?? numberInText(def, r);
+			if (bad) throw new UserWorkError(`table ${t.name}: ${bad.message}; nothing was written`, bad.code);
+			return r;
+		});
 		const rest = cols.filter((c) => !def.primaryKey.includes(c));
 		// a case table keyed without case_id: never move another case's row into this case
 		const guard = t.scope === 'case' && !def.primaryKey.includes(CASE_COLUMN);
 		const upsert = rest.length ? `UPDATE SET ${rest.map((c) => `${q(c)} = excluded.${q(c)}`).join(', ')}${guard ? ` WHERE ${q(CASE_COLUMN)} = excluded.${q(CASE_COLUMN)}` : ''}` : 'NOTHING';
-		await this.write(() => `writing a row of table ${t.name}`, (d) => {
+		await this.write(() => `writing ${rows.length > 1 ? `${rows.length} rows` : 'a row'} of table ${t.name}`, (d) => {
 			const st = d.prepare(`INSERT INTO work.${q(t.name)}(${cols.map(q).join(', ')}) VALUES (${cols.map(() => '?').join(', ')}) ON CONFLICT(${def.primaryKey.map(q).join(', ')}) DO ${upsert} RETURNING *`);
-			const stored = storedRow(st, cols.map((c) => fromCell(r[c])));
-			if (guard && !stored) throw new UserWorkError(`table ${t.name}: the row's primary key (${def.primaryKey.join(', ')}) is held by a row of another case here; nothing was written`, 'restore-key-collision');
-			const conv = stored && storedProblem(def, stored);
-			if (conv) throw new UserWorkError(`table ${t.name}: ${conv.message}; nothing was written`, conv.code);
+			for (const r of checked) {
+				const stored = storedRow(st, cols.map((c) => fromCell(r[c])));
+				if (guard && !stored) throw new UserWorkError(`table ${t.name}: the row's primary key (${def.primaryKey.join(', ')}) is held by a row of another case here; nothing was written`, 'restore-key-collision');
+				const conv = stored && storedProblem(def, stored);
+				if (conv) throw new UserWorkError(`table ${t.name}: ${conv.message}; nothing was written`, conv.code);
+			}
 		});
 		this.onWrite();
 	}

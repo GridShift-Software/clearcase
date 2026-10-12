@@ -3,26 +3,6 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-100",
-      "view": "filings_tab",
-      "field": [
-        "sweep.register_edit.overview.Open deadlines",
-        "sweep.register_edit.overview.Unbilled time"
-      ],
-      "when": {
-        "app": {
-          "re": "^Not yet available — owned by GRS-17"
-        }
-      },
-      "type": "not-yet-implemented",
-      "owner": "GRS-17",
-      "reason": "The register_edit sweep ends on the overview tiles; Open deadlines and Unbilled time are GRS-17's overview slots, unfilled at this base. The coordinator deletes this entry when CC-07 merges.",
-      "productVisible": false,
-      "author": "CC-04 worker (GRS-14)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
       "id": "IDR-101",
       "view": "filings_tab",
       "field": "text.filing_replying_affidavit_register.1",

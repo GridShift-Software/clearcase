@@ -1,10 +1,17 @@
 import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit';
 import { building } from '$app/environment';
 import { app, initApp } from '$lib/local-case/app.server';
+import { discardBody, oversize } from '$lib/local-case/request-limit.server';
+import { ensureRescanProvider } from '$lib/local-case/rescan/rescan.server';
 
 export const init: ServerInit = async () => {
 	if (building) return;
 	await initApp();
+	// the rescan additions are document rows for every reader (chronology, documents, search), so the provider is
+	// registered at start-up, not when a system page first loads
+	// (a storage problem is shown by the first request; the system pages then register it as before)
+	if (app().storageError) return;
+	try { for (const p of app().store.activePointers()) ensureRescanProvider(app(), p.case_id); } catch (e) { console.error('rescan provider not registered at start-up:', e); }
 };
 
 // Exact Host allowlist: only 127.0.0.1:<PORT>. 'localhost:<PORT>' (or any *.localhost) is refused on purpose: the
@@ -32,6 +39,14 @@ export const handle: Handle = async ({ event, resolve }) => {
 			if (site && site !== 'same-origin' && site !== 'none') return plain(403, 'cross-site API request refused');
 			if (event.request.method !== 'GET' && event.request.method !== 'HEAD' && !(event.request.headers.get('content-type') ?? '').startsWith('application/json'))
 				return plain(415, 'API writes must be application/json');
+		}
+		// Each route's own size limit, from the declared size and before the body is read; independent of BODY_SIZE_LIMIT.
+		const big = oversize(event.request, event.url.pathname);
+		if (big) {
+			if (big.status === 413) await discardBody(event.request);
+			// a form enhanced by SvelteKit reads an action result: only this JSON gives it the status (a text body is a lost request to it)
+			if (event.request.headers.get('x-sveltekit-action') === 'true') return plain(big.status, JSON.stringify({ type: 'error', error: { message: big.message } }), { 'content-type': 'application/json' });
+			return plain(big.status, big.message);
 		}
 		// '?/default' is reserved by SvelteKit (it throws, i.e. 500): no form here posts to it.
 		if (event.request.method === 'POST' && event.url.searchParams.has('/default')) return plain(400, 'unknown form action');

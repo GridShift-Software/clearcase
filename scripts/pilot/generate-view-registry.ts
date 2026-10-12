@@ -16,7 +16,7 @@ const items = new Map(plan.items.map((i) => [i.key, i]));
 const CATEGORY: Record<string, string> = { 'CC-04': 'evidence', 'CC-05': 'analysis', 'CC-06': 'quantum', 'CC-07': 'registers', 'CC-08': 'litigation', 'CC-09': 'bundles', 'CC-10': 'system' };
 const PILOT = 'CC-03';
 /** Views the pilot implements; every other entry stays unavailable until its owner's ticket passes. */
-const AVAILABLE = new Set(['overview', 'chronology']);
+const AVAILABLE = new Set(['overview', 'chronology', 'rescan_tab', 'backup_tab', 'manual']);
 
 const linear = (key: string) => {
 	const id = items.get(key)?.linear?.identifier;

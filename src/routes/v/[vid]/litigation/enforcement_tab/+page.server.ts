@@ -1,9 +1,10 @@
 import { fail } from '@sveltejs/kit';
+import { actionCase, guarded } from '$lib/local-case/answer.server';
 import { app } from '$lib/local-case/app.server';
 import { datasetOf, viewContentOf, viewText } from '$lib/local-case/results.server';
 import { allowedStatus, enforcementRows, phasesOf } from '$lib/views/litigation/enforcement';
 import { stepKey } from '$lib/views/litigation/enforcement.server';
-import { STORES, field, guarded, knownRefs, text } from '$lib/views/litigation/register.server';
+import { SAY, STORES, field, knownRefs, orderedRows, text } from '$lib/views/litigation/register.server';
 import { saveStatus, stepRows, stepVersion } from '$lib/views/litigation/writes.server';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -12,7 +13,7 @@ import type { Actions, PageServerLoad } from './$types';
  * by seq wins, whatever its status ('' included), so a saved '' is a saved status and never a reason for a second row.
  */
 function overrides(caseId: string) {
-	const all = app().userWork.listRows(caseId, STORES.enforcement);
+	const all = orderedRows(caseId, STORES.enforcement);
 	const keys = new Set(all.map((r) => text(r.fields.stepKey)).filter(Boolean));
 	return new Map([...keys].map((k) => { const mine = stepRows(all, k); return [k, { status: text(mine.at(-1)!.fields.status), version: stepVersion(mine) }]; }));
 }
@@ -32,7 +33,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 	return { present, rows, phases: phasesOf(rows), content, known: knownRefs(version.id, [content.why, ...rows.flatMap((r) => [r.basis, r.note])]) };
 };
 
-const BUSY = 'Not saved: the local store is busy. Your choice is kept; try again in a moment.';
+const SAY_STATUS = { ...SAY.add, busy: 'Not saved: the local store is busy. Your choice is kept; try again in a moment.', failed: 'Not saved: the app hit an error while saving. Your choice is kept.' };
 const stale = (now: string) => `Not saved: this step's status was changed elsewhere (in another tab or window) to “${now || 'no status'}”. Your choice is kept; press Retry to save it over that change.`;
 
 type Change = { stepKey: string; status: string; version: string | null };
@@ -60,20 +61,19 @@ function changesOf(f: FormData): { changes: Change[]; choices: Record<string, st
 
 export const actions: Actions = {
 	status: async ({ params, request }) => {
-		const v = app().store.getVersion(params.vid);
-		if (!v) return fail(404, { message: 'Unknown results version' });
+		const { vid, caseId } = actionCase(params);
 		const { changes, choices } = changesOf(await request.formData());
 		const errors: Record<string, { message: string; retry: boolean }> = {};
 		const saved: string[] = [];
 		let code = 0;
 		for (const c of changes) {
-			const row = rowsOf(v.id, v.case_id).rows.find((r) => r.key !== null && r.key === c.stepKey);
+			const row = rowsOf(vid, caseId).rows.find((r) => r.key !== null && r.key === c.stepKey);
 			if (!row) { errors[c.stepKey] = { message: 'Not saved: that step is not in this results version, or it is not unique.', retry: false }; code ||= 404; continue; }
 			if (!allowedStatus(row, c.status)) { errors[c.stepKey] = { message: 'Not saved: choose one of the listed statuses.', retry: false }; code ||= 400; continue; }
-			const r = await guarded({}, () => saveStatus(app().userWork, v.case_id, STORES.enforcement, c.stepKey, c.status, c.version), {}, BUSY);
-			if (!r.ok) { const d = r.failure.data as { message: string; retry: boolean }; errors[c.stepKey] = { message: d.message, retry: d.retry }; code ||= r.failure.status; continue; }
+			const r = await guarded('status', null, () => saveStatus(app().userWork, caseId, STORES.enforcement, c.stepKey, c.status, c.version), SAY_STATUS);
+			if (!r.ok) { errors[c.stepKey] = { message: r.failure.data.message, retry: r.failure.data.retry }; code ||= r.failure.status; continue; }
 			if (r.value === 'stale') {
-				const now = rowsOf(v.id, v.case_id).rows.find((x) => x.key === c.stepKey);
+				const now = rowsOf(vid, caseId).rows.find((x) => x.key === c.stepKey);
 				errors[c.stepKey] = { message: stale(now ? now.override ?? now.status : ''), retry: true };
 				code ||= 409;
 				continue;

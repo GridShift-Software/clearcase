@@ -1,14 +1,14 @@
-// Payments & Net Claim model (GRS-16): one parse for the table and the totals (S-payments_tab-1), insertion order by
-// seq under a fixed clock, legacy rows flagged and never coerced, and the export.
+// Payments & Net Claim model (GRS-16): one parse for the table and the totals (S-payments_tab-1), legacy rows
+// flagged and never coerced, the stored fields and the export (insertion order is the register store's).
 import { describe, expect, it } from 'vitest';
 import { fmtR } from '../../src/lib/components/format';
 import { centsText, importedUnits, parseAmount } from '../../src/lib/calculations/money';
-import { nextSeq, ordered, paymentFields, paymentOf, paymentsCsv, totals, type Payment } from '../../src/lib/views/quantum/payments';
+import { paymentFields, paymentOf, paymentsCsv, totals, type Payment } from '../../src/lib/views/quantum/payments';
 
 const R = (c: bigint) => fmtR(centsText(c));
 const pay = (rowId: string, amount: string, seq: number, extra: Partial<Payment> = {}): Payment => {
 	const p = parseAmount(amount);
-	return paymentOf(rowId, { ...paymentFields({ date: '', amount, method: '', note: '' }, p.ok ? p.value : 0n, seq), ...(p.ok ? {} : { amountCents: null }), ...extra } as never);
+	return paymentOf(rowId, { ...paymentFields({ date: '', amount, method: '', note: '' }, p.ok ? p.value : 0n), seq, ...(p.ok ? {} : { amountCents: null }), ...extra } as never);
 };
 
 describe('net claim', () => {
@@ -36,15 +36,9 @@ describe('net claim', () => {
 	});
 });
 
-describe('order and storage fields', () => {
-	it('orders by seq whatever the row ids (a fixed clock gives every row the same createdAt)', () => {
-		const rows = [pay('ffff', '3', 3), pay('0000', '1', 1), pay('8888', '2', 2)];
-		expect(ordered(rows).map((r) => r.seq)).toEqual([1, 2, 3]);
-		expect(nextSeq(rows)).toBe(4);
-		expect(nextSeq([])).toBe(1);
-	});
+describe('storage fields', () => {
 	it('stores the typed text and the parsed cents', () => {
-		expect(paymentFields({ date: '2026-01-02', amount: 'R 1 000.00', method: 'EFT', note: 'n' }, 100000n, 7)).toEqual({ date: '2026-01-02', amount: 'R 1 000.00', amountCents: 100000, method: 'EFT', note: 'n', seq: 7 });
+		expect(paymentFields({ date: '2026-01-02', amount: 'R 1 000.00', method: 'EFT', note: 'n' }, 100000n)).toEqual({ date: '2026-01-02', amount: 'R 1 000.00', amountCents: 100000, method: 'EFT', note: 'n' });
 	});
 	it('never trusts a stored amountCents that is not a safe integer', () => {
 		expect(paymentOf('r', { amount: '1', amountCents: 1.5, seq: 1 }).amountCents).toBeNull();
@@ -52,8 +46,8 @@ describe('order and storage fields', () => {
 });
 
 describe('export', () => {
-	it('writes v5\'s columns in insertion order, the typed text neutralised against formulas', () => {
-		const csv = paymentsCsv([pay('b', '20', 2, { note: '=HYPERLINK("x")' }), pay('a', 'R 1 000.00', 1, { method: 'EFT, ref 1' })]);
+	it('writes v5\'s columns in the table\'s order, the typed text neutralised against formulas', () => {
+		const csv = paymentsCsv([pay('a', 'R 1 000.00', 1, { method: 'EFT, ref 1' }), pay('b', '20', 2, { note: '=HYPERLINK("x")' })]);
 		const lines = csv.split('\r\n');
 		expect(lines[0]).toBe('date,amount,method,note');
 		expect(lines[1]).toBe(',R 1 000.00,"EFT, ref 1",');

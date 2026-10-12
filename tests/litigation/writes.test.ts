@@ -1,10 +1,12 @@
-// The CC-08 write queue (GRS-18 r2) on an in-memory user-work double: version re-checks inside the queue, one row per
-// step key whatever its status (D9), a repeated Add post stored once (D3), and seed deletions by overlay.
+// The CC-08 status save (GRS-18 r2) on an in-memory user-work double: one row per step key whatever its status (D9),
+// re-checked against the step version. Adds, Deletes, seed deletions and their races are the register store's
+// (src/lib/local-case/registers.test.ts).
 import { describe, expect, it } from 'vitest';
 import { viewSeeds, type SeedOverlay, type SeedRow } from '../../src/lib/case-package/user-work.ts';
+import { registers } from '../../src/lib/local-case/registers.server.ts';
 import type { RegisterRow, RegisterValue } from '../../src/lib/local-case/user-work.server.ts';
 import { lostMessage, LOST, REQUEST_LIMIT } from '../../src/lib/views/litigation/submit.ts';
-import { addEntry, deleteEntry, deleteSeed, rowVersion, saveStatus, seedVersion, stepRows, stepVersion, type Work } from '../../src/lib/views/litigation/writes.server.ts';
+import { saveStatus, stepRows, stepVersion, type Work } from '../../src/lib/views/litigation/writes.server.ts';
 
 const tick = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -30,67 +32,31 @@ function memoryWork(delay = 0) {
 	return { w, rows, overlays, seeds };
 }
 
-describe('addEntry', () => {
-	it('D3: a repeated post of one form (same addId and fields) stores one row; another form stores its own', async () => {
-		const { w, rows } = memoryWork(5);
-		const [a, b] = await Promise.all([addEntry(w, 'c', 'heads', { head: 'x' }, 'aaaaaaaa-1'), addEntry(w, 'c', 'heads', { head: 'x' }, 'aaaaaaaa-1')]);
-		expect(b).toEqual({ rowId: a.rowId, repeated: true });
-		await addEntry(w, 'c', 'heads', { head: 'x' }, 'bbbbbbbb-2');
-		expect(rows.map((r) => r.fields.seq)).toEqual([1, 2]);
-	});
-	it('parallel adds without an addId each get their own seq (lane 04 T1)', async () => {
-		const { w, rows } = memoryWork(2);
-		await Promise.all(Array.from({ length: 12 }, (_, i) => addEntry(w, 'c', 'heads', { head: String(i) })));
-		expect(rows.map((r) => r.fields.seq)).toEqual(Array.from({ length: 12 }, (_, i) => i + 1));
-	});
-});
-
-describe('deleteEntry', () => {
-	it('deletes at the shown version, refuses a changed row, and reports a gone one', async () => {
-		const { w } = memoryWork();
-		const id = (await addEntry(w, 'c', 'heads', { head: 'x' })).rowId;
-		const shown = rowVersion(w.listRows('c', 'heads')[0]!);
-		await w.putRow('c', 'heads', id, { head: 'changed', seq: 1 });
-		expect(await deleteEntry(w, 'c', 'heads', id, shown)).toBe('stale');
-		expect(await deleteEntry(w, 'c', 'heads', id, rowVersion(w.listRows('c', 'heads')[0]!))).toBe('deleted');
-		expect(await deleteEntry(w, 'c', 'heads', id, shown)).toBe('gone');
-		expect(await deleteEntry(w, 'c', 'heads', 'nope', null)).toBe('gone');
-	});
-});
-
-describe('deleteSeed', () => {
-	it('overlays a deletion at the shown version; a second one is gone; a changed seed is stale; an unknown is absent', async () => {
-		const { w, overlays, seeds } = memoryWork();
-		const shown = seedVersion(w.seedViews('c', 'rv', 'd')[0]!);
-		expect(await deleteSeed(w, 'c', 'rv', 'd', 'zz', null)).toBe('absent');
-		seeds[0] = { ...seeds[0]!, seedSha256: 'h2' };
-		expect(await deleteSeed(w, 'c', 'rv', 'd', 's1', shown)).toBe('stale');
-		expect(await deleteSeed(w, 'c', 'rv', 'd', 's1', seedVersion(w.seedViews('c', 'rv', 'd')[0]!))).toBe('deleted');
-		expect(overlays).toEqual([{ caseId: 'c', datasetKey: 'd', seedId: 's1', baseSeedSha256: 'h2', fields: { deleted: true } }]);
-		expect(await deleteSeed(w, 'c', 'rv', 'd', 's1', null)).toBe('gone');
-	});
-});
+const step = (w: Work, k = 'k') => stepRows(registers(w).open('c', 'enf').rows(), k);
 
 describe('saveStatus (D9: one row per step key)', () => {
 	it("'' → Done → '' → Done leaves one row, keeping its seq", async () => {
-		const { w, rows } = memoryWork();
+		const { w } = memoryWork();
 		await w.putRow('c', 'enf', null, { stepKey: 'other', status: 'Done', seq: 1 });
 		for (const s of ['', 'Done', '', 'Done']) expect(await saveStatus(w, 'c', 'enf', 'k', s, null)).toBe('saved');
-		expect(stepRows(rows, 'k').map((r) => r.fields)).toEqual([{ stepKey: 'k', status: 'Done', seq: 2 }]);
+		expect(step(w).map((r) => r.fields)).toEqual([{ stepKey: 'k', status: 'Done', seq: 2 }]);
 	});
 	it('collapses rows an older store holds for one key onto the latest', async () => {
-		const { w, rows } = memoryWork();
+		const { w } = memoryWork();
 		for (const [s, q] of [['', 1], ['Done', 2], ['', 3]] as const) await w.putRow('c', 'enf', null, { stepKey: 'k', status: s, seq: q });
-		expect(await saveStatus(w, 'c', 'enf', 'k', 'Monitor', stepVersion(stepRows(rows, 'k')))).toBe('saved');
-		expect(stepRows(rows, 'k').map((r) => r.fields)).toEqual([{ stepKey: 'k', status: 'Monitor', seq: 3 }]);
+		expect(await saveStatus(w, 'c', 'enf', 'k', 'Monitor', stepVersion(step(w)))).toBe('saved');
+		expect(step(w).map((r) => r.fields)).toEqual([{ stepKey: 'k', status: 'Monitor', seq: 3 }]);
 	});
 	it('refuses a save against a version changed since (two tabs)', async () => {
-		const { w, rows } = memoryWork();
-		const shown = stepVersion(stepRows(rows, 'k'));
+		const { w } = memoryWork();
+		const shown = stepVersion(step(w));
 		expect(shown).toBe('none');
 		expect(await saveStatus(w, 'c', 'enf', 'k', 'Done', shown)).toBe('saved');
 		expect(await saveStatus(w, 'c', 'enf', 'k', 'Monitor', shown)).toBe('stale');
-		expect(stepRows(rows, 'k').map((r) => r.fields.status)).toEqual(['Done']);
+		const saved = stepVersion(step(w));
+		expect(await saveStatus(w, 'c', 'enf', 'k', 'Monitor', saved)).toBe('saved');
+		expect(await saveStatus(w, 'c', 'enf', 'k', 'Done', saved)).toBe('stale');
+		expect(step(w).map((r) => r.fields.status)).toEqual(['Monitor']);
 	});
 });
 

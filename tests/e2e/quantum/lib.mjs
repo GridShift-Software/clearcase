@@ -64,8 +64,8 @@ export function server({ root, buildDir, port, dir }) {
 	return s;
 }
 
-/** The hash of a stored row's fields that the page's Delete carries (writes.server.ts fieldsHash), for test clean-up. */
-export const fieldsHash = (fields) => createHash('sha256').update(JSON.stringify(fields)).digest('hex').slice(0, 32);
+/** The version of a stored row that the page's Delete carries (local-case/registers.server.ts rowVersion), for test clean-up. */
+export const fieldsHash = (fields) => createHash('sha256').update(JSON.stringify(['row', fields])).digest('hex').slice(0, 32);
 
 /** Change a stored payment's fields from outside the app (a restore would), keeping the row's integrity hash right. */
 export function rewriteRow(dataDir, rowId, change) {

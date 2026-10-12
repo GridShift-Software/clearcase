@@ -42,7 +42,8 @@ function report(tests: object[] = [passed], files = ['tests/a.test.ts']) {
 	}));
 }
 function summary(...checks: string[]) {
-	const r = spawnSync(process.execPath, [script, receipts, ...checks], { cwd: dir, encoding: 'utf8' });
+	// never the job's own summary: in CI this suite runs under GITHUB_STEP_SUMMARY
+	const r = spawnSync(process.execPath, [script, receipts, ...checks], { cwd: dir, encoding: 'utf8', env: { ...process.env, GITHUB_STEP_SUMMARY: '' } });
 	const json = (() => { try { return JSON.parse(readFileSync(path.join(receipts, 'summary.json'), 'utf8')); } catch { return null; } })();
 	return { status: r.status, out: r.stdout, json, shown: `exit ${r.status}\n${r.stdout}${r.stderr}` };
 }

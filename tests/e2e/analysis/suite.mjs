@@ -529,6 +529,63 @@ try {
 		return { pass: Object.values(checks).every(Boolean), evidence: { checks, startA, queued, onB, end, a: [aBefore.length, aAfter.length], b: [bBefore.length, bAfter.length] } };
 	});
 
+	await scenario('AN-FW8', 'info_required_tab', 'A queued Info Required choice survives a navigation during the awaited page update: tick then untick in case A while the first save is held, let it answer, hold the page reload, leave for case B; A ends with its last choice and B is not touched', async () => {
+		const bvid = other.resultsVersion;
+		await p.goto(V(vid, 'info_required_tab'), L.ready('info_required_tab'));
+		const item = 'Invented item B';
+		const aBefore = infoRows(), bBefore = infoRowsOf('e2e-analysis-b');
+		const startA = (await infoState())[1][0];
+		// hold the first save (the tick), as in AN-FW7, and hold case A's page-data reload that follows it (CDP: SvelteKit keeps its own fetch)
+		await p.evaluate(`(() => { const f = window.fetch; let release; const held = new Promise((r) => (release = r));
+			window.__fl = { posts: [], cur: 0, release, same: 1 };
+			window.fetch = function (u, o) { if ((o?.method ?? 'GET') !== 'POST' || !String(u).includes('toggle')) return f.apply(this, arguments);
+				const first = window.__fl.posts.length === 0; window.__fl.posts.push(new URL(String(u), location.href).pathname); window.__fl.cur++;
+				return (first ? held.then(() => f.apply(this, arguments)) : f.apply(this, arguments)).finally(() => window.__fl.cur--); }; })()`);
+		const heldData = [];
+		const mine = `/v/${encodeURIComponent(vid)}/`;
+		const off = b.on((m) => {
+			if (m.sessionId !== p.sessionId || m.method !== 'Fetch.requestPaused') return;
+			const { requestId, request } = m.params;
+			if (request.url.includes(mine) && request.url.includes('__data.json') && request.method === 'GET') heldData.push(requestId);
+			else p.s('Fetch.continueRequest', { requestId }).catch(() => {});
+		});
+		try {
+			await p.s('Fetch.enable', { patterns: [{ urlPattern: '*__data.json*', requestStage: 'Request' }] });
+			await p.click('#info-table tbody tr:nth-child(2) input[type=checkbox]');
+			await p.waitFor(`window.__fl.posts.length === 1`, 10000);
+			await sleep(100);
+			await p.click('#info-table tbody tr:nth-child(2) input[type=checkbox]');
+			await sleep(150);
+			const queued = await p.evaluate(`({ posts: window.__fl.posts.length, busy: document.querySelector('#info-table tbody tr:nth-child(2)')?.getAttribute('aria-busy') })`);
+			// the first save answers; the component now awaits the reload of its page data, which is held
+			await p.evaluate(`window.__fl.release()`);
+			const start = Date.now();
+			while (!heldData.length && Date.now() - start < 20000) await sleep(20);
+			const reloadHeld = heldData.length > 0;
+			await p.evaluate(`(() => { const a = document.createElement('a'); a.id = 'to-case-b'; a.href = ${J(V(bvid, 'info_required_tab'))}; a.textContent = 'Case B'; a.style.cssText = 'position:fixed;top:0;left:0;z-index:99999;background:#fff;padding:8px'; document.body.append(a); })()`);
+			await p.click('#to-case-b');
+			await p.waitFor(`location.pathname === ${J(V(bvid, 'info_required_tab'))} && ${L.ready('info_required_tab')}`, 30000);
+			const onB = await p.evaluate(`({ sameDocument: window.__fl?.same === 1, state: [...document.querySelectorAll('#info-table tbody tr')].map((r) => r.querySelector('input[type=checkbox]').checked) })`);
+			for (const requestId of heldData.splice(0)) await p.s('Fetch.continueRequest', { requestId }).catch(() => {});
+			await p.waitFor(`window.__fl.posts.length >= 2 && window.__fl.cur === 0`, 20000).catch(() => {});
+			await sleep(600);
+			const end = await p.evaluate(`({ posts: window.__fl.posts, cur: window.__fl.cur, state: [...document.querySelectorAll('#info-table tbody tr')].map((r) => r.querySelector('input[type=checkbox]').checked), error: !!document.querySelector('#info-error'), path: location.pathname })`);
+			const aAfter = infoRows(), bAfter = infoRowsOf('e2e-analysis-b');
+			const aPath = V(vid, 'info_required_tab');
+			const checks = {
+				secondChoiceWaited: queued.posts === 1 && queued.busy === 'true',
+				reloadWasHeld: reloadHeld,
+				clientSideNavigation: onB.sameDocument && end.path === V(bvid, 'info_required_tab'),
+				finalChoiceSent: end.posts.length === 2 && end.posts.every((x) => x === aPath || x.startsWith(`${aPath}?`)),
+				aEndsWithLastChoice: doneOf(aAfter, item) === startA,
+				aOnlyThatRowChanged: aAfter.length === aBefore.length && aAfter.filter((r) => !aBefore.some((x) => x.id === r.id && J(x.fields) === J(r.fields))).every((r) => r.fields.item === item),
+				bStoredUnchanged: J(bAfter) === J(bBefore),
+				bShownUnchanged: J(end.state) === J([false, false, false]) && !end.error,
+			};
+			return { pass: Object.values(checks).every(Boolean), evidence: { checks, startA, queued, onB, end, a: [aBefore.length, aAfter.length], b: [bBefore.length, bAfter.length] } };
+		} finally { off(); await p.s('Fetch.disable').catch(() => {}); for (const requestId of heldData.splice(0)) await p.s('Fetch.continueRequest', { requestId }).catch(() => {}); }
+	});
+
 	await scenario('AN-09', 'witness_tab', 'Scenario 9: a will-say [[REF]] links to its document through Narrative.svelte; a missing ref renders broken; names and bare refs are never turned into links', async () => {
 		const nav = await arrive(p, vid, 'witness_tab', name);
 		await p.shot(join(SCREENS, 'witness_tab-desktop.png'));

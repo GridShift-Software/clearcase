@@ -4,13 +4,16 @@
 //   preflight [--rev REV]   the local checks only; never builds, starts or connects to anything
 //   live-doctor --url URL --pid PID --data-dir DIR --build-stamp FILE [--originals-port N] [--bun VERSION]
 //   cleanup [--run-id ID]   kill the PIDs a run recorded (only if they still run from its scratch) and remove scratch
-//   self-test            clean-checkout preflight and stale/wrong-build live doctor cases
+//   features             print the feature index found by discovery (features/*.md and *.steps.mjs); exit 1 on a breach
+//   self-test            clean-checkout preflight, stale/wrong-build live doctor and feature index cases
 // Exit: 0 PASS; 1 a step failed; 2 usage; 3 SKIPPED, a prerequisite is missing (nothing was built or started).
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { formatDoctor, liveDoctor } from './live-doctor.mjs';
+import { pilotSteps } from './drive.mjs';
+import { featureIndex, formatIndex } from './features.mjs';
 
 export const SKILL = resolve(import.meta.dirname, '..');
 export const REPO = resolve(SKILL, '..', '..', '..');
@@ -112,6 +115,16 @@ async function run(o) {
 		console.error(`verify-clearcase: SKIPPED preflight. Nothing was built, started or contacted:\n  - ${pre.problems.join('\n  - ')}`);
 		notRun('isolated-build', 'offline', 'cleanup');
 		return finish(3);
+	}
+	// the feature index by discovery: every feature file keeps the entry contract and every drive step is valid
+	const ix = await featureIndex(pilotSteps);
+	summary.features = ix.features;
+	summary.featureModules = ix.modules;
+	steps.push({ id: 'features', title: 'feature files keep the entry contract; drive steps (lib/drive.mjs, features/*.steps.mjs) are valid', status: ix.ok ? 'PASS' : 'FAIL',
+		evidence: { features: ix.features.map((f) => f.id), modules: ix.modules }, error: ix.ok ? undefined : ix.problems.join('\n        ') });
+	if (!ix.ok) {
+		notRun('isolated-build', 'offline', 'cleanup');
+		return finish(1);
 	}
 	const { revision, bunPin, tools } = pre.facts;
 	const p = pre.facts.ports;
@@ -215,6 +228,7 @@ const commands = {
 	preflight: () => { const r = preflight({ rev: o.rev ?? 'HEAD' }); console.log(JSON.stringify(r.facts, null, 1)); if (!r.ok) console.error(`verify-clearcase: SKIPPED preflight:\n  - ${r.problems.join('\n  - ')}`); else console.log('preflight: PASS'); return r.ok ? 0 : 3; },
 	'live-doctor': () => cmdLiveDoctor(o),
 	cleanup: () => cmdCleanup(o),
+	features: async () => { const ix = await featureIndex(pilotSteps); console.log(formatIndex(ix)); return ix.ok ? 0 : 1; },
 	'self-test': async () => (await import('./self-test.mjs')).selfTest(o, { SKILL, REPO, CHROME, ports, reportRoot, scratchRoot }),
 };
 if (cmd === '--help' || cmd === 'help' || !commands[cmd]) {

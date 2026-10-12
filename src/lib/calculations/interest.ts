@@ -1,0 +1,71 @@
+// Interest and settlement arithmetic for the quantum views (GRS-16). The day-count basis is v5's Actual/365.25: a
+// period of `days` calendar days is days/365.25 years. Simple interest is exact (a BigInt fraction rounded once to
+// cents); compound interest and settlement discounting need a fractional power, so they use v5's formula with
+// Math.pow on doubles and are rounded once, half away from zero, from the double's value. Browser-safe and pure.
+import { centsToNumber, divRound, floatToCents, type Decimal } from './money.ts';
+
+/** Actual/365.25 as an exact fraction: years = days * 4 / 1461. */
+const YEAR_NUM = 4n;
+const YEAR_DEN = 1461n;
+
+/**
+ * Simple interest in cents on `principal` cents at `rate` per cent a year for `days` days: P·r·days/(100·365.25),
+ * computed exactly and rounded once, half away from zero, to cents.
+ */
+export const simpleInterestDays = (principal: bigint, rate: Decimal, days: number): bigint =>
+	divRound(principal * rate.num * BigInt(days) * YEAR_NUM, rate.den * 100n * YEAR_DEN);
+
+/** Simple interest in cents for a period given in whole years: P·r·years/100 (exact; R1,000 at 10% for 1 year is R100). */
+export const simpleInterestYears = (principal: bigint, rate: Decimal, years: number): bigint =>
+	divRound(principal * rate.num * BigInt(years), rate.den * 100n);
+
+/**
+ * v5's compound (monthly) total as a double: P·(1 + r/100/12)^(12·days/365.25), with v5's operation order
+ * (years = days/365.25, months = years·12), so both engines evaluate the same expression. Rounded by the caller.
+ */
+export function compoundTotal(principal: bigint, rate: Decimal, days: number): number {
+	const years = days / 365.25;
+	const months = years * 12;
+	return centsToNumber(principal) * Math.pow(1 + rate.value / 100 / 12, months);
+}
+
+/** v5's period label: the years to two decimals when positive, else '0'. */
+export const yearsLabel = (days: number) => { const years = days / 365.25; return years > 0 ? years.toFixed(2) : '0'; };
+
+export type Method = 'Simple' | 'Compound (monthly)';
+export const METHODS: readonly Method[] = ['Simple', 'Compound (monthly)'];
+
+export interface InterestResult { capital: bigint; interest: bigint; total: bigint; days: number; yearsLabel: string }
+
+/**
+ * The calculator: Simple is exact; Compound rounds v5's double total once to cents and takes interest as total minus
+ * capital, so Capital + Interest = Total always holds on screen.
+ */
+export function computeInterest(principal: bigint, rate: Decimal, method: Method, days: number): InterestResult {
+	if (method === 'Compound (monthly)') {
+		const total = floatToCents(compoundTotal(principal, rate, days));
+		if (total === null) throw new RangeError('compound interest overflowed');
+		return { capital: principal, interest: total - principal, total, days, yearsLabel: yearsLabel(days) };
+	}
+	const interest = simpleInterestDays(principal, rate, days);
+	return { capital: principal, interest, total: principal + interest, days, yearsLabel: yearsLabel(days) };
+}
+
+export interface Scenario { probability: number; cents: bigint }
+export interface SettlementResult { pessimistic: Scenario; base: Scenario; optimistic: Scenario }
+
+/**
+ * v5's settlement model: ev(p) = claim·p/100 / (1 + d/100)^y − cost, the cost not discounted; base at p, optimistic at
+ * min(100, p+15), pessimistic at max(0, p−25). Each value is rounded once to cents from the double.
+ */
+export function settlement(claim: bigint, p: number, years: number, discount: number, cost: bigint): SettlementResult {
+	const c = centsToNumber(claim), k = centsToNumber(cost);
+	const ev = (prob: number): Scenario => {
+		const exp = (c * prob) / 100;
+		const pv = exp / Math.pow(1 + discount / 100, years);
+		const cents = floatToCents(pv - k);
+		if (cents === null) throw new RangeError('settlement value overflowed');
+		return { probability: prob, cents };
+	};
+	return { pessimistic: ev(Math.max(0, p - 25)), base: ev(p), optimistic: ev(Math.min(100, p + 15)) };
+}

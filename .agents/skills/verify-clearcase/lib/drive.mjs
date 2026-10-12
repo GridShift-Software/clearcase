@@ -1,17 +1,20 @@
 // Drive steps: the user path through the pilot, one entry per action, in order. Each step names its feature file
 // (features/<feature>.md), acts the way a user does (clicks and form input in Chromium over CDP), checks the
 // resulting state and returns its evidence; a thrown error fails it and every later step is NOT RUN.
-// To extend: add a feature file, then append a step here (see SKILL.md, Extending).
+// These are the pilot's steps. An owner's steps live beside its feature file in features/<feature>.steps.mjs and are
+// appended after these, in name order (lib/features.mjs; see SKILL.md, Extending).
 //
 // The context x: x.page (the main tab: evaluate, waitFor, navigate, sessionId), x.b (the browser), x.c (HTTP client
 // of tests/e2e/pilot/lib/client.mjs), x.app and x.orig (origins), x.synth (the synthetic case: caseDir, pkgDir,
 // resultsVersion, rows), x.state (values shared between steps), x.click(sel), x.fill(sel, value), x.text(sel),
 // x.waitReady(value), x.shot(name[, sessionId]) -> evidence path, x.tab(sessionId) -> evaluate/waitFor of another tab.
 
+import { driveSteps } from './features.mjs';
+
 const enc = encodeURIComponent;
 const must = (cond, msg) => { if (!cond) throw new Error(msg); };
 
-export const steps = [
+export const pilotSteps = [
 	{
 		id: 'import-form', feature: 'import-validation', title: 'Import results: fill the case folder and package, choose Validate package',
 		async run(x) {
@@ -156,3 +159,6 @@ export const steps = [
 		},
 	},
 ];
+
+/** The pilot's steps, then every features/<feature>.steps.mjs in name order; throws on an invalid module or a duplicate id. */
+export const steps = () => driveSteps(pilotSteps);

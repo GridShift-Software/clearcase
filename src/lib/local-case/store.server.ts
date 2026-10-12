@@ -253,9 +253,9 @@ export class CaseStore {
 		return this.d.prepare(`SELECT a.key, a.kind, a.real_path, a.sha256, a.size, a.media_type, a.status, a.download_only, v.case_root, v.case_dev, v.case_ino
 			FROM asset a JOIN version v ON v.id = a.version_id WHERE a.version_id = ? AND a.key = ?`).get(id, key) as AssetServeRow | undefined;
 	}
-	/** Every verified original of a version as {ref, sha256}: the candidates for fingerprint re-anchoring. */
+	/** Every verified document original of a version as {ref, sha256}: the candidates for fingerprint re-anchoring (package files are not documents). */
 	fingerprints(id: string): { ref: string; sha256: string }[] {
-		return this.d.prepare("SELECT key AS ref, sha256 FROM asset WHERE version_id = ? AND sha256 IS NOT NULL AND status IN ('verified', 'case-mismatch') ORDER BY key").all(id) as { ref: string; sha256: string }[];
+		return this.d.prepare("SELECT key AS ref, sha256 FROM asset WHERE version_id = ? AND sha256 IS NOT NULL AND status IN ('verified', 'case-mismatch') AND NOT (length(key) = 18 AND key GLOB 'P-[0-9a-f]*') ORDER BY key").all(id) as { ref: string; sha256: string }[];
 	}
 	seeds(id: string): SeedRowW[] {
 		return this.d.prepare('SELECT ord, dataset_key, seed_id, seed_sha256, record_json FROM seed WHERE version_id = ? ORDER BY ord').all(id) as unknown as SeedRowW[];

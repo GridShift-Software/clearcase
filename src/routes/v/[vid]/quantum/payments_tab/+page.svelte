@@ -4,6 +4,7 @@
 	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { SubmitFunction } from '@sveltejs/kit';
+	import { askFocus } from '$lib/components/ask-focus.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { download } from '$lib/components/csv';
 	import { fmtR } from '$lib/components/format';
@@ -110,10 +111,12 @@
 		const url = nav.to.url;
 		ask = { what: sending ? 'A payment is still being saved; leaving now may not show whether it was saved. Leave anyway?' : addError ? 'The payment in the form was not saved. Leave and discard it?' : 'The payment in the form is not saved yet. Leave and discard it?', go: () => { leaving = true; void goto(url).finally(() => { leaving = false; }); } };
 	});
+	const askFocusing = askFocus(() => ask !== null, 'pay-ask', 'pay-ask-stay');
 	function answer(yes: boolean) {
 		const a = ask;
 		ask = null;
 		if (yes && a) a.go();
+		else askFocusing.back();
 	}
 	let ready = $state(false);
 	onMount(() => { ready = true; });

@@ -4,6 +4,7 @@
 import { fail, isHttpError, redirect, type RequestEvent } from '@sveltejs/kit';
 import { app } from '../../local-case/app.server.ts';
 import { datasetOf, exportFileName, viewContentOf, viewText } from '../../local-case/results.server.ts';
+import { serialized } from '../litigation/serial.ts';
 import { evidenceRows } from './rows.server.ts';
 import { REGISTER_STORE, SAVE_FAILURES, SEED_DATASET, asFields, formFields, nextSeq, registerEntries, rowVersion, saveFailure, type FilingsData, type SaveFailure, type SeedViewLike } from './filings.ts';
 
@@ -57,6 +58,12 @@ const refuse = (status: number, code: SaveFailure, values: Record<string, string
 const DELETE_BUSY = 'The entry could not be deleted: the local store is busy or unavailable. Nothing was changed and the entry is still in the register; try again.';
 const DELETE_GONE = 'That register row no longer exists; nothing was deleted.';
 
+// Every write of the register runs in one in-process queue per case (one server process holds the store), and reads the
+// register again inside it: the row lookup, the version check and the write are one step, so a second save made from a
+// row version that the first has changed meets the changed row and is refused as stale, even when both waited out a
+// busy store. A write from outside this queue (another process on the data directory) is not covered.
+const queued = <T>(caseId: string, fn: () => Promise<T>) => serialized(`${caseId}\u0000${REGISTER_STORE}`, fn);
+
 /** Run a store write; a store busy beyond its retries (503) or any other failure is reported, never thrown. */
 async function write(fn: () => Promise<unknown>): Promise<number | null> {
 	try {
@@ -75,8 +82,8 @@ export const filingsActions = {
 		const v = a.store.getVersion(params.vid ?? '');
 		if (!v) return refuse(404, 'version', typed.values, null);
 		if (!typed.ok) return refuse(400, 'empty-add', typed.values, null);
-		const rows = a.userWork.listRows(v.case_id, REGISTER_STORE);
-		const status = await write(() => a.userWork.putRow(v.case_id, REGISTER_STORE, null, { seq: nextSeq(rows), ...typed.values, status: '' }));
+		// `seq` is computed in the queue, just before the insert
+		const status = await queued(v.case_id, () => write(() => a.userWork.putRow(v.case_id, REGISTER_STORE, null, { seq: nextSeq(a.userWork.listRows(v.case_id, REGISTER_STORE)), ...typed.values, status: '' })));
 		return status ? refuse(status, 'busy', typed.values, null) : { op: 'add' as const, saved: true };
 	},
 	save: async ({ params, request, url }: RequestEvent) => {
@@ -88,25 +95,29 @@ export const filingsActions = {
 		const v = a.store.getVersion(params.vid ?? '');
 		if (!v) return refuse(404, 'version', typed.values, key || null, seen);
 		if (!typed.ok) return refuse(400, 'empty-edit', typed.values, key, seen);
-		const { seeds, rows, entries } = register(v.case_id, v.id);
-		const e = entries.find((x) => x.key === key);
-		if (!e) return refuse(404, 'gone', typed.values, key, seen);
-		// made from another version of the row (changed in another tab since the form loaded it), or without one: refused,
-		// never a silent overwrite
-		if (seen !== rowVersion(e.fields)) return refuse(409, 'stale', typed.values, key, seen);
-		const kept = { ...typed.values, status: e.fields.status };
-		const status = await write(async () => {
-			if (key.startsWith('row:')) {
-				const row = rows.find((r) => `row:${r.rowId}` === key)!;
-				await a.userWork.putRow(v.case_id, REGISTER_STORE, row.rowId, { ...row.fields, ...kept });
-			} else {
-				const seedId = key.slice('seed:'.length);
-				const s = seeds.find((x) => (x.state === 'orphaned' ? x.overlay.seedId : x.seed.seedId) === seedId)!;
-				const base = s.state === 'orphaned' ? (a.userWork.overlays(v.case_id, SEED_DATASET).find((o) => o.seedId === seedId)?.baseSeedSha256 ?? '') : s.seed.seedSha256;
-				await a.userWork.putSeedOverlay({ caseId: v.case_id, datasetKey: SEED_DATASET, seedId, baseSeedSha256: base, fields: { ...asFields(kept), deleted: false } });
-			}
+		const outcome = await queued(v.case_id, async () => {
+			const { seeds, rows, entries } = register(v.case_id, v.id);
+			const e = entries.find((x) => x.key === key);
+			if (!e) return 'gone' as const;
+			// made from another version of the row (changed in another tab since the form loaded it), or without one:
+			// refused, never a silent overwrite
+			if (seen !== rowVersion(e.fields)) return 'stale' as const;
+			const kept = { ...typed.values, status: e.fields.status };
+			return write(async () => {
+				if (key.startsWith('row:')) {
+					const row = rows.find((r) => `row:${r.rowId}` === key)!;
+					await a.userWork.putRow(v.case_id, REGISTER_STORE, row.rowId, { ...row.fields, ...kept });
+				} else {
+					const seedId = key.slice('seed:'.length);
+					const s = seeds.find((x) => (x.state === 'orphaned' ? x.overlay.seedId : x.seed.seedId) === seedId)!;
+					const base = s.state === 'orphaned' ? (a.userWork.overlays(v.case_id, SEED_DATASET).find((o) => o.seedId === seedId)?.baseSeedSha256 ?? '') : s.seed.seedSha256;
+					await a.userWork.putSeedOverlay({ caseId: v.case_id, datasetKey: SEED_DATASET, seedId, baseSeedSha256: base, fields: { ...asFields(kept), deleted: false } });
+				}
+			});
 		});
-		if (status) return refuse(status, 'busy', typed.values, key, seen);
+		if (outcome === 'gone') return refuse(404, 'gone', typed.values, key, seen);
+		if (outcome === 'stale') return refuse(409, 'stale', typed.values, key, seen);
+		if (outcome) return refuse(outcome, 'busy', typed.values, key, seen);
 		// saved: back to the register without the row in the form
 		redirect(303, url.pathname);
 	},
@@ -117,19 +128,22 @@ export const filingsActions = {
 		const target = String(fd.get('delete') ?? '');
 		const v = a.store.getVersion(params.vid ?? '');
 		if (!v) return fail(404, { op: 'delete' as const, target, message: 'Unknown results version: nothing was deleted.', draft });
-		const { seeds, entries } = register(v.case_id, v.id);
-		const e = entries.find((x) => x.key === target);
-		if (!e) return fail(404, { op: 'delete' as const, target, message: DELETE_GONE, draft });
-		const status = await write(async () => {
-			if (target.startsWith('row:')) await a.userWork.deleteRow(v.case_id, REGISTER_STORE, target.slice('row:'.length));
-			else {
-				// an imported seed is never removed: its deletion is an overlay, so a later version still shows its own seed
-				const seedId = target.slice('seed:'.length);
-				const s = seeds.find((x) => (x.state === 'orphaned' ? x.overlay.seedId : x.seed.seedId) === seedId)!;
-				const base = s.state === 'orphaned' ? (a.userWork.overlays(v.case_id, SEED_DATASET).find((o) => o.seedId === seedId)?.baseSeedSha256 ?? '') : s.seed.seedSha256;
-				await a.userWork.putSeedOverlay({ caseId: v.case_id, datasetKey: SEED_DATASET, seedId, baseSeedSha256: base, fields: { ...e.fields, deleted: true } });
-			}
+		const outcome = await queued(v.case_id, async () => {
+			const { seeds, entries } = register(v.case_id, v.id);
+			const e = entries.find((x) => x.key === target);
+			if (!e) return 'gone' as const;
+			return write(async () => {
+				if (target.startsWith('row:')) await a.userWork.deleteRow(v.case_id, REGISTER_STORE, target.slice('row:'.length));
+				else {
+					// an imported seed is never removed: its deletion is an overlay, so a later version still shows its own seed
+					const seedId = target.slice('seed:'.length);
+					const s = seeds.find((x) => (x.state === 'orphaned' ? x.overlay.seedId : x.seed.seedId) === seedId)!;
+					const base = s.state === 'orphaned' ? (a.userWork.overlays(v.case_id, SEED_DATASET).find((o) => o.seedId === seedId)?.baseSeedSha256 ?? '') : s.seed.seedSha256;
+					await a.userWork.putSeedOverlay({ caseId: v.case_id, datasetKey: SEED_DATASET, seedId, baseSeedSha256: base, fields: { ...e.fields, deleted: true } });
+				}
+			});
 		});
-		return status ? fail(status, { op: 'delete' as const, target, message: DELETE_BUSY, draft }) : { op: 'delete' as const, deleted: true, target, draft };
+		if (outcome === 'gone') return fail(404, { op: 'delete' as const, target, message: DELETE_GONE, draft });
+		return outcome ? fail(outcome, { op: 'delete' as const, target, message: DELETE_BUSY, draft }) : { op: 'delete' as const, deleted: true, target, draft };
 	},
 };

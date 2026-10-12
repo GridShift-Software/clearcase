@@ -1,43 +1,43 @@
 # ClearCase agent instructions
 
-Read `docs/product-brief.md`, `docs/delivery-plan.md`, `docs/orchestration.md` and `GLOSSARY.md` before work. The workspace `AGENTS.md` above this repository (models and effort, budgets, the build-review-fix-ship loop, git and push rules) overrides this file and `docs/orchestration.md` where they conflict.
+The workspace `AGENTS.md` above this repository sets models, budgets, the build-review-fix-ship loop, Git and push rules, the Bun commands and the rules on case material; it overrides this file. This file adds what is specific to the repository.
 
-## Scope and evidence
+## Read on demand
 
-- Match the v5 main HTML with 1,689 documents and 42 views first. Test the newer 2,131-document export afterwards.
-- Keep `/home/vaper/Work/Active/MX-two/ClearCase/RAWS/` and the hosted production system read-only.
-- Keep original case files, extracted text, credentials and personal case analysis out of Git and external test services. Use local ignored fixtures and synthetic committed examples.
-- The existing hosted results-import endpoint is unverified. Do not treat client upload APIs as that endpoint.
-- A test that is skipped, mocked at the acceptance boundary or run against a different revision is not release evidence.
+- `GLOSSARY.md`: the domain words. Use them in code, tests, reports and Linear text.
+- `docs/development.md`: before changing the app, adding a view, or reading a gate failure. It covers the scripts, configuration and shared contracts.
+- `docs/results-package.md`: before touching the converter, the package schemas or import.
+- `docs/reference/parity/README.md`: before running parity or proposing an intentional-differences register entry.
+- `docs/product-brief.md`: when a scope question is not answered by the ticket.
+- `docs/agent-tooling.md`: when `scripts/agent-tools/` fails or a receipt is in question.
+- `docs/agents/issue-tracker.md`: before writing to Linear.
 
-## Checks
+`docs/kickoff-prompt.md`, `docs/context-packet.md` and the sections of `docs/orchestration.md` marked historical record the 8 October planning state. Act on the workspace `AGENTS.md` instead.
 
-`bun run --bun gate` is the one command that runs the checks (details in `docs/development.md`). Run it until it is green, and report PASS or FAIL at the exact SHA it printed.
+## Scope
 
-## App toolchain
+- Match the v5 main HTML, with 1,689 documents and 42 views, first. Test the newer 2,131-document export afterwards.
+- The hosted results-import endpoint is unverified. Client upload APIs are a different thing; do not treat them as that endpoint.
+- Write ADRs under `docs/adr/` only for decisions that earn a permanent record.
 
-Use Bun for application dependency installation, scripts, builds and the local server. The user selected Bun on 8 October 2026. The verified stable version on this host is 1.4.2. Pin `packageManager` to `bun@1.4.2`, commit `bun.lock`, install with `bun install --frozen-lockfile` and run app scripts with `bun run --bun <script>`. Launch the production entry point with Bun. Verify SQLite and server compatibility under Bun before accepting the pilot. Update Bun with `bun upgrade --stable` and record the installed version before changing its pin. This supersedes older npm/Node toolchain instructions in planning artifacts and spike reports.
+## Case data and evidence
 
-## Agent skills
+These hold in a clean clone, where the workspace `AGENTS.md` is absent.
 
-Linear is the issue tracker. Read `docs/agents/issue-tracker.md`. The glossary is `GLOSSARY.md`; write ADRs under `docs/adr/` only for decisions that earn a permanent record.
+- `RAWS/` (the original case archives) and the hosted production system are read-only.
+- Original case files, extracted case text, private screenshots and credentials stay out of Git and out of external services, including test services. Committed fixtures are synthetic; real data stays in ignored `.local/` files.
+- A test that is skipped, mocked at the acceptance boundary or run against a different revision is not evidence. Report PASS or FAIL at an exact SHA.
 
-Apply the installed Matt Pocock skill principles to the spec, task graph, domain language and behavior-focused tests. Apply pstack's multi-phase planning and Orchestrate disciplines with the T3 adaptations in `docs/orchestration.md`. The `to-spec`, `to-tickets` and `implement-spec` leaf skills were not found during planning; do not claim they were run or install replacements automatically.
+## Checks and local data
 
-Use the current user instructions ahead of defaults. No Cursor agents. Models, effort and budgets per role come from the table in the workspace `AGENTS.md`; set them explicitly on every launch.
+- A new worktree needs the coordinator's current `.local/v5-verification.json` (ignored; it locates the real v5 sample). The gate checks it before the first step and names the expected resultsVersion when it is stale.
+- Start a worker or reviewer session with `scripts/agent-tools/doctor`. Run checks other than the gate through `scripts/agent-tools/verify` or `scripts/agent-tools/receipt`, so they leave a receipt.
+- `bun upgrade --stable` moves Bun. Record the version it installs, then change `packageManager` in a reviewed commit. Older npm or Node instructions in planning artifacts and spike reports are superseded.
+- The `to-spec`, `to-tickets` and `implement-spec` skills are not part of this project's process. Name in a report only the skills you invoked.
 
-## Agent tooling
+## Branches and stacks
 
-Start every worker or verifier session with `scripts/agent-tools/doctor`. Check the plan with `scripts/agent-tools/check-plan`, adding `--linear-relations PATH` when a Linear readback exists. Run any other check through `scripts/agent-tools/verify` or `scripts/agent-tools/receipt` so it leaves a receipt. These commands work from a clean non-interactive shell in any worktree and exit nonzero on a failure or a skipped required check. `docs/agent-tooling.md` documents sources, flags, exit codes and receipts.
-
-## Git flow
-
-Nothing merges into `main`, which is release-only and changes only through the user. `dev` is the integration branch, and everything lands there. Each ticket is one `feature/<linear-id>-<slug>` branch in its own worktree and closes through a pull request that an external reviewer approves. Workers commit and push their feature branch; the coordinator opens or checks the PR, links it to Linear and T3, and merges only after review. Pull requests form a stack on GitHub: the bottom branch is based on the accepted `dev` revision and its PR targets `dev`; a dependent ticket's branch is cut from its upstream ticket's accepted head and its PR targets that upstream branch, so each layer is reviewed separately. GitHub retargets a layer to `dev` when the layer below merges. The coordinator links the layers with `gh stack link --base dev` (the official `github/gh-stack` extension) and never runs commands that rebase or force-push, such as `gh stack sync` or `gh stack rebase`; when a lower layer changes, it merges the updated upstream branch into the layers above and reruns affected checks. Nothing merges into `dev` before the external reviewer approves. Nobody pushes to `main`.
-
-## Coordination
-
-The coordinator owns briefs, file reservations, integration, review dispatch and Linear. Workers own one scoped ticket and one worktree each. Only the coordinator updates external issue status after checking evidence.
-
-Use the T3 task tools for delegated agents and retain task IDs. A fresh review round gets a fresh agent and a consolidated brief. Do not launch new top-level conversations unless the user requests them.
-
-This planning session authorizes docs, planning tools and Linear issues/milestones. It does not authorize app implementation, commits, merges, deployment or production changes. The user can grant execution authority by passing the prepared kickoff prompt to a new agent. Follow the scope of that prompt and any accompanying instructions; do not ask again for already-authorized actions.
+- `dev` is the integration branch. `main` is release-only and changes only through the user.
+- A dependent ticket's branch is cut from its upstream ticket's accepted head, and its PR targets that branch. GitHub retargets it to `dev` when the layer below merges.
+- When a lower layer changes, merge the updated upstream branch into each layer above and rerun the affected checks. `gh stack link --base dev` links the layers. `gh stack sync` and `gh stack rebase` rebase, so they are not used.
+- Nothing merges into `dev` before the external reviewer approves.

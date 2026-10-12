@@ -140,7 +140,7 @@ The rule is adopted because it can be checked against the code: every action has
   - `ess_dcs_rescan_v1` (read): array of chronology-shaped rows (n,ref,date,filename,subject,sender,to,cc,excerpt,doc_type,bundle,amount,also_in[],text_status,url('../'-prefixed),refs[],_new:true) written by rescan_tab (2809-2814). freshnessStamp reads length at page load (288) and is re-rendered after ledgerAdd (612) and addDeadline (651); allRows() concatenates it after DATA.chronology on every call (236)
 - **State:** CURRENT (291) = current tab id, default 'overview'; written by go() but never read elsewhere (grep shows no reader); No URL hash / history API usage anywhere (grep: no location.hash, hashchange, history.*). Reload always returns to Overview; browser Back does not move between tabs.; Per-view module state objects (CH, DOC, SEARCH) are top-level consts: survive tab navigation, lost on reload; window.__st={} (312) declared, never used; window.__ledger registry (591) for ledger tabs; body.style.overflow toggled to 'hidden' while the viewer modal is open (203/204)
 - **Actions (8):**
-  - link (role=button, tabindex=0) "Sidebar nav item (42 entries from NAV)" → go(tab): sets CURRENT, toggles .active on matching .nav a, sets #crumb to NAV label (or raw tab id if not in NAV), scrolls #main and window to top, calls RENDER[tab](#main) or renderMissing (title 'Not found', 'Unknown tab.'). Any element with data-tab anywhere in the page is routed the same way (e.g. in-view buttons/links). (`body click listener 297 -> go(tab) 292; keydown Enter/Space 298`)
+  - link (role=button, tabindex=0) "Sidebar nav item (42 entries from NAV)" → go(tab): sets CURRENT, toggles .active on matching .nav a, sets #crumb to NAV label (or raw tab id if not in NAV), scrolls #main and window to top, calls `RENDER[tab](#main)` or renderMissing (title 'Not found', 'Unknown tab.'). Any element with data-tab anywhere in the page is routed the same way (e.g. in-view buttons/links). (`body click listener 297 -> go(tab) 292; keydown Enter/Space 298`)
   - input type=search #globalSearch "Search documents, emails, refs…" → On Enter only: SEARCH.q = input value, go('search'). Other SEARCH filters (bundle/type/sender/dates/amounts/status) are NOT reset. No search-as-you-type. (`keydown listener 299`)
   - link a.doc (anywhere) "open / document link" → If no modifier key and left button: name = last URL path segment, decodeURIComponent'd; ext = '.'+last dot-segment lowercased; if ext in IFRAME_EXT {.pdf,.jpg,.jpeg,.png,.gif,.svg,.webp,.html,.htm,.txt,.md,.json,.csv} -> preventDefault and openViewer(url,ext,name); otherwise falls through to native target=_blank (new tab/download, e.g. .eml/.msg/.docx/.xlsx). (`document click interceptor 205-209`)
   - link "Open in new tab (viewer)" → Opens the same relative URL in a new tab (target=_blank rel=noopener). (`#docNewTab href set in openViewer 199`)
@@ -1574,7 +1574,7 @@ Group System. Owner CC-10. Live renderer line 2778. Static: 4 handler sites, 0 n
   - Walk (2798-2799): recursive dir.entries(); directories recurse; files -> getFile() -> {rel,size,mod}; per-file errors swallowed; walk error -> 'Scan failed: <message>' badge
   - bundleOf (2801): top-level path segment upper-cased; includes 'ORIGINAL' -> Original; 'SUPPLEMENTRY' or 'SUPPLEMENTARY' -> Supplementary; 'CORRESPOND' -> Correspondence; 'PLEADING' -> Pleadings; otherwise Original (files at the root use the file name itself)
   - Sequence (2804-2805): prefixCount initialised per bundle from allRows() counts (Original/Supplementary/Correspondence/Pleadings only); each new file increments its bundle's counter: seq = count+1; ref = refCode(bundle, seq) (no zero padding), n = 'R'+seq
-  - Date (2807-2808): first match of (20YY)[._-](M)[._-](D) -> 'YYYY-MM-DD' (zero-padded), else (D)[._-](M)[._-](20YY) -> 'YYYY-MM-DD'; no range validation; else ''
+  - Date (2807-2808): first match of `(20YY)[._-](M)[._-](D)` -> 'YYYY-MM-DD' (zero-padded), else `(D)[._-](M)[._-](20YY)` -> 'YYYY-MM-DD'; no range validation; else ''
   - doc_type (2810): ext eml/msg -> 'email'; else filename matching /<invoice-prefix>\d{4,6}/i (case-specific prefix hard-coded) -> 'invoice'; else 'other'
   - text_status (2811): msg -> 'pending'; pdf -> 'pending'; everything else (incl. eml, docx, images) -> 'extracted' although nothing is extracted
   - url (2812): '../' + rel segments each encodeURIComponent'd joined by '/'
@@ -1670,7 +1670,7 @@ Group System. Owner CC-10. Live renderer line 2843. Static: 2 handler sites, 1 n
 - `bundleBadge/statusBadge/typeBadge`: 211/214/216
 - `rescanRows/allRows`: 235-236 (allRows = DATA.chronology.concat(load('ess_dcs_rescan_v1',[])))
 - `freshnessStamp`: 286-287 ('Built on '+META.builtAt+' · '+(META.docCount+rescan.length)+' documents indexed'+(' · +N via rescan'))
-- `go`: 292-296 (sets CURRENT, nav highlight, crumb, scroll top, calls RENDER[tab](#main))
+- `go`: 292-296 (sets CURRENT, nav highlight, crumb, scroll top, calls `RENDER[tab](#main)`)
 - `pageHead/emptyState`: 301/302
 - `cleanName`: 439 (strip leading '(digits) ' and trailing .pdf/.eml/.msg, case-insensitive)
 - `val`: 496 (document.getElementById(id).value or '')

@@ -1,6 +1,6 @@
 import { error, fail } from '@sveltejs/kit';
 import { app, originals } from '$lib/local-case/app.server';
-import { documentRow } from '$lib/local-case/documents.server';
+import { documentRow, resolveRefs } from '$lib/local-case/documents.server';
 import type { AttachmentRow, OriginalLinks } from '$lib/local-case/model';
 import { OriginalsServer } from '$lib/local-case/originals.server';
 import { UserWorkError } from '$lib/local-case/user-work.server';
@@ -34,7 +34,7 @@ export const load: PageServerLoad = async ({ params, parent, url }) => {
 	const own = d ? await linksFor(d.ref) : { links: NONE, onDisk: null };
 	const refs = Array.isArray(row.refs) ? row.refs.map(str) : [];
 	const parentRef = state.self?.parentRef ?? (typeof row.pr === 'string' ? row.pr : null);
-	const existing = a.store.existingRefs(version.id, [...refs, ...(parentRef ? [parentRef] : [])]);
+	const existing = resolveRefs(a.store, version.id, [...refs, ...(parentRef ? [parentRef] : [])]);
 	return {
 		ref: r.ref,
 		source: r.source,

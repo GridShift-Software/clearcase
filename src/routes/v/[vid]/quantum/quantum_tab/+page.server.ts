@@ -6,8 +6,8 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const { version } = await parent();
 	const q = dataset<Quantum>(version.id, 'quantum');
 	const vc = content(version.id);
-	const known = resolvableRefs(version.id);
 	const cited = q ? [q.headline_ref, ...q.amountDueSeries.map((s) => s.ref), ...q.invoiceLedger.map((r) => r.ref)] : [];
+	const known = resolvableRefs(version.id, cited);
 	return {
 		quantum: q,
 		// case wording v5 hard-coded in this renderer, imported as view-content (GRS-38)

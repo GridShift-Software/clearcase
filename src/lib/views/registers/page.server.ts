@@ -8,7 +8,7 @@ import type { DocumentAnchor } from '../../case-package/index.ts';
 import { now } from '../../components/clock.ts';
 import { viewAt } from '../../components/views.ts';
 import { app } from '../../local-case/app.server.ts';
-import { documentRowProviders, documentRows } from '../../local-case/documents.server.ts';
+import { resolveRefs } from '../../local-case/documents.server.ts';
 import { exportFileName, viewContentOf, viewText } from '../../local-case/results.server.ts';
 import type { LocalCase } from '../../local-case/service.server.ts';
 import { addEntry, deleteEntry, editEntry, listRegister, type StoredRow } from '../../user-work/registers.server.ts';
@@ -27,13 +27,12 @@ function refTargets(a: LocalCase, rv: string, rows: readonly StoredRow[], def: R
 	const out = new Map<string, string | null>();
 	if (!refField) return out;
 	const typed = [...new Set(rows.map((r) => r.values[refField]!).filter(Boolean))];
-	const imported = a.store.existingRefs(rv, typed);
-	const provided = typed.some((t) => !imported.has(t)) && documentRowProviders().length ? new Set(documentRows(a.store, rv).rows.map((r) => r.ref)) : new Set<string>();
+	const known = resolveRefs(a.store, rv, typed);
 	let fps: ReturnType<LocalCase['store']['fingerprints']> | undefined;
 	for (const r of rows) {
 		const ref = r.values[refField]!;
 		if (!ref) continue;
-		let target: string | null = imported.has(ref) || provided.has(ref) ? ref : null;
+		let target: string | null = known.has(ref) ? ref : null;
 		// an anchor made in another version follows its original's fingerprint, exactly; an ambiguous, missing or
 		// unfingerprinted anchor is not guessed (the ref renders broken: a reused ref is not proof of identity across
 		// versions), and a ref that names nothing is never fuzzy-matched

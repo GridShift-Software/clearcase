@@ -82,8 +82,8 @@ const offline = await proveOffline();
 const stamp = existsSync(join(BUILD, 'clearcase-build.json')) ? JSON.parse(readFileSync(join(BUILD, 'clearcase-build.json'), 'utf8')) : null;
 const tmp = mkdtempSync(join(process.env.CLEARCASE_TEST_TMP ?? tmpdir(), 'cc08-e2e-'));
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { rmSync(tmp, { recursive: true, force: true }); process.exit(1); });
-// the request limit the 413 message names (adapter-node's 512 KiB default); the launcher's 65M, which backup uploads need, would not refuse the D18 entry
-const A = appServer({ name: 'lit', root: ROOT, buildDir: BUILD, port: PORT, origPort: ORIG, dir: tmp, env: { BODY_SIZE_LIMIT: '512K' } });
+// the real launcher's env (BODY_SIZE_LIMIT 65M, which backup uploads need): the 413 the D18 entry gets is the action's own limit
+const A = appServer({ name: 'lit', root: ROOT, buildDir: BUILD, port: PORT, origPort: ORIG, dir: tmp });
 let b, p, offLoopback = [];
 const work = (sql, ...args) => A.work(sql, ...args);
 const STORES = ['crossexam', 'authorities', 'heads', 'enforcement-status'];

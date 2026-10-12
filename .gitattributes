@@ -1,0 +1,21 @@
+# Every text file is stored and checked out with LF, whatever core.autocrlf says, so generated schemas and scripts
+# match byte for byte on Windows checkouts too (RETRO-20261012 item 7).
+* text=auto eol=lf
+
+# Binary types: never converted or diffed as text. The tree holds none yet beyond SVG (text); fixtures and assets that
+# arrive later get these rules without an edit here.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.zip binary
+*.gz binary
+*.sqlite binary
+*.db binary

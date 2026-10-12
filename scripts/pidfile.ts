@@ -60,6 +60,9 @@ export function writePidFile(file: string, pid = process.pid): void {
 	renameSync(tmp, file);
 }
 
+/** Test seam: called at each named step of a claim, a stale recovery and a stop, so a test can hold one process there while others run. */
+export const steps = { at: (_label: string): void => {} };
+
 const sleepSync = (ms: number) => void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 /** A recovery guard older than this was left by a crashed process (its critical section takes microseconds). */
 const GUARD_STALE_MS = 30_000;
@@ -75,7 +78,7 @@ function withRecoveryGuard(file: string, fn: () => void): boolean {
 			mkdirSync(guard);
 		} catch (e) {
 			if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
-			try { if (Date.now() - statSync(guard).mtimeMs > GUARD_STALE_MS) rmdirSync(guard); } catch {}
+			try { if (Date.now() - statSync(guard).mtimeMs > GUARD_STALE_MS) { steps.at('guard:stale'); rmdirSync(guard); } } catch {}
 			sleepSync(20);
 			continue;
 		}
@@ -91,10 +94,13 @@ function withRecoveryGuard(file: string, fn: () => void): boolean {
 
 /** Removes `file` if it does not name a live process. The check and the removal happen inside the guard, so a record another entrant has just claimed is never removed. */
 function dropStale(file: string): boolean {
-	return withRecoveryGuard(file, () => {
+	const done = withRecoveryGuard(file, () => {
 		const rec = readPidFile(file);
+		steps.at('recover:remove');
 		if (!(rec && alive(rec.pid, rec.start))) rmSync(file, { force: true });
 	});
+	steps.at('recover:released');
+	return done;
 }
 
 export type Claim = { claimed: true } | { claimed: false; owner: { pid: number; start: string } | null };
@@ -108,6 +114,7 @@ export type Claim = { claimed: true } | { claimed: false; owner: { pid: number; 
  * the claim stays contended without a live owner (a guard held for seconds).
  */
 export function claimPidFile(file: string, pid = process.pid): Claim {
+	steps.at('claim:begin');
 	mkdirSync(dirname(file), { recursive: true });
 	const tmp = `${file}.${pid}.claim`;
 	writeFileSync(tmp, `${pid} ${processStart(pid)}\n`);
@@ -119,6 +126,7 @@ export function claimPidFile(file: string, pid = process.pid): Claim {
 			} catch (e) {
 				if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
 			}
+			steps.at('claim:contended');
 			const rec = readPidFile(file);
 			if (rec && alive(rec.pid, rec.start)) return { claimed: false, owner: rec };
 			if (!dropStale(file)) break;
@@ -184,7 +192,7 @@ export async function stopPidFile(file: string, { group = false, graceMs = 10_00
 	const rec = readPidFile(file);
 	const orphaned = !!(group && marker && orphanedGroup(file, marker) !== null);
 	if (!rec || (!alive(rec.pid, rec.start) && !orphaned)) {
-		if (existsSync(file)) dropStale(file);
+		if (existsSync(file)) { steps.at('stop:recover'); dropStale(file); }
 		return { ok: true, message: `nothing to stop: no live process in ${file}` };
 	}
 	const target = group ? -rec.pid : rec.pid;
@@ -200,6 +208,7 @@ export async function stopPidFile(file: string, { group = false, graceMs = 10_00
 	}
 	if (orphaned) how += ', its leader had already died';
 	const ok = gone();
+	steps.at('stop:remove');
 	if (ok) rmSync(file, { force: true });
 	return { ok, message: `stopped ${group ? 'process group' : 'process'} ${rec.pid} (${how})${ok ? '' : ', but it is still running'}` };
 }

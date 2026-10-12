@@ -6,6 +6,7 @@ import { fail } from '@sveltejs/kit';
 import { citedRefs } from '$lib/components/cite';
 import { guarded, type Say } from '$lib/local-case/answer.server';
 import { app } from '$lib/local-case/app.server';
+import { resolveRefs } from '$lib/local-case/documents.server';
 import { registers, type DeleteResult, type VersionedRow } from '$lib/local-case/registers.server';
 import type { RegisterValue, UserWorkError } from '$lib/local-case/user-work.server';
 
@@ -68,6 +69,6 @@ export async function deleteAnswer<V extends Record<string, string>>(target: str
 	return fail(404, { op: 'delete', target, values, message: 'Not deleted: that topic is not in this results version.', retry: false });
 }
 
-/** The refs cited by `[[REF]]` tokens in authored texts that exist in the version (for Narrative). */
+/** The refs cited by `[[REF]]` tokens in authored texts that name a document row of the version (for Narrative). */
 export const knownRefs = (resultsVersion: string, texts: Iterable<unknown>) =>
-	[...app().store.existingRefs(resultsVersion, citedRefs([...texts].filter((t): t is string => typeof t === 'string')))];
+	[...resolveRefs(app().store, resultsVersion, citedRefs([...texts].filter((t): t is string => typeof t === 'string')))];

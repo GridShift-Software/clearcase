@@ -239,7 +239,7 @@ export class CaseStore {
 	documentCount(id: string): number {
 		return (this.d.prepare('SELECT count(*) AS n FROM document WHERE version_id = ?').get(id) as { n: number }).n;
 	}
-	/** Which of `refs` are documents of the version (for citation resolution). */
+	/** Which of `refs` are imported documents of the version; views resolve refs with resolveRefs() (documents.server.ts), which adds provider rows. */
 	existingRefs(id: string, refs: readonly string[]): Set<string> {
 		const rows = this.d.prepare('SELECT ref FROM document WHERE version_id = ? AND ref IN (SELECT value FROM json_each(?))').all(id, JSON.stringify(refs)) as { ref: string }[];
 		return new Set(rows.map((r) => r.ref));

@@ -3,11 +3,11 @@
 // folder and identified by sha256 + size; the real on-disk relative path is recorded.
 // Output is deterministic: no clock, no absolute paths, no dependence on hashing order.
 import { DiagSink } from '../diagnostics.ts';
-import { sha256Hex } from '../hash.ts';
+import { pathAssetKey, sha256Hex } from '../hash.ts';
 import { withLimits, type Limits } from '../limits.ts';
 import { capabilityOf, mediaTypeForName, type TextStatus } from '../media.ts';
 import { fingerprintOriginal, Interrupted, openCaseFolder } from '../originals.ts';
-import { checkRelPath, decodeLegacyLocator } from '../paths.ts';
+import { checkRelPath, decodeLegacyLocator, foldPath } from '../paths.ts';
 import { isRef } from '../refs.ts';
 import { CONVERSION_REPORT, LAYOUT, OPAQUE_SCHEMA, V5_DATASETS, V5_SPLIT_PARENTS, VIEW_CONTENT } from '../registry.ts';
 import type { Asset, Manifest } from '../schema.ts';
@@ -74,6 +74,26 @@ export function mapTextStatus(src: unknown, mediaType: string): TextStatus {
   }
 }
 
+const arr = (v: JsonValue | undefined): JsonValue[] => (Array.isArray(v) ? v : []);
+const objs = (v: JsonValue | undefined): JsonObject[] => arr(v).filter(isObject);
+
+/**
+ * The locators of the files the bundle views link (GRS-45): each bundle's PDF and index PDF, each item's extract and
+ * source parts, the CaseLines source, and every discovery and supplementary schedule file. Source order.
+ */
+export function packageLocators(bundles: JsonValue | undefined, sched: JsonValue | undefined): string[] {
+  const out: JsonValue[] = [];
+  if (isObject(bundles)) {
+    out.push(bundles.caselinesSrc ?? null);
+    for (const b of objs(bundles.list)) {
+      out.push(b.file ?? null, b.indexFile ?? null);
+      for (const r of objs(b.rows)) out.push(r.sliceUrl ?? null, ...objs(r.parts).map((p) => p.url ?? null));
+    }
+  }
+  if (isObject(sched)) for (const m of ['discovery', 'supplementary']) for (const i of objs(sched[m])) out.push(...objs(i.files).map((f) => f.url ?? null));
+  return out.filter((u): u is string => typeof u === 'string' && u !== '');
+}
+
 export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   const L = withLimits(opts.limits);
   const sink = new DiagSink(L.diagnosticsPerCode);
@@ -129,7 +149,7 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   const chron = Array.isArray(DATA.chronology) ? (DATA.chronology as JsonValue[]) : [];
   stats.chronology = chron.length;
   const assets: Record<string, Asset> = Object.create(null);
-  const jobs: { ref: string; path: string; mediaType: string; textStatus: TextStatus; claimed: unknown; parentRef?: string }[] = [];
+  const jobs: { ref: string; path: string; mediaType: string; textStatus: TextStatus; claimed: unknown; parentRef?: string; packageFile?: true }[] = [];
   for (const r of chron) {
     if (!isObject(r) || !isRef(r.ref)) continue;
     const ref = r.ref;
@@ -146,6 +166,17 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
       assets[`${ref}.a${j + 1}`] = { kind: 'embedded', parentRef: ref, ordinal: j + 1, member: name, mediaType: mt, textStatus: capabilityOf(mt) === 'text' ? 'pending' : 'unsupported' };
       stats.assetsEmbedded++;
     });
+  }
+  // package files: a linked file outside the register is fingerprinted like an original under its P- key. A register
+  // path (or one that folds to it), a folder and a locator that does not decode are not package files; the dataset
+  // link scan reports unsafe locators.
+  const taken = new Set(jobs.map((j) => foldPath(j.path)));
+  for (const u of packageLocators(DATA.bundles, roots['window.__SCHED__'])) {
+    const d = decodeLegacyLocator(u);
+    if (!d.ok || d.directory || taken.has(foldPath(d.path))) continue;
+    taken.add(foldPath(d.path));
+    const mediaType = mediaTypeForName(d.path);
+    jobs.push({ ref: pathAssetKey(d.path), path: d.path, mediaType, textStatus: capabilityOf(mediaType) === 'text' ? 'pending' : 'unsupported', claimed: undefined, packageFile: true });
   }
   const deadline = Date.now() + L.validationDeadlineMs;
   let next = 0;
@@ -174,7 +205,7 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
       }
       stats.bytesHashed += fp.size;
       if (typeof j.claimed === 'number' && j.claimed !== fp.size) sink.add('V5_SIZE_CLAIM_MISMATCH', `source size ${j.claimed} differs from ${fp.size} on disk`, { file: 'input', subject: j.ref });
-      assets[j.ref] = { kind: 'file', path: fp.rel, sha256: fp.sha256, size: fp.size, mediaType: j.mediaType, textStatus: j.textStatus, ...pr };
+      assets[j.ref] = { kind: 'file', path: j.packageFile ? j.path : fp.rel, sha256: fp.sha256, size: fp.size, mediaType: j.mediaType, textStatus: j.textStatus, ...pr };
       stats.assetsFile++;
     }
   };

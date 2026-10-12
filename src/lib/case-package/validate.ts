@@ -5,12 +5,12 @@
 import Value from 'typebox/value';
 import { canonicalJson, canonicalText } from './canonical.ts';
 import type { DiagSink } from './diagnostics.ts';
-import { inputRevisionId, resultsVersionOf, sha256Hex } from './hash.ts';
+import { inputRevisionId, pathAssetKey, resultsVersionOf, sha256Hex } from './hash.ts';
 import type { Limits } from './limits.ts';
 import { classifyLink, MAX_LINK } from './links.ts';
 import { capabilityOf, isContainer, textStatusConsistent, type TextStatus } from './media.ts';
 import { checkRelPath, decodeLegacyLocator, foldPath, isReservedPath } from './paths.ts';
-import { CITATION_TOKEN, isAssetKey, isRef, parseCitationToken, REF_IN_TEXT } from './refs.ts';
+import { CITATION_TOKEN, isAssetKey, isPathKey, isRef, parseCitationToken, REF_IN_TEXT } from './refs.ts';
 import {
   EXTRA_CITATION_ARRAYS, KNOWN_KEYS, KNOWN_SCHEMAS, LINK_FIELDS, NON_CITATION_FIELDS, OPAQUE_SCHEMA, REQUIRED_DATASETS,
   SEED_DATASETS, STORE_KEY, USERWORK_KEYS, USERWORK_SOURCES,
@@ -193,6 +193,10 @@ export function validateSnapshot(snap: Snapshot, sink: DiagSink, L: Limits, chec
           if (!pv.ok) { sink.add(pv.traversal ? 'ASSET_PATH_TRAVERSAL' : 'ASSET_PATH_INVALID', `original path is unsafe: ${pv.reason}`, { ...at, pointer: `${at.pointer}/path` }); continue; }
         }
         if (!Value.Check(Asset, a)) { sink.add('DS_SHAPE_INVALID', 'asset entry does not match the asset schema', at); continue; }
+        if (isPathKey(k) && ((a as Asset).kind === 'embedded' || (a as Asset).parentRef !== undefined || pathAssetKey((a as { path: string }).path) !== k)) {
+          sink.add('ID_REF_INVALID', 'a package-file key must be P-<first 16 hex digits of sha256(path)> of a file or missing asset without a parent', at);
+          continue;
+        }
         assets[k] = a as Asset;
       }
     } else if (!Value.Check(AssetIndex, assetsValue)) {
@@ -318,8 +322,10 @@ function checkAssets(assets: Record<string, Asset>, register: Set<string>, sink:
         }
         if (!isContainer(parent.mediaType)) sink.add('ASSET_PARENT_NOT_CONTAINER', `parent media ${parent.mediaType} is not a container`, at('/parentRef'));
       }
-    } else if (!register.has(ref)) sink.add('ASSET_ORPHAN', 'asset has neither a document row nor a parent', at(''));
+    } else if (!register.has(ref) && !isPathKey(ref)) sink.add('ASSET_ORPHAN', 'asset has neither a document row nor a parent', at(''));
     const ts = a.textStatus as TextStatus;
+    // a package file is opened or downloaded, never read for text: only an impossible status is reported
+    if (isPathKey(ref)) { if (!textStatusConsistent(a.mediaType, ts)) sink.add('TEXT_STATUS_INCONSISTENT', `textStatus ${ts} is impossible for ${a.mediaType} (capability ${capabilityOf(a.mediaType)})`, at('/textStatus')); continue; }
     if (!textStatusConsistent(a.mediaType, ts)) sink.add('TEXT_STATUS_INCONSISTENT', `textStatus ${ts} is impossible for ${a.mediaType} (capability ${capabilityOf(a.mediaType)})`, at('/textStatus'));
     else if (ts === 'unsupported') sink.add('MEDIA_UNSUPPORTED', `no text extractor for ${a.mediaType}; open or download only`, at('/mediaType'));
     else if (ts === 'none') sink.add('TEXT_NONE', `${a.mediaType} yielded no text`, at('/textStatus'));

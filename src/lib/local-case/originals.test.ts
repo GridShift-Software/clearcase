@@ -5,7 +5,8 @@ import { readdir, rm, link, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { buildCase, hostileOriginals, hostileRows } from '../../../tests/e2e/pilot/lib/fixtures.ts';
+import { pathAssetKey } from '../case-package/hash.ts';
+import { buildCase, hostileOriginals, hostileRows, pdf, url } from '../../../tests/e2e/pilot/lib/fixtures.ts';
 import { LinkCapability, OriginalsServer } from './originals.server.ts';
 import type { LocalCase } from './service.server.ts';
 import { ackFor, cleanup, service, tempRoot } from './test-support.ts';
@@ -18,7 +19,11 @@ beforeAll(async () => {
 	port = await freePort();
 	lc = service(path.join(root, 'data'), { ORIGINALS_PORT: String(port), CLEARCASE_BUFFER_MAX_BYTES: '64' });
 	await lc.startup();
-	const c = await buildCase(path.join(root, 'c'), { originals: hostileOriginals(), rows: hostileRows() });
+	// a bundle PDF outside the register is a package file (GRS-45)
+	const c = await buildCase(path.join(root, 'c'), {
+		originals: { ...hostileOriginals(), 'BUNDLES/Bundle P.pdf': pdf('invented bundle') }, rows: hostileRows(),
+		edit: (r) => { const b = r.DATA.bundles as { list: Record<string, unknown>[] }; b.list.push({ ...b.list[0], no: '9', file: url('BUNDLES/Bundle P.pdf') }); },
+	});
 	({ caseDir } = c);
 	rv = c.resultsVersion;
 	const imp = await lc.importPackage(c.caseDir, c.pkgDir);
@@ -148,5 +153,25 @@ describe('serving', () => {
 		const r = await get(rel(o.viewerHref(rv, 'EM-0001')));
 		expect(r.status).toBe(404);
 		expect((await get('/_pdfjs/6.4.299/constructor')).status).toBe(404);
+	});
+});
+
+describe('package files (GRS-45)', () => {
+	it('serves a package-file key through the verified mapping like a document original', async () => {
+		const key = pathAssetKey('BUNDLES/Bundle P.pdf');
+		expect(lc.store.assetForServe(rv, key)).toMatchObject({ status: 'verified', real_path: 'BUNDLES/Bundle P.pdf' });
+		const r = await get(rel(o.originalHref(rv, key, 'Bundle P.pdf')));
+		expect(r.status).toBe(200);
+		expect(r.headers.get('content-disposition')).toMatch(/^attachment; .*Bundle P\.pdf/);
+		expect(Buffer.from(await r.arrayBuffer()).equals(Buffer.from(pdf('invented bundle')))).toBe(true);
+		// the link capability binds the key as for a ref
+		expect((await get(`/o/${rv}/${key}/x.pdf`, { 'sec-fetch-site': 'cross-site' })).status).toBe(403);
+		expect((await get(rel(o.originalHref(rv, key, 'x.pdf')), { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'document' })).status).toBe(200);
+	});
+
+	it('answers 404 for a malformed or unknown package-file key, and never resolves a path from it', async () => {
+		const known = pathAssetKey('BUNDLES/Bundle P.pdf');
+		for (const bad of [known.toUpperCase().replace(/^P-/, 'P-'), known.slice(0, -1), known + '0', 'P-..%2F..%2Fetc', `P-${'0'.repeat(16)}`, `${known}%2F..%2F..%2Fetc%2Fpasswd`])
+			expect((await get(`/o/${rv}/${bad}/x.pdf`)).status, bad).toBe(404);
 	});
 });

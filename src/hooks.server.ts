@@ -44,6 +44,8 @@ export const handle: Handle = async ({ event, resolve }) => {
 		const big = oversize(event.request, event.url.pathname);
 		if (big) {
 			if (big.status === 413) await discardBody(event.request);
+			// a form enhanced by SvelteKit reads an action result: only this JSON gives it the status (a text body is a lost request to it)
+			if (event.request.headers.get('x-sveltekit-action') === 'true') return plain(big.status, JSON.stringify({ type: 'error', error: { message: big.message } }), { 'content-type': 'application/json' });
 			return plain(big.status, big.message);
 		}
 		// '?/default' is reserved by SvelteKit (it throws, i.e. 500): no form here posts to it.

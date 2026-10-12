@@ -21,7 +21,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import { join, resolve } from 'node:path';
 import { DEV_ENV } from '../tests/e2e/pilot/run.mjs';
 import { convert as convertV5, loadConfig } from '../tests/e2e/pilot/v5/fixture.mjs';
-import { claimPidFile, orphanedGroup, removePidFile, stopPidFile } from './pidfile.ts';
+import { claimPidFile, releasePidFile, stopPidFile } from './pidfile.ts';
 
 const REPO = resolve(import.meta.dirname, '..');
 const LOCATOR = join('.local', 'v5-verification.json');
@@ -220,15 +220,16 @@ export function readHead(spawn = spawnSync, repo = REPO) {
 
 /**
  * Admits the calling gate leader or refuses it: returns null when it may run, else the `GATE FAIL busy` line to print.
- * Admission is the atomic claim of `pidFile` (see `claimPidFile`), made before any work starts and held until the
- * leader exits (`main` removes it), so of any number of simultaneous gates exactly one is admitted. The claim is also the
- * record `gate --stop` reads, so it names the process group to stop.
+ * Admission is the claim of `pidFile` (see `claimPidFile`): an exclusive flock(2) taken before any work starts, which
+ * the kernel holds until the leader exits (`main` releases it) or dies, so of any number of simultaneous gates exactly
+ * one is admitted and a gate that died leaves nothing to recover. The claim writes the record `gate --stop` reads, which
+ * names the process group to stop. An earlier gate's orphans are looked for while the lock is held, so none can appear
+ * between that check and the admission.
  */
 export function admit(pidFile = PID_FILE) {
-	const orphan = orphanedGroup(pidFile, { name: LEADER_ENV, value: REPO });
-	if (orphan) return `GATE FAIL busy: processes of an earlier gate (group ${orphan}) still run after their leader died; stop them with \`bun run --bun gate --stop\``;
-	const claim = claimPidFile(pidFile);
+	const claim = claimPidFile(pidFile, { marker: { name: LEADER_ENV, value: REPO } });
 	if (claim.claimed) return null;
+	if (claim.orphan) return `GATE FAIL busy: processes of an earlier gate (group ${claim.orphan}) still run after their leader died; stop them with \`bun run --bun gate --stop\``;
 	if (!claim.owner) return 'GATE FAIL busy: another gate is claiming this worktree right now; try again in a few seconds';
 	return `GATE FAIL busy: a gate (pid ${claim.owner.pid}) is already running in this worktree; wait for it, or stop it with \`bun run --bun gate --stop\``;
 }
@@ -256,7 +257,7 @@ async function main() {
 		console.log(refused);
 		return 1;
 	}
-	process.on('exit', () => removePidFile(PID_FILE));
+	process.on('exit', () => releasePidFile(PID_FILE));
 	const { head, error } = readHead();
 	if (error) {
 		console.log(`GATE FAIL git ${error}`);

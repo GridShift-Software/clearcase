@@ -1,9 +1,9 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { claimPidFile, livePid, orphanedGroup, processStart, readPidFile, removePidFile, stopPidFile, writePidFile } from '../../scripts/pidfile.ts';
+import { claimPidFile, orphanedGroup, processStart, readPidFile, releasePidFile, removePidFile, stopPidFile, writePidFile } from '../../scripts/pidfile.ts';
 
 let dir: string;
 const kids: ChildProcess[] = [];
@@ -31,21 +31,18 @@ describe('pid files', () => {
 		const k = sleeper();
 		const f = join(dir, 'pid');
 		writeFileSync(f, `${k.pid} 1\n`);
-		expect(livePid(f)).toBeNull();
-		expect(existsSync(f)).toBe(false);
-		writeFileSync(f, `${k.pid} 1\n`);
 		expect(await stopPidFile(f)).toMatchObject({ ok: true, message: expect.stringMatching(/^nothing to stop/) });
 		expect(running(k.pid!)).toBe(true);
 	});
 
-	it('stops the recorded process and leaves a bystander running the same command', async () => {
+	it('stops the recorded process, leaves a bystander running the same command, and leaves the record to its owner', async () => {
 		const target = sleeper(), bystander = sleeper();
 		const f = join(dir, 'pid');
 		writePidFile(f, target.pid);
 		expect((await stopPidFile(f, { graceMs: 2000 })).message).toMatch(/^stopped process \d+ \(SIGTERM\)$/);
 		await exited(target);
 		expect(running(bystander.pid!)).toBe(true);
-		expect(existsSync(f)).toBe(false);
+		expect(readPidFile(f)?.pid).toBe(target.pid);
 	});
 
 	it('stops a whole process group, children included, and nothing outside it', async () => {
@@ -89,7 +86,6 @@ describe('pid files', () => {
 		const r = await stopPidFile(f, { group: true, graceMs: 2000, marker: MARK });
 		expect(r).toMatchObject({ ok: true, message: expect.stringMatching(/^stopped process group \d+ \(SIGTERM, its leader had already died\)$/) });
 		expect(processStart(child)).toBeNull();
-		expect(existsSync(f)).toBe(false);
 	});
 
 	it('leaves an orphaned group alone when no member carries this repo\'s marker', async () => {
@@ -98,7 +94,6 @@ describe('pid files', () => {
 			expect(orphanedGroup(f, MARK)).toBeNull();
 			expect(await stopPidFile(f, { group: true, graceMs: 500, marker: MARK })).toMatchObject({ ok: true, message: expect.stringMatching(/^nothing to stop/) });
 			expect(running(child)).toBe(true);
-			expect(existsSync(f)).toBe(false);
 		}
 	});
 
@@ -119,47 +114,36 @@ describe('pid files', () => {
 	});
 
 	describe('claimPidFile', () => {
-		it('claims a free file with a whole record, refuses a live owner, and leaves no temporary files', () => {
+		it('claims a free file with a whole record, refuses while it is held, and leaves only the record and its lock', () => {
 			const f = join(dir, 'a', 'pid');
-			const a = sleeper();
-			expect(claimPidFile(f, process.pid)).toEqual({ claimed: true });
+			expect(claimPidFile(f)).toEqual({ claimed: true });
 			expect(readPidFile(f)).toEqual({ pid: process.pid, start: processStart(process.pid) });
-			expect(claimPidFile(f, a.pid)).toEqual({ claimed: false, owner: { pid: process.pid, start: processStart(process.pid) } });
-			expect(readPidFile(f)?.pid).toBe(process.pid);
-			expect(readdirSync(join(dir, 'a'))).toEqual(['pid']);
+			expect(claimPidFile(f)).toEqual({ claimed: false, owner: { pid: process.pid, start: processStart(process.pid) } });
+			expect(readdirSync(join(dir, 'a')).sort()).toEqual(['pid', 'pid.lock']);
+			releasePidFile(f);
+			expect(readdirSync(join(dir, 'a'))).toEqual(['pid.lock']);
+			expect(claimPidFile(f)).toEqual({ claimed: true });
+			releasePidFile(f);
 		});
 
-		it('takes over a record of a dead process and of a reused pid', () => {
+		it('replaces the record of a dead process, of a reused pid, and a malformed one', () => {
 			const f = join(dir, 'pid');
 			const k = sleeper();
-			for (const rec of ['2147483000 1', `${k.pid} 1`]) {
+			for (const rec of ['2147483000 1', `${k.pid} 1`, '']) {
 				writeFileSync(f, `${rec}\n`);
 				expect(claimPidFile(f)).toEqual({ claimed: true });
 				expect(readPidFile(f)?.pid).toBe(process.pid);
-				rmSync(f);
+				releasePidFile(f);
 			}
 			expect(running(k.pid!)).toBe(true);
 		});
 
-		it('takes over a malformed record', () => {
+		it('refuses while the record names a live process, even with the lock free (an older gate, or a removed lock file)', () => {
 			const f = join(dir, 'pid');
-			writeFileSync(f, '');
-			expect(claimPidFile(f)).toEqual({ claimed: true });
-		});
-
-		it('clears a recovery guard left by a crashed process, but waits for a fresh one', () => {
-			const f = join(dir, 'pid');
-			writeFileSync(f, '2147483000 1\n');
-			mkdirSync(`${f}.recover`);
-			const old = new Date(Date.now() - 60_000);
-			utimesSync(`${f}.recover`, old, old);
-			expect(claimPidFile(f)).toEqual({ claimed: true });
-			expect(existsSync(`${f}.recover`)).toBe(false);
-			rmSync(f);
-			writeFileSync(f, '2147483000 1\n');
-			mkdirSync(`${f}.recover`);
-			expect(claimPidFile(f)).toEqual({ claimed: false, owner: null });
-			expect(readPidFile(f)?.pid).toBe(2147483000);
+			const k = sleeper();
+			writePidFile(f, k.pid);
+			expect(claimPidFile(f)).toEqual({ claimed: false, owner: { pid: k.pid, start: processStart(k.pid!) } });
+			expect(readPidFile(f)?.pid).toBe(k.pid);
 		});
 	});
 });

@@ -280,8 +280,9 @@ describe('admission', () => {
 		expect(outs.filter((o) => o.startsWith('GATE FAIL busy: a gate (pid '))).toHaveLength(3);
 	});
 
-	// Each interleaving below admitted two gates, or dropped a live claim, at 36f2382. A child is held at a step only
-	// when its path reaches that step.
+	// Each interleaving below admitted two gates, or dropped a live claim, at 36f2382, where a stale record was removed
+	// by whoever judged it stale (`recover:*`, `guard:stale`) and `--stop` removed the record it read. A child is held at a
+	// step only when its path reaches it; the flock(2) claim has no recovery steps, so such a child runs straight through.
 	it('two gates released at the same instant just before they claim: one is admitted', async () => {
 		const a = start('a', { pauses: ['claim:begin'] }), b = start('b', { pauses: ['claim:begin'] });
 		await at(a, 'claim:begin');
@@ -322,11 +323,11 @@ describe('admission', () => {
 
 	it('gate --stop finding a dead record never removes the claim a gate made meanwhile', async () => {
 		await deadRecord();
-		const s = start('s', { mode: 'stop', pauses: ['stop:recover', 'recover:remove'] });
-		await at(s, 'stop:recover');
+		const s = start('s', { mode: 'stop', pauses: ['stop:done', 'recover:remove'] });
+		await at(s, 'stop:done');
 		const a = start('a', { pauses: ['recover:released'] });
 		await at(a, 'recover:released');
-		resume(s, 'stop:recover');
+		resume(s, 'stop:done');
 		await at(s, 'recover:remove');
 		resume(a, 'recover:released');
 		await outcome(a);
@@ -339,12 +340,12 @@ describe('admission', () => {
 	it('gate --stop never removes the claim a gate made while the stop waited for the old gate to exit', async () => {
 		const l = start('l');
 		expect(await outcome(l)).toBe('ADMITTED');
-		const s = start('s', { mode: 'stop', pauses: ['stop:remove'] });
-		await at(s, 'stop:remove');
+		const s = start('s', { mode: 'stop', pauses: ['stop:done'] });
+		await at(s, 'stop:done');
 		await gone(l);
 		const a = start('a');
 		await outcome(a);
-		resume(s, 'stop:remove');
+		resume(s, 'stop:done');
 		expect(await outcome(s)).toMatch(/^stop: stopped process group \d+ \(SIGTERM\)$/);
 		await gone(s);
 		const c = start('c');
@@ -364,6 +365,26 @@ describe('admission', () => {
 		await outcome(w2);
 		resume(w1, 'recover:remove');
 		expect(await holders(w1, w2)).toEqual({ live: [expect.any(String)], recorded: true });
+	});
+
+	it('admits the next gate after an admitted one is SIGKILLed: the kernel let go of its claim', async () => {
+		const l = start('l');
+		expect(await outcome(l)).toBe('ADMITTED');
+		process.kill(l.pid, 'SIGKILL');
+		await gone(l);
+		expect(await holders(start('a'))).toEqual({ live: ['a'], recorded: true });
+	});
+
+	it('a gate that holds the lock but has not yet written its record is never overtaken', async () => {
+		await deadRecord();
+		const a = start('a', { pauses: ['claim:locked'] });
+		await at(a, 'claim:locked');
+		const b = start('b'), s = start('s', { mode: 'stop' });
+		expect(await outcome(b)).toBe('GATE FAIL busy: another gate is claiming this worktree right now; try again in a few seconds');
+		expect(await outcome(s)).toMatch(/^stop: nothing to stop/);
+		resume(a, 'claim:locked');
+		const c = start('c');
+		expect(await holders(a, b, c)).toEqual({ live: ['a'], recorded: true });
 	});
 
 	it('refuses a gate whose earlier gate\'s leader died after the gate looked for orphans, and keeps the record --stop needs', async () => {

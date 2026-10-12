@@ -305,9 +305,13 @@ await S('S11', 'note writes acknowledged before a SIGKILL are all present after 
 await S('S12', 'crash artifacts (torn results WAL tail, backups/.tmp-*, serve-tmp leftovers) are tolerated and cleaned at startup', async () => {
 	const s = await mainUp();
 	const rej = await s.c.importPkg(join(T, 'does-not-exist'), c1.pkgDir); // a committed write that stays in the WAL
+	// No store connection of this process may outlive the server: closed last, it would checkpoint and delete the WAL.
+	const testHandles = await L.releaseStoreHandles(main.data);
 	await s.stop('SIGKILL');
 	const wal = join(main.data, 'results.sqlite-wal');
 	const walBefore = L.size(wal);
+	const pre = { testHeldNoStoreHandle: testHandles.length === 0, walHadFrames: walBefore > 0 };
+	if (!Object.values(pre).every(Boolean)) return verdict(pre, { walBytesBeforeGarbage: walBefore, testHandles, sidecarsAfterKill: L.dirList(main.data).filter((f) => /^(results|work)\.sqlite-/.test(f)) });
 	appendFileSync(wal, Buffer.from(Array.from({ length: 3000 }, (_, i) => (i * 7919) & 255)));
 	mkdirSync(join(main.data, 'backups'), { recursive: true });
 	writeFileSync(join(main.data, 'backups', '.tmp-99999-work-0000000099-dead.sqlite'), 'half a backup');
@@ -320,7 +324,7 @@ await S('S12', 'crash artifacts (torn results WAL tail, backups/.tmp-*, serve-tm
 	const notes = await L.notesOn(s2, c2.resultsVersion, 'OD-001');
 	const i = L.integrity(main.data);
 	return verdict({
-		walHadFrames: walBefore > 0, started: !h.storageError, activeIntact: (await s2.c.activeVersion()) === c2.resultsVersion, notesIntact: notes.notes.some((x) => x.body === st.note),
+		...pre, started: !h.storageError, activeIntact: (await s2.c.activeVersion()) === c2.resultsVersion, notesIntact: notes.notes.some((x) => x.body === st.note),
 		committedRejectionKept: rejPage.status === 200, tmpBackupRemoved: !L.dirList(join(main.data, 'backups')).some((f) => f.startsWith('.tmp-')),
 		cleanedReported: (h.startup?.cleaned ?? []).some((c) => c.includes('.tmp-99999')), serveTmpEmpty: L.dirList(join(main.data, 'serve-tmp')).length === 0,
 		integrityOk: i.main === 'ok' && i.work === 'ok' && i.orphans === 0,

@@ -86,10 +86,10 @@ const need = (name, doc, rev, dirty) => {
 need('build/clearcase-build.json', buildStamp, buildStamp?.revision, buildStamp?.dirty);
 need('parity scorecard', parity, parity?.revision, parity?.dirty);
 need('e2e summary', e2eSummary, e2eSummary?.freshBuild?.head, e2eSummary?.freshBuild?.trackedDirty === false && e2eSummary?.freshBuild?.buildDirty === false ? false : true);
-if (e2eSummary && !isSha(e2eSummary.freshBuild?.buildRevision)) problems.push(`e2e summary: built from ${String(e2eSummary.freshBuild?.buildRevision).slice(0, 12)}, not ${SHA.slice(0, 12)}`);
+if (e2eSummary && !isSha(e2eSummary.freshBuild?.buildRevision)) problems.push(`e2e summary: ${e2eSummary.freshBuild?.buildRevision ? `built from ${String(e2eSummary.freshBuild.buildRevision).slice(0, 12)}, not ${SHA.slice(0, 12)}` : 'its build carries no revision'}`);
 for (const [name, doc] of [['acceptance summary', acc], ['layout (synthetic)', layout], ['layout (v5 sample)', layoutV5]]) {
 	need(name, doc, doc?.revision?.head, doc?.revision?.dirty);
-	if (doc && !isSha(doc.revision?.build?.revision)) problems.push(`${name}: built from ${String(doc.revision?.build?.revision ?? 'an unstamped build').slice(0, 12)}, not ${SHA.slice(0, 12)}`);
+	if (doc && !isSha(doc.revision?.build?.revision)) problems.push(`${name}: ${doc.revision?.build?.revision ? `built from ${doc.revision.build.revision.slice(0, 12)}, not ${SHA.slice(0, 12)}` : 'its build carries no revision'}`);
 	else if (doc && doc.revision?.build?.dirty !== false) problems.push(`${name}: the build under test was dirty`);
 }
 if (!Object.keys(e2eFiles).length) problems.push('e2e summary: no category summary found');

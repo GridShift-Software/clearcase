@@ -89,7 +89,7 @@ export interface CaseSummary {
 	status: 'active' | 'candidate' | 'recovery';
 	/** the version the row describes: the effective active one, else (recovery without a fallback) the configured one,
 	 *  else the newest candidate */
-	version: { id: string; importId: number; created: string; storedAt: string; documents: number };
+	version: { id: string; importId: number; created: string; storedAt: string; documents: number | null };
 	/** results versions stored for the case */
 	versions: number;
 	/** where Open goes: the effective active version's overview, the recovery page when startup found no version to

@@ -425,7 +425,7 @@
       "field": [],
       "type": "data-correction-deferred-to-pipeline",
       "source": "S-meta-counts",
-      "reason": "The imported build metadata counts for documents without text and for e-mails disagree with the rows. ClearCase recounts both from the register rows and shows the metadata figure beside the count only where it differs, as the source claim; correcting the imported metadata is deferred to the document pipeline. Parity sees the change: IDR-049. Evidence: src/routes/v/[vid]/overview/+page.svelte:49.",
+      "reason": "The imported build metadata counts for documents without text and for e-mails disagree with the rows. ClearCase recounts both from the register rows and shows the metadata figure beside the count only where it differs, as the source claim; correcting the imported metadata is deferred to the document pipeline. IDR-049 is a defect-fix because it types the shown count it covers, which the app corrects; this entry types the defect, whose imported source stays wrong. Parity sees the change: IDR-049. Evidence: src/routes/v/[vid]/overview/+page.svelte:49.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,

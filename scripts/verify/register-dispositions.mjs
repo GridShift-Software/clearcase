@@ -9,15 +9,22 @@
 // defect stands in ClearCase and covers no parity difference. Each row rests on evidence: a test or the app line that
 // shows the behaviour, found by a literal pattern; the script fails when a pattern is gone, and writes the file:line it
 // found into the reason, with the covering entry when parity sees the change. Entries keep approvedBy null: the user
-// approves them. The script owns only entries whose author is AUTHOR; it keeps their ids, so a rerun changes nothing
-// unless the table, the evidence lines or the register changed. --check exits 1 when the committed register differs.
+// approves them. The script owns only entries whose author is AUTHOR; it keeps their ids and any approvedBy and
+// approvedOn the user set, so a rerun changes nothing unless the table, the evidence lines or the register changed and
+// never clears an approval. --check exits 1 when the committed register differs, and (also without --check) when a
+// defect of defects.md or view-checklist.md has no entry naming it, a disposition names a defect that is no longer
+// listed, or an evidence pattern is empty. --reference DIR reads docs/reference from DIR instead (the tests'
+// synthetic copy); evidence files are always read from the repository.
 // scripts/verify/dispositions.mjs then reports every defect as registered.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { RANGES, registerFiles } from '../parity/lib/register.mjs';
+import { citing, isListed, readDefects } from './lib/defects.mjs';
 import { VIEWS } from '../../src/lib/components/view-registry.ts';
 
 const ROOT = resolve(import.meta.dirname, '..', '..');
+const referenceAt = process.argv.indexOf('--reference');
+const REF = referenceAt > 0 ? resolve(process.argv[referenceAt + 1]) : join(ROOT, 'docs', 'reference');
 const AUTHOR = 'GRS-67 dispositions (scripts/verify/register-dispositions.mjs)';
 /** Ids the main file may give a disposition of a pilot view: above its legacy entries, below every owner's range. */
 const MAIN_RANGE = [74, 99];
@@ -36,7 +43,7 @@ const DISPOSITIONS = [
 	["S-prescription-frozen", "prescription_tab", DATA, true, "src/lib/views/quantum/prescription.ts", "export const asOfStatus = (r: PrescRow, asOf: string)", "IDR-225",
 		"The imported Risk labels are precomputed against a fixed headline date and leap-day invoices are moved to the 28th in the imported prescription dates. ClearCase still shows them as imported, but adds an As-of status computed from the shown date and an explicit as-of date, plus an arithmetic card; correcting the imported labels and dates is deferred to the document pipeline."],
 	["S-meta-counts", "overview", DATA, true, "src/routes/v/[vid]/overview/+page.svelte", "Register rows with text status none", "IDR-049",
-		"The imported build metadata counts for documents without text and for e-mails disagree with the rows. ClearCase recounts both from the register rows and shows the metadata figure beside the count only where it differs, as the source claim; correcting the imported metadata is deferred to the document pipeline."],
+		"The imported build metadata counts for documents without text and for e-mails disagree with the rows. ClearCase recounts both from the register rows and shows the metadata figure beside the count only where it differs, as the source claim; correcting the imported metadata is deferred to the document pipeline. IDR-049 is a defect-fix because it types the shown count it covers, which the app corrects; this entry types the defect, whose imported source stays wrong."],
 	["S-routing", "overview", FIX, true, "src/lib/components/PageHeader.svelte", "<title>{pageTitle({ section, caseName, document, status })}</title>", null,
 		"v5 has no URL routing: reload and Back always return to the Overview and the page title never changes. In ClearCase every view and document is a real route with its own history entry, filters live in the URL, and the title names the document, section and case."],
 	["S-csv", "chronology", FIX, true, "src/lib/components/csv.ts", "export const userCell = (v: string | readonly string[])", null,
@@ -107,14 +114,14 @@ const DISPOSITIONS = [
 		"v5 scales year bars by the maximum, so a map of only zero counts divides by zero and gives NaN heights. ClearCase takes the maximum with a zero floor and draws flat bars for all-zero counts and none for an empty map."],
 	[["S-quantum_tab-1", "S-quantum_tab-2"], "quantum_tab", FIX, true, "src/routes/v/[vid]/quantum/quantum_tab/+page.svelte", ["label=\"Open source PDF\"", "type: 'charging calculation' })}"], null,
 		"S-quantum_tab-1: v5's headline source link bypasses the viewer, unlike every other document link; ClearCase renders it through the shared citation link, which opens the document page. S-quantum_tab-2: v5's charging shortcut sets only the type filter and keeps earlier filters; ClearCase links to the chronology with the default query and only the type set."],
-	["S-quantum_tab-3", "quantum_tab", FIX, true, "tests/quantum/ledger.test.ts", "draws no negative bar and nothing for an empty series", null,
-		"v5's amount chart assumes non-negative amounts and writes negative heights. ClearCase draws no bar for a negative amount. The bar-width formula with its minimum is unchanged, so bars could still overlap with a very large series; not addressed."],
+	["S-quantum_tab-3", "quantum_tab", GAP, true, "tests/quantum/ledger.test.ts", "draws no negative bar and nothing for an empty series", null,
+		"v5's amount chart assumes non-negative amounts and writes negative heights. ClearCase draws no bar for a negative amount. The bar-width formula with its minimum is unchanged, so bars can still overlap with a very large series, the other half of the defect; closing it would need an app change."],
 	["S-disbursements_tab-2", "disbursements_tab", FIX, true, "tests/registers/logic.test.ts", "neutralising formulas and quoting CR and LF", null,
 		"v5's CSV export writes free-text fields unprotected, so a cell starting with a formula character can run as a formula in a spreadsheet. ClearCase passes every exported user cell through a neutraliser that prefixes such cells, and formula segments after a separator, with an apostrophe."],
 	["S-timesheet_tab-2", "timesheet_tab", GAP, true, "src/lib/views/registers/logic.ts", "def.fields.map((x) => x.k)", null,
 		"v5 exports only the stored fields, so the derived Value is missing from the CSV. ClearCase writes the same stored field keys and rows and does not add the Value column; an app change is needed to export it."],
-	["S-deadlines_tab-3", "deadlines_tab", FIX, true, "src/lib/views/registers/RegisterPage.svelte", "data-edit onclick={() => edit(r)}", null,
-		"v5 has no edit, keeps the category after Add and deletes without asking. ClearCase adds a per-row Edit and deletes by stable row id. It still keeps the category after Add by design and Delete of an ordinary row has no confirmation; checked, not changed."],
+	["S-deadlines_tab-3", "deadlines_tab", GAP, true, "src/lib/views/registers/RegisterPage.svelte", "data-edit onclick={() => edit(r)}", null,
+		"v5 has no edit, keeps the category after Add and deletes without asking. ClearCase adds a per-row Edit and deletes by stable row id. Two of the three parts remain: the category still stays after Add, and Delete of an ordinary row still has no confirmation. Closing them would need an app change."],
 	["S-deadlines_tab-4", "deadlines_tab", GAP, true, "src/lib/views/registers/logic.ts", "const t = new Date(`${date}T00:00:00`);", null,
 		"v5 counts days from local midnight, so counts can differ from the court calendar date near a clock change or in another timezone. ClearCase copies this: it reads the date at local midnight in the server's timezone. Needs an app fix to count on the calendar date."],
 	["S-contradictions_tab-1", "contradictions_tab", GAP, false, "src/routes/v/[vid]/analysis/contradictions_tab/+page.svelte", "<div class=\"v an-danger\">{c.highCount}</div>", null,
@@ -147,8 +154,8 @@ const DISPOSITIONS = [
 		"v5 hard-codes a case-specific recovery narrative in the renderer. ClearCase reads it from the imported view-content dataset, so the case wording comes from the package and not from code."],
 	["S-legality_tab-1", "legality_tab", FIX, false, "src/routes/v/[vid]/litigation/legality_tab/+page.server.ts", "subtitle: viewText(vc, 'legality_tab', 'subtitle')", null,
 		"v5 hard-codes case-specific text in the subtitle. ClearCase reads the subtitle from the imported view-content dataset, so the case wording comes from the package and not from code."],
-	["S-prescription_tab-4", "prescription_tab", FIX, true, "tests/quantum/prescription.test.ts", "counts the dates that equal invoice date + 3 years", "IDR-224",
-		"v5 leaves the leap-day rule unspecified and precomputed. ClearCase still shows the imported date but adds an arithmetic-checks card counting leap-day invoices and rows equal to the invoice date plus three years, labelled arithmetic only with the legal rule not approved."],
+	["S-prescription_tab-4", "prescription_tab", GAP, true, "tests/quantum/prescription.test.ts", "counts the dates that equal invoice date + 3 years", "IDR-224",
+		"v5 leaves the leap-day rule unspecified and precomputed. ClearCase still shows the imported date but adds an arithmetic-checks card counting leap-day invoices and rows equal to the invoice date plus three years, labelled arithmetic only with the legal rule not approved. The rule itself is still unspecified, which is the defect; specifying it needs a decision and an app change."],
 	["S-interest_calc_tab-2", "interest_calc_tab", FIX, false, "src/routes/v/[vid]/quantum/interest_calc_tab/+page.server.ts", "number('interest_calc_tab', 'defaultRate')", null,
 		"v5 hard-codes the default rate in the renderer. ClearCase takes it from the imported view-content dataset and leaves the field empty when the package has none, so no rate literal stands in."],
 	["S-interest_calc_tab-4", "interest_calc_tab", FIX, true, "tests/calculations/interest.test.ts", "counts days on the calendar, independent of time zone", null,
@@ -179,8 +186,8 @@ const DISPOSITIONS = [
 		"S-settlement_tab-1 and S-settlement_tab-5: v5 hard-codes the cost, probability, years and discount defaults and a case narrative in the renderer; ClearCase reads them from the imported view-content dataset, so none is in code. S-settlement_tab-2: v5 uses the gross claim and ignores recorded payments; ClearCase prefills the net claim, the amount due less the recorded payments, and says so when payments exceed it."],
 	["S-settlement_tab-4", "settlement_tab", GAP, true, "src/lib/views/quantum/settlement.ts", "{ label: 'Pessimistic (p-25)'", null,
 		"v5's scenario labels do not reflect clamping of the probability, and costs are not discounted while recovery is. ClearCase copies both: fixed labels and undiscounted costs. Changing either would be an app change."],
-	["S-transcriptions_tab-1", "transcriptions_tab", FIX, true, "tests/registers/store.test.ts", "refuse an entry larger than 64 KiB and store nothing", null,
-		"v5 keeps large transcript bodies in browser storage with a quota near 5 MB and only alerts on failure. ClearCase stores them in the local case store with a 64 KiB entry limit and shows a failed save with the input kept. Bodies are still rendered whole."],
+	["S-transcriptions_tab-1", "transcriptions_tab", GAP, true, "tests/registers/store.test.ts", "refuse an entry larger than 64 KiB and store nothing", null,
+		"v5 keeps large transcript bodies in browser storage with a quota near 5 MB and only alerts on failure. ClearCase stores them in the local case store with a 64 KiB entry limit and shows a failed save with the input kept. Bodies are still rendered whole, the other half of the defect; paging them would need an app change."],
 	["S-rescan_tab-1", "rescan_tab", FIX, true, "tests/system/rescan.test.ts", "a v5-style './'-encoded path and the walked path are one file (S-rescan_tab-1)", null,
 		"v5 compares walked paths with a different prefix style than the embedded URLs, so a first rescan treats every indexed file as new. ClearCase matches by decoded path relative to the case folder, the key the import used, so an indexed original is never re-added."],
 	["S-rescan_tab-2", "rescan_tab", FIX, true, "tests/system/rescan.test.ts", "a same-name, same-size content change: a quick scan cannot see it", "IDR-404",
@@ -189,8 +196,8 @@ const DISPOSITIONS = [
 		"v5 rescan links use one relative base while the embedded document links use another, so one of them is wrong for any app location. ClearCase builds addition links with the same base and encoding as imported documents, and opens them through the document route."],
 	["S-rescan_tab-4", "rescan_tab", FIX, true, "tests/system/rescan.test.ts", "several same-prefix additions get distinct refs that continue the case numbering", null,
 		"v5 numbers a new ref from the bundle row count without padding, so it can collide or misorder. ClearCase continues the highest number used per prefix (imported, rescan and cleared refs), zero-padded to the case width, and never issues a ref twice."],
-	["S-rescan_tab-5", "rescan_tab", FIX, true, "tests/system/rescan.test.ts", "the walk skips hidden entries and a processing package folder", null,
-		"v5 turns everything under the folder, including its own app page and generated output, into document rows. ClearCase skips hidden entries, processing package folders and its own data directory, and never writes output into the case folder; other loose files in the folder are still listed as additions."],
+	["S-rescan_tab-5", "rescan_tab", GAP, true, "tests/system/rescan.test.ts", "the walk skips hidden entries and a processing package folder", null,
+		"v5 turns everything under the folder, including its own app page and generated output, into document rows. ClearCase skips hidden entries, processing package folders and its own data directory, and never writes output into the case folder; the v5 app HTML and other loose files in the case folder are still listed as additions, and the defect names the app HTML first. Excluding them would need an app change."],
 	["S-rescan_tab-6", "rescan_tab", GAP, true, "src/lib/views/system/rescan.server.ts", "additions(a, v.case_id, v.id).map((p) => p.row)", null,
 		"v5's Write updated index to file writes only the rescan additions, not a merged index. ClearCase keeps this: its download holds only the additions in v5's row shape. Writing a full updated index would need an app change."],
 	["S-rescan_tab-7", "rescan_tab", FIX, true, "src/lib/local-case/rescan/rules.ts", "S-rescan_tab-7: every new file is pending processing", "IDR-403",
@@ -241,8 +248,8 @@ const DISPOSITIONS = [
 		"v5 hard-codes the bundle name, path, fallback page count and reference and ignores the index file field. ClearCase takes the name, address and fallback page count from the package's view content, and the page count from the index first."],
 	["S-caselines_tab-3", "caselines_tab", FIX, true, "tests/system/stores-21.test.ts", "key: 'ess_dcs_caselines_docs_v1',", "IDR-413",
 		"v5 does not back up the linked documents. ClearCase stores them as a registered table, and a test round-trips them through backup and restore."],
-	["S-caselines_tab-4", "caselines_tab", FIX, true, "src/routes/v/[vid]/bundles/caselines_tab/+page.svelte", "{NOT_SERVED}</span>{/if}<button type=\"button\" class=\"rm\"", null,
-		"v5 re-encodes typed link paths into broken links with no check. ClearCase stores the typed path, links it only when it names an indexed document, and otherwise marks it not served; it still does not remove duplicate links."],
+	["S-caselines_tab-4", "caselines_tab", GAP, true, "src/routes/v/[vid]/bundles/caselines_tab/+page.svelte", "{NOT_SERVED}</span>{/if}<button type=\"button\" class=\"rm\"", null,
+		"v5 re-encodes typed link paths into broken links with no check. ClearCase stores the typed path, links it only when it names an indexed document, and otherwise marks it not served; it does not remove duplicate links, which the defect also names; that would need an app change."],
 	["S-caselines_tab-5", "caselines_tab", GAP, true, "src/lib/views/bundles/caselines.ts", "if (count) res.push({ p, count, ...snippet(t, first, q.length) });", null,
 		"v5 applies match offsets from lower-cased text to the original, shifting the highlight for characters whose case change alters length. ClearCase keeps this: the same offsets are applied to the original text. Fixing it would need an app change."],
 	["S-caselines_tab-6", "caselines_tab", FIX, false, "src/routes/v/[vid]/bundles/caselines_tab/+page.svelte", "URL.revokeObjectURL(u.url)", null,
@@ -253,7 +260,7 @@ const DISPOSITIONS = [
 
 const owners = Object.fromEntries(VIEWS.map((v) => [v.id, v.owner]));
 const linear = Object.fromEntries(VIEWS.map((v) => [v.id, v.linear]));
-const files = registerFiles();
+const files = registerFiles(join(REF, 'parity', 'intentional-differences.json'));
 const docs = new Map(files.map((f) => [f, JSON.parse(readFileSync(f, 'utf8'))]));
 const fileOf = (view) => {
 	const owner = owners[view];
@@ -263,9 +270,11 @@ const fileOf = (view) => {
 const rangeOf = (file) => (file === files[0] ? MAIN_RANGE : RANGES[file.match(/(CC-\d+)\.json$/)[1]]);
 
 const all = [...docs.values()].flatMap((d) => d.entries);
-const previous = new Map(all.filter((e) => e.author === AUTHOR).map((e) => [e.source, e.id]));
+const own = new Map(all.filter((e) => e.author === AUTHOR).map((e) => [e.source, e]));
+const previous = new Map([...own].map(([source, e]) => [source, e.id]));
 const taken = new Set(all.filter((e) => e.author !== AUTHOR).map((e) => e.id));
 const reviewed = new Map(all.filter((e) => e.author !== AUTHOR).map((e) => [e.id, e]));
+const { defects: listed } = readDefects(REF);
 const problems = [];
 const seen = new Set();
 const out = new Map(files.map((f) => [f, []]));
@@ -283,10 +292,12 @@ const idOf = (file, defect) => {
 for (const [named, view, type, productVisible, file, patterns, cover, why] of DISPOSITIONS) {
 	const defects = [named].flat();
 	const defect = defects[0];
+	for (const d of defects) if (!listed.has(d) && !isListed(listed, d)) problems.push(`${d}: no such defect in defects.md or view-checklist.md; delete or retarget its disposition`);
 	for (const d of defects) { if (seen.has(d)) problems.push(`${d}: listed twice`); seen.add(d); }
 	if ([patterns].flat().length !== defects.length) { problems.push(`${defect}: one evidence pattern per defect`); continue; }
 	const lines = readFileSync(join(ROOT, file), 'utf8').split('\n');
 	const at = [patterns].flat().map((pattern) => {
+		if (typeof pattern !== 'string' || !pattern.trim()) { problems.push(`${defect}: empty evidence pattern for ${file}`); return 0; }
 		const i = lines.findIndex((l) => l.includes(pattern));
 		if (i < 0) problems.push(`${defect}: evidence pattern not found in ${file}: ${JSON.stringify(pattern)}`);
 		return i + 1;
@@ -299,8 +310,15 @@ for (const [named, view, type, productVisible, file, patterns, cover, why] of DI
 	const id = idOf(target, defect);
 	taken.add(id);
 	// a known gap names the owner whose app change would close it
-	out.get(target).push({ id, view, field: [], type, source: defect, ...(type === GAP ? { owner: linear[view] } : {}), reason, productVisible, author: AUTHOR, approvedBy: null, approvedOn: null });
+	// an approval the user gave in review survives a rerun
+	const approved = own.get(defect);
+	out.get(target).push({ id, view, field: [], type, source: defect, ...(type === GAP ? { owner: linear[view] } : {}), reason, productVisible, author: AUTHOR, approvedBy: approved?.approvedBy ?? null, approvedOn: approved?.approvedOn ?? null });
 }
+// a hand-written disposition (field []) of a defect that is no longer listed is as stale as a row of the table
+for (const e of all) if (e.author !== AUTHOR && Array.isArray(e.field) && !e.field.length && /^S-/.test(e.source ?? '') && !isListed(listed, e.source)) problems.push(`${e.id}: disposition of ${e.source}, which defects.md and view-checklist.md no longer list`);
+// every listed defect needs an entry naming it, from the table or from another entry (the rule dispositions.mjs reports)
+const written = [...all.filter((e) => e.author !== AUTHOR), ...[...out.values()].flat()];
+for (const id of listed.keys()) if (!citing(written, id).length) problems.push(`${id}: no disposition; add a row to DISPOSITIONS`);
 if (problems.length) { console.error(problems.join('\n')); process.exit(1); }
 
 let drift = 0;

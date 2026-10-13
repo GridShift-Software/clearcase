@@ -100,10 +100,10 @@ describe('the JSON-script workspace generation', () => {
     const rows = dataset(files, 'chronology') as J[];
     expect(rows[0]).toEqual({
       ref: 'DC-SYN-001', n: 1, seq: 1, date: '2001-02-03', filename: 'OD-001 Supply agreement.pdf', subject: '', sender: '', to: '', cc: '', excerpt: 'Head of text and the rest of it',
-      doc_type: 'sale agreement', bundle: 'Original', amount: '1150.5', also_in: ['DC-SYN-002'], text_status: 'extracted', url: url(AGREEMENT), refs: [], invoice_no: '', size: size(AGREEMENT), attachments: [],
+      doc_type: 'sale agreement', bundle: 'Original', amount: '1150.5', also_in: ['DC-SYN-002'], text_status: 'extracted', url: url(AGREEMENT), refs: [], invoice_no: '', size: size(AGREEMENT), attachments: [], date_source: 'text',
       ent: 'Org A Ltd', mt: ['A'], sec: 'Documents', sub: 'DISCOVERY A', fm: 'Firm A',
     });
-    expect(rows[2]).toMatchObject({ ref: 'DC-SYN-002', date: '', excerpt: '', amount: '', text_status: 'ocr', pr: 'CO-SYN-001', up: 'Upload.zip' });
+    expect(rows[2]).toMatchObject({ ref: 'DC-SYN-002', date: '', date_source: 'file', excerpt: '', amount: '', text_status: 'ocr', pr: 'CO-SYN-001', up: 'Upload.zip' });
     expect(rows[3]).toMatchObject({ ref: 'DC-CT2-001', amount: '20.1235', text_status: 'none' });
     expect(dataset(files, 'meta')).toEqual({
       builtAt: '2002-06-07 08:09', docCount: 4, dataFolderName: 'Synthetic room', bundles: { Original: 2, Correspondence: 1, Supplementary: 1 }, emails: 1, invoices: 1, people: 1, textNone: 1, textPending: 0,

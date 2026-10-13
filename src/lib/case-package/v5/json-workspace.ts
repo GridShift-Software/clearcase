@@ -45,6 +45,7 @@ export function chronologyRow(r: JsonObject): JsonObject {
     refs: [], invoice_no: '', size: count(r.sz), attachments: [],
   };
   if (typeof r.pr === 'string' && r.pr !== '') row.pr = r.pr;
+  if (typeof r.ds === 'string' && r.ds !== '') row.date_source = r.ds;
   return carry(row, r, ROW_EXTRAS);
 }
 

@@ -106,6 +106,8 @@ try {
 	const warm = async (side) => {
 		let p = warmTabs[side];
 		if (!p) { p = warmTabs[side] = await page(side, false); await p.navigate(URLS[side], { timeout: 60000 }); await p.waitFor(COND[side].overview, 60000); }
+		// a background tab gets no animation frames: the measured tab is brought to the front each time
+		await p.s('Page.bringToFront');
 		// back to the overview, unmeasured: the app by its navigation entry, v5 by go()
 		if (side === 'app') { await p.evaluate(`document.getElementById('nav-overview').click(); true`); await p.waitFor(COND.app.overview, 30000); } else { await p.evaluate(`go('overview'); true`); await p.waitFor(COND.v5.overview, 30000); }
 		if (side === 'v5') await p.evaluate(`(() => { const i = document.createElement('i'); i.id = '__cc_old'; document.getElementById('main').prepend(i); return true; })()`);
@@ -114,7 +116,10 @@ try {
 		const xy = await p.evaluate(`(() => { const e = document.querySelector(${J(NAV[side])}); e.scrollIntoView({ block: 'center' }); const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
 		await p.s('Input.dispatchMouseEvent', { type: 'mouseMoved', x: xy.x, y: xy.y });
 		for (const type of ['mousePressed', 'mouseReleased']) await p.s('Input.dispatchMouseEvent', { type, x: xy.x, y: xy.y, button: 'left', clickCount: 1 });
-		const m = await p.waitFor(`window.__cc.mark && window.__cc.t0 !== null && { at: window.__cc.mark.at, t0: window.__cc.t0 }`, 60000);
+		const m = await p.waitFor(`window.__cc.mark && window.__cc.t0 !== null && { at: window.__cc.mark.at, t0: window.__cc.t0 }`, 60000).catch(async (e) => {
+			const why = await p.evaluate(`({ t0: window.__cc.t0, mark: window.__cc.mark, url: location.href.slice(-60), ready: document.querySelector('main#main')?.dataset.ready ?? null, rowCount: !!document.getElementById('row-count'), old: !!document.getElementById('__cc_old'), tables: document.querySelectorAll('#main table').length, rows: document.querySelectorAll('#main tbody tr').length, h: document.querySelector('#main h1, #main h2')?.textContent.slice(0, 40) ?? null })`).catch(() => null);
+			throw new Error(`${side} warm navigation did not finish: ${J(why)} (${e.message.slice(0, 80)})`);
+		});
 		return +(m.at - m.t0).toFixed(1);
 	};
 	for (let i = 0; i < WARMUP + SAMPLES; i++) {

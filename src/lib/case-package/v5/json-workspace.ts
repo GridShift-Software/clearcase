@@ -114,7 +114,14 @@ export function contradictionsOf(list: readonly JsonObject[], rowsByRef: Readonl
 
 const personOf = (p: JsonObject): JsonObject => carry({ name: str(p.name), email: '', org: '', sent: count(p.sent), received: count(p.recv), total: count(p.sent) + count(p.recv), role: str(p.role) }, p, ['side']);
 const entityOf = (e: JsonObject): JsonObject => carry({ name: str(e.name), note: '', role: str(e.role) }, e, ['key', 'count', 'first', 'last', 'tax']);
-const riskOf = (r: JsonObject): JsonObject => carry({ issue: str(r.risk), likelihood: str(r.l), impact: str(r.i), mitigation: str(r.mit) }, r, ['id', 'matter', 'type', 'owner', 'target', 'res']);
+/** A 1-5 score as v5's risk word (4-5 High, 3 Medium, 1-2 Low); any other value as written. */
+export const riskLevel = (v: JsonValue | undefined): string => (typeof v !== 'number' ? str(v) : v >= 4 ? 'High' : v >= 3 ? 'Medium' : v >= 1 ? 'Low' : str(v));
+const riskOf = (r: JsonObject): JsonObject => {
+  const out = carry({ issue: str(r.risk), likelihood: riskLevel(r.l), impact: riskLevel(r.i), mitigation: str(r.mit) }, r, ['id', 'matter', 'type', 'owner', 'target', 'res']);
+  if (typeof r.l === 'number') out.likelihood_score = r.l;
+  if (typeof r.i === 'number') out.impact_score = r.i;
+  return out;
+};
 const defenceOf = (d: JsonObject): JsonObject => ({ point: nonEmpty([str(d.matter) && `Matter ${str(d.matter)}`, str(d.opponent)]).join(' · '), dcs: str(d.contention), rebuttal: str(d.rebuttal), evidence: str(d.evidence), refs: '', docs: [] });
 const infoOf = (i: JsonObject): JsonObject => carry({ item: str(i.doc), owner: str(i.src), status: str(i.pri) }, i, ['matter', 'grp', 'why']);
 const witnessOf = (w: JsonObject): JsonObject => carry({ name: str(w.name), role: str(w.role), willsay: str(w.scope) }, w, ['matter', 'status']);

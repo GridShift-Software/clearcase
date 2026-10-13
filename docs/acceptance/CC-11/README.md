@@ -14,10 +14,10 @@ The gate author's evidence for complete v5 parity and local release readiness. I
 | Strict parity | gate step `parity --all --strict-register` | 0 | 42 views extracted on both sides; 103,130 values compared, 99,766 matched, 3,364 registered, 0 unregistered; 0 not-yet-implemented | `.local/gate/parity-out/scorecard.md` |
 | Real v5 lanes | gate step `verify:pilot:v5` | 0 | 18/18 lanes PASS | `.local/gate/v5-out/lanes-v5.json` |
 | Acceptance workflow | `scripts/verify/evidence.sh acceptance` | 0 | 8/8 scenarios (AC1–AC8) | `.local/GRS-21/acceptance-out/acceptance/` |
-| Layout, synthetic | `scripts/verify/evidence.sh layout` | 1 | 42 views × 4 widths, 8 components, 168 screenshots: 0 view failures, 1 shell contrast failure (F1), 8 component failures (F1, F2) | `.local/GRS-21/layout-synthetic/layout.json` |
-| Layout, v5 sample | `scripts/verify/evidence.sh layout-v5` | 1 | 42 views × 4 widths, 8 components, 168 screenshots: 0 view failures, 1 shell contrast failure (F1), 8 component failures (F1, F2) | `.local/GRS-21/layout-v5/layout.json` |
+| Layout, synthetic | `scripts/verify/evidence.sh layout` | 1 | 42 views × 4 widths, 8 components, 168 screenshots: 0 view failures, 1 shell contrast failure (F1), 8 component failures (F1, F2). Rerun at GRS-67 `5d15b8b`: exit 0, 0 failures | `.local/GRS-21/layout-synthetic/layout.json` |
+| Layout, v5 sample | `scripts/verify/evidence.sh layout-v5` | 1 | 42 views × 4 widths, 8 components, 168 screenshots: 0 view failures, 1 shell contrast failure (F1), 8 component failures (F1, F2). Rerun at GRS-67 `5d15b8b`: exit 0, 0 failures | `.local/GRS-21/layout-v5/layout.json` |
 | Metrics | `scripts/verify/evidence.sh metrics` | 0 | see [Metrics](#metrics) | `.local/GRS-21/metrics/metrics.json` |
-| Dispositions | `scripts/verify/evidence.sh dispositions` | 1 | finding F4; [defects-table.md](defects-table.md) | `.local/GRS-21/dispositions.json` |
+| Dispositions | `scripts/verify/evidence.sh dispositions` | 1 | finding F4. Rerun at GRS-67 `5d15b8b`: exit 0, 159 of 159 defects registered, the 4 imported-data defects tagged; [defects-table.md](defects-table.md), regenerated there | `.local/GRS-21/dispositions.json` |
 | Matrix | `scripts/verify/evidence.sh matrix` | 0 | [matrix.md](matrix.md) | – |
 
 `scripts/agent-tools/doctor` fails on this host, because three installed skills differ from `skills.lock.json`. That is an environment drift, not part of this branch, and no check above depends on it.
@@ -112,9 +112,15 @@ App code is outside this gate's scope; each finding goes to its owner as a follo
   - the `.unavailable` link colour `#777` reaches 4.48:1 against the navigation background, below 4.5:1 (`src/app.css:25`).
 
   Follow-up for the coordinator: flip the statuses in the inventory, then regenerate the registry. That also clears the contrast failure.
+
+  **Closed by GRS-67** (`086c797`): `scripts/pilot/generate-view-registry.ts` marks a view available once its owner's ticket passed (GRS-12, GRS-14 to GRS-20), so all 42 entries are `available`, and neither the navigation nor the Go-to list marks a view unavailable. The `.unavailable` colour is now `#707070`, 4.95:1 on white (was `#777`, 4.48:1). At `5d15b8b` both layout runs report 0 shell contrast failures, and the navigation link's text is 8.04:1.
 - **F2. The focus indicator is 2.06:1.** The shared `:focus-visible` outline `3px solid #f0a020` (`src/app.css:5`) reaches 2.06:1 against white and 2.15:1 against the navigation background. WCAG 2.2 1.4.11 asks for 3:1. Every focusable component inherits it. Follow-up for the coordinator, who owns the shared components: use a darker outline, or a two-tone ring.
+
+  **Closed by GRS-67** (`086c797`): the outline is `3px solid #d35400`. At `5d15b8b` both layout runs measure the ring at 3.99:1 on the page background and 4.17:1 on the navigation background, and every focusable component passes. It also reaches 3.45:1 on the dark header.
 - **F3 (withdrawn). A Court Bundle overlap at 390 px.** The first layout run (`1f38aca`) compared bounding boxes, so a wrapped button looked like an overlap. Measured line box by line box at `2243fc3`, nothing overlaps.
 - **F4. Source-defect dispositions are incomplete.** The register has an entry naming 47 of the 159 v5 source defects (the 18 rows of `defects.md` and the 145 per-view defects of `view-checklist.md`, with overlaps). It names neither high defect `S-rescan_tab-1` nor `S-backup_tab-1` (both fixed by GRS-20, but not registered). It has no entry of type `data-correction-deferred-to-pipeline`, so the imported-data defects `S-meta-counts` and `S-prescription-frozen` are not tagged. Follow-up for the register owners: add a disposition per defect, or record "no visible difference" with its reason, and tag the imported-data ones. [defects-table.md](defects-table.md) lists every defect. The register is outside this gate's write scope.
+
+  **Closed by GRS-67** (`4158641`): `scripts/verify/register-dispositions.mjs` writes a disposition (an entry with `field: []`, [parity README](../../reference/parity/README.md#source-defect-dispositions)) for each of the 112 defects, under its owner. The 112 defects are in 109 entries: 72 `defect-fix`, 33 `known-gap` and 4 `data-correction-deferred-to-pipeline` (`S-meta-counts`, `S-overview-2`, `S-prescription-frozen`, `S-catalogue-refs`). Each entry cites a test or app line and has `approvedBy: null`. At `5d15b8b`, dispositions report 159 of 159 registered, and strict parity reports 0 unregistered and 0 unused out of 326 entries.
 
 ## Follow-ups and shared-file requests
 

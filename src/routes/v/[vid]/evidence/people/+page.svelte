@@ -36,7 +36,5 @@
 </main>
 
 <style>
-	.mono { font-family: ui-monospace, monospace; }
-	.hint { display: block; color: #6a4b00; font-family: system-ui, sans-serif; }
-	.disclosure { color: #6a4b00; }
+	.hint { display: block; font-family: var(--font-sans); }
 </style>

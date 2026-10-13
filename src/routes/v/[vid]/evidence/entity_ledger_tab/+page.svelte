@@ -21,8 +21,3 @@
 		</table></TableScroll>
 	</div>
 </main>
-
-<style>
-	.ex { color: #555; }
-	.disclosure { color: #6a4b00; }
-</style>

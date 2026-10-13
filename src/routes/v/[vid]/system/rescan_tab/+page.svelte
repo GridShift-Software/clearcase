@@ -97,6 +97,4 @@
 
 <style>
 	fieldset { border: 0; padding: 0; margin: .4rem 0; display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
-	td, th { padding: 2px 8px; text-align: left; vertical-align: top; }
-	tbody tr { border-bottom: 1px solid #eee; }
 </style>

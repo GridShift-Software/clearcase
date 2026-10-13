@@ -84,7 +84,7 @@
 </main>
 
 <style>
-	.chead { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; margin: 0; padding: .6rem .8rem; font-weight: 600; border-bottom: 1px solid #eee; }
+	.chead { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
 	.chead .count { margin-left: auto; font-weight: 400; }
-	.explain { margin: 0; padding: .6rem .8rem; color: #555; border-bottom: 1px solid #eee; }
+	.explain { margin: 0; padding: 10px 20px; color: var(--ink-2); border-bottom: 1px solid var(--border); }
 </style>

@@ -40,5 +40,4 @@
 
 <style>
 	.pad0 { padding: 0; }
-	.empty { color: #555; padding: 1rem; text-align: center; }
 </style>

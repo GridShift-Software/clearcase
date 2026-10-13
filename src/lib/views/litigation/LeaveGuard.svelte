@@ -41,7 +41,7 @@
 {/if}
 
 <style>
-	.ask { position: fixed; inset: auto 1rem 1rem auto; max-width: 28rem; background: #fff; border: 2px solid #b3261e; padding: 0.75rem; z-index: 50; box-shadow: 0 2px 8px rgb(0 0 0 / 0.2); }
+	.ask { position: fixed; inset: auto 1rem 1rem auto; max-width: 28rem; z-index: 50; }
 	.ask p { margin: 0 0 0.5rem; }
 	.ask button + button { margin-left: 0.5rem; }
 </style>

@@ -72,7 +72,7 @@
 			<div><label class="fld" for="sst">Text status</label><select class="in" id="sst" name="status" bind:value={f.status}><option value="">Any</option>{#each data.options.statuses as s (s)}<option value={s}>{s}</option>{/each}</select></div>
 		</div>
 		<div class="toolbar">
-			<button id="search-run">Search</button>
+			<button id="search-run" class="primary">Search</button>
 			<button type="button" id="search-export" onclick={exportCsv}>Export CSV</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}
 			<button type="button" id="search-actions" onclick={() => go({ actions: '1' })}>Extract action items</button>
 		</div>
@@ -120,15 +120,5 @@
 </main>
 
 <style>
-	.search-form .row { display: flex; flex-wrap: wrap; gap: .6rem; margin-bottom: .6rem; }
-	.fld { display: block; font-size: .85em; color: #555; }
-	.toolbar { display: flex; gap: .5rem; }
-	.count { padding: .4rem .2rem; }
-	.ex { color: #555; font-size: .85em; }
-	.mono { font-family: ui-monospace, monospace; }
-	.badge { display: inline-block; padding: 0 .4em; border-radius: 3px; background: #eef0f3; font-size: .85em; }
-	.pager { display: flex; gap: .6rem; align-items: center; padding: .4rem 0; }
-	.pager .count { margin-left: auto; }
-	.disclosure, .order-note { color: #555; }
 	#searchRes { margin-top: 1rem; }
 </style>

@@ -1,5 +1,5 @@
 // scripts/verify/register-dispositions.mjs keeps approvals and fails closed (GRS-67, fix rounds): a rerun keeps
-// approvedBy/approvedOn while the entry's type, productVisible and reason are unchanged, and resets them (naming the
+// approvedBy/approvedOn while the entry's view, type, productVisible and reason are unchanged, and resets them (naming the
 // entry) when one changes. --check fails on a defect with no disposition, a disposition for a defect that is gone (in any
 // form of an empty field), a defects.md row that does not parse, and an empty evidence pattern. Each case runs the script
 // on a synthetic copy of docs/reference (--reference), never on the committed register.
@@ -61,6 +61,7 @@ describe('register-dispositions --check', () => {
 		['type', (e: Entry) => { e.type = e.type === 'known-gap' ? 'defect-fix' : 'known-gap'; }],
 		['productVisible', (e: Entry) => { e.productVisible = !e.productVisible; }],
 		['reason', (e: Entry) => { e.reason = `${String(e.reason).replace(/ Evidence: .*$/, '')} Changed.`; }],
+		['view', (e: Entry) => { e.view = e.view === 'overview' ? 'chronology' : 'overview'; }],
 	])('resets an approval when a rerun rewrites the entry because its %s changed, and names it', (_what, change) => {
 		edit(FILE, (d) => { const e = d.entries.find((x) => x.author?.startsWith('GRS-67 dispositions'))!; e.approvedBy = 'dianbrown'; e.approvedOn = '2026-10-20'; change(e); });
 		const first = mine(FILE)[0]!;

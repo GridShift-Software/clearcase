@@ -24,7 +24,7 @@
 // shared component (scripts/verify/layout-spec.mjs); a parity scorecard that exited 0 or 1, was not aborted and is
 // evidence from a strict-register run; an acceptance run that was offline and wrote every scenario; the e2e summary and
 // each category summary and suite.json, which test:e2e stamps with the revision of its run, are evidence. A view whose
-// layout row is incomplete is BLOCKED; a run that failed without a failing scenario to blame fails every view.
+// layout row is incomplete is BLOCKED; a step that failed without a failing scenario in its own record, a listed category without a summary, and a shell or component layout failure fail every view.
 // --build-stamp FILE (default build/clearcase-build.json) names the build stamp. Writes Markdown (--out, default
 // docs/acceptance/CC-11/matrix.md).
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -145,13 +145,32 @@ const layoutProblems = (name, l) => {
 };
 layoutProblems('layout (synthetic)', layout);
 layoutProblems('layout (v5 sample)', layoutV5);
-// a run that failed with no failing scenario to blame must not leave the views at PASS
-const failedScenarioIn = (inAcceptance) => Object.values(scenarios).flat().some((x) => !x.pass && (x.suite === 'acceptance') === inAcceptance);
+// a failed step is blamed on its own record: it needs a failing scenario there that lands on a view, else every view fails
+const viewIds = new Set(VIEWS.map((v) => v.id));
+const failedIn = (suite) => [...viewIds].some((id) => (scenarios[id] ?? []).some((x) => x.suite === suite && !x.pass));
 const runFailed = [];
-if (acc && acc.ok !== true && !failedScenarioIn(true)) runFailed.push(`acceptance run failed (ok ${acc.ok}) with no failing scenario`);
-if (e2eSummary && e2eSummary.ok !== true && !failedScenarioIn(false)) runFailed.push(`test:e2e run failed (ok ${e2eSummary.ok}) with no failing scenario: ${(e2eSummary.results ?? []).filter((r) => r.rc !== 0).map((r) => `${r.name} rc ${r.rc}`).join(', ') || 'no step named'}`);
+if (acc && acc.ok !== true && !failedIn('acceptance')) runFailed.push(`acceptance run failed (ok ${acc.ok}) with no failing scenario on a view`);
+if (e2eSummary) {
+	// the record each step writes: a suite's scenarios feed the views it names; the others (durability, netcheck) feed none
+	const recordOf = (name) => (name === 'browser suite (offline)' ? 'pilot' : name === 'UI class suite (offline)' ? 'classes' : /^(\S+) suite \(offline\)$/.exec(name)?.[1]);
+	const seen = new Set();
+	for (const r of e2eSummary.results ?? []) {
+		if (r.rc === 0) continue;
+		const rec = recordOf(r.name);
+		seen.add(r.name);
+		if (!rec || ['durability', 'netcheck'].includes(rec)) runFailed.push(`test:e2e step failed (${r.name} rc ${r.rc}); no view to blame`);
+		else if (!failedIn(rec)) runFailed.push(`test:e2e step failed (${r.name} rc ${r.rc}) with no failing scenario in its own record${r.summaryProblems?.length ? `: ${r.summaryProblems[0]}` : ''}`);
+	}
+	for (const c of e2eSummary.categories?.suites ?? []) if (!e2eStamped[c]) runFailed.push(`test:e2e category ${c}: no usable summary`);
+	if (e2eSummary.ok !== true && !seen.size && !runFailed.length) runFailed.push(`test:e2e run failed (ok ${e2eSummary.ok}) with no step named`);
+}
 if (parity && parity.exit === 1) runFailed.push('the parity run failed (exit 1): an isolation breach or an unused register entry, not a view');
 for (const [name, doc] of Object.entries(e2eStamped)) if (doc.ok === false && !(doc.scenarios ?? []).some((x) => x.pass !== true)) runFailed.push(`e2e ${name} summary: ok false with no failing scenario`);
+// a shell or component failure belongs to no view: it fails all of them (layout.mjs names a view's failures `<view>@w:` or `<view>:`)
+for (const [name, l] of [['layout (synthetic)', layout], ['layout (v5 sample)', layoutV5]]) {
+	const shared = (l?.failures ?? []).filter((f) => !viewIds.has(/^[a-z_]+/.exec(f)?.[0]));
+	if (shared.length) runFailed.push(`${name}: ${shared.length} shell or component failure(s): ${shared[0].slice(0, 80)}`);
+}
 const layoutFails = (l, id) => (l?.failures ?? []).filter((f) => f.startsWith(`${id}@`) || f.startsWith(`${id}:`));
 
 const rows = [];
@@ -188,7 +207,7 @@ const md = [
 	'',
 	`- **Revision:** \`${SHA}\`. Input revisions: ${problems.length ? `**BLOCKED, not evidence for this SHA:** ${problems.join('; ')}` : 'every input (build, parity scorecard, e2e, acceptance, both layout runs) was produced at this SHA on a clean tree'}. Parity scorecard: evidence ${parity?.evidence ?? 'missing'}, exit ${parity?.exit ?? '–'}.`,
 	`- **Result:** ${totals.PASS} PASS, ${totals.FAIL} FAIL, ${totals.BLOCKED} BLOCKED of ${rows.length} views; ${rows.reduce((a, r) => a + r.acts.length, 0)} v5 actions.`,
-	...(runFailed.length ? [`- **Runs that failed with no failing scenario to blame:** ${runFailed.map(cell).join('; ')}.`] : []),
+	...(runFailed.length ? [`- **Runs that failed with no failing scenario to blame, and shell-wide layout failures:** ${runFailed.map(cell).join('; ')}.`] : []),
 	`- **Shell-wide failures** (shared navigation and components, on every view, so not repeated per view): ${[...(layout?.failures ?? []), ...(layoutV5?.failures ?? []).map((f) => `v5 sample: ${f}`)].filter((f) => f.startsWith('shell') || f.startsWith('component') || f.startsWith('v5 sample: shell') || f.startsWith('v5 sample: component')).map(cell).join('; ') || 'none'}.`,
 	`- **Inputs:** parity \`${rel(PARITY)}\`; e2e summaries ${Object.entries(e2eFiles).map(([k, f]) => `\`${f}\``).join(', ') || 'missing'}; acceptance \`${rel(ACC)}\`${acc ? '' : ' (missing)'}; layout \`${rel(LAYOUT)}\`${layout ? '' : ' (missing)'}; layout on the v5 sample \`${rel(LAYOUT_V5)}\`${layoutV5 ? '' : ' (missing)'}. All are ignored local files of the run; the reviewer regenerates them with [reviewer-guide.md](reviewer-guide.md).`,
 	`- **Rule:** a view PASSes when strict parity compared it with no unregistered difference and no not-yet-implemented entry, every browser scenario that names it passed (at least one), and every layout, label, keyboard and contrast check of it passed at 320, 390, 768 and 1280 px. For the actions, parity compares each view's control inventory (every button, link and field v5 shows, by label) and drives its filter and sort sweeps and its exports on both sides, and the named scenarios drive the saves and navigation. This gate does not map each action to one scenario: the view's verdict stands for each action listed under it.`,

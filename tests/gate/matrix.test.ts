@@ -140,4 +140,60 @@ describe('acceptance matrix', () => {
 		const r = run();
 		expect([r.pass, r.fail]).toEqual([0, n]);
 	});
+
+	// a failed step is blamed on its own record: a failing scenario elsewhere must not let the rest of the run through
+	const step = (name: string, rc: number, extra = {}) => ({ name, rc, ms: 1, ...extra });
+	const failOne = (file: string, i = 7) => edit(file, (d) => { d.scenarios[i].pass = false; });
+	it('fails every view when a listed category has no summary, even if another scenario failed (probe a)', () => {
+		edit('e2e/summary.json', (d) => { d.ok = false; d.categories.suites = ['system', 'registers']; d.results = [step('registers suite (offline)', 1, { summaryProblems: ['no summary'] })]; });
+		failOne('e2e/system/summary.json');
+		const r = run();
+		expect([r.pass, r.fail, r.blocked]).toEqual([0, n, 0]);
+	});
+	it('fails every view when a listed category has no summary and nothing else failed', () => {
+		edit('e2e/summary.json', (d) => { d.categories.suites = ['system', 'registers']; });
+		expect(run().fail).toBe(n);
+	});
+	it('fails every view when a step with no view (netcheck, durability) failed, even if another scenario failed (probe b)', () => {
+		for (const name of ['loopback bind check (host namespace)', 'durability suite (offline)']) {
+			edit('e2e/summary.json', (d) => { d.ok = false; d.results = [step(name, 1)]; });
+			failOne('e2e/system/summary.json');
+			const r = run();
+			expect([r.pass, r.fail, r.blocked], name).toEqual([0, n, 0]);
+			W(at('e2e', 'system', 'summary.json'), category());
+		}
+	});
+	it('fails every view when a category step failed but its own record shows no failing scenario, whoever else failed', () => {
+		W(at('e2e', 'classes', 'summary.json'), category());
+		edit('e2e/summary.json', (d) => { d.ok = false; d.results = [step('system suite (offline)', 1), step('UI class suite (offline)', 1)]; });
+		failOne('e2e/classes/summary.json');
+		const r = run();
+		expect([r.pass, r.fail]).toEqual([0, n]);
+	});
+	it('fails only the failing scenario\'s view when the failed step has a failing scenario in its own record', () => {
+		edit('e2e/summary.json', (d) => { d.ok = false; d.results = [step('system suite (offline)', 1)]; });
+		failOne('e2e/system/summary.json');
+		const r = run();
+		expect(r.status, r.out).toBe(0);
+		expect([r.pass, r.fail, r.blocked]).toEqual([n - 1, 1, 0]);
+	});
+	it('fails every view when the acceptance run failed and its failing scenario names no view', () => {
+		edit('acc.json', (d) => { d.ok = false; d.scenarios[2].pass = false; d.scenarios[2].view = 'no_such_view'; });
+		expect(run().fail).toBe(n);
+	});
+	it('fails only the named view when the acceptance run failed with a failing scenario on a view', () => {
+		edit('acc.json', (d) => { d.ok = false; d.scenarios[2].pass = false; d.scenarios[2].view = VIEWS[4].id; });
+		const r = run();
+		expect([r.pass, r.fail, r.blocked]).toEqual([n - 1, 1, 0]);
+	});
+
+	for (const failure of ['shell navigation: 2 text elements under their contrast minimum', 'component button: text under 4.5:1 in a state']) {
+		for (const file of ['layout.json', 'layout-v5.json']) {
+			it(`fails every view when ${file} exits 1 with only "${failure.slice(0, 15)}" failing (probe c)`, () => {
+				edit(file, (d) => { d.exit = 1; d.failures = [failure]; });
+				const r = run();
+				expect([r.pass, r.fail, r.blocked]).toEqual([0, n, 0]);
+			});
+		}
+	}
 });

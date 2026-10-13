@@ -70,6 +70,16 @@ export const e2eNonEvidence = (env = process.env, suites = [], read = {}) => [..
 export const suiteSummaryFile = (out, category) => join(out, category, 'summary.json');
 
 /**
+ * Stamps a step's result file with the revision this run was made at (the root summary's `freshBuild`), so that a copy
+ * left by an earlier run is recognisable: scripts/verify/matrix.mjs counts a category summary or suite.json only with it.
+ */
+export function stampRecord(file, freshBuild) {
+	let doc;
+	try { doc = JSON.parse(readFileSync(file, 'utf8')); } catch { return; }
+	writeFileSync(file, JSON.stringify({ ...doc, freshBuild }, null, 1));
+}
+
+/**
  * The problems with a category suite's summary ({ scenarios: [{ id, view, pass }] }), given the ids of the category's
  * implemented views; an empty list when the suite proved what it ran.
  */
@@ -168,6 +178,8 @@ async function main() {
 			console.error(`test:e2e: ${name}: no result within ${STEP_TIMEOUT_MS / 1000} s; stopped`);
 			Object.assign(res, { rc: 124, timedOut: true });
 		}
+		const record = STEP_RECORDS[name] ? join(dir, STEP_RECORDS[name]) : category ? suiteSummaryFile(dir, category) : null;
+		if (record) stampRecord(record, evidenceRecord(fresh, allowed).freshBuild);
 		if (category) {
 			const problems = suiteProblems(dir, category, implementedIn(category));
 			for (const p of problems) console.error(`test:e2e: ${category} suite: ${p}`);

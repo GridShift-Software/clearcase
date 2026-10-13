@@ -18,22 +18,32 @@
 // failed, and is BLOCKED when an input is missing. Every input must carry the revision it was produced at (parity
 // scorecard `revision`, e2e summary.json `freshBuild.head`, acceptance and layout `revision.head`, and the build under
 // test: build/clearcase-build.json, also stamped into the acceptance and layout results) and that revision must be SHA
-// on a clean tree; one that is missing, different or dirty BLOCKs every view and the script exits 1. Writes Markdown
-// (--out, default docs/acceptance/CC-11/matrix.md).
+// on a clean tree; one that is missing, different or dirty BLOCKs every view and the script exits 1. A revision is a
+// hex SHA of 12 characters or more, and the two agree when one is a prefix of the other. Each input must also say its run
+// completed: a layout run that exited 0 or 1 without an `error`, with a row for every view at every width and every
+// shared component (scripts/verify/layout-spec.mjs); a parity scorecard that exited 0 or 1, was not aborted and is
+// evidence from a strict-register run; an acceptance run that was offline and wrote every scenario; the e2e summary and
+// each category summary and suite.json, which test:e2e stamps with the revision of its run, are evidence. A view whose
+// layout row is incomplete is BLOCKED; a run that failed without a failing scenario to blame fails every view.
+// --build-stamp FILE (default build/clearcase-build.json) names the build stamp. Writes Markdown (--out, default
+// docs/acceptance/CC-11/matrix.md).
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { VIEWS } from '../../src/lib/components/view-registry.ts';
+import { COMPONENTS, WIDTHS } from './layout-spec.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..', '..');
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
 const SHA = arg('--sha', null);
 if (!SHA) { console.error('--sha SHA is required'); process.exit(2); }
+if (!/^[0-9a-f]{12,64}$/.test(SHA)) { console.error('--sha must be a hex revision of at least 12 characters'); process.exit(2); }
 const L = (p) => join(ROOT, '.local', ...p.split('/'));
 const PARITY = arg('--parity', L('gate/parity-out/scorecard.json'));
 const E2E = arg('--e2e', L('gate/e2e-out'));
 const ACC = arg('--acceptance', L('GRS-21/acceptance-out/acceptance/summary.json'));
 const LAYOUT = arg('--layout', L('GRS-21/layout-synthetic/layout.json'));
 const LAYOUT_V5 = arg('--layout-v5', L('GRS-21/layout-v5/layout.json'));
+const BUILD_STAMP = arg('--build-stamp', join(ROOT, 'build', 'clearcase-build.json'));
 const OUT = arg('--out', join(ROOT, 'docs', 'acceptance', 'CC-11', 'matrix.md'));
 const read = (f) => (existsSync(f) ? JSON.parse(readFileSync(f, 'utf8')) : null);
 const rel = (f) => relative(ROOT, f);
@@ -50,20 +60,24 @@ for (const sec of checklist.split(/^## /m).slice(1)) {
 // scenarios per view
 const scenarios = {};
 const add = (view, suite, s) => { (scenarios[view] ??= []).push({ suite, id: s.id, pass: s.pass === true || s.status === 'PASS' }); };
-const e2eFiles = {};
+const e2eFiles = {}, e2eStamped = {};
+const e2eSummary = read(join(E2E, 'summary.json'));
+// a category counts only when the root summary says this run ran it: a directory left by an earlier gate does not
+const e2eRan = new Set([...(e2eSummary?.categories?.suites ?? []), 'classes']);
 if (existsSync(E2E)) {
-	for (const d of readdirSync(E2E, { withFileTypes: true }).filter((x) => x.isDirectory())) {
+	for (const d of readdirSync(E2E, { withFileTypes: true }).filter((x) => x.isDirectory() && e2eRan.has(x.name))) {
 		const f = join(E2E, d.name, 'summary.json');
 		const s = read(f);
 		if (!s?.scenarios) continue;
 		e2eFiles[d.name] = rel(f);
+		e2eStamped[d.name] = s;
 		for (const x of s.scenarios) {
 			const view = d.name === 'classes' ? (/:([a-z_]+)(?:[#@]|$)/.exec(x.id.replace(/^[a-z-]+:/, ''))?.[1] ?? x.view.split('/').pop()) : x.view;
 			add(view, d.name, x);
 		}
 	}
 	const pilot = read(join(E2E, 'suite.json'));
-	if (pilot?.results) { e2eFiles.pilot = rel(join(E2E, 'suite.json')); for (const x of pilot.results) for (const v of ['overview', 'chronology']) add(v, 'pilot', x); }
+	if (pilot?.results) { e2eFiles.pilot = rel(join(E2E, 'suite.json')); e2eStamped.pilot = pilot; for (const x of pilot.results) for (const v of ['overview', 'chronology']) add(v, 'pilot', x); }
 }
 const acc = read(ACC);
 if (acc?.scenarios) for (const x of acc.scenarios) add(x.view, 'acceptance', x);
@@ -71,11 +85,10 @@ if (acc?.scenarios?.find((x) => x.id === 'AC8-hostile-all-views')) for (const v 
 
 const parity = read(PARITY);
 const layout = read(LAYOUT), layoutV5 = read(LAYOUT_V5);
-const e2eSummary = read(join(E2E, 'summary.json'));
-const buildStamp = read(join(ROOT, 'build', 'clearcase-build.json'));
+const buildStamp = read(BUILD_STAMP);
 
 // ---- revisions: every input is evidence for SHA only when it says it was produced at SHA, on a clean tree --------------
-const isSha = (rev) => typeof rev === 'string' && rev.length >= 12 && (rev.startsWith(SHA) || SHA.startsWith(rev));
+const isSha = (rev) => typeof rev === 'string' && /^[0-9a-f]{12,64}$/.test(rev) && (rev.startsWith(SHA) || SHA.startsWith(rev));
 const problems = [];
 const need = (name, doc, rev, dirty) => {
 	if (!doc) problems.push(`${name}: missing`);
@@ -95,6 +108,50 @@ for (const [name, doc] of [['acceptance summary', acc], ['layout (synthetic)', l
 if (!Object.keys(e2eFiles).length) problems.push('e2e summary: no category summary found');
 // a partial acceptance run (a scenario missing) is not the acceptance workflow
 if (acc) for (let i = 1; i <= 8; i++) if (!acc.scenarios?.some((x) => x.id.startsWith(`AC${i}-`))) problems.push(`acceptance summary: scenario AC${i} missing`);
+
+// ---- completion: every input must say that its run finished, not only that the checks it did make passed ---------------
+const ran = (name, doc, ...checks) => { for (const [ok, what] of checks) if (doc && !ok) problems.push(`${name}: ${what}`); };
+const stamped = (name, doc) => {
+	const f = doc?.freshBuild;
+	if (!isSha(f?.head) || !isSha(f?.buildRevision) || f?.trackedDirty !== false || f?.buildDirty !== false) problems.push(`${name}: not stamped with a clean run at ${SHA.slice(0, 12)} (a copy left by an earlier gate?)`);
+};
+ran('e2e summary', e2eSummary, [e2eSummary?.evidence === true, `evidence is not true: ${e2eSummary?.evidenceNote ?? 'no evidence field'}`]);
+for (const [name, doc] of Object.entries(e2eStamped)) {
+	stamped(`e2e ${name} summary`, doc);
+	ran(`e2e ${name} summary`, doc, [!doc.aborted, 'its run aborted'], [doc.evidence !== false, 'evidence is false']);
+}
+ran('parity scorecard', parity,
+	[[0, 1].includes(parity?.exit), `exit ${parity?.exit ?? 'missing'}, not 0 or 1: the run did not finish`],
+	[!parity?.aborted, 'its run aborted'],
+	[parity?.evidence === true, `evidence is not true: ${parity?.evidenceNote ?? 'no evidence field'}`],
+	[parity?.register?.strict === true, 'it was not a strict-register run']);
+ran('acceptance summary', acc, [acc?.offline === true, 'the run was not offline']);
+// a layout run is complete when it exited 0 or 1 without an error, has its rows, and its failures agree with its exit
+const layoutRows = {};
+const layoutProblems = (name, l) => {
+	if (!l) return;
+	ran(name, l, [[0, 1].includes(l.exit), `exit ${l.exit ?? 'missing'}, not 0 or 1: the run did not finish${l.error ? ` (${String(l.error).slice(0, 100)})` : ''}`],
+		[!l.error, `the run raised an error: ${String(l.error).slice(0, 100)}`],
+		[Array.isArray(l.failures), 'it lists no failures array'],
+		[l.exit !== 0 || !l.failures?.length, 'exit 0 with failures listed'],
+		[l.exit !== 1 || l.failures?.length > 0, 'exit 1 with no failure listed']);
+	const miss = COMPONENTS.map(([c]) => c).filter((c) => !(l.components ?? []).some((x) => x?.name === c && typeof x.textOk === 'boolean' && x.states && ['default', 'hover', 'focus-visible', 'active'].every((st) => x.states[st])));
+	ran(name, l, [!miss.length, `shared components not measured: ${miss.join(', ')}`]);
+	for (const v of VIEWS) {
+		const row = (l.views ?? []).find((x) => x?.view === v.id);
+		const gaps = !row ? ['no row'] : [...WIDTHS.filter((w) => !row.widths?.[w] || typeof row.widths[w] !== 'object').map((w) => `width ${w}`), ...['label', 'keyboard'].filter((k) => typeof row[k]?.ok !== 'boolean'), ...(row.contrast?.main && row.contrast?.nav ? [] : ['contrast'])];
+		if (gaps.length) ((layoutRows[v.id] ??= []).push(`${name}: ${gaps.join(', ')} not measured`));
+	}
+};
+layoutProblems('layout (synthetic)', layout);
+layoutProblems('layout (v5 sample)', layoutV5);
+// a run that failed with no failing scenario to blame must not leave the views at PASS
+const failedScenarioIn = (inAcceptance) => Object.values(scenarios).flat().some((x) => !x.pass && (x.suite === 'acceptance') === inAcceptance);
+const runFailed = [];
+if (acc && acc.ok !== true && !failedScenarioIn(true)) runFailed.push(`acceptance run failed (ok ${acc.ok}) with no failing scenario`);
+if (e2eSummary && e2eSummary.ok !== true && !failedScenarioIn(false)) runFailed.push(`test:e2e run failed (ok ${e2eSummary.ok}) with no failing scenario: ${(e2eSummary.results ?? []).filter((r) => r.rc !== 0).map((r) => `${r.name} rc ${r.rc}`).join(', ') || 'no step named'}`);
+if (parity && parity.exit === 1) runFailed.push('the parity run failed (exit 1): an isolation breach or an unused register entry, not a view');
+for (const [name, doc] of Object.entries(e2eStamped)) if (doc.ok === false && !(doc.scenarios ?? []).some((x) => x.pass !== true)) runFailed.push(`e2e ${name} summary: ok false with no failing scenario`);
 const layoutFails = (l, id) => (l?.failures ?? []).filter((f) => f.startsWith(`${id}@`) || f.startsWith(`${id}:`));
 
 const rows = [];
@@ -107,7 +164,9 @@ for (const [n, v] of VIEWS.entries()) {
 	let verdict = 'PASS';
 	if (problems.length) { verdict = 'BLOCKED'; why.push('evidence is not for this revision (see Inputs)'); }
 	else if (!p || !layout) { verdict = 'BLOCKED'; why.push(!p ? 'no parity result' : 'no layout result'); }
+	else if (layoutRows[v.id]) { verdict = 'BLOCKED'; why.push(...layoutRows[v.id]); }
 	else {
+		if (runFailed.length) { verdict = 'FAIL'; why.push(...runFailed); }
 		if (p.v5 !== 'ok' || p.app !== 'ok' || p.unregistered !== 0) { verdict = 'FAIL'; why.push(`parity ${p.status}: v5 ${p.v5}, app ${p.app}, unregistered ${p.unregistered}`); }
 		if (nyi) { verdict = 'FAIL'; why.push(`${nyi} not-yet-implemented register entries (placeholder)`); }
 		if (!sc.length) { verdict = 'FAIL'; why.push('no browser scenario names the view'); }
@@ -129,6 +188,7 @@ const md = [
 	'',
 	`- **Revision:** \`${SHA}\`. Input revisions: ${problems.length ? `**BLOCKED, not evidence for this SHA:** ${problems.join('; ')}` : 'every input (build, parity scorecard, e2e, acceptance, both layout runs) was produced at this SHA on a clean tree'}. Parity scorecard: evidence ${parity?.evidence ?? 'missing'}, exit ${parity?.exit ?? '–'}.`,
 	`- **Result:** ${totals.PASS} PASS, ${totals.FAIL} FAIL, ${totals.BLOCKED} BLOCKED of ${rows.length} views; ${rows.reduce((a, r) => a + r.acts.length, 0)} v5 actions.`,
+	...(runFailed.length ? [`- **Runs that failed with no failing scenario to blame:** ${runFailed.map(cell).join('; ')}.`] : []),
 	`- **Shell-wide failures** (shared navigation and components, on every view, so not repeated per view): ${[...(layout?.failures ?? []), ...(layoutV5?.failures ?? []).map((f) => `v5 sample: ${f}`)].filter((f) => f.startsWith('shell') || f.startsWith('component') || f.startsWith('v5 sample: shell') || f.startsWith('v5 sample: component')).map(cell).join('; ') || 'none'}.`,
 	`- **Inputs:** parity \`${rel(PARITY)}\`; e2e summaries ${Object.entries(e2eFiles).map(([k, f]) => `\`${f}\``).join(', ') || 'missing'}; acceptance \`${rel(ACC)}\`${acc ? '' : ' (missing)'}; layout \`${rel(LAYOUT)}\`${layout ? '' : ' (missing)'}; layout on the v5 sample \`${rel(LAYOUT_V5)}\`${layoutV5 ? '' : ' (missing)'}. All are ignored local files of the run; the reviewer regenerates them with [reviewer-guide.md](reviewer-guide.md).`,
 	`- **Rule:** a view PASSes when strict parity compared it with no unregistered difference and no not-yet-implemented entry, every browser scenario that names it passed (at least one), and every layout, label, keyboard and contrast check of it passed at 320, 390, 768 and 1280 px. For the actions, parity compares each view's control inventory (every button, link and field v5 shows, by label) and drives its filter and sort sweeps and its exports on both sides, and the named scenarios drive the saves and navigation. This gate does not map each action to one scenario: the view's verdict stands for each action listed under it.`,
@@ -146,4 +206,5 @@ const md = [
 writeFileSync(OUT, md);
 console.log(`matrix: ${totals.PASS} PASS, ${totals.FAIL} FAIL, ${totals.BLOCKED} BLOCKED -> ${rel(OUT)}`);
 for (const pr of problems) console.log(`BLOCKED ${pr}`);
-process.exit(problems.length ? 1 : 0);
+for (const r of rows.filter((x) => x.verdict === 'BLOCKED' && !problems.length)) console.log(`BLOCKED ${r.v.id}: ${r.why.join('; ')}`);
+process.exit(problems.length || totals.BLOCKED ? 1 : 0);

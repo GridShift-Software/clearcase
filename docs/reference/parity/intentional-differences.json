@@ -607,7 +607,7 @@
       "type": "known-gap",
       "source": "S-chronology-4",
       "owner": "GRS-12",
-      "reason": "v5 says sorted by date in the subtitle whatever sort is chosen. ClearCase keeps the same fixed subtitle wording; there is no page to reset because the whole filtered list renders incrementally. Making the subtitle follow the chosen sort would need an app change. Evidence: src/routes/v/[vid]/chronology/+page.svelte:52.",
+      "reason": "v5 says sorted by date in the subtitle whatever sort is chosen. ClearCase keeps the same fixed subtitle wording; there is no page to reset because the whole filtered list renders incrementally. Making the subtitle follow the chosen sort would need an app change. Evidence: src/routes/v/[vid]/chronology/+page.svelte:53.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,

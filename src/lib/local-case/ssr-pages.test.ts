@@ -155,6 +155,28 @@ describe('SSR pages: import-time and parent-original states', () => {
 	});
 });
 
+describe('/api/browse: the Import page folder browser (GRS-70)', () => {
+	const browse = (headers: Record<string, string>, dir = root) => fetch(`${origin}/api/browse?path=${encodeURIComponent(dir)}`, { headers });
+
+	it('lists a folder to a same-origin request and refuses a cross-site or same-site one before reading anything', async () => {
+		const ok = await browse({ 'sec-fetch-site': 'same-origin' });
+		expect(ok.status).toBe(200);
+		expect(ok.headers.get('cache-control')).toBe('no-store');
+		const l = await ok.json();
+		expect(l.path).toBe(root);
+		expect(l.entries.map((e: { name: string }) => e.name)).toContain('data');
+		for (const site of ['cross-site', 'same-site']) {
+			const r = await browse({ 'sec-fetch-site': site });
+			expect([site, r.status, await r.text()]).toEqual([site, 403, 'cross-site API request refused']);
+		}
+	});
+
+	it('answers GET only: a write to it is refused', async () => {
+		const r = await fetch(`${origin}/api/browse`, { method: 'POST', headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' }, body: '{}' });
+		expect(r.status).toBe(405);
+	});
+});
+
 describe('hooks.server.ts: loopback clients only, and a disk-full diagnostic', () => {
 	type Hooks = typeof import('../../hooks.server.ts');
 	const event = (addr: string | (() => string)) => {

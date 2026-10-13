@@ -98,7 +98,7 @@ const gb = (n: number) => `${(n / 1e9).toFixed(2)} GB`;
 
 /** A case id the package schema allows, from a folder name: "ESS_DCS Pack v5" -> "ess_dcs-pack-v5". */
 export function caseIdFrom(name: string): string {
-	const id = name.normalize('NFKD').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[^a-z0-9]+/, '').slice(0, 64).replace(/[^a-z0-9]+$/, '');
+	const id = name.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[^a-z0-9]+/, '').slice(0, 64).replace(/[^a-z0-9]+$/, '');
 	return new RegExp(CASE_ID).test(id) ? id : 'case';
 }
 

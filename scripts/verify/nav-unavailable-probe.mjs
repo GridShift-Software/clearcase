@@ -22,14 +22,19 @@ const nav = `<nav class="views" aria-label="Case views"><section><h2>Group</h2><
 </ul></section></nav>`;
 writeFileSync(join(tmp, 'nav.html'), `<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="${pathToFileURL(join(ROOT, 'src', 'app.css'))}"><body>${nav}</body>`);
 
+const EXPECTED = ['available-current', 'unavailable-current', 'unavailable', 'available'];
+
 const MEASURE = `(() => {
 	const rgb = (s) => s.match(/[\\d.]+/g).map(Number);
 	const lum = ([r, g, b]) => { const f = (v) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4); return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b); };
 	const bgOf = (e) => { for (; e; e = e.parentElement) { const c = rgb(getComputedStyle(e).backgroundColor); if (c[3] === undefined || c[3] > 0) return c; } return [255, 255, 255]; };
-	return [...document.querySelectorAll('nav.views a')].map((a) => {
+	// a stylesheet that failed to load has no sheet; without app.css every link is black on white and passes
+	const sheet = !!document.querySelector('link[rel=stylesheet]')?.sheet;
+	const rows = [...document.querySelectorAll('nav.views a')].map((a) => {
 		const fg = rgb(getComputedStyle(a).color), bg = bgOf(a), [x, y] = [lum(fg), lum(bg)];
 		return { id: a.id, color: getComputedStyle(a).color, background: getComputedStyle(a).backgroundColor, ratio: +((Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05)).toFixed(2) };
 	});
+	return { sheet, rows };
 })()`;
 
 let b, code = 1;
@@ -39,11 +44,13 @@ try {
 	const r = await p.navigate(pathToFileURL(join(tmp, 'nav.html')).href);
 	if (r.errorText) throw new Error(`navigate: ${r.errorText}`);
 	await p.waitFor('document.readyState === "complete"', 10000);
-	const rows = await p.evaluate(MEASURE);
+	const { sheet, rows } = await p.evaluate(MEASURE);
 	for (const x of rows) console.log(`${x.id}: ${x.color} on ${x.background} = ${x.ratio}:1`);
+	const missing = EXPECTED.filter((id) => !rows.some((x) => x.id === id));
 	const bad = rows.filter((x) => x.ratio < 4.5);
-	console.log(bad.length ? `FAIL ${bad.map((x) => x.id).join(', ')} under 4.5:1` : `PASS ${rows.length} links, lowest ${Math.min(...rows.map((x) => x.ratio))}:1`);
-	code = bad.length ? 1 : 0;
+	const problems = [...(sheet ? [] : ['src/app.css did not load']), ...(missing.length ? [`no row for ${missing.join(', ')}`] : []), ...(bad.length ? [`${bad.map((x) => x.id).join(', ')} under 4.5:1`] : [])];
+	console.log(problems.length ? `FAIL ${problems.join('; ')}` : `PASS ${rows.length} links, lowest ${Math.min(...rows.map((x) => x.ratio))}:1`);
+	code = problems.length ? 1 : 0;
 } finally {
 	await b?.close?.();
 	rmSync(tmp, { recursive: true, force: true });

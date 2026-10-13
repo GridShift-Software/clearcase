@@ -10,10 +10,11 @@
 // shows the behaviour, found by a literal pattern; the script fails when a pattern is gone, and writes the file:line it
 // found into the reason, with the covering entry when parity sees the change. Entries keep approvedBy null: the user
 // approves them. The script owns only entries whose author is AUTHOR; it keeps their ids and any approvedBy and
-// approvedOn the user set, so a rerun changes nothing unless the table, the evidence lines or the register changed and
-// never clears an approval. --check exits 1 when the committed register differs, and (also without --check) when a
+// approvedOn the user set while type, productVisible and the reason (apart from its evidence file:line) are unchanged, so
+// a rerun changes nothing unless the table, the evidence lines or the register changed; an entry that changed in any
+// other way loses its approval, and the script names it. --check exits 1 when the committed register differs, and (also without --check) when a
 // defect of defects.md or view-checklist.md has no entry naming it, a disposition names a defect that is no longer
-// listed, or an evidence pattern is empty. --reference DIR reads docs/reference from DIR instead (the tests'
+// listed, a defects.md row does not parse, or an evidence pattern is empty. --reference DIR reads docs/reference from DIR instead (the tests'
 // synthetic copy); evidence files are always read from the repository.
 // scripts/verify/dispositions.mjs then reports every defect as registered.
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -274,8 +275,12 @@ const own = new Map(all.filter((e) => e.author === AUTHOR).map((e) => [e.source,
 const previous = new Map([...own].map(([source, e]) => [source, e.id]));
 const taken = new Set(all.filter((e) => e.author !== AUTHOR).map((e) => e.id));
 const reviewed = new Map(all.filter((e) => e.author !== AUTHOR).map((e) => [e.id, e]));
-const { defects: listed } = readDefects(REF);
-const problems = [];
+const { defects: listed, unparsedRows } = readDefects(REF);
+// a defects.md row that does not parse is a defect nobody can see: fail, as dispositions.mjs does
+const problems = unparsedRows.map((r) => `defects.md row ${r} does not parse (fewer than 8 cells); fix the row`);
+const lostApproval = [];
+// an approval covers a type, a visibility and a reason; the evidence file:line moves without reopening it
+const noEvidence = (reason) => String(reason ?? '').replace(/\s*Evidence: .*$/, '');
 const seen = new Set();
 const out = new Map(files.map((f) => [f, []]));
 const idOf = (file, defect) => {
@@ -292,7 +297,7 @@ const idOf = (file, defect) => {
 for (const [named, view, type, productVisible, file, patterns, cover, why] of DISPOSITIONS) {
 	const defects = [named].flat();
 	const defect = defects[0];
-	for (const d of defects) if (!listed.has(d) && !isListed(listed, d)) problems.push(`${d}: no such defect in defects.md or view-checklist.md; delete or retarget its disposition`);
+	for (const d of defects) if (!isListed(listed, d)) problems.push(`${d}: no such defect in defects.md or view-checklist.md; delete or retarget its disposition`);
 	for (const d of defects) { if (seen.has(d)) problems.push(`${d}: listed twice`); seen.add(d); }
 	if ([patterns].flat().length !== defects.length) { problems.push(`${defect}: one evidence pattern per defect`); continue; }
 	const lines = readFileSync(join(ROOT, file), 'utf8').split('\n');
@@ -310,16 +315,20 @@ for (const [named, view, type, productVisible, file, patterns, cover, why] of DI
 	const id = idOf(target, defect);
 	taken.add(id);
 	// a known gap names the owner whose app change would close it
-	// an approval the user gave in review survives a rerun
-	const approved = own.get(defect);
-	out.get(target).push({ id, view, field: [], type, source: defect, ...(type === GAP ? { owner: linear[view] } : {}), reason, productVisible, author: AUTHOR, approvedBy: approved?.approvedBy ?? null, approvedOn: approved?.approvedOn ?? null });
+	const before = own.get(defect);
+	// an approval the user gave in review survives a rerun while what it approved is unchanged; otherwise it is reset
+	const unchanged = before && before.type === type && before.productVisible === productVisible && noEvidence(before.reason) === noEvidence(reason);
+	if (before?.approvedBy && !unchanged) lostApproval.push(`${before.id} (${defect})`);
+	out.get(target).push({ id, view, field: [], type, source: defect, ...(type === GAP ? { owner: linear[view] } : {}), reason, productVisible, author: AUTHOR, approvedBy: unchanged ? before.approvedBy ?? null : null, approvedOn: unchanged ? before.approvedOn ?? null : null });
 }
-// a hand-written disposition (field []) of a defect that is no longer listed is as stale as a row of the table
-for (const e of all) if (e.author !== AUTHOR && Array.isArray(e.field) && !e.field.length && /^S-/.test(e.source ?? '') && !isListed(listed, e.source)) problems.push(`${e.id}: disposition of ${e.source}, which defects.md and view-checklist.md no longer list`);
+// a hand-written disposition (an empty field in any form: [], '', null or absent) of a defect no longer listed is as stale as a row of the table
+const isDisposition = (e) => !e.field || (Array.isArray(e.field) ? !e.field.length : !String(e.field).trim());
+for (const e of all) if (e.author !== AUTHOR && isDisposition(e) && /^S-/.test(e.source ?? '') && !isListed(listed, e.source)) problems.push(`${e.id}: disposition of ${e.source}, which defects.md and view-checklist.md no longer list`);
 // every listed defect needs an entry naming it, from the table or from another entry (the rule dispositions.mjs reports)
 const written = [...all.filter((e) => e.author !== AUTHOR), ...[...out.values()].flat()];
 for (const id of listed.keys()) if (!citing(written, id).length) problems.push(`${id}: no disposition; add a row to DISPOSITIONS`);
 if (problems.length) { console.error(problems.join('\n')); process.exit(1); }
+if (lostApproval.length) console.error(`register-dispositions: approval reset (type, productVisible or reason changed): ${lostApproval.join(', ')}`);
 
 let drift = 0;
 for (const [file, doc] of docs) {

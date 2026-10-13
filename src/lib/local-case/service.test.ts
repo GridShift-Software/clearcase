@@ -333,3 +333,37 @@ describe('startup and retention', () => {
 		expect((await lc.importPackage(a.caseDir, a.pkgDir)).kind).toBe('stored'); // the same package may come back
 	});
 });
+
+describe('case list', () => {
+	it('lists every stored case, most recently activated first, with its status, counts and where Open goes', async () => {
+		const { root, lc } = await setup('cases');
+		expect(lc.listCases()).toEqual([]);
+		const a = await buildCase(path.join(root, 'a'));
+		const b = await buildCase(path.join(root, 'b'), { caseId: 'other-case' });
+		const impA = await lc.importPackage(a.caseDir, a.pkgDir);
+		const impB = await lc.importPackage(b.caseDir, b.pkgDir);
+		const row = (c: typeof a, importId: number) => {
+			const v = lc.store.getVersion(c.resultsVersion)!;
+			return { id: c.resultsVersion, importId, created: v.created, storedAt: v.stored_at, documents: 7 };
+		};
+		expect(lc.listCases()).toEqual([
+			{ caseId: 'other-case', caseLabel: null, status: 'candidate', versions: 1, href: `/import/${impB.importId}`, version: row(b, impB.importId) },
+			{ caseId: 'e2e-case', caseLabel: null, status: 'candidate', versions: 1, href: `/import/${impA.importId}`, version: row(a, impA.importId) },
+		]);
+
+		expect(await lc.activate(a.resultsVersion, ackFor(lc, impA.importId))).toBeNull();
+		expect(lc.listCases().map((c) => [c.caseId, c.status, c.href])).toEqual([
+			['e2e-case', 'active', `/v/${encodeURIComponent(a.resultsVersion)}/overview`],
+			['other-case', 'candidate', `/import/${impB.importId}`],
+		]);
+		expect(await lc.activate(b.resultsVersion, ackFor(lc, impB.importId))).toBeNull();
+		expect(lc.listCases().map((c) => [c.caseId, c.status])).toEqual([['other-case', 'active'], ['e2e-case', 'active']]);
+
+		lc.storage.db().prepare("UPDATE document SET row_json = replace(row_json, 'Synthetic', 'Tampered') WHERE version_id = ? AND ref = 'OD-001'").run(a.resultsVersion);
+		await lc.startup();
+		expect(lc.listCases().map((c) => [c.caseId, c.status, c.href, c.version.id])).toEqual([
+			['other-case', 'active', `/v/${encodeURIComponent(b.resultsVersion)}/overview`, b.resultsVersion],
+			['e2e-case', 'recovery', '/recovery', a.resultsVersion],
+		]);
+	});
+});

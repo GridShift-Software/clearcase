@@ -27,7 +27,8 @@ import { isBusy, Storage } from './db.server.ts';
 import { procFdAvailable, within } from './fsafe.server.ts';
 import { project, readModelDigest } from './project.server.ts';
 import { CasePackError, prepareCasePack, type PackProgress } from './case-pack.server.ts';
-import { CaseStore, type Verification } from './store.server.ts';
+import { versionPath, type CaseSummary } from './model.ts';
+import { CaseStore, type CaseVersionRow, type Verification } from './store.server.ts';
 import { UserWork } from './user-work.server.ts';
 
 export type AppCode = 'APP_INPUT_INVALID' | 'APP_CASE_FOLDER_OVERLAPS_DATA' | 'APP_VERSION_CONFLICT' | 'APP_VERSION_RETIRED' | 'APP_CASE_FOLDER_DIFFERS' | 'APP_ORIGINALS_CHANGED' | 'APP_UNLISTED_IGNORED';
@@ -189,6 +190,24 @@ export class LocalCase {
 		return p && { caseId: p.case_id, vid: this.effectiveActive(p.case_id) };
 	}
 	anyRecovery(): CaseRecovery | undefined { return [...this.cases.values()][0]; }
+	/** Every stored case: the most recently activated first, then cases with only candidates, newest import first. */
+	listCases(): CaseSummary[] {
+		const byCase = new Map<string, CaseVersionRow[]>();
+		for (const v of this.store.caseVersions()) byCase.set(v.case_id, [...(byCase.get(v.case_id) ?? []), v]);
+		const order = [...new Set([...this.store.activePointers().map((p) => p.case_id), ...byCase.keys()])].filter((id) => byCase.has(id));
+		return order.map((caseId) => {
+			const rows = byCase.get(caseId)!;
+			const recovery = this.cases.get(caseId);
+			const effective = this.effectiveActive(caseId);
+			const shown = rows.find((r) => r.id === (effective ?? recovery?.configured)) ?? rows[0];
+			const status = recovery ? 'recovery' : effective ? 'active' : 'candidate';
+			const href = effective ? `${versionPath(effective)}/overview` : recovery ? '/recovery' : `/import/${shown.import_id}`;
+			return {
+				caseId, caseLabel: shown.case_label, status, versions: rows.length, href,
+				version: { id: shown.id, importId: shown.import_id, created: shown.created, storedAt: shown.stored_at, documents: shown.documents },
+			};
+		});
+	}
 
 	/**
 	 * Trusted baseline of a case: the warnings accepted with its active version plus its operator-accepted register.

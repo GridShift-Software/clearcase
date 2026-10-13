@@ -155,6 +155,21 @@ describe('SSR pages: import-time and parent-original states', () => {
 	});
 });
 
+describe('SSR case list', () => {
+	it('/ redirects to /cases, which lists the active case with its counts and opens its overview', async () => {
+		const r = await fetch(`${origin}/`, { redirect: 'manual' });
+		expect([r.status, r.headers.get('location')]).toEqual([307, '/cases']);
+		const page = await get('/cases');
+		expect(page.status).toBe(200);
+		expect(page.text).toContain('<title>Cases · ClearCase</title>');
+		expect(page.text).toContain('1 case.');
+		expect(page.text).toMatch(/<li class="case-card" data-case="e2e-case" data-status="active">/);
+		expect(page.text).toContain('7 documents · 1 results version');
+		expect([...page.text.matchAll(/class="btn open" href="([^"]+)"/g)].map((m) => m[1])).toEqual([`${v()}/overview`]);
+		expect(page.text).not.toContain('id="no-cases"');
+	});
+});
+
 describe('/api/browse: the Import page folder browser (GRS-70)', () => {
 	const browse = (headers: Record<string, string>, dir = root) => fetch(`${origin}/api/browse?path=${encodeURIComponent(dir)}`, { headers });
 

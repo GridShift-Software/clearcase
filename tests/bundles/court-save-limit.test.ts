@@ -8,7 +8,7 @@ import { createServer, type ViteDevServer } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildCase } from '../e2e/pilot/lib/fixtures.ts';
 import type { LocalCase } from '../../src/lib/local-case/service.server.ts';
-import { ackFor, cleanup, tempRoot } from '../../src/lib/local-case/test-support.ts';
+import { ackFor, cleanup, devServerLock, tempRoot } from '../../src/lib/local-case/test-support.ts';
 
 const ROOT = path.resolve(import.meta.dirname, '../..');
 const freePort = () => new Promise<number>((resolve) => { const s = netServer().listen(0, '127.0.0.1', () => { const p = (s.address() as { port: number }).port; s.close(() => resolve(p)); }); });
@@ -16,7 +16,9 @@ const freePort = () => new Promise<number>((resolve) => { const s = netServer().
 let root: string, vite: ViteDevServer, http: Server, origin: string, rv: string, lc: LocalCase, caseId: string;
 const saved = { ...process.env };
 
+let unlock: (() => void) | undefined;
 beforeAll(async () => {
+	unlock = await devServerLock(ROOT);
 	root = await tempRoot('court-save-limit');
 	const [port, originalsPort] = [await freePort(), await freePort()];
 	Object.assign(process.env, { CLEARCASE_DATA_DIR: path.join(root, 'data'), PORT: String(port), ORIGINALS_PORT: String(originalsPort), CLEARCASE_USERWORK_BACKUP_DELAY_MS: '60000' });
@@ -39,6 +41,7 @@ afterAll(async () => {
 	try { lc?.shutdown(); } catch { /* closed */ }
 	process.env = saved;
 	if (root) await cleanup(root);
+	unlock?.();
 }, 60_000);
 
 /** A bundle of `rows` items whose JSON is about `bytes` long. */

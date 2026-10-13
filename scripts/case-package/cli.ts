@@ -54,13 +54,18 @@ function reportOf(command: string, result: ImportResult, extra: Record<string, u
   };
 }
 
-async function readJsonFile(p: string): Promise<any> {
-  return parseStrictJson(await readFile(p, 'utf8'));
+/** A JSON file named by a flag; one that cannot be read or parsed is an input error (exit 2), never a crash. */
+async function readJsonFile(flag: string, p: string): Promise<any> {
+  try {
+    return parseStrictJson(await readFile(p, 'utf8'));
+  } catch (e) {
+    throw new UsageError(`${flag} ${p} cannot be read as JSON: ${(e as Error).message}`);
+  }
 }
 
 async function trustedFrom(file: string | undefined): Promise<string[]> {
   if (!file) return [];
-  const v = await readJsonFile(file);
+  const v = await readJsonFile('--baseline', file);
   if (!Array.isArray(v) || !v.every((x) => typeof x === 'string')) throw new UsageError('--baseline must be a JSON array of fingerprints');
   return v;
 }
@@ -130,7 +135,7 @@ async function validate(argv: string[]): Promise<number> {
   say(summary(result));
   let activation: ReturnType<typeof canActivate> | null = null;
   if (values['activation-check']) {
-    const ack = values.ack ? ((await readJsonFile(values.ack)) as Acknowledgement) : null;
+    const ack = values.ack ? ((await readJsonFile('--ack', values.ack)) as Acknowledgement) : null;
     activation = canActivate(result, ack, trusted);
     say(`activation: ${activation.ok ? 'allowed' : 'refused'}${activation.reasons.map((r) => `\n  ${r.code}: ${r.message}`).join('')}`);
   }
@@ -142,7 +147,7 @@ async function validate(argv: string[]): Promise<number> {
 async function acknowledgeCmd(argv: string[]): Promise<number> {
   const { values } = parseArgs({ args: argv, options: { report: { type: 'string' }, out: { type: 'string' }, baseline: { type: 'string' }, by: { type: 'string' } }, strict: true });
   if (!values.report || !values.out) throw new UsageError('acknowledge needs --report and --out');
-  const r = await readJsonFile(values.report);
+  const r = await readJsonFile('--report', values.report);
   if (r.verdict === 'reject' || !r.resultsVersion) { say('a rejected import cannot be acknowledged'); return 1; }
   const trusted = new Set(await trustedFrom(values.baseline));
   const fresh = (r.warningFingerprints as string[]).filter((f) => !trusted.has(f));

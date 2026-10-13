@@ -2,10 +2,13 @@
 # build, e2e, parity, verify:pilot:v5) needs local case data and runs on a worker's machine.
 name: CI
 
+# Pull requests (tested on GitHub's merge commit), pushes to dev and manual runs. A push to a feature branch runs nothing
+# until its pull request exists: the PR's run replaced a duplicate push run of the same commit that held the single
+# runner for 110-140 s, and the worker's local gate covers the branch before that.
 on:
   pull_request:
   push:
-    branches: [dev, 'feature/**']
+    branches: [dev]
   workflow_dispatch:
 
 permissions:
@@ -49,8 +52,22 @@ jobs:
           bun-version: 1.4.2
       - run: scripts/ci/install-chrome.sh
       - run: bun install --frozen-lockfile
-      - run: scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base origin/dev --name check --tool bun -- bun run --bun check
-      - run: scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base origin/dev --name test --tool bun -- bun run --bun test
+      - name: check
+        run: scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base origin/dev --name check --tool bun -- bun run --bun check
+      # Temporary files on tmpfs, as on workers' machines, where /tmp is tmpfs: on the VM's disk SQLite's
+      # synchronous=FULL commits made the step about 40% slower. Six workers on four vCPUs, because the lock tests spend
+      # most of their time asleep. docs/ci-runner.md has the measurements.
+      - name: test
+        run: |
+          tmp=$(mktemp -d /dev/shm/clearcase-ci-test.XXXXXX)
+          trap 'rm -rf "$tmp"' EXIT
+          TMPDIR=$tmp CLEARCASE_TEST_TMP=$tmp scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base origin/dev --name test --tool bun -- \
+            bun run --bun test --maxWorkers=6 --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/receipts/vitest.json"
+      # Fails the job unless both receipts are PASS for this checkout and every tracked test file ran with no failed or
+      # skipped test; writes the job summary and summary.json, which name each problem and how to reproduce it.
+      - name: summary
+        if: always()
+        run: bun scripts/ci/summary.ts "$RUNNER_TEMP/receipts" check test
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

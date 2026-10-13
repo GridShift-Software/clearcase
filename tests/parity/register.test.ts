@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
-import { covering } from '../../scripts/parity/lib/compare.mjs';
+import { covering, type Entry } from '../../scripts/parity/lib/compare.mjs';
 import { loadRegister, REGISTER, REPO, registryKeys, registryOwners, unusedEntries, validateRegister, viewIds } from '../../scripts/parity/lib/register.mjs';
 import { VIEWS } from '../../src/lib/components/view-registry';
 
@@ -110,7 +110,7 @@ describe('rules', () => {
 		const disposition = { field: [], type: 'known-gap', source: 'S-chronology-3' };
 		expect(check(disposition)).toEqual([]);
 		for (const bad of [{ type: 'improvement' }, { type: 'not-yet-implemented', owner: 'GRS-12' }, { source: 'BA-01' }, { when: { v5: 'x' } }]) expect(check({ ...disposition, ...bad }).join(), JSON.stringify(bad)).toMatch(/a disposition \(field \[\]\)/);
-		const entries = [{ ...good, ...disposition, id: 'IDR-998' }, good];
+		const entries = [{ ...good, ...disposition, id: 'IDR-998' }, good] as Entry[];
 		expect(covering(entries, 'chronology', { path: 'text.subtitle', kind: 'value', v5: 'a', app: 'b' })?.id).toBe('IDR-999');
 		expect(covering([entries[0]], 'chronology', { path: 'text.subtitle', kind: 'value', v5: 'a', app: 'b' })).toBeNull();
 		expect(unusedEntries(entries, ['chronology'], new Set())).toEqual(['IDR-999']);

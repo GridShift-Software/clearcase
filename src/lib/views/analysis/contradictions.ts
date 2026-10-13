@@ -19,6 +19,9 @@ export const rateCells = (it: ContradictionItem) => ({
 	spread: money(it.spread),
 });
 
+/** A non-rate item's spread: an amount reads 'Δ R 5.00' as in v5; any other text (a spelled-out range) as written. */
+export const spreadLabel = (s: string) => (/^-?\d+(?:\.\d+)?$/.test(s) ? `Δ ${money(s)}` : s);
+
 /** A source chip's label: the ref, and the amount when v5 shows one (a truthy amount: '<ref> · R 1 234.00'). */
 export const chipLabel = (r: ContradictionRef) => (r.amount ? `${r.ref} · ${money(String(r.amount))}` : r.ref);
 

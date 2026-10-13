@@ -46,7 +46,9 @@
 
 <style>
 	.row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: end; }
-	.row .in { max-width: 28rem; }
+	/* a select takes the width of its longest option, so each cell may shrink below it and the select stops at its cell */
+	.row > div { min-width: 0; max-width: 100%; }
+	.row .in { max-width: min(28rem, 100%); }
 	.fld { display: block; font-size: .85em; color: #555; }
 	.tag, .coverage { color: #555; font-size: .9em; }
 	.files { margin-bottom: .6rem; white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -235,7 +235,7 @@
 	#cb-bundle-h { overflow-wrap: anywhere; }
 	.chead { font-weight: 700; padding: 8px 12px; }
 	.row { display: flex; flex-wrap: wrap; gap: 10px; }
-	.fld { min-width: 230px; flex: 1; display: flex; flex-direction: column; }
+	.fld { min-width: min(230px, 100%); flex: 1; display: flex; flex-direction: column; }
 	.fld.ml { min-width: min(320px, 100%); flex: 2; }
 	.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
 	.tbl { width: 100%; border-collapse: collapse; }

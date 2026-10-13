@@ -233,7 +233,9 @@ try {
 		const pages = pageTargets(ROOT, { vpath, rv, ref: 'OD-001', importId: 1, views: VIEWS }).filter((t) => t.url && hasActions(ROOT, t.route) && t.route.startsWith('/v/'));
 		for (const round of [1, 2]) {
 			for (const t of pages) {
-				await p.goto(A.origin + t.url, 'true', 20000).catch(() => {});
+				// a page that does not load is an edit that did not happen, not a page without forms
+				const loadError = await p.goto(A.origin + t.url, 'true', 20000).then(() => null, (e) => String(e?.message ?? e).slice(0, 200));
+				if (loadError) edits.push({ round, route: t.route, view: t.view, action: '(page load)', ok: false, error: loadError, alerts: [] });
 				await settle();
 				const forms = await p.evaluate(FORMS);
 				for (const f of forms) {

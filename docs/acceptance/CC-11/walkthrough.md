@@ -21,7 +21,7 @@ Then check the [differences register](../../reference/parity/README.md): every d
 
 ## Screenshot index
 
-All screenshots were taken at `2243fc3f9569` by `scripts/verify/layout.mjs --shots`. Each is one viewport: 800 px high below 800 px wide, and 900 px high above that. The first table covers the real v5 sample; these screenshots are case material and stay on this computer. The second table covers the synthetic case. Both tables list 390 px and 1280 px only. Each run's `layout.json` lists every screenshot (`shots`), at all four widths, with its sha256.
+All screenshots were taken at `848a10181ab7` by `scripts/verify/layout.mjs --shots`. Each is one viewport: 800 px high below 800 px wide, and 900 px high above that. The first table covers the real v5 sample; these screenshots are case material and stay on this computer. The second table covers the synthetic case. Both tables list 390 px and 1280 px only. Each run's `layout.json` lists every screenshot (`shots`), at all four widths, with its sha256.
 
 **v5 sample** (168 screenshots; `.local/GRS-21/layout-v5/layout.json`):
 
@@ -29,7 +29,7 @@ All screenshots were taken at `2243fc3f9569` by `scripts/verify/layout.mjs --sho
 | --- | --: | --- | --- |
 | `overview` | 390 | `.local/GRS-21/layout-v5/shots/overview@390.png` | `8f3c5b78fe38a0566a05066d6a16495898309392da60d0fe3b73b99b76b35c89` |
 | `overview` | 1280 | `.local/GRS-21/layout-v5/shots/overview@1280.png` | `5b19c9f33b12833feec1a7ed1a8bf004635da359e7e4da8a562157fa4a26721e` |
-| `chronology` | 390 | `.local/GRS-21/layout-v5/shots/chronology@390.png` | `af7f8c42e43b939a30b2cf6d165345c52f7b7102d54df193a083860d37be56c2` |
+| `chronology` | 390 | `.local/GRS-21/layout-v5/shots/chronology@390.png` | `bc8d67783e94551b734364cdb6b6baca855b7690822f429b10cc84f8f047b9dc` |
 | `chronology` | 1280 | `.local/GRS-21/layout-v5/shots/chronology@1280.png` | `b9f69f4685bd10fc6e3402b854b34e5c33e269a908ab7f3c9d60af31108e56ab` |
 | `documents` | 390 | `.local/GRS-21/layout-v5/shots/documents@390.png` | `55822ddf14e909e295633dcbabf9fea3457e54d2e0bbfb1b312ef8b93057f9e7` |
 | `documents` | 1280 | `.local/GRS-21/layout-v5/shots/documents@1280.png` | `8c39704c8f29ae129a617d822470351b27fc106b66abe94ce0c28b893d053660` |

@@ -14,6 +14,56 @@ bun run --bun start
 
 `start` prints two addresses, both on 127.0.0.1: the app (port 41101 by default) and the originals site that shows the PDFs (the next port). Open the app's address in a browser. Your data lives in one data directory (`CLEARCASE_DATA_DIR`, by default `~/.local/share/clearcase`): the imported results, your work and its automatic copies. Only one ClearCase can use a data directory at a time.
 
+## Windows quick start
+
+> **Not verified on Windows.** ClearCase is built and tested on Linux only. These steps follow the Linux ones with the Windows equivalents and have not been run on a Windows computer. If a step fails, note the command and its full output, and report it with the comparison.
+
+This is the setup for the side-by-side comparison with the production system on Windows (GRS-64). You need Windows 10 or 11, Git, a current Chrome or Edge, and the ClearCase checkout. You also need the case folder and the results package that you receive with the case. This guide contains no case data.
+
+1. Open PowerShell and install Bun 1.4.2, the exact version this project pins:
+
+   ```powershell
+   iex "& {$(irm https://bun.sh/install.ps1)} -Version 1.4.2"
+   ```
+
+   Open a new PowerShell window, then check the version. It must print `1.4.2`:
+
+   ```powershell
+   bun --version
+   ```
+
+2. Install the dependencies and build the app from the `clearcase` folder of the checkout:
+
+   ```powershell
+   cd C:\path\to\clearcase
+   bun install --frozen-lockfile
+   bun run --bun build
+   ```
+
+3. Choose a data folder for this comparison and start the app:
+
+   ```powershell
+   $env:CLEARCASE_DATA_DIR = "$env:LOCALAPPDATA\ClearCase\comparison"
+   bun run --bun start
+   ```
+
+   Set `CLEARCASE_DATA_DIR` each time you open a new window, otherwise ClearCase uses a `.local\share\clearcase` folder in your user profile. Keep the window open while you use the app. `start` prints the app address (`http://127.0.0.1:41101` by default) and the originals address (the next port). To stop the app, press Ctrl+C in that window, or run `bun run --bun start --stop` in another window from the same folder.
+
+4. Open the app address in Chrome or Edge, then import the case through the app:
+   1. Choose **Import results**.
+   2. In the case folder field, type the full path of the case folder, for example `D:\Cases\<case folder>`.
+   3. In the package field, type the full path of the results package.
+   4. Choose **Validate package**, and read the validation report.
+   5. Accept the warnings it lists, then choose **Activate**.
+
+   The overview of the case opens. The package and every original are checked during validation, so a large case can take a minute.
+
+5. To compare with the production system, open the same view in each and compare them. Every intentional difference is listed in `docs/reference/parity/intentional-differences.json` and its `register/` folder, with the reason for each. The [CC-11 matrix](acceptance/CC-11/matrix.md) gives the view-by-view parity result on Linux.
+
+Known differences from Linux that can affect this setup:
+- The app checks that an original is a single regular file before it serves it. A file that Windows reports as a hard link, or a OneDrive file that is not stored on this computer, can be refused. Copy the case folder to a local disk that OneDrive does not sync.
+- The automated checks (`bun run --bun gate`) need Linux network namespaces and do not run on Windows.
+
 ## Importing a case
 
 Choose Import, type the path of the case folder (the originals) and of the results package that processing produced from it, then Validate package. The validation report checks the package and every original before anything is shown. Preview shows the candidate read-only; Activate makes it the case's active results version after you acknowledge any new warning. Importing a newer package makes a new results version; the previous one stays available, and the Overview can return to it.

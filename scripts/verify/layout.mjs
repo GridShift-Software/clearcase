@@ -73,21 +73,22 @@ const LAYOUT = (w) => `(() => { ${COLOR}
 	const h = document.querySelector('[data-page-heading]');
 	const hr = h?.getBoundingClientRect();
 	const main = document.querySelector('main#main');
-	const visible = [...(main?.querySelectorAll('a[href], button, select, input:not([type=hidden]), textarea, summary') ?? [])].filter(VIS);
-	const controls = visible.slice(0, 1000);
+	// every visible control, however many: a cap would leave the rest unchecked and still pass
+	const controls = [...(main?.querySelectorAll('a[href], button, select, input:not([type=hidden]), textarea, summary') ?? [])].filter(VIS);
 	const hit = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
 	const onHeading = h ? controls.filter((c) => !h.contains(c) && hit(c.getBoundingClientRect(), hr) > 4).map(label) : [];
 	// each control's line boxes (getClientRects): a link that wraps has a bounding box over both lines, its boxes do not
-	const rects = controls.map((c) => [c, [...c.getClientRects()].filter((r) => r.width > 0 && r.height > 0)]);
+	const rects = controls.map((c) => [c, [...c.getClientRects()].filter((r) => r.width > 0 && r.height > 0), c.getBoundingClientRect()]);
 	const overlaps = [];
 	for (let i = 0; i < rects.length && overlaps.length < 10; i++) for (let j = i + 1; j < rects.length; j++) {
-		const [a, ra] = rects[i], [b, rb] = rects[j];
+		const [a, ra, ba] = rects[i], [b, rb, bb] = rects[j];
+		if (hit(ba, bb) <= 4) continue; // line boxes lie inside the bounding box, so they cannot overlap by more
 		if (a.contains(b) || b.contains(a)) continue;
 		if (ra.some((x) => rb.some((y) => hit(x, y) > 4))) { overlaps.push(label(a) + ' / ' + label(b)); if (overlaps.length >= 10) break; }
 	}
 	const texts = [...(main?.querySelectorAll('*') ?? [])].filter((e) => [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && VIS(e));
 	const minFont = texts.length ? Math.min(...texts.map((e) => parseFloat(getComputedStyle(e).fontSize))) : null;
-	return { requested: ${w}, controls: visible.length, unchecked: visible.length - controls.length, innerWidth, scrollWidth: se.scrollWidth, sideways: Math.max(se.scrollWidth, innerWidth) > ${w} + 1, heading: h?.textContent.trim() ?? null, onHeading, overlaps, minFont };
+	return { requested: ${w}, controls: controls.length, innerWidth, scrollWidth: se.scrollWidth, sideways: Math.max(se.scrollWidth, innerWidth) > ${w} + 1, heading: h?.textContent.trim() ?? null, onHeading, overlaps, minFont };
 })()`;
 
 /** Text contrast of every visible element with its own text, in main and in the shared navigation, counted apart. */
@@ -156,7 +157,6 @@ try {
 			row.widths[w] = m;
 			if (m.sideways) fail(`${v.id}@${w}: scrolls sideways (content ${m.scrollWidth}, layout viewport ${m.innerWidth}, requested ${w})`);
 			if (m.onHeading.length) fail(`${v.id}@${w}: controls over the heading: ${m.onHeading.join(', ')}`);
-			if (m.unchecked) fail(`${v.id}@${w}: ${m.unchecked} of ${m.controls} controls not checked for overlap (cap 1000)`);
 			if (m.overlaps.length) fail(`${v.id}@${w}: overlapping controls: ${m.overlaps.slice(0, 3).join('; ')}`);
 			if (SHOTS) {
 				const { data } = await p.s('Page.captureScreenshot', { format: 'png' });

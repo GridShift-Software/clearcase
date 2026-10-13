@@ -11,6 +11,7 @@
 	import { HEADER_FIELDS, HEADER_KEYS, TO_COMPLETE, cleanName, desc, header, indexFileName, pad, partRange, range, totals, type Bundle, type Header } from '$lib/views/bundles/court';
 	import Builder from '$lib/views/bundles/Builder.svelte';
 	import { blobs } from '$lib/views/bundles/builder.svelte';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
 	const vid = $derived(data.version.id);
 	const c = $derived(data.content);
@@ -142,7 +143,7 @@
 			</div>
 			{#if tab === 'items'}
 				<div class="card pad0"><div class="chead">Items — every page number below is the number printed on the page</div>
-					<div class="grid-table wrap"><table class="tbl" id="cb-items"><thead><tr><th>Item</th><th>Ref</th><th>Description</th><th>Extracted from</th><th class="num">Pages</th><th class="num">Page nos.</th><th></th></tr></thead><tbody>
+					<TableScroll label="Bundle items" class="wrap"><table class="tbl" id="cb-items"><thead><tr><th>Item</th><th>Ref</th><th>Description</th><th>Extracted from</th><th class="num">Pages</th><th class="num">Page nos.</th><th></th></tr></thead><tbody>
 						{#if !b.rows.length}<tr><td colspan="7"><div class="empty">This bundle has no items yet.</div></td></tr>{/if}
 						{#each b.rows as r, i (i)}
 							{@const lr = l.rows[i]!}
@@ -156,7 +157,7 @@
 									{:else if r.parts.length && href(lr.parts[0]!)}<a class="btn primary sm" href={href(lr.parts[0]!)} target="_blank" rel="noopener">Open item</a>
 									{:else}<span class="tag">—</span>{/if}</td></tr>
 						{/each}
-					</tbody></table></div></div>
+					</tbody></table></TableScroll></div>
 				<div class="card"><h3>Reading this table</h3><div class="narr"><p>“Extracted from” is the source file and the pages taken out of it. “Page nos.” is where those pages sit in this bundle — the numbers stamped at the foot of each page and printed in the index.</p><p>“Open item” opens the extract on its own where one was cut (the pleadings), otherwise it opens the assembled bundle at that item’s first page. A file that is not in this version's verified document index is named but not served.</p></div></div>
 			{:else if tab === 'view'}
 				<div class="card">
@@ -203,7 +204,7 @@
 			{#if headerFailed || conflict}<div class="toolbar"><button type="button" class="btn sm" id="cb-discard" disabled={off || busy !== null} onclick={useStored}>{conflict ? 'Use the stored header' : 'Discard my header changes'}</button></div>{/if}
 			{#if conflict}<div class="conflict" id="cb-conflict"><b>Stored now (saved in another tab):</b> {#each HEADER_FIELDS.filter((f) => conflict![f.key] !== hv[f.key]) as f (f.key)}<div><span class="tag">{f.label}:</span> <span class="v" data-field={f.key}>{conflict[f.key] || '(blank)'}</span></div>{/each}</div>{/if}
 		</div>
-		<div class="card pad0"><div class="chead">Bundles</div><div class="wrap"><table class="tbl" id="cb-list"><thead><tr><th>No.</th><th>Bundle</th><th class="num">Items</th><th class="num">Pages</th><th>Status</th><th></th></tr></thead><tbody>
+		<div class="card pad0"><div class="chead">Bundles</div><div class="wrap"><TableScroll label="Bundles"><table class="tbl" id="cb-list"><thead><tr><th>No.</th><th>Bundle</th><th class="num">Items</th><th class="num">Pages</th><th>Status</th><th></th></tr></thead><tbody>
 			{#each bs as x, i (i)}
 				{@const t = totals(x)}
 				{@const l = data.links[i]!}
@@ -212,7 +213,7 @@
 					<td><button type="button" class="btn primary sm" disabled={off} onclick={() => go({ ...bq(i), tab: 'index' })}>Open</button> {#if href(l.file)}<a class="btn sec sm" href={href(l.file)} target="_blank" rel="noopener">Bundle PDF</a>{:else if blob(x)}<a class="btn sec sm" href={blob(x)} target="_blank" rel="noopener">Bundle PDF</a>{:else if x.file}{@render notServed('Bundle PDF')}{:else}<button type="button" class="btn sec sm" disabled={off} onclick={() => go({ view: 'build' })}>Create</button>{/if} {#if href(l.indexFile)}<a class="btn ghost sm" href={href(l.indexFile)} target="_blank" rel="noopener">Index PDF</a>{:else if x.indexFile}{@render notServed('Index PDF')}{/if}{x.indexFile ? ' ' : ''}<button type="button" class="btn ghost sm" disabled={off} onclick={() => wordOne(x)}>Word</button>{#if x.id} <button type="button" class="btn ghost sm" data-delete={x.no} disabled={off || !!deleting[x.id]} onclick={() => del(x)}>Delete</button>{/if}
 						{#if x.id && delErrors[x.id]}<p class="error" role="alert" data-delete-error={x.no}>{delErrors[x.id]}</p>{/if}</td></tr>
 			{/each}
-		</tbody></table></div></div>
+		</tbody></table></TableScroll></div></div>
 		<div class="card"><h3>How the bundles are put together</h3><div class="narr">
 			{#if c.extentNarrative}<p>{c.extentNarrative}</p>{/if}
 			<p>The extracted pages are then stamped with the bundle’s own page numbers, starting at 1 on the first page of item 1 and running continuously to the last page of the last item. The index carries those same numbers, so the number in the index is the number printed on the page.</p>

@@ -4,7 +4,8 @@
 // host namespace, then each M2 category's suite, tests/e2e/<category>/suite.mjs, where one exists (offline in its own
 // namespace like the pilot suites, reported as its own step). It prints the categories it discovered, and a category
 // with route files under src/routes/v/[vid]/<category>/ but no suite fails the run ("category <c> has views but no
-// suite"); a category with neither is skipped. With E2E_ROOT set, categories, suites and implemented views are read
+// suite"); a category with neither is skipped. Last, the UI class suite (tests/e2e/classes/suite.mjs, GRS-59), whose
+// summary is checked like a category suite's. With E2E_ROOT set, categories, suites and implemented views are read
 // from E2E_ROOT's tree. Every server runs under Bun via scripts/pilot/start.ts. Exit 0 only when every step passes;
 // a missing tool (unshare, ip, Chromium) or a failed isolation proof fails the run.
 // Suite summary contract: each category suite writes $CLEARCASE_E2E_OUT/<category>/summary.json as
@@ -54,7 +55,7 @@ export function discoverCategories({ e2eDir = join(appRoot, 'tests', 'e2e'), rou
  * SIGKILL mid-write): on tmpfs or a network share the scenarios prove something else, and its path alone would not
  * tell a reviewer which, so a run with it set is not evidence rather than merely recorded.
  */
-export const DEV_ENV = { E2E_ONLY: 'runs only the listed durability scenarios', E2E_STOP_AFTER: 'stops the browser suite early', E2E_LATENCY_SIZES_MIB: 'changes the durability latency file sizes', CLEARCASE_E2E_TMP: 'moves the durability files off the disk-backed default folder' };
+export const DEV_ENV = { E2E_ONLY: 'runs only the listed durability scenarios', E2E_STOP_AFTER: 'stops the browser suite early', E2E_LATENCY_SIZES_MIB: 'changes the durability latency file sizes', CLEARCASE_E2E_TMP: 'moves the durability files off the disk-backed default folder', CLASSES_ONLY: 'runs only the listed UI classes', CLASSES_TARGET: 'runs the UI class scenarios of the targets matching a pattern only' };
 
 /**
  * Why a run is not release evidence whatever its build: a knob from DEV_ENV set in `env` (even empty: an empty
@@ -85,6 +86,11 @@ export function suiteProblems(out, category, implemented) {
 	if (bad.length) problems.push(`${bad.length} scenario(s) lack a string id, a string view or a boolean pass: give every scenario all three`);
 	const failed = sc.filter((x) => x?.pass !== true).map((x) => x?.id ?? '?');
 	if (failed.length) problems.push(`scenario(s) not passed: ${failed.join(', ')}: fix them and rerun`);
+	// a suite that groups its scenarios in classes (`byClass`, and `only` when it ran some of them) proves nothing for a class with no PASS
+	if (doc.byClass && typeof doc.byClass === 'object') {
+		const empty = Object.entries(doc.byClass).filter(([c, n]) => (!Array.isArray(doc.only) || doc.only.includes(c)) && !(n?.pass > 0)).map(([c]) => c);
+		if (empty.length) problems.push(`class(es) with no passing scenario: ${empty.join(', ')}: every class must run at least one scenario that passes`);
+	}
 	const seen = new Set(sc.map((x) => x?.view));
 	const uncovered = [...implemented].filter((v) => !seen.has(v));
 	if (uncovered.length) problems.push(`implemented view(s) in no scenario: ${uncovered.join(', ')}: add a scenario with "view" set to each`);
@@ -145,6 +151,8 @@ async function main() {
 		['loopback bind check (host namespace)', [process.execPath, [join(here, 'netcheck.mjs')]]],
 		...categorySteps(),
 	];
+	// the UI bug classes over every form, register, export and page (GRS-59); summary as a category suite's
+	steps.push(['UI class suite (offline)', offlineStep(join(here, '..', 'classes', 'suite.mjs')), 'classes']);
 	const results = [];
 	// each suite's bytes as its step starts, for the committed-input check
 	const read = {};

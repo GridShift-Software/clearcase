@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
 	const es = $derived(data.entities ?? []);
 	// the data is complete when the page renders (data-ready, also in the server's HTML); data-hydrated marks the
@@ -14,10 +15,10 @@
 	<p class="disclosure" id="identity-status" data-verification="unverified">Roles and notes are imported from processing and have not been verified.</p>
 	{#if !data.entities}<p class="warning">This results package has no entities dataset.</p>{/if}
 	<div class="card pad0">
-		<table class="tbl" id="entities-table">
+		<TableScroll label="Entities"><table class="tbl" id="entities-table">
 			<thead><tr><th>Entity</th><th>Role</th><th>Note</th></tr></thead>
 			<tbody>{#each es as x, i (i)}<tr><td><b>{x.name}</b></td><td>{x.role}</td><td class="ex">{x.note}</td></tr>{/each}</tbody>
-		</table>
+		</table></TableScroll>
 	</div>
 </main>
 

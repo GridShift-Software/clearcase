@@ -12,6 +12,7 @@
 	import { afterNavigate, beforeNavigate, goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { SubmitFunction } from '@sveltejs/kit';
+	import { askFocus } from '$lib/components/ask-focus.svelte';
 	import CitationLink from '$lib/components/CitationLink.svelte';
 	import Narrative from '$lib/components/Narrative.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
@@ -19,6 +20,7 @@
 	import { docPath } from '$lib/local-case/model';
 	import { cleanName, dateCell, docLabel, statusLabel } from '$lib/views/evidence/common';
 	import { INPUTS, SAVE_FAILURES, entryNote, filingsCsvRows, registerCsvRows, rowVersion, saveFailure, type RegisterEntry, type SaveFailure } from '$lib/views/evidence/filings';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	type Values = Record<string, string>;
 	type Result = { op?: 'add' | 'save' | 'delete'; code?: string; values?: Values; editing?: string | null; version?: string | null; message?: string; target?: string; draft?: { values: Values; editing: string | null; version: string | null; failed: string | null } } | null;
 	let { data, form } = $props();
@@ -105,10 +107,12 @@
 		const url = nav.to.url;
 		ask = { what: busy ? 'A change is still being saved; leaving now may not show whether it worked. Leave anyway?' : question(), go: () => go(url) };
 	});
+	const askFocusing = askFocus(() => ask !== null, 'register-ask', 'register-ask-keep');
 	function answer(yes: boolean) {
 		const a = ask;
 		ask = null;
 		if (yes && a) a.go();
+		else askFocusing.back();
 	}
 	function discard(e: MouseEvent) {
 		e.preventDefault();
@@ -189,7 +193,7 @@
 		<section class="card group" aria-labelledby="group-{gi}" data-group={gi}>
 			<h2 id="group-{gi}" class="chead">{g.key} <span class="tag">({g.items.length})</span></h2>
 			{#if g.note}<p class="group-note">{g.note}</p>{/if}
-			<table class="tbl">
+			<TableScroll label={g.key}><table class="tbl">
 				<thead><tr><th>Ref</th><th>Date</th><th>Filing / document</th><th>Type</th><th>Text</th><th>Doc</th></tr></thead>
 				<tbody>
 					{#each g.items as x, i (i)}
@@ -202,7 +206,7 @@
 						</tr>
 					{/each}
 				</tbody>
-			</table>
+			</table></TableScroll>
 		</section>
 	{/each}
 
@@ -245,7 +249,7 @@
 			</div>
 		{/if}
 		<div class="toolbar"><button type="button" id="export-register" onclick={exportRegister}>Export register CSV</button>{#if data.exportNames.register.note}<span class="export-note" data-export-note>{data.exportNames.register.note}</span>{/if}</div>
-		<table class="tbl" id="filing-register">
+		<TableScroll label="Filing register"><table class="tbl" id="filing-register">
 			<thead><tr><th>Filing</th><th>Filed</th><th>By</th><th>Replying / responding affidavit</th><th>Responded</th><th>Ref</th><th>Status</th><th></th></tr></thead>
 			<tbody>
 				{#if !data.entries.length}<tr><td colspan="8"><div class="empty">No filings logged yet.</div></td></tr>{/if}
@@ -263,7 +267,7 @@
 					</tr>
 				{/each}
 			</tbody>
-		</table>
+		</table></TableScroll>
 	</section>
 </main>
 

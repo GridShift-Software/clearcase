@@ -17,6 +17,7 @@
 	import type { SubmitFunction } from '@sveltejs/kit';
 	import CitationLink from '$lib/components/CitationLink.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	import { now } from '$lib/components/clock';
 	import { download } from '$lib/components/csv';
 	import type { FieldDef } from './defs';
@@ -290,7 +291,7 @@
 		</div>
 	{/if}
 
-	<div class="table-wrap">
+	<TableScroll label={reg.label}>
 		<table id="register-table" data-rows={data.rows.length}>
 			<thead><tr>{#each reg.columns as c (c.label)}<th class:end={c.num}>{c.label}</th>{/each}<th aria-label="Entry actions"></th></tr></thead>
 			<tbody>
@@ -314,7 +315,7 @@
 				{/each}
 			</tbody>
 		</table>
-	</div>
+	</TableScroll>
 </main>
 
 <style>
@@ -329,7 +330,6 @@
 	.field { display: flex; flex-direction: column; gap: 0.25rem; min-width: 10rem; }
 	.field.wide { flex: 2; min-width: 16rem; }
 	.field textarea { min-height: 4rem; }
-	.table-wrap { overflow-x: auto; }
 	td.end, th.end { text-align: end; }
 	tr.editing { outline: 2px solid currentColor; }
 	.row-actions { white-space: nowrap; }

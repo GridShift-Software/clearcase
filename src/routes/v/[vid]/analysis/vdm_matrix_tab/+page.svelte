@@ -5,6 +5,7 @@
 	import { download } from '$lib/components/csv';
 	import { REFS_HEADING, defenceCsv } from '$lib/views/analysis/defence';
 	import '$lib/views/analysis/analysis.css';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
 	const vid = $derived(data.version.id);
 	const known = $derived(new Set(data.known));
@@ -23,7 +24,7 @@
 	{#if data.rows.length === 0}
 		<div class="an-card"><div class="an-empty" id="defence-empty">No defence matrix in this results version.</div></div>
 	{:else}
-		<div class="an-card pad0"><div class="an-scroll">
+		<div class="an-card pad0"><TableScroll label="Defence matrix" class="an-scroll">
 			<table class="an-table an-stack" id="defence-table">
 				<thead><tr>{#each h as label, i (i)}<th>{label}</th>{/each}{#if showRefs}<th>{REFS_HEADING}</th>{/if}</tr></thead>
 				<tbody>
@@ -39,7 +40,7 @@
 					{/each}
 				</tbody>
 			</table>
-		</div></div>
+		</TableScroll></div>
 		<p class="an-tag">Each document chip opens the source file in the viewer; the ref is the citation for pleadings and the court bundle.</p>
 	{/if}
 </main>

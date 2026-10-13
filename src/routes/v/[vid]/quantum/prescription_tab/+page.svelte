@@ -9,6 +9,7 @@
 	import Kpi from '$lib/views/quantum/Kpi.svelte';
 	import { arithmetic, AS_OF_TEXT, asOfStatus, filterRows, paginate, paramsFrom, prescriptionCsv, queryFrom, RELIES, riskOptions, summaryCheck, urlNotes, type PrescQuery } from '$lib/views/quantum/prescription';
 	import '$lib/views/quantum/quantum.css';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
 	const vid = $derived(data.version.id);
 	const known = $derived(new Set(data.known));
@@ -76,7 +77,7 @@
 			<button id="pr-apply" hidden={ready}>Apply filter</button>
 		</form>
 		{#if ssrNotes.length}<div class="q-flag" role="note" id="pr-url-note">{#each ssrNotes as n (n)}<p>{n}</p>{/each}</div>{/if}
-		<div class="q-wrap">
+		<TableScroll label="Prescription" class="q-wrap">
 			<table class="q-tbl" id="prescription">
 				<thead><tr><th>Ref</th><th>Invoice</th><th>Invoice date</th><th>Prescribes (3yr)</th><th>Risk</th><th>As-of status</th><th>Doc</th></tr></thead>
 				<tbody>
@@ -92,7 +93,7 @@
 				</tbody>
 			</table>
 			<div class="pager q-pager" id="pr-pager"><button type="submit" form="pr-form" name="page" value={pg.page - 1} disabled={pg.page <= 1} onclick={(e) => { e.preventDefault(); go(-1); }}>Prev</button><span>Page {pg.page} / {pg.pages}</span><button type="submit" form="pr-form" name="page" value={pg.page + 1} disabled={pg.page >= pg.pages} onclick={(e) => { e.preventDefault(); go(1); }}>Next</button><span class="count q-push">Showing {pg.from}–{pg.to} of {pg.total.toLocaleString('en')}</span></div>
-		</div>
+		</TableScroll>
 	</div>
 	<div class="q-card" id="presc-arithmetic">
 		<h3>Arithmetic checks</h3>

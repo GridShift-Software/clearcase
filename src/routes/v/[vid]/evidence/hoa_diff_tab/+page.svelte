@@ -49,8 +49,8 @@
 	.row .in { max-width: 28rem; }
 	.fld { display: block; font-size: .85em; color: #555; }
 	.tag, .coverage { color: #555; font-size: .9em; }
-	.files { margin-bottom: .6rem; white-space: pre-wrap; }
-	.diff-body { white-space: pre-wrap; line-height: 1.7; }
+	.files { margin-bottom: .6rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+	.diff-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
 	.diffdel { background: #fde8e8; color: #7a1010; text-decoration: line-through; }
 	.diffadd { background: #e3f4e3; color: #1d5b1d; }
 	#diffOut { margin-top: 1rem; }

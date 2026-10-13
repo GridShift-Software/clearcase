@@ -97,7 +97,7 @@ export interface CaseSummary {
 	href: string;
 }
 
-/** Route helpers:results versions are 'sha256:<hex>' and always URL-encoded in paths. */
+/** Route helpers: results versions are 'sha256:<hex>' and always URL-encoded in paths. */
 export const versionPath = (resultsVersion: string) => `/v/${encodeURIComponent(resultsVersion)}`;
 /** GRS-10's document route, /v/<rv>/doc/<ref>?page=N. */
 export const docPath = documentRoute;

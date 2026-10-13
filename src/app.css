@@ -39,7 +39,7 @@
 	--radius-lg: 18px;
 	--shadow-sm: 0 1px 2px rgb(7 20 38 / 0.05), 0 4px 12px rgb(7 20 38 / 0.04);
 	--shadow-md: 0 8px 24px rgb(7 20 38 / 0.08), 0 2px 6px rgb(7 20 38 / 0.04);
-	--content-max: 72rem;
+	--content-max: 1280px;
 	--nav-w: 240px;
 	--focus: #245f91;
 }
@@ -66,7 +66,7 @@ b, strong { font-weight: 600; }
 em { color: var(--ink-2); }
 /* a 3px ring in the primary colour, offset so it reads on white, tinted and navy surfaces alike */
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
-main:focus, h1:focus { outline: none; }
+main:focus, h1:focus, dialog:focus-visible { outline: none; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .skip { position: absolute; left: -9999px; top: 0; z-index: 10; background: var(--surface); color: var(--ink); padding: .4rem .8rem; border-radius: var(--radius); box-shadow: var(--shadow-md); }
 .skip:focus { left: .5rem; top: .5rem; }
@@ -125,7 +125,8 @@ nav.views a:focus-visible { outline-offset: -3px; }
 nav.views a.unavailable { color: var(--ink-3); }
 nav.views a.unavailable[aria-current='page'] { color: var(--ink); }
 nav.views a.unavailable::after { content: ' ·'; }
-nav.views .case-brand { font-size: 12px; font-weight: 600; margin: 4px 0 4px 12px; color: var(--ink); }
+/* the case brand is read by assistive technology and tests; the case header shows it on screen */
+nav.views .case-brand { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; margin: 0; }
 
 /* ---- content column ---- */
 main { width: 100%; max-width: var(--content-max); min-width: 0; margin: 0 auto; padding: 32px 24px 56px; }
@@ -135,6 +136,8 @@ main { width: 100%; max-width: var(--content-max); min-width: 0; margin: 0 auto;
 .subtitle { margin: 4px 0 0; font-size: 13px; color: var(--ink-3); }
 .page-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: .5rem; flex-shrink: 0; }
 .export-note { display: block; flex-basis: 100%; max-width: 24rem; font-size: 12px; color: var(--ink-3); text-align: right; }
+.page-actions > a:not(.btn) { display: inline-flex; align-items: center; min-height: 34px; padding: 5px 14px; border: 1px solid var(--border-strong); border-radius: var(--radius); background: var(--surface); color: var(--ink); font-size: 13px; font-weight: 500; }
+.page-actions > a:not(.btn):hover { background: var(--subtle); text-decoration: none; }
 main > h2, main > section > h2, main > form > h2 { font-size: 17px; margin: 1.75rem 0 .6rem; }
 main > p { max-width: 70rem; }
 .meta { font-size: 12px; color: var(--ink-3); }
@@ -158,6 +161,8 @@ textarea, input[size], select { max-width: 100%; }
 .card > h2, .q-card > h2, .an-card > h2, .cl-card > h2, .tl-card > h2, .card > h3, .q-card > h3, .an-card > h3 { font-size: 15px; margin: 0 0 10px; }
 .card > h2 + p, .card > h3 + p { margin-top: 0; }
 .card > :last-child, .q-card > :last-child, .an-card > :last-child { margin-bottom: 0; }
+main > .card, main > details { margin: 0 0 16px; }
+.card textarea, .card input[size] { width: 100%; }
 .chead { font-size: 15px; font-weight: 600; padding: 12px 20px; border-bottom: 1px solid var(--border); margin: 0; }
 .pad0 > .toolbar, .pad0 > .pager, .pad0 > .count, .pad0 > p, .pad0 > .explain { padding-left: 20px; padding-right: 20px; }
 .pad0 > p { margin: 10px 0; }
@@ -197,17 +202,18 @@ td.num, th.num, td.end, th.end { text-align: right; }
 @media print { .table-scroll { overflow: visible; border: 0; } }
 /* the chronology's grid table (DataGrid.svelte) */
 .grid-table { font-size: 13px; }
-.grid-row { display: grid; gap: 0 12px; padding: 10px 12px; border-bottom: 1px solid var(--border); align-items: start; }
-.chrono-grid .grid-row { grid-template-columns: 5.5em 5.5em 6em minmax(12em, 1fr) 7em 7em 7em 5.5em 5em; }
+.grid-row { display: grid; gap: 0 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); align-items: start; }
+.chrono-grid .grid-row { grid-template-columns: 5em 4.8em 5.4em minmax(12em, 1fr) 7.2em 7.4em 6.6em 5.6em 4.4em; }
 .grid-row:not(.grid-head) { content-visibility: auto; contain-intrinsic-size: auto 42px; }
 .grid-row:not(.grid-head):last-child { border-bottom: 0; }
 .grid-row:not(.grid-head):hover { background: rgb(238 243 249 / 0.6); }
-.grid-head { position: sticky; top: 0; z-index: 1; padding: 10px 12px; }
-.grid-head button { font: inherit; text-transform: inherit; letter-spacing: inherit; color: inherit; background: none; border: 0; padding: 0; height: auto; box-shadow: none; cursor: pointer; }
+.grid-head { position: sticky; top: 0; z-index: 1; padding: 10px 12px; align-items: center; }
+.grid-head button { font: inherit; text-transform: inherit; letter-spacing: inherit; color: inherit; background: none; border: 0; padding: 0; min-height: 0; height: auto; box-shadow: none; cursor: pointer; }
 .grid-head button:hover { color: var(--ink); background: none; }
 .grid-head [aria-sort] button { color: var(--ink); }
 .grid-row .end { text-align: right; font-variant-numeric: tabular-nums; }
-.grid-row [role='cell'] { min-width: 0; overflow-wrap: anywhere; }
+.grid-row [role='cell'] { min-width: 0; overflow: hidden; overflow-wrap: anywhere; }
+.grid-row .clip { display: block; }
 .grid-row .sender { color: var(--ink-3); }
 
 /* ---- citation pill (a document ref), badges and chips ---- */
@@ -271,6 +277,8 @@ legend { padding: 0; }
 .filters label br { display: none; }
 .filters > :last-child:not(label):not(button):not(input):not(select) { align-self: center; font-size: 13px; color: var(--ink-2); }
 .row > div, .q-row > div, .fields > div { display: flex; flex-direction: column; min-width: 0; }
+.row > div > button, .q-row > div > button, .fields > div > button { align-self: flex-start; }
+td .addr, td.mono, td .mono { overflow-wrap: anywhere; }
 .field { display: flex; flex-direction: column; gap: 4px; }
 .field label { margin: 0; }
 .search-form.card .row { margin-bottom: 12px; }
@@ -288,6 +296,9 @@ details > table { width: 100%; margin: 0; }
 .diag-code { margin-top: 12px; }
 .missing, .error, .an-error { background: var(--danger-bg); border: 1px solid #ecc9c9; color: #7a2323; padding: 10px 14px; border-radius: var(--radius); }
 .warning, .q-flag { background: var(--warn-bg); border: 1px solid #ecd9b3; color: #6a4404; padding: 10px 14px; border-radius: var(--radius); }
+/* a section that carries a warning (the validation report's candidate with new warnings) is a card with an accent */
+section.warning { background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--warn); border-radius: var(--radius-card); padding: 18px 20px; color: inherit; margin: 0 0 16px; }
+section.warning > h2 { font-size: 15px; margin: 0 0 10px; }
 span.error, small.error { display: inline-block; padding: 4px 10px; }
 .error p { margin: 0; }
 .empty, .an-empty, .empty-result, .none, .ds-none { padding: 40px 20px; text-align: center; color: var(--ink-2); background: var(--surface); border: 1px dashed var(--border-strong); border-radius: var(--radius-card); margin: 0; }
@@ -307,7 +318,7 @@ span.error, small.error { display: inline-block; padding: 4px 10px; }
 .step { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 4px 14px; padding: 16px 0; border-top: 1px solid var(--border); }
 .step:first-of-type { border-top: 0; padding-top: 0; }
 .step-n { grid-row: span 2; width: 28px; height: 28px; border-radius: 50%; background: var(--tint); color: var(--navy); font-size: 13px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; }
-.step h3 { margin: 0; font-size: 15px; align-self: center; }
+.step h3, .step .step-h { margin: 0; font-size: 15px; font-weight: 600; align-self: center; color: var(--ink); }
 .step > p, .step > section, .step > div { grid-column: 2; }
 .step p { margin: 6px 0; }
 .progress { height: 4px; border-radius: 999px; background: var(--tint); overflow: hidden; margin: 8px 0; position: relative; }
@@ -340,7 +351,6 @@ span.error, small.error { display: inline-block; padding: 4px 10px; }
 	.card > .table-scroll, .q-card > .table-scroll, .an-card > .table-scroll { margin: 0 -16px; width: calc(100% + 32px); }
 	.card > .table-scroll:last-child { margin-bottom: -14px; }
 	.filters label, .row > div, .q-row > div, .fields > div, .field { flex: 1 1 100%; }
-	.chrono-grid .grid-row { grid-template-columns: 5.5em 5.5em 6em minmax(12em, 1fr) 7em 7em 7em 5.5em 5em; }
 }
 @media (max-width: 60rem) and (min-width: 40.01rem) {
 	.case-shell { --nav-w: 200px; gap: 0 1.25rem; }

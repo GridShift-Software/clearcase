@@ -72,14 +72,13 @@
 </div>
 
 <style>
-	.browser { border: 1px solid #dce5ee; border-radius: 10px; padding: 0.5rem; max-width: 60rem; }
-	.row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.25rem; }
+	.browser { border: 1px solid var(--border); border-radius: var(--radius-card); padding: 12px; max-width: 64rem; background: var(--surface); }
+	.row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin: 0 0 8px; }
 	.crumbs { display: flex; flex-wrap: wrap; list-style: none; margin: 0; padding: 0; }
 	.crumbs li + li::before { content: '/'; padding: 0 0.25rem; }
 	/* the shared TableScroll box, capped in height so a long folder scrolls inside it */
-	:global(.folder-scroll) { max-height: 22rem; overflow-y: auto; }
+	:global(.folder-scroll) { max-height: 22rem; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); }
 	.entries { width: 100%; }
 	.entries th:nth-child(1), .entries td:nth-child(1) { width: 60%; overflow-wrap: anywhere; }
-	.link { background: none; border: none; padding: 0; color: inherit; text-decoration: underline; cursor: pointer; text-align: left; font: inherit; }
 	.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 </style>

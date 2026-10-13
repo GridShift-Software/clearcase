@@ -137,10 +137,10 @@
 </main>
 
 <style>
-	.struck { text-decoration: line-through; color: #888; }
+	.struck { text-decoration: line-through; color: var(--ink-3); }
 	.retry { display: inline; margin-left: .5rem; }
 	.info-problem + .info-problem { margin-top: .3rem; }
 	.saving { opacity: .7; }
-	.row-state { display: inline-block; margin-left: .5rem; font-size: .85em; font-weight: 600; color: #333; }
-	.row-state.an-danger { color: #a01010; }
+	.row-state { display: inline-block; margin-left: .5rem; font-size: .85em; font-weight: 600; color: var(--ink-2); }
+	.row-state.an-danger { color: var(--danger); }
 </style>

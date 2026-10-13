@@ -60,12 +60,6 @@
 </main>
 
 <style>
-	.risk { border-left: 3px solid #b42318; }
+	.risk { border-left: 3px solid var(--danger); }
 	.pad0 { padding: 0; }
-	.chead { font-weight: 600; padding: 0.5rem 0.75rem; border-bottom: 1px solid #d5d9e0; }
-	.empty { color: #555; padding: 1rem; text-align: center; }
-	.badge { display: inline-block; padding: 0.1rem 0.5rem; border-radius: 4px; font-size: 0.85rem; }
-	.badge.ok { background: #e6f4ea; color: #1e5631; }
-	.badge.danger { background: #fde8e8; color: #8a1c1c; }
-	.badge.warn { background: #fff4e0; color: #7a4b00; }
 </style>

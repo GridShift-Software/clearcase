@@ -69,5 +69,4 @@
 	.fields > .wide { flex: 2 1 16rem; }
 	.fields > .go { flex: 0 0 auto; }
 	.pad0 { padding: 0; }
-	.empty { color: #555; padding: 1rem; text-align: center; }
 </style>

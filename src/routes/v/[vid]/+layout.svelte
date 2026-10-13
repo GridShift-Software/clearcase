@@ -18,7 +18,7 @@
 <div class="case-head">
 	<a class="back" href="/cases" id="back-to-cases">← All cases</a>
 	<div class="case-title">
-		<p class="case-name" id="case-name">{v.caseName}</p>
+		<p class="case-name" id="case-name">{v.brand ?? v.caseName}</p>
 		{#if data.isActive}
 			<div class="banner active" id="active-banner">{v.caseName}: active results version</div>
 		{:else}

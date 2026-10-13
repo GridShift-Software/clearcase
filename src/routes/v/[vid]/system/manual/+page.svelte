@@ -68,9 +68,6 @@
 </main>
 
 <style>
-	.badges { display: flex; flex-wrap: wrap; gap: .4rem; list-style: none; padding: 0; }
-	.badges li { background: #eef2f6; border-radius: 4px; padding: .15rem .5rem; }
 	:global(.table-scroll.box) { max-height: 360px; overflow-y: auto; }
-	td, th { padding: 2px 8px; text-align: left; }
 	section { max-width: 60rem; }
 </style>

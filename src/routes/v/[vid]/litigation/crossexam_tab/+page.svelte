@@ -69,6 +69,4 @@
 	.fields > .go { flex: 0 0 auto; }
 	.pad0 { padding: 0; }
 	small { display: block; }
-	.empty { color: #555; padding: 1rem; text-align: center; }
-	.tag { font-size: 0.9rem; color: #444; }
 </style>

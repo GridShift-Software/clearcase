@@ -64,10 +64,4 @@
 <style>
 	.toolbar { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-bottom: .5rem; }
 	.toolbar .in { margin-left: auto; max-width: 240px; }
-	button.primary { background: #1d2b3a; color: #fff; border: 1px solid #1d2b3a; border-radius: 4px; }
-	.badge { display: inline-block; padding: 0 .4em; border-radius: 3px; background: #eef0f3; font-size: .85em; }
-	.mono { font-family: ui-monospace, monospace; }
-	.note { color: #555; margin: 0 0 .4rem; }
-	.pager { display: flex; gap: .6rem; align-items: center; padding: .4rem 0; }
-	.pager .count { margin-left: auto; }
 </style>

@@ -54,7 +54,7 @@ This is the setup for the side-by-side comparison with the production system on 
    2. In the case folder field, type the full path of the case folder, for example `D:\Cases\<case folder>`.
    3. In the package field, type the full path of the results package.
    4. Choose **Validate package**, and read the validation report.
-   5. Accept the warnings it lists, then choose **Activate**.
+   5. Accept the warnings it lists, then choose **Activate this version**.
 
    The overview of the case opens. The package and every original are checked during validation, so a large case can take a minute.
 

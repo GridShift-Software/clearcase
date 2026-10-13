@@ -79,6 +79,6 @@
 
 <style>
 	/* without the Date basis column (no row has a known basis) */
-	:global(.chrono-grid.no-basis .grid-row) { grid-template-columns: 5em 5.4em minmax(12em, 1fr) 7.2em 7.4em 6.6em 5.6em 4.4em; }
+	:global(.chrono-grid.no-basis .grid-row) { grid-template-columns: 5.8em 6.6em minmax(12em, 1fr) 7.2em 7.4em 6.6em 5.6em 4.4em; }
 	.excerpt, .also-in { display: block; }
 </style>

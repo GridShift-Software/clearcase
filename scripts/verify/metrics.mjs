@@ -24,13 +24,16 @@
 // "Next rendered frame": the condition is watched by a MutationObserver installed before any page script; the next
 // requestAnimationFrame callback posts a MessageChannel task, which takes the mark (as scripts/measure/cc03.mjs).
 // Percentiles are nearest-rank. Results: DIR/metrics.json (default .local/GRS-21/metrics; timings and counts only).
-// Exit 0 when every budget holds with enough samples, 1 if not, 2 on a setup error.
+// A reused measurement counts only when its own run exited 0 in this invocation: its output directory is emptied first,
+// and --skip-reused (or a failed run) leaves the metric missing, which fails its budget. Exit 0 when every budget holds
+// with enough samples, 1 if not, 2 on a setup error.
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ensureOffline, PORTS, stats } from '../../tests/e2e/pilot/v5/env.mjs';
+import { revisionStamp } from './stamp.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..', '..');
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
@@ -45,6 +48,7 @@ if (process.env.CLEARCASE_OFFLINE !== '1' && !process.argv.includes('--skip-reus
 	const reused = {};
 	for (const [ticket, key] of [['CC-04', 'search'], ['CC-07', 'save']]) {
 		const out = join(OUT, ticket);
+		rmSync(out, { recursive: true, force: true });
 		const r = spawnSync(process.execPath, ['run', '--bun', 'measure', '--ticket', ticket, '--samples', String(SAMPLES), '--warmup', String(WARMUP), '--out', out], { cwd: ROOT, encoding: 'utf8' });
 		writeFileSync(join(OUT, `${ticket}.log`), r.stdout + r.stderr);
 		reused[ticket] = { exit: r.status, file: join(out, `measure-${ticket}.json`), key };
@@ -79,7 +83,7 @@ const offline = await proveOffline();
 if (!offline.pass) { console.error('metrics: not offline'); process.exit(2); }
 const tmp = mkdtempSync(join(tmpdir(), 'cc-verify-metrics-'));
 const A = appServer({ name: 'metrics', root: ROOT, buildDir: join(ROOT, 'build'), port: PORTS.first + 60, origPort: PORTS.first + 61, dir: tmp, env: { TZ: 'UTC' } });
-const out = { budgets: BUDGETS, samples: SAMPLES, warmup: WARMUP, percentile: 'nearest-rank', interleaved: ['coldOverview', 'warmNavigation'], raw: { app: { coldOverview: [], warmNavigation: [] }, v5: { coldOverview: [], warmNavigation: [] } }, metrics: {} };
+const out = { revision: revisionStamp(ROOT), budgets: BUDGETS, samples: SAMPLES, warmup: WARMUP, percentile: 'nearest-rank', interleaved: ['coldOverview', 'warmNavigation'], raw: { app: { coldOverview: [], warmNavigation: [] }, v5: { coldOverview: [], warmNavigation: [] } }, metrics: {} };
 let b, code = 2;
 try {
 	const fx = await loadConfig();
@@ -133,10 +137,11 @@ try {
 		out.metrics[`${side}.${k}`] = { side: side === 'app' ? 'head' : 'v5 reference', ...stats(kept), budgetP95Ms: side === 'app' ? BUDGETS[k] : null };
 	}
 	// the reused measurements, read back
-	const reused = existsSync(join(OUT, 'reused.json')) ? JSON.parse(readFileSync(join(OUT, 'reused.json'), 'utf8')) : {};
+	// reused.json is this invocation's own: with --skip-reused a file left by an earlier run is not read
+	const reused = !process.argv.includes('--skip-reused') && existsSync(join(OUT, 'reused.json')) ? JSON.parse(readFileSync(join(OUT, 'reused.json'), 'utf8')) : {};
 	const pick = (ticket, name, key, budget) => {
 		const r = reused[ticket];
-		if (!r || !existsSync(r.file)) { out.metrics[name] = { side: 'head', missing: true, source: ticket, budgetP95Ms: budget }; return; }
+		if (!r || r.exit !== 0 || !existsSync(r.file)) { out.metrics[name] = { side: 'head', missing: true, source: ticket, budgetP95Ms: budget }; return; }
 		const d = JSON.parse(readFileSync(r.file, 'utf8'));
 		const found = [];
 		const walk = (o, path) => { if (!o || typeof o !== 'object') return; if (typeof o.p95Ms === 'number' && path.toLowerCase().includes(key)) found.push({ path, n: o.n, p50Ms: o.p50Ms, p95Ms: o.p95Ms, maxMs: o.maxMs }); for (const [k, v] of Object.entries(o)) if (k !== 'raw') walk(v, path ? `${path}.${k}` : k); };

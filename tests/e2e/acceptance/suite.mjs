@@ -34,12 +34,14 @@ const { buildCase, hostileOriginals, hostileRows, pdf, putOriginal } = await imp
 const { VIEWS } = await import('../../../src/lib/components/view-registry.ts');
 const { V5_STORES } = await import('../../../src/lib/user-work/backup/v5-keys.ts');
 const { hasActions, pageTargets } = await import('../classes/targets.mjs');
+const { revisionStamp } = await import('../../../scripts/verify/stamp.mjs');
 
 const ROOT = resolve(join(import.meta.dirname, '..', '..', '..'));
 const BUILD = resolve(process.env.E2E_BUILD_DIR ?? join(ROOT, 'build'));
 const OUT = join(process.env.CLEARCASE_E2E_OUT ?? join(ROOT, '.local', 'e2e'), 'acceptance');
 mkdirSync(OUT, { recursive: true });
 const CLOCK = '2026-10-08T09:00:00Z';
+const REVISION = revisionStamp(ROOT, BUILD);
 const J = JSON.stringify;
 const sha = (b) => createHash('sha256').update(b).digest('hex');
 
@@ -161,7 +163,7 @@ async function activateThroughUi() {
 
 const offline = await proveOffline();
 writeFileSync(join(OUT, 'offline.json'), J(offline, null, 1));
-if (!offline.pass) { console.error('acceptance suite: not offline'); writeFileSync(join(OUT, 'summary.json'), J({ ok: false, offline: false, scenarios: [] })); process.exit(1); }
+if (!offline.pass) { console.error('acceptance suite: not offline'); writeFileSync(join(OUT, 'summary.json'), J({ ok: false, offline: false, revision: REVISION, scenarios: [] })); process.exit(1); }
 tmp = mkdtempSync(join(tmpdir(), 'cc-e2e-acceptance-'));
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { rmSync(tmp, { recursive: true, force: true }); process.exit(1); });
 const server = (name, port) => appServer({ name, root: ROOT, buildDir: BUILD, port, origPort: port + 1, dir: tmp, env: { CLEARCASE_FIXED_NOW: CLOCK, TZ: 'UTC' } });
@@ -187,7 +189,8 @@ try {
 	await scenario('AC2-originals', 'chronology', "every document's original resolves through the app (document page link, the originals site serves the case folder's bytes), and one opens in the real viewer", async () => {
 		const docs = A.results('SELECT ref FROM document WHERE version_id = ? ORDER BY ord', rv).map((r) => r.ref);
 		const bytesByRef = new Map();
-		for (const [path, bytes] of sc.files) { const m = /\b([A-Z]{2,3}-\d{3,4})\b/.exec(path.split('/').pop()); if (m) bytesByRef.set(m[1], bytes); }
+		// the expected bytes are the case folder's originals, read from disk by each chronology row's url (never the results package's files)
+		for (const r of sc.chronology) { const f = join(sc.caseDir, ...decodeURIComponent(String(r.url).replace(/^\.\//, '')).split('/')); try { bytesByRef.set(r.ref, readFileSync(f)); } catch { /* no original on disk: the ref stays uncompared and fails below */ } }
 		const rows = [];
 		for (const ref of docs) {
 			const html = await (await fetch(`${A.v(rv)}/doc/${encodeURIComponent(ref)}`)).text();
@@ -211,8 +214,10 @@ try {
 		let viewer;
 		try { await sleep(400); viewer = await viewerState(b, w); } finally { await w.close(); }
 		const unresolved = rows.filter((r) => !r.link || r.status !== 200);
-		return { evidence: { documents: rows.length, unresolved, mismatched: rows.filter((r) => r.match === false).map((r) => r.ref), viewer: { ready: viewer.wrapper.ready, sandbox: viewer.wrapper.sandbox, canvases: viewer.frame.canvases, origin: viewer.frame.origin } },
-			checks: { documents: rows.length > 0, allResolve: unresolved.length === 0, bytes: rows.every((r) => r.match !== false), viewer: viewer.frame.canvases > 0 && viewer.frame.origin !== A.origin } };
+		const opened = rows.filter((r) => r.link && r.status === 200);
+		const unverified = opened.filter((r) => r.match !== true).map((r) => r.ref);
+		return { evidence: { documents: rows.length, compared: opened.length - unverified.length, unresolved, unverified, mismatched: rows.filter((r) => r.match === false).map((r) => r.ref), viewer: { ready: viewer.wrapper.ready, sandbox: viewer.wrapper.sandbox, canvases: viewer.frame.canvases, origin: viewer.frame.origin } },
+			checks: { documents: rows.length > 0, allResolve: unresolved.length === 0, bytes: opened.length > 0 && unverified.length === 0, viewer: viewer.frame.canvases > 0 && viewer.frame.origin !== A.origin } };
 	});
 
 	const edits = [];
@@ -285,7 +290,11 @@ try {
 		const rows = storeRows(A);
 		const counts = Object.fromEntries(Object.entries(rows).map(([k, v]) => [k, v.length]));
 		const missing = [...V5_STORES.map((s) => s.key), 'note'].filter((k) => !counts[k]);
-		return { evidence: { counts, missing, edits }, checks: { coverageList: J(V5_STORES.map((s) => s.key).sort()) === J(Object.keys(STORE_ROWS).filter((k) => k !== 'note').sort()), everyStore: missing.length === 0 } };
+		// every form and driven page saved at least once (a form skipped in round 1 for want of a row may succeed in round 2); a form whose submit stayed disabled is not an edit
+		const byAction = new Map();
+		for (const e of edits) if (!e.disabled) byAction.set(`${e.route} ${e.action}`, (byAction.get(`${e.route} ${e.action}`) ?? false) || e.ok);
+		const notSaved = [...byAction].filter(([, saved]) => !saved).map(([k]) => k);
+		return { evidence: { counts, missing, notSaved, edits }, checks: { editsSaved: byAction.size > 0 && notSaved.length === 0, coverageList: J(V5_STORES.map((s) => s.key).sort()) === J(Object.keys(STORE_ROWS).filter((k) => k !== 'note').sort()), everyStore: missing.length === 0 } };
 	});
 
 	let beforeRestart;
@@ -346,7 +355,8 @@ try {
 		const act = await activateThroughUi();
 		const active = await A.c.activeVersion();
 		const after = storeRows(A);
-		const kept = Object.fromEntries(Object.keys(before).map((k) => [k, after[k].length >= before[k].length]));
+		// the rows themselves survive, not just as many rows: every row before is still in the store after, and no store was empty to begin with
+		const kept = Object.fromEntries(Object.keys(before).map((k) => { const now = new Set(after[k]); return [k, before[k].length > 0 && before[k].every((r) => now.has(r))]; }));
 		await p.goto(`${A.v(active)}/doc/OD-001`, ready('doc:OD-001'));
 		const note = await p.evaluate(`document.querySelector('#notes')?.textContent.includes('Acceptance note on OD-001') ?? false`);
 		return { evidence: { rep: { verdict: rep.verdict, rv: rep.rv }, act, active, kept, note }, checks: { replaced: active === next.resultsVersion && active !== rv, everyStoreKept: Object.values(kept).every(Boolean), note } };
@@ -392,14 +402,14 @@ try {
 		return { evidence: { poisonedFields: touched, linkRefusal, views: views.length, bad, shownAsText: views.filter((x) => x.payloadText).map((x) => x.view), doc, offOrigin },
 			checks: { linkRefused: linkRefusal.unsafeScheme === 'error' && linkRefusal.activeAfter === null, poisoned: touched > 0, allViews: views.length === 42, inert: bad.length === 0, docInert: doc.ready === 'doc:HX-001' && doc.xss === null && doc.injected === 0 && !/PWNED/.test(doc.title), noOffOrigin: offOrigin.length === 0 } };
 	});
-	ok = results.length > 0 && results.every((r) => r.pass);
+	ok = results.length === 8 && results.every((r) => r.pass);
 } catch (e) {
 	console.error(`acceptance suite: ${String(e?.stack ?? e).slice(0, 2000)}`);
 } finally {
 	await p?.close().catch(() => {});
 	await b?.close().catch(() => {});
 	for (const s of [H, B, A]) await s?.stop().catch(() => {});
-	writeFileSync(join(OUT, 'summary.json'), J({ ok, offline: true, scenarios: results }, null, 1));
+	writeFileSync(join(OUT, 'summary.json'), J({ ok, offline: true, revision: REVISION, scenarios: results }, null, 1));
 	rmSync(tmp, { recursive: true, force: true });
 }
 console.log(`acceptance suite: ${results.filter((r) => r.pass).length}/${results.length} scenarios passed`);

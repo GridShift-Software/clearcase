@@ -27,6 +27,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { ensureOffline, PORTS } from '../../tests/e2e/pilot/v5/env.mjs';
+import { revisionStamp } from './stamp.mjs';
 
 ensureOffline(import.meta.filename);
 const { proveOffline } = await import('../../tests/e2e/pilot/lib/netproof.mjs');
@@ -62,13 +63,18 @@ const COLOR = `
 	const label = (e) => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + (typeof e.className === 'string' && e.className ? '.' + e.className.trim().split(/\\s+/).slice(0, 2).join('.') : '');
 `;
 
-/** Layout at the current width: sideways scroll, controls over the heading, overlapping controls, smallest text. */
-const LAYOUT = `(() => { ${COLOR}
+/**
+ * Layout at the requested width `w`: sideways scroll, controls over the heading, overlapping controls, smallest text.
+ * Sideways scroll is judged against `w`, not innerWidth: under mobile emulation Chrome widens the layout viewport to fit
+ * content that overflows, so innerWidth grows with the overflow and would always agree with scrollWidth.
+ */
+const LAYOUT = (w) => `(() => { ${COLOR}
 	const se = document.scrollingElement;
 	const h = document.querySelector('[data-page-heading]');
 	const hr = h?.getBoundingClientRect();
 	const main = document.querySelector('main#main');
-	const controls = [...(main?.querySelectorAll('a[href], button, select, input:not([type=hidden]), textarea, summary') ?? [])].filter(VIS).slice(0, 400);
+	const visible = [...(main?.querySelectorAll('a[href], button, select, input:not([type=hidden]), textarea, summary') ?? [])].filter(VIS);
+	const controls = visible.slice(0, 1000);
 	const hit = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
 	const onHeading = h ? controls.filter((c) => !h.contains(c) && hit(c.getBoundingClientRect(), hr) > 4).map(label) : [];
 	// each control's line boxes (getClientRects): a link that wraps has a bounding box over both lines, its boxes do not
@@ -81,28 +87,29 @@ const LAYOUT = `(() => { ${COLOR}
 	}
 	const texts = [...(main?.querySelectorAll('*') ?? [])].filter((e) => [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && VIS(e));
 	const minFont = texts.length ? Math.min(...texts.map((e) => parseFloat(getComputedStyle(e).fontSize))) : null;
-	return { innerWidth, scrollWidth: se.scrollWidth, sideways: se.scrollWidth > innerWidth + 1, heading: h?.textContent.trim() ?? null, onHeading, overlaps, minFont };
+	return { requested: ${w}, controls: visible.length, unchecked: visible.length - controls.length, innerWidth, scrollWidth: se.scrollWidth, sideways: Math.max(se.scrollWidth, innerWidth) > ${w} + 1, heading: h?.textContent.trim() ?? null, onHeading, overlaps, minFont };
 })()`;
 
 /** Text contrast of every visible element with its own text, in main and in the shared navigation, counted apart. */
 const CONTRAST = `(() => { ${COLOR}
-	const scan = (sel) => {
+	const scan = (sel, cap) => {
 		// a disabled control is exempt (WCAG 2.2 1.4.3: inactive user interface components)
 		const els = [...document.querySelectorAll(sel)].filter((e) => [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && VIS(e) && !e.closest(':disabled, [aria-disabled="true"]'));
 		const fails = [];
-		let checked = 0, min = Infinity;
+		let checked = 0, unparsed = 0, min = Infinity;
 		for (const e of els) {
 			const s = getComputedStyle(e);
-			const fg = rgba(s.color); if (!fg) continue;
+			const fg = rgba(s.color); if (!fg) { unparsed++; continue; }
 			const bg = bgOf(e);
 			const r = ratio(over(fg, bg), bg);
 			const need = large(s) ? 3 : 4.5;
 			checked++; min = Math.min(min, r);
 			if (r + 1e-6 < need) fails.push({ el: label(e), text: e.textContent.trim().slice(0, 40), ratio: +r.toFixed(2), need, fg: s.color, bg: 'rgb(' + [bg.r, bg.g, bg.b].map(Math.round).join(', ') + ')' });
 		}
-		return { checked, min: checked ? +min.toFixed(2) : null, fails: fails.slice(0, 20), failCount: fails.length };
+		return { checked, unparsed, min: checked ? +min.toFixed(2) : null, fails: fails.slice(0, cap), failCount: fails.length };
 	};
-	return { main: scan('main#main *'), nav: scan('nav *, header.top *') };
+	// the navigation list is not capped: every failing link is reported once below, whatever the page
+	return { main: scan('main#main *', 20), nav: scan('nav *, header.top *', Infinity) };
 })()`;
 
 // ---- run -----------------------------------------------------------------------------------------------------------
@@ -111,7 +118,7 @@ const offline = await proveOffline();
 if (!offline.pass) { console.error('layout: not offline'); process.exit(2); }
 const tmp = mkdtempSync(join(tmpdir(), 'cc-verify-layout-'));
 const A = appServer({ name: 'layout', root: ROOT, buildDir: join(ROOT, 'build'), port: PORTS.first, origPort: PORTS.first + 1, dir: tmp, env: { CLEARCASE_FIXED_NOW: '2026-10-08T09:00:00Z', TZ: 'UTC' } });
-const out = { case: CASE, widths: WIDTHS, views: [], shellContrast: {}, components: [], shots: [], failures: [] };
+const out = { case: CASE, revision: revisionStamp(ROOT), widths: WIDTHS, views: [], shellContrast: {}, components: [], shots: [], failures: [] };
 const fail = (what) => { out.failures.push(what); console.log(`FAIL ${what}`); };
 let b, p, code = 2;
 try {
@@ -145,10 +152,11 @@ try {
 			await setWidth(w);
 			await p.goto(url, ready(v.id), 30000);
 			await settle();
-			const m = await p.evaluate(LAYOUT);
+			const m = await p.evaluate(LAYOUT(w));
 			row.widths[w] = m;
-			if (m.sideways) fail(`${v.id}@${w}: scrolls sideways (${m.scrollWidth} > ${m.innerWidth})`);
+			if (m.sideways) fail(`${v.id}@${w}: scrolls sideways (content ${m.scrollWidth}, layout viewport ${m.innerWidth}, requested ${w})`);
 			if (m.onHeading.length) fail(`${v.id}@${w}: controls over the heading: ${m.onHeading.join(', ')}`);
+			if (m.unchecked) fail(`${v.id}@${w}: ${m.unchecked} of ${m.controls} controls not checked for overlap (cap 1000)`);
 			if (m.overlaps.length) fail(`${v.id}@${w}: overlapping controls: ${m.overlaps.slice(0, 3).join('; ')}`);
 			if (SHOTS) {
 				const { data } = await p.s('Page.captureScreenshot', { format: 'png' });
@@ -164,6 +172,7 @@ try {
 		if (!row.label.ok) fail(`${v.id}: label ${J(v.label)} vs heading ${J(id.heading)}, title ${J(id.title)}, nav ${J(id.nav)}`);
 		row.contrast = await p.evaluate(CONTRAST);
 		const cm = row.contrast.main, cn = row.contrast.nav;
+		if (cm.unparsed || cn.unparsed) fail(`${v.id}: ${cm.unparsed + cn.unparsed} elements with a text colour the contrast check cannot parse`);
 		if (cm.failCount) fail(`${v.id}: ${cm.failCount} text elements in main under their contrast minimum (lowest ${cm.min}): ${cm.fails.slice(0, 3).map((f) => `${f.el} ${f.ratio}`).join(', ')}`);
 		// the shared navigation is the same on every page: counted per view, reported once below
 		for (const f of cn.fails) (out.shellContrast[`${f.el} ${f.ratio}`] ??= { ...f, views: [] }).views.push(v.id);
@@ -179,7 +188,7 @@ try {
 		await p.waitFor(ready(prev), 20000).catch(() => {});
 		await sleep(200);
 		const back = await p.evaluate(`({ ready: document.querySelector('main#main')?.dataset.ready ?? null, body: document.activeElement === document.body, inMain: !!document.activeElement?.closest('main#main') })`);
-		row.keyboard = { nav, back, ok: nav.ready === v.id && nav.focus && nav.current === `nav-${v.id}` && back.ready === prev && !back.body };
+		row.keyboard = { nav, back, ok: nav.ready === v.id && nav.focus && nav.current === `nav-${v.id}` && back.ready === prev && back.inMain };
 		if (!row.keyboard.ok) fail(`${v.id}: keyboard ${J(nav)} back ${J(back)}`);
 		prev = v.id;
 		out.views.push(row);
@@ -227,7 +236,7 @@ try {
 		}
 		await p.s('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: [] });
 		const need = states.default.large ? 3 : 4.5;
-		const textOk = Object.values(states).every((s) => s.text === null || s.text + 1e-6 >= need);
+		const textOk = Object.values(states).every((s) => s.text !== null && s.text + 1e-6 >= need);
 		// an element that cannot take focus (a table header) has no focus state to check
 		const focusable = await p.evaluate(`(() => { const e = document.querySelector('[data-verify-target="1"]'); return e.tabIndex >= 0 || e.matches('a[href], button, input, select, textarea, summary'); })()`);
 		const focusOk = focusable ? states['focus-visible'].ring !== null && states['focus-visible'].ring >= 3 : null;

@@ -12,7 +12,9 @@ const REPO = join(import.meta.dirname, '..', '..', '..', '..');
 const tree = mkdtempSync(join(tmpdir(), 'cc-implemented-'));
 afterAll(() => rmSync(tree, { recursive: true, force: true }));
 const put = (p: string, s: string) => { mkdirSync(join(p, '..'), { recursive: true }); writeFileSync(p, s); };
-for (const f of ['view-registry.ts', 'overview-slots.ts']) put(join(tree, 'src', 'lib', 'components', f), readFileSync(join(REPO, 'src', 'lib', 'components', f), 'utf8'));
+// the scratch tree is the tree before any M2 owner's ticket passed: every entry with a category is unavailable
+const beforeM2 = (src: string) => src.replace(/(linear: '([^']+)', category: '[a-z]+', route: '[^']+', status: )'available'/g, "$1'unavailable-until:$2'");
+for (const f of ['view-registry.ts', 'overview-slots.ts']) put(join(tree, 'src', 'lib', 'components', f), (f === 'view-registry.ts' ? beforeM2 : String)(readFileSync(join(REPO, 'src', 'lib', 'components', f), 'utf8')));
 const { views, slots } = await registryOf(tree);
 const byId = (id: string) => views.find((v: { id: string }) => v.id === id)!;
 const widgets = join(tree, 'src', 'lib', 'views', 'registers', 'overview-widgets.ts');

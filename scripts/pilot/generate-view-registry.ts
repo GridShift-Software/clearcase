@@ -15,8 +15,8 @@ const items = new Map(plan.items.map((i) => [i.key, i]));
 /** Route category per owning M2 ticket (coordinator decision 2). The pilot's own views have fixed routes. */
 const CATEGORY: Record<string, string> = { 'CC-04': 'evidence', 'CC-05': 'analysis', 'CC-06': 'quantum', 'CC-07': 'registers', 'CC-08': 'litigation', 'CC-09': 'bundles', 'CC-10': 'system' };
 const PILOT = 'CC-03';
-/** Views the pilot implements; every other entry stays unavailable until its owner's ticket passes. */
-const AVAILABLE = new Set(['overview', 'chronology', 'rescan_tab', 'backup_tab', 'manual']);
+/** Owners whose ticket passed its gate (GRS-12, GRS-14 to GRS-20); any other owner's views stay unavailable until it passes. */
+const PASSED = new Set([PILOT, 'CC-04', 'CC-05', 'CC-06', 'CC-07', 'CC-08', 'CC-09', 'CC-10']);
 
 const linear = (key: string) => {
 	const id = items.get(key)?.linear?.identifier;
@@ -35,7 +35,7 @@ const entries = inventory.views.map((v) => {
 	return {
 		id: v.id, label: v.label, group: v.group, owner: v.owner, linear: issue, category,
 		route: pilot ? `/${v.id}` : `/${category}/${v.id}`,
-		status: AVAILABLE.has(v.id) ? 'available' : `unavailable-until:${issue}`,
+		status: PASSED.has(v.owner) ? 'available' : `unavailable-until:${issue}`,
 	};
 });
 

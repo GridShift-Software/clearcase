@@ -98,7 +98,7 @@ describe('strict register over fragments', () => {
 	test('a whole-view entry in a fragment covers the view, and an unused fragment entry fails a strict run', () => {
 		const { entries, problems } = load(register([entry('IDR-090')], { 'CC-04': [whole('IDR-100', 'people'), entry('IDR-101', { view: 'people', field: 'text.subtitle' })] }));
 		expect(problems).toEqual([]);
-		const r = classify('people', diff({ ...base('v5'), view: 'people' }, snap.appWithoutAdapter('people', registry)), entries, {});
+		const r = classify('people', diff({ ...base('v5'), view: 'people' }, snap.appWithoutAdapter('people', { ...registry, people: { ...registry.people!, status: `unavailable-until:${registry.people!.linear}` } })), entries, {});
 		expect(r.registered).toMatchObject([{ register: 'IDR-100' }]);
 		const unused = unusedEntries(entries, ['people'], new Set(r.registered.map((d: any) => d.register)));
 		expect(unused).toEqual(['IDR-101']);

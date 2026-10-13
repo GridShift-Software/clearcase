@@ -1,0 +1,238 @@
+#!/usr/bin/env bun
+// Layout, navigation and contrast check of all 42 views (GRS-21, CC-11: BA-12, BA-13, BA-14, BA-18, BA-21), offline, on
+// the production build (./build) under Bun:
+//
+//   bun scripts/verify/layout.mjs [--case synthetic|v5] [--out DIR] [--shots]
+//
+// --case synthetic (default) builds a synthetic case (tests/e2e/pilot/lib/fixtures.ts); --case v5 imports the real v5
+// sample named by .local/v5-verification.json (case material: write --out under .local/ only). The script re-execs
+// itself in a network namespace with only lo (tests/e2e/pilot/v5/env.mjs ensureOffline). For each registry view:
+//   widths    at 320, 390, 768 and 1280 px: the page does not scroll sideways; no visible control overlaps the page heading
+//             (BA-12); no two visible controls overlap; the smallest text in main (BA-21 readability at 320/390);
+//   label     the page heading equals the registry label shown in the navigation, the title starts with it (BA-18);
+//   keyboard  at 1280 px: the navigation link focused by keyboard and activated with Enter opens the view with focus on its
+//             heading and aria-current on the link; Back returns to the previous view with focus inside the page (BA-14);
+//   contrast  every visible element with its own text in main and in the navigation, against its effective background:
+//             4.5:1, or 3:1 for large text (WCAG 2.2 1.4.3), at 1280 px (BA-13);
+// and once, the shared components (navigation link, button, link, input, table header) in their default, :hover,
+// :focus-visible and :active states (CDP CSS.forcePseudoState): text contrast in each state, and a visible focus indicator
+// with 3:1 against the background (WCAG 2.2 1.4.11, 2.4.7). --shots saves one viewport PNG per view and width under
+// DIR/shots/ and lists each with its sha256. Results: DIR/layout.json (default .local/GRS-21/layout-<case>) and one line
+// per failing check. Exit 0 when every check passed, 1 if any failed, 2 on a setup error.
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { ensureOffline, PORTS } from '../../tests/e2e/pilot/v5/env.mjs';
+
+ensureOffline(import.meta.filename);
+const { proveOffline } = await import('../../tests/e2e/pilot/lib/netproof.mjs');
+const { launch, sleep } = await import('../../tests/e2e/pilot/lib/cdp.mjs');
+const { INIT, openPage } = await import('../../tests/e2e/pilot/suite/browser.mjs');
+const { appServer } = await import('../../tests/e2e/pilot/suite/context.mjs');
+const { buildCase } = await import('../../tests/e2e/pilot/lib/fixtures.ts');
+const { VIEWS } = await import('../../src/lib/components/view-registry.ts');
+
+const ROOT = resolve(import.meta.dirname, '..', '..');
+const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
+const CASE = arg('--case', 'synthetic');
+const OUT = resolve(arg('--out', join(ROOT, '.local', 'GRS-21', `layout-${CASE}`)));
+const SHOTS = process.argv.includes('--shots');
+if (!['synthetic', 'v5'].includes(CASE)) { console.error('--case synthetic|v5'); process.exit(2); }
+mkdirSync(OUT, { recursive: true });
+const WIDTHS = [320, 390, 768, 1280];
+const J = JSON.stringify;
+const sha = (b) => createHash('sha256').update(b).digest('hex');
+const ready = (id) => `document.querySelector('main#main')?.dataset.ready === ${J(id)}`;
+
+// ---- in-page measurements --------------------------------------------------------------------------------------------
+
+/** Colour helpers as page source: parse rgb(a), composite on the effective background, WCAG relative luminance and ratio. */
+const COLOR = `
+	const rgba = (s) => { const m = /rgba?\\(([^)]+)\\)/.exec(s || ''); if (!m) return null; const p = m[1].split(/[ ,/]+/).filter(Boolean).map(Number); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
+	const over = (top, under) => ({ r: top.r * top.a + under.r * (1 - top.a), g: top.g * top.a + under.g * (1 - top.a), b: top.b * top.a + under.b * (1 - top.a), a: 1 });
+	const bgOf = (el) => { const layers = []; for (let e = el; e; e = e.parentElement) { const c = rgba(getComputedStyle(e).backgroundColor); if (c && c.a > 0) { layers.push(c); if (c.a >= 1) break; } } let acc = { r: 255, g: 255, b: 255, a: 1 }; for (const l of layers.reverse()) acc = over(l, acc); return acc; };
+	const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
+	const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+	const VIS = (e) => { const r = e.getBoundingClientRect(); const s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none' && Number(s.opacity) > 0 && !e.closest('.visually-hidden, [hidden], [aria-hidden=true]'); };
+	const large = (s) => { const px = parseFloat(s.fontSize); const bold = Number(s.fontWeight) >= 700 || s.fontWeight === 'bold'; return px >= 24 || (bold && px >= 18.66); };
+	const label = (e) => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + (typeof e.className === 'string' && e.className ? '.' + e.className.trim().split(/\\s+/).slice(0, 2).join('.') : '');
+`;
+
+/** Layout at the current width: sideways scroll, controls over the heading, overlapping controls, smallest text. */
+const LAYOUT = `(() => { ${COLOR}
+	const se = document.scrollingElement;
+	const h = document.querySelector('[data-page-heading]');
+	const hr = h?.getBoundingClientRect();
+	const main = document.querySelector('main#main');
+	const controls = [...(main?.querySelectorAll('a[href], button, select, input:not([type=hidden]), textarea, summary') ?? [])].filter(VIS).slice(0, 400);
+	const hit = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+	const onHeading = h ? controls.filter((c) => !h.contains(c) && hit(c.getBoundingClientRect(), hr) > 4).map(label) : [];
+	const rects = controls.map((c) => [c, c.getBoundingClientRect()]);
+	const overlaps = [];
+	for (let i = 0; i < rects.length && overlaps.length < 10; i++) for (let j = i + 1; j < rects.length; j++) {
+		const [a, ra] = rects[i], [b, rb] = rects[j];
+		if (a.contains(b) || b.contains(a)) continue;
+		// controls inside a scroll box are compared only with controls in the same box (a box clips what is outside it)
+		if (hit(ra, rb) > 4) { overlaps.push(label(a) + ' / ' + label(b)); if (overlaps.length >= 10) break; }
+	}
+	const texts = [...(main?.querySelectorAll('*') ?? [])].filter((e) => [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && VIS(e));
+	const minFont = texts.length ? Math.min(...texts.map((e) => parseFloat(getComputedStyle(e).fontSize))) : null;
+	return { innerWidth, scrollWidth: se.scrollWidth, sideways: se.scrollWidth > innerWidth + 1, heading: h?.textContent.trim() ?? null, onHeading, overlaps, minFont };
+})()`;
+
+/** Text contrast of every visible element with its own text in main and the navigation. */
+const CONTRAST = `(() => { ${COLOR}
+	const els = [...document.querySelectorAll('main#main *, nav *')].filter((e) => [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && VIS(e));
+	const fails = [];
+	let checked = 0, min = Infinity;
+	for (const e of els) {
+		const s = getComputedStyle(e);
+		const fg = rgba(s.color); if (!fg) continue;
+		const bg = bgOf(e);
+		const r = ratio(over(fg, bg), bg);
+		const need = large(s) ? 3 : 4.5;
+		checked++; min = Math.min(min, r);
+		if (r + 1e-6 < need) fails.push({ el: label(e), text: e.textContent.trim().slice(0, 40), ratio: +r.toFixed(2), need });
+	}
+	return { checked, min: checked ? +min.toFixed(2) : null, fails: fails.slice(0, 20), failCount: fails.length };
+})()`;
+
+// ---- run -----------------------------------------------------------------------------------------------------------
+
+const offline = await proveOffline();
+if (!offline.pass) { console.error('layout: not offline'); process.exit(2); }
+const tmp = mkdtempSync(join(tmpdir(), 'cc-verify-layout-'));
+const A = appServer({ name: 'layout', root: ROOT, buildDir: join(ROOT, 'build'), port: PORTS.first, origPort: PORTS.first + 1, dir: tmp, env: { CLEARCASE_FIXED_NOW: '2026-10-08T09:00:00Z', TZ: 'UTC' } });
+const out = { case: CASE, widths: WIDTHS, views: [], components: [], shots: [], failures: [] };
+const fail = (what) => { out.failures.push(what); console.log(`FAIL ${what}`); };
+let b, p, code = 2;
+try {
+	await A.start();
+	let caseDir, pkgDir;
+	if (CASE === 'v5') {
+		const { loadConfig, v5Package } = await import('../../tests/e2e/pilot/v5/fixture.mjs');
+		const fx = await loadConfig();
+		const pkg = v5Package(fx, join(tmp, 'v5-package'));
+		caseDir = fx.caseFolder; pkgDir = pkg.dir;
+	} else {
+		const sc = await buildCase(join(tmp, 'case'), { caseId: 'verify-layout' });
+		caseDir = sc.caseDir; pkgDir = sc.pkgDir;
+	}
+	const imp = await A.c.importPkg(caseDir, pkgDir);
+	await A.c.activate(imp.importId);
+	const rv = await A.c.activeVersion();
+	if (!rv) throw new Error(`activation failed: ${J({ status: imp.status })}`);
+	b = await launch({ profileRoot: join(tmp, 'chromium') });
+	p = await openPage(b, { initScript: INIT });
+	const setWidth = (w) => p.s('Emulation.setDeviceMetricsOverride', { width: w, height: w < 800 ? 800 : 900, deviceScaleFactor: 1, mobile: w < 800 });
+	const settle = () => p.evaluate('new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))');
+	const shotsDir = join(OUT, 'shots');
+	if (SHOTS) mkdirSync(shotsDir, { recursive: true });
+
+	let prev = 'overview';
+	for (const v of VIEWS) {
+		const url = `${A.v(rv)}${v.route}`;
+		const row = { view: v.id, label: v.label, widths: {} };
+		for (const w of WIDTHS) {
+			await setWidth(w);
+			await p.goto(url, ready(v.id), 30000);
+			await settle();
+			const m = await p.evaluate(LAYOUT);
+			row.widths[w] = m;
+			if (m.sideways) fail(`${v.id}@${w}: scrolls sideways (${m.scrollWidth} > ${m.innerWidth})`);
+			if (m.onHeading.length) fail(`${v.id}@${w}: controls over the heading: ${m.onHeading.join(', ')}`);
+			if (m.overlaps.length) fail(`${v.id}@${w}: overlapping controls: ${m.overlaps.slice(0, 3).join('; ')}`);
+			if (w <= 390 && m.minFont !== null && m.minFont < 12) fail(`${v.id}@${w}: text smaller than 12 px (${m.minFont})`);
+			if (SHOTS) {
+				const { data } = await p.s('Page.captureScreenshot', { format: 'png' });
+				const buf = Buffer.from(data, 'base64');
+				const file = join(shotsDir, `${v.id}@${w}.png`);
+				writeFileSync(file, buf);
+				out.shots.push({ view: v.id, width: w, file: file.slice(ROOT.length + 1), sha256: sha(buf), bytes: buf.length });
+			}
+		}
+		// label and title (BA-18), then contrast at 1280 (BA-13)
+		const id = await p.evaluate(`({ heading: document.querySelector('[data-page-heading]')?.textContent.trim() ?? null, title: document.title, nav: document.querySelector('#nav-${v.id}')?.textContent.trim() ?? null })`);
+		row.label = { ...id, ok: id.heading === v.label && id.title.startsWith(v.label) && (id.nav ?? '').startsWith(v.label) };
+		if (!row.label.ok) fail(`${v.id}: label ${J(v.label)} vs heading ${J(id.heading)}, title ${J(id.title)}, nav ${J(id.nav)}`);
+		row.contrast = await p.evaluate(CONTRAST);
+		if (row.contrast.failCount) fail(`${v.id}: ${row.contrast.failCount} text elements under their contrast minimum (lowest ${row.contrast.min}): ${row.contrast.fails.slice(0, 2).map((f) => `${f.el} ${f.ratio}`).join(', ')}`);
+		// keyboard navigation and Back (BA-14), from the previous view
+		await p.goto(`${A.v(rv)}${VIEWS.find((x) => x.id === prev).route}`, ready(prev), 30000);
+		await p.evaluate(`document.querySelector('#nav-${v.id}').focus(); true`);
+		await p.key('Enter');
+		await p.waitFor(ready(v.id), 20000).catch(() => {});
+		await sleep(120);
+		const nav = await p.evaluate(`({ ready: document.querySelector('main#main')?.dataset.ready ?? null, focus: document.activeElement?.hasAttribute('data-page-heading') ?? false, current: document.querySelector('a[data-view][aria-current="page"]')?.id ?? null })`);
+		await p.evaluate('history.back(); true');
+		await p.waitFor(ready(prev), 20000).catch(() => {});
+		await sleep(200);
+		const back = await p.evaluate(`({ ready: document.querySelector('main#main')?.dataset.ready ?? null, body: document.activeElement === document.body, inMain: !!document.activeElement?.closest('main#main') })`);
+		row.keyboard = { nav, back, ok: nav.ready === v.id && nav.focus && nav.current === `nav-${v.id}` && back.ready === prev && !back.body };
+		if (!row.keyboard.ok) fail(`${v.id}: keyboard ${J(nav)} back ${J(back)}`);
+		prev = v.id;
+		out.views.push(row);
+		console.log(`view ${v.id}: ${Object.values(row.widths).every((m) => !m.sideways && !m.onHeading.length && !m.overlaps.length) ? 'layout ok' : 'LAYOUT'}, label ${row.label.ok ? 'ok' : 'FAIL'}, keyboard ${row.keyboard.ok ? 'ok' : 'FAIL'}, contrast ${row.contrast.failCount ? 'FAIL' : 'ok'} (${row.contrast.checked})`);
+	}
+
+	// shared components in their interaction states (BA-13)
+	await p.s('DOM.enable');
+	await p.s('CSS.enable');
+	await setWidth(1280);
+	const COMPONENTS = [
+		['navigation link', 'overview', 'nav a[data-view]:not([aria-current])'],
+		['current navigation link', 'overview', 'nav a[aria-current="page"]'],
+		['skip link', 'overview', 'a[href="#main"]'],
+		['link in main', 'chronology', 'main#main a[href]'],
+		['button', 'deadlines_tab', 'main#main button'],
+		['text input', 'deadlines_tab', 'main#main input[type=text], main#main input:not([type])'],
+		['select', 'deadlines_tab', 'main#main select'],
+		['table header', 'chronology', 'main#main th'],
+	];
+	for (const [name, view, sel] of COMPONENTS) {
+		const v = VIEWS.find((x) => x.id === view);
+		await p.goto(`${A.v(rv)}${v.route}`, ready(view), 30000);
+		const has = await p.evaluate(`(() => { const e = document.querySelector(${J(sel)}); if (!e) return false; e.setAttribute('data-verify-target', '1'); e.scrollIntoView({ block: 'center' }); return true; })()`);
+		if (!has) { fail(`component ${name}: none on ${view}`); continue; }
+		const { root } = await p.s('DOM.getDocument', { depth: 0 });
+		const { nodeId } = await p.s('DOM.querySelector', { nodeId: root.nodeId, selector: '[data-verify-target="1"]' });
+		const states = {};
+		for (const state of ['default', 'hover', 'focus-visible', 'active']) {
+			await p.s('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: state === 'default' ? [] : state === 'focus-visible' ? ['focus', 'focus-visible'] : [state] });
+			if (state === 'focus-visible') await p.evaluate(`document.querySelector('[data-verify-target="1"]').focus(); true`);
+			await settle();
+			states[state] = await p.evaluate(`(() => { ${COLOR}
+				const e = document.querySelector('[data-verify-target="1"]'); const s = getComputedStyle(e); const bg = bgOf(e); const fg = rgba(s.color);
+				const outline = s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) >= 1 ? rgba(s.outlineColor) : null;
+				const shadow = s.boxShadow && s.boxShadow !== 'none' ? rgba(s.boxShadow) : null;
+				const ring = outline ?? shadow;
+				const outerBg = bgOf(e.parentElement ?? e);
+				return { text: fg ? +ratio(over(fg, bg), bg).toFixed(2) : null, large: large(s), outline: s.outlineStyle + ' ' + s.outlineWidth + ' ' + s.outlineColor, boxShadow: s.boxShadow.slice(0, 60), ring: ring ? +ratio(over(ring, outerBg), outerBg).toFixed(2) : null };
+			})()`);
+			if (state === 'focus-visible') await p.evaluate(`document.activeElement?.blur(); true`);
+		}
+		await p.s('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: [] });
+		const need = states.default.large ? 3 : 4.5;
+		const textOk = Object.values(states).every((s) => s.text === null || s.text + 1e-6 >= need);
+		const focusOk = states['focus-visible'].ring !== null && states['focus-visible'].ring >= 3;
+		out.components.push({ name, view, selector: sel, states, textOk, focusOk });
+		if (!textOk) fail(`component ${name}: text under ${need}:1 in a state: ${J(Object.fromEntries(Object.entries(states).map(([k, s]) => [k, s.text])))}`);
+		if (!focusOk) fail(`component ${name}: focus indicator ${J(states['focus-visible'])}`);
+		console.log(`component ${name}: text ${textOk ? 'ok' : 'FAIL'}, focus ${focusOk ? 'ok' : 'FAIL'}`);
+	}
+	code = out.failures.length ? 1 : 0;
+} catch (e) {
+	console.error(`layout: ${String(e?.stack ?? e).slice(0, 2000)}`);
+	out.error = String(e?.message ?? e);
+	code = 2;
+} finally {
+	await p?.close().catch(() => {});
+	await b?.close().catch(() => {});
+	await A.stop().catch(() => {});
+	out.exit = code;
+	writeFileSync(join(OUT, 'layout.json'), J(out, null, 1));
+	rmSync(tmp, { recursive: true, force: true });
+}
+console.log(`layout: ${code === 0 ? 'PASS' : 'FAIL'} (exit ${code}): ${out.views.length} views x ${WIDTHS.length} widths, ${out.components.length} components, ${out.failures.length} failures -> ${join(OUT, 'layout.json')}`);
+process.exit(code);

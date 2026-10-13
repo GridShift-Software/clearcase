@@ -8,16 +8,18 @@
 // sample named by .local/v5-verification.json (case material: write --out under .local/ only). The script re-execs
 // itself in a network namespace with only lo (tests/e2e/pilot/v5/env.mjs ensureOffline). For each registry view:
 //   widths    at 320, 390, 768 and 1280 px: the page does not scroll sideways; no visible control overlaps the page heading
-//             (BA-12); no two visible controls overlap; the smallest text size in main is recorded (BA-21 readability
+//             (BA-12); no two visible controls overlap (compared line box by line box, so a wrapped link is not
+//             mistaken for an overlap); the smallest text size in main is recorded (BA-21 readability
 //             at 320/390; reported, not gated: WCAG sets no minimum size);
 //   label     the page heading equals the registry label shown in the navigation, the title starts with it (BA-18);
 //   keyboard  at 1280 px: the navigation link focused by keyboard and activated with Enter opens the view with focus on its
 //             heading and aria-current on the link; Back returns to the previous view with focus inside the page (BA-14);
-//   contrast  every visible element with its own text in main and in the navigation, against its effective background:
-//             4.5:1, or 3:1 for large text (WCAG 2.2 1.4.3), at 1280 px (BA-13);
+//   contrast  every visible element with its own text in main, against its effective background: 4.5:1, or 3:1 for
+//             large text (WCAG 2.2 1.4.3; disabled controls are exempt), at 1280 px (BA-13); the shared navigation and top bar are checked on every
+//             view and reported once, as the shell's;
 // and once, the shared components (navigation link, button, link, input, table header) in their default, :hover,
 // :focus-visible and :active states (CDP CSS.forcePseudoState): text contrast in each state, and a visible focus indicator
-// with 3:1 against the background (WCAG 2.2 1.4.11, 2.4.7). --shots saves one viewport PNG per view and width under
+// with 3:1 against the background (WCAG 2.2 1.4.11, 2.4.7); an element that cannot take focus has no focus check. --shots saves one viewport PNG per view and width under
 // DIR/shots/ and lists each with its sha256. Results: DIR/layout.json (default .local/GRS-21/layout-<case>) and one line
 // per failing check. Exit 0 when every check passed, 1 if any failed, 2 on a setup error.
 import { createHash } from 'node:crypto';
@@ -69,34 +71,38 @@ const LAYOUT = `(() => { ${COLOR}
 	const controls = [...(main?.querySelectorAll('a[href], button, select, input:not([type=hidden]), textarea, summary') ?? [])].filter(VIS).slice(0, 400);
 	const hit = (a, b) => Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left)) * Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
 	const onHeading = h ? controls.filter((c) => !h.contains(c) && hit(c.getBoundingClientRect(), hr) > 4).map(label) : [];
-	const rects = controls.map((c) => [c, c.getBoundingClientRect()]);
+	// each control's line boxes (getClientRects): a link that wraps has a bounding box over both lines, its boxes do not
+	const rects = controls.map((c) => [c, [...c.getClientRects()].filter((r) => r.width > 0 && r.height > 0)]);
 	const overlaps = [];
 	for (let i = 0; i < rects.length && overlaps.length < 10; i++) for (let j = i + 1; j < rects.length; j++) {
 		const [a, ra] = rects[i], [b, rb] = rects[j];
 		if (a.contains(b) || b.contains(a)) continue;
-		// controls inside a scroll box are compared only with controls in the same box (a box clips what is outside it)
-		if (hit(ra, rb) > 4) { overlaps.push(label(a) + ' / ' + label(b)); if (overlaps.length >= 10) break; }
+		if (ra.some((x) => rb.some((y) => hit(x, y) > 4))) { overlaps.push(label(a) + ' / ' + label(b)); if (overlaps.length >= 10) break; }
 	}
 	const texts = [...(main?.querySelectorAll('*') ?? [])].filter((e) => [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && VIS(e));
 	const minFont = texts.length ? Math.min(...texts.map((e) => parseFloat(getComputedStyle(e).fontSize))) : null;
 	return { innerWidth, scrollWidth: se.scrollWidth, sideways: se.scrollWidth > innerWidth + 1, heading: h?.textContent.trim() ?? null, onHeading, overlaps, minFont };
 })()`;
 
-/** Text contrast of every visible element with its own text in main and the navigation. */
+/** Text contrast of every visible element with its own text, in main and in the shared navigation, counted apart. */
 const CONTRAST = `(() => { ${COLOR}
-	const els = [...document.querySelectorAll('main#main *, nav *')].filter((e) => [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && VIS(e));
-	const fails = [];
-	let checked = 0, min = Infinity;
-	for (const e of els) {
-		const s = getComputedStyle(e);
-		const fg = rgba(s.color); if (!fg) continue;
-		const bg = bgOf(e);
-		const r = ratio(over(fg, bg), bg);
-		const need = large(s) ? 3 : 4.5;
-		checked++; min = Math.min(min, r);
-		if (r + 1e-6 < need) fails.push({ el: label(e), text: e.textContent.trim().slice(0, 40), ratio: +r.toFixed(2), need });
-	}
-	return { checked, min: checked ? +min.toFixed(2) : null, fails: fails.slice(0, 20), failCount: fails.length };
+	const scan = (sel) => {
+		// a disabled control is exempt (WCAG 2.2 1.4.3: inactive user interface components)
+		const els = [...document.querySelectorAll(sel)].filter((e) => [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && VIS(e) && !e.closest(':disabled, [aria-disabled="true"]'));
+		const fails = [];
+		let checked = 0, min = Infinity;
+		for (const e of els) {
+			const s = getComputedStyle(e);
+			const fg = rgba(s.color); if (!fg) continue;
+			const bg = bgOf(e);
+			const r = ratio(over(fg, bg), bg);
+			const need = large(s) ? 3 : 4.5;
+			checked++; min = Math.min(min, r);
+			if (r + 1e-6 < need) fails.push({ el: label(e), text: e.textContent.trim().slice(0, 40), ratio: +r.toFixed(2), need, fg: s.color, bg: 'rgb(' + [bg.r, bg.g, bg.b].map(Math.round).join(', ') + ')' });
+		}
+		return { checked, min: checked ? +min.toFixed(2) : null, fails: fails.slice(0, 20), failCount: fails.length };
+	};
+	return { main: scan('main#main *'), nav: scan('nav *, header.top *') };
 })()`;
 
 // ---- run -----------------------------------------------------------------------------------------------------------
@@ -105,7 +111,7 @@ const offline = await proveOffline();
 if (!offline.pass) { console.error('layout: not offline'); process.exit(2); }
 const tmp = mkdtempSync(join(tmpdir(), 'cc-verify-layout-'));
 const A = appServer({ name: 'layout', root: ROOT, buildDir: join(ROOT, 'build'), port: PORTS.first, origPort: PORTS.first + 1, dir: tmp, env: { CLEARCASE_FIXED_NOW: '2026-10-08T09:00:00Z', TZ: 'UTC' } });
-const out = { case: CASE, widths: WIDTHS, views: [], components: [], shots: [], failures: [] };
+const out = { case: CASE, widths: WIDTHS, views: [], shellContrast: {}, components: [], shots: [], failures: [] };
 const fail = (what) => { out.failures.push(what); console.log(`FAIL ${what}`); };
 let b, p, code = 2;
 try {
@@ -157,7 +163,10 @@ try {
 		row.label = { ...id, ok: id.heading === v.label && id.title.startsWith(v.label) && (id.nav ?? '').startsWith(v.label) };
 		if (!row.label.ok) fail(`${v.id}: label ${J(v.label)} vs heading ${J(id.heading)}, title ${J(id.title)}, nav ${J(id.nav)}`);
 		row.contrast = await p.evaluate(CONTRAST);
-		if (row.contrast.failCount) fail(`${v.id}: ${row.contrast.failCount} text elements under their contrast minimum (lowest ${row.contrast.min}): ${row.contrast.fails.slice(0, 2).map((f) => `${f.el} ${f.ratio}`).join(', ')}`);
+		const cm = row.contrast.main, cn = row.contrast.nav;
+		if (cm.failCount) fail(`${v.id}: ${cm.failCount} text elements in main under their contrast minimum (lowest ${cm.min}): ${cm.fails.slice(0, 3).map((f) => `${f.el} ${f.ratio}`).join(', ')}`);
+		// the shared navigation is the same on every page: counted per view, reported once below
+		for (const f of cn.fails) (out.shellContrast[`${f.el} ${f.ratio}`] ??= { ...f, views: [] }).views.push(v.id);
 		// keyboard navigation and Back (BA-14), from the previous view
 		if (prev === v.id) prev = 'chronology';
 		await p.goto(`${A.v(rv)}${VIEWS.find((x) => x.id === prev).route}`, ready(prev), 30000);
@@ -174,8 +183,11 @@ try {
 		if (!row.keyboard.ok) fail(`${v.id}: keyboard ${J(nav)} back ${J(back)}`);
 		prev = v.id;
 		out.views.push(row);
-		console.log(`view ${v.id}: ${Object.values(row.widths).every((m) => !m.sideways && !m.onHeading.length && !m.overlaps.length) ? 'layout ok' : 'LAYOUT'}, label ${row.label.ok ? 'ok' : 'FAIL'}, keyboard ${row.keyboard.ok ? 'ok' : 'FAIL'}, contrast ${row.contrast.failCount ? 'FAIL' : 'ok'} (${row.contrast.checked})`);
+		console.log(`view ${v.id}: ${Object.values(row.widths).every((m) => !m.sideways && !m.onHeading.length && !m.overlaps.length) ? 'layout ok' : 'LAYOUT'}, label ${row.label.ok ? 'ok' : 'FAIL'}, keyboard ${row.keyboard.ok ? 'ok' : 'FAIL'}, contrast ${cm.failCount ? 'FAIL' : 'ok'} (${cm.checked} in main, ${cn.failCount} under the minimum in the navigation)`);
 	}
+
+	const shell = Object.values(out.shellContrast);
+	if (shell.length) fail(`shell navigation: ${shell.length} text elements under their contrast minimum: ${shell.slice(0, 3).map((f) => `${f.el} ${f.ratio} (${f.fg} on ${f.bg}, ${f.views.length} views)`).join(', ')}`);
 
 	// shared components in their interaction states (BA-13)
 	await p.s('DOM.enable');
@@ -216,11 +228,13 @@ try {
 		await p.s('CSS.forcePseudoState', { nodeId, forcedPseudoClasses: [] });
 		const need = states.default.large ? 3 : 4.5;
 		const textOk = Object.values(states).every((s) => s.text === null || s.text + 1e-6 >= need);
-		const focusOk = states['focus-visible'].ring !== null && states['focus-visible'].ring >= 3;
-		out.components.push({ name, view, selector: sel, states, textOk, focusOk });
+		// an element that cannot take focus (a table header) has no focus state to check
+		const focusable = await p.evaluate(`(() => { const e = document.querySelector('[data-verify-target="1"]'); return e.tabIndex >= 0 || e.matches('a[href], button, input, select, textarea, summary'); })()`);
+		const focusOk = focusable ? states['focus-visible'].ring !== null && states['focus-visible'].ring >= 3 : null;
+		out.components.push({ name, view, selector: sel, states, textOk, focusable, focusOk });
 		if (!textOk) fail(`component ${name}: text under ${need}:1 in a state: ${J(Object.fromEntries(Object.entries(states).map(([k, s]) => [k, s.text])))}`);
-		if (!focusOk) fail(`component ${name}: focus indicator ${J(states['focus-visible'])}`);
-		console.log(`component ${name}: text ${textOk ? 'ok' : 'FAIL'}, focus ${focusOk ? 'ok' : 'FAIL'}`);
+		if (focusOk === false) fail(`component ${name}: focus indicator ${J(states['focus-visible'])}`);
+		console.log(`component ${name}: text ${textOk ? 'ok' : 'FAIL'}, focus ${focusOk === null ? 'n/a (not focusable)' : focusOk ? 'ok' : 'FAIL'}`);
 	}
 	code = out.failures.length ? 1 : 0;
 } catch (e) {

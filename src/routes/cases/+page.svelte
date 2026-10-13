@@ -21,7 +21,7 @@
 						<p class="case-meta">{plural(c.version.documents, 'document')} · {plural(c.versions, 'results version')}</p>
 					</div>
 					<span class="badge {c.status}">{STATUS[c.status]}</span>
-					<a class="btn open" href={c.href}>Open<span class="visually-hidden"> {name}</span></a>
+					<a class="btn open" href={c.href} aria-label="Open {name}">Open</a>
 				</li>
 			{/each}
 		</ul>

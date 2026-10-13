@@ -32,7 +32,7 @@ The gate author's evidence for complete v5 parity and local release readiness. I
 | 4 | Interleaved reference/head metrics and absolute budgets; known-data defects reviewed; user visual review requested | PASS for the metrics and the defects; visual review open | [Metrics](#metrics); [defects-table.md](defects-table.md); the visual review is the user's |
 | 5 | Second reviewer reruns critical paths | open | not the author's: [reviewer-guide.md](reviewer-guide.md) |
 | 6 | `docs/development.md` extended after CC-03 | PASS | section "M2 readiness checks (GRS-21, CC-11)" and the updated known limits |
-| 7 | `docs/user-guide.md` extended after CC-10 | PASS | "Windows quick start" (GRS-64), marked as not verified on Windows |
+| 7 | `docs/user-guide.md` extended after CC-10 | PASS | "Windows quick start" (GRS-64): WSL2 only, native Windows stated as unsupported, three parts marked unverified |
 | 8 | BA-01 to BA-21 dispositions reviewed against owners | PASS | [BA review](#ba-01-to-ba-21) |
 | 9 | Hostile imported content and original-preview isolation; parity reported apart from production-only and deferred capabilities | PASS | AC8 and the pilot suite's S13/S28/S29; [Isolation](#isolation) |
 | 10 | BA-12, BA-13, BA-14, BA-21 verified by this gate | PASS | layout runs on both cases, 0 failures. |

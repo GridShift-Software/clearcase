@@ -428,4 +428,5 @@ Budget on puk (decision 8, fixed from the GRS-9 baseline before implementation):
 | `V5_VIEW_CONTENT_AMBIGUOUS` | warning | quality | a view-content anchor matches more than once in the v5 viewer code (not extracted, never guessed) |
 | `V5_VIEW_CONTENT_LIMIT` | warning | quality | the v5 viewer code is too large or too slow to read; no view content was extracted (fails closed) |
 | `V5_META_COUNT_DISAGREEMENT` | warning | quality | source META count disagrees with the count derived from the records |
+| `V5_SOURCE_INDEX_DROPPED` | info | quality | the source's own search index was not carried into the package |
 | `DIAG_TRUNCATED` | info | quality | more instances of a code than listed |

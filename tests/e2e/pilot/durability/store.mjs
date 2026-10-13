@@ -49,6 +49,7 @@ export default async function storeScenarios(ctx) {
 				r.started = true;
 				const root = await s.c.get('/');
 				r.root = { status: root.status, location: root.location, text: root.status === 503 ? root.text.slice(0, 120) : undefined };
+				r.home = await s.c.home();
 				const h = await fetch(`${s.c.origin}/api/health`);
 				const hj = await h.json();
 				r.health = { status: h.status, storageError: hj.storageError?.slice(0, 120) ?? null, recovery: hj.recovery };
@@ -83,7 +84,7 @@ export default async function storeScenarios(ctx) {
 			} catch (e) { r.started = false; r.error = String(e?.stack ?? e).slice(0, 600); }
 			out[mode] = r;
 		}
-		const fellBack = (r, brokenStatus) => r.started && r.root.status === 307 && r.root.location === `${L.vp(v1)}/overview` && r.overview.status === 200 && r.overview.banner && r.overview.adopt &&
+		const fellBack = (r, brokenStatus) => r.started && r.root.status === 307 && r.root.location === '/cases' && r.home === `${L.vp(v1)}/overview` && r.overview.status === 200 && r.overview.banner && r.overview.adopt &&
 			r.brokenVersionPage === brokenStatus && r.brokenDocPage === brokenStatus && r.note && r.health.recovery?.configured === v2 && r.health.recovery?.effective === v1 &&
 			r.adopt.status === 303 && r.adopt.location === `${L.vp(v1)}/overview` && r.lastLogKind?.kind === 'recovery' && r.lastLogKind?.version_id === v1 &&
 			r.afterAdoptRestart.active === v1 && !r.afterAdoptRestart.banner && r.stoppedCleanly;
@@ -91,8 +92,8 @@ export default async function storeScenarios(ctx) {
 		return verdict({
 			templateActiveV2: out.before === v2 && out.noteAcked,
 			lost: fellBack(out.lost, 404), corruptRow: fellBack(out['corrupt-row'], 409), corruptBlob: fellBack(out['corrupt-blob'], 409),
-			danglingShowsLoggedV2: dp.started && dp.root.location === `${L.vp(v2)}/overview` && dp.overview.status === 200 && dp.overview.banner && dp.note && dp.stoppedCleanly,
-			noFallback: nf.started && nf.root.status === 307 && nf.root.location === '/import' && nf.importPage.banner && !nf.importPage.adopt && nf.importPage.noFallbackText &&
+			danglingShowsLoggedV2: dp.started && dp.home === `${L.vp(v2)}/overview` && dp.overview.status === 200 && dp.overview.banner && dp.note && dp.stoppedCleanly,
+			noFallback: nf.started && nf.root.status === 307 && nf.root.location === '/cases' && nf.home === null && nf.importPage.banner && !nf.importPage.adopt && nf.importPage.noFallbackText &&
 				nf.afterReimport.activated && nf.afterReimport.active === v1 && !nf.afterReimport.banner && nf.stoppedCleanly,
 			unusable: u.started && u.root.status === 503 && u.health.status === 200 && !!u.health.storageError && u.originals === 503 && u.stoppedCleanly,
 		}, out);
@@ -186,7 +187,7 @@ export default async function storeScenarios(ctx) {
 		});
 		s = await pool.up(data, { name: 's45-damaged', ports });
 		const v2p = await s.c.get(`${L.vp(v2)}/overview`);
-		const before = { root: (await s.c.get('/')).location, v2: v2p.status, advice: /Import the same package again/.test(v2p.text), v1: (await s.c.get(`${L.vp(v1)}/overview`)).status };
+		const before = { home: await s.c.home(), v2: v2p.status, advice: /Import the same package again/.test(v2p.text), v1: (await s.c.get(`${L.vp(v1)}/overview`)).status };
 		const r2 = await s.c.importPkg(c1.caseDir, c2.pkgDir);
 		const r1 = await s.c.importPkg(c1.caseDir, c1.pkgDir);
 		const ov = await s.c.get(`${L.vp(v2)}/overview`);
@@ -254,8 +255,8 @@ export default async function storeScenarios(ctx) {
 		await s.stop('SIGTERM');
 		L.withDb(data, (d) => d.prepare('UPDATE work.active SET version_id = ?').run(v1));
 		s = await pool.up(data, { name: 's48-edited', ports });
-		const root = (await s.c.get('/')).location;
-		const page = await s.c.get(root ?? '/');
+		const root = await s.c.home();
+		const page = await s.c.get(root ?? '/cases');
 		return verdict({ showsLoggedV2: root === `${L.vp(v2)}/overview`, banner: banner(page.text), reason: /differs from the activation log/.test(page.text) }, { root });
 	});
 

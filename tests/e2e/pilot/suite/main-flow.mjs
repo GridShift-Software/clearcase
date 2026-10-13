@@ -52,7 +52,7 @@ export { viewerState };
 export async function s1(ctx) {
 	const { A, b, R } = ctx;
 	const main = ctx.main;
-	const before = { active: await A.c.activeVersion(), root: (await A.c.get('/')).location };
+	const before = { active: await A.c.activeVersion(), root: (await A.c.get('/')).location, home: await A.c.home() };
 	const p = (ctx.p = await openPage(b));
 	await p.goto(`${A.origin}/import`, `!!document.querySelector('#import-form')`);
 	await p.type('#caseFolder', main.caseDir);
@@ -64,9 +64,9 @@ export async function s1(ctx) {
 		activeState: document.querySelector('#active-state')?.textContent.trim() ?? null, verify: document.querySelector('#verify-state')?.textContent.trim() ?? null,
 		rv: document.querySelector('#results-version')?.textContent.trim() ?? null, ack: !!document.querySelector('#ack'), activate: !!document.querySelector('#activate'), preview: document.querySelector('#preview')?.getAttribute('href') ?? null })`);
 	ctx.mainImport = { path: rep.path, id: Number(rep.path.split('/').pop()) };
-	const afterImport = { active: await A.c.activeVersion(), root: (await A.c.get('/')).location, attempts: A.results('SELECT id, outcome, verdict, results_version AS rv FROM import_attempt') };
-	const s1ok = before.active === null && before.root === '/import' && typed[0] === main.caseDir && typed[1] === main.pkgDir && rep.verdict === 'report' && rep.candidate === 'Candidate' &&
-		rep.activeState === 'not active' && rep.verify === 'verified' && rep.rv === main.resultsVersion && rep.ack && rep.activate && afterImport.active === null && afterImport.root === '/import' &&
+	const afterImport = { active: await A.c.activeVersion(), home: await A.c.home(), attempts: A.results('SELECT id, outcome, verdict, results_version AS rv FROM import_attempt') };
+	const s1ok = before.active === null && before.root === '/cases' && before.home === null && typed[0] === main.caseDir && typed[1] === main.pkgDir && rep.verdict === 'report' && rep.candidate === 'Candidate' &&
+		rep.activeState === 'not active' && rep.verify === 'verified' && rep.rv === main.resultsVersion && rep.ack && rep.activate && afterImport.active === null && afterImport.home === ctx.mainImport.path &&
 		afterImport.attempts.length === 1 && afterImport.attempts[0].outcome === 'stored';
 	R.rec('S1', 'import a synthetic package through the UI form: validation report with verdict and Candidate section; nothing activated', s1ok ? 'PASS' : 'FAIL', { before, typed: typed.map((x) => x.slice(-40)), report: rep, afterImport });
 	// S1b: Preview
@@ -74,9 +74,9 @@ export async function s1(ctx) {
 	await p.waitFor(`${ready('overview')} && !!document.querySelector('#candidate-banner')`, 20000);
 	const pv = await p.evaluate(`({ path: location.pathname, banner: document.querySelector('#candidate-banner')?.textContent.trim().slice(0, 120) ?? null, activeBanner: !!document.querySelector('#active-banner'),
 		count: Number(document.querySelector('#count-documents')?.dataset.count), rollback: !!document.querySelector('#rollback-form'), docs: performance.getEntriesByType('navigation').length })`);
-	const after = { active: await A.c.activeVersion(), root: (await A.c.get('/')).location, activePointers: A.work('SELECT * FROM active').length, log: A.work('SELECT * FROM activation_log').length };
+	const after = { active: await A.c.activeVersion(), home: await A.c.home(), activePointers: A.work('SELECT * FROM active').length, log: A.work('SELECT * FROM activation_log').length };
 	const ok = pv.path === `${vpath(main.resultsVersion)}/overview` && /^CANDIDATE PREVIEW/.test(pv.banner ?? '') && !pv.activeBanner && pv.count === main.chronology.length && !pv.rollback &&
-		after.active === null && after.root === '/import' && after.activePointers === 0 && after.log === 0;
+		after.active === null && after.home === ctx.mainImport.path && after.activePointers === 0 && after.log === 0;
 	return { pass: s1ok && ok, evidence: { preview: pv, expectedCount: main.chronology.length, after } };
 }
 
@@ -87,7 +87,7 @@ export async function activation(ctx) {
 	await p.click('#activate');
 	await p.waitFor(`!!document.querySelector('#activate-error')`, 30000);
 	const refused = await p.evaluate(`({ reasons: document.querySelector('#activate-error').dataset.reasons, text: document.querySelector('#activate-error').textContent.trim().slice(0, 200), ackChecked: document.querySelector('#ack')?.checked ?? null })`);
-	const afterRefusal = { active: await A.c.activeVersion(), root: (await A.c.get('/')).location, pointers: A.work('SELECT * FROM active').length, log: A.work('SELECT * FROM activation_log').length };
+	const afterRefusal = { active: await A.c.activeVersion(), home: await A.c.home(), pointers: A.work('SELECT * FROM active').length, log: A.work('SELECT * FROM activation_log').length };
 	await p.click('#ack');
 	const checked = await p.evaluate(`document.querySelector('#ack').checked`);
 	await p.click('#activate');
@@ -96,7 +96,7 @@ export async function activation(ctx) {
 	const log = A.work('SELECT kind, version_id AS v, acknowledgement IS NOT NULL AS acked FROM activation_log');
 	const active = await A.c.activeVersion();
 	const ok = refused.reasons.split(' ').includes('ACK_REQUIRED') && /Nothing was changed/.test(refused.text) && refused.ackChecked === false &&
-		afterRefusal.active === null && afterRefusal.root === '/import' && afterRefusal.pointers === 0 && afterRefusal.log === 0 && checked === true &&
+		afterRefusal.active === null && afterRefusal.home === ctx.mainImport.path && afterRefusal.pointers === 0 && afterRefusal.log === 0 && checked === true &&
 		ov.path === `${vpath(main.resultsVersion)}/overview` && !!ov.activeBanner && !ov.candidate && ov.count === main.chronology.length &&
 		active === main.resultsVersion && log.length === 1 && log[0].kind === 'activate' && log[0].v === main.resultsVersion && log[0].acked === 1;
 	return { pass: ok, evidence: { refused, afterRefusal, ackChecked: checked, overview: ov, active, log, expectedCount: main.chronology.length } };

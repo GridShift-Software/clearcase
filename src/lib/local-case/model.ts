@@ -81,7 +81,23 @@ export interface OverviewModel {
 	contradictions: { total: number; highCount: number } | null;
 }
 
-/** Route helpers: results versions are 'sha256:<hex>' and always URL-encoded in paths. */
+/** One case on the case list. */
+export interface CaseSummary {
+	caseId: string;
+	caseLabel: string | null;
+	/** recovery: startup found the active version failed its checks; candidate: the case has no active version */
+	status: 'active' | 'candidate' | 'recovery';
+	/** the version the row describes: the effective active one, else (recovery without a fallback) the configured one,
+	 *  else the newest candidate */
+	version: { id: string; importId: number; created: string; storedAt: string; documents: number };
+	/** results versions stored for the case */
+	versions: number;
+	/** where Open goes: the effective active version's overview, the recovery page when startup found no version to
+	 *  fall back to, or the newest candidate's validation report */
+	href: string;
+}
+
+/** Route helpers:results versions are 'sha256:<hex>' and always URL-encoded in paths. */
 export const versionPath = (resultsVersion: string) => `/v/${encodeURIComponent(resultsVersion)}`;
 /** GRS-10's document route, /v/<rv>/doc/<ref>?page=N. */
 export const docPath = documentRoute;

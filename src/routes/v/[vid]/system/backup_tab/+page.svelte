@@ -95,5 +95,4 @@
 <style>
 	fieldset { border: 0; padding: 0; margin: 0; }
 	input[type='text'] { width: min(36rem, 100%); }
-	td, th { padding: 2px 8px; text-align: left; }
 </style>

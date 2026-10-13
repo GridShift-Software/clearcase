@@ -25,7 +25,7 @@
 	</PageHeader>
 	<p class="disclosure" id="classification-status" data-verification="unverified">Contract groups and the Signed marker are derived from imported titles and notes; they have not been verified.</p>
 	{#if !c}<p class="warning">This results package has no contracts dataset.</p>{:else}
-		<div class="grid kpis">
+		<div class="grid kpis kpi-grid">
 			<section class="card" aria-labelledby="kpi-contracts"><h2 id="kpi-contracts">Contract documents</h2><p class="num">{c.count}</p><p>across {c.groups.length} relationships</p></section>
 			{#if k.spineValue}<section class="card" aria-labelledby="kpi-spine"><h2 id="kpi-spine">Spine of the claim</h2><p class="num text">{k.spineValue}</p>{#if k.spineNote}<p>{k.spineNote}</p>{/if}</section>{/if}
 			{#if k.watchValue}<section class="card" aria-labelledby="kpi-watch"><h2 id="kpi-watch">Watch item</h2><p class="num text">{k.watchValue}</p>{#if k.watchNote}<p>{k.watchNote}</p>{/if}</section>{/if}
@@ -57,12 +57,7 @@
 	.kpis { margin-bottom: 1rem; }
 	.num.text { text-align: left; font-weight: 600; }
 	.group { margin-top: 1rem; }
-	.chead { font-size: 1rem; margin: 0 0 .3rem; }
-	.ex { display: block; color: #555; font-size: .85em; }
-	.mono { font-family: ui-monospace, monospace; }
-	.badge { display: inline-block; padding: 0 .4em; border-radius: 3px; background: #eef0f3; font-size: .85em; }
-	.chip-signed { background: #e3f4e3; }
-	.chip-unsigned { background: #fff1c2; }
-	.disclosure { color: #6a4b00; }
+	.chead { font-size: 15px; margin: 0 0 .3rem; padding: 0; border: 0; }
+	.ex { display: block; }
 	.narr { margin-top: 1rem; }
 </style>

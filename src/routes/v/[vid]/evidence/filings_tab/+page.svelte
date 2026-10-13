@@ -273,21 +273,15 @@
 
 <style>
 	.group { margin-top: 1rem; }
-	.chead { font-size: 1rem; margin: 0 0 .3rem; }
-	.group-note, .register-intro { color: #555; margin: 0 0 .4rem; }
-	.ex, .entry-note { display: block; color: #555; font-size: .85em; }
-	.mono { font-family: ui-monospace, monospace; }
-	.badge { display: inline-block; padding: 0 .4em; border-radius: 3px; background: #eef0f3; font-size: .85em; }
-	.badge.info { background: #e3eefc; }
+	.chead { font-size: 15px; margin: 0 0 .3rem; padding: 0; border: 0; }
+	.group-note, .register-intro { margin: 0 0 .4rem; }
+	.ex, .entry-note { display: block; }
 	.register { margin-top: 1rem; }
 	.register-form .row { display: flex; flex-wrap: wrap; gap: .5rem; align-items: end; border: 0; padding: 0; margin: 0; min-width: 0; }
-	.status, .note { font-style: italic; color: #555; }
+	.status, .note { font-style: italic; }
 	.error, .ask { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
 	.error p, .ask p { margin: 0; }
-	.ask { border: 1px solid currentColor; padding: .5rem; margin: .4rem 0; }
-	.fld { display: block; font-size: .85em; color: #555; }
+	.ask { margin: .4rem 0; }
 	.toolbar { margin: .6rem 0; }
 	.actions form { display: inline; }
-	.disclosure { color: #6a4b00; }
-	.empty { color: #666; padding: .4rem 0; }
 </style>

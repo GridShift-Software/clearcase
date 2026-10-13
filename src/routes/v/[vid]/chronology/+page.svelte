@@ -65,7 +65,7 @@
 			{#snippet cell(r: ChronologyListRow, c: Column)}
 				{#if c.key === 'date'}{r.date || 'undated'}
 				{:else if c.key === 'basis'}<span title={dateBasis(r)} data-date-basis={r.dateType ? 'supplied' : r.date ? 'unknown' : 'undated'}>{r.dateType ?? (r.date ? 'unknown' : 'undated')}</span>
-				{:else if c.key === 'ref'}<a href={docPath(vid, r.ref)}>{r.ref}</a>{#if r.parentRef}<small> in {r.parentRef}</small>{/if}
+				{:else if c.key === 'ref'}<a class="cite" href={docPath(vid, r.ref)}>{r.ref}</a>{#if r.parentRef}<small> in {r.parentRef}</small>{/if}
 				{:else if c.key === 'title'}<span class="clip" title={r.subject || r.filename}>{r.subject || cleanName(r.filename)}{#if r.sender}<small class="sender"> — {r.sender}</small>{/if}</span>{#if r.excerpt}<span class="clip excerpt" title={r.excerpt}>{excerptPreview(r.excerpt)}</span>{/if}{#if r.alsoIn.length}<small class="also-in">also in: {r.alsoIn.join(', ')}</small>{/if}
 				{:else if c.key === 'docType'}{r.docType}
 				{:else if c.key === 'bundle'}{r.bundle}
@@ -79,6 +79,6 @@
 
 <style>
 	/* without the Date basis column (no row has a known basis) */
-	:global(.chrono-grid.no-basis .grid-row) { grid-template-columns: 6.5em 7.5em minmax(0, 1fr) 9em 8em 8em 6em 6em; }
-	.excerpt, .also-in { display: block; color: #555; font-size: .85em; }
+	:global(.chrono-grid.no-basis .grid-row) { grid-template-columns: 5em 5.4em minmax(12em, 1fr) 7.2em 7.4em 6.6em 5.6em 4.4em; }
+	.excerpt, .also-in { display: block; }
 </style>

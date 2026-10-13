@@ -106,20 +106,17 @@
 </main>
 
 <style>
-	.tl-card { margin-bottom: 1rem; }
-	.tl-card h2 { font-size: 1.05rem; margin: .2rem 0 .5rem; }
-	.callout { background: #f3f6fa; border: 1px solid #1e3a5f; border-radius: 6px; padding: .6rem .9rem; margin-top: .5rem; }
+	.tl-card { margin-bottom: 16px; }
 	.years { display: flex; align-items: flex-end; gap: 6px; height: 140px; }
 	.year { flex: 1; text-align: center; min-width: 0; }
-	.bar { display: block; width: 100%; height: 100px; fill: #1e3a5f; }
-	.ph { border-left: 3px solid #1e3a5f; padding: .2rem 0 .6rem .9rem; margin-bottom: .6rem; }
+	.bar { display: block; width: 100%; height: 100px; fill: var(--navy); }
+	.ph { border-left: 3px solid var(--navy); padding: .2rem 0 .6rem .9rem; margin-bottom: .6rem; }
 	.ph h3 { margin: .1rem 0; font-size: 1rem; }
-	.yr { font-weight: 700; color: #1e3a5f; }
-	.phnote { color: #555; margin: 0 0 .5rem; max-width: 860px; }
+	.yr { font-weight: 600; color: var(--navy); font-size: 13px; }
+	.phnote { margin: 0 0 .5rem; max-width: 860px; }
 	.ev { padding: .15rem 0; overflow-wrap: anywhere; }
 	.ev .d { font-variant-numeric: tabular-nums; }
-	.ev .ex { display: block; color: #555; font-size: .92em; }
-	.mono { font-family: ui-monospace, monospace; font-size: .92em; }
+	.ev .ex { display: block; }
 	@media print {
 		.tl-card { break-inside: avoid-page; border: 0; }
 		.ph { break-inside: avoid; }

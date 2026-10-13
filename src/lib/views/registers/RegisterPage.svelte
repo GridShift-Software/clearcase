@@ -238,7 +238,7 @@
 	<PageHeader heading={reg.label} section={reg.label} caseName={data.version.titleName} subtitle={reg.subtitle}>
 		{#snippet actions()}
 			<button type="button" id="register-export" onclick={exportNow}>{reg.export.label}</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}
-			<button type="submit" form="register-form" id="register-save" disabled={locked}>{editing ? 'Save' : 'Add'}</button>
+			<button type="submit" form="register-form" id="register-save" class="primary" disabled={locked}>{editing ? 'Save' : 'Add'}</button>
 			{#if editing}<button type="button" id="register-cancel" onclick={cancelEdit} disabled={locked}>Cancel</button>{/if}
 		{/snippet}
 	</PageHeader>
@@ -325,8 +325,7 @@
 	.status { font-style: italic; }
 	.error, .ask { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
 	.error p, .ask p { margin: 0; }
-	.ask { border: 1px solid currentColor; padding: 0.5rem; }
-	.flag, .altered { font-size: 0.85em; color: #8a5a00; }
+	.flag, .altered { font-size: 0.85em; color: #8a5a0b; }
 	.field { display: flex; flex-direction: column; gap: 0.25rem; min-width: 10rem; }
 	.field.wide { flex: 2; min-width: min(16rem, 100%); }
 	.field textarea { min-height: 4rem; }
@@ -334,10 +333,4 @@
 	tr.editing { outline: 2px solid currentColor; }
 	.row-actions { white-space: nowrap; }
 	.row-actions form { display: inline; }
-	.chip { display: inline-block; padding: 0 0.4rem; border-radius: 0.6rem; border: 1px solid currentColor; font-size: 0.9em; }
-	.tone-muted { opacity: 0.75; }
-	.tone-danger { color: #a00; }
-	.tone-warning { color: #8a5a00; }
-	.tone-success { color: #146c2e; }
-	.tone-info { color: #1d4f91; }
 </style>

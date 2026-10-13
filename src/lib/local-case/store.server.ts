@@ -20,7 +20,7 @@ export interface ImportRow {
 	id: number; at: string; case_folder: string; package_source: string; case_id: string | null; results_version: string | null;
 	manifest_sha256: string | null; verdict: string; outcome: string; report: string;
 }
-export type CaseVersionRow = Pick<Version, 'id' | 'case_id' | 'import_id' | 'created' | 'stored_at' | 'case_label'> & { documents: number };
+export type CaseVersionRow = Pick<Version, 'id' | 'case_id' | 'import_id' | 'created' | 'stored_at' | 'case_label'> & { documents: number | null };
 export type Verification = { ok: boolean; reason?: string; ms: number; checked?: Record<string, number> };
 export interface ActivationEntry {
 	id: number; case_id: string; version_id: string; at: string; kind: string; manifest_sha256: string; read_model_sha256: string;
@@ -66,7 +66,10 @@ export class CaseStore {
 	}
 	/** Every stored version of every case, newest import first, with the overview fields the case list shows. */
 	caseVersions(): CaseVersionRow[] {
-		return this.d.prepare(`SELECT id, case_id, case_label, import_id, created, stored_at, json_extract(overview, '$.counts.documents') AS documents
+		// a damaged overview yields an unknown count (null) instead of failing the whole list; nested CASE because
+		// json_type() throws on malformed JSON and SQLite does not promise to short-circuit AND
+		return this.d.prepare(`SELECT id, case_id, case_label, import_id, created, stored_at,
+			CASE WHEN json_valid(overview) THEN CASE json_type(overview, '$.counts.documents') WHEN 'integer' THEN json_extract(overview, '$.counts.documents') END END AS documents
 			FROM version ORDER BY import_id DESC`).all() as unknown as CaseVersionRow[];
 	}
 	listImports(): Omit<ImportRow, 'report'>[] {

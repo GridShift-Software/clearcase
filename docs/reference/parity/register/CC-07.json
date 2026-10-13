@@ -633,6 +633,70 @@
       "author": "CC-07 worker (GRS-17)",
       "approvedBy": null,
       "approvedOn": null
+    },
+    {
+      "id": "IDR-286",
+      "view": "disbursements_tab",
+      "field": [],
+      "type": "defect-fix",
+      "source": "S-disbursements_tab-2",
+      "reason": "v5's CSV export writes free-text fields unprotected, so a cell starting with a formula character can run as a formula in a spreadsheet. ClearCase passes every exported user cell through a neutraliser that prefixes such cells, and formula segments after a separator, with an apostrophe. Evidence: tests/registers/logic.test.ts:90.",
+      "productVisible": true,
+      "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-287",
+      "view": "timesheet_tab",
+      "field": [],
+      "type": "known-gap",
+      "source": "S-timesheet_tab-2",
+      "owner": "GRS-17",
+      "reason": "v5 exports only the stored fields, so the derived Value is missing from the CSV. ClearCase writes the same stored field keys and rows and does not add the Value column; an app change is needed to export it. Evidence: src/lib/views/registers/logic.ts:145.",
+      "productVisible": true,
+      "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-288",
+      "view": "deadlines_tab",
+      "field": [],
+      "type": "known-gap",
+      "source": "S-deadlines_tab-3",
+      "owner": "GRS-17",
+      "reason": "v5 has no edit, keeps the category after Add and deletes without asking. ClearCase adds a per-row Edit and deletes by stable row id. Two of the three parts remain: the category still stays after Add, and Delete of an ordinary row still has no confirmation. Closing them would need an app change. Evidence: src/lib/views/registers/RegisterPage.svelte:311.",
+      "productVisible": true,
+      "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-289",
+      "view": "deadlines_tab",
+      "field": [],
+      "type": "known-gap",
+      "source": "S-deadlines_tab-4",
+      "owner": "GRS-17",
+      "reason": "v5 counts days from local midnight, so counts can differ from the court calendar date near a clock change or in another timezone. ClearCase copies this: it reads the date at local midnight in the server's timezone. Needs an app fix to count on the calendar date. Evidence: src/lib/views/registers/logic.ts:72.",
+      "productVisible": true,
+      "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-290",
+      "view": "transcriptions_tab",
+      "field": [],
+      "type": "known-gap",
+      "source": "S-transcriptions_tab-1",
+      "owner": "GRS-17",
+      "reason": "v5 keeps large transcript bodies in browser storage with a quota near 5 MB and only alerts on failure. ClearCase stores them in the local case store with a 64 KiB entry limit and shows a failed save with the input kept. Bodies are still rendered whole, the other half of the defect; paging them would need an app change. Evidence: tests/registers/store.test.ts:151.",
+      "productVisible": true,
+      "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
+      "approvedBy": null,
+      "approvedOn": null
     }
   ]
 }

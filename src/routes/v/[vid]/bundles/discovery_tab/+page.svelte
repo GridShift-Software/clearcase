@@ -219,7 +219,9 @@
 	.ds-switch button.on { font-weight: 600; }
 	.ds-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
 	.ds-bar .sp { flex: 1; }
-	.ds-in { min-width: min(260px, 100%); }
+	/* the filter input gives way when the bar's count grows (' · saving…' while a write is in flight), so the rows below
+	   never shift under a click that follows a tick */
+	.ds-in { flex: 1 1 10em; min-width: min(8em, 100%); max-width: 260px; }
 	.ds-tbl { width: 100%; border-collapse: collapse; }
 	.ds-tbl tr.sel > td { background: var(--tint); }
 	.ds-chip { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 3px 0; font-size: 0.9em; }
@@ -235,6 +237,8 @@
 	.fn { font-family: ui-monospace, monospace; font-size: 0.85em; overflow-wrap: anywhere; }
 	.ds-fail { margin: 2px 0; }
 	/* visible states kept out of the text content: saving, and a change that is not saved */
+	/* the saving mark occupies the same width whether shown or not, so no row below moves while a write is in flight */
+	.ds-bar .cnt::after { content: ''; display: inline-block; width: 5.4em; white-space: nowrap; overflow: hidden; vertical-align: bottom; }
 	main[aria-busy='true'] .ds-bar .cnt::after { content: ' · saving…'; color: #8a5a0b; }
 	.unsaved { outline: 2px dashed var(--danger); }
 	.ds-chip.unsaved::after { content: 'not saved'; color: var(--danger); font-size: 0.8em; }

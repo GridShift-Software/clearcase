@@ -58,7 +58,7 @@
 </script>
 
 <a class="skip" href="#main" {@attach skip}>Skip to content</a>
-<header class="top"><span class="brand">ClearCase</span><nav class="top-nav" aria-label="ClearCase"><a href="/" id="nav-active-case">Active case</a><a href="/import" id="nav-import">Import results</a></nav><span class="top-meta">{#if viewed}Case <b class="wrap">{viewed.brand ?? viewed.caseName}</b>{:else}Local workspace{/if}</span></header>
+<header class="top"><span class="brand">ClearCase</span><div class="top-nav"><a href="/" id="nav-active-case">Active case</a><a href="/import" id="nav-import">Import results</a></div><span class="top-meta">{#if viewed}Case <b class="wrap">{viewed.brand ?? viewed.caseName}</b>{:else}Local workspace{/if}</span></header>
 {#each data.warnings as w (w.key)}
 	<div class="banner recovery" id="warning-{w.key}" data-warning={w.key} role="alert">{w.message}</div>
 {/each}

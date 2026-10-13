@@ -29,7 +29,7 @@ import { open, rm, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mediaTypeForName, servePolicy } from '../case-package/browser.ts';
+import { ASSET_KEY_PATTERN, mediaTypeForName, servePolicy } from '../case-package/browser.ts';
 import { contentContradictsType } from '../case-package/media.ts';
 import { originalsHost, originalsOrigin } from './config.server.ts';
 import { openInside, readAllFd, snapshotVerified, type Opened, type Refusal } from './fsafe.server.ts';
@@ -37,8 +37,8 @@ import type { LocalCase } from './service.server.ts';
 import type { AssetServeRow } from './store.server.ts';
 
 const RV = 'sha256:[0-9a-f]{64}';
-// a register ref, an embedded attachment key, or a package-file key (refs.ts ASSET_KEY_PATTERN)
-const KEY = '(?:[A-Z]{1,8}-[0-9]{1,8}(?:\\.a[1-9][0-9]{0,3})?|P-[0-9a-f]{16})';
+// a register ref, an embedded attachment key, or a package-file key: ASSET_KEY_PATTERN without its anchors
+const KEY = ASSET_KEY_PATTERN.slice(1, -1);
 const ROUTE = new RegExp(`^/(o|view)/(${RV})/(${KEY})(?:/[^/]*)?$`);
 const FRAME_DESTS = new Set(['iframe', 'frame', 'embed', 'object', 'fencedframe']);
 const MAX_LARGE_SNAPSHOTS = 2;

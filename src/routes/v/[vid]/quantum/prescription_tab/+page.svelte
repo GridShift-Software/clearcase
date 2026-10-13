@@ -102,9 +102,3 @@
 		<p class="q-note" id="arith-caution">Arithmetic only; legal rule (interruption) not approved. The Prescribes (3yr) and Risk columns are imported as given; the risk labels were classified against the headline date {data.headlineDate || '(not in this package)'}, not against the as-of date.</p>
 	</div>
 </main>
-
-<style>
-	.chip { display: inline-block; padding: 0 .45em; border-radius: 4px; font-size: .9em; }
-	.chip.warn { background: #fff1d6; color: #6b4400; }
-	.chip.ok { background: #e3f4e8; color: #17552c; }
-</style>

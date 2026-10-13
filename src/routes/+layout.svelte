@@ -2,7 +2,10 @@
 	import '../app.css';
 	import { onMount } from 'svelte';
 	import { afterNavigate } from '$app/navigation';
+	import { page } from '$app/state';
 	let { data, children } = $props();
+	// the right side of the top bar names the case being viewed (the case layout's data), else the workspace itself
+	const viewed = $derived((page.data as { version?: { brand?: string | null; caseName?: string } }).version);
 
 	// BA-14: after a client-side navigation (link, Back, Forward), focus moves to the new page's heading, so keyboard
 	// and screen-reader users start at the new content instead of the top of the document. A full page load reached by
@@ -55,7 +58,7 @@
 </script>
 
 <a class="skip" href="#main" {@attach skip}>Skip to content</a>
-<header class="top"><span class="brand">ClearCase</span><a href="/cases" id="nav-cases">Cases</a><a href="/import" id="nav-import">Import results</a></header>
+<header class="top"><span class="brand">ClearCase</span><div class="top-nav"><a href="/cases" id="nav-cases">Cases</a><a href="/import" id="nav-import">Import results</a></div><span class="top-meta">{#if viewed}Case <b class="wrap">{viewed.brand ?? viewed.caseName}</b>{:else}Local workspace{/if}</span></header>
 {#each data.warnings as w (w.key)}
 	<div class="banner recovery" id="warning-{w.key}" data-warning={w.key} role="alert">{w.message}</div>
 {/each}

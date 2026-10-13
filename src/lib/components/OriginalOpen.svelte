@@ -16,7 +16,7 @@
 	);
 </script>
 
-<section class="original" aria-labelledby="original-heading" data-original-state={onDisk && state.file === 'present' ? 'missing' : state.file} data-on-disk={onDisk ? 'unavailable' : null} data-presentation={links.presentation ?? 'none'}>
+<section class="original card" aria-labelledby="original-heading" data-original-state={onDisk && state.file === 'present' ? 'missing' : state.file} data-on-disk={onDisk ? 'unavailable' : null} data-presentation={links.presentation ?? 'none'}>
 	<h2 id="original-heading">Original</h2>
 	{#if state.file === 'present' && o && onDisk}
 		<p class="missing" id="original-state"><span class="route" data-route="unavailable">Original missing on disk</span>:
@@ -34,11 +34,11 @@
 		</p>
 		<p class="actions">
 			{#if links.presentation === 'viewer' && links.viewer}
-				<a href="{links.viewer}{page ? `#page=${page}` : ''}" target="_blank" rel="noopener noreferrer" id="open-original">Open{page ? ` at page ${page}` : ''}</a>
+				<a class="btn primary" href="{links.viewer}{page ? `#page=${page}` : ''}" target="_blank" rel="noopener noreferrer" id="open-original">Open{page ? ` at page ${page}` : ''}</a>
 			{:else if (links.presentation === 'inline' || links.presentation === 'text') && links.open}
-				<a href={links.open} target="_blank" rel="noopener noreferrer" id="open-original">Open</a>
+				<a class="btn primary" href={links.open} target="_blank" rel="noopener noreferrer" id="open-original">Open</a>
 			{/if}
-			{#if links.download}<a href={links.download} rel="noopener noreferrer" id="download-original" download>Download</a>{/if}
+			{#if links.download}<a class="btn" href={links.download} rel="noopener noreferrer" id="download-original" download>Download</a>{/if}
 		</p>
 	{:else if state.self && state.self.route === 'parent'}
 		<p id="original-state"><span class="route" data-route="parent">Available through its parent</span>: this attachment is inside {#if parentHref}<a href={parentHref}>{state.self.parentRef}</a>{:else}{state.self.parentRef}{/if}; open the parent to reach it.</p>

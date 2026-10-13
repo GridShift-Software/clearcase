@@ -216,32 +216,33 @@
 
 <style>
 	.ds-switch { display: flex; gap: 6px; margin: 0 0 10px; }
-	.ds-switch button.on { font-weight: 700; text-decoration: underline; }
+	.ds-switch button.on { font-weight: 600; }
 	.ds-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
 	.ds-bar .sp { flex: 1; }
-	.ds-in { min-width: min(260px, 100%); }
+	/* the filter input gives way when the bar's count grows (' · saving…' while a write is in flight), so the rows below
+	   never shift under a click that follows a tick */
+	.ds-in { flex: 1 1 10em; min-width: min(8em, 100%); max-width: 260px; }
 	.ds-tbl { width: 100%; border-collapse: collapse; }
-	.ds-tbl td, .ds-tbl th { border-bottom: 1px solid #ddd; padding: 4px 6px; vertical-align: top; text-align: left; }
-	.ds-tbl tr.sel { background: #eef4ff; }
+	.ds-tbl tr.sel > td { background: var(--tint); }
 	.ds-chip { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 3px 0; font-size: 0.9em; }
-	.ds-chip.xref { border: 1px dashed #888; padding: 2px; }
+	.ds-chip.xref { border: 1px dashed var(--border-strong); border-radius: var(--radius); padding: 2px 6px; }
 	.ds-co button { padding: 0 6px; }
-	.ds-co .on-c { background: #1d4ed8; color: #fff; }
-	.ds-co .on-o { background: #15803d; color: #fff; }
+	.ds-co .on-c { background: var(--navy); border-color: var(--navy); color: #fff; }
+	.ds-co .on-o { background: var(--ok); border-color: var(--ok); color: #fff; }
 	.ds-chip :global(a) { margin-left: 4px; }
-	.not-served, .ds-none { color: #92400e; font-style: italic; }
+	.not-served, .ds-none { color: #8a5a0b; font-style: italic; }
 	.none { text-align: center; padding: 22px; }
-	.co-o { color: #15803d; font-weight: 700; text-align: center; }
-	.co-c { color: #1d4ed8; font-weight: 700; text-align: center; }
+	.co-o { color: var(--ok); font-weight: 600; text-align: center; }
+	.co-c { color: var(--navy); font-weight: 600; text-align: center; }
 	.fn { font-family: ui-monospace, monospace; font-size: 0.85em; overflow-wrap: anywhere; }
-	.error { color: #b91c1c; }
 	.ds-fail { margin: 2px 0; }
-	.dup { margin-left: 4px; font-size: 0.8em; color: #92400e; background: #fef3c7; border-radius: 6px; padding: 0 4px; }
 	/* visible states kept out of the text content: saving, and a change that is not saved */
-	main[aria-busy='true'] .ds-bar .cnt::after { content: ' · saving…'; color: #92400e; }
-	.unsaved { outline: 2px dashed #b91c1c; }
-	.ds-chip.unsaved::after { content: 'not saved'; color: #b91c1c; font-size: 0.8em; }
-	.warning { color: #92400e; }
+	/* the saving mark occupies the same width whether shown or not, so no row below moves while a write is in flight */
+	.ds-bar .cnt::after { content: ''; display: inline-block; width: 5.4em; white-space: nowrap; overflow: hidden; vertical-align: bottom; }
+	main[aria-busy='true'] .ds-bar .cnt::after { content: ' · saving…'; color: #8a5a0b; }
+	.unsaved { outline: 2px dashed var(--danger); }
+	.ds-chip.unsaved::after { content: 'not saved'; color: var(--danger); font-size: 0.8em; }
+	.warning { color: #8a5a0b; background: none; border: 0; padding: 0; }
 	.print-only { display: none; }
 	@media print {
 		main.ds-printing > :global(*:not(#ds-print-area)) { display: none !important; }

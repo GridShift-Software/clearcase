@@ -62,8 +62,7 @@
 	.fields > .wide { flex: 2 1 16rem; min-width: 0; }
 	.fields select { max-width: 100%; min-width: 0; }
 	.fields > .go { flex: 0 0 auto; }
-	.scope { font-size: 0.9rem; color: #444; margin: 0.75rem 0; }
-	.badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 4px; margin-bottom: 0.6rem; }
+	.scope { margin: 0.75rem 0; }
+	/* v5's neutral no-match badge, the colours the litigation suite checks (S-conflict_tab-3) */
 	.badge.neutral { background: #eef0f3; color: #222; }
-	.badge.danger { background: #fde8e8; color: #8a1c1c; }
 </style>

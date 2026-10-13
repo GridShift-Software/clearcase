@@ -60,7 +60,3 @@
 		</div>
 	</div>
 </main>
-
-<style>
-	.q-floor { background: #f5f7fa; border: 1px solid #ddd; border-radius: 6px; padding: .6rem .8rem; margin-top: .8rem; }
-</style>

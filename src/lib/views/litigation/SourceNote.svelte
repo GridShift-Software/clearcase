@@ -12,7 +12,7 @@
 </aside>
 
 <style>
-	.source-note { margin-top: 1.5rem; border-top: 1px solid #d5d9e0; padding-top: 0.5rem; font-size: 0.9rem; }
+	.source-note { margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 0.75rem; font-size: 13px; color: var(--ink-2); }
 	.source-note h2 { font-size: 0.95rem; margin: 0 0 0.25rem; }
 	.source-note p { margin: 0; }
 	.source-note p + p { margin-top: 0.25rem; }

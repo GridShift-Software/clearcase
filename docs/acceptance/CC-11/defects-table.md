@@ -45,7 +45,7 @@
 | `S-chronology-6` | low | view-checklist.md | registered | IDR-091 (known-gap) |  |
 | `S-quantum_tab-1` | low | view-checklist.md | registered | IDR-240 (defect-fix) |  |
 | `S-quantum_tab-2` | low | view-checklist.md | registered | IDR-240 (defect-fix) |  |
-| `S-quantum_tab-3` | low | view-checklist.md | registered | IDR-241 (defect-fix) |  |
+| `S-quantum_tab-3` | low | view-checklist.md | registered | IDR-241 (known-gap) |  |
 | `S-documents-1` | medium | view-checklist.md | registered | IDR-110 (defect-fix), IDR-111 (defect-fix) |  |
 | `S-documents-2` | low | view-checklist.md | registered | IDR-135 (defect-fix) |  |
 | `S-documents-3` | low | view-checklist.md | registered | IDR-107 (improvement) |  |
@@ -69,7 +69,7 @@
 | `S-disbursements_tab-2` | medium | view-checklist.md | registered | IDR-286 (defect-fix) |  |
 | `S-timesheet_tab-2` | low | view-checklist.md | registered | IDR-287 (known-gap) |  |
 | `S-deadlines_tab-2` | medium | view-checklist.md | registered | IDR-274 (defect-fix), IDR-275 (defect-fix), IDR-276 (defect-fix), IDR-277 (defect-fix) |  |
-| `S-deadlines_tab-3` | low | view-checklist.md | registered | IDR-288 (defect-fix) |  |
+| `S-deadlines_tab-3` | low | view-checklist.md | registered | IDR-288 (known-gap) |  |
 | `S-deadlines_tab-4` | low | view-checklist.md | registered | IDR-289 (known-gap) |  |
 | `S-discovery_tab-2` | medium | view-checklist.md | registered | IDR-353 (defect-fix) |  |
 | `S-discovery_tab-3` | medium | view-checklist.md | registered | IDR-380 (defect-fix) |  |
@@ -97,7 +97,7 @@
 | `S-caselines_tab-1` | medium | view-checklist.md | registered | IDR-392 (defect-fix) |  |
 | `S-caselines_tab-2` | medium | view-checklist.md | registered | IDR-393 (defect-fix) |  |
 | `S-caselines_tab-3` | medium | view-checklist.md | registered | IDR-394 (defect-fix) |  |
-| `S-caselines_tab-4` | low | view-checklist.md | registered | IDR-395 (defect-fix) |  |
+| `S-caselines_tab-4` | low | view-checklist.md | registered | IDR-395 (known-gap) |  |
 | `S-caselines_tab-5` | low | view-checklist.md | registered | IDR-396 (known-gap) |  |
 | `S-caselines_tab-6` | low | view-checklist.md | registered | IDR-397 (defect-fix) |  |
 | `S-caselines_tab-7` | low | view-checklist.md | registered | IDR-398 (known-gap) |  |
@@ -120,7 +120,7 @@
 | `S-prescription_tab-1` | medium | view-checklist.md | registered | IDR-227 (defect-fix) |  |
 | `S-prescription_tab-2` | medium | view-checklist.md | registered | IDR-224 (improvement), IDR-238 (improvement), IDR-225 (improvement), IDR-226 (improvement), IDR-237 (improvement), IDR-229 (improvement) |  |
 | `S-prescription_tab-3` | low | view-checklist.md | registered | IDR-228 (defect-fix) |  |
-| `S-prescription_tab-4` | low | view-checklist.md | registered | IDR-242 (defect-fix) |  |
+| `S-prescription_tab-4` | low | view-checklist.md | registered | IDR-242 (known-gap) |  |
 | `S-interest_calc_tab-1` | medium | view-checklist.md | registered | IDR-212 (defect-fix), IDR-234 (defect-fix), IDR-235 (defect-fix), IDR-236 (defect-fix) |  |
 | `S-interest_calc_tab-2` | medium | view-checklist.md | registered | IDR-243 (defect-fix) |  |
 | `S-interest_calc_tab-3` | low | view-checklist.md | registered | IDR-213 (defect-fix), IDR-214 (defect-fix) |  |
@@ -145,11 +145,11 @@
 | `S-settlement_tab-5` | low | view-checklist.md | registered | IDR-248 (defect-fix) |  |
 | `S-privilege_tab-1` | low | view-checklist.md | registered | IDR-280 (defect-fix) |  |
 | `S-annotations_tab-1` | low | view-checklist.md | registered | IDR-281 (defect-fix) |  |
-| `S-transcriptions_tab-1` | low | view-checklist.md | registered | IDR-290 (defect-fix) |  |
+| `S-transcriptions_tab-1` | low | view-checklist.md | registered | IDR-290 (known-gap) |  |
 | `S-rescan_tab-2` | medium | view-checklist.md | registered | IDR-433 (defect-fix) |  |
 | `S-rescan_tab-3` | medium | view-checklist.md | registered | IDR-434 (defect-fix) |  |
 | `S-rescan_tab-4` | medium | view-checklist.md | registered | IDR-435 (defect-fix) |  |
-| `S-rescan_tab-5` | low | view-checklist.md | registered | IDR-436 (defect-fix) |  |
+| `S-rescan_tab-5` | low | view-checklist.md | registered | IDR-436 (known-gap) |  |
 | `S-rescan_tab-6` | low | view-checklist.md | registered | IDR-437 (known-gap) |  |
 | `S-rescan_tab-7` | low | view-checklist.md | registered | IDR-438 (defect-fix) |  |
 | `S-rescan_tab-8` | low | view-checklist.md | registered | IDR-439 (defect-fix) |  |

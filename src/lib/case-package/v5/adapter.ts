@@ -141,8 +141,11 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   for (const sp of V5_SPLIT_PARENTS) { const v = getAt(roots, sp); if (isObject(v)) layout[sp] = Object.keys(v); }
   datasets.push({ key: LAYOUT.key, kind: LAYOUT.kind, schema: LAYOUT.schema, required: LAYOUT.required, provenance: prov(LAYOUT.sourcePath), data: layout });
 
-  // view content: code-embedded case content read statically from the viewer code (payload lines skipped)
-  const vc = extractViewContent(decodeUtf8Strict(src.html.bom ? opts.html.subarray(3) : opts.html), VIEW_CONTENT_MAP, VIEW_CONTENT_OMISSIONS, { skipLines: Object.values(src.lines), audit: VIEW_CONTENT_AUDIT, sink });
+  // view content: code-embedded case content read statically from the v5 viewer code (payload lines skipped). The
+  // newer generation's viewer code carries none of the v5 anchors, so nothing is extracted from it and nothing guessed.
+  const vc: ViewContentResult = src.generation === 'v5-js'
+    ? extractViewContent(decodeUtf8Strict(src.html.bom ? opts.html.subarray(3) : opts.html), VIEW_CONTENT_MAP, VIEW_CONTENT_OMISSIONS, { skipLines: Object.values(src.lines).filter((n): n is number => n !== undefined), audit: VIEW_CONTENT_AUDIT, sink })
+    : { data: {}, fields: [], unmapped: [] };
   viewContent = { fields: vc.fields, unmapped: vc.unmapped };
   datasets.push({ key: VIEW_CONTENT.key, kind: VIEW_CONTENT.kind, schema: VIEW_CONTENT.schema, required: VIEW_CONTENT.required, provenance: prov(VIEW_CONTENT.sourcePath), data: vc.data });
 

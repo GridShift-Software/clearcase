@@ -29,6 +29,9 @@
         "pattern": "^(?:\\d{4}-\\d{2}-\\d{2})?$",
         "type": "string"
       },
+      "date_source": {
+        "type": "string"
+      },
       "doc_type": {
         "type": "string"
       },

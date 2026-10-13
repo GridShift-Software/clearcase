@@ -366,4 +366,16 @@ describe('case list', () => {
 			['e2e-case', 'recovery', '/recovery', a.resultsVersion],
 		]);
 	});
+
+	it('lists a case whose stored overview is damaged, with its document count unknown', async () => {
+		const { root, lc } = await setup('cases-damaged');
+		const a = await buildCase(path.join(root, 'a'));
+		const b = await buildCase(path.join(root, 'b'), { caseId: 'other-case' });
+		await lc.importPackage(a.caseDir, a.pkgDir);
+		await lc.importPackage(b.caseDir, b.pkgDir);
+		const db = lc.storage.db();
+		db.prepare("UPDATE version SET overview = '{\"counts\":' WHERE id = ?").run(a.resultsVersion);
+		db.prepare('UPDATE version SET overview = \'{"counts":{"documents":"7"}}\' WHERE id = ?').run(b.resultsVersion);
+		expect(lc.listCases().map((c) => [c.caseId, c.version.documents])).toEqual([['other-case', null], ['e2e-case', null]]);
+	});
 });

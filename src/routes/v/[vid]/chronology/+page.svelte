@@ -25,9 +25,10 @@
 	};
 	const set = (k: 'q' | 'bundle' | 'type' | 'status', v: string) => { query = { ...query, [k]: v }; sync(); };
 	const sortBy = (k: string) => { query = query.sort === k ? { ...query, dir: query.dir === 1 ? -1 : 1 } : { ...query, sort: k as SortKey, dir: 1 }; sync(); };
-	// The Date basis column carries information only when the source supplies a date type for some row (BA-04); the
-	// "undated" label in the Date column stays either way.
-	const showBasis = $derived(data.rows.some((r) => r.dateType));
+	// The Date basis column carries information only when the source supplies a date type or provenance for some row
+	// (BA-04); the "undated" label in the Date column stays either way.
+	const showBasis = $derived(data.rows.some((r) => r.dateType || r.dateSource));
+	const basisLabel = (r: ChronologyListRow) => r.dateType ?? (r.dateSource ? `from ${r.dateSource}` : r.date ? 'unknown' : 'undated');
 	const columns: Column[] = $derived([
 		{ key: 'date', label: 'Date', sortable: true },
 		...(showBasis ? [{ key: 'basis', label: 'Date basis' }] : []),
@@ -64,7 +65,7 @@
 		<DataGrid {columns} {rows} rowKey={(r: ChronologyListRow) => r.ref} label="Chronology" gridClass={showBasis ? 'chrono-grid' : 'chrono-grid no-basis'} sort={{ key: query.sort, dir: query.dir }} onsort={sortBy} rowAttrs={(r: ChronologyListRow) => ({ 'data-ref': r.ref })}>
 			{#snippet cell(r: ChronologyListRow, c: Column)}
 				{#if c.key === 'date'}{r.date || 'undated'}
-				{:else if c.key === 'basis'}<span title={dateBasis(r)} data-date-basis={r.dateType ? 'supplied' : r.date ? 'unknown' : 'undated'}>{r.dateType ?? (r.date ? 'unknown' : 'undated')}</span>
+				{:else if c.key === 'basis'}<span title={dateBasis(r)} data-date-basis={r.dateType || r.dateSource ? 'supplied' : r.date ? 'unknown' : 'undated'}>{basisLabel(r)}</span>
 				{:else if c.key === 'ref'}<a class="cite" href={docPath(vid, r.ref)}>{r.ref}</a>{#if r.parentRef}<small> in {r.parentRef}</small>{/if}
 				{:else if c.key === 'title'}<span class="clip" title={r.subject || r.filename}>{r.subject || cleanName(r.filename)}{#if r.sender}<small class="sender"> — {r.sender}</small>{/if}</span>{#if r.excerpt}<span class="clip excerpt" title={r.excerpt}>{excerptPreview(r.excerpt)}</span>{/if}{#if r.alsoIn.length}<small class="also-in">also in: {r.alsoIn.join(', ')}</small>{/if}
 				{:else if c.key === 'docType'}{r.docType}

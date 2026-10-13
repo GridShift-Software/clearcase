@@ -21,16 +21,16 @@
 	--border-strong: #c7d3df;
 	--ink: #17212d;
 	--ink-2: #536477;
-	/* production's tertiary ink is #8290a0 (3.2:1); this one keeps 4.5:1 on white for the small labels it colours */
-	--ink-3: #66768a;
+	/* production's tertiary ink is #8290a0 (3.2:1); this one keeps 4.5:1 on white and on --subtle (muted badges, table headers) */
+	--ink-3: #5f6e81;
 	--navy: #245f91;
 	--navy-hover: #1c4a73;
 	--navy-900: #0b1d33;
 	--tint: #eaf2fa;
-	--ok: #16835d; --ok-bg: #e8f5ef;
+	--ok: #157c58; --ok-bg: #e8f5ef;
 	--warn: #b97710; --warn-bg: #fbf1e0;
 	--danger: #b74040; --danger-bg: #f8ebeb;
-	--info: #367fb4; --info-bg: #eaf4fb;
+	--info: #3071a0; --info-bg: #eaf4fb;
 	--btn-gradient: linear-gradient(180deg, #1a4372 0%, #102b4e 52%, #0a1c34 100%);
 	--btn-gradient-hover: linear-gradient(180deg, #21507f 0%, #163b61 52%, #0f2544 100%);
 	--btn-shadow: inset 0 1px 0 rgb(255 255 255 / 0.1), 0 1px 2px rgb(7 20 38 / 0.28);

@@ -41,6 +41,8 @@ export const V5Chronology = Type.Array(Obj({
   attachments: StrArr,
   /** newer export: parent ref of an extracted attachment row */
   pr: Type.Optional(Str),
+  /** newer export: where the date was read from (filename, header, text, file, ocr) */
+  date_source: Type.Optional(Str),
 }));
 
 export const V5People = Type.Array(Obj({ name: Str, email: Str, org: Str, sent: Count, received: Count, total: Count, role: Str }));

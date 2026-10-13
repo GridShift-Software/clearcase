@@ -46,6 +46,7 @@ export const NO_TYPED_FIELD = {
 	'/v/[vid]/analysis/info_required_tab ?/toggle': 'a checkbox per item posts on change; the form has no submit button and no typed field',
 	'/v/[vid]/litigation/enforcement_tab ?/status': 'a status select per step saves on change (JavaScript) or through a noscript Save; the form has no submit button and no typed field',
 	'/v/[vid]/system/rescan_tab ?/scan': 'the form is one Rescan button; it has no typed field',
+	'/import ?/importCase': 'the case and the destination are chosen by clicking in the folder browser into hidden fields; the form is one Import button and has no typed field',
 };
 
 /**

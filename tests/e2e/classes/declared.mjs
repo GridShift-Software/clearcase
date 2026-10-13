@@ -7,6 +7,15 @@
 // Keys are route ids (src/routes/...), `<route> <action>` for a form, or a file path under the repository.
 // Classes: inflight, nojs, dialog, csv, narrow, back.
 
+/**
+ * Forms whose save leaves none of the typed text in the work store, by form key, with the element the page shows once the
+ * save took effect. Every other form must show its typed text in the work store after a successful save (inflight, and the
+ * set-up saves of nojs, dialog and csv); a form that satisfies neither fails its scenario.
+ */
+export const SAVE_SHOWS = {
+	'/v/[vid]/system/backup_tab ?/restore': '#restore-done',
+};
+
 /** Routes with form actions whose page renders no POST form in the suite's state, with why. */
 export const NO_FORM = {
 	'/import/[id]': 'the activation form is shown only for a candidate that is not active; the suite views an active version (main-flow and verify-clearcase drive it)',

@@ -14,7 +14,8 @@
 //   back      after Back to a page, focus is on an element of the page, never <body>; after Back with typed input
 //             answered "keep" or "stay", focus returns to the typed field.
 // Every scenario checks that its precondition happened (text typed, question asked and answered, request held, another
-// row's action clicked, the refusal shown) and fails when it did not. The only way out of a class for a target is a
+// row's action clicked, the refusal shown, a save that must succeed answered with a success and left its effect: the row in
+// the work store, or the result on the page) and fails when it did not. The only way out of a class for a target is a
 // reason in declared.mjs, which the suite checks against the page; nothing is excluded at run time, and a class with no
 // PASS fails the suite. The in-flight window is made in the browser (CDP Fetch holds the action's request).
 // Synthetic data only. Results: $CLEARCASE_E2E_OUT/classes/<scenario>.json and summary.json ({scenarios, excluded}).
@@ -33,6 +34,7 @@ const { buildCase } = await import('../pilot/lib/fixtures.ts');
 const { VIEWS } = await import('../../../src/lib/components/view-registry.ts');
 const { csvExports, hasActions, hasEditRows, hasLeaveGuard, pageTargets, pageUses } = await import('./targets.mjs');
 const D = await import('./declared.mjs');
+const { NOT_SAVED, actionResult, inflightChecks } = await import('./verdicts.mjs');
 
 const ROOT = resolve(join(import.meta.dirname, '..', '..', '..'));
 const BUILD = resolve(process.env.E2E_BUILD_DIR ?? join(ROOT, 'build'));
@@ -82,6 +84,12 @@ const HOOK = `(() => { window.__downloads = []; const C = URL.createObjectURL.bi
 /** Whether an element is on screen (position:fixed elements have no offsetParent). Source of an in-page function. */
 const VIS = `(e) => e.getClientRects().length > 0 && getComputedStyle(e).visibility !== 'hidden'`;
 /** A scenario that fails because a target could not be driven or declared: `why` says what to do. */
+/**
+ * Typed text for a save that must succeed (source of a page function): `<label> <field name> #<n>`, n new on every call, so
+ * the text in the work store afterwards is this save's and no earlier scenario's.
+ */
+let serial = 0;
+const synth = (label = 'Synthetic') => `(n) => ${J(label + ' ')} + n + ${J(' #' + ++serial)}`;
 const undriven = (cls, key, view, title, why) => scenario(`${cls}:${key}`, view, title, async () => ({ evidence: { why }, checks: { driven: false } }));
 
 /** The question a page asks before it drops input (a dialog on screen), as an in-page expression. */
@@ -142,9 +150,11 @@ const FORMS = `(() => {
 })()`;
 /**
  * Fill every field of form `i` as a user would: typed text gets `text(name, tag)` (source of a page function), a number-like name a number, a date a
- * date, a select its first non-empty option, a checkbox is ticked. Values are set with input and change events.
+ * date, a select its first non-empty option, a checkbox is ticked. `over` ({ field name: value }) gives a field the value
+ * its action accepts where the generic text is refused (validData). Values are set with input and change events.
  */
-const fillForm = (i, text) => p.evaluate(`(() => {
+const fillForm = (i, text, over = {}) => p.evaluate(`(() => {
+	const over = ${J(over)};
 	const f = document.querySelector('[data-cc="${i}"]');
 	const set = (e, v) => { const proto = e.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : e.tagName === 'SELECT' ? HTMLSelectElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(proto, 'value').set.call(e, v); e.dispatchEvent(new Event('input', { bubbles: true })); e.dispatchEvent(new Event('change', { bubbles: true })); };
 	const filled = {};
@@ -152,7 +162,8 @@ const fillForm = (i, text) => p.evaluate(`(() => {
 		if (!e.name || e.disabled || e.type === 'hidden' || e.type === 'file' || e.type === 'submit' || e.tagName === 'BUTTON') continue;
 		const num = /amount|hours|rate|sum|value|qty|number/i.test(e.name);
 		if (e.type === 'checkbox') { if (!e.checked) { e.checked = true; e.dispatchEvent(new Event('change', { bubbles: true })); } filled[e.name] = 'on'; continue; }
-		const v = e.tagName === 'SELECT' ? ([...e.options].find((o) => o.value)?.value ?? '') : e.type === 'date' ? '2026-10-01' : num ? '10' : (${text})(e.name, e.tagName);
+		let v = e.tagName === 'SELECT' ? ([...e.options].find((o) => o.value)?.value ?? '') : e.type === 'date' ? '2026-10-01' : num ? '10' : (${text})(e.name, e.tagName);
+		if (e.name in over) v = over[e.name];
 		set(e, v); filled[e.name] = v;
 	}
 	return filled;
@@ -170,10 +181,21 @@ async function typeAtEnd(sel, text) {
 	if (focused) await p.s('Input.insertText', { text });
 	return { focused, value: await value(sel) };
 }
-/** Hold the next action request (POST to ?/...) in the browser; `release(fail)` lets it through or fails it. */
+/**
+ * Hold the next action request (POST to ?/...) in the browser; `release(fail)` lets it through or fails it, and
+ * `result()` then gives the response it got ({ http, body }; null for a request that failed or was never held).
+ */
 async function holdAction() {
 	await p.s('Fetch.enable', { patterns: [{ urlPattern: '*?/*', requestStage: 'Request' }] });
 	const paused = b.once((m) => m.method === 'Fetch.requestPaused' && m.sessionId === p.sessionId, 8000);
+	// the response of each request, read as soon as it has loaded (the Network request id is the paused request's networkId)
+	const seen = new Map();
+	const off = b.on((m) => {
+		if (m.sessionId !== p.sessionId) return;
+		const id = m.params?.requestId;
+		if (m.method === 'Network.responseReceived') seen.set(id, { http: m.params.response.status, body: null });
+		if (m.method === 'Network.loadingFinished' && seen.has(id)) seen.get(id).body = p.s('Network.getResponseBody', { requestId: id }).then((r) => (r.base64Encoded ? Buffer.from(r.body, 'base64').toString('utf8') : r.body), () => null);
+	});
 	let done = false;
 	return {
 		paused: paused.then((m) => m.params, () => null),
@@ -183,10 +205,68 @@ async function holdAction() {
 			if (m) await p.s(fail ? 'Fetch.failRequest' : 'Fetch.continueRequest', fail ? { requestId: m.requestId, errorReason: 'ConnectionRefused' } : { requestId: m.requestId }).catch(() => {});
 			await p.s('Fetch.disable').catch(() => {});
 		},
+		async result() {
+			try {
+				const m = await paused.then((x) => x.params, () => null);
+				const r = m?.networkId ? seen.get(m.networkId) : null;
+				return r ? { http: r.http, body: await r.body } : null;
+			} finally { off(); }
+		},
 	};
 }
 /** The work store held with BEGIN IMMEDIATE from outside the app (a busy store): the next write is refused. */
 const holdStore = () => { const l = new Database(join(A.dataDir, 'work.sqlite')); l.exec('PRAGMA busy_timeout=0; BEGIN IMMEDIATE'); let held = true; return () => { if (held) { held = false; l.exec('ROLLBACK'); l.close(); } }; };
+/**
+ * Whether `text` is in a text column of the work store now: what a save of typed text leaves behind (the store is
+ * read from outside the app, the way holdStore holds it).
+ */
+function stored(text) {
+	const d = new Database(join(A.dataDir, 'work.sqlite'), { readonly: true });
+	try {
+		for (const { name } of d.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all()) {
+			for (const c of d.query(`PRAGMA table_info("${name}")`).all()) {
+				if (d.query(`SELECT 1 FROM "${name}" WHERE instr(CAST("${c.name}" AS TEXT), ?) > 0 LIMIT 1`).get(text)) return true;
+			}
+		}
+		return false;
+	} finally { d.close(); }
+}
+/**
+ * Field values the generic text `Synthetic <name>` is refused for, by form key: what makes the target's action succeed
+ * on synthetic data. A restore needs a backup it can read: the case's own backup, downloaded now (so the restore puts
+ * back what is there), at an absolute path in the test's temp folder.
+ */
+const VALID_DATA = {
+	'/v/[vid]/system/backup_tab ?/restore': async (t) => {
+		const r = await fetch(`${A.origin}${t.url}/download`);
+		const file = join(tmp, 'synthetic-backup.json');
+		if (!r.ok) throw new Error(`the synthetic backup could not be downloaded: ${r.status}`);
+		writeFileSync(file, await r.text());
+		return { path: file };
+	},
+};
+const validData = async (t) => (await VALID_DATA[t.key]?.(t)) ?? {};
+/**
+ * Whether a save of typed text took effect: the first synthetic text it was given (a number or date field takes no
+ * text) is in the work store, or, where the save stores none of the typed text (declared.mjs SAVE_SHOWS), the page
+ * shows the result element.
+ */
+async function tookEffect(t, filled) {
+	if (D.SAVE_SHOWS[t.key]) return p.evaluate(`!!document.querySelector(${J(D.SAVE_SHOWS[t.key])})`);
+	const v = Object.values(filled).find((x) => /^Synthetic /.test(x));
+	return !!v && stored(v.split(/[;\t\r\n]/)[0]);
+}
+/**
+ * A set-up save (a row to edit, a row to act on): fill the form with data its action accepts, submit, and say whether the
+ * save took effect. `submit` clicks the button and waits (a no-JavaScript form needs its own wait). Scenarios build on
+ * this save, so they check the answer; a set-up that did not save fails them.
+ */
+async function setUpSave(t, f, text, submit = async (sel) => { await p.click(sel); await quiet(); }) {
+	const filled = await fillForm(f.i, text, await validData(t));
+	await submit(f.submit);
+	return { saved: await tookEffect(t, filled), filled, errors: await errors() };
+}
+
 /** Wait until no request of the page is in flight for 400 ms (a save and the reload it triggers). */
 async function quiet(timeout = 15000) {
 	const t0 = Date.now();
@@ -227,32 +307,29 @@ const na = (t, cls) => D.NOT_APPLICABLE[t.key]?.[cls];
 
 // ---- the classes ---------------------------------------------------------------------------------------------------
 
-/** What the user sees of a refused or lost save: a message that says it was not saved. */
-const NOT_SAVED = /not saved|not been saved|could not be saved|was not saved|nothing was (changed|written)|lost|did not answer|try again/i;
-
 /**
  * inflight: type while the save is held, then let it succeed (ok) or fail (fail). The scenario fails unless text was
  * typed into the field in flight (and then it must be kept), or the field was disabled, readonly or inert at that time.
+ * In mode ok the save must also have succeeded: the held request's own response is a success (or the action's success
+ * redirect) and the save took effect (inflightChecks); a form is filled with data its action accepts (validData).
  */
 async function inflight(t, mode, edit = false) {
 	return scenario(`inflight-${mode}${edit ? '-edit' : ''}:${t.key}`, t.view, `text typed while the ${edit ? 'edit' : t.action} save is in flight is kept when the save ${mode === 'ok' ? 'succeeds' : 'fails'}, or the field takes no input`, async () => {
 		await open(t.url);
-		let editing = null;
+		let editing = null, seeded = null;
 		if (edit) {
 			// edit mode: a saved row first, then its Edit; the form then posts to ?/save (or the page's edit action)
 			if (!(await p.evaluate(`document.querySelectorAll('[data-edit]').length`))) {
 				const [a] = (await p.evaluate(FORMS)).filter((x) => x.action === t.action);
-				await fillForm(a.i, '(n) => `Synthetic row ${n}`');
-				await p.click(a.submit);
-				await quiet();
-			}
+				seeded = (await setUpSave(t, a, synth('Synthetic row'))).saved;
+			} else seeded = true;
 			await p.click('[data-edit]');
 			await sleep(200);
 			editing = await p.evaluate(`!!document.querySelector('[data-editing], [data-mode=edit]')`);
 		}
 		const [f] = (await p.evaluate(FORMS)).filter((x) => edit ? x.id === t.form.id || x.action !== t.action : x.action === t.action);
 		const field = f.fields.find((x) => !x.disabled);
-		await fillForm(f.i, '(n) => `Synthetic ${n}`');
+		const filled = await fillForm(f.i, synth(), await validData(t));
 		const h = await holdAction();
 		let typed = null, paused = null, inert = null;
 		try {
@@ -264,17 +341,15 @@ async function inflight(t, mode, edit = false) {
 			}
 		} finally { await h.release(mode === 'fail'); }
 		await quiet();
+		const response = await h.result();
+		const result = actionResult(response);
+		const effect = mode === 'ok' ? await tookEffect(t, filled) : null;
 		const values = await allValues();
 		const accepted = !!typed?.value?.includes('TYPED-IN-FLIGHT');
 		const kept = values.some((v) => v.includes('TYPED-IN-FLIGHT'));
 		const errs = await errors();
-		return { evidence: { url: t.url, edit, formAction: f.action, field: field.name, request: paused?.request?.url ?? null, inert, typed, accepted, kept, errors: errs },
-			checks: { requestHeld: !!paused, ...(edit ? { editing } : {}),
-				// the precondition: text went into the field in flight, or the field refused input (disabled, readonly, inert)
-				typedOrInert: inert === true || accepted,
-				notLost: !accepted || kept,
-				// a lost request shows a message; a successful one shows none of a refusal
-				failureShown: mode !== 'fail' || errs.some((e) => NOT_SAVED.test(e.text)) } };
+		return { evidence: { url: t.url, edit, formAction: f.action, field: field.name, filled, request: paused?.request?.url ?? null, inert, typed, accepted, kept, response: response && { http: response.http, body: String(response.body ?? '').slice(0, 300) }, result, effect, errors: errs },
+			checks: inflightChecks({ mode, edit, editing, seeded, paused, inert, accepted, kept, errors: errs, result, effect }) };
 	});
 }
 
@@ -292,16 +367,14 @@ async function nojs(t) {
 			let forms = await p.evaluate(FORMS);
 			let f = forms.find((x) => x.action === t.action);
 			// another row first: a saved entry gives the page a row action to take
-			let seeded = false;
+			let seeded = null;
 			if (!f.others.length && !D.OTHER_ACTION_OFF[t.key]) {
-				await fillForm(f.i, '(n) => `Synthetic seed ${n}`');
-				await clickNoJs(f.submit);
-				seeded = true;
+				seeded = (await setUpSave(t, f, synth('Synthetic seed'), clickNoJs)).saved;
 				forms = await p.evaluate(FORMS);
 				f = forms.find((x) => x.action === t.action);
 			}
 			const typed = `Synthetic refused ${t.action.replace(/\W/g, '')}`;
-			const filled = await fillForm(f.i, `() => ${J(typed)}`);
+			const filled = await fillForm(f.i, `() => ${J(typed)}`, await validData(t));
 			const release = holdStore();
 			try { await clickNoJs(f.submit); } finally { release(); }
 			forms = await p.evaluate(FORMS);
@@ -319,7 +392,9 @@ async function nojs(t) {
 			}
 			const hydrated = await p.evaluate('!!window.__ccMounted');
 			return { evidence: { url: t.url, seeded, filled, refused, others, states, clicked: !!enabled, after },
-				checks: { noScripts: !hydrated, refusedShown: refused.shown, refusedKept: refused.kept,
+				checks: { noScripts: !hydrated, ...(seeded === null ? {} : { seeded }), refusedShown: refused.shown,
+					// refused for the reason the scenario made (the busy store), not because the data was refused
+					refusedByBusyStore: refused.errors.some((e) => /store is busy/i.test(e.text)), refusedKept: refused.kept,
 					// the precondition: another row's enabled action was clicked, or none is on (declared.mjs OTHER_ACTION_OFF, borne out here)
 					otherClicked: enabled ? !D.OTHER_ACTION_OFF[t.key] : !!D.OTHER_ACTION_OFF[t.key],
 					keptAfterOther: !enabled || (!!after && after.kept && after.shown) } };
@@ -349,7 +424,7 @@ async function dialog(t) {
 		const f = all.find((x) => x.action === t.action) ?? all.find((x) => t.form.id && x.id === t.form.id);
 		const field = f.fields.find((x) => !x.disabled);
 		const typed = `Synthetic asked ${t.action.replace(/\W/g, '')}`;
-		if (edits < 2) await fillForm(f.i, '(n) => `Synthetic ${n}`');
+		if (edits < 2) await fillForm(f.i, '(n) => `Synthetic ${n}`', await validData(t));
 		await p.type(field.sel, typed);
 		return { f, field, typed, edits, viaLink: nav, href: await p.evaluate('location.pathname + location.search') };
 	};
@@ -371,12 +446,11 @@ async function dialog(t) {
 	};
 	// two saved entries first, so a page whose rows are edited in this form has another row to ask about
 	await fresh();
+	const setUp = [];
 	for (let n = 0; n < 2; n++) {
 		await open(t.url);
 		const [f] = (await p.evaluate(FORMS)).filter((x) => x.action === t.action);
-		await fillForm(f.i, `(k) => 'Synthetic row ${n} ' + k`);
-		await p.click(f.submit);
-		await quiet();
+		setUp.push((await setUpSave(t, f, synth(`Synthetic row ${n}`))).saved);
 	}
 	let ok = true;
 	for (const order of ['ask-then-save', 'save-then-ask']) {
@@ -404,7 +478,7 @@ async function dialog(t) {
 			const o = await outcome(typed, field);
 			const onPage = o.path === href;
 			return { evidence: { url: t.url, edits, viaLink, asked, answered, closedBySave, request: paused?.request?.url ?? null, onPage, ...o },
-				checks: { inApp: edits >= 2 || viaLink, requestHeld: !!paused, asked: !!asked,
+				checks: { setUpSaved: setUp.every(Boolean), inApp: edits >= 2 || viaLink, requestHeld: !!paused, asked: !!asked,
 					// answered with discard, or the answer is switched off while the save is in flight (a register allows only leaving then)
 					answered: !!answered || closedBySave,
 					// the failed save's own error shows with its own entry; when the answer left the page, none shows on the page left for
@@ -422,10 +496,10 @@ async function csv(route, url, viewId, forms) {
 		await open(url);
 		const typed = [];
 		for (const f of (await p.evaluate(FORMS)).filter((x) => x.fields.length && forms.has(x.action))) {
-			const filled = await fillForm(f.i, `(n, tag) => 'Synthetic ' + n + (tag === 'TEXTAREA' ? ${J(PAYLOAD)} : ${J(PAYLOAD.split('\r')[0])})`);
+			const filled = await fillForm(f.i, `(n, tag) => 'Synthetic ' + n + (tag === 'TEXTAREA' ? ${J(PAYLOAD)} : ${J(PAYLOAD.split('\r')[0])})`, await validData({ key: `${route} ${f.action}`, url }));
 			await p.click(f.submit);
 			await quiet();
-			typed.push({ action: f.action, filled, errors: await errors() });
+			typed.push({ action: f.action, filled, errors: await errors(), saved: await tookEffect({ key: `${route} ${f.action}` }, filled) });
 		}
 		await p.evaluate('window.__downloads.length = 0');
 		const controls = await p.evaluate(`[...document.querySelectorAll('main button, main a')].filter((e) => /export|csv/i.test((e.id || '') + ' ' + e.textContent) && (${VIS})(e) && !e.disabled).map((e, i) => { e.dataset.ccX = String(i); return { sel: '[data-cc-x="' + i + '"]', id: e.id || null, text: e.textContent.trim().slice(0, 40) }; })`);
@@ -444,7 +518,7 @@ async function csv(route, url, viewId, forms) {
 			return { name: d.name, bytes: d.text.length, marks: marks.length, bad: bad.length, sample: bad.slice(0, 3).map((m) => J(d.text.slice(Math.max(0, m.index - 30), m.index + 8))) };
 		});
 		return { evidence: { url, typed, controls, files: checked, nonCsv: other.map((d) => d.name), undeclared },
-			checks: { exported: downloads.length > 0, typedSaved: typed.every((x) => x.errors.length === 0), onlyDeclaredNonCsv: undeclared.length === 0, hostileReached: checked.every((c) => c.marks > 0), noFormula: checked.every((c) => c.bad === 0) } };
+			checks: { exported: downloads.length > 0, typedSaved: typed.every((x) => x.errors.length === 0 && x.saved), onlyDeclaredNonCsv: undeclared.length === 0, hostileReached: checked.every((c) => c.marks > 0), noFormula: checked.every((c) => c.bad === 0) } };
 	});
 }
 

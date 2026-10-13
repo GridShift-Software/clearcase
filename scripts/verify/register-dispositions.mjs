@@ -317,7 +317,7 @@ for (const [named, view, type, productVisible, file, patterns, cover, why] of DI
 	// a known gap names the owner whose app change would close it
 	const before = own.get(defect);
 	// an approval the user gave in review survives a rerun while what it approved is unchanged; otherwise it is reset
-	const unchanged = before && before.type === type && before.productVisible === productVisible && noEvidence(before.reason) === noEvidence(reason);
+	const unchanged = before && before.view === view && before.type === type && before.productVisible === productVisible && noEvidence(before.reason) === noEvidence(reason);
 	if (before?.approvedBy && !unchanged) lostApproval.push(`${before.id} (${defect})`);
 	out.get(target).push({ id, view, field: [], type, source: defect, ...(type === GAP ? { owner: linear[view] } : {}), reason, productVisible, author: AUTHOR, approvedBy: unchanged ? before.approvedBy ?? null : null, approvedOn: unchanged ? before.approvedOn ?? null : null });
 }
@@ -328,7 +328,7 @@ for (const e of all) if (e.author !== AUTHOR && isDisposition(e) && /^S-/.test(e
 const written = [...all.filter((e) => e.author !== AUTHOR), ...[...out.values()].flat()];
 for (const id of listed.keys()) if (!citing(written, id).length) problems.push(`${id}: no disposition; add a row to DISPOSITIONS`);
 if (problems.length) { console.error(problems.join('\n')); process.exit(1); }
-if (lostApproval.length) console.error(`register-dispositions: approval reset (type, productVisible or reason changed): ${lostApproval.join(', ')}`);
+if (lostApproval.length) console.error(`register-dispositions: approval reset (view, type, productVisible or reason changed): ${lostApproval.join(', ')}`);
 
 let drift = 0;
 for (const [file, doc] of docs) {

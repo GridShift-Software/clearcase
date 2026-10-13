@@ -9,7 +9,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildCase } from '../e2e/pilot/lib/fixtures';
 import type { LocalCase } from '../../src/lib/local-case/service.server';
-import { ackFor, cleanup, tempRoot } from '../../src/lib/local-case/test-support';
+import { ackFor, cleanup, tempRoot, withoutBusyWait } from '../../src/lib/local-case/test-support';
 
 let root: string, lc: LocalCase, rv: string, caseId: string;
 let P: typeof import('../../src/lib/views/registers/page.server');
@@ -164,9 +164,9 @@ describe('register actions', () => {
 		await clear(D);
 		await post(D, 'save', v0);
 		const [r] = (await load(D)).rows;
-		const release = hold();
+		const release = hold(), wait = withoutBusyWait(lc.storage);
 		let del;
-		try { del = await post(D, 'delete', { rowId: r!.rowId }); } finally { release(); }
+		try { del = await post(D, 'delete', { rowId: r!.rowId }); } finally { release(); wait(); }
 		expect(del).toMatchObject({ failed: 503, op: 'delete', rowId: r!.rowId, message: expect.stringMatching(/did not happen.*still there/) });
 		expect((await load(D)).rows).toHaveLength(1);
 	}, 60_000);

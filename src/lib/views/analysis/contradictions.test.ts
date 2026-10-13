@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { byCat, chipLabel, contradictionsCsv, rateCells, type Contradictions } from './contradictions.ts';
+import { byCat, chipLabel, contradictionsCsv, rateCells, spreadLabel, type Contradictions } from './contradictions.ts';
 
 // the checklist's synthetic example candidate (contradictions_tab)
 const rateItem = { label: 'M1', detail: '', rates: { 'BID RATE': '10', 'OLD RATE': '12', 'NEW/STANDARD': '15' }, spread: '5', refs: [{ ref: 'OD-1', amount: '100', filename: 'f' }] };
@@ -21,6 +21,10 @@ describe('contradiction tracker', () => {
 	});
 	it("falls back to 'NEW RATE' and leaves absent rates empty", () => {
 		expect(rateCells({ ...rateItem, rates: { 'NEW RATE': '9' }, spread: undefined })).toEqual({ bid: '', old: '', next: 'R 9.00', spread: '' });
+	});
+	it("shows an amount spread as v5's delta and a spelled-out spread as written", () => {
+		expect(spreadLabel('1234.5')).toBe('Δ R 1 234.50');
+		expect(spreadLabel('low R 1.00, high R 2.00, gap 50%')).toBe('low R 1.00, high R 2.00, gap 50%');
 	});
 	it('reads KPI figures by category key, 0 when absent', () => {
 		expect([byCat(c, 'rate'), byCat(c, 'units'), byCat(c, 'constructor')]).toEqual([1, 0, 0]);

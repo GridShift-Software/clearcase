@@ -5,6 +5,7 @@
 // carried over as written. A field with no v5 home stays on its record (preserved, reported as an unsupported
 // field, not rendered); a top-level key with no v5 home reaches the package as a residual dataset through the
 // adapter's unmapped-key path. The viewer's own full-text token index (`ft`) is the one thing left behind.
+import { fmtR } from '../../components/format.ts';
 import type { DiagSink } from '../diagnostics.ts';
 import { isObject, type JsonObject, type JsonValue } from '../strict-json.ts';
 import type { V5Root } from './extract.ts';
@@ -79,6 +80,22 @@ export function matterOf(seed: JsonObject): JsonObject | undefined {
 
 const SEVERITY_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
 
+/**
+ * One contradiction as a v5 item. The low and high figures and the gap (a percentage) stay raw under `rates`; `spread`
+ * spells them out with their units, since the tracker and its CSV show `spread` for every category but 'rate'.
+ */
+function contradictionItem(c: JsonObject, rowsByRef: ReadonlyMap<string, JsonObject>): JsonObject {
+  const item: JsonObject = {
+    label: nonEmpty([str(c.ent), str(c.year), str(c.dt)]).join(' · '), detail: str(c.note),
+    refs: strs(c.refs).map((ref) => ({ ref, amount: '', filename: str(rowsByRef.get(ref)?.filename), url: str(rowsByRef.get(ref)?.url) })),
+  };
+  const lo = amountText(c.lo), hi = amountText(c.hi), gap = amountText(c.gap);
+  if (lo === '' && hi === '' && gap === '') return item;
+  item.rates = { LOW: lo, HIGH: hi, GAP: gap };
+  item.spread = nonEmpty([lo && `low ${fmtR(lo)}`, hi && `high ${fmtR(hi)}`, gap && `gap ${gap}%`]).join(', ');
+  return item;
+}
+
 /** The contradiction list grouped by kind into v5 categories; a category's severity is its highest item's. */
 export function contradictionsOf(list: readonly JsonObject[], rowsByRef: ReadonlyMap<string, JsonObject>): JsonObject | undefined {
   if (list.length === 0) return undefined;
@@ -89,11 +106,7 @@ export function contradictionsOf(list: readonly JsonObject[], rowsByRef: Readonl
     cats.set(kebab(title), cat);
     const sev = str(c.sev).toLowerCase();
     if ((SEVERITY_RANK[sev] ?? 0) > (SEVERITY_RANK[cat.severity] ?? 0)) cat.severity = sev;
-    cat.items.push({
-      label: nonEmpty([str(c.ent), str(c.year), str(c.dt)]).join(' · '), detail: str(c.note),
-      rates: { LOW: amountText(c.lo), HIGH: amountText(c.hi), GAP: str(c.gap) },
-      refs: strs(c.refs).map((ref) => ({ ref, amount: '', filename: str(rowsByRef.get(ref)?.filename), url: str(rowsByRef.get(ref)?.url) })),
-    });
+    cat.items.push(contradictionItem(c, rowsByRef));
   }
   const categories = [...cats].map(([key, c]) => ({ key, title: c.title, severity: c.severity, explain: '', items: c.items }));
   return { byCat: Object.fromEntries(categories.map((c) => [c.key, c.items.length])), categories, checks: [], highCount: list.filter((c) => str(c.sev).toLowerCase() === 'high').length, total: list.length };

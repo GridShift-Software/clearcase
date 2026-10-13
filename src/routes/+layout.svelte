@@ -55,7 +55,7 @@
 </script>
 
 <a class="skip" href="#main" {@attach skip}>Skip to content</a>
-<header class="top"><span class="brand">ClearCase</span><a href="/" id="nav-active-case">Active case</a><a href="/import" id="nav-import">Import results</a></header>
+<header class="top"><span class="brand">ClearCase</span><a href="/cases" id="nav-cases">Cases</a><a href="/import" id="nav-import">Import results</a></header>
 {#each data.warnings as w (w.key)}
 	<div class="banner recovery" id="warning-{w.key}" data-warning={w.key} role="alert">{w.message}</div>
 {/each}

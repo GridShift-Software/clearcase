@@ -115,7 +115,7 @@ const cspMessages = (ctx, from = 0) => ctx.b.events.console.filter((c) => c.at >
 export async function s24(ctx) {
 	const { A, b, main, sites } = ctx;
 	const rv = main.resultsVersion;
-	const pages = ['/import', `${vpath(rv)}/overview`, `${vpath(rv)}/chronology`, `${vpath(rv)}/doc/OD-001`, `${vpath(rv)}/analysis/timeline`, '/recovery'];
+	const pages = ['/cases', '/import', `${vpath(rv)}/overview`, `${vpath(rv)}/chronology`, `${vpath(rv)}/doc/OD-001`, `${vpath(rv)}/analysis/timeline`, '/recovery'];
 	const hdr = {};
 	for (const u of pages) {
 		const r = await A.c.get(u);
@@ -214,7 +214,7 @@ export async function s63(ctx) {
 	const reserved = {};
 	for (const u of [`${vpath(rv)}/overview?/default`, '/import?/default', `${vpath(rv)}/doc/OD-001?/default`]) reserved[u] = (await A.c.form(u, { x: '1' })).status;
 	const pages = {};
-	for (const u of ['/import', `/import/${ctx.mainImport.id}`, '/recovery', `${vpath(rv)}/overview`, `${vpath(rv)}/chronology`, `${vpath(rv)}/doc/OD-001`, `${vpath(rv)}/analysis/timeline`, `${vpath(rv)}/doc/NO-SUCH`]) {
+	for (const u of ['/cases', '/import', `/import/${ctx.mainImport.id}`, '/recovery', `${vpath(rv)}/overview`, `${vpath(rv)}/chronology`, `${vpath(rv)}/doc/OD-001`, `${vpath(rv)}/analysis/timeline`, `${vpath(rv)}/doc/NO-SUCH`]) {
 		const r = await A.c.get(u);
 		const firstFocusable = /<(a|button|input|select|textarea)\b[^>]*>/.exec(r.text)?.[0] ?? null;
 		pages[u] = { status: r.status, cache: r.headers['cache-control'] ?? null, skipFirst: !!firstFocusable && /class="skip"/.test(firstFocusable) && /href="#main"/.test(firstFocusable), main: /<main id="main"/.test(r.text) };

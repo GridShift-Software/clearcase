@@ -4,7 +4,7 @@
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { afterAll, describe, expect, it, vi } from 'vitest';
-import { cleanup, service, tempRoot } from '../../src/lib/local-case/test-support.ts';
+import { cleanup, service, tempRoot, withoutBusyWait } from '../../src/lib/local-case/test-support.ts';
 import type { LocalCase } from '../../src/lib/local-case/service.server.ts';
 
 const g = globalThis as { __clearcase?: unknown };
@@ -68,8 +68,10 @@ describe('D6: a lock taken by another process part-way through a multi-file writ
 		let release: (() => void) | null = null;
 		uw.putTableRow = async (...a: unknown[]) => { await orig(...a); release ??= hold(root); };
 		let err: unknown = null;
+		const wait = withoutBusyWait(lc.storage);
 		try { await s.writeMarks('case-1', keys.map((locator) => ({ locator })), { selected: true }); } catch (e) { err = e; }
 		release!();
+		wait();
 		uw.putTableRow = orig;
 		expect(err).toBeInstanceOf(s.PartialWrite);
 		const saved = (err as InstanceType<typeof s.PartialWrite>).saved;

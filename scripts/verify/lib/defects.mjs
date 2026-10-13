@@ -1,5 +1,6 @@
 // The v5 source defects and the register entries that name them, shared by dispositions.mjs (the report) and
-// register-dispositions.mjs (the writer, whose --check fails on the same gaps). `ref` is a docs/reference folder.
+// register-dispositions.mjs (the writer). Both fail on a defects.md row that does not parse (`unparsedRows`), and on a
+// defect no entry names. `ref` is a docs/reference folder.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 

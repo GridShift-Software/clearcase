@@ -1,7 +1,8 @@
-// scripts/verify/register-dispositions.mjs keeps approvals and fails closed (GRS-67, fix round): a rerun never clears
-// approvedBy/approvedOn, and --check fails on a defect with no disposition, a disposition for a defect that is gone, and
-// an empty evidence pattern. Each case runs the script on a synthetic copy of docs/reference (--reference), never on the
-// committed register.
+// scripts/verify/register-dispositions.mjs keeps approvals and fails closed (GRS-67, fix rounds): a rerun keeps
+// approvedBy/approvedOn while the entry's type, productVisible and reason are unchanged, and resets them (naming the
+// entry) when one changes. --check fails on a defect with no disposition, a disposition for a defect that is gone (in any
+// form of an empty field), a defects.md row that does not parse, and an empty evidence pattern. Each case runs the script
+// on a synthetic copy of docs/reference (--reference), never on the committed register.
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -48,12 +49,27 @@ describe('register-dispositions --check', () => {
 	});
 
 	it('keeps an approval when a rerun rewrites the entry because its evidence moved', () => {
-		edit(FILE, (d) => { const e = d.entries.find((x) => x.author?.startsWith('GRS-67 dispositions'))!; e.approvedBy = 'dianbrown'; e.approvedOn = '2026-10-20'; e.reason = 'stale'; });
+		edit(FILE, (d) => { const e = d.entries.find((x) => x.author?.startsWith('GRS-67 dispositions'))!; e.approvedBy = 'dianbrown'; e.approvedOn = '2026-10-20'; e.reason = String(e.reason).replace(/Evidence: .*$/, 'Evidence: moved.ts:1.'); });
 		expect(run('--check').status).toBe(1);
 		expect(run().status).toBe(0);
 		const e = mine(FILE)[0]!;
-		expect(e.reason).not.toBe('stale');
+		expect(e.reason).not.toContain('moved.ts');
 		expect([e.approvedBy, e.approvedOn]).toEqual(['dianbrown', '2026-10-20']);
+	});
+
+	it.each([
+		['type', (e: Entry) => { e.type = e.type === 'known-gap' ? 'defect-fix' : 'known-gap'; }],
+		['productVisible', (e: Entry) => { e.productVisible = !e.productVisible; }],
+		['reason', (e: Entry) => { e.reason = `${String(e.reason).replace(/ Evidence: .*$/, '')} Changed.`; }],
+	])('resets an approval when a rerun rewrites the entry because its %s changed, and names it', (_what, change) => {
+		edit(FILE, (d) => { const e = d.entries.find((x) => x.author?.startsWith('GRS-67 dispositions'))!; e.approvedBy = 'dianbrown'; e.approvedOn = '2026-10-20'; change(e); });
+		const first = mine(FILE)[0]!;
+		const r = run();
+		expect(r.status).toBe(0);
+		expect(r.out).toContain('approval reset');
+		expect(r.out).toContain(first.id);
+		const e = mine(FILE)[0]!;
+		expect([e.approvedBy, e.approvedOn]).toEqual([null, null]);
 	});
 
 	it('still reports a real change in an entry as drift', () => {
@@ -87,18 +103,40 @@ describe('register-dispositions --check', () => {
 		expect(r.out).toContain('IDR-095: disposition of S-overview-98');
 	});
 
+	it('fails on a defects.md row that does not parse', () => {
+		const path = join(ref, 'defects.md');
+		writeFileSync(path, `${readFileSync(path, 'utf8')}\n| S-zzprobe-1 | high | a synthetic row with too few cells |\n`);
+		const r = run('--check');
+		expect(r.status).toBe(1);
+		expect(r.out).toContain('S-zzprobe-1 does not parse');
+	});
+
+	it.each([
+		['an empty string', { field: '' }],
+		['a null field', { field: null }],
+		['no field', {}],
+	])('fails on a hand-written disposition with %s of a defect that is gone', (_what, form) => {
+		edit('intentional-differences.json', (d) => { d.entries.push({ id: 'IDR-095', view: 'overview', type: 'defect-fix', source: 'S-overview-98', reason: 'a stale entry', productVisible: false, author: 'someone', approvedBy: null, approvedOn: null, ...form }); });
+		const r = run('--check');
+		expect(r.status).toBe(1);
+		expect(r.out).toContain('IDR-095: disposition of S-overview-98');
+	});
+
 	it('fails on an empty evidence pattern', () => {
-		// the script's own table: a copy of it with one pattern emptied, run against the same synthetic reference
-		const copy = join(REPO, 'scripts', 'verify', `.empty-pattern-${process.pid}.mjs`);
-		const src = readFileSync(SCRIPT, 'utf8').replace('"export const asOfStatus = (r: PrescRow, asOf: string)"', '""');
-		expect(src).not.toBe(readFileSync(SCRIPT, 'utf8'));
+		// the script's own table: a copy of it in the temp dir with one pattern emptied and its imports made absolute
+		const copy = join(work, 'empty-pattern.mjs');
+		const original = readFileSync(SCRIPT, 'utf8');
+		const abs = (rel: string) => JSON.stringify(join(REPO, 'scripts', 'verify', rel));
+		const src = original
+			.replace('"export const asOfStatus = (r: PrescRow, asOf: string)"', '""')
+			.replace(`'../parity/lib/register.mjs'`, abs('../parity/lib/register.mjs'))
+			.replace(`'./lib/defects.mjs'`, abs('lib/defects.mjs'))
+			.replace(`'../../src/lib/components/view-registry.ts'`, abs('../../src/lib/components/view-registry.ts'))
+			.replace(`resolve(import.meta.dirname, '..', '..')`, JSON.stringify(REPO));
+		expect(src).not.toBe(original);
 		writeFileSync(copy, src);
-		try {
-			const x = spawnSync(BUN, [copy, '--reference', ref, '--check'], { encoding: 'utf8', timeout: 60_000 });
-			expect(x.status).toBe(1);
-			expect(`${x.stdout}${x.stderr}`).toContain('S-prescription-frozen: empty evidence pattern');
-		} finally {
-			rmSync(copy, { force: true });
-		}
+		const x = spawnSync(BUN, [copy, '--reference', ref, '--check'], { encoding: 'utf8', timeout: 60_000, cwd: REPO });
+		expect(x.status).toBe(1);
+		expect(`${x.stdout}${x.stderr}`).toContain('S-prescription-frozen: empty evidence pattern');
 	});
 });

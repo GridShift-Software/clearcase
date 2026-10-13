@@ -5,7 +5,8 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
-import { loadRegister, REGISTER, REPO, registryKeys, registryOwners, validateRegister, viewIds } from '../../scripts/parity/lib/register.mjs';
+import { covering, type Entry } from '../../scripts/parity/lib/compare.mjs';
+import { loadRegister, REGISTER, REPO, registryKeys, registryOwners, unusedEntries, validateRegister, viewIds } from '../../scripts/parity/lib/register.mjs';
 import { VIEWS } from '../../src/lib/components/view-registry';
 
 const owners = Object.fromEntries(VIEWS.map((v) => [v.id, v.linear]));
@@ -104,6 +105,15 @@ describe('rules', () => {
 	test('fields and conditions that look like case values are refused', () => {
 		expect(check({ field: 'table.t.row.SY-12345.date' }).join()).toMatch(/case value/);
 		expect(check({ when: { v5: 'someone@example.org' } }).join()).toMatch(/case value/);
+	});
+	test('a disposition (field []) names an S- source defect, covers nothing and is never unused', () => {
+		const disposition = { field: [], type: 'known-gap', source: 'S-chronology-3' };
+		expect(check(disposition)).toEqual([]);
+		for (const bad of [{ type: 'improvement' }, { type: 'not-yet-implemented', owner: 'GRS-12' }, { source: 'BA-01' }, { when: { v5: 'x' } }]) expect(check({ ...disposition, ...bad }).join(), JSON.stringify(bad)).toMatch(/a disposition \(field \[\]\)/);
+		const entries = [{ ...good, ...disposition, id: 'IDR-998' }, good] as Entry[];
+		expect(covering(entries, 'chronology', { path: 'text.subtitle', kind: 'value', v5: 'a', app: 'b' })?.id).toBe('IDR-999');
+		expect(covering([entries[0]], 'chronology', { path: 'text.subtitle', kind: 'value', v5: 'a', app: 'b' })).toBeNull();
+		expect(unusedEntries(entries, ['chronology'], new Set())).toEqual(['IDR-999']);
 	});
 });
 

@@ -328,7 +328,7 @@
 	.ask { border: 1px solid currentColor; padding: 0.5rem; }
 	.flag, .altered { font-size: 0.85em; color: #8a5a00; }
 	.field { display: flex; flex-direction: column; gap: 0.25rem; min-width: 10rem; }
-	.field.wide { flex: 2; min-width: 16rem; }
+	.field.wide { flex: 2; min-width: min(16rem, 100%); }
 	.field textarea { min-height: 4rem; }
 	td.end, th.end { text-align: end; }
 	tr.editing { outline: 2px solid currentColor; }

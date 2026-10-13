@@ -226,6 +226,25 @@ describe('the suite summary contract', () => {
 	});
 });
 
+describe('a step result is stamped with the revision of its run (read by scripts/verify/matrix.mjs)', () => {
+	test('stampRecord adds freshBuild to a parseable record and leaves a missing or unparseable file alone', async () => {
+		const { stampRecord } = await import(join(HERE, 'run.mjs'));
+		const out = mkdtempSync(join(root, 'stamp-'));
+		const stamp = { head: 'a'.repeat(40), buildRevision: 'a'.repeat(40), trackedDirty: false, buildDirty: false, fresh: true };
+		writeFileSync(join(out, 'summary.json'), JSON.stringify({ scenarios: [{ id: 'x', view: 'overview', pass: true }] }));
+		writeFileSync(join(out, 'broken.json'), '{');
+		stampRecord(join(out, 'summary.json'), stamp);
+		stampRecord(join(out, 'broken.json'), stamp);
+		stampRecord(join(out, 'absent.json'), stamp);
+		expect(JSON.parse(readFileSync(join(out, 'summary.json'), 'utf8'))).toEqual({ scenarios: [{ id: 'x', view: 'overview', pass: true }], freshBuild: stamp });
+		expect(readFileSync(join(out, 'broken.json'), 'utf8')).toBe('{');
+	});
+	test('the runner stamps each category summary and pilot record right after its step', () => {
+		const src = readFileSync(join(HERE, 'run.mjs'), 'utf8');
+		expect(src).toContain('if (record) stampRecord(record, evidenceRecord(fresh, allowed).freshBuild);');
+	});
+});
+
 describe('a step that timed out or aborted is not evidence (fail fast)', () => {
 	test("stepAbort names a timeout and an aborted suite's record, and nothing for a finished or missing one", async () => {
 		const { STEP_TIMEOUT_MS, stepAbort } = await import(join(HERE, 'run.mjs'));

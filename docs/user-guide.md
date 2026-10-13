@@ -16,53 +16,55 @@ bun run --bun start
 
 ## Windows quick start
 
-> **Not verified on Windows.** ClearCase is built and tested on Linux only. These steps follow the Linux ones with the Windows equivalents and have not been run on a Windows computer. If a step fails, note the command and its full output, and report it with the comparison.
+> **Native Windows is not supported.** ClearCase refuses to start without Linux's `/proc/self/fd`, which it uses to open an original safely (`LocalCase.startup()` in `src/lib/local-case/service.server.ts`). Windows has no equivalent, so a PowerShell install of Bun cannot reach the import. On Windows, run ClearCase inside WSL2, which is a real Linux.
+>
+> **Not verified end to end.** Nobody has yet run these steps on a Windows computer. Three parts are untried: reaching the app from a Windows browser through WSL2's `localhost` forwarding, opening the originals site (a `*.localhost` address) from a Windows browser, and importing a case folder from a path copied out of Windows. If a step fails, note the command and its full output, and report it with the comparison.
 
-This is the setup for the side-by-side comparison with the production system on Windows (GRS-64). You need Windows 10 or 11, Git, a current Chrome or Edge, and the ClearCase checkout. You also need the case folder and the results package that you receive with the case. This guide contains no case data.
+This is the setup for the side-by-side comparison with the production system on Windows (GRS-64). You need Windows 10 (version 2004 or later) or Windows 11, a current Chrome or Edge, and the ClearCase checkout. You also need the case folder and the results package that you receive with the case. This guide contains no case data.
 
-1. Open PowerShell and install Bun 1.4.2, the exact version this project pins:
+1. Install WSL2 with Ubuntu. In PowerShell as administrator, run `wsl --install -d Ubuntu`, restart if it asks, and create the Linux user it prompts for. From here on, every command runs in the Ubuntu terminal, not in PowerShell.
 
-   ```powershell
-   iex "& {$(irm https://bun.sh/install.ps1)} -Version 1.4.2"
+2. In Ubuntu, install Bun 1.4.2, the exact version this project pins. If `curl` or `unzip` is missing, run `sudo apt update && sudo apt install -y curl unzip git` first.
+
+   ```sh
+   curl -fsSL https://bun.sh/install | bash -s "bun-v1.4.2"
    ```
 
-   Open a new PowerShell window, then check the version. It must print `1.4.2`:
+   Open a new Ubuntu window, then check the version. It must print `1.4.2`:
 
-   ```powershell
+   ```sh
    bun --version
    ```
 
-2. Install the dependencies and build the app from the `clearcase` folder of the checkout:
+3. Put the checkout, the case folder and the results package in the WSL filesystem, under your Linux home directory (`~`), not under `/mnt/c`. Clone or copy the checkout to `~/clearcase`. The app opens each original as a single regular file and checks it again as it serves it. The `/mnt/c` drive is a Windows folder shared with Linux, and it is slow and can report files differently, so keep everything under `~`. Copy the case folder and the package there, for example to `~/cases/<case folder>` and `~/cases/<package>`. In Windows Explorer the WSL home directory is `\\wsl$\Ubuntu\home\<your user>`; you can copy files into it from there. Copying a case folder from OneDrive can fail while a file is online-only: make the folder available offline first.
 
-   ```powershell
-   cd C:\path\to\clearcase
+4. Install the dependencies, build the app and start it from the `clearcase` folder, with a data folder inside WSL:
+
+   ```sh
+   cd ~/clearcase
    bun install --frozen-lockfile
    bun run --bun build
-   ```
-
-3. Choose a data folder for this comparison and start the app:
-
-   ```powershell
-   $env:CLEARCASE_DATA_DIR = "$env:LOCALAPPDATA\ClearCase\comparison"
+   export CLEARCASE_DATA_DIR=~/clearcase-data/comparison
    bun run --bun start
    ```
 
-   Set `CLEARCASE_DATA_DIR` each time you open a new window, otherwise ClearCase uses a `.local\share\clearcase` folder in your user profile. Keep the window open while you use the app. `start` prints the app address (`http://127.0.0.1:41101` by default) and the originals address (the next port). To stop the app, press Ctrl+C in that window, or run `bun run --bun start --stop` in another window from the same folder.
+   Set `CLEARCASE_DATA_DIR` each time you open a new Ubuntu window, otherwise ClearCase uses `~/.local/share/clearcase`. Keep the window open while you use the app. `start` prints the app address (`http://127.0.0.1:41101` by default) and the originals address (the next port). To stop the app, press Ctrl+C in that window, or run `bun run --bun start --stop` in another Ubuntu window from the same folder.
 
-4. Open the app address in Chrome or Edge, then import the case through the app:
+5. Open the app address in Chrome or Edge on Windows. WSL2 forwards `localhost` to Linux, so `http://127.0.0.1:41101` should open (unverified). If it does not open, the app cannot be reached from Windows on this computer (it listens on 127.0.0.1 only): report it with the output of `wsl --version`. Import the case through the app:
    1. Choose **Import results**.
-   2. In the case folder field, type the full path of the case folder, for example `D:\Cases\<case folder>`.
-   3. In the package field, type the full path of the results package.
+   2. In the case folder field, type the full WSL path of the case folder, for example `/home/<your user>/cases/<case folder>`. The app reads paths as Linux sees them, so a Windows path such as `D:\Cases\<case folder>` does not work.
+   3. In the package field, type the full WSL path of the results package.
    4. Choose **Validate package**, and read the validation report.
    5. Accept the warnings it lists, then choose **Activate this version**.
 
    The overview of the case opens. The package and every original are checked during validation, so a large case can take a minute.
 
-5. To compare with the production system, open the same view in each and compare them. Every intentional difference is listed in `docs/reference/parity/intentional-differences.json` and its `register/` folder, with the reason for each. The [CC-11 matrix](acceptance/CC-11/matrix.md) gives the view-by-view parity result on Linux.
+6. To compare with the production system, open the same view in each and compare them. Every intentional difference is listed in `docs/reference/parity/intentional-differences.json` and its `register/` folder, with the reason for each. The [CC-11 matrix](acceptance/CC-11/matrix.md) gives the view-by-view parity result on Linux.
 
-Known differences from Linux that can affect this setup:
-- The app checks that an original is a single regular file before it serves it. A file that Windows reports as a hard link, or a OneDrive file that is not stored on this computer, can be refused. Copy the case folder to a local disk that OneDrive does not sync.
-- The automated checks (`bun run --bun gate`) need Linux network namespaces and do not run on Windows.
+Known limits of this setup:
+- Opening an original goes to the originals site, a `*.localhost` address (`clearcase-originals.localhost` by default). Whether a Windows browser resolves it to WSL2 is unverified. If it does not, the document pages still show, but the Open and Download links for originals may fail.
+- A file that Linux reports as a hard link is refused, because the app serves only single-link regular files. Copy the case folder into WSL rather than linking it.
+- The automated checks (`bun run --bun gate`) need Linux network namespaces. They are for the development machine, not for this comparison.
 
 ## Importing a case
 

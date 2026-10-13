@@ -27,6 +27,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { ensureOffline, PORTS } from '../../tests/e2e/pilot/v5/env.mjs';
+import { COMPONENTS, WIDTHS } from './layout-spec.mjs';
 import { revisionStamp } from './stamp.mjs';
 
 ensureOffline(import.meta.filename);
@@ -44,7 +45,6 @@ const OUT = resolve(arg('--out', join(ROOT, '.local', 'GRS-21', `layout-${CASE}`
 const SHOTS = process.argv.includes('--shots');
 if (!['synthetic', 'v5'].includes(CASE)) { console.error('--case synthetic|v5'); process.exit(2); }
 mkdirSync(OUT, { recursive: true });
-const WIDTHS = [320, 390, 768, 1280];
 const J = JSON.stringify;
 const sha = (b) => createHash('sha256').update(b).digest('hex');
 const ready = (id) => `document.querySelector('main#main')?.dataset.ready === ${J(id)}`;
@@ -202,16 +202,6 @@ try {
 	await p.s('DOM.enable');
 	await p.s('CSS.enable');
 	await setWidth(1280);
-	const COMPONENTS = [
-		['navigation link', 'overview', 'nav a[data-view]:not([aria-current])'],
-		['current navigation link', 'overview', 'nav a[aria-current="page"]'],
-		['skip link', 'overview', 'a[href="#main"]'],
-		['link in main', 'chronology', 'main#main a[href]'],
-		['button', 'deadlines_tab', 'main#main button'],
-		['text input', 'deadlines_tab', 'main#main input[type=text], main#main input:not([type])'],
-		['select', 'deadlines_tab', 'main#main select'],
-		['table header', 'documents', 'main#main th, main#main [role=columnheader]'],
-	];
 	for (const [name, view, sel] of COMPONENTS) {
 		const v = VIEWS.find((x) => x.id === view);
 		await p.goto(`${A.v(rv)}${v.route}`, ready(view), 30000);

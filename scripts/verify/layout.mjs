@@ -88,7 +88,9 @@ const LAYOUT = (w) => `(() => { ${COLOR}
 	}
 	const texts = [...(main?.querySelectorAll('*') ?? [])].filter((e) => [...e.childNodes].some((n) => n.nodeType === 3 && n.textContent.trim()) && VIS(e));
 	const minFont = texts.length ? Math.min(...texts.map((e) => parseFloat(getComputedStyle(e).fontSize))) : null;
-	return { requested: ${w}, controls: controls.length, innerWidth, scrollWidth: se.scrollWidth, sideways: Math.max(se.scrollWidth, innerWidth) > ${w} + 1, heading: h?.textContent.trim() ?? null, onHeading, overlaps, minFont };
+	// the widest visible elements past the requested width, so a failure names what pushes the page out
+	const wide = Math.max(se.scrollWidth, innerWidth) > ${w} + 1 ? [...document.querySelectorAll('body *')].filter((e) => VIS(e) && e.getBoundingClientRect().right > ${w} + 1).slice(0, 6).map((e) => label(e) + ' ' + Math.round(e.getBoundingClientRect().right)) : [];
+	return { requested: ${w}, controls: controls.length, innerWidth, scrollWidth: se.scrollWidth, sideways: Math.max(se.scrollWidth, innerWidth) > ${w} + 1, wide, heading: h?.textContent.trim() ?? null, onHeading, overlaps, minFont };
 })()`;
 
 /** Text contrast of every visible element with its own text, in main and in the shared navigation, counted apart. */
@@ -155,7 +157,7 @@ try {
 			await settle();
 			const m = await p.evaluate(LAYOUT(w));
 			row.widths[w] = m;
-			if (m.sideways) fail(`${v.id}@${w}: scrolls sideways (content ${m.scrollWidth}, layout viewport ${m.innerWidth}, requested ${w})`);
+			if (m.sideways) fail(`${v.id}@${w}: scrolls sideways (content ${m.scrollWidth}, layout viewport ${m.innerWidth}, requested ${w}; past it: ${m.wide.join(', ') || 'none'})`);
 			if (m.onHeading.length) fail(`${v.id}@${w}: controls over the heading: ${m.onHeading.join(', ')}`);
 			if (m.overlaps.length) fail(`${v.id}@${w}: overlapping controls: ${m.overlaps.slice(0, 3).join('; ')}`);
 			if (SHOTS) {

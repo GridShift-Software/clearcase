@@ -26,6 +26,7 @@ import type { LocalCaseConfig } from './config.server.ts';
 import { isBusy, Storage } from './db.server.ts';
 import { procFdAvailable, within } from './fsafe.server.ts';
 import { project, readModelDigest } from './project.server.ts';
+import { CasePackError, prepareCasePack, type PackProgress } from './case-pack.server.ts';
 import { CaseStore, type Verification } from './store.server.ts';
 import { UserWork } from './user-work.server.ts';
 
@@ -76,7 +77,7 @@ export class LocalCase {
 	startupReport: StartupReport | null = null;
 	#verified = new Map<string, Verification>();
 	#verifiedAt: string | null = null;
-	#current: { packageSource: string; startedAt: string; progress: Progress | null; abort: AbortController } | null = null;
+	#current: { packageSource: string; startedAt: string; progress: Progress | PackProgress | null; abort: AbortController } | null = null;
 	#queue: Promise<unknown> = Promise.resolve();
 	#backupTimer: ReturnType<typeof setTimeout> | null = null;
 	#retrying: Promise<void> | null = null;
@@ -225,15 +226,39 @@ export class LocalCase {
 		return { app, caseRoot: { path: cfReal, dev: String(rst.dev), ino: String(rst.ino) } };
 	}
 
-	async importPackage(caseFolder: string, packageSource: string): Promise<ImportOutcome> {
+	/**
+	 * Import by clicking (GRS-70): extract a case pack .zip into the destination (or take an extracted folder), convert
+	 * its workspace HTML into a results package beside it, then importPackage. One running import at a time, and Cancel
+	 * stops every phase. A failure before importPackage records no attempt and changes nothing ClearCase stores.
+	 */
+	async importCasePack(source: string, destination: string): Promise<ImportOutcome | { kind: 'failed'; message: string }> {
+		if (this.#current) return { kind: 'failed', message: 'Another import is still running. Wait for it to finish or cancel it, then import again.' };
+		const abort = new AbortController();
+		this.#current = { packageSource: source, startedAt: now(), progress: null, abort };
+		try {
+			const onProgress = (p: PackProgress) => { if (this.#current?.abort === abort) this.#current.progress = p; };
+			const { caseFolder, packageDir } = await prepareCasePack(source, destination, { signal: abort.signal, onProgress, dataDir: this.config.dataDir, appDir: process.cwd() });
+			return await this.importPackage(caseFolder, packageDir, abort);
+		} catch (e) {
+			if (abort.signal.aborted) return { kind: 'failed', message: 'The import was cancelled. Nothing was imported, and the active case is unchanged.' };
+			if (e instanceof CasePackError) return { kind: 'failed', message: e.message };
+			console.error('case pack import failed', e);
+			return { kind: 'failed', message: `The import failed: ${(e as Error).message}. Nothing was imported, and the active case is unchanged.` };
+		} finally {
+			if (this.#current?.abort === abort) this.#current = null;
+		}
+	}
+
+	/** `own`: the running import's controller when importCasePack calls this as its last phase. */
+	async importPackage(caseFolder: string, packageSource: string, own?: AbortController): Promise<ImportOutcome> {
 		const t0 = performance.now();
 		const at = now();
 		const reject = (report: ImportReport) => this.store.recordRejected({ at, case_folder: caseFolder, package_source: packageSource, case_id: report.caseId, results_version: report.resultsVersion, manifest_sha256: report.manifestSha256, verdict: 'reject', report: JSON.stringify(report) })
 			.then((importId) => ({ kind: 'rejected' as const, importId }));
 		const inputs = await this.checkInputs(caseFolder, packageSource);
 		if (!inputs.caseRoot) return reject(appOnlyReport(inputs.app, performance.now() - t0));
-		if (this.#current) return reject(appOnlyReport([{ code: 'APP_INPUT_INVALID', severity: 'error', message: 'another import is still running', hint: 'Wait for it to finish or cancel it, then import again.' }], 0));
-		const abort = new AbortController();
+		if (this.#current && this.#current.abort !== own) return reject(appOnlyReport([{ code: 'APP_INPUT_INVALID', severity: 'error', message: 'another import is still running', hint: 'Wait for it to finish or cancel it, then import again.' }], 0));
+		const abort = own ?? new AbortController();
 		this.#current = { packageSource, startedAt: at, progress: null, abort };
 		try {
 			const progress = { signal: abort.signal, onProgress: (p: Progress) => { if (this.#current) this.#current.progress = p; }, concurrency: 4 };

@@ -13,5 +13,14 @@ export const actions: Actions = {
 		const r = await app().importPackage(caseFolder, packageSource);
 		redirect(303, `/import/${r.importId}${r.kind === 'identical' ? '?noop=1' : r.kind === 'repaired' ? '?repaired=1' : ''}`);
 	},
+	importCase: async ({ request }) => {
+		const f = await request.formData();
+		const caseSource = String(f.get('caseSource') ?? '').trim();
+		const destination = String(f.get('destination') ?? '').trim();
+		if (!caseSource || !destination) return fail(400, { caseSource, destination, packMessage: 'Choose the case (step 1) and where to store it (step 2).' });
+		const r = await app().importCasePack(caseSource, destination);
+		if (r.kind === 'failed') return fail(400, { caseSource, destination, packMessage: r.message });
+		redirect(303, `/import/${r.importId}${r.kind === 'identical' ? '?noop=1' : r.kind === 'repaired' ? '?repaired=1' : ''}`);
+	},
 	cancel: () => ({ cancelled: app().cancelImport() }),
 };

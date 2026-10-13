@@ -34,6 +34,8 @@ export interface ConvertOptions {
   concurrency?: number;
   limits?: Partial<Limits>;
   signal?: AbortSignal;
+  /** before each original or linked file is fingerprinted: how many were started, of how many */
+  onProgress?: (done: number, total: number) => void;
 }
 
 export interface ConvertResult {
@@ -188,6 +190,7 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   let next = 0;
   const worker = async () => {
     while (next < jobs.length) {
+      opts.onProgress?.(next, jobs.length);
       const j = jobs[next++]!;
       const pr = j.parentRef !== undefined ? { parentRef: j.parentRef } : {};
       type Fp = Awaited<ReturnType<typeof fingerprintOriginal>>;

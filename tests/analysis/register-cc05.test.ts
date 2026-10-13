@@ -51,7 +51,9 @@ describe('CC-05 register: no entry masks a wrong app value', () => {
 	});
 
 	it('names an owner on the known gaps', () => {
-		expect(entries.filter((e) => e.type === 'known-gap').map((e) => [e.id, e.owner])).toEqual([['IDR-168', 'GRS-15']]);
+		// CC-05's own harness-capture gap, plus the GRS-67 source-defect dispositions, each with the owner that would close it
+		expect(entries.filter((e) => e.type === 'known-gap' && !e.owner)).toEqual([]);
+		expect(entries.find((e) => e.id === 'IDR-168')).toMatchObject({ type: 'known-gap', owner: 'GRS-15' });
 	});
 });
 

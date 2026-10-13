@@ -76,6 +76,8 @@ export function validateRegister(doc, { views = viewIds(), owners = null, keys =
 		// a whole-view entry is exactly the string '*' (it alone gets the owner check below); any other glob that would
 		// match the whole-view path '*' ('?', '**', ['*'], …) is refused rather than standing in for it unchecked
 		for (const f of [e.field].flat()) if (typeof f === 'string' && (Array.isArray(e.field) || f !== '*') && globRe(f).test('*')) problems.push(`${at}: field ${JSON.stringify(e.field)} would match the whole view; a whole-view entry uses exactly "*"`);
+		// a disposition (field []) records how a v5 source defect stands where no compared path differs: it covers nothing
+		if (isDisposition(e) && (e.type === 'improvement' || e.type === 'not-yet-implemented' || !/^S-/.test(e.source ?? '') || e.when)) problems.push(`${at}: a disposition (field []) needs a defect-fix, known-gap or data-correction-deferred-to-pipeline type, an S-… source and no when`);
 		if (e.type === 'not-yet-implemented' && e.field === '*' && owners && owners[e.view] && e.owner !== owners[e.view]) problems.push(`${at}: owner ${e.owner} is not the view's owner ${owners[e.view]}`);
 		// no case values: a field glob names structure, so long digit runs or e-mail-like text do not belong in it
 		if (/\d{4,}|@/.test(JSON.stringify(e.field)) || /\d{4,}|@/.test(JSON.stringify(e.when ?? {}))) problems.push(`${at}: field or condition looks like a case value (digit run or @)`);
@@ -109,8 +111,11 @@ export function loadRegister(file = REGISTER, opts = {}) {
 	return out;
 }
 
+/** An entry with field [] is a source-defect disposition: it covers no difference, so it is never unused either. */
+export const isDisposition = (e) => Array.isArray(e.field) && e.field.length === 0;
+
 /** The ids of entries for a view that ran (`ran`: view ids) that covered no difference (`used`: a Set of ids). */
-export const unusedEntries = (entries, ran, used) => entries.filter((e) => ran.includes(e.view) && !used.has(e.id)).map((e) => e.id);
+export const unusedEntries = (entries, ran, used) => entries.filter((e) => ran.includes(e.view) && !isDisposition(e) && !used.has(e.id)).map((e) => e.id);
 
 /**
  * Why a parity run is not release evidence whatever its build (the scorecard's evidence is false with these in its

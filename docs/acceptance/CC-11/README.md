@@ -2,21 +2,22 @@
 
 The gate author's evidence for complete v5 parity and local release readiness. It is not the final verdict: a fresh second reviewer reruns the critical paths at the exact revision ([reviewer-guide.md](reviewer-guide.md)) and gives the final PASS. The user's visual review uses [walkthrough.md](walkthrough.md).
 
-- **Evidence revision:** `6d264f9f0e61b8205a3db53d9dc1c0db7b6e1c97`. The gate and every run below, metrics included, were made at this revision on a clean tree. The commit after it adds only the regenerated `docs/acceptance/CC-11/` and this file.
+- **Evidence revision:** `b456e6d0f185541ad820e28450763bfe8156464b` (the merge of `feature/grs-21-readiness-gate` at `cee0004` into this branch). The gate and every run below except the metrics were made at this revision on a clean tree. The commit after it adds only the regenerated `docs/acceptance/CC-11/` and this file.
+- **Metrics revision:** `6d264f9f0e61`. App code has not changed since: `git diff --stat 6d264f9 b456e6d -- src/` is empty, so the [Metrics](#metrics) below still describe the head and were not rerun.
 - **Base:** dev `c064458`. This branch also carries GRS-67's changes under `src/` (F1, F2, M3, F5 below).
-- **Author's verdict:** all items pass at `6d264f9`; final PASS pending the second reviewer's re-check. F1, F2, F4 and F5 are closed on this branch (`feature/grs-67-readiness-findings`, stacked on `feature/grs-21-readiness-gate`); F3 was withdrawn.
+- **Author's verdict:** all items pass at `b456e6d`; final PASS pending the second reviewer's re-check. F1, F2, F4 and F5 are closed on this branch (`feature/grs-67-readiness-findings`, stacked on `feature/grs-21-readiness-gate`); F3 was withdrawn.
 
-## Commands and results at `6d264f9f0e61`
+## Commands and results at `b456e6d0f185`
 
 | Check | Command | Exit | Result | Output (ignored, local) |
 | --- | --- | --: | --- | --- |
-| Gate | `bun run --bun gate` | 0 | `GATE PASS 6d264f9f0e61`: build, check, test, test:e2e (every suite PASS; UI classes 253/253), strict parity, the v5 lanes | `.local/gate/` |
+| Gate | `bun run --bun gate` | 0 | `GATE PASS b456e6d0f185`: build, check, test, test:e2e (every suite PASS; UI classes 253/253), strict parity, the v5 lanes | `.local/gate/` |
 | Strict parity | gate step `parity --all --strict-register` | 0 | 42 views extracted on both sides; 103,130 values compared, 99,766 matched, 3,364 registered, 0 unregistered; 0 not-yet-implemented | `.local/gate/parity-out/scorecard.md` |
 | Real v5 lanes | gate step `verify:pilot:v5` | 0 | 18/18 lanes PASS | `.local/gate/v5-out/lanes-v5.json` |
 | Acceptance workflow | `scripts/verify/evidence.sh acceptance` | 0 | 8/8 scenarios (AC1–AC8); AC2 compared all 10 originals' bytes with the case folder's | `.local/GRS-21/acceptance-out/acceptance/` |
 | Layout, synthetic | `scripts/verify/evidence.sh layout` | 0 | 42 views × 4 widths, 8 components: 0 failures (before GRS-67: 1 shell contrast failure, F1, and 8 component failures, F1 and F2) | `.local/GRS-21/layout-synthetic/layout.json` |
 | Layout, v5 sample | `scripts/verify/evidence.sh layout-v5` | 0 | 42 views × 4 widths, 8 components: 0 failures (before: `hoa_diff_tab` scrolled sideways at 320 and 390 px, F5; F1 and F2 as above) | `.local/GRS-21/layout-v5/layout.json` |
-| Metrics | `scripts/verify/evidence.sh metrics` | 0 | see [Metrics](#metrics) | `.local/GRS-21/metrics/metrics.json` |
+| Metrics | `scripts/verify/evidence.sh metrics` | 0 | at `6d264f9f0e61`, not rerun: `src/` is unchanged since (empty `git diff --stat 6d264f9 b456e6d -- src/`); see [Metrics](#metrics) | `.local/GRS-21/metrics/metrics.json` |
 | Dispositions | `scripts/verify/evidence.sh dispositions` | 0 | 159 of 159 defects registered, the 4 imported-data defects tagged; [defects-table.md](defects-table.md) (before: 47 named, F4) | `.local/GRS-21/dispositions.json` |
 | Matrix | `scripts/verify/evidence.sh matrix` | 0 | 42 PASS, 0 FAIL, 0 BLOCKED: [matrix.md](matrix.md) | – |
 
@@ -116,7 +117,7 @@ App code is outside this gate's scope; GRS-67 closed F1, F2, F4 and F5.
   **Closed by GRS-67** (`086c797`, M3 at `6d264f9`): `scripts/pilot/generate-view-registry.ts` marks a view available once its owner's ticket passed (GRS-12, GRS-14 to GRS-20), so all 42 entries are `available`, and neither the navigation nor the Go-to list marks a view unavailable. The `.unavailable` colour is `#707070`, 4.95:1 on white (was `#777`, 4.48:1). The second review's navy case is closed too: `nav.views a.unavailable[aria-current='page']` keeps white text, so the current link of an unavailable view is 14.39:1 on the navy (it was 2.91:1 with `#707070`; probe `scripts/verify/nav-unavailable-probe.mjs`, which marks a link unavailable and current in Chrome). Before: 74 failing text elements with `#777`; after, layout runs report 0 shell contrast failures.
 - **F2. The focus indicator is 2.06:1.** The shared `:focus-visible` outline `3px solid #f0a020` (`src/app.css:5`) reaches 2.06:1 against white and 2.15:1 against the navigation background. WCAG 2.2 1.4.11 asks for 3:1. Every focusable component inherits it. Follow-up for the coordinator, who owns the shared components: use a darker outline, or a two-tone ring.
 
-  **Closed by GRS-67** (`086c797`): the outline is `3px solid #d35400`. Both layout runs at `6d264f9` pass every focus check; the ring measures 3.99:1 on the page background and 4.17:1 on the navigation background (it was 2.06:1 and 2.15:1), and 3.45:1 on the dark header.
+  **Closed by GRS-67** (`086c797`): the outline is `3px solid #d35400`. Both layout runs at `b456e6d` pass every focus check; the ring measures 3.99:1 on the page background and 4.17:1 on the navigation background (it was 2.06:1 and 2.15:1), and 3.45:1 on the dark header.
 - **F3 (withdrawn). A Court Bundle overlap at 390 px.** The first layout run (`1f38aca`) compared bounding boxes, so a wrapped button looked like an overlap. Measured line box by line box at `2243fc3`, nothing overlaps.
 - **F4. Source-defect dispositions are incomplete.** The register has an entry naming 47 of the 159 v5 source defects (the 18 rows of `defects.md` and the 145 per-view defects of `view-checklist.md`, with overlaps). It names neither high defect `S-rescan_tab-1` nor `S-backup_tab-1` (both fixed by GRS-20, but not registered). It has no entry of type `data-correction-deferred-to-pipeline`, so the imported-data defects `S-meta-counts` and `S-prescription-frozen` are not tagged. Follow-up for the register owners: add a disposition per defect, or record "no visible difference" with its reason, and tag the imported-data ones. [defects-table.md](defects-table.md) lists every defect. The register is outside this gate's write scope.
 

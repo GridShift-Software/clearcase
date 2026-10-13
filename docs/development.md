@@ -191,9 +191,24 @@ Tests use synthetic cases built by GRS-10's converter (`tests/e2e/pilot/lib/fixt
 
 The ignored locator `.local/v5-verification.json` names the accepted package identities of the real sample. `accepted` stays GRS-10's identity (`resultsVersion`, `diagnosticsSha256`); `verify:package` lane 11 recomputes it from a conversion without `view-content`. Since the converter emits the `view-content` dataset (GRS-38), `acceptedViewContent.resultsVersion` names the resultsVersion of a conversion that carries it, and `tests/e2e/pilot/v5/fixture.mjs` requires it: `loadConfig` returns it as `fx.accepted.resultsVersion` (with GRS-10's `diagnosticsSha256`, which view-content does not change) for `verify:pilot:v5` and `parity`, and GRS-10's own identity as `fx.acceptedBase`. Add the member to an existing locator from the CC-30 report; the values stay out of Git. A view-content map change that adds or changes fields changes `datasets/view-content.json`, and with it this identity (only that file and the manifest differ); the base round that makes it reports the new `resultsVersion`, and the coordinator updates `acceptedViewContent.resultsVersion` in every worktree's locator. The gate refuses a locator that names an older value before its first step.
 
+### M2 readiness checks (GRS-21, CC-11)
+
+The CC-11 gate adds one acceptance suite and five scripts that the gate does not run. Their results and the commands a second reviewer reruns are in [acceptance/CC-11/](acceptance/CC-11/README.md).
+
+| File | What it checks |
+| --- | --- |
+| `tests/e2e/acceptance/suite.mjs` | The whole local path on synthetic cases, offline: import through the form, every original served with its case-folder bytes, every mutable state category edited through the UI (all 21 v5 stores of CC-10's coverage list and the notes), restart, backup restored into a clean profile, a rejected import that changes nothing, a replacement package, and hostile imported text across all 42 views. Run it inside `tests/e2e/pilot/offline.sh`; `test:e2e` does not run it yet, because its category list (`tests/e2e/pilot/run.mjs`) does not include `acceptance`. |
+| `scripts/verify/layout.mjs` | All 42 views at 320, 390, 768 and 1280 px: sideways scroll, controls over the heading, overlapping controls (BA-12); label against heading and title (BA-18); keyboard navigation, focus and Back (BA-14); text contrast in every view and shared components in their hover, focus and active states (BA-13). `--case v5` runs it on the real sample, `--shots` saves screenshots under `.local/`. |
+| `scripts/verify/metrics.mjs` | Cold overview and warm navigation interleaved with the v5 reference, and search and state-write p95 from `measure --ticket CC-04` and `CC-07`, against the CC-11 budgets. |
+| `scripts/verify/dispositions.mjs` | Every v5 source defect in `docs/reference/defects.md` and `view-checklist.md` against the parity register: cited by an entry, and imported-data defects tagged `data-correction-deferred-to-pipeline`. |
+| `scripts/verify/matrix.mjs` | Writes the 42-view matrix from the gate's parity scorecard and `test:e2e` summaries, the acceptance suite and the layout runs, at one SHA. |
+| `scripts/verify/evidence.sh` | Runs the five in order on a clean tree, browser steps one at a time through `$BROWSER_LOCK`. Run `bun run --bun gate` first on the same revision. |
+
+Scripts that read the real sample keep everything they write under `.local/`. Screenshots of the real sample stay in `.local/GRS-21/`; documents cite them by path and sha256.
+
 ## Known limits
 
 - The store API is synchronous over `node:sqlite` (writes are async transactions). The V2 move to D1 needs an async seam; the judge recommended one from the start.
 - A hard-linked original is accepted by GRS-10 at import but refused (410) when served, because a hard link may share bytes with a file outside the case folder.
 - Original bytes are re-read and hashed on every request; there is no `(path, size, mtime) → sha256` cache yet.
-- Overview, chronology, the six quantum views (GRS-16) and the seven litigation views (GRS-18) are implemented. Search, the other views and the newer 2,131-document export belong to later tickets. A view's registry status turns `available` only after its owner's gate.
+- All 42 views are implemented, and strict parity compares each with v5 (the CC-11 matrix). The view registry (`src/lib/components/view-registry.ts`, generated from `docs/plan/view-coverage.json`) still marks 37 of them `unavailable-until:<ticket>`, so the navigation and the overview call them not yet available; the coordinator flips each status when its ticket's gate has passed. The newer 2,131-document export belongs to CC-12.

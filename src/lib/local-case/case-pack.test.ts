@@ -1,7 +1,7 @@
 // Import by clicking (GRS-70) on synthetic case packs: the folder listing, extraction (unsafe entries, a non-empty
 // target, a single top folder, cancel), the workspace HTML rule, the case id, the refused destinations, and the whole
 // pipeline from a .zip or a folder to a stored candidate that activates.
-import { mkdir, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { synthHtml, synthOriginals, synthRoots } from '../../../tests/case-package/fixtures/synth.ts';
@@ -118,7 +118,7 @@ describe('extraction', () => {
 		await writeFile(zip, zipOf(packFiles()));
 		await mkdir(path.join(dest, 'My Pack'));
 		await writeFile(path.join(dest, 'My Pack', 'mine.txt'), 'keep');
-		expect(failed(await lc.importCasePack(zip, dest))).toMatch(/My Pack already exists and is not empty.*choose the folder .*My Pack in step 1/);
+		expect(failed(await lc.importCasePack(zip, dest))).toMatch(/My Pack already exists and holds other files than this pack.*open .*My Pack and choose Use this folder/);
 		expect(await readdir(path.join(dest, 'My Pack'))).toEqual(['mine.txt']);
 		expect(await readdir(dest)).toEqual(['My Pack']);
 	});
@@ -128,6 +128,36 @@ describe('extraction', () => {
 		const zip = path.join(root, 'pack.zip');
 		await writeFile(zip, writeZip([{ name: 'Workspace.html', data: enc('hello'), crc: 1 }]));
 		expect(failed(await lc.importCasePack(zip, dest))).toMatch(/CRC-32 mismatch.*Nothing was kept/);
+		expect(await readdir(dest)).toEqual([]);
+	});
+
+	it('names the single top folder as the copy to import when the target holds other files', async () => {
+		const { root, lc, dest } = await setup('nonempty-top');
+		const zip = path.join(root, 'pack.zip');
+		await writeFile(zip, zipOf(packFiles('Inner/')));
+		await mkdir(path.join(dest, 'pack'));
+		await writeFile(path.join(dest, 'pack', 'mine.txt'), 'keep');
+		expect(failed(await lc.importCasePack(zip, dest))).toContain(`open ${path.join(dest, 'pack', 'Inner')} and choose Use this folder`);
+	});
+
+	it('extracts an empty pack into an empty folder, then refuses it for its missing workspace HTML and removes the folder', async () => {
+		const { root, lc, dest } = await setup('empty');
+		const zip = path.join(root, 'empty.zip');
+		await writeFile(zip, writeZip([]));
+		expect(failed(await lc.importCasePack(zip, dest))).toMatch(/^No workspace HTML in .*empty\./);
+		expect(await readdir(dest)).toEqual([]);
+	});
+
+	it('refuses a destination it may not write to, with a plain message, before reading the pack', async () => {
+		const { root, lc, dest } = await setup('readonly');
+		const zip = path.join(root, 'pack.zip');
+		await writeFile(zip, zipOf(packFiles()));
+		await chmod(dest, 0o555);
+		try {
+			expect(failed(await lc.importCasePack(zip, dest))).toBe(`ClearCase may not write to ${dest}. Store the case in a folder you can write to.`);
+		} finally {
+			await chmod(dest, 0o755);
+		}
 		expect(await readdir(dest)).toEqual([]);
 	});
 
@@ -175,8 +205,42 @@ describe('the whole pipeline', () => {
 		expect([imp.case_folder, imp.package_source, imp.case_id]).toEqual([caseDir, path.join(dest, 'Synthetic_Pack_v5-results'), 'synthetic_pack_v5']);
 		expect(await lc.activate(imp.results_version!, ackFor(lc, r.importId))).toBeNull();
 		expect(seen.has('extract')).toBe(true);
-		// the same pack again: its extracted folder is there, so the user is pointed at it
-		expect(failed(await lc.importCasePack(zip, dest))).toMatch(/already exists and is not empty/);
+		// the same pack again into the same destination: the extracted folder holds exactly its files and is reused
+		const again = await lc.importCasePack(zip, dest);
+		expect(again.kind).toBe('identical');
+		expect((await readdir(dest)).sort()).toEqual(['Synthetic_Pack_v5', 'Synthetic_Pack_v5-results', 'Synthetic_Pack_v5-results-2']);
+		// a changed file (another size) is not that pack's extraction: refused, and left as it was
+		await writeFile(path.join(caseDir, 'Workspace.html'), 'changed');
+		expect(failed(await lc.importCasePack(zip, dest))).toMatch(/holds other files than this pack/);
+		expect(await readFile(path.join(caseDir, 'Workspace.html'), 'utf8')).toBe('changed');
+	});
+
+	it('removes what it extracted when it fails or is cancelled after extraction, and a retry imports', async () => {
+		const { root, lc, dest } = await setup('retry');
+		const two = path.join(root, 'Two.zip');
+		await writeFile(two, zipOf({ ...packFiles(), 'Second.html': enc('x') }));
+		expect(failed(await lc.importCasePack(two, dest))).toMatch(/More than one workspace HTML/);
+		expect(await readdir(dest)).toEqual([]);
+		const zip = path.join(root, 'Pack.zip');
+		await writeFile(zip, zipOf(packFiles(), 8));
+		// Cancel once the extraction is done (converting or checking the originals)
+		const run = lc.importCasePack(zip, dest);
+		let phase = '';
+		await new Promise<void>((done) => {
+			const t = setInterval(() => {
+				const p = lc.importProgress();
+				if (!p) { clearInterval(t); done(); return; }
+				if (p.progress && p.progress.phase !== 'extract') { phase = p.progress.phase; lc.cancelImport(); clearInterval(t); done(); }
+			}, 0);
+		});
+		expect([phase !== '', failed(await run)]).toEqual([true, expect.stringMatching(/cancelled/)]);
+		expect(await readdir(dest)).toEqual([]);
+		expect(lc.store.listImports().filter((i) => i.verdict !== 'reject')).toEqual([]);
+		const r = await lc.importCasePack(zip, dest, 'Smith v Jones');
+		expect(r.kind).toBe('stored');
+		if (r.kind === 'failed') return;
+		expect((await readdir(dest)).sort()).toEqual(['Pack', 'Pack-results']);
+		expect(lc.store.getVersion(lc.store.getImport(r.importId)!.results_version!)!.case_label).toBe('Smith v Jones');
 	});
 
 	it('uses the single top folder of a pack as the case folder', async () => {

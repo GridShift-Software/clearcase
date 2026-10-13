@@ -184,7 +184,7 @@ async function* rawChunks(fh: FileHandle, pos: number, len: number): AsyncGenera
 
 /**
  * Stream every entry of a checked central directory (readCentralDirectory: relative names only, no "..", no drive
- * letters, no symlinks or special files, no collisions) into `dir`, which the caller created empty. Each file is
+ * letters, no symlinks or special files, no collisions) into `dir`, which must not exist yet or be empty. Each file is
  * created exclusively ('wx'), and its decoded size and CRC-32 must match the central directory.
  */
 export async function extractEntries(fh: FileHandle, entries: readonly ZipEntry[], dir: string, o: { signal?: AbortSignal; onProgress?: (p: ExtractProgress) => void } = {}): Promise<void> {
@@ -192,6 +192,7 @@ export async function extractEntries(fh: FileHandle, entries: readonly ZipEntry[
   const p: ExtractProgress = { done: 0, total: files.length, bytesDone: 0, bytesTotal: files.reduce((n, e) => n + e.uncompressedSize, 0) };
   o.onProgress?.({ ...p });
   const root = path.resolve(dir);
+  await mkdir(root, { recursive: true }); // an empty pack still leaves its (empty) folder
   const target = (name: string) => {
     const t = path.resolve(root, ...name.replace(/\/$/, '').split('/'));
     // the name rules above make this impossible; checked again because a write outside `dir` must never happen

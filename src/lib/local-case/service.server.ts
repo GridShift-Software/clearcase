@@ -14,7 +14,7 @@
 //    the operator's acknowledgement and the case's trusted baseline; then the pointer swap and the bound
 //    acknowledgement in work.sqlite, and a VACUUM INTO backup. Any failure leaves every version unchanged.
 import { createHash } from 'node:crypto';
-import { realpath, stat } from 'node:fs/promises';
+import { realpath, rm, stat } from 'node:fs/promises';
 import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import {
@@ -229,22 +229,28 @@ export class LocalCase {
 	/**
 	 * Import by clicking (GRS-70): extract a case pack .zip into the destination (or take an extracted folder), convert
 	 * its workspace HTML into a results package beside it, then importPackage. One running import at a time, and Cancel
-	 * stops every phase. A failure before importPackage records no attempt and changes nothing ClearCase stores.
+	 * stops every phase. A failure before importPackage records no attempt and changes nothing ClearCase stores. A failure,
+	 * a rejection or a Cancel removes the folders this run created in the destination; a stored or identical import keeps them.
 	 */
-	async importCasePack(source: string, destination: string): Promise<ImportOutcome | { kind: 'failed'; message: string }> {
+	async importCasePack(source: string, destination: string, caseLabel?: string): Promise<ImportOutcome | { kind: 'failed'; message: string }> {
 		if (this.#current) return { kind: 'failed', message: 'Another import is still running. Wait for it to finish or cancel it, then import again.' };
 		const abort = new AbortController();
 		this.#current = { packageSource: source, startedAt: now(), progress: null, abort };
+		const created: string[] = [];
+		let keep = false;
 		try {
 			const onProgress = (p: PackProgress) => { if (this.#current?.abort === abort) this.#current.progress = p; };
-			const { caseFolder, packageDir } = await prepareCasePack(source, destination, { signal: abort.signal, onProgress, dataDir: this.config.dataDir, appDir: process.cwd() });
-			return await this.importPackage(caseFolder, packageDir, abort);
+			const { caseFolder, packageDir } = await prepareCasePack(source, destination, { signal: abort.signal, onProgress, dataDir: this.config.dataDir, appDir: process.cwd(), caseLabel }, created);
+			const r = await this.importPackage(caseFolder, packageDir, abort);
+			keep = r.kind !== 'rejected';
+			return r;
 		} catch (e) {
 			if (abort.signal.aborted) return { kind: 'failed', message: 'The import was cancelled. Nothing was imported, and the active case is unchanged.' };
 			if (e instanceof CasePackError) return { kind: 'failed', message: e.message };
 			console.error('case pack import failed', e);
 			return { kind: 'failed', message: `The import failed: ${(e as Error).message}. Nothing was imported, and the active case is unchanged.` };
 		} finally {
+			if (!keep) for (const p of created.reverse()) await rm(p, { recursive: true, force: true }).catch(() => {});
 			if (this.#current?.abort === abort) this.#current = null;
 		}
 	}

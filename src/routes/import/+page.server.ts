@@ -1,8 +1,10 @@
 import { fail, redirect } from '@sveltejs/kit';
+import { homedir } from 'node:os';
 import { app } from '$lib/local-case/app.server';
+import { defaultDestination } from '$lib/local-case/case-pack.server';
 import type { Actions, PageServerLoad } from './$types';
 
-export const load: PageServerLoad = () => ({ imports: app().store.listImports(), running: app().importProgress() });
+export const load: PageServerLoad = () => ({ imports: app().store.listImports(), running: app().importProgress(), home: homedir(), defaultDestination: defaultDestination() });
 
 export const actions: Actions = {
 	import: async ({ request }) => {
@@ -16,10 +18,11 @@ export const actions: Actions = {
 	importCase: async ({ request }) => {
 		const f = await request.formData();
 		const caseSource = String(f.get('caseSource') ?? '').trim();
-		const destination = String(f.get('destination') ?? '').trim();
-		if (!caseSource || !destination) return fail(400, { caseSource, destination, packMessage: 'Choose the case (step 1) and where to store it (step 2).' });
-		const r = await app().importCasePack(caseSource, destination);
-		if (r.kind === 'failed') return fail(400, { caseSource, destination, packMessage: r.message });
+		const destination = String(f.get('destination') ?? '').trim() || defaultDestination();
+		const caseName = String(f.get('caseName') ?? '').trim();
+		if (!caseSource) return fail(400, { caseSource, destination, caseName, packMessage: 'Choose the case pack with Add documents first.' });
+		const r = await app().importCasePack(caseSource, destination, caseName);
+		if (r.kind === 'failed') return fail(400, { caseSource, destination, caseName, packMessage: r.message });
 		redirect(303, `/import/${r.importId}${r.kind === 'identical' ? '?noop=1' : r.kind === 'repaired' ? '?repaired=1' : ''}`);
 	},
 	cancel: () => ({ cancelled: app().cancelImport() }),

@@ -33,6 +33,11 @@ export const NOT_APPLICABLE = {
 		nojs: 'Validate writes no user work, so a busy work store cannot refuse it; a refused path is re-rendered by the pilot suite',
 		dialog: 'Validate writes no user work and no question guards the form',
 	},
+	'/import ?/importCase': {
+		inflight: 'Open case opens the report page of the new import; the case name is a label for that import, not a save of typed work',
+		nojs: 'Open case writes no user work, so a busy work store cannot refuse it; a refused pack is re-rendered with its message by the page',
+		dialog: 'Open case writes no user work and no question guards the form',
+	},
 	'/v/[vid]/system/backup_tab ?/restore': {
 		nojs: 'a restore replaces all of the case\'s user work; there is no other row on the page to act on',
 	},
@@ -46,7 +51,6 @@ export const NO_TYPED_FIELD = {
 	'/v/[vid]/analysis/info_required_tab ?/toggle': 'a checkbox per item posts on change; the form has no submit button and no typed field',
 	'/v/[vid]/litigation/enforcement_tab ?/status': 'a status select per step saves on change (JavaScript) or through a noscript Save; the form has no submit button and no typed field',
 	'/v/[vid]/system/rescan_tab ?/scan': 'the form is one Rescan button; it has no typed field',
-	'/import ?/importCase': 'the case and the destination are chosen by clicking in the folder browser into hidden fields; the form is one Import button and has no typed field',
 };
 
 /**
@@ -147,6 +151,10 @@ export const CHOICE_STATES = {
 		{ name: 'bundle-items', query: '?b=1&tab=items', expect: '#cb-items', why: 'the Items tab holds the page-number table' },
 		{ name: 'bundle-view', query: '?b=1&tab=view', expect: '#cb-tab-view[aria-selected=true]', why: 'the View tab shows the bundle file' },
 		{ name: 'builder', query: '?view=build', expect: '#cbb-create', why: 'the builder lists the items to choose' },
+	],
+	'/import': [
+		{ name: 'add-documents', query: '?pick=case', expect: '#case-browser [aria-current=location]', why: 'Add documents opens the folder browser for the case pack in a modal dialog' },
+		{ name: 'store-in', query: '?pick=destination', expect: '#destination-browser [aria-current=location]', why: 'Change opens the folder browser for the storage folder in the same dialog' },
 	],
 	'/import/[id]': [{ name: 'noop-repaired', query: '?noop=1&repaired=1', expect: '#noop-msg', why: 'the notices an import shows after a repeat or a repair' }],
 };

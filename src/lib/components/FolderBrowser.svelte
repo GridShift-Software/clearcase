@@ -3,6 +3,7 @@
 	// sizes only). Folders open on click; in "case" mode a .zip is chosen on click and the open folder can be chosen
 	// too, in "destination" mode only the open folder. Every control is a labelled button, so it works by keyboard.
 	import type { FolderListing } from '$lib/local-case/case-pack.server';
+	import TableScroll from './TableScroll.svelte';
 	let { id, mode, start = null, chooseLabel, onchoose }:
 		{ id: string; mode: 'case' | 'destination'; start?: string | null; chooseLabel: string; onchoose: (path: string) => void } = $props();
 	let listing = $state<FolderListing | null>(null);
@@ -44,7 +45,7 @@
 		</nav>
 		<p><button type="button" id="{id}-choose-folder" disabled={!!listing.error} onclick={() => onchoose(listing!.path)}>{chooseLabel}</button></p>
 		{#if listing.error}<p class="error" role="alert">{listing.error}</p>{/if}
-		<table class="entries">
+		<TableScroll label="Contents of {listing.path}" class="folder-scroll"><table class="entries">
 			<caption class="sr-only">Contents of {listing.path}</caption>
 			<thead><tr><th scope="col">Name</th><th scope="col">Kind</th><th scope="col">Size</th></tr></thead>
 			<tbody>
@@ -61,7 +62,7 @@
 					<tr><td colspan="3">{mode === 'case' ? 'No folders or .zip files here.' : 'No folders here.'}</td></tr>
 				{/each}
 			</tbody>
-		</table>
+		</table></TableScroll>
 		{#if listing.truncated}<p><small>Only the first entries are listed.</small></p>{/if}
 	{:else if failed}
 		<p class="error" role="alert">{failed}</p>
@@ -71,13 +72,13 @@
 </div>
 
 <style>
-	.browser { border: 1px solid #ccc; padding: 0.5rem; max-width: 60rem; }
+	.browser { border: 1px solid #dce5ee; border-radius: 10px; padding: 0.5rem; max-width: 60rem; }
 	.row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.25rem; }
 	.crumbs { display: flex; flex-wrap: wrap; list-style: none; margin: 0; padding: 0; }
 	.crumbs li + li::before { content: '/'; padding: 0 0.25rem; }
+	/* the shared TableScroll box, capped in height so a long folder scrolls inside it */
+	:global(.folder-scroll) { max-height: 22rem; overflow-y: auto; }
 	.entries { width: 100%; }
-	.entries tbody { display: block; max-height: 22rem; overflow-y: auto; }
-	.entries thead, .entries tbody tr { display: table; width: 100%; table-layout: fixed; }
 	.entries th:nth-child(1), .entries td:nth-child(1) { width: 60%; overflow-wrap: anywhere; }
 	.link { background: none; border: none; padding: 0; color: inherit; text-decoration: underline; cursor: pointer; text-align: left; font: inherit; }
 	.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }

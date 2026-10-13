@@ -77,9 +77,10 @@ describe('export names and CSV keys for views', () => {
 
 describe('date basis probe', () => {
 	const store = (rows: unknown[] | null) => ({ chronologyJson: () => (rows ? JSON.stringify(rows) : null) }) as unknown as CaseStore;
-	it('is true only when some row has a supplied date type, whatever the row texts contain', () => {
+	it('is true only when some row has a supplied date type or provenance, whatever the row texts contain', () => {
 		expect(anyDateBasis(store([{ ref: 'A', dateType: null }, { ref: 'B', dateType: 'issued' }]), 'v')).toBe(true);
-		expect(anyDateBasis(store([{ ref: 'A', dateType: null, excerpt: '"dateType":"sent"' }]), 'v')).toBe(false);
+		expect(anyDateBasis(store([{ ref: 'A', dateType: null, dateSource: null }, { ref: 'B', dateType: null, dateSource: 'header' }]), 'v')).toBe(true);
+		expect(anyDateBasis(store([{ ref: 'A', dateType: null, dateSource: null, excerpt: '"dateType":"sent" "dateSource":"x"' }]), 'v')).toBe(false);
 		expect(anyDateBasis(store([]), 'v')).toBe(false);
 		expect(anyDateBasis(store(null), 'v')).toBe(false);
 	});

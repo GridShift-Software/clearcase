@@ -7,7 +7,7 @@ import { importCandidate } from '../../src/lib/case-package/import.ts';
 import { decodeUtf8Strict, parseStrictJson } from '../../src/lib/case-package/strict-json.ts';
 import { convertV5, type ConvertResult } from '../../src/lib/case-package/v5/adapter.ts';
 import { extractV5 } from '../../src/lib/case-package/v5/extract.ts';
-import { amountText } from '../../src/lib/case-package/v5/json-workspace.ts';
+import { amountText, riskLevel } from '../../src/lib/case-package/v5/json-workspace.ts';
 import { writePackageDir } from '../../src/lib/case-package/writer.ts';
 import { buildSynth } from './fixtures/build.ts';
 import { cleanup, synthHtml, synthOriginals, synthRoots, tempDir, writeCaseFolder } from './fixtures/synth.ts';
@@ -132,7 +132,7 @@ describe('the JSON-script workspace generation', () => {
     expect(dataset(files, 'timeline-year-counts')).toEqual({ '2001': 2, '2002': 1 });
     expect(dataset(files, 'timeline-type-by-year')).toEqual({ '2001': { 'sale agreement': 1, email: 1 }, '2002': { 'bank statement': 1 } });
     expect(dataset(files, 'contracts')).toEqual({ count: 1, groups: [{ key: 'sale agreement', items: [{ date: '2001-02-03', doc_type: 'sale agreement', note: 'Head of text', party: 'Org A Ltd', ref: 'DC-SYN-001', role: '', text_status: 'extracted', title: 'OD-001 Supply agreement.pdf', url: url(AGREEMENT) }] }] });
-    expect(dataset(files, 'risk-matrix')).toEqual([{ issue: 'Court refuses relief.', likelihood: '2', impact: '5', mitigation: 'Lead with the signed pages.', id: 'A1', matter: 'A', type: 'Legal', owner: 'Counsel', target: '1x5=5', res: 'Issue motion.' }]);
+    expect(dataset(files, 'risk-matrix')).toEqual([{ issue: 'Court refuses relief.', likelihood: 'Low', impact: 'High', likelihood_score: 2, impact_score: 5, mitigation: 'Lead with the signed pages.', id: 'A1', matter: 'A', type: 'Legal', owner: 'Counsel', target: '1x5=5', res: 'Issue motion.' }]);
     expect(dataset(files, 'defence-matrix')).toEqual([{ point: 'Matter A · B', dcs: 'Non-binding.', rebuttal: 'Refuted.', evidence: 'Signed pages.', refs: '', docs: [] }]);
     expect(dataset(files, 'info-required')).toEqual([{ item: 'Signed Heads.', owner: 'Client', status: 'P1', matter: 'A', grp: '2.1 Originals', why: 'Founding instrument.' }]);
     expect(dataset(files, 'witnesses')).toEqual([{ name: 'Ann Lee', role: 'Client', willsay: 'The whole chronology.', matter: 'A / B', status: 'Outstanding' }]);
@@ -206,6 +206,12 @@ describe('the JSON-script workspace generation', () => {
     expect(amountText(null)).toBe('');
     expect(amountText('12.50')).toBe('12.50');
     expect(amountText('R 12')).toBe('');
+  });
+
+  it("names a risk score in v5's words and leaves any other value as written", () => {
+    expect([5, 4, 3, 2, 1, 0].map(riskLevel)).toEqual(['High', 'High', 'Medium', 'Low', 'Low', '0']);
+    expect(riskLevel('Medium')).toBe('Medium');
+    expect(riskLevel(undefined)).toBe('');
   });
 
   it('leaves the v5 fixture package byte-identical', async () => {

@@ -14,6 +14,7 @@
 	import { DOCX_TYPE, indexDocx } from './docx.ts';
 	import { downloadBlob } from './download.ts';
 	import { postAction } from './post.ts';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 
 	let { bundles, h, creator, off, onback }: { bundles: Bundle[]; h: Header; creator: string; off: boolean; onback: () => void } = $props();
 	const pl = $derived(plan(bld.b));
@@ -162,15 +163,15 @@
 			{#if !bld.b.files.length}
 				<div class="empty">No PDFs added yet. “Add PDFs…” opens your file picker — select as many as you like, including from the case folders next to this app.</div>
 			{:else}
-				<div class="wrap"><table class="tbl" id="cbbfiles"><thead><tr><th>File</th><th class="num">Pages</th><th class="num">Size</th></tr></thead><tbody>
+				<TableScroll label="PDFs added" class="wrap"><table class="tbl" id="cbbfiles"><thead><tr><th>File</th><th class="num">Pages</th><th class="num">Size</th></tr></thead><tbody>
 					{#each bld.b.files as f (f.id)}<tr><td class="mono name">{f.name}</td><td class="num">{f.pages}</td><td class="num">{size(f.size)}</td></tr>{/each}
-				</tbody></table></div>
+				</tbody></table></TableScroll>
 			{/if}
 			{#if need.length}<div class="tag need" id="cbbneed"><b>{need.length} item(s) still need their source file.</b> Add the PDF with the matching file name and it will attach itself automatically.</div>{/if}
 		</div>
 
 		<div class="card pad0" id="cbb-items"><div class="chead">2 · Items, in the order they will appear</div>
-			<div class="wrap"><table class="tbl items"><thead><tr><th>#</th><th>Description for the index</th><th>Pages taken from the source</th><th class="num">Pages</th><th class="num">Page nos.</th><th></th></tr></thead><tbody>
+			<TableScroll label="Bundle items" class="wrap"><table class="tbl items"><thead><tr><th>#</th><th>Description for the index</th><th>Pages taken from the source</th><th class="num">Pages</th><th class="num">Page nos.</th><th></th></tr></thead><tbody>
 				{#if !pl.rows.length}<tr><td colspan="6"><div class="empty">Add a PDF, or start from a defined bundle, and the items appear here.</div></td></tr>{/if}
 				{#each pl.rows as pr (pr.i)}
 					{@const i = pr.i}
@@ -194,7 +195,7 @@
 						<td class="num mono"><b>{pr.pages ? (pr.from === pr.to ? pad(pr.from) : `${pad(pr.from)} – ${pad(pr.to)}`) : '—'}</b></td>
 						<td class="nowrap"><button type="button" class="btn ghost sm" aria-label="Move item {i + 1} up" onclick={() => rowMove(bld.b, i, -1)}>↑</button> <button type="button" class="btn ghost sm" aria-label="Move item {i + 1} down" onclick={() => rowMove(bld.b, i, 1)}>↓</button> <button type="button" class="btn ghost sm" aria-label="Remove item {i + 1}" onclick={() => rowDel(bld.b, i)}>✕</button></td></tr>
 				{/each}
-			</tbody></table></div>
+			</tbody></table></TableScroll>
 			<div class="toolbar pad"><button type="button" class="btn sec sm" id="cbbnewrow" onclick={() => { if (!newRow(bld.b)) alert('Add at least one PDF first.'); }}>+ Add an item</button><span class="tag" id="cbbtotal">Total: {pl.rows.length} items · {pl.pages} pages</span></div>
 		</div>
 
@@ -227,7 +228,6 @@
 	.num { text-align: right; }
 	.nowrap { white-space: nowrap; }
 	.name { overflow-wrap: anywhere; }
-	.wrap { overflow-x: auto; }
 	.tag, .count { font-size: 0.85em; color: #555; overflow-wrap: anywhere; }
 	.need { margin-top: 10px; }
 	.badge { border-radius: 8px; padding: 1px 6px; font-size: 0.8em; }

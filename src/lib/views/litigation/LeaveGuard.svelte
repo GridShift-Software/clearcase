@@ -2,6 +2,7 @@
 	// Asks before an in-app navigation drops unsaved input (GRS-18 r2): an entry typed, refused or in flight, or a
 	// status choice not saved. Reload and close get the browser's own prompt (SvelteKit's 'leave' navigation, cancelled).
 	import { beforeNavigate, goto } from '$app/navigation';
+	import { askFocus } from '$lib/components/ask-focus.svelte';
 	let { unsaved, what }: { unsaved: boolean; what: string } = $props();
 	let ask = $state<URL | null>(null);
 	let leaving = false;
@@ -13,6 +14,8 @@
 		if (!ask) opener = document.activeElement;
 		ask = nav.to.url;
 	});
+	// the question takes focus when it opens, and again after a cancelled Back (which leaves focus on the page): a keyboard user lands on Stay
+	askFocus(() => ask !== null, 'lit-ask', 'lit-ask-stay');
 	// Stay puts focus back where it was when the dialog opened, or on main when that element is gone (GRS-18 r3)
 	function stay() {
 		ask = null;
@@ -32,8 +35,7 @@
 {#if ask}
 	<div class="ask" role="alertdialog" aria-modal="true" aria-labelledby="lit-ask-q" id="lit-ask">
 		<p id="lit-ask-q">{what} Leave this page and lose it?</p>
-		<!-- svelte-ignore a11y_autofocus -->
-		<button type="button" id="lit-ask-stay" autofocus onclick={stay}>Stay on this page</button>
+		<button type="button" id="lit-ask-stay" onclick={stay}>Stay on this page</button>
 		<button type="button" id="lit-ask-leave" onclick={leave}>Leave and discard it</button>
 	</div>
 {/if}

@@ -10,6 +10,7 @@
 	import { postAction } from '$lib/views/bundles/post';
 	import { chunkKeys, stillOwed, supersede, type Op } from '$lib/views/bundles/ops';
 	import { NO_DOCUMENT, bundleHTML, coverDoc, fileCo, filterItems, incompleteNotes, isUnmatched, scheduleCounts, schedLabel, selectedFiles, type CO, type Mode, type ScheduleItem } from '$lib/views/bundles/discovery';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
 	const vid = $derived(data.version.id);
 	// local copies of the stored user work: the page shows what the user did at once and saves it in the background
@@ -162,11 +163,11 @@
 			{#if !files.length}
 				<div class="card"><div class="empty">No documents selected. Go back and tick documents, then Build court bundle.</div></div>
 			{:else}
-				<div class="grid-table"><table class="ds-tbl" id="ds-bundle-table"><thead><tr><th>#</th><th>Schedule</th><th>Item</th><th>Document</th><th>Date</th><th>C/O</th><th>Action</th></tr></thead><tbody>
+				<TableScroll label="Court bundle"><table class="ds-tbl" id="ds-bundle-table"><thead><tr><th>#</th><th>Schedule</th><th>Item</th><th>Document</th><th>Date</th><th>C/O</th><th>Action</th></tr></thead><tbody>
 					{#each files as f, idx (idx)}
 						<tr data-key={f.key} class:unsaved={unsaved.has(f.key)}><td class="ds-no">{idx + 1}</td><td>{schedLabel(f.schedule)}</td><td class="ds-no">{f.no}.</td><td><div class="b">{f.desc}</div><div class="fn">{f.fn}</div></td><td class="ds-date">{f.date || ''}</td><td class={f.co === 'O' ? 'co-o' : 'co-c'}>{f.co}</td><td>{#if f.ref}{@render open(f.ref)}{#if data.downloads[f.ref]}<a class="cite dl" href={data.downloads[f.ref]} rel="noopener noreferrer" download>Download</a>{/if}{:else}<span class="not-served">{NOT_SERVED}</span>{/if}<button type="button" class="rm" disabled={off} onclick={() => removeKey(f.key)}>Remove</button></td></tr>
 					{/each}
-				</tbody></table></div>
+				</tbody></table></TableScroll>
 			{/if}
 		</section>
 		<section class="print-only" aria-hidden="true" id="ds-print-area">
@@ -201,14 +202,14 @@
 			<button type="button" class="ds-btn" id="ds-cover-dl" disabled={off} onclick={coverDownload}>Download cover page (uncertified)</button>
 		</div>
 		<div id="ds-list">
-			<div class="grid-table"><table class="ds-tbl"><thead><tr><th></th><th>Item</th><th>Document(s) &amp; description</th><th>Date</th></tr></thead><tbody>
+			<TableScroll label="Discovery schedule"><table class="ds-tbl"><thead><tr><th></th><th>Item</th><th>Document(s) &amp; description</th><th>Date</th></tr></thead><tbody>
 				{#if !shown.length}<tr><td colspan="4" class="none">No items match.</td></tr>{/if}
 				{#each shown as i, n (n)}
 					{@const anySel = i.files.some((f) => sel.has(f.key))}
 					{@const allSel = i.files.length > 0 && i.files.every((f) => sel.has(f.key))}
 					<tr class:sel={anySel} data-item="{mode}-{i.no}"><td>{#if i.files.length}<input type="checkbox" checked={allSel} disabled={off} title="Select all files in this item" aria-label="Select all files in item {i.no}" onchange={(e) => toggleItem(i, e.currentTarget.checked)} />{/if}</td><td class="ds-no">{i.no}.{#if repeated.has(i.no)}<span class="dup" title="Another item of this schedule has the same number">repeated number</span>{/if}</td><td class="ds-desc"><div class="tx">{i.desc || '—'}</div>{#if i.files.length}<div class="ds-files">{#each i.files as f, j (j)}{@const c = fileCo(f, marks)}<div class="ds-chip" class:xref={!!f.x} class:unsaved={unsaved.has(f.key)} data-key={f.key}><input type="checkbox" checked={sel.has(f.key)} disabled={off} aria-label="Select {f.fn}" onchange={(e) => toggleFile(f.key, e.currentTarget.checked)} /><span class="fn" title={f.fn}>{f.fn}</span>{#if f.x}<span class="ds-x" title={f.x}>↪ {f.x}</span>{/if}<span class="ds-co"><button type="button" class:on-c={c === 'C'} aria-pressed={c === 'C'} aria-label="Copy" disabled={off} onclick={() => setCo(f.key, 'C')}>C</button><button type="button" class:on-o={c === 'O'} aria-pressed={c === 'O'} aria-label="Original" disabled={off} onclick={() => setCo(f.key, 'O')}>O</button></span>{#if f.ref}{@render open(f.ref)}{#if data.downloads[f.ref]}<a class="cite dl" href={data.downloads[f.ref]} rel="noopener noreferrer" download>Download</a>{/if}{:else}<span class="not-served">{NOT_SERVED}</span>{/if}</div>{/each}</div>{:else if isUnmatched(i)}<div class="ds-none">{NO_DOCUMENT}</div>{/if}</td><td class="ds-date">{i.date || ''}</td></tr>
 				{/each}
-			</tbody></table></div>
+			</tbody></table></TableScroll>
 		</div>
 	{/if}
 </main>

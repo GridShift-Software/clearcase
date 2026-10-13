@@ -1,5 +1,6 @@
 <script lang="ts">
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data, form } = $props();
 </script>
 
@@ -13,8 +14,8 @@
 	{/if}
 	{#if data.startup}
 		<p>Checked at {data.startup.at} in {data.startup.ms} ms. Leftover temporary files removed: {data.startup.cleaned.length}. Candidates removed by retention: {data.startup.pruned.length}.</p>
-		<table><thead><tr><th>Version</th><th>Result</th><th class="num">ms</th></tr></thead><tbody>
+		<TableScroll label="Startup check by version"><table><thead><tr><th>Version</th><th>Result</th><th class="num">ms</th></tr></thead><tbody>
 			{#each data.startup.checked as c (c.vid)}<tr><td><code>{c.vid}</code></td><td class={c.ok ? 'ok' : 'unresolved'}>{c.ok ? 'verified' : c.reason}</td><td class="num">{c.ms}</td></tr>{/each}
-		</tbody></table>
+		</tbody></table></TableScroll>
 	{/if}
 </main>

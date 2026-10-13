@@ -3,6 +3,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { riskTone } from '$lib/views/analysis/tone';
 	import '$lib/views/analysis/analysis.css';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
 	let hydrated = $state(false);
 	onMount(() => { hydrated = true; });
@@ -13,7 +14,7 @@
 	{#if data.risks.length === 0}
 		<div class="an-card"><div class="an-empty" id="risk-empty">No risk matrix in this results version.</div></div>
 	{:else}
-		<div class="an-card pad0"><div class="an-scroll">
+		<div class="an-card pad0"><TableScroll label="Risk matrix" class="an-scroll">
 			<table class="an-table an-stack" id="risk-table">
 				<thead><tr><th>Issue</th><th>Likelihood</th><th>Impact</th><th>Mitigation</th></tr></thead>
 				<tbody>
@@ -27,6 +28,6 @@
 					{/each}
 				</tbody>
 			</table>
-		</div></div>
+		</TableScroll></div>
 	{/if}
 </main>

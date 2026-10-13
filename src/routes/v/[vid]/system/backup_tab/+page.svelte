@@ -6,10 +6,12 @@
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { plural } from '$lib/components/format';
 	import { versionPath } from '$lib/local-case/model';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data, form } = $props();
 	let busy = $state(false);
 	let ready = $state(false);
 	let tooLarge = $state<string | null>(null);
+	let lost = $state<string | null>(null);
 	// the typed path is component state, so neither a submit nor its result clears it; without JavaScript a refused
 	// restore renders it back from the form result
 	const typedPath = () => (form && 'path' in form ? (form.path ?? '') : '');
@@ -36,10 +38,10 @@
 
 	<section aria-labelledby="tables-h">
 		<h2 id="tables-h">What a backup holds now ({plural(data.rows, 'row')})</h2>
-		<div class="scroll"><table id="backup-tables">
+		<TableScroll label="What a backup holds"><table id="backup-tables">
 			<thead><tr><th scope="col">Table</th><th scope="col">Owner</th><th scope="col" class="num">Rows</th></tr></thead>
 			<tbody>{#each data.tables as t (t.name)}<tr><td><code class="wrap">{t.name}</code></td><td>{t.owner}</td><td class="num">{t.rows}</td></tr>{/each}</tbody>
-		</table></div>
+		</table></TableScroll>
 	</section>
 
 	{#if data.excluded.length}
@@ -57,7 +59,13 @@
 			use:enhance={({ cancel }) => {
 				if (tooLarge) { cancel(); return; }
 				busy = true;
-				return async ({ update }) => { await update({ reset: false }); busy = false; };
+				lost = null;
+				return async ({ result, update }) => {
+					// a request the app did not answer: say so beside the form instead of replacing the page with an error, so the typed path stays
+					if (result.type === 'error') { lost = 'The restore got no answer from the app, so it may not have happened. Your path is kept: check the case\u2019s work, then try again.'; busy = false; return; }
+					await update({ reset: false });
+					busy = false;
+				};
 			}}>
 			<fieldset disabled={busy}>
 				<legend class="visually-hidden">Restore a backup</legend>
@@ -68,6 +76,7 @@
 				{#if busy}<span role="status" id="restore-busy">Checking and restoring…</span>{/if}
 			</fieldset>
 		</form>
+		{#if lost}<p class="error wrap" role="alert" id="restore-lost">{lost}</p>{/if}
 		{#if tooLarge}<p class="error wrap" role="alert" id="restore-too-large">{tooLarge} Nothing was sent.</p>{/if}
 		{#if form && 'message' in form && form.message}<p class="error wrap" role="alert" id="restore-error" data-code={'code' in form ? form.code : ''}>{form.message}</p>{/if}
 		{#if form && 'restored' in form && form.restored}
@@ -76,15 +85,14 @@
 		{#if form && 'legacy' in form && form.legacy}
 			<div role="status" id="restore-legacy">
 				<p>This is a v5 browser backup (ess_dcs_backup.json). {form.legacy.changed ? `${plural(form.legacy.rows, 'row')} imported.` : 'Nothing was changed: no store in this file can be imported in this version (only the court bundles can).'}{form.legacy.error ? ` Import stopped: ${form.legacy.error}` : ''}{#if form.legacy.preRestore} A copy of the work before the import was kept in <code class="wrap" id="restore-copy">{form.legacy.preRestore}</code>.{/if}</p>
-				<div class="scroll"><table id="legacy-keys"><thead><tr><th scope="col">Key</th><th scope="col">Result</th></tr></thead>
-					<tbody>{#each form.legacy.keys as k (k.key)}<tr><td><code class="wrap">{k.key}</code></td><td>{LEGACY[k.status] ?? k.status}</td></tr>{/each}</tbody></table></div>
+				<TableScroll label="Imported keys"><table id="legacy-keys"><thead><tr><th scope="col">Key</th><th scope="col">Result</th></tr></thead>
+					<tbody>{#each form.legacy.keys as k (k.key)}<tr><td><code class="wrap">{k.key}</code></td><td>{LEGACY[k.status] ?? k.status}</td></tr>{/each}</tbody></table></TableScroll>
 			</div>
 		{/if}
 	</section>
 </main>
 
 <style>
-	.scroll { overflow-x: auto; max-width: 100%; }
 	fieldset { border: 0; padding: 0; margin: 0; }
 	input[type='text'] { width: min(36rem, 100%); }
 	td, th { padding: 2px 8px; text-align: left; }

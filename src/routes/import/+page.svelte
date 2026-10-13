@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { enhance } from '$app/forms';
 	import PageHeader from '$lib/components/PageHeader.svelte';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data, form } = $props();
 	let busy = $state(false);
 	let ready = $state(false);
@@ -34,14 +35,14 @@
 		<form method="POST" action="?/cancel" use:enhance><button id="cancel-import">Cancel the running import</button></form>
 	{/if}
 	<h2>Previous imports</h2>
-	<table>
+	<TableScroll label="Previous imports"><table>
 		<thead><tr><th>#</th><th>When</th><th>Case</th><th>Results version</th><th>Verdict</th><th>Outcome</th></tr></thead>
 		<tbody>
 			{#each data.imports as i (i.id)}
-				<tr><td><a href="/import/{i.id}">{i.id}</a></td><td>{i.at}</td><td>{i.case_id ?? '—'}</td><td><code>{i.results_version ? `${i.results_version.slice(0, 19)}…` : '—'}</code></td><td>{i.verdict}</td><td>{i.outcome}</td></tr>
+				<tr><td><a href="/import/{i.id}">{i.id}</a></td><td>{i.at}</td><td class="wrap">{i.case_id ?? '—'}</td><td><code>{i.results_version ? `${i.results_version.slice(0, 19)}…` : '—'}</code></td><td>{i.verdict}</td><td>{i.outcome}</td></tr>
 			{:else}
 				<tr><td colspan="6">No imports yet.</td></tr>
 			{/each}
 		</tbody>
-	</table>
+	</table></TableScroll>
 </main>

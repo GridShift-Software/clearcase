@@ -6,6 +6,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { docPath } from '$lib/local-case/model';
 	import { MAX_TEXT, dateCell, docLabel, n, statusLabel } from '$lib/views/evidence/common';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
 	const vid = $derived(data.version.id);
 	const m = $derived(data.model);
@@ -39,7 +40,7 @@
 	<div class="toolbar types" id="doc-types">{#each m.types as t (t.type)}<span class="badge">{t.type}: {t.count}</span>{/each}</div>
 	<p class="note" id="doc-order">Ordered by type, then date (undated first). Types are imported classifications and have not been verified.</p>
 	<div class="card pad0">
-		<table class="tbl" id="documents-table">
+		<TableScroll label="Documents"><table class="tbl" id="documents-table">
 			<thead><tr><th>Ref</th><th>Type</th><th>Date</th><th>Title</th><th class="num">Amount</th><th>Status</th><th>Doc</th></tr></thead>
 			<tbody>
 				{#each m.page.slice as r (r.ref)}
@@ -50,7 +51,7 @@
 					</tr>
 				{/each}
 			</tbody>
-		</table>
+		</table></TableScroll>
 		<div class="pager" id="documents-pager">
 			<button type="button" disabled={m.page.page <= 1} onclick={() => go({ page: m.page.page - 1 })}>Prev</button>
 			<span>Page {m.page.page} / {m.page.pages}</span>

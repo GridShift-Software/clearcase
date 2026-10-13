@@ -5,6 +5,7 @@
 	import { viewById, viewHref } from '$lib/components/views';
 	import SourceNote from '$lib/views/litigation/SourceNote.svelte';
 	import { ANALYSIS_NOTE } from '$lib/views/litigation/notes';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
 	const vid = $derived(data.version.id);
 	let ready = $state(false);
@@ -16,7 +17,7 @@
 <main id="main" tabindex="-1" data-ready="elements_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Cause of Action" section="Cause of Action" caseName={data.version.titleName} subtitle={data.subtitle} />
 	<div class="card pad0">
-		<div class="wrap"><table id="elements-table">
+		<div class="wrap"><TableScroll label="Elements of the cause of action"><table id="elements-table">
 			<thead><tr>{#each data.columns as c, i (i)}<th>{c}</th>{/each}</tr></thead>
 			<tbody>
 				{#each data.elements as e, i (i)}
@@ -32,12 +33,12 @@
 					<tr><td colspan="5"><div class="empty">{data.present ? 'No elements in this results package.' : 'This results package has no cause-of-action analysis.'}</div></td></tr>
 				{/each}
 			</tbody>
-		</table></div>
+		</table></TableScroll></div>
 	</div>
 	<SourceNote text={ANALYSIS_NOTE} />
 </main>
 
 <style>
-	.pad0 { padding: 0; overflow-x: auto; }
+	.pad0 { padding: 0; }
 	.empty { color: #555; padding: 1rem; text-align: center; }
 </style>

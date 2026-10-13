@@ -10,6 +10,7 @@
 	import { AUTH_FIELDS, authoritiesCsv, canAddAuthority, type AuthValues } from '$lib/views/litigation/authorities';
 	import { EntryForm, type Answer } from '$lib/views/litigation/entry.svelte';
 	import { ANALYSIS_NOTE, OWN_ROWS_NOTE } from '$lib/views/litigation/notes';
+	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
 	// the entry keeps its own state (entry.svelte.ts); without JavaScript the answer re-fills it
@@ -37,7 +38,7 @@
 	</div>
 	<div class="card pad0">
 		<!-- v5 has no edit or delete for authorities (S-authorities_tab-1, copied) -->
-		<table id="auth-table">
+		<TableScroll label="Authorities"><table id="auth-table">
 			<thead><tr><th>Topic</th><th>Authority</th><th>Proposition</th></tr></thead>
 			<tbody>
 				{#each data.imported as r, i (i)}
@@ -50,7 +51,7 @@
 					<tr><td colspan="3"><div class="empty">{data.present ? 'No authorities in this results package yet.' : 'This results package has no authorities.'} Add your own above.</div></td></tr>
 				{/if}
 			</tbody>
-		</table>
+		</table></TableScroll>
 	</div>
 	<p class="tag">Framework provided as a working aide — confirm citations and current status before relying on them.</p>
 	<SourceNote text={ANALYSIS_NOTE} more={OWN_ROWS_NOTE} />
@@ -62,7 +63,7 @@
 	.fields > div { display: flex; flex-direction: column; flex: 1 1 9rem; }
 	.fields > .wide { flex: 2 1 16rem; }
 	.fields > .go { flex: 0 0 auto; }
-	.pad0 { padding: 0; overflow-x: auto; }
+	.pad0 { padding: 0; }
 	.empty { color: #555; padding: 1rem; text-align: center; }
 	.tag { font-size: 0.9rem; color: #444; }
 </style>

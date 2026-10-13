@@ -37,8 +37,9 @@ td, th { padding: 2px 8px; border-bottom: 1px solid #eee; text-align: left; vert
 .num { text-align: right; font-variant-numeric: tabular-nums; }
 .wrap { overflow-wrap: anywhere; white-space: pre-wrap; }
 .clip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-/* a textarea sized in columns (the document page's notes form has cols=80) never pushes a narrow page sideways */
-textarea { max-width: 100%; box-sizing: border-box; }
+/* a textarea sized in columns (the document page's notes form has cols=80), an input sized in characters (the import
+   form's size=100) or a select with long options never pushes a narrow page sideways */
+textarea, input[size], select { max-width: 100%; box-sizing: border-box; }
 .filters { display: flex; flex-wrap: wrap; gap: .6rem; align-items: end; margin-bottom: .6rem; }
 .missing, .error { background: #fde8e8; border: 1px solid #e0a0a0; color: #7a1010; padding: .5rem .8rem; border-radius: 6px; }
 .warning { background: #fff6dc; border: 1px solid #e8cf7a; padding: .5rem .8rem; border-radius: 6px; }
@@ -48,8 +49,10 @@ textarea { max-width: 100%; box-sizing: border-box; }
 .basis { color: #666; }
 .route { font-weight: 600; }
 .unavailable-view { background: #f2f2f2; border: 1px dashed #999; padding: .8rem 1rem; border-radius: 6px; max-width: 60rem; }
-/* A grid wider than the viewport (the chronology's fixed tracks) scrolls inside its own box, never the document. */
-.grid-table { overflow-x: auto; }
+/* A table or grid wider than the viewport (the chronology's fixed tracks) scrolls inside its own box, never the
+   document: TableScroll.svelte, a labelled region that takes focus. */
+.table-scroll { overflow-x: auto; max-width: 100%; }
+@media print { .table-scroll { overflow: visible; } }
 .grid-row { display: grid; gap: 0 8px; padding: 2px 8px; border-bottom: 1px solid #eee; }
 .chrono-grid .grid-row { grid-template-columns: 6.5em 7em 7.5em minmax(0, 1fr) 9em 8em 8em 6em 6em; }
 .grid-row:not(.grid-head) { content-visibility: auto; contain-intrinsic-size: auto 22px; }

@@ -35,9 +35,11 @@ export const IMPORTED_DATA = {
 const defectsMd = readFileSync(join(REF, 'defects.md'), 'utf8');
 const checklist = readFileSync(join(REF, 'view-checklist.md'), 'utf8');
 const defects = new Map();
+const unparsedRows = [];
 for (const line of defectsMd.split('\n')) {
 	const cells = line.split('|').map((c) => c.trim());
-	if (cells.length < 8 || !/^S-/.test(cells[1])) continue;
+	if (!/^S-/.test(cells[1] ?? '')) continue;
+	if (cells.length < 8) { unparsedRows.push(cells[1]); continue; }
 	for (const id of cells[1].match(/S-[A-Za-z_0-9-]+(?:-\*)?/g) ?? []) defects.set(id.replace(/-$/, '-*'), { id: id.replace(/-$/, '-*'), source: 'defects.md', severity: cells[2], text: cells[3], disposition: cells[5], owner: cells[6] });
 }
 for (const m of checklist.matchAll(/^\s*- `(S-[A-Za-z_0-9]+-\d+)` \((high|medium|low)\) (.+)$/gm)) {
@@ -66,7 +68,7 @@ const rows = [...defects.values()].map((d) => {
 // a reviewed imported-data id that names no defect would never be checked: that is an error, not a pass
 const unknownImported = Object.keys(IMPORTED_DATA).filter((id) => !defects.has(id));
 const count = (s) => rows.filter((r) => r.status === s).length;
-const summary = { defects: rows.length, registered: count('registered'), noEntry: count('no register entry'), importedDataUntagged: count('imported data, not tagged'), bySeverity: Object.fromEntries(['high', 'medium', 'low'].map((s) => [s, { total: rows.filter((r) => r.severity === s).length, noEntry: rows.filter((r) => r.severity === s && r.status !== 'registered').length }])), unknownImported, registerEntries: entries.length, byType: entries.reduce((a, e) => ((a[e.type] = (a[e.type] ?? 0) + 1), a), {}) };
+const summary = { defects: rows.length, registered: count('registered'), noEntry: count('no register entry'), importedDataUntagged: count('imported data, not tagged'), bySeverity: Object.fromEntries(['high', 'medium', 'low'].map((s) => [s, { total: rows.filter((r) => r.severity === s).length, noEntry: rows.filter((r) => r.severity === s && r.status !== 'registered').length }])), unknownImported, unparsedRows, registerEntries: entries.length, byType: entries.reduce((a, e) => ((a[e.type] = (a[e.type] ?? 0) + 1), a), {}) };
 
 const cell = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/\s+/g, ' ').slice(0, 140);
 const md = [
@@ -77,5 +79,6 @@ const md = [
 if (arg('--md')) writeFileSync(arg('--md'), md + '\n'); else console.log(md);
 if (arg('--json')) writeFileSync(arg('--json'), JSON.stringify({ summary, imported: IMPORTED_DATA, rows }, null, 1));
 console.error(`dispositions: ${summary.defects} defects, ${summary.registered} registered, ${summary.noEntry} with no register entry, ${summary.importedDataUntagged} imported-data defects not tagged data-correction-deferred-to-pipeline; ${summary.registerEntries} register entries ${JSON.stringify(summary.byType)}`);
+if (unparsedRows.length) console.error(`dispositions: defects.md rows that do not parse (fewer than 8 cells): ${unparsedRows.join(', ')}`);
 if (unknownImported.length) console.error(`dispositions: IMPORTED_DATA names no listed defect: ${unknownImported.join(', ')}`);
-process.exit(summary.noEntry || summary.importedDataUntagged || unknownImported.length ? 1 : 0);
+process.exit(summary.noEntry || summary.importedDataUntagged || unknownImported.length || unparsedRows.length ? 1 : 0);

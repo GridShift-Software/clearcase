@@ -18,7 +18,7 @@
 					<div class="case-main">
 						<h2 class="wrap">{name}</h2>
 						<p class="case-meta">Import {c.version.importId} · stored {c.version.storedAt.slice(0, 10)} · created {c.version.created.slice(0, 10)}</p>
-						<p class="case-meta">{plural(c.version.documents, 'document')} · {plural(c.versions, 'results version')}</p>
+						<p class="case-meta">{c.version.documents === null ? '— documents' : plural(c.version.documents, 'document')} · {plural(c.versions, 'results version')}</p>
 					</div>
 					<span class="badge {c.status}">{STATUS[c.status]}</span>
 					<a class="btn open" href={c.href} aria-label="Open {name}">Open</a>

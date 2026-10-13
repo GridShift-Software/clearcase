@@ -3,8 +3,7 @@
 	import CitationLink from '$lib/components/CitationLink.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { download } from '$lib/components/csv';
-	import { money } from '$lib/components/format';
-	import { byCat, chipLabel, contradictionsCsv, rateCells, type Contradictions } from '$lib/views/analysis/contradictions';
+	import { byCat, chipLabel, contradictionsCsv, rateCells, spreadLabel, type Contradictions } from '$lib/views/analysis/contradictions';
 	import { checkTone, severityBadge } from '$lib/views/analysis/tone';
 	import '$lib/views/analysis/analysis.css';
 	import TableScroll from '$lib/components/TableScroll.svelte';
@@ -69,7 +68,7 @@
 							<thead><tr><th>Item</th><th>Detail</th><th>Sources</th></tr></thead>
 							<tbody>{#each k.items as it, i (i)}<tr>
 								<td data-label="Item"><b>{it.label}</b></td>
-								<td data-label="Detail">{it.detail}{#if it.spread}{' '}<b class="an-danger">Δ {money(it.spread)}</b>{/if}</td>
+								<td data-label="Detail">{it.detail}{#if it.spread}{' '}<b class="an-danger">{spreadLabel(it.spread)}</b>{/if}</td>
 								<td data-label="Sources">{@render chips(it.refs)}</td>
 							</tr>{/each}</tbody>
 						</table>

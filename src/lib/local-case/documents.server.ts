@@ -213,11 +213,11 @@ export function resolveRefs(store: CaseStore, resultsVersion: string, refs: Iter
 }
 
 /**
- * Whether any imported register row has a source-supplied date type (BA-04). Reads the stored list JSON without
- * parsing it: JSON escapes every quote inside a string value, so the unescaped `"dateType":"` occurs only as the key
- * of a string value (a missing basis is stored as null).
+ * Whether any imported register row has a source-supplied date type or provenance (BA-04). Reads the stored list
+ * JSON without parsing it: JSON escapes every quote inside a string value, so the unescaped `"dateType":"` or
+ * `"dateSource":"` occurs only as the key of a string value (a missing basis is stored as null).
  */
-export const anyDateBasis = (store: CaseStore, resultsVersion: string): boolean => (store.chronologyJson(resultsVersion) ?? '').includes('"dateType":"');
+export const anyDateBasis = (store: CaseStore, resultsVersion: string): boolean => { const j = store.chronologyJson(resultsVersion) ?? ''; return j.includes('"dateType":"') || j.includes('"dateSource":"'); };
 
 /** How many document rows documentRows() returns, without parsing the register: imported plus accepted provider rows. */
 export function documentCounts(store: CaseStore, resultsVersion: string): { total: number; imported: number; provided: number; failed: DocumentRowsResult['failed'] } {

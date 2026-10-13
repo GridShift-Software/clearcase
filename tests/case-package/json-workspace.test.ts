@@ -7,7 +7,7 @@ import { importCandidate } from '../../src/lib/case-package/import.ts';
 import { decodeUtf8Strict, parseStrictJson } from '../../src/lib/case-package/strict-json.ts';
 import { convertV5, type ConvertResult } from '../../src/lib/case-package/v5/adapter.ts';
 import { extractV5 } from '../../src/lib/case-package/v5/extract.ts';
-import { amountText } from '../../src/lib/case-package/v5/json-workspace.ts';
+import { amountText, riskLevel } from '../../src/lib/case-package/v5/json-workspace.ts';
 import { writePackageDir } from '../../src/lib/case-package/writer.ts';
 import { buildSynth } from './fixtures/build.ts';
 import { cleanup, synthHtml, synthOriginals, synthRoots, tempDir, writeCaseFolder } from './fixtures/synth.ts';
@@ -100,10 +100,10 @@ describe('the JSON-script workspace generation', () => {
     const rows = dataset(files, 'chronology') as J[];
     expect(rows[0]).toEqual({
       ref: 'DC-SYN-001', n: 1, seq: 1, date: '2001-02-03', filename: 'OD-001 Supply agreement.pdf', subject: '', sender: '', to: '', cc: '', excerpt: 'Head of text and the rest of it',
-      doc_type: 'sale agreement', bundle: 'Original', amount: '1150.5', also_in: ['DC-SYN-002'], text_status: 'extracted', url: url(AGREEMENT), refs: [], invoice_no: '', size: size(AGREEMENT), attachments: [],
+      doc_type: 'sale agreement', bundle: 'Original', amount: '1150.5', also_in: ['DC-SYN-002'], text_status: 'extracted', url: url(AGREEMENT), refs: [], invoice_no: '', size: size(AGREEMENT), attachments: [], date_source: 'text',
       ent: 'Org A Ltd', mt: ['A'], sec: 'Documents', sub: 'DISCOVERY A', fm: 'Firm A',
     });
-    expect(rows[2]).toMatchObject({ ref: 'DC-SYN-002', date: '', excerpt: '', amount: '', text_status: 'ocr', pr: 'CO-SYN-001', up: 'Upload.zip' });
+    expect(rows[2]).toMatchObject({ ref: 'DC-SYN-002', date: '', date_source: 'file', excerpt: '', amount: '', text_status: 'ocr', pr: 'CO-SYN-001', up: 'Upload.zip' });
     expect(rows[3]).toMatchObject({ ref: 'DC-CT2-001', amount: '20.1235', text_status: 'none' });
     expect(dataset(files, 'meta')).toEqual({
       builtAt: '2002-06-07 08:09', docCount: 4, dataFolderName: 'Synthetic room', bundles: { Original: 2, Correspondence: 1, Supplementary: 1 }, emails: 1, invoices: 1, people: 1, textNone: 1, textPending: 0,
@@ -120,8 +120,8 @@ describe('the JSON-script workspace generation', () => {
     expect(dataset(files, 'contradictions')).toEqual({
       byCat: { 'divergent-figures': 2 }, checks: [], highCount: 1, total: 2,
       categories: [{ key: 'divergent-figures', title: 'Divergent figures', severity: 'high', explain: '', items: [
-        { label: 'Org A Ltd · 2001 · invoice', detail: 'Two invoices differ.', rates: { LOW: '100', HIGH: '1150.5', GAP: '91.3' }, refs: [{ ref: 'DC-SYN-001', amount: '', filename: 'OD-001 Supply agreement.pdf', url: url(AGREEMENT) }, { ref: 'DC-SYN-002', amount: '', filename: 'OD-002 Invoice 1001.pdf', url: url(INVOICE) }] },
-        { label: 'Org A Ltd · 2002 · statement', detail: 'Low one.', rates: { LOW: '1', HIGH: '2', GAP: '50' }, refs: [{ ref: 'DC-CT2-001', amount: '', filename: 'SD-001 Statement.pdf', url: url(STATEMENT) }] },
+        { label: 'Org A Ltd · 2001 · invoice', detail: 'Two invoices differ.', rates: { LOW: '100', HIGH: '1150.5', GAP: '91.3' }, spread: 'low R 100.00, high R 1 150.50, gap 91.3%', refs: [{ ref: 'DC-SYN-001', amount: '', filename: 'OD-001 Supply agreement.pdf', url: url(AGREEMENT) }, { ref: 'DC-SYN-002', amount: '', filename: 'OD-002 Invoice 1001.pdf', url: url(INVOICE) }] },
+        { label: 'Org A Ltd · 2002 · statement', detail: 'Low one.', rates: { LOW: '1', HIGH: '2', GAP: '50' }, spread: 'low R 1.00, high R 2.00, gap 50%', refs: [{ ref: 'DC-CT2-001', amount: '', filename: 'SD-001 Statement.pdf', url: url(STATEMENT) }] },
       ] }],
     });
     expect(dataset(files, 'timeline-events')).toEqual([
@@ -132,7 +132,7 @@ describe('the JSON-script workspace generation', () => {
     expect(dataset(files, 'timeline-year-counts')).toEqual({ '2001': 2, '2002': 1 });
     expect(dataset(files, 'timeline-type-by-year')).toEqual({ '2001': { 'sale agreement': 1, email: 1 }, '2002': { 'bank statement': 1 } });
     expect(dataset(files, 'contracts')).toEqual({ count: 1, groups: [{ key: 'sale agreement', items: [{ date: '2001-02-03', doc_type: 'sale agreement', note: 'Head of text', party: 'Org A Ltd', ref: 'DC-SYN-001', role: '', text_status: 'extracted', title: 'OD-001 Supply agreement.pdf', url: url(AGREEMENT) }] }] });
-    expect(dataset(files, 'risk-matrix')).toEqual([{ issue: 'Court refuses relief.', likelihood: '2', impact: '5', mitigation: 'Lead with the signed pages.', id: 'A1', matter: 'A', type: 'Legal', owner: 'Counsel', target: '1x5=5', res: 'Issue motion.' }]);
+    expect(dataset(files, 'risk-matrix')).toEqual([{ issue: 'Court refuses relief.', likelihood: 'Low', impact: 'High', likelihood_score: 2, impact_score: 5, mitigation: 'Lead with the signed pages.', id: 'A1', matter: 'A', type: 'Legal', owner: 'Counsel', target: '1x5=5', res: 'Issue motion.' }]);
     expect(dataset(files, 'defence-matrix')).toEqual([{ point: 'Matter A · B', dcs: 'Non-binding.', rebuttal: 'Refuted.', evidence: 'Signed pages.', refs: '', docs: [] }]);
     expect(dataset(files, 'info-required')).toEqual([{ item: 'Signed Heads.', owner: 'Client', status: 'P1', matter: 'A', grp: '2.1 Originals', why: 'Founding instrument.' }]);
     expect(dataset(files, 'witnesses')).toEqual([{ name: 'Ann Lee', role: 'Client', willsay: 'The whole chronology.', matter: 'A / B', status: 'Outstanding' }]);
@@ -206,6 +206,12 @@ describe('the JSON-script workspace generation', () => {
     expect(amountText(null)).toBe('');
     expect(amountText('12.50')).toBe('12.50');
     expect(amountText('R 12')).toBe('');
+  });
+
+  it("names a risk score in v5's words and leaves any other value as written", () => {
+    expect([5, 4, 3, 2, 1, 0].map(riskLevel)).toEqual(['High', 'High', 'Medium', 'Low', 'Low', '0']);
+    expect(riskLevel('Medium')).toBe('Medium');
+    expect(riskLevel(undefined)).toBe('');
   });
 
   it('leaves the v5 fixture package byte-identical', async () => {

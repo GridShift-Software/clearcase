@@ -66,6 +66,10 @@ Known limits of this setup:
 - A file that Linux reports as a hard link is refused, because the app serves only single-link regular files. Copy the case folder into WSL rather than linking it.
 - The automated checks (`bun run --bun gate`) need Linux network namespaces. They are for the development machine, not for this comparison.
 
+## Cases
+
+The app opens on **Cases**, the list of every case in the data directory, with the most recently activated case first. Each row shows the case's name, the import number with the dates the version was stored and created, the document count, how many results versions the case has, and its status. The status is **Active**, **Candidate** when no version of the case is active yet, or **Recovery** when the active version failed its check at startup. **Open** goes to the active version's overview, or to the newest candidate's validation report. **Cases** at the top of every page returns to the list, and **Import a case** opens the import page.
+
 ## Importing a case
 
 You import a case by clicking. You don't type paths or use a terminal.

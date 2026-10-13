@@ -47,10 +47,15 @@ export function client(port) {
 			const err = /id="activate-error"[^>]*data-reasons="([^"]*)"[^>]*>([^<]*)</.exec(r.text);
 			return { status: r.status, location: r.location, reasons: err ? err[1].split(' ').filter(Boolean) : [], error: err ? decodeHtml(err[2]) : null, ms: performance.now() - t0 };
 		},
-		/** The effective active version, from where / redirects. */
+		/** Where Open goes on the case list's first row (the most recently activated case), or null when no case is listed. */
+		async home() {
+			const r = await get('/cases');
+			const m = /class="btn open" href="([^"]+)"/.exec(r.text);
+			return m ? decodeHtml(m[1]) : null;
+		},
+		/** The effective active version of the most recently activated case, from the case list. */
 		async activeVersion() {
-			const r = await get('/');
-			const m = /^\/v\/([^/]+)\/overview$/.exec(r.location ?? '');
+			const m = /^\/v\/([^/]+)\/overview$/.exec((await c.home()) ?? '');
 			return m ? decodeURIComponent(m[1]) : null;
 		},
 	};

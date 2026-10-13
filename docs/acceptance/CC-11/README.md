@@ -2,20 +2,20 @@
 
 The gate author's evidence for complete v5 parity and local release readiness. It is not the final verdict: a fresh second reviewer reruns the critical paths at the exact revision ([reviewer-guide.md](reviewer-guide.md)) and gives the final PASS. The user's visual review uses [walkthrough.md](walkthrough.md).
 
-- **Evidence revision:** `2243fc3f956935c54ac100177576a359d81c6400`. Every run below was made at this revision on a clean tree. The commit after it adds `docs/` (these results, the matrix, the defect table and the guides) and corrects one sentence of the matrix's wording in `scripts/verify/matrix.mjs`; the matrix was regenerated from the same evidence.
+- **Evidence revision:** `848a10181ab7bd4fe5b091d5596552cfe6701f84`. The gate and every run below except Metrics were made at this revision on a clean tree. The commit after it adds only the regenerated `docs/acceptance/CC-11/`. Metrics were last measured at `2243fc3` (the checks changed since do not touch them); the second reviewer reran them at `c396c99`.
 - **Base:** dev `c064458`. No file under `src/` changes on this branch.
-- **Author's verdict:** HOLD. The local workflow, parity and metrics pass. Two app findings (F1, F2) and the defect dispositions (F4) fail; they are listed under [Findings](#findings).
+- **Author's verdict: HOLD.** The second review found three of this gate's own checks fail-open (AC2 bytes, sideways scroll, matrix revision); they are fixed here (see [Evidence soundness](#evidence-soundness)). The corrected checks are stricter and the result is still HOLD while F1, F2, F4 and F5 are open: F1, F2 and F4 are being fixed on `feature/grs-67-readiness-findings` (not yet merged), and F5 is new.
 
-## Commands and results at `2243fc3`
+## Commands and results at `848a101`
 
 | Check | Command | Exit | Result | Output (ignored, local) |
 | --- | --- | --: | --- | --- |
-| Gate | `bun run --bun gate` | 0 | `GATE PASS 2243fc3f9569`: build, check, test, test:e2e (pilot 38/38; analysis 21/21, bundles 51/51, evidence 14/14, litigation 43/43, quantum 57/57, registers 43/43, system 14/14; UI classes 253/253), strict parity, the v5 lanes | `.local/gate/` |
+| Gate | `bun run --bun gate` | 0 | `GATE PASS 848a10181ab7`: build, check, test, test:e2e (pilot 38/38; analysis 21/21, bundles 51/51, evidence 14/14, litigation 43/43, quantum 57/57, registers 43/43, system 14/14; UI classes 253/253), strict parity, the v5 lanes | `.local/gate/` |
 | Strict parity | gate step `parity --all --strict-register` | 0 | 42 views extracted on both sides; 103,130 values compared, 99,766 matched, 3,364 registered, 0 unregistered; 0 not-yet-implemented | `.local/gate/parity-out/scorecard.md` |
 | Real v5 lanes | gate step `verify:pilot:v5` | 0 | 18/18 lanes PASS | `.local/gate/v5-out/lanes-v5.json` |
-| Acceptance workflow | `scripts/verify/evidence.sh acceptance` | 0 | 8/8 scenarios (AC1–AC8) | `.local/GRS-21/acceptance-out/acceptance/` |
+| Acceptance workflow | `scripts/verify/evidence.sh acceptance` | 0 | 8/8 scenarios (AC1–AC8); AC2 compared all 10 originals' bytes with the case folder's | `.local/GRS-21/acceptance-out/acceptance/` |
 | Layout, synthetic | `scripts/verify/evidence.sh layout` | 1 | 42 views × 4 widths, 8 components, 168 screenshots: 0 view failures, 1 shell contrast failure (F1), 8 component failures (F1, F2) | `.local/GRS-21/layout-synthetic/layout.json` |
-| Layout, v5 sample | `scripts/verify/evidence.sh layout-v5` | 1 | 42 views × 4 widths, 8 components, 168 screenshots: 0 view failures, 1 shell contrast failure (F1), 8 component failures (F1, F2) | `.local/GRS-21/layout-v5/layout.json` |
+| Layout, v5 sample | `scripts/verify/evidence.sh layout-v5` | 1 | 42 views × 4 widths, 8 components, 168 screenshots: 2 view failures (`hoa_diff_tab` scrolls sideways at 320 and 390 px, F5), 1 shell contrast failure (F1), 8 component failures (F1, F2) | `.local/GRS-21/layout-v5/layout.json` |
 | Metrics | `scripts/verify/evidence.sh metrics` | 0 | see [Metrics](#metrics) | `.local/GRS-21/metrics/metrics.json` |
 | Dispositions | `scripts/verify/evidence.sh dispositions` | 1 | finding F4; [defects-table.md](defects-table.md) | `.local/GRS-21/dispositions.json` |
 | Matrix | `scripts/verify/evidence.sh matrix` | 0 | [matrix.md](matrix.md) | – |
@@ -26,16 +26,16 @@ The gate author's evidence for complete v5 parity and local release readiness. I
 
 | # | Item | Verdict | Evidence |
 | --: | --- | --- | --- |
-| 1 | All 42 views and their actions, PASS/FAIL/BLOCKED at the reviewed revision; no placeholder passes | PASS for all 42 views | [matrix.md](matrix.md): strict parity compared all 42 with 0 not-yet-implemented entries, and every view has passing browser scenarios. Shell-wide findings F1 and F2 are listed once, above the table. |
+| 1 | All 42 views and their actions, PASS/FAIL/BLOCKED at the reviewed revision; no placeholder passes | 41 PASS, 1 FAIL (`hoa_diff_tab`, F5) | [matrix.md](matrix.md): strict parity compared all 42 with 0 not-yet-implemented entries, and every view has passing browser scenarios. Every matrix input carries this revision. Shell-wide findings F1 and F2 are listed once, above the table. |
 | 2 | Offline import-to-original workflow, then edit, restart, backup, restore and activate a replacement without losing user work | PASS | acceptance AC1–AC7, offline in a network namespace with only `lo` |
-| 3 | Keyboard and focus, Back, labels, contrast, layouts at 320/390/768/1280; screenshots and walkthrough | FAIL | Keyboard, Back, labels, overlap and sideways scroll pass for all 42 views at all four widths, on both cases. The shared contrast fails (F1, F2). Screenshots are indexed in [walkthrough.md](walkthrough.md). |
+| 3 | Keyboard and focus, Back, labels, contrast, layouts at 320/390/768/1280; screenshots and walkthrough | FAIL | Keyboard, Back, labels and overlap pass for all 42 views at all four widths, on both cases; sideways scroll passes on the synthetic case and fails on the v5 sample for `hoa_diff_tab` at 320 and 390 px (F5). The shared contrast fails (F1, F2). Screenshots are indexed in [walkthrough.md](walkthrough.md). |
 | 4 | Interleaved reference/head metrics and absolute budgets; known-data defects reviewed; user visual review requested | PASS for the metrics; defects FAIL (F4); visual review open | [Metrics](#metrics); [defects-table.md](defects-table.md); the visual review is the user's |
 | 5 | Second reviewer reruns critical paths | open | not the author's: [reviewer-guide.md](reviewer-guide.md) |
 | 6 | `docs/development.md` extended after CC-03 | PASS | section "M2 readiness checks (GRS-21, CC-11)" and the updated known limits |
 | 7 | `docs/user-guide.md` extended after CC-10 | PASS | "Windows quick start" (GRS-64), marked as not verified on Windows |
 | 8 | BA-01 to BA-21 dispositions reviewed against owners | PASS with holds | [BA review](#ba-01-to-ba-21) |
 | 9 | Hostile imported content and original-preview isolation; parity reported apart from production-only and deferred capabilities | PASS | AC8 and the pilot suite's S13/S28/S29; [Isolation](#isolation) |
-| 10 | BA-12, BA-13, BA-14, BA-21 verified by this gate | FAIL | BA-13 fails (F1, F2). BA-12, BA-14 and BA-21 pass. |
+| 10 | BA-12, BA-13, BA-14, BA-21 verified by this gate | FAIL | BA-13 fails (F1, F2). BA-12 and BA-21 fail on the v5 sample for `hoa_diff_tab` (F5). BA-14 passes. |
 | 11 | Backup-and-restore round trip for every store on CC-10's coverage list | PASS | AC5: each of the 21 stores and the notes equal after a restore into a clean profile; `tests/system/stores-21.test.ts` (gate `test`) |
 | 12 | Every v5 source defect has a register disposition; imported-data defects tagged `data-correction-deferred-to-pipeline` | FAIL | F4 |
 
@@ -45,18 +45,18 @@ The gate author's evidence for complete v5 parity and local release readiness. I
 | --- | --- | --- |
 | 1. Reference and rewrite side by side | PASS | strict parity, 42 views; v5 lane 1 |
 | 2. Every view and meaningful action | PASS for all 42 views | [matrix.md](matrix.md) |
-| 3. All citations and original mappings | PASS | AC2: every document of the synthetic case resolves to its case-folder bytes (sha256) and one opens in the viewer; v5 lanes 5, 6, 7, `routes`, `pages` |
+| 3. All citations and original mappings | PASS | AC2: every document of the synthetic case resolves to bytes whose sha256 equals the case-folder original read from disk (10 of 10 compared), and one opens in the viewer; v5 lanes 5, 6, 7, `routes`, `pages` |
 | 4. Fixed search and numeric examples | PASS | v5 lane 4; parity (the search and quantum views compare every value); the quantum suite |
 | 5. Edit every mutable state category, then restart | PASS | AC3 (every form and every non-form save of every page; 21 stores and notes hold rows), AC4 |
 | 6. Backup and restore into a clean profile | PASS | AC5 |
 | 7. A failed import keeps the previous case active | PASS | AC6 (an altered package is rejected and user work is unchanged); v5 lane 8 |
 | 8. Fully offline | PASS | every suite and script runs in a network namespace with only `lo` and proves it first; v5 lane `isolation` |
-| 9. Keyboard, contrast and four viewport widths | FAIL | layout runs: keyboard and widths pass; contrast fails (F1, F2) |
+| 9. Keyboard, contrast and four viewport widths | FAIL | layout runs: keyboard passes; widths fail for `hoa_diff_tab` on the v5 sample (F5); contrast fails (F1, F2) |
 | 10. 30–60 s walkthrough and the differences register | open | [walkthrough.md](walkthrough.md) for the user's review; the register has 217 entries, all `approvedBy: null` |
 
 ## Metrics
 
-Measured at `2243fc3f9569` on this host (20 cores, 15 GiB), offline, with the production build under Bun. Each metric has 20 kept samples after 2 warm-up samples, and percentiles are nearest-rank. Cold overview and warm navigation alternate sample by sample between the v5 reference and the head, in the same browser; the reference column is reported beside the head's, with no ratio. Search and state write have no comparable v5 scenario. Search is a server round trip in the app and an in-page filter in v5; state write saves to SQLite in the app and to localStorage in v5. They are gated on their absolute budgets only.
+Measured at `2243fc3f9569` (not rerun at `848a101`) on this host (20 cores, 15 GiB), offline, with the production build under Bun. Each metric has 20 kept samples after 2 warm-up samples, and percentiles are nearest-rank. Cold overview and warm navigation alternate sample by sample between the v5 reference and the head, in the same browser; the reference column is reported beside the head's, with no ratio. Search and state write have no comparable v5 scenario. Search is a server round trip in the app and an in-page filter in v5; state write saves to SQLite in the app and to localStorage in v5. They are gated on their absolute budgets only.
 
 | Metric | Scenario | Head p50 / p95 ms | v5 reference p50 / p95 ms | Budget p95 ms | Verdict |
 | --- | --- | --- | --- | --: | --- |
@@ -69,7 +69,7 @@ Why the numbers are this low: the app's cold overview is a fresh browser context
 
 ## BA-01 to BA-21
 
-The verdict is the owner's evidence, in a suite that passed in this gate at `2243fc3`. The second reviewer judges how deep each one goes.
+The verdict is the owner's evidence, in a suite that passed in this gate at `848a101`. The second reviewer judges how deep each one goes.
 
 | Finding | Owner | Evidence | Verdict |
 | --- | --- | --- | --- |
@@ -84,7 +84,7 @@ The verdict is the owner's evidence, in a suite that passed in this gate at `224
 | BA-09 | GRS-12 | v5 lane `routes`; `src/lib/local-case/project.test.ts` | PASS on v5 (v5 has no parent-e-mail route); CC-12 part open |
 | BA-10 | GRS-19 | `tests/bundles/discovery.test.ts`; bundles suite | PASS |
 | BA-11 | GRS-22 | none in v5 | not applicable to v5; CC-12 |
-| BA-12 | GRS-21 | layout runs, both cases: at 320, 390, 768 and 1280 px no control overlaps a heading or another control, and no page scrolls sideways; the UI class suite's `narrow` | PASS |
+| BA-12 | GRS-21 | layout runs, both cases: at 320, 390, 768 and 1280 px no control overlaps a heading or another control (every control compared); the UI class suite's `narrow`. Sideways scroll fails on the v5 sample (F5). | FAIL (F5) |
 | BA-13 | GRS-21 | layout runs: text contrast and component states | FAIL (F1, F2) |
 | BA-14 | GRS-12, GRS-21 | layout runs: keyboard, focus and Back for all 42 views; UI class suite `back`; v5 lane 9 | PASS |
 | BA-15 | GRS-14 | `tests/evidence/search.test.ts`; evidence suite | PASS |
@@ -92,7 +92,7 @@ The verdict is the owner's evidence, in a suite that passed in this gate at `224
 | BA-17 | GRS-14, GRS-16 | evidence suite (screen order against each CSV); quantum suite (prescription export) | PASS |
 | BA-18 | GRS-12, GRS-21 | layout runs: each heading and title equals its registry label; v5 lane `registry` | PASS. F1 is a separate failure: the navigation calls 37 working views not yet available. |
 | BA-19, BA-20 | V2 (GRS-26, GRS-36, GRS-32) | none | out of V1 scope by the register's explicit deferral |
-| BA-21 | GRS-15, GRS-21 | layout runs at 320 and 390 px: no sideways scroll, wide tables in their own scroll box (UI class `narrow`); the smallest text is 10.7 px (discovery schedule), reported, not gated | PASS |
+| BA-21 | GRS-15, GRS-21 | layout runs at 320 and 390 px: sideways scroll on `hoa_diff_tab` (F5), otherwise none; wide tables in their own scroll box (UI class `narrow`); the smallest text is 10.7 px (discovery schedule), reported, not gated | FAIL (F5) |
 
 ## Isolation
 
@@ -111,10 +111,21 @@ App code is outside this gate's scope; each finding goes to its owner as a follo
   - the overview's Go-to list shows "(not yet available, GRS-15)" (`src/routes/v/[vid]/overview/+page.svelte:81`);
   - the `.unavailable` link colour `#777` reaches 4.48:1 against the navigation background, below 4.5:1 (`src/app.css:25`).
 
-  Follow-up for the coordinator: flip the statuses in the inventory, then regenerate the registry. That also clears the contrast failure.
+  Follow-up for the coordinator: flip the statuses in the inventory, then regenerate the registry. That also clears the `.unavailable` contrast failure. The second review's M2: the check used to list only 20 failing elements per page, which hid one case. On its own page, an unavailable view's *current* link is `#777` on the navy `rgb(29,43,58)`, 3.21:1 (`src/app.css:25` against the `aria-current` style), and the report now lists all of them (74 text elements). A darker grey for white makes the navy case worse, so the fix must cover both.
 - **F2. The focus indicator is 2.06:1.** The shared `:focus-visible` outline `3px solid #f0a020` (`src/app.css:5`) reaches 2.06:1 against white and 2.15:1 against the navigation background. WCAG 2.2 1.4.11 asks for 3:1. Every focusable component inherits it. Follow-up for the coordinator, who owns the shared components: use a darker outline, or a two-tone ring.
 - **F3 (withdrawn). A Court Bundle overlap at 390 px.** The first layout run (`1f38aca`) compared bounding boxes, so a wrapped button looked like an overlap. Measured line box by line box at `2243fc3`, nothing overlaps.
 - **F4. Source-defect dispositions are incomplete.** The register has an entry naming 47 of the 159 v5 source defects (the 18 rows of `defects.md` and the 145 per-view defects of `view-checklist.md`, with overlaps). It names neither high defect `S-rescan_tab-1` nor `S-backup_tab-1` (both fixed by GRS-20, but not registered). It has no entry of type `data-correction-deferred-to-pipeline`, so the imported-data defects `S-meta-counts` and `S-prescription-frozen` are not tagged. Follow-up for the register owners: add a disposition per defect, or record "no visible difference" with its reason, and tag the imported-data ones. [defects-table.md](defects-table.md) lists every defect. The register is outside this gate's write scope.
+
+- **F5. `hoa_diff_tab` (Document Diff) scrolls sideways at 320 and 390 px on the v5 sample.** Content and layout viewport are 422 px wide against the requested 320 and 390. The synthetic case does not overflow, so the long document names of the real sample cause it. Probable cause, not isolated: the two document selects are in a flex row with `.row .in { max-width: 28rem }` (448 px) and no `max-width: 100%` (`src/routes/v/[vid]/evidence/hoa_diff_tab/+page.svelte:48-49`, selects at `:22-23`). The earlier runs passed this view because the check compared the page width with the browser's own layout viewport, which grows with the overflow. Not fixed here; follow-up for the evidence owner. Affects BA-12 and BA-21 and the matrix row `hoa_diff_tab`.
+
+## Evidence soundness
+
+The second review (`EVIDENCE UNSOUND` at `c396c99`) found checks of this gate that passed without proving their claim. Each is fixed, with a failing probe before and a pass after:
+
+- **AC2 bytes (H1).** The expected bytes came from the results package's files, so nothing was compared and the check passed by default. They now come from the case folder on disk, and AC2 fails unless every opened original has a sha256 match and at least one was compared. Probe: every expected original plus one byte fails AC2 (`bytes: false`, 0 of 10 matched).
+- **Sideways scroll (H2).** Under mobile emulation Chrome widens the layout viewport to fit overflowing content, so `scrollWidth > innerWidth` could not fail. The check now compares with the requested width. Probe: `main` forced to 360 px at 320 px fails (`content 395, layout viewport 395, requested 320`); it also found F5.
+- **Matrix revision (M1).** Inputs now carry their revision (`scripts/verify/stamp.mjs`: the acceptance and layout results stamp HEAD, tree state and the build's revision; the gate's e2e summary and parity scorecard already did). The matrix BLOCKS every view and exits 1 when any input, or the build, is missing, unstamped, dirty or for another SHA, or when an acceptance scenario is missing. Probe: `--sha 0000…` gives 42 BLOCKED.
+- **Sweep.** The same shape elsewhere in `tests/e2e/acceptance/` and `scripts/verify/` is fixed too: the AC3 edit results, AC7 row contents, a page that fails to load in AC3, the contrast report's cap and unparsed colours, a component state with no measured contrast, the overlap check's old 400-control cap, the metrics reused-run exit codes and stale files, and the dispositions' unknown or unparsed rows. The fix report lists each site.
 
 ## Follow-ups and shared-file requests
 

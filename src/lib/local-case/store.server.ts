@@ -21,7 +21,7 @@ export interface ImportRow {
 	manifest_sha256: string | null; verdict: string; outcome: string; report: string;
 }
 export type CaseVersionRow = Pick<Version, 'id' | 'case_id' | 'import_id' | 'created' | 'stored_at' | 'case_label'> & { documents: number };
-export type Verification ={ ok: boolean; reason?: string; ms: number; checked?: Record<string, number> };
+export type Verification = { ok: boolean; reason?: string; ms: number; checked?: Record<string, number> };
 export interface ActivationEntry {
 	id: number; case_id: string; version_id: string; at: string; kind: string; manifest_sha256: string; read_model_sha256: string;
 	diagnostics_sha256: string; validator_version: string; acknowledgement: string | null; accepted_warnings: string;

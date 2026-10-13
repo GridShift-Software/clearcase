@@ -55,6 +55,7 @@ export const actions: Actions = {
 		const str = (k: string) => { const x = f.get(k); return typeof x === 'string' && x ? x : null; };
 		const refused = await a.rollback(v.case_id, str('expect'), str('to'));
 		if (refused) return fail(refused.message.startsWith('Nothing was changed') ? 409 : 400, { message: refused.message });
-		redirect(303, '/');
+		const now = a.effectiveActive(v.case_id);
+		redirect(303, now ? `${versionPath(now)}/overview` : '/cases');
 	},
 };

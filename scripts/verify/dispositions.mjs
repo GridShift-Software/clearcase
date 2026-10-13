@@ -14,6 +14,7 @@
 // committed register only; it never writes it and never sets approvedBy.
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { citing, readDefects } from './lib/defects.mjs';
 
 const ROOT = resolve(import.meta.dirname, '..', '..');
 const arg = (k) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : null; };
@@ -32,34 +33,15 @@ export const IMPORTED_DATA = {
 
 // ---- defects ---------------------------------------------------------------------------------------------------------
 
-const defectsMd = readFileSync(join(REF, 'defects.md'), 'utf8');
-const checklist = readFileSync(join(REF, 'view-checklist.md'), 'utf8');
-const defects = new Map();
-const unparsedRows = [];
-for (const line of defectsMd.split('\n')) {
-	const cells = line.split('|').map((c) => c.trim());
-	if (!/^S-/.test(cells[1] ?? '')) continue;
-	if (cells.length < 8) { unparsedRows.push(cells[1]); continue; }
-	for (const id of cells[1].match(/S-[A-Za-z_0-9-]+(?:-\*)?/g) ?? []) defects.set(id.replace(/-$/, '-*'), { id: id.replace(/-$/, '-*'), source: 'defects.md', severity: cells[2], text: cells[3], disposition: cells[5], owner: cells[6] });
-}
-for (const m of checklist.matchAll(/^\s*- `(S-[A-Za-z_0-9]+-\d+)` \((high|medium|low)\) (.+)$/gm)) {
-	if (!defects.has(m[1])) defects.set(m[1], { id: m[1], source: 'view-checklist.md', severity: m[2], text: m[3].replace(/ Evidence: .*$/, ''), disposition: null, owner: null });
-}
+const { defects, unparsedRows } = readDefects(REF);
 
 // ---- register --------------------------------------------------------------------------------------------------------
 
 const PAR = join(REF, 'parity');
 const files = ['intentional-differences.json', ...readdirSync(join(PAR, 'register')).filter((f) => f.endsWith('.json')).sort().map((f) => join('register', f))];
 const entries = files.flatMap((f) => (JSON.parse(readFileSync(join(PAR, f), 'utf8')).entries ?? []).map((e) => ({ ...e, file: `docs/reference/parity/${f}` })));
-const textOf = (e) => [e.id, ...(Array.isArray(e.field) ? e.field : [e.field]), e.reason, e.source, e.owner].filter(Boolean).join(' ');
-const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-function citing(id) {
-	const re = id.endsWith('-*') ? new RegExp(`${esc(id.slice(0, -1))}\\d+\\b`) : new RegExp(`${esc(id)}(?![\\w-]*\\d)\\b`);
-	return entries.filter((e) => re.test(textOf(e)));
-}
-
 const rows = [...defects.values()].map((d) => {
-	const cite = citing(d.id);
+	const cite = citing(entries, d.id);
 	const data = IMPORTED_DATA[d.id] ?? null;
 	const tagged = cite.some((e) => e.type === 'data-correction-deferred-to-pipeline');
 	const status = !cite.length ? 'no register entry' : data && !tagged ? 'imported data, not tagged' : 'registered';

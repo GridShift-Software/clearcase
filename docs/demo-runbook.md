@@ -36,3 +36,13 @@ What the audience sees: a case already loaded, a second case imported live by cl
 - Quantum, Invoice Ledger, Prescription, Interest, Payments and Settlement are empty for SA Centres: its pack carries no quantum data.
 - The Carroll pack is a different product's export and is not importable yet.
 - Emails, WhatsApp, organogram, KYC, billing, audit log and the Outlook integration are production-only or arrive with the newer export (see GRS-64).
+
+## What differs from production (checked 14 October against the hosted app)
+
+Production shows the ESS case from the newer 2,131-document export; the local app shows the older v5 export of 1,689 documents. Counts and figures differ for that reason alone: documents 1,689 vs 2,131; bundles 5 vs 8; amount due R280.7 m at 31 March vs R284.1 m at 31 May; invoices 307 vs 241; contradiction flags 33 vs 19; people 42 vs 122; entities 22 vs 12; risks 6 vs 14. The same ref can name a different document in the two exports (OD-603 is an SLA locally and a litigation document in production), so do not compare by ref on stage.
+
+Production pages the local app does not have: Emails, Email silences, Organogram, Anchor Documents, WhatsApp, and the Legal / Court Filings split (all arrive with the newer export); KYC/FICA, Billing and fee notes, Audit log, Outlook integration, Email draft and templates, Privilege suggestions, sign-in, Team and the case-home rounds (all hosted-only).
+
+Local features production does not have: the offline pack import with its validation report, candidate preview and explicit activation; Rescan & Update; Backup / Restore; editable enforcement statuses, authorities and cross-exam entries; direct court-bundle and index exports.
+
+Same page, different shape: search and diff work on 500-character excerpts (production indexes 4,000); Chronology filters by text status rather than year and lists undated rows first; the document page shows metadata first and opens the original in its own viewer rather than inline; Interest is a single-capital calculator rather than per-invoice; Discovery has two schedules rather than three; the registers lack the timer, VAT and tag fields.

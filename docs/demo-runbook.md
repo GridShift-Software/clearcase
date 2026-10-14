@@ -2,6 +2,20 @@
 
 What the audience sees: a case already loaded, a second case imported live by clicking, and every view of both. Nothing here needs a network.
 
+## Safe build for the demo
+
+The rehearsed build is tag `v0.0.1-rc.4` (commit 8410f4d); the tag `demo-safe` is the same code with this runbook. To get back to it from any later state:
+
+```sh
+git fetch --tags origin
+git checkout demo-safe
+bun install --frozen-lockfile
+bun run --bun build
+bun run --bun start
+```
+
+The data directory is not touched by a checkout, so imported cases stay. A case imported by a newer build may carry a results version the safe build cannot read; if a case shows a recovery banner after switching back, import its pack again.
+
 ## Before the demo (10 minutes)
 
 1. Build and start, from the checkout, with Bun 1.4.2 or newer:

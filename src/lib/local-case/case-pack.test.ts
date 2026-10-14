@@ -209,9 +209,25 @@ describe('the whole pipeline', () => {
 		const again = await lc.importCasePack(zip, dest);
 		expect(again.kind).toBe('identical');
 		expect((await readdir(dest)).sort()).toEqual(['Synthetic_Pack_v5', 'Synthetic_Pack_v5-results', 'Synthetic_Pack_v5-results-2']);
-		// a changed file (another size) is not that pack's extraction: refused, and left as it was
+		// an original edited without changing its length is not that pack's extraction: refused, and left as it was
+		const [original] = Object.keys(synthOriginals());
+		const edited = Buffer.from(packFiles()[original!]!).map((x) => x ^ 0xff);
+		await writeFile(path.join(caseDir, original!), edited);
+		expect(failed(await lc.importCasePack(zip, dest))).toContain(`holds other files than this pack (${original} differs)`);
+		expect(new Uint8Array(await readFile(path.join(caseDir, original!)))).toEqual(new Uint8Array(edited));
+		await writeFile(path.join(caseDir, original!), packFiles()[original!]!);
+		// the pack itself replaced by one whose workspace HTML has the same length but another subject: the extraction
+		// on disk is the old pack's, so it is not reused and the old chronology is not converted as the new pack
+		const html = Buffer.from(packFiles()['Workspace.html']!);
+		const at = html.indexOf('Synthetic subject');
+		expect(at).toBeGreaterThan(0);
+		html.write('Different subject', at);
+		await writeFile(zip, zipOf({ ...packFiles(), 'Workspace.html': html, 'Workspace (bundles update only).html': html }, 8));
+		expect(failed(await lc.importCasePack(zip, dest))).toContain('holds other files than this pack (Workspace.html differs)');
+		expect((await readdir(dest)).sort()).toEqual(['Synthetic_Pack_v5', 'Synthetic_Pack_v5-results', 'Synthetic_Pack_v5-results-2']);
+		// a changed file (another size) is named too
 		await writeFile(path.join(caseDir, 'Workspace.html'), 'changed');
-		expect(failed(await lc.importCasePack(zip, dest))).toMatch(/holds other files than this pack/);
+		expect(failed(await lc.importCasePack(zip, dest))).toContain('holds other files than this pack (Workspace.html differs in size)');
 		expect(await readFile(path.join(caseDir, 'Workspace.html'), 'utf8')).toBe('changed');
 	});
 

@@ -4,10 +4,12 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { DiagSink } from '../../src/lib/case-package/diagnostics.ts';
 import { importCandidate } from '../../src/lib/case-package/import.ts';
 import { extractV5 } from '../../src/lib/case-package/v5/extract.ts';
-import { matterOf, metaOf, quantumOf } from '../../src/lib/case-package/v5/newer-workspace.ts';
+import { bundlesOf, caselinesIndexOf, contractsOf, filingsOf, matterOf, metaOf, quantumOf, schedOf } from '../../src/lib/case-package/v5/newer-workspace.ts';
 import { decodeUtf8Strict, parseStrictJson } from '../../src/lib/case-package/strict-json.ts';
 import { buildSynth } from './fixtures/build.ts';
 import { cleanup, synthHtml, synthRoots } from './fixtures/synth.ts';
+
+const url = (p: string) => './' + p.split('/').map(encodeURIComponent).join('/');
 
 type J = Record<string, any>;
 const roots: string[] = [];
@@ -94,6 +96,56 @@ describe('the newer shapes mapped onto v5', () => {
     });
   });
 
+  it('contracts: doc_type from the chronology row, party and role empty, the signed reading as the note', () => {
+    const c: J = { count: 2, groups: [{ key: 'G', items: [{ ref: 'OD-001', title: 'T', note: '', signed: 'Signed' }, { ref: 'OD-002', title: 'U', note: 'Kept', signed: 'Unclear', doc_type: 'own' }] }] };
+    expect(contractsOf(c, byRef)).toEqual({ count: 2, groups: [{ key: 'G', items: [
+      { ref: 'OD-001', title: 'T', note: 'Signed', signed: 'Signed', doc_type: 'SLA', party: '', role: '' },
+      { ref: 'OD-002', title: 'U', note: 'Kept', signed: 'Unclear', doc_type: 'own', party: '', role: '' },
+    ] }] });
+  });
+
+  it('filings: a note per group, a role per item, the seed in the v5 field names', () => {
+    const f: J = { count: 1, groups: [{ key: 'Main', items: [{ ref: 'CB-021', title: 'T', cls: 'court' }] }], registerSeed: [{ filing: 'Summons', date: '2021-09-29', party: 'Plaintiff', answer: 'Plea', answerDate: '2023-11-16', note: 'N' }, { fdate: '', filing: 'v5 row', fparty: '', rdate: '', ref: '', response: '', status: 'S' }] };
+    expect(filingsOf(f)).toEqual({ count: 1, groups: [{ key: 'Main', note: '', items: [{ ref: 'CB-021', title: 'T', cls: 'court', role: '' }] }], registerSeed: [
+      { filing: 'Summons', date: '2021-09-29', party: 'Plaintiff', answer: 'Plea', answerDate: '2023-11-16', note: 'N', fdate: '2021-09-29', fparty: 'Plaintiff', rdate: '2023-11-16', ref: '', response: 'Plea', status: '' },
+      { fdate: '', filing: 'v5 row', fparty: '', rdate: '', ref: '', response: '', status: 'S' },
+    ] });
+  });
+
+  it('bundles: the list counts, each row\'s from, the sections keyed by number and the extracts list moved aside', () => {
+    const b: J = {
+      list: [{ no: '1', name: 'CORE BUNDLE', pages: 722, indexPages: 1, bodyPages: 721, items: 2, check: 'OK', rows: [{ n: 1, key: '1-1', desc: 'A', pages: 285, frm: 1, to: 285, parts: [] }, { n: 2, key: '1-2', desc: 'B', pages: 12, frm: 286, to: 297, parts: [] }] }],
+      count: 1, caselinesSections: [{ sec: '002', first: 13, last: 309, stampFrom: 1, stampTo: 297, title: 'POC' }], extracts: [{ ref: 'CB-029', name: 'PL-1.pdf' }], caselinesSrc: './X.pdf', catalogue: {},
+    };
+    expect(bundlesOf(b)).toEqual({
+      count: 1, source: '', indexSource: '', catalogue: {}, catCount: 0, extracts: '', extractFiles: [{ ref: 'CB-029', name: 'PL-1.pdf' }], caselinesSrc: './X.pdf',
+      caselinesSections: { '002': { sec: '002', first: 13, last: 309, stampFrom: 1, stampTo: 297, title: 'POC', from: 13, to: 309 } },
+      list: [{
+        no: '1', name: 'CORE BUNDLE', pages: 722, indexPages: 1, bodyPages: 721, check: 'OK', slug: '1_CORE_BUNDLE', planFile: '', bundlePages: 721, filePages: 722,
+        nDocs: 2, nItems: 2, nMissing: 0, nNeedsExtent: 0, nReview: 0, items: ['1-1', '1-2'],
+        rows: [{ n: 1, key: '1-1', desc: 'A', pages: 285, frm: 1, from: 1, to: 285, parts: [] }, { n: 2, key: '1-2', desc: 'B', pages: 12, frm: 286, from: 286, to: 297, parts: [] }],
+      }],
+    });
+    const v5 = (synthRoots().DATA as J).bundles as J;
+    expect(bundlesOf(v5)).toEqual(v5);
+  });
+
+  it('caselines index: the page map as sorted [page, text] pairs, the file named from the CaseLines locator', () => {
+    expect(caselinesIndexOf({ '2': 'two', '10': 'ten', '1': 'one' }, './PLEADINGS%20%26%20NOTICES/CASELINES%20BUNDLE.pdf', 0)).toEqual({ file: 'CASELINES BUNDLE.pdf', pages: 3, index: [[1, 'one'], [2, 'two'], [10, 'ten']] });
+    expect(caselinesIndexOf({ '1': 'one' }, '', 1745)).toEqual({ file: '', pages: 1745, index: [[1, 'one']] });
+  });
+
+  it('discovery schedules: the Original and Supplementary schedules as the two v5 lists, the full list kept', () => {
+    const pl1: J = { key: 'pl1', bundle: 'Original', items: [{ no: 3, desc: 'Letter', date: '2017-02-06', gap: true, files: [{ ref: 'OD-001', name: 'A.pdf', url: './A.pdf', pages: 5 }] }] };
+    const def: J = { key: 'def', bundle: '', items: [{ no: 1, desc: 'Not held', date: '', files: [] }] };
+    const pl2: J = { key: 'pl2', bundle: 'Supplementary', items: [{ no: 7, desc: 'Statement', date: '', files: [{ ref: 'SD-001', name: 'S.pdf', url: './S.pdf', x: 'filed under item 1' }] }] };
+    expect(schedOf([pl1, def, pl2])).toEqual({
+      discovery: [{ no: 3, desc: 'Letter', date: '2017-02-06', gap: true, co: '', nfiles: 1, files: [{ ref: 'OD-001', name: 'A.pdf', url: './A.pdf', pages: 5, fn: 'A.pdf', co: '' }] }],
+      supplementary: [{ no: 7, desc: 'Statement', date: '', co: '', nfiles: 1, files: [{ ref: 'SD-001', name: 'S.pdf', url: './S.pdf', x: 'filed under item 1', fn: 'S.pdf', co: '' }] }],
+      schedules: [pl1, def, pl2],
+    });
+  });
+
   it('converts a newer-shaped fixture into the mapped datasets, with no demotion for the mapped ones', async () => {
     const b = await buildSynth('newer-mapped', (r) => {
       r.META = { ...(r.META as J), version: 'V1' };
@@ -101,6 +153,17 @@ describe('the newer shapes mapped onto v5', () => {
       r.DATA.matter = {};
       r.DATA.profile = { matter_full: 'Synthetic matter in full', short: 'SYN', forum: 'Invented forum', claim_type: 'A claim.' };
       for (const row of (r.DATA.quantum as J).amountDueSeries as J[]) { row.title = row.filename; delete row.filename; }
+      for (const it of (r.DATA.contracts as J).groups[0].items as J[]) { delete it.doc_type; delete it.party; delete it.role; it.note = ''; it.signed = 'Signed'; }
+      const filings = r.DATA.filings as J;
+      delete filings.groups[0].note; filings.groups[0].items = (filings.groups[0].items as J[]).map(({ role: _r, ...it }) => ({ ...it, doc_type: 'pleading', party: '' }));
+      filings.registerSeed = [{ filing: 'Statement of claim', date: '2001-04-05', party: 'Claimant', answer: 'None yet', answerDate: '', note: '' }];
+      const b = r.DATA.bundles as J;
+      delete b.source; delete b.indexSource; delete b.catCount; delete b.catalogue;
+      b.caselinesSections = [{ sec: '001', first: 1, last: 2, title: 'Pleadings' }]; b.extracts = [{ ref: 'OD-001', name: 'x.pdf' }];
+      for (const k of ['slug', 'planFile', 'bundlePages', 'filePages', 'nDocs', 'nItems', 'nMissing', 'nNeedsExtent', 'nReview']) delete b.list[0][k];
+      b.list[0].items = 1; b.list[0].rows[0].frm = b.list[0].rows[0].from; delete b.list[0].rows[0].from;
+      r.CASELINES = { '1': 'Page one', '2': 'Page two' };
+      (r as J).SCHED = [{ key: 'pl1', bundle: 'Original', items: [{ no: 1, desc: 'Agreement', date: '2001-02-03', files: [{ ref: 'OD-001', name: 'OD-001 Supply agreement.pdf', url: url('DISCOVERY A/OD-001 Supply agreement.pdf') }] }] }];
     });
     roots.push(b.root);
     expect(b.result.source!.generation).toBe('v5-js-newer');
@@ -109,6 +172,12 @@ describe('the newer shapes mapped onto v5', () => {
     expect(dataset(b, 'meta')).toMatchObject({ version: 'V1', invoices: 1, dateSpan: ['2001-02-03', '2001-02-28'] });
     expect(dataset(b, 'matter')).toEqual({ title: 'Synthetic matter in full', short: 'SYN', forum: 'Invented forum', storyline: [{ h: 'The claim', t: 'A claim.' }, { h: 'Forum', t: 'Invented forum' }], strategy: [] });
     expect((dataset(b, 'quantum') as J).amountDueSeries[0]).toMatchObject({ ref: 'OD-002', filename: 'OD-002 Invoice 1001.pdf', title: 'OD-002 Invoice 1001.pdf' });
+    expect(datasetKeys(b)).toEqual(expect.arrayContaining(['contracts', 'filings', 'bundles', 'caselines-index', 'discovery-schedules']));
+    expect((dataset(b, 'contracts') as J).groups[0].items[0]).toMatchObject({ doc_type: 'SLA', note: 'Signed', party: '', role: '' });
+    expect((dataset(b, 'filings') as J).registerSeed[0]).toMatchObject({ fdate: '2001-04-05', filing: 'Statement of claim', fparty: 'Claimant', response: 'None yet' });
+    expect((dataset(b, 'bundles') as J).list[0]).toMatchObject({ slug: '1_Bundle_A', nDocs: 1, items: ['OD-1'], rows: [{ from: 1 }] });
+    expect(dataset(b, 'caselines-index')).toEqual({ file: 'OD-001 Supply agreement.pdf', pages: 2, index: [[1, 'Page one'], [2, 'Page two']] });
+    expect((dataset(b, 'discovery-schedules') as J).discovery[0]).toMatchObject({ no: 1, nfiles: 1, files: [{ fn: 'OD-001 Supply agreement.pdf' }] });
     const r = await importCandidate(b.pkgDir, b.caseDir);
     expect(r.verdict).toBe('report');
   });

@@ -423,6 +423,7 @@ Budget on puk (decision 8, fixed from the GRS-9 baseline before implementation):
 | `V5_PAYLOAD_NOT_JSON` | error | structural | v5 data line is not pure JSON (refused, never evaluated) |
 | `V5_PAYLOAD_ENCODED` | error | structural | v5 data line is encoded or computed (refused, never evaluated) |
 | `V5_UNMAPPED_KEY` | warning | quality | source key has no mapping; preserved as an opaque dataset |
+| `V5_DATASET_SHAPE_UNMAPPED` | warning | quality | source dataset does not match its v5 schema; preserved as an opaque dataset (its view shows the empty state) |
 | `V5_SIZE_CLAIM_MISMATCH` | warning | quality | source size field differs from the original on disk |
 | `V5_VIEW_CONTENT_MISSING` | warning | quality | a required view-content field was not found in the v5 viewer code (not extracted, never guessed) |
 | `V5_VIEW_CONTENT_AMBIGUOUS` | warning | quality | a view-content anchor matches more than once in the v5 viewer code (not extracted, never guessed) |

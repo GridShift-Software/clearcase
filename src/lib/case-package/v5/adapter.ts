@@ -9,11 +9,13 @@ import { capabilityOf, mediaTypeForName, type TextStatus } from '../media.ts';
 import { fingerprintOriginal, Interrupted, openCaseFolder } from '../originals.ts';
 import { checkRelPath, decodeLegacyLocator, foldPath, isReservedPath } from '../paths.ts';
 import { isRef } from '../refs.ts';
-import { CONVERSION_REPORT, LAYOUT, OPAQUE_SCHEMA, V5_DATASETS, V5_SPLIT_PARENTS, VIEW_CONTENT } from '../registry.ts';
+import Value from 'typebox/value';
+import { CONVERSION_REPORT, LAYOUT, OPAQUE_SCHEMA, REQUIRED_DATASETS, V5_DATASETS, V5_SPLIT_PARENTS, VIEW_CONTENT } from '../registry.ts';
 import type { Asset, Manifest } from '../schema.ts';
 import { decodeUtf8Strict, isObject, type JsonObject, type JsonValue } from '../strict-json.ts';
 import { buildPackage, type DatasetSpec } from '../writer.ts';
 import { extractV5, V5_ROOTS, type V5Root, type V5Source } from './extract.ts';
+import { mapNewerRoots } from './newer-workspace.ts';
 import { extractViewContent, type FieldStatus, type ViewContentResult } from './view-content.ts';
 import { VIEW_CONTENT_AUDIT, VIEW_CONTENT_MAP, VIEW_CONTENT_OMISSIONS } from './view-content-map.ts';
 import type { Diagnostic } from '../codes.ts';
@@ -77,6 +79,12 @@ export function mapTextStatus(src: unknown, mediaType: string): TextStatus {
 }
 
 const arr = (v: JsonValue | undefined): JsonValue[] => (Array.isArray(v) ? v : []);
+/** The first way `v` misses `schema`, or undefined when it fits. */
+const shapeMiss = (schema: unknown, v: unknown): string | undefined => {
+  if (Value.Check(schema as never, v)) return undefined;
+  const e = Value.Errors(schema as never, v)[Symbol.iterator]().next().value;
+  return e ? `${e.instancePath || '/'} ${e.message}` : 'does not match';
+};
 const objs = (v: JsonValue | undefined): JsonObject[] => arr(v).filter(isObject);
 
 /**
@@ -105,31 +113,45 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   const fail = (): ConvertResult => ({ ok: false, manifest: null, files: null, diagnostics: sink.finish(), source: null, viewContent, stats });
   const src = extractV5(opts.html, sink);
   if (!src) return fail();
-  const roots = src.roots;
+  const roots = src.generation === 'v5-js-newer' ? mapNewerRoots(src.roots) : src.roots;
   const DATA = roots.DATA as JsonObject;
   const META = (roots.META ?? {}) as JsonObject;
   const prov = (sourcePath: string) => ({ source: V5_SOURCE, sourcePath, adapter: ADAPTER.mapping });
 
-  // datasets: mapped, then residual (unknown keys are preserved, never dropped)
+  // datasets: mapped, then residual (unknown keys are preserved, never dropped). A mapped dataset that misses its
+  // schema is kept as an opaque residual instead, so an unmapped shape of a newer builder costs a view its data, not
+  // the case its import; the required dataset (chronology) is never demoted, so a broken register still refuses.
   const datasets: DatasetSpec[] = [];
   const mapped = new Set<string>();
+  const demoted: { d: (typeof V5_DATASETS)[number]; v: JsonValue; miss: string }[] = [];
   for (const d of V5_DATASETS) {
     const v = getAt(roots, d.sourcePath);
     if (v === undefined) continue;
-    datasets.push({ key: d.key, kind: d.kind, schema: d.schema, required: d.required, provenance: prov(d.sourcePath), data: v });
     mapped.add(d.sourcePath);
+    const miss = REQUIRED_DATASETS.includes(d.key) ? undefined : shapeMiss(d.data, v);
+    if (miss !== undefined) demoted.push({ d, v, miss });
+    else datasets.push({ key: d.key, kind: d.kind, schema: d.schema, required: d.required, provenance: prov(d.sourcePath), data: v });
   }
   const used = new Set(datasets.map((d) => d.key));
-  const residual = (sourcePath: string, v: JsonValue) => {
-    const base = 'v5-residual-' + kebab(sourcePath.replace(/^DATA\./, '').replace(/^window\./, ''));
+  const residualKey = (base: string, sourcePath: string): string => {
     // distinct source keys can kebab to the same key or be truncated: disambiguate with a digest of the source path
     let key = base.length <= 64 && !used.has(base) ? base : `${base.slice(0, 50).replace(/-+$/, '')}-${sha256Hex(sourcePath).slice(0, 12)}`;
     for (let n = 2; used.has(key); n++) key = `${base.slice(0, 50).replace(/-+$/, '')}-${sha256Hex(sourcePath).slice(0, 8)}-${n}`;
     used.add(key);
+    return key;
+  };
+  const residual = (sourcePath: string, v: JsonValue) => {
+    const key = residualKey('v5-residual-' + kebab(sourcePath.replace(/^DATA\./, '').replace(/^window\./, '')), sourcePath);
     sink.add('V5_UNMAPPED_KEY', `${sourcePath} has no mapping; kept as the opaque dataset ${key}`, { file: 'input', subject: sourcePath });
     datasets.push({ key, kind: 'generated', schema: OPAQUE_SCHEMA, required: false, provenance: prov(sourcePath), data: v });
     stats.residual++;
   };
+  for (const { d, v, miss } of demoted) {
+    const key = residualKey(`v5-residual-${d.key}`, d.sourcePath);
+    sink.add('V5_DATASET_SHAPE_UNMAPPED', `${d.sourcePath} does not match ${d.schema} (${miss}); kept as the opaque dataset ${key}, so its view shows the empty state`, { file: 'input', subject: d.key });
+    datasets.push({ key, kind: 'generated', schema: OPAQUE_SCHEMA, required: false, provenance: prov(d.sourcePath), data: v });
+    stats.residual++;
+  }
   for (const k of Object.keys(DATA)) {
     const sp = `DATA.${k}`;
     if (mapped.has(sp)) continue;

@@ -64,3 +64,14 @@ Production pages the local app does not have: Emails, Email silences, Organogram
 Local features production does not have: the offline pack import with its validation report, candidate preview and explicit activation; Rescan & Update; Backup / Restore; editable enforcement statuses, authorities and cross-exam entries; direct court-bundle and index exports.
 
 Same page, different shape: search and diff work on 500-character excerpts (production indexes 4,000); Chronology filters by text status rather than year and lists undated rows first; the document page shows metadata first and opens the original in its own viewer rather than inline; Interest is a single-capital calculator rather than per-invoice; Discovery has two schedules rather than three; the registers lack the timer, VAT and tag fields.
+
+## Letting visitors click around (read-only tour)
+
+`scripts/demo/tour-proxy.ts` is a password-protected, read-only front door for the running app, meant to sit behind a Cloudflare quick tunnel. Visitors can open every case view; the import page, the folder browser, the system views and every form submission are refused, and the app itself refuses foreign-origin form posts as a second fence. Originals do not open through the tour: their links point at the originals site on this machine.
+
+```sh
+TOUR_PASSWORD='choose-one' bun scripts/demo/tour-proxy.ts          # listens on 127.0.0.1:41190, forwards to 41101
+~/bin/cloudflared tunnel --url http://127.0.0.1:41190 --protocol http2   # prints the https://….trycloudflare.com link
+```
+
+Share the link with the user name `tour` and the password. The name takes up to a minute to resolve. To end the tour, `Ctrl-C` the cloudflared process and the proxy; the link stops working at once. `--protocol http2` is needed where UDP is blocked.

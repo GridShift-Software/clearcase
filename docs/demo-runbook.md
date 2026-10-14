@@ -75,3 +75,12 @@ TOUR_PASSWORD='choose-one' bun scripts/demo/tour-proxy.ts          # listens on 
 ```
 
 Share the link with the user name `tour` and the password. The name takes up to a minute to resolve. To end the tour, `Ctrl-C` the cloudflared process and the proxy; the link stops working at once. `--protocol http2` is needed where UDP is blocked.
+
+For originals (the PDF viewer) to open for visitors, give the originals site a tunnel of its own and tell the app to write that origin into its links:
+
+```sh
+~/bin/cloudflared tunnel --url http://127.0.0.1:41102 --http-host-header clearcase-originals.localhost:41102 --protocol http2
+ORIGINALS_PUBLIC_ORIGIN=https://<the second link> bun run --bun start      # restart the app with this set
+```
+
+The originals tunnel has no password: each link carries its own capability token, and the token is only shown to signed-in tour visitors. While the variable is set, your own browser also opens originals through the tunnel; start the app without it afterwards.

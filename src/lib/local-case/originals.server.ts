@@ -101,7 +101,8 @@ export class OriginalsServer {
 
 	constructor(app: LocalCase) {
 		this.app = app;
-		this.origin = originalsOrigin(app.config);
+		// links name the public origin when one is configured (a tunnel in front of this site); the Host check below stays on the site's own host
+		this.origin = app.config.originalsPublicOrigin ?? originalsOrigin(app.config);
 		this.host = originalsHost(app.config);
 		this.links = new LinkCapability(app.config.dataDir);
 		this.pdfjsDir = findPdfjs();

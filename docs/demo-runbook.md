@@ -36,3 +36,13 @@ What the audience sees: a case already loaded, a second case imported live by cl
 - Quantum, Invoice Ledger, Prescription, Interest, Payments and Settlement are empty for Sample Matter: its pack carries no quantum data.
 - The Third-Party pack is a different product's export and is not importable yet.
 - Emails, WhatsApp, organogram, KYC, billing, audit log and the Outlook integration are production-only or arrive with the newer export (see GRS-64).
+
+## What differs from production (checked against the hosted app)
+
+The older and newer exports differ in document, bundle, invoice, people and entity counts, and in the headline figures, so local numbers are not expected to match production exactly. The same ref can name a different document in the two exports, so do not compare by ref on stage.
+
+Production pages the local app does not have: Emails, Email silences, Organogram, Anchor Documents, WhatsApp, and the Legal / Court Filings split (all arrive with the newer export); KYC/FICA, Billing and fee notes, Audit log, Outlook integration, Email draft and templates, Privilege suggestions, sign-in, Team and the case-home rounds (all hosted-only).
+
+Local features production does not have: the offline pack import with its validation report, candidate preview and explicit activation; Rescan & Update; Backup / Restore; editable enforcement statuses, authorities and cross-exam entries; direct court-bundle and index exports.
+
+Same page, different shape: search and diff work on 500-character excerpts (production indexes 4,000); Chronology filters by text status rather than year and lists undated rows first; the document page shows metadata first and opens the original in its own viewer rather than inline; Interest is a single-capital calculator rather than per-invoice; Discovery has two schedules rather than three; the registers lack the timer, VAT and tag fields.

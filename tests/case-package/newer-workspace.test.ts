@@ -4,7 +4,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { DiagSink } from '../../src/lib/case-package/diagnostics.ts';
 import { importCandidate } from '../../src/lib/case-package/import.ts';
 import { extractV5 } from '../../src/lib/case-package/v5/extract.ts';
-import { bundlesOf, caselinesIndexOf, contractsOf, filingsOf, matterOf, metaOf, quantumOf, schedOf } from '../../src/lib/case-package/v5/newer-workspace.ts';
+import { buildReportOf, bundlesOf, caselinesIndexOf, contractsOf, filingsOf, interestBasisOf, linkSampleOf, matterOf, metaOf, quantumOf, schedOf, settlementOf } from '../../src/lib/case-package/v5/newer-workspace.ts';
 import { decodeUtf8Strict, parseStrictJson } from '../../src/lib/case-package/strict-json.ts';
 import { buildSynth } from './fixtures/build.ts';
 import { cleanup, synthHtml, synthRoots } from './fixtures/synth.ts';
@@ -146,6 +146,24 @@ describe('the newer shapes mapped onto v5', () => {
     });
   });
 
+  it('interest basis and settlement: the quantum headline, the earliest ledger invoice, the source lines as the note', () => {
+    const q = { headline_due: '284101740.54', headline_date: '2026-05-31', invoiceLedger: [{ date: '2015-01-31' }, { date: '2014-11-30' }, { date: '' }] };
+    const ib = { rate: 'prime + 5%', method: 'Simple', from: '30 days after each invoice', source: 'POC prayers 3 and 7' };
+    expect(interestBasisOf(ib, q)).toEqual({ ...ib, award_date: '', first_invoice_date: '2014-11-30', headline_date: '2026-05-31', headline_due: '284101740.54', note: 'rate: prime + 5%\nmethod: Simple\nfrom: 30 days after each invoice\nsource: POC prayers 3 and 7' });
+    expect(interestBasisOf({ award_date: '2017-11-29', note: 'kept' }, q)).toMatchObject({ award_date: '2017-11-29', note: 'kept' });
+    expect(settlementOf({}, q)).toEqual({ claim: '284101740.54', claimDate: '2026-05-31' });
+    expect(settlementOf({ claim: '1.00', claimDate: '' }, q)).toEqual({ claim: '1.00', claimDate: '' });
+  });
+
+  it('link sample and build report: a filename per row from the chronology, else the title', () => {
+    expect(linkSampleOf([{ ref: 'OD-001', url: './a', title: 'T', bundle: 'Original' }, { ref: 'ZZ-1', title: 'Own', url: '', bundle: '' }], byRef)).toEqual([
+      { ref: 'OD-001', url: './a', title: 'T', bundle: 'Original', filename: 'OD-001 Supply agreement.pdf' }, { ref: 'ZZ-1', title: 'Own', url: '', bundle: '', filename: 'Own' },
+    ]);
+    expect(buildReportOf({ generatedFrom: 'x', textNone: [{ ref: 'OD-003', title: 'Scan', bundle: 'Original', url: './s' }], counts: { Original: 1 } }, byRef)).toEqual({
+      generatedFrom: 'x', counts: { Original: 1 }, pending: [], textNone: [{ ref: 'OD-003', title: 'Scan', bundle: 'Original', url: './s', filename: 'OD-003 Scan.pdf' }],
+    });
+  });
+
   it('converts a newer-shaped fixture into the mapped datasets, with no demotion for the mapped ones', async () => {
     const b = await buildSynth('newer-mapped', (r) => {
       r.META = { ...(r.META as J), version: 'V1' };
@@ -163,11 +181,14 @@ describe('the newer shapes mapped onto v5', () => {
       for (const k of ['slug', 'planFile', 'bundlePages', 'filePages', 'nDocs', 'nItems', 'nMissing', 'nNeedsExtent', 'nReview']) delete b.list[0][k];
       b.list[0].items = 1; b.list[0].rows[0].frm = b.list[0].rows[0].from; delete b.list[0].rows[0].from;
       r.CASELINES = { '1': 'Page one', '2': 'Page two' };
+      const lit = r.DATA.lit as J;
+      lit.interestBasis = { rate: 'prime + 5%', method: 'Simple' }; lit.settlement = {}; lit.prescSummary = {};
+      for (const row of (r.DATA.linkSample as J[]).concat((r.DATA.buildReport as J).textNone as J[], (r.DATA.buildReport as J).pending as J[])) { row.title = row.filename; delete row.filename; }
       (r as J).SCHED = [{ key: 'pl1', bundle: 'Original', items: [{ no: 1, desc: 'Agreement', date: '2001-02-03', files: [{ ref: 'OD-001', name: 'OD-001 Supply agreement.pdf', url: url('DISCOVERY A/OD-001 Supply agreement.pdf') }] }] }];
     });
     roots.push(b.root);
     expect(b.result.source!.generation).toBe('v5-js-newer');
-    expect(b.result.diagnostics.filter((d) => d.code === 'V5_DATASET_SHAPE_UNMAPPED')).toEqual([]);
+    expect(b.result.diagnostics.filter((d) => d.code === 'V5_DATASET_SHAPE_UNMAPPED').map((d) => d.subject)).toEqual(['lit-presc-summary']);
     expect(datasetKeys(b)).toEqual(expect.arrayContaining(['matter', 'meta', 'quantum', 'v5-residual-profile']));
     expect(dataset(b, 'meta')).toMatchObject({ version: 'V1', invoices: 1, dateSpan: ['2001-02-03', '2001-02-28'] });
     expect(dataset(b, 'matter')).toEqual({ title: 'Synthetic matter in full', short: 'SYN', forum: 'Invented forum', storyline: [{ h: 'The claim', t: 'A claim.' }, { h: 'Forum', t: 'Invented forum' }], strategy: [] });
@@ -178,6 +199,11 @@ describe('the newer shapes mapped onto v5', () => {
     expect((dataset(b, 'bundles') as J).list[0]).toMatchObject({ slug: '1_Bundle_A', nDocs: 1, items: ['OD-1'], rows: [{ from: 1 }] });
     expect(dataset(b, 'caselines-index')).toEqual({ file: 'OD-001 Supply agreement.pdf', pages: 2, index: [[1, 'Page one'], [2, 'Page two']] });
     expect((dataset(b, 'discovery-schedules') as J).discovery[0]).toMatchObject({ no: 1, nfiles: 1, files: [{ fn: 'OD-001 Supply agreement.pdf' }] });
+    expect(dataset(b, 'lit-interest-basis')).toEqual({ rate: 'prime + 5%', method: 'Simple', award_date: '', first_invoice_date: '2001-02-28', headline_date: '2001-03-04', headline_due: '1150.00', note: 'rate: prime + 5%\nmethod: Simple' });
+    expect(dataset(b, 'lit-settlement')).toEqual({ claim: '1150.00', claimDate: '2001-03-04' });
+    expect(datasetKeys(b)).toContain('v5-residual-lit-presc-summary');
+    expect((dataset(b, 'link-sample') as J[])[0]).toMatchObject({ ref: 'OD-001', filename: 'OD-001 Supply agreement.pdf' });
+    expect((dataset(b, 'build-report') as J).textNone[0]).toMatchObject({ ref: 'OD-003', filename: 'OD-003 Scan.pdf' });
     const r = await importCandidate(b.pkgDir, b.caseDir);
     expect(r.verdict).toBe('report');
   });

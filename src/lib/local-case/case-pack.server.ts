@@ -6,10 +6,11 @@
 //    is written the same way. A later failure or Cancel removes the folders this run created (importCasePack), and a
 //    second import of the same pack reuses its extracted folder.
 import { randomBytes } from 'node:crypto';
-import { constants } from 'node:fs';
+import { constants, createReadStream } from 'node:fs';
 import { access, lstat, mkdir, open, readdir, readFile, realpath, rename, rm, rmdir, stat, statfs } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
+import { crc32 } from 'node:zlib';
 import { CASE_ID } from '../case-package/schema.ts';
 import { withLimits } from '../case-package/limits.ts';
 import { convertV5 } from '../case-package/v5/adapter.ts';
@@ -76,8 +77,8 @@ export async function listFolder(requested: string | null): Promise<FolderListin
 /** A step refused or failed; the message is shown to the user as is. */
 export class CasePackError extends Error {}
 
-/** extract: files and bytes; convert: originals fingerprinted; find and write carry no counts */
-export interface PackProgress { phase: 'extract' | 'find' | 'convert' | 'write'; done: number; total: number; bytesDone: number; bytesTotal: number }
+/** extract and check (an earlier extraction read back): files and bytes; convert: originals fingerprinted; find and write carry no counts */
+export interface PackProgress { phase: 'extract' | 'check' | 'find' | 'convert' | 'write'; done: number; total: number; bytesDone: number; bytesTotal: number }
 
 export interface PrepareOptions {
 	signal: AbortSignal;
@@ -151,16 +152,38 @@ function caseFolderOf(target: string, entries: readonly ZipEntry[]): string {
 	return tops.size === 1 && entries.every((e) => e.name.includes('/')) ? path.join(target, only!) : target;
 }
 
-/** The target holds exactly the pack's files, with the same names and sizes: an earlier extraction of this pack. */
-async function holdsExactly(target: string, entries: readonly ZipEntry[]): Promise<boolean> {
+/**
+ * Why the target is not an earlier extraction of this pack, or null when it is: the same files by name and size, and
+ * then by content, each read back and its CRC-32 compared with the central directory's. Names and sizes alone would
+ * take a pack whose files changed without changing length (an edited workspace HTML, a re-exported original) for this
+ * one, and the converter would then read the old copy instead of the pack the user chose. Reading every file back is
+ * cheaper than extracting it again, and reports under the 'check' phase.
+ */
+async function differsFrom(target: string, entries: readonly ZipEntry[], o: PrepareOptions): Promise<string | null> {
 	const files = entries.filter((e) => !e.isDirectory);
 	const onDisk = (await readdir(target, { recursive: true, withFileTypes: true })).filter((d) => !d.isDirectory());
-	if (onDisk.length !== files.length) return false;
+	if (onDisk.length !== files.length) return `${onDisk.length} files, the pack ${files.length}`;
+	const on = (e: ZipEntry) => path.join(target, ...e.name.split('/'));
 	for (const e of files) {
-		const st = await lstat(path.join(target, ...e.name.split('/'))).catch(() => null);
-		if (!st?.isFile() || st.size !== e.uncompressedSize) return false;
+		const st = await lstat(on(e)).catch(() => null);
+		if (!st?.isFile()) return `${e.name} is missing`;
+		if (st.size !== e.uncompressedSize) return `${e.name} differs in size`;
 	}
-	return true;
+	const p: PackProgress = { phase: 'check', done: 0, total: files.length, bytesDone: 0, bytesTotal: files.reduce((n, e) => n + e.uncompressedSize, 0) };
+	o.onProgress({ ...p });
+	for (const e of files) {
+		o.signal.throwIfAborted();
+		let crc = 0;
+		for await (const c of createReadStream(on(e), { signal: o.signal })) {
+			crc = crc32(c as Buffer, crc);
+			p.bytesDone += (c as Buffer).length;
+			o.onProgress({ ...p });
+		}
+		if ((crc >>> 0) !== (e.crc32 >>> 0)) return `${e.name} differs`;
+		p.done++;
+		o.onProgress({ ...p });
+	}
+	return null;
 }
 
 /**
@@ -179,8 +202,9 @@ async function extractZip(zip: string, destination: string, o: PrepareOptions, c
 		const caseFolder = caseFolderOf(target, entries);
 		const existed = await exists(target);
 		if (existed && !(await isEmptyDir(target))) {
-			if (await holdsExactly(target, entries)) return caseFolder;
-			throw new CasePackError(`${target} already exists and holds other files than this pack, so the pack is not extracted over it. To import that copy, choose Add documents, open ${caseFolder} and choose Use this folder; otherwise store the case in another folder.`);
+			const why = await differsFrom(target, entries, o);
+			if (why === null) return caseFolder;
+			throw new CasePackError(`${target} already exists and holds other files than this pack (${why}), so the pack is not extracted over it. To import that copy, choose Add documents, open ${caseFolder} and choose Use this folder; otherwise store the case in another folder.`);
 		}
 		const total = entries.reduce((n, e) => n + e.uncompressedSize, 0);
 		const fs = await statfs(destination);

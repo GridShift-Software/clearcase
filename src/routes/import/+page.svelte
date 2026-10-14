@@ -45,7 +45,7 @@
 		if (form?.caseName !== undefined) caseName = form.caseName;
 	});
 	const effectiveDestination = $derived(destination || data.defaultDestination);
-	const stageOf = (phase: string) => (phase === 'extract' ? 'Extracting' : phase === 'find' || phase === 'convert' || phase === 'write' ? 'Converting' : 'Checking originals');
+	const stageOf = (phase: string) => (phase === 'extract' || phase === 'check' ? 'Extracting' : phase === 'find' || phase === 'convert' || phase === 'write' ? 'Converting' : 'Checking originals');
 	// With JS: poll the import's progress while its request runs. Without JS the plain form post works the same.
 	const track = (which: 'case' | 'package') => () => {
 		busy = which;
@@ -56,6 +56,7 @@
 			if (g) stage = stageOf(g.phase);
 			progress = !g ? 'starting' : g.phase === 'hash' ? `checking originals: ${g.done}/${g.total} files, ${mb(g.bytesDone)}/${mb(g.bytesTotal)} MB`
 				: g.phase === 'extract' ? `extracting the case pack: ${g.done}/${g.total} files, ${mb(g.bytesDone)}/${mb(g.bytesTotal)} MB`
+				: g.phase === 'check' ? `checking the earlier extraction of this pack: ${g.done}/${g.total} files, ${mb(g.bytesDone)}/${mb(g.bytesTotal)} MB`
 				: g.phase === 'find' ? 'converting: finding the workspace HTML'
 				: g.phase === 'convert' ? `converting the workspace HTML: ${g.total ? `fingerprinting originals ${g.done}/${g.total}` : 'reading it'}`
 				: g.phase === 'write' ? 'converting: writing the results package'

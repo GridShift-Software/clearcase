@@ -38,6 +38,7 @@ export default defineConfig({
       'src/lib/{evidence,analysis,calculations,litigation,bundles,views,user-work}/**/*.test.ts',
       'src/routes/**/*.test.ts',
       'tests/e2e/pilot/**/*.test.ts',
+      'tests/demo/**/*.test.ts',
     ],
     pool: 'forks',
     sequence: { sequencer: SlowFirst },

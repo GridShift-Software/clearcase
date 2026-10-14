@@ -57,7 +57,7 @@ The newer export of the ESS case, `ESS_DCS_Lawyer_Pack-001.zip` (3.8 GB; 2,131 d
 
 ## What differs from production (checked 14 October against the hosted app)
 
-Production shows the ESS case from the newer 2,131-document export; the local app shows the older v5 export of 1,689 documents. Counts and figures differ for that reason alone: documents 1,689 vs 2,131; bundles 5 vs 8; amount due R280.7 m at 31 March vs R284.1 m at 31 May; invoices 307 vs 241; contradiction flags 33 vs 19; people 42 vs 122; entities 22 vs 12; risks 6 vs 14. The same ref can name a different document in the two exports (OD-603 is an SLA locally and a litigation document in production), so do not compare by ref on stage.
+Production shows the ESS case from the newer 2,131-document export. With the v5 pack loaded, the local app shows the older export of 1,689 documents and counts differ for that reason alone (with the September pack loaded, the headline figures match production, but the analysis views are empty; see above): documents 1,689 vs 2,131; bundles 5 vs 8; amount due R280.7 m at 31 March vs R284.1 m at 31 May; invoices 307 vs 241; contradiction flags 33 vs 19; people 42 vs 122; entities 22 vs 12; risks 6 vs 14. The same ref can name a different document in the two exports (OD-603 is an SLA locally and a litigation document in production), so do not compare by ref on stage.
 
 Production pages the local app does not have: Emails, Email silences, Organogram, Anchor Documents, WhatsApp, and the Legal / Court Filings split (all arrive with the newer export); KYC/FICA, Billing and fee notes, Audit log, Outlook integration, Email draft and templates, Privilege suggestions, sign-in, Team and the case-home rounds (all hosted-only).
 

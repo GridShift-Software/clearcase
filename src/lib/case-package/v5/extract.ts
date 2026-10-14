@@ -9,6 +9,7 @@
 import type { DiagSink } from '../diagnostics.ts';
 import { decodeUtf8Strict, isObject, parseStrictJson, StrictJsonError, type JsonValue } from '../strict-json.ts';
 import { JSON_SCRIPT_IDS, toV5Roots, type JsonScriptId } from './json-workspace.ts';
+import { isNewerGeneration } from './newer-workspace.ts';
 
 export const V5_ROOTS = ['DATA', 'META', 'window.__SCHED__', 'window.__CASELINES_IDX__'] as const;
 export type V5Root = (typeof V5_ROOTS)[number];
@@ -20,8 +21,11 @@ const ASSIGN = /^(?:const (DATA|META)|window\.(__SCHED__|__CASELINES_IDX__)) = (
 const ASSIGN_LOOSE = /^\s*(?:(?:const|let|var)\s+(DATA|META)|window\.(__SCHED__|__CASELINES_IDX__))\s*=/;
 const JSON_SCRIPT = /^\s*<script id="(app-data|app-seed)" type="application\/json">(.*)<\/script>\s*$/;
 
-/** Which generation of the workspace HTML the data was read from. */
-export type Generation = 'v5-js' | 'json-script';
+/**
+ * Which generation of the workspace HTML the data was read from: the v5 payload lines, the same lines written by the
+ * newer builder (`v5-js-newer`: META.version, a profile, changed dataset shapes), or the JSON script tags.
+ */
+export type Generation = 'v5-js' | 'v5-js-newer' | 'json-script';
 
 export interface V5Source {
   generation: Generation;
@@ -106,5 +110,6 @@ export function extractV5(bytes: Uint8Array, sink: DiagSink): V5Source | null {
   } else for (const r of REQUIRED) if (!seen.has(r)) sink.add('V5_PAYLOAD_MISSING', `${r} payload line not found`, { file: 'input', subject: r });
   if (out.roots.DATA !== undefined && !isObject(out.roots.DATA)) sink.add('V5_PAYLOAD_NOT_JSON', 'DATA must be a JSON object', { file: 'input', subject: 'DATA' });
   if (out.roots.META !== undefined && !isObject(out.roots.META)) sink.add('V5_PAYLOAD_NOT_JSON', 'META must be a JSON object', { file: 'input', subject: 'META' });
+  if (out.generation === 'v5-js' && isObject(out.roots.DATA) && isObject(out.roots.META) && isNewerGeneration(out.roots.DATA, out.roots.META)) out.generation = 'v5-js-newer';
   return sink.errors === 0 ? out : null;
 }

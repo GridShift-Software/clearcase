@@ -51,6 +51,10 @@ The data directory is not touched by a checkout, so imported cases stay. A case 
 - The Third-Party pack is a different product's export and is not importable yet.
 - Emails, WhatsApp, organogram, KYC, billing, audit log and the Outlook integration are production-only or arrive with the newer export (see GRS-64).
 
+## Importing a newer export
+
+The newer export imports the same way as the v5 zip: **Import a case**, type the case name, **Add documents**, click the zip, **Open case**. Read the validation report, tick the acknowledgement and **Activate this version**. Check every view opens before the demo, and note which views stay empty because the export carries no rows for them.
+
 ## What differs from production (checked against the hosted app)
 
 The older and newer exports differ in document, bundle, invoice, people and entity counts, and in the headline figures, so local numbers are not expected to match production exactly. The same ref can name a different document in the two exports, so do not compare by ref on stage.

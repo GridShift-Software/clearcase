@@ -179,6 +179,39 @@ export function schedOf(list: readonly JsonObject[]): JsonObject {
   return { discovery: of('Original'), supplementary: of('Supplementary'), schedules: [...list] };
 }
 
+/** The earliest dated row of a list, as an ISO date or ''. */
+const earliestDate = (rows: readonly JsonObject[]): string => rows.map((r) => str(r.date)).filter((d) => d !== '').sort()[0] ?? '';
+
+/**
+ * v5 interest basis from the newer one (rate, method, from, source): the headline figure and date are the quantum
+ * headline, the first invoice date is the earliest invoice in the ledger, and the source's own lines are the note.
+ * The award date has no field in this export.
+ */
+export function interestBasisOf(ib: JsonObject, q: JsonObject): JsonObject {
+  return {
+    ...ib,
+    award_date: ib.award_date ?? '',
+    first_invoice_date: ib.first_invoice_date ?? earliestDate(objs(q.invoiceLedger)),
+    headline_date: ib.headline_date ?? str(q.headline_date),
+    headline_due: ib.headline_due ?? str(q.headline_due),
+    note: ib.note ?? narrative(ib),
+  };
+}
+
+/** v5 settlement: the claim is the quantum headline (amount owing at its date), as the v5 builder wrote it. */
+export function settlementOf(s: JsonObject, q: JsonObject): JsonObject {
+  return { ...s, claim: s.claim ?? str(q.headline_due), claimDate: s.claimDate ?? str(q.headline_date) };
+}
+
+/** v5 link sample: a filename per row. */
+export const linkSampleOf = (list: JsonValue, rowsByRef: RowsByRef): JsonValue => mapObjs(list, withFilename(rowsByRef)) ?? list;
+
+/** v5 build report: a filename per pending and per text-none row. */
+export function buildReportOf(br: JsonObject, rowsByRef: RowsByRef): JsonObject {
+  const fill = withFilename(rowsByRef);
+  return { ...br, pending: mapObjs(br.pending, fill) ?? [], textNone: mapObjs(br.textNone, fill) ?? [] };
+}
+
 const hasMatter = (v: JsonValue | undefined): boolean => isObject(v) && typeof v.title === 'string';
 
 /** The newer roots in the v5 shapes, as far as they are mapped; every other value is carried over as written. */
@@ -193,6 +226,15 @@ export function mapNewerRoots(roots: Roots): Roots {
   if (isObject(DATA.contracts)) out.contracts = contractsOf(DATA.contracts, rowsByRef);
   if (isObject(DATA.filings)) out.filings = filingsOf(DATA.filings);
   if (isObject(DATA.bundles)) out.bundles = bundlesOf(DATA.bundles);
+  if (DATA.linkSample !== undefined) out.linkSample = linkSampleOf(DATA.linkSample, rowsByRef);
+  if (isObject(DATA.buildReport)) out.buildReport = buildReportOf(DATA.buildReport, rowsByRef);
+  if (isObject(DATA.lit)) {
+    const q = isObject(DATA.quantum) ? DATA.quantum : {};
+    const lit: JsonObject = { ...DATA.lit };
+    if (isObject(lit.interestBasis)) lit.interestBasis = interestBasisOf(lit.interestBasis, q);
+    if (isObject(lit.settlement)) lit.settlement = settlementOf(lit.settlement, q);
+    out.lit = lit;
+  }
   const mapped: Roots = { ...roots, DATA: out, META: metaOf(META, rows) };
   const sched = roots['window.__SCHED__'];
   if (Array.isArray(sched)) mapped['window.__SCHED__'] = schedOf(sched.filter(isObject));

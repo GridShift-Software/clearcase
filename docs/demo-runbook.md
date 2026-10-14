@@ -13,7 +13,7 @@ What the audience sees: a case already loaded, a second case imported live by cl
    ```
 
    Use a fresh data directory so the Cases page starts empty. Open http://127.0.0.1:41101 in Chrome.
-2. Preload the SA Centres case. Choose **Import a case**. Step 1: type `SA Centres` as the **Case name**. Step 2: choose **Add documents**, open the extracted `SA Centres` folder (the one that holds `SA_Centres_Workspace.html`) and choose **Use this folder**. Step 3: leave the store folder as it is, or **Change** it to any folder outside the case. Step 4: choose **Open case**. Converting and validating takes about ten seconds. On the report, tick the acknowledgement and choose **Activate this version**.
+2. Preload the SA Centres case. Choose **Import a case**. Step 1: type `SA Centres` as the **Case name**. Step 2: choose **Add documents** and click the SA Centres zip (or, if it was extracted, open the folder that holds `SA_Centres_Workspace.html` and choose **Use this folder**). Step 3: leave the store folder as it is, or **Change** it to any folder outside the case. Step 4: choose **Open case**. Extracting, converting and validating takes about 30 seconds from the zip, or ten from a folder. On the report, tick the acknowledgement and choose **Activate this version**.
 3. Open **Cases** and confirm one Active case. Keep the ESS zip (`ESS_DCS_Lawyer_Pack_v5-002.zip`) in a folder the picker can reach, with at least 4 GB free beside it.
 4. Restart the server once (`Ctrl-C`, then `start` again) and confirm the case is still there. This is what the demo machine will do after a reboot.
 

@@ -88,6 +88,97 @@ export function quantumOf(q: JsonObject, rowsByRef: RowsByRef): JsonObject {
   return out;
 }
 
+/**
+ * v5 contracts: each item carries doc_type (its chronology row's), party and role. The source's own `signed` reading
+ * ("Signed", "Unclear") stands in for an empty note, so the view's Signed column reads it as the builder meant.
+ */
+export function contractsOf(c: JsonObject, rowsByRef: RowsByRef): JsonObject {
+  const item = (it: JsonObject): JsonObject => ({
+    ...it,
+    doc_type: it.doc_type ?? str(rowsByRef.get(str(it.ref))?.doc_type),
+    party: it.party ?? '',
+    role: it.role ?? '',
+    note: typeof it.note === 'string' && it.note !== '' ? it.note : str(it.signed),
+  });
+  return { ...c, groups: mapObjs(c.groups, (g) => ({ ...g, items: mapObjs(g.items, item) ?? g.items })) ?? c.groups };
+}
+
+/** A newer register seed row (filing, date, party, answer, answerDate, note) in the v5 seed shape. */
+const seedOf = (r: JsonObject): JsonObject =>
+  r.fdate !== undefined || r.fparty !== undefined ? r : { ...r, fdate: str(r.date), filing: str(r.filing), fparty: str(r.party), rdate: str(r.answerDate), ref: str(r.ref), response: str(r.answer), status: str(r.status) };
+
+/** v5 filings: a note per group, a role per item, and the register seed in the v5 field names. */
+export function filingsOf(f: JsonObject): JsonObject {
+  return {
+    ...f,
+    groups: mapObjs(f.groups, (g) => ({ ...g, note: g.note ?? '', items: mapObjs(g.items, (it) => ({ ...it, role: it.role ?? '' })) ?? g.items })) ?? f.groups,
+    registerSeed: mapObjs(f.registerSeed, seedOf) ?? f.registerSeed,
+  };
+}
+
+/** v5 bundle slug: the number and name with each run of other characters as one underscore (court.ts does the same). */
+const bundleSlug = (no: string, name: string) => `${no}_${name}`.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 60);
+
+/**
+ * v5 bundles: the counts and files the list items carry, each row's `from` (written `frm`), the CaseLines sections
+ * keyed by section number with the physical page range as from/to, and the item catalogue (absent here: empty). The
+ * extracts list, a string in v5, moves to `extractFiles`.
+ */
+export function bundlesOf(b: JsonObject): JsonObject {
+  const bundle = (x: JsonObject): JsonObject => {
+    const rows = mapObjs(x.rows, (r) => ({ ...r, from: r.from ?? count(r.frm) })) ?? x.rows;
+    const keys = objs(rows).map((r) => str(r.key));
+    const n = typeof x.items === 'number' ? count(x.items) : keys.length;
+    return {
+      ...x,
+      slug: x.slug ?? bundleSlug(str(x.no), str(x.name)), planFile: x.planFile ?? '',
+      bundlePages: x.bundlePages ?? count(x.bodyPages ?? x.pages), filePages: x.filePages ?? count(x.pages),
+      nDocs: x.nDocs ?? n, nItems: x.nItems ?? n, nMissing: x.nMissing ?? 0, nNeedsExtent: x.nNeedsExtent ?? 0, nReview: x.nReview ?? 0,
+      items: Array.isArray(x.items) ? x.items : keys,
+      rows,
+    };
+  };
+  const sections = Array.isArray(b.caselinesSections)
+    ? Object.fromEntries(objs(b.caselinesSections).map((s) => [str(s.sec), { ...s, from: count(s.first), to: count(s.last), title: str(s.title) }]))
+    : b.caselinesSections;
+  return {
+    ...b,
+    source: b.source ?? '', indexSource: b.indexSource ?? '',
+    catalogue: b.catalogue ?? {}, catCount: b.catCount ?? (isObject(b.catalogue) ? Object.keys(b.catalogue).length : 0),
+    extracts: typeof b.extracts === 'string' ? b.extracts : '',
+    ...(Array.isArray(b.extracts) && { extractFiles: b.extracts }),
+    ...(sections !== undefined && { caselinesSections: sections }),
+    list: mapObjs(b.list, bundle) ?? b.list,
+  };
+}
+
+/** The decoded last segment of a "./" locator, as the file's display name. */
+const nameOfLocator = (u: string): string => { const seg = u.split('/').pop() ?? ''; try { return decodeURIComponent(seg); } catch { return seg; } };
+
+/** v5 caselines index from the newer page-number-to-text map; the file is the bundles' CaseLines source. */
+export function caselinesIndexOf(idx: JsonObject, caselinesSrc: string, pages: number): JsonObject {
+  const index: JsonValue[] = [];
+  const rest: JsonObject = {};
+  for (const [k, t] of Object.entries(idx)) if (/^\d+$/.test(k)) index.push([Number(k), str(t)]); else rest[k] = t;
+  index.sort((a, b) => ((a as number[])[0]! - (b as number[])[0]!));
+  return { ...rest, file: nameOfLocator(caselinesSrc), pages: pages || index.length, index };
+}
+
+/**
+ * v5 discovery schedules from the newer list of schedules: the Original bundle's items are the discovery schedule,
+ * the Supplementary bundle's the supplementary one; a file's `fn` is its name. The full list stays under `schedules`,
+ * so a schedule of neither bundle (the defendant's, held for reference) is not lost.
+ */
+export function schedOf(list: readonly JsonObject[]): JsonObject {
+  const file = (f: JsonObject): JsonObject => ({ ...f, fn: f.fn ?? str(f.name), url: str(f.url), co: f.co ?? '' });
+  const item = (i: JsonObject): JsonObject => {
+    const files = mapObjs(i.files, file) ?? [];
+    return { ...i, no: count(i.no), date: str(i.date), desc: str(i.desc), co: i.co ?? '', nfiles: i.nfiles ?? objs(files).length, files };
+  };
+  const of = (bundle: string) => list.filter((s) => str(s.bundle) === bundle).flatMap((s) => objs(s.items).map(item));
+  return { discovery: of('Original'), supplementary: of('Supplementary'), schedules: [...list] };
+}
+
 const hasMatter = (v: JsonValue | undefined): boolean => isObject(v) && typeof v.title === 'string';
 
 /** The newer roots in the v5 shapes, as far as they are mapped; every other value is carried over as written. */
@@ -99,5 +190,13 @@ export function mapNewerRoots(roots: Roots): Roots {
   const out: JsonObject = { ...DATA };
   if (isObject(DATA.profile) && !hasMatter(DATA.matter)) out.matter = matterOf(DATA.profile, META);
   if (isObject(DATA.quantum)) out.quantum = quantumOf(DATA.quantum, rowsByRef);
-  return { ...roots, DATA: out, META: metaOf(META, rows) };
+  if (isObject(DATA.contracts)) out.contracts = contractsOf(DATA.contracts, rowsByRef);
+  if (isObject(DATA.filings)) out.filings = filingsOf(DATA.filings);
+  if (isObject(DATA.bundles)) out.bundles = bundlesOf(DATA.bundles);
+  const mapped: Roots = { ...roots, DATA: out, META: metaOf(META, rows) };
+  const sched = roots['window.__SCHED__'];
+  if (Array.isArray(sched)) mapped['window.__SCHED__'] = schedOf(sched.filter(isObject));
+  const idx = roots['window.__CASELINES_IDX__'];
+  if (isObject(idx) && !Array.isArray(idx.index)) mapped['window.__CASELINES_IDX__'] = caselinesIndexOf(idx, str(isObject(DATA.bundles) ? DATA.bundles.caselinesSrc : ''), count(META.caselinesPages));
+  return mapped;
 }

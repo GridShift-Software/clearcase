@@ -9,7 +9,7 @@ export function importedMoney(s: string | null | undefined): string {
 	const u = importedUnits(s);
 	return u === null ? '' : fmtR(centsText(unitsToCents(u)));
 }
-/** Ten-thousandths for display. */
+/** `u` is in ten-thousandths; formatted for display. */
 export const unitsMoney = (u: bigint) => fmtR(centsText(unitsToCents(u)));
 
 export const INVOICE_COLUMNS = ['ref', 'no', 'date', 'amount', 'bundle', 'text_status', 'url'] as const;

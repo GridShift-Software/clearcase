@@ -59,7 +59,3 @@
 		</section>
 	{/each}
 </nav>
-
-<style>
-	.case-brand { font-weight: 700; margin: .4rem 0 .2rem; }
-</style>

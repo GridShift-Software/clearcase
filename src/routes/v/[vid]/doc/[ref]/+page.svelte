@@ -38,18 +38,19 @@
 
 <main id="main" tabindex="-1" data-ready={ready ? `doc:${data.ref}` : null}>
 	<PageHeader heading="{data.ref} {title}" section="Document" caseName={data.version.titleName} document="{data.ref} {title}" />
+	<section class="card doc-fields" aria-labelledby="fields-heading"><h2 id="fields-heading">Index entry</h2>
 	<table class="fields"><tbody>
 		<tr><th scope="row">Date</th><td id="doc-date"><DateValue date={f.date} dateType={f.dateType} dateSource={f.dateSource} /></td></tr>
 		<tr><th scope="row">Filename (source)</th><td class="wrap">{displayFilename(f.filename, 200)}</td></tr>
 		{#each rows as [k, val] (k)}{#if val}<tr><th scope="row">{k}</th><td class="wrap">{val}</td></tr>{/if}{/each}
 		{#if data.parent}<tr><th scope="row">Attachment of</th><td><CitationLink resultsVersion={vid} ref={data.parent.ref} exists={data.parent.exists} /></td></tr>{/if}
-	</tbody></table>
+	</tbody></table></section>
 
-	{#if data.source !== 'results'}<p id="doc-source" data-source={data.source}>This document comes from the document-row provider <code>{data.source.replace(/^provider:/, '')}</code>, not from the imported results.</p>{/if}
+	{#if data.source !== 'results'}<p class="card" id="doc-source" data-source={data.source}>This document comes from the document-row provider <code>{data.source.replace(/^provider:/, '')}</code>, not from the imported results.</p>{/if}
 	<OriginalOpen state={data.state} links={data.links} onDisk={data.onDisk} page={data.page} parentHref={data.parent?.exists ? docPath(vid, data.parent.ref) : null} />
 
 	{#if data.attachments.length || f.attachmentNames.length}
-		<section aria-labelledby="att-heading" id="attachments"><h2 id="att-heading">Attachments</h2>
+		<section class="card" aria-labelledby="att-heading" id="attachments"><h2 id="att-heading">Attachments</h2>
 			{#if data.attachments.length}
 				<ul>{#each data.attachments as x (x.key)}
 					<li data-attachment={x.key} data-route={x.route}>
@@ -65,16 +66,16 @@
 		</section>
 	{/if}
 	{#if data.children.length}
-		<section aria-labelledby="child-heading"><h2 id="child-heading">Extracted attachments</h2><ul>{#each data.children as c (c)}<li><CitationLink resultsVersion={vid} ref={c} /></li>{/each}</ul></section>
+		<section class="card" aria-labelledby="child-heading"><h2 id="child-heading">Extracted attachments</h2><ul>{#each data.children as c (c)}<li><CitationLink resultsVersion={vid} ref={c} /></li>{/each}</ul></section>
 	{/if}
 	{#if data.related.length}
-		<section aria-labelledby="rel-heading"><h2 id="rel-heading">Related documents</h2><ul id="related">{#each data.related as r (r.ref)}<li><CitationLink resultsVersion={vid} ref={r.ref} exists={r.exists} /></li>{/each}</ul></section>
+		<section class="card" aria-labelledby="rel-heading"><h2 id="rel-heading">Related documents</h2><ul id="related">{#each data.related as r (r.ref)}<li><CitationLink resultsVersion={vid} ref={r.ref} exists={r.exists} /></li>{/each}</ul></section>
 	{/if}
 	{#if f.excerpt}
-		<section aria-labelledby="ex-heading"><h2 id="ex-heading">Excerpt</h2><p><small>A short excerpt from the source register, not the document's full text.</small></p><p class="wrap" id="excerpt">{f.excerpt}</p></section>
+		<section class="card" aria-labelledby="ex-heading"><h2 id="ex-heading">Excerpt</h2><p><small>A short excerpt from the source register, not the document's full text.</small></p><p class="wrap" id="excerpt">{f.excerpt}</p></section>
 	{/if}
 
-	<section aria-labelledby="notes-heading"><h2 id="notes-heading">My notes</h2>
+	<section class="card" aria-labelledby="notes-heading"><h2 id="notes-heading">My notes</h2>
 		<ul id="notes">
 			{#each data.notes as n (n.id)}
 				<li data-note={n.id} data-anchor={n.status}><span class="wrap">{n.body}</span> <small>({n.createdAt}{n.status === 'exact' ? `, written on ${n.refAtCreation} in an earlier version and re-attached by its original's fingerprint` : ''})</small>
@@ -86,7 +87,7 @@
 		</ul>
 		{#if data.source === 'results'}
 			<form method="POST" action="?/note" use:enhance={submitNote} id="note-form">
-				<label for="note-body">Add a note</label><br /><textarea name="body" rows="3" cols="80" id="note-body" readonly={noteBusy} value={form && 'body' in form ? String(form.body) : ''}></textarea><br /><button id="note-add" disabled={noteBusy}>Add note</button>
+				<label for="note-body">Add a note</label><br /><textarea name="body" rows="3" cols="80" id="note-body" readonly={noteBusy} value={form && 'body' in form ? String(form.body) : ''}></textarea><br /><button id="note-add" class="primary" disabled={noteBusy}>Add note</button>
 				{#if noteError ?? form?.message}<span class="error" role="alert">{noteError ?? form?.message}</span>{/if}
 				{#if noteRefused}<p class="note" id="note-delete-off">Delete is off until this note is saved: add it again, or reload the page to discard it.</p>{/if}
 			</form>

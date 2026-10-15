@@ -10,7 +10,7 @@ import type { Limits } from './limits.ts';
 import { classifyLink, MAX_LINK } from './links.ts';
 import { capabilityOf, isContainer, textStatusConsistent, type TextStatus } from './media.ts';
 import { checkRelPath, decodeLegacyLocator, foldPath, isReservedPath } from './paths.ts';
-import { CITATION_TOKEN, isAssetKey, isPathKey, isRef, parseCitationToken, REF_IN_TEXT } from './refs.ts';
+import { CITATION_TOKEN, isAssetKey, isPathKey, isRef, parseCitationToken, REF_IN_TEXT, REF_PATTERN } from './refs.ts';
 import {
   EXTRA_CITATION_ARRAYS, KNOWN_KEYS, KNOWN_SCHEMAS, LINK_FIELDS, NON_CITATION_FIELDS, OPAQUE_SCHEMA, REQUIRED_DATASETS,
   SEED_DATASETS, STORE_KEY, USERWORK_KEYS, USERWORK_SOURCES,
@@ -172,7 +172,7 @@ export function validateSnapshot(snap: Snapshot, sink: DiagSink, L: Limits, chec
     const ref: unknown = isObject(r) ? r.ref : undefined;
     const raw = ref as string | undefined;
     const at = { file: 'datasets/chronology.json', pointer: `/data/${i}/ref` };
-    if (!isRef(ref)) { sink.add('ID_REF_INVALID', 'ref is missing or does not match ^[A-Z]{1,8}-[0-9]{1,8}$', { ...at, subject: typeof raw === 'string' ? cutText(raw, 40) : `row ${i}`, stablePointer: typeof raw === 'string' ? undefined : `/data/${i}/ref` }); return; }
+    if (!isRef(ref)) { sink.add('ID_REF_INVALID', `ref is missing or does not match ${REF_PATTERN}`, { ...at, subject: typeof raw === 'string' ? cutText(raw, 40) : `row ${i}`, stablePointer: typeof raw === 'string' ? undefined : `/data/${i}/ref` }); return; }
     if (register.has(ref)) sink.add('ID_DUPLICATE', `ref ${ref} appears more than once`, { ...at, subject: ref });
     register.add(ref);
     if (r.text_status !== undefined && !['extracted', 'ocr', 'none', 'pending'].includes(r.text_status as string)) {

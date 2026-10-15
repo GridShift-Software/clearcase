@@ -29,7 +29,7 @@ import { open, rm, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mediaTypeForName, servePolicy } from '../case-package/browser.ts';
+import { ASSET_KEY_PATTERN, mediaTypeForName, servePolicy } from '../case-package/browser.ts';
 import { contentContradictsType } from '../case-package/media.ts';
 import { originalsHost, originalsOrigin } from './config.server.ts';
 import { openInside, readAllFd, snapshotVerified, type Opened, type Refusal } from './fsafe.server.ts';
@@ -37,8 +37,8 @@ import type { LocalCase } from './service.server.ts';
 import type { AssetServeRow } from './store.server.ts';
 
 const RV = 'sha256:[0-9a-f]{64}';
-// a register ref, an embedded attachment key, or a package-file key (refs.ts ASSET_KEY_PATTERN)
-const KEY = '(?:[A-Z]{1,8}-[0-9]{1,8}(?:\\.a[1-9][0-9]{0,3})?|P-[0-9a-f]{16})';
+// a register ref, an embedded attachment key, or a package-file key: ASSET_KEY_PATTERN without its anchors
+const KEY = ASSET_KEY_PATTERN.slice(1, -1);
 const ROUTE = new RegExp(`^/(o|view)/(${RV})/(${KEY})(?:/[^/]*)?$`);
 const FRAME_DESTS = new Set(['iframe', 'frame', 'embed', 'object', 'fencedframe']);
 const MAX_LARGE_SNAPSHOTS = 2;
@@ -101,7 +101,8 @@ export class OriginalsServer {
 
 	constructor(app: LocalCase) {
 		this.app = app;
-		this.origin = originalsOrigin(app.config);
+		// links name the public origin when one is configured (a tunnel in front of this site); the Host check below stays on the site's own host
+		this.origin = app.config.originalsPublicOrigin ?? originalsOrigin(app.config);
 		this.host = originalsHost(app.config);
 		this.links = new LinkCapability(app.config.dataDir);
 		this.pdfjsDir = findPdfjs();

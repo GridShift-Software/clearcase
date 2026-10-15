@@ -81,7 +81,7 @@ export async function lane2(C, L) {
 	L.check('stored copy verifies', 'verified', rep.verify);
 	const root = await C.c.get('/');
 	L.cmd('GET /');
-	L.check('the root does not redirect to the candidate (nothing is active): 307 to /import', { status: 307, location: '/import' }, { status: root.status, location: root.location });
+	L.check('the root redirects to the case list, and nothing is active there (307 to /cases, no active version)', { status: 307, location: '/cases', active: null }, { status: root.status, location: root.location, active: await C.c.activeVersion() });
 	L.cmd('browser: click #preview');
 	await P.click('#preview');
 	await P.waitFor(`location.pathname === ${JSON.stringify(`${vpath(fx.accepted.resultsVersion)}/overview`)} && ${ready('overview')}`, 60000);
@@ -119,8 +119,8 @@ export async function lane3(C, L) {
 	L.check('overview: active banner, no candidate banner', { active: true, candidate: false }, { active: ov.active, candidate: ov.candidate });
 	L.check('overview shows exactly the reference count of base records', { count: expected, text: expected.toLocaleString('en') }, { count: ov.count, text: ov.text });
 	await P.shot(L.file(join(C.out, 'lane-03.png')));
-	L.cmd('GET /');
-	L.check('the root now redirects to the active version\'s overview', `${vpath(rv)}/overview`, (await C.c.get('/')).location);
+	L.cmd('GET /cases');
+	L.check('the case list now opens the active version\'s overview', `${vpath(rv)}/overview`, await C.c.home());
 	L.cmd(`browser: ${vpath(rv)}/chronology`);
 	await P.goto(`${C.origin}${vpath(rv)}/chronology`, ready('chronology'), 60000);
 	const ch = await P.settled(`({ count: Number(document.getElementById('row-count').dataset.count), text: document.getElementById('row-count').textContent.trim(), rows: document.querySelectorAll('.grid-table .grid-row[data-ref]').length })`);

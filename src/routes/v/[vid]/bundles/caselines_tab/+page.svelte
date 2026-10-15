@@ -122,25 +122,21 @@
 
 <style>
 	.cl-hero { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 0 0 12px; }
-	.cl-hero .t { font-weight: 700; }
+	.cl-hero .t { font-weight: 600; }
 	.cl-hero .sp { margin-left: auto; display: flex; flex-wrap: wrap; gap: 8px; }
-	.cl-card { border: 1px solid #ddd; border-radius: 6px; padding: 10px 12px; margin: 12px 0; }
-	.cl-card .hd { font-size: 1rem; margin: 0 0 8px; }
+	.cl-card .hd { font-size: 15px; margin: 0 0 8px; }
 	.cl-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
 	.goto { margin-left: auto; }
 	#cl-pg { max-width: 80px; }
 	.cl-res { display: flex; flex-direction: column; max-height: 60vh; overflow: auto; }
-	.cl-hit { display: block; padding: 4px 6px; border-bottom: 1px solid #eee; color: inherit; text-decoration: none; }
+	.cl-hit { display: block; padding: 6px 8px; border-bottom: 1px solid var(--border); color: inherit; text-decoration: none; }
 	.cl-hit .pg { font-weight: 700; margin-right: 6px; }
-	.cl-hint, .dim, .coverage { color: #555; font-size: 0.9em; }
-	.cl-drop { border: 2px dashed #bbb; padding: 14px; text-align: center; }
-	.cl-drop.drag { border-color: #1d4ed8; }
+	.cl-drop { border: 2px dashed var(--border-strong); border-radius: var(--radius); padding: 14px; text-align: center; }
+	.cl-drop.drag { border-color: var(--navy); }
 	.browse { text-decoration: underline; cursor: pointer; font-weight: 700; }
 	.browse input { display: none; }
 	.cl-doclist li { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
 	.cl-doclist .nm { overflow-wrap: anywhere; }
-	.not-served { color: #92400e; font-style: italic; }
-	.error { color: #b91c1c; }
-	.saving { color: #92400e; font-weight: 700; }
-	.dup { margin-right: 6px; font-size: 0.8em; color: #92400e; background: #fef3c7; border-radius: 6px; padding: 0 4px; }
+	.not-served { color: #8a5a0b; font-style: italic; }
+	.saving { color: #8a5a0b; font-weight: 600; }
 </style>

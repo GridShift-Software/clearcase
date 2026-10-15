@@ -26,7 +26,7 @@
 <main id="main" tabindex="-1" data-ready={ready ? 'overview' : null}>
 	<PageHeader heading="Overview" section="Overview" caseName={data.version.titleName} subtitle={content.subtitle ?? (o.matter?.title || data.version.caseName)} />
 	<DegradedRows failed={data.documents.failed} />
-	<p>Results version <code class="wrap">{vid}</code>, produced {o.created} by {o.producer} from {o.inputKind} input.</p>
+	<p class="meta">Results version <code title={vid}>{vid.slice(0, 19)}…</code> · produced {o.created} by {o.producer} from {o.inputKind} input.</p>
 	{#if data.previous}
 		<form method="POST" action="?/rollback" id="rollback-form">
 			<input type="hidden" name="expect" value={vid} />
@@ -36,7 +36,7 @@
 	{/if}
 	{#if form?.message}<p class="error" role="alert" id="rollback-error">{form.message}</p>{/if}
 
-	<div class="grid">
+	<div class="grid kpi-grid">
 		<section class="card" aria-labelledby="kpi-docs"><h2 id="kpi-docs">Documents indexed</h2>
 			<p class="num" id="count-documents" data-count={data.documents.total}>{data.documents.total.toLocaleString('en')}</p>
 			<p><small>{content.kpiDocumentsNote ? `${content.kpiDocumentsNote} (source caption) · ` : ''}Counted from the validated register{data.documents.provided ? ` (${data.documents.imported.toLocaleString('en')}) plus ${plural(data.documents.provided, 'row')} from document-row providers` : ''}{claim('docCount') !== null ? `; the source claims ${claim('docCount')}` : ''}. {plural(t.byBundle.length, 'bundle')}.</small></p></section>
@@ -62,10 +62,10 @@
 	</div>
 
 	{#if data.narrative}
-		<section aria-labelledby="matter-heading"><h2 id="matter-heading">The matter, in one paragraph</h2><Narrative text={data.narrative} resultsVersion={vid} known={data.known} /></section>
+		<section class="card narr" aria-labelledby="matter-heading"><h2 id="matter-heading">The matter, in one paragraph</h2><Narrative text={data.narrative} resultsVersion={vid} known={data.known} /></section>
 	{/if}
 
-	<section aria-labelledby="dates-heading"><h2 id="dates-heading">Dates</h2>
+	<section class="card" aria-labelledby="dates-heading"><h2 id="dates-heading">Dates</h2>
 		<p id="date-span">Date span: <b>{o.dates.min ?? '—'}</b> → <b>{o.dates.max ?? '—'}</b> · {c.emails} emails{beside('emails', c.emails)}{c.people !== null ? ` · ${c.people} correspondents${beside('people', c.people)}` : ''}</p>
 		<p id="undated-note">{plural(o.dates.undated, 'document')} undated. Dates are shown as the source gives them; {data.dateBasisKnown ? 'the chronology\'s Date basis column says what kind of date each one is where the source supplies it' : 'their basis (issue, sent, received) is not supplied by this package'}.</p></section>
 
@@ -77,7 +77,7 @@
 		{/each}
 	</div>
 
-	<section aria-labelledby="go-heading"><h2 id="go-heading">Go to</h2>
+	<section class="card" aria-labelledby="go-heading"><h2 id="go-heading">Go to</h2>
 		<ul class="quick">{#each grouped() as g (g.group)}{#each g.views.filter((v) => ['chronology', 'matter', 'quantum_tab', 'documents', 'people', 'search', 'court_bundle_tab', 'rescan_tab'].includes(v.id)) as v (v.id)}<li><a href={viewHref(vid, v)}>{v.label}</a>{blockedBy(v) ? ` (not yet available, ${blockedBy(v)})` : ''}</li>{/each}{/each}</ul></section>
 
 	{#if Object.keys(o.diagnostics).length}

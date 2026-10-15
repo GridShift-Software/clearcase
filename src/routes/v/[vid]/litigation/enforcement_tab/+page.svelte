@@ -138,10 +138,7 @@
 
 <style>
 	.pad0 { padding: 0; }
-	.chead { font-weight: 600; padding: 0.5rem 0.75rem; border-bottom: 1px solid #d5d9e0; }
 	small { display: block; }
-	.empty { color: #555; padding: 1rem; text-align: center; }
-	.tag { font-size: 0.9rem; color: #444; }
 	#enf-form { margin: 0; }
 	select { max-width: 150px; }
 </style>

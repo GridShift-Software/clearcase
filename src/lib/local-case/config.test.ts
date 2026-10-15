@@ -19,3 +19,15 @@ describe('data directory', () => {
 		expect(() => configFromEnv({ CLEARCASE_DATA_DIR: '/d', CLEARCASE_KEEP_BACKUPS: '1' })).toThrow();
 	});
 });
+
+describe('ORIGINALS_PUBLIC_ORIGIN', () => {
+	it('an http(s) origin is kept as the links origin; absent means the site itself', () => {
+		expect(configFromEnv({ CLEARCASE_DATA_DIR: '/d', ORIGINALS_PUBLIC_ORIGIN: 'https://tour.example.test' }).originalsPublicOrigin).toBe('https://tour.example.test');
+		expect(configFromEnv({ CLEARCASE_DATA_DIR: '/d', ORIGINALS_PUBLIC_ORIGIN: 'https://tour.example.test/' }).originalsPublicOrigin).toBe('https://tour.example.test');
+		expect(configFromEnv({ CLEARCASE_DATA_DIR: '/d' }).originalsPublicOrigin).toBeNull();
+	});
+	it('a path, a query, a user or a non-http scheme is refused', () => {
+		for (const v of ['https://x.test/view', 'https://x.test/?k=1', 'https://u@x.test', 'ftp://x.test', 'x.test', 'https://x.test/#a'])
+			expect(() => configFromEnv({ CLEARCASE_DATA_DIR: '/d', ORIGINALS_PUBLIC_ORIGIN: v }), v).toThrow();
+	});
+});

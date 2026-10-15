@@ -25,6 +25,8 @@ export interface ZipEntrySpec {
   diskStart?: number;
   /** local header offset written to the central directory (default: the real offset) */
   localOffset?: number;
+  /** extra field bytes written to the central directory entry only (e.g. a zip64 extended-information field) */
+  centralExtra?: Uint8Array;
 }
 
 export interface ZipOptions {
@@ -75,9 +77,10 @@ export function writeZip(entries: ZipEntrySpec[], o: ZipOptions = {}): Uint8Arra
       u32(crc), u32(csize), u32(usize), u16(name.length), u16(0), name, payload]);
     local.push(lh);
     localSize += lh.byteLength;
+    const cx = e.centralExtra ?? new Uint8Array();
     central.push(concat([u32(0x02014b50), u16((host << 8) | 20), u16(20), u16(flags), u16(method), u16(0), u16(0x21),
-      u32(crc), u32(csize), u32(usize), u16(name.length), u16(0), u16(0),
-      u16(e.diskStart ?? 0), u16(0), u32((mode << 16) >>> 0), u32(e.localOffset ?? offset), name]));
+      u32(crc), u32(csize), u32(usize), u16(name.length), u16(cx.byteLength), u16(0),
+      u16(e.diskStart ?? 0), u16(0), u32((mode << 16) >>> 0), u32(e.localOffset ?? offset), name, cx]));
   }
   const cd = concat(central);
   const parts = [...local, cd];

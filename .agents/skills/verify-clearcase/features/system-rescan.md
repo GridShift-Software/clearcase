@@ -4,11 +4,11 @@ Rescan & Update compares the case folder the version was imported from with the 
 
 ## Sub-features
 
-- `rescan-quick` compares paths, sizes and dates and always says contents were not compared (`#rescan-status[data-current=false]`).
+- `rescan-quick` compares paths, sizes and dates (`#rescan-status[data-current=false]`); when nothing differs it says contents were not compared, otherwise "The case folder differs from the analysis."
 - `rescan-full` reads every file and finds a change that keeps the size.
 - `rescan-additions` gives each new file a new ref in its folder's bundle; a repeat scan keeps the refs and adds no duplicates.
 - `rescan-changed-removed` lists changed and removed originals by ref.
-- `rescan-index` downloads the additions as v5's `ess_dcs_rescan_v1.json`.
+- `rescan-index` downloads the additions under the package's view-content name (`syn-index.json` on the synthetic case; `rescan-additions.json` when the package names none). v5 kept them under the storage key `ess_dcs_rescan_v1`.
 - `rescan-clear` clears the additions behind a confirmation; their refs are never issued again.
 - `rescan-freshness` fills the overview's `rescan-freshness` slot: the build stamp with "+k via rescan" and the last scan.
 
@@ -34,4 +34,4 @@ Preconditions:
 
 - The scan clock is the server's (`CLEARCASE_FIXED_NOW` in tests), so two scans can show the same time: wait for `#scan-busy` to come and go, not for new text.
 - The bundle prefix comes from the top-level folder (the prefix most used there), not from the new file's name: `OD-009 Added letter.pdf` gets `OD-005`.
-- After a server restart the additions reach the document lists once a system page or the overview has loaded (the provider registers lazily).
+- After a server restart the additions reach the document lists at once: start-up registers the rescan provider for every active case (`src/hooks.server.ts`). Only when storage failed at start-up do the system pages register it later.

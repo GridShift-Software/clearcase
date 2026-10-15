@@ -19,7 +19,7 @@ Matter & Strategy shows the package's storyline and strategy memorandum, heading
 
 Preconditions:
 
-- `activate` passed on the synthetic case, extended with the analysis datasets of `tests/e2e/analysis/lib.mjs` (`analysisData`).
+- `activate` passed on the synthetic case. The plain synthetic case that `lib/inner.mjs` builds (`tests/case-package/fixtures/synth.ts`) already fills every analysis view with one to three rows; the analysis e2e suite extends it with `analysisData` (`tests/e2e/analysis/lib.mjs`).
 
 - **Open.** *Not yet driven* (no `lib/drive.mjs` step yet; proved by the analysis e2e suite). Choose `#nav-matter`. `main[data-ready=matter]` appears, the `h1[data-page-heading]` reads `Matter & Strategy` and has focus, the title is `Matter & Strategy · <case> · ClearCase`.
 - **Follow a citation.** *Not yet driven* (no `lib/drive.mjs` step yet; proved by the analysis e2e suite). In `#matter-storyline-card`, choose `a.cite` for OD-001: `main[data-ready="doc:OD-001"]`. Back returns with the heading focused.

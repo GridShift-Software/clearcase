@@ -7,9 +7,9 @@ Backup / Restore saves all of one case's work (every user-work table: notes, reg
 - `backup-export` downloads `clearcase-backup-<case>-<time>.json` (`format: clearcase.backup/1`, `binaries: false`).
 - `backup-tables` lists every table the backup holds now, with its owner and row count.
 - `restore-file` restores an uploaded file (up to 64 MiB, checked in the page before sending).
-- `restore-path` restores a file by its full path on this computer (for a file larger than the upload limit, and without JavaScript).
+- `restore-path` restores a file by its full path on this computer (also without JavaScript). The 64 MiB limit applies to a path as to an upload.
 - `restore-refused` refuses a truncated, altered, other-format or other-case file with its reason, data unchanged.
-- `restore-legacy` lists a v5 browser backup's keys, the four keys v5 never used among them, and changes nothing.
+- `restore-legacy` lists a v5 browser backup's keys, the four keys v5 never used among them, and imports the v5 custom court bundles (GRS-56) after taking a `pre-legacy-import` copy; nothing else is imported.
 
 ## How to get to it (user POV)
 
@@ -30,6 +30,6 @@ Preconditions:
 
 ## Gotchas
 
-- The page's upload limit is the server's body limit; a file larger than that is restored by its path.
-- A restore first takes a work.sqlite backup labelled `pre-restore` in the data directory's backup folder (refused if that copy fails); the copy is not shown in the app.
+- Uploads and paths share the 64 MiB backup limit (the route's body limit is 64 MiB plus 1 MiB), so a path is no way around it.
+- A restore first takes a `pre-restore` copy (refused if that copy fails): a work.sqlite backup and a JSON backup under `backups/pre-restore/`, whose path `#restore-done` shows in `#restore-copy` and which Import state can restore.
 - Accepted warnings are never carried by a backup: they belong to the results version, not to the case's work.

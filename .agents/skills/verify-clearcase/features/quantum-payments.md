@@ -17,7 +17,9 @@ Records payments received against the imported claim and shows the gross amount 
 
 ## Driving it with verify-clearcase
 
-- *Driven by `tests/e2e/quantum/suite.mjs`*: a refused amount (`Q5-INVALID-PAYMENT`), a payment typed `R 1 000.50` and the net claim after a reload (`Q6-PAYMENT-RELOAD`), a busy store held across Add (`Q-BUSY-STORE`), the server stopped before Add (`Q-LOST-TRANSPORT`), SIGKILL and graceful restarts (`Q-RESTARTS`).
+Preconditions: `activate` passed on the synthetic case of `lib/inner.mjs` (`buildCase`, 7 rows); step `every-view` has opened this view once.
+
+- *Not yet driven by verify-clearcase.* *Proven instead by `tests/e2e/quantum/suite.mjs`*: a refused amount (`Q5-INVALID-PAYMENT`), a payment typed `R 1 000.50` and the net claim after a reload (`Q6-PAYMENT-RELOAD`), a busy store held across Add (`Q-BUSY-STORE`), the server stopped before Add (`Q-LOST-TRANSPORT`), SIGKILL and graceful restarts (`Q-RESTARTS`).
 - Busy store: from the test process open `<dataDir>/work.sqlite` and run `PRAGMA busy_timeout=0; BEGIN IMMEDIATE` for more than 12 s; the action answers `fail(503)` after the store's retries.
 
 ## Gotchas

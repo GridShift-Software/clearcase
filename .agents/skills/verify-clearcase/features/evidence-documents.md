@@ -18,10 +18,10 @@ Documents lists one bundle's document rows at a time, 60 per page, with a filter
 
 Preconditions: `activate` passed on a synthetic case.
 
-- **Open.** Choose `#nav-documents`. `main[data-ready=documents]` appears, the title is `Documents · <case> · ClearCase` and the `h1[data-page-heading]` has focus.
-- **Bundle.** Choose the button whose label starts with a bundle name (each carries its URL value in `data-bundle`). `main[data-bundle]` names it; `#documents-table tbody tr[data-ref]` lists that bundle's rows.
-- **Filter.** Type into `#doc-filter`. Wait for `main[data-q]` to equal the text and `main[data-busy]` to be absent. The URL gains `?q=` and loses `page`.
-- **Pages.** Choose Next in `#documents-pager`. `main[data-page]` advances; the pager reads `Page n / m` and `Showing a–b of N`.
+- **Open.** Step `every-view` (page and heading only). Choose `#nav-documents`. `main[data-ready=documents]` appears, the title is `Documents · <case> · ClearCase` and the `h1[data-page-heading]` has focus.
+- **Bundle.** *Not yet driven.* Choose the button whose label starts with a bundle name (each carries its URL value in `data-bundle`). `main[data-bundle]` names it; `#documents-table tbody tr[data-ref]` lists that bundle's rows.
+- **Filter.** *Not yet driven.* Type into `#doc-filter`. Wait for `main[data-q]` to equal the text and `main[data-busy]` to be absent. The URL gains `?q=` and loses `page`.
+- **Pages.** *Not yet driven.* Choose Next in `#documents-pager`. `main[data-page]` advances; the pager reads `Page n / m` and `Showing a–b of N`.
 
 ## Gotchas
 

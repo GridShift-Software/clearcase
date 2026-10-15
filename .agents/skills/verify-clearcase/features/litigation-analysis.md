@@ -17,7 +17,7 @@ Two read-only views of authored analysis (GRS-18). Legality shows the risk narra
 
 Preconditions:
 
-- `activate` passed on a synthetic case with `DATA.lit.legality` and `DATA.lit.elements` (`tests/e2e/litigation/lib/cases.mjs`).
+- `activate` passed on the synthetic case. The plain synthetic case that `lib/inner.mjs` builds (`tests/case-package/fixtures/synth.ts`) has one legality document, one scenario and one element; the litigation e2e suite uses its own cases (`tests/e2e/litigation/lib/cases.mjs`).
 
 - **Inspect a scenario and its evidence.** *Not yet driven by verify-clearcase* (`tests/e2e/litigation/suite.mjs` `S3-legality`). Read the chips; press the first `#legality-docs a.cite`: `main[data-ready=doc:OD-001]`.
 - **Trace an element to its witness.** *Not yet driven* (`S4-elements`). Read `td[data-witness]`; press `a[data-target=chronology]`: the chronology opens with its heading focused.

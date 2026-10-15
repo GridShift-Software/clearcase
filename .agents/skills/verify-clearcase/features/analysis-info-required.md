@@ -4,9 +4,9 @@ The information-required checklist from the package, with a done checkbox per it
 
 ## Sub-features
 
-- `info-required-toggle`: the checkbox posts `?/toggle`; a register row of store `info-required` is written with the row id `info:<sha256 of the item text, 32 hex>` (`#2`, `#3` for repeated texts) and fields `{item, done, resultsVersion}`. Unchecking stores `done: false`.
-- `info-required-failed-save`: a busy store (503 after the store's retries) or an unreachable server shows `#info-error` with the item and keeps the checkbox as chosen; `#info-retry` sends the same choice again.
-- `info-required-detached`: flags whose item text is not in this version are counted in `#info-detached`, never moved to another item.
+- `info-required-toggle`: the checkbox posts `?/toggle`; a register row of store `info-required` is written with the row id `info:<sha256 of the item text, 32 hex>` (a repeated text gets an owner digest, then an owner-and-status digest, then `#NofM`: `info-required.server.ts`) and fields `{item, done, resultsVersion}`. Unchecking stores `done: false`.
+- `info-required-failed-save`: a busy store (503 after the store's retries) or an unreachable server shows `#info-error` with the item and keeps the checkbox as chosen; the row's `.info-retry` button (`aria-label="Retry: <item>"`, inside `#info-error .info-problem[data-key]`) sends the same choice again.
+- `info-required-detached`: saved `done` flags whose item text is not in this version are counted in `#info-detached`, never moved to another item.
 
 ## How to get to it (user POV)
 

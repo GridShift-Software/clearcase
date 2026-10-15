@@ -15,6 +15,7 @@ const { startServer } = await L('server.mjs');
 const { launch, newPage, frameEvaluator, sleep } = await L('cdp.mjs');
 const { startCanary } = await L('canary.mjs');
 const { client } = await L('client.mjs');
+const { isBackground } = await L('../suite/context.mjs');
 const { buildCase, pdf } = await import(cfg.fixtures);
 
 const ev = cfg.evidence;
@@ -158,11 +159,13 @@ if (!failed) {
 	for (const s of await allSteps()) await step(s.id, s.title, () => s.run(x), { feature: s.feature });
 }
 
-await step('no-egress', 'the canary saw no connection and the browser requested only the app and originals origins', async () => {
+await step('no-egress', 'the canary saw no connection but Chrome\'s own background services, and the browser requested only the app and originals origins', async () => {
 	const allowed = (u) => u.startsWith(app + '/') || u.startsWith(orig + '/') || /^(data|blob|about):/.test(u);
 	const stray = b.events.requests.map((r) => r.url).filter((u) => !allowed(u));
-	if (canary.hits.length || stray.length) throw new Error(`egress attempts: canary ${JSON.stringify(canary.hits)}, requests ${JSON.stringify(stray)}`);
-	return { canaryHits: 0, requests: b.events.requests.length, dialogs: b.events.dialogs.length, consoleErrors: b.events.console.filter((c) => /error|exception/.test(c.kind)).slice(0, 20) };
+	// the e2e suite's rule (tests/e2e/pilot/suite/context.mjs): a Google service host with no Origin or Referer is Chrome itself
+	const hits = canary.hits.filter((h) => !isBackground(h));
+	if (hits.length || stray.length) throw new Error(`egress attempts: canary ${JSON.stringify(hits)}, requests ${JSON.stringify(stray)}`);
+	return { canaryHits: 0, backgroundHits: canary.hits.map((h) => h.sni ?? h.host), requests: b.events.requests.length, dialogs: b.events.dialogs.length, consoleErrors: b.events.console.filter((c) => /error|exception/.test(c.kind)).slice(0, 20) };
 });
 
 // Teardown of what this process started, whatever failed above: browser, canary, server (graceful first).

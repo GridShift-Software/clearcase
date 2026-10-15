@@ -14,7 +14,6 @@
 	const known = $derived(new Set(data.known));
 	const c = $derived(q ? chart(q.amountDueSeries) : null);
 	const rec = $derived(q ? reconcile(q) : null);
-	// "View charging calculations": the chronology with only its type filter set (S-quantum_tab-2 corrected by the URL)
 	const chargingHref = $derived(`/v/${encodeURIComponent(vid)}/chronology?${paramsFromQuery({ ...DEFAULT_QUERY, type: 'charging calculation' })}`);
 	let ready = $state(false);
 	onMount(() => { ready = true; });

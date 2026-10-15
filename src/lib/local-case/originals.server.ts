@@ -1,28 +1,3 @@
-// Originals are served by a SECOND listener on 127.0.0.1:<originalsPort>, addressed as
-// http://clearcase-originals.localhost:<originalsPort>: a different SITE from the app's http://127.0.0.1:<port>
-// (site isolation, SameSite boundary) with a host name of its own, so its cookie jar is not the port-blind
-// 'localhost' jar every other local dev server shares. Exact Host allowlist (421 otherwise).
-//
-// Response policies (each tested):
-//  * original bytes  /o/<rv>/<key>/<name>: found ONLY via (resultsVersion, asset key) in the verified mapping, from
-//    the case-folder realpath and identity recorded at import, re-opened on ONE descriptor inside that folder
-//    (fsafe), single-link regular file, unchanged size, and every byte served hashed against the imported sha256.
-//    Known missing, refused or changed originals answer 410 before any success header. Up to bufferMaxBytes the
-//    bytes are verified in memory; above it they are copied from the pinned descriptor into a private snapshot in
-//    the data directory while hashing, and only a verified snapshot is streamed (then deleted). Headers come from
-//    GRS-10 servePolicy; inline only when the declared type, the file extension and the content sniff all agree,
-//    otherwise an octet-stream attachment. Raw PDF bytes are always an attachment (Chromium's PDFium, which runs
-//    PDF JavaScript, never sees them); HTML, SVG and XML never become executable content.
-//  * trusted wrapper  /view/<rv>/<key>: our script only (CSP), frames only from this origin. It fetches the
-//    verified bytes and hands them to the sandbox frame by postMessage.
-//  * sandbox frame + bundled PDF.js  /_pdfjs/<version>/<file>: an exact allowlist from the build manifest; pdf.js
-//    runs in <iframe sandbox="allow-scripts"> (opaque origin, no allow-same-origin), enableScripting false, no
-//    scripting sandbox shipped.
-//
-// Cross-site requests: a browser request that ANOTHER site started (Sec-Fetch-Site cross-site/same-site) is served
-// only with the link capability `k` the app puts into its links (an HMAC of version + key under a key kept in the
-// data directory, so links survive a restart), and never into a frame/embed/object. Anything else gets one
-// constant 403 before any lookup: no existence oracle, no forced download.
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { open, rm, stat } from 'node:fs/promises';
@@ -37,13 +12,11 @@ import type { LocalCase } from './service.server.ts';
 import type { AssetServeRow } from './store.server.ts';
 
 const RV = 'sha256:[0-9a-f]{64}';
-// a register ref, an embedded attachment key, or a package-file key: ASSET_KEY_PATTERN without its anchors
 const KEY = ASSET_KEY_PATTERN.slice(1, -1);
 const ROUTE = new RegExp(`^/(o|view)/(${RV})/(${KEY})(?:/[^/]*)?$`);
 const FRAME_DESTS = new Set(['iframe', 'frame', 'embed', 'object', 'fencedframe']);
 const MAX_LARGE_SNAPSHOTS = 2;
 
-// Message pages and refusals: inert text in a sandbox.
 const FILE_CSP = "sandbox; default-src 'none'; frame-ancestors 'none'";
 const WRAPPER_CSP = "sandbox allow-scripts allow-same-origin allow-downloads; default-src 'none'; script-src 'self'; connect-src 'self'; frame-src 'self'; child-src 'self'; style-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 const BASE_HEADERS: Record<string, string> = {
@@ -55,7 +28,6 @@ const STATIC_TYPES: Record<string, string> = { mjs: 'text/javascript; charset=ut
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 const lower = (h: Record<string, string>) => Object.fromEntries(Object.entries(h).map(([k, v]) => [k.toLowerCase(), v]));
 
-/** HMAC link capability; the key lives in the data directory (0600) so links rendered before a restart keep working. */
 export class LinkCapability {
 	readonly #key: Buffer;
 	constructor(dataDir: string) {
@@ -77,7 +49,6 @@ export class LinkCapability {
 	}
 }
 
-/** Locate build/pdfjs (written by scripts/pilot/copy-pdfjs.ts) from this module's location or PDFJS_DIR. */
 function findPdfjs(): string | null {
 	if (process.env.PDFJS_DIR) return process.env.PDFJS_DIR;
 	let d = path.dirname(fileURLToPath(import.meta.url));
@@ -101,7 +72,6 @@ export class OriginalsServer {
 
 	constructor(app: LocalCase) {
 		this.app = app;
-		// links name the public origin when one is configured (a tunnel in front of this site); the Host check below stays on the site's own host
 		this.origin = app.config.originalsPublicOrigin ?? originalsOrigin(app.config);
 		this.host = originalsHost(app.config);
 		this.links = new LinkCapability(app.config.dataDir);
@@ -109,11 +79,10 @@ export class OriginalsServer {
 		this.pdfjs = this.pdfjsDir ? JSON.parse(readFileSync(path.join(this.pdfjsDir, 'manifest.json'), 'utf8')) : null;
 	}
 
-	/** How the originals site presents one asset, decided from the verified mapping and its real file name. */
 	static presentation(a: Pick<AssetServeRow, 'media_type' | 'real_path' | 'download_only'>): Presentation {
 		if (!a.real_path || a.download_only) return 'download';
 		const name = a.real_path.slice(a.real_path.lastIndexOf('/') + 1);
-		if (mediaTypeForName(name) !== a.media_type) return 'download'; // declared type and extension must agree
+		if (mediaTypeForName(name) !== a.media_type) return 'download';
 		const { mode } = servePolicy(a.media_type, name, false);
 		if (mode === 'download') return 'download';
 		if (mode === 'text-sandboxed') return 'text';
@@ -146,7 +115,6 @@ export class OriginalsServer {
 		if (this.app.storageError) return send(503, 'storage unavailable');
 		const url = new URL(req.url ?? '/', this.origin);
 
-		// Bundled pdf.js + viewer: exact allowlist (own keys only) from the build manifest; no path resolution.
 		const st = /^\/_pdfjs\/([0-9.]+)\/(.+)$/.exec(url.pathname);
 		if (st) {
 			let rel: string;
@@ -160,7 +128,6 @@ export class OriginalsServer {
 			return res.end(req.method === 'HEAD' ? undefined : body);
 		}
 
-		// the version may arrive with its colon percent-encoded; nothing else in the path is decoded
 		const m = ROUTE.exec(url.pathname.replace(/%3A/gi, ':'));
 		const site = req.headers['sec-fetch-site'];
 		if (site !== undefined && site !== 'same-origin' && site !== 'none') {
@@ -183,11 +150,6 @@ export class OriginalsServer {
 		return this.#serveOriginal(req, res, a as AssetServeRow & { real_path: string; sha256: string; size: number }, name, mode, url, send);
 	}
 
-	/**
-	 * The cheap part of the serve-time re-check, without hashing: the case folder is the one recorded at import, and the
-	 * original opens inside it as a single-link regular file of the imported size. Returns the open descriptor (the
-	 * caller closes it) or the refusal the originals site answers with 410.
-	 */
 	static async openChecked(a: AssetServeRow & { real_path: string; size: number }): Promise<{ o: Opened } | { refused: OnDiskRefusal; reason: string }> {
 		const root = a.case_root;
 		const rst = await stat(root, { bigint: true }).catch(() => null);
@@ -198,7 +160,6 @@ export class OriginalsServer {
 		return { o };
 	}
 
-	/** On-disk availability of a verified original now (existence, folder, links and size; no re-hash): null when available. */
 	static async availability(a: AssetServeRow & { real_path: string; size: number }): Promise<{ refused: OnDiskRefusal; reason: string } | null> {
 		const c = await OriginalsServer.openChecked(a);
 		if ('refused' in c) return c;
@@ -206,7 +167,6 @@ export class OriginalsServer {
 		return null;
 	}
 
-	/** Serve-time re-check and verified delivery, all from one descriptor. */
 	async #serveOriginal(req: IncomingMessage, res: ServerResponse, a: AssetServeRow & { real_path: string; sha256: string; size: number }, name: string, mode: Presentation, url: URL, send: (s: number, b: string, h?: Record<string, string | number>) => void) {
 		const c = await OriginalsServer.openChecked(a);
 		if ('refused' in c) return send(410, `original not available: ${c.reason}`);
@@ -225,7 +185,6 @@ export class OriginalsServer {
 				res.writeHead(200, headers(whole.subarray(0, 1024)));
 				return void res.end(req.method === 'HEAD' ? undefined : whole);
 			}
-			// Large original: verify a stable private snapshot first; nothing is released before the digest matches.
 			if (this.#largeInFlight >= MAX_LARGE_SNAPSHOTS) return send(503, 'busy verifying other large originals; try again in a moment', { 'retry-after': 2 });
 			this.#largeInFlight++;
 			try {
@@ -235,8 +194,6 @@ export class OriginalsServer {
 				res.once('close', () => abort.abort());
 				if (!(await snapshotVerified(o, a.sha256, snapshot, abort.signal))) { snapshot = null; return res.destroyed ? undefined : changed(); }
 			} finally { this.#largeInFlight--; }
-			// Stream from the verified snapshot through its descriptor; its name is removed first, so nothing is left
-			// behind even if the process dies while streaming (startup also clears serve-tmp).
 			const fh = await open(snapshot, 'r');
 			await rm(snapshot, { force: true });
 			snapshot = null;

@@ -1,69 +1,32 @@
-// The register store (GRS-52): every write of a user register (register_row rows of one case and store) and of a
-// case's seed overlays goes through here. One in-process queue per (case, store) runs the writes one after another, so
-// a write's `seq` is computed, and the row it targets re-read, just before its own putRow or deleteRow with no other
-// write of that store in between, even while a busy store makes each write wait out its retries. A write against a
-// stored row carries the version of the row as the page showed it (a hash of its stored fields, never updatedAt, which
-// a fixed clock never changes): a row changed since is refused ('stale'), a row already gone is said ('gone') and never
-// re-created. Rows are listed in insertion order, an explicit integer `seq` (listRows orders by createdAt, which ties
-// under a fixed clock). `exclusive(caseId, fn)` runs `fn` after, and before, every queued write of the case: a restore
-// that takes it cannot land between a write's re-check and its write. A write made from inside `exclusive` or `batch`
-// runs in that step (see `Registers.exclusive`); it never waits on the step it is part of.
-//
-// A restore takes `exclusive`; the case's other writers (GRS-17 registers, bundles, filings, info required, rescan) run
-// in the same queue through `inTurn`. One server process serves a data directory (an exclusive instance lock). A write
-// that bypasses this module (another process on the same directory) can still land between a re-check and its write's
-// own transaction.
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 import type { SeedView } from '../case-package/browser.ts';
 import type { RegisterRow, RegisterValue, UserWork } from './user-work.server.ts';
 
-/** The user-work the store writes through (the app's userWork, or an in-memory adapter in tests). */
 export type Work = Pick<UserWork, 'listRows' | 'putRow' | 'deleteRow' | 'seedViews' | 'putSeedOverlay'>;
 export type Fields = Record<string, RegisterValue>;
-/** A stored row and its version, the value a page sends back with a write against it. */
 export type VersionedRow = RegisterRow & { version: string };
-/** A seed as the case shows it (seed, edited or orphaned), its id and its version. */
 export type VersionedSeed = SeedView & { seedId: string; version: string };
 export type AddResult = { rowId: string; repeated: boolean };
 export type ReplaceResult = 'replaced' | 'gone' | 'stale';
 export type DeleteResult = 'deleted' | 'gone' | 'stale';
 
-/** One store's reads and writes. `version` null skips the re-check (a scripted post without one). */
 export interface RegisterTx {
-	/** The rows in insertion order, each with its version. */
 	rows(): VersionedRow[];
-	/** Store a row after the last (the next `seq`). A repeat of one form's post (same `addId` and fields) stores nothing and answers with the first row. */
 	add(fields: Fields, opts?: { addId?: string | null }): Promise<AddResult>;
-	/** Replace a row's fields, keeping its place (`seq`), when it is still at `version`. */
 	replace(rowId: string, version: string | null, fields: Fields): Promise<ReplaceResult>;
-	/** Delete a row when it is still at `version`. */
 	remove(rowId: string, version: string | null): Promise<DeleteResult>;
 }
 export interface RegisterStore extends RegisterTx {
-	/**
-	 * Run several writes as one step of the queue: `fn`'s writes see each other, and no other write of the store lands in
-	 * between. A write through this store from inside `fn` runs in the step; a write to another store of the case, or an
-	 * `exclusive` run, throws at once (it would wait on a step that waits on it).
-	 */
 	batch<T>(fn: (tx: RegisterTx) => Promise<T>): Promise<T>;
 }
 export interface SeedStore {
 	views(): VersionedSeed[];
-	/** Delete an imported topic: an overlay `{deleted: true}` against its current content (results never change). 'absent': no such topic; 'gone': already deleted. */
 	remove(seedId: string, version: string | null): Promise<DeleteResult | 'absent'>;
 }
 export interface Registers {
 	open(caseId: string, store: string): RegisterStore;
 	seeds(caseId: string, resultsVersion: string, datasetKey: string): SeedStore;
-	/**
-	 * Run `fn` once every queued write of the case has settled; the case's later writes wait until it settles.
-	 * Contract: `fn` may write through the store for the same case (a restore does); those writes run inside `fn`, one
-	 * after another, without waiting on the queue, so `fn` must await each of them before it returns (a write left
-	 * running after `fn` settles is no longer held back, and one `fn` starts later, from a timer or callback, queues like
-	 * any other write). A nested `exclusive` of the same case runs inside `fn` too.
-	 * Other cases are not held, and their writes queue as usual.
-	 */
 	exclusive<T>(caseId: string, fn: () => Promise<T>): Promise<T>;
 }
 
@@ -74,37 +37,27 @@ const inOrder = (a: RegisterRow, b: RegisterRow) => (seqOf(a) ?? Number.MAX_SAFE
 const rowVersion = (fields: Fields) => digest(['row', fields]);
 const seedIdOf = (v: SeedView) => (v.state === 'orphaned' ? v.overlay.seedId : v.seed.seedId);
 const seedVersion = (v: SeedView) => digest(['seed', v.state === 'orphaned' ? null : v.seed.seedSha256, v.state === 'seed' ? null : [v.overlay.baseSeedSha256, v.overlay.fields]]);
-// the overlay this module writes for a deleted seed (crossexam.ts isDeleted reads it)
 const isDeleted = (f: Readonly<Record<string, unknown>>) => f.deleted === true;
 
-// ---- the queue: per user-work, per case; a store's writes run in turn, an exclusive run alone ----------------------
 
 const DONE: Promise<unknown> = Promise.resolve();
-/**
- * The step a call runs in: its writes are part of it, in turn on `tail`, and never queue behind it. `store` null: the
- * whole case. `done` once the step has settled: a write started after that (from a timer or callback the step left,
- * which keeps its async context) is no longer part of it: it is part of the step `up` that holds this one if that has not
- * settled, and otherwise queues like any other.
- */
 type Held = { w: object; caseId: string; store: string | null; tail: Promise<unknown>; done: boolean; up: Held | undefined };
 const holding = new AsyncLocalStorage<Held>();
 const NOOP = () => undefined;
 type CaseQueue = { all: Promise<unknown>; stores: Map<string, Promise<unknown>> };
 const queues = new WeakMap<object, Map<string, CaseQueue>>();
 
-/** Run `fn` as the step `h`, which ends when `fn` settles. */
 async function step<T>(h: Held, fn: () => Promise<T>): Promise<T> {
 	try { return await holding.run(h, fn); } finally { h.done = true; }
 }
 
-/** Run `fn` after the case's earlier exclusive run and, for a store, its earlier writes (`store` null: after every earlier write of the case). A failure does not block later calls. */
 function queued<T>(w: object, caseId: string, store: string | null, fn: () => Promise<T>): Promise<T> {
 	let open = holding.getStore();
 	while (open?.done) open = open.up;
 	const held = open;
 	if (held && held.w === w && held.caseId === caseId) {
 		if (held.store !== null && held.store !== store) return Promise.reject(new Error(`register store: ${store === null ? 'an exclusive run' : `a write to store "${store.replace(/\0.*/s, '')}"`} inside a batch of store "${held.store}" would wait on that batch; take the exclusive run around it, or write after the batch`));
-		const run = held.tail.then(() => step({ ...held, tail: DONE, done: false, up: held }, fn)); // its own writes queue on a tail of their own, never behind it
+		const run = held.tail.then(() => step({ ...held, tail: DONE, done: false, up: held }, fn));
 		held.tail = run.then(NOOP, NOOP);
 		return run;
 	}
@@ -123,15 +76,8 @@ function queued<T>(w: object, caseId: string, store: string | null, fn: () => Pr
 	return run;
 }
 
-/**
- * Run a write of a case's user work outside this module (a register, table or rescan writer) in the case's queue,
- * under `key` (its store): after the case's earlier writes under that key and any exclusive run (a restore), and
- * before a later one. `w` is the app's userWork.
- */
 export const inTurn = <T>(w: object, caseId: string, key: string, fn: () => Promise<T>): Promise<T> => queued(w, caseId, key, fn);
 
-// Adds seen per user-work, by the form's one-time add id and the fields sent: a second post of the same form (a double
-// press without JavaScript, a retry of a request that did arrive) answers with the row the first one stored.
 const recent = new WeakMap<object, Map<string, string>>();
 const RECENT_MAX = 500;
 
@@ -170,7 +116,6 @@ function tx(w: Work, caseId: string, store: string): RegisterTx {
 	};
 }
 
-/** The register store of a user-work. */
 export function registers(w: Work): Registers {
 	return {
 		open(caseId, store) {

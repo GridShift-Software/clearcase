@@ -16,7 +16,6 @@ export const load: PageServerLoad = async ({ parent }) => {
 	});
 	const user = orderedRows(version.caseId, STORES.authorities).map((r) => ({ rowId: r.rowId, ...(Object.fromEntries(AUTH_FIELDS.map((k) => [k, text(r.fields[k])])) as AuthValues) }));
 	return { present: Array.isArray(raw), imported, user, known: knownRefs(version.id, imported.map((r) => r.proposition)), addId: randomUUID(),
-		// the export's file name is case content (GRS-38): the package's view-content field, else the neutral name and a note
 		exportName: exportFileName(viewContentOf(app().store, version.id), 'authorities_tab', AUTH_FILE) };
 };
 

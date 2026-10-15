@@ -1,4 +1,3 @@
-/* Layout shared by the quantum views (GRS-16), imported by their pages. Colours and surfaces come from app.css. */
 .q-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; margin: 0 0 16px; }
 .q-card { margin: 0 0 16px; }
 .q-row { display: flex; flex-wrap: wrap; gap: 12px 14px; align-items: flex-end; }

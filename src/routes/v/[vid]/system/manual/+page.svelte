@@ -1,6 +1,4 @@
 <script lang="ts">
-	// Manual (GRS-20): how to use the workspace, offline. The figures come from this results version; the two lists
-	// are links (?list=ocr, ?list=links), so they work without JavaScript and Back returns to the page as it was.
 	import { onMount } from 'svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { viewById, viewHref } from '$lib/components/views';

@@ -45,7 +45,6 @@ export const templateLinkText = (v: ViewTemplate): string => v.template.map((p) 
 
 const safeLink = (s: string) => classifyLink(s).kind !== 'rejected';
 
-/** False when `field` is a link field and its value, in any form, is a link the policy rejects. */
 function linkAllowed(field: string, v: ViewValue): boolean {
   if (!LINK_FIELDS.has(field) || typeof v === 'number') return true;
   if (typeof v === 'string') return safeLink(v);
@@ -92,7 +91,6 @@ export function readViewContent(data: unknown): ViewContentReader {
         missing.push(p.param);
         return '';
       }).join('');
-      // params come from imported data: the filled link is checked again
       if (LINK_FIELDS.has(field) && !safeLink(text)) return null;
       return { text, missing };
     },

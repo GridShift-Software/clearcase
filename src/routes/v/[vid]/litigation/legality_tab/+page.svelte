@@ -14,8 +14,6 @@
 	onMount(() => { ready = true; });
 </script>
 
-<!-- the data is complete when the server renders the page, so data-ready is set from the start (the pilot checks read
-	it from the served HTML); data-hydrated marks when the page's controls work -->
 <main id="main" tabindex="-1" data-ready="legality_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Legality & SIU Risk" section="Legality & SIU Risk" caseName={data.version.titleName} subtitle={data.subtitle} />
 	{#if !data.present}

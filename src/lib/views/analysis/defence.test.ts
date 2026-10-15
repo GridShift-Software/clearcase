@@ -9,7 +9,6 @@ describe('defence & rebuttal export', () => {
 		expect(lines[0]).toBe('k_point,k_case,k_evidence,documents,k_rebuttal,refs');
 		expect(defenceCsv(NEUTRAL_CSV_KEYS, []).split('\r\n')[0]).toBe('point,case,evidence,documents,rebuttal,refs');
 		expect(lines[1]).toBe('Point,Their case,Evidence,OD-1 SD-2,Rebuttal,OD-1 – OD-2');
-		// a row without documents exports an empty documents cell (v5 example candidate)
 		expect(lines[2]).toBe('Point,Their case,Evidence,,Rebuttal,');
 	});
 	it('exports imported values unchanged, quoting only where CSV needs it', () => {

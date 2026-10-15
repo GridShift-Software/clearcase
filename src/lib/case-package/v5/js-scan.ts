@@ -1,18 +1,10 @@
-// Static reading of the v5 viewer code, for the view-content extraction. The HTML and its
-// JavaScript are opaque text: script blocks are tokenized (strings, templates, regex literals,
-// numbers, identifiers, punctuators) and nothing is evaluated. Scopes (a RENDER.<view> body,
-// a named function, a constant's initializer, the static page markup) are found by code shape,
-// and selectors read literal values out of them. A selector never matches on case text.
 
 export type Tok =
-  /** string literal or template without substitutions; v = cooked value */
   | { t: 'str'; v: string; s: number; e: number }
-  /** template chunk around ${...} substitutions */
   | { t: 'tpl'; v: string; s: number; e: number; part: 'head' | 'mid' | 'tail' }
   | { t: 'num'; v: number; s: number; e: number }
   | { t: 'id'; v: string; s: number; e: number }
   | { t: 'p'; v: string; s: number; e: number }
-  /** regex literal; v = raw source including slashes and flags */
   | { t: 're'; v: string; s: number; e: number };
 
 const PUNCT = ['>>>=', '...', '===', '!==', '**=', '<<=', '>>=', '>>>', '&&=', '||=', '??=', '=>', '==', '!=', '<=', '>=', '&&', '||', '??', '?.', '++', '--', '+=', '-=', '*=', '/=', '%=', '&=', '|=', '^=', '**', '<<', '>>'];
@@ -24,7 +16,6 @@ const NUMBER = /(?:0[xX][0-9a-fA-F_]+|0[bB][01_]+|0[oO][0-7_]+|(?:\d[\d_]*(?:\.[
 const CODE_POINT_ESC = /([0-9a-fA-F]{1,6})\}/y;
 const SIMPLE_ESC: Record<string, string> = { n: '\n', r: '\r', t: '\t', b: '\b', f: '\f', v: '\v', 0: '\0' };
 
-/** Tokenize one script region [from, to) of `src`. Malformed input never throws: the token stops at the line end. */
 export function tokenize(src: string, from = 0, to = src.length): Tok[] {
   const out: Tok[] = [];
   const braces: ('{' | '${')[] = [];
@@ -37,14 +28,13 @@ export function tokenize(src: string, from = 0, to = src.length): Tok[] {
     if (last.t === 'p') return last.v !== ')' && last.v !== ']' && last.v !== '}' && last.v !== '++' && last.v !== '--';
     return true;
   };
-  /** Read string or template chars from i until one of the terminators; returns [cooked, endIndex, terminator]. */
   const readChars = (start: number, terms: string[]): [string, number, string] => {
     let v = '';
     let j = start;
     while (j < to) {
       const c = src[j]!;
       for (const t of terms) if (src.startsWith(t, j)) return [v, j, t];
-      if ((c === '\n' || c === '\r') && !terms.includes('`')) return [v, j, '']; // unterminated string: stop at the line end
+      if ((c === '\n' || c === '\r') && !terms.includes('`')) return [v, j, ''];
       if (c === '\\') {
         const n = src[j + 1] ?? '';
         if (n === 'x' && /^[0-9a-fA-F]{2}$/.test(src.slice(j + 2, j + 4))) { v += String.fromCharCode(parseInt(src.slice(j + 2, j + 4), 16)); j += 4; continue; }
@@ -135,11 +125,9 @@ export function tokenize(src: string, from = 0, to = src.length): Tok[] {
   return out;
 }
 
-/** Script element contents [start, end) in document order; external scripts (src=) are skipped. */
 export function scriptRegions(html: string): [number, number][] {
   const out: [number, number][] = [];
   const lower = html.toLowerCase();
-  // linear: each `<script` is found once and its tag ends at the first '>' (no '>' left: no more script elements)
   for (let i = lower.indexOf('<script'); i >= 0; i = lower.indexOf('<script', i)) {
     if (/[\w]/.test(html[i + 7] ?? '')) { i += 7; continue; }
     const gt = html.indexOf('>', i + 7);
@@ -156,23 +144,15 @@ export function scriptRegions(html: string): [number, number][] {
 const OPEN = new Set(['(', '[', '{']);
 const ASSIGN = new Set(['=', '&&=', '||=', '??=']);
 const CLOSE: Record<string, string> = { ')': '(', ']': '[', '}': '{' };
-/** keywords whose parenthesized head is followed by a block of the same function */
 const STATEMENT_HEAD = new Set(['if', 'for', 'while', 'switch', 'catch', 'with']);
 
-/** A tokenized document: tokens of every script region plus line lookup. */
 export class Code {
   readonly toks: Tok[];
-  /** index of the matching bracket for every bracket token (templates count as brackets) */
   private readonly match: Int32Array;
-  /** the innermost open bracket enclosing each token within its script region, or -1 at top level */
   private readonly parent: Int32Array;
-  /** per opening bracket: 0 unknown, 1 runs unconditionally, 2 may not run */
   private readonly runs: Int8Array;
-  /** callbacks[k]: number of `=>` and `function` tokens before token k */
   private readonly callbacks: Int32Array;
-  /** 1 for the first token of each script region */
   private readonly first: Uint8Array;
-  /** 1 when a `return` or `throw` precedes token k in its block or a nested block of the same function (k may never run) */
   private readonly exited: Uint8Array;
   private readonly lineStarts: number[];
   readonly src: string;
@@ -187,7 +167,6 @@ export class Code {
     this.first = new Uint8Array(this.toks.length);
     this.exited = new Uint8Array(this.toks.length);
     this.toks.forEach((t, k) => { this.callbacks[k + 1] = this.callbacks[k]! + ((t.t === 'p' && t.v === '=>') || (t.t === 'id' && t.v === 'function') ? 1 : 0); });
-    // brackets match within one script region and only with their own kind; a stray closer is ignored
     let base = 0;
     for (const toks of perRegion) {
       const stack: number[] = [];
@@ -209,7 +188,6 @@ export class Code {
           stack.pop();
           this.match[o] = k;
           this.match[k] = o;
-          // a block that may return or throw may end its enclosing block too, up to a function body
           if (exits.has(o) && !this.functionBody(o)) exits.add(this.parent[o]!);
         }
       });
@@ -219,15 +197,6 @@ export class Code {
     for (let k = 0; k < src.length; k++) if (src.charCodeAt(k) === 10) this.lineStarts.push(k + 1);
   }
   matchOf(k: number): number { return this.match[k]!; }
-  /**
-   * True when the statement starting at token k runs whenever its script runs: k starts a
-   * statement (see `statementStart`) at top level, or at the top level of an immediately invoked
-   * function, `(function () { ... })()` or `(function () { ... }())`, whose wrapper is itself such
-   * a statement. Inside any other bracket (a branch, a loop, a plain function, an object or call),
-   * after an unbraced `if`, `else`, loop head, label, `&&`, `?` or `,`, or after a `return` or
-   * `throw` in its block or a block nested in it (not in a nested function), it may never run.
-   * Memoized per bracket, so linear over a document.
-   */
   unconditional(k: number): boolean {
     if (!this.statementStart(k)) return false;
     const chain: number[] = [];
@@ -243,29 +212,14 @@ export class Code {
     if (ok) for (const o of chain) this.runs[o] = 1;
     return ok;
   }
-  /**
-   * True when token k begins a statement that nothing before it in its block skips: the first
-   * token of its script, or right after a `;`, a block's closing `}` or the `{` that opens its
-   * own block, with no `return` or `throw` earlier in that block or a block nested in it.
-   * Anything else (`)` of an unbraced `if` or loop head, `else`, `do`, a label, an operator, a
-   * line break with no semicolon) is refused; real v5 always ends a statement with `;` or `}`.
-   */
   private statementStart(k: number): boolean {
     if (this.exited[k]) return false;
     if (this.first[k]) return true;
     return this.is(k - 1, 'p', ';') || (this.is(k - 1, 'p', '}') && this.match[k - 1]! >= 0) || (this.is(k - 1, 'p', '{') && this.parent[k] === k - 1);
   }
-  /** True when token j ends the statement that starts at token k: a `;`, the end of its script, or the `}` closing its block. */
   statementEnd(j: number, k: number): boolean {
     return j >= this.toks.length || !!this.first[j] || this.is(j, 'p', ';') || (this.is(j, 'p', '}') && this.parent[k]! >= 0 && this.match[j] === this.parent[k]);
   }
-  /**
-   * True when the `{` at token o opens a function body: after `=>`, or after a `)` whose `(` does
-   * not follow a statement keyword (`function f(...)`, a method `m(...)`, a getter or setter).
-   * Any other bracket (`if`, loop, `switch`, `catch`, `try`, `else`, a label, a plain block, an
-   * object or a call) is part of the same function, so a `return` or `throw` in it leaves that
-   * function. `break` and `continue` never leave a function and are not tracked.
-   */
   private functionBody(o: number): boolean {
     if (!this.is(o, 'p', '{') || this.first[o]) return false;
     if (this.is(o - 1, 'p', '=>')) return true;
@@ -275,7 +229,6 @@ export class Code {
     const head = this.is(open - 1, 'id', 'await') ? open - 2 : open - 1; // for await (...)
     return !(this.is(head, 'id') && STATEMENT_HEAD.has(this.toks[head]!.v as string));
   }
-  /** For a `{` that is the body of an immediately invoked function, the wrapping `(`; else -1. */
   private iifeWrapper(o: number): number {
     if (!this.is(o, 'p', '{')) return -1;
     const close = this.match[o]!;
@@ -294,12 +247,10 @@ export class Code {
     const wrap = start - 1;
     if (!this.is(wrap, 'p', '(') || close < 0) return -1;
     const end = this.match[wrap]!;
-    // (f)() : the wrapper closes right after the body and a call follows; (f()) : the call sits inside the wrapper
     if (end === close + 1 && this.is(end + 1, 'p', '(')) return wrap;
     if (this.is(close + 1, 'p', '(') && this.match[close + 1] === end - 1) return wrap;
     return -1;
   }
-  /** True when tokens [a, b) hold an arrow or a function keyword (a callback). */
   hasCallback(a: number, b: number): boolean { return a < b && this.callbacks[b]! - this.callbacks[a]! > 0; }
   line(offset: number): number {
     let lo = 0, hi = this.lineStarts.length - 1;
@@ -307,10 +258,6 @@ export class Code {
     return lo + 1;
   }
   is(k: number, t: Tok['t'], v?: string | number): boolean { const x = this.toks[k]; return !!x && x.t === t && (v === undefined || x.v === v); }
-  /**
-   * End (exclusive) of the expression starting at token k: stops at a top-level ',' ';' or a
-   * closing bracket of an enclosing scope, or at `limit`.
-   */
   exprEnd(k: number, limit: number): number {
     let j = k;
     while (j < limit) {
@@ -321,7 +268,6 @@ export class Code {
     }
     return limit;
   }
-  /** Top-level elements of a bracketed list whose opening token is k: [start, end) per element. */
   elements(k: number): [number, number][] {
     const close = this.match[k]!;
     if (close < 0) return [];
@@ -334,31 +280,20 @@ export class Code {
     }
     return out;
   }
-  /** Raw source text of tokens [a, b). */
   text(a: number, b: number): string { return a < b ? this.src.slice(this.toks[a]!.s, this.toks[b - 1]!.e) : ''; }
 }
 
-/** A token range [a, b) plus the source text it belongs to. */
 export interface Range { a: number; b: number }
 
 export type ScopeSpec = `render:${string}` | `function:${string}` | `const:${string}` | 'markup';
 
-/**
- * Find a scope by code shape. RENDER.<id> and functions take the last definition, which is the
- * live one in a classic script; `count` reports how many definitions were seen. For RENDER.<id>,
- * `conditional` is set when any assignment (`=` or a logical `&&=`, `||=`, `??=`) is not proven
- * to run (`Code.unconditional`; a function body must also end its statement), or when any
- * assignment that is not a function body follows a function body, which it may replace.
- */
 export function findScope(code: Code, spec: ScopeSpec): { range: Range; count: number; conditional: boolean } | null {
   const T = code.toks;
   const hits: Range[] = [];
   let conditional = false;
-  /** RENDER.<id> assignments that are not a function body */
   let count = 0;
   const [kind, name] = spec.split(':') as [string, string];
   const bodyAfter = (k: number): Range | null => {
-    // function ( params ) {   |   ( params ) => {   |   ident => {
     let j = k;
     if (code.is(j, 'id', 'async')) j++;
     if (code.is(j, 'id', 'function')) { j++; if (code.is(j, 'id')) j++; }
@@ -376,13 +311,11 @@ export function findScope(code: Code, spec: ScopeSpec): { range: Range; count: n
       const r = code.is(k + 3, 'p', '=') ? bodyAfter(k + 4) : null;
       if (r) hits.push(r);
       else count++;
-      // an assignment that is not a function body replaces, or may replace, any body before it
       if (!code.unconditional(k) || (r ? !code.statementEnd(r.b + 1, k) : hits.length > 0)) conditional = true;
     } else if (kind === 'function' && code.is(k, 'id', 'function') && code.is(k + 1, 'id', name) && !code.is(k - 1, 'p', '.')) {
       const r = bodyAfter(k);
       if (r) hits.push(r);
     } else if (kind === 'const' && (code.is(k, 'id', 'const') || code.is(k, 'id', 'let') || code.is(k, 'id', 'var')) && code.is(k + 1, 'id', name) && code.is(k + 2, 'p', '=')) {
-      // a non-empty initializer; its end is computed for the last definition only (linear on repeats)
       const f = T[k + 3];
       if (f && !(f.t === 'p' && (f.v === ',' || f.v === ';' || CLOSE[f.v]))) hits.push({ a: k + 3, b: -1 });
     }
@@ -393,26 +326,16 @@ export function findScope(code: Code, spec: ScopeSpec): { range: Range; count: n
   return { range: last, count: hits.length + count, conditional };
 }
 
-// ---- expressions -------------------------------------------------------------------------------
 
-/** Top-level operators that bind looser than `+` or are not concatenation: the whole expression is code. */
 const WHOLE_CODE = new Set(['?', '||', '&&', '??', '-', '*', '/', '%', '**', '<', '>', '<=', '>=', '==', '===', '!=', '!==', '<<', '>>', '>>>', '&', '|', '^', '=', '=>', ',', '+=', '-=']);
 
-/** Private-use code points reserved for markers; a literal holding one is refused (never read as a marker). */
 export const RESERVED = /[\ue000-\ue004]/g;
-/** True when text holds any reserved code point; extracted values must not. */
 export const hasReserved = (s: string): boolean => /[\ue000-\ue004]/.test(s);
 export const POISON = '\ue004';
 export const poison = (s: string): string => s.replace(RESERVED, POISON);
 
-/** A value read from code: literal text runs and code runs (token ranges), in order. */
 export type Part = { text: string; toks: number[] } | { code: Range };
 
-/**
- * Split an expression into `+`-joined operands. Literals become text parts; a template's
- * substitutions and every other operand become code parts. An expression with a top-level
- * conditional or logical operator is one code part.
- */
 export function partsOf(code: Code, r: Range): Part[] {
   const T = code.toks;
   for (let j = r.a; j < r.b; j++) {
@@ -461,29 +384,19 @@ export function partsOf(code: Code, r: Range): Part[] {
   return out;
 }
 
-// ---- markup stream -----------------------------------------------------------------------------
 
-/** Private-use sentinels marking a code run inside reconstructed markup. */
 export const SENT_OPEN = '\ue000';
 export const SENT_CLOSE = '\ue001';
 
 export interface Stream {
   text: string;
-  /** stream offset -> source literal token, for every literal segment */
   segs: { from: number; to: number; tok: number }[];
-  /** code runs by sentinel index */
   runs: Range[];
 }
 
-/**
- * Concatenate the literals of a scope in source order into one markup string. Operator runs
- * that only join markup (`+`, `;`, `h +=`) vanish; any other code run becomes a sentinel.
- * The static page markup (scope 'markup') is the raw HTML before the first script.
- */
 export function markupStream(code: Code, r: Range): Stream {
   const T = code.toks;
   const s: Stream = { text: '', segs: [], runs: [] };
-  // the accumulator is the identifier most often extended with `+=` (v5: h); only it joins markup
   const plusEq = new Map<string, number>();
   for (let k = r.a; k + 1 < r.b; k++) { const t = T[k]!; if (t.t === 'id' && code.is(k + 1, 'p', '+=')) plusEq.set(t.v, (plusEq.get(t.v) ?? 0) + 1); }
   const acc = [...plusEq].sort((x, y) => y[1] - x[1] || (x[0] < y[0] ? -1 : 1))[0]?.[0];
@@ -500,7 +413,6 @@ export function markupStream(code: Code, r: Range): Stream {
   };
   for (let k = r.a; k < r.b; k++) {
     const t = T[k]!;
-    // a plain call's arguments are code (esc(x), docLink(u, 'label')); a call with a callback body may build markup
     if (t.t === 'id' && code.is(k + 1, 'p', '(') && !/^(?:if|for|while|switch|catch|function|return)$/.test(t.v)) {
       const close = code.matchOf(k + 1);
       if (close > k && close < r.b && !code.hasCallback(k + 2, close)) { for (let j = k; j <= close; j++) run.push(j); k = close; continue; }
@@ -520,7 +432,6 @@ export function markupStream(code: Code, r: Range): Stream {
 }
 
 
-// ---- minimal HTML tree over a markup stream ------------------------------------------------------
 
 export interface El { tag: string; attrs: Map<string, string>; start: number; innerStart: number; innerEnd: number; end: number; parent: El | null; children: El[] }
 
@@ -528,7 +439,6 @@ const VOID = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input'
 const RAW_TEXT = new Set(['script', 'style']);
 const IMPLIED = new Set(['li', 'p', 'td', 'th', 'tr', 'option', 'dt', 'dd']);
 const BLOCK = new Set(['p', 'div', 'table', 'ul', 'ol', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'section', 'blockquote']);
-// quoted attribute values never span a '<', so a malformed tag costs at most the distance to the next one
 const TAG = /<(\/?)([A-Za-z][\w:-]*)((?:[^<>"']|"[^"<]*"|'[^'<]*')*)>|<!--/g;
 const ATTR = /([^\s=/>"']+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>"']+)))?/g;
 
@@ -536,7 +446,6 @@ export function parseHtml(text: string): El {
   const root: El = { tag: '#root', attrs: new Map(), start: 0, innerStart: 0, innerEnd: text.length, end: text.length, parent: null, children: [] };
   let cur = root;
   const lower = text.toLowerCase();
-  /** open elements per tag name, so an unmatched end tag is ignored without walking the stack */
   const openCount = new Map<string, number>();
   const closeTo = (el: El, at: number, end: number) => {
     for (let c: El | null = cur; c && c !== el.parent; c = c.parent) {
@@ -551,7 +460,6 @@ export function parseHtml(text: string): El {
   let m: RegExpExecArray | null;
   while ((m = TAG.exec(text))) {
     if (m[0] === '<!--') {
-      // a comment ends at the first -->; an unclosed one runs to the end of the markup
       const e = text.indexOf('-->', m.index + 4);
       if (e < 0) break;
       TAG.lastIndex = e + 3;
@@ -592,7 +500,6 @@ export function parseHtml(text: string): El {
 
 interface Compound { tag?: string; id?: string; classes: string[]; attrs: [string, string][]; eq?: number; child: boolean }
 
-/** Selector subset: tag, #id, .class, [attr="v"], :eq(n), descendant (space) and child (>) combinators. */
 export function parseSelector(sel: string): Compound[] {
   const out: Compound[] = [];
   const re = /\s*(>)?\s*([A-Za-z][\w-]*(?::(?!eq\()[A-Za-z][\w-]*)?|\*)?((?:#[\w-]+|\.[\w-]+|\[[\w:-]+="[^"]*"\])*)(?::eq\((\d+)\))?/y;
@@ -640,7 +547,6 @@ export function select(root: El, sel: string): El[] {
   return ctx;
 }
 
-// ---- markup -> text ----------------------------------------------------------------------------
 
 const ENTITIES: Record<string, string> = {
   amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', mdash: '—', ndash: '–', hellip: '…', ldquo: '“', rdquo: '”',
@@ -659,13 +565,11 @@ export function decodeEntities(s: string): string {
   });
 }
 
-/** Remove <script> and <style> elements with their content in one linear pass (an unclosed one runs to the end). */
 function dropRawText(s: string): string {
   const lower = s.toLowerCase();
   let out = '';
   let i = 0, sc = -2, st = -2;
   for (;;) {
-    // reuse a found position until the scan passes it, so every search covers new text only
     if (sc !== -1 && sc < i) sc = lower.indexOf('<script', i);
     if (st !== -1 && st < i) st = lower.indexOf('<style', i);
     const at = sc < 0 ? st : st < 0 ? sc : Math.min(sc, st);
@@ -679,7 +583,6 @@ function dropRawText(s: string): string {
   }
 }
 
-/** Remove <!-- --> comments in one linear pass; an unclosed comment runs to the end, as in a browser. */
 function dropComments(s: string): string {
   let out = '';
   let i = 0;
@@ -695,15 +598,9 @@ function dropComments(s: string): string {
 const BREAK = '\ue002';
 const PARA = '\ue003';
 
-/**
- * Visible text of a markup fragment as narrative text: tags removed, entities decoded, white
- * space collapsed as a browser would; <br> becomes a newline and block ends separate
- * paragraphs with a blank line (the renderNarrative convention). Sentinels pass through.
- */
 export function markupText(fragment: string): string {
   const t = dropComments(dropRawText(fragment))
     .replace(/<br\s*\/?>/gi, BREAK)
-    // as in parseHtml, a tag never spans a '<', so a malformed tag costs at most the distance to the next one
     .replace(/<\/(?:p|div|h[1-6]|li|tr|table|ul|ol|section|blockquote)\s*>|<(?:p|div|h[1-6]|li|tr|table|ul|ol|section|blockquote)\b(?:[^<>"']|"[^"<]*"|'[^'<]*')*>/gi, PARA)
     .replace(/<\/?[A-Za-z][\w:-]*(?:[^<>"']|"[^"<]*"|'[^'<]*')*>/g, '');
   return decodeEntities(t.replace(/[ \t\r\n\f]+/g, ' '))

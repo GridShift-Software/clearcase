@@ -17,16 +17,11 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const rv = version.id;
 	const events = (analysisDataset<TimelineEvent[]>(rv, 'timeline-events') ?? []).map((e) => ({ date: e.date, kind: e.kind, ref: e.ref, title: e.title, note: e.note }));
 	const grouped = phaseGroups(analysisDataset<string[][]>(rv, 'timeline-phases') ?? [], events);
-	// key order as the dataset gives it (v5 iterates Object.keys); travels as entries, never as page-data keys
 	const years = yearBars(Object.entries(analysisDataset<Record<string, number>>(rv, 'timeline-year-counts') ?? {}));
 	const q = analysisDataset<Quantum>(rv, 'quantum');
 	const people = (analysisDataset<Person[]>(rv, 'people') ?? []).slice(0, 8).map((p) => ({ name: p.name, email: p.email, org: p.org, total: p.total }));
 	const meta = analysisDataset<Meta>(rv, 'meta');
 
-	// Case wording v5 hard-coded in this renderer comes from view-content (GRS-38); template params come from imported
-	// data. Counts the register can give are derived from it (S-meta-counts): the document count, the per-bundle
-	// counts and the date span, as the overview shows them. The evidence note's scanned-PDF figure is the package's own
-	// (META.textNone), since the narrative counts PDFs and the register's text status counts every type.
 	const v = a.store.getVersion(rv)!;
 	const o = JSON.parse(v.overview) as OverviewModel;
 	const bundle = (k: string) => (Object.hasOwn(o.counts.byBundle, k) ? String(o.counts.byBundle[k]) : '0');

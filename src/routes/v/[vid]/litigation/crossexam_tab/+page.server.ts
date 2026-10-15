@@ -17,7 +17,6 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const user = orderedRows(version.caseId, STORES.crossexam);
 	const seedVersions = new Map(views.map((x) => [x.seedId, x.version]));
 	const rowVersions = new Map(user.map((r) => [r.rowId, r.version]));
-	// each row's Delete value names its target and the version of what the page shows (re-checked when it is deleted)
 	const rows = crossexamRows(views, user).map((r) => ({ ...r, del: 'rowId' in r.target ? deleteValue(r.target.rowId, rowVersions.get(r.target.rowId)!) : deleteValue(r.target.seedId, seedVersions.get(r.target.seedId)!) }));
 	return {
 		rows,
@@ -35,7 +34,6 @@ export const actions: Actions = {
 		if (!canAddCx(values)) return fail(400, { op: 'add', values, message: null });
 		return addAction(caseId, STORES.crossexam, values, formAddId(f));
 	},
-	// a row's Delete submits the add form (formaction), so the typed entry travels with it and comes back in the answer
 	delete: async ({ params, request }) => {
 		const { vid, caseId } = actionCase(params);
 		const f = await request.formData();
@@ -45,7 +43,6 @@ export const actions: Actions = {
 			const { id, version } = deleteTarget(row);
 			return deleteAnswer(id, values, () => register(caseId, STORES.crossexam).remove(id, version));
 		}
-		// a seed is never removed from results: the user's deletion is an overlay on it, made against its current content
 		const { id, version } = deleteTarget(field(f, 'seedId'));
 		return deleteAnswer(id, values, () => registers(app().userWork).seeds(caseId, vid, SEED).remove(id, version));
 	},

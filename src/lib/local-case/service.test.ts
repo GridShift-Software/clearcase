@@ -1,6 +1,3 @@
-// Import, storage, activation and recovery of the local case service, on disposable data directories and synthetic
-// cases converted by GRS-10's adapter. Behaviour under test is observable state: stored rows, the active pointer,
-// the activation log, and what activation refuses.
 import { DatabaseSync } from 'node:sqlite';
 import { cp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -29,7 +26,6 @@ async function setup(tag: string) {
 const importOf = (lc: LocalCase, id: number) => JSON.parse(lc.store.getImport(id)!.report);
 const count = (lc: LocalCase, table: string) => (lc.storage.db().prepare(`SELECT count(*) AS n FROM ${table}`).get() as { n: number }).n;
 
-/** Rewrite one package file canonically in place (manifest-only edits keep the resultsVersion). */
 async function editPkgFile(pkgDir: string, file: string, edit: (v: any) => void) {
 	const p = path.join(pkgDir, ...file.split('/'));
 	const v = parseStrictJson(decodeUtf8Strict(new Uint8Array(await readFile(p)))) as any;
@@ -50,7 +46,7 @@ describe('import', () => {
 		for (const [p, b] of c.files) expect(Buffer.compare(Buffer.from(stored.get(p)!), Buffer.from(b))).toBe(0);
 		expect(lc.verify(v.id, true)).toMatchObject({ ok: true });
 		expect(lc.store.projectionRows(v.id).documents).toHaveLength(7);
-		expect(lc.currentActive()).toBeUndefined(); // importing never activates
+		expect(lc.currentActive()).toBeUndefined();
 	});
 
 	it('a case folder restored at the same path is re-bound by importing the same package again', async () => {
@@ -58,7 +54,7 @@ describe('import', () => {
 		const c = await buildCase(path.join(root, 'c'));
 		const imp = await lc.importPackage(c.caseDir, c.pkgDir);
 		await rename(c.caseDir, `${c.caseDir}.old`);
-		await cp(`${c.caseDir}.old`, c.caseDir, { recursive: true }); // same path, new inode
+		await cp(`${c.caseDir}.old`, c.caseDir, { recursive: true });
 		expect((await lc.activate(c.resultsVersion, ackFor(lc, imp.importId)))?.message).toMatch(/moved or replaced/);
 		expect(await lc.importPackage(c.caseDir, c.pkgDir)).toEqual({ kind: 'identical', importId: imp.importId });
 		expect(await lc.activate(c.resultsVersion, ackFor(lc, imp.importId))).toBeNull();
@@ -72,7 +68,7 @@ describe('import', () => {
 		expect(imp.kind).toBe('stored');
 		const r = importOf(lc, imp.importId);
 		expect(r.app).toEqual([expect.objectContaining({ code: 'APP_UNLISTED_IGNORED', severity: 'info' })]);
-		expect(r.counts.PKG_UNLISTED_FILE).toBeUndefined(); // the stored report is the stored snapshot's
+		expect(r.counts.PKG_UNLISTED_FILE).toBeUndefined();
 		expect([...lc.store.packageFiles(c.resultsVersion).keys()]).not.toContain('notes.txt');
 		expect(await lc.activate(c.resultsVersion, ackFor(lc, imp.importId))).toBeNull();
 	});
@@ -84,7 +80,7 @@ describe('import', () => {
 		expect(await lc.activate(good.resultsVersion, ackFor(lc, imp.importId))).toBeNull();
 		const before = { versions: count(lc, 'version'), files: count(lc, 'package_file'), docs: count(lc, 'document') };
 		const bad = await buildCase(path.join(root, 'bad'), { caseId: 'e2e-case' });
-		await editPkgFile(bad.pkgDir, 'datasets/chronology.json', (env) => { env.data.pop(); }); // count and digest no longer agree
+		await editPkgFile(bad.pkgDir, 'datasets/chronology.json', (env) => { env.data.pop(); });
 		const r = await lc.importPackage(bad.caseDir, bad.pkgDir);
 		expect(r.kind).toBe('rejected');
 		expect(importOf(lc, r.importId).verdict).toBe('reject');
@@ -98,7 +94,7 @@ describe('import', () => {
 		const first = await lc.importPackage(c.caseDir, c.pkgDir);
 		const again = await lc.importPackage(c.caseDir, c.pkgDir);
 		expect(again).toEqual({ kind: 'identical', importId: first.importId });
-		await editPkgFile(c.pkgDir, 'manifest.json', (m) => { m.case.label = 'Another label'; }); // label is outside resultsVersion
+		await editPkgFile(c.pkgDir, 'manifest.json', (m) => { m.case.label = 'Another label'; });
 		const conflict = await lc.importPackage(c.caseDir, c.pkgDir);
 		expect(conflict.kind).toBe('rejected');
 		expect(importOf(lc, conflict.importId).app.map((d: { code: string }) => d.code)).toEqual(['APP_VERSION_CONFLICT']);
@@ -170,7 +166,6 @@ describe('activation', () => {
 		const v1 = await buildCase(path.join(root, 'v1'));
 		const i1 = await lc.importPackage(v1.caseDir, v1.pkgDir);
 		expect(await lc.activate(v1.resultsVersion, ackFor(lc, i1.importId))).toBeNull();
-		// v2: same originals and defects, chronology reordered and one narrative character changed -> new resultsVersion
 		const v2 = await buildCase(path.join(root, 'v2'), { caseDir: v1.caseDir, edit: (r) => { (r.DATA.chronology as unknown[]).reverse(); (r.DATA.matter as any).short = 'SYN2'; } });
 		expect(v2.resultsVersion).not.toBe(v1.resultsVersion);
 		const i2 = await lc.importPackage(v1.caseDir, v2.pkgDir);
@@ -187,10 +182,9 @@ describe('activation', () => {
 		const fps = importOf(lc, ia.importId).warningFingerprints as string[];
 		await lc.store.addTrusted('case-a', fps);
 		expect(lc.trustedFor('case-a').size).toBe(fps.length);
-		expect(await lc.activate(a.resultsVersion, null)).toBeNull(); // waived by case A's register
+		expect(await lc.activate(a.resultsVersion, null)).toBeNull();
 		const ib = await lc.importPackage(b.caseDir, b.pkgDir);
 		const rb = importOf(lc, ib.importId);
-		// GRS-10 fingerprints are not bound to a case: the same synthetic defects give the same fingerprints
 		expect(rb.warningFingerprints.filter((f: string) => fps.includes(f)).length).toBeGreaterThan(0);
 		expect(rb.newWarnings).toEqual(rb.warningFingerprints);
 		expect((await lc.activate(b.resultsVersion, null))?.reasons?.map((r) => r.code)).toEqual(['ACK_REQUIRED']);
@@ -204,7 +198,7 @@ describe('activation', () => {
 		const ack = ackFor(lc, imp.importId);
 		const pdf = path.join(c.caseDir, 'DISCOVERY A', 'OD-002 Invoice 1001.pdf');
 		const original = await readFile(pdf);
-		await writeFile(pdf, Buffer.from(original).fill(0x41, 10, 12)); // same size, other bytes
+		await writeFile(pdf, Buffer.from(original).fill(0x41, 10, 12));
 		expect((await lc.activate(c.resultsVersion, ack))?.message).toMatch(/revalidating .* rejects it/);
 		await rm(pdf);
 		expect((await lc.activate(c.resultsVersion, ack))?.message).toMatch(/no longer matches what was previewed/);
@@ -219,7 +213,6 @@ describe('activation', () => {
 		expect(lc.verify(c.resultsVersion, true)).toMatchObject({ ok: false, reason: expect.stringMatching(/read-model digest/) });
 		expect((await lc.activate(c.resultsVersion, ack))?.message).toMatch(/failed verification/);
 		expect(lc.currentActive()).toBeUndefined();
-		// re-importing the same package repairs the stored copy
 		expect((await lc.importPackage(c.caseDir, c.pkgDir)).kind).toBe('repaired');
 		expect(lc.verify(c.resultsVersion, true).ok).toBe(true);
 		expect(await lc.activate(c.resultsVersion, ackFor(lc, imp.importId))).toBeNull();
@@ -241,7 +234,6 @@ describe('activation', () => {
 		const refused = await lc.activate(c.resultsVersion, ackFor(lc, imp.importId));
 		expect(refused?.message).toMatch(/no longer matches what was previewed/);
 		guidance(refused?.message);
-		// the re-import is a new attempt with the fresh diagnostics, not the first import returned as identical
 		const again = await lc.importPackage(c.caseDir, c.pkgDir);
 		expect(again.kind).toBe('rejected');
 		expect(again.importId).not.toBe(imp.importId);
@@ -251,8 +243,7 @@ describe('activation', () => {
 		expect(r.app.map((d: { code: string }) => d.code)).toEqual(['APP_ORIGINALS_CHANGED']);
 		guidance(`${r.app[0].message}. ${r.app[0].hint}`);
 		guidance((await lc.activate(c.resultsVersion, ackFor(lc, imp.importId)))?.message);
-		expect(lc.verify(c.resultsVersion, true).ok).toBe(true); // the stored version is unchanged
-		// restoring the original byte for byte makes the same package identical again, and it activates
+		expect(lc.verify(c.resultsVersion, true).ok).toBe(true);
 		await writeFile(pdf, original);
 		expect(await lc.importPackage(c.caseDir, c.pkgDir)).toEqual({ kind: 'identical', importId: imp.importId });
 		expect(await lc.activate(c.resultsVersion, ackFor(lc, imp.importId))).toBeNull();
@@ -298,7 +289,7 @@ describe('startup and retention', () => {
 		const v2 = await buildCase(path.join(root, 'v2'), { caseDir: v1.caseDir, edit: (r) => { (r.DATA.matter as any).short = 'V2'; } });
 		const i1 = await lc.importPackage(v1.caseDir, v1.pkgDir);
 		expect(await lc.activate(v1.resultsVersion, ackFor(lc, i1.importId))).toBeNull();
-		await lc.importPackage(v1.caseDir, v2.pkgDir); // stored, never activated
+		await lc.importPackage(v1.caseDir, v2.pkgDir);
 		lc.storage.db().prepare('UPDATE work.active SET version_id = ?').run(v2.resultsVersion);
 		await lc.startup();
 		expect(lc.anyRecovery()).toMatchObject({ configured: v2.resultsVersion, effective: v1.resultsVersion });
@@ -321,7 +312,6 @@ describe('startup and retention', () => {
 		await lc.importPackage(a.caseDir, b.pkgDir);
 		expect(lc.store.getVersion(a.resultsVersion)).toBeUndefined();
 		expect(lc.store.getVersion(b.resultsVersion)).toBeDefined();
-		// same resultsVersion as the retired one, different manifest bytes (label outside the identity)
 		const files = new Map(a.files);
 		const m = parseStrictJson(decodeUtf8Strict(files.get('manifest.json')!)) as any;
 		m.case.label = 'relabelled';
@@ -330,7 +320,7 @@ describe('startup and retention', () => {
 		await writePackageDir(relabelled, files);
 		const r = await lc.importPackage(a.caseDir, relabelled);
 		expect(importOf(lc, r.importId).app.map((d: { code: string }) => d.code)).toEqual(['APP_VERSION_RETIRED']);
-		expect((await lc.importPackage(a.caseDir, a.pkgDir)).kind).toBe('stored'); // the same package may come back
+		expect((await lc.importPackage(a.caseDir, a.pkgDir)).kind).toBe('stored');
 	});
 });
 

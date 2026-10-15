@@ -1,5 +1,3 @@
-// Process start with an invalid CLEARCASE_FIXED_NOW: a configuration error, refused before anything is opened, with
-// one FATAL line and exit code 1 (like a taken originals port), never an unhandled rejection from the startup checks.
 import { existsSync, rmSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
@@ -36,16 +34,16 @@ it('an invalid CLEARCASE_FIXED_NOW exits at boot with a FATAL message, before th
 it('a second instance refused by the instance lock leaves link-key alone: no chmod (ctime) and no new key when it is missing', async () => {
 	root = await tempRoot('second');
 	const data = path.join(root, 'data');
-	const first = service(data); // holds the instance lock on data
+	const first = service(data);
 	try {
 		const { LinkCapability } = await import('./originals.server.ts');
-		new LinkCapability(data); // the first instance's link-key
+		new LinkCapability(data);
 		const key = path.join(data, 'link-key');
 		const before = statSync(key);
 		Object.assign(process.env, { CLEARCASE_DATA_DIR: data, PORT: '1', ORIGINALS_PORT: String(await freePort()) });
 		vi.spyOn(process, 'exit').mockImplementation(((code: number) => { throw new Error(`exit ${code}`); }) as never);
 		const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-		await new Promise((r) => setTimeout(r, 20)); // a chmod now would show as a later ctime
+		await new Promise((r) => setTimeout(r, 20));
 		await expect(initApp()).rejects.toThrow('exit 1');
 		expect(String(err.mock.calls[0]?.[0])).toMatch(/^FATAL: another ClearCase process/);
 		expect(statSync(key).ctimeMs).toBe(before.ctimeMs);

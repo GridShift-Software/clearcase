@@ -3,12 +3,6 @@
 </script>
 
 <script lang="ts" generics="T">
-	// Table primitive for large lists: a div grid with ARIA table semantics (content-visibility does not apply to table
-	// rows), sticky header, sortable column buttons with aria-sort, and rows keyed by a stable id, never by index.
-	// Column widths come from a CSS class (`gridClass`) that sets grid-template-columns on `.grid-row`: the app's CSP
-	// allows no inline style attributes. Long lists render their first FIRST rows at once and the rest in following
-	// frames, so a navigation is usable before every row exists; `data-complete` says when all rows are in the DOM.
-	// The label names the TableScroll region around the table; the table inside is not named again, so it is read once.
 	import type { Snippet } from 'svelte';
 	import TableScroll from './TableScroll.svelte';
 	let { columns, rows, rowKey, label, gridClass, sort = null, onsort, cell, rowAttrs = () => ({}) }: {

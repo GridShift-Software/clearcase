@@ -1,4 +1,3 @@
-// The views' access to the package's view-content dataset and the date-basis probe, on synthetic values only.
 import { describe, expect, it } from 'vitest';
 import { readViewContent } from '../case-package/view-content.ts';
 import { anyDateBasis } from './documents.server.ts';
@@ -56,7 +55,7 @@ describe('export names and CSV keys for views', () => {
 	it("uses the package's CSV keys when they match the neutral count and are safe", () => {
 		const k = ['syn_point', 'documents', 'syn_rebuttal', 'org_answer', 'status'];
 		expect(keys(k)).toEqual({ keys: k, note: null });
-		expect(keys(['a', 'b', 'c', 'd', 'a=b-c+d@e'])).toEqual({ keys: ['a', 'b', 'c', 'd', 'a=b-c+d@e'], note: null }); // only a leading sign is refused
+		expect(keys(['a', 'b', 'c', 'd', 'a=b-c+d@e'])).toEqual({ keys: ['a', 'b', 'c', 'd', 'a=b-c+d@e'], note: null });
 		expect(keys(['a', 'b', 'c', 'd', 'e'.repeat(64)])).toEqual({ keys: ['a', 'b', 'c', 'd', 'e'.repeat(64)], note: null });
 	});
 
@@ -68,7 +67,6 @@ describe('export names and CSV keys for views', () => {
 		];
 		for (const v of refused) expect(keys(v), JSON.stringify(v)).toEqual({ keys: NEUTRAL_KEYS, note: EXPORT_COLUMNS_NOTE });
 		expect(EXPORT_COLUMNS_NOTE).toMatch(/^[A-Z][^<>&]+\.$/);
-		// the caller's neutral list is never handed out to be mutated
 		const r = keys(undefined);
 		r.keys.push('x');
 		expect(NEUTRAL_KEYS).toHaveLength(5);

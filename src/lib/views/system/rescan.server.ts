@@ -1,5 +1,3 @@
-// Rescan & Update (GRS-20): the page's data and actions. The scan itself is $lib/local-case/rescan; this module only
-// reads its state for one results version and runs it on a form post (works without JavaScript).
 import { error, fail, isHttpError } from '@sveltejs/kit';
 import { app } from '$lib/local-case/app.server';
 import { docPath } from '$lib/local-case/model';
@@ -55,10 +53,8 @@ export const actions = {
 	},
 };
 
-/** The file name of "Write updated index to file": view-content's, else a neutral name with a note. */
 export const indexName = (vid: string) => exportFileName(viewContentOf(app().store, vid), 'rescan_tab', 'rescan-additions.json');
 
-/** The additions as v5's rescan index ("Write updated index to file"): an array of v5 rescan rows. */
 export function indexFile(vid: string): string {
 	const { a, v } = versionOf(vid);
 	return `${JSON.stringify(additions(a, v.case_id, v.id).map((p) => p.row), null, 2)}\n`;

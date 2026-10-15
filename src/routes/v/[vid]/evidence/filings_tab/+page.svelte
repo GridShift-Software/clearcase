@@ -1,12 +1,4 @@
 <script lang="ts">
-	// Unsaved register input is never lost and never shown as saved (CC-04 r2). While a write is in flight the form,
-	// Cancel, Retry and every row's Edit and Delete are inert and a status says so; a save's result applies to the row
-	// and values it was submitted with. A refused save keeps its input with its error (and a Retry when trying again can
-	// help) until that save succeeds, is retried or is discarded on purpose (Discard, or a confirmed Edit, Cancel or
-	// navigation). Delete errors are kept apart and never clear a save failure, nor the reverse.
-	// Without JavaScript a refused save re-renders with its values and row; a Delete posts the form's draft (a Delete
-	// button is a submit button of the register form) and gets it back, done or refused; and while a refused save is
-	// shown the rows' Edit buttons are inert, with a note, until it is retried or discarded.
 	import { onMount, untrack } from 'svelte';
 	import { enhance } from '$app/forms';
 	import { afterNavigate, beforeNavigate, goto, invalidateAll } from '$app/navigation';
@@ -34,8 +26,6 @@
 	const same = (x: Values, y: Values) => INPUTS.every((k) => (x[k] ?? '') === (y[k] ?? ''));
 	type SaveError = { code: SaveFailure; message: string; retry: boolean };
 	const failure = (code: SaveFailure): SaveError => ({ code, ...SAVE_FAILURES[code] });
-	/** The form as the server rendered it: a refused save, or a Delete with the draft it carried (both only without
-	 *  JavaScript), else the row the URL's ?edit= names. */
 	function initial(f: Result) {
 		if (f?.op === 'save' && f.message) {
 			const e = entryOf(f.editing);
@@ -43,7 +33,6 @@
 		}
 		if (f?.op === 'delete' && f.draft) {
 			const e = entryOf(f.draft.editing);
-			// an edit draft of a row deleted elsewhere comes back in Add mode with the refusal that says so, never silently
 			const code = f.draft.editing && !e ? 'gone' : saveFailure(f.draft.failed);
 			return { values: { ...blank(), ...f.draft.values }, editing: e?.key ?? null, version: f.draft.version ?? versionOf(e), saveError: code ? failure(code) : null, deleteError: f.message ? { key: f.target ?? '', message: f.message } : null };
 		}
@@ -53,20 +42,15 @@
 	const init = untrack(() => initial(form as Result));
 	let values = $state<Values>(init.values);
 	let editing = $state<string | null>(init.editing);
-	/** the edited row's version as the form loaded it: a save from an older version is refused, never an overwrite */
 	let version = $state<string | null>(init.version);
-	/** the form as loaded: input that differs from it is unsaved */
 	let base = $state<Values>(untrack(() => fieldsOf(entryOf(init.editing))));
 	let saveError = $state<SaveError | null>(init.saveError);
 	let deleteError = $state<{ key: string; message: string } | null>(init.deleteError);
-	/** the write in flight, if any */
 	let busy = $state<{ op: 'add' | 'save' | 'delete'; key: string | null } | null>(null);
-	/** an action waiting for the user to confirm that the unsaved input may be discarded */
 	let ask = $state<{ what: string; go: () => void } | null>(null);
 	const dirty = $derived(!same(values, base));
 	const unsaved = $derived(dirty || saveError !== null);
 
-	/** Show the register with this row (or none) in the form, as loaded. */
 	function load(key: string | null) {
 		const e = entryOf(key);
 		values = fieldsOf(e);
@@ -75,11 +59,6 @@
 		version = versionOf(e);
 		saveError = null;
 	}
-	// Edit, Cancel and Back change the URL's ?edit=; the form follows once the navigation (confirmed, if it drops
-	// unsaved input) is done. A completed save's redirect keeps the form it already emptied: the form is enabled before
-	// the redirect lands, and text typed in between is the user's next entry. A save's redirect is followed only if the
-	// user has not navigated since the save was sent (and this page is still shown); otherwise the user has gone
-	// elsewhere on purpose and the redirect would pull them back and drop what they typed there.
 	let landing = false;
 	let navs = 0;
 	let alive = true;
@@ -88,10 +67,8 @@
 		if (nav.type !== 'enter' && !(landing && editing === data.editing)) load(data.editing);
 		landing = false;
 	});
-	/** the navigation count and URL a write was sent at */
 	const mark = () => ({ navs, href: page.url.href });
 	const stayed = (at: { navs: number; href: string }) => alive && navs === at.navs && page.url.href === at.href;
-	/** the one navigation this page starts itself (a confirmed one, or a save's redirect): it is not asked about again */
 	let leaving: string | null = null;
 	const go = (url: URL | string) => {
 		const href = new URL(url, page.url).href;
@@ -121,7 +98,6 @@
 		if (page.url.search) go(page.url.pathname);
 	}
 
-	// One form posts Add, Save and every row's Delete: a Delete's result never touches the form or a save failure
 	const submit: SubmitFunction = ({ submitter, cancel }) => {
 		if (busy) { cancel(); return; }
 		if (submitter?.getAttribute('name') === 'delete') return remove(submitter.getAttribute('value') ?? '');
@@ -132,21 +108,17 @@
 		return async ({ result }) => {
 			try {
 				if (result.type === 'success' || result.type === 'redirect') {
-					// done: the form empties only while it still holds what was sent (it is inert in flight, so it does)
 					if (editing === sent.key && same(values, sent.values)) load(null);
 					if (result.type === 'redirect' && stayed(sent.at)) {
 						landing = editing === null;
 						go(result.location);
 					} else await invalidateAll();
 				} else {
-					// refused or unanswered: the form shows what was sent, for the row it was sent for
 					const code = result.type === 'failure' ? (saveFailure(result.data?.code) ?? 'busy') : 'lost';
 					values = sent.values;
-					// the row is gone: the form offers the Add its refusal names, as it does without JavaScript
 					editing = code === 'gone' ? null : sent.key;
 					version = code === 'gone' ? null : sent.version;
 					saveError = failure(code);
-					// deleted or changed elsewhere: the register shows the row as it is now, the form keeps the input
 					if (result.type === 'failure' && (result.status === 404 || result.status === 409)) await invalidateAll();
 				}
 			} finally { busy = null; }
@@ -172,11 +144,8 @@
 	}
 	const exportFilings = () => download(data.exportNames.filings.name, toCSV(filingsCsvRows(data.groups ?? [])));
 	const exportRegister = () => download(data.exportNames.register.name, toCSV(registerCsvRows(data.entries)));
-	// the data is complete when the page renders (data-ready, also in the server's HTML); data-hydrated marks the
-	// moment its controls respond
 	let ready = $state(false);
 	onMount(() => { ready = true; return () => { alive = false; }; });
-	/** without JavaScript a row's Edit would drop a refused save's input: it waits until that is retried or discarded */
 	const held = $derived(!ready && saveError !== null);
 </script>
 

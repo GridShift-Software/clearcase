@@ -16,7 +16,6 @@ export type ActivationReason =
 
 export interface ActivationDecision { ok: boolean; reasons: ActivationReason[]; newWarnings: string[] }
 
-/** New warning fingerprints of a result relative to a trusted baseline. */
 export function newWarningFingerprints(result: ImportResult, trusted: Iterable<string>): string[] {
   const t = new Set(trusted);
   return result.warningFingerprints.filter((f) => !t.has(f));
@@ -49,7 +48,6 @@ export function canActivate(result: ImportResult, acknowledgement: Acknowledgeme
   return { ok: reasons.length === 0, reasons, newWarnings: fresh };
 }
 
-/** Builds an acknowledgement of the given (default: all new) warnings of a fresh result. */
 export function acknowledge(result: ImportResult, warningFingerprints: Iterable<string>, by?: { acknowledgedBy?: string; at?: string }): Acknowledgement {
   if (!result.candidate) throw new Error('a rejected import cannot be acknowledged');
   return {

@@ -1,5 +1,3 @@
-// The one failed-write answer of every form action (GRS-52): a busy store says try again, a refused write says why and
-// offers no retry, any other fault keeps the typed values too; each names its action and carries the values back.
 import { error, isHttpError } from '@sveltejs/kit';
 import { describe, expect, it } from 'vitest';
 import { actionCase, answer, guarded } from './answer.server.ts';

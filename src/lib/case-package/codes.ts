@@ -17,7 +17,6 @@ const i = (cls: DiagClass, title: string, hint: string): CodeDef => ({ severity:
 const REBUILD = 'Rebuild the package with the converter; do not edit package files by hand.';
 
 export const CODES = {
-  // source and layout
   PKG_SOURCE_INVALID: e('structural', 'package source is not a directory, zip file or byte collection', 'Select the package directory or its .zip file.'),
   PKG_MANIFEST_MISSING: e('structural', 'manifest.json missing', 'Select the folder that contains manifest.json.'),
   PKG_NOT_A_PACKAGE: e('structural', 'manifest.format is not clearcase.results-package', 'This is not a ClearCase results package; convert the source first.'),
@@ -41,14 +40,11 @@ export const CODES = {
   JSON_MALFORMED: e('structural', 'malformed JSON', REBUILD),
   JSON_DUPLICATE_KEY: e('structural', 'duplicate key in a JSON object', REBUILD),
   JSON_LIMIT: e('structural', 'JSON nesting or size bound exceeded', 'Check the source for runaway data; the bounds are in docs/results-package.md.'),
-  // versions
   VER_UNSUPPORTED: e('structural', 'unsupported package format or formatVersion', 'Convert the package with a matching converter or upgrade ClearCase.'),
-  // zip transport
   ARC_MALFORMED: e('structural', 'malformed zip archive', 'Re-create the zip from the package directory.'),
   ARC_UNSUPPORTED: e('structural', 'unsupported zip feature (encryption, method, multi-disk)', 'Use an unencrypted zip with stored or deflated entries.'),
   ARC_LIMIT: e('structural', 'archive bound exceeded (entries, expanded size or ratio)', 'Check the archive for a decompression bomb; the bounds are in docs/results-package.md.'),
   ARC_ENTRY_INVALID: e('structural', 'unsafe archive entry (traversal, absolute, link, duplicate, file/folder clash)', 'Do not import this archive; re-create it from the package directory.'),
-  // datasets
   DS_ENVELOPE_INVALID: e('structural', 'dataset envelope does not match its schema', REBUILD),
   DS_MANIFEST_MISMATCH: e('structural', 'dataset envelope disagrees with the manifest', REBUILD),
   DS_COUNT_MISMATCH: e('structural', 'declared count differs from the actual record count', REBUILD),
@@ -61,10 +57,8 @@ export const CODES = {
   DS_ENUM_UNKNOWN: w('quality', 'value outside the known set', 'Review the value in the source.'),
   DS_DATE_INVALID: w('quality', 'date has the right form but is not a calendar date', 'Review the source date; the value is kept unchanged.'),
   DS_SEED_ID_AMBIGUOUS: w('quality', 'two seed rows share a stable seed id', 'Make the seed rows distinguishable in the source.'),
-  // identity
   ID_DUPLICATE: e('structural', 'duplicate document ref', 'Give each document a unique ref in the source and convert again.'),
   ID_REF_INVALID: e('structural', 'ref missing or not matching the ref grammar', 'Fix the ref in the source and convert again.'),
-  // asset index
   ASSET_PATH_INVALID: e('structural', 'asset path violates the path rules', 'Fix the original path in the source and convert again.'),
   ASSET_PATH_TRAVERSAL: e('structural', 'asset path escapes the case folder', 'Do not import this package; an original points outside the case folder.'),
   ASSET_PATH_RESERVED: e('structural', 'asset path inside the reserved .clearcase/ area', 'Move the original out of .clearcase/ and convert again.'),
@@ -82,7 +76,6 @@ export const CODES = {
   TEXT_PENDING: i('quality', 'text extraction pending', 'No action; the document opens but is not searchable.'),
   MEDIA_UNSUPPORTED: i('quality', 'media type has no text extractor; open or download only', 'No action; this is not missing text.'),
   TEXT_STATUS_INCONSISTENT: w('quality', 'textStatus contradicts the media capability', 'Review the text status in the source.'),
-  // originals in the case folder
   ORIG_CASE_FOLDER_INVALID: e('integrity', 'case folder missing, unreadable or not a directory', 'Select the case folder that holds the originals.'),
   ORIG_MISSING: w('integrity', 'original not found in the case folder', 'Restore the original, or acknowledge it; the document stays flagged as missing.'),
   ORIG_FINGERPRINT_MISMATCH: e('integrity', 'original bytes differ from the indexed size or sha256', 'Restore the original bytes or convert again from the current case folder.'),
@@ -95,19 +88,16 @@ export const CODES = {
   ORIG_TOTAL_TOO_LARGE: e('integrity', 'referenced originals exceed the total bound', 'Split the case; the bound is in docs/results-package.md.'),
   IMPORT_DEADLINE: e('integrity', 'validation exceeded its deadline', 'Retry on a faster disk or with a warm cache; nothing was stored.'),
   IMPORT_ABORTED: e('integrity', 'import cancelled', 'Start the import again; nothing was stored.'),
-  // citations
   CITE_UNRESOLVED: w('quality', 'citation target is not in the document register', 'Fix the citation in the source, or acknowledge it as a known defect.'),
   CITE_TARGET_NO_ORIGINAL: w('integrity', 'cited document has no original in the case folder', 'Restore the original, or acknowledge it; the citation stays flagged.'),
   CITE_TOKEN_INVALID: w('quality', 'malformed [[...]] citation token', 'Use [[REF]] or [[REF#pN]].'),
   CITE_BARE_MENTION: i('quality', 'ref mentioned in prose without a [[...]] token (not linked)', 'No action; use [[REF]] to make it a link.'),
-  // links and text
   LINK_UNSAFE_SCHEME: e('structural', 'link uses a forbidden URL scheme', 'Remove the link from the source; only https and mailto may be external links.'),
   LINK_RELATIVE_UNSAFE: e('structural', 'link is not a safe locator (absolute, protocol-relative, UNC, drive path, traversing or too long)', 'Use a "./" locator inside the case folder.'),
   LINK_EXTERNAL: i('quality', 'external link (rendered inert, never fetched)', 'No action.'),
   LINK_TEXT_ONLY: i('quality', 'link with a scheme that is shown as text only', 'No action.'),
   LINK_ASSET_MISMATCH: w('quality', 'legacy locator disagrees with the indexed original path', 'Review the source locator.'),
   TEXT_CONTROL_CHARS: w('quality', 'text contains control or bidirectional-override characters (rendered visibly)', 'Review the value; hidden characters are shown as ⟨U+XXXX⟩.'),
-  // v5 adapter and source metadata
   V5_PAYLOAD_MISSING: e('structural', 'required v5 data line not found', 'Select the v5 workspace HTML that holds the data.'),
   V5_PAYLOAD_AMBIGUOUS: e('structural', 'v5 data assignment appears more than once', 'Select an unmodified v5 workspace HTML.'),
   V5_PAYLOAD_NOT_JSON: e('structural', 'v5 data line is not pure JSON (refused, never evaluated)', 'Select an unmodified v5 workspace HTML.'),

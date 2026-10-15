@@ -1,15 +1,4 @@
 <script lang="ts">
-	// One register page (GRS-17): v5's form, Add, per-row Delete and the export, plus a per-row Edit that reuses the
-	// form (acceptance beyond v5). Imported values are never shown here: every cell is user-entered text, a chip, or a
-	// typed document ref linked only when it names a document.
-	//
-	// Unsaved input is never lost and never shown as saved (CC-07 r2). While a save is in flight the form, Cancel and
-	// every row's Edit and Delete are inert and a status says so; its result applies to what was submitted. A refused
-	// save keeps its input with its error and a Retry until that save succeeds, is retried or is discarded on purpose
-	// (Discard, or a confirmed Edit, Cancel, Delete of the edited row or navigation). Delete errors are kept apart and
-	// never clear a save failure, nor the reverse. Without JavaScript a refused save re-renders with the action's
-	// values, row id and version, and every row's Edit and Delete stay off until it is retried or discarded; a success
-	// never re-enters edit mode.
 	import { onMount, tick, untrack } from 'svelte';
 	import { applyAction, enhance } from '$app/forms';
 	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
@@ -37,28 +26,19 @@
 	const reg = $derived(data.register);
 	const vid = $derived(data.version.id);
 
-	/** An empty form: a select without a placeholder starts on its first option, as v5's does. */
 	const blank = (): Entry => Object.fromEntries(reg.fields.map((f) => [f.k, f.type === 'select' && f.placeholder === undefined ? f.opts![0]! : '']));
-	// without JavaScript a refused save or delete re-renders the page with the action's result
 	const saved = untrack(() => (form?.op === 'save' && form.message ? form : null));
 	let values = $state<Entry>(untrack(() => ({ ...blank(), ...saved?.values })));
 	let editing = $state<string | null>(saved?.rowId ?? null);
 	let version = $state<string | null>(saved?.version ?? null);
-	/** the form as last loaded or saved: input that differs from it is unsaved */
 	let base = $state<Entry>(untrack(() => blank()));
 	type Draft = { rowId: string | null; version: string | null; values: Entry };
-	/** a refused save; `stale` after a 409, `draft` when the form no longer held what was submitted (restorable) */
 	let saveError = $state<{ message: string; retry: boolean; stale?: boolean; draft?: Draft } | null>(saved ? { message: saved.message!, retry: saved.retry === true } : null);
 	let deleteError = $state<{ rowId: string | null; message: string } | null>(untrack(() => (form?.op === 'delete' && form.message ? { rowId: form.rowId ?? null, message: form.message } : null)));
-	/** a save in flight */
 	let busy = $state(false);
-	/** the row whose delete is in flight */
 	let deleting = $state<string | null>(null);
-	/** the form is inert while a save, or the delete of the entry being edited, is in flight: nothing can be typed and lost */
 	const locked = $derived(busy || (editing !== null && deleting === editing));
-	/** fields where the other tab's change and the typed change collided in the last rebase */
 	let rebaseNote = $state<string | null>(null);
-	/** an action waiting for the user to confirm that the unsaved input may be discarded */
 	let ask = $state<{ what: string; go: () => void; leave?: boolean } | null>(null);
 	let ready = $state(false);
 	onMount(() => { ready = true; });
@@ -66,7 +46,6 @@
 	const dirty = $derived(reg.fields.some((f) => (values[f.k] ?? '') !== (base[f.k] ?? '')));
 	const unsaved = $derived(dirty || saveError !== null);
 	const question = () => `${saveError ? 'The entry in the form was not saved.' : 'The entry in the form has changes that are not saved.'} Discard it?`;
-	/** Run `go` now, or once the user confirms that the unsaved input in the form may be discarded. */
 	function guard(go: () => void) {
 		if (busy) return;
 		if (unsaved) ask = { what: question(), go };
@@ -81,18 +60,13 @@
 		rebaseNote = null;
 	}
 
-	// the request may or may not have reached the app, so the message does not claim either; a 413 is refused before
-	// the action runs, so it does
 	const lost = (what: string, status?: number) =>
 		status === 413 ? `${what} was not saved: it is too large to send. Nothing was changed and your input is kept; shorten it, then try again.`
 		: `${what} may not have been saved: ${status ? `the app reported an error (${status})` : 'the app could not be reached'}. Your input is kept; check the list, then try again.`;
 
 	const save: SubmitFunction = ({ cancel }) => {
-		// v5 ignores an Add with nothing typed, silently; an emptied Edit or a deadline without title or date says why
 		const why = unsavable(reg, values, editing !== null);
 		if (why !== null) { cancel(); if (why) saveError = { message: why, retry: false }; return; }
-		// the result applies to what was submitted; the form is inert until it arrives, and a discard question asked
-		// before the save no longer applies
 		const sent: Draft = { rowId: editing, version, values: { ...values } };
 		busy = true;
 		saveError = null;
@@ -100,7 +74,6 @@
 		ask = null;
 		return async ({ result }) => {
 			try {
-				// the result changes the form only while the form still holds what was submitted
 				const holds = editing === sent.rowId && reg.fields.every((f) => (values[f.k] ?? '') === (sent.values[f.k] ?? ''));
 				if (result.type === 'success') {
 					await invalidateAll();
@@ -111,7 +84,6 @@
 						? { message: String(result.data?.message ?? 'The entry was not saved. Your input is kept; try again.'), retry: result.data?.retry === true, stale: result.status === 409 }
 						: { message: lost(sent.rowId ? 'The change' : 'The entry', result.status), retry: result.status !== 413 };
 					saveError = holds ? failed : { ...failed, retry: false, draft: sent };
-					// deleted or changed elsewhere: the list shows the entry as it is now, the form keeps the input
 					if (result.status === 404 || result.status === 409) await invalidateAll();
 				}
 			} finally { busy = false; }
@@ -119,10 +91,7 @@
 	};
 	const remove: SubmitFunction = ({ formData, cancel, formElement }) => {
 		const id = String(formData.get('rowId'));
-		// deleting the entry being edited discards the form's input: ask first when it is unsaved (an emptied form, which
-		// the emptied-edit message sends to Delete, holds nothing to lose)
 		const typed = reg.fields.some((f) => values[f.k] && !(f.type === 'select' && f.placeholder === undefined));
-		// once confirmed the form leaves the entry at once, so a failed delete cannot show the typed text as stored
 		if (id === editing && unsaved && typed) { cancel(); ask = { what: question(), go: () => { reset(); formElement.requestSubmit(); } }; return; }
 		deleting = id;
 		return async ({ result }) => {
@@ -156,9 +125,7 @@
 		reset();
 	}
 	const firstField = () => document.getElementById(`in-${reg.fields[0]!.k}`);
-	/** what had focus when the question opened, so Keep it can give focus back */
 	let opener: HTMLElement | null = null;
-	// the question takes focus (on Keep it, the safe answer); the removed button would otherwise drop it to <body>
 	$effect(() => {
 		if (!ask) return;
 		const active = document.activeElement;
@@ -166,14 +133,11 @@
 		else if (!active.closest('#register-ask')) opener = active;
 		void tick().then(() => document.getElementById('register-ask-keep')?.focus());
 	});
-	// A cancelled Back is undone with a popstate, after which the layout moves focus to the heading (BA-14): the open
-	// question takes it back
 	onMount(() => {
 		const h = () => setTimeout(() => { if (ask) document.getElementById('register-ask-keep')?.focus(); });
 		addEventListener('popstate', h);
 		return () => removeEventListener('popstate', h);
 	});
-	/** Focus the first of `targets` that can take it: an element that is gone or disabled falls through to the next. */
 	async function focusFirst(...targets: (HTMLElement | null | undefined)[]) {
 		await tick();
 		for (const t of [...targets, document.getElementById('main')]) {
@@ -184,23 +148,17 @@
 	}
 	function answer(yes: boolean) {
 		const a = ask;
-		// while a save is in flight its result decides the form: only leaving the page may be answered
 		if (!a || (busy && !a.leave)) return;
 		ask = null;
 		if (yes) { saveError = null; base = { ...values }; a.go(); void focusFirst(firstField()); }
 		else void focusFirst(opener, firstField());
 	}
-	/** Put a failed draft back in the form, so Retry resubmits exactly it. */
 	function restore(d: Draft) {
 		values = { ...blank(), ...d.values };
 		editing = d.rowId;
 		version = d.version;
 		saveError = { message: saveError!.message, retry: true };
 	}
-	/** After a 409, a 3-way merge of the entry's current stored values into the form: a field the user left as loaded
-	 *  takes the current value (the other tab's change is kept), a field the user changed keeps the typed value. Where
-	 *  both changed the same field to different values the typed value wins and the note names the field. The current
-	 *  values become the base, so the next Save replaces the current entry with the merged form. */
 	function rebase(r: ShownRow) {
 		const current = { ...blank(), ...r.values };
 		const clash: string[] = [];
@@ -232,8 +190,6 @@
 	}
 </script>
 
-<!-- the rows are complete when the page renders, so data-ready is set on the server too; data-hydrated marks that the
-     form is interactive (tests type and click only after it) -->
 <main id="main" tabindex="-1" data-ready={reg.view} data-hydrated={ready ? '' : undefined}>
 	<PageHeader heading={reg.label} section={reg.label} caseName={data.version.titleName} subtitle={reg.subtitle}>
 		{#snippet actions()}
@@ -243,7 +199,6 @@
 		{/snippet}
 	</PageHeader>
 
-	<!-- multipart, so only the store's 64 KiB limit applies to an entry (an urlencoded body triples non-ASCII text) -->
 	<form id="register-form" class="entry" method="POST" action="?/save" enctype="multipart/form-data" use:enhance={save} data-editing={editing ?? undefined} aria-busy={locked}>
 		{#if editing}<input type="hidden" name="rowId" value={editing} /><input type="hidden" name="version" value={version ?? ''} />{/if}
 		<fieldset class="fields" disabled={locked}>
@@ -307,7 +262,6 @@
 						{/each}
 						<td class="row-actions">
 							{#if !r.intact}<span class="altered">this entry was altered on disk since it was saved</span>{/if}
-							<!-- without JavaScript a Delete would re-render the page without the refused save: off until it is resolved -->
 							<button type="button" data-edit onclick={() => edit(r)} disabled={busy || deleting === r.rowId || (saveError !== null && !ready)}>Edit</button>
 							<form method="POST" action="?/delete" use:enhance={remove}><input type="hidden" name="rowId" value={r.rowId} /><button data-delete disabled={busy || deleting === r.rowId || (saveError !== null && !ready)}>Delete</button></form>
 						</td>

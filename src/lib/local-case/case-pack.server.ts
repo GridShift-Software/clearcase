@@ -1,10 +1,3 @@
-// Import by clicking (GRS-70): the server-side folder browser and the steps that turn a case pack (the .zip as received,
-// or the folder it was extracted to) into a case folder and a results package that importPackage then validates.
-//  * The browser lists names, kinds and sizes only: folders and .zip files, never file contents.
-//  * Nothing is written into a case folder, the ClearCase data directory or the app's checkout. A zip is extracted into
-//    a hidden folder beside its target and renamed into place only once every entry is checked; the converted package
-//    is written the same way. A later failure or Cancel removes the folders this run created (importCasePack), and a
-//    second import of the same pack reuses its extracted folder.
 import { randomBytes } from 'node:crypto';
 import { constants, createReadStream } from 'node:fs';
 import { access, lstat, mkdir, open, readdir, readFile, realpath, rename, rm, rmdir, stat, statfs } from 'node:fs/promises';
@@ -18,7 +11,6 @@ import { writePackageDir } from '../case-package/writer.ts';
 import { extractEntries, readCentralDirectory, ZipError, type ZipEntry } from '../case-package/zip.ts';
 import { within } from './fsafe.server.ts';
 
-// ---- folder browser ---------------------------------------------------------------------------------------------
 
 export interface FolderEntry { name: string; path: string; kind: 'folder' | 'zip'; size: number | null }
 export interface FolderListing {
@@ -43,7 +35,6 @@ async function shortcuts(): Promise<{ name: string; path: string }[]> {
 	return out;
 }
 
-/** One folder's subfolders and .zip files with their sizes. Hidden (dot) entries are left out. Reads no file contents. */
 export async function listFolder(requested: string | null): Promise<FolderListing> {
 	const dir = path.resolve(requested && path.isAbsolute(requested) ? requested : homedir());
 	const parent = path.dirname(dir) === dir ? null : path.dirname(dir);
@@ -64,7 +55,7 @@ export async function listFolder(requested: string | null): Promise<FolderListin
 		const isZip = /\.zip$/i.test(d.name);
 		if (!d.isDirectory() && !d.isSymbolicLink() && !(d.isFile() && isZip)) continue;
 		const p = path.join(dir, d.name);
-		const st = await stat(p).catch(() => null); // follows a link: a linked folder is listed as a folder
+		const st = await stat(p).catch(() => null);
 		if (st?.isDirectory()) entries.push({ name: d.name, path: p, kind: 'folder', size: null });
 		else if (st?.isFile() && isZip) entries.push({ name: d.name, path: p, kind: 'zip', size: st.size });
 	}
@@ -72,9 +63,7 @@ export async function listFolder(requested: string | null): Promise<FolderListin
 	return { ...base, entries: entries.slice(0, LIST_MAX), truncated: entries.length > LIST_MAX, error: null };
 }
 
-// ---- the steps before importPackage --------------------------------------------------------------------------------
 
-/** A step refused or failed; the message is shown to the user as is. */
 export class CasePackError extends Error {}
 
 /** extract and check (an earlier extraction read back): files and bytes; convert: originals fingerprinted; find and write carry no counts */
@@ -83,16 +72,12 @@ export interface PackProgress { phase: 'extract' | 'check' | 'find' | 'convert' 
 export interface PrepareOptions {
 	signal: AbortSignal;
 	onProgress: (p: PackProgress) => void;
-	/** ClearCase's own folders: the destination may not lie inside them */
 	dataDir: string;
 	appDir: string;
-	/** the name the app shows for the case; the case folder's name when absent or blank */
 	caseLabel?: string;
 }
 
-/** A case pack's limits: thousands of files and gigabytes. Free space is checked against the declared total first. */
 const PACK_LIMITS = withLimits({ archiveEntries: 1_000_000, archiveEntryBytes: 0xffffffff, archiveTotalBytes: Number.MAX_SAFE_INTEGER, archiveRatio: 1100 });
-/** room left beside the extracted case for the results package and the file system's own needs */
 const SPACE_MARGIN = 256 * 1024 * 1024;
 
 const isEmptyDir = async (p: string) => (await readdir(p).catch(() => [''])).length === 0;
@@ -101,7 +86,6 @@ const realOrResolved = (p: string) => realpath(p).catch(() => path.resolve(p));
 const step = (phase: PackProgress['phase']): PackProgress => ({ phase, done: 0, total: 0, bytesDone: 0, bytesTotal: 0 });
 const gb = (n: number) => `${(n / 1e9).toFixed(2)} GB`;
 
-/** A case id the package schema allows, from a folder name: "ESS_DCS Pack v5" -> "ess_dcs-pack-v5". */
 export function caseIdFrom(name: string): string {
 	const id = name.normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9._-]+/g, '-').replace(/^[^a-z0-9]+/, '').slice(0, 64).replace(/[^a-z0-9]+$/, '');
 	return new RegExp(CASE_ID).test(id) ? id : 'case';
@@ -121,7 +105,6 @@ export async function findMainHtml(caseFolder: string): Promise<string> {
 	throw new CasePackError(`More than one workspace HTML in ${caseFolder}: ${main.join(', ')}. ClearCase will not guess which one is the case; keep one of them in the folder, or convert the case in a terminal.`);
 }
 
-/** The first of <dest>/<name>-results, -results-2, … that does not exist or is empty. */
 async function freeResultsDir(destination: string, name: string): Promise<string> {
 	for (let n = 1; ; n++) {
 		const p = path.join(destination, `${name}-results${n > 1 ? `-${n}` : ''}`);
@@ -129,12 +112,11 @@ async function freeResultsDir(destination: string, name: string): Promise<string
 	}
 }
 
-/** Write into a hidden sibling folder, then rename it to `target` (absent or an empty folder). Any failure removes it. */
 async function intoPlace(target: string, fill: (dir: string) => Promise<void>): Promise<void> {
 	const partial = path.join(path.dirname(target), `.${path.basename(target)}.clearcase-partial-${randomBytes(4).toString('hex')}`);
 	try {
 		await fill(partial);
-		if (await exists(target)) await rmdir(target); // empty (checked by the caller); rmdir refuses anything else
+		if (await exists(target)) await rmdir(target);
 		await rename(partial, target);
 	} catch (e) {
 		await rm(partial, { recursive: true, force: true }).catch(() => {});
@@ -142,23 +124,14 @@ async function intoPlace(target: string, fill: (dir: string) => Promise<void>): 
 	}
 }
 
-/** <home>/ClearCase: where a case is stored unless the user chooses another folder; created on the first import. */
 export const defaultDestination = () => path.join(homedir(), 'ClearCase');
 
-/** The case folder of an extracted pack: the pack's single top folder when every entry sits in one, else the target. */
 function caseFolderOf(target: string, entries: readonly ZipEntry[]): string {
 	const tops = new Set(entries.map((e) => e.name.split('/')[0]));
 	const [only] = tops;
 	return tops.size === 1 && entries.every((e) => e.name.includes('/')) ? path.join(target, only!) : target;
 }
 
-/**
- * Why the target is not an earlier extraction of this pack, or null when it is: the same files by name and size, and
- * then by content, each read back and its CRC-32 compared with the central directory's. Names and sizes alone would
- * take a pack whose files changed without changing length (an edited workspace HTML, a re-exported original) for this
- * one, and the converter would then read the old copy instead of the pack the user chose. Reading every file back is
- * cheaper than extracting it again, and reports under the 'check' phase.
- */
 async function differsFrom(target: string, entries: readonly ZipEntry[], o: PrepareOptions): Promise<string | null> {
 	const files = entries.filter((e) => !e.isDirectory);
 	const onDisk = (await readdir(target, { recursive: true, withFileTypes: true })).filter((d) => !d.isDirectory());
@@ -186,10 +159,6 @@ async function differsFrom(target: string, entries: readonly ZipEntry[], o: Prep
 	return null;
 }
 
-/**
- * Extract the pack into <destination>/<zip name>, or reuse that folder when an earlier run left exactly the pack's files
- * there (a second import of the same pack). Pushes the folder onto `created` only when this run made it.
- */
 async function extractZip(zip: string, destination: string, o: PrepareOptions, created: string[]): Promise<string> {
 	const target = path.join(destination, path.basename(zip).replace(/\.zip$/i, ''));
 	const fh = await open(zip, 'r');
@@ -223,11 +192,6 @@ async function extractZip(zip: string, destination: string, o: PrepareOptions, c
 	}
 }
 
-/**
- * Extract (a .zip), find the workspace HTML, convert it into <destination>/<case folder name>-results. Returns the case
- * folder and the package folder for importPackage. Throws CasePackError with a message for the user. Each folder this
- * run creates (the extracted pack, the results package) is pushed onto `created`, for the caller to remove on a failure.
- */
 export async function prepareCasePack(source: string, destination: string, o: PrepareOptions, created: string[] = []): Promise<{ caseFolder: string; packageDir: string }> {
 	if (!path.isAbsolute(source) || !path.isAbsolute(destination)) throw new CasePackError('Choose the case and the destination with the folder browser.');
 	const sst = await stat(source).catch(() => null);

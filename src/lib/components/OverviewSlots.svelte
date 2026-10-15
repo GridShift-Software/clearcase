@@ -1,6 +1,4 @@
 <script lang="ts">
-	// The overview's widget slots: a filled slot renders its owner's component with the server data; an unfilled one
-	// says which issue owns it. Never a placeholder that looks finished.
 	import type { SlotState, WidgetContext } from './overview-slots.ts';
 	import { widgets } from './overview-widgets.ts';
 	let { slots, ctx }: { slots: SlotState[]; ctx: WidgetContext } = $props();

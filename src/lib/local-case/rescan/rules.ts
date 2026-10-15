@@ -13,15 +13,10 @@
 import { isPathKey } from '../../case-package/refs.ts';
 
 export type ScanMode = 'quick' | 'full';
-/** A file found in the case folder: its path relative to the folder ('/'-separated), size and modification time. */
 export interface WalkedFile { path: string; size: number; mtimeMs: number; sha256?: string | null }
-/** An original the active version indexed (an asset of kind file that the import found on disk). */
 export interface IndexedOriginal { ref: string; path: string; size: number | null; sha256: string | null; bundle: string }
-/** One rescan row as stored: a difference from the results, keyed by path. */
 export interface RescanFile {
 	path: string;
-	/** added: a file the results do not index; withdrawn: an addition no longer in the folder (its ref stays issued);
-	 *  changed: an indexed original whose content differs; removed: an indexed original no longer in the folder */
 	kind: 'added' | 'withdrawn' | 'changed' | 'removed';
 	ref: string;
 	size: number | null;
@@ -30,14 +25,11 @@ export interface RescanFile {
 	bundle: string;
 	date: string;
 	docType: string;
-	/** how the change was found: 'size', 'sha256' (full scan) or '' */
 	evidence: string;
-	/** processing state of an addition: 'pending' until a new results version indexes it; never reset by a rescan */
 	processing: string;
 }
 export interface ScanOutcome {
 	rows: RescanFile[];
-	/** highest number issued per ref prefix, after this scan */
 	issued: Record<string, number>;
 	counts: { scanned: number; indexed: number; added: number; newlyAdded: number; changed: number; removed: number; unchangedBySize: number };
 }
@@ -76,13 +68,9 @@ export function docTypeOf(name: string): string {
 }
 
 const REF = /^([A-Za-z]+)-(\d+)$/;
-/** A document ref's prefix and number; null for anything else, and for a package file's key (P- plus 16 hex digits,
- *  which can be all digits): that names a linked file, never a document, so it must not set a prefix or a number. */
 const docRef = (ref: string) => (isPathKey(ref) ? null : REF.exec(ref));
 const top = (p: string) => (p.includes('/') ? p.slice(0, p.indexOf('/')) : '');
 
-/** Where a new file's ref and bundle come from: the indexed originals of the same top-level folder (their most
- *  common prefix and bundle), else v5's bundleOf on the folder (a file at the root: on its own name) and refCode. */
 export function folderRules(indexed: readonly IndexedOriginal[]): (path: string) => { prefix: string; bundle: string } {
 	const by = new Map<string, Map<string, { n: number; bundle: string }>>();
 	for (const o of indexed) {
@@ -107,7 +95,6 @@ export function folderRules(indexed: readonly IndexedOriginal[]): (path: string)
 	};
 }
 
-/** Highest number and widest width used per prefix by a set of refs. */
 export function refUse(refs: Iterable<string>): Map<string, { max: number; width: number }> {
 	const out = new Map<string, { max: number; width: number }>();
 	for (const r of refs) {
@@ -123,11 +110,6 @@ export function refUse(refs: Iterable<string>): Map<string, { max: number; width
 
 const norm = (p: string) => p.normalize('NFC');
 
-/**
- * Compare a walk with the indexed originals and the previous rescan rows. Deterministic: new files are numbered in
- * path order. A repeat scan of an unchanged folder returns the previous rows unchanged (same refs, same order).
- * `takenRefs` is every ref of the version (documents and attachments), so a new ref never names one of them.
- */
 export function compare(input: {
 	mode: ScanMode;
 	walked: readonly WalkedFile[];
@@ -159,7 +141,6 @@ export function compare(input: {
 		let evidence = '';
 		if (o.size !== null && f.size !== o.size) evidence = 'size';
 		else if (mode === 'full' && f.sha256 && o.sha256 && f.sha256 !== o.sha256) evidence = 'sha256';
-		// a quick scan cannot see a same-size change: a change an earlier full scan found stays reported
 		else if (mode === 'quick' && prev?.kind === 'changed' && prev.evidence === 'sha256') evidence = 'sha256';
 		if (evidence) {
 			rows.push({ path: o.path, kind: 'changed', ref: o.ref, size: f.size, mtimeMs: f.mtimeMs, sha256: f.sha256 ?? (evidence === 'sha256' ? prev?.sha256 ?? null : null), bundle: o.bundle, date: '', docType: '', evidence, processing: '' });
@@ -172,8 +153,6 @@ export function compare(input: {
 		if (indexedBy.has(norm(f.path))) continue;
 		const prev = prevBy.get(norm(f.path));
 		if (prev && (prev.kind === 'added' || prev.kind === 'withdrawn')) {
-			// the same path keeps its ref; a changed size or time updates what is recorded, and a quick scan keeps a
-			// fingerprint only while size and time still match it
 			const same = prev.size === f.size && prev.mtimeMs === f.mtimeMs;
 			const sha256 = mode === 'full' ? (f.sha256 ?? null) : same ? prev.sha256 : null;
 			rows.push({ ...prev, path: f.path, kind: 'added', size: f.size, mtimeMs: f.mtimeMs, sha256 });
@@ -191,14 +170,11 @@ export function compare(input: {
 		counts.added++;
 		counts.newlyAdded++;
 	}
-	// additions no longer in the folder keep their ref (never issued again) but are not shown as documents
 	for (const r of previous) if ((r.kind === 'added' || r.kind === 'withdrawn') && !walkedBy.has(norm(r.path)) && !indexedBy.has(norm(r.path))) rows.push({ ...r, kind: 'withdrawn' });
 	rows.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
 	return { rows, issued, counts };
 }
 
-/** The verdict a scan supports. Only a full scan that found no difference and no addition says the folder matches the
- *  indexed originals; a quick scan says its contents were not compared, whatever it found. */
 export function verdict(mode: ScanMode, c: ScanOutcome['counts']): { current: boolean; text: string } {
 	const diff = c.added + c.changed + c.removed;
 	if (mode === 'quick') return { current: false, text: diff ? 'The case folder differs from the analysis.' : 'No difference found by name and size; contents were not compared (quick scan), so this does not confirm the analysis is current. Run a full scan to compare contents.' };

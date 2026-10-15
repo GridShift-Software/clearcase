@@ -1,11 +1,3 @@
-// ClearCase PDF viewer FRAME (ported from the hardened pilot prototype). Runs ONLY inside the wrapper page of the originals site, in an
-// <iframe sandbox="allow-scripts"> (opaque origin: no access to other originals, the wrapper, cookies or
-// storage; cannot navigate the top-level page or leave the originals origin). The PDF bytes arrive from the
-// wrapper by postMessage; this frame fetches nothing but the pdf.js bundle itself.
-// pdf.js (pdfjs-dist, pinned, bundled) renders canvas + text layer + a link-only annotation layer.
-// PDF JavaScript is never run: enableScripting is false, the pdf.js scripting sandbox (pdf.sandbox.mjs) is not
-// shipped, forms are not rendered, external links are not followed, and the page CSP has no 'unsafe-eval'
-// (pdf.js 6 itself contains no eval / new Function). URL fragment #page=N jumps to page N.
 import { AnnotationLayer, AnnotationMode, GlobalWorkerOptions, TextLayer, getDocument } from './pdf.min.mjs';
 
 const BASE = new URL('./', import.meta.url).href;
@@ -16,14 +8,12 @@ const body = document.body;
 const statusEl = document.getElementById('status');
 const jsNote = document.getElementById('js-note');
 const pagesEl = document.getElementById('pages');
-// Read-only counters for tests and diagnostics (also mirrored into body[data-state] for DOM-only inspection).
 const state = (window.__viewer = { numPages: 0, rendered: 0, current: 0, jsActions: null, options: OPTIONS, error: null });
 const publish = () => { body.dataset.state = JSON.stringify(state); };
-// Tell the wrapper (and only it) that the first page is ready or that the file cannot be shown.
 const ready = (v) => {
 	body.dataset.ready = v;
 	publish();
-	try { parent.postMessage({ ready: v }, location.origin); } catch { /* top-level (not framed): nothing to tell */ }
+	try { parent.postMessage({ ready: v }, location.origin); } catch {   }
 };
 
 let pdf = null;
@@ -43,7 +33,6 @@ function show(n) {
 	render(n);
 }
 
-// Minimal link service: internal destinations scroll; external URLs are shown, never followed.
 const linkService = {
 	externalLinkEnabled: false,
 	eventBus: { dispatch() {}, on() {}, off() {}, _on() {}, _off() {} },

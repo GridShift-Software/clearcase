@@ -1,5 +1,3 @@
-// Print the bundle index in a separate window (v5 cbIndexPrint L2102): every value escaped. Returns false when the
-// browser blocked the window, so the page can say so.
 import { desc, range, type Bundle, type Header } from './court.ts';
 import { attr } from './download.ts';
 

@@ -26,7 +26,6 @@ export interface DocumentState {
   text: TextStatus | 'unknown';
   mediaType: string | null;
   original: Readonly<OriginalMapping> | null;
-  /** visible flags: missing-original, case-mismatch, download-only */
   flags: string[];
 }
 
@@ -48,7 +47,6 @@ export interface DerivedCounts {
   attachments: number;
 }
 
-/** Counts keyed by untrusted values: a Map, returned as an object whose keys are all own properties. */
 const tally = (rows: readonly ChronologyRow[], f: keyof ChronologyRow): Record<string, number> => {
   const out = new Map<string, number>();
   for (const r of rows) { const k = textOf(r[f]); out.set(k, (out.get(k) ?? 0) + 1); }
@@ -56,7 +54,6 @@ const tally = (rows: readonly ChronologyRow[], f: keyof ChronologyRow): Record<s
 };
 
 export function readCandidate(candidate: Candidate) {
-  /** typed access to recognized datasets only; an unknown or opaque dataset is never handed to views */
   const data = <T = unknown>(key: string): T | null => { const e = candidate.dataset(key); return e && KNOWN_SCHEMAS.has(e.schema) ? (e.data as T) : null; };
   const rows = (data<ChronologyRow[]>('chronology') ?? []) as readonly ChronologyRow[];
   const byRef = new Map(rows.map((r) => [r.ref, r]));
@@ -67,7 +64,7 @@ export function readCandidate(candidate: Candidate) {
   const documentState = (ref: string): DocumentState | null => {
     const row = byRef.get(ref);
     const a = assets.get(ref);
-    if (!row && (!a || isPathKey(ref))) return null; // a package file is not a document
+    if (!row && (!a || isPathKey(ref))) return null;
     const ts = row?.text_status;
     const text: DocumentState['text'] = a?.textStatus ?? (ts === 'extracted' || ts === 'ocr' || ts === 'none' || ts === 'pending' ? ts : 'unknown');
     const original = candidate.original(ref);
@@ -95,7 +92,6 @@ export function readCandidate(candidate: Candidate) {
       return own ? { route: 'direct', key, parentRef, original: own } : { route: 'unavailable', key, parentRef, reason: 'original-missing' };
     }
     if (a.kind === 'missing') return { route: 'unavailable', key, parentRef, reason: 'original-missing' };
-    // embedded: walk up to the first container that has verified bytes
     let cur: string | undefined = parentRef;
     for (let d = 0; cur !== undefined && d <= 4; d++) {
       const p = assets.get(cur);

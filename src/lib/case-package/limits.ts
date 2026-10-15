@@ -1,7 +1,3 @@
-// Hard bounds for a results package and for the originals an import verifies.
-// Package bounds keep at least 10x headroom over the measured v5 sample (depth 9,
-// longest string 4,000 UTF-16 units, 481 keys in one object, 1,745 array items,
-// largest file about 2 MB). Browser-safe: no Node built-ins.
 
 const MiB = 1024 * 1024;
 const GiB = 1024 * MiB;
@@ -31,7 +27,6 @@ export const LIMITS = {
   archiveRatio: 100, // per entry above archiveRatioFloor bytes
   archiveRatioFloor: 1 * MiB,
   archiveNameBytes: 1024,
-  // referenced originals in the case folder
   originalBytes: 8 * GiB,
   originalsTotalBytes: 32 * GiB, // unique files
   validationDeadlineMs: 120_000,

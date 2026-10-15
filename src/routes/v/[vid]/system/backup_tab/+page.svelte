@@ -1,6 +1,4 @@
 <script lang="ts">
-	// Backup / Restore (GRS-20): every saved table of this case in one file, and a checked restore that changes nothing
-	// unless the whole file is valid and belongs to this case.
 	import { enhance } from '$app/forms';
 	import { onMount } from 'svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
@@ -12,8 +10,6 @@
 	let ready = $state(false);
 	let tooLarge = $state<string | null>(null);
 	let lost = $state<string | null>(null);
-	// the typed path is component state, so neither a submit nor its result clears it; without JavaScript a refused
-	// restore renders it back from the form result
 	const typedPath = () => (form && 'path' in form ? (form.path ?? '') : '');
 	let path = $state(typedPath());
 	onMount(() => { ready = true; performance.mark('cc-ready'); });

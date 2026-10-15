@@ -8,10 +8,6 @@ import { SAY, STORES, field, knownRefs, orderedRows, text } from '$lib/views/lit
 import { saveStatus, stepRows, stepVersion } from '$lib/views/litigation/writes.server';
 import type { Actions, PageServerLoad } from './$types';
 
-/**
- * The case's saved status per step key, and the version of what is stored for each key (GRS-18 r2, D9): the latest row
- * by seq wins, whatever its status ('' included), so a saved '' is a saved status and never a reason for a second row.
- */
 function overrides(caseId: string) {
 	const all = orderedRows(caseId, STORES.enforcement);
 	const keys = new Set(all.map((r) => text(r.fields.stepKey)).filter(Boolean));
@@ -38,12 +34,6 @@ const stale = (now: string) => `Not saved: this step's status was changed elsewh
 
 type Change = { stepKey: string; status: string; version: string | null };
 
-/**
- * The changes a post asks for. With JavaScript (or a script): one step, `stepKey`, `status` and the optional `version`
- * the page showed. Without JavaScript the whole roadmap is one form: every step whose chosen status differs from the
- * one the page showed (`was:<key>`) is saved, against its version (`ver:<key>`), so one step's Save never drops another
- * step's choice.
- */
 function changesOf(f: FormData): { changes: Change[]; choices: Record<string, string> } {
 	if (f.has('stepKey')) {
 		const c = { stepKey: field(f, 'stepKey'), status: field(f, 'status'), version: field(f, 'version') || null };
@@ -81,7 +71,6 @@ export const actions: Actions = {
 			saved.push(c.stepKey);
 		}
 		const one = changes.length === 1 ? changes[0]! : null;
-		// `values` and `message` keep the single-step answer's earlier shape (scripted posts and their checks)
 		const answer = { op: 'status', saved: one && saved.length ? one.stepKey : null, savedKeys: saved, errors, choices, values: one ? { stepKey: one.stepKey, status: one.status } : null, message: one ? errors[one.stepKey]?.message ?? null : null, retry: one ? errors[one.stepKey]?.retry ?? false : false };
 		return code ? fail(code, answer) : answer;
 	},

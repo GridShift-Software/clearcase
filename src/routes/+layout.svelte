@@ -4,18 +4,12 @@
 	import { afterNavigate } from '$app/navigation';
 	import { page } from '$app/state';
 	let { data, children } = $props();
-	// the right side of the top bar names the case being viewed (the case layout's data), else the workspace itself
 	const viewed = $derived((page.data as { version?: { brand?: string | null; caseName?: string } }).version);
 
-	// BA-14: after a client-side navigation (link, Back, Forward), focus moves to the new page's heading, so keyboard
-	// and screen-reader users start at the new content instead of the top of the document. A full page load reached by
-	// Back or Forward (pages are no-store, so leaving the document reloads it) counts as Back or Forward; a fresh first
-	// visit or a reload keeps the browser's own focus.
 	const heading = (preventScroll: boolean) => document.querySelector<HTMLElement>('[data-page-heading]')?.focus({ preventScroll });
 	const BACK_RELOAD = 'clearcase:back-reload';
 	afterNavigate(({ type, to }) => {
 		if (type === 'enter') {
-			// a reload that the bfcache check below started on Back counts as that Back
 			let reloadedOnBack = false;
 			try { reloadedOnBack = sessionStorage.getItem(BACK_RELOAD) === location.href; sessionStorage.removeItem(BACK_RELOAD); } catch { /* storage blocked */ }
 			if (reloadedOnBack || (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.type === 'back_forward') heading(true);
@@ -36,14 +30,11 @@
 		addEventListener('popstate', h);
 		return () => removeEventListener('popstate', h);
 	});
-	// The skip link moves focus to the content without a history entry (with JavaScript); href="#main" is the fallback.
 	const skip = (a: HTMLAnchorElement) => {
 		const h = (e: MouseEvent) => { e.preventDefault(); document.getElementById('main')?.focus(); };
 		a.addEventListener('click', h);
 		return () => a.removeEventListener('click', h);
 	};
-	// Pages show mutable state (active version, user work). A page restored from the back/forward cache asks whether
-	// anything changed since it was rendered and reloads only then, so unchanged form input is not thrown away.
 	onMount(() => {
 		const h = async (e: PageTransitionEvent) => {
 			if (!e.persisted) return;

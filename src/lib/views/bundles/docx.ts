@@ -1,6 +1,3 @@
-// The Word index of one or more bundles (v5 cbDocx L2471-2568): same paragraphs, table and package parts, and v5's
-// hyperlinks (cbCell/cbDocHref L2426-2460): each row links into its bundle PDF, extract or first source part. The
-// targets are relative file paths that Word resolves next to the saved index, so nothing is served for them.
 import { decodeLegacyLocator } from '../../case-package/paths.ts';
 import { desc, range, type Bundle, type BundleRow, type Header } from './court.ts';
 import { storedZip } from './zip.ts';
@@ -24,7 +21,6 @@ function p(text: string, o: P = {}): string {
 	return `<w:p><w:pPr>${br}${tabs}<w:spacing w:line="276" w:lineRule="auto"/>${jc}${RPR}</w:pPr>${runs}</w:p>`;
 }
 interface Rels { n: number; rels: { id: string; target: string }[] }
-/** v5 cbCell: with `href`, the text is a hyperlink (relationship rIdH<n>), blue and underlined when `blue`. */
 function cell(text: string, w: number, jc: string, lnk?: { ctx: Rels; href: string; blue: boolean }): string {
 	let run = '';
 	if (text !== '' && lnk?.href) {
@@ -35,11 +31,6 @@ function cell(text: string, w: number, jc: string, lnk?: { ctx: Rels; href: stri
 	} else if (text !== '') run = `<w:r>${RPR}<w:t xml:space="preserve">${x(text)}</w:t></w:r>`;
 	return `<w:tc><w:tcPr><w:tcW w:w="${w}" w:type="dxa"/></w:tcPr><w:p><w:pPr><w:spacing w:line="360" w:lineRule="auto"/><w:jc w:val="${jc}"/>${RPR}</w:pPr>${run}</w:p></w:tc>`;
 }
-/**
- * v5 cbDocHref: the bundle file at the item's physical page (index pages in front), else the item's extract, else its
- * first source part (at its first page when that is past 1); no leading './'. The values are imported data, so a target
- * is kept only when it is a relative path inside the case folder (no scheme, no '..', no absolute or empty path).
- */
 export function docHref(b: Bundle, r: BundleRow): string {
 	const p = r.parts[0];
 	const u = (b.file && r.from ? `${b.file}#page=${r.from + (b.indexPages || 0)}` : r.sliceUrl || (p ? p.url + (p.from > 1 ? `#page=${p.from}` : '') : '')).replace(/^\.\//, '');
@@ -67,8 +58,6 @@ function bundleXml(b: Bundle, h: Header, first: boolean, ctx: Rels): string {
 }
 
 const XML = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n';
-/** The DOCX bytes for these bundles' indexes under one header; `creator` is the package's wording or a neutral one.
- * Rows link as v5 does (docHref). */
 export function indexDocx(bundles: readonly Bundle[], h: Header, creator: string): Uint8Array {
 	const ctx: Rels = { n: 0, rels: [] };
 	const body = bundles.map((b, i) => bundleXml(b, h, i === 0, ctx)).join('') + '<w:sectPr><w:pgSz w:w="11906" w:h="16838"/><w:pgMar w:top="1134" w:right="1440" w:bottom="709" w:left="1440" w:header="708" w:footer="708" w:gutter="0"/><w:cols w:space="708"/><w:docGrid w:linePitch="360"/></w:sectPr>';

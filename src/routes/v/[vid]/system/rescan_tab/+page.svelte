@@ -1,7 +1,4 @@
 <script lang="ts">
-	// Rescan & Update (GRS-20): compare the case folder with this results version. Additions get refs that continue
-	// the case's numbering and appear in every document list as "not yet indexed"; changed and removed originals are
-	// reported. A quick scan compares names, sizes and dates only and never says the analysis is current.
 	import { enhance } from '$app/forms';
 	import { onMount } from 'svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';

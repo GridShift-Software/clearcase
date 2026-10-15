@@ -1,6 +1,3 @@
-// verifyCandidateBytes: check stored bytes against a candidate identity without touching the
-// filesystem. Exact membership (manifest.json plus every listed file, nothing else), sizes,
-// sha256 values, manifestSha256 and the recomputed inputRevision and resultsVersion.
 import { inputRevisionId, resultsVersionOf, sha256Hex } from './hash.ts';
 import { FORMAT, FORMAT_VERSION, Manifest } from './schema.ts';
 import { decodeUtf8Strict, isObject, parseStrictJson } from './strict-json.ts';

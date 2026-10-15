@@ -1,7 +1,4 @@
 <script lang="ts">
-	// A register row's Delete (GRS-18 r2). It submits the add form with formaction (no nested form), so without
-	// JavaScript the typed entry travels with it and comes back. Its error and progress are this row's own; Delete stays
-	// the row's first button.
 	import type { EntryForm } from './entry.svelte.ts';
 	let { entry, form, name, value }: { entry: EntryForm; form: string; name: 'rowId' | 'seedId'; value: string } = $props();
 	const id = $derived(value.slice(0, value.lastIndexOf(' ') < 0 ? value.length : value.lastIndexOf(' ')));

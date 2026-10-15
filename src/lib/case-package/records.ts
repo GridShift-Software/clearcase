@@ -1,8 +1,3 @@
-// Data schemas for every recognized v5 dataset (the `data` member of each envelope).
-// Required fields are those every observed record carries; fields seen on only some
-// records are optional. Objects allow additional fields so that a newer producer's
-// fields are preserved, but the validator reports each one as DS_UNSUPPORTED_FIELD.
-// Values are never normalised: dates, amounts and free text stay as the source wrote them.
 import Type, { type TSchema } from 'typebox';
 
 const Str = Type.String();
@@ -10,16 +5,14 @@ const Int = Type.Integer();
 const Count = Type.Integer({ minimum: 0 });
 const Bool = Type.Boolean();
 const StrArr = Type.Array(Str);
-/** ISO calendar date or empty (undated); calendar validity is a separate quality check */
 const IsoDateOrEmpty = Type.String({ pattern: '^(?:\\d{4}-\\d{2}-\\d{2})?$' });
-/** decimal amount as text, or empty */
 const Amount = Type.String({ pattern: '^(?:-?\\d{1,15}(?:\\.\\d{1,4})?)?$' });
 const Obj = (props: Record<string, TSchema>) => Type.Object(props);
 const Rec = (value: TSchema) => Type.Record(Type.String(), value);
 const NumOrStr = Type.Union([Str, Int]);
 
 export const V5Chronology = Type.Array(Obj({
-  ref: Str, // register ref; grammar and uniqueness are checked separately (ID_REF_INVALID, ID_DUPLICATE)
+  ref: Str,
   n: NumOrStr,
   seq: NumOrStr,
   date: IsoDateOrEmpty,
@@ -109,7 +102,6 @@ export const V5LitLegality = Obj({
 });
 export const V5LitAuthorities = Type.Array(Obj({ topic: Str, authority: Str, proposition: Str }));
 export const V5LitElements = Type.Array(Obj({ element: Str, must: Str, evidence: Str, witness: Str, tab: Str }));
-/** imported seed rows for cross-examination preparation */
 export const V5LitCrossexamSeed = Type.Array(Obj({ witness: Str, topic: Str, put: Str, docs: Str }));
 export const V5LitPrescription = Type.Array(Obj({ no: Str, ref: Str, date: IsoDateOrEmpty, prescDate: IsoDateOrEmpty, risk: Str, url: Str }));
 export const V5LitPrescSummary = Obj({ awardDate: IsoDateOrEmpty, note: Str, reliesOnInterruption: Count, total: Count });
@@ -185,15 +177,9 @@ export const V5ConversionReport = Obj({
   ignoredCodeLiterals: StrArr,
   diagnostics: Type.Array(Obj({ code: Str, subject: Type.Union([Str, Type.Null()]), message: Str })),
 });
-/**
- * Code-embedded view content (GRS-38): per view id, named fields. A value is plain text, a
- * number, a list of texts, or a template whose parts are text or a named param that the view
- * fills from imported data. Every string is untrusted text.
- */
 export const VIEW_ID = '^_?[a-z][a-z0-9_]{0,63}$';
 export const VIEW_FIELD_ID = '^[a-z][A-Za-z0-9]{0,63}$';
 export const V5ViewTemplate = Obj({ template: Type.Array(Type.Union([Str, Obj({ param: Type.String({ pattern: VIEW_FIELD_ID }) })]), { minItems: 1 }) });
 export const V5ViewValue = Type.Union([Str, Type.Number(), StrArr, V5ViewTemplate]);
 export const V5ViewContent = Type.Record(Type.String({ pattern: VIEW_ID }), Type.Record(Type.String({ pattern: VIEW_FIELD_ID }), V5ViewValue, { additionalProperties: false }), { additionalProperties: false });
-/** residual or unknown data: preserved, bounded by the parser, never rendered */
 export const Opaque = Type.Unknown();

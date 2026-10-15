@@ -1,5 +1,3 @@
-// User work persists outside results: notes re-attach by original fingerprint (never by ref alone), seed overlays
-// follow GRS-10's viewSeeds states, register rows keep stable ids, and nothing changes on activation or restart.
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildCase, putOriginal, row } from '../../../tests/e2e/pilot/lib/fixtures.ts';
@@ -35,7 +33,6 @@ describe('notes', () => {
 		expect(note.status).toBe('here');
 		expect(note.anchorSha256).toMatch(/^[0-9a-f]{64}$/);
 
-		// v2: OD-001's bytes now carry ref OD-009, and the ref OD-001 is reused for SD-001's bytes; rows reordered
 		const v2 = await buildCase(path.join(root, 'v2'), {
 			caseDir: v1.caseDir,
 			edit: (r) => {
@@ -52,7 +49,7 @@ describe('notes', () => {
 		expect(preview.byRef).toEqual([{ ref: 'OD-009', n: 1, status: 'exact' }]);
 		expect(await lc.activate(v2.resultsVersion, ackFor(lc, i2.importId))).toBeNull();
 		expect(lc.userWork.notesFor('e2e-case', v2.resultsVersion, 'OD-009').map((n) => [n.id, n.status, n.body])).toEqual([[note.id, 'exact', 'Check clause 4']]);
-		expect(lc.userWork.notesFor('e2e-case', v2.resultsVersion, 'OD-001')).toEqual([]); // the reused ref names other bytes
+		expect(lc.userWork.notesFor('e2e-case', v2.resultsVersion, 'OD-001')).toEqual([]);
 
 		lc.shutdown();
 		open.splice(open.indexOf(lc), 1);
@@ -71,7 +68,6 @@ describe('notes', () => {
 		await lc.importPackage(v1.caseDir, v1.pkgDir);
 		await lc.userWork.addNote('e2e-case', v1.resultsVersion, 'XA-001', 'shared bytes');
 		await lc.userWork.addNote('e2e-case', v1.resultsVersion, 'OD-003', 'on a scan');
-		// v2 has a second ref with byte-identical content
 		await putOriginal(v1.caseDir, 'X/B.pdf', pdf);
 		const v2 = await buildCase(path.join(root, 'v2'), { caseDir: v1.caseDir, rows: [row('XA-001', 50, 'X/A.pdf', pdf.byteLength), row('XB-001', 51, 'X/B.pdf', pdf.byteLength)] });
 		await lc.importPackage(v1.caseDir, v2.pkgDir);
@@ -79,7 +75,6 @@ describe('notes', () => {
 		expect(on.map((n) => [n.body, n.status, n.candidates])).toEqual([['shared bytes', 'ambiguous', ['XA-001', 'XB-001']]]);
 		const s = lc.userWork.summary('e2e-case', v2.resultsVersion);
 		expect(s.ambiguous).toBe(1);
-		// OD-003 has an original too; a note on a document without one stays in its own version
 		expect(s.total).toBe(2);
 	});
 
@@ -110,7 +105,6 @@ describe('seed overlays and registers', () => {
 		await lc.userWork.putSeedOverlay({ caseId: 'e2e-case', datasetKey: target.datasetKey, seedId: target.seedId, baseSeedSha256: target.seedSha256, fields: { status: 'Served' } });
 		expect(lc.userWork.seedViews('e2e-case', v1.resultsVersion).find((s) => s.state !== 'seed')?.state).toBe('edited');
 
-		// v2: same seeds in reverse order -> the edit still applies to the same seed
 		const reorder = (r: { DATA: Record<string, any> }) => { for (const k of Object.keys(r.DATA)) if (Array.isArray(r.DATA[k]?.registerSeed)) r.DATA[k].registerSeed.reverse(); if (Array.isArray(r.DATA.lit?.crossexam_seed)) r.DATA.lit.crossexam_seed.reverse(); (r.DATA.matter as any).short = 'R'; };
 		const v2 = await buildCase(path.join(root, 'v2'), { caseDir: v1.caseDir, edit: reorder });
 		await lc.importPackage(v1.caseDir, v2.pkgDir);
@@ -119,7 +113,6 @@ describe('seed overlays and registers', () => {
 		expect(e2?.state).toBe('edited');
 		expect(e2?.state === 'edited' && e2.seed.seedId).toBe(target.seedId);
 
-		// v3: the seed's content changed (natural key kept) -> conflict, both shown
 		const change = (r: { DATA: Record<string, any> }) => {
 			const rec = { ...target.record } as Record<string, unknown>;
 			const holder = target.datasetKey === 'filings' ? r.DATA.filings.registerSeed : r.DATA.lit.crossexam_seed;
@@ -132,7 +125,7 @@ describe('seed overlays and registers', () => {
 		await lc.importPackage(v1.caseDir, v3.pkgDir);
 		const c3 = lc.userWork.seedViews('e2e-case', v3.resultsVersion).find((s) => s.state !== 'seed');
 		expect(c3?.state).toBe('conflict');
-		expect(lc.userWork.overlays('e2e-case')[0]!.fields).toEqual({ status: 'Served' }); // activation and imports never rewrite user rows
+		expect(lc.userWork.overlays('e2e-case')[0]!.fields).toEqual({ status: 'Served' });
 	});
 
 	it('register rows keep stable ids and validate their fields', async () => {

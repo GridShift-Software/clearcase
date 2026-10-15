@@ -55,7 +55,6 @@ export async function importCandidate(source: PackageSource, caseFolder: string,
     check();
   } catch (e) {
     if (!(e instanceof Interrupted)) {
-      // never let crafted input escape as an exception: reject with a diagnostic instead
       pkg = null;
       sink.add('PKG_UNPROCESSABLE', `unexpected failure: ${String((e as Error)?.message ?? 'error').slice(0, 200)}`);
     } else sink.add(e.code, e.code === 'IMPORT_DEADLINE' ? `validation did not finish within ${L.validationDeadlineMs} ms; nothing was stored` : 'the import was cancelled; nothing was stored');
@@ -64,7 +63,6 @@ export async function importCandidate(source: PackageSource, caseFolder: string,
   try {
     base = summarise(sink, options.trustedBaseline);
   } catch (e) {
-    // the diagnostics themselves cannot be digested: reject with that failure alone
     const failed = new DiagSink(L.diagnosticsPerCode);
     failed.add('PKG_UNPROCESSABLE', `unexpected failure: ${String((e as Error)?.message ?? 'error').slice(0, 200)}`);
     return freeze({ ...summarise(failed, []), verdict: 'reject', candidate: null });
@@ -88,7 +86,6 @@ function summarise(sink: DiagSink, trustedBaseline: Iterable<string> | undefined
   };
 }
 
-/** A cited document whose root original is unavailable stays visibly flagged. */
 function flagCitedUnavailable(pkg: ValidatedPackage, unavailable: Set<string>, sink: DiagSink): void {
   const rootOf = (ref: string): string => {
     let r = ref;
@@ -105,7 +102,6 @@ function flagCitedUnavailable(pkg: ValidatedPackage, unavailable: Set<string>, s
   }
 }
 
-/** The result is immutable: its arrays, counts and diagnostics are frozen (the candidate freezes itself). */
 function freeze<T extends ImportResult>(r: T): T {
   for (const d of r.diagnostics) Object.freeze(d);
   Object.freeze(r.diagnostics);

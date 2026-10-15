@@ -12,7 +12,6 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const raw = datasetOf<unknown[]>(a.store, version.id, 'lit-elements');
 	const elements = (Array.isArray(raw) ? raw : []).map((r) => {
 		const e = (r && typeof r === 'object' && !Array.isArray(r) ? r : {}) as Record<string, unknown>;
-		// the witness is free text, shown as stated and never linked by name
 		return { element: s(e.element), must: s(e.must), evidence: s(e.evidence), witness: s(e.witness), tab: s(e.tab), target: elementTarget(e.tab)?.id ?? null };
 	});
 	const vc = viewContentOf(a.store, version.id);

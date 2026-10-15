@@ -13,14 +13,11 @@
 	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
-	// the entry and each row's Delete keep their own state (entry.svelte.ts); without JavaScript the answer re-fills it
 	const entry = new EntryForm(CX_FIELDS, (v) => canAddCx(v as CxValues), untrack(() => form as Answer));
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>
 
-<!-- the data is complete when the server renders the page, so data-ready is set from the start (the pilot checks read
-	it from the served HTML); data-hydrated marks when the page's controls work -->
 <main id="main" tabindex="-1" data-ready="crossexam_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Cross-Exam Prep" section="Cross-Exam Prep" caseName={data.version.titleName} subtitle="Per-witness topics, what to put, and the documents to confront them with">
 		<!-- S-crossexam_tab-3 (copied): v5 has a second Add in the page header; it submits the same form -->

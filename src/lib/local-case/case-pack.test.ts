@@ -1,6 +1,3 @@
-// Import by clicking (GRS-70) on synthetic case packs: the folder listing, extraction (unsafe entries, a non-empty
-// target, a single top folder, cancel), the workspace HTML rule, the case id, the refused destinations, and the whole
-// pipeline from a .zip or a folder to a stored candidate that activates.
 import { chmod, mkdir, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -28,7 +25,6 @@ async function setup(tag: string) {
 }
 
 const enc = (s: string) => new TextEncoder().encode(s);
-/** A synthetic case pack: invented originals, the workspace HTML and its "(bundles update only)" variant. */
 function packFiles(prefix = ''): Record<string, Uint8Array> {
 	const html = synthHtml(synthRoots());
 	const files: Record<string, Uint8Array> = { 'Workspace.html': html, 'Workspace (bundles update only).html': html, ...synthOriginals() };
@@ -205,19 +201,15 @@ describe('the whole pipeline', () => {
 		expect([imp.case_folder, imp.package_source, imp.case_id]).toEqual([caseDir, path.join(dest, 'Synthetic_Pack_v5-results'), 'synthetic_pack_v5']);
 		expect(await lc.activate(imp.results_version!, ackFor(lc, r.importId))).toBeNull();
 		expect(seen.has('extract')).toBe(true);
-		// the same pack again into the same destination: the extracted folder holds exactly its files and is reused
 		const again = await lc.importCasePack(zip, dest);
 		expect(again.kind).toBe('identical');
 		expect((await readdir(dest)).sort()).toEqual(['Synthetic_Pack_v5', 'Synthetic_Pack_v5-results', 'Synthetic_Pack_v5-results-2']);
-		// an original edited without changing its length is not that pack's extraction: refused, and left as it was
 		const [original] = Object.keys(synthOriginals());
 		const edited = Buffer.from(packFiles()[original!]!).map((x) => x ^ 0xff);
 		await writeFile(path.join(caseDir, original!), edited);
 		expect(failed(await lc.importCasePack(zip, dest))).toContain(`holds other files than this pack (${original} differs)`);
 		expect(new Uint8Array(await readFile(path.join(caseDir, original!)))).toEqual(new Uint8Array(edited));
 		await writeFile(path.join(caseDir, original!), packFiles()[original!]!);
-		// the pack itself replaced by one whose workspace HTML has the same length but another subject: the extraction
-		// on disk is the old pack's, so it is not reused and the old chronology is not converted as the new pack
 		const html = Buffer.from(packFiles()['Workspace.html']!);
 		const at = html.indexOf('Synthetic subject');
 		expect(at).toBeGreaterThan(0);
@@ -225,7 +217,6 @@ describe('the whole pipeline', () => {
 		await writeFile(zip, zipOf({ ...packFiles(), 'Workspace.html': html, 'Workspace (bundles update only).html': html }, 8));
 		expect(failed(await lc.importCasePack(zip, dest))).toContain('holds other files than this pack (Workspace.html differs)');
 		expect((await readdir(dest)).sort()).toEqual(['Synthetic_Pack_v5', 'Synthetic_Pack_v5-results', 'Synthetic_Pack_v5-results-2']);
-		// a changed file (another size) is named too
 		await writeFile(path.join(caseDir, 'Workspace.html'), 'changed');
 		expect(failed(await lc.importCasePack(zip, dest))).toContain('holds other files than this pack (Workspace.html differs in size)');
 		expect(await readFile(path.join(caseDir, 'Workspace.html'), 'utf8')).toBe('changed');
@@ -239,7 +230,6 @@ describe('the whole pipeline', () => {
 		expect(await readdir(dest)).toEqual([]);
 		const zip = path.join(root, 'Pack.zip');
 		await writeFile(zip, zipOf(packFiles(), 8));
-		// Cancel once the extraction is done (converting or checking the originals)
 		const run = lc.importCasePack(zip, dest);
 		let phase = '';
 		await new Promise<void>((done) => {

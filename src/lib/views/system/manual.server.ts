@@ -12,7 +12,6 @@ import { datasetOf } from '$lib/local-case/results.server';
 
 type LinkRow = { ref: string; bundle: string; filename: string; url: string };
 
-/** Whether a './'-relative package URL names a file inside the case folder (never outside it). */
 async function onDisk(root: string, url: string): Promise<'found' | 'missing' | 'outside'> {
 	let rel: string;
 	try { rel = url.replace(/^\.\//, '').split('/').map(decodeURIComponent).join('/'); } catch { return 'outside'; }

@@ -1,9 +1,3 @@
-// The overview widget-slot registry: owners fill only their own declared slots from their own subtree; unfilled
-// slots name their owner; a failing widget loader marks its slot and never breaks the overview. Which slots are
-// filled follows the tree (filledSlots, tests/e2e/pilot/lib/implemented.mjs), as the pilot checks do: every unfilled
-// slot shows as unavailable and every filled slot has a loader, here and in a synthetic tree that fills one. An owner's
-// widget is a real Svelte component: a synthetic plug-in whose .svelte widget imports from $lib loads under the suite's
-// config.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,7 +12,6 @@ const REPO = join(import.meta.dirname, '..', '..', '..');
 const tmp = mkdtempSync(join(tmpdir(), 'overview-slots-'));
 afterAll(() => rmSync(tmp, { recursive: true, force: true }));
 
-/** Every unfilled slot is unavailable and every filled slot has a loader (its state is never 'unavailable'). */
 async function expectSlotsFollow(filled: ReadonlySet<string>, loaders?: ReadonlyMap<SlotId, OverviewWidgetLoader>) {
 	const s = await slotStates(ctx, loaders);
 	for (const x of s) {
@@ -30,7 +23,6 @@ async function expectSlotsFollow(filled: ReadonlySet<string>, loaders?: Readonly
 describe('overview slots', () => {
 	it('declares the GRS-17 deadline and time summaries and the GRS-20 freshness stamp', () => {
 		expect(OVERVIEW_SLOTS.map((s) => [s.id, s.linear, s.category])).toEqual([['deadlines', 'GRS-17', 'registers'], ['unbilled-time', 'GRS-17', 'registers'], ['rescan-freshness', 'GRS-20', 'system']]);
-		// the widgets discovered are exactly the slots the tree fills
 		expect([...widgets.keys()].sort()).toEqual([...filledSlots(REPO, OVERVIEW_SLOTS)].sort());
 	});
 	it('shows every slot as unavailable until its owner fills it, and every filled slot has a loader (this tree)', async () => {
@@ -42,7 +34,6 @@ describe('overview slots', () => {
 		const filled = filledSlots(tmp, OVERVIEW_SLOTS);
 		expect([...filled]).toEqual(['deadlines']);
 		await expectSlotsFollow(filled, loadersFrom({ '/src/lib/views/registers/overview-widgets.server.ts': { loaders: [{ slot: 'deadlines', load: () => ({ open: 1 }) }] } }));
-		// a filled slot with no loader is caught
 		await expect(expectSlotsFollow(filled, loadersFrom({}))).rejects.toThrow(/deadlines is filled in the tree but has no loader/);
 	});
 	it('loads a widget plug-in whose component is a .svelte file importing from $lib (synthetic plug-in)', async () => {

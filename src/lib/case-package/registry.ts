@@ -1,9 +1,3 @@
-// Dataset registry: which dataset keys and schemas exist, where each comes from in the v5
-// workspace HTML, and whether it is generated (reproducible from the originals by the
-// pipeline) or authored (analysis written by people). The split follows the provenance
-// in the raw-review field inventory: `machine_built` vs the hand-authored overlay that
-// the v5 app merges into DATA at runtime. Only authored datasets carry inline citation
-// tokens and later Markdown editing.
 import type { TSchema } from 'typebox';
 import * as R from './records.ts';
 
@@ -48,18 +42,10 @@ export const V5_DATASETS: readonly DatasetDef[] = [
   g('caselines-index', 'window.__CASELINES_IDX__', R.V5CaselinesIndex),
 ];
 
-/** Containers that the adapter splits into one dataset per child key. */
 export const V5_SPLIT_PARENTS = ['DATA.timeline', 'DATA.lit'] as const;
 export const LAYOUT: DatasetDef = { key: 'source-layout', sourcePath: '(layout)', kind: 'generated', schema: 'v5.source-layout@1', data: R.V5SourceLayout, required: true };
 export const CONVERSION_REPORT: DatasetDef = { key: 'conversion-report', sourcePath: '(adapter)', kind: 'generated', schema: 'v5.conversion-report@1', data: R.V5ConversionReport, required: false };
-/**
- * Code-embedded view content (GRS-38). Generated: v5 hard-coded it in the renderers, but the
- * sample was produced by an AI pipeline, so in the real pipeline this content is pipeline
- * output, reproducible from the case material like the other generated datasets, and carries
- * no inline citation tokens. Optional: a reader that does not know it can still show the case.
- */
 export const VIEW_CONTENT: DatasetDef = { key: 'view-content', sourcePath: '(view-code)', kind: 'generated', schema: 'v5.view-content@1', data: R.V5ViewContent, required: false };
-/** Unknown source keys: preserved, bounded, explicitly unsupported (not rendered). */
 export const OPAQUE_SCHEMA = 'opaque@1';
 
 export const KNOWN_SCHEMAS: ReadonlyMap<string, DatasetDef> = new Map([...V5_DATASETS, LAYOUT, CONVERSION_REPORT, VIEW_CONTENT].map((d) => [d.schema, d]));

@@ -14,8 +14,6 @@
 	const q = $derived(data.query);
 	const r = $derived(data.result);
 	const cov = $derived(data.coverage);
-	/** The form's fields. A search that lands sets them to what it searched, except a field typed in while it was in
-	 *  flight: that keeps the newer text. Any other navigation (a page, Back) sets a field only when its value changed. */
 	type Q = typeof data.query;
 	const KEYS = Object.keys(untrack(() => data.query)) as (keyof Q)[];
 	let f = $state<Q>(untrack(() => ({ ...data.query })));
@@ -29,12 +27,10 @@
 			sent = null;
 		});
 	});
-	/** The submitted search with one change (a page, or the action items), replacing the URL entry. */
 	function go(extra: Record<string, string>) {
 		goto(`${page.url.pathname}?${paramsOf(q, extra)}`, { replaceState: true, keepFocus: true, noScroll: true });
 	}
 	let exportError = $state<string | null>(null);
-	/** Export the submitted search (v5: the last collected state, not unsaved form edits). */
 	async function exportCsv() {
 		exportError = null;
 		const s = data.submitted ? paramsOf(q).toString() : '';
@@ -45,8 +41,6 @@
 		} catch { exportError = 'The export failed: the app did not answer.'; }
 	}
 	const phase = $derived(data.actions ? 'actions' : r?.kind === 'results' ? (r.page.total ? 'results' : 'empty') : (r?.kind ?? 'idle'));
-	// the data is complete when the page renders (data-ready, also in the server's HTML); data-hydrated marks the
-	// moment its controls respond
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>

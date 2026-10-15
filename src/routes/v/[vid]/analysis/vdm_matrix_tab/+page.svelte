@@ -10,7 +10,6 @@
 	const vid = $derived(data.version.id);
 	const known = $derived(new Set(data.known));
 	const h = $derived(data.headings);
-	// S-vdm_matrix_tab-1: the free-text refs v5 never shows; the column is left out when no row has any
 	const showRefs = $derived(data.rows.some((r) => r.refs.trim()));
 	const exportCsv = () => download(data.exportName.name, defenceCsv(data.exportColumns.keys, data.rows));
 	let hydrated = $state(false);

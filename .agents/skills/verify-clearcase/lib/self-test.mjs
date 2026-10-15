@@ -119,8 +119,8 @@ export async function selfTest(_o, ctx) {
 		const committed = await featureIndex(pilotSteps);
 		record('feature index: every committed feature file keeps the entry contract and every pilot step names one',
 			committed.ok && committed.features.length >= 6 && committed.features.every((f) => f.title && f.summary), { problems: committed.problems, features: committed.features.map((f) => f.id) });
-		const feature = (title, { paras = ['A synthetic feature used by the self-test.'], sections = ['Sub-features', 'How to get to it (user POV)', 'Driving it with verify-clearcase', 'Gotchas'], h1 = true } = {}) =>
-			[h1 ? `# ${title}` : '', '', ...paras.flatMap((x) => [x, '']), ...sections.flatMap((h) => [`## ${h}`, '', '- synthetic', ''])].join('\n');
+		const feature = (title, { paras = ['A synthetic feature used by the self-test.'], sections = ['Sub-features', 'How to get to it (user POV)', 'Driving it with verify-clearcase', 'Gotchas'], h1 = true, drive = ['Preconditions: none.', '', '- **Act.** *Not yet driven.* synthetic'] } = {}) =>
+			[h1 ? `# ${title}` : '', '', ...paras.flatMap((x) => [x, '']), ...sections.flatMap((h) => [`## ${h}`, '', ...(h === 'Driving it with verify-clearcase' ? drive : ['- synthetic']), ''])].join('\n');
 		const fdir = (name, files) => { const d = join(scratch, name); mkdirSync(d); for (const [f, t] of Object.entries(files)) writeFileSync(join(d, f), t); return d; };
 		const stepsModule = (feature, ids) => `export const steps = [${ids.map((id) => `{ id: ${JSON.stringify(id)}, feature: ${JSON.stringify(feature)}, title: 'synthetic', async run() { return {}; } }`).join(', ')}];\n`;
 		const broken = fdir('features-broken', {
@@ -130,12 +130,14 @@ export async function selfTest(_o, ctx) {
 			'b-no-title.md': feature('No title', { h1: false }),
 			'b-two-paragraphs.md': feature('Two', { paras: ['One paragraph.', 'Another paragraph.'] }),
 			'b-list.md': feature('List', { paras: ['- a list, not a paragraph'] }),
+			'b-no-preconditions.md': feature('No preconditions', { drive: ['- **Act.** Step `pilot-one`.'] }),
+			'b-unmarked.md': feature('Unmarked', { drive: ['Preconditions: none.', '', '- **Act.** Choose something.'] }),
 		});
 		const found = discoverFeatures(broken);
 		const flagged = found.filter((f) => f.problems.length).map((f) => f.id);
 		const brokenIx = await featureIndex([], broken);
 		record('feature index: a scratch directory with broken feature files fails, naming each one (README is not a feature)',
-			!brokenIx.ok && JSON.stringify(found.map((f) => f.id)) === JSON.stringify(['alpha', 'b-list', 'b-missing', 'b-no-title', 'b-order', 'b-two-paragraphs']) && JSON.stringify(flagged) === JSON.stringify(['b-list', 'b-missing', 'b-no-title', 'b-order', 'b-two-paragraphs']),
+			!brokenIx.ok && JSON.stringify(found.map((f) => f.id)) === JSON.stringify(['alpha', 'b-list', 'b-missing', 'b-no-preconditions', 'b-no-title', 'b-order', 'b-two-paragraphs', 'b-unmarked']) && JSON.stringify(flagged) === JSON.stringify(['b-list', 'b-missing', 'b-no-preconditions', 'b-no-title', 'b-order', 'b-two-paragraphs', 'b-unmarked']),
 			{ flagged, problems: brokenIx.problems });
 		const pilot = [{ id: 'pilot-one', feature: 'alpha', title: 'synthetic pilot step', run() {} }];
 		const appended = fdir('features-steps', { 'alpha.md': feature('Alpha'), 'beta.md': feature('Beta'), 'beta.steps.mjs': stepsModule('beta', ['beta-open', 'beta-export']), 'alpha.steps.mjs': stepsModule('alpha', ['alpha-open']) });

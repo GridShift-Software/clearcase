@@ -17,9 +17,11 @@ Advanced Search finds documents by text (file name, ref, subject, sender, To rec
 
 ## Driving it with verify-clearcase
 
-- **Open.** Choose `#nav-search`. `main[data-ready=search]`, `data-result=idle`; the title is `Advanced Search · <case> · ClearCase` and the heading has focus. `#search-coverage` carries `data-documents`, `data-with-excerpt`, `data-max-excerpt`, `data-none` and `data-pending`.
-- **Search.** Fill `#sq` (and `#sb`, `#st`, `#ss`, `#sf`, `#sto`, `#samin`, `#samax`, `#sst`), choose `#search-run`, wait for `main[data-result]` other than `idle` and no `data-busy`. `results` lists `#search-table tbody tr[data-ref]` and `#search-count`; `empty` adds `#search-empty`; `invalid` shows `#search-invalid` and no table.
-- **Export.** Choose `#search-export`; the download (`search.csv` when the package names none) has v5's columns and the result order.
+Preconditions: `activate` passed on the synthetic case of `lib/inner.mjs` (`buildCase`, 7 rows); step `every-view` has opened this view once.
+
+- **Open.** Step `every-view` (page and heading only). Choose `#nav-search`. `main[data-ready=search]`, `data-result=idle`; the title is `Advanced Search · <case> · ClearCase` and the heading has focus. `#search-coverage` carries `data-documents`, `data-with-excerpt`, `data-max-excerpt`, `data-none` and `data-pending`.
+- **Search.** *Not yet driven.* Fill `#sq` (and `#sb`, `#st`, `#ss`, `#sf`, `#sto`, `#samin`, `#samax`, `#sst`), choose `#search-run`, wait for `main[data-result]` other than `idle` and no `data-busy`. `results` lists `#search-table tbody tr[data-ref]` and `#search-count`; `empty` adds `#search-empty`; `invalid` shows `#search-invalid` and no table.
+- **Export.** *Not yet driven.* Choose `#search-export`; the download (`search.csv` when the package names none) has v5's columns and the result order.
 
 ## Gotchas
 

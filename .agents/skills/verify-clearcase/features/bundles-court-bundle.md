@@ -1,6 +1,6 @@
 # Court Bundle (bundles)
 
-The Court Bundle view lists the imported bundles (`bundles`) with items, pages and status, edits the index header (saved per case over the imported defaults), shows one bundle's index, items with their source extents and page numbers, and exports Word indexes (one bundle, or all bundles in one document) and a printed index. The bundle builder (PDF assembly) is not in this version.
+The Court Bundle view lists the imported bundles (`bundles`) with items, pages and status, edits the index header (saved per case over the imported defaults), shows one bundle's index, items with their source extents and page numbers, and exports Word indexes (one bundle, or all bundles in one document) and a printed index. `Build a bundle` (`#cb-build`) opens the builder, which assembles a numbered PDF from picked files and can save it as a bundle.
 
 ## Sub-features
 
@@ -19,13 +19,15 @@ The Court Bundle view lists the imported bundles (`bundles`) with items, pages a
 
 ## Driving it with verify-clearcase
 
-- **Open.** `main[data-ready=court_bundle_tab]` (server-rendered), then `data-hydrated`; h1 `Court Bundle`; `#cb-list tbody tr` per bundle.
-- **Header.** Fill `#cbh_<key>`, choose `#cb-save`; `main[data-busy="0"]` when saved. A failed save shows `#cb-error` and keeps all eight values.
-- **Index.** Open a row (`Open`); `#cbindexdoc` shows the header and `table.cbixt`; `#cb-word` downloads `Index_<no>_<name>.docx`.
-- **Builder.** `#cb-build` opens it (`#cb-builder-h`). Pick files with CDP `DOM.setFileInputFiles` on `#cbbfile`; use only the synthetic set from `bun tests/bundles/fixtures/make-pdfs.mjs <dir>`. Items are `#cbb-items tr[data-item]`, `#cbbtotal` sums them, `#cbbname` names the bundle. `#cbbrun` → `#cbbdownload` (the PDF), `#cbbindex`, `#cbbword`; `#cbbsave` saves and opens `?b=C<i>`, and `#cbbsaved` shows the number after Back. A refused save shows `#cb-save-error`; a refused delete shows `[data-delete-error=<id>]`. Without JavaScript `#cb-builder-nojs` says the builder needs it.
+Preconditions: `activate` passed on the synthetic case of `lib/inner.mjs` (`buildCase`, 7 rows); step `every-view` has opened this view once.
+
+- **Open.** Step `every-view` (page and heading only). `main[data-ready=court_bundle_tab]` (server-rendered), then `data-hydrated`; h1 `Court Bundle`; `#cb-list tbody tr` per bundle.
+- **Header.** *Not yet driven.* Fill `#cbh_<key>`, choose `#cb-save`; `main[data-busy="0"]` when saved. A failed save shows `#cb-error` and keeps all eight values.
+- **Index.** *Not yet driven.* Open a row (`Open`); `#cbindexdoc` shows the header and `table.cbixt`; `#cb-word` downloads `Index_<no>_<name>.docx`.
+- **Builder.** *Not yet driven.* `#cb-build` opens it (`#cb-builder-h`). Pick files with CDP `DOM.setFileInputFiles` on `#cbbfile`; use only the synthetic set from `bun tests/bundles/fixtures/make-pdfs.mjs <dir>`. Items are `#cbb-items tr[data-item]`, `#cbbtotal` sums them, `#cbbname` names the bundle. `#cbbrun` → `#cbbdownload` (the PDF), `#cbbindex`, `#cbbword`; `#cbbsave` saves and opens `?b=C<i>`, and `#cbbsaved` shows the number after Back. A refused save shows `#cbb-save-error` with Retry; a refused delete shows `[data-delete-error=<no>]` beside the bundle's `[data-delete=<no>]` button. Without JavaScript `#cb-builder-nojs` says the builder needs it.
 
 ## Gotchas
 
 - Bundle, index and extract PDFs and source parts outside the register are package files (GRS-45, `P-` keys): they open in the originals site's viewer, with the page as `#page=N`, and download from it. One missing at import, or deleted or changed since, is named with `not in the verified index; not served`.
-- Word hyperlinks into the bundle PDFs are not written (the PDFs are not served).
+- Each Word index row hyperlinks to a relative path (the bundle with `#page=`, an extract or the first part), so the links work only beside those files.
 - After Create Bundle the built PDF shows in the page in `#cbbpreview`, a frame of the builder's own blob URL (CSP `frame-src blob:`, no sandbox: Chromium leaves a sandboxed PDF frame empty). `Open in a new tab` also shows it.

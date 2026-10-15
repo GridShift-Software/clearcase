@@ -19,7 +19,7 @@ Four read-only analysis tables from the package (GRS-15): contradiction KPIs, co
 
 Preconditions:
 
-- `activate` passed on the synthetic case, extended with the analysis datasets of `tests/e2e/analysis/lib.mjs` (`analysisData`).
+- `activate` passed on the synthetic case. The plain synthetic case that `lib/inner.mjs` builds (`tests/case-package/fixtures/synth.ts`) already fills every analysis view with one to three rows; the analysis e2e suite extends it with `analysisData` (`tests/e2e/analysis/lib.mjs`).
 
 - **Open.** *Not yet driven* (no `lib/drive.mjs` step yet; proved by the analysis e2e suite). Choose the navigation entry; wait for `main[data-ready=<view-id>]`; the heading is the label and has focus.
 - **Trace a defence.** *Not yet driven* (no `lib/drive.mjs` step yet; proved by the analysis e2e suite). In `#defence-table`, choose `.chips a.cite`: `main[data-ready="doc:<ref>"]`.

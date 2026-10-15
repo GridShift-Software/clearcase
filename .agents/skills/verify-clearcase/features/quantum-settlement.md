@@ -1,6 +1,6 @@
 # Settlement / BATNA
 
-v5's risk-adjusted settlement model: the claim discounted for the probability of recovery and the years to recover at a discount rate, net of enforcement cost, with pessimistic (p−25), base and optimistic (p+15) scenarios. The probability, years, discount rate and cost defaults come from view-content; the claim prefill is the imported claim net of recorded payments (disclosed when any exist). The inputs live in the URL query; `Reset to defaults` returns to the defaults.
+v5's risk-adjusted settlement model: the claim discounted for the probability of recovery and the years to recover at a discount rate, net of enforcement cost, with pessimistic (p-25, an ASCII hyphen in the label), base and optimistic (p+15) scenarios. The probability, years, discount rate and cost defaults come from view-content; the claim prefill is the imported claim net of recorded payments (disclosed when any exist). The inputs live in the URL query; `Reset to defaults` returns to the defaults.
 
 ## Sub-features
 
@@ -16,7 +16,9 @@ v5's risk-adjusted settlement model: the claim discounted for the probability of
 
 ## Driving it with verify-clearcase
 
-- *Driven by `tests/e2e/quantum/suite.mjs`*: change, reload and reset (`Q3-DEFAULTS-SETTLEMENT`), a comma-decimal claim refused (`Q5-INVALID-SETTLEMENT`), the net prefill after a payment (`Q6-PAYMENT-RELOAD`), a changed assumption (`Q8-SETTLEMENT`).
+Preconditions: `activate` passed on the synthetic case of `lib/inner.mjs` (`buildCase`, 7 rows); step `every-view` has opened this view once.
+
+- *Not yet driven by verify-clearcase.* *Proven instead by `tests/e2e/quantum/suite.mjs`*: change, reload and reset (`Q3-DEFAULTS-SETTLEMENT`), a comma-decimal claim refused (`Q5-INVALID-SETTLEMENT`), the net prefill after a payment (`Q6-PAYMENT-RELOAD`), a changed assumption (`Q8-SETTLEMENT`).
 
 ## Gotchas
 

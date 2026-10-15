@@ -13,9 +13,11 @@ Document Diff compares the indexed text excerpts of two documents the user choos
 
 ## Driving it with verify-clearcase
 
-- **Open.** `main[data-ready=hoa_diff_tab]`, `data-result=none`, heading focused, `#diff-coverage`.
-- **Compare.** Choose `#diffA`, `#diffB` and `#diffmode`, then `#diff-run`. `main[data-result=diff]`; `#diffOut h3` reads `<A> vs <B>`; `#diff-body` holds text and `span.diffdel` / `span.diffadd`; `#diff-pair-coverage` states both excerpts.
-- **One document.** With `#diffB` on `— pick —`, `#diffOut .empty` reads `Pick two documents.`; a ref chosen by URL that cannot be compared adds `.diff-pick-reason`.
+Preconditions: `activate` passed on the synthetic case of `lib/inner.mjs` (`buildCase`, 7 rows); step `every-view` has opened this view once.
+
+- **Open.** Step `every-view` (page and heading only). `main[data-ready=hoa_diff_tab]`, `data-result=none`, heading focused, `#diff-coverage`.
+- **Compare.** *Not yet driven.* Choose `#diffA`, `#diffB` and `#diffmode`, then `#diff-run`. `main[data-result=diff]`; `#diffOut h3` reads `<A> vs <B>`; `#diff-body` holds text and `span.diffdel` / `span.diffadd`; `#diff-pair-coverage` states both excerpts.
+- **One document.** *Not yet driven.* With `#diffB` on `— pick —`, `#diffOut .empty` reads `Pick two documents.`; a ref chosen by URL that cannot be compared adds `.diff-pick-reason`.
 
 ## Gotchas
 

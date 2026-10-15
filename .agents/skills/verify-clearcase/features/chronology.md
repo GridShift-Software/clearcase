@@ -1,6 +1,6 @@
 # Chronology
 
-The chronology lists every document of a results version in the register's source order, with date and date basis, ref, title, type, bundle, amount, text status and whether the original opens. The user can filter by text, bundle, type and text status (kept in the URL), sort by column, open a document, and export the filtered rows as CSV.
+The chronology lists every document of a results version sorted by date (source order breaks ties; `/api/v/<rv>/chronology` keeps source order), with date, a date basis column when some row has one, ref, title, type, bundle, amount, text status and whether the original opens. The user can filter by text, bundle, type and text status (kept in the URL), sort by column, open a document, and export the filtered rows as CSV.
 
 ## Sub-features
 
@@ -29,6 +29,7 @@ Preconditions:
 
 ## Gotchas
 
+- `#nav-chronology` carries the last filter query this tab saved (sessionStorage, `ViewNav.svelte`), so choosing it again restores those filters; compare paths, not full URLs.
 - The list is loaded from `/api/v/<rv>/chronology` with an ETag. Wait for `main[data-ready=chronology]`, not for the first table row.
 - `#row-count[data-count]` is the filtered count the user sees; assert on it as well as on the rendered `[data-ref]` rows, which a later grid change may window.
 - Filters replace the history entry instead of pushing one. Back from a document returns to the filtered list, not to each filter state.

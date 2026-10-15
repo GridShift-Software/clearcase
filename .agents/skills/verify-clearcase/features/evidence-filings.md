@@ -16,12 +16,14 @@ Filings shows the imported filing groups and a filing ↔ replying-affidavit reg
 
 ## Driving it with verify-clearcase
 
-- **Open.** Choose `#nav-filings_tab`. `main[data-ready=filings_tab]`, heading focused, `#classification-status[data-verification=unverified]`.
-- **Add.** Fill `#fl_filing`, `#fl_fdate`, `#fl_fparty`, `#fl_response`, `#fl_rdate`, `#fl_ref`; choose `#register-add`. A new `#filing-register tr[data-key^="row:"][data-state=user]` appears last.
-- **Edit.** Choose the row's Edit; `#register-form[data-mode=edit]` holds its values; change one and choose `#register-save`. A seed row then has `data-state=edited`.
-- **Failure.** With the store busy (hold `BEGIN IMMEDIATE` on `<dataDir>/work.sqlite`) or the server stopped, `#register-error[data-code]` shows with `#register-retry` and `#register-discard`, and the fields and the edited row (`#register-form input[name=key]`) keep their values. A busy Delete shows `#register-delete-error` instead.
-- **In flight.** `#register-status` reads `Adding the entry…`, `Saving the change…` or `Deleting the entry…`; `#register-form fieldset` and every `[data-edit]` and `[data-delete]` are disabled.
-- **Without JavaScript.** A refused save re-renders in its mode with its values; while it shows, `[data-edit]` is disabled and `#register-held` says why; a Delete returns the draft and the failure with it.
+Preconditions: `activate` passed on the synthetic case of `lib/inner.mjs` (`buildCase`, 7 rows); step `every-view` has opened this view once.
+
+- **Open.** Step `every-view` (page and heading only). Choose `#nav-filings_tab`. `main[data-ready=filings_tab]`, heading focused, `#classification-status[data-verification=unverified]`.
+- **Add.** *Not yet driven.* Fill `#fl_filing`, `#fl_fdate`, `#fl_fparty`, `#fl_response`, `#fl_rdate`, `#fl_ref`; choose `#register-add`. A new `#filing-register tr[data-key^="row:"][data-state=user]` appears last.
+- **Edit.** *Not yet driven.* Choose the row's Edit; `#register-form[data-mode=edit]` holds its values; change one and choose `#register-save`. A seed row then has `data-state=edited`.
+- **Failure.** *Not yet driven.* With the store busy (hold `BEGIN IMMEDIATE` on `<dataDir>/work.sqlite`) or the server stopped, `#register-error[data-code]` shows with `#register-retry` and `#register-discard`, and the fields and the edited row (`#register-form input[name=key]`) keep their values. A busy Delete shows `#register-delete-error` instead.
+- **In flight.** *Not yet driven.* `#register-status` reads `Adding the entry…`, `Saving the change…` or `Deleting the entry…`; `#register-form fieldset` and every `[data-edit]` and `[data-delete]` are disabled.
+- **Without JavaScript.** *Not yet driven.* A refused save re-renders in its mode with its values; while it shows, `[data-edit]` is disabled and `#register-held` says why; a Delete returns the draft and the failure with it.
 
 ## Gotchas
 

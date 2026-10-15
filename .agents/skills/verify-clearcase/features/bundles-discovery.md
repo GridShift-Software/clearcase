@@ -17,12 +17,14 @@ The Discovery Schedule reproduces the two imported affidavit schedules (`discove
 
 ## Driving it with verify-clearcase
 
-- **Open.** `main[data-ready=discovery_tab]` (server-rendered) appears and `data-hydrated` marks the controls live; the h1 is `Discovery Schedule` and receives focus after sidebar navigation.
-- **Rows.** `#ds-list tr[data-item]` holds one row per item; `#ds-info` gives items, files linked, files not in the verified index and `uncertified`.
-- **Select.** Tick `.ds-chip input[type=checkbox]`; `#ds-count` rises; `main[data-pending="0"]` once saved. Reload: the ticks and the mode return.
-- **Cover.** `#ds-cover-dl` downloads `<file>.html` once per click, however often the schedule was switched.
-- **Bundle.** `#ds-build`, then `#ds-bundle-table`; `#ds-dlindex` downloads the index; `#ds-incomplete` names an incomplete selection; `#ds-back` returns.
-- **Failure.** With `work.sqlite` locked, `#ds-error` (role alert) shows after about 10 s and the ticks stay; `#ds-retry` saves.
+Preconditions: `activate` passed on the synthetic case of `lib/inner.mjs` (`buildCase`, 7 rows); step `every-view` has opened this view once.
+
+- **Open.** Step `every-view` (page and heading only). `main[data-ready=discovery_tab]` (server-rendered) appears and `data-hydrated` marks the controls live; the h1 is `Discovery Schedule` and receives focus after sidebar navigation.
+- **Rows.** *Not yet driven.* `#ds-list tr[data-item]` holds one row per item; `#ds-info` gives items, files linked, files not in the verified index and `uncertified`.
+- **Select.** *Not yet driven.* Tick `.ds-chip input[type=checkbox]`; `#ds-count` rises; `main[data-pending="0"]` once saved. Reload: the ticks and the mode return.
+- **Cover.** *Not yet driven.* `#ds-cover-dl` downloads `<file>.html` once per click, however often the schedule was switched.
+- **Bundle.** *Not yet driven.* `#ds-build`, then `#ds-bundle-table`; `#ds-dlindex` downloads the index; `#ds-incomplete` names an incomplete selection; `#ds-back` returns.
+- **Failure.** *Not yet driven.* With `work.sqlite` locked, `#ds-error` (role alert) shows after about 10 s and the ticks stay; `#ds-retry` saves.
 
 ## Gotchas
 

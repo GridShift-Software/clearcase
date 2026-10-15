@@ -6,10 +6,16 @@ import { connect } from 'node:net';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { authorised, canonicalPath, refused } from '../../scripts/demo/tour-policy.ts';
+import { versionPath } from '../../src/lib/local-case/model.ts';
 
 const REPO = path.resolve(import.meta.dirname, '../..');
 const BUN = process.versions.bun ? process.execPath : 'bun';
 const b64 = (s: string) => `Basic ${Buffer.from(s, 'utf8').toString('base64')}`;
+/** A version's path as the app links it: encodeURIComponent keeps the colon of 'sha256:<hex>' as %3A, which
+ *  decodeURI preserves. VP_LOWER is the same path as a client that lowercases its escapes sends it. */
+const VP = versionPath('sha256:' + 'a1'.repeat(32));
+const VP_LOWER = VP.replace('%3A', '%3a');
+const VP_DOUBLE = VP.replace('%3A', '%253A');
 
 /** Each refused route in its plain form and in the percent-encoded forms SvelteKit decodes before routing. */
 const REFUSED_FORMS: [string, string][] = [
@@ -18,9 +24,12 @@ const REFUSED_FORMS: [string, string][] = [
 	['/api/import-progress', '/api/%69mport%2Dprogress'],
 	['/recovery', '/%72ecovery'], ['/recovery/', '/rec%6Fvery/'],
 	['/v/abc/system/', '/v/abc/%73ystem/'], ['/v/abc/system', '/v/abc/sy%73tem'], ['/v/abc/system/backup_tab/download', '/v/abc/%73ystem/backup_tab/download'],
+	[`${VP}/system/`, `${VP_LOWER}/%73ystem/`], [`${VP}/system`, `${VP}/sy%73tem`], [`${VP}/system/backup_tab/download`, `${VP_LOWER}/system/backup_tab/download`],
 ];
-const ALLOWED = ['/', '/cases', '/v/abc/overview', '/v/abc/doc/OD-002?q=%41&page=2', '/_app/immutable/entry.js', '/fonts/x.woff2', '/api/health', '/v/abc/documents', '/importance', '/v/abc/systems'];
-const MALFORMED = ['/%ZZ', '/import%', '/%E0%A4%A', 'import', '', '//v/../import'.slice(1), '/v/abc/../import', '/v/abc/%2E%2E/import', '/v/abc/./system/', '/v/abc/%2Fsystem/', '/%2525import', '/v\\abc', '/import%0A', '/v/abc/%7Fsystem'];
+const ALLOWED = ['/', '/cases', '/v/abc/overview', '/v/abc/doc/OD-002?q=%41&page=2', '/_app/immutable/entry.js', '/fonts/x.woff2', '/api/health', '/v/abc/documents', '/importance', '/v/abc/systems',
+	`${VP}/overview`, `${VP_LOWER}/overview`, `${VP}/doc/OD-002?q=%41&page=2`, `${VP}/documents`, `${VP}/systems`];
+const MALFORMED = ['/%ZZ', '/import%', '/%E0%A4%A', 'import', '', '//v/../import'.slice(1), '/v/abc/../import', '/v/abc/%2E%2E/import', '/v/abc/./system/', '/v/abc/%2Fsystem/', '/%2525import', '/v\\abc', '/import%0A', '/v/abc/%7Fsystem',
+	`${VP_DOUBLE}/overview`, `${VP_DOUBLE}/system/`, `${VP.replace('%3A', '%253a')}/overview`, `${VP.replace('%3A', '%3A%2F')}/overview`, `${VP.replace('%3A', '%3A%25')}/overview`];
 
 describe('tour-policy: canonical path and refused routes', () => {
 	for (const [plain, encoded] of REFUSED_FORMS) {
@@ -46,6 +55,12 @@ describe('tour-policy: canonical path and refused routes', () => {
 		expect(canonicalPath('/v/abc/d%6Fc/OD-002?x=%2F')).toBe('/v/abc/doc/OD-002');
 		expect(canonicalPath('/v/abc/doc/OD%2D002')).toBe('/v/abc/doc/OD-002');
 		expect(canonicalPath('/v/abc/%25')).toBeNull();
+	});
+	it('keeps the encoded colon of a real version path, in either case, so the generated overview and system URLs route', () => {
+		expect(canonicalPath(`${VP}/overview`)).toBe(`${VP}/overview`);
+		expect(canonicalPath(`${VP_LOWER}/overview`)).toBe(`${VP_LOWER}/overview`);
+		expect(refused(canonicalPath(`${VP}/system/`)!)).toBe(true);
+		expect(canonicalPath(`${VP_DOUBLE}/overview`)).toBeNull();
 	});
 });
 
@@ -94,6 +109,18 @@ describe('tour-proxy against a loopback upstream', () => {
 		expect([r.status, await r.text()]).toEqual([200, 'up /v/abc/doc/OD-002?q=%41']);
 		expect(seen).toEqual([`GET /v/abc/doc/OD-002?q=%41 host=${new URL(base).host.replace(/:\d+$/, '')}:${(upstream.address() as { port: number }).port} auth=-`]);
 		expect((await get('/cases', { method: 'HEAD' })).status).toBe(200);
+	});
+	it('forwards a real version\'s overview and document pages with the encoded colon as sent, and refuses its system views', async () => {
+		seen = [];
+		for (const target of [`${VP}/overview`, `${VP_LOWER}/overview`, `${VP}/doc/OD-002?q=%41`]) {
+			const r = await get(target);
+			expect([r.status, await r.text()], target).toEqual([200, `up ${target}`]);
+		}
+		expect(seen.map((s) => s.split(' ')[1])).toEqual([`${VP}/overview`, `${VP_LOWER}/overview`, `${VP}/doc/OD-002?q=%41`]);
+		seen = [];
+		for (const target of [`${VP}/system/`, `${VP_LOWER}/system/`, `${VP}/%73ystem/`, `${VP}/system/backup_tab/download`]) expect((await get(target)).status, target).toBe(403);
+		for (const target of [`${VP_DOUBLE}/overview`, `${VP_DOUBLE}/system/`]) expect((await get(target)).status, target).toBe(400);
+		expect(seen).toEqual([]);
 	});
 	it('refuses every refused route in its plain and encoded forms with 403 and never asks the upstream', async () => {
 		seen = [];

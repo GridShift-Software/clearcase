@@ -1364,7 +1364,7 @@ function syncModal() {
 function trapTab(e) {
   const m = isMobile() && S.openOrder.length ? S.openOrder[S.openOrder.length - 1] : null, el = m && ovEl(m);
   if (!el) return;
-  const f = $$('a[href],button:not([disabled]),input:not([disabled]),select,textarea,[tabindex]:not([tabindex="-1"])', el).filter(visible);
+  const f = $$('a[href],button:not([disabled]),input:not([disabled]),select,textarea,summary,[tabindex]:not([tabindex="-1"])', el).filter(visible);
   if (!f.length) return;
   const first = f[0], last = f[f.length - 1];
   if (!el.contains(document.activeElement)) { e.preventDefault(); first.focus(); }

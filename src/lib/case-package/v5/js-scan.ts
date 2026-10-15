@@ -150,6 +150,7 @@ export class Code {
   readonly toks: Tok[];
   private readonly match: Int32Array;
   private readonly parent: Int32Array;
+  /** per opening bracket: 0 unknown, 1 runs unconditionally, 2 may not run */
   private readonly runs: Int8Array;
   private readonly callbacks: Int32Array;
   private readonly first: Uint8Array;

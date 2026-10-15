@@ -1,7 +1,7 @@
 
 export interface Part { url: string; name: string; from: number; to: number }
 export interface BundleRow { n: number | string; key: string; desc: string; date: string; blank: boolean; missing: boolean; review: boolean; pages: number; from: number; to: number; sliceUrl: string; caselines: { stamps: string; from: number } | null; parts: Part[] }
-export interface Bundle { no: string; name: string; title: string; note: string; rows: BundleRow[]; pages: number; indexPages: number; file: string; indexFile: string;   id?: string }
+export interface Bundle { no: string; name: string; title: string; note: string; rows: BundleRow[]; pages: number; indexPages: number; file: string; indexFile: string; id?: string }
 
 export const HEADER_KEYS = ['court', 'judge', 'intro', 'caseNo', 'claimant', 'claimantRole', 'defendant', 'defendantRole'] as const;
 export type HeaderKey = (typeof HEADER_KEYS)[number];

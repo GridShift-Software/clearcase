@@ -3,6 +3,7 @@ export const ENF_OPTS = Object.freeze(['To do', 'In progress', 'Done', 'Continge
 
 export interface EnfStep { phase: string; step: string; basis: string; status: string; note: string }
 export interface EnfRow extends EnfStep {
+	/** the stable key; null when another step has the same {phase, step} (disclosed, and no status can be saved) */
 	key: string | null;
 	override: string | null;
 }

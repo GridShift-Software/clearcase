@@ -100,19 +100,20 @@ The doctor uses `CLEARCASE_BUN` when it is set, otherwise the `bun` on PATH. It 
 
 ```sh
 (
-  set -eu
-  v=1.4.2 d=~/.local/share/bun-versions/1.4.2 t=$(mktemp -d)
+  v=1.4.2 d=~/.local/share/bun-versions/1.4.2
+  t=$(mktemp -d) || exit 1
   trap 'rm -rf "$t"' EXIT
-  curl -fsSL -o "$t/bun.zip" "https://github.com/oven-sh/bun/releases/download/bun-v$v/bun-linux-x64.zip"
-  curl -fsSL -o "$t/checksums" "https://github.com/oven-sh/bun/releases/download/bun-v$v/SHASUMS256.txt"
-  grep ' bun-linux-x64.zip$' "$t/checksums" | sed "s|bun-linux-x64.zip|$t/bun.zip|" | sha256sum -c -
-  unzip -q "$t/bun.zip" -d "$t"
-  mkdir -p "$d"
-  install -m755 "$t/bun-linux-x64/bun" "$d/bun"
+  curl -fsSL -o "$t/bun.zip" "https://github.com/oven-sh/bun/releases/download/bun-v$v/bun-linux-x64.zip" &&
+  curl -fsSL -o "$t/checksums" "https://github.com/oven-sh/bun/releases/download/bun-v$v/SHASUMS256.txt" &&
+  grep ' bun-linux-x64.zip$' "$t/checksums" | sed "s|bun-linux-x64.zip|$t/bun.zip|" | sha256sum -c - &&
+  unzip -q "$t/bun.zip" -d "$t" &&
+  mkdir -p "$d" &&
+  install -m755 "$t/bun-linux-x64/bun" "$d/bun" &&
   ln -sf bun "$d/bunx"
-)
-export CLEARCASE_BUN=~/.local/share/bun-versions/1.4.2/bun
-export PATH=~/.local/share/bun-versions/1.4.2:$PATH
+) && {
+  export CLEARCASE_BUN=~/.local/share/bun-versions/1.4.2/bun
+  export PATH=~/.local/share/bun-versions/1.4.2:$PATH
+}
 ```
 
 To move the pin, run `bun upgrade --stable` (`pacman -Syu bun` for the distribution package) and record the `bun --version` it installs. Then change `packageManager` (and `MIN_BUN` with it) in a reviewed commit into `dev`. The tools never upgrade Bun or change the pin themselves.

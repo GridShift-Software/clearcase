@@ -12,7 +12,7 @@ const g = globalThis as { __clearcase?: Instance };
 function create(): Instance {
 	const app = new LocalCase(configFromEnv());
 	let build: Record<string, unknown> | null = null;
-	try { build = JSON.parse(readFileSync(path.join(process.env.CLEARCASE_BUILD_DIR ?? 'build', 'clearcase-build.json'), 'utf8')); } catch {   }
+	try { build = JSON.parse(readFileSync(path.join(process.env.CLEARCASE_BUILD_DIR ?? 'build', 'clearcase-build.json'), 'utf8')); } catch {}
 	let originals: OriginalsServer | null = null;
 	return { app, get originals() { return (originals ??= new OriginalsServer(app)); }, id: randomUUID(), startedAt: new Date().toISOString(), build };
 }

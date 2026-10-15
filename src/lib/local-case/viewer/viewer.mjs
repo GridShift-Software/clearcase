@@ -13,7 +13,7 @@ const publish = () => { body.dataset.state = JSON.stringify(state); };
 const ready = (v) => {
 	body.dataset.ready = v;
 	publish();
-	try { parent.postMessage({ ready: v }, location.origin); } catch {   }
+	try { parent.postMessage({ ready: v }, location.origin); } catch {}
 };
 
 let pdf = null;

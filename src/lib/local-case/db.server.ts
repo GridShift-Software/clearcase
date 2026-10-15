@@ -101,6 +101,7 @@ export function readPragmas(d: DatabaseSync): Pragmas {
 
 export class StoreGoneError extends Error {}
 
+/** SQLITE_BUSY / SQLITE_LOCKED: another process holds the write lock (beyond busy_timeout). */
 export const isBusy = (e: unknown) => {
 	const x = e as { errcode?: number; code?: string; message?: string };
 	return x?.errcode === 5 || x?.errcode === 6 || /database is locked|SQLITE_BUSY|database table is locked/i.test(String(x?.message ?? ''));
@@ -177,6 +178,14 @@ export class Storage {
 		}
 	}
 
+	/**
+	 * Exclusive instance lock on the data directory, taken before startup touches anything. It is a SQLite file held
+	 * in EXCLUSIVE locking mode: the kernel releases it when the process dies (no stale lock files), and a second
+	 * process on the same directory fails at once instead of pruning, sweeping or writing. The owner is also recorded
+	 * in instance.pid as pid plus kernel start time: if instance.lock is unlinked under a running owner, a new
+	 * instance.lock carries no lock, so a live recorded owner (same pid AND same start time, i.e. not a reused pid)
+	 * refuses the second process too. That check only reads, so a refused process writes nothing.
+	 */
 	acquireInstanceLock(): { ok: true } | { ok: false; reason: string } {
 		if (this.#lock) return { ok: true };
 		const pidFile = path.join(this.dataDir, 'instance.pid');

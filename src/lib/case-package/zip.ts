@@ -1,9 +1,12 @@
-// Defensive zip reader for the optional package transport. The central directory is read
-// and checked before any entry is decoded; entries are decoded in memory only (nothing is
-// extracted to disk), with the compressed input bounded by the declared size before it is read
-// and the actual expansion bounded by the declared size and CRC-32.
-import type { FileHandle } from 'node:fs/promises';
-import { crc32, inflateRawSync } from 'node:zlib';
+// Defensive zip reader for the optional package transport and for case packs. The central directory is read
+// and checked before any entry is decoded. A package's entries are decoded in memory only (readEntry); a case
+// pack's are streamed to disk (extractEntries). Either way the compressed input is bounded by the declared size
+// before it is read and the actual expansion is bounded by the declared size and CRC-32.
+import { createWriteStream } from 'node:fs';
+import { mkdir, type FileHandle } from 'node:fs/promises';
+import path from 'node:path';
+import { pipeline } from 'node:stream/promises';
+import { createInflateRaw, crc32, inflateRawSync } from 'node:zlib';
 import type { Limits } from './limits.ts';
 import { checkRelPath, foldPath } from './paths.ts';
 
@@ -166,4 +169,67 @@ export async function readEntry(fh: FileHandle, e: ZipEntry): Promise<Buffer> {
   if (data.length !== e.uncompressedSize) throw new ZipError('ARC_MALFORMED', 'decoded size differs from the declared size', e.name);
   if ((crc32(data) >>> 0) !== (e.crc32 >>> 0)) throw new ZipError('ARC_MALFORMED', 'CRC-32 mismatch', e.name);
   return data;
+}
+
+export interface ExtractProgress { done: number; total: number; bytesDone: number; bytesTotal: number }
+
+const CHUNK = 4 * 1024 * 1024;
+
+async function* rawChunks(fh: FileHandle, pos: number, len: number): AsyncGenerator<Buffer> {
+  for (let at = 0; at < len; at += CHUNK) {
+    const n = Math.min(CHUNK, len - at);
+    yield await readAt(fh, pos + at, n);
+  }
+}
+
+/**
+ * Stream every entry of a checked central directory (readCentralDirectory: relative names only, no "..", no drive
+ * letters, no symlinks or special files, no collisions) into `dir`, which must not exist yet or be empty. Each file is
+ * created exclusively ('wx'), and its decoded size and CRC-32 must match the central directory.
+ */
+export async function extractEntries(fh: FileHandle, entries: readonly ZipEntry[], dir: string, o: { signal?: AbortSignal; onProgress?: (p: ExtractProgress) => void } = {}): Promise<void> {
+  const files = entries.filter((e) => !e.isDirectory);
+  const p: ExtractProgress = { done: 0, total: files.length, bytesDone: 0, bytesTotal: files.reduce((n, e) => n + e.uncompressedSize, 0) };
+  o.onProgress?.({ ...p });
+  const root = path.resolve(dir);
+  await mkdir(root, { recursive: true }); // an empty pack still leaves its (empty) folder
+  const target = (name: string) => {
+    const t = path.resolve(root, ...name.replace(/\/$/, '').split('/'));
+    // the name rules above make this impossible; checked again because a write outside `dir` must never happen
+    if (!t.startsWith(root + path.sep)) throw new ZipError('ARC_ENTRY_INVALID', 'entry resolves outside the target folder', name);
+    return t;
+  };
+  for (const e of entries) if (e.isDirectory) await mkdir(target(e.name), { recursive: true });
+  for (const e of files) {
+    o.signal?.throwIfAborted();
+    checkCompressed(e.method, e.compressedSize, e.uncompressedSize, e.name);
+    const h = await readAt(fh, e.localHeaderOffset, 30);
+    if (h.readUInt32LE(0) !== 0x04034b50) throw new ZipError('ARC_MALFORMED', 'bad local header', e.name);
+    const off = e.localHeaderOffset + 30 + h.readUInt16LE(26) + h.readUInt16LE(28);
+    const t = target(e.name);
+    await mkdir(path.dirname(t), { recursive: true });
+    let n = 0, crc = 0;
+    const check = async function* (src: AsyncIterable<Buffer>) {
+      for await (const c of src) {
+        n += c.length;
+        if (n > e.uncompressedSize) throw new ZipError('ARC_LIMIT', 'entry expands beyond its declared size', e.name);
+        crc = crc32(c, crc);
+        p.bytesDone += c.length;
+        o.onProgress?.({ ...p });
+        yield c;
+      }
+    };
+    const out = createWriteStream(t, { flags: 'wx' });
+    try {
+      if (e.method === 0) await pipeline(rawChunks(fh, off, e.compressedSize), check, out, { signal: o.signal });
+      else await pipeline(rawChunks(fh, off, e.compressedSize), createInflateRaw(), check, out, { signal: o.signal });
+    } catch (err) {
+      if (err instanceof ZipError || o.signal?.aborted) throw err;
+      throw new ZipError('ARC_MALFORMED', `entry cannot be decoded (${(err as Error).message})`, e.name);
+    }
+    if (n !== e.uncompressedSize) throw new ZipError('ARC_MALFORMED', 'decoded size differs from the declared size', e.name);
+    if ((crc >>> 0) !== (e.crc32 >>> 0)) throw new ZipError('ARC_MALFORMED', 'CRC-32 mismatch', e.name);
+    p.done++;
+    o.onProgress?.({ ...p });
+  }
 }

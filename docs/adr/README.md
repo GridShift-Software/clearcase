@@ -1,6 +1,6 @@
 # Decision records
 
-These ADRs record the product decisions the user confirmed on 11 and 12 October 2026. The 12 October answers refer to the orchestrator's 23-item V1 questionnaire. Each record says whether a decision is accepted, conditional or still pending, and names the issues and pull requests it affects.
+These ADRs record the product decisions the user confirmed from 11 to 13 October 2026. The 12 October answers refer to the orchestrator's 23-item V1 questionnaire. Each record says whether a decision is accepted, conditional or still pending, and names the issues and pull requests it affects.
 
 | ADR | Decision | Status | Affects |
 | --- | --- | --- | --- |
@@ -9,6 +9,7 @@ These ADRs record the product decisions the user confirmed on 11 and 12 October 
 | [0003](0003-analysis-additions-behind-a-flag.md) | Analysis additions behind a default-off flag (item 2); escaping fixes apply in both states | Conditional, 12 Oct | GRS-15 (#20), GRS-48 |
 | [0004](0004-local-rescan-backup-and-case-import.md) | Local rescan, backup and per-case import/update (item 7) | Accepted, 12 Oct; importer design pending | GRS-20 (#21), GRS-47 |
 | [0005](0005-numeric-monetary-csv-credits.md) | Validated monetary credits stay numeric in CSV (item 9, option A) | Accepted, 12 Oct; implementation pending | GRS-49, GRS-13 (#15) |
+| [0006](0006-local-case-pack-import.md) | The local app converts a case pack itself (import by clicking) | Accepted, 13 Oct; PRs in review | GRS-70 (#42), demo build (#43) |
 
 ## What these records do not decide
 

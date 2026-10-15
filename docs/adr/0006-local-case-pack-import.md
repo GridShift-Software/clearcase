@@ -12,7 +12,7 @@ This changes the flow in [ADR 0004](0004-local-rescan-backup-and-case-import.md)
 These limits hold (`src/lib/local-case/case-pack.server.ts`):
 
 - The folder browser (`/api/browse`) lists only subfolders and `.zip` files with their sizes. It never reads file contents, and the app refuses a cross-site request to it.
-- The storage folder must not overlap the case folder, the app's data directory or the folder the server was started from. The extracted pack and the results package go into the storage folder, `~/ClearCase` unless the operator picks another. The app reads originals without changing them and stores imported results in its own data directory.
+- The storage folder must be outside the case folder, the app's data directory and the folder the server was started from. The extracted pack and the results package go into the storage folder, `~/ClearCase` unless the operator picks another. The app reads originals without changing them and stores imported results in its own data directory.
 - Extraction refuses unsafe archive entries and a pack that needs more space than is free. The app reuses an earlier extraction only when every file matches the pack's CRC-32. Otherwise it refuses and names the file that differs.
 - A failed or cancelled import removes the folders it created, and the active version stays active.
 

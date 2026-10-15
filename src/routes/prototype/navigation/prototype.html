@@ -12,7 +12,8 @@
     A  Topic sidebar: resources grouped by topic in a persistent sidebar, section navigation inside a view.
     B  Task-led case desk: top-level task navigation, the task's tools as a strip, contextual tools beside the work,
        and a quick-capture panel reachable from anywhere.
-  Shared: synthetic case data, search, forms, the original viewer, tables and style tokens.
+  Shared (so only navigation differs): synthetic case data, search, forms and drafts, the original viewer and its
+  history/focus behaviour, publication-version selection, tables and style tokens.
   All case content below is invented. Nothing is fetched, stored or sent; state lives in memory until reload.
 -->
 <style>
@@ -29,18 +30,20 @@ code{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywher
 .skip:focus{left:.5rem;top:.5rem}
 .muted{color:var(--muted)}.small{font-size:.86em}.nowrap{white-space:nowrap}
 .h3{font-size:1rem;margin:0 0 .3rem}
-.btn{font:inherit;line-height:1.2;border:1px solid #8c96a3;background:#fff;color:var(--ink);border-radius:4px;padding:.3rem .65rem;cursor:pointer;min-height:30px;text-decoration:none;display:inline-flex;align-items:center;gap:.3rem}
+.btn{font:inherit;line-height:1.2;border:1px solid #8c96a3;background:#fff;color:var(--ink);border-radius:4px;padding:.3rem .65rem;cursor:pointer;min-height:32px;text-decoration:none;display:inline-flex;align-items:center;gap:.3rem}
 .btn:hover{background:#f1f4f8}
 .btn.primary{background:var(--nav);border-color:var(--nav);color:#fff}
 .btn.primary:hover{background:var(--nav-2)}
 .btn.on{background:var(--nav);color:#fff;border-color:var(--nav)}
 .btn:disabled{opacity:.5;cursor:default}
-.linkbtn{font:inherit;background:none;border:0;padding:0;color:var(--link);text-decoration:underline;cursor:pointer}
-.cite{font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--cite-bg);border:1px solid var(--cite-line);color:var(--link);border-radius:3px;padding:0 .3rem;cursor:pointer;white-space:nowrap}
+.linkbtn{font:inherit;background:none;border:0;padding:0 .1rem;min-height:28px;display:inline-flex;align-items:center;color:var(--link);text-decoration:underline;cursor:pointer;text-align:left}
+.cite{font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--cite-bg);border:1px solid var(--cite-line);color:var(--link);border-radius:3px;padding:0 .4rem;min-height:26px;display:inline-flex;align-items:center;cursor:pointer;white-space:nowrap}
 .cite:hover{background:#dde9f7}
 .returned{animation:ret 1.8s ease-out}
 @keyframes ret{0%{box-shadow:0 0 0 5px #f6b26b}100%{box-shadow:0 0 0 0 transparent}}
 .tag{display:inline-block;font-size:.78em;border-radius:3px;padding:0 .35rem;border:1px solid var(--line);background:#f6f7f9;white-space:nowrap}
+a.tag{display:inline-flex;align-items:center;min-height:24px;padding:0 .45rem;text-decoration:none;color:var(--link)}
+a.tag:hover{text-decoration:underline}
 .tag.A{background:#e8f0fe;border-color:#b6c9ef}.tag.B{background:#fdf0e3;border-color:#efc9a1}.tag.C{background:#eef6ea;border-color:#bcd8b0}
 .tag.built{background:var(--ok-bg);border-color:#a8d3a8;color:var(--ok)}
 .tag.planned{background:var(--plan-bg);border-color:#cbbbe8;color:var(--plan)}
@@ -64,9 +67,9 @@ table.t{border-collapse:collapse;width:100%;font-size:.95em}
 .filters .grow input{width:100%}
 .scope{border:0;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:.2rem .7rem;align-items:center}
 .scope legend{font-size:.85em;color:var(--muted);padding:0;float:left;margin-right:.4rem}
-.scope label{flex-direction:row;align-items:center;gap:.25rem;color:var(--ink);font-size:.95em}
+.scope label{flex-direction:row;align-items:center;gap:.25rem;color:var(--ink);font-size:.95em;min-height:30px}
 input,select,textarea{font:inherit;color:var(--ink);background:#fff;border:1px solid #8c96a3;border-radius:4px;padding:.3rem .45rem;max-width:100%}
-input[type=checkbox],input[type=radio]{width:auto}
+input[type=checkbox],input[type=radio]{width:18px;height:18px;margin:.1rem .25rem .1rem 0;flex:none}
 .qform{display:grid;gap:.3rem;background:#fff;border:1px solid var(--line);border-radius:6px;padding:.7rem .8rem;max-width:34rem;min-width:0}
 .qform label{font-weight:600;font-size:.9em}
 .qform textarea,.qform input[type=text],.qform select{width:100%}
@@ -74,8 +77,8 @@ input[type=checkbox],input[type=radio]{width:auto}
 .qf-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.5rem}
 .qf-grid>div{display:grid;gap:.2rem;min-width:0}
 .qf-grid input,.qf-grid select{width:100%}
-.check{display:flex;gap:.45rem;align-items:flex-start;font-weight:400!important}
-.check input{margin-top:.2rem}
+.check{display:flex;gap:.45rem;align-items:flex-start;font-weight:400!important;min-height:32px;padding:.2rem 0}
+.check input{margin-top:.1rem}
 .err{color:var(--bad);margin:0;font-weight:600}
 .err:empty,.confirm:empty{display:none}
 .confirm{margin:.2rem 0 0;color:var(--ok);background:var(--ok-bg);border:1px solid #a8d3a8;border-radius:4px;padding:.4rem .55rem;font-weight:600}
@@ -126,12 +129,11 @@ ul.plain,ol.plain{list-style:none;padding:0;margin:0}
 .paper .scan{height:2.2rem;background:repeating-linear-gradient(0deg,#e9e9e9 0 2px,transparent 2px 9px);margin:.6rem 0}
 .vw-note{max-width:36rem;margin:.8rem auto 0}
 body.viewer-open #app{margin-right:var(--viewer-w)}
-body.viewer-open .switcher{left:calc((100vw - var(--viewer-w)) / 2)}
 /* with the original open, the viewer takes the place of A's page rail and B's context rail */
 body.viewer-open .a-withtoc,body.viewer-open .b-work{grid-template-columns:minmax(0,1fr)}
 body.viewer-open .a-toc,body.viewer-open .b-context{display:none}
 /* ---------- prototype chrome (not part of either design) ---------- */
-.switcher{position:fixed;bottom:var(--sw-bottom);left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:.25rem;height:var(--sw-h);max-width:calc(100vw - 16px);padding:0 .3rem;background:#111;color:#fff;border-radius:999px;box-shadow:0 4px 16px rgba(0,0,0,.35);border:2px solid #f6b26b;font-size:13px}
+.switcher{position:fixed;bottom:var(--sw-bottom);left:12px;z-index:60;display:flex;align-items:center;gap:.25rem;height:var(--sw-h);max-width:calc(100vw - 16px);padding:0 .3rem;background:#111;color:#fff;border-radius:999px;box-shadow:0 4px 16px rgba(0,0,0,.35);border:2px solid #f6b26b;font-size:13px}
 .sw-btn{font:inherit;font-size:18px;line-height:1;width:34px;height:34px;border-radius:50%;border:0;background:#333;color:#fff;cursor:pointer;flex:none}
 .sw-btn:hover{background:#555}
 .sw-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 .35rem;min-width:0}
@@ -144,29 +146,62 @@ body.viewer-open .a-toc,body.viewer-open .b-context{display:none}
 .case-name{font-weight:600;overflow-wrap:anywhere}
 .meta{font-size:.85em;display:flex;flex-wrap:wrap;gap:.1rem .9rem}
 .livechips{display:flex;flex-wrap:wrap;gap:.35rem}
-.chip-s{font-size:.82em;text-decoration:none;border:1px solid;border-radius:999px;padding:.05rem .55rem;white-space:nowrap}
+.chip-s{font:inherit;font-size:.82em;text-decoration:none;border:1px solid;border-radius:999px;padding:.1rem .65rem;min-height:28px;display:inline-flex;align-items:center;white-space:nowrap;background:none;color:inherit;cursor:pointer}
 .gsearch{display:flex;gap:.3rem;min-width:0}
 .gsearch input{flex:1;min-width:0}
+/* ---------- states, drafts, assumptions ---------- */
+.pl{display:inline-block;font-size:.72em;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--plan);background:var(--plan-bg);border:1px solid #cbbbe8;border-radius:3px;padding:0 .3rem;margin-left:.3rem;white-space:nowrap}
+.assume{font-size:.88em;border:1px dashed #b58b00;background:#fffbea;color:var(--warn);border-radius:5px;padding:.3rem .55rem;margin:.3rem 0}
+.draft-cue{font-size:.9em;background:var(--warn-bg);border:1px solid #e8cf7a;border-radius:4px;padding:.3rem .5rem;margin:.1rem 0}
+.draft-cue[hidden]{display:none}
+.chip-menu{position:relative;display:inline-block}
+.chip-menu>summary{list-style:none}
+.chip-menu>summary::-webkit-details-marker{display:none}
+.chip-menu .menu{position:absolute;right:0;top:calc(100% + 4px);z-index:40;min-width:17rem;max-width:min(24rem,80vw);background:#fff;color:var(--ink);border:1px solid var(--line);border-radius:6px;box-shadow:0 6px 20px rgba(0,0,0,.25);padding:.4rem .5rem;margin:0;list-style:none}
+.chip-menu .menu li{display:flex;gap:.4rem;justify-content:space-between;align-items:center;padding:.15rem 0}
+.draftchip{background:var(--warn-bg)!important;color:var(--warn)!important;border-color:#e8cf7a!important;font-weight:600}
+.verbox{display:inline-flex;align-items:center;gap:.3rem}
+.verbox select{font-size:.95em;padding:.15rem .35rem;min-height:28px}
+.banner{display:flex;flex-wrap:wrap;gap:.4rem .8rem;align-items:center;border:1px solid #e8cf7a;background:var(--warn-bg);color:var(--warn);padding:.45rem 1rem}
+.banner.ok{border-color:#a8d3a8;background:var(--ok-bg);color:var(--ok)}
+.banner:empty{display:none}
+.opsim{border:2px dashed #7a1010;border-radius:6px;padding:.6rem .8rem;margin:.8rem 0;background:#fff7f7}
+.opsim h2{margin:0 0 .3rem;font-size:1rem;color:var(--bad)}
+.tl{list-style:none;margin:.4rem 0;padding:0}
+.tl li{display:grid;grid-template-columns:9.5rem minmax(0,1fr);gap:.1rem .8rem;padding:.25rem 0;border-bottom:1px solid var(--soft)}
+.tl .when{font-variant-numeric:tabular-nums;color:var(--muted)}
+.tl li.pending{color:var(--faint)}
+.axes{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(15rem,100%),1fr));gap:.6rem;margin:.5rem 0}
+.scopebox{border:1px solid var(--line);border-radius:6px;background:#fff;padding:.5rem .8rem;margin:.6rem 0}
+.scopebox legend{font-weight:600;padding:0 .3rem}
+tr.hit>td{background:#fff3d6}
+.opbox{border:2px dashed #7a1010;border-radius:6px;padding:.5rem .8rem;margin-top:1rem;background:#fff7f7}
+.opbox h2{color:var(--bad)}
 /* ---------- Variant A: topic sidebar ---------- */
 .a-top{position:sticky;top:0;z-index:20;background:var(--nav);color:#fff;display:grid;grid-template-columns:minmax(0,1fr) minmax(15rem,27rem);grid-template-areas:"id search" "id chips";gap:.35rem 1.2rem;align-items:center;padding:.45rem 1rem}
 .a-id{grid-area:id;min-width:0}.a-top .gsearch{grid-area:search}.a-top .livechips{grid-area:chips}
 .case-name .short{display:none}
-.a-top .meta{color:var(--on-nav-muted)}
+.a-top .meta{color:var(--on-nav-muted);align-items:center}
 .a-top .chip-s{color:#fff;border-color:#5d7590}
 .a-top .chip-s:hover{background:var(--nav-2)}
+.a-top .verbox select{background:var(--nav-2);color:#fff;border-color:#5d7590}
 .a-top .t1{display:flex;flex-wrap:wrap;gap:.2rem .6rem;align-items:center}
 .a-menu{display:none}
 .a-body{display:grid;grid-template-columns:16.5rem minmax(0,1fr);align-items:start}
-.a-side{position:sticky;top:var(--a-top,64px);max-height:calc(100vh - var(--a-top,64px));overflow:auto;background:#fff;border-right:1px solid var(--line);padding:.4rem .5rem 5rem}
+.a-side{position:sticky;top:var(--a-top,64px);max-height:calc(100vh - var(--a-top,64px) - 66px);overflow:auto;background:#fff;border-right:1px solid var(--line);padding:.4rem .5rem 1rem}
 .a-side .drawer-head{display:none}
+.a-side .side-filter{position:sticky;top:0;background:#fff;padding:.2rem 0 .4rem;z-index:1}
+.a-side .side-filter input{width:100%}
 .a-side details{margin:.1rem 0}
-.a-side summary{list-style:none;display:flex;justify-content:space-between;align-items:center;font-size:.76em;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:.35rem .3rem;cursor:pointer;border-radius:3px}
+.a-side summary{list-style:none;display:flex;justify-content:space-between;align-items:center;font-size:.76em;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:.4rem .3rem;min-height:30px;cursor:pointer;border-radius:3px}
+.a-side summary:hover{background:#f3f5f8}
 .a-side summary::-webkit-details-marker{display:none}
 .a-side summary::before{content:'\25BE';margin-right:.3rem}
 .a-side details:not([open]) summary::before{content:'\25B8'}
 .a-side summary span:first-child{flex:1}
+.a-side details.cur summary{color:var(--ink)}
 .a-side ul{list-style:none;margin:0 0 .3rem;padding:0}
-.a-side a{display:flex;justify-content:space-between;gap:.5rem;padding:.13rem .4rem;border-radius:3px;text-decoration:none;color:var(--link)}
+.a-side a{display:flex;justify-content:space-between;gap:.5rem;padding:.2rem .4rem;min-height:28px;align-items:center;border-radius:3px;text-decoration:none;color:var(--link)}
 .a-side a:hover{background:#eef3f9}
 .a-side a[aria-current=page]{background:var(--nav);color:#fff}
 .a-side a[aria-current=page] .count{color:var(--on-nav-muted)}
@@ -175,20 +210,27 @@ body.viewer-open .a-toc,body.viewer-open .b-context{display:none}
 .a-side .planned a{color:var(--plan)}
 .a-side .side-all{margin:.2rem 0 .4rem;padding-bottom:.4rem;border-bottom:1px solid var(--soft)}
 .a-side .side-all a{font-weight:600}
+.a-side .nomatch{margin:.4rem .3rem}
 .a-main{padding:.8rem 1.25rem 1rem;min-width:0;max-width:1300px}
 .a-withtoc{display:grid;grid-template-columns:minmax(0,1fr) 13.5rem;gap:1.25rem;align-items:start}
 .a-toc{position:sticky;top:calc(var(--a-top,64px) + 12px);border-left:2px solid var(--line);padding:.2rem 0 .2rem .8rem;font-size:.92em}
 .a-toc h2{font-size:.76em;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 .3rem}
-.a-toc a{display:block;padding:.15rem 0;text-decoration:none}
+.a-toc a{display:block;padding:.2rem 0;min-height:26px;text-decoration:none}
 .a-toc a[aria-current=true]{font-weight:700;color:var(--ink)}
-.a-scrim{display:none}
+/* a modal sheet's dimmed backdrop; one element for the drawer, More and capture sheets */
+.scrim{display:none}
 /* ---------- Variant B: task-led case desk ---------- */
 .b-top{background:#fff;border-bottom:1px solid var(--line);padding:.5rem 1rem .45rem;display:flex;flex-wrap:wrap;gap:.4rem 1rem;align-items:center}
 .b-id{flex:1 1 22rem;min-width:0}.b-top .gsearch{flex:0 1 24rem}
 .b-top .case-name{font-size:1.05rem}
-.b-top .meta{color:var(--muted)}
+.b-top .meta{color:var(--muted);align-items:center}
 .b-top .chip-s{color:var(--ink);border-color:var(--line);background:#f6f7f9}
 .b-top .chip-s:hover{background:#e9edf2}
+.b-status{display:none}
+.chip-s .cs{display:none}
+.share{margin:.1rem 0}
+.sw-role select{font-size:12px;min-height:30px;background:#333;color:#fff;border:0;border-radius:999px;padding:0 .4rem;max-width:9.5rem}
+.sw-role{display:inline-flex;margin-left:.15rem}
 .b-taskrow{position:sticky;top:0;z-index:20;background:var(--nav);display:flex;align-items:stretch;gap:.1rem;padding:0 .6rem;overflow-x:auto}
 .b-task{font:inherit;color:var(--on-nav-muted);background:none;border:0;border-bottom:3px solid transparent;padding:.45rem .85rem .35rem;cursor:pointer;text-align:left;white-space:nowrap}
 .b-task b{display:block;color:#fff;font-size:1rem}
@@ -197,19 +239,25 @@ body.viewer-open .a-toc,body.viewer-open .b-context{display:none}
 .b-task[aria-current=page]{background:var(--bg);color:var(--muted);border-bottom-color:#f6b26b}
 .b-task[aria-current=page] b{color:var(--ink)}
 .b-task.b-all{margin-left:auto}
-.b-tools{display:flex;gap:.35rem;overflow-x:auto;padding:.45rem 1rem;background:#eef1f5;border-bottom:1px solid var(--line);position:sticky;top:var(--b-task-h,52px);z-index:19}
-.tchip{display:inline-flex;gap:.35rem;align-items:center;white-space:nowrap;text-decoration:none;color:var(--link);background:#fff;border:1px solid var(--line);border-radius:999px;padding:.12rem .65rem;font:inherit;font-size:.92em;cursor:pointer}
+.b-tools{padding:.45rem 1rem;background:#eef1f5;border-bottom:1px solid var(--line)}
+.b-tools .tl-label{margin:0 0 .25rem;font-size:.8em;color:var(--muted)}
+.tools-row{display:flex;flex-wrap:wrap;gap:.35rem}
+.tools-phone{display:none}
+.tchip{display:inline-flex;gap:.35rem;align-items:center;white-space:nowrap;text-decoration:none;color:var(--link);background:#fff;border:1px solid var(--line);border-radius:999px;padding:.2rem .7rem;min-height:30px;font:inherit;font-size:.92em;cursor:pointer}
 .tchip[aria-current=page],.tchip[aria-current=true]{background:var(--nav);color:#fff;border-color:var(--nav)}
 .tchip[aria-current] .count{color:var(--on-nav-muted)}
 .tchip.planned{border-style:dashed;color:var(--plan);background:var(--plan-bg)}
+.tchip.planned[aria-current=page]{background:var(--plan);color:#fff;border-color:var(--plan)}
+.tchip.planned .pl{background:#fff}
 .tchip .phm{color:var(--faint)}
 .b-issues{display:flex;flex-wrap:wrap;gap:.35rem;margin:0 0 .7rem}
 .b-work{display:grid;grid-template-columns:minmax(0,1fr) 18.5rem;gap:1.1rem;padding:.9rem 1.1rem;align-items:start;max-width:1500px}
 .b-main{min-width:0}
-.b-context{position:sticky;top:calc(var(--b-stick,96px) + 10px);display:grid;gap:.6rem;min-width:0}
+.b-context{position:sticky;top:calc(var(--b-stick,56px) + 10px);max-height:calc(100vh - var(--b-stick,56px) - 92px);overflow:auto;display:grid;gap:.6rem;min-width:0;align-content:start}
 .b-context ul{margin:0;padding-left:1rem}
 .b-context li{margin:.15rem 0}
-.b-fab{position:fixed;right:16px;bottom:14px;z-index:55;font:inherit;font-weight:600;background:var(--nav);color:#fff;border:2px solid #fff;border-radius:999px;padding:.55rem 1rem;box-shadow:0 4px 14px rgba(0,0,0,.3);cursor:pointer}
+.ctx-m{display:none}
+.b-fab{position:fixed;right:16px;bottom:14px;z-index:55;font:inherit;font-weight:600;background:var(--nav);color:#fff;border:2px solid #fff;border-radius:999px;padding:.55rem 1rem;min-height:40px;box-shadow:0 4px 14px rgba(0,0,0,.3);cursor:pointer}
 body.viewer-open .b-fab{right:calc(var(--viewer-w) + 16px)}
 .b-capture{position:fixed;right:16px;bottom:66px;z-index:56;width:min(26rem,calc(100vw - 32px));max-height:calc(100vh - 100px);overflow:auto;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.25);padding:.6rem}
 body.viewer-open .b-capture{right:calc(var(--viewer-w) + 16px)}
@@ -226,12 +274,18 @@ body.viewer-open .b-capture{right:calc(var(--viewer-w) + 16px)}
 .more-list .btn{width:100%;justify-content:space-between;flex-wrap:wrap}
 /* ---------- phone ---------- */
 @media (max-width:760px){
-  .btn{min-height:38px}
-  .cite{padding:.15rem .4rem;font-size:13px}
+  .btn{min-height:40px}
+  .chip-s{min-height:32px}
+  .cite{padding:0 .5rem;font-size:13px;min-height:32px}
+  .linkbtn{min-height:36px}
+  .check,.scope label{min-height:38px}
+  input[type=checkbox],input[type=radio]{width:22px;height:22px}
+  input,select{min-height:38px}
   .viewer{width:100%;border-left:0;z-index:70}
   body.viewer-open #app{margin-right:0}
   body.sheet-open{overflow:hidden}
   body.sheet-open .switcher{display:none}
+  .scrim.open{display:block;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:45}
   .vw-body{padding:.6rem .5rem 1.5rem}
   .paper{padding:1rem}
   .qf-grid{grid-template-columns:1fr 1fr}
@@ -240,43 +294,74 @@ body.viewer-open .b-capture{right:calc(var(--viewer-w) + 16px)}
   .kv{grid-template-columns:minmax(0,1fr)}
   .kv dd{margin-bottom:.3rem}
   .cat-list li{grid-template-columns:minmax(0,1fr)}
+  .tl li{grid-template-columns:minmax(0,1fr)}
   .t.stack{min-width:0}
   .t.stack thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
   .t.stack tr{display:block;padding:.4rem .55rem;border-bottom:1px solid var(--line)}
   .t.stack td{display:flex;gap:.5rem;border:0;padding:.06rem 0;overflow-wrap:anywhere;text-align:left}
   .t.stack td::before{content:attr(data-label);flex:0 0 4.8rem;color:var(--muted);font-size:.85em}
-  /* A */
-  .a-top{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"id chips" "search search";padding:.4rem .6rem;gap:.35rem .5rem}
-  .a-top .meta,.a-top .brand,.a-top .proto-tag,.a-top .full,.a-top .chip-s.proc{display:none}
+  /* A: a compact header that keeps the published version and submission status in view */
+  .a-top{grid-template-columns:minmax(0,1fr);grid-template-areas:"id" "chips" "search";padding:.4rem .6rem;gap:.3rem}
+  .a-top .brand,.a-top .proto-tag,.a-top .full,.a-top .meta>span:not(.verbox){display:none}
   .a-top .case-name .short{display:inline}
-  .a-top .livechips{flex-wrap:nowrap}
-  .a-menu{display:inline-flex;background:#fff}
+  .a-top .a-id{display:flex;gap:.4rem;align-items:center}
+  .a-top .t1{flex-wrap:nowrap;flex:1;min-width:0}
+  .a-top .meta{flex:none}
+  .chip-s .cf,.chip-s .pl,.b-chips-d{display:none}
+  .chip-s .cs{display:inline}
+  .sw-role select{max-width:6.2rem}
+  .a-top .t1 .case-name{flex:1;min-width:0}
+  .a-top .livechips{flex-wrap:wrap;gap:.25rem}
+  .a-top .livechips .chip-s.hrs,.a-top .livechips .chip-s.nts{display:none}
+  .a-top .chip-s{font-size:.8em;padding:.05rem .5rem;min-height:30px}
+  .a-top .gsearch .btn{min-height:36px}
+  .a-top .gsearch input{min-height:36px}
+  .a-menu{display:inline-flex;background:#fff;color:var(--ink)}
   .a-body{grid-template-columns:minmax(0,1fr)}
   .a-side{position:fixed;top:0;left:0;bottom:0;width:min(86vw,21rem);max-height:none;z-index:50;transform:translateX(-105%);visibility:hidden;transition:transform .18s,visibility .18s;box-shadow:4px 0 18px rgba(0,0,0,.25);padding-top:0}
   .a-side.open{transform:none;visibility:visible;transition:transform .18s,visibility 0s}
-  .a-side .drawer-head{display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:1;background:#fff;padding:.5rem .2rem;border-bottom:1px solid var(--line)}
-  .a-side a{padding:.45rem .4rem}
-  .a-scrim.open{display:block;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:45}
+  .a-side .drawer-head{display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:2;background:#fff;padding:.5rem .2rem;border-bottom:1px solid var(--line)}
+  .a-side .side-filter{top:57px}
+  .a-side a{padding:.4rem .4rem;min-height:40px}
+  .a-side summary{min-height:40px}
   .a-main{padding:.7rem .75rem}
   .a-withtoc{grid-template-columns:minmax(0,1fr)}
   .a-toc{position:static;order:-1;border:1px solid var(--line);background:#fff;border-radius:6px;padding:.4rem .6rem}
   .a-toc ol{display:flex;flex-wrap:wrap;gap:0 .9rem}
-  .a-toc a{padding:.3rem 0}
-  /* B */
-  body.vB{--sw-bottom:66px;padding-bottom:128px}
-  .b-top{padding:.4rem .6rem}
+  .a-toc a{padding:.3rem 0;min-height:36px;display:flex;align-items:center}
+  /* B: search stays reachable (sticky), status scrolls, tools collapse into a disclosure, context sits at the work */
+  body.vB{--sw-bottom:66px;padding-bottom:140px}
+  .b-top{position:sticky;top:0;z-index:21;padding:.4rem .6rem;gap:.3rem .5rem;box-shadow:0 1px 0 var(--line)}
+  .b-id{flex:1 1 100%}
+  .b-id .brand,.b-id .proto-tag,.b-id .case-name .full,.b-id .meta>span:not(.verbox){display:none}
+  .b-id .case-name .short{display:inline}
+  .b-id{display:flex;align-items:center;gap:.5rem;justify-content:space-between}
+  .b-id .meta{flex:none}
   .b-top .gsearch{flex-basis:100%}
+  .b-top .gsearch input,.b-top .gsearch .btn{min-height:36px}
+  .b-status{display:flex;flex-wrap:wrap;gap:.3rem;padding:.3rem .6rem;background:#fff;border-bottom:1px solid var(--line)}
   .b-taskrow{display:none}
-  .b-tools{top:0;padding:.4rem .6rem}
-  .tchip{padding:.35rem .7rem}
+  .b-tools{position:sticky;top:var(--b-top-h,100px);z-index:19;padding:.3rem .6rem}
+  .tools-desk{display:none}
+  .tools-phone{display:block}
+  .tools-phone summary{list-style:none;min-height:40px;display:flex;align-items:center;justify-content:space-between;gap:.5rem;cursor:pointer;font-weight:600}
+  .tools-phone summary::-webkit-details-marker{display:none}
+  .tools-phone summary::after{content:'\25BE'}
+  .tools-phone[open] summary::after{content:'\25B4'}
+  .tools-phone .tools-row{max-height:44vh;overflow:auto;padding:.3rem 0}
+  .tchip{padding:.35rem .75rem;min-height:38px}
   .b-work{grid-template-columns:minmax(0,1fr);padding:.7rem .75rem}
-  .b-context{position:static}
+  .b-context{display:none}
+  .ctx-m{display:block;margin:0 0 .7rem;border:1px solid var(--line);background:#fff;border-radius:6px}
+  .ctx-m>summary{min-height:44px;display:flex;align-items:center;padding:.3rem .7rem;cursor:pointer;font-weight:600}
+  .ctx-m .ctx-body{display:grid;gap:.6rem;padding:.2rem .7rem .7rem}
+  .ctx-m ul{margin:0;padding-left:1rem}
   .b-fab{display:none}
   .b-bottom{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));position:fixed;left:0;right:0;bottom:0;height:58px;z-index:58;background:var(--nav)}
   .b-bottom button{font:inherit;font-size:.85em;background:none;border:0;color:var(--on-nav-muted);cursor:pointer;padding:0 .2rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .b-bottom button[aria-current=page]{color:#fff;font-weight:700;box-shadow:inset 0 3px 0 #f6b26b}
   .b-bottom .cap{color:#111;background:#f6b26b;font-weight:700;margin:8px 4px;border-radius:8px}
-  .b-capture,.b-sheet{left:0;right:0;top:auto;bottom:58px;width:auto;max-height:calc(100vh - 58px - 32px);border-radius:12px 12px 0 0}
+  .b-capture,.b-sheet{left:0;right:0;top:auto;bottom:58px;width:auto;max-height:calc(100vh - 58px - 32px);border-radius:12px 12px 0 0;z-index:60}
   body.viewer-open .b-capture{right:0}
 }
 </style>
@@ -284,8 +369,9 @@ body.viewer-open .b-capture{right:calc(var(--viewer-w) + 16px)}
 <body>
 <noscript>This prototype needs JavaScript.</noscript>
 <div id="app"></div>
-<aside id="viewer" class="viewer" role="dialog" aria-labelledby="viewer-title" hidden></aside>
-<div id="capture" class="b-capture" role="dialog" aria-labelledby="cap-h" hidden></div>
+<div id="scrim" class="scrim" data-action="close-ov" data-modal-ok aria-hidden="true"></div>
+<aside id="viewer" class="viewer" role="dialog" aria-modal="false" aria-labelledby="viewer-title" hidden></aside>
+<div id="capture" class="b-capture" role="dialog" aria-modal="false" aria-labelledby="cap-h" hidden></div>
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 <div id="switcher" class="switcher" role="group" aria-label="Prototype variant switcher, not part of the design"></div>
 <script>
@@ -404,11 +490,10 @@ const DEADLINES = [
   ['2026-12-04', 'Claimant\u2019s heads of argument', 'Hearing'],
   ['2027-01-25', 'Hearing, three days', 'Hearing'],
 ];
-const STAGES = ['Received', 'Virus scan', 'Text extraction', 'Analysis', 'Operator review', 'Ready to publish'];
 const SUBMISSIONS = [
-  { id: 'S-1', date: '2026-06-20', files: 812, state: 'Published as Results v1' },
-  { id: 'S-2', date: '2026-07-19', files: 236, state: 'Published as Results v2' },
-  { id: 'S-3', date: '2026-09-03', files: 166, state: 'Published as Results v3 (active)' },
+  { id: 'S-1', date: '2026-06-20', files: 812, pub: 'v1', pubDate: '2026-06-24' },
+  { id: 'S-2', date: '2026-07-19', files: 236, pub: 'v2', pubDate: '2026-07-22' },
+  { id: 'S-3', date: '2026-09-03', files: 166, pub: 'v3', pubDate: '2026-09-04' },
 ];
 const S4_FILES = Array.from({ length: 58 }, (_, i) => `S4-${pad(i + 1, 3)} ${pick(['Email export', 'Invoice', 'Quay photo', 'Survey report', 'Letter', 'Berth log'])}.pdf`);
 
@@ -437,11 +522,11 @@ const VIEWS = [
   ['court_bundle_tab', 'Court Bundle', 'Case management', 'court', 'prepare', 1, null, 'Choose documents for a bundle or packet and export it.'],
   ['caselines_tab', 'CaseLines', 'Case management', 'court', 'prepare', 0, 1840, 'CaseLines pagination and page lookup.'],
   ['contradictions_tab', 'Contradiction Tracker', 'Analysis', 'issues', 'argue', 0, 11, 'Statements that conflict, with both sources.'],
-  ['risk_matrix_tab', 'Risk Matrix', 'Analysis', 'issues', 'argue', 0, 18, 'Risks by likelihood and impact.'],
+  ['risk_matrix_tab', 'Risk Matrix', 'Analysis', 'issues', 'argue', 1, 3, 'Risks by likelihood and impact, each tied to an issue and its source events.'],
   ['vdm_matrix_tab', 'Defence & Rebuttal', 'Analysis', 'issues', 'argue', 0, 9, 'Each defence raised and the rebuttal to it.'],
   ['info_required_tab', 'Info Required', 'Analysis', 'issues', 'desk', 0, 7, 'Information still needed from the client.'],
   ['witness_tab', 'Witnesses', 'Analysis', 'parties', 'argue', 0, 12, 'Witnesses and what each can speak to.'],
-  ['conflict_tab', 'Conflict Check', 'Analysis', 'parties', 'admin', 0, 127, 'Conflict check across parties and entities.'],
+  ['conflict_tab', 'Conflict Check', 'Analysis', 'parties', 'find', 0, 127, 'Conflict check across parties and entities.'],
   ['enforcement_tab', 'Enforcement Roadmap', 'Litigation strategy', 'issues', 'argue', 0, 6, 'Steps to enforce an award or judgment.'],
   ['legality_tab', 'Legality & SIU Risk', 'Litigation strategy', 'issues', 'argue', 0, 4, 'Legality and SIU exposure.'],
   ['prescription_tab', 'Prescription', 'Litigation strategy', 'issues', 'argue', 0, 5, 'Prescription dates per claim.'],
@@ -456,23 +541,42 @@ const VIEWS = [
   ['popia_tab', 'POPIA Register', 'Registers', 'registers', 'record', 0, 19, 'Personal-information processing register.'],
   ['annotations_tab', 'Annotations', 'Registers', 'registers', 'record', 1, null, 'Notes on documents, pages, issues and views.'],
   ['transcriptions_tab', 'Transcripts', 'Registers', 'docs', 'find', 0, 8, 'Transcript register.'],
-  ['rescan_tab', 'Rescan & Update', 'System', 'system', 'admin', 0, null, 'Rescan the case folder and update results.'],
-  ['backup_tab', 'Backup / Restore', 'System', 'system', 'admin', 0, null, 'Back up or restore user work.'],
-  ['manual', 'Manual', 'System', 'system', 'admin', 0, null, 'Usage guide and build report.'],
+  ['rescan_tab', 'Rescan & Update', 'System', 'system', 'system', 0, null, 'Rescan the case folder and update results.'],
+  ['backup_tab', 'Backup / Restore', 'System', 'system', 'system', 0, null, 'Back up or restore user work.'],
+  ['manual', 'Manual', 'System', 'system', 'system', 0, null, 'Usage guide and build report.'],
 ].map(([id, label, group, topic, task, built, count, blurb]) => ({ id, label, group, topic, task, built: !!built, count, blurb }));
 
-// Hosted capabilities the production system has and this app does not yet: shown as planned, never as working.
+// Capabilities the hosted product has or will have and this app does not: shown as planned, never as working.
+// kind 'case' = a case destination; 'platform' = account or firm level, outside one case. Sources: docs/reference/route-map.md,
+// docs/product-brief.md (V2 workflow) and the GRS-89 component audit section 4. No endpoint here is verified.
 const PLANNED = [
-  ['hosted_intake', 'Intake & processing status', 'admin', 'v2-owned (GRS-28 uploads, GRS-29 operator download, GRS-31 publication).', 'Client uploads and their processing status. Simulated here with invented submissions; nothing is uploaded.'],
-  ['hosted_email', 'Email & Outlook', 'record', 'Deferred: Outlook integration is outside parity scope; email threads and silences are newer-export data (CC-12).', 'Email threads, silences, drafts and templates, with Outlook integration.'],
-  ['hosted_kyc', 'KYC', 'admin', 'Deferred: not in v5, no ticket.', 'Client due-diligence register.'],
-  ['hosted_billing', 'Billing', 'record', 'Deferred: not in v5, no ticket.', 'Fee notes built from time entries and disbursements.'],
-  ['hosted_audit', 'Audit log', 'admin', 'Deferred: not in v5, no ticket owns it.', 'Firm activity history for the case.'],
-  ['hosted_bundles', 'Bundle builder (uploads)', 'prepare', 'Deferred: PDF assembly from uploads needs a scope decision.', 'Assemble court bundles as PDFs from uploaded files.'],
-].map(([id, label, task, scope, blurb]) => ({ id, label, task, topic: 'planned', planned: true, sim: id === 'hosted_intake', built: false, scope, blurb, count: null, group: 'Hosted' }));
+  ['hosted_intake', 'Submissions & publication', 'desk', 'case', 'v2-owned (GRS-28 uploads, GRS-29 operator notification and download, GRS-31 publication). Client upload path not recorded in the route map.', 'What you sent, what stage it has reached, and which Results version is published. Simulated here with invented submissions; nothing is uploaded.'],
+  ['hosted_emails', 'Emails', 'find', 'case', 'Newer-export page (CC-12), production route emails; not in v5.', 'Email threads from the newer export.'],
+  ['hosted_silences', 'Email silences', 'find', 'case', 'Newer-export page (CC-12), production route email-silences; not in v5.', 'The Email silences page of the newer export. Its content is not specified in the sources used here.'],
+  ['hosted_anchors', 'Anchors', 'find', 'case', 'Newer-export page (CC-12); the route slug is not recorded in the route map.', 'The Anchors page of the newer export. Its content is not specified in the sources used here.'],
+  ['hosted_organogram', 'Organogram', 'find', 'case', 'Newer-export page (CC-12), production route organogram; not in v5.', 'Organisation chart of the parties; the Conflict Check in the newer export also uses it.'],
+  ['hosted_whatsapp', 'WhatsApp', 'find', 'case', 'Newer-export page (CC-12), production route whatsapp; not in v5.', 'WhatsApp messages from the newer export.'],
+  ['hosted_privsugg', 'Privilege suggestions', 'record', 'case', 'Deferred: hosted-only derived analytic, rule unresolved (audit BA-07). If ever shown, suggestions must not be presented as findings.', 'Possible privilege flags for review. They are suggestions, never findings.'],
+  ['hosted_email', 'Email drafts, templates & Outlook', 'record', 'case', 'Deferred: production email-draft, email-templates and outlook routes; Outlook integration is outside parity scope; no ticket.', 'Draft emails from templates, with Outlook integration.'],
+  ['hosted_kyc', 'KYC', 'system', 'case', 'Deferred: not in v5, no ticket.', 'Client due-diligence register.'],
+  ['hosted_billing', 'Billing', 'record', 'case', 'Deferred: not in v5, no ticket.', 'Fee notes built from time entries and disbursements.'],
+  ['hosted_audit', 'Audit log', 'system', 'case', 'Deferred: not in v5, no ticket owns it.', 'Firm activity history for the case.'],
+  ['hosted_bundles', 'Bundle builder (uploads)', 'prepare', 'case', 'Deferred: PDF assembly from uploads needs a scope decision.', 'Assemble court bundles as PDFs from uploaded files.'],
+  ['hosted_cases', 'Case list', 'system', 'platform', 'v2-owned (GRS-36 client and case provisioning); production route /cases.', 'Choose between the cases you can see.'],
+  ['hosted_team', 'Team', 'system', 'platform', 'v2-owned (GRS-26 roles, GRS-36 identity); path not recorded, invitations unverified.', 'People with access, and who is assigned to this case.'],
+  ['hosted_notifications', 'Notifications', 'system', 'platform', 'V2 platform item in the component audit; no route recorded and no ticket identified in the sources used here.', 'Messages about your submissions and published versions.'],
+].map(([id, label, task, kind, scope, blurb]) => ({ id, label, task, kind, topic: kind === 'platform' ? 'account' : 'planned', planned: true, sim: id === 'hosted_intake', built: false, scope, blurb, count: null, group: 'Hosted' }));
+
+// Private operator surfaces (GRS-25, GRS-30, GRS-31). Not client navigation: neither variant lists them. They appear only in the
+// All tools catalogue, in their own dashed block, so the separation can be judged.
+const OPS = [
+  ['op_import', 'Import & validate', 'Operator imports a results package into the case’s private admin area; validation reports errors and warnings (GRS-25 discovery).'],
+  ['op_review', 'Private preview & correct', 'Operator previews the same viewer the client will use and fixes blocking errors. Clients cannot reach drafts (GRS-30).'],
+  ['op_publish', 'Sign-off & publish', 'An admin signs off one specific results version; publication switches the client’s active version atomically and records who approved it (GRS-31).'],
+].map(([id, label, blurb]) => ({ id, label, task: null, topic: 'operator', planned: true, operator: true, built: false, scope: 'v2-owned; production route /admin redirects to /cases for a firm admin. Not part of client navigation.', blurb, count: null, group: 'Operator' }));
 
 const CATALOG = { id: 'catalog', label: 'All tools', topic: null, task: null, built: true, catalog: true, blurb: 'Every view and planned capability in one filterable list.', count: null, group: 'Prototype' };
-const ALL = [...VIEWS, ...PLANNED, CATALOG];
+const ALL = [...VIEWS, ...PLANNED, ...OPS, CATALOG];
 const VBY = Object.fromEntries(ALL.map((v) => [v.id, v]));
 
 const TOPICS = [
@@ -481,15 +585,38 @@ const TOPICS = [
   { key: 'registers', label: 'Notes, time & registers' }, { key: 'system', label: 'System' },
 ];
 const TASKS = [
-  { key: 'desk', label: 'Desk', sub: 'what needs me' }, { key: 'find', label: 'Find', sub: 'evidence' }, { key: 'argue', label: 'Argue', sub: 'issues & strategy' },
+  { key: 'desk', label: 'Desk', sub: 'what needs me' }, { key: 'find', label: 'Find', sub: 'evidence & people' }, { key: 'argue', label: 'Argue', sub: 'issues & strategy' },
   { key: 'numbers', label: 'Numbers', sub: 'quantum & money' }, { key: 'prepare', label: 'Prepare', sub: 'court & packets' },
-  { key: 'record', label: 'Record', sub: 'notes, time, registers' }, { key: 'admin', label: 'Admin', sub: 'intake & system' },
+  { key: 'record', label: 'Record', sub: 'notes, time, registers' }, { key: 'system', label: 'System', sub: 'scan, backup, firm' },
 ];
-const TASK_DEFAULT = { desk: 'overview', find: 'search', argue: 'matter', numbers: 'quantum_tab', prepare: 'court_bundle_tab', record: 'timesheet_tab', admin: 'hosted_intake' };
-const topicLabel = (k) => k === 'planned' ? 'Hosted \u00b7 planned' : (TOPICS.find((t) => t.key === k) || { label: 'Case' }).label;
+const TASK_DEFAULT = { desk: 'overview', find: 'search', argue: 'matter', numbers: 'quantum_tab', prepare: 'court_bundle_tab', record: 'timesheet_tab', system: 'rescan_tab' };
+const TOPIC_NAME = { planned: 'Hosted · planned', account: 'Account & firm · planned', operator: 'Operator console · planned, private' };
+const topicLabel = (k) => TOPIC_NAME[k] || (TOPICS.find((t) => t.key === k) || { label: 'Case' }).label;
 const taskLabel = (k) => (TASKS.find((t) => t.key === k) || { label: 'All tasks' }).label;
 const VARIANTS = ['A', 'B'];
 const VARIANT_NAME = { A: 'Topic sidebar', B: 'Task-led case desk' };
+
+// Settled by the user on 15 October 2026: one contextual Notes feature, every existing record kept, each note linked to the case,
+// a document page or an analysis section; default visibility is the users assigned to the case. Mapping existing records and
+// storing notes are implementation work; this prototype keeps notes in memory only.
+const NOTE_SHARE = 'Shared with assigned case users';
+
+// One illustrative risk per issue, so a chronology event can lead to its issue and its risk and back (the study's task 3).
+const RISKS = [
+  { id: 'R-1', issue: 'A', title: 'Authority shows the delay was not caused by its own equipment', likelihood: 'Low', impact: 'High', refs: [['K1', 12], ['K2', 2]] },
+  { id: 'R-2', issue: 'B', title: 'Force majeure notice accepted as timely', likelihood: 'Medium', impact: 'High', refs: [['K4', 1], ['K8', 6]] },
+  { id: 'R-3', issue: 'C', title: 'Set-off of storage charges upheld', likelihood: 'Medium', impact: 'Medium', refs: [['K5', 1], ['K7', 2]] },
+];
+const RISK_BY_ISSUE = Object.fromEntries(RISKS.map((r) => [r.issue, r]));
+const SECTION_OF_ISSUE = { A: 'issue-a', B: 'issue-b', C: 'issue-c' };
+
+// Publication: client-visible states follow docs/product-brief.md (V2 client workflow). Processing is manual and has no progress figure.
+const SUB_STEPS = ['Uploading', 'Finalized', 'Operator notified', 'Being processed by the operator', 'Published'];
+const VERSIONS = [
+  { id: 'v1', rv: 'rv-1b20aa05', date: '2026-06-24' },
+  { id: 'v2', rv: 'rv-5d88e3c2', date: '2026-07-22' },
+  { id: 'v3', rv: 'rv-9f3c1e07', date: '2026-09-04' },
+];
 
 /* ====================================================================================================
    State: in memory only. Shared by both variants, so work done in A is there in B.
@@ -497,7 +624,7 @@ const VARIANT_NAME = { A: 'Topic sidebar', B: 'Task-led case desk' };
 const S = {
   variant: 'A', view: 'overview', section: 'summary',
   notes: [
-    { id: 'N-2', text: 'Gearbox arrival date conflicts with the harbour master\u2019s email of 9 March.', link: `doc:${BYKEY.K6.ref}:3`, created: '2026-10-14 16:40' },
+    { id: 'N-2', text: 'Gearbox arrival date conflicts with the harbour master’s email of 9 March.', link: `doc:${BYKEY.K6.ref}:3`, created: '2026-10-14 16:40' },
     { id: 'N-1', text: 'Check whether clause 22 requires notice within 7 days.', link: 'sec:issue-b', created: '2026-10-14 16:20' },
   ],
   time: [
@@ -508,27 +635,50 @@ const S = {
   chrono: { q: '', issue: '', shown: 120 },
   docs: { q: '', type: '', status: '', shown: 150 },
   query: '', scope: 'all', searches: [],
-  catalogQ: '',
+  catalogQ: '', navQ: '', navOpen: new Set(),
   scroll: {},
   viewer: null,
   lastCtx: null,
   lastInTask: {},
-  packet: new Set(Object.keys(KEY).map((k) => BYKEY[k].ref)), packetNotes: true, exports: [],
-  intake: { stage: 2, pct: 62 },
-  drawer: false, more: false, capture: null, capLink: null, capOpener: null,
+  packet: new Set(Object.keys(KEY).map((k) => BYKEY[k].ref)), pkNotes: 'none', exports: [],
+  sub: { id: 'S-4', files: 58, rev: 'i-4c2e91', step: 2, log: [
+    { step: 0, at: '2026-10-14 09:05', note: '58 of 58 files uploaded' },
+    { step: 1, at: '2026-10-14 09:12', note: 'Submission finalized; input revision i-4c2e91 recorded' },
+    { step: 2, at: '2026-10-14 09:12', note: 'Operator notified' },
+  ] },
+  versions: VERSIONS.map((v) => ({ ...v })), active: 'v3', viewing: 'v3', banner: '',
+  drafts: {}, ov: null, openOrder: [], openers: {}, noHist: false,
+  drawer: false, more: false, capture: null, capLink: null, capKey: null,
 };
+
 
 /* ====================================================================================================
    Shared small renderers
    ==================================================================================================== */
-let uid = 0;
+const ME = 'A. Dlamini (you)';
+S.notes[0].by = ME; S.notes[1].by = 'R. van der Berg';
+// Simulated role. Settled rules: case viewers only read; assigned users create notes and change their own; case editors also
+// manage other people’s notes; every edit and delete stays in the history. No authorization or audit backend exists here.
+S.role = 'member';
+const ROLES = { viewer: 'Case viewer', member: 'Assigned case user', editor: 'Case editor' };
+S.audit = [
+  { at: '2026-10-14 16:20', who: 'R. van der Berg', what: 'created N-1' },
+  { at: '2026-10-14 16:40', who: ME, what: 'created N-2' },
+];
+CHRONO.forEach((e, i) => { e.i = i; });
+const canCreate = () => S.role !== 'viewer';
+const canManage = (n) => S.role === 'editor' || (S.role === 'member' && n.by === ME);
+const actor = () => S.role === 'editor' ? `${ME} as case editor` : ME;
+const audit = (what) => S.audit.unshift({ at: nowStamp(), who: actor(), what });
+
 function cite(ref, page) {
-  const id = 'c' + (++uid);
-  return `<button type="button" class="cite" id="${id}" data-cite="${ref}:${page}" aria-label="Open original ${ref}, page ${page}">${ref} p.${page}</button>`;
+  return `<button type="button" class="cite" data-cite="${ref}:${page}" aria-label="Open original ${ref}, page ${page}">${ref} p.${page}</button>`;
 }
 const withCites = (text) => esc(text).replace(/\{(K\d):(\d+)\}/g, (_, k, p) => cite(BYKEY[k].ref, Number(p)));
-const issueTag = (k) => k ? `<span class="tag ${k}" title="${esc(ISSUES[k])}">${k} \u00b7 ${esc(ISSUES[k])}</span>` : '';
-const href = (id) => `?variant=${S.variant}&view=${id}`;
+const issueTag = (k) => k ? `<span class="tag ${k}" title="${esc(ISSUES[k])}">${k} · ${esc(ISSUES[k])}</span>` : '';
+const issueLink = (k) => k ? `<a class="tag ${k}" href="${href('matter')}" data-nav="matter" data-sec="${SECTION_OF_ISSUE[k]}" title="Open issue ${k} in Matter &amp; Strategy">${k} · ${esc(ISSUES[k])}</a>` : '';
+const riskLink = (k) => RISK_BY_ISSUE[k] ? `<a href="${href('risk_matrix_tab')}" data-nav="risk_matrix_tab" data-row="${RISK_BY_ISSUE[k].id}">Risk ${RISK_BY_ISSUE[k].id}</a>` : '';
+const href = (id) => `?variant=${S.variant}&view=${id}&rv=${S.viewing}`;
 const LIVE_COUNT = { timesheet_tab: () => S.time.length, annotations_tab: () => S.notes.length, court_bundle_tab: () => S.packet.size };
 function countOf(v) { const n = LIVE_COUNT[v.id] ? LIVE_COUNT[v.id]() : v.count; return n == null ? '' : fmtN(n); }
 function hl(text, q) {
@@ -536,7 +686,8 @@ function hl(text, q) {
   return i < 0 ? esc(t) : esc(t.slice(0, i)) + '<mark>' + esc(t.slice(i, i + q.length)) + '</mark>' + esc(t.slice(i + q.length));
 }
 function stateTag(v) {
-  if (v.sim) return '<span class="tag planned">Planned hosted \u00b7 simulated here</span>';
+  if (v.operator) return '<span class="tag planned">Planned · operator only, private</span>';
+  if (v.sim) return '<span class="tag planned">Planned hosted · simulated here</span>';
   if (v.planned) return '<span class="tag planned">Planned hosted capability</span>';
   if (v.catalog) return '<span class="tag">Prototype index</span>';
   return v.built ? '<span class="tag built">Working in prototype</span>' : '<span class="tag">Summary placeholder</span>';
@@ -545,7 +696,7 @@ function linkLabel(l) {
   if (!l || l === 'case') return 'Whole case';
   const [k, a, b] = l.split(':');
   if (k === 'doc') return `${a} p.${b}`;
-  if (k === 'sec') return `Matter & Strategy \u00b7 ${SEC_BY[a] ? SEC_BY[a].short : a}`;
+  if (k === 'sec') return `Matter & Strategy · ${SEC_BY[a] ? SEC_BY[a].short : a}`;
   if (k === 'view') return VBY[a] ? VBY[a].label : a;
   return l;
 }
@@ -563,58 +714,135 @@ function ctxLink() {
   if (REGISTER_VIEWS.has(S.view)) return S.lastCtx || 'case';
   return 'view:' + S.view;
 }
-function linkOptions(def) {
+function linkOptions(def, sel) {
   const opts = new Map();
-  for (const l of [def, S.viewer && `doc:${S.viewer.ref}:${S.viewer.page}`, S.lastCtx, !REGISTER_VIEWS.has(S.view) && 'view:' + S.view, 'case']) if (l && !opts.has(l)) opts.set(l, linkLabel(l));
-  return [...opts].map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
+  for (const l of [sel, def, S.viewer && `doc:${S.viewer.ref}:${S.viewer.page}`, S.lastCtx, !REGISTER_VIEWS.has(S.view) && 'view:' + S.view, 'case']) if (l && !opts.has(l)) opts.set(l, linkLabel(l));
+  const pick = sel || def;
+  return [...opts].map(([v, l]) => `<option value="${esc(v)}"${v === pick ? ' selected' : ''}>${esc(l)}</option>`).join('');
 }
 const todayHours = () => S.time.filter((t) => t.date === TODAY).reduce((s, t) => s + t.hours, 0);
 const unbilled = () => S.time.filter((t) => t.billable).reduce((s, t) => s + t.hours * RATE, 0);
-function procLabel() {
-  const { stage, pct } = S.intake;
-  return stage >= STAGES.length - 1 ? 'S-4 ready to publish' : `S-4 ${STAGES[stage].toLowerCase()} ${pct}%`;
+
+/* ---------- publication and submission state (simulated; no progress figure exists for manual processing) ---------- */
+const ver = () => S.versions.find((v) => v.id === S.viewing) || S.versions[S.versions.length - 1];
+const subStep = () => SUB_STEPS[S.sub.step];
+const subLast = () => S.sub.log[S.sub.log.length - 1];
+function subLabel(short) {
+  if (S.sub.step >= 4) return short ? 'S-4 published' : `Submission S-4: published as Results ${S.active}`;
+  return short ? `S-4 ${subStep().toLowerCase()}` : `Submission S-4: ${subStep().toLowerCase()} · since ${subLast().at}`;
+}
+function versionControl() {
+  return `<span class="verbox"><label for="ver-sel" class="vh">Results version being viewed</label><select id="ver-sel" data-ver>${S.versions.map((v) => `<option value="${v.id}"${v.id === S.viewing ? ' selected' : ''}>Results ${v.id} · ${v.id === S.active ? 'active' : 'previous'}</option>`).join('')}</select></span>`;
+}
+function bannerHTML() {
+  if (S.viewing === S.active) return '';
+  return `<span><strong>You are viewing Results ${S.viewing}, a previous version.</strong> Results ${S.active} is active (published ${esc(S.versions.find((v) => v.id === S.active).date)}).</span> <button type="button" class="btn" data-action="switch-ver" data-ver-to="${S.active}">Switch to Results ${S.active}, keep my place</button> <span class="muted small">Same page, section, search and drafts are kept. Simulated.</span>`;
+}
+const bannerBox = () => `<div class="banner" id="banner" role="status">${bannerHTML()}</div>`;
+
+function draftChipHTML() {
+  const ds = Object.entries(S.drafts);
+  if (!ds.length) return '';
+  return `<details class="chip-menu"><summary class="chip-s draftchip">✎ ${ds.length} unsaved draft${ds.length > 1 ? 's' : ''}</summary><ul class="menu" aria-label="Unsaved drafts">${ds.map(([k, d]) => `<li><button type="button" class="linkbtn" data-action="resume-draft" data-key="${esc(k)}">${esc(d.label)}</button><button type="button" class="linkbtn" data-action="discard-draft" data-key="${esc(k)}">Discard</button></li>`).join('')}</ul></details>`;
 }
 function chipsInner() {
-  return `<a class="chip-s proc" href="${href('hosted_intake')}" data-nav="hosted_intake" title="Submission S-4 processing status (simulated)">${esc(procLabel())}</a>`
-    + `<a class="chip-s" href="${href('timesheet_tab')}" data-nav="timesheet_tab">Today ${todayHours().toFixed(1)} h</a>`
-    + `<a class="chip-s" href="${href('annotations_tab')}" data-nav="annotations_tab">${S.notes.length} notes</a>`;
+  return `<a class="chip-s proc" href="${href('hosted_intake')}" data-nav="hosted_intake" title="Submission status (planned hosted capability, simulated)"><span class="cf">${esc(subLabel(false))}</span><span class="cs">${esc(subLabel(true))}</span><span class="pl">Planned</span></a>`
+    + `<a class="chip-s hrs" href="${href('timesheet_tab')}" data-nav="timesheet_tab">Today ${todayHours().toFixed(1)} h</a>`
+    + `<a class="chip-s nts" href="${href('annotations_tab')}" data-nav="annotations_tab">${S.notes.length} notes</a>` + draftChipHTML();
 }
-const caseMeta = () => `<span>${esc(CASE.forum)}</span><span>${CASE.results} active (${CASE.rv})</span><span>${fmtN(CASE.docs)} documents</span><span>${MANUAL_COUNT} need a manual read</span>`;
+const caseMeta = () => `${versionControl()}<span>published ${esc(ver().date)}</span><span>${esc(CASE.forum)}</span><span>${fmtN(CASE.docs)} documents</span><span>${MANUAL_COUNT} need a manual read</span>`;
 function searchForm() {
-  return `<form class="gsearch" role="search" data-form="gsearch" aria-label="Search the case"><label for="gs" class="vh">Search documents, chronology and notes</label><input id="gs" name="q" type="search" placeholder="Search ${fmtN(CASE.docs)} documents, events, notes" value="${esc(S.query)}" autocomplete="off"><button class="btn" type="submit">Search</button></form>`;
+  return `<form class="gsearch" role="search" data-form="gsearch" aria-label="Search the case"><label for="gs" class="vh">Search documents, chronology and notes (press / to jump here)</label><input id="gs" name="q" type="search" placeholder="Search ${fmtN(CASE.docs)} documents, events, notes ( / )" value="${esc(S.query)}" autocomplete="off"><button class="btn" type="submit">Search</button></form>`;
 }
 function pageHead(v) {
-  const where = S.variant === 'A' ? (v.topic ? topicLabel(v.topic) : 'Case') : (v.task ? taskLabel(v.task) : 'All tasks');
-  return `<div class="page-head"><div><p class="crumb">${esc(where)} \u203a ${esc(v.label)} \u00b7 <code>${v.id}</code></p><h1 id="page-h1" tabindex="-1">${esc(v.label)}</h1><p class="sub">${esc(v.blurb)}</p></div>${stateTag(v)}</div>`;
+  const where = v.operator ? 'Operator console' : S.variant === 'A' ? (v.topic ? topicLabel(v.topic) : 'Case') : (v.task ? taskLabel(v.task) : 'All tasks');
+  return `<div class="page-head"><div><p class="crumb">${esc(where)} › ${esc(v.label)} · <code>${v.id}</code></p><h1 id="page-h1" tabindex="-1">${esc(v.label)}</h1><p class="sub">${esc(v.blurb)}</p></div>${stateTag(v)}</div>`;
 }
 
+/* ---------- drafts: unsaved form text lives in memory for this tab, keyed by where it was typed ---------- */
+const noteKey = (link) => link && link.startsWith('doc:') ? 'note|doc:' + link.split(':')[1] : 'note|' + (link || 'case');
+function readVals(form) {
+  const f = form.elements, k = form.dataset.form;
+  if (k === 'time') return { date: f.date.value, hours: f.hours.value, activity: f.activity.value, desc: f.desc.value, billable: f.billable.checked, link: f.link.value };
+  if (k === 'noteedit') return { text: f.text.value };
+  return { text: f.text.value, link: f.link.value };
+}
+function draftDirty(form, v) {
+  const k = form.dataset.form;
+  if (k === 'time') return !!(v.desc.trim() || v.hours !== '0.3');
+  if (k === 'noteedit') { const n = S.notes.find((x) => x.id === form.dataset.draft.slice(5)); return !!n && v.text.trim() !== n.text; }
+  return !!v.text.trim();
+}
+function draftLabel(form, v) {
+  const k = form.dataset.form;
+  if (k === 'time') return 'Time entry' + (v.desc.trim() ? ': ' + v.desc.trim().slice(0, 30) : ' (hours changed)');
+  if (k === 'noteedit') return 'Edit of ' + form.dataset.draft.slice(5);
+  return 'Note on ' + linkLabel(v.link);
+}
+let chipSig = '';
+function refreshDraftChips(force) {
+  const sig = Object.entries(S.drafts).map(([k, d]) => k + d.label).join('~');
+  if (!force && sig === chipSig) return;
+  chipSig = sig;
+  $$('[data-live=chips]').forEach((e) => { e.innerHTML = chipsInner(); });
+}
+function syncDraft(form) {
+  const key = form.dataset.draft;
+  if (!key) return;
+  const v = readVals(form);
+  if (draftDirty(form, v)) S.drafts[key] = { kind: form.dataset.form, vals: v, at: Date.now(), label: draftLabel(form, v) }; else delete S.drafts[key];
+  const cue = $('.draft-cue', form); if (cue) cue.hidden = !S.drafts[key];
+  refreshDraftChips();
+}
+function resetForm(form) {
+  const f = form.elements, k = form.dataset.form;
+  if (k === 'time') { f.desc.value = ''; f.hours.value = '0.3'; } else if (k === 'noteedit') { const n = S.notes.find((x) => x.id === form.dataset.draft.slice(5)); f.text.value = n ? n.text : ''; } else f.text.value = '';
+  const cue = $('.draft-cue', form); if (cue) cue.hidden = true;
+}
+function discardDraft(key) {
+  delete S.drafts[key];
+  $$('form[data-draft]').filter((f) => f.dataset.draft === key).forEach(resetForm);
+  if (key.startsWith('edit|')) S.editing = null;
+  refreshDraftChips(true);
+  if (key.startsWith('edit|')) refreshLive();
+}
+const draftCue = (key) => `<div class="draft-cue" role="status"${S.drafts[key] ? '' : ' hidden'}><strong>Unsaved draft.</strong> Kept in memory for this tab only, not saved anywhere; reloading loses it. <button type="button" class="linkbtn" data-action="discard-draft" data-key="${esc(key)}">Discard draft</button></div>`;
+
 /* ---------- shared forms ---------- */
-function noteForm(px, link) {
-  return `<form class="qform" data-form="note" novalidate aria-labelledby="${px}-nt">
+function noteForm(px, link, key) {
+  if (!canCreate()) return `<div class="qform"><h3 class="qf-title">Notes</h3><p>Case viewers can read notes but cannot add or change them. <span class="muted small">(Simulated role: ${esc(ROLES[S.role])}.)</span></p></div>`;
+  const d = S.drafts[key], text = d ? d.vals.text : '';
+  return `<form class="qform" data-form="note" data-draft="${esc(key)}" novalidate aria-labelledby="${px}-nt">
   <h3 id="${px}-nt" class="qf-title">Quick note</h3>
+  <p class="small share"><span class="tag built">${NOTE_SHARE}</span> <span class="muted">Same case-permission boundary. Simulated here.</span></p>
   <label for="${px}-ntext">Note</label>
-  <textarea id="${px}-ntext" name="text" rows="3" aria-describedby="${px}-nerr"></textarea>
+  <textarea id="${px}-ntext" name="text" rows="3" aria-describedby="${px}-nerr">${esc(text)}</textarea>
   <p class="err" id="${px}-nerr"></p>
   <label for="${px}-nlink">Linked to</label>
-  <select id="${px}-nlink" name="link">${linkOptions(link)}</select>
+  <select id="${px}-nlink" name="link">${linkOptions(link, d && d.vals.link)}</select>
+  ${draftCue(key)}
   <div class="row"><button class="btn primary" type="submit">Save note</button></div>
   <p class="confirm" role="status"></p></form>`;
 }
-function timeForm(px, link) {
-  return `<form class="qform" data-form="time" novalidate aria-labelledby="${px}-tt">
+function timeForm(px, link, key) {
+  const d = S.drafts[key], v = d ? d.vals : { date: TODAY, hours: '0.3', activity: 'Perusal', desc: '', billable: true };
+  return `<form class="qform" data-form="time" data-draft="${esc(key)}" novalidate aria-labelledby="${px}-tt">
   <h3 id="${px}-tt" class="qf-title">Log time</h3>
   <div class="qf-grid">
-    <div><label for="${px}-tdate">Date</label><input id="${px}-tdate" name="date" type="date" value="${TODAY}"></div>
-    <div><label for="${px}-th">Hours</label><input id="${px}-th" name="hours" type="number" inputmode="decimal" min="0.1" max="24" step="0.1" value="0.3" aria-describedby="${px}-terr"></div>
-    <div><label for="${px}-ta">Activity</label><select id="${px}-ta" name="activity">${['Perusal', 'Drafting', 'Consultation', 'Research', 'Court', 'Travel'].map((a) => `<option>${a}</option>`).join('')}</select></div>
+    <div><label for="${px}-tdate">Date</label><input id="${px}-tdate" name="date" type="date" value="${esc(v.date)}"></div>
+    <div><label for="${px}-th">Hours</label><input id="${px}-th" name="hours" type="number" inputmode="decimal" min="0.1" max="24" step="0.1" value="${esc(v.hours)}" aria-describedby="${px}-terr"></div>
+    <div><label for="${px}-ta">Activity</label><select id="${px}-ta" name="activity">${['Perusal', 'Drafting', 'Consultation', 'Research', 'Court', 'Travel'].map((a) => `<option${a === v.activity ? ' selected' : ''}>${a}</option>`).join('')}</select></div>
   </div>
-  <label for="${px}-td">Description</label><input id="${px}-td" name="desc" type="text" autocomplete="off" aria-describedby="${px}-terr">
-  <label class="check"><input type="checkbox" name="billable" checked> <span>Billable at ${money(RATE)} per hour (synthetic rate)</span></label>
-  <label for="${px}-tl">Linked to</label><select id="${px}-tl" name="link">${linkOptions(link)}</select>
+  <label for="${px}-td">Description</label><input id="${px}-td" name="desc" type="text" autocomplete="off" value="${esc(v.desc)}" aria-describedby="${px}-terr">
+  <label class="check"><input type="checkbox" name="billable"${v.billable ? ' checked' : ''}> <span>Billable at ${money(RATE)} per hour (synthetic rate)</span></label>
+  <label for="${px}-tl">Linked to</label><select id="${px}-tl" name="link">${linkOptions(link, d && d.vals.link)}</select>
   <p class="err" id="${px}-terr"></p>
+  ${draftCue(key)}
   <div class="row"><button class="btn primary" type="submit">Save time entry</button></div>
   <p class="confirm" role="status"></p></form>`;
 }
+const slotId = (link) => 'slot-' + link.replace(/[^a-z0-9]+/gi, '-');
+const slotHTML = (link) => S.drafts['note|' + link] ? noteForm(slotId(link), link, 'note|' + link) : '';
 
 /* ====================================================================================================
    View bodies: identical content in both variants
@@ -626,6 +854,7 @@ function viewBody(id) {
     case 'chronology': return chronologyHTML();
     case 'documents': return documentsHTML();
     case 'search': return searchHTML();
+    case 'risk_matrix_tab': return riskHTML();
     case 'timesheet_tab': return timesheetHTML();
     case 'annotations_tab': return annotationsHTML();
     case 'court_bundle_tab': return packetHTML();
@@ -641,40 +870,39 @@ function daysTo(date) { return Math.round((Date.parse(date) - Date.parse(TODAY))
 function nextDeadline() { return DEADLINES.find((d) => d[0] >= TODAY) || DEADLINES[DEADLINES.length - 1]; }
 
 function overviewHTML() {
-  const nd = nextDeadline(), { stage, pct } = S.intake;
-  const overall = Math.round(((stage + pct / 100) / (STAGES.length - 1)) * 100);
+  const nd = nextDeadline(), act = S.versions.find((v) => v.id === S.active);
   return `<div class="cards">
-   <div class="card"><h2>Documents</h2><div class="big">${fmtN(CASE.docs)}</div><div>${fmtN(CASE.docs - MANUAL_COUNT)} text read \u00b7 <a href="${href('documents')}" data-nav="documents" data-preset="docs-manual">${MANUAL_COUNT} need a manual read</a></div></div>
+   <div class="card"><h2>Documents</h2><div class="big">${fmtN(CASE.docs)}</div><div>${fmtN(CASE.docs - MANUAL_COUNT)} text read · <a href="${href('documents')}" data-nav="documents" data-preset="docs-manual">${MANUAL_COUNT} need a manual read</a></div></div>
    <div class="card"><h2>Chronology</h2><div class="big">${fmtN(CHRONO.length)}</div><div><a href="${href('chronology')}" data-nav="chronology">events with citations</a></div></div>
-   <div class="card"><h2>Issues</h2><div class="big">3</div><div>${SECTIONS.filter((s) => s.issue).map((s) => `<a href="${href('matter')}" data-nav="matter" data-sec="${s.id}">${s.issue}: ${s.position.toLowerCase()}</a>`).join(' \u00b7 ')}</div></div>
-   <div class="card"><h2>Next deadline</h2><div class="big">${nd[0]}</div><div>${esc(nd[1])} \u00b7 ${daysTo(nd[0])} days \u00b7 <a href="${href('deadlines_tab')}" data-nav="deadlines_tab">all ${DEADLINES.length}</a></div></div>
-   <div class="card"><h2>Time today</h2><div class="big" data-live="today">${todayHours().toFixed(1)} h</div><div><a href="${href('timesheet_tab')}" data-nav="timesheet_tab">Timesheet</a> \u00b7 unbilled <span data-live="unbilled">${money(unbilled())}</span></div></div>
-   <div class="card"><h2>Processing</h2><div class="big">${overall}%</div><div><a href="${href('hosted_intake')}" data-nav="hosted_intake">Submission S-4: ${esc(STAGES[stage])}</a></div><div class="bar" aria-hidden="true"><span style="width:${overall}%"></span></div></div>
+   <div class="card"><h2>Issues</h2><div class="big">3</div><div>${SECTIONS.filter((s) => s.issue).map((s) => `<a href="${href('matter')}" data-nav="matter" data-sec="${s.id}">${s.issue}: ${s.position.toLowerCase()}</a>`).join(' · ')}</div></div>
+   <div class="card"><h2>Next deadline</h2><div class="big">${nd[0]}</div><div>${esc(nd[1])} · ${daysTo(nd[0])} days · <a href="${href('deadlines_tab')}" data-nav="deadlines_tab">all ${DEADLINES.length}</a></div></div>
+   <div class="card"><h2>Time today</h2><div class="big" data-live="today">${todayHours().toFixed(1)} h</div><div><a href="${href('timesheet_tab')}" data-nav="timesheet_tab">Timesheet</a> · unbilled <span data-live="unbilled">${money(unbilled())}</span></div></div>
+   <div class="card"><h2>Results &amp; submission <span class="pl">Planned</span></h2><div class="big" style="font-size:1.15rem" data-live="substate">${esc(S.sub.step >= 4 ? 'Published' : subStep())}</div><div class="small">Results ${act.id} active since ${esc(act.date)}. <span data-live="sublast">S-4 last updated ${esc(subLast().at)}.</span></div><div><a href="${href('hosted_intake')}" data-nav="hosted_intake">Submission status</a> <span class="muted small">(simulated)</span></div></div>
   </div>
-  <p class="muted small">${CASE.results} activated ${CASE.activated} \u00b7 resultsVersion <code>${CASE.rv}</code> \u00b7 ${esc(CASE.forum)}</p>
+  <p class="muted small">Viewing Results ${S.viewing} · resultsVersion <code>${ver().rv}</code> · ${esc(CASE.forum)}</p>
   <h2 class="h3">Recent work</h2><ul class="plain list" id="recent">${recentHTML()}</ul>`;
 }
 function recentHTML() {
-  const items = [...S.notes.map((n) => ({ at: n.created, html: `Note <strong>${n.id}</strong>: ${esc(n.text)} <span class="muted">\u00b7 ${linkHTML(n.link)}</span>` })),
-    ...S.time.map((t) => ({ at: t.date, html: `Time <strong>${t.id}</strong>: ${t.hours.toFixed(1)} h ${esc(t.activity.toLowerCase())}, ${esc(t.desc)} <span class="muted">\u00b7 ${linkHTML(t.link)}</span>` }))]
+  const items = [...S.notes.map((n) => ({ at: n.created, html: `Note <strong>${n.id}</strong>: ${esc(n.text)} <span class="muted">· ${linkHTML(n.link)}</span>` })),
+    ...S.time.map((t) => ({ at: t.date, html: `Time <strong>${t.id}</strong>: ${t.hours.toFixed(1)} h ${esc(t.activity.toLowerCase())}, ${esc(t.desc)} <span class="muted">· ${linkHTML(t.link)}</span>` }))]
     .sort((a, b) => b.at.localeCompare(a.at)).slice(0, 6);
   return items.map((i) => `<li>${i.html}</li>`).join('') || '<li class="muted">Nothing yet.</li>';
 }
 
 function matterHTML() {
-  return `<p class="muted small">Citations open the simulated original beside this analysis. Close it, or press Escape, to return to the same citation.</p>`
-    + SECTIONS.map((s) => `<section class="an" id="sec-${s.id}" aria-labelledby="h-${s.id}" data-secblock="${s.id}">
+  return `<p class="muted small">Citations open the simulated original beside this analysis. Close it, press Escape or use the browser Back button to return to the same citation.</p>`
+    + SECTIONS.map((s) => `<section class="an" id="sec-${s.id}" data-anchor aria-labelledby="h-${s.id}" data-secblock="${s.id}">
     <div class="an-head"><h2 id="h-${s.id}" tabindex="-1">${esc(s.title)}</h2>${s.position ? `<span class="tag ${s.issue}">Position: ${s.position}</span>` : ''}</div>
     ${s.paras.map((p) => `<p>${withCites(p)}</p>`).join('')}
+    ${s.issue ? `<p class="small">${riskLink(s.issue)}: ${esc(RISK_BY_ISSUE[s.issue].title)} · <a href="${href('chronology')}" data-nav="chronology" data-preset="chrono-${s.issue}">chronology for issue ${s.issue}</a></p>` : ''}
     <div data-sec-notes="${s.id}">${secNotes(s.id)}</div>
-    <div class="an-actions"><button type="button" class="linkbtn" data-action="note-here" data-link="sec:${s.id}">Add a note to this section</button></div>
-    <div class="inline-slot" id="${slotId('sec:' + s.id)}"></div></section>`).join('');
+    <div class="an-actions"><button type="button" class="linkbtn" data-action="note-here" data-link="sec:${s.id}" aria-expanded="${!!S.drafts['note|sec:' + s.id]}">Add a note to this section</button></div>
+    <div class="inline-slot" id="${slotId('sec:' + s.id)}">${slotHTML('sec:' + s.id)}</div></section>`).join('');
 }
 function secNotes(id) {
   const ns = S.notes.filter((n) => n.link === 'sec:' + id);
-  return ns.length ? `<ul class="plain notes-inline" aria-label="Your notes on this section">${ns.map((n) => `<li><strong>${n.id}</strong> ${esc(n.text)}</li>`).join('')}</ul>` : '';
+  return ns.length ? `<ul class="plain notes-inline" aria-label="Notes on this section, ${NOTE_SHARE.toLowerCase()}">${ns.map((n) => `<li><strong>${n.id}</strong> ${esc(n.text)} <span class="muted small">· ${esc(n.by)}</span></li>`).join('')}</ul>` : '';
 }
-const slotId = (link) => 'slot-' + link.replace(/[^a-z0-9]+/gi, '-');
 
 function filteredChrono() {
   const { q, issue } = S.chrono, t = q.trim().toLowerCase();
@@ -684,15 +912,22 @@ function chronologyHTML() {
   const c = S.chrono;
   return `<form class="filters" data-form="noop" role="search" aria-label="Filter the chronology">
     <label for="cf-q" class="grow">Filter events<input id="cf-q" type="search" value="${esc(c.q)}" placeholder="e.g. gearbox, Sable Crest, ${BYKEY.K2.ref}" autocomplete="off"></label>
-    <label for="cf-issue">Issue<select id="cf-issue"><option value="">All issues</option>${Object.entries(ISSUES).map(([k, l]) => `<option value="${k}"${c.issue === k ? ' selected' : ''}>${k} \u00b7 ${esc(l)}</option>`).join('')}</select></label>
+    <label for="cf-issue">Issue<select id="cf-issue"><option value="">All issues</option>${Object.entries(ISSUES).map(([k, l]) => `<option value="${k}"${c.issue === k ? ' selected' : ''}>${k} · ${esc(l)}</option>`).join('')}</select></label>
   </form><div id="chrono-wrap">${chronoTable()}</div>`;
 }
 function chronoTable() {
   const rows = filteredChrono(), shown = Math.min(S.chrono.shown, rows.length);
-  return `<p class="muted small">${fmtN(shown)} of ${fmtN(rows.length)} events shown${rows.length < CHRONO.length ? ` (filtered from ${fmtN(CHRONO.length)})` : ''}</p>
-  <div class="table-scroll" role="region" aria-label="Chronology events" tabindex="0"><table class="t stack wide"><thead><tr><th scope="col">Date</th><th scope="col">Event</th><th scope="col">People</th><th scope="col">Issue</th><th scope="col">Source</th></tr></thead><tbody>
-  ${rows.slice(0, shown).map((e) => `<tr><td data-label="Date" class="nowrap">${e.date}</td><td data-label="Event">${esc(e.text)}</td><td data-label="People">${esc(e.actors)}</td><td data-label="Issue">${issueTag(e.issue)}</td><td data-label="Source">${cite(e.ref, e.page)}</td></tr>`).join('')}
+  return `<p class="muted small">${fmtN(shown)} of ${fmtN(rows.length)} events shown${rows.length < CHRONO.length ? ` (filtered from ${fmtN(CHRONO.length)})` : ''}. An issue tag opens that issue in Matter &amp; Strategy; the risk link opens its row in the Risk Matrix.</p>
+  <div class="table-scroll" role="region" aria-label="Chronology events" tabindex="0"><table class="t stack wide"><thead><tr><th scope="col">Date</th><th scope="col">Event</th><th scope="col">People</th><th scope="col">Issue and risk</th><th scope="col">Source</th></tr></thead><tbody>
+  ${rows.slice(0, shown).map((e) => `<tr id="ev-${e.i}" data-anchor><td data-label="Date" class="nowrap">${e.date}</td><td data-label="Event">${esc(e.text)}</td><td data-label="People">${esc(e.actors)}</td><td data-label="Issue">${issueLink(e.issue)} ${riskLink(e.issue)}</td><td data-label="Source">${cite(e.ref, e.page)}</td></tr>`).join('')}
   </tbody></table></div>${rows.length > shown ? `<p><button type="button" class="btn" data-action="more-chrono">Show ${Math.min(120, rows.length - shown)} more events</button></p>` : ''}`;
+}
+
+function riskHTML() {
+  return `<p class="muted small">Three illustrative risks, one per issue. Each links to its issue, its source events and the originals.</p>
+  <div class="table-scroll" role="region" aria-label="Risk matrix" tabindex="0"><table class="t stack wide"><thead><tr><th scope="col">Risk</th><th scope="col">Issue</th><th scope="col">What could go wrong</th><th scope="col">Likelihood</th><th scope="col">Impact</th><th scope="col">Evidence</th><th scope="col">Source events</th></tr></thead><tbody>
+  ${RISKS.map((r) => `<tr id="row-${r.id}" data-anchor><td data-label="Risk"><strong>${r.id}</strong></td><td data-label="Issue">${issueLink(r.issue)}</td><td data-label="Risk">${esc(r.title)}</td><td data-label="Likelihood">${r.likelihood}</td><td data-label="Impact">${r.impact}</td><td data-label="Evidence">${r.refs.map(([k, p]) => cite(BYKEY[k].ref, p)).join(' ')}</td><td data-label="Events"><a href="${href('chronology')}" data-nav="chronology" data-preset="chrono-${r.issue}">Chronology, issue ${r.issue}</a></td></tr>`).join('')}
+  </tbody></table></div>`;
 }
 
 const DOC_TYPES = [...new Set(DOCS.map((d) => d.type))].sort();
@@ -712,14 +947,14 @@ function docsTable() {
   const rows = filteredDocs(), shown = Math.min(S.docs.shown, rows.length);
   return `<p class="muted small">${fmtN(shown)} of ${fmtN(rows.length)} documents shown${rows.length < DOCS.length ? ` (filtered from ${fmtN(DOCS.length)})` : ''}</p>
   <div class="table-scroll" role="region" aria-label="Documents" tabindex="0"><table class="t stack wide"><thead><tr><th scope="col">Ref</th><th scope="col">Date</th><th scope="col">Type</th><th scope="col">Title</th><th scope="col" class="n">Pages</th><th scope="col">Text</th><th scope="col">Original</th></tr></thead><tbody>
-  ${rows.slice(0, shown).map((d) => `<tr><td data-label="Ref" class="nowrap"><code>${d.ref}</code></td><td data-label="Date" class="nowrap">${d.date}</td><td data-label="Type">${esc(d.type)}</td><td data-label="Title">${esc(d.title)}</td><td data-label="Pages" class="n">${d.pages}</td><td data-label="Text">${d.text === 'manual' ? '<span class="tag warn">Needs a manual read</span>' : 'Text read'}</td><td data-label="Original">${cite(d.ref, 1)}</td></tr>`).join('')}
+  ${rows.slice(0, shown).map((d) => `<tr id="dc-${d.ref}" data-anchor><td data-label="Ref" class="nowrap"><code>${d.ref}</code></td><td data-label="Date" class="nowrap">${d.date}</td><td data-label="Type">${esc(d.type)}</td><td data-label="Title">${esc(d.title)}</td><td data-label="Pages" class="n">${d.pages}</td><td data-label="Text">${d.text === 'manual' ? '<span class="tag warn">Needs a manual read</span>' : 'Text read'}</td><td data-label="Original">${cite(d.ref, 1)}</td></tr>`).join('')}
   </tbody></table></div>${rows.length > shown ? `<p><button type="button" class="btn" data-action="more-docs">Show ${Math.min(150, rows.length - shown)} more documents</button></p>` : ''}`;
 }
 
 function searchHTML() {
   return `<form class="filters" data-form="noop" role="search" aria-label="Search the case">
     <label for="sq" class="grow">Search documents, chronology and notes<input id="sq" type="search" value="${esc(S.query)}" placeholder="Try: gearbox, force majeure, silo 4" autocomplete="off"></label>
-    <fieldset class="scope"><legend>Look in</legend>${[['all', 'Everything'], ['docs', 'Documents'], ['events', 'Chronology'], ['notes', 'My notes']].map(([k, l]) => `<label><input type="radio" name="scope" value="${k}"${S.scope === k ? ' checked' : ''}> ${l}</label>`).join('')}</fieldset>
+    <fieldset class="scope"><legend>Look in</legend>${[['all', 'Everything'], ['docs', 'Documents'], ['events', 'Chronology'], ['notes', 'Notes']].map(([k, l]) => `<label><input type="radio" name="scope" value="${k}"${S.scope === k ? ' checked' : ''}> ${l}</label>`).join('')}</fieldset>
   </form><div id="search-results">${searchResultsHTML()}</div>`;
 }
 function searchResultsHTML() {
@@ -732,7 +967,7 @@ function searchResultsHTML() {
     out.push(group('Documents', hits.length, hits.slice(0, 40).map((d) => {
       const qp = Object.entries(d.quote || {}).find(([, t]) => t.toLowerCase().includes(q));
       const page = qp ? Number(qp[0]) : 1;
-      return `<li>${cite(d.ref, page)} ${hl(d.title, q)} <span class="muted small">\u00b7 ${esc(d.type)} \u00b7 ${d.date}${d.text === 'manual' ? ' \u00b7 needs a manual read' : ''}</span>${qp ? `<div class="snip">\u201c${hl(qp[1], q)}\u201d</div>` : ''}</li>`;
+      return `<li>${cite(d.ref, page)} ${hl(d.title, q)} <span class="muted small">· ${esc(d.type)} · ${d.date}${d.text === 'manual' ? ' · needs a manual read' : ''}</span>${qp ? `<div class="snip">“${hl(qp[1], q)}”</div>` : ''}</li>`;
     }), 'Add words to narrow it.'));
   }
   if (sc === 'all' || sc === 'events') {
@@ -741,13 +976,13 @@ function searchResultsHTML() {
   }
   if (sc === 'all' || sc === 'notes') {
     const hits = S.notes.filter((n) => n.text.toLowerCase().includes(q));
-    out.push(group('My notes', hits.length, hits.map((n) => `<li><strong>${n.id}</strong> ${hl(n.text, q)} <span class="muted">\u00b7 ${linkHTML(n.link)}</span></li>`), ''));
+    out.push(group('Notes', hits.length, hits.map((n) => `<li><strong>${n.id}</strong> ${hl(n.text, q)} <span class="muted">· ${linkHTML(n.link)}</span></li>`), ''));
   }
   return out.join('');
 }
 
 function timesheetHTML() {
-  return `<div class="two">${timeForm('ts', ctxLink())}<div class="card"><h2>Totals</h2><div id="time-totals">${timeTotals()}</div></div></div>
+  return `<div class="two">${timeForm('ts', ctxLink(), 'time|page')}<div class="card"><h2>Totals</h2><div id="time-totals">${timeTotals()}</div></div></div>
   <h2 class="h3">Entries</h2><div id="time-list">${timeTable()}</div>`;
 }
 function timeTotals() {
@@ -759,28 +994,64 @@ function timeTable() {
   ${S.time.map((t) => `<tr data-row="${t.id}"><td data-label="Entry"><strong>${t.id}</strong></td><td data-label="Date" class="nowrap">${t.date}</td><td data-label="Hours" class="n">${t.hours.toFixed(1)}</td><td data-label="Work">${esc(t.activity)}: ${esc(t.desc)}</td><td data-label="Billable">${t.billable ? money(t.hours * RATE) : 'No'}</td><td data-label="Linked to">${linkHTML(t.link)}</td></tr>`).join('')}
   </tbody></table></div>`;
 }
+
+/* Notes: one contextual feature (decision of 15 October 2026). The Annotations view is its home; notes are also reachable from
+   sections, originals and quick capture. Existing document-page notes and Annotations records both become notes (mapping = implementation work). */
 function annotationsHTML() {
-  return `<div class="two">${noteForm('an', ctxLink())}<div class="card"><h2>Where notes come from</h2><p class="small">Notes saved anywhere, in either variant, land here: from a section of the analysis, from a page of an original, or from quick capture.</p></div></div>
-  <h2 class="h3">All notes <span class="count" data-count="annotations_tab">${S.notes.length}</span></h2><ul class="plain list" id="notes-list">${notesList()}</ul>`;
+  return `<div class="two">${noteForm('an', ctxLink(), 'note|page')}<div class="card" id="notes-rules"><h2>How Notes work <span class="tag built">Settled decision</span></h2>
+  <ul class="small">
+   <li>One Notes feature. Every existing record is kept; each note links to the case, a document page or an analysis section.</li>
+   <li><strong>${NOTE_SHARE}</strong> (same case-permission boundary). Notes never cross to another case.</li>
+   <li>You can edit and delete your own notes. Case editors can also manage other people’s notes. Every change stays in the history. Case viewers only read.</li>
+   <li>Left out of client packet exports unless you choose them (Court Bundle).</li></ul>
+  <p class="assume"><strong>Simulation.</strong> The role switch in the prototype bar stands in for case permissions. No authorization, audit trail or storage is built or verified here; the notes live in this tab’s memory.</p></div></div>
+  <h2 class="h3">All notes <span class="count" data-count="annotations_tab">${S.notes.length}</span></h2><ul class="plain list" id="notes-list">${notesList()}</ul>
+  <h2 class="h3">History <span class="muted small">(simulated; kept after edits and deletes)</span></h2><div id="notes-audit">${auditHTML()}</div>`;
 }
-const notesList = () => S.notes.map((n) => `<li data-row="${n.id}"><strong>${n.id}</strong> ${esc(n.text)}<div class="muted small">${n.created} \u00b7 ${linkHTML(n.link)}</div></li>`).join('');
+function notesList() {
+  return S.notes.map((n) => {
+    const editing = S.editing === n.id || !!S.drafts['edit|' + n.id];
+    const body = editing
+      ? `<form class="qform" data-form="noteedit" data-draft="edit|${n.id}" novalidate aria-label="Edit note ${n.id}"><label for="ed-${n.id}">Edit ${n.id}</label><textarea id="ed-${n.id}" name="text" rows="3">${esc(S.drafts['edit|' + n.id] ? S.drafts['edit|' + n.id].vals.text : n.text)}</textarea><p class="err"></p>${draftCue('edit|' + n.id)}<div class="row"><button class="btn primary" type="submit">Save change</button><button type="button" class="btn" data-action="cancel-edit" data-id="${n.id}">Cancel</button></div></form>`
+      : `<span>${esc(n.text)}</span>`;
+    const can = canManage(n), conf = S.confirmDel === n.id;
+    const actions = editing ? '' : conf
+      ? `<div class="row" role="group" aria-label="Confirm deleting ${n.id}"><span>Delete ${n.id}? It stays in the history.</span><button type="button" class="btn" data-action="confirm-delete" data-id="${n.id}">Yes, delete</button><button type="button" class="btn" data-action="cancel-delete" data-id="${n.id}">Cancel</button></div>`
+      : can ? `<div class="row"><button type="button" class="btn" data-action="edit-note" data-id="${n.id}" aria-label="Edit note ${n.id}">Edit</button><button type="button" class="btn" data-action="delete-note" data-id="${n.id}" aria-label="Delete note ${n.id}">Delete</button></div>`
+      : `<div class="muted small">${S.role === 'viewer' ? 'Read only for case viewers.' : 'Only the author or a case editor can change this note.'}</div>`;
+    return `<li data-row="${n.id}"><strong>${n.id}</strong> ${body}<div class="muted small">${n.created}${n.edited ? ' (edited ' + n.edited + ')' : ''} · ${esc(n.by)} · ${linkHTML(n.link)} · <span class="tag built">${NOTE_SHARE}</span></div>${actions}</li>`;
+  }).join('') || '<li class="muted">No notes.</li>';
+}
+const auditHTML = () => `<ol class="plain list">${S.audit.map((a) => `<li><span class="muted small nowrap">${a.at}</span> ${esc(a.who)}: ${esc(a.what)}</li>`).join('')}</ol>`;
 
 function citedIn(key) { return SECTIONS.filter((s) => s.paras.some((p) => p.includes('{' + key + ':'))).map((s) => s.short).join('; '); }
 function packetDocs() { return Object.keys(KEY).map((k) => BYKEY[k]).filter((d) => S.packet.has(d.ref)); }
-function packetNotes() { const refs = new Set(packetDocs().map((d) => d.ref)); return S.packetNotes ? S.notes.filter((n) => n.link.startsWith('sec:') || refs.has(n.link.split(':')[1])) : []; }
-const packetSummary = () => { const d = packetDocs(); return `${d.length} documents, ${d.reduce((s, x) => s + x.pages, 0)} pages, ${packetNotes().length} notes selected`; };
+const PK_MODES = { none: 'No notes (default)', docs: 'Notes on the selected documents', analysis: 'Notes on the analysis sections', both: 'Both of those' };
+function packetNotes(mode = S.pkNotes) {
+  const refs = new Set(packetDocs().map((d) => d.ref));
+  const onDoc = (n) => n.link.startsWith('doc:') && refs.has(n.link.split(':')[1]), onSec = (n) => n.link.startsWith('sec:');
+  return mode === 'docs' ? S.notes.filter(onDoc) : mode === 'analysis' ? S.notes.filter(onSec) : mode === 'both' ? S.notes.filter((n) => onDoc(n) || onSec(n)) : [];
+}
+const packetScope = () => { const d = packetDocs(), n = packetNotes(); return `${d.length} documents, ${d.reduce((s, x) => s + x.pages, 0)} pages. Notes: ${PK_MODES[S.pkNotes].toLowerCase()}${n.length ? ' (' + n.map((x) => x.id).join(', ') + ')' : ' (0 included)'}`; };
 function packetHTML() {
   return `<p class="proto-flag"><strong>Prototype export.</strong> This writes a synthetic CSV and JSON manifest in your browser. No PDF is assembled, nothing is sent, and the full bundle editor is not built here.</p>
-  <fieldset class="card"><legend class="h3">Packet: documents cited in Matter &amp; Strategy</legend><ul class="plain list">
-  ${Object.keys(KEY).map((k) => BYKEY[k]).map((d) => `<li><label class="check"><input type="checkbox" data-packet="${d.ref}"${S.packet.has(d.ref) ? ' checked' : ''}> <span><strong>${d.ref}</strong> ${esc(d.title)} <span class="muted small">\u00b7 ${d.date} \u00b7 ${d.pages} pp \u00b7 cited in ${esc(citedIn(d.key))}</span></span></label></li>`).join('')}
-  </ul><label class="check"><input type="checkbox" id="pk-notes"${S.packetNotes ? ' checked' : ''}> <span>Include my notes on these documents and on the analysis</span></label></fieldset>
-  <p class="row"><button type="button" class="btn primary" data-action="export">Export packet manifest (prototype)</button> <span class="muted small" id="pk-summary">${packetSummary()}</span></p>
+  <fieldset class="scopebox"><legend>1. Documents in the packet (cited in Matter &amp; Strategy)</legend><ul class="plain list">
+  ${Object.keys(KEY).map((k) => BYKEY[k]).map((d) => `<li><label class="check"><input type="checkbox" data-packet="${d.ref}"${S.packet.has(d.ref) ? ' checked' : ''}> <span><strong>${d.ref}</strong> ${esc(d.title)} <span class="muted small">· ${d.date} · ${d.pages} pp · cited in ${esc(citedIn(d.key))}</span></span></label></li>`).join('')}
+  </ul></fieldset>
+  <fieldset class="scopebox"><legend>2. Notes in the packet</legend>
+  <p class="small">Notes are <strong>${NOTE_SHARE.toLowerCase()}</strong> and are <strong>left out of client packet exports</strong> unless you choose them here.</p>
+  ${Object.entries(PK_MODES).map(([k, l]) => `<label class="check"><input type="radio" name="pknotes" value="${k}"${S.pkNotes === k ? ' checked' : ''}> <span>${l} <span class="muted small">(${packetNotes(k).length} note${packetNotes(k).length === 1 ? '' : 's'})</span></span></label>`).join('')}
+  <div id="pk-notelist" class="small">${pkNoteList()}</div></fieldset>
+  <div class="scopebox" aria-live="polite"><strong>Scope you will export:</strong> <span id="pk-summary">${packetScope()}</span></div>
+  <p class="row"><button type="button" class="btn primary" data-action="export">Generate packet manifest (prototype)</button></p>
   <div id="export-out">${S.exports.length ? exportOut(S.exports[0]) : ''}</div>`;
 }
+function pkNoteList() { const n = packetNotes(); return n.length ? `<ul>${n.map((x) => `<li><strong>${x.id}</strong> ${esc(x.text)} <span class="muted">· ${esc(linkLabel(x.link))}</span></li>`).join('')}</ul><p class="assume">These notes will be in the manifest because you chose them. Check that the recipient may see them.</p>` : '<p class="muted">No notes will be included.</p>'; }
 function csvCell(v) { const s = String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
 function exportOut(x) {
-  return `<p class="confirm">Generated ${esc(x.file)} at ${x.at}: ${x.n} documents, ${x.pages} pages, ${x.notes} notes. Prototype output; synthetic data only.</p>
-  <p class="row"><a class="btn" download="${x.file}.csv" href="${x.csvUrl}">Download CSV</a> <a class="btn" download="${x.file}.json" href="${x.jsonUrl}">Download manifest JSON</a></p>
+  return `<div class="scopebox"><strong>Scope of this download (${esc(x.file)}, generated ${x.at}):</strong> ${esc(x.scope)}</div>
+  <p class="row"><a class="btn" download="${x.file}.csv" href="${x.csvUrl}">Download CSV (documents only)</a> <a class="btn" download="${x.file}.json" href="${x.jsonUrl}">Download manifest JSON${x.notes ? ' (includes ' + x.notes + ' chosen notes)' : ' (no notes)'}</a></p>
+  <p class="muted small">Prototype output; synthetic data only.</p>
   <details open><summary>CSV preview</summary><pre class="out">${esc(x.csv)}</pre></details>
   ${S.exports.length > 1 ? `<p class="muted small">Earlier exports this session: ${S.exports.slice(1).map((e) => esc(e.file)).join(', ')}</p>` : ''}`;
 }
@@ -791,22 +1062,28 @@ function deadlinesHTML() {
   </tbody></table></div><p class="muted small">Days are counted from today, ${TODAY}.</p>`;
 }
 
+/* Submissions & publication: three separate facts (what was sent, how far it has got, what is published). Processing is manual,
+   so there is deliberately no percentage. Operator actions are shown in a walled-off simulation box. */
 function intakeHTML() {
-  const { stage, pct } = S.intake, final = stage >= STAGES.length - 1;
-  const doneFiles = stage > 2 ? 58 : stage === 2 ? Math.floor(58 * pct / 100) : 0;
-  const fileState = (i) => i < doneFiles ? (i % 19 === 7 ? '<span class="tag warn">Needs a manual read</span>' : 'Text read') : (stage === 2 && i < doneFiles + 2 ? 'Extracting text' : (stage < 2 || stage === 2 ? 'Queued' : 'Text read'));
-  return `<div class="plan-flag"><strong>Planned hosted capability, simulated.</strong> In the hosted product clients upload here and watch processing. This prototype invents the submissions; nothing is uploaded or processed. Scope: ${esc(VBY.hosted_intake.scope)}</div>
-  <div class="card"><h2>Submission S-4 \u00b7 received 2026-10-14 \u00b7 58 files</h2>
-   <ol class="stages" aria-label="Processing stages">${STAGES.map((s, i) => `<li class="${i < stage || final ? 'done' : i === stage ? 'now' : ''}">${i < stage || final ? '\u2713 ' : ''}${esc(s)}${i === stage && !final ? ` ${pct}%` : ''}${i === stage && !final ? '<span class="vh"> (current)</span>' : ''}</li>`).join('')}</ol>
-   <p>${final ? 'Ready to publish. An operator would now review and publish Results v4 (not simulated).' : `Current stage: <strong>${esc(STAGES[stage])}</strong>, ${pct}%.`}</p>
-   <p class="row"><button type="button" class="btn" data-action="advance-intake"${final ? ' disabled' : ''}>Advance the simulation</button> <span class="muted small">Prototype only: moves the invented progress forward.</span></p></div>
+  const st = S.sub.step, done = st >= 4, act = S.versions.find((v) => v.id === S.active);
+  const proc = st < 3 ? 'Not started. Waiting for an operator.' : st === 3 ? 'With an operator. Manual work, so no progress figure is available.' : 'Finished.';
+  return `<div class="plan-flag"><strong>Planned hosted capability, simulated.</strong> In the hosted product you upload files and see what has happened to them. This prototype invents the submissions; nothing is uploaded or processed. Scope: ${esc(VBY.hosted_intake.scope)}</div>
+  <div class="axes">
+   <div class="card"><h2>Submission</h2><p><strong>${esc(st >= 1 ? 'Finalized' : 'Uploading')}</strong> · S-4, ${S.sub.files} files</p><p class="small">Input revision <code>${S.sub.rev}</code></p></div>
+   <div class="card"><h2>Processing</h2><p><strong>${esc(done ? 'Finished' : subStep())}</strong></p><p class="small">${proc}</p></div>
+   <div class="card"><h2>Publication</h2><p><strong>Results ${act.id} active</strong> · ${esc(act.date)}</p><p class="small">${done ? 'S-4 was published as Results ' + act.id + '.' : 'S-4 is not published yet. You keep seeing Results ' + act.id + '.'}</p></div>
+  </div>
+  <h2 class="h3">What happened to S-4</h2>
+  <ol class="tl" aria-label="Submission S-4 history">${SUB_STEPS.map((s, i) => { const e = [...S.sub.log].reverse().find((l) => l.step === i); return `<li class="${e ? '' : 'pending'}"><span class="when">${e ? esc(e.at) : 'Not yet'}</span><span>${e ? '<strong>' + esc(s) + '</strong> · ' + esc(e.note) : esc(s)}</span></li>`; }).join('')}</ol>
+  <div class="opsim"><h2>Operator actions (simulated, private)</h2><p class="small">A client cannot do these. They are here only so the study can see what the client sees afterwards. The real operator import, preview and sign-off live in a separate operator console (see All tools).</p>
+   <p class="row"><button type="button" class="btn" data-action="advance-sub"${st !== 2 ? ' disabled' : ''}>Operator starts processing</button> <button type="button" class="btn" data-action="advance-sub"${st !== 3 ? ' disabled' : ''}>Operator signs off and publishes Results v4</button></p></div>
   <h2 class="h3">Earlier submissions</h2>
-  <div class="table-scroll" role="region" aria-label="Earlier submissions" tabindex="0"><table class="t stack"><thead><tr><th scope="col">Submission</th><th scope="col">Received</th><th scope="col" class="n">Files</th><th scope="col">State</th></tr></thead><tbody>
-  ${SUBMISSIONS.map((s) => `<tr><td data-label="Submission">${s.id}</td><td data-label="Received">${s.date}</td><td data-label="Files" class="n">${fmtN(s.files)}</td><td data-label="State">${esc(s.state)}</td></tr>`).join('')}
+  <div class="table-scroll" role="region" aria-label="Earlier submissions" tabindex="0"><table class="t stack"><thead><tr><th scope="col">Submission</th><th scope="col">Received</th><th scope="col" class="n">Files</th><th scope="col">Published as</th><th scope="col">Published on</th></tr></thead><tbody>
+  ${SUBMISSIONS.map((s) => `<tr><td data-label="Submission">${s.id}</td><td data-label="Received">${s.date}</td><td data-label="Files" class="n">${fmtN(s.files)}</td><td data-label="Published as">Results ${s.pub}</td><td data-label="Published on">${s.pubDate}</td></tr>`).join('')}
   </tbody></table></div>
   <h2 class="h3">S-4 files</h2>
   <div class="table-scroll" role="region" aria-label="Files in submission S-4" tabindex="0"><table class="t stack"><thead><tr><th scope="col">File</th><th scope="col">State</th></tr></thead><tbody>
-  ${S4_FILES.map((f, i) => `<tr><td data-label="File">${esc(f)}</td><td data-label="State">${fileState(i)}</td></tr>`).join('')}
+  ${S4_FILES.map((f) => `<tr><td data-label="File">${esc(f)}</td><td data-label="State">${st < 3 ? 'Received' : st === 3 ? 'With the operator' : 'Published in Results ' + act.id}</td></tr>`).join('')}
   </tbody></table></div>`;
 }
 
@@ -814,54 +1091,72 @@ function placeholderHTML(v) {
   const near = VIEWS.filter((x) => (S.variant === 'A' ? x.topic === v.topic : x.task === v.task) && x.id !== v.id);
   return `<div class="ph-box"><p><strong>Summary placeholder.</strong> ${esc(v.label)} is one of the 42 views (v5 id <code>${v.id}</code>). This prototype shows where it sits and how you reach it, not its content.</p>
   <dl class="kv"><dt>What it holds</dt><dd>${esc(v.blurb)}</dd><dt>Synthetic size</dt><dd>${v.count == null ? 'not a list' : fmtN(v.count) + ' rows'}</dd><dt>v5 group</dt><dd>${esc(v.group)}</dd><dt>Variant A topic</dt><dd>${esc(topicLabel(v.topic))}</dd><dt>Variant B task</dt><dd>${esc(taskLabel(v.task))}</dd></dl>
-  <p>Nearby in this ${S.variant === 'A' ? 'topic' : 'task'}: ${near.map((x) => `<a href="${href(x.id)}" data-nav="${x.id}">${esc(x.label)}</a>`).join(' \u00b7 ')}</p>
-  <p><button type="button" class="btn" data-action="note-here" data-link="view:${v.id}">Add a note about ${esc(v.label)}</button></p>
-  <div class="inline-slot" id="${slotId('view:' + v.id)}"></div></div>`;
+  <p>Nearby in this ${S.variant === 'A' ? 'topic' : 'task'}: ${near.map((x) => `<a href="${href(x.id)}" data-nav="${x.id}">${esc(x.label)}</a>`).join(' · ')}</p>
+  <p><button type="button" class="linkbtn" data-action="note-here" data-link="view:${v.id}" aria-expanded="${!!S.drafts['note|view:' + v.id]}">Add a note about ${esc(v.label)}</button></p>
+  <div class="inline-slot" id="${slotId('view:' + v.id)}">${slotHTML('view:' + v.id)}</div></div>`;
 }
 function plannedHTML(p) {
+  if (p.operator) return `<div class="opbox"><p><strong>Planned, operator only. Private, and not part of client navigation.</strong> ${esc(p.blurb)}</p><dl class="kv"><dt>Scope today</dt><dd>${esc(p.scope)}</dd><dt>Where it lives</dt><dd>A separate operator console behind its own sign-in. Neither variant lists it; it appears in All tools only so the separation can be reviewed.</dd></dl></div>`;
+  const home = p.kind === 'platform' ? 'outside any one case (account and firm level)' : S.variant === 'A' ? 'sidebar group “Hosted · planned”' : `the ${taskLabel(p.task)} task, marked Planned`;
   return `<div class="plan-flag"><strong>Planned hosted capability. It does not work in this prototype.</strong> ${esc(p.blurb)}</div>
-  <dl class="kv"><dt>Scope today</dt><dd>${esc(p.scope)}</dd><dt>Where it would live</dt><dd>Variant A: sidebar group \u201cHosted \u00b7 planned\u201d. Variant B: the ${esc(taskLabel(p.task))} task.</dd></dl>`;
+  <dl class="kv"><dt>Scope today</dt><dd>${esc(p.scope)}</dd><dt>Where it would live</dt><dd>Variant A: ${p.kind === 'platform' ? 'sidebar group “Account &amp; firm · planned”' : 'sidebar group “Hosted · planned”'}. Variant B: the ${esc(taskLabel(p.task))} task, marked Planned. ${p.kind === 'platform' ? 'It is ' + home + '.' : ''}</dd></dl>`;
 }
 
 function catalogGroups() {
-  const planned = (pred) => PLANNED.filter(pred);
+  const cases = PLANNED.filter((p) => p.kind === 'case'), plat = PLANNED.filter((p) => p.kind === 'platform');
   return S.variant === 'A'
-    ? [...TOPICS.map((t) => ({ label: t.label, items: VIEWS.filter((v) => v.topic === t.key) })), { label: 'Hosted \u00b7 planned', items: PLANNED }]
-    : TASKS.map((t) => ({ label: `${t.label} \u00b7 ${t.sub}`, items: [...VIEWS.filter((v) => v.task === t.key), ...planned((p) => p.task === t.key)] }));
+    ? [...TOPICS.map((t) => ({ label: t.label, items: VIEWS.filter((v) => v.topic === t.key) })), { label: 'Hosted · planned', items: cases }, { label: 'Account & firm · planned', items: plat }]
+    : TASKS.map((t) => ({ label: `${t.label} · ${t.sub}`, items: [...VIEWS.filter((v) => v.task === t.key), ...PLANNED.filter((p) => p.task === t.key)] }));
 }
 function catalogHTML() {
-  return `<form class="filters" data-form="noop" role="search" aria-label="Filter all tools"><label for="cat-q" class="grow">Filter ${VIEWS.length} views and ${PLANNED.length} planned capabilities<input id="cat-q" type="search" value="${esc(S.catalogQ)}" placeholder="e.g. interest, privilege, witness" autocomplete="off"></label></form>
-  <p class="muted small">Grouped the way Variant ${S.variant} groups them (${S.variant === 'A' ? 'by topic' : 'by task'}).</p><div id="cat-list">${catalogList()}</div>`;
+  return `<form class="filters" data-form="noop" role="search" aria-label="Filter all tools"><label for="cat-q" class="grow">Filter ${VIEWS.length} views, ${PLANNED.length} planned capabilities and ${OPS.length} operator surfaces<input id="cat-q" type="search" value="${esc(S.catalogQ)}" placeholder="e.g. interest, privilege, witness, email" autocomplete="off"></label></form>
+  <p class="muted small">Grouped the way Variant ${S.variant} groups them (${S.variant === 'A' ? 'by topic' : 'by task'}). The 42 v5 views are the parity target; planned items come from the production route map and V2 plans and are not counted in the 42.</p><div id="cat-list">${catalogList()}</div>`;
 }
 function catalogList() {
-  const q = S.catalogQ.trim().toLowerCase();
+  const q = S.catalogQ.trim().toLowerCase(), m = (v) => !q || `${v.id} ${v.label} ${v.blurb}`.toLowerCase().includes(q);
+  const row = (v) => `<li><a href="${href(v.id)}" data-nav="${v.id}">${esc(v.label)}</a><span>${stateTag(v)}</span><span class="muted small">${esc(v.blurb)} <code>${v.id}</code></span></li>`;
   const html = catalogGroups().map((g) => {
-    const items = g.items.filter((v) => !q || `${v.id} ${v.label} ${v.blurb}`.toLowerCase().includes(q));
-    return items.length ? `<section class="cat-group"><h2>${esc(g.label)} <span class="count">${items.length}</span></h2><ul class="plain cat-list">${items.map((v) => `<li><a href="${href(v.id)}" data-nav="${v.id}">${esc(v.label)}</a><span>${stateTag(v)}</span><span class="muted small">${esc(v.blurb)} <code>${v.id}</code></span></li>`).join('')}</ul></section>` : '';
+    const items = g.items.filter(m);
+    return items.length ? `<section class="cat-group"><h2>${esc(g.label)} <span class="count">${items.length}</span></h2><ul class="plain cat-list">${items.map(row).join('')}</ul></section>` : '';
   }).join('');
-  return html || '<p class="muted">No tool matches.</p>';
+  const ops = OPS.filter(m);
+  const opHtml = ops.length ? `<section class="opbox"><h2>Operator console · planned, private <span class="count">${ops.length}</span></h2><p class="small">Separate from client navigation: neither variant lists these. Shown here only so reviewers can see where operator work lives.</p><ul class="plain cat-list">${ops.map(row).join('')}</ul></section>` : '';
+  return (html + opHtml) || '<p class="muted">No tool matches.</p>';
 }
 
 /* ====================================================================================================
-   Variant A: topic sidebar. Every resource is listed by topic in a persistent sidebar; a view with sections
-   gets an "On this page" rail. Notes and time live in their own resources (and notes inline on a section).
+   Variant A: topic sidebar. Every resource is listed by topic in a persistent sidebar, but only the group you are in is open;
+   a filter finds the rest. A view with sections gets an "On this page" rail. Notes and time live in their own resources.
    ==================================================================================================== */
 function navLinkA(v) {
   const ph = !v.built && !v.planned && !v.catalog;
   return `<a href="${href(v.id)}" data-nav="${v.id}"${S.view === v.id ? ' aria-current="page"' : ''}><span>${esc(v.label)}${ph ? '<span class="phm" aria-hidden="true"> \u00b7</span><span class="vh"> (summary placeholder)</span>' : ''}${v.planned ? '<span class="vh"> (planned)</span>' : ''}</span><span class="count" data-count="${v.id}">${countOf(v)}</span></a>`;
 }
+function groupsA() {
+  return [...TOPICS.map((t) => ({ key: t.key, label: t.label, items: VIEWS.filter((x) => x.topic === t.key) })),
+    { key: 'planned', label: 'Hosted \u00b7 planned', planned: true, items: PLANNED.filter((p) => p.kind === 'case') },
+    { key: 'account', label: 'Account & firm \u00b7 planned', planned: true, items: PLANNED.filter((p) => p.kind === 'platform') }];
+}
+function navListA() {
+  const q = S.navQ.trim().toLowerCase(), cur = VBY[S.view].topic;
+  const match = (v) => !q || `${v.label} ${v.id} ${v.blurb}`.toLowerCase().includes(q);
+  const groups = groupsA().map((g) => {
+    const items = g.items.filter(match);
+    if (!items.length) return '';
+    const open = q ? true : g.key === cur || S.navOpen.has(g.key);
+    return `<details data-grp="${g.key}" class="${g.key === cur ? 'cur' : ''}${g.planned ? ' planned' : ''}"${open ? ' open' : ''}><summary><span>${esc(g.label)}</span><span class="count">${items.length}${q ? ' of ' + g.items.length : ''}</span></summary><ul>${items.map((x) => `<li>${navLinkA(x)}</li>`).join('')}</ul></details>`;
+  }).join('');
+  const all = !q || 'all tools catalogue'.includes(q) ? `<p class="side-all">${navLinkA(CATALOG).replace('<span class="count" data-count="catalog"></span>', `<span class="count">${VIEWS.length + PLANNED.length}</span>`)}</p>` : '';
+  return all + (groups || `<p class="nomatch muted">No destination matches \u201c${esc(S.navQ)}\u201d. <button type="button" class="linkbtn" data-action="clear-nav-q">Clear the filter</button></p>`);
+}
 function shellA() {
   const v = VBY[S.view];
-  const groups = TOPICS.map((t) => {
-    const items = VIEWS.filter((x) => x.topic === t.key);
-    return `<details open><summary><span>${esc(t.label)}</span><span class="count">${items.length}</span></summary><ul>${items.map((x) => `<li>${navLinkA(x)}</li>`).join('')}</ul></details>`;
-  }).join('');
   const body = S.view === 'matter'
     ? `<div class="a-withtoc"><div>${viewBody('matter')}</div><nav class="a-toc" aria-label="On this page"><h2>On this page</h2><ol class="plain">${SECTIONS.map((s) => `<li><a href="#sec-${s.id}" data-section="${s.id}"${S.section === s.id ? ' aria-current="true"' : ''}>${esc(s.short)}</a></li>`).join('')}</ol></nav></div>`
     : viewBody(S.view);
   return `<a class="skip" href="#main">Skip to content</a>
   <header class="a-top" id="hdr">
-    <div class="a-id"><div class="t1"><button type="button" class="btn a-menu" data-action="drawer" aria-expanded="${S.drawer}" aria-controls="a-side">Menu</button><span class="brand">ClearCase</span><span class="proto-tag">PROTOTYPE \u00b7 SYNTHETIC</span><span class="case-name"><span class="full">${esc(CASE.name)}</span><span class="short">${esc(CASE.short)}</span></span></div>
+    <div class="a-id"><div class="t1"><button type="button" class="btn a-menu" data-action="drawer" aria-expanded="${S.drawer}" aria-controls="a-side" aria-haspopup="dialog">Menu</button><span class="brand">ClearCase</span><span class="proto-tag">PROTOTYPE \u00b7 SYNTHETIC</span><span class="case-name"><span class="full">${esc(CASE.name)}</span><span class="short">${esc(CASE.short)}</span></span></div>
     <div class="meta">${caseMeta()}</div></div>
     <div class="livechips" data-live="chips">${chipsInner()}</div>
     ${searchForm()}
@@ -869,34 +1164,36 @@ function shellA() {
   <div class="a-body">
     <nav id="a-side" class="a-side${S.drawer ? ' open' : ''}" aria-label="Case resources by topic">
       <div class="drawer-head"><strong>Case resources</strong><button type="button" class="btn" data-action="close-drawer">Close menu</button></div>
-      <p class="side-all">${navLinkA(CATALOG).replace('<span class="count" data-count="catalog"></span>', `<span class="count">${VIEWS.length + PLANNED.length}</span>`)}</p>
-      ${groups}
-      <details open class="planned"><summary><span>Hosted \u00b7 planned</span><span class="count">${PLANNED.length}</span></summary><ul>${PLANNED.map((x) => `<li>${navLinkA(x)}</li>`).join('')}</ul></details>
+      <div class="side-filter"><label class="vh" for="nav-q">Filter ${VIEWS.length + PLANNED.length} destinations</label><input id="nav-q" type="search" placeholder="Filter ${VIEWS.length + PLANNED.length} destinations" value="${esc(S.navQ)}" autocomplete="off"></div>
+      <div id="a-nav-list">${navListA()}</div>
     </nav>
-    <div class="a-scrim${S.drawer ? ' open' : ''}" data-action="close-drawer" aria-hidden="true"></div>
-    <main id="main" class="a-main" tabindex="-1">${pageHead(v)}${body}</main>
+    <main id="main" class="a-main" tabindex="-1">${bannerBox()}${pageHead(v)}${body}</main>
   </div>`;
 }
 
 /* ====================================================================================================
-   Variant B: task-led case desk. Seven tasks are the top level; the task's tools sit in a strip; a context rail
-   beside the work changes with the task; quick capture (note or time) is one button away everywhere.
+   Variant B: task-led case desk. Seven tasks are the top level; the task's tools sit in a strip that wraps (phone: a disclosure);
+   a context rail beside the work (phone: a disclosure at the top of the work); quick capture is one button away everywhere.
    ==================================================================================================== */
 function toolChip(v) {
   const ph = !v.built && !v.planned;
-  return `<a class="tchip${v.planned ? ' planned' : ''}" href="${href(v.id)}" data-nav="${v.id}"${S.view === v.id ? ' aria-current="page"' : ''}>${esc(v.label)}${ph ? '<span class="phm" aria-hidden="true">\u00b7</span><span class="vh"> (summary placeholder)</span>' : ''}${v.planned ? '<span class="vh"> (planned)</span>' : ''}<span class="count" data-count="${v.id}">${countOf(v)}</span></a>`;
+  return `<a class="tchip${v.planned ? ' planned' : ''}" href="${href(v.id)}" data-nav="${v.id}"${S.view === v.id ? ' aria-current="page"' : ''}>${esc(v.label)}${ph ? '<span class="phm" aria-hidden="true">\u00b7</span><span class="vh"> (summary placeholder)</span>' : ''}${v.planned ? '<span class="pl">Planned</span>' : ''}<span class="count" data-count="${v.id}">${countOf(v)}</span></a>`;
 }
 function issueStepper() {
   return `<nav class="b-issues" aria-label="Sections of the analysis">${SECTIONS.map((s) => `<button type="button" class="tchip" data-section="${s.id}"${S.section === s.id ? ' aria-current="true"' : ''}>${esc(s.short)}</button>`).join('')}</nav>`;
 }
+function ctxTitle(v) {
+  if (v.task === 'argue') { const sec = v.id === 'matter' ? SEC_BY[S.section] : null; return sec ? `Evidence and notes for ${sec.short}` : `Evidence cited in Matter & Strategy`; }
+  return `Quick capture and context for ${taskLabel(v.task)}`;
+}
 function contextB(v) {
   const card = (title, body) => `<section class="card"><h2>${title}</h2>${body}</section>`;
   const capture = card('Quick capture', `<div class="row"><button type="button" class="btn primary" data-action="capture" data-kind="note">Note</button><button type="button" class="btn" data-action="capture" data-kind="time">Log time</button></div><p class="muted small">Links to: <span data-live="ctx">${esc(linkLabel(ctxLink()))}</span></p>`);
-  const proc = card('Processing', `<p><a href="${href('hosted_intake')}" data-nav="hosted_intake">${esc(procLabel())}</a> <span class="tag planned">simulated</span></p>`);
+  const sub = card('Submission <span class="pl">Planned</span>', `<p><a href="${href('hosted_intake')}" data-nav="hosted_intake">${esc(subLabel(false))}</a></p><p class="muted small">Simulated. Results ${S.active} is active.</p>`);
   switch (v.task) {
     case 'desk': {
       const nd = nextDeadline();
-      return card('Needs attention', `<ul><li><a href="${href('deadlines_tab')}" data-nav="deadlines_tab">${esc(nd[1])}</a>, ${daysTo(nd[0])} days</li><li><a href="${href('documents')}" data-nav="documents" data-preset="docs-manual">${MANUAL_COUNT} documents need a manual read</a></li><li><a href="${href('info_required_tab')}" data-nav="info_required_tab">7 items of information required</a></li><li>${money(unbilled())} unbilled</li></ul>`) + capture + proc;
+      return card('Needs attention', `<ul><li><a href="${href('deadlines_tab')}" data-nav="deadlines_tab">${esc(nd[1])}</a>, ${daysTo(nd[0])} days</li><li><a href="${href('documents')}" data-nav="documents" data-preset="docs-manual">${MANUAL_COUNT} documents need a manual read</a></li><li><a href="${href('info_required_tab')}" data-nav="info_required_tab">7 items of information required</a></li><li>${money(unbilled())} unbilled</li></ul>`) + capture + sub;
     }
     case 'find':
       return card('Jump to', `<ul>${Object.entries(ISSUES).map(([k, l]) => `<li><a href="${href('chronology')}" data-nav="chronology" data-preset="chrono-${k}">Chronology, issue ${k}: ${esc(l)}</a></li>`).join('')}<li><a href="${href('documents')}" data-nav="documents" data-preset="docs-manual">Documents needing a manual read</a></li></ul>`)
@@ -906,44 +1203,62 @@ function contextB(v) {
       const secs = sec ? [sec] : SECTIONS;
       const refs = [...new Set(secs.flatMap((s) => s.paras.join(' ').match(/\{K\d:\d+\}/g) || []))];
       const notes = S.notes.filter((n) => sec ? n.link === 'sec:' + sec.id : n.link.startsWith('sec:'));
-      return card(sec ? `Evidence for \u201c${esc(sec.short)}\u201d` : 'Evidence cited in the analysis', `<ul class="plain list">${refs.map((r) => { const [, k, p] = r.match(/\{(K\d):(\d+)\}/); return `<li>${cite(BYKEY[k].ref, Number(p))} <span class="small">${esc(BYKEY[k].title)}</span></li>`; }).join('') || '<li class="muted">No citations in this section.</li>'}</ul>`)
+      const t = sec ? `Evidence for \u201c${esc(sec.short)}\u201d` : 'Evidence cited in Matter &amp; Strategy';
+      return card(t, (sec || v.id === 'matter' ? '' : `<p class="muted small">Not specific to ${esc(v.label)}.</p>`) + `<ul class="plain list">${refs.map((r) => { const [, k, p] = r.match(/\{(K\d):(\d+)\}/); return `<li>${cite(BYKEY[k].ref, Number(p))} <span class="small">${esc(BYKEY[k].title)}</span></li>`; }).join('') || '<li class="muted">No citations in this section.</li>'}</ul>`)
         + card(`Notes ${sec ? 'on this section' : 'on the analysis'} (${notes.length})`, notes.length ? `<ul>${notes.map((n) => `<li><strong>${n.id}</strong> ${esc(n.text)}</li>`).join('')}</ul>` : '<p class="muted small">None yet.</p>') + capture;
     }
     case 'numbers':
       return card('Key figures', `<dl class="kv"><dt>Demurrage</dt><dd>${money(161700)}</dd><dt>Storage set off</dt><dd>${money(412880)}</dd><dt>Net claimed</dt><dd>${money(1184220)}</dd></dl><p class="muted small">From Matter &amp; Strategy, Quantum.</p>`) + capture;
     case 'prepare':
-      return card('Packet', `<p>${esc(packetSummary())}</p><p><a class="btn" href="${href('court_bundle_tab')}" data-nav="court_bundle_tab">Open packet export</a></p>`)
+      return card('Packet', `<p>${esc(packetScope())}</p><p><a class="btn" href="${href('court_bundle_tab')}" data-nav="court_bundle_tab">Open packet export</a></p>`)
         + card('Coming up', `<ul>${DEADLINES.filter((d) => d[0] >= TODAY).slice(0, 3).map((d) => `<li>${d[0]}: ${esc(d[1])}</li>`).join('')}</ul>`) + capture;
     case 'record':
       return card('Today', `<p><span data-live="today">${todayHours().toFixed(1)} h</span> logged \u00b7 <span data-live="unbilled">${money(unbilled())}</span> unbilled</p>`)
         + card('Latest', `<ul>${[...S.time.slice(0, 2).map((t) => `${t.id}: ${t.hours.toFixed(1)} h ${esc(t.desc)}`), ...S.notes.slice(0, 2).map((n) => `${n.id}: ${esc(n.text)}`)].map((x) => `<li>${x}</li>`).join('')}</ul>`) + capture;
-    case 'admin':
-      return proc + card('Planned hosted, admin', `<ul>${PLANNED.filter((p) => p.task === 'admin').map((p) => `<li><a href="${href(p.id)}" data-nav="${p.id}">${esc(p.label)}</a></li>`).join('')}</ul>`) + capture;
+    case 'system':
+      return card('Planned, firm and account', `<ul>${PLANNED.filter((p) => p.task === 'system').map((p) => `<li><a href="${href(p.id)}" data-nav="${p.id}">${esc(p.label)}</a> <span class="pl">Planned</span></li>`).join('')}</ul>`) + capture;
     default:
-      return capture + proc;
+      return capture + sub;
   }
 }
 function shellB() {
   const v = VBY[S.view];
   const tools = v.task ? [...VIEWS.filter((x) => x.task === v.task), ...PLANNED.filter((x) => x.task === v.task)] : [];
-  const inMore = !v.task || ['numbers', 'prepare', 'record', 'admin'].includes(v.task);
+  const inMore = !v.task || ['numbers', 'prepare', 'record', 'system'].includes(v.task);
+  const row = tools.map(toolChip).join('');
+  const toolsHTML = v.task
+    ? `<div class="tools-desk"><p class="tl-label">${esc(taskLabel(v.task))} tools (${tools.length})</p><div class="tools-row">${row}</div></div><details class="tools-phone"><summary>${esc(taskLabel(v.task))} tools (${tools.length}) \u00b7 now: ${esc(v.label)}</summary><div class="tools-row">${row}</div></details>`
+    : `<span class="muted">Every destination, grouped by task. <a href="${href('overview')}" data-nav="overview">Back to the desk</a></span>`;
+  const ctx = contextB(v);
   return `<a class="skip" href="#main">Skip to content</a>
   <header class="b-top" id="hdr">
-    <div class="b-id"><span class="brand">ClearCase</span> <span class="proto-tag">PROTOTYPE \u00b7 SYNTHETIC</span><div class="case-name">${esc(CASE.name)}</div><div class="meta">${caseMeta()}</div></div>
-    <div class="livechips" data-live="chips">${chipsInner()}</div>
+    <div class="b-id"><div><span class="brand">ClearCase</span> <span class="proto-tag">PROTOTYPE \u00b7 SYNTHETIC</span><div class="case-name"><span class="full">${esc(CASE.name)}</span><span class="short">${esc(CASE.short)}</span></div></div><div class="meta">${caseMeta()}</div></div>
+    <div class="livechips b-chips-d" data-live="chips">${chipsInner()}</div>
     ${searchForm()}
   </header>
+  <div class="b-status"><div class="livechips" data-live="chips">${chipsInner()}</div></div>
   <nav class="b-taskrow" id="b-taskrow" aria-label="Tasks">${TASKS.map((t) => `<button type="button" class="b-task" data-task="${t.key}"${v.task === t.key ? ' aria-current="page"' : ''}><b>${t.label}</b><span>${t.sub}</span></button>`).join('')}<a class="b-task b-all" href="${href('catalog')}" data-nav="catalog"${v.catalog ? ' aria-current="page"' : ''}><b>All tools</b><span>${VIEWS.length + PLANNED.length} destinations</span></a></nav>
-  <nav class="b-tools" id="b-tools" aria-label="${v.task ? esc(taskLabel(v.task)) + ' tools' : 'Tools'}">${v.task ? tools.map(toolChip).join('') : `<span class="muted">Every destination, grouped by task. <a href="${href('overview')}" data-nav="overview">Back to the desk</a></span>`}</nav>
-  <div class="b-work"><main id="main" class="b-main" tabindex="-1">${pageHead(v)}${S.view === 'matter' ? issueStepper() : ''}${viewBody(S.view)}</main>
-  <aside class="b-context" id="b-context" aria-label="Tools for this task">${contextB(v)}</aside></div>
+  <nav class="b-tools" id="b-tools" aria-label="${v.task ? esc(taskLabel(v.task)) + ' tools' : 'Tools'}">${toolsHTML}</nav>
+  <div class="b-work"><main id="main" class="b-main" tabindex="-1">${bannerBox()}${pageHead(v)}${S.view === 'matter' ? issueStepper() : ''}
+    <details class="ctx-m"><summary id="ctx-m-sum">${esc(ctxTitle(v))}</summary><div class="ctx-body" id="b-context-mb">${ctx}</div></details>${viewBody(S.view)}</main>
+  <aside class="b-context" id="b-context" aria-label="${esc(ctxTitle(v))}">${ctx}</aside></div>
   <button type="button" class="b-fab" data-action="capture" data-kind="note" aria-haspopup="dialog">+ Capture note or time</button>
-  <nav class="b-bottom" aria-label="Tasks">${['desk', 'find', 'argue'].map((k) => `<button type="button" data-task="${k}"${v.task === k ? ' aria-current="page"' : ''}>${taskLabel(k)}</button>`).join('')}<button type="button" class="cap" data-action="capture" data-kind="note" aria-haspopup="dialog">+ Capture</button><button type="button" data-action="more" aria-expanded="${S.more}" aria-controls="b-more"${inMore ? ' aria-current="page"' : ''}>More${inMore && v.task ? ' \u00b7 ' + taskLabel(v.task) : ''}</button></nav>
-  <div class="b-sheet" id="b-more" role="dialog" aria-labelledby="more-h"${S.more ? '' : ' hidden'}>
-    <div class="sheet-head"><h2 id="more-h">All tasks</h2><button type="button" class="btn" data-action="more">Close</button></div>
+  <nav class="b-bottom" aria-label="Tasks">${['desk', 'find', 'argue'].map((k) => `<button type="button" data-task="${k}"${v.task === k ? ' aria-current="page"' : ''}>${taskLabel(k)}</button>`).join('')}<button type="button" class="cap" data-action="capture" data-kind="note" aria-haspopup="dialog">+ Capture</button><button type="button" data-action="more" aria-expanded="${S.more}" aria-controls="b-more" aria-haspopup="dialog"${inMore ? ' aria-current="page"' : ''}>More${inMore && v.task ? ' \u00b7 ' + taskLabel(v.task) : ''}</button></nav>
+  <div class="b-sheet" id="b-more" role="dialog" aria-modal="false" aria-labelledby="more-h"${S.more ? '' : ' hidden'}>
+    <div class="sheet-head"><h2 id="more-h">All tasks</h2><button type="button" class="btn" data-action="close-more">Close</button></div>
     <ul class="plain more-list">${TASKS.map((t) => `<li><button type="button" class="btn" data-task="${t.key}"><strong>${t.label}</strong><span class="muted small">${t.sub} \u00b7 ${VIEWS.filter((x) => x.task === t.key).length + PLANNED.filter((x) => x.task === t.key).length} tools</span></button></li>`).join('')}
     <li><a class="btn" href="${href('catalog')}" data-nav="catalog"><strong>All tools</strong><span class="muted small">${VIEWS.length} views, ${PLANNED.length} planned</span></a></li></ul>
   </div>`;
+}
+function setRail(v) {
+  const html = contextB(v), keep = document.activeElement && document.activeElement.closest && document.activeElement.closest('#b-context,#b-context-mb') ? describe(document.activeElement) : null;
+  const rail = $('#b-context'); if (!rail) return;
+  if (rail.dataset.sig === html) return;
+  rail.dataset.sig = html; rail.innerHTML = html;
+  const mb = $('#b-context-mb'); if (mb) mb.innerHTML = html;
+  const sum = $('#ctx-m-sum'); if (sum) sum.textContent = ctxTitle(v);
+  rail.setAttribute('aria-label', ctxTitle(v));
+  if (keep) { const el = findByDesc(keep); if (el) el.focus({ preventScroll: true }); }
 }
 function renderCapture() {
   const el = $('#capture');
@@ -951,12 +1266,113 @@ function renderCapture() {
   const link = S.capLink || ctxLink();
   el.hidden = false;
   el.innerHTML = `<div class="cap-head"><h2 id="cap-h" class="h3">Quick capture</h2><div class="row" role="group" aria-label="What to capture"><button type="button" class="btn${S.capture === 'note' ? ' on' : ''}" aria-pressed="${S.capture === 'note'}" data-action="capture" data-kind="note">Note</button><button type="button" class="btn${S.capture === 'time' ? ' on' : ''}" aria-pressed="${S.capture === 'time'}" data-action="capture" data-kind="time">Time</button></div><button type="button" class="btn" data-action="close-capture" aria-label="Close quick capture">\u2715</button></div>
-  ${S.capture === 'note' ? noteForm('cap', link) : timeForm('cap', link)}`;
+  ${S.capture === 'note' ? noteForm('cap', link, S.capKey) : timeForm('cap', link, 'time|capture')}`;
 }
 
 /* ====================================================================================================
-   Shared viewer: the simulated original opens beside the work and returns to the citation on close.
+   Overlays. One shared mechanism for the original viewer, quick capture, More and the A drawer:
+   - on a phone they are modal sheets, one at a time, and the page behind is inert while one is open;
+   - on a desktop the viewer is a pane beside the work (history-tracked) and capture is a floating panel; neither is modal;
+   - the browser Back button closes the open viewer or sheet before it leaves the page;
+   - closing returns focus to the control that opened it, found again by what it is, not by an id that a re-render replaced.
    ==================================================================================================== */
+const OVERLAYS = ['viewer', 'capture', 'more', 'drawer'];
+const isOpen = (n) => n === 'viewer' ? !!S.viewer : n === 'capture' ? !!S.capture : n === 'more' ? S.more : S.drawer;
+const ovEl = (n) => ({ viewer: $('#viewer'), capture: $('#capture'), more: $('#b-more'), drawer: $('#a-side') })[n];
+const trackedHere = (n) => n === 'viewer' || isMobile();
+const visible = (e) => {
+  if (!e || !e.getClientRects().length) return false;
+  for (let d = e.closest('details'); d; d = d.parentElement && d.parentElement.closest('details')) if (!d.open && !(e.closest('summary') && e.closest('summary').parentElement === d)) return false;
+  return true;
+};
+function regionOf(el) {
+  if (el.closest('#viewer')) return 'viewer';
+  if (el.closest('#b-context,#b-context-mb')) return 'rail';
+  const sec = el.closest('[data-secblock]'); if (sec) return 'sec-' + sec.dataset.secblock;
+  if (el.closest('.table-scroll')) return 'table';
+  return 'main';
+}
+function selOf(el) {
+  if (el.dataset.cite) return `[data-cite="${el.dataset.cite}"]`;
+  if (el.dataset.action) return `[data-action="${el.dataset.action}"]` + (el.dataset.kind ? `[data-kind="${el.dataset.kind}"]` : '') + (el.dataset.link ? `[data-link="${el.dataset.link}"]` : '');
+  if (el.dataset.nav) return `[data-nav="${el.dataset.nav}"]`;
+  return el.id ? '#' + CSS.escape(el.id) : null;
+}
+function describe(el) { const sel = selOf(el); if (!sel) return null; const region = regionOf(el); const peers = $$(sel).filter((x) => visible(x) && regionOf(x) === region); return { sel, region, idx: Math.max(0, peers.indexOf(el)) }; }
+function findByDesc(d) { if (!d) return null; const peers = $$(d.sel).filter((x) => visible(x) && regionOf(x) === d.region); return peers[d.idx] || peers[0] || null; }
+function fallbackFocus(name) {
+  const pick = (...sels) => sels.map((s) => $(s)).find(visible);
+  if (name === 'capture') return pick('.b-bottom .cap', '.b-fab');
+  if (name === 'more') return pick('.b-bottom [data-action=more]');
+  if (name === 'drawer') return pick('[data-action=drawer]');
+  return pick('#page-h1', '#main');
+}
+function restoreFocus(name) {
+  const el = findByDesc(S.openers[name]) || fallbackFocus(name);
+  if (!el) return;
+  el.focus({ preventScroll: true });
+  if (name === 'viewer') { el.scrollIntoView({ block: 'nearest' }); el.classList.remove('returned'); void el.offsetWidth; el.classList.add('returned'); }
+}
+function stashLeaving() {
+  try { history.replaceState({ ...(history.state || {}), anchor: captureAnchor(), scroll: scrollY }, '', location.href); } catch { S.noHist = true; }
+}
+function trackOverlay(name) {
+  S.ov = name;
+  if (S.noHist) return;
+  try {
+    stashLeaving();
+    if (history.state && history.state.ov) history.replaceState({ ov: name }, '', location.href); else history.pushState({ ov: name }, '', location.href);
+  } catch { S.noHist = true; }
+}
+function beginOverlay(name, opener) {
+  if (isMobile()) for (const o of OVERLAYS) if (o !== name && isOpen(o)) directClose(o, { restore: false });
+  S.openers[name] = opener ? describe(opener) : null;
+  S.openOrder = S.openOrder.filter((x) => x !== name).concat(name);
+  if (trackedHere(name)) trackOverlay(name);
+}
+function directClose(name, { restore = true } = {}) {
+  if (!isOpen(name)) return;
+  if (name === 'viewer') { var vo = S.viewer && S.viewer.origin; S.viewer = null; renderViewer(); }
+  else if (name === 'capture') { S.capture = null; renderCapture(); }
+  else if (name === 'more') { S.more = false; const m = $('#b-more'); if (m) m.hidden = true; const b = $('.b-bottom [data-action=more]'); if (b) b.setAttribute('aria-expanded', 'false'); }
+  else { S.drawer = false; const d = $('#a-side'); if (d) d.classList.remove('open'); const b = $('[data-action=drawer]'); if (b) b.setAttribute('aria-expanded', 'false'); }
+  S.openOrder = S.openOrder.filter((x) => x !== name);
+  if (S.ov === name) S.ov = null;
+  bodyClass(); syncModal(); refreshCtx();
+  if (name === 'viewer') afterViewerClosed(vo);
+  if (restore) restoreFocus(name);
+}
+function closeOverlay(name) {
+  if (!isOpen(name)) return;
+  if (S.ov === name && !S.noHist && history.state && history.state.ov === name) { history.back(); return; }
+  directClose(name);
+}
+function syncModal() {
+  for (const e of $$('[data-inert-by]')) { e.inert = false; delete e.dataset.inertBy; }
+  $('#scrim').classList.remove('open');
+  for (const n of ['viewer', 'capture', 'more']) { const e = ovEl(n); if (e) e.setAttribute('aria-modal', 'false'); }
+  const d = ovEl('drawer'); if (d) { d.removeAttribute('role'); d.removeAttribute('aria-modal'); }
+  const m = isMobile() && S.openOrder.length ? S.openOrder[S.openOrder.length - 1] : null, el = m && ovEl(m);
+  if (!el) return;
+  el.setAttribute('aria-modal', 'true');
+  if (m === 'drawer') { el.setAttribute('role', 'dialog'); el.setAttribute('aria-label', 'Case resources'); }
+  if (m !== 'viewer') $('#scrim').classList.add('open');
+  for (let n = el; n && n !== document.body; n = n.parentElement) {
+    for (const s of n.parentElement.children) if (s !== n && !s.dataset.modalOk && s.id !== 'toast' && !['SCRIPT', 'STYLE'].includes(s.tagName)) { s.inert = true; s.dataset.inertBy = '1'; }
+  }
+}
+function trapTab(e) {
+  const m = isMobile() && S.openOrder.length ? S.openOrder[S.openOrder.length - 1] : null, el = m && ovEl(m);
+  if (!el) return;
+  const f = $$('a[href],button:not([disabled]),input:not([disabled]),select,textarea,[tabindex]:not([tabindex="-1"])', el).filter(visible);
+  if (!f.length) return;
+  const first = f[0], last = f[f.length - 1];
+  if (!el.contains(document.activeElement)) { e.preventDefault(); first.focus(); }
+  else if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+}
+
+/* ---------- the original viewer ---------- */
 function pageLines(doc, p) {
   const r = rng(hash(doc.ref) * 31 + p), pk = (a) => a[Math.floor(r() * a.length)];
   const lines = Array.from({ length: 7 + Math.floor(r() * 5) }, () => `${pk(['The parties', 'Kestrel', 'The Authority', 'Ibis Stevedoring', 'The surveyor', 'Operations'])} ${pk(['recorded', 'confirmed', 'disputed', 'noted', 'requested', 'reported'])} the ${pk(SUBJECTS)} ${pk(['for', 'during', 'after', 'before'])} ${pk(VESSELS)} ${pk(['at Berth 7.', 'at anchorage.', 'in silo 4.', 'on the quay.', 'under the tariff schedule.'])}`);
@@ -966,8 +1382,15 @@ function pageLines(doc, p) {
 function originLabel(opener) {
   const sec = opener.closest('[data-secblock]');
   if (sec) return `Matter & Strategy \u00b7 ${SEC_BY[sec.dataset.secblock].short}`;
-  if (opener.closest('#b-context')) return `${VBY[S.view].label} \u00b7 task tools`;
+  if (opener.closest('#b-context,#b-context-mb')) return `${VBY[S.view].label} \u00b7 task tools`;
   return VBY[S.view].label;
+}
+function citedInLinks(d) {
+  if (!d.key) return '';
+  const secs = SECTIONS.filter((s) => s.paras.some((p) => p.includes('{' + d.key + ':')));
+  const risks = RISKS.filter((r) => r.refs.some(([k]) => k === d.key));
+  const out = [...secs.map((s) => `<a href="${href('matter')}" data-nav="matter" data-sec="${s.id}">${esc(s.short)}</a>`), ...risks.map((r) => `<a href="${href('risk_matrix_tab')}" data-nav="risk_matrix_tab" data-row="${r.id}">Risk ${r.id}</a>`)];
+  return out.length ? `<p class="small">Cited in: ${out.join(' \u00b7 ')}</p>` : '';
 }
 function renderViewer() {
   const el = $('#viewer');
@@ -980,33 +1403,46 @@ function renderViewer() {
     <div class="vw-row"><button type="button" class="btn" data-action="close-viewer">\u2190 Back to ${esc(origin ? origin.label : 'the page')}</button><button type="button" class="btn" data-action="close-viewer" aria-label="Close original">\u2715</button></div>
     <h2 id="viewer-title" tabindex="-1">${d.ref} \u00b7 ${esc(d.title)}</h2>
     <p class="muted small">${esc(d.type)} \u00b7 ${d.date} \u00b7 page ${page} of ${d.pages} \u00b7 <strong>simulated original</strong>, synthetic text, no file opened</p>
-    <div class="row"><button type="button" class="btn" data-action="viewer-prev"${page <= 1 ? ' disabled' : ''}>\u2039 Previous page</button><button type="button" class="btn" data-action="viewer-next"${page >= d.pages ? ' disabled' : ''}>Next page \u203a</button><button type="button" class="btn" data-action="viewer-note" aria-expanded="${!!noteOpen}">Note on this page</button></div>
+    ${citedInLinks(d)}
+    <div class="row"><button type="button" class="btn" data-action="viewer-prev"${page <= 1 ? ' disabled' : ''}>\u2039 Previous page</button><button type="button" class="btn" data-action="viewer-next"${page >= d.pages ? ' disabled' : ''}>Next page \u203a</button><button type="button" class="btn" data-action="viewer-note" aria-expanded="${!!noteOpen}">Note on this document</button></div>
   </div>
   <div class="vw-body"><div class="paper" role="document" aria-label="Page ${page} of ${d.ref}"><div class="lh"><span>Synthetic \u00b7 ${esc(d.type)}</span><span>${d.ref} \u00b7 p.${page}</span></div>${body}</div>
-  ${noteOpen ? `<div class="vw-note">${noteForm('vw', `doc:${ref}:${page}`)}</div>` : ''}</div>`;
+  ${noteOpen ? `<div class="vw-note">${noteForm('vw', `doc:${ref}:${page}`, 'note|doc:' + ref)}</div>` : ''}</div>`;
   el.hidden = false;
 }
 function openViewer(ref, page, opener) {
   const d = BYREF.get(ref);
   if (!d) return;
-  if (!opener.id) opener.id = 'c' + (++uid);
-  S.viewer = { ref, page: Math.max(1, Math.min(page, d.pages)), noteOpen: false, origin: { id: opener.id, label: originLabel(opener), scrollY, view: S.view } };
+  const origin = { label: originLabel(opener), scrollY, view: S.view };
+  beginOverlay('viewer', opener);
+  S.viewer = { ref, page: Math.max(1, Math.min(page, d.pages)), noteOpen: !!S.drafts['note|doc:' + ref], origin };
   S.lastCtx = `doc:${ref}:${S.viewer.page}`;
-  renderViewer(); bodyClass(); refreshCtx();
+  renderViewer(); bodyClass(); syncModal(); refreshCtx();
   $('#viewer-title').focus({ preventScroll: true });
   if (!isMobile()) opener.scrollIntoView({ block: 'nearest' });
 }
-function closeViewer() {
-  const o = S.viewer && S.viewer.origin;
-  S.viewer = null; renderViewer(); bodyClass(); refreshCtx();
-  if (!o) return;
-  if (isMobile()) scrollTo(0, o.scrollY);
-  const el = o.view === S.view && document.getElementById(o.id);
-  if (el) {
-    el.focus({ preventScroll: true });
-    el.scrollIntoView({ block: 'nearest' });
-    el.classList.remove('returned'); void el.offsetWidth; el.classList.add('returned');
-  }
+function afterViewerClosed(o) { if (o && isMobile()) scrollTo(0, o.scrollY); }
+
+/* ---------- quick capture, More, drawer ---------- */
+function openCapture(kind, link, opener) {
+  if (!S.capture) beginOverlay('capture', opener);
+  S.capture = kind; S.capLink = link || S.capLink || ctxLink();
+  S.capKey = noteKey(S.capLink);
+  renderCapture(); bodyClass(); syncModal();
+  const inSheet = opener && opener.closest && opener.closest('#capture');
+  (inSheet ? $(`#capture [data-kind=${kind}]`) : $(kind === 'note' ? '#cap-ntext' : '#cap-th') || $('#capture .btn')).focus();
+}
+function setDrawer(open, opener) {
+  if (!open) return closeOverlay('drawer');
+  beginOverlay('drawer', opener || $('[data-action=drawer]'));
+  S.drawer = true; $('#a-side').classList.add('open'); $('[data-action=drawer]').setAttribute('aria-expanded', 'true');
+  bodyClass(); syncModal(); $('#nav-q').focus();
+}
+function setMore(open, opener) {
+  if (!open) return closeOverlay('more');
+  beginOverlay('more', opener || $('.b-bottom [data-action=more]'));
+  S.more = true; $('#b-more').hidden = false; $('.b-bottom [data-action=more]').setAttribute('aria-expanded', 'true');
+  bodyClass(); syncModal(); $('#b-more button').focus();
 }
 
 /* ====================================================================================================
@@ -1022,51 +1458,104 @@ function measure() {
   if (S.variant === 'A') {
     const h = $('#hdr').offsetHeight;
     root.setProperty('--a-top', h + 'px'); root.setProperty('--stick', h + 10 + 'px');
+  } else if (isMobile()) {
+    const top = $('#hdr').offsetHeight, tools = $('#b-tools').offsetHeight;
+    root.setProperty('--b-top-h', top + 'px'); root.setProperty('--b-stick', top + tools + 'px'); root.setProperty('--stick', top + tools + 12 + 'px');
   } else {
-    const t = $('#b-taskrow').offsetHeight, tools = $('#b-tools').offsetHeight;
-    root.setProperty('--b-task-h', t + 'px'); root.setProperty('--b-stick', t + tools + 'px'); root.setProperty('--stick', t + tools + 12 + 'px');
+    const t = $('#b-taskrow').offsetHeight;
+    root.setProperty('--b-stick', t + 'px'); root.setProperty('--stick', t + 12 + 'px');
   }
+}
+const stickPx = () => parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--stick')) || 80;
+// Scroll memory that survives a different layout: remember the first anchored block in view and its offset, not just pixels.
+function captureAnchor() {
+  const stick = stickPx();
+  for (const el of $$('[data-anchor]')) { const r = el.getBoundingClientRect(); if (r.bottom > stick + 4) return { id: el.id, off: r.top - stick, y: scrollY }; }
+  return { id: null, off: 0, y: scrollY };
+}
+function restoreAnchor(a) {
+  if (!a) return;
+  const el = a.id && document.getElementById(a.id);
+  if (el) scrollBy(0, el.getBoundingClientRect().top - stickPx() - a.off); else scrollTo(0, a.y || 0);
 }
 function render() {
   bodyClass();
   $('#app').innerHTML = S.variant === 'A' ? shellA() : shellB();
-  renderCapture(); renderSwitcher(); measure(); observeSections();
+  const rail = $('#b-context'); if (rail) rail.dataset.sig = contextB(VBY[S.view]);
+  renderCapture(); renderSwitcher(); measure(); observeSections(); syncModal(); chipSig = '';
 }
 function renderSwitcher() {
-  $('#switcher').innerHTML = `<button type="button" class="sw-btn" data-action="variant-prev" aria-label="Previous variant">\u2039</button><span class="sw-label"><span class="k">${S.variant}</span>${VARIANT_NAME[S.variant]} <span>\u00b7 ${esc(VBY[S.view].label)}</span></span><button type="button" class="sw-btn" data-action="variant-next" aria-label="Next variant">\u203a</button>`;
+  const sw = $('#switcher');
+  const label = `<span class="k">${S.variant}</span>${VARIANT_NAME[S.variant]} <span>· ${esc(VBY[S.view].label)}</span>`;
+  if (!$('.sw-label', sw)) {
+    sw.innerHTML = `<button type="button" class="sw-btn" data-action="variant-prev" aria-label="Previous variant">‹</button><span class="sw-label"></span><button type="button" class="sw-btn" data-action="variant-next" aria-label="Next variant">›</button><span class="sw-role"><label class="vh" for="role-sel">Simulated case role, not part of the design</label><select id="role-sel" title="Simulated case role">${Object.entries(ROLES).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></span>`;
+    $('#role-sel').value = S.role;
+  }
+  $('.sw-label', sw).innerHTML = label;
+}
+function urlFor() {
+  const u = new URL(location.href);
+  u.searchParams.set('variant', S.variant); u.searchParams.set('view', S.view); u.searchParams.set('rv', S.viewing);
+  if (S.view === 'matter') u.searchParams.set('sec', S.section); else u.searchParams.delete('sec');
+  if (S.view === 'search' && S.query.trim()) u.searchParams.set('q', S.query.trim()); else u.searchParams.delete('q');
+  return u;
 }
 function writeURL(push) {
-  try {
-    const u = new URL(location.href);
-    u.searchParams.set('variant', S.variant); u.searchParams.set('view', S.view);
-    history[push ? 'pushState' : 'replaceState'](null, '', u);
-  } catch { /* a sandboxed preview frame may refuse history changes; the prototype still works */ }
+  if (S.noHist) return;
+  try { history[push ? 'pushState' : 'replaceState']({ ov: S.ov || null }, '', urlFor()); } catch { S.noHist = true; }
 }
 function readURL() {
   const p = new URLSearchParams(location.search);
-  const v = (p.get('variant') || 'A').toUpperCase(), id = p.get('view');
+  const v = (p.get('variant') || 'A').toUpperCase(), id = p.get('view'), rv = p.get('rv');
   S.variant = VARIANTS.includes(v) ? v : 'A';
   S.view = VBY[id] ? id : 'overview';
+  if (rv && S.versions.some((x) => x.id === rv)) S.viewing = rv;
+  if (SEC_BY[p.get('sec')]) S.section = p.get('sec');
+  if (p.get('q') && S.view === 'search') S.query = p.get('q');
 }
-function go(id, { push = true, sec = null } = {}) {
+function go(id, { push = true, sec = null, row = null } = {}) {
   if (!VBY[id]) id = 'overview';
   if (!REGISTER_VIEWS.has(S.view)) S.lastCtx = ctxLink();
   S.scroll[S.view] = scrollY;
-  S.view = id; S.drawer = false; S.more = false; S.capture = null;
+  const leaving = captureAnchor();
+  // A phone sheet is left by navigating: its history entry becomes the new page's entry instead of piling up behind it.
+  const replace = isMobile() && !!S.ov && !S.noHist && !!(history.state && history.state.ov);
+  for (const o of [...S.openOrder]) if (o !== 'viewer' || isMobile()) directClose(o, { restore: false });
+  if (!replace && push && !S.noHist) { try { history.replaceState({ ...(history.state || {}), anchor: leaving, scroll: leaving.y }, '', location.href); } catch { S.noHist = true; } }
+  if (VBY[id].topic !== VBY[S.view].topic) S.navOpen = new Set();
+  S.view = id; S.editing = null; S.confirmDel = null;
   if (VBY[id].task) S.lastInTask[VBY[id].task] = id;
-  render(); writeURL(push);
+  render(); writeURL(push && !replace);
   if (sec) { scrollToSection(sec); return; }
+  if (row) { focusRow(row); return; }
   scrollTo(0, S.scroll[id] || 0);
   $('#page-h1').focus({ preventScroll: true });
 }
+function focusRow(row) {
+  const el = document.getElementById('row-' + row);
+  if (!el) return;
+  el.scrollIntoView({ block: 'center' });
+  el.classList.add('hit'); setTimeout(() => el.classList.remove('hit'), 2500);
+  el.tabIndex = -1; el.focus({ preventScroll: true });
+}
 function setVariant(v) {
+  const a = captureAnchor();
   S.scroll[S.view] = scrollY;
-  S.variant = v; S.drawer = false; S.more = false; S.capture = null;
-  render(); writeURL(false);
-  if (S.view === 'matter') scrollToSection(S.section, false); else scrollTo(0, 0);
-  toast(`Variant ${v}: ${VARIANT_NAME[v]}. Still on ${VBY[S.view].label}. ${S.notes.length} notes and ${S.time.length} time entries carried over.`);
+  for (const o of ['drawer', 'more']) directClose(o, { restore: false });
+  if (v === 'A') directClose('capture', { restore: false });
+  S.variant = v;
+  render(); writeURL(false); restoreAnchor(a);
+  const nd = Object.keys(S.drafts).length;
+  toast(`Variant ${v}: ${VARIANT_NAME[v]}. Still on ${VBY[S.view].label}, same place and search. ${S.notes.length} notes and ${S.time.length} time entries carried over${nd ? `; ${nd} unsaved draft${nd > 1 ? 's' : ''} kept (see the draft chip)` : ''}.`);
 }
 const cycle = (d) => setVariant(VARIANTS[(VARIANTS.indexOf(S.variant) + d + VARIANTS.length) % VARIANTS.length]);
+function switchVersion(id) {
+  if (!S.versions.some((v) => v.id === id) || id === S.viewing) return;
+  const a = captureAnchor();
+  S.viewing = id;
+  render(); writeURL(true); restoreAnchor(a);
+  toast(`Now viewing Results ${id}${id === S.active ? ' (active)' : ' (previous)'}. Same page, section, search, filters and drafts.`);
+}
 
 function scrollToSection(id, focus = true) {
   const el = $('#sec-' + id);
@@ -1077,14 +1566,14 @@ function scrollToSection(id, focus = true) {
 }
 function updateSectionUI() {
   for (const a of $$('[data-section]')) { if (a.dataset.section === S.section) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current'); }
-  if (S.variant === 'B' && $('#b-context')) $('#b-context').innerHTML = contextB(VBY[S.view]);
+  if (S.variant === 'B' && $('#b-context')) setRail(VBY[S.view]);
 }
 function observeSections() {
   if (observer) observer.disconnect();
   if (S.view !== 'matter' || !('IntersectionObserver' in window)) return;
   observer = new IntersectionObserver((entries) => {
     const hit = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
-    if (hit && hit.target.dataset.secblock !== S.section) { S.section = hit.target.dataset.secblock; updateSectionUI(); }
+    if (hit && hit.target.dataset.secblock !== S.section) { S.section = hit.target.dataset.secblock; updateSectionUI(); writeURL(false); }
   }, { rootMargin: '-25% 0px -65% 0px' });
   $$('[data-secblock]').forEach((s) => observer.observe(s));
 }
@@ -1099,14 +1588,21 @@ function toast(msg) {
 const refreshCtx = () => $$('[data-live=ctx]').forEach((e) => { e.textContent = linkLabel(ctxLink()); });
 // After user work changes: update every place that shows it, without re-rendering forms the user is in.
 function refreshLive() {
-  $$('[data-live=chips]').forEach((e) => { e.innerHTML = chipsInner(); });
+  $$('[data-live=chips]').forEach((e) => { e.innerHTML = chipsInner(); }); chipSig = Object.entries(S.drafts).map(([k, d]) => k + d.label).join('~');
   $$('[data-live=today]').forEach((e) => { e.textContent = todayHours().toFixed(1) + ' h'; });
   $$('[data-live=unbilled]').forEach((e) => { e.textContent = money(unbilled()); });
+  $$('[data-live=substate]').forEach((e) => { e.textContent = S.sub.step >= 4 ? 'Published' : subStep(); });
+  $$('[data-live=sublast]').forEach((e) => { e.textContent = `S-4 last updated ${subLast().at}.`; });
   for (const id of Object.keys(LIVE_COUNT)) $$(`[data-count=${id}]`).forEach((e) => { e.textContent = countOf(VBY[id]); });
   const set = (sel, html) => { const e = $(sel); if (e) e.innerHTML = html; };
-  set('#time-list', timeTable()); set('#time-totals', timeTotals()); set('#notes-list', notesList()); set('#recent', recentHTML());
+  set('#time-list', timeTable()); set('#time-totals', timeTotals()); set('#recent', recentHTML()); set('#notes-audit', auditHTML());
+  const nl = $('#notes-list'); if (nl && !nl.contains(document.activeElement)) nl.innerHTML = notesList();
   $$('[data-sec-notes]').forEach((e) => { e.innerHTML = secNotes(e.dataset.secNotes); });
-  if (S.variant === 'B' && $('#b-context')) $('#b-context').innerHTML = contextB(VBY[S.view]);
+  if (S.variant === 'B' && $('#b-context')) setRail(VBY[S.view]);
+}
+function refreshVersionUI() {
+  $$('[data-ver]').forEach((sel) => { sel.innerHTML = S.versions.map((v) => `<option value="${v.id}"${v.id === S.viewing ? ' selected' : ''}>Results ${v.id} · ${v.id === S.active ? 'active' : 'previous'}</option>`).join(''); });
+  const b = $('#banner'); if (b) b.innerHTML = bannerHTML();
 }
 
 /* ---------- saving user work ---------- */
@@ -1114,16 +1610,35 @@ function fail(form, field, msg) {
   const err = $('.err', form), input = form.elements[field];
   err.textContent = msg; input.setAttribute('aria-invalid', 'true'); input.focus();
 }
+function afterSave(form) {
+  const key = form.dataset.draft; delete S.drafts[key];
+  const cue = $('.draft-cue', form); if (cue) cue.hidden = true;
+  refreshDraftChips(true);
+}
 function saveNote(form) {
+  if (!canCreate()) { toast('Case viewers cannot add notes (simulated role).'); return; }
   const text = form.elements.text.value.trim(), link = form.elements.link.value;
   form.elements.text.removeAttribute('aria-invalid'); $('.err', form).textContent = '';
   if (!text) return fail(form, 'text', 'Write the note before saving it.');
   const id = 'N-' + (++S.seq.note);
-  S.notes.unshift({ id, text, link, created: nowStamp() });
+  S.notes.unshift({ id, text, link, created: nowStamp(), by: ME });
+  audit(`created ${id}`);
   form.elements.text.value = '';
-  $('.confirm', form).innerHTML = `Saved note ${id}, linked to ${esc(linkLabel(link))}. <a href="${href('annotations_tab')}" data-nav="annotations_tab">See all notes</a>`;
-  toast(`Note ${id} saved. It shows in Annotations in both variants.`);
+  afterSave(form);
+  $('.confirm', form).innerHTML = `Saved note ${id}, linked to ${esc(linkLabel(link))}. ${NOTE_SHARE}. <a href="${href('annotations_tab')}" data-nav="annotations_tab">See all notes</a>`;
+  toast(`Note ${id} saved. ${NOTE_SHARE} (simulated); it shows in both variants.`);
   refreshLive();
+}
+function saveEdit(form) {
+  const id = form.dataset.draft.slice(5), n = S.notes.find((x) => x.id === id), text = form.elements.text.value.trim();
+  if (!n || !canManage(n)) { toast('You cannot change this note (simulated role).'); return; }
+  if (!text) return fail(form, 'text', 'A note cannot be empty. Delete it instead.');
+  if (text !== n.text) { audit(`edited ${id}; earlier text kept in history: “${n.text}”`); n.text = text; n.edited = nowStamp(); }
+  delete S.drafts['edit|' + id]; S.editing = null;
+  refreshDraftChips(true); refreshLive();
+  const nl = $('#notes-list'); if (nl) nl.innerHTML = notesList();
+  const b = $(`[data-action=edit-note][data-id=${id}]`); if (b) b.focus();
+  toast(`Saved the change to ${id}. The history keeps the earlier text.`);
 }
 function saveTime(form) {
   const f = form.elements, hours = Math.round(parseFloat(f.hours.value) * 10) / 10, desc = f.desc.value.trim();
@@ -1133,42 +1648,68 @@ function saveTime(form) {
   if (!desc) return fail(form, 'desc', 'Describe the work before saving.');
   const id = 'T-' + (++S.seq.time), billable = f.billable.checked;
   S.time.unshift({ id, date: f.date.value || TODAY, hours, activity: f.activity.value, desc, billable, link: f.link.value });
-  f.desc.value = '';
+  f.desc.value = ''; f.hours.value = '0.3';
+  afterSave(form);
   $('.confirm', form).innerHTML = `Saved ${id}: ${hours.toFixed(1)} h ${esc(f.activity.value.toLowerCase())}, ${billable ? 'billable ' + money(hours * RATE) : 'not billable'}, linked to ${esc(linkLabel(f.link.value))}. Today: ${todayHours().toFixed(1)} h. <a href="${href('timesheet_tab')}" data-nav="timesheet_tab">Open the timesheet</a>`;
   toast(`Time entry ${id} saved: ${hours.toFixed(1)} h. It shows in the Timesheet in both variants.`);
   refreshLive();
 }
+function deleteNote(id) {
+  const n = S.notes.find((x) => x.id === id);
+  if (!n || !canManage(n)) { toast('You cannot delete this note (simulated role).'); return; }
+  S.notes = S.notes.filter((x) => x.id !== id);
+  audit(`deleted ${id}; text kept in history: “${n.text}”`);
+  S.confirmDel = null; delete S.drafts['edit|' + id];
+  refreshDraftChips(true); refreshLive();
+  const nl = $('#notes-list'); if (nl) nl.innerHTML = notesList();
+  const c = $('[data-count=annotations_tab]'); if (c) c.textContent = S.notes.length;
+  toast(`Deleted ${id}. It stays in the history.`);
+  ($('#notes-list [data-action=edit-note]') || $('#page-h1')).focus();
+}
 function exportPacket() {
   const docs = packetDocs(), notes = packetNotes();
   if (!docs.length) { toast('Choose at least one document for the packet.'); return; }
-  const n = S.exports.length + 1, at = nowStamp(), file = `kestrel-v-marula-packet-${n}-PROTOTYPE`;
+  const n = S.exports.length + 1, at = nowStamp(), file = `kestrel-v-marula-packet-${n}-PROTOTYPE`, scope = packetScope();
   const csv = ['ref,date,type,title,pages,cited_in', ...docs.map((d) => [d.ref, d.date, d.type, d.title, d.pages, citedIn(d.key)].map(csvCell).join(','))].join('\n') + '\n';
-  const manifest = { prototype: true, note: 'GRS-89 navigation prototype. Synthetic data; no PDF assembled.', case: CASE.name, forum: CASE.forum, resultsVersion: CASE.rv, generatedAt: at, documents: docs.map((d) => ({ ref: d.ref, date: d.date, type: d.type, title: d.title, pages: d.pages })), notes: notes.map((x) => ({ id: x.id, text: x.text, linkedTo: linkLabel(x.link) })) };
+  const manifest = { prototype: true, note: 'GRS-89 navigation prototype. Synthetic data; no PDF assembled.', case: CASE.name, forum: CASE.forum, resultsVersion: ver().rv, generatedAt: at,
+    scope: { documents: docs.length, notes: { mode: S.pkNotes, included: notes.length, defaultIsNone: true } },
+    documents: docs.map((d) => ({ ref: d.ref, date: d.date, type: d.type, title: d.title, pages: d.pages })), notes: notes.map((x) => ({ id: x.id, text: x.text, linkedTo: linkLabel(x.link), visibility: NOTE_SHARE })) };
   const url = (s, type) => URL.createObjectURL(new Blob([s], { type }));
-  S.exports.unshift({ file, at, n: docs.length, pages: docs.reduce((s, d) => s + d.pages, 0), notes: notes.length, csv, csvUrl: url(csv, 'text/csv'), jsonUrl: url(JSON.stringify(manifest, null, 2), 'application/json') });
+  S.exports.unshift({ file, at, scope, n: docs.length, pages: docs.reduce((s, d) => s + d.pages, 0), notes: notes.length, csv, manifest, csvUrl: url(csv, 'text/csv'), jsonUrl: url(JSON.stringify(manifest, null, 2), 'application/json') });
   $('#export-out').innerHTML = exportOut(S.exports[0]);
-  toast(`Packet manifest ${n} generated: ${docs.length} documents. Prototype output only.`);
-}
-function openCapture(kind, link, opener) {
-  S.capture = kind; S.capLink = link || null;
-  if (opener && !opener.closest('#capture')) S.capOpener = opener;
-  renderCapture(); bodyClass();
-  const pressed = opener && opener.closest('#capture') && $(`#capture [data-kind=${kind}]`);
-  (pressed || $(kind === 'note' ? '#cap-ntext' : '#cap-th')).focus();
-}
-function closeCapture() {
-  S.capture = null; renderCapture(); bodyClass();
-  if (S.capOpener && document.contains(S.capOpener)) S.capOpener.focus();
+  toast(`Packet manifest ${n} generated. Scope: ${scope}.`);
 }
 function noteHere(btn) {
   const link = btn.dataset.link;
   if (S.variant === 'B') return openCapture('note', link, btn);
   const slot = document.getElementById(slotId(link));
   if (slot.innerHTML) { slot.innerHTML = ''; btn.setAttribute('aria-expanded', 'false'); return; }
-  slot.innerHTML = noteForm(slotId(link), link);
+  slot.innerHTML = noteForm(slotId(link), link, 'note|' + link);
   btn.setAttribute('aria-expanded', 'true');
-  $('textarea', slot).focus();
+  const ta = $('textarea', slot); if (ta) ta.focus();
 }
+function focusForm(key) { const f = $$('form[data-draft]').find((x) => x.dataset.draft === key); if (f) { const t = $('textarea,input[name=desc]', f); if (t) { t.scrollIntoView({ block: 'center' }); t.focus(); } } }
+function resumeDraft(key, opener) {
+  const d = S.drafts[key];
+  if (!d) return;
+  if (key.startsWith('edit|')) { S.editing = key.slice(5); go('annotations_tab'); focusForm(key); return; }
+  if (d.kind === 'time') {
+    if (S.variant === 'B') return openCapture('time', d.vals.link, opener);
+    if (!S.drafts['time|page'] && key !== 'time|page') { S.drafts['time|page'] = d; delete S.drafts[key]; }
+    go('timesheet_tab');
+    return focusForm('time|page');
+  }
+  const link = key.startsWith('note|doc:') ? d.vals.link || `doc:${key.slice(9)}:1` : key.slice(5);
+  if (key === 'note|page') { go('annotations_tab'); return focusForm(key); }
+  if (key.startsWith('note|doc:')) { const [, ref, p] = link.split(':'); const o = $('#page-h1') || document.body; return openViewerFromDraft(ref, Number(p) || 1, o); }
+  if (S.variant === 'B') return openCapture('note', link, opener);
+  if (link.startsWith('sec:')) { go('matter', { sec: link.slice(4) }); return focusForm(key); }
+  if (link.startsWith('view:') && VBY[link.slice(5)] && !VBY[link.slice(5)].built) { go(link.slice(5)); return focusForm(key); }
+  // A has no capture sheet: a draft made there continues on the Notes page.
+  if (!S.drafts['note|page']) { S.drafts['note|page'] = d; delete S.drafts[key]; }
+  go('annotations_tab'); focusForm('note|page');
+}
+function openViewerFromDraft(ref, page, opener) { openViewer(ref, page, opener); S.viewer.noteOpen = true; renderViewer(); focusForm('note|doc:' + ref); }
 function applyPreset(p) {
   if (p === 'docs-manual') Object.assign(S.docs, { q: '', type: '', status: 'manual', shown: 150 });
   else if (p === 'chrono-q') Object.assign(S.chrono, { q: S.query, issue: '', shown: 120 });
@@ -1178,20 +1719,20 @@ function runSearch(q) {
   S.query = q;
   if (q.trim() && S.searches[0] !== q.trim()) S.searches.unshift(q.trim());
   if (S.view !== 'search') go('search');
-  else { $('#sq').value = q; $('#search-results').innerHTML = searchResultsHTML(); }
+  else { $('#sq').value = q; $('#search-results').innerHTML = searchResultsHTML(); writeURL(false); }
   const gs = $('#gs'); if (gs) gs.value = q;
 }
-function setDrawer(open) {
-  S.drawer = open; bodyClass();
-  $('#a-side').classList.toggle('open', open); $('.a-scrim').classList.toggle('open', open);
-  $('[data-action=drawer]').setAttribute('aria-expanded', String(open));
-  if (open) ($('#a-side [aria-current=page]') || $('#a-side a')).focus(); else $('[data-action=drawer]').focus();
-}
-function setMore(open) {
-  S.more = open; bodyClass();
-  $('#b-more').hidden = !open;
-  $('.b-bottom [data-action=more]').setAttribute('aria-expanded', String(open));
-  if (open) $('#b-more button').focus(); else $('.b-bottom [data-action=more]').focus();
+function advanceSub() {
+  const s = S.sub;
+  if (s.step === 2) { s.step = 3; s.log.push({ step: 3, at: nowStamp(), note: 'An operator started processing. This is manual work with no progress figure.' }); }
+  else if (s.step === 3) {
+    s.step = 4; const at = nowStamp();
+    s.log.push({ step: 4, at, note: 'Signed off and published as Results v4' });
+    S.versions.push({ id: 'v4', rv: 'rv-c41a7d90', date: TODAY }); S.active = 'v4';
+    toast('Simulated: an operator published Results v4. You are still viewing your version until you switch.');
+  } else return;
+  $('#main').innerHTML = bannerBox() + pageHead(VBY.hosted_intake) + intakeHTML(); refreshLive(); refreshVersionUI();
+  const b = $('[data-action=advance-sub]:not([disabled])'); (b || $('#page-h1')).focus();
 }
 
 /* ---------- events ---------- */
@@ -1201,6 +1742,7 @@ function handleForm(f) {
   const kind = f.dataset.form;
   if (kind === 'gsearch') runSearch(f.elements.q.value);
   else if (kind === 'note') saveNote(f);
+  else if (kind === 'noteedit') saveEdit(f);
   else if (kind === 'time') saveTime(f);
 }
 document.addEventListener('click', (e) => {
@@ -1212,44 +1754,47 @@ document.addEventListener('click', (e) => {
     if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
     e.preventDefault();
     if (el.dataset.preset) applyPreset(el.dataset.preset);
-    if (S.viewer && isMobile()) { S.viewer = null; renderViewer(); }
-    go(el.dataset.nav, { sec: el.dataset.sec || null });
+    go(el.dataset.nav, { sec: el.dataset.sec || null, row: el.dataset.row || null });
     return;
   }
   if (el.dataset.cite) { const [ref, p] = el.dataset.cite.split(':'); openViewer(ref, Number(p), el); return; }
   if (el.dataset.section) { e.preventDefault(); scrollToSection(el.dataset.section); return; }
   if (el.dataset.task) { const k = el.dataset.task; go(S.lastInTask[k] || TASK_DEFAULT[k]); return; }
   if (el.dataset.q) { runSearch(el.dataset.q); return; }
-  const a = el.dataset.action;
+  const a = el.dataset.action, id = el.dataset.id;
   if (a === 'variant-prev') cycle(-1);
   else if (a === 'variant-next') cycle(1);
-  else if (a === 'drawer') setDrawer(!S.drawer);
-  else if (a === 'close-drawer') setDrawer(false);
-  else if (a === 'more') setMore(!S.more);
+  else if (a === 'drawer') setDrawer(!S.drawer, el);
+  else if (a === 'close-drawer') closeOverlay('drawer');
+  else if (a === 'more') setMore(!S.more, el);
+  else if (a === 'close-more') closeOverlay('more');
+  else if (a === 'close-ov') { const top = S.openOrder[S.openOrder.length - 1]; if (top) closeOverlay(top); }
   else if (a === 'capture') openCapture(el.dataset.kind, el.closest('#capture') ? S.capLink : null, el);
-  else if (a === 'close-capture') closeCapture();
+  else if (a === 'close-capture') closeOverlay('capture');
   else if (a === 'note-here') noteHere(el);
-  else if (a === 'close-viewer') closeViewer();
+  else if (a === 'close-viewer') closeOverlay('viewer');
   else if (a === 'viewer-prev' || a === 'viewer-next') {
     S.viewer.page += a === 'viewer-next' ? 1 : -1; S.lastCtx = `doc:${S.viewer.ref}:${S.viewer.page}`;
     renderViewer(); refreshCtx(); const b = $(`#viewer [data-action=${a}]`); (b.disabled ? $('#viewer-title') : b).focus();
   } else if (a === 'viewer-note') {
     S.viewer.noteOpen = !S.viewer.noteOpen; renderViewer();
-    if (S.viewer.noteOpen) $('#vw-ntext').focus(); else $('#viewer [data-action=viewer-note]').focus();
+    if (S.viewer.noteOpen) { const t = $('#vw-ntext') || $('#viewer [data-action=viewer-note]'); t.focus(); } else $('#viewer [data-action=viewer-note]').focus();
   } else if (a === 'more-chrono' || a === 'more-docs') {
     const k = a === 'more-chrono' ? 'chrono' : 'docs';
     S[k].shown += k === 'chrono' ? 120 : 150;
     $(`#${k}-wrap`).innerHTML = k === 'chrono' ? chronoTable() : docsTable();
     const more = $(`[data-action=${a}]`); (more || $(`#${k}-wrap .table-scroll`)).focus();
   } else if (a === 'export') exportPacket();
-  else if (a === 'advance-intake') {
-    const it = S.intake;
-    it.pct += 25;
-    if (it.pct >= 100) { it.stage += 1; it.pct = it.stage >= STAGES.length - 1 ? 100 : 0; }
-    $('#main').innerHTML = pageHead(VBY.hosted_intake) + intakeHTML(); refreshLive();
-    const b = $('[data-action=advance-intake]'); (b.disabled ? $('#page-h1') : b).focus();
-    toast(`Simulation: S-4 is now at ${procLabel().slice(4)}.`);
-  }
+  else if (a === 'advance-sub') advanceSub();
+  else if (a === 'switch-ver') switchVersion(el.dataset.verTo);
+  else if (a === 'resume-draft') { const dm = el.closest('details'); if (dm) dm.open = false; resumeDraft(el.dataset.key, null); }
+  else if (a === 'discard-draft') { const dm = el.closest('details'); if (dm) dm.open = false; discardDraft(el.dataset.key); toast('Draft discarded.'); }
+  else if (a === 'edit-note') { S.editing = id; $('#notes-list').innerHTML = notesList(); focusForm('edit|' + id); }
+  else if (a === 'cancel-edit') { delete S.drafts['edit|' + id]; S.editing = null; refreshDraftChips(true); $('#notes-list').innerHTML = notesList(); const b = $(`[data-action=edit-note][data-id=${id}]`); if (b) b.focus(); }
+  else if (a === 'delete-note') { S.confirmDel = id; $('#notes-list').innerHTML = notesList(); const b = $(`[data-action=cancel-delete][data-id=${id}]`); if (b) b.focus(); }
+  else if (a === 'cancel-delete') { S.confirmDel = null; $('#notes-list').innerHTML = notesList(); const b = $(`[data-action=delete-note][data-id=${id}]`); if (b) b.focus(); }
+  else if (a === 'confirm-delete') deleteNote(id);
+  else if (a === 'clear-nav-q') { S.navQ = ''; $('#nav-q').value = ''; $('#a-nav-list').innerHTML = navListA(); $('#nav-q').focus(); }
 });
 document.addEventListener('submit', (e) => {
   const f = e.target, kind = f.dataset.form;
@@ -1259,49 +1804,96 @@ document.addEventListener('submit', (e) => {
 });
 let searchTimer;
 document.addEventListener('input', (e) => {
-  const t = e.target;
-  if (t.id === 'sq') { S.query = t.value; clearTimeout(searchTimer); searchTimer = setTimeout(() => { $('#search-results').innerHTML = searchResultsHTML(); }, 120); }
+  const t = e.target, form = t.form;
+  if (form && form.dataset.draft) syncDraft(form);
+  if (t.id === 'sq') { S.query = t.value; clearTimeout(searchTimer); searchTimer = setTimeout(() => { $('#search-results').innerHTML = searchResultsHTML(); writeURL(false); }, 120); }
   else if (t.id === 'cf-q') { S.chrono.q = t.value; S.chrono.shown = 120; $('#chrono-wrap').innerHTML = chronoTable(); }
   else if (t.id === 'df-q') { S.docs.q = t.value; S.docs.shown = 150; $('#docs-wrap').innerHTML = docsTable(); }
   else if (t.id === 'cat-q') { S.catalogQ = t.value; $('#cat-list').innerHTML = catalogList(); }
+  else if (t.id === 'nav-q') { S.navQ = t.value; $('#a-nav-list').innerHTML = navListA(); }
 });
 document.addEventListener('change', (e) => {
   const t = e.target;
+  if (t.form && t.form.dataset.draft) syncDraft(t.form);
   if (t.name === 'scope') { S.scope = t.value; $('#search-results').innerHTML = searchResultsHTML(); }
   else if (t.id === 'cf-issue') { S.chrono.issue = t.value; S.chrono.shown = 120; $('#chrono-wrap').innerHTML = chronoTable(); }
   else if (t.id === 'df-type' || t.id === 'df-status') { S.docs[t.id === 'df-type' ? 'type' : 'status'] = t.value; S.docs.shown = 150; $('#docs-wrap').innerHTML = docsTable(); }
-  else if (t.dataset.packet) { if (t.checked) S.packet.add(t.dataset.packet); else S.packet.delete(t.dataset.packet); $('#pk-summary').textContent = packetSummary(); refreshLive(); }
-  else if (t.id === 'pk-notes') { S.packetNotes = t.checked; $('#pk-summary').textContent = packetSummary(); }
+  else if (t.dataset.packet) { if (t.checked) S.packet.add(t.dataset.packet); else S.packet.delete(t.dataset.packet); refreshPacket(); refreshLive(); }
+  else if (t.name === 'pknotes') { S.pkNotes = t.value; refreshPacket(); }
+  else if (t.id === 'role-sel') { S.role = t.value; render(); renderCapture(); toast(`Simulated role: ${ROLES[S.role]}. This is a stand-in for case permissions; nothing is enforced.`); }
+  else if (t.dataset.ver !== undefined) switchVersion(t.value);
 });
+function refreshPacket() {
+  const s = $('#pk-summary'); if (s) s.textContent = packetScope();
+  const l = $('#pk-notelist'); if (l) l.innerHTML = pkNoteList();
+  $$('input[name=pknotes]').forEach((r) => { const c = r.closest('label').querySelector('.muted'); if (c) c.textContent = `(${packetNotes(r.value).length} note${packetNotes(r.value).length === 1 ? '' : 's'})`; });
+}
+document.addEventListener('toggle', (e) => {
+  const d = e.target;
+  if (d.dataset && d.dataset.grp && !S.navQ.trim()) { if (d.open) S.navOpen.add(d.dataset.grp); else S.navOpen.delete(d.dataset.grp); }
+}, true);
 document.addEventListener('keydown', (e) => {
   const t = e.target, inField = t.closest && t.closest('input,textarea,select,[contenteditable]:not([contenteditable=false])');
   if (e.key === 'Escape') {
-    if (S.viewer) closeViewer(); else if (S.capture) closeCapture(); else if (S.drawer) setDrawer(false); else if (S.more) setMore(false);
+    const top = S.openOrder[S.openOrder.length - 1];
+    if (top) {
+      const d = Object.keys(S.drafts).length;
+      closeOverlay(top);
+      if (d) toast('Closed. Your unsaved draft is kept (see the draft chip).');
+    }
     return;
   }
+  if (e.key === 'Tab') { trapTab(e); return; }
+  // Left and Right switch the variant only while focus is on the prototype switcher; elsewhere they scroll tables as usual.
+  if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && t.closest && t.closest('#switcher .sw-btn')) {
+    e.preventDefault(); cycle(e.key === 'ArrowRight' ? 1 : -1);
+    $(`#switcher [data-action=variant-${e.key === 'ArrowRight' ? 'next' : 'prev'}]`).focus(); return;
+  }
   if (inField || e.altKey || e.ctrlKey || e.metaKey) return;
-  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); cycle(e.key === 'ArrowRight' ? 1 : -1); }
-  else if (e.key === '/') { e.preventDefault(); $('#gs').focus(); }
+  if (e.key === '/') { e.preventDefault(); const g = $('#gs'); if (g) g.focus(); }
 });
-addEventListener('popstate', () => { readURL(); render(); });
-addEventListener('resize', () => { bodyClass(); measure(); });
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.id === 'nav-q') { const first = $('#a-nav-list a'); if (first && S.navQ.trim()) { e.preventDefault(); first.click(); } }
+});
+addEventListener('popstate', (e) => {
+  const st = e.state || {}, before = [S.variant, S.view, S.viewing].join();
+  readURL();
+  const changed = before !== [S.variant, S.view, S.viewing].join();
+  if (S.ov && st.ov !== S.ov) {
+    if (changed) for (const o of [...S.openOrder]) { if (trackedHere(o)) directClose(o, { restore: false }); }
+    else directClose(S.ov);
+  }
+  if (changed) {
+    render();
+    if (st.anchor) restoreAnchor(st.anchor); else scrollTo(0, st.scroll || 0);
+    const h = $('#page-h1'); if (h) h.focus({ preventScroll: true });
+  }
+});
+addEventListener('resize', () => { bodyClass(); measure(); syncModal(); });
 
 /* ---------- self-check, readable from a console or a browser driver ---------- */
 function selfCheck() {
   const ids = VIEWS.map((v) => v.id);
+  const aHome = new Set(groupsA().flatMap((g) => g.items.map((x) => x.id)));
+  const bHome = new Set([...VIEWS, ...PLANNED].filter((v) => TASKS.some((t) => t.key === v.task)).map((v) => v.id));
   const r = {
     views: ids.length, unique: new Set(ids).size === ids.length,
     badTopic: VIEWS.filter((v) => !TOPICS.some((t) => t.key === v.topic)).map((v) => v.id),
     badTask: VIEWS.filter((v) => !TASKS.some((t) => t.key === v.task)).map((v) => v.id),
-    planned: PLANNED.length, docs: DOCS.length, chronology: CHRONO.length, manual: MANUAL_COUNT,
+    planned: PLANNED.length, plannedCase: PLANNED.filter((p) => p.kind === 'case').length, plannedPlatform: PLANNED.filter((p) => p.kind === 'platform').length, operator: OPS.length,
+    docs: DOCS.length, chronology: CHRONO.length, manual: MANUAL_COUNT,
     built: VIEWS.filter((v) => v.built).map((v) => v.id),
+    aReachable: [...VIEWS, ...PLANNED].filter((v) => !aHome.has(v.id)).map((v) => v.id),
+    bReachable: [...VIEWS, ...PLANNED].filter((v) => !bHome.has(v.id)).map((v) => v.id),
+    operatorInClientNav: OPS.some((o) => aHome.has(o.id) || bHome.has(o.id)),
   };
-  r.ok = r.views === 42 && r.unique && !r.badTopic.length && !r.badTask.length && r.docs === CASE.docs && r.chronology === CASE.chrono;
+  r.ok = r.views === 42 && r.unique && !r.badTopic.length && !r.badTask.length && r.docs === CASE.docs && r.chronology === CASE.chrono && !r.aReachable.length && !r.bReachable.length && !r.operatorInClientNav;
   if (!r.ok) console.error('GRS-89 prototype self-check failed', r);
   return r;
 }
-window.__grs89 = { selfCheck, state: S, views: VIEWS.map(({ id, label, group, topic, task, built }) => ({ id, label, group, topic, task, built })), planned: PLANNED.map(({ id, label, task }) => ({ id, label, task })) };
+window.__grs89 = { selfCheck, state: S, views: VIEWS.map(({ id, label, group, topic, task, built }) => ({ id, label, group, topic, task, built })), planned: PLANNED.map(({ id, label, task, kind, topic }) => ({ id, label, task, kind, topic })), operator: OPS.map(({ id, label }) => ({ id, label })) };
 
+try { history.scrollRestoration = 'manual'; } catch { /* not available in a sandboxed frame */ }
 readURL(); render(); writeURL(false); selfCheck();
 </script>
 </body>

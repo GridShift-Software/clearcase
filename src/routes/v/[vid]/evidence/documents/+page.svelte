@@ -22,7 +22,7 @@
 </script>
 
 <main id="main" tabindex="-1" data-ready="documents" data-hydrated={ready ? '1' : null} data-busy={navigating.to ? 'true' : null} data-page={m.page.page} data-bundle={m.bundle} data-q={m.q}>
-	<PageHeader heading="Documents" section="Documents" caseName={data.version.titleName} subtitle="{n(data.total)} documents · by bundle then type" />
+	<PageHeader heading="Documents" section="Documents" caseName={data.version.titleName} subtitle="{n(data.total)} documents · filter by bundle, sorted by type then date" />
 	<DegradedRows failed={data.failed} />
 	{#if m.unknownBundle}<p class="warning" id="unknown-bundle">The requested bundle is not in this results version; the first bundle is shown.</p>{/if}
 	{#if m.filterTooLong}<p class="warning" id="filter-too-long">The filter is longer than {MAX_TEXT} characters, so it was not applied: every document of the bundle is shown.</p>{/if}

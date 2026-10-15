@@ -46,7 +46,7 @@
 
 	<section aria-labelledby="m-work">
 		<h2 id="m-work">Your work and backups</h2>
-		<p>Notes and every register you fill in are saved on this computer as you work, per case. <a id="manual-backup" href={href('backup_tab')}>Backup / Restore</a> saves all of a case's work to one file and restores it, on this computer or another. The file holds your work, the case's identity and the format version, not the originals or the results package: keep the case folder and the package as well. A restore checks the file first and changes nothing if the file is damaged, of another format or of another case. A v5 browser backup (ess_dcs_backup.json) is recognised and its stores listed; importing v5 browser state is not available yet.</p>
+		<p>Notes and every register you fill in are saved on this computer as you work, per case. <a id="manual-backup" href={href('backup_tab')}>Backup / Restore</a> saves all of a case's work to one file and restores it, on this computer or another. The file holds your work, the case's identity and the format version, not the originals or the results package: keep the case folder and the package as well. A restore checks the file first and changes nothing if the file is damaged, of another format or of another case. A v5 browser backup (ess_dcs_backup.json) is recognised and its stores listed. Custom court bundles can be imported; other v5 browser stores are not imported.</p>
 		{#if data.quantum}<p>Amounts: the headline amount due is the source's figure for {data.quantum.ref}{data.quantum.date ? ` as at ${data.quantum.date}` : ''}; check it against the documents before relying on it.</p>{/if}
 	</section>
 

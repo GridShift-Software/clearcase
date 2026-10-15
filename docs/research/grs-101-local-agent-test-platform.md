@@ -18,10 +18,10 @@ This is research only. Nothing was installed, provisioned, started, stopped, dep
 
 Read-only facts, reported by the parent session from its Tailscale status read on 15 October 2026. I did not re-run them and made no new probe [F]:
 - **Both PC1 and PC2 appear as online peers advertising Linux.** Addresses, DNS names, usernames and host keys are deliberately not recorded in this file.
-- **PC2:** the peer was discovered, but no shortcut DNS name is configured for it. A direct tailnet SSH attempt with strict known-hosts checking refused an unknown host key. Nothing else about PC2 is documented.
-- **PC1:** the documented SSH path still stops at Tailscale SSH's interactive check ([S18] describes this check mode).
+- **PC2:** an initial direct tailnet SSH attempt with strict known-hosts checking refused an unknown host key. After the user supplied the existing login, ordinary aliases did not resolve on the workstation; Tailscale-native SSH reached the peer but required an additional authentication check.
+- **PC1:** ordinary aliases did not resolve on the workstation; Tailscale-native SSH reached the peer with the supplied existing login but required the same additional authentication check ([S18] describes this check mode).
 - No SSH session succeeded and no OS, CPU, RAM or disk value was read for either machine. No authentication, host-trust or known-hosts setting was bypassed or changed.
-- **Pending with the user (asynchronous):** an approved SSH route or check for PC1 and PC2, or the user's own OS, CPU, RAM and disk output. Until then both are **[U]**; do not retry.
+- **Pending with the user (asynchronous):** complete the additional authentication check for both PCs, or supply OS, CPU, RAM and disk output. The login is now known; capacity remains **[U]**. No further retry before the check is completed.
 
 ## Observed capacity (read-only, 15 October 2026)
 
@@ -64,7 +64,7 @@ Rules [R]: the shared platform default is the VM row, or a container where a VM 
 ## Runtime for Wrangler and the plugin
 
 - **Facts [F].** Wrangler 4.151.0 declares `engines.node >=22.0.0` and depends on workerd 1.20261012.1 and miniflare `5.20261012.0-beta`; vitest-plugin 1.4.3 uses the same miniflare beta [S4]. Cloudflare's install page says it supports "the Current, Active, and Maintenance versions of Node.js" and shows `bun add -d wrangler@latest` as an install form without stating Bun support [S10]. The Wrangler changelog entry I earlier cited for "Bun is not officially supported" was not re-read in this pass and is not relied on. Worker code always runs in workerd, whichever runtime starts the CLI.
-- **Position [R].** Bun stays the runtime for app dependencies, the build, the dev and test scripts, and the production entry point, as the workspace rule requires. A supported Node runtime for the vendor CLI and the Workers test host is a **helper tooling choice**, not a change to how the app is built or deployed (Workers production is workerd anyway). Whether to document it as a policy exception, or require proof that Bun hosts these tools, is a **user policy choice, pending**.
+- **Position [R].** Bun stays the runtime for app dependencies, builds, dev and existing local tests and the local POC entry point; the agreed hosted runtime is workerd. A supported Node runtime for the vendor CLI and the Workers test host is a **helper tooling choice**, not a change to the app build or hosted runtime. Whether to document it as a policy exception, or require proof that Bun hosts these tools, is a **user policy choice, pending**.
 - **Evidence labels [R].** Each receipt names its runtime: Node-hosted Wrangler or plugin evidence is never reported as Bun evidence. Do not force the Workers tests to run remotely to satisfy Bun. Other hosts' Node versions are **[U]**.
 
 ## Void local and self-host modes
@@ -108,7 +108,7 @@ Everything below is a design to be proved, in order, not a finding.
 
 ## Temporary data and reset
 
-- **Not `/dev/shm` by default [R].** The workstation has 15.3 GiB RAM with swap in use, and `/dev/shm` is 7.7 GB of that RAM. v5-sized uploads and exports must not default to it. CI's `/dev/shm` use is a reviewed-code, VM-sized case and does not carry over.
+- **Not `/dev/shm` by default [R].** The workstation has 15.3 GiB RAM with swap in use, and `/dev/shm` is 7.7 GB of that RAM. v5-sized uploads and exports must not default to it. CI's `/dev/shm` use is a trusted-writer, VM-sized case and does not carry over.
 - **Default: quota-bounded per-job disk directories** on the chosen host (a size-limited volume or filesystem quota, or a VM disk), with an upper bound per job. **Memory-backed tmpfs** only for small cases proved small, with its size capped. Disk capacity and quota are measured next to RAM and CPU (proof step 5): the workstation NVMe is 86% used, and PC1 and PC2 disks are **[U]**.
 - **Preserve before cleanup [R].** Copy failure logs, screenshots, traces and receipts to a retained artifacts directory before removing any job directory.
 - **Cleanup scope.** Lifecycle cleanup stops and removes only the lease's own process group (recorded in the pidfile, `scripts/pidfile.ts`), never by `pkill`, and never touches another job.
@@ -122,7 +122,7 @@ A script, not an agent turn, runs focused checks first (changed tests, the Worke
 
 | Question | Local (workerd, Miniflare D1/R2) | Needs deployed |
 | --- | --- | --- |
-| Worker code runs in workerd and the bundle has no Node-only modules | Yes (built `_worker.js`) | Bundle-size limits are confirmed on deploy |
+| Worker code runs in workerd; guard excludes `node:sqlite`, `node:child_process`, `local-case`/originals/backup/rescan modules and persistence-dependent `node:fs` use | Yes (built `_worker.js`) | Bundle-size limits are confirmed on deploy |
 | D1 SQL, migrations, R2 object round trips, idempotent seeds | Yes, for logic | Hosted concurrency, placement, latency, limits, backups |
 | Auth hook fail-closed logic | Unit tests with local fixtures only | Real dev or test Clerk flow and the final hosted test (GRS-100 proofs) |
 | Browser paths on synthetic data | Yes, as user-path evidence | Access, TLS, cache headers, custom domains |
@@ -133,8 +133,8 @@ A mocked acceptance boundary is never a PASS. Local results are reported as loca
 
 0. **Access and capacity.** Described above. Nothing below runs on PC1 or PC2 until it passes.
 1. **Version proof.** On a throwaway branch, pin `wrangler` and `@cloudflare/vitest-plugin` 1.4.3 next to vitest 5.0.3, and add a second Vitest project for Worker tests. One test writes D1 and R2 through `exports.default.fetch`. Run it under Node and under `bun run --bun test`, and record which works, with exact versions and the host runtime.
-2. **Build proof.** Build a separate hosted entry with adapter-cloudflare 7.2.9 (the Kit 2 line), then run `wrangler dev .svelte-kit/cloudflare/_worker.js` with lease ports and `--persist-to`. `/api/health` must answer, and an import guard must show no `node:sqlite` in the bundle. Kit 3 and adapter 8 depend on the GRS-100 migration decision and known advisories; neither is assumed here.
-3. **Seed, reset, idempotence.** Seed, take a digest, seed again, check the digest is unchanged, stop the server, delete the persist directory, and check the store is empty after restart and reseed.
+2. **Build proof.** On a throwaway branch, build a separate hosted entry with the adapter for the Kit line chosen under GRS-100 (7.2.9 only if Kit 2 is kept); run the built Worker with the chosen adapter's Wrangler command, lease ports and `--persist-to`. `/api/health` must answer. The bundle guard excludes `node:sqlite`, `node:child_process`, `local-case`/originals/backup/rescan modules and persistence-dependent `node:fs` use. Neither Kit/adapter pair is approved here.
+3. **Seed, reset, idempotence.** Seed, take a digest, seed again and check the digest is unchanged. Stop the server, delete the persist directory, restart and check the store is empty; then reseed and check the digest matches.
 4. **Browser lane.** One synthetic e2e scenario runs against the workerd preview under `browser-lock`. Artifacts are file paths only.
 5. **Capacity and concurrency.** On each chosen host, run 1, 2 and 3 leases at once. Record peak RSS, the lowest available memory, swap, disk use and free space, and wall time. Any slot count, memory floor, disk quota and role comes from these numbers and is adopted under GRS-94; the 2-slot browser limit holds until then.
 6. **Cleanup.** After `stop`, no lease port listens, no lease process remains, retained artifacts exist, and the directories are gone. Another job keeps running throughout.
@@ -142,7 +142,7 @@ A mocked acceptance boundary is never a PASS. Local results are reported as loca
 
 ## Unresolved choices
 
-- **Access to PC1 and PC2.** An approved SSH route or check, or the user's pasted `uname`, `nproc`, `free` and `df` output. Pending with the user; no retry.
+- **Access to PC1 and PC2.** Existing login supplied; additional Tailscale authentication checks or the user's pasted `uname`, `nproc`, `free` and `df` output remain pending. No retry before the check completes.
 - **Roles, VM or container.** Whether PC1, PC2 or both host pools, whether pc1's host can share with the CI VM safely, and C against D per host (KVM, owner policy, Chrome).
 - **Node as a Wrangler helper runtime** is a user policy choice (step 1 supplies evidence). **Void** (plain Wrangler against the optional SDK or Vite-plugin convenience) is a separate comparison and a user decision.
 - **Kit 3 timing and adapter version** belong to GRS-100's migration matrix and advisory decisions; neither Kit 3 with adapter 8 nor Kit 2 with adapter 7 is approved here.

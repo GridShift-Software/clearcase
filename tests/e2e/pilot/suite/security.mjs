@@ -177,10 +177,12 @@ export async function s24(ctx) {
 		sameOrigin: (await A.raw('/api/health', { 'sec-fetch-site': 'same-origin' })).status,
 		none: (await A.raw('/api/health', { 'sec-fetch-site': 'none' })).status,
 		crossSiteChronology: (await A.raw(`/api/v/${encodeURIComponent(rv)}/chronology`, { 'sec-fetch-site': 'cross-site' })).status,
+		crossSiteBrowse: (await A.raw('/api/browse', { 'sec-fetch-site': 'cross-site' })).status,
+		sameOriginBrowse: (await A.raw('/api/browse', { 'sec-fetch-site': 'same-origin' })).status,
 		nonJsonWrite: (await A.raw('/api/state', { origin: A.origin, 'content-type': 'text/plain' }, 'POST', 'x')).status,
 	};
 	const xsOk = raw.status === 403 && statuses.filter((s) => /^403 Document \/import\?\/import$/.test(s)).length === 2 && statuses.some((s) => /^403 \w+ \/api\/health$/.test(s)) && attempts2 === attempts1 &&
-		api.crossSite === 403 && api.sameSite === 403 && api.sameOrigin === 200 && api.none === 200 && api.crossSiteChronology === 403 && api.nonJsonWrite === 415;
+		api.crossSite === 403 && api.sameSite === 403 && api.sameOrigin === 200 && api.none === 200 && api.crossSiteChronology === 403 && api.crossSiteBrowse === 403 && api.sameOriginBrowse === 200 && api.nonJsonWrite === 415;
 	const csp = cspMessages(ctx);
 	return { pass: headersOk && noJsOk && xsOk && csp.length === 0, evidence: { headers: hdr, noncePerResponse: n1 !== n2, noJs, crossSite: { raw: raw.status, rawBody: raw.text.slice(0, 80), browser: statuses, attempts: [attempts0, attempts1, attempts2] }, api, host, cspViolationsSoFar: csp } };
 }

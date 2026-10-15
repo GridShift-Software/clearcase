@@ -68,7 +68,28 @@ Known limits of this setup:
 
 ## Importing a case
 
-Choose Import, type the path of the case folder (the originals) and of the results package that processing produced from it, then Validate package. The validation report checks the package and every original before anything is shown. Preview shows the candidate read-only; Activate makes it the case's active results version after you acknowledge any new warning. Importing a newer package makes a new results version; the previous one stays available, and the Overview can return to it.
+You import a case by clicking. You don't type paths or use a terminal.
+
+1. Choose **Import results** at the top of the page. The **Open a case** page opens.
+2. Choose **Add documents**. A folder browser opens in a dialog, in your home folder. **↑ Up**, the folder names above the list and the shortcuts (**Home**, and **Drive C:** and the other Windows drives under WSL2) move between folders. Click a folder to open it.
+   - Click the case pack's `.zip` file, as you received it, or
+   - open the folder the pack was extracted to and choose **Use this folder**.
+
+   The dialog closes. **Escape** or **Close** closes it without a choice.
+3. **Case name** now holds the pack's name. Change it if you want; the app shows it as the case's name.
+4. The case is stored in `~/ClearCase`, which ClearCase creates on the first import. To store it elsewhere, choose **Change**, open the folder and choose **Store cases in this folder**. It may not be inside the ClearCase data directory, ClearCase's own program folder or the case folder, and you must be able to write to it.
+5. Choose **Open case**. The status label and the progress line show each phase (Extracting, Converting, Checking originals, Ready to review), and **Cancel the running import** stops any of them:
+   1. A `.zip` is extracted into a new folder named after it, for example `ESS_DCS_Lawyer_Pack_v5-002`. ClearCase checks the free space first, and it refuses a pack with unsafe entries. If that folder already holds exactly the pack's files from an earlier import (the same names, sizes and contents, each file read back and checked), ClearCase uses it as it is; if it holds other files, or a file that differs, ClearCase refuses and names the file. If the pack holds a single top folder, that folder is the case folder.
+   2. ClearCase finds the case's workspace HTML in the case folder: the one `.html` file without a variant in brackets (`ESS_DCS_Workspace.html`, not `ESS_DCS_Workspace (bundles update only).html`). If it finds none or several, it stops and names them.
+   3. It converts the workspace HTML into a results package in `<name>-results` beside the case folder. A later import of the same case writes `<name>-results-2`, and so on.
+   4. It validates the package and every original.
+6. The validation report opens. **Preview** shows the candidate read-only. **Activate** makes it the case's active results version after you acknowledge any new warning. Importing the same pack again, with the same case name, opens the same version.
+
+If any step fails or you cancel, the message says why, and the active case stays active. The folders that import created in the storage folder are removed, so you can simply try again.
+
+**Already have a results package?** Type the path of the case folder (the originals) and of the results package below the card, then choose **Validate package**. The rest is the same.
+
+Importing a newer package makes a new results version. The previous one stays available, and the Overview can return to it.
 
 Refs name each document: the prefix is its bundle (for example OD- original discovery, SD- supplementary discovery, EM- correspondence, PN- pleadings), the number its place in the bundle.
 

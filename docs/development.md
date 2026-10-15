@@ -52,7 +52,7 @@ Both listeners bind 127.0.0.1 only. A case folder that equals, contains or lies 
 
 ## Architecture
 
-- `src/lib/case-package/` is GRS-10's library (read-only here). The app calls `importCandidate`, `verifyCandidateBytes`, `readCandidate`, `canActivate`, `acceptedWarnings`, `servePolicy` and `renderNarrative`; it never reimplements the contract.
+- `src/lib/case-package/` is GRS-10's library (read-only here). GRS-70 extends it with the coordinator's sign-off: `zip.ts` `extractEntries` streams a case pack's entries to disk, and `v5/adapter.ts` reports conversion progress (`onProgress`). The app calls `importCandidate`, `verifyCandidateBytes`, `readCandidate`, `canActivate`, `acceptedWarnings`, `servePolicy` and `renderNarrative`; it never reimplements the contract.
 - `src/lib/local-case/` is the app's server side (`*.server.ts`) and its browser-safe models:
   - `db.server.ts`: one `node:sqlite` connection; `results.sqlite` in WAL mode, `work.sqlite` attached with a rollback journal (`DELETE`), `synchronous=FULL` on both, set after `ATTACH` and verified; an exclusive instance lock; every write is one `BEGIN IMMEDIATE` transaction that retries a lock and answers 503, never 500.
   - `store.server.ts`: versions keyed by `resultsVersion`; `package_file` holds exactly `candidate.snapshot()`; verification is `verifyCandidateBytes` plus a digest over every projected row.

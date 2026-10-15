@@ -4,7 +4,7 @@ A throwaway UX prototype. It asks: **where should users find existing capabiliti
 
 - Page: `src/routes/prototype/navigation/prototype.html`. One self-contained file with inline CSS and JS, no assets and no network.
 - Launcher: `src/routes/prototype/navigation/serve.mjs`. The folder has no `+` files, so SvelteKit, the build and the route scanners in `tests/e2e/classes` ignore it.
-- Research record, in this folder: [`source-audit-inventory.md`](source-audit-inventory.md) (what the two source audits found), [`r1-synthesis-and-response.md`](r1-synthesis-and-response.md) (round 1 methods, findings and this revision's response) and [`coverage-appendix.md`](coverage-appendix.md) (every destination, planned items and sources).
+- Research record, in this folder: [`source-audit-inventory.md`](source-audit-inventory.md) (what the two source audits found), [`r1-synthesis-and-response.md`](r1-synthesis-and-response.md) (round 1 methods, findings and response), [`r2-synthesis.md`](r2-synthesis.md) (round 2 scores, findings and the final correction), [`client-test-script.md`](client-test-script.md) (tasks for a moderated client session) and [`coverage-appendix.md`](coverage-appendix.md) (every destination, planned items and sources).
 
 ## Run and stop
 
@@ -16,7 +16,7 @@ bun src/routes/prototype/navigation/serve.mjs --stop   # same PORT; signals only
 
 The server listens on loopback only. It writes its pid to `.local/prototype-navigation-<port>.pid`, and `--stop` signals that pid only while it still runs this script. It sends a CSP that blocks every load, so the page cannot depend on the network. It reads the HTML on each request, so reload after an edit.
 
-URL: `?variant=A|B&view=<id>&rv=<version>`, plus `sec` on Matter & Strategy and `q` on Advanced Search. The floating bar at the bottom left switches the variant (buttons, or Left and Right **only while a bar button has focus**) and holds a **simulated case role** control (see Notes). All user work lives in memory, is shared by both variants, and is lost on reload.
+URL: `?variant=A|B&view=<id>&rv=<version>`, plus `sec` on Matter & Strategy and `q` on Advanced Search. The floating bar at the bottom left switches the variant (buttons, or Left and Right **only while a bar button has focus**), holds a **simulated case role** control (see Notes) and opens **Operator study**, a separate simulated page outside client navigation. All user work lives in memory, is shared by both variants, and is lost on reload.
 
 ## Hypotheses
 
@@ -30,21 +30,23 @@ Shared by both, so that only navigation differs: the synthetic data, the case he
 | Task | Where in A | Where in B |
 | --- | --- | --- |
 | Search all documents for "gearbox", open a hit at its cited page | header search | header search, or Find |
-| Find any of the destinations | filter the sidebar; **All tools** | strip, **All tools**, or **More** on a phone |
-| Chronology event to its issue and risk, and back | Case › Chronology, issue tag, then Risk link | Find › Chronology, same links |
+| Find any of the destinations (try "time") | filter the sidebar; **All tools** | strip, **All tools**, or **More** on a phone |
+| Chronology event D-0344 to the risk that cites it, and back to the event | Case › Chronology, "Risk R-2 cites this", then the event link in the Risk Matrix | Find › Chronology, same links |
 | Go to one analysis section (Issue B) | Matter & Strategy, **On this page** | Argue, section chips; the rail lists that section's evidence |
 | Open a citation, return to the same place | any citation; Escape, ✕ or browser Back | same, including rail citations |
 | Start a note, leave, come back | inline form under a section | **+ Capture**; the header chip "unsaved draft" resumes it |
 | Log billable time, then switch variant | Timesheet | **+ Capture** › Time, or Record › Timesheet |
 | See submission status and publication | header chip, or Hosted · planned › Submissions | Desk › Submissions & publication |
-| Switch to a newly published Results version keeping your place | version control in the header | same |
-| Export a packet with a stated scope | Court & procedure › Court Bundle | Prepare › Court Bundle |
+| Switch to a newly published Results version keeping your place | publish v4 in Operator study, then the banner or the header version control (choose, then **View**) | same |
+| Export a client packet with a stated scope | Hosted · planned › Client packet export | Prepare › Client packet export |
 
 **Overlays.** Quick capture, More, A's drawer and the viewer open as sheets on a phone: one at a time, the page behind is inert, Tab stays inside, and Escape, the backdrop, ✕ or the browser Back button close them. On a desktop the viewer and the capture panel sit beside the work (not modal), and Back still closes the viewer first. Focus returns to the control that opened them.
 
-**Drafts.** Text typed in a note, edit or time form is kept in memory when you navigate, close an overlay, press Escape, change the original's page or switch variant. A cue in the form says it is unsaved and offers Discard draft; a header chip lists drafts and resumes them. Reloading loses them. There is no backend persistence.
+**Drafts.** Text typed in a note, edit or time form is kept in memory when you navigate, close an overlay, press Escape, change the original's page or switch variant. A cue under the Save row says it is unsaved and offers Discard draft, which asks for confirmation (Keep or Discard). A header chip lists drafts and resumes them. A note links to the case, a document page or an analysis section; the link defaults to where you are, or to the whole case, never to a page you left. Reloading loses them. There is no backend persistence.
 
-**Publication and submission.** Submissions & publication is a **planned hosted capability, simulated**. It separates what you sent (uploading, finalized, input revision), how far it has got (not started, with an operator, finished) and what is published (which Results version is active), each with a timestamp. Processing is manual, so **no percentage is shown anywhere**. A walled-off box lets you play the operator (start processing, publish Results v4); afterwards the header version control and a banner let you switch versions and keep your page, section, search, filters and drafts.
+**Publication and submission.** Submissions & publication is a **planned hosted capability, simulated**. It separates what you sent (uploading, finalized, input revision), how far it has got (not started, with an operator, finished) and what is published (which Results version is active), each with a timestamp. Processing is manual, so **no percentage is shown anywhere**. Operator actions (start processing, publish Results v4) live only in **Operator study**, opened from the prototype bar. After publishing, the banner or the header version control switches versions. The select does not switch on its own; **View** applies it, and focus stays put. Your page, section, search, filters and drafts are kept.
+
+**Results v4 differs on purpose** (synthetic): Issue C is reassessed, Quantum moves above Issue C, Next steps is merged into the Summary, two chronology events are added and Risk R-2 is reassessed. Sections keep their ids and events their E-numbers across versions. If your place no longer exists (Next steps in v4), the page says so and opens the Summary. Matching a record by its ref and original fingerprint across versions is implementation work and is not modelled.
 
 ## Decision record: Notes (settled by the user, 15 October 2026)
 
@@ -53,19 +55,21 @@ These were open questions in the first brief. They are now decisions, and the pr
 - **One contextual Notes feature**, preserving all existing records, each note linked to the case, a document and page, or an analysis section.
 - **Default visibility: users assigned to the case**, within the same case-permission boundary. The label is "Shared with assigned case users". Notes never cross cases.
 - **Users** can edit and delete their own notes. **Case editors** can also manage other people's notes. **An audit history is retained.** **Case viewers** only read: they cannot create or change notes.
-- **Exports:** shared case notes are **excluded from client packet exports by default**, included only when explicitly selected, and the selected scope is shown before download (Court Bundle).
+- **Exports:** shared case notes are **excluded from client packet exports by default**, included only when explicitly selected, and the selected scope is shown before download (Client packet export).
 
 Simulated here: the role control in the prototype bar (case viewer, assigned case user, case editor) stands in for case permissions, and the history is an in-memory list. **No authorization, audit trail, case isolation or storage is built or verified.** Mapping existing records (the document page's "My notes", keyed by ref and original fingerprint, and the `annotations_tab` register) into Notes is implementation work. The Annotations view keeps its v5 id and label so that the 42 stay intact.
 
 ## What works and what is a placeholder
 
-Working, on in-memory synthetic data: Overview, Matter & Strategy (six sections, eight cited originals), Chronology (412 events, issue and risk links), Risk Matrix (three illustrative risks), Documents (1,214 rows, 16 needing a manual read), Advanced Search, Timesheet, Annotations (the Notes home), Deadlines, Court Bundle (packet export only), the All tools catalogue, and Submissions & publication (a simulation).
+Working, on in-memory synthetic data: Overview, Matter & Strategy (six sections, eight cited originals), Chronology (412 events, issue and risk links), Risk Matrix (three illustrative risks), Documents (1,214 rows, 16 needing a manual read), Advanced Search, Timesheet, Annotations (the Notes home), Deadlines, the All tools catalogue, and two simulated planned capabilities: Submissions & publication and Client packet export.
 
-The 32 other v5 views are **summary placeholders**. They show what the view holds, a synthetic size, and its v5 group, A topic and B task, and can take a note.
+The 33 other v5 views are **summary pages**. They show what the view holds, a synthetic size, its v5 group, A topic and B task, and its v5 export, marked "not built". Court Bundle's page maps the v5 DOCX index and print and previews an index. The inventory (row 1) records that the v5 Overview can roll back; the prototype maps that and builds no control.
 
-**Planned capabilities (not in the 42; none works)**, each labelled Planned: case destinations Submissions & publication (simulated), Emails, Email silences, Anchors, Organogram, WhatsApp, Privilege suggestions, Email drafts/templates/Outlook, KYC, Billing, Audit log, Bundle builder (uploads); platform destinations Case list, Team, Notifications; and three **operator-only** surfaces (import and validate, private preview and correct, sign-off and publish), which appear **only** in the All tools catalogue, in a separate private block, and in neither variant's navigation. Their scope notes come from `docs/reference/route-map.md` and `docs/product-brief.md`; no endpoint is verified. See the coverage appendix.
+**Planned capabilities (not in the 42)**, each labelled Planned, also on a phone: case destinations Submissions & publication (simulated), Client packet export (simulated), Emails, Email silences, Anchors, Organogram, WhatsApp, Privilege suggestions, Email drafts/templates/Outlook, KYC, Billing, Audit log, Bundle builder (uploads); platform destinations Case list, Team, Notifications; and three **operator-only** surfaces (import and validate, private preview and correct, sign-off and publish), which appear **only** in Operator study mode: not in either variant's navigation, All tools or the client Submissions page. Their scope notes come from `docs/reference/route-map.md` and `docs/product-brief.md`; no endpoint is verified. See the coverage appendix.
 
-Packet export writes a CSV (documents only) and a JSON manifest as in-browser downloads, both labelled PROTOTYPE. It does not assemble a PDF.
+Client packet export writes a CSV (documents only) and a JSON manifest as in-browser downloads, both labelled PROTOTYPE. It assembles no PDF or DOCX.
+
+**Filters.** The A sidebar filter and the All tools filter rank exact labels, then task words (for example "time" for Timesheet), then label prefixes, ahead of descriptions. They show "n of 58", a Best match that Enter opens, and Clear.
 
 ## Known limitations
 
@@ -76,7 +80,7 @@ Packet export writes a CSV (documents only) and a JSON manifest as in-browser do
 - The audits' blind X/Y labelling, `?doc=` drawer and Ctrl+K palette are not built; see the response document for why.
 - Browser layouts only, desktop first, plus 390 px. A future native desktop app is out of scope.
 - "Today" uses the browser's date, and deadline day counts follow it.
-- Checked by one reviewer with a scripted browser (Chrome via T3 preview, 1280x800 and 390x844) and `selfCheck()` in the page. No tests, by design; no screen reader, contrast, zoom or real phone keyboard. Reviewer scores are opinion, not usability evidence.
+- Checked with a scripted browser (Chrome via T3 preview, 1280x800, 390x844 and a 320 spot check) and `selfCheck()` in the page. Back was tested as a scripted `history.back()`, not the browser's own button. No tests, by design; no screen reader, contrast, zoom or real phone keyboard. Reviewer scores are opinion, not usability evidence.
 
 ## The 42 views
 
@@ -99,7 +103,7 @@ Packet export writes a CSV (documents only) and a JSON manifest as in-browser do
 | 15 | `timesheet_tab` | Timesheet | Case management | Notes, time & registers | Record | working |
 | 16 | `deadlines_tab` | Deadlines | Case management | Court & procedure | Desk | working |
 | 17 | `discovery_tab` | Discovery Schedule | Case management | Court & procedure | Prepare | summary |
-| 18 | `court_bundle_tab` | Court Bundle | Case management | Court & procedure | Prepare | working |
+| 18 | `court_bundle_tab` | Court Bundle | Case management | Court & procedure | Prepare | mapping |
 | 19 | `caselines_tab` | CaseLines | Case management | Court & procedure | Prepare | summary |
 | 20 | `contradictions_tab` | Contradiction Tracker | Analysis | Issues & argument | Argue | summary |
 | 21 | `risk_matrix_tab` | Risk Matrix | Analysis | Issues & argument | Argue | working |

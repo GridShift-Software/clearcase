@@ -19,6 +19,8 @@
 <style>
 :root{--ink:#1d232b;--bg:#fafafa;--line:#d9dde3;--soft:#eceef1;--nav:#1d2b3a;--nav-2:#2c3e52;--on-nav-muted:#d7dee8;--link:#0b4f9c;--muted:#555;--faint:#666;--focus:#d35400;--ok:#1d5b1d;--ok-bg:#e3f4e3;--warn:#6a4b00;--warn-bg:#fff1c2;--bad:#7a1010;--bad-bg:#fde8e8;--plan:#4b2f86;--plan-bg:#f1ecfa;--cite-bg:#eef4fb;--cite-line:#b9cde6;--viewer-w:min(46vw,640px);--sw-h:44px;--sw-bottom:12px;color-scheme:light;font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);background:var(--bg)}
 *,*::before,*::after{box-sizing:border-box}
+/* keyboard focus and in-page jumps stop clear of the sticky bars at the top and the fixed bars at the bottom (see measure()) */
+html{scroll-padding-top:calc(var(--stick,80px) + 4px);scroll-padding-bottom:var(--obstruct-b,64px)}
 body{margin:0;padding-bottom:calc(var(--sw-h) + var(--sw-bottom) + 24px)}
 a{color:var(--link)}
 :focus-visible{outline:3px solid var(--focus);outline-offset:2px}
@@ -87,7 +89,7 @@ input[type=checkbox],input[type=radio]{width:18px;height:18px;margin:.1rem .25re
 .page-head h1{margin:0;font-size:1.45rem}
 .crumb{margin:0 0 .15rem;font-size:.85em;color:var(--muted)}
 .sub{margin:.15rem 0 0;color:var(--muted);max-width:70ch}
-section.an{background:#fff;border:1px solid var(--line);border-radius:6px;padding:.6rem .9rem;margin-bottom:.8rem;scroll-margin-top:var(--stick,80px)}
+section.an{background:#fff;border:1px solid var(--line);border-radius:6px;padding:.6rem .9rem;margin-bottom:.8rem}
 .an-head{display:flex;flex-wrap:wrap;gap:.3rem .8rem;align-items:baseline;justify-content:space-between}
 section.an h2{font-size:1.1rem;margin:.1rem 0 .3rem}
 .an p{margin:.35rem 0;max-width:75ch}
@@ -162,6 +164,14 @@ body.viewer-open .a-toc,body.viewer-open .b-context{display:none}
 .draftchip{background:var(--warn-bg)!important;color:var(--warn)!important;border-color:#e8cf7a!important;font-weight:600}
 .verbox{display:inline-flex;align-items:center;gap:.3rem}
 .verbox select{font-size:.95em;padding:.15rem .35rem;min-height:28px}
+.verbox .ver-go{min-height:28px;padding:.1rem .5rem;font-size:.9em}
+.verbox .ver-go:disabled{display:none}
+.a-top .ver-go{background:var(--nav-2);color:#fff;border-color:#5d7590}
+.filter-state{margin:.2rem .3rem .3rem;font-size:.86em;background:var(--warn-bg);border:1px solid #e8cf7a;border-radius:4px;padding:.2rem .4rem}
+.best{margin:.2rem .3rem .4rem;font-size:.9em}
+.best a{font-weight:700}
+.a-side .grp-h{font-size:.76em;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:.5rem .3rem .1rem}
+.sw-op{color:#fff;font-size:12px;white-space:nowrap;padding:0 .35rem;border-left:1px solid #555}
 .banner{display:flex;flex-wrap:wrap;gap:.4rem .8rem;align-items:center;border:1px solid #e8cf7a;background:var(--warn-bg);color:var(--warn);padding:.45rem 1rem}
 .banner.ok{border-color:#a8d3a8;background:var(--ok-bg);color:var(--ok)}
 .banner:empty{display:none}
@@ -231,7 +241,10 @@ tr.hit>td{background:#fff3d6}
 .share{margin:.1rem 0}
 .sw-role select{font-size:12px;min-height:30px;background:#333;color:#fff;border:0;border-radius:999px;padding:0 .4rem;max-width:9.5rem}
 .sw-role{display:inline-flex;margin-left:.15rem}
-.b-taskrow{position:sticky;top:0;z-index:20;background:var(--nav);display:flex;align-items:stretch;gap:.1rem;padding:0 .6rem;overflow-x:auto}
+.b-taskrow{position:sticky;top:0;z-index:20;background:var(--nav);display:flex;flex-wrap:wrap;align-items:stretch;gap:.1rem;padding:0 .6rem}
+/* with the original open the row is narrower: drop the second line and wrap, so System and All tools stay in view */
+body.viewer-open .b-task span{display:none}
+body.viewer-open .b-task{padding:.45rem .7rem}
 .b-task{font:inherit;color:var(--on-nav-muted);background:none;border:0;border-bottom:3px solid transparent;padding:.45rem .85rem .35rem;cursor:pointer;text-align:left;white-space:nowrap}
 .b-task b{display:block;color:#fff;font-size:1rem}
 .b-task span{font-size:.78em}
@@ -307,12 +320,13 @@ body.viewer-open .b-capture{right:calc(var(--viewer-w) + 16px)}
   .a-top .a-id{display:flex;gap:.4rem;align-items:center}
   .a-top .t1{flex-wrap:nowrap;flex:1;min-width:0}
   .a-top .meta{flex:none}
-  .chip-s .cf,.chip-s .pl,.b-chips-d{display:none}
+  .chip-s .cf,.b-chips-d{display:none}
+  a.tag{min-height:32px}
+  .toast{top:auto;bottom:calc(var(--obstruct-b,64px) + 4px)}
   .chip-s .cs{display:inline}
   .sw-role select{max-width:6.2rem}
   .a-top .t1 .case-name{flex:1;min-width:0}
   .a-top .livechips{flex-wrap:wrap;gap:.25rem}
-  .a-top .livechips .chip-s.hrs,.a-top .livechips .chip-s.nts{display:none}
   .a-top .chip-s{font-size:.8em;padding:.05rem .5rem;min-height:30px}
   .a-top .gsearch .btn{min-height:36px}
   .a-top .gsearch input{min-height:36px}
@@ -482,6 +496,19 @@ const SECTIONS = [
 ];
 const SEC_BY = Object.fromEntries(SECTIONS.map((s) => [s.id, s]));
 
+/* Results v4, published by the simulated operator, really differs from v3 so that a version switch is tested against changed
+   content: Issue C is reassessed and cites one more original, Quantum moves above Issue C, Next steps is merged into the
+   Summary (so a place in it has to fall back), two chronology events are added and Risk R-2 is reassessed. Sections keep
+   their ids and events their E-numbers across versions. v1 to v3 share the v3 data. */
+const SECTIONS_V4 = [
+  { ...SEC_BY.summary, paras: [SEC_BY.summary.paras[0], 'Next steps, merged into this summary in Results v4: ask for the crane maintenance log and prepare cross-examination of L. Mokoena on the gearbox timeline {K6:3}.'] },
+  SEC_BY['issue-a'], SEC_BY['issue-b'], SEC_BY.quantum,
+  { ...SEC_BY['issue-c'], position: 'Moderate', title: 'Issue C: set-off of storage charges (reassessed in v4)', paras: [SEC_BY['issue-c'].paras[0], 'The site meeting minutes put the replacement gearbox on site on 11 March {K6:3}, so storage after the repair cannot be blamed on the outage alone.'] },
+];
+const V4_NOTE = 'Synthetic changes in Results v4: Issue C reassessed, Quantum moved above Issue C, Next steps merged into the Summary, 2 chronology events added, Risk R-2 reassessed.';
+const isV4 = () => S.viewing === 'v4';
+const secs = () => isV4() ? SECTIONS_V4 : SECTIONS;
+
 const DEADLINES = [
   ['2026-10-22', 'Respondent\u2019s discovery affidavit due', 'Discovery'],
   ['2026-10-29', 'Kestrel\u2019s reply to the amended defence', 'Pleadings'],
@@ -501,6 +528,8 @@ const S4_FILES = Array.from({ length: 58 }, (_, i) => `S4-${pad(i + 1, 3)} ${pic
    The 42 v5 views (ids, labels and v5 groups from src/lib/components/view-registry.ts at the base SHA),
    each placed in one Variant A topic and one Variant B task. built: 1 = working here, 0 = summary placeholder.
    ==================================================================================================== */
+// The export each v5 view offers, from the source audit's Export column (source-audit-inventory.md section 5). None is built here.
+const V5_EXPORT = { overview: 'none', matter: 'none', timeline: 'print', chronology: 'CSV', quantum_tab: 'CSV (invoices.csv)', documents: 'none', contracts_tab: 'CSV', filings_tab: 'CSV x2', search: 'CSV', people: 'none', entity_ledger_tab: 'none', hoa_diff_tab: 'none', invoice_ledger_tab: 'CSV (invoices.csv)', disbursements_tab: 'CSV', timesheet_tab: 'CSV', deadlines_tab: 'ICS', discovery_tab: 'HTML index, cover page, print', court_bundle_tab: 'DOCX index, print', caselines_tab: 'none', contradictions_tab: 'CSV', risk_matrix_tab: 'none', vdm_matrix_tab: 'CSV', info_required_tab: 'print', witness_tab: 'none', conflict_tab: 'none', enforcement_tab: 'none', legality_tab: 'none', prescription_tab: 'CSV', interest_calc_tab: 'none', payments_tab: 'CSV', elements_tab: 'none', authorities_tab: 'CSV', heads_tab: 'export', crossexam_tab: 'none', settlement_tab: 'none', privilege_tab: 'CSV', popia_tab: 'CSV', annotations_tab: 'CSV', transcriptions_tab: 'CSV', rescan_tab: 'JSON index', backup_tab: 'backup file', manual: 'print' };
 const VIEWS = [
   ['overview', 'Overview', 'Matter', 'case', 'desk', 1, null, 'Case summary, counts and processing state.'],
   ['matter', 'Matter & Strategy', 'Matter', 'case', 'argue', 1, 3, 'Issues, positions and strategy, with citations to the originals.'],
@@ -519,7 +548,7 @@ const VIEWS = [
   ['timesheet_tab', 'Timesheet', 'Case management', 'registers', 'record', 1, null, 'Time entries, billable and unbilled.'],
   ['deadlines_tab', 'Deadlines', 'Case management', 'court', 'desk', 1, DEADLINES.length, 'Procedural and contractual deadlines.'],
   ['discovery_tab', 'Discovery Schedule', 'Case management', 'court', 'prepare', 0, 118, 'Discovery schedule and its items.'],
-  ['court_bundle_tab', 'Court Bundle', 'Case management', 'court', 'prepare', 1, null, 'Choose documents for a bundle or packet and export it.'],
+  ['court_bundle_tab', 'Court Bundle', 'Case management', 'court', 'prepare', 0, null, 'Build court bundle indexes and export them as DOCX or print them.'],
   ['caselines_tab', 'CaseLines', 'Case management', 'court', 'prepare', 0, 1840, 'CaseLines pagination and page lookup.'],
   ['contradictions_tab', 'Contradiction Tracker', 'Analysis', 'issues', 'argue', 0, 11, 'Statements that conflict, with both sources.'],
   ['risk_matrix_tab', 'Risk Matrix', 'Analysis', 'issues', 'argue', 1, 3, 'Risks by likelihood and impact, each tied to an issue and its source events.'],
@@ -539,12 +568,12 @@ const VIEWS = [
   ['settlement_tab', 'Settlement / BATNA', 'Litigation strategy', 'money', 'numbers', 0, 4, 'Settlement range and BATNA.'],
   ['privilege_tab', 'Privilege Log', 'Registers', 'registers', 'record', 0, 31, 'Privilege log.'],
   ['popia_tab', 'POPIA Register', 'Registers', 'registers', 'record', 0, 19, 'Personal-information processing register.'],
-  ['annotations_tab', 'Annotations', 'Registers', 'registers', 'record', 1, null, 'Notes on documents, pages, issues and views.'],
+  ['annotations_tab', 'Annotations', 'Registers', 'registers', 'record', 1, null, 'Notes on the case, document pages and analysis sections.'],
   ['transcriptions_tab', 'Transcripts', 'Registers', 'docs', 'find', 0, 8, 'Transcript register.'],
   ['rescan_tab', 'Rescan & Update', 'System', 'system', 'system', 0, null, 'Rescan the case folder and update results.'],
   ['backup_tab', 'Backup / Restore', 'System', 'system', 'system', 0, null, 'Back up or restore user work.'],
   ['manual', 'Manual', 'System', 'system', 'system', 0, null, 'Usage guide and build report.'],
-].map(([id, label, group, topic, task, built, count, blurb]) => ({ id, label, group, topic, task, built: !!built, count, blurb }));
+].map(([id, label, group, topic, task, built, count, blurb]) => ({ id, label, group, topic, task, built: !!built, count, blurb, exp: V5_EXPORT[id] }));
 
 // Capabilities the hosted product has or will have and this app does not: shown as planned, never as working.
 // kind 'case' = a case destination; 'platform' = account or firm level, outside one case. Sources: docs/reference/route-map.md,
@@ -561,11 +590,12 @@ const PLANNED = [
   ['hosted_kyc', 'KYC', 'system', 'case', 'Deferred: not in v5, no ticket.', 'Client due-diligence register.'],
   ['hosted_billing', 'Billing', 'record', 'case', 'Deferred: not in v5, no ticket.', 'Fee notes built from time entries and disbursements.'],
   ['hosted_audit', 'Audit log', 'system', 'case', 'Deferred: not in v5, no ticket owns it.', 'Firm activity history for the case.'],
+  ['hosted_packet', 'Client packet export', 'prepare', 'case', 'Planned hosted export for a client. Notes are left out unless chosen (user decision of 15 October 2026). No route or ticket is recorded in the sources used here; not the v5 Court Bundle.', 'Export chosen documents for a client as a CSV and a manifest, with notes only if you choose them. Simulated here.'],
   ['hosted_bundles', 'Bundle builder (uploads)', 'prepare', 'case', 'Deferred: PDF assembly from uploads needs a scope decision.', 'Assemble court bundles as PDFs from uploaded files.'],
   ['hosted_cases', 'Case list', 'system', 'platform', 'v2-owned (GRS-36 client and case provisioning); production route /cases.', 'Choose between the cases you can see.'],
   ['hosted_team', 'Team', 'system', 'platform', 'v2-owned (GRS-26 roles, GRS-36 identity); path not recorded, invitations unverified.', 'People with access, and who is assigned to this case.'],
   ['hosted_notifications', 'Notifications', 'system', 'platform', 'V2 platform item in the component audit; no route recorded and no ticket identified in the sources used here.', 'Messages about your submissions and published versions.'],
-].map(([id, label, task, kind, scope, blurb]) => ({ id, label, task, kind, topic: kind === 'platform' ? 'account' : 'planned', planned: true, sim: id === 'hosted_intake', built: false, scope, blurb, count: null, group: 'Hosted' }));
+].map(([id, label, task, kind, scope, blurb]) => ({ id, label, task, kind, topic: kind === 'platform' ? 'account' : 'planned', planned: true, sim: id === 'hosted_intake' || id === 'hosted_packet', built: false, scope, blurb, count: null, group: 'Hosted' }));
 
 // Private operator surfaces (GRS-25, GRS-30, GRS-31). Not client navigation: neither variant lists them. They appear only in the
 // All tools catalogue, in their own dashed block, so the separation can be judged.
@@ -575,8 +605,10 @@ const OPS = [
   ['op_publish', 'Sign-off & publish', 'An admin signs off one specific results version; publication switches the client’s active version atomically and records who approved it (GRS-31).'],
 ].map(([id, label, blurb]) => ({ id, label, task: null, topic: 'operator', planned: true, operator: true, built: false, scope: 'v2-owned; production route /admin redirects to /cases for a firm admin. Not part of client navigation.', blurb, count: null, group: 'Operator' }));
 
+// Prototype-only: a walled-off operator-study page reached from the prototype bar, never from client navigation or All tools.
+const OP_STUDY = { id: 'op_study', label: 'Operator study (simulated)', topic: 'operator', task: null, planned: true, operator: true, study: true, built: false, blurb: 'Prototype-only mode for the study. Simulates what an operator does so the client side can be judged; it is not a design for the operator console.', count: null, group: 'Operator', scope: 'Not part of either variant. No authorization is modelled or claimed.' };
 const CATALOG = { id: 'catalog', label: 'All tools', topic: null, task: null, built: true, catalog: true, blurb: 'Every view and planned capability in one filterable list.', count: null, group: 'Prototype' };
-const ALL = [...VIEWS, ...PLANNED, ...OPS, CATALOG];
+const ALL = [...VIEWS, ...PLANNED, ...OPS, OP_STUDY, CATALOG];
 const VBY = Object.fromEntries(ALL.map((v) => [v.id, v]));
 
 const TOPICS = [
@@ -604,10 +636,15 @@ const NOTE_SHARE = 'Shared with assigned case users';
 // One illustrative risk per issue, so a chronology event can lead to its issue and its risk and back (the study's task 3).
 const RISKS = [
   { id: 'R-1', issue: 'A', title: 'Authority shows the delay was not caused by its own equipment', likelihood: 'Low', impact: 'High', refs: [['K1', 12], ['K2', 2]] },
-  { id: 'R-2', issue: 'B', title: 'Force majeure notice accepted as timely', likelihood: 'Medium', impact: 'High', refs: [['K4', 1], ['K8', 6]] },
+  { id: 'R-2', issue: 'B', title: 'Force majeure notice accepted as timely', likelihood: 'Medium', impact: 'High', refs: [['K4', 1], ['K6', 3], ['K8', 6]] },
   { id: 'R-3', issue: 'C', title: 'Set-off of storage charges upheld', likelihood: 'Medium', impact: 'Medium', refs: [['K5', 1], ['K7', 2]] },
 ];
+const RISKS_V4 = RISKS.map((r) => r.id === 'R-2' ? { ...r, likelihood: 'Low (reassessed in v4)' } : r);
+const risks = () => isV4() ? RISKS_V4 : RISKS;
 const RISK_BY_ISSUE = Object.fromEntries(RISKS.map((r) => [r.issue, r]));
+// A chronology row links to a risk only when that risk cites the row's source (document and page), never just by issue.
+const sourceEvents = (r) => r.refs.map(([k, p]) => chrono().find((e) => e.ref === BYKEY[k].ref && e.page === p)).filter(Boolean);
+const risksCiting = (e) => risks().filter((r) => r.refs.some(([k, p]) => BYKEY[k].ref === e.ref && p === e.page));
 const SECTION_OF_ISSUE = { A: 'issue-a', B: 'issue-b', C: 'issue-c' };
 
 // Publication: client-visible states follow docs/product-brief.md (V2 client workflow). Processing is manual and has no progress figure.
@@ -629,7 +666,7 @@ const S = {
   ],
   time: [
     { id: 'T-2', date: TODAY, hours: 0.5, activity: 'Drafting', desc: 'Notes on the force majeure timeline', billable: true, link: 'sec:issue-b' },
-    { id: 'T-1', date: '2026-10-14', hours: 1.2, activity: 'Perusal', desc: 'Perused berth occupancy reports', billable: true, link: 'view:documents' },
+    { id: 'T-1', date: '2026-10-14', hours: 1.2, activity: 'Perusal', desc: 'Perused berth occupancy reports', billable: true, link: 'case' },
   ],
   seq: { note: 2, time: 2 },
   chrono: { q: '', issue: '', shown: 120 },
@@ -665,7 +702,12 @@ S.audit = [
   { at: '2026-10-14 16:20', who: 'R. van der Berg', what: 'created N-1' },
   { at: '2026-10-14 16:40', who: ME, what: 'created N-2' },
 ];
-CHRONO.forEach((e, i) => { e.i = i; });
+CHRONO.forEach((e, i) => { e.id = 'E-' + pad(i + 1); });
+const CHRONO_V4 = [...CHRONO,
+  { id: 'E-0413', date: '2025-03-10', text: 'Harbour master records that Crane 3 repair parts are on order (added in Results v4)', actors: 'L. Mokoena', ref: BYKEY.K2.ref, page: 3, issue: 'B' },
+  { id: 'E-0414', date: '2025-05-20', text: 'Kestrel disputes invoice INV-7731 for silo 4 storage (added in Results v4)', actors: 'J. Ferreira', ref: BYKEY.K5.ref, page: 2, issue: 'C' },
+].sort((a, b) => a.date.localeCompare(b.date));
+const chrono = () => isV4() ? CHRONO_V4 : CHRONO;
 const canCreate = () => S.role !== 'viewer';
 const canManage = (n) => S.role === 'editor' || (S.role === 'member' && n.by === ME);
 const actor = () => S.role === 'editor' ? `${ME} as case editor` : ME;
@@ -679,13 +721,14 @@ const issueTag = (k) => k ? `<span class="tag ${k}" title="${esc(ISSUES[k])}">${
 const issueLink = (k) => k ? `<a class="tag ${k}" href="${href('matter')}" data-nav="matter" data-sec="${SECTION_OF_ISSUE[k]}" title="Open issue ${k} in Matter &amp; Strategy">${k} · ${esc(ISSUES[k])}</a>` : '';
 const riskLink = (k) => RISK_BY_ISSUE[k] ? `<a href="${href('risk_matrix_tab')}" data-nav="risk_matrix_tab" data-row="${RISK_BY_ISSUE[k].id}">Risk ${RISK_BY_ISSUE[k].id}</a>` : '';
 const href = (id) => `?variant=${S.variant}&view=${id}&rv=${S.viewing}`;
-const LIVE_COUNT = { timesheet_tab: () => S.time.length, annotations_tab: () => S.notes.length, court_bundle_tab: () => S.packet.size };
+const LIVE_COUNT = { timesheet_tab: () => S.time.length, annotations_tab: () => S.notes.length, hosted_packet: () => S.packet.size, chronology: () => chrono().length };
 function countOf(v) { const n = LIVE_COUNT[v.id] ? LIVE_COUNT[v.id]() : v.count; return n == null ? '' : fmtN(n); }
 function hl(text, q) {
   const t = String(text), i = t.toLowerCase().indexOf(q);
   return i < 0 ? esc(t) : esc(t.slice(0, i)) + '<mark>' + esc(t.slice(i, i + q.length)) + '</mark>' + esc(t.slice(i + q.length));
 }
 function stateTag(v) {
+  if (v.study) return '<span class="tag planned">Prototype operator-study mode · simulated · not client navigation</span>';
   if (v.operator) return '<span class="tag planned">Planned · operator only, private</span>';
   if (v.sim) return '<span class="tag planned">Planned hosted · simulated here</span>';
   if (v.planned) return '<span class="tag planned">Planned hosted capability</span>';
@@ -707,16 +750,18 @@ function linkHTML(l) {
   if (k === 'sec') return `<a href="${href('matter')}" data-nav="matter" data-sec="${a}">${esc(linkLabel(l))}</a>`;
   return `<a href="${href(a)}" data-nav="${a}">${esc(linkLabel(l))}</a>`;
 }
+// A note or time entry links to the case, a document page or an analysis section (the settled Notes anchors), and by default
+// only to what is in front of you: the page of the original you have open, the section you are in, otherwise the whole case.
+// Where you were before is offered as a choice, never preselected.
 const REGISTER_VIEWS = new Set(['timesheet_tab', 'annotations_tab', 'catalog', 'search']);
 function ctxLink() {
   if (S.viewer) return `doc:${S.viewer.ref}:${S.viewer.page}`;
   if (S.view === 'matter') return 'sec:' + S.section;
-  if (REGISTER_VIEWS.has(S.view)) return S.lastCtx || 'case';
-  return 'view:' + S.view;
+  return 'case';
 }
 function linkOptions(def, sel) {
   const opts = new Map();
-  for (const l of [sel, def, S.viewer && `doc:${S.viewer.ref}:${S.viewer.page}`, S.lastCtx, !REGISTER_VIEWS.has(S.view) && 'view:' + S.view, 'case']) if (l && !opts.has(l)) opts.set(l, linkLabel(l));
+  for (const l of [sel, def, S.viewer && `doc:${S.viewer.ref}:${S.viewer.page}`, 'case', S.lastCtx]) if (l && !opts.has(l)) opts.set(l, linkLabel(l));
   const pick = sel || def;
   return [...opts].map(([v, l]) => `<option value="${esc(v)}"${v === pick ? ' selected' : ''}>${esc(l)}</option>`).join('');
 }
@@ -731,12 +776,14 @@ function subLabel(short) {
   if (S.sub.step >= 4) return short ? 'S-4 published' : `Submission S-4: published as Results ${S.active}`;
   return short ? `S-4 ${subStep().toLowerCase()}` : `Submission S-4: ${subStep().toLowerCase()} · since ${subLast().at}`;
 }
+// Choosing a version and showing it are two steps: arrow keys only move the choice; View applies it and focus stays here.
+const verOptions = () => S.versions.map((v) => `<option value="${v.id}"${v.id === S.viewing ? ' selected' : ''}>Results ${v.id} · ${v.id === S.active ? 'active' : 'previous'}</option>`).join('');
 function versionControl() {
-  return `<span class="verbox"><label for="ver-sel" class="vh">Results version being viewed</label><select id="ver-sel" data-ver>${S.versions.map((v) => `<option value="${v.id}"${v.id === S.viewing ? ' selected' : ''}>Results ${v.id} · ${v.id === S.active ? 'active' : 'previous'}</option>`).join('')}</select></span>`;
+  return `<span class="verbox"><label for="ver-sel" class="vh">Results version to view</label><select id="ver-sel" data-ver>${verOptions()}</select><button type="button" class="btn ver-go" id="ver-go" data-action="apply-ver" disabled>View</button></span>`;
 }
 function bannerHTML() {
   if (S.viewing === S.active) return '';
-  return `<span><strong>You are viewing Results ${S.viewing}, a previous version.</strong> Results ${S.active} is active (published ${esc(S.versions.find((v) => v.id === S.active).date)}).</span> <button type="button" class="btn" data-action="switch-ver" data-ver-to="${S.active}">Switch to Results ${S.active}, keep my place</button> <span class="muted small">Same page, section, search and drafts are kept. Simulated.</span>`;
+  return `<span><strong>You are viewing Results ${S.viewing}, a previous version.</strong> Results ${S.active} is active (published ${esc(S.versions.find((v) => v.id === S.active).date)}).${S.active === 'v4' ? ' ' + esc(V4_NOTE) : ''}</span> <button type="button" class="btn" data-action="switch-ver" data-ver-to="${S.active}">Switch to Results ${S.active}, keep my place</button> <span class="muted small">Same page, section, search and drafts are kept. Simulated.</span>`;
 }
 const bannerBox = () => `<div class="banner" id="banner" role="status">${bannerHTML()}</div>`;
 
@@ -747,7 +794,7 @@ function draftChipHTML() {
 }
 function chipsInner() {
   return `<a class="chip-s proc" href="${href('hosted_intake')}" data-nav="hosted_intake" title="Submission status (planned hosted capability, simulated)"><span class="cf">${esc(subLabel(false))}</span><span class="cs">${esc(subLabel(true))}</span><span class="pl">Planned</span></a>`
-    + `<a class="chip-s hrs" href="${href('timesheet_tab')}" data-nav="timesheet_tab">Today ${todayHours().toFixed(1)} h</a>`
+    + `<a class="chip-s hrs" href="${href('timesheet_tab')}" data-nav="timesheet_tab" aria-label="Today ${todayHours().toFixed(1)} hours, open the Timesheet"><span class="cf">Today </span>${todayHours().toFixed(1)} h</a>`
     + `<a class="chip-s nts" href="${href('annotations_tab')}" data-nav="annotations_tab">${S.notes.length} notes</a>` + draftChipHTML();
 }
 const caseMeta = () => `${versionControl()}<span>published ${esc(ver().date)}</span><span>${esc(CASE.forum)}</span><span>${fmtN(CASE.docs)} documents</span><span>${MANUAL_COUNT} need a manual read</span>`;
@@ -756,7 +803,8 @@ function searchForm() {
 }
 function pageHead(v) {
   const where = v.operator ? 'Operator console' : S.variant === 'A' ? (v.topic ? topicLabel(v.topic) : 'Case') : (v.task ? taskLabel(v.task) : 'All tasks');
-  return `<div class="page-head"><div><p class="crumb">${esc(where)} › ${esc(v.label)} · <code>${v.id}</code></p><h1 id="page-h1" tabindex="-1">${esc(v.label)}</h1><p class="sub">${esc(v.blurb)}</p></div>${stateTag(v)}</div>`;
+  const x = v.built && v.exp && v.exp !== 'none' ? `<p class="sub small">v5 export: <strong>${esc(v.exp)}</strong> (mapped, not built in this prototype)</p>` : '';
+  return `<div class="page-head"><div><p class="crumb">${esc(where)} › ${esc(v.label)} · <code>${v.id}</code></p><h1 id="page-h1" tabindex="-1">${esc(v.label)}</h1><p class="sub">${esc(v.blurb)}</p>${x}</div>${stateTag(v)}</div>`;
 }
 
 /* ---------- drafts: unsaved form text lives in memory for this tab, keyed by where it was typed ---------- */
@@ -791,13 +839,13 @@ function syncDraft(form) {
   if (!key) return;
   const v = readVals(form);
   if (draftDirty(form, v)) S.drafts[key] = { kind: form.dataset.form, vals: v, at: Date.now(), label: draftLabel(form, v) }; else delete S.drafts[key];
-  const cue = $('.draft-cue', form); if (cue) cue.hidden = !S.drafts[key];
+  const cue = $('.draft-cue', form); if (cue) { if (!cue.querySelector('[data-action=discard-draft]')) cue.innerHTML = cueText(key); cue.hidden = !S.drafts[key]; }
   refreshDraftChips();
 }
 function resetForm(form) {
   const f = form.elements, k = form.dataset.form;
   if (k === 'time') { f.desc.value = ''; f.hours.value = '0.3'; } else if (k === 'noteedit') { const n = S.notes.find((x) => x.id === form.dataset.draft.slice(5)); f.text.value = n ? n.text : ''; } else f.text.value = '';
-  const cue = $('.draft-cue', form); if (cue) cue.hidden = true;
+  const cue = $('.draft-cue', form); if (cue) { cue.hidden = true; cue.innerHTML = cueText(form.dataset.draft); }
 }
 function discardDraft(key) {
   delete S.drafts[key];
@@ -806,7 +854,10 @@ function discardDraft(key) {
   refreshDraftChips(true);
   if (key.startsWith('edit|')) refreshLive();
 }
-const draftCue = (key) => `<div class="draft-cue" role="status"${S.drafts[key] ? '' : ' hidden'}><strong>Unsaved draft.</strong> Kept in memory for this tab only, not saved anywhere; reloading loses it. <button type="button" class="linkbtn" data-action="discard-draft" data-key="${esc(key)}">Discard draft</button></div>`;
+// The cue sits after Save, so Tab reaches Save first. Discarding asks first and the safe answer has focus.
+const cueText = (key) => `<span><strong>Unsaved draft.</strong> Kept in memory for this tab only, not saved anywhere; reloading loses it.</span> <button type="button" class="linkbtn" data-action="discard-draft" data-key="${esc(key)}">Discard draft\u2026</button>`;
+const draftCue = (key) => `<div class="draft-cue"${S.drafts[key] ? '' : ' hidden'}>${cueText(key)}</div>`;
+const confirmDiscardHTML = (key) => `<span role="alert">Discard ${S.drafts[key] ? '\u201c' + esc(S.drafts[key].label) + '\u201d' : 'this draft'}? The text cannot be recovered.</span> <button type="button" class="btn" data-action="discard-keep" data-key="${esc(key)}">Keep draft</button> <button type="button" class="btn" data-action="discard-confirm" data-key="${esc(key)}">Discard</button>`;
 
 /* ---------- shared forms ---------- */
 function noteForm(px, link, key) {
@@ -820,8 +871,8 @@ function noteForm(px, link, key) {
   <p class="err" id="${px}-nerr"></p>
   <label for="${px}-nlink">Linked to</label>
   <select id="${px}-nlink" name="link">${linkOptions(link, d && d.vals.link)}</select>
-  ${draftCue(key)}
   <div class="row"><button class="btn primary" type="submit">Save note</button></div>
+  ${draftCue(key)}
   <p class="confirm" role="status"></p></form>`;
 }
 function timeForm(px, link, key) {
@@ -837,8 +888,8 @@ function timeForm(px, link, key) {
   <label class="check"><input type="checkbox" name="billable"${v.billable ? ' checked' : ''}> <span>Billable at ${money(RATE)} per hour (synthetic rate)</span></label>
   <label for="${px}-tl">Linked to</label><select id="${px}-tl" name="link">${linkOptions(link, d && d.vals.link)}</select>
   <p class="err" id="${px}-terr"></p>
-  ${draftCue(key)}
   <div class="row"><button class="btn primary" type="submit">Save time entry</button></div>
+  ${draftCue(key)}
   <p class="confirm" role="status"></p></form>`;
 }
 const slotId = (link) => 'slot-' + link.replace(/[^a-z0-9]+/gi, '-');
@@ -857,7 +908,9 @@ function viewBody(id) {
     case 'risk_matrix_tab': return riskHTML();
     case 'timesheet_tab': return timesheetHTML();
     case 'annotations_tab': return annotationsHTML();
-    case 'court_bundle_tab': return packetHTML();
+    case 'court_bundle_tab': return courtBundleHTML();
+    case 'hosted_packet': return packetHTML();
+    case 'op_study': return opStudyHTML();
     case 'deadlines_tab': return deadlinesHTML();
     case 'catalog': return catalogHTML();
     case 'hosted_intake': return intakeHTML();
@@ -873,13 +926,14 @@ function overviewHTML() {
   const nd = nextDeadline(), act = S.versions.find((v) => v.id === S.active);
   return `<div class="cards">
    <div class="card"><h2>Documents</h2><div class="big">${fmtN(CASE.docs)}</div><div>${fmtN(CASE.docs - MANUAL_COUNT)} text read · <a href="${href('documents')}" data-nav="documents" data-preset="docs-manual">${MANUAL_COUNT} need a manual read</a></div></div>
-   <div class="card"><h2>Chronology</h2><div class="big">${fmtN(CHRONO.length)}</div><div><a href="${href('chronology')}" data-nav="chronology">events with citations</a></div></div>
-   <div class="card"><h2>Issues</h2><div class="big">3</div><div>${SECTIONS.filter((s) => s.issue).map((s) => `<a href="${href('matter')}" data-nav="matter" data-sec="${s.id}">${s.issue}: ${s.position.toLowerCase()}</a>`).join(' · ')}</div></div>
+   <div class="card"><h2>Chronology</h2><div class="big">${fmtN(chrono().length)}</div><div><a href="${href('chronology')}" data-nav="chronology">events with citations</a></div></div>
+   <div class="card"><h2>Issues</h2><div class="big">3</div><div>${secs().filter((s) => s.issue).map((s) => `<a href="${href('matter')}" data-nav="matter" data-sec="${s.id}">${s.issue}: ${s.position.toLowerCase()}</a>`).join(' · ')}</div></div>
    <div class="card"><h2>Next deadline</h2><div class="big">${nd[0]}</div><div>${esc(nd[1])} · ${daysTo(nd[0])} days · <a href="${href('deadlines_tab')}" data-nav="deadlines_tab">all ${DEADLINES.length}</a></div></div>
    <div class="card"><h2>Time today</h2><div class="big" data-live="today">${todayHours().toFixed(1)} h</div><div><a href="${href('timesheet_tab')}" data-nav="timesheet_tab">Timesheet</a> · unbilled <span data-live="unbilled">${money(unbilled())}</span></div></div>
    <div class="card"><h2>Results &amp; submission <span class="pl">Planned</span></h2><div class="big" style="font-size:1.15rem" data-live="substate">${esc(S.sub.step >= 4 ? 'Published' : subStep())}</div><div class="small">Results ${act.id} active since ${esc(act.date)}. <span data-live="sublast">S-4 last updated ${esc(subLast().at)}.</span></div><div><a href="${href('hosted_intake')}" data-nav="hosted_intake">Submission status</a> <span class="muted small">(simulated)</span></div></div>
   </div>
   <p class="muted small">Viewing Results ${S.viewing} · resultsVersion <code>${ver().rv}</code> · ${esc(CASE.forum)}</p>
+  <p class="muted small">v5 also lets you <strong>roll back</strong> to an earlier Results version from this page. Who may do that in the hosted product is undecided, so it is not shown as a control; the header's version choice only lets you view an earlier version.</p>
   <h2 class="h3">Recent work</h2><ul class="plain list" id="recent">${recentHTML()}</ul>`;
 }
 function recentHTML() {
@@ -891,7 +945,8 @@ function recentHTML() {
 
 function matterHTML() {
   return `<p class="muted small">Citations open the simulated original beside this analysis. Close it, press Escape or use the browser Back button to return to the same citation.</p>`
-    + SECTIONS.map((s) => `<section class="an" id="sec-${s.id}" data-anchor aria-labelledby="h-${s.id}" data-secblock="${s.id}">
+    + secs().map((s) => `<section class="an" id="sec-${s.id}" data-anchor aria-labelledby="h-${s.id}" data-secblock="${s.id}">
+    ${S.secMissing && s.id === 'summary' ? `<p class="assume" id="sec-missing" role="status"><strong>\u201c${esc(SEC_BY[S.secMissing].short)}\u201d is not in Results ${S.viewing}.</strong> ${S.secMissing === 'next' ? 'In Results v4 it was merged into this summary.' : ''} Showing the Summary instead.</p>` : ''}
     <div class="an-head"><h2 id="h-${s.id}" tabindex="-1">${esc(s.title)}</h2>${s.position ? `<span class="tag ${s.issue}">Position: ${s.position}</span>` : ''}</div>
     ${s.paras.map((p) => `<p>${withCites(p)}</p>`).join('')}
     ${s.issue ? `<p class="small">${riskLink(s.issue)}: ${esc(RISK_BY_ISSUE[s.issue].title)} · <a href="${href('chronology')}" data-nav="chronology" data-preset="chrono-${s.issue}">chronology for issue ${s.issue}</a></p>` : ''}
@@ -906,7 +961,7 @@ function secNotes(id) {
 
 function filteredChrono() {
   const { q, issue } = S.chrono, t = q.trim().toLowerCase();
-  return CHRONO.filter((e) => (!issue || e.issue === issue) && (!t || `${e.text} ${e.ref} ${e.actors} ${e.date}`.toLowerCase().includes(t)));
+  return chrono().filter((e) => (!issue || e.issue === issue) && (!t || `${e.text} ${e.ref} ${e.actors} ${e.date}`.toLowerCase().includes(t)));
 }
 function chronologyHTML() {
   const c = S.chrono;
@@ -917,16 +972,16 @@ function chronologyHTML() {
 }
 function chronoTable() {
   const rows = filteredChrono(), shown = Math.min(S.chrono.shown, rows.length);
-  return `<p class="muted small">${fmtN(shown)} of ${fmtN(rows.length)} events shown${rows.length < CHRONO.length ? ` (filtered from ${fmtN(CHRONO.length)})` : ''}. An issue tag opens that issue in Matter &amp; Strategy; the risk link opens its row in the Risk Matrix.</p>
+  return `<p class="muted small">${fmtN(shown)} of ${fmtN(rows.length)} events shown${rows.length < chrono().length ? ` (filtered from ${fmtN(chrono().length)})` : ''}. An issue tag opens that issue in Matter &amp; Strategy. A risk link appears only where that risk cites the event's source.</p>
   <div class="table-scroll" role="region" aria-label="Chronology events" tabindex="0"><table class="t stack wide"><thead><tr><th scope="col">Date</th><th scope="col">Event</th><th scope="col">People</th><th scope="col">Issue and risk</th><th scope="col">Source</th></tr></thead><tbody>
-  ${rows.slice(0, shown).map((e) => `<tr id="ev-${e.i}" data-anchor><td data-label="Date" class="nowrap">${e.date}</td><td data-label="Event">${esc(e.text)}</td><td data-label="People">${esc(e.actors)}</td><td data-label="Issue">${issueLink(e.issue)} ${riskLink(e.issue)}</td><td data-label="Source">${cite(e.ref, e.page)}</td></tr>`).join('')}
+  ${rows.slice(0, shown).map((e) => `<tr id="ev-${e.id}" data-anchor><td data-label="Date" class="nowrap">${e.date}</td><td data-label="Event">${esc(e.text)}</td><td data-label="People">${esc(e.actors)}</td><td data-label="Issue">${issueLink(e.issue)} ${risksCiting(e).map((r) => `<a href="${href('risk_matrix_tab')}" data-nav="risk_matrix_tab" data-row="${r.id}">Risk ${r.id} cites this</a>`).join(' ')}</td><td data-label="Source">${cite(e.ref, e.page)}</td></tr>`).join('')}
   </tbody></table></div>${rows.length > shown ? `<p><button type="button" class="btn" data-action="more-chrono">Show ${Math.min(120, rows.length - shown)} more events</button></p>` : ''}`;
 }
 
 function riskHTML() {
-  return `<p class="muted small">Three illustrative risks, one per issue. Each links to its issue, its source events and the originals.</p>
+  return `<p class="muted small">Three illustrative risks, one per issue. Each links to its issue, the originals it cites and the chronology events that cite them; an event link opens that event, not the whole issue.</p>
   <div class="table-scroll" role="region" aria-label="Risk matrix" tabindex="0"><table class="t stack wide"><thead><tr><th scope="col">Risk</th><th scope="col">Issue</th><th scope="col">What could go wrong</th><th scope="col">Likelihood</th><th scope="col">Impact</th><th scope="col">Evidence</th><th scope="col">Source events</th></tr></thead><tbody>
-  ${RISKS.map((r) => `<tr id="row-${r.id}" data-anchor><td data-label="Risk"><strong>${r.id}</strong></td><td data-label="Issue">${issueLink(r.issue)}</td><td data-label="Risk">${esc(r.title)}</td><td data-label="Likelihood">${r.likelihood}</td><td data-label="Impact">${r.impact}</td><td data-label="Evidence">${r.refs.map(([k, p]) => cite(BYKEY[k].ref, p)).join(' ')}</td><td data-label="Events"><a href="${href('chronology')}" data-nav="chronology" data-preset="chrono-${r.issue}">Chronology, issue ${r.issue}</a></td></tr>`).join('')}
+  ${risks().map((r) => `<tr id="row-${r.id}" data-anchor><td data-label="Risk"><strong>${r.id}</strong></td><td data-label="Issue">${issueLink(r.issue)}</td><td data-label="Risk">${esc(r.title)}</td><td data-label="Likelihood">${r.likelihood}</td><td data-label="Impact">${r.impact}</td><td data-label="Evidence">${r.refs.map(([k, p]) => cite(BYKEY[k].ref, p)).join(' ')}</td><td data-label="Events">${sourceEvents(r).map((e) => `<a href="${href('chronology')}" data-nav="chronology" data-preset="chrono-ev-${e.id}" data-row="ev-${e.id}">${e.date} \u00b7 ${e.ref} p.${e.page}</a>`).join('<br>')}</td></tr>`).join('')}
   </tbody></table></div>`;
 }
 
@@ -971,7 +1026,7 @@ function searchResultsHTML() {
     }), 'Add words to narrow it.'));
   }
   if (sc === 'all' || sc === 'events') {
-    const hits = CHRONO.filter((e) => e.text.toLowerCase().includes(q));
+    const hits = chrono().filter((e) => e.text.toLowerCase().includes(q));
     out.push(group('Chronology', hits.length, hits.slice(0, 40).map((e) => `<li><span class="nowrap">${e.date}</span> ${hl(e.text, q)} ${issueTag(e.issue)} ${cite(e.ref, e.page)}</li>`), `<a href="${href('chronology')}" data-nav="chronology" data-preset="chrono-q">Open all in the chronology</a>.`));
   }
   if (sc === 'all' || sc === 'notes') {
@@ -1012,7 +1067,7 @@ function notesList() {
   return S.notes.map((n) => {
     const editing = S.editing === n.id || !!S.drafts['edit|' + n.id];
     const body = editing
-      ? `<form class="qform" data-form="noteedit" data-draft="edit|${n.id}" novalidate aria-label="Edit note ${n.id}"><label for="ed-${n.id}">Edit ${n.id}</label><textarea id="ed-${n.id}" name="text" rows="3">${esc(S.drafts['edit|' + n.id] ? S.drafts['edit|' + n.id].vals.text : n.text)}</textarea><p class="err"></p>${draftCue('edit|' + n.id)}<div class="row"><button class="btn primary" type="submit">Save change</button><button type="button" class="btn" data-action="cancel-edit" data-id="${n.id}">Cancel</button></div></form>`
+      ? `<form class="qform" data-form="noteedit" data-draft="edit|${n.id}" novalidate aria-label="Edit note ${n.id}"><label for="ed-${n.id}">Edit ${n.id}</label><textarea id="ed-${n.id}" name="text" rows="3">${esc(S.drafts['edit|' + n.id] ? S.drafts['edit|' + n.id].vals.text : n.text)}</textarea><p class="err"></p><div class="row"><button class="btn primary" type="submit">Save change</button><button type="button" class="btn" data-action="cancel-edit" data-id="${n.id}">Cancel</button></div>${draftCue('edit|' + n.id)}</form>`
       : `<span>${esc(n.text)}</span>`;
     const can = canManage(n), conf = S.confirmDel === n.id;
     const actions = editing ? '' : conf
@@ -1024,7 +1079,7 @@ function notesList() {
 }
 const auditHTML = () => `<ol class="plain list">${S.audit.map((a) => `<li><span class="muted small nowrap">${a.at}</span> ${esc(a.who)}: ${esc(a.what)}</li>`).join('')}</ol>`;
 
-function citedIn(key) { return SECTIONS.filter((s) => s.paras.some((p) => p.includes('{' + key + ':'))).map((s) => s.short).join('; '); }
+function citedIn(key) { return secs().filter((s) => s.paras.some((p) => p.includes('{' + key + ':'))).map((s) => s.short).join('; '); }
 function packetDocs() { return Object.keys(KEY).map((k) => BYKEY[k]).filter((d) => S.packet.has(d.ref)); }
 const PK_MODES = { none: 'No notes (default)', docs: 'Notes on the selected documents', analysis: 'Notes on the analysis sections', both: 'Both of those' };
 function packetNotes(mode = S.pkNotes) {
@@ -1033,8 +1088,16 @@ function packetNotes(mode = S.pkNotes) {
   return mode === 'docs' ? S.notes.filter(onDoc) : mode === 'analysis' ? S.notes.filter(onSec) : mode === 'both' ? S.notes.filter((n) => onDoc(n) || onSec(n)) : [];
 }
 const packetScope = () => { const d = packetDocs(), n = packetNotes(); return `${d.length} documents, ${d.reduce((s, x) => s + x.pages, 0)} pages. Notes: ${PK_MODES[S.pkNotes].toLowerCase()}${n.length ? ' (' + n.map((x) => x.id).join(', ') + ')' : ' (0 included)'}`; };
+// v5's Court Bundle builds bundle indexes for the court (DOCX and print). It is not the client packet export, which is a separate
+// planned hosted destination below; neither assembles a real document here.
+function courtBundleHTML() {
+  return `<div class="ph-box"><p><strong>v5 capability, mapped and not built here.</strong> Court Bundle builds the index of a court bundle (header, custom bundles) and exports it as a <strong>DOCX index</strong> or <strong>prints</strong> it. This prototype shows where it sits, not a working DOCX or print.</p>
+  <dl class="kv"><dt>v5 export</dt><dd>DOCX index, print (not built)</dd><dt>v5 group</dt><dd>Case management</dd><dt>Variant A topic</dt><dd>Court &amp; procedure</dd><dt>Variant B task</dt><dd>Prepare</dd></dl>
+  <h2 class="h3">Index preview: the eight originals cited in Matter &amp; Strategy</h2><ol class="small">${Object.keys(KEY).map((k) => BYKEY[k]).map((d) => `<li>${d.ref} \u00b7 ${esc(d.title)} \u00b7 ${d.pages} pp</li>`).join('')}</ol>
+  <p>Sending documents to a client instead? <a href="${href('hosted_packet')}" data-nav="hosted_packet">Client packet export</a> <span class="pl">Planned</span> is a separate destination, with notes left out unless you choose them.</p></div>`;
+}
 function packetHTML() {
-  return `<p class="proto-flag"><strong>Prototype export.</strong> This writes a synthetic CSV and JSON manifest in your browser. No PDF is assembled, nothing is sent, and the full bundle editor is not built here.</p>
+  return `<div class="plan-flag"><strong>Planned hosted capability, simulated.</strong> ${esc(VBY.hosted_packet.scope)}</div><p class="proto-flag"><strong>Prototype export.</strong> This writes a synthetic CSV and JSON manifest in your browser. No PDF or DOCX is assembled and nothing is sent. The court bundle index is a different tool (<a href="${href('court_bundle_tab')}" data-nav="court_bundle_tab">Court Bundle</a>).</p>
   <fieldset class="scopebox"><legend>1. Documents in the packet (cited in Matter &amp; Strategy)</legend><ul class="plain list">
   ${Object.keys(KEY).map((k) => BYKEY[k]).map((d) => `<li><label class="check"><input type="checkbox" data-packet="${d.ref}"${S.packet.has(d.ref) ? ' checked' : ''}> <span><strong>${d.ref}</strong> ${esc(d.title)} <span class="muted small">· ${d.date} · ${d.pages} pp · cited in ${esc(citedIn(d.key))}</span></span></label></li>`).join('')}
   </ul></fieldset>
@@ -1050,7 +1113,7 @@ function pkNoteList() { const n = packetNotes(); return n.length ? `<ul>${n.map(
 function csvCell(v) { const s = String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
 function exportOut(x) {
   return `<div class="scopebox"><strong>Scope of this download (${esc(x.file)}, generated ${x.at}):</strong> ${esc(x.scope)}</div>
-  <p class="row"><a class="btn" download="${x.file}.csv" href="${x.csvUrl}">Download CSV (documents only)</a> <a class="btn" download="${x.file}.json" href="${x.jsonUrl}">Download manifest JSON${x.notes ? ' (includes ' + x.notes + ' chosen notes)' : ' (no notes)'}</a></p>
+  <p class="row"><a class="btn" download="${x.file}.csv" href="${x.csvUrl}">Download CSV (documents only)</a> <a class="btn" download="${x.file}.json" href="${x.jsonUrl}">Download manifest JSON${x.notes ? ` (includes ${x.notes} chosen note${x.notes === 1 ? '' : 's'})` : ' (no notes)'}</a></p>
   <p class="muted small">Prototype output; synthetic data only.</p>
   <details open><summary>CSV preview</summary><pre class="out">${esc(x.csv)}</pre></details>
   ${S.exports.length > 1 ? `<p class="muted small">Earlier exports this session: ${S.exports.slice(1).map((e) => esc(e.file)).join(', ')}</p>` : ''}`;
@@ -1075,8 +1138,7 @@ function intakeHTML() {
   </div>
   <h2 class="h3">What happened to S-4</h2>
   <ol class="tl" aria-label="Submission S-4 history">${SUB_STEPS.map((s, i) => { const e = [...S.sub.log].reverse().find((l) => l.step === i); return `<li class="${e ? '' : 'pending'}"><span class="when">${e ? esc(e.at) : 'Not yet'}</span><span>${e ? '<strong>' + esc(s) + '</strong> · ' + esc(e.note) : esc(s)}</span></li>`; }).join('')}</ol>
-  <div class="opsim"><h2>Operator actions (simulated, private)</h2><p class="small">A client cannot do these. They are here only so the study can see what the client sees afterwards. The real operator import, preview and sign-off live in a separate operator console (see All tools).</p>
-   <p class="row"><button type="button" class="btn" data-action="advance-sub"${st !== 2 ? ' disabled' : ''}>Operator starts processing</button> <button type="button" class="btn" data-action="advance-sub"${st !== 3 ? ' disabled' : ''}>Operator signs off and publishes Results v4</button></p></div>
+  <p class="proto-flag small">Prototype: an operator moves S-4 on, and a client cannot. In the study the operator steps are simulated in <strong>Operator study</strong> on the prototype bar, outside client navigation.</p>
   <h2 class="h3">Earlier submissions</h2>
   <div class="table-scroll" role="region" aria-label="Earlier submissions" tabindex="0"><table class="t stack"><thead><tr><th scope="col">Submission</th><th scope="col">Received</th><th scope="col" class="n">Files</th><th scope="col">Published as</th><th scope="col">Published on</th></tr></thead><tbody>
   ${SUBMISSIONS.map((s) => `<tr><td data-label="Submission">${s.id}</td><td data-label="Received">${s.date}</td><td data-label="Files" class="n">${fmtN(s.files)}</td><td data-label="Published as">Results ${s.pub}</td><td data-label="Published on">${s.pubDate}</td></tr>`).join('')}
@@ -1092,11 +1154,19 @@ function placeholderHTML(v) {
   return `<div class="ph-box"><p><strong>Summary placeholder.</strong> ${esc(v.label)} is one of the 42 views (v5 id <code>${v.id}</code>). This prototype shows where it sits and how you reach it, not its content.</p>
   <dl class="kv"><dt>What it holds</dt><dd>${esc(v.blurb)}</dd><dt>Synthetic size</dt><dd>${v.count == null ? 'not a list' : fmtN(v.count) + ' rows'}</dd><dt>v5 group</dt><dd>${esc(v.group)}</dd><dt>Variant A topic</dt><dd>${esc(topicLabel(v.topic))}</dd><dt>Variant B task</dt><dd>${esc(taskLabel(v.task))}</dd></dl>
   <p>Nearby in this ${S.variant === 'A' ? 'topic' : 'task'}: ${near.map((x) => `<a href="${href(x.id)}" data-nav="${x.id}">${esc(x.label)}</a>`).join(' · ')}</p>
-  <p><button type="button" class="linkbtn" data-action="note-here" data-link="view:${v.id}" aria-expanded="${!!S.drafts['note|view:' + v.id]}">Add a note about ${esc(v.label)}</button></p>
-  <div class="inline-slot" id="${slotId('view:' + v.id)}">${slotHTML('view:' + v.id)}</div></div>`;
+  ${v.exp && v.exp !== 'none' ? `<p class="small">v5 export from this view: <strong>${esc(v.exp)}</strong> <span class="muted">(mapped from the source audit; not built here)</span></p>` : ''}</div>`;
+}
+function opStudyHTML() {
+  const st = S.sub.step;
+  return `<div class="opsim"><h2>Operator study mode (prototype only, simulated)</h2><p class="small">This page is not part of either variant and no client can reach it: it is opened from the prototype bar. It exists so the study can make an operator act and then judge what the client sees. <strong>No authorization, operator sign-in or audit is modelled or claimed.</strong></p>
+   <p class="row"><button type="button" class="btn" data-action="advance-sub"${st !== 2 ? ' disabled' : ''}>Operator starts processing S-4</button> <button type="button" class="btn" data-action="advance-sub"${st !== 3 ? ' disabled' : ''}>Operator signs off and publishes Results v4</button></p>
+   <p class="small">S-4 now: <strong>${esc(st >= 4 ? 'Published' : subStep())}</strong>. ${esc(V4_NOTE)} <a href="${href('hosted_intake')}" data-nav="hosted_intake">See the client\u2019s Submissions page</a>.</p></div>
+  <h2 class="h3">Planned operator console surfaces (private, not built)</h2><ul class="plain list">${OPS.map((o) => `<li><strong>${esc(o.label)}</strong> <span class="tag planned">Planned · operator only</span><div class="small">${esc(o.blurb)}</div></li>`).join('')}
+   <li><strong>v5 operator flows</strong> <span class="tag">v5, mapped</span><div class="small"><code>/import</code>, <code>/import/[id]</code> and <code>/recovery</code> exist in the v5 app outside the 42 views; their content was not audited. They map to the operator console, not to client navigation.</div></li>
+   <li><strong>Rollback of the active Results version</strong> <span class="tag">v5, mapped</span><div class="small">The v5 Overview can roll back to an earlier Results version. Who may do that in the hosted product (client or operator) is undecided; here the header only lets a client <em>view</em> an earlier version, which is not a rollback.</div></li></ul>`;
 }
 function plannedHTML(p) {
-  if (p.operator) return `<div class="opbox"><p><strong>Planned, operator only. Private, and not part of client navigation.</strong> ${esc(p.blurb)}</p><dl class="kv"><dt>Scope today</dt><dd>${esc(p.scope)}</dd><dt>Where it lives</dt><dd>A separate operator console behind its own sign-in. Neither variant lists it; it appears in All tools only so the separation can be reviewed.</dd></dl></div>`;
+  if (p.operator) return `<div class="opbox"><p><strong>Planned, operator only. Private, and not part of client navigation.</strong> ${esc(p.blurb)}</p><dl class="kv"><dt>Scope today</dt><dd>${esc(p.scope)}</dd><dt>Where it lives</dt><dd>A separate operator console behind its own sign-in. Neither variant lists it and All tools leaves it out; the prototype shows it only in Operator study mode.</dd></dl></div>`;
   const home = p.kind === 'platform' ? 'outside any one case (account and firm level)' : S.variant === 'A' ? 'sidebar group “Hosted · planned”' : `the ${taskLabel(p.task)} task, marked Planned`;
   return `<div class="plan-flag"><strong>Planned hosted capability. It does not work in this prototype.</strong> ${esc(p.blurb)}</div>
   <dl class="kv"><dt>Scope today</dt><dd>${esc(p.scope)}</dd><dt>Where it would live</dt><dd>Variant A: ${p.kind === 'platform' ? 'sidebar group “Account &amp; firm · planned”' : 'sidebar group “Hosted · planned”'}. Variant B: the ${esc(taskLabel(p.task))} task, marked Planned. ${p.kind === 'platform' ? 'It is ' + home + '.' : ''}</dd></dl>`;
@@ -1113,21 +1183,37 @@ function catalogHTML() {
   <p class="muted small">Grouped the way Variant ${S.variant} groups them (${S.variant === 'A' ? 'by topic' : 'by task'}). The 42 v5 views are the parity target; planned items come from the production route map and V2 plans and are not counted in the 42.</p><div id="cat-list">${catalogList()}</div>`;
 }
 function catalogList() {
-  const q = S.catalogQ.trim().toLowerCase(), m = (v) => !q || `${v.id} ${v.label} ${v.blurb}`.toLowerCase().includes(q);
+  const q = S.catalogQ.trim().toLowerCase(), m = (v) => !q || rankOf(v, q) > 0;
   const row = (v) => `<li><a href="${href(v.id)}" data-nav="${v.id}">${esc(v.label)}</a><span>${stateTag(v)}</span><span class="muted small">${esc(v.blurb)} <code>${v.id}</code></span></li>`;
   const html = catalogGroups().map((g) => {
     const items = g.items.filter(m);
     return items.length ? `<section class="cat-group"><h2>${esc(g.label)} <span class="count">${items.length}</span></h2><ul class="plain cat-list">${items.map(row).join('')}</ul></section>` : '';
   }).join('');
-  const ops = OPS.filter(m);
-  const opHtml = ops.length ? `<section class="opbox"><h2>Operator console · planned, private <span class="count">${ops.length}</span></h2><p class="small">Separate from client navigation: neither variant lists these. Shown here only so reviewers can see where operator work lives.</p><ul class="plain cat-list">${ops.map(row).join('')}</ul></section>` : '';
-  return (html + opHtml) || '<p class="muted">No tool matches.</p>';
+  const head = q ? `<p class="filter-state" role="status">Filtered by \u201c${esc(S.catalogQ.trim())}\u201d. <button type="button" class="linkbtn" data-action="clear-cat-q">Clear filter</button></p>` + bestLine(q, bestMatch(q, [...VIEWS, ...PLANNED]), 'cat-best') : '';
+  return head + (html || '<p class="muted">No tool matches.</p>');
 }
 
 /* ====================================================================================================
    Variant A: topic sidebar. Every resource is listed by topic in a persistent sidebar, but only the group you are in is open;
    a filter finds the rest. A view with sections gets an "On this page" rail. Notes and time live in their own resources.
    ==================================================================================================== */
+// Ranking for both filters: an exact label, then a task word people use for it, then label starts, then label words, then any
+// label text, and only then the description. Enter opens the best match, which is shown so it is never a surprise.
+const TASK_WORDS = { timesheet_tab: ['time', 'hours', 'log', 'log time'], annotations_tab: ['note', 'notes', 'annotation'], hosted_packet: ['export', 'packet', 'client export'],
+  court_bundle_tab: ['bundle', 'index', 'print', 'docx'], hoa_diff_tab: ['diff', 'compare'], hosted_intake: ['status', 'submission', 'upload', 'publish', 'version'],
+  search: ['search', 'find'], deadlines_tab: ['due', 'dates', 'calendar'], catalog: ['catalogue', 'all', 'everything'], people: ['person', 'persons'] };
+function rankOf(v, q) {
+  const l = v.label.toLowerCase(), w = TASK_WORDS[v.id] || [];
+  if (l === q) return 100;
+  if (w.includes(q)) return 90;
+  if (l.startsWith(q)) return 80;
+  if (l.split(/[^a-z0-9]+/).some((x) => x.startsWith(q))) return 70;
+  if (w.some((x) => x.startsWith(q))) return 60;
+  if (l.includes(q) || v.id.includes(q)) return 50;
+  return (v.blurb || '').toLowerCase().includes(q) ? 20 : 0;
+}
+function bestMatch(q, pool) { let best = null, top = 0; for (const v of pool) { const r = rankOf(v, q); if (r > top) { top = r; best = v; } } return best; }
+const bestLine = (q, b, id) => b ? `<p class="best" id="${id}">Best match, Enter opens it: <a href="${href(b.id)}" data-nav="${b.id}">${esc(b.label)}</a>${b.planned ? ' <span class="pl">Planned</span>' : ''}</p>` : '';
 function navLinkA(v) {
   const ph = !v.built && !v.planned && !v.catalog;
   return `<a href="${href(v.id)}" data-nav="${v.id}"${S.view === v.id ? ' aria-current="page"' : ''}><span>${esc(v.label)}${ph ? '<span class="phm" aria-hidden="true"> \u00b7</span><span class="vh"> (summary placeholder)</span>' : ''}${v.planned ? '<span class="vh"> (planned)</span>' : ''}</span><span class="count" data-count="${v.id}">${countOf(v)}</span></a>`;
@@ -1137,22 +1223,23 @@ function groupsA() {
     { key: 'planned', label: 'Hosted \u00b7 planned', planned: true, items: PLANNED.filter((p) => p.kind === 'case') },
     { key: 'account', label: 'Account & firm \u00b7 planned', planned: true, items: PLANNED.filter((p) => p.kind === 'platform') }];
 }
+const navPool = () => [...VIEWS, ...PLANNED, CATALOG];
 function navListA() {
-  const q = S.navQ.trim().toLowerCase(), cur = VBY[S.view].topic;
-  const match = (v) => !q || `${v.label} ${v.id} ${v.blurb}`.toLowerCase().includes(q);
-  const groups = groupsA().map((g) => {
-    const items = g.items.filter(match);
-    if (!items.length) return '';
-    const open = q ? true : g.key === cur || S.navOpen.has(g.key);
-    return `<details data-grp="${g.key}" class="${g.key === cur ? 'cur' : ''}${g.planned ? ' planned' : ''}"${open ? ' open' : ''}><summary><span>${esc(g.label)}</span><span class="count">${items.length}${q ? ' of ' + g.items.length : ''}</span></summary><ul>${items.map((x) => `<li>${navLinkA(x)}</li>`).join('')}</ul></details>`;
-  }).join('');
-  const all = !q || 'all tools catalogue'.includes(q) ? `<p class="side-all">${navLinkA(CATALOG).replace('<span class="count" data-count="catalog"></span>', `<span class="count">${VIEWS.length + PLANNED.length}</span>`)}</p>` : '';
-  return all + (groups || `<p class="nomatch muted">No destination matches \u201c${esc(S.navQ)}\u201d. <button type="button" class="linkbtn" data-action="clear-nav-q">Clear the filter</button></p>`);
+  const q = S.navQ.trim().toLowerCase(), cur = VBY[S.view].topic, total = VIEWS.length + PLANNED.length;
+  const allLink = `<p class="side-all">${navLinkA(CATALOG).replace('<span class="count" data-count="catalog"></span>', `<span class="count">${total}</span>`)}</p>`;
+  if (!q) return allLink + groupsA().map((g) => `<details data-grp="${g.key}" class="${g.key === cur ? 'cur' : ''}${g.planned ? ' planned' : ''}"${g.key === cur || S.navOpen.has(g.key) ? ' open' : ''}><summary><span>${esc(g.label)}</span><span class="count">${g.items.length}</span></summary><ul>${g.items.map((x) => `<li>${navLinkA(x)}</li>`).join('')}</ul></details>`).join('');
+  // Filtered: the state is said out loud, every match is listed under a plain heading (no extra tab stops), and Clear is one step.
+  const hits = groupsA().map((g) => ({ g, items: g.items.filter((v) => rankOf(v, q) > 0) })).filter((x) => x.items.length);
+  const n = hits.reduce((s, x) => s + x.items.length, 0);
+  const status = `<p class="filter-state" role="status">Filtered by \u201c${esc(S.navQ.trim())}\u201d: ${n} of ${total} destinations. <button type="button" class="linkbtn" data-action="clear-nav-q">Clear filter</button></p>`;
+  if (!n && !rankOf(CATALOG, q)) return status + `<p class="nomatch muted">No destination matches. ${allLink}</p>`;
+  return status + bestLine(q, bestMatch(q, navPool()), 'a-best') + (rankOf(CATALOG, q) ? allLink : '')
+    + hits.map(({ g, items }) => `<div class="grp${g.planned ? ' planned' : ''}"><h3 class="grp-h">${esc(g.label)} <span class="count">${items.length} of ${g.items.length}</span></h3><ul>${items.map((x) => `<li>${navLinkA(x)}</li>`).join('')}</ul></div>`).join('');
 }
 function shellA() {
   const v = VBY[S.view];
   const body = S.view === 'matter'
-    ? `<div class="a-withtoc"><div>${viewBody('matter')}</div><nav class="a-toc" aria-label="On this page"><h2>On this page</h2><ol class="plain">${SECTIONS.map((s) => `<li><a href="#sec-${s.id}" data-section="${s.id}"${S.section === s.id ? ' aria-current="true"' : ''}>${esc(s.short)}</a></li>`).join('')}</ol></nav></div>`
+    ? `<div class="a-withtoc"><div>${viewBody('matter')}</div><nav class="a-toc" aria-label="On this page"><h2>On this page</h2><ol class="plain">${secs().map((s) => `<li><a href="#sec-${s.id}" data-section="${s.id}"${S.section === s.id ? ' aria-current="true"' : ''}>${esc(s.short)}</a></li>`).join('')}</ol></nav></div>`
     : viewBody(S.view);
   return `<a class="skip" href="#main">Skip to content</a>
   <header class="a-top" id="hdr">
@@ -1180,7 +1267,7 @@ function toolChip(v) {
   return `<a class="tchip${v.planned ? ' planned' : ''}" href="${href(v.id)}" data-nav="${v.id}"${S.view === v.id ? ' aria-current="page"' : ''}>${esc(v.label)}${ph ? '<span class="phm" aria-hidden="true">\u00b7</span><span class="vh"> (summary placeholder)</span>' : ''}${v.planned ? '<span class="pl">Planned</span>' : ''}<span class="count" data-count="${v.id}">${countOf(v)}</span></a>`;
 }
 function issueStepper() {
-  return `<nav class="b-issues" aria-label="Sections of the analysis">${SECTIONS.map((s) => `<button type="button" class="tchip" data-section="${s.id}"${S.section === s.id ? ' aria-current="true"' : ''}>${esc(s.short)}</button>`).join('')}</nav>`;
+  return `<nav class="b-issues" aria-label="Sections of the analysis">${secs().map((s) => `<button type="button" class="tchip" data-section="${s.id}"${S.section === s.id ? ' aria-current="true"' : ''}>${esc(s.short)}</button>`).join('')}</nav>`;
 }
 function ctxTitle(v) {
   if (v.task === 'argue') { const sec = v.id === 'matter' ? SEC_BY[S.section] : null; return sec ? `Evidence and notes for ${sec.short}` : `Evidence cited in Matter & Strategy`; }
@@ -1199,9 +1286,9 @@ function contextB(v) {
       return card('Jump to', `<ul>${Object.entries(ISSUES).map(([k, l]) => `<li><a href="${href('chronology')}" data-nav="chronology" data-preset="chrono-${k}">Chronology, issue ${k}: ${esc(l)}</a></li>`).join('')}<li><a href="${href('documents')}" data-nav="documents" data-preset="docs-manual">Documents needing a manual read</a></li></ul>`)
         + card('Recent searches', S.searches.length ? `<ul>${S.searches.slice(0, 5).map((q) => `<li><button type="button" class="linkbtn" data-q="${esc(q)}">${esc(q)}</button></li>`).join('')}</ul>` : '<p class="muted small">None yet this session.</p>') + capture;
     case 'argue': {
-      const sec = v.id === 'matter' ? SEC_BY[S.section] : null;
-      const secs = sec ? [sec] : SECTIONS;
-      const refs = [...new Set(secs.flatMap((s) => s.paras.join(' ').match(/\{K\d:\d+\}/g) || []))];
+      const sec = v.id === 'matter' ? secs().find((x) => x.id === S.section) : null;
+      const list = sec ? [sec] : secs();
+      const refs = [...new Set(list.flatMap((s) => s.paras.join(' ').match(/\{K\d:\d+\}/g) || []))];
       const notes = S.notes.filter((n) => sec ? n.link === 'sec:' + sec.id : n.link.startsWith('sec:'));
       const t = sec ? `Evidence for \u201c${esc(sec.short)}\u201d` : 'Evidence cited in Matter &amp; Strategy';
       return card(t, (sec || v.id === 'matter' ? '' : `<p class="muted small">Not specific to ${esc(v.label)}.</p>`) + `<ul class="plain list">${refs.map((r) => { const [, k, p] = r.match(/\{(K\d):(\d+)\}/); return `<li>${cite(BYKEY[k].ref, Number(p))} <span class="small">${esc(BYKEY[k].title)}</span></li>`; }).join('') || '<li class="muted">No citations in this section.</li>'}</ul>`)
@@ -1210,7 +1297,7 @@ function contextB(v) {
     case 'numbers':
       return card('Key figures', `<dl class="kv"><dt>Demurrage</dt><dd>${money(161700)}</dd><dt>Storage set off</dt><dd>${money(412880)}</dd><dt>Net claimed</dt><dd>${money(1184220)}</dd></dl><p class="muted small">From Matter &amp; Strategy, Quantum.</p>`) + capture;
     case 'prepare':
-      return card('Packet', `<p>${esc(packetScope())}</p><p><a class="btn" href="${href('court_bundle_tab')}" data-nav="court_bundle_tab">Open packet export</a></p>`)
+      return card('Client packet <span class="pl">Planned</span>', `<p>${esc(packetScope())}</p><p><a class="btn" href="${href('hosted_packet')}" data-nav="hosted_packet">Open client packet export</a></p><p class="muted small">The court bundle index (DOCX, print) is Court Bundle.</p>`)
         + card('Coming up', `<ul>${DEADLINES.filter((d) => d[0] >= TODAY).slice(0, 3).map((d) => `<li>${d[0]}: ${esc(d[1])}</li>`).join('')}</ul>`) + capture;
     case 'record':
       return card('Today', `<p><span data-live="today">${todayHours().toFixed(1)} h</span> logged \u00b7 <span data-live="unbilled">${money(unbilled())}</span> unbilled</p>`)
@@ -1228,6 +1315,7 @@ function shellB() {
   const row = tools.map(toolChip).join('');
   const toolsHTML = v.task
     ? `<div class="tools-desk"><p class="tl-label">${esc(taskLabel(v.task))} tools (${tools.length})</p><div class="tools-row">${row}</div></div><details class="tools-phone"><summary>${esc(taskLabel(v.task))} tools (${tools.length}) \u00b7 now: ${esc(v.label)}</summary><div class="tools-row">${row}</div></details>`
+    : v.study ? `<span class="muted">Operator study mode: outside client navigation. <a href="${href('overview')}" data-nav="overview">Back to the client desk</a></span>`
     : `<span class="muted">Every destination, grouped by task. <a href="${href('overview')}" data-nav="overview">Back to the desk</a></span>`;
   const ctx = contextB(v);
   return `<a class="skip" href="#main">Skip to content</a>
@@ -1305,7 +1393,7 @@ function fallbackFocus(name) {
   if (name === 'capture') return pick('.b-bottom .cap', '.b-fab');
   if (name === 'more') return pick('.b-bottom [data-action=more]');
   if (name === 'drawer') return pick('[data-action=drawer]');
-  return pick('#page-h1', '#main');
+  return pick(S.view === 'matter' ? '#h-' + S.section : '#page-h1', '#page-h1', '#main');
 }
 function restoreFocus(name) {
   const el = findByDesc(S.openers[name]) || fallbackFocus(name);
@@ -1387,9 +1475,9 @@ function originLabel(opener) {
 }
 function citedInLinks(d) {
   if (!d.key) return '';
-  const secs = SECTIONS.filter((s) => s.paras.some((p) => p.includes('{' + d.key + ':')));
-  const risks = RISKS.filter((r) => r.refs.some(([k]) => k === d.key));
-  const out = [...secs.map((s) => `<a href="${href('matter')}" data-nav="matter" data-sec="${s.id}">${esc(s.short)}</a>`), ...risks.map((r) => `<a href="${href('risk_matrix_tab')}" data-nav="risk_matrix_tab" data-row="${r.id}">Risk ${r.id}</a>`)];
+  const inSecs = secs().filter((s) => s.paras.some((p) => p.includes('{' + d.key + ':')));
+  const inRisks = risks().filter((r) => r.refs.some(([k]) => k === d.key));
+  const out = [...inSecs.map((s) => `<a href="${href('matter')}" data-nav="matter" data-sec="${s.id}">${esc(s.short)}</a>`), ...inRisks.map((r) => `<a href="${href('risk_matrix_tab')}" data-nav="risk_matrix_tab" data-row="${r.id}">Risk ${r.id}</a>`)];
   return out.length ? `<p class="small">Cited in: ${out.join(' \u00b7 ')}</p>` : '';
 }
 function renderViewer() {
@@ -1413,7 +1501,7 @@ function renderViewer() {
 function openViewer(ref, page, opener) {
   const d = BYREF.get(ref);
   if (!d) return;
-  const origin = { label: originLabel(opener), scrollY, view: S.view };
+  const origin = { label: originLabel(opener), scrollY, view: S.view, anchor: captureAnchor(), at: performance.now() };
   beginOverlay('viewer', opener);
   S.viewer = { ref, page: Math.max(1, Math.min(page, d.pages)), noteOpen: !!S.drafts['note|doc:' + ref], origin };
   S.lastCtx = `doc:${ref}:${S.viewer.page}`;
@@ -1421,7 +1509,12 @@ function openViewer(ref, page, opener) {
   $('#viewer-title').focus({ preventScroll: true });
   if (!isMobile()) opener.scrollIntoView({ block: 'nearest' });
 }
-function afterViewerClosed(o) { if (o && isMobile()) scrollTo(0, o.scrollY); }
+// On a desktop the work narrows while the original is open and widens again after. Unless you scrolled meanwhile, put the
+// page back where it was by its anchored block, so the reflow cannot move you.
+function afterViewerClosed(o) {
+  if (!o || o.view !== S.view) return;
+  if (isMobile()) scrollTo(0, o.scrollY); else if (scrollIntent < o.at) restoreAnchor(o.anchor);
+}
 
 /* ---------- quick capture, More, drawer ---------- */
 function openCapture(kind, link, opener) {
@@ -1448,13 +1541,17 @@ function setMore(open, opener) {
 /* ====================================================================================================
    Rendering, navigation and URL
    ==================================================================================================== */
-let observer = null;
 function bodyClass() {
   const sheet = isMobile() && (S.viewer || S.drawer || S.more || S.capture);
   document.body.className = ['v' + S.variant, S.viewer ? 'viewer-open' : '', sheet ? 'sheet-open' : ''].filter(Boolean).join(' ');
+  if ($(S.variant === 'A' ? '.a-top' : '.b-top')) measure();
 }
+// --stick is the height of the sticky bars at the top and --obstruct-b of the fixed bars at the bottom (switcher, B's task bar
+// and capture button). The page's scroll-padding uses both, so keyboard focus never lands under a bar.
 function measure() {
   const root = document.documentElement.style;
+  const bars = [$('#switcher'), $('.b-bottom'), $('.b-fab')].filter(visible).map((e) => innerHeight - e.getBoundingClientRect().top);
+  root.setProperty('--obstruct-b', Math.max(0, ...bars) + 8 + 'px');
   if (S.variant === 'A') {
     const h = $('#hdr').offsetHeight;
     root.setProperty('--a-top', h + 'px'); root.setProperty('--stick', h + 10 + 'px');
@@ -1473,22 +1570,24 @@ function captureAnchor() {
   for (const el of $$('[data-anchor]')) { const r = el.getBoundingClientRect(); if (r.bottom > stick + 4) return { id: el.id, off: r.top - stick, y: scrollY }; }
   return { id: null, off: 0, y: scrollY };
 }
+// Returns false when the anchored block no longer exists (for example a row missing from another Results version).
 function restoreAnchor(a) {
-  if (!a) return;
+  if (!a) return true;
   const el = a.id && document.getElementById(a.id);
   if (el) scrollBy(0, el.getBoundingClientRect().top - stickPx() - a.off); else scrollTo(0, a.y || 0);
+  return !a.id || !!el;
 }
 function render() {
   bodyClass();
   $('#app').innerHTML = S.variant === 'A' ? shellA() : shellB();
   const rail = $('#b-context'); if (rail) rail.dataset.sig = contextB(VBY[S.view]);
-  renderCapture(); renderSwitcher(); measure(); observeSections(); syncModal(); chipSig = '';
+  renderCapture(); renderSwitcher(); measure(); syncModal(); chipSig = '';
 }
 function renderSwitcher() {
   const sw = $('#switcher');
   const label = `<span class="k">${S.variant}</span>${VARIANT_NAME[S.variant]} <span>· ${esc(VBY[S.view].label)}</span>`;
   if (!$('.sw-label', sw)) {
-    sw.innerHTML = `<button type="button" class="sw-btn" data-action="variant-prev" aria-label="Previous variant">‹</button><span class="sw-label"></span><button type="button" class="sw-btn" data-action="variant-next" aria-label="Next variant">›</button><span class="sw-role"><label class="vh" for="role-sel">Simulated case role, not part of the design</label><select id="role-sel" title="Simulated case role">${Object.entries(ROLES).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></span>`;
+    sw.innerHTML = `<button type="button" class="sw-btn" data-action="variant-prev" aria-label="Previous variant">‹</button><span class="sw-label"></span><button type="button" class="sw-btn" data-action="variant-next" aria-label="Next variant">›</button><a class="sw-op" href="?variant=${S.variant}&view=op_study" data-nav="op_study" title="Prototype-only operator simulation, not client navigation">Operator study</a><span class="sw-role"><label class="vh" for="role-sel">Simulated case role, not part of the design</label><select id="role-sel" title="Simulated case role">${Object.entries(ROLES).map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></span>`;
     $('#role-sel').value = S.role;
   }
   $('.sw-label', sw).innerHTML = label;
@@ -1500,9 +1599,11 @@ function urlFor() {
   if (S.view === 'search' && S.query.trim()) u.searchParams.set('q', S.query.trim()); else u.searchParams.delete('q');
   return u;
 }
-function writeURL(push) {
+// A replace keeps what this entry already holds (the scroll anchor stashed for Back); a push or a new page starts clean.
+function writeURL(push, fresh = push) {
   if (S.noHist) return;
-  try { history[push ? 'pushState' : 'replaceState']({ ov: S.ov || null }, '', urlFor()); } catch { S.noHist = true; }
+  const st = fresh ? { ov: S.ov || null } : { ...(history.state || {}), ov: S.ov || null };
+  try { history[push ? 'pushState' : 'replaceState'](st, '', urlFor()); } catch { S.noHist = true; }
 }
 function readURL() {
   const p = new URLSearchParams(location.search);
@@ -1515,8 +1616,10 @@ function readURL() {
 }
 function go(id, { push = true, sec = null, row = null } = {}) {
   if (!VBY[id]) id = 'overview';
-  if (!REGISTER_VIEWS.has(S.view)) S.lastCtx = ctxLink();
+  if (!REGISTER_VIEWS.has(S.view) && ctxLink() !== 'case') S.lastCtx = ctxLink();
   S.scroll[S.view] = scrollY;
+  // A filter that found the destination has done its job; a sidebar left filtered would hide destinations without saying so.
+  S.navQ = ''; S.secMissing = null;
   const leaving = captureAnchor();
   // A phone sheet is left by navigating: its history entry becomes the new page's entry instead of piling up behind it.
   const replace = isMobile() && !!S.ov && !S.noHist && !!(history.state && history.state.ov);
@@ -1525,14 +1628,16 @@ function go(id, { push = true, sec = null, row = null } = {}) {
   if (VBY[id].topic !== VBY[S.view].topic) S.navOpen = new Set();
   S.view = id; S.editing = null; S.confirmDel = null;
   if (VBY[id].task) S.lastInTask[VBY[id].task] = id;
-  render(); writeURL(push && !replace);
-  if (sec) { scrollToSection(sec); return; }
+  // Matter & Strategy opens at the section you were in unless a link names one; the URL is written after the section is set.
+  if (id === 'matter') { sec = sec || (S.section !== 'summary' ? S.section : null); if (sec) S.section = resolveSec(sec); }
+  render(); writeURL(push && !replace, true);
+  if (sec) { scrollToSection(S.section); return; }
   if (row) { focusRow(row); return; }
   scrollTo(0, S.scroll[id] || 0);
   $('#page-h1').focus({ preventScroll: true });
 }
 function focusRow(row) {
-  const el = document.getElementById('row-' + row);
+  const el = document.getElementById(row) || document.getElementById('row-' + row);
   if (!el) return;
   el.scrollIntoView({ block: 'center' });
   el.classList.add('hit'); setTimeout(() => el.classList.remove('hit'), 2500);
@@ -1549,34 +1654,68 @@ function setVariant(v) {
   toast(`Variant ${v}: ${VARIANT_NAME[v]}. Still on ${VBY[S.view].label}, same place and search. ${S.notes.length} notes and ${S.time.length} time entries carried over${nd ? `; ${nd} unsaved draft${nd > 1 ? 's' : ''} kept (see the draft chip)` : ''}.`);
 }
 const cycle = (d) => setVariant(VARIANTS[(VARIANTS.indexOf(S.variant) + d + VARIANTS.length) % VARIANTS.length]);
-function switchVersion(id) {
+// Items keep their ids across Results versions (sections by id, events by E-number), so the place is found again by identity.
+// When it is gone in the version you switch to, the page says so and shows the nearest place instead of guessing silently.
+function switchVersion(id, fromBanner = false) {
   if (!S.versions.some((v) => v.id === id) || id === S.viewing) return;
-  const a = captureAnchor();
-  S.viewing = id;
-  render(); writeURL(true); restoreAnchor(a);
-  toast(`Now viewing Results ${id}${id === S.active ? ' (active)' : ' (previous)'}. Same page, section, search, filters and drafts.`);
+  const a = captureAnchor(), was = S.view === 'matter' ? S.section : null;
+  S.viewing = id; S.secMissing = null;
+  if (was) S.section = resolveSec(was);
+  render(); writeURL(true);
+  const kept = restoreAnchor(a) && !S.secMissing;
+  if (was && !kept) scrollToSection(S.section, false);
+  // From the header control focus stays on it; from the banner (which goes away) it moves to the place you are reading.
+  const back = fromBanner ? ($('#sec-missing') || (was ? $('#h-' + S.section) : $('#page-h1'))) : $('#ver-sel');
+  if (back) { if (back.id === 'sec-missing') back.tabIndex = -1; back.focus({ preventScroll: true }); }
+  const lost = S.secMissing ? `“${SEC_BY[S.secMissing].short}” is not in Results ${id}; showing the ${SEC_BY[S.section].short}.` : kept ? 'Same page, section, search, filters and drafts.' : 'The row you were on is not in this version; you are at the same position in the list.';
+  toast(`Now viewing Results ${id}${id === S.active ? ' (active)' : ' (previous)'}. ${lost}`);
 }
 
+/* ---------- the section you are in: one model ----------
+   S.section is the only record of where you are in Matter & Strategy. It changes when you jump (section chip, On this page,
+   issue tag, note link) or when you scroll yourself (wheel, touch, scroll keys, scrollbar). Layout changes never change it:
+   the original opening beside the work, a variant or version switch, a resize or the end of the page. Every change writes
+   the URL at once, and a Back that only closes an overlay keeps it, so reload, share and bookmark land on the same section. */
+let scrollIntent = -Infinity;
+const markScrollIntent = () => { scrollIntent = performance.now(); };
+function resolveSec(id) {
+  if (secs().some((s) => s.id === id)) return id;
+  if (SEC_BY[id]) S.secMissing = id;
+  return 'summary';
+}
+function setSection(id) {
+  if (!SEC_BY[id] || id === S.section) return;
+  S.section = id; updateSectionUI(); writeURL(false);
+}
 function scrollToSection(id, focus = true) {
+  id = resolveSec(id);
   const el = $('#sec-' + id);
   if (!el) return;
-  S.section = id; updateSectionUI();
+  setSection(id); updateSectionUI();
   el.scrollIntoView({ block: 'start' });
   if (focus) $('#h-' + id).focus({ preventScroll: true });
 }
 function updateSectionUI() {
   for (const a of $$('[data-section]')) { if (a.dataset.section === S.section) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current'); }
   if (S.variant === 'B' && $('#b-context')) setRail(VBY[S.view]);
+  const m = $('#sec-missing'); if (m && !S.secMissing) m.remove();
 }
-function observeSections() {
-  if (observer) observer.disconnect();
-  if (S.view !== 'matter' || !('IntersectionObserver' in window)) return;
-  observer = new IntersectionObserver((entries) => {
-    const hit = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
-    if (hit && hit.target.dataset.secblock !== S.section) { S.section = hit.target.dataset.secblock; updateSectionUI(); writeURL(false); }
-  }, { rootMargin: '-25% 0px -65% 0px' });
-  $$('[data-secblock]').forEach((s) => observer.observe(s));
+// The section at the reading line, a third of the way down the space below the sticky bars.
+function sectionAtReadingLine() {
+  const line = stickPx() + (innerHeight - stickPx()) * 0.3;
+  let cur = null;
+  for (const b of $$('[data-secblock]')) if (!cur || b.getBoundingClientRect().top <= line) cur = b.dataset.secblock;
+  return cur;
 }
+let spyQueued = false;
+addEventListener('scroll', () => {
+  if (S.view !== 'matter' || S.viewer || spyQueued || performance.now() - scrollIntent > 700) return;
+  spyQueued = true;
+  requestAnimationFrame(() => { spyQueued = false; const id = sectionAtReadingLine(); if (id) { S.secMissing = null; setSection(id); } });
+}, { passive: true });
+addEventListener('wheel', markScrollIntent, { passive: true });
+addEventListener('touchmove', markScrollIntent, { passive: true });
+addEventListener('pointerdown', (e) => { if (e.target === document.documentElement) markScrollIntent(); });
 
 let toastTimer;
 function toast(msg) {
@@ -1601,7 +1740,7 @@ function refreshLive() {
   if (S.variant === 'B' && $('#b-context')) setRail(VBY[S.view]);
 }
 function refreshVersionUI() {
-  $$('[data-ver]').forEach((sel) => { sel.innerHTML = S.versions.map((v) => `<option value="${v.id}"${v.id === S.viewing ? ' selected' : ''}>Results ${v.id} · ${v.id === S.active ? 'active' : 'previous'}</option>`).join(''); });
+  $$('[data-ver]').forEach((sel) => { sel.innerHTML = verOptions(); }); const g = $('#ver-go'); if (g) g.disabled = true;
   const b = $('#banner'); if (b) b.innerHTML = bannerHTML();
 }
 
@@ -1704,7 +1843,6 @@ function resumeDraft(key, opener) {
   if (key.startsWith('note|doc:')) { const [, ref, p] = link.split(':'); const o = $('#page-h1') || document.body; return openViewerFromDraft(ref, Number(p) || 1, o); }
   if (S.variant === 'B') return openCapture('note', link, opener);
   if (link.startsWith('sec:')) { go('matter', { sec: link.slice(4) }); return focusForm(key); }
-  if (link.startsWith('view:') && VBY[link.slice(5)] && !VBY[link.slice(5)].built) { go(link.slice(5)); return focusForm(key); }
   // A has no capture sheet: a draft made there continues on the Notes page.
   if (!S.drafts['note|page']) { S.drafts['note|page'] = d; delete S.drafts[key]; }
   go('annotations_tab'); focusForm('note|page');
@@ -1713,6 +1851,7 @@ function openViewerFromDraft(ref, page, opener) { openViewer(ref, page, opener);
 function applyPreset(p) {
   if (p === 'docs-manual') Object.assign(S.docs, { q: '', type: '', status: 'manual', shown: 150 });
   else if (p === 'chrono-q') Object.assign(S.chrono, { q: S.query, issue: '', shown: 120 });
+  else if (p.startsWith('chrono-ev-')) { const i = chrono().findIndex((e) => e.id === p.slice(10)); Object.assign(S.chrono, { q: '', issue: '', shown: Math.max(120, Math.ceil((i + 1) / 120) * 120) }); }
   else if (p.startsWith('chrono-')) Object.assign(S.chrono, { q: '', issue: p.slice(7), shown: 120 });
 }
 function runSearch(q) {
@@ -1731,7 +1870,7 @@ function advanceSub() {
     S.versions.push({ id: 'v4', rv: 'rv-c41a7d90', date: TODAY }); S.active = 'v4';
     toast('Simulated: an operator published Results v4. You are still viewing your version until you switch.');
   } else return;
-  $('#main').innerHTML = bannerBox() + pageHead(VBY.hosted_intake) + intakeHTML(); refreshLive(); refreshVersionUI();
+  render();
   const b = $('[data-action=advance-sub]:not([disabled])'); (b || $('#page-h1')).focus();
 }
 
@@ -1758,7 +1897,7 @@ document.addEventListener('click', (e) => {
     return;
   }
   if (el.dataset.cite) { const [ref, p] = el.dataset.cite.split(':'); openViewer(ref, Number(p), el); return; }
-  if (el.dataset.section) { e.preventDefault(); scrollToSection(el.dataset.section); return; }
+  if (el.dataset.section) { e.preventDefault(); S.secMissing = null; scrollToSection(el.dataset.section); return; }
   if (el.dataset.task) { const k = el.dataset.task; go(S.lastInTask[k] || TASK_DEFAULT[k]); return; }
   if (el.dataset.q) { runSearch(el.dataset.q); return; }
   const a = el.dataset.action, id = el.dataset.id;
@@ -1774,7 +1913,10 @@ document.addEventListener('click', (e) => {
   else if (a === 'note-here') noteHere(el);
   else if (a === 'close-viewer') closeOverlay('viewer');
   else if (a === 'viewer-prev' || a === 'viewer-next') {
+    const was = `doc:${S.viewer.ref}:${S.viewer.page}`, d = S.drafts['note|doc:' + S.viewer.ref];
     S.viewer.page += a === 'viewer-next' ? 1 : -1; S.lastCtx = `doc:${S.viewer.ref}:${S.viewer.page}`;
+    // A draft that was linked to the page shown follows the page you turn to; one you linked elsewhere on purpose stays.
+    if (d && d.vals.link === was) { d.vals.link = S.lastCtx; d.label = 'Note on ' + linkLabel(S.lastCtx); refreshDraftChips(true); }
     renderViewer(); refreshCtx(); const b = $(`#viewer [data-action=${a}]`); (b.disabled ? $('#viewer-title') : b).focus();
   } else if (a === 'viewer-note') {
     S.viewer.noteOpen = !S.viewer.noteOpen; renderViewer();
@@ -1786,14 +1928,25 @@ document.addEventListener('click', (e) => {
     const more = $(`[data-action=${a}]`); (more || $(`#${k}-wrap .table-scroll`)).focus();
   } else if (a === 'export') exportPacket();
   else if (a === 'advance-sub') advanceSub();
-  else if (a === 'switch-ver') switchVersion(el.dataset.verTo);
+  else if (a === 'switch-ver') switchVersion(el.dataset.verTo, true);
+  else if (a === 'apply-ver') switchVersion($('#ver-sel').value);
   else if (a === 'resume-draft') { const dm = el.closest('details'); if (dm) dm.open = false; resumeDraft(el.dataset.key, null); }
-  else if (a === 'discard-draft') { const dm = el.closest('details'); if (dm) dm.open = false; discardDraft(el.dataset.key); toast('Draft discarded.'); }
+  else if (a === 'discard-draft') { const box = el.closest('.draft-cue,li'); box.dataset.was = box.innerHTML; box.innerHTML = confirmDiscardHTML(el.dataset.key); $('[data-action=discard-keep]', box).focus(); }
+  else if (a === 'discard-keep') { const box = el.closest('.draft-cue,li'); box.innerHTML = box.dataset.was; $('[data-action=discard-draft]', box).focus(); }
+  else if (a === 'discard-confirm') {
+    const key = el.dataset.key, form = el.closest('form'), dm = el.closest('details');
+    if (dm) dm.open = false;
+    discardDraft(key); toast('Draft discarded.');
+    // Focus stays where you were working: the emptied field, or the draft chip (or search) when discarding from the chip.
+    const f = key.startsWith('edit|') ? $(`[data-action=edit-note][data-id="${key.slice(5)}"]`) : form && form.isConnected && $('textarea,input[name=desc]', form);
+    (f || $('.draftchip') || $('#gs')).focus();
+  }
   else if (a === 'edit-note') { S.editing = id; $('#notes-list').innerHTML = notesList(); focusForm('edit|' + id); }
   else if (a === 'cancel-edit') { delete S.drafts['edit|' + id]; S.editing = null; refreshDraftChips(true); $('#notes-list').innerHTML = notesList(); const b = $(`[data-action=edit-note][data-id=${id}]`); if (b) b.focus(); }
   else if (a === 'delete-note') { S.confirmDel = id; $('#notes-list').innerHTML = notesList(); const b = $(`[data-action=cancel-delete][data-id=${id}]`); if (b) b.focus(); }
   else if (a === 'cancel-delete') { S.confirmDel = null; $('#notes-list').innerHTML = notesList(); const b = $(`[data-action=delete-note][data-id=${id}]`); if (b) b.focus(); }
   else if (a === 'confirm-delete') deleteNote(id);
+  else if (a === 'clear-cat-q') { S.catalogQ = ''; $('#cat-q').value = ''; $('#cat-list').innerHTML = catalogList(); $('#cat-q').focus(); }
   else if (a === 'clear-nav-q') { S.navQ = ''; $('#nav-q').value = ''; $('#a-nav-list').innerHTML = navListA(); $('#nav-q').focus(); }
 });
 document.addEventListener('submit', (e) => {
@@ -1821,7 +1974,7 @@ document.addEventListener('change', (e) => {
   else if (t.dataset.packet) { if (t.checked) S.packet.add(t.dataset.packet); else S.packet.delete(t.dataset.packet); refreshPacket(); refreshLive(); }
   else if (t.name === 'pknotes') { S.pkNotes = t.value; refreshPacket(); }
   else if (t.id === 'role-sel') { S.role = t.value; render(); renderCapture(); toast(`Simulated role: ${ROLES[S.role]}. This is a stand-in for case permissions; nothing is enforced.`); }
-  else if (t.dataset.ver !== undefined) switchVersion(t.value);
+  else if (t.dataset.ver !== undefined) { const g = $('#ver-go'); if (g) g.disabled = t.value === S.viewing; }
 });
 function refreshPacket() {
   const s = $('#pk-summary'); if (s) s.textContent = packetScope();
@@ -1850,15 +2003,18 @@ document.addEventListener('keydown', (e) => {
     $(`#switcher [data-action=variant-${e.key === 'ArrowRight' ? 'next' : 'prev'}]`).focus(); return;
   }
   if (inField || e.altKey || e.ctrlKey || e.metaKey) return;
+  if (['PageUp', 'PageDown', 'Home', 'End', 'ArrowUp', 'ArrowDown'].includes(e.key) || (e.key === ' ' && !t.closest('a,button,summary,[role=button]'))) markScrollIntent();
   if (e.key === '/') { e.preventDefault(); const g = $('#gs'); if (g) g.focus(); }
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && e.target.id === 'nav-q') { const first = $('#a-nav-list a'); if (first && S.navQ.trim()) { e.preventDefault(); first.click(); } }
+  if (e.key === 'Enter' && (e.target.id === 'nav-q' || e.target.id === 'cat-q')) { const b = $(e.target.id === 'nav-q' ? '#a-best a' : '#cat-best a'); if (b) { e.preventDefault(); b.click(); } }
 });
 addEventListener('popstate', (e) => {
-  const st = e.state || {}, before = [S.variant, S.view, S.viewing].join();
+  const st = e.state || {}, before = [S.variant, S.view, S.viewing].join(), here = { section: S.section, query: S.query };
   readURL();
   const changed = before !== [S.variant, S.view, S.viewing].join();
+  // A Back that only closes an overlay is not a page change: the section and search you have now stay, and the URL follows them.
+  if (!changed) Object.assign(S, here);
   if (S.ov && st.ov !== S.ov) {
     if (changed) for (const o of [...S.openOrder]) { if (trackedHere(o)) directClose(o, { restore: false }); }
     else directClose(S.ov);
@@ -1867,7 +2023,7 @@ addEventListener('popstate', (e) => {
     render();
     if (st.anchor) restoreAnchor(st.anchor); else scrollTo(0, st.scroll || 0);
     const h = $('#page-h1'); if (h) h.focus({ preventScroll: true });
-  }
+  } else writeURL(false);
 });
 addEventListener('resize', () => { bodyClass(); measure(); syncModal(); });
 
@@ -1876,6 +2032,7 @@ function selfCheck() {
   const ids = VIEWS.map((v) => v.id);
   const aHome = new Set(groupsA().flatMap((g) => g.items.map((x) => x.id)));
   const bHome = new Set([...VIEWS, ...PLANNED].filter((v) => TASKS.some((t) => t.key === v.task)).map((v) => v.id));
+  const catHome = new Set(['A', 'B'].flatMap((x) => { const was = S.variant; S.variant = x; const ids = catalogGroups().flatMap((g) => g.items.map((i) => i.id)); S.variant = was; return ids; }));
   const r = {
     views: ids.length, unique: new Set(ids).size === ids.length,
     badTopic: VIEWS.filter((v) => !TOPICS.some((t) => t.key === v.topic)).map((v) => v.id),
@@ -1885,7 +2042,8 @@ function selfCheck() {
     built: VIEWS.filter((v) => v.built).map((v) => v.id),
     aReachable: [...VIEWS, ...PLANNED].filter((v) => !aHome.has(v.id)).map((v) => v.id),
     bReachable: [...VIEWS, ...PLANNED].filter((v) => !bHome.has(v.id)).map((v) => v.id),
-    operatorInClientNav: OPS.some((o) => aHome.has(o.id) || bHome.has(o.id)),
+    operatorInClientNav: [...OPS, OP_STUDY].some((o) => aHome.has(o.id) || bHome.has(o.id) || catHome.has(o.id)) || /advance-sub/.test(intakeHTML()),
+    sectionsV4: SECTIONS_V4.map((x) => x.id).join(), eventsV4: CHRONO_V4.length,
   };
   r.ok = r.views === 42 && r.unique && !r.badTopic.length && !r.badTask.length && r.docs === CASE.docs && r.chronology === CASE.chrono && !r.aReachable.length && !r.bReachable.length && !r.operatorInClientNav;
   if (!r.ok) console.error('GRS-89 prototype self-check failed', r);
@@ -1894,7 +2052,11 @@ function selfCheck() {
 window.__grs89 = { selfCheck, state: S, views: VIEWS.map(({ id, label, group, topic, task, built }) => ({ id, label, group, topic, task, built })), planned: PLANNED.map(({ id, label, task, kind, topic }) => ({ id, label, task, kind, topic })), operator: OPS.map(({ id, label }) => ({ id, label })) };
 
 try { history.scrollRestoration = 'manual'; } catch { /* not available in a sandboxed frame */ }
-readURL(); render(); writeURL(false); selfCheck();
+readURL();
+if (S.view === 'matter') S.section = resolveSec(S.section);
+render(); writeURL(false);
+if (S.view === 'matter' && S.section !== 'summary') scrollToSection(S.section, false);
+selfCheck();
 </script>
 </body>
 </html>

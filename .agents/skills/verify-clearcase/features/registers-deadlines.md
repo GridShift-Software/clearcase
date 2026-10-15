@@ -4,7 +4,7 @@ The Deadlines register (GRS-17, store `deadlines`) lists deadlines by date with 
 
 ## Sub-features
 
-- `deadline-add`: Add needs a title and a date (otherwise nothing is saved, silently, as in v5); the category keeps its last value after Add.
+- `deadline-add`: Add needs a title and a date. An all-empty Add saves nothing, silently, as in v5; a partly filled one shows `#register-error` ("Title and Date must be filled in; nothing was saved. Your input is kept."); the category keeps its last value after Add.
 - `deadline-countdown`: `—`, `<n>d ago`, `today`, `in <n>d` (warning within 7 days, success beyond), from `now()`.
 - `deadline-delete`: removes the row it is pressed on, by row id (S-deadlines_tab-1: v5 removed the stored row at the shown position).
 - `deadline-export`: the file name from the package's view-content (`exportFileName`), else `deadlines.ics` with the fixed note beside the export; CRLF lines, TEXT escaping, 75-octet folding, `DTSTAMP` from the clock, `UID:<row id>@clearcase`, v5's `DTSTART:<date>T090000`.

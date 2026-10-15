@@ -1,9 +1,3 @@
-// View content carried as data (GRS-38). v5's renderers embed case content in code: subtitles,
-// KPI captions, narrative paragraphs, the case caption, file names, defaults. In a real
-// pipeline that content is generated, so the converter reads it statically into the
-// `view-content` dataset through a declarative map (view-content-map.ts) and the views
-// render it from imported data. Nothing is executed: every value is a literal found by a
-// code-shape anchor. A missing or ambiguous anchor is reported and never guessed.
 import type { DiagSink } from '../diagnostics.ts';
 import { Code, decodeEntities, findScope, hasReserved, markupStream, markupText, parseHtml, partsOf, poison, scriptRegions, select, SENT_CLOSE, SENT_OPEN, tokenize, type El, type Part, type Range, type ScopeSpec, type Stream } from './js-scan.ts';
 
@@ -13,33 +7,24 @@ export type { ViewValue };
 export type ViewContent = Record<string, Record<string, ViewValue>>;
 
 export type Selector =
-  /** argument `arg` of a call `name(...)`; nth among the scope's calls, else the only one */
   | { call: string; arg: number; nth?: number }
-  /** an array (`table`: array of arrays) or object literal, by binding name or nth in scope, then a path into it */
   | { lit: 'table' | 'array' | 'object'; binding?: string; nth?: number; path: (string | number)[] }
-  /** the expression of the nth `return` in scope */
   | { ret: number }
-  /** the string literal right of `<path> ||` (a default value) */
   | { orDefault: string }
-  /** capture group 1 of a structural pattern over string (or regex) literals of the scope */
   | { pattern: string; on?: 'str' | 're'; nth?: number }
-  /** an element of the scope's reconstructed markup (selector subset in js-scan.ts): its text, an attribute, or every match as a list */
   | { html: string; attr?: string; all?: boolean };
 
-export interface Param { name: string; /** the source expression the code run must be, token for token */ expect: string }
+export interface Param { name: string; expect: string }
 
 export interface Entry {
   view: string;
   field: string;
-  /** checklist evidence: S-<view>-N ids and/or v5 line numbers (no values) */
   checklist: string;
   scope: ScopeSpec;
   sel: Selector;
   kind: 'text' | 'template' | 'number' | 'list';
-  /** the literal is HTML: tags dropped, entities decoded, paragraphs separated by a blank line */
   markup?: boolean;
   params?: Param[];
-  /** number: take the default operand of `x || <number>` */
   fallback?: boolean;
   required: boolean;
 }
@@ -51,19 +36,13 @@ export interface FieldStatus { view: string; field: string; status: 'extracted' 
 export interface ViewContentResult {
   data: ViewContent;
   fields: FieldStatus[];
-  /**
-   * Prose literals inside audited scopes that no entry consumed: location only, never the text.
-   * Reported in the convert report (not as diagnostics), so a new HTML's unmapped content is visible.
-   */
   unmapped: { scope: string; line: number; words: number }[];
 }
 
-/** Literals with at least this many words are prose; unconsumed prose is reported as unmapped. */
 export const PROSE_MIN_WORDS = 8;
 const WORD = /\p{L}[\p{L}\p{M}'’-]+/gu;
 const NUMBER_TEXT = /^-?\d+(?:\.\d+)?$/;
 const PARAM_NAME = /^[a-z][A-Za-z0-9]{0,63}$/;
-/** Bounds on hostile input: viewer code larger than this, or extraction slower than this, yields no view content. */
 export const VIEW_CODE_MAX_CHARS = 8 * 1024 * 1024;
 export const VIEW_CONTENT_DEADLINE_MS = 20_000;
 
@@ -72,7 +51,6 @@ class Miss extends Error {
   constructor(status: 'missing' | 'ambiguous' | 'shape', message: string) { super(message); this.status = status; }
 }
 
-/** A resolved selection: value pieces (text with code sentinels) plus the literal tokens consumed. */
 interface Sel { parts: Part[]; toks: number[]; line: number; range?: Range; list?: Part[][] }
 
 const pick = <T>(xs: T[], nth: number | undefined, what: string): T => {
@@ -87,10 +65,8 @@ export class ViewCodeReader {
   private readonly scopes = new Map<string, { range: Range; count: number; conditional: boolean } | null>();
   private readonly streams = new Map<string, { s: Stream; root: El }>();
   private readonly markupEnd: number;
-  /** characters of viewer code read (script regions after the payload cuts) */
   readonly size: number;
   constructor(html: string, skipLines: number[] = []) {
-    // payload lines (DATA, META, ...) are data, already parsed by extract.ts: cut them out of the script regions
     const starts: number[] = [0];
     for (let k = 0; k < html.length; k++) if (html.charCodeAt(k) === 10) starts.push(k + 1);
     const cuts = skipLines.filter((n) => n >= 1 && n <= starts.length).map((n) => [starts[n - 1]!, n < starts.length ? starts[n]! : html.length] as const).sort((a, b) => a[0] - b[0]);
@@ -121,15 +97,6 @@ export class ViewCodeReader {
     return v;
   }
 
-  /**
-   * A scope that exists exactly once. A RENDER.<view> must be proven live, even when assigned
-   * once: every assignment is a whole statement that runs unconditionally (top level, or the top
-   * level of an immediately invoked function), and the last is the live renderer (v5 redefines
-   * discovery_tab in a later IIFE). One assignment that may never run (in a branch, loop, plain
-   * function, after an unbraced `if`, `&&` or `?`) is missing; a repeated RENDER.<view> with any
-   * such assignment, or a function or constant defined more than once, is ambiguous: nested
-   * helpers and block constants share names.
-   */
   private live(spec: ScopeSpec): { range: Range; count: number } {
     const sc = this.scope(spec);
     if (!sc) throw new Miss('missing', `scope ${spec} not found`);
@@ -139,7 +106,6 @@ export class ViewCodeReader {
     return sc;
   }
 
-  /** Literal tokens of a scope (for the unmapped-prose audit). */
   literalTokens(spec: ScopeSpec): number[] {
     const sc = this.scope(spec);
     if (!sc) return [];
@@ -220,7 +186,6 @@ export class ViewCodeReader {
       const h = pick(hits, sel.nth, `pattern /${sel.pattern}/`);
       return { parts: [{ text: h.v, toks: [h.k] }], toks: [h.k], line: C.line(T[h.k]!.s) };
     }
-    // literal containers
     let k: number;
     const opener = sel.lit === 'object' ? '{' : '[';
     if (scope.startsWith('const:') && sel.binding === undefined && sel.nth === undefined) k = a;
@@ -258,7 +223,6 @@ export class ViewCodeReader {
     return fromRange(r);
   }
 
-  /** Apply one entry: a value, or a status explaining why there is none. */
   extract(e: Entry): { value?: ViewValue; status: FieldStatus; toks: number[] } {
     const base = { view: e.view, field: e.field };
     try {
@@ -327,9 +291,7 @@ export class ViewCodeReader {
 
 const C_is = (T: Code['toks'], j: number, v: string) => T[j]?.t === 'p' && T[j]!.v === v;
 
-/** True when the code run is exactly the expression `expect`, token for token (white space and comments aside). */
 function sameTokens(C: Code, r: Range, expect: string): boolean {
-  // a markup code run keeps the `+` joining it to the literals around it
   let { a, b } = r;
   while (a < b && C.is(a, 'p', '+')) a++;
   while (b > a && C.is(b - 1, 'p', '+')) b--;
@@ -338,7 +300,6 @@ function sameTokens(C: Code, r: Range, expect: string): boolean {
   return want.every((w, i) => { const t = C.toks[a + i]!; return t.t === w.t && t.v === w.v; });
 }
 
-/** True when an opening bracket after token k starts a literal (not an index or a call). */
 function isExprStart(C: Code, k: number): boolean {
   const t = C.toks[k];
   if (!t) return true;
@@ -347,7 +308,6 @@ function isExprStart(C: Code, k: number): boolean {
   return false;
 }
 
-/** Drop an unclosed tag at the end of a literal (`<x...` with no later '>'), in linear time. */
 function dropOpenTail(s: string): string {
   const re = /<[A-Za-z!]/g;
   re.lastIndex = s.lastIndexOf('>') + 1;
@@ -355,7 +315,6 @@ function dropOpenTail(s: string): string {
   return m ? s.slice(0, m.index) : s;
 }
 
-/** Text with sentinels -> parts; sentinel n is code run n. */
 function sentinelParts(text: string, runs: Range[]): Part[] {
   const out: Part[] = [];
   const re = new RegExp(`${SENT_OPEN}(\\d+)${SENT_CLOSE}`, 'g');
@@ -371,14 +330,12 @@ function sentinelParts(text: string, runs: Range[]): Part[] {
   return out;
 }
 
-/** Markup literal parts -> visible text parts (tags dropped, entities decoded), code runs kept in place. */
 function remark(parts: Part[]): Part[] {
   const codes: Range[] = [];
   const joined = parts.map((p) => ('text' in p ? p.text : SENT_OPEN + (codes.push(p.code) - 1) + SENT_CLOSE)).join('');
   return sentinelParts(markupText(joined), codes);
 }
 
-/** Validate a map: unique (view, field), well-formed ids and param names. Throws on a defect. */
 export function checkMap(entries: readonly Entry[], omissions: readonly Omission[]): void {
   const seen = new Set<string>();
   for (const e of [...entries, ...omissions]) {
@@ -393,15 +350,10 @@ export function checkMap(entries: readonly Entry[], omissions: readonly Omission
   }
 }
 
-/**
- * Extract view content from the workspace HTML. `skipLines` are the payload lines (1-based)
- * already read as data. `audit` lists the scopes checked for unconsumed prose literals.
- */
 export function extractViewContent(html: string, entries: readonly Entry[], omissions: readonly Omission[], opts: { skipLines?: number[]; audit?: readonly ScopeSpec[]; sink?: DiagSink; maxChars?: number; deadlineMs?: number } = {}): ViewContentResult {
   checkMap(entries, omissions);
   const started = Date.now();
   const maxChars = opts.maxChars ?? VIEW_CODE_MAX_CHARS, deadlineMs = opts.deadlineMs ?? VIEW_CONTENT_DEADLINE_MS;
-  // fail closed on hostile size or time: no view content at all, every field reported, one diagnostic
   const stop = (why: string): ViewContentResult => {
     opts.sink?.add('V5_VIEW_CONTENT_LIMIT', `view-content extraction stopped: ${why}; no view content extracted`, { file: 'input', subject: 'view-content' });
     return { data: {}, fields: entries.map((e) => ({ view: e.view, field: e.field, status: 'missing', line: null, detail: why })), unmapped: [] };
@@ -430,7 +382,6 @@ export function extractViewContent(html: string, entries: readonly Entry[], omis
     for (const k of reader.literalTokens(spec)) {
       if (consumed.has(k)) continue;
       const t = reader.code.toks[k]!;
-      // a literal may hold the head or tail of a tag split by code: drop those fragments before counting
       const visible = markupText(dropOpenTail((t.v as string).replace(/^[^<]*?(?:"|')\s*\/?>/, '')));
       const words = (visible.match(WORD) ?? []).length;
       if (words < PROSE_MIN_WORDS) continue;
@@ -438,7 +389,6 @@ export function extractViewContent(html: string, entries: readonly Entry[], omis
       unmapped.push({ scope: spec, line, words });
     }
   }
-  // stable order: views and fields in map order are already deterministic; sort keys for canonical bytes anyway
   const sorted: ViewContent = {};
   for (const v of Object.keys(data).sort()) sorted[v] = Object.fromEntries(Object.keys(data[v]!).sort().map((f) => [f, data[v]![f]!]));
   return { data: sorted, fields, unmapped };

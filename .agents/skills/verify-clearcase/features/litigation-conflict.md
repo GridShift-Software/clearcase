@@ -1,6 +1,6 @@
 # Conflict Check
 
-Screens a typed or picked name against this matter's people and entities only (GRS-18), exactly as v5 matches: people first, then entities, a trimmed lower-cased substring over space-joined fields. The input hint is generic, with no personal data (v5's hint held a real company and e-mail address, S-conflict_tab-1). A scope disclosure, with counts from the data, always says what was searched and that a result is not a conflict clearance; the no-match line keeps v5's wording with neutral styling.
+Screens a typed or picked name against this matter's people and entities only (GRS-18), as v5 matches (people first, then entities, a trimmed lower-cased substring over space-joined fields), and also folds width and diacritics (NFKD without marks, ß as ss), which v5 did not. The input hint is generic, with no personal data (v5's hint held a real company and e-mail address, S-conflict_tab-1). A scope disclosure, with counts from the data, always says what was searched and that a result is not a conflict clearance; the no-match line keeps v5's wording with neutral styling.
 
 ## Sub-features
 

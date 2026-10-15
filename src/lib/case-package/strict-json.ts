@@ -31,7 +31,6 @@ const DEFAULTS: StrictJsonLimits = {
 
 const decoder = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true });
 
-/** Strict UTF-8; a byte order mark is rejected. */
 export function decodeUtf8Strict(buf: Uint8Array): string {
   if (buf.length >= 3 && buf[0] === 0xef && buf[1] === 0xbb && buf[2] === 0xbf) {
     throw new StrictJsonError('JSON_BAD_UTF8', 'byte order mark is not allowed', 0, '');
@@ -44,7 +43,6 @@ export function decodeUtf8Strict(buf: Uint8Array): string {
   }
 }
 
-/** Byte offset of the first invalid UTF-8 sequence (overlong, surrogate, truncated, > U+10FFFF). */
 export function firstInvalidUtf8(b: Uint8Array): number {
   let i = 0;
   while (i < b.length) {
@@ -90,7 +88,7 @@ export function parseStrictJson(text: string, limits: Partial<StrictJsonLimits> 
     return parseInt(h, 16);
   };
   const str = (): string => {
-    i++; // opening quote
+    i++;
     let out = '';
     let start = i;
     for (;;) {
@@ -214,7 +212,6 @@ export function parseStrictJson(text: string, limits: Partial<StrictJsonLimits> 
 
 export const isObject = (v: unknown): v is JsonObject => v !== null && typeof v === 'object' && !Array.isArray(v);
 
-/** At most `n` UTF-16 units of `s`, never ending inside a surrogate pair. */
 export function cutText(s: string, n: number): string {
   const t = s.slice(0, n);
   const last = t.charCodeAt(t.length - 1);

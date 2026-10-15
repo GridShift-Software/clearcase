@@ -59,7 +59,6 @@ export const capabilityOf = (mediaType: string): Capability => def(mediaType).ca
 export const isContainer = (mediaType: string): boolean => def(mediaType).container;
 export const serveModeOf = (mediaType: string): ServeMode => def(mediaType).serve;
 
-/** Is textStatus consistent with what the media type allows? */
 export function textStatusConsistent(mediaType: string, s: TextStatus): boolean {
   const cap = capabilityOf(mediaType);
   if (s === 'pending') return true;
@@ -95,7 +94,6 @@ export function servePolicy(mediaType: string, filename: string, contentMismatch
   return { mode, headers: { ...common, 'Content-Type': d.type, 'Content-Disposition': cd('inline'), 'Content-Security-Policy': csp } };
 }
 
-/** Content sniff of the first bytes; a family name, or null when undecidable. */
 export function sniffFamily(head: Uint8Array): string | null {
   const b = head;
   const starts = (...xs: number[]) => xs.every((x, k) => b[k] === x);
@@ -117,7 +115,6 @@ export function sniffFamily(head: Uint8Array): string | null {
   return null;
 }
 
-/** Declared media vs sniffed family. Only a positive contradiction counts. */
 export function contentContradictsType(mediaType: string, head: Uint8Array): boolean {
   const fam = sniffFamily(head);
   const d = def(mediaType);

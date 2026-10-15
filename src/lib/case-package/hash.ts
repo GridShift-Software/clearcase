@@ -1,4 +1,3 @@
-// Identity digests. Compact JCS is the identity encoding; file names never enter an identity.
 import { createHash } from 'node:crypto';
 import { canonicalJson } from './canonical.ts';
 import { FORMAT, type InputSource, type ManifestFile } from './schema.ts';

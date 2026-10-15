@@ -1,7 +1,3 @@
-// What changes between the active version and a candidate, by original fingerprint, never by ref equality alone:
-// refs are package-local aliases, so the same ref in two packages may name different documents, and a renumbered
-// document keeps its bytes. Documents without a verified original have no identity across versions and are counted
-// as unmatched, never paired by ref. Ambiguity (several refs share one fingerprint) is disclosed, not resolved.
 import type { CaseStore } from './store.server.ts';
 
 export interface VersionDiff {
@@ -9,17 +5,11 @@ export interface VersionDiff {
 	candidate: string;
 	documents: { base: number; candidate: number };
 	unchanged: number;
-	/** same bytes, same single ref, but the source row differs */
 	changedRows: { ref: string }[];
-	/** same bytes under a different single ref */
 	renumbered: { from: string; to: string }[];
-	/** fingerprint only in the candidate */
 	added: string[];
-	/** fingerprint only in the base */
 	removed: string[];
-	/** fingerprint shared by several refs on either side */
 	ambiguous: { sha256: string; base: string[]; candidate: string[] }[];
-	/** documents without a verified original (no fingerprint), per side */
 	unmatched: { base: number; candidate: number };
 }
 

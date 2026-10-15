@@ -1,7 +1,3 @@
-// The instance lock on a data directory: a live owner recorded in instance.pid (pid plus kernel start time) refuses a
-// second process even when instance.lock was unlinked under it, without the refused process writing anything; a
-// stale record (dead pid, or a reused pid with another start time) does not; and a lock error that is not a lock
-// conflict (such as a full disk) is not blamed on another process.
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';

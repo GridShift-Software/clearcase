@@ -8,19 +8,11 @@
 	import '$lib/views/analysis/analysis.css';
 	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data, form }: { data: PageData; form: ActionData } = $props();
-	// Every unsaved choice, per item key, until the server has saved that key: in flight, or failed with its message.
-	// A failed key keeps its choice, its error and its Retry until that key saves; a save of another key never clears
-	// it. At most one save per key is in flight: a later choice waits in `queued` and goes out when the first settles,
-	// so the stored value is the last choice. Without JavaScript the action carries the failures back (`pending`), and
-	// every form posts those still shown. This component belongs to one results version (+page.svelte keys it by version
-	// id): a queued choice is sent only through this component's own row form, and when the operator has left for another
-	// case it goes straight to the case that queued it, never through whatever the page shows by then.
 	type Failure = { key: string; done: boolean; message: string };
 	let choice = $state<Record<string, boolean>>({});
 	let failures = $state<Record<string, { done: boolean; message: string }>>({});
 	const inflight: Record<string, true> = {};
 	const queued: Record<string, boolean> = {};
-	// this instance's row forms by item key (never a document-wide lookup, which could find another case's form)
 	const rowForms = new Map<string, HTMLFormElement>();
 	const own = (node: HTMLFormElement, key: string) => {
 		rowForms.set(key, node);
@@ -34,7 +26,6 @@
 		...('pending' in form && Array.isArray(form.pending) ? (form.pending as Failure[]) : []),
 	].filter((f, i, all) => all.findIndex((g) => g.key === f.key) === i));
 	const order = (key: string) => data.rows.findIndex((r) => r.key === key);
-	// listed in the table's order
 	const problems = $derived<Failure[]>([
 		...Object.entries(failures).map(([key, f]) => ({ key, ...f })),
 		...noJs.filter((f) => !(f.key in failures) && !(f.key in choice)),
@@ -42,7 +33,6 @@
 	const shown = (r: { key: string; done: boolean }) => choice[r.key] ?? noJs.find((f) => f.key === r.key)?.done ?? r.done;
 	const busy = (key: string) => key in choice && !(key in failures);
 	const unsaved = (key: string) => key in failures || (!(key in choice) && noJs.some((f) => f.key === key));
-	// send a queued choice through the row's own form, as a tick does; false when this component has no such form
 	const flush = (key: string, done: boolean) => {
 		const form = rowForms.get(key);
 		const box = form?.querySelector<HTMLInputElement>('input[type=checkbox]');
@@ -51,7 +41,6 @@
 		form.requestSubmit();
 		return true;
 	};
-	// the page is gone: save the last queued choice to the case it was made in (the action URL captured at submit)
 	const sendToOwnCase = (action: URL, key: string, done: boolean) => {
 		const body = new FormData();
 		body.set('key', key);
@@ -73,7 +62,6 @@
 				else if (result.type === 'error') failures[key] = { done, message: result.status ? `Not saved: ClearCase answered ${result.status}. Your choice is kept; retry.` : 'Not saved: ClearCase could not be reached. Your choice is kept; retry when it is running.' };
 				else await update();
 			}
-			// `alive` is read again here: the operator may have left during the awaited update, taking the row forms with it
 			const next = queued[key];
 			delete queued[key];
 			delete inflight[key];
@@ -83,7 +71,6 @@
 	};
 	const itemOf = (key: string) => data.rows.find((r) => r.key === key)?.item ?? '';
 	onMount(() => {
-		// failures the action answered before hydration become tracked failures, so a later save of another item keeps them
 		for (const f of noJs) { choice[f.key] = f.done; failures[f.key] = { done: f.done, message: f.message }; }
 		hydrated = true;
 	});

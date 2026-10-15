@@ -1,15 +1,3 @@
-// Advanced Search (v5 search, L473-522). Browser-safe and pure; the server runs it over the document-row contract.
-//  * The submitted search lives in the URL (v5 kept it in memory): it survives Back, reload and pagination, and the
-//    export and the action items use exactly the submitted search (v5: the last collected state, S-search-1).
-//  * Predicates are v5's (L497-507), ANDed: bundle, type, text status equal; sender a substring of sender+to+cc (glued
-//    as v5 does, S-search-3, copied); from/to compared as text with undated rows excluded; amounts by parseFloat with
-//    empty amounts excluded; the text a substring of filename, ref, subject, sender, to and excerpt (not cc).
-//  * BA-15 (S-search-5): a reversed date or amount interval, or an amount bound that is not a number, is rejected
-//    with a message and no result, distinct from a valid search that matches nothing. So is any URL value the form
-//    cannot show (D3): a bundle, type or text status that is not an option, a date that is not YYYY-MM-DD or not in
-//    the calendar, and a Text or Sender value longer than MAX_TEXT. Every reason is reported at once (D12).
-//  * Results keep register order (v5), and the page says so; the export has the same order (BA-17).
-//  * BA-08: what search covers is counted from the rows, never from summary metadata.
 import type { ChronologyListRow } from '../../local-case/model.ts';
 import type { Cell } from '../../components/csv.ts';
 import { MAX_TEXT, bundleLabel, bundleParam, cleanName, echo, paginate, type Page } from './common.ts';
@@ -23,10 +11,8 @@ export type SearchField = (typeof FIELDS)[number];
 export type SearchQuery = Record<SearchField, string>;
 export const EMPTY: SearchQuery = Object.freeze({ q: '', bundle: '', type: '', sender: '', from: '', to: '', amin: '', amax: '', status: '' });
 
-/** A search row: the list projection plus the raw `cc` the sender predicate reads. */
 export type SearchRow = ChronologyListRow & { cc: string };
 
-/** The submitted search from URL parameters; `submitted` is false before the first Search (nothing is shown then). */
 export function queryFromParams(p: URLSearchParams): { query: SearchQuery; submitted: boolean } {
 	const query = Object.fromEntries(FIELDS.map((k) => [k, p.get(k) ?? ''])) as SearchQuery;
 	return { query, submitted: FIELDS.some((k) => p.has(k)) };
@@ -34,7 +20,6 @@ export function queryFromParams(p: URLSearchParams): { query: SearchQuery; submi
 
 const NUM = /^\s*[-+]?(\d+(\.\d*)?|\.\d+)([eE][-+]?\d+)?\s*$/;
 const DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
-/** Why a date bound cannot be used: not YYYY-MM-DD, or a day the calendar does not have; else null. */
 function dateProblem(label: string, v: string): string | null {
 	const m = DATE.exec(v);
 	if (!m) return `${label} ${echo(v)} is not a date (YYYY-MM-DD).`;
@@ -44,7 +29,6 @@ function dateProblem(label: string, v: string): string | null {
 	return t.getUTCFullYear() === y && t.getUTCMonth() === mo - 1 && t.getUTCDate() === d ? null : `${label} ${v} is not a day in the calendar.`;
 }
 
-/** The values the form's selects offer: a URL value outside them is refused (D3). Bundles are encoded (D4). */
 export interface SearchOptions { bundles: { value: string; label: string }[]; types: string[]; statuses: string[] }
 export const searchOptions = (rows: readonly ChronologyListRow[]): SearchOptions => ({
 	bundles: bundlesOf(rows).map((b) => ({ value: bundleParam(b.name), label: bundleLabel(b.name) })),
@@ -52,7 +36,6 @@ export const searchOptions = (rows: readonly ChronologyListRow[]): SearchOptions
 	statuses: statusOptions(rows),
 });
 
-/** Why a search cannot run, or null. Each message names the fields; a valid search that matches nothing is not one. */
 export function invalidReason(q: SearchQuery, opts?: SearchOptions): string | null {
 	const bad: string[] = [];
 	if (opts && q.bundle && !opts.bundles.some((b) => b.value === q.bundle)) bad.push(`Bundle ${echo(q.bundle)} is not in this results version.`);
@@ -71,7 +54,6 @@ export function invalidReason(q: SearchQuery, opts?: SearchOptions): string | nu
 	return bad.length ? bad.join(' ') : null;
 }
 
-/** v5 searchFiltered (L497-507), in register order. Run only on a valid query. */
 export function searchRows(rows: readonly SearchRow[], S: SearchQuery): SearchRow[] {
 	let a = rows.slice();
 	if (S.bundle) a = a.filter((r) => bundleParam(r.bundle) === S.bundle);
@@ -102,11 +84,9 @@ export function runSearch(rows: readonly SearchRow[], query: SearchQuery, submit
 	return { kind: 'results', page: { ...p, slice: p.slice.map(line) } };
 }
 
-/** v5 ess_dcs_search.csv columns (L515-516), in result order, imported values unchanged. */
 export const EXPORT_COLUMNS = ['ref', 'date', 'filename', 'subject', 'sender', 'doc_type', 'bundle', 'amount', 'text_status', 'url'] as const;
 export const exportRows = (rows: readonly SearchRow[]): Cell[][] => [[...EXPORT_COLUMNS], ...rows.map((r) => [r.ref, r.date, r.filename, r.subject, r.sender, r.docType, r.bundle, r.amount, r.textStatus, r.url])];
 
-/** v5 extractActionItems (L229-230): phrase matches longer than 8 characters, at most 20 per text. */
 export function extractActionItems(text: string): string[] {
 	if (!text) return [];
 	const items: string[] = [];
@@ -115,14 +95,12 @@ export function extractActionItems(text: string): string[] {
 	while ((m = re.exec(text)) !== null) { const s = m[0].trim(); if (s.length > 8 && items.length < 20) items.push(s); }
 	return items;
 }
-/** v5 actionItems (L517-522): every phrase of every matching row; the table shows the first 300. */
 export function actionItems(rows: readonly SearchRow[]): { total: number; shown: { ref: string; date: string; t: string }[] } {
 	const items = rows.flatMap((r) => extractActionItems(`${r.subject}. ${r.excerpt}`).map((t) => ({ ref: r.ref, date: r.date, t })));
 	return { total: items.length, shown: items.slice(0, 300) };
 }
 
 export interface Coverage { documents: number; withExcerpt: number; maxExcerpt: number; extracted: number; none: number; pending: number; other: number }
-/** BA-08: what search and comparison read, counted from the rows. */
 export function coverage(rows: readonly Pick<ChronologyListRow, 'excerpt' | 'textStatus'>[]): Coverage {
 	const c: Coverage = { documents: rows.length, withExcerpt: 0, maxExcerpt: 0, extracted: 0, none: 0, pending: 0, other: 0 };
 	for (const r of rows) {
@@ -135,7 +113,6 @@ export function coverage(rows: readonly Pick<ChronologyListRow, 'excerpt' | 'tex
 	return c;
 }
 
-/** The submitted search as URL parameters (all fields, as the form submits them), plus a page. */
 export function paramsOf(q: SearchQuery, extra: Record<string, string> = {}): URLSearchParams {
 	const p = new URLSearchParams();
 	for (const k of FIELDS) p.set(k, q[k]);

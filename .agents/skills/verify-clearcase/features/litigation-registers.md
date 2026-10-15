@@ -22,7 +22,7 @@ Three preparation registers (GRS-18). Cross-Exam Prep shows the package's seed t
 
 Preconditions:
 
-- `activate` passed on a synthetic case whose `DATA.lit` has seed topics and authorities (`tests/e2e/litigation/lib/cases.mjs` `mainCase`).
+- `activate` passed on the synthetic case. The plain synthetic case that `lib/inner.mjs` builds (`tests/case-package/fixtures/synth.ts`) has one seed topic and one imported authority; the litigation e2e suite uses `mainCase` (`tests/e2e/litigation/lib/cases.mjs`).
 
 - **Open Cross-Exam Prep.** *Not yet driven by verify-clearcase* (driven by `tests/e2e/litigation/suite.mjs` `NAV-crossexam_tab`, `S7-crossexam`). Choose `#nav-crossexam_tab`. `main[data-ready=crossexam_tab]`; `#cx-table tr[data-kind=seed]` rows first; the h1 has focus.
 - **Add a topic.** *Not yet driven* (`S7-crossexam`). Fill `#cx_w`, `#cx_t`, `#cx_put`, `#cx_docs`; press `#cx-add-header` or `#cx-add-form`. A `tr[data-kind=user]` row appears last and the inputs clear; work.sqlite `register_row` store `crossexam` has the row with `seq`.

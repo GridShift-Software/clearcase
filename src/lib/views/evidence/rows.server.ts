@@ -1,6 +1,3 @@
-// The evidence views' read of document rows: the document-row contract's list (`listJson`, the imported register
-// plus provider rows, exactly as the chronology API serves it), parsed once per list ETag. The ETag changes whenever a
-// provider's revision does, so rescanned rows (GRS-20) flow through every evidence view without a change here.
 import { documentRows, listJson } from '../../local-case/documents.server.ts';
 import type { ChronologyListRow } from '../../local-case/model.ts';
 import type { CaseStore } from '../../local-case/store.server.ts';
@@ -10,7 +7,6 @@ export interface EvidenceRows { rows: readonly ChronologyListRow[]; byRef: Reado
 const MAX = 8;
 const cache = new Map<string, EvidenceRows>();
 
-/** Every document row of a version in contract order, with a by-ref index; null for an unknown version. */
 export function evidenceRows(store: CaseStore, resultsVersion: string): EvidenceRows | null {
 	const l = listJson(store, resultsVersion);
 	if (!l) return null;
@@ -27,11 +23,6 @@ export function evidenceRows(store: CaseStore, resultsVersion: string): Evidence
 
 export interface SearchRows { rows: readonly (ChronologyListRow & { cc: string })[]; failed: EvidenceRows['failed'] }
 const searchCache = new Map<string, SearchRows>();
-/**
- * Search rows: each list row with its raw `cc` (v5's sender filter reads sender, to and cc), through documentRows,
- * cached per list ETag like evidenceRows, with the providers that failed (their rows are left out, and the views say
- * so). A non-text cc reads as v5's string concatenation would show it.
- */
 export function searchRowsOf(store: CaseStore, resultsVersion: string): SearchRows | null {
 	const l = listJson(store, resultsVersion);
 	if (!l) return null;

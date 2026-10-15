@@ -1,4 +1,3 @@
-// "Export all state": the case's backup file (user work, identities, versions; no binaries).
 import { backupFile } from '$lib/views/system/backup.server';
 import type { RequestHandler } from './$types';
 

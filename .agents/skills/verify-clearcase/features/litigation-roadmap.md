@@ -24,7 +24,7 @@ Preconditions:
 - **Open the roadmap.** *Not yet driven by verify-clearcase* (`tests/e2e/litigation/suite.mjs` `S1-roadmap`). `main[data-ready=enforcement_tab]`; `tr[data-step=<64 hex>]` rows with a `select[name="status:<stepKey>"]` inside the one form `#enf-form` (without JavaScript, any step's Save stores every changed step).
 - **Change a status.** *Not yet driven* (`S2-status`). Choose `Done` in a step's select; `[data-saved]` appears in that row; reload: the select shows `Done` and `[data-imported]` names the imported status. work.sqlite `register_row` store `enforcement-status` holds `{stepKey, status, seq}`.
 - **Busy store.** *Not yet driven* (`S2-status-busy`). With `BEGIN IMMEDIATE` held on `work.sqlite`, change a status: `[data-save-error]` shows and the select keeps the choice; after release, choose again to save.
-- **Stale and retired statuses.** *Not yet driven* (`D6-nojs-two-steps`, `D8-D9-changed-version`).
+- **Stale and retired statuses.** *Not yet driven* (`D8-D9-changed-version`; `D6-nojs-two-steps` covers the one-form save without JavaScript).
 - **Proof.** The suite's scenario JSON files.
 
 ## Gotchas

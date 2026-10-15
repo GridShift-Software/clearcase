@@ -1,8 +1,3 @@
-/**
- * The PDF reader of the bundle builder (v5 PDFK `Doc`, main HTML 909-1232): classic xref tables, xref streams,
- * object streams and hybrid files, with a brute-force object scan when the xref is broken. An encrypted file is
- * refused with `EncryptedPdfError`.
- */
 import { asciiHexDecode, dec, find, isDict, isName, isWS, Lex, PRef, PStream, rfind } from './objects.ts';
 import type { PDict, PdfValue, Resolver } from './objects.ts';
 
@@ -18,14 +13,12 @@ export type PageEntry = { ref: PRef | null; dict: PDict; inh: Partial<Record<(ty
 
 export const INHERIT = ['Resources', 'MediaBox', 'CropBox', 'Rotate'] as const;
 
-/** A raw zlib stream inflated by the platform's own decompressor (browser, Bun and Node alike). */
 async function inflate(buf: Uint8Array): Promise<Uint8Array> {
 	for (const kind of ['deflate', 'deflate-raw'] as const) {
 		try {
 			const s = new Blob([buf as Uint8Array<ArrayBuffer>]).stream().pipeThrough(new DecompressionStream(kind));
 			return new Uint8Array(await new Response(s).arrayBuffer());
 		} catch {
-			/* the next flavour */
 		}
 	}
 	throw new Error('could not inflate stream');
@@ -114,7 +107,6 @@ export class Doc implements Resolver {
 		this.b = buf instanceof Uint8Array ? buf : new Uint8Array(buf);
 	}
 
-	/** Brute-force map of "N G obj" offsets. */
 	scan(): Map<number, XrefEntry> {
 		if (this.scanned) return this.scanned;
 		const b = this.b;
@@ -197,7 +189,6 @@ export class Doc implements Resolver {
 					try {
 						await this.loadObjStm(k);
 					} catch {
-						/* skip it */
 					}
 				}
 			}
@@ -247,7 +238,6 @@ export class Doc implements Resolver {
 						try {
 							await this.readXref(d.get('XRefStm'), seen);
 						} catch {
-							/* the classic table still stands */
 						}
 					}
 					if (d.get('Prev') !== undefined) await this.readXref(d.get('Prev'), seen);
@@ -255,7 +245,6 @@ export class Doc implements Resolver {
 			}
 			return true;
 		}
-		// a cross-reference stream: "N G obj << … >> stream"
 		lx.token();
 		lx.token();
 		if (lx.token() !== 'obj') return false;
@@ -292,7 +281,6 @@ export class Doc implements Resolver {
 		return true;
 	}
 
-	/** A stream's decoded bytes: FlateDecode, ASCIIHexDecode and ASCII85Decode, with PNG predictors. */
 	async decode(s: PStream): Promise<Uint8Array> {
 		const f = s.d.get('Filter');
 		const fs = f == null ? [] : Array.isArray(f) ? f : [f];
@@ -336,7 +324,7 @@ export class Doc implements Resolver {
 	getNum(num: number): PdfValue {
 		if (this.cache.has(num)) return this.cache.get(num) ?? null;
 		const e = this.xref.get(num);
-		this.cache.set(num, null); // cycle guard
+		this.cache.set(num, null);
 		let v: PdfValue | undefined = null;
 		if (e?.off !== undefined) v = this.at(e.off, num);
 		if (v === null && e?.strm !== undefined) {
@@ -360,14 +348,12 @@ export class Doc implements Resolver {
 		return lx.obj(this) ?? null;
 	}
 
-	/** A value with indirect references followed (at most 64 deep). */
 	get(v: PdfValue | undefined): PdfValue | undefined {
 		let guard = 0;
 		while (v instanceof PRef && guard++ < 64) v = this.getNum(v.num);
 		return v;
 	}
 
-	/** Every object stream loaded, so getNum never misses. */
 	async preload(): Promise<this> {
 		const need = new Set<number>();
 		this.xref.forEach((e) => {
@@ -377,14 +363,12 @@ export class Doc implements Resolver {
 			try {
 				await this.loadObjStm(sn);
 			} catch {
-				/* that stream's objects stay unreadable */
 			}
 		}
 		this.cache.clear();
 		return this;
 	}
 
-	/** The pages in order, each with its inherited attributes; recovery takes any /Type /Page object. */
 	pages(): PageEntry[] {
 		const root = this.get(this.trailer.get('Root'));
 		const out: PageEntry[] = [];
@@ -417,12 +401,10 @@ export class Doc implements Resolver {
 	}
 }
 
-/** Open a PDF from its bytes; throws EncryptedPdfError for an encrypted file. */
 export async function open(buf: ArrayBuffer | Uint8Array): Promise<Doc> {
 	const d = new Doc(buf);
 	await d.load();
 	await d.preload();
-	// v5 accepted a file with no readable page and built nothing from it; say so when the file is added instead.
 	if (!d.pages().length) throw new Error('no pages could be read from it');
 	return d;
 }

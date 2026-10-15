@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { byCat, chipLabel, contradictionsCsv, rateCells, spreadLabel, type Contradictions } from './contradictions.ts';
 
-// the checklist's synthetic example candidate (contradictions_tab)
 const rateItem = { label: 'M1', detail: '', rates: { 'BID RATE': '10', 'OLD RATE': '12', 'NEW/STANDARD': '15' }, spread: '5', refs: [{ ref: 'OD-1', amount: '100', filename: 'f' }] };
 const c: Contradictions = {
 	total: 2, highCount: 1, byCat: { rate: 1 }, checks: [],

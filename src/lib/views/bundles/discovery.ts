@@ -1,6 +1,3 @@
-// Discovery Schedule (v5 discovery_tab, live renderer L3220): the pure rules, shared by the page, its exports and the
-// tests. The schedules are imported data (`discovery-schedules`); selections and Copy/Original marks are user work,
-// keyed by the decoded locator path of each file (one selection across both schedules, as in v5: S-discovery_tab-8).
 import { attr } from './download.ts';
 
 export type Mode = 'discovery' | 'supplementary';
@@ -9,14 +6,11 @@ export type CO = 'C' | 'O';
 
 export interface ScheduleFile {
 	fn: string; url: string; co: string; x: string | null;
-	/** the selection key: the decoded locator path, or the raw locator when it does not decode */
 	key: string;
-	/** the document it resolves to by exact indexed path, else null (shown as not served) */
 	ref: string | null;
 }
 export interface ScheduleItem { no: number; date: string; co: string; desc: string; nfiles: number; files: ScheduleFile[] }
 
-/** The case wording of the schedules (view-content, S-discovery_tab-3); null where the package does not carry it. */
 export interface Caption {
 	court: string | null; division: string | null; caseNumber: string | null;
 	plaintiff: string | null; plaintiffCitation: string | null; plaintiffRole: string | null;
@@ -25,17 +19,14 @@ export interface Caption {
 }
 export interface ModeMeta { deed: string | null; schedule: string | null; file: string | null; label: string | null }
 
-/** v5 unmatched (L3223): no file and a non-blank description. */
 export const isUnmatched = (i: ScheduleItem) => i.files.length === 0 && i.desc.trim() !== '';
 
-/** Counts derived from the imported schedule (BA-10): items, linked files, unmatched items, files not served. */
 export function scheduleCounts(items: readonly ScheduleItem[]) {
 	let files = 0, notServed = 0, declared = 0;
 	for (const i of items) { files += i.files.length; declared += i.nfiles; for (const f of i.files) if (!f.ref) notServed++; }
 	return { items: items.length, files, declared, unmatched: items.filter(isUnmatched).length, notServed };
 }
 
-/** v5 rowsFor (L3258): only-unmatched, then a case-insensitive substring over item number, description, date, file names. */
 export function filterItems(items: readonly ScheduleItem[], q: string, onlyMissing: boolean): ScheduleItem[] {
 	let out = onlyMissing ? items.filter(isUnmatched) : [...items];
 	const s = q.trim().toLowerCase();
@@ -43,12 +34,10 @@ export function filterItems(items: readonly ScheduleItem[], q: string, onlyMissi
 	return out;
 }
 
-/** v5 fileCo (L3214): the user's mark, else the file's own co, else C. */
 export const fileCo = (f: ScheduleFile, marks: ReadonlyMap<string, CO>): string => marks.get(f.key) || f.co || 'C';
 
 export interface SelectedFile { schedule: Mode; no: number; desc: string; date: string; fn: string; key: string; ref: string | null; co: string; item: ScheduleItem }
 
-/** v5 selectedFiles (L3366): discovery then supplementary, then item number, then file name; a key in two items twice. */
 export function selectedFiles(s: Record<Mode, readonly ScheduleItem[]>, sel: ReadonlySet<string>, marks: ReadonlyMap<string, CO>): SelectedFile[] {
 	const out: SelectedFile[] = [];
 	for (const schedule of MODES) for (const i of s[schedule]) for (const f of i.files) if (sel.has(f.key)) out.push({ schedule, no: i.no, desc: i.desc, date: i.date, fn: f.fn, key: f.key, ref: f.ref, co: fileCo(f, marks), item: i });
@@ -56,12 +45,6 @@ export function selectedFiles(s: Record<Mode, readonly ScheduleItem[]>, sel: Rea
 	return out.sort((a, b) => ord[a.schedule] - ord[b.schedule] || a.no - b.no || a.fn.localeCompare(b.fn));
 }
 
-/**
- * The cover page's C/O for one item (S-discovery_tab-2 corrected): from the user's marks on its files when any file
- * is marked (all C -> C, all O -> O, mixed -> C&O), otherwise the data's item co, so with no marks the cover equals
- * v5's. An unmarked file counts as its own co, else as the item's co (so marking one file of an Original item O keeps
- * it O), else C. The chips keep v5's display default (fileCo).
- */
 export function coverCo(i: ScheduleItem, marks: ReadonlyMap<string, CO>): string {
 	if (!i.files.some((f) => marks.has(f.key))) return i.co || '';
 	const set = new Set(i.files.map((f) => marks.get(f.key) || f.co || i.co || 'C'));
@@ -99,13 +82,8 @@ export function coverDoc(c: Caption, m: ModeMeta, items: readonly ScheduleItem[]
 		+ '</body></html>';
 }
 
-/** v5 schedLabel (L3376): UI wording of the two schedules in the bundle index. */
 export const schedLabel = (k: Mode) => (k === 'discovery' ? 'Discovery Affidavit — First Schedule' : 'Supplementary — First Schedule A');
 
-/**
- * Why a bundle index is incomplete (an improvement for BA-10): selected files that are not in the verified index,
- * and items only partly selected. Empty when complete.
- */
 export function incompleteNotes(files: readonly SelectedFile[], sel: ReadonlySet<string>): string[] {
 	const out: string[] = [];
 	const notServed = files.filter((f) => !f.ref).length;
@@ -129,7 +107,6 @@ const NOT_SERVED_UPPER = 'NOT IN THE VERIFIED INDEX; NOT SERVED';
 
 const incompleteLine = (notes: readonly string[]) => (notes.length ? '<div class="cap"><b>INCOMPLETE SELECTION</b>: ' + notes.map(attr).join('; ') + '.</div>' : '');
 
-/** The court bundle index (v5 bundleHTML L3427), every value escaped; an incomplete selection says so. */
 export function bundleHTML(c: Caption, files: readonly SelectedFile[], notes: readonly string[]): string {
 	return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + attr(c.bundleIndexName ?? '') + '</title>'
 		+ '<style>body{font-family:Georgia,serif;color:#000;margin:28px}h2{text-align:center;margin:0}'
@@ -144,7 +121,6 @@ export function bundleHTML(c: Caption, files: readonly SelectedFile[], notes: re
 		+ '<tbody>' + bundleRows(files, true) + '</tbody></table></body></html>';
 }
 
-/** The printed index (v5 printBundle L3439): the same caption and table, for the page's print area. */
 export function printHTML(c: Caption, files: readonly SelectedFile[], notes: readonly string[]): string {
 	return '<h2>' + attr(c.plaintiff ?? '') + ' v ' + attr(c.defendant ?? '') + '</h2>'
 		+ '<div class="cap">' + attr(c.court ?? '') + ' ' + attr(c.division ?? '') + ' &middot; ' + attr(c.caseNumber ?? '') + '<br><b>COURT BUNDLE — INDEX OF DOCUMENTS</b> (' + files.length + ' documents)</div>'

@@ -3,7 +3,6 @@
 // code reads or writes (S-backup_tab-2), and missed 5 live stores (S-backup_tab-1). ClearCase keeps all user work in
 // work.sqlite and backs up every registered table, so these lists document coverage; they never select what is saved.
 
-/** The 21 live v5 user-work stores, with the ticket whose views own their data in ClearCase. */
 export const V5_STORES: readonly { key: string; owner: string; inV5Backup: boolean }[] = Object.freeze([
 	{ key: 'ess_dcs_annotations_v1', owner: 'GRS-17', inV5Backup: true },
 	{ key: 'ess_dcs_authorities_v1', owner: 'GRS-18', inV5Backup: true },
@@ -28,9 +27,6 @@ export const V5_STORES: readonly { key: string; owner: string; inV5Backup: boole
 	{ key: 'ess_dcs_schedule_sel_v1', owner: 'GRS-19', inV5Backup: false },
 ]);
 
-/** The four keys in v5's STORE_KEYS that no v5 code reads or writes (S-backup_tab-2). A v5 backup may carry them;
- *  the legacy import hook recognises them and hands them to an importer like any other key. */
 export const V5_LEGACY_KEYS: readonly string[] = Object.freeze(['ess_dcs_courtbundle_v1', 'ess_dcs_bundle_header_v1', 'ess_dcs_bundle_extents_v1', 'ess_dcs_bundle_overrides_v1']);
 
-/** A v5 browser store key (ess_dcs_<name>_v<n>). */
 export const V5_KEY = /^ess_dcs_[a-z0-9_]+_v\d+$/;

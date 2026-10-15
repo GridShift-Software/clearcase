@@ -1,7 +1,3 @@
-// v5 adapter: workspace HTML bytes (data only) + the operator's case folder -> package bytes.
-// Every source value is preserved unchanged. Originals are located read-only inside the case
-// folder and identified by sha256 + size; the real on-disk relative path is recorded.
-// Output is deterministic: no clock, no absolute paths, no dependence on hashing order.
 import { DiagSink } from '../diagnostics.ts';
 import { pathAssetKey, sha256Hex } from '../hash.ts';
 import { withLimits, type Limits } from '../limits.ts';
@@ -20,23 +16,19 @@ import { extractViewContent, type FieldStatus, type ViewContentResult } from './
 import { VIEW_CONTENT_AUDIT, VIEW_CONTENT_MAP, VIEW_CONTENT_OMISSIONS } from './view-content-map.ts';
 import type { Diagnostic } from '../codes.ts';
 
-/** Producer identity. Only the major mapping id enters dataset bytes, so a patch release keeps resultsVersion. */
 export const ADAPTER = { name: 'clearcase-v5-adapter', version: '0.1.0', mapping: 'clearcase-v5-adapter@0' };
 export const V5_SOURCE = 'v5-workspace-html';
 
 export interface ConvertOptions {
   html: Uint8Array;
-  /** provenance only; never part of an identity */
   htmlName: string;
   caseFolder: string;
   caseId: string;
   caseLabel?: string;
-  /** default: META.builtAt; never the clock */
   created?: string;
   concurrency?: number;
   limits?: Partial<Limits>;
   signal?: AbortSignal;
-  /** before each original or linked file is fingerprinted: how many were started, of how many */
   onProgress?: (done: number, total: number) => void;
 }
 
@@ -46,7 +38,6 @@ export interface ConvertResult {
   files: Map<string, Uint8Array> | null;
   diagnostics: Diagnostic[];
   source: V5Source | null;
-  /** view-content coverage: per-field status and unmapped prose literals (locations only, never text) */
   viewContent: { fields: FieldStatus[]; unmapped: ViewContentResult['unmapped'] } | null;
   stats: { datasets: number; chronology: number; assetsFile: number; assetsEmbedded: number; assetsMissing: number; residual: number; bytesHashed: number };
 }
@@ -79,7 +70,6 @@ export function mapTextStatus(src: unknown, mediaType: string): TextStatus {
 }
 
 const arr = (v: JsonValue | undefined): JsonValue[] => (Array.isArray(v) ? v : []);
-/** The first way `v` misses `schema`, or undefined when it fits. */
 const shapeMiss = (schema: unknown, v: unknown): string | undefined => {
   if (Value.Check(schema as never, v)) return undefined;
   const e = Value.Errors(schema as never, v)[Symbol.iterator]().next().value;
@@ -87,10 +77,6 @@ const shapeMiss = (schema: unknown, v: unknown): string | undefined => {
 };
 const objs = (v: JsonValue | undefined): JsonObject[] => arr(v).filter(isObject);
 
-/**
- * The locators of the files the bundle views link (GRS-45): each bundle's PDF and index PDF, each item's extract and
- * source parts, the CaseLines source (both spellings), and every discovery and supplementary schedule file. Source order.
- */
 export function packageLocators(bundles: JsonValue | undefined, sched: JsonValue | undefined, caselinesUrl?: JsonValue): string[] {
   // the CaseLines tab links the viewer code's own BUNDLE.url (view-content), which v5 spells apart from caselinesSrc
   const out: JsonValue[] = [caselinesUrl ?? null];
@@ -118,9 +104,6 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   const META = (roots.META ?? {}) as JsonObject;
   const prov = (sourcePath: string) => ({ source: V5_SOURCE, sourcePath, adapter: ADAPTER.mapping });
 
-  // datasets: mapped, then residual (unknown keys are preserved, never dropped). A mapped dataset that misses its
-  // schema is kept as an opaque residual instead, so an unmapped shape of a newer builder costs a view its data, not
-  // the case its import; the required dataset (chronology) is never demoted, so a broken register still refuses.
   const datasets: DatasetSpec[] = [];
   const mapped = new Set<string>();
   const demoted: { d: (typeof V5_DATASETS)[number]; v: JsonValue; miss: string }[] = [];
@@ -134,7 +117,6 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   }
   const used = new Set(datasets.map((d) => d.key));
   const residualKey = (base: string, sourcePath: string): string => {
-    // distinct source keys can kebab to the same key or be truncated: disambiguate with a digest of the source path
     let key = base.length <= 64 && !used.has(base) ? base : `${base.slice(0, 50).replace(/-+$/, '')}-${sha256Hex(sourcePath).slice(0, 12)}`;
     for (let n = 2; used.has(key); n++) key = `${base.slice(0, 50).replace(/-+$/, '')}-${sha256Hex(sourcePath).slice(0, 8)}-${n}`;
     used.add(key);
@@ -163,15 +145,12 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   for (const sp of V5_SPLIT_PARENTS) { const v = getAt(roots, sp); if (isObject(v)) layout[sp] = Object.keys(v); }
   datasets.push({ key: LAYOUT.key, kind: LAYOUT.kind, schema: LAYOUT.schema, required: LAYOUT.required, provenance: prov(LAYOUT.sourcePath), data: layout });
 
-  // view content: code-embedded case content read statically from the v5 viewer code (payload lines skipped). The
-  // newer generation's viewer code carries none of the v5 anchors, so nothing is extracted from it and nothing guessed.
   const vc: ViewContentResult = src.generation === 'v5-js'
     ? extractViewContent(decodeUtf8Strict(src.html.bom ? opts.html.subarray(3) : opts.html), VIEW_CONTENT_MAP, VIEW_CONTENT_OMISSIONS, { skipLines: Object.values(src.lines).filter((n): n is number => n !== undefined), audit: VIEW_CONTENT_AUDIT, sink })
     : { data: {}, fields: [], unmapped: [] };
   viewContent = { fields: vc.fields, unmapped: vc.unmapped };
   datasets.push({ key: VIEW_CONTENT.key, kind: VIEW_CONTENT.kind, schema: VIEW_CONTENT.schema, required: VIEW_CONTENT.required, provenance: prov(VIEW_CONTENT.sourcePath), data: vc.data });
 
-  // asset index: originals by path + fingerprint; embedded attachments by parent
   const caseRoot = await openCaseFolder(opts.caseFolder, sink);
   if (!caseRoot) return fail();
   const chron = Array.isArray(DATA.chronology) ? (DATA.chronology as JsonValue[]) : [];
@@ -195,16 +174,12 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
       stats.assetsEmbedded++;
     });
   }
-  // package files: a linked file outside the register is fingerprinted like an original under its P- key. A register
-  // path (or one that folds to it), a folder and a locator that does not decode are not package files; the dataset
-  // link scan reports unsafe locators.
   const taken = new Set(jobs.map((j) => foldPath(j.path)));
   for (const u of packageLocators(DATA.bundles, roots['window.__SCHED__'], (vc.data.caselines_tab as JsonObject | undefined)?.url as JsonValue | undefined)) {
     const d = decodeLegacyLocator(u);
     if (!d.ok || d.directory || taken.has(foldPath(d.path))) continue;
     taken.add(foldPath(d.path));
     if (isReservedPath(d.path)) {
-      // the .clearcase/ area is the application's: such a link is not a package file, whether or not the path exists
       sink.add('ORIG_MISSING', `the linked file for ${pathAssetKey(d.path)} is not served (reserved)`, { file: 'input', subject: pathAssetKey(d.path) });
       continue;
     }
@@ -227,8 +202,6 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
         fp = { kind: 'unreadable' };
       }
       if (j.packageFile && (fp.kind === 'not-file' || fp.kind === 'unreadable' || fp.kind === 'too-large' || fp.kind === 'reserved')) {
-        // a package file is only a link target: one that cannot be served leaves that link "not served" and never
-        // refuses the case. A path under .clearcase/ cannot be an asset at all (import refuses it), so it gets none.
         sink.add('ORIG_MISSING', `the linked file for ${j.ref} is not served (${fp.kind})`, { file: 'input', subject: j.ref });
         if (fp.kind !== 'reserved') {
           assets[j.ref] = { kind: 'missing', path: j.path, mediaType: j.mediaType, textStatus: j.textStatus };
@@ -237,7 +210,6 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
         continue;
       }
       if (fp.kind !== 'file' && fp.kind !== 'missing') {
-        // never downgrade a refused original to "missing": these are errors
         const code = fp.kind === 'escape' ? 'ORIG_ESCAPE' : fp.kind === 'reserved' ? 'ASSET_PATH_RESERVED' : fp.kind === 'not-file' ? 'ORIG_NOT_FILE' : fp.kind === 'too-large' ? 'ORIG_TOO_LARGE' : 'ORIG_UNREADABLE';
         sink.add(code, `the original for ${j.ref} is refused (${fp.kind})`, { file: 'input', subject: j.ref });
         continue;
@@ -263,7 +235,6 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   const sortedAssets: Record<string, Asset> = Object.create(null);
   for (const k of Object.keys(assets).sort()) sortedAssets[k] = assets[k]!;
 
-  // conversion report: deterministic (no timings, no absolute paths), sorted
   const conv = sink.finish().map(({ code, subject, message }) => ({ code, subject: subject ?? null, message }));
   datasets.push({
     key: CONVERSION_REPORT.key, kind: CONVERSION_REPORT.kind, schema: CONVERSION_REPORT.schema, required: CONVERSION_REPORT.required, provenance: prov(CONVERSION_REPORT.sourcePath),

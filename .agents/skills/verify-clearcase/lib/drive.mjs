@@ -16,25 +16,19 @@ const must = (cond, msg) => { if (!cond) throw new Error(msg); };
 
 export const pilotSteps = [
 	{
-		id: 'import-form', feature: 'import-validation', title: 'Import results: fill the case folder and package, choose Validate package',
+		id: 'import-form', feature: 'import-validation', title: 'Import results: under "Already have a results package?", fill the case folder and package, choose Validate package',
 		async run(x) {
 			await x.page.navigate(`${x.app}/import`);
 			await x.waitReady('import');
-			// The import page marks itself ready in its server HTML, before hydration, and hydrating `value={...}` resets
-			// what was typed (finding reported to the app owner). Fill, then require both values to survive 300 ms.
 			const want = { '#caseFolder': x.synth.caseDir, '#packageSource': x.synth.pkgDir };
-			let refills = -1;
-			for (let stable = false; !stable && refills < 10; refills++) {
-				for (const [sel, v] of Object.entries(want)) await x.fill(sel, v);
-				await new Promise((r) => setTimeout(r, 300));
-				stable = (await x.page.evaluate(`[${Object.keys(want).map((s) => `document.querySelector(${JSON.stringify(s)}).value`)}]`)).every((v, i) => v === Object.values(want)[i]);
-				must(stable || refills < 9, 'the import form keeps losing its input');
-			}
+			for (const [sel, v] of Object.entries(want)) await x.fill(sel, v);
+			const typed = await x.page.evaluate(`[${Object.keys(want).map((s) => `document.querySelector(${JSON.stringify(s)}).value`)}]`);
+			must(typed.every((v, i) => v === Object.values(want)[i]), `the form holds ${JSON.stringify(typed)}`);
 			const filled = await x.shot('import-form-filled');
 			await x.click('#validate');
 			const ready = await x.page.waitFor(`/^\\/import\\/\\d+$/.test(location.pathname) && document.querySelector('main[data-ready^="import:"]')?.dataset.ready`, 60000);
 			x.state.importId = Number(ready.split(':')[1]);
-			return { filled, refills, importId: x.state.importId, url: await x.page.evaluate('location.href') };
+			return { filled, importId: x.state.importId, url: await x.page.evaluate('location.href') };
 		},
 	},
 	{
@@ -45,11 +39,12 @@ export const pilotSteps = [
 			must(r.rv === x.synth.resultsVersion, `results version ${r.rv}, expected ${x.synth.resultsVersion}`);
 			must(r.verify === 'verified', `stored copy ${r.verify}`);
 			must(r.active === 'not active' && r.canActivate, `candidate state ${r.active}, activate button ${r.canActivate}`);
-			// side effect, second view: nothing is active yet, so / still sends the user to Import results
 			const root = await x.c.get('/');
-			must(root.location === '/import', `/ redirects to ${root.location} before activation`);
+			must(root.location === '/cases', `/ redirects to ${root.location}`);
+			const home = await x.c.home();
+			must(home === `/import/${x.state.importId}`, `the case list opens ${home} before activation, expected /import/${x.state.importId}`);
 			x.state.vid = r.rv;
-			return { ...r, rootBeforeActivation: root.location, shot: await x.shot('validation-report') };
+			return { ...r, rootRedirect: root.location, caseListOpenBeforeActivation: home, shot: await x.shot('validation-report') };
 		},
 	},
 	{
@@ -82,22 +77,16 @@ export const pilotSteps = [
 			const banner = await x.text('#active-banner');
 			const active = await x.c.activeVersion();
 			must(active === x.state.vid, `active version ${active}, expected ${x.state.vid}`);
-			// side effect, second view: / now redirects to the activated version's overview
-			const root = await x.c.get('/');
-			must(root.location === `/v/${enc(x.state.vid)}/overview`, `/ redirects to ${root.location} after activation`);
-			return { ackRequired: ack, ackChecked: checked, before, banner, activeVersion: active, rootAfterActivation: root.location, shot: await x.shot('activated-overview') };
+			return { ackRequired: ack, ackChecked: checked, before, banner, activeVersion: active, shot: await x.shot('activated-overview') };
 		},
 	},
 	{
-		id: 'overview-slots', feature: 'overview', title: 'Overview widget slots: each unfilled M2 slot names its owning issue',
+		id: 'overview-slots', feature: 'overview', title: 'Overview widget slots: Open deadlines, Unbilled time and Freshness show their widgets for the synthetic case',
 		async run(x) {
-			// src/lib/components/overview-slots.ts declares the slots. Until an owner fills one from
-			// src/lib/views/<category>/overview-widgets*.ts it renders "Not yet available — owned by GRS-nn (CC-nn)".
 			const slots = await x.page.evaluate(`[...document.querySelectorAll('main section[data-slot]')].map((e) => ({ slot: e.dataset.slot, status: e.dataset.slotStatus, heading: e.querySelector('h2')?.textContent.trim(), text: e.querySelector('p')?.textContent.trim() ?? null }))`);
-			const owners = { deadlines: 'GRS-17', 'unbilled-time': 'GRS-17', 'rescan-freshness': 'GRS-20' };
-			must(slots.length === Object.keys(owners).length && slots.every((s) => s.slot in owners), `slots ${JSON.stringify(slots)}`);
-			// a filled slot shows its owner's widget; an unfilled one must say who owns it, never look finished
-			for (const s of slots) if (s.status !== 'filled') must(s.status === 'unavailable' && s.text?.startsWith(`Not yet available — owned by ${owners[s.slot]}`), `slot ${JSON.stringify(s)}`);
+			const want = { deadlines: (t) => t === '0', 'unbilled-time': (t) => t === '0.0 h', 'rescan-freshness': (t) => t?.startsWith('Built on ') && t.includes(`${x.synth.rows} documents indexed`) };
+			must(slots.length === Object.keys(want).length && slots.every((s) => s.slot in want), `slots ${JSON.stringify(slots)}`);
+			for (const s of slots) must(s.status === 'filled' && want[s.slot](s.text), `slot ${JSON.stringify(s)}`);
 			return { slots };
 		},
 	},
@@ -143,19 +132,44 @@ export const pilotSteps = [
 			const frame = await x.frame(sid, /\/frame\.html/);
 			const viewer = await frame(`({ state: window.__viewer && { numPages: window.__viewer.numPages, rendered: window.__viewer.rendered, error: window.__viewer.error }, text: document.querySelector('.textLayer')?.textContent ?? null })`);
 			must(viewer.state?.numPages >= 1 && viewer.state.rendered >= 1, `pdf.js frame state ${JSON.stringify(viewer.state)}`);
+			must(viewer.text?.includes('Synthetic agreement OD-001'), `text layer ${JSON.stringify(viewer.text)}`);
 			must(wrapper.origin === x.orig && wrapper.opener, `wrapper ${JSON.stringify(wrapper)}`);
-			return { wrapper, frame: frame.where, viewer, shot: await x.shot('viewer-OD-001', sid) };
+			const shot = await x.shot('viewer-OD-001', sid);
+			// a background tab's timers are throttled, so every later navigation in the main tab would take about 1 s
+			await x.b.send('Page.bringToFront', {}, x.page.sessionId);
+			return { wrapper, frame: frame.where, viewer, shot };
 		},
 	},
 	{
-		id: 'unavailable-view', feature: 'unavailable-views', title: 'A registry view owned by a later ticket shows its explicit not-yet-available state',
+		id: 'view-registry', feature: 'view-navigation', title: 'Case navigation: all 42 registry views are available; Matter & Strategy opens its own page; an unknown view is 404',
 		async run(x) {
 			await x.click('#nav-matter');
-			await x.waitReady('view:matter');
-			const r = await x.page.evaluate(`({ owner: document.querySelector('[data-unavailable=matter]')?.dataset.owner, entries: document.querySelectorAll('nav.views a[data-view]').length, available: [...document.querySelectorAll('nav.views a[data-status=available]')].map((a) => a.dataset.view) })`);
-			must(r.owner === 'GRS-15', `matter owner ${r.owner}`);
+			await x.waitReady('matter');
+			const r = await x.page.evaluate(`({ path: location.pathname, entries: document.querySelectorAll('nav.views a[data-view]').length, unavailable: [...document.querySelectorAll('nav.views a[data-view]:not([data-status=available])')].map((a) => a.dataset.view), placeholder: !!document.querySelector('[data-unavailable]'), current: document.querySelector('nav.views [aria-current=page]')?.id })`);
+			must(r.path === `/v/${enc(x.state.vid)}/analysis/matter`, `Matter & Strategy path ${r.path}`);
 			must(r.entries === 42, `navigation has ${r.entries} entries, expected 42`);
-			return { ...r, shot: await x.shot('unavailable-matter') };
+			must(r.unavailable.length === 0 && !r.placeholder, `unavailable views ${JSON.stringify(r.unavailable)}, placeholder ${r.placeholder}`);
+			must(r.current === 'nav-matter', `aria-current is on ${r.current}`);
+			const unknown = await x.c.get(`/v/${enc(x.state.vid)}/analysis/no-such-view`);
+			must(unknown.status === 404, `unknown view answered ${unknown.status}`);
+			return { ...r, unknownViewStatus: unknown.status, shot: await x.shot('matter') };
+		},
+	},
+	{
+		id: 'every-view', feature: 'view-navigation', title: 'Case navigation: each of the 42 entries opens its own page with its heading',
+		async run(x) {
+			const nav = await x.page.evaluate(`[...document.querySelectorAll('nav.views a[data-view]')].map((a) => ({ id: a.dataset.view, path: new URL(a.href).pathname }))`);
+			must(nav.length === 42, `navigation has ${nav.length} entries`);
+			const views = [];
+			for (const v of nav) {
+				const t0 = Date.now();
+				await x.click(`#nav-${v.id}`);
+				await x.waitReady(v.id);
+				const r = await x.page.evaluate(`({ path: location.pathname, heading: document.querySelector('main h1, main h2')?.textContent.trim().replace(/\\s+/g, ' ') ?? null, current: document.querySelector('nav.views [aria-current=page]')?.dataset.view })`);
+				must(r.path === v.path && r.current === v.id && r.heading, `${v.id}: ${JSON.stringify(r)}`);
+				views.push({ id: v.id, heading: r.heading, ms: Date.now() - t0 });
+			}
+			return { views, shot: await x.shot(`view-${nav.at(-1).id}`) };
 		},
 	},
 ];

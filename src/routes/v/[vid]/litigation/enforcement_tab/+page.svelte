@@ -14,13 +14,8 @@
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
 	type Row = (typeof data.rows)[number];
-	// Each step's own save state (GRS-18 r2): the choice not yet saved (null: show what is stored), what its last save
-	// sent, whether a save is in flight or another choice waits for it, its error, and whether it saved. Saves of one
-	// step run one after another, each against the version of the step the page last loaded; a choice made while one
-	// is in flight is saved after it, and "Saved" shows only while the step shows what was saved.
 	type Step = { value: string | null; sent: string | null; busy: boolean; pending: boolean; error: Failure | null; saved: boolean };
 	const blank = (): Step => ({ value: null, sent: null, busy: false, pending: false, error: null, saved: false });
-	// without JavaScript the answer names each step's choice, error and save (the whole roadmap is one form)
 	type Answer = { op?: string; choices?: Record<string, string>; errors?: Record<string, Failure>; savedKeys?: string[] } | null;
 	let steps = $state<Record<string, Step>>(untrack(() => {
 		const a = form as Answer, out: Record<string, Step> = {};
@@ -67,14 +62,12 @@
 					if (s.value === value) Object.assign(s, { value: null, saved: true });
 				} else if (result.type === 'failure') {
 					s.error = refused(result.data, 'Not saved.');
-					// changed elsewhere: the page now shows what is stored, the choice stays selected with Retry
 					if (result.status === 409) await invalidateAll();
 				} else if (result.type === 'redirect') await applyAction(result);
 				else s.error = lostMessage('status', result.status);
 			} finally {
 				s.busy = false;
 			}
-			// a choice made in flight is saved next; after an error it waits for Retry
 			if (s.pending) { s.pending = false; if (!s.error && s.value !== null && s.value !== value) save(key); }
 		};
 	};
@@ -82,8 +75,6 @@
 	onMount(() => { ready = true; });
 </script>
 
-<!-- the data is complete when the server renders the page, so data-ready is set from the start (the pilot checks read
-	it from the served HTML); data-hydrated marks when the page's controls work -->
 <main id="main" tabindex="-1" data-ready="enforcement_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Enforcement Roadmap" section="Enforcement Roadmap" caseName={data.version.titleName} subtitle={data.content.subtitle} />
 	{#if data.content.why}

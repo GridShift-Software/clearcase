@@ -13,15 +13,12 @@
 	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
-	// the entry keeps its own state (entry.svelte.ts); without JavaScript the answer re-fills it
 	const entry = new EntryForm(AUTH_FIELDS, (v) => canAddAuthority(v as AuthValues), untrack(() => form as Answer));
 	const exportCsv = () => download(data.exportName.name, authoritiesCsv(data.imported, data.user));
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>
 
-<!-- the data is complete when the server renders the page, so data-ready is set from the start (the pilot checks read
-	it from the served HTML); data-hydrated marks when the page's controls work -->
 <main id="main" tabindex="-1" data-ready="authorities_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Authorities" section="Authorities" caseName={data.version.titleName} subtitle="The statutory and case-law framework — tie each proposition to its source">
 		{#snippet actions()}<button type="button" id="auth-export" onclick={exportCsv}>Export CSV</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}{/snippet}

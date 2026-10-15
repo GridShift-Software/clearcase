@@ -1,20 +1,3 @@
-// Backup / Restore (GRS-20): one case's user work as a single JSON file, generic over every table the user-work
-// contract enumerates (UserWork.exportAll), so a table a later ticket defines is carried without code here.
-//  * What is in it: every case-scoped table's rows of this case, every store-scoped table's rows (they belong to no
-//    case), the table definitions, the case identity (case id, label, results version, input revision), the app's
-//    format versions and a SHA-256 of the user-work payload. No binaries: originals, the results package and the
-//    imported results are not in the file (`binaries: false`, said on the page and in the file).
-//  * Accepted warnings (trusted_warning) are left out: a restore never creates trust (the contract drops them anyway).
-//  * Restore is checked before anything is written: size, JSON, format and version, checksum, the case (every
-//    case-table row must belong to the active case), and the contract's own restore checks. It takes a work.sqlite
-//    backup and a JSON copy of this case's work first (the JSON copy is kept in backups/pre-restore/, outside the
-//    rotation, and refused if it cannot be written), then replaces this case's rows of every table in one
-//    transaction, whatever the file holds for it (other cases' rows are kept, store tables are merged by key). That
-//    includes a case table first defined after the backup was made (a rescan's, for one): its rows of this case are
-//    cleared, except in tables an export cannot carry, which are kept and reported. Every table in the file must
-//    declare its scope, and a case table's rows must all belong to the case. Any refusal or failure leaves the active
-//    data unchanged.
-//  * A v5 browser backup (ess_dcs_backup.json: an object of ess_dcs_* keys) goes to the legacy import hook.
 import { createHash, randomBytes } from 'node:crypto';
 import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -25,10 +8,8 @@ import { USER_WORK_EXPORT, UserWorkError, type ImportResult, type UserWorkExport
 import { importLegacy, legacyBackup, type LegacyResult } from './legacy.server.ts';
 
 export const BACKUP_FORMAT = 'clearcase.backup/1';
-/** The largest backup file a restore reads. */
 export const MAX_BACKUP_BYTES = 64 * 1024 * 1024;
 const CASE_COLUMN = 'case_id';
-/** Tables never carried: a restore never creates trust. */
 const NOT_CARRIED = new Set(['trusted_warning']);
 
 export interface BackupFile {
@@ -48,7 +29,6 @@ export const BINARIES_NOTE = 'This file holds the user work of one case (notes, 
 const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-/** The backup of one case, against the version the case shows (its active version, or `resultsVersion`). */
 export function createBackup(lc: LocalCase, resultsVersion: string, build: string | null = null): BackupFile {
 	const v = lc.store.getVersion(resultsVersion);
 	if (!v) throw new BackupError('unknown results version');
@@ -70,7 +50,6 @@ export function createBackup(lc: LocalCase, resultsVersion: string, build: strin
 	};
 }
 
-/** A file name for a backup: the case id made safe, and the time. */
 export function backupName(b: Pick<BackupFile, 'case' | 'createdAt'>): string {
 	const id = b.case.caseId.normalize('NFKD').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64) || 'case';
 	return `clearcase-backup-${id}-${b.createdAt.slice(0, 16).replace(/[-:]/g, '').replace('T', '-')}.json`;
@@ -85,13 +64,8 @@ export class BackupError extends Error {
 	}
 }
 
-/** What a checked backup holds, for the page to show before and after a restore. */
 export interface BackupSummary { createdAt: string; caseId: string; caseLabel: string | null; resultsVersion: string; sameVersion: boolean; tables: { name: string; rows: number }[]; rows: number }
 
-/**
- * Check a backup file against the active case without writing anything. Refuses (BackupError) anything too large, not
- * JSON, not a ClearCase backup, of another format version, altered (checksum), or of another case.
- */
 export function checkBackup(text: string, active: { caseId: string; resultsVersion: string }): { file: BackupFile; summary: BackupSummary } {
 	if (Buffer.byteLength(text, 'utf8') > MAX_BACKUP_BYTES) throw new BackupError(`The file is larger than ${MAX_BACKUP_BYTES / 1024 / 1024} MiB, so it is not a ClearCase backup this version can restore. Nothing was changed.`, 'too-large');
 	let o: unknown;
@@ -111,8 +85,6 @@ export function checkBackup(text: string, active: { caseId: string; resultsVersi
 	for (const t of uw.tables as unknown[]) {
 		if (!isRecord(t) || typeof t.name !== 'string' || !Array.isArray(t.rows)) throw new BackupError('The backup is damaged (a table entry is malformed). Nothing was changed.', 'corrupt');
 		if (NOT_CARRIED.has(t.name)) throw new BackupError(`The backup carries ${t.name}, which a backup never holds. Nothing was changed.`, 'corrupt');
-		// the scope decides whether rows are checked, and importAll would infer an omitted one: require it, so every
-		// case row below is checked against this case
 		if (t.scope !== 'case' && t.scope !== 'store') throw new BackupError(`The backup is damaged (table ${t.name.slice(0, 80)} has no valid scope). Nothing was changed.`, 'corrupt');
 		if (t.scope === 'case' && (t.rows as unknown[]).some((r) => !isRecord(r) || r[CASE_COLUMN] !== active.caseId)) throw new BackupError(`The backup holds rows of another case (table ${t.name.slice(0, 80)}). Nothing was changed.`, 'wrong-case');
 		tables.push({ name: t.name, rows: (t.rows as unknown[]).length });
@@ -123,19 +95,12 @@ export function checkBackup(text: string, active: { caseId: string; resultsVersi
 
 export type RestoreOutcome = { kind: 'restored'; summary: BackupSummary; result: ImportResult; preRestore: string } | { kind: 'legacy'; legacy: LegacyResult };
 
-/** Where the copies taken before a restore are kept: next to the rotating work.sqlite backups, never pruned by them. */
 export const PRE_RESTORE_DIR = 'pre-restore';
 const fsyncPath = (p: string) => { const fd = openSync(p, 'r'); try { fsyncSync(fd); } finally { closeSync(fd); } };
 
-/**
- * Copy the work before a restore or a v5 import writes: a work.sqlite backup, and this case's work as a backup file in
- * `backups/pre-restore/` (written and synced before the rename, never rotated away, restorable by Import state). A
- * copy that cannot be made refuses the write. Returns the path of the JSON file.
- */
 function copyBeforeWrite(lc: LocalCase, active: { resultsVersion: string }, label: string): string {
 	const refuse = (why: string) => new BackupError(`The current work could not be copied before the restore (${why}), so nothing was restored. Nothing was changed.`, 'refused');
 	lc.backupNow(label);
-	// backupNow records a failure as a warning instead of throwing
 	if (lc.warnings.has('backup-failed')) throw refuse('work.sqlite could not be backed up');
 	try {
 		const dir = path.join(lc.storage.backupDir, PRE_RESTORE_DIR);
@@ -151,14 +116,6 @@ function copyBeforeWrite(lc: LocalCase, active: { resultsVersion: string }, labe
 	} catch (e) { throw refuse(String((e as Error).message ?? e).slice(0, 200)); }
 }
 
-/**
- * Restore a backup into the active case: check it, copy the current work, then replace this case's rows of the file's
- * tables, and clears the case's rows of case tables the file does not list, in one transaction (the case is named, so
- * a backup with no rows for it still clears the work added since). A
- * refusal (BackupError) or a failed write leaves the active data unchanged. The copy and the write (a v5 import too)
- * run inside the case's register lock: a register write of the case posted meanwhile waits, then re-checks against
- * the restored rows.
- */
 export async function restoreBackup(lc: LocalCase, text: string, active: { caseId: string; resultsVersion: string }): Promise<RestoreOutcome> {
 	let checked: ReturnType<typeof checkBackup>;
 	const locked = <T>(fn: () => Promise<T>) => registers(lc.userWork).exclusive(active.caseId, fn);

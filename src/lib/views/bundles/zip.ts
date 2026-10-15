@@ -1,18 +1,15 @@
-// A stored (uncompressed) ZIP writer with CRC-32, as v5's cbZip (L2385-2409): enough for a DOCX, no dependency.
 const TABLE = (() => {
 	const t = new Int32Array(256);
 	for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c; }
 	return t;
 })();
 
-/** CRC-32 (IEEE, poly 0xEDB88320); crc32('123456789') = 0xCBF43926. */
 export function crc32(u8: Uint8Array): number {
 	let c = -1;
 	for (let i = 0; i < u8.length; i++) c = TABLE[(c ^ u8[i]!) & 0xff]! ^ (c >>> 8);
 	return (c ^ -1) >>> 0;
 }
 
-/** Entries in order -> one ZIP archive (method 0, version 20, DOS time and date 0). */
 export function storedZip(files: readonly { name: string; data: Uint8Array }[]): Uint8Array {
 	const enc = new TextEncoder();
 	const u16 = (n: number) => [n & 255, (n >> 8) & 255];

@@ -15,9 +15,11 @@ Every imported invoice in data order with its ref, invoice number, date, bundle,
 
 ## Driving it with verify-clearcase
 
-- **Open.** *Driven by `tests/e2e/quantum/suite.mjs`.* `main[data-ready=invoice_ledger_tab]`; the heading is the registry label `Invoice Ledger` (v5 said `Open Invoice Ledger`, S-invoice_ledger_tab-1).
-- **Sum.** The `Gross invoiced (sum, unreconciled)` KPI equals the exact sum of the rows (`Q1-INVOICE-TOTALS`).
-- **Export.** Choose `#export-invoices`; the Blob download is `invoices.csv` with a header and one line per row (`Q7-EXPORT-LEDGER`).
+Preconditions: `activate` passed on the synthetic case of `lib/inner.mjs` (`buildCase`, 7 rows); step `every-view` has opened this view once.
+
+- **Open.** Step `every-view` (page and heading only). *Driven by `tests/e2e/quantum/suite.mjs`.* `main[data-ready=invoice_ledger_tab]`; the heading is the registry label `Invoice Ledger` (v5 said `Open Invoice Ledger`, S-invoice_ledger_tab-1).
+- **Sum.** *Not yet driven.* The `Gross invoiced (sum, unreconciled)` KPI equals the exact sum of the rows (`Q1-INVOICE-TOTALS`).
+- **Export.** *Not yet driven.* Choose `#export-invoices`; the Blob download is `invoices.csv` with a header and one line per row (`Q7-EXPORT-LEDGER`).
 
 ## Gotchas
 

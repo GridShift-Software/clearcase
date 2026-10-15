@@ -14,15 +14,12 @@
 	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data, form } = $props();
 	const vid = $derived(data.version.id);
-	// the entry and each row's Delete keep their own state (entry.svelte.ts); without JavaScript the answer re-fills it
 	const entry = new EntryForm(HEADS_FIELDS, (v) => canAddHead(v as HeadsValues), untrack(() => form as Answer));
 	const exportText = () => download(data.exportName.name, headsText(data.rows, data.caption), 'text/plain;charset=utf-8');
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>
 
-<!-- the data is complete when the server renders the page, so data-ready is set from the start (the pilot checks read
-	it from the served HTML); data-hydrated marks when the page's controls work -->
 <main id="main" tabindex="-1" data-ready="heads_tab" data-hydrated={ready ? '1' : null}>
 	<PageHeader heading="Heads of Argument" section="Heads of Argument" caseName={data.version.titleName} subtitle="Build the skeleton — each submission tied to authority and evidence">
 		{#snippet actions()}<button type="button" id="heads-export" onclick={exportText}>Export</button>{#if data.exportName.note}<span class="export-note" data-export-note>{data.exportName.note}</span>{/if}{/snippet}

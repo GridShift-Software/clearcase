@@ -5,10 +5,7 @@
 	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
 	const ps = $derived(data.people ?? []);
-	// the Role column carries information only when the package supplies a role for someone (v5 never shows it)
 	const showRole = $derived(anyRole(ps));
-	// the data is complete when the page renders (data-ready, also in the server's HTML); data-hydrated marks the
-	// moment its controls respond
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>

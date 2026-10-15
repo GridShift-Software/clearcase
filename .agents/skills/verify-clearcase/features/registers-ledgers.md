@@ -32,7 +32,7 @@ Preconditions:
 - **Edit.** *Not yet driven* (no `lib/drive.mjs` step yet; the registers browser suite drives it). Choose `[data-edit]` in a row. The form holds the row's values, `#register-save` reads `Save` and the first field has focus. Change a field and save; the row keeps its `data-row-id`.
 - **Delete.** *Not yet driven* (no `lib/drive.mjs` step yet; the registers browser suite drives it). Choose `[data-delete]` in the row.
 - **Export.** *Not yet driven* (no `lib/drive.mjs` step yet; the registers browser suite drives it). Choose `#register-export`; the download is `<store>.csv`.
-- **Proof.** `tests/e2e/registers/suite.mjs` scenarios SC1 to SC18 and BA-07 (`$CLEARCASE_E2E_OUT/registers/`, screenshots under `screens/`); SC11 runs with scripts disabled; `tests/registers/actions.test.ts` drives the actions as two tabs would.
+- **Proof.** `tests/e2e/registers/suite.mjs` scenarios SC1 to SC25 and BA-07 (`$CLEARCASE_E2E_OUT/registers/`, screenshots under `screens/`); SC11 runs with scripts disabled; `tests/registers/actions.test.ts` drives the actions as two tabs would.
 
 ## Gotchas
 

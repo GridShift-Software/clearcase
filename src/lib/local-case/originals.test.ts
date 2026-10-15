@@ -1,6 +1,3 @@
-// The originals site's response policies, against a real listener on loopback: exact Host, lookup only through the
-// verified mapping, verified bytes or 410, servePolicy headers, the cross-site and frame refusal, the link capability
-// that survives a restart, and the verified-snapshot path for large originals.
 import { readdir, rm, link, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import path from 'node:path';
@@ -19,7 +16,6 @@ beforeAll(async () => {
 	port = await freePort();
 	lc = service(path.join(root, 'data'), { ORIGINALS_PORT: String(port), CLEARCASE_BUFFER_MAX_BYTES: '64' });
 	await lc.startup();
-	// a bundle PDF outside the register is a package file (GRS-45)
 	const c = await buildCase(path.join(root, 'c'), {
 		originals: { ...hostileOriginals(), 'BUNDLES/Bundle P.pdf': pdf('invented bundle') }, rows: hostileRows(),
 		edit: (r) => { const b = r.DATA.bundles as { list: Record<string, unknown>[] }; b.list.push({ ...b.list[0], no: '9', file: url('BUNDLES/Bundle P.pdf') }); },
@@ -109,13 +105,13 @@ describe('serving', () => {
 		const asset = () => { const a = lc.store.assetForServe(rv, 'SD-001')!; return { ...a, real_path: a.real_path!, size: a.size! }; };
 		const original = Buffer.from(await (await get(href)).arrayBuffer());
 		expect(await OriginalsServer.availability(asset())).toBeNull();
-		await rm(file); // removed after activation
+		await rm(file);
 		expect(await OriginalsServer.availability(asset())).toEqual({ refused: 'missing', reason: 'missing on disk' });
 		const r = await get(href);
 		expect([r.status, await r.text()]).toEqual([410, 'original not available: missing on disk']);
 		await writeFile(file, Buffer.concat([original, Buffer.from('x')]));
 		expect(await OriginalsServer.availability(asset())).toEqual({ refused: 'size', reason: 'changed since import (size differs)' });
-		await writeFile(file, Buffer.from(original).fill(0x42, 12, 14)); // same size, other bytes: only the serve-time hash catches it
+		await writeFile(file, Buffer.from(original).fill(0x42, 12, 14));
 		expect(await OriginalsServer.availability(asset())).toBeNull();
 		await writeFile(file, original);
 		expect(await OriginalsServer.availability(asset())).toBeNull();
@@ -123,7 +119,7 @@ describe('serving', () => {
 	});
 
 	it('streams large originals only from a verified private snapshot and removes it', async () => {
-		const href = rel(o.originalHref(rv, 'HX-001', name('HX-001'))); // > 64 bytes: the snapshot path
+		const href = rel(o.originalHref(rv, 'HX-001', name('HX-001')));
 		const r = await get(href);
 		expect(r.status).toBe(200);
 		expect((await r.text()).startsWith('<!doctype html>')).toBe(true);
@@ -164,7 +160,6 @@ describe('package files (GRS-45)', () => {
 		expect(r.status).toBe(200);
 		expect(r.headers.get('content-disposition')).toMatch(/^attachment; .*Bundle P\.pdf/);
 		expect(Buffer.from(await r.arrayBuffer()).equals(Buffer.from(pdf('invented bundle')))).toBe(true);
-		// the link capability binds the key as for a ref
 		expect((await get(`/o/${rv}/${key}/x.pdf`, { 'sec-fetch-site': 'cross-site' })).status).toBe(403);
 		expect((await get(rel(o.originalHref(rv, key, 'x.pdf')), { 'sec-fetch-site': 'cross-site', 'sec-fetch-dest': 'document' })).status).toBe(200);
 	});

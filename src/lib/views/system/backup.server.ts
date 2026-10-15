@@ -1,7 +1,3 @@
-// Backup / Restore (GRS-20): the page's data and actions. The file format and its checks are
-// $lib/user-work/backup; this module reads what a backup of the case would hold and runs a restore on a form post.
-// A restore takes the file as an upload or, for a file larger than the server's request limit, a path on this
-// computer (the app is local: the server reads the same disk the user does).
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { error, fail, isHttpError } from '@sveltejs/kit';
@@ -19,12 +15,10 @@ function versionOf(vid: string) {
 	const v = a.store.getVersion(vid);
 	if (!v) error(404, 'Unknown results version');
 	ensureRescanProvider(a, v.case_id);
-	// start-up registers the v5 importers too; a start-up that stopped early (a storage error) leaves it to the first page use
 	registerV5Importers();
 	return { a, v };
 }
 
-/** What the page shows: the tables a backup holds now, and the ones the export leaves out (never dropped silently). */
 export function backupPage(a: LocalCase, vid: string) {
 	const v = a.store.getVersion(vid)!;
 	const b = createBackup(a, v.id);
@@ -45,7 +39,6 @@ export const load = async ({ params }: { params: Record<string, string> }) => {
 	return backupPage(a, v.id);
 };
 
-/** The backup file of a version, for the download endpoint. */
 export function backupFile(vid: string, build: string | null): { name: string; body: string } {
 	const { a, v } = versionOf(vid);
 	const b = createBackup(a, v.id, build);
@@ -73,7 +66,6 @@ export const actions = {
 	restore: async ({ params, request }: Event) => {
 		const { a, v } = versionOf(params.vid);
 		const f = await request.formData();
-		// the typed path comes back with a refusal, so a page re-rendered without JavaScript keeps it
 		const typed = String(f.get('path') ?? '').slice(0, 4096);
 		if (f.get('confirm') !== 'yes') return fail(400, { message: 'Tick “Yes, replace this case’s work” to restore. Nothing was changed.', path: typed });
 		const text = await fileText(f);
@@ -84,7 +76,6 @@ export const actions = {
 			return { restored: { createdAt: out.summary.createdAt, rows: out.summary.rows, tables: out.summary.tables.length, sameVersion: out.summary.sameVersion, resultsVersion: out.summary.resultsVersion, preRestore: out.preRestore } };
 		} catch (e) {
 			if (e instanceof BackupError) return fail(e.code === 'wrong-case' || e.code === 'refused' ? 409 : 400, { message: e.message, code: e.code, path: typed });
-			// a busy store (503): nothing was written
 			if (isHttpError(e)) return fail(e.status, { message: e.body.message, code: 'busy', path: typed });
 			throw e;
 		}

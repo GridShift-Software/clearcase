@@ -10,23 +10,19 @@
 	let { data } = $props();
 	const vid = $derived(data.version.id);
 	const m = $derived(data.model);
-	// the typed filter is the page's own state, so a slow answer never overwrites newer typing
 	let q = $state(page.url.searchParams.get('q') ?? '');
-	/** Change the bundle, filter or page: the state is replaced in the URL (Back returns to the same list). */
 	function go(change: { bundle?: string; q?: string; page?: number }) {
 		const p = new URLSearchParams(page.url.search);
 		for (const [k, v] of Object.entries(change)) { if (v === '' || v === undefined || (k === 'page' && v === 1)) p.delete(k); else p.set(k, String(v)); }
 		const s = p.toString();
 		goto(`${page.url.pathname}${s ? `?${s}` : ''}`, { replaceState: true, keepFocus: true, noScroll: true });
 	}
-	// the data is complete when the page renders (data-ready, also in the server's HTML); data-hydrated marks the
-	// moment its controls respond
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>
 
 <main id="main" tabindex="-1" data-ready="documents" data-hydrated={ready ? '1' : null} data-busy={navigating.to ? 'true' : null} data-page={m.page.page} data-bundle={m.bundle} data-q={m.q}>
-	<PageHeader heading="Documents" section="Documents" caseName={data.version.titleName} subtitle="{n(data.total)} documents · by bundle then type" />
+	<PageHeader heading="Documents" section="Documents" caseName={data.version.titleName} subtitle="{n(data.total)} documents · filter by bundle, sorted by type then date" />
 	<DegradedRows failed={data.failed} />
 	{#if m.unknownBundle}<p class="warning" id="unknown-bundle">The requested bundle is not in this results version; the first bundle is shown.</p>{/if}
 	{#if m.filterTooLong}<p class="warning" id="filter-too-long">The filter is longer than {MAX_TEXT} characters, so it was not applied: every document of the bundle is shown.</p>{/if}

@@ -10,7 +10,6 @@ import type { Actions, PageServerLoad } from './$types';
 
 const encode = (path: string) => './' + path.split('/').map(encodeURIComponent).join('/');
 
-/** The page-text index as [page, text] pairs; malformed entries are left out. */
 function pageIndex(raw: unknown): PageText[] {
 	const idx = (raw as { index?: unknown } | null)?.index;
 	return Array.isArray(idx) ? idx.filter((e): e is [number, string] => Array.isArray(e) && Number.isInteger(e[0]) && typeof e[1] === 'string') : [];
@@ -22,13 +21,11 @@ export const load: PageServerLoad = async ({ parent, url }) => {
 	const raw = datasetOf<{ pages?: unknown }>(a.store, version.id, 'caselines-index');
 	const index = pageIndex(raw);
 	const vc = viewContentOf(a.store, version.id);
-	// the page count from the index, else the source's fallback figure (view-content), else unknown
 	const fallback = vc.number('caselines_tab', 'pageCountFallback');
 	const pages = typeof raw?.pages === 'number' && raw.pages > 0 ? raw.pages : typeof fallback === 'number' ? fallback : null;
 	const { paths, files } = await bundleLinks(a.store, version.id);
 	const src = vc.text('caselines_tab', 'url');
 	const bundle = resolveLocator(paths, src, null);
-	// a query over MAX_QUERY is refused visibly (qTooLong), never cut and searched
 	const qRaw = url.searchParams.get('q') ?? '';
 	const qTooLong = qRaw.length > MAX_QUERY;
 	const q = qTooLong ? '' : qRaw;
@@ -46,12 +43,10 @@ export const load: PageServerLoad = async ({ parent, url }) => {
 		present: raw !== null,
 		pages,
 		bundle,
-		// package-file key -> its originals-site link (GRS-45)
 		files,
 		cover: coverage(index, pages),
 		q,
 		qTooLong,
-		// the original's download link (attachment, nosniff, sandbox CSP from the originals site) per served ref
 		downloads: Object.fromEntries(await bundleDownloads(version.id, [...(bundle ? [bundle.ref] : []), ...links.flatMap((l) => (l.ref ? [l.ref] : []))])),
 		search: hits ? { total: hits.length, occurrences: hits.reduce((n, h) => n + h.count, 0), hits: hits.slice(0, MAX_SHOWN) } : null,
 		links,
@@ -74,7 +69,6 @@ export const actions: Actions = {
 		const v = a.store.getVersion(params.vid);
 		if (!v) return fail(404, { message: 'Unknown results version' });
 		const id = String((await request.formData()).get('id') ?? '');
-		// a link another tab already removed is gone either way: both intents agree
 		return guarded({ id }, () => serial(v.case_id, LINKS, async () => ({ saved: await a.userWork.deleteRow(v.case_id, LINKS, id) })));
 	},
 };

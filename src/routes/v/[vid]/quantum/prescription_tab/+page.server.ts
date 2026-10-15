@@ -14,9 +14,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 	return {
 		rows,
 		summary,
-		// v5's labels were classified against this date when the package was built (S-prescription-frozen)
 		headlineDate: dataset<InterestBasis>(version.id, 'lit-interest-basis')?.headline_date ?? '',
-		// BA-01: the explicit as-of date, the calendar date of now() in South Africa (UTC+2, no daylight saving; D9)
 		asOf: saDate(now()),
 		known: [...new Set(rows.map((r) => r.ref))].filter((r) => known.has(r)),
 		note,

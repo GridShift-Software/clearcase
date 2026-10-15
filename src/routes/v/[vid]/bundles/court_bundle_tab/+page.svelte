@@ -21,10 +21,7 @@
 	const extracts = $derived(c.kpiExtractsValue ?? bs.reduce((n, b) => n + b.rows.filter((r) => r.sliceUrl).length, 0));
 	const hd = $derived(header(data.header));
 
-	// the sub-view lives in the address, so Back returns to it: list, one bundle's tab, or the (unavailable) builder
 	const view = $derived(page.url.searchParams.get('view') === 'build' ? 'build' : page.url.searchParams.has('b') ? 'bundle' : 'list');
-	// bundle numbers the package repeats: every row renders and is flagged, and a repeated number's rows open by
-	// position (?b=<no>&at=<i>); a unique number keeps ?b=<no>
 	const repeated = $derived.by(() => { const seen = new Set<string>(), dup = new Set<string>(); for (const x of bs) (seen.has(x.no) ? dup : seen).add(x.no); return dup; });
 	const bq = (i: number): Record<string, string> => (repeated.has(bs[i]!.no) ? { b: bs[i]!.no, at: String(i) } : { b: bs[i]!.no });
 	const cur = $derived.by(() => {
@@ -34,13 +31,9 @@
 	const b = $derived(cur >= 0 ? bs[cur]! : null);
 	const tab = $derived(({ items: 'items', view: 'view' } as Record<string, string>)[page.url.searchParams.get('tab') ?? ''] ?? 'index');
 	const go = (q: Record<string, string>) => goto(`?${new URLSearchParams(q)}`);
-	// a document's page, or a package file's originals-site link (GRS-45); `page` overrides the locator's page
 	const href = (r: Resolved | null, page?: number) => hrefOf(vid, data.files, r, page);
-	// a bundle saved from the builder this session: its PDF (v5 cbFileUrl over CBBLOB)
 	const blob = (x: Bundle) => (x.id ? (blobs[x.id] ?? null) : null);
 
-	// Delete a saved bundle (v5 cbDeleteBundle): asked first; each bundle keeps its own error, by its id, so an answer
-	// given while another delete is in flight never shows that delete's error on this row.
 	let delErrors = $state<Record<string, string>>({});
 	let deleting = $state<Record<string, true>>({});
 	const del = async (x: Bundle) => {
@@ -58,10 +51,6 @@
 		} finally { delete deleting[id]; }
 	};
 
-	// Index header details: local values. Each action (Save, Restore, Clear) snapshots the fields it was pressed with
-	// and keeps its own error; a success takes from the stored header only the fields unchanged since that press, so
-	// text typed while a save is pending survives it. A refusal keeps every typed field; a 409 (another tab changed the
-	// header) also shows the stored header. Restore and Clear ask before they discard unsaved typing.
 	type HAct = 'header' | 'restore' | 'clear';
 	let hv = $state<Header>({ ...untrack(() => data.header) });
 	let version = $state(untrack(() => data.headerHash));
@@ -73,7 +62,6 @@
 	const act = async (action: HAct) => {
 		if (action !== 'header' && changed.length && !confirm('Discard the header fields you changed and have not saved?')) return;
 		const sent = { ...hv };
-		// busy until the stored header is back in `data`: before that every saved field still counts as changed
 		busy = action;
 		try {
 			const r = await postAction(action, [['version', version], ...(action === 'header' ? HEADER_KEYS.map((k): [string, string] => [k, sent[k]]) : [])]);
@@ -83,7 +71,6 @@
 				return;
 			}
 			errors[action] = null;
-			// Restore and Clear replace the fields on purpose (confirmed above), so a failed save's draft is gone with them
 			if (action !== 'header') errors.header = null;
 			conflict = null;
 			await invalidateAll();
@@ -92,7 +79,6 @@
 		} finally { busy = null; }
 	};
 	const saveHeader = () => act('header');
-	/** Use the stored header: drop the typed fields and every header error. */
 	const useStored = async () => {
 		await invalidateAll();
 		hv = { ...data.header };
@@ -112,7 +98,6 @@
 	const wordAll = () => { if (bs.length) downloadBlob(c.allIndexesFileName ?? 'Court_Bundle_Indexes.docx', indexDocx(bs, hd.h, creator()), DOCX_TYPE); };
 	const print = (x: Bundle) => { message = printIndex(x, hd.h) ? null : 'Allow pop-ups to print the index.'; };
 
-	// without JavaScript nothing here can save, export or switch tabs, so every control renders disabled with a note
 	let ready = $state(false);
 	const off = $derived(!ready);
 	onMount(() => { ready = true; });

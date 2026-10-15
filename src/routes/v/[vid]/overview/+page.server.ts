@@ -20,8 +20,6 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const { sourceClaims: _c, ...rest } = overview;
 	const narrative = overview.matter?.storyline[0]?.t ?? null;
 	const documents = documentCounts(a.store, v.id);
-	// Case wording v5 hard-coded in its overview renderer, imported as view-content data (GRS-38). Template params come
-	// from imported data only; an absent field leaves the view's own neutral layout.
 	const vc = viewContentOf(a.store, v.id);
 	const params = { docCount: documents.total, bundleCount: Object.keys(overview.counts.byBundle).length, invoiceCount: overview.quantum?.invoiceCount ?? overview.counts.invoices, caseName: version.caseName };
 	const content = {
@@ -32,11 +30,9 @@ export const load: PageServerLoad = async ({ parent }) => {
 	return {
 		overview: { ...rest, counts },
 		tallies,
-		// the document count of the document-row contract (imported register plus provider rows), as the chronology lists them
 		documents,
 		content,
 		dateBasisKnown: anyDateBasis(a.store, v.id),
-		// the originals counts are the import-time check (a live re-check of every original would be expensive)
 		originalsCheckedAt: v.stored_at,
 		narrative,
 		known: narrative ? [...resolveRefs(a.store, v.id, citedRefs([narrative]))] : [],

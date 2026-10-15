@@ -17,9 +17,11 @@ The imported prescription list (invoice, invoice date, imported prescription dat
 
 ## Driving it with verify-clearcase
 
-- **Arithmetic.** *Driven by `tests/e2e/quantum/suite.mjs`.* With `CLEARCASE_FIXED_NOW=2026-10-08T09:00:00Z`, `#arith-asof` names the as-of date `2026-10-08` (`Q4-LEAP-MONTH-END`, `Q10-FIXED-CLOCK`).
-- **Filter and export.** Open `?risk=Not+yet+due+to+prescribe`; `#pr-risk` shows it and `#export-presc` writes exactly the shown rows (`Q7-EXPORT-PRESCRIPTION`).
-- **Narrative.** `.narrative` holds the imported note unchanged, `#note-imported` labels it, `#summary-flag` names the contradiction (`Q9-NARRATIVE`).
+Preconditions: `activate` passed on the synthetic case of `lib/inner.mjs` (`buildCase`, 7 rows); step `every-view` has opened this view once.
+
+- **Arithmetic.** *Not yet driven here; proven by `tests/e2e/quantum/suite.mjs`.* The suite sets `CLEARCASE_FIXED_NOW=2026-10-08T09:00:00Z`, so `#arith-asof` names `2026-10-08` there; verify-clearcase sets no fixed clock, so it would name today's date in South African time (`Q4-LEAP-MONTH-END`, `Q10-FIXED-CLOCK`).
+- **Filter and export.** *Not yet driven.* Open `?risk=Not+yet+due+to+prescribe`; `#pr-risk` shows it and `#export-presc` writes exactly the shown rows (`Q7-EXPORT-PRESCRIPTION`).
+- **Narrative.** *Not yet driven.* `.narrative` holds the imported note unchanged, `#note-imported` labels it, `#summary-flag` names the contradiction (`Q9-NARRATIVE`).
 
 ## Gotchas
 

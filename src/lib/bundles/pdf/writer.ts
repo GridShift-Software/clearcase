@@ -1,7 +1,3 @@
-/**
- * The PDF writer of the bundle builder (v5 PDFK `Out` and `Copier`, main HTML 1234-1355): a 1-based object table
- * serialised with one classic xref table, and a deep copier that maps a source document's objects into it once.
- */
 import { enc, isDelim, PName, PRef, PStr, PStream } from './objects.ts';
 import type { PDict, PdfValue } from './objects.ts';
 import type { Doc } from './doc.ts';
@@ -76,7 +72,7 @@ function ser(v: PdfValue | undefined, push: (b: Uint8Array) => void): void {
 }
 
 export class Out {
-	readonly objs: (PdfValue | undefined)[] = [null]; // 1-based; objs[0] unused
+	readonly objs: (PdfValue | undefined)[] = [null];
 	alloc(): number {
 		this.objs.push(undefined);
 		return this.objs.length - 1;
@@ -93,7 +89,6 @@ export class Out {
 		if (!(d instanceof Map)) throw new Error('object ' + r.num + ' is not a dictionary');
 		return d;
 	}
-	/** The file: header, objects, one xref table, the trailer with /Size and `trailer` entries. */
 	bytes(trailer: [string, PRef][]): Uint8Array {
 		const parts: Uint8Array[] = [];
 		let len = 0;
@@ -126,7 +121,6 @@ export class Out {
 	}
 }
 
-/** Deep copy into `out`; each source object is copied once per source document. Streams drop /Length. */
 export class Copier {
 	private readonly out: Out;
 	private readonly maps = new Map<Doc, Map<number, PRef>>();

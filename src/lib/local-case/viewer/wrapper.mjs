@@ -1,8 +1,3 @@
-// ClearCase PDF viewer WRAPPER (top-level page on the originals site, /view/<version>/<key>). Our only script on
-// this origin's top-level page. It fetches the PDF bytes (same origin; the server verifies them against the sha256
-// recorded at import), loads the pdf.js frame (sandbox="allow-scripts": an opaque origin, see originals.server.ts)
-// and hands a copy of the bytes to it with postMessage each time the frame loads. The ONLY thing it accepts back
-// from the frame is a fixed ready/error flag; it never reads anything else from the frame and never navigates.
 const body = document.body;
 const frame = document.getElementById('viewer');
 const status = document.getElementById('wrap-status');
@@ -25,7 +20,6 @@ addEventListener('message', (e) => {
 	const v = e.data && typeof e.data === 'object' ? e.data.ready : undefined;
 	if (v === '1' || v === 'error') {
 		body.dataset.ready = v;
-		// the rendered-page signal: ms since this page's navigation started (read by the measurement runner)
 		if (v === '1') body.dataset.readyMs = String(Math.round(performance.now()));
 		status.textContent = v === '1' ? '' : 'This file cannot be displayed. Use Download.';
 	}

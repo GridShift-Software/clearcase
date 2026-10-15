@@ -1,12 +1,7 @@
-// CSV quoting against spreadsheets that split on `;` or tab (CC-07 verify lane 03): a cell holding one is quoted, so it
-// stays one cell there when it is a row's first; `,`-separated values are unchanged. A user cell in a later column
-// (CC-08 verify lane 03) is kept safe by userCell, and an imported cell by csvCell (BASE-R2g): no `;`, tab or line
-// segment of either starts with a formula character.
 import { describe, expect, it } from 'vitest';
 import { parseCsv } from '../../../scripts/parity/lib/exports.mjs';
 import { csvCell, toCSV, userCell, type Cell } from './csv.ts';
 
-/** RFC 4180 with a chosen separator: quoted cells keep separators and newlines, a doubled quote is one quote. */
 function parse(text: string, sep: string): string[][] {
 	const rows: string[][] = [];
 	let row: string[] = [], cell = '', q = false;
@@ -22,7 +17,6 @@ function parse(text: string, sep: string): string[][] {
 	return rows;
 }
 
-/** The quoting before this change (quote, comma, CR, LF only), to show `,`-separated values are unchanged. */
 const before = (rows: readonly (readonly Cell[])[]) =>
 	rows.map((r) => r.map((c) => { const s = c === null || c === undefined ? '' : Array.isArray(c) ? c.join('; ') : String(c); return /[",\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s; }).join(',')).join('\r\n');
 
@@ -52,17 +46,13 @@ describe('CSV cells with a semicolon or tab', () => {
 			[userCell('=SUM(A1)'), userCell('x;=1+1'), userCell('+1'), ';', '\t', ';;', 'x;', ';x'],
 		];
 		const now = toCSV(rows);
-		expect(now).not.toBe(before(rows)); // the bytes differ (more cells are quoted) ...
-		expect(parse(now, ',')).toEqual(parse(before(rows), ',')); // ... the values do not
+		expect(now).not.toBe(before(rows));
+		expect(parse(now, ',')).toEqual(parse(before(rows), ','));
 		expect(parseCsv(now)).toEqual(parseCsv(before(rows)));
 		expect(parseCsv(now)).toEqual(rows.map((r) => r.map((c) => (c === null || c === undefined ? '' : Array.isArray(c) ? c.join('; ') : String(c)))));
 	});
 });
 
-/**
- * A reader that splits on `sep` and on line ends and honours a quote only where it opens a field, as a spreadsheet
- * does: in `T,A,"x;=1"` split on `;` the quote is text inside `T,A,"x`.
- */
 function splitLike(text: string, sep: string): string[][] {
 	const rows: string[][] = [];
 	let row: string[] = [], cell = '', q = false, fresh = true;
@@ -78,7 +68,6 @@ function splitLike(text: string, sep: string): string[][] {
 	end(); rows.push(row);
 	return rows;
 }
-/** A field a spreadsheet would run as a formula: its first non-space character is =, +, -, @, tab or CR. */
 const formula = (f: string) => /^ *[=+\-@\t\r]/.test(f);
 
 describe('user cells in any column of a multi-column row (CC-08 verify lane 03)', () => {

@@ -10,14 +10,9 @@
 	import { defaultInputs, MAX_DISCOUNT, MAX_PROBABILITY, MAX_YEARS, SETTLE_FIELDS, settleInputs, settleOutcome, type SettleInputs } from '$lib/views/quantum/settlement';
 	import '$lib/views/quantum/quantum.css';
 	let { data } = $props();
-	// BA-03: the inputs are the URL query; Model submits them (GET), so a reload gives the same result. Without a
-	// query the model runs on the defaults, as v5 does on render.
 	const defaults = $derived(defaultInputs(data.claim, data.defaults));
 	const inputs = $derived(settleInputs(page.url.searchParams, defaults));
 	const out = $derived(settleOutcome(inputs));
-	// The fields are the user's (CC-06 r2, D4 and D17): a Model applies the URL's values only to the fields that still
-	// hold what was submitted, so text typed while it is in flight stays; any other navigation (Reset to defaults, back,
-	// a link) shows the URL's values over the defaults.
 	let vals = $state<SettleInputs>({ ...untrack(() => inputs) });
 	let sent: SettleInputs | null = null;
 	afterNavigate(() => {

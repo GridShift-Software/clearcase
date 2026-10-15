@@ -1,6 +1,3 @@
-// Server-side reads shared by the quantum views (GRS-16): the imported datasets they show, the refs that resolve
-// through the document-row contract (imported register plus provider rows, v5's allRows()), and the payment register.
-// Imported values are returned unchanged; nothing here corrects or recomputes them.
 import type { Say } from '../../local-case/answer.server.ts';
 import { app } from '../../local-case/app.server.ts';
 import { resolveRefs } from '../../local-case/documents.server.ts';
@@ -20,22 +17,14 @@ export interface InterestBasis { award_date: string; first_invoice_date: string;
 export interface ReconRow { month: string; invoice: string[]; statement: string[]; supporting: string[]; charging: string[]; amountdue: string[]; pod: string[] }
 export interface Settlement { claim: string; claimDate: string }
 
-/** A dataset of the version, or null when the package does not carry it. */
 export const dataset = <T>(vid: string, key: string): T | null => datasetOf<T>(app().store, vid, key);
 
-/** The version's view-content reader (GRS-38). */
 export const content = (vid: string) => viewContentOf(app().store, vid);
 
-/** Of these refs, the ones that resolve in this version: a document row, imported or provided (v5's allRows()). */
 export const resolvableRefs = (vid: string, refs: Iterable<string>): Set<string> => resolveRefs(app().store, vid, refs);
 
-/** The case's recorded payments, in insertion order, each with the hash of its stored fields (the Delete check). */
 export const payments = (caseId: string) => listPayments(app().userWork, caseId);
 
-/**
- * What the payment forms say when a write fails (answer.server.ts): the typed entry is kept, and only a busy store says
- * "try again" (`retry`): another refusal would refuse a retry of the same entry too (CC-06 r2, D18).
- */
 const ADD_REFUSED = 'Not saved: the workspace store refused this entry, and would refuse it again unchanged. Your entry is kept.';
 const DELETE_REFUSED = 'Not deleted: the workspace store refused the deletion.';
 export const SAY = {

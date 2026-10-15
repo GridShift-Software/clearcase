@@ -1,21 +1,12 @@
-// Interest and settlement arithmetic for the quantum views (GRS-16). The day-count basis is v5's Actual/365.25: a
-// period of `days` calendar days is days/365.25 years. Simple interest is exact (a BigInt fraction rounded once to
-// cents); compound interest and settlement discounting need a fractional power, so they use v5's formula with
-// Math.pow on doubles and are rounded once, half away from zero, from the double's value. Browser-safe and pure.
 import { centsToNumber, divRound, floatToCents, type Decimal } from './money.ts';
 
 /** Actual/365.25 as an exact fraction: years = days * 4 / 1461. */
 const YEAR_NUM = 4n;
 const YEAR_DEN = 1461n;
 
-/**
- * Simple interest in cents on `principal` cents at `rate` per cent a year for `days` days: P·r·days/(100·365.25),
- * computed exactly and rounded once, half away from zero, to cents.
- */
 export const simpleInterestDays = (principal: bigint, rate: Decimal, days: number): bigint =>
 	divRound(principal * rate.num * BigInt(days) * YEAR_NUM, rate.den * 100n * YEAR_DEN);
 
-/** Simple interest in cents for a period given in whole years: P·r·years/100 (exact; R1,000 at 10% for 1 year is R100). */
 export const simpleInterestYears = (principal: bigint, rate: Decimal, years: number): bigint =>
 	divRound(principal * rate.num * BigInt(years), rate.den * 100n);
 
@@ -37,10 +28,6 @@ export const METHODS: readonly Method[] = ['Simple', 'Compound (monthly)'];
 
 export interface InterestResult { capital: bigint; interest: bigint; total: bigint; days: number; yearsLabel: string }
 
-/**
- * The calculator: Simple is exact; Compound rounds v5's double total once to cents and takes interest as total minus
- * capital, so Capital + Interest = Total always holds on screen.
- */
 export function computeInterest(principal: bigint, rate: Decimal, method: Method, days: number): InterestResult {
 	if (method === 'Compound (monthly)') {
 		const total = floatToCents(compoundTotal(principal, rate, days));

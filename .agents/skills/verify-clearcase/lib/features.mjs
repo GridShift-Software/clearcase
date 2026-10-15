@@ -1,6 +1,6 @@
 // The feature index, found by discovery instead of a hand-written list: every features/*.md except README.md, in name
 // order, each checked against the entry contract of features/README.md (an H1 title, one paragraph, then exactly the
-// four H2 sections in order). Drive steps an owner adds live beside its feature file as features/<feature>.steps.mjs
+// four H2 sections in order; the Driving section starts with "Preconditions:" and marks every action bullet). Drive steps an owner adds live beside its feature file as features/<feature>.steps.mjs
 // (`export const steps = [...]`); they are appended to the pilot's steps of lib/drive.mjs in name order. A step must
 // name its own module's feature, that feature must have a file, and step ids are unique across all steps.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -10,6 +10,7 @@ import { pathToFileURL } from 'node:url';
 export const FEATURES_DIR = resolve(import.meta.dirname, '..', 'features');
 export const SECTIONS = ['Sub-features', 'How to get to it (user POV)', 'Driving it with verify-clearcase', 'Gotchas'];
 const STEPS_SUFFIX = '.steps.mjs';
+const DRIVE_MARK = /[Ss]tep `|[Nn]ot yet driven|Covered in|[Vv]erified unreachable/;
 const BLOCK = /^(?:#{1,6}\s|[-*+]\s|\d+[.)]\s|>|```|~~~|\||<)/;
 
 /** One feature file's title, summary paragraph and contract problems ([] when it keeps the contract). */
@@ -42,6 +43,13 @@ export function parseFeature(text) {
 	}
 	const para = blocks.length === 1 && !BLOCK.test(blocks[0][0].trim()) ? blocks[0].map((l) => l.trim()).join(' ') : null;
 	if (para === null) problems.push(`expected one paragraph between the title and the first H2, found ${blocks.length} block${blocks.length === 1 ? ' that is not a paragraph' : 's'}`);
+	const drive = h2.findIndex((h) => h.text === SECTIONS[2]);
+	if (drive >= 0) {
+		const body = lines.slice(h2[drive].line + 1, h2[drive + 1]?.line ?? lines.length);
+		if (!body.find((l) => l.trim())?.startsWith('Preconditions:')) problems.push(`the "${SECTIONS[2]}" section does not start with "Preconditions:"`);
+		const unmarked = body.map((l) => /^- \*\*(.+?)\*\*/.exec(l)).filter((m) => m && !/^Proof\b/.test(m[1]) && !DRIVE_MARK.test(m.input)).map((m) => m[1]);
+		if (unmarked.length) problems.push(`action bullets without a drive step, "not yet driven" or "verified unreachable": ${unmarked.join(' | ')}`);
+	}
 	return { title: h1?.text ?? null, summary: para, problems };
 }
 

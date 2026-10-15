@@ -1,10 +1,3 @@
-// The newer workspace generation embeds its data as two JSON script tags, <script id="app-data"> and
-// <script id="app-seed">, in place of the v5 `const DATA` and `const META` lines. This module maps the two
-// documents onto the v5 roots (DATA, META and window.__SCHED__), so the datasets, the asset index and the
-// validation behind extractV5 stay one pipeline. Pure: no I/O, no clock, nothing evaluated. Source values are
-// carried over as written. A field with no v5 home stays on its record (preserved, reported as an unsupported
-// field, not rendered); a top-level key with no v5 home reaches the package as a residual dataset through the
-// adapter's unmapped-key path. The viewer's own full-text token index (`ft`) is the one thing left behind.
 import { fmtR } from '../../components/format.ts';
 import type { DiagSink } from '../diagnostics.ts';
 import { isObject, type JsonObject, type JsonValue } from '../strict-json.ts';
@@ -21,11 +14,9 @@ const objs = (v: JsonValue | undefined): JsonObject[] => (Array.isArray(v) ? v.f
 const kebab = (s: string) => s.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'other';
 const tally = (keys: Iterable<string>): Record<string, number> => { const c: Record<string, number> = {}; for (const k of keys) c[k] = (c[k] ?? 0) + 1; return c; };
 const nonEmpty = (parts: string[]) => parts.filter((s) => s !== '');
-/** Copies the source fields the v5 shape has no place for onto the mapped record. */
 const carry = (into: JsonObject, from: JsonObject, keys: readonly string[]): JsonObject => { for (const k of keys) if (from[k] !== undefined) into[k] = from[k]!; return into; };
 
 const AMOUNT = /^-?\d{1,15}(?:\.\d{1,4})?$/;
-/** A source amount as the package's decimal text; '' when absent or outside the amount grammar. */
 export function amountText(v: JsonValue | undefined): string {
   if (typeof v === 'string') return AMOUNT.test(v) ? v : '';
   if (typeof v !== 'number' || !Number.isFinite(v)) return '';
@@ -50,7 +41,6 @@ export function chronologyRow(r: JsonObject): JsonObject {
   return carry(row, r, ROW_EXTRAS);
 }
 
-/** v5 META from the source meta and the mapped rows; the counts the validator compares come from the rows. */
 export function metaOf(meta: JsonObject, rows: readonly JsonObject[], people: number): JsonObject {
   const by = (f: string) => tally(rows.map((r) => str(r[f])));
   const status = by('text_status'), types = by('doc_type');
@@ -65,7 +55,6 @@ export function metaOf(meta: JsonObject, rows: readonly JsonObject[], people: nu
 const headings = (v: JsonValue | undefined): JsonObject[] => (Array.isArray(v) ? v : []).filter((p): p is JsonValue[] => Array.isArray(p)).map((p) => ({ h: str(p[0]), t: str(p[1]) }));
 const matterHead = (m: JsonObject) => `Matter ${str(m.id)}: ${str(m.title)}`;
 
-/** The seed's matters as one v5 matter: each matter's storyline and strategy under its own heading, nothing dropped. */
 export function matterOf(seed: JsonObject): JsonObject | undefined {
   const matters = objs(seed.matters);
   const client = str(seed.client);
@@ -80,10 +69,6 @@ export function matterOf(seed: JsonObject): JsonObject | undefined {
 
 const SEVERITY_RANK: Record<string, number> = { high: 3, medium: 2, low: 1 };
 
-/**
- * One contradiction as a v5 item. The low and high figures and the gap (a percentage) stay raw under `rates`; `spread`
- * spells them out with their units, since the tracker and its CSV show `spread` for every category but 'rate'.
- */
 function contradictionItem(c: JsonObject, rowsByRef: ReadonlyMap<string, JsonObject>): JsonObject {
   const item: JsonObject = {
     label: nonEmpty([str(c.ent), str(c.year), str(c.dt)]).join(' · '), detail: str(c.note),
@@ -96,7 +81,6 @@ function contradictionItem(c: JsonObject, rowsByRef: ReadonlyMap<string, JsonObj
   return item;
 }
 
-/** The contradiction list grouped by kind into v5 categories; a category's severity is its highest item's. */
 export function contradictionsOf(list: readonly JsonObject[], rowsByRef: ReadonlyMap<string, JsonObject>): JsonObject | undefined {
   if (list.length === 0) return undefined;
   const cats = new Map<string, { title: string; severity: string; items: JsonObject[] }>();
@@ -114,7 +98,6 @@ export function contradictionsOf(list: readonly JsonObject[], rowsByRef: Readonl
 
 const personOf = (p: JsonObject): JsonObject => carry({ name: str(p.name), email: '', org: '', sent: count(p.sent), received: count(p.recv), total: count(p.sent) + count(p.recv), role: str(p.role) }, p, ['side']);
 const entityOf = (e: JsonObject): JsonObject => carry({ name: str(e.name), note: '', role: str(e.role) }, e, ['key', 'count', 'first', 'last', 'tax']);
-/** A 1-5 score as v5's risk word (4-5 High, 3 Medium, 1-2 Low); any other value as written. */
 export const riskLevel = (v: JsonValue | undefined): string => (typeof v !== 'number' ? str(v) : v >= 4 ? 'High' : v >= 3 ? 'Medium' : v >= 1 ? 'Low' : str(v));
 const riskOf = (r: JsonObject): JsonObject => {
   const out = carry({ issue: str(r.risk), likelihood: riskLevel(r.l), impact: riskLevel(r.i), mitigation: str(r.mit) }, r, ['id', 'matter', 'type', 'owner', 'target', 'res']);
@@ -128,13 +111,11 @@ const witnessOf = (w: JsonObject): JsonObject => carry({ name: str(w.name), role
 const elementOf = (e: JsonObject): JsonObject => carry({ element: str(e.cause), must: strs(e.els).join('; '), evidence: str(e.ev), witness: str(e.wit), tab: '' }, e, ['matter']);
 const authorityOf = (a: JsonObject): JsonObject => carry({ topic: str(a.matter) && `Matter ${str(a.matter)}`, authority: nonEmpty([str(a.src), str(a.cite)]).join(' '), proposition: str(a.prop) }, a, ['note']);
 
-/** The seed's discovery list as the discovery schedule: one item per row, no linked files. */
 export function schedOf(discovery: readonly JsonObject[]): JsonObject | undefined {
   if (discovery.length === 0) return undefined;
   return { discovery: discovery.map((d, i) => carry({ no: i + 1, date: str(d.date), desc: str(d.doc), co: str(d.co), nfiles: 0, files: [] }, d, ['matter', 'grp'])), supplementary: [] };
 }
 
-/** The timeline as v5 builds it: the hot documents as events in date order, one phase per event year, the year tallies from the rows. */
 export function timelineOf(rows: readonly JsonObject[], rowsByRef: ReadonlyMap<string, JsonObject>, hot: readonly JsonObject[]): JsonObject {
   const year = (d: string) => d.slice(0, 4);
   const dated = rows.filter((r) => str(r.date) !== '');
@@ -148,7 +129,6 @@ export function timelineOf(rows: readonly JsonObject[], rowsByRef: ReadonlyMap<s
   return { events, phases, yearCounts, typeByYear };
 }
 
-/** The agreements as the contracts register, grouped by document type. */
 export function contractsOf(agreements: readonly JsonObject[], rowsByRef: ReadonlyMap<string, JsonObject>): JsonObject | undefined {
   if (agreements.length === 0) return undefined;
   const groups = new Map<string, JsonObject[]>();
@@ -162,7 +142,6 @@ export function contractsOf(agreements: readonly JsonObject[], rowsByRef: Readon
 
 const HEADER_KEYS = ['caseNo', 'claimant', 'claimantRole', 'court', 'defendant', 'defendantRole', 'intro', 'judge'] as const;
 
-/** The bundle list in the v5 bundles shape; the item catalogue and CaseLines sections have no source here. */
 export function bundlesOf(b: JsonObject): JsonObject {
   const list = objs(b.list).map((x) => {
     const rows = objs(x.rows).map((r) => ({
@@ -187,12 +166,9 @@ export function bundlesOf(b: JsonObject): JsonObject {
   return carry(out, b, ['headerProvenance']);
 }
 
-/** app-data keys with a v5 home; every other key becomes a residual dataset. */
 const MAPPED_DATA_KEYS = new Set(['chronology', 'people', 'entities', 'contradictions', 'agreements', 'bundles', 'meta', 'ft']);
-/** app-seed keys with a v5 home; every other key becomes a residual dataset. */
 const MAPPED_SEED_KEYS = new Set(['client', 'matters', 'risk', 'vdm', 'inforeq', 'witnesses', 'elements', 'authorities', 'discovery']);
 
-/** The v5 roots for the two JSON documents. `appSeed` may be empty when the HTML carries no seed. */
 export function toV5Roots(appData: JsonObject, appSeed: JsonObject, sink: DiagSink): Partial<Record<V5Root, JsonValue>> {
   const rows = objs(appData.chronology).map(chronologyRow);
   const rowsByRef = new Map(rows.map((r) => [str(r.ref), r]));
@@ -212,7 +188,6 @@ export function toV5Roots(appData: JsonObject, appSeed: JsonObject, sink: DiagSi
   if (objs(appSeed.elements).length) lit.elements = objs(appSeed.elements).map(elementOf);
   if (objs(appSeed.authorities).length) lit.authorities = objs(appSeed.authorities).map(authorityOf);
   if (Object.keys(lit).length) DATA.lit = lit;
-  // residual: the source meta, then every key of either document without a v5 home (a seed key never shadows a data key)
   if (isObject(appData.meta)) DATA.meta = appData.meta;
   for (const [k, v] of Object.entries(appData)) if (!MAPPED_DATA_KEYS.has(k) && !Object.hasOwn(DATA, k)) DATA[k] = v;
   for (const [k, v] of Object.entries(appSeed)) if (!MAPPED_SEED_KEYS.has(k) && !Object.hasOwn(DATA, k)) DATA[k] = v;

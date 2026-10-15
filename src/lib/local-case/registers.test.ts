@@ -1,6 +1,3 @@
-// The register store (GRS-52) through its one seam, an in-memory user-work adapter: insertion order, versions, the
-// per-(case, store) queue, the version re-check (stale), rows already gone, seed removal and a case-wide exclusive run.
-// Races, stale and gone are tested here once, for every view that writes through the store.
 import { describe, expect, it } from 'vitest';
 import { viewSeeds, type SeedOverlay, type SeedRow } from '../case-package/browser.ts';
 import { registers, type Work } from './registers.server.ts';
@@ -8,7 +5,6 @@ import type { RegisterRow, RegisterValue } from './user-work.server.ts';
 
 const tick = (ms = 0) => new Promise((r) => setTimeout(r, ms));
 
-/** An in-memory user-work: every write first awaits `gate` (held: the store is busy, as work.sqlite under BEGIN IMMEDIATE). */
 function memoryWork() {
 	const rows: (RegisterRow & { caseId: string })[] = [];
 	const overlays: (SeedOverlay & { caseId: string })[] = [];
@@ -222,8 +218,6 @@ describe('exclusive()', () => {
 		await registers(w).open('c', 'heads').add({ head: 'x' });
 		expect(seqs(w)).toEqual([1]);
 	});
-	// Re-entry: a write made from inside the run it was queued behind would wait on that run for ever (it settles only when
-	// `fn` does), and every later write of the case behind it. Each case below must settle; 500 ms is the hang detector.
 	it('a write through the store from inside the run runs in it, in order, and the case stays usable', { timeout: 500 }, async () => {
 		const w = memoryWork();
 		const r = registers(w);

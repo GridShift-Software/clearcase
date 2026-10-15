@@ -1,4 +1,3 @@
-// Shared contracts for M2 view owners: the generated 42-entry registry, routes, titles, citations, formatting, CSV.
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -13,10 +12,6 @@ const root = path.join(import.meta.dirname, '..', '..', '..');
 const inventory = JSON.parse(readFileSync(path.join(root, 'docs', 'plan', 'view-coverage.json'), 'utf8')) as { views: { id: string; label: string; group: string; owner: string }[] };
 const RV = 'sha256:' + 'ab'.repeat(32);
 
-/**
- * An M2 view's registry entry: under its owner's category, unavailable until its owner's gate (blocked by that ticket)
- * or available once the owner has flipped it, so the check holds before and after each owner's gate.
- */
 function expectOwnerView(v: (typeof VIEWS)[number]) {
 	expect(v.category).not.toBeNull();
 	expect(CATEGORIES[v.category!].owner).toBe(v.owner);
@@ -72,7 +67,7 @@ describe('titles, citations and formatting', () => {
 		expect(html).toContain(`href="/v/${rv}/doc/OD-002?page=3"`);
 		expect(html).toContain('cite-broken');
 		expect(html).not.toMatch(/<script|href="javascript:|<a [^>]*href="(?!\/v\/)/);
-		expect(html).toContain('&lt;script&gt;'); // shown as text
+		expect(html).toContain('&lt;script&gt;');
 		expect(citationResolver(RV, new Set(['A-1']))('B-2', null)).toBeNull();
 	});
 	it('formats money like v5 and states the date basis without inferring one', () => {
@@ -83,7 +78,7 @@ describe('titles, citations and formatting', () => {
 	});
 	it('quotes CSV cells with quotes, commas, semicolons, tabs, CR or LF, and neutralises formulas only in user-entered cells', () => {
 		expect(toCSV([['a', 'b,c', 'd"e'], ['x\ry', ['p', 'q'], null]])).toBe('a,"b,c","d""e"\r\n"x\ry","p; q",');
-		expect(csvCell('=SUM(A1)')).toBe('=SUM(A1)'); // imported values unchanged
+		expect(csvCell('=SUM(A1)')).toBe('=SUM(A1)');
 		expect(userCell('=SUM(A1)')).toBe("'=SUM(A1)");
 	});
 });

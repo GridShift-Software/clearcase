@@ -14,9 +14,7 @@
 		if (!ask) opener = document.activeElement;
 		ask = nav.to.url;
 	});
-	// the question takes focus when it opens, and again after a cancelled Back (which leaves focus on the page): a keyboard user lands on Stay
 	askFocus(() => ask !== null, 'lit-ask', 'lit-ask-stay');
-	// Stay puts focus back where it was when the dialog opened, or on main when that element is gone (GRS-18 r3)
 	function stay() {
 		ask = null;
 		const el = opener instanceof HTMLElement && opener !== document.body && opener.isConnected ? opener : document.getElementById('main');

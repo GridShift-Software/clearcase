@@ -1,4 +1,3 @@
-// "Write updated index to file": the additions of this version as v5's rescan index rows, named by view-content.
 import { indexFile, indexName } from '$lib/views/system/rescan.server';
 import type { RequestHandler } from './$types';
 

@@ -1,4 +1,3 @@
-// The stable key of an enforcement step: sha256 (hex) of the canonical JSON of {phase, step}.
 import { createHash } from 'node:crypto';
 import { canonicalJson } from '../../case-package/canonical.ts';
 

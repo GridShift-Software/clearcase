@@ -1,10 +1,3 @@
-// The newer builder of the v5 workspace HTML (META.version "V1", built from September 2026) writes the same
-// `const DATA` and `const META` lines but changes several dataset shapes and adds datasets (profile, text, emails,
-// whatsapp, organogram, transcripts, anchors). This module recognises that generation and maps its shapes onto the
-// v5 datasets as pure functions: a field the v5 shape requires is filled from the record itself or from the chronology
-// row of the same ref, never invented; a source field the v5 shape has no place for stays on its record (preserved,
-// reported as an unsupported field, not rendered). A dataset left unmapped and failing its schema is demoted to an
-// opaque residual by the adapter (V5_DATASET_SHAPE_UNMAPPED), never rejected.
 import { isObject, type JsonObject, type JsonValue } from '../strict-json.ts';
 import type { V5Root } from './extract.ts';
 
@@ -17,7 +10,6 @@ const count = (v: JsonValue | undefined): number => Math.max(0, Math.trunc(num(v
 const objs = (v: JsonValue | undefined): JsonObject[] => (Array.isArray(v) ? v.filter(isObject) : []);
 const nonEmpty = (parts: string[]) => parts.filter((s) => s !== '');
 const tally = (keys: Iterable<string>): Record<string, number> => { const c: Record<string, number> = {}; for (const k of keys) c[k] = (c[k] ?? 0) + 1; return c; };
-/** Every object of a list mapped; anything else in the list, or a non-list, is carried over as written. */
 const mapObjs = (v: JsonValue | undefined, f: (o: JsonObject) => JsonObject): JsonValue | undefined => (Array.isArray(v) ? v.map((x) => (isObject(x) ? f(x) : x)) : v);
 
 /** The newer builder stamps META.version and META.fileCount and writes a DATA.profile; v5 has none of them. */
@@ -25,7 +17,6 @@ export function isNewerGeneration(DATA: JsonObject, META: JsonObject): boolean {
   return typeof META.version === 'string' || typeof META.fileCount === 'number' || isObject(DATA.profile);
 }
 
-/** v5 META: the invoice count, date span and document-type tallies come from the rows when the source has none. */
 export function metaOf(meta: JsonObject, rows: readonly JsonObject[]): JsonObject {
   const types = tally(rows.map((r) => str(r.doc_type)));
   const dates = rows.map((r) => str(r.date)).filter((d) => d !== '').sort();
@@ -37,14 +28,12 @@ export function metaOf(meta: JsonObject, rows: readonly JsonObject[]): JsonObjec
   };
 }
 
-/** A profile value as narrative text: a list one item per line, an object one `key: value` per line. */
 function narrative(v: JsonValue | undefined): string {
   if (Array.isArray(v)) return v.map((x) => (isObject(x) ? Object.entries(x).map(([k, y]) => `${k}: ${narrative(y)}`).join(', ') : narrative(x))).join('\n');
   if (isObject(v)) return Object.entries(v).map(([k, y]) => `${k}: ${narrative(y)}`).join('\n');
   return str(v);
 }
 
-/** The profile fields read as the matter narrative, in page order, under a plain heading each. */
 const PROFILE_HEADINGS: readonly [key: string, heading: string, section: 'storyline' | 'strategy'][] = [
   ['claim_type', 'The claim', 'storyline'],
   ['forum', 'Forum', 'storyline'],
@@ -60,7 +49,6 @@ const PROFILE_HEADINGS: readonly [key: string, heading: string, section: 'storyl
   ['out_of_scope', 'Out of scope', 'strategy'],
 ];
 
-/** The v5 matter from the newer profile: the parties first, then each narrative field under its heading. */
 export function matterOf(profile: JsonObject, meta: JsonObject): JsonObject {
   const parties = nonEmpty([
     nonEmpty([str(profile.we_act_for), str(profile.our_role) && `(${str(profile.our_role)})`]).join(' '),
@@ -76,11 +64,9 @@ export function matterOf(profile: JsonObject, meta: JsonObject): JsonObject {
   return { title, short: str(profile.short) || str(meta.short) || title, forum: str(profile.forum), storyline, strategy };
 }
 
-/** A series or sample row with the v5 `filename`: the chronology row's, else the record's own title. */
 const withFilename = (rowsByRef: RowsByRef) => (r: JsonObject): JsonObject =>
   typeof r.filename === 'string' ? r : { ...r, filename: str(rowsByRef.get(str(r.ref))?.filename) || str(r.title) };
 
-/** v5 quantum: the three series carry a filename per row. */
 export function quantumOf(q: JsonObject, rowsByRef: RowsByRef): JsonObject {
   const fill = withFilename(rowsByRef);
   const out: JsonObject = { ...q };
@@ -88,10 +74,6 @@ export function quantumOf(q: JsonObject, rowsByRef: RowsByRef): JsonObject {
   return out;
 }
 
-/**
- * v5 contracts: each item carries doc_type (its chronology row's), party and role. The source's own `signed` reading
- * ("Signed", "Unclear") stands in for an empty note, so the view's Signed column reads it as the builder meant.
- */
 export function contractsOf(c: JsonObject, rowsByRef: RowsByRef): JsonObject {
   const item = (it: JsonObject): JsonObject => ({
     ...it,
@@ -103,11 +85,9 @@ export function contractsOf(c: JsonObject, rowsByRef: RowsByRef): JsonObject {
   return { ...c, groups: mapObjs(c.groups, (g) => ({ ...g, items: mapObjs(g.items, item) ?? g.items })) ?? c.groups };
 }
 
-/** A newer register seed row (filing, date, party, answer, answerDate, note) in the v5 seed shape. */
 const seedOf = (r: JsonObject): JsonObject =>
   r.fdate !== undefined || r.fparty !== undefined ? r : { ...r, fdate: str(r.date), filing: str(r.filing), fparty: str(r.party), rdate: str(r.answerDate), ref: str(r.ref), response: str(r.answer), status: str(r.status) };
 
-/** v5 filings: a note per group, a role per item, and the register seed in the v5 field names. */
 export function filingsOf(f: JsonObject): JsonObject {
   return {
     ...f,
@@ -116,14 +96,8 @@ export function filingsOf(f: JsonObject): JsonObject {
   };
 }
 
-/** v5 bundle slug: the number and name with each run of other characters as one underscore (court.ts does the same). */
 const bundleSlug = (no: string, name: string) => `${no}_${name}`.replace(/[^A-Za-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 60);
 
-/**
- * v5 bundles: the counts and files the list items carry, each row's `from` (written `frm`), the CaseLines sections
- * keyed by section number with the physical page range as from/to, and the item catalogue (absent here: empty). The
- * extracts list, a string in v5, moves to `extractFiles`.
- */
 export function bundlesOf(b: JsonObject): JsonObject {
   const bundle = (x: JsonObject): JsonObject => {
     const rows = mapObjs(x.rows, (r) => ({ ...r, from: r.from ?? count(r.frm) })) ?? x.rows;
@@ -152,10 +126,8 @@ export function bundlesOf(b: JsonObject): JsonObject {
   };
 }
 
-/** The decoded last segment of a "./" locator, as the file's display name. */
 const nameOfLocator = (u: string): string => { const seg = u.split('/').pop() ?? ''; try { return decodeURIComponent(seg); } catch { return seg; } };
 
-/** v5 caselines index from the newer page-number-to-text map; the file is the bundles' CaseLines source. */
 export function caselinesIndexOf(idx: JsonObject, caselinesSrc: string, pages: number): JsonObject {
   const index: JsonValue[] = [];
   const rest: JsonObject = {};
@@ -164,11 +136,6 @@ export function caselinesIndexOf(idx: JsonObject, caselinesSrc: string, pages: n
   return { ...rest, file: nameOfLocator(caselinesSrc), pages: pages || index.length, index };
 }
 
-/**
- * v5 discovery schedules from the newer list of schedules: the Original bundle's items are the discovery schedule,
- * the Supplementary bundle's the supplementary one; a file's `fn` is its name. The full list stays under `schedules`,
- * so a schedule of neither bundle (the defendant's, held for reference) is not lost.
- */
 export function schedOf(list: readonly JsonObject[]): JsonObject {
   const file = (f: JsonObject): JsonObject => ({ ...f, fn: f.fn ?? str(f.name), url: str(f.url), co: f.co ?? '' });
   const item = (i: JsonObject): JsonObject => {
@@ -179,14 +146,8 @@ export function schedOf(list: readonly JsonObject[]): JsonObject {
   return { discovery: of('Original'), supplementary: of('Supplementary'), schedules: [...list] };
 }
 
-/** The earliest dated row of a list, as an ISO date or ''. */
 const earliestDate = (rows: readonly JsonObject[]): string => rows.map((r) => str(r.date)).filter((d) => d !== '').sort()[0] ?? '';
 
-/**
- * v5 interest basis from the newer one (rate, method, from, source): the headline figure and date are the quantum
- * headline, the first invoice date is the earliest invoice in the ledger, and the source's own lines are the note.
- * The award date has no field in this export.
- */
 export function interestBasisOf(ib: JsonObject, q: JsonObject): JsonObject {
   return {
     ...ib,
@@ -198,15 +159,12 @@ export function interestBasisOf(ib: JsonObject, q: JsonObject): JsonObject {
   };
 }
 
-/** v5 settlement: the claim is the quantum headline (amount owing at its date), as the v5 builder wrote it. */
 export function settlementOf(s: JsonObject, q: JsonObject): JsonObject {
   return { ...s, claim: s.claim ?? str(q.headline_due), claimDate: s.claimDate ?? str(q.headline_date) };
 }
 
-/** v5 link sample: a filename per row. */
 export const linkSampleOf = (list: JsonValue, rowsByRef: RowsByRef): JsonValue => mapObjs(list, withFilename(rowsByRef)) ?? list;
 
-/** v5 build report: a filename per pending and per text-none row. */
 export function buildReportOf(br: JsonObject, rowsByRef: RowsByRef): JsonObject {
   const fill = withFilename(rowsByRef);
   return { ...br, pending: mapObjs(br.pending, fill) ?? [], textNone: mapObjs(br.textNone, fill) ?? [] };
@@ -214,7 +172,6 @@ export function buildReportOf(br: JsonObject, rowsByRef: RowsByRef): JsonObject 
 
 const hasMatter = (v: JsonValue | undefined): boolean => isObject(v) && typeof v.title === 'string';
 
-/** The newer roots in the v5 shapes, as far as they are mapped; every other value is carried over as written. */
 export function mapNewerRoots(roots: Roots): Roots {
   if (!isObject(roots.DATA) || !isObject(roots.META)) return roots;
   const DATA = roots.DATA, META = roots.META;

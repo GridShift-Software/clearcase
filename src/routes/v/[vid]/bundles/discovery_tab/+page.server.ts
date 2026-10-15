@@ -36,9 +36,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 	return {
 		present: raw !== null,
 		schedules,
-		// package-file key -> its originals-site link (GRS-45)
 		files,
-		// the original's download link (attachment, nosniff, sandbox CSP from the originals site) per served ref
 		downloads: Object.fromEntries(await bundleDownloads(version.id, refs)),
 		caption, meta,
 		mode: readMode(version.caseId),
@@ -50,7 +48,6 @@ export const load: PageServerLoad = async ({ parent }) => {
 const caseOf = async (vid: string) => app().store.getVersion(vid)?.case_id ?? null;
 const MAX_KEY = 4096;
 const BAD_KEY = `Not saved: a file key is empty or longer than ${MAX_KEY.toLocaleString('en')} characters.`;
-/** The posted file keys, or null when one is empty or too long (refused, never dropped). */
 const keys = (f: FormData): string[] | null => {
 	const k = f.getAll('key');
 	return k.every((x): x is string => typeof x === 'string' && x.length > 0 && x.length <= MAX_KEY) ? k : null;
@@ -58,7 +55,6 @@ const keys = (f: FormData): string[] | null => {
 const conflictMessage = (n: number) => `Not saved: ${n} file${n === 1 ? ' was' : 's were'} marked differently in another tab since this page loaded. Your marks are kept; Retry saves yours over them, Discard shows the stored marks.`;
 
 export const actions: Actions = {
-	/** Tick or untick files (`on` 1 or 0); Clear and Empty bundle untick the files this page has selected. */
 	select: async ({ request, params }) => {
 		const c = await caseOf(params.vid); if (!c) return fail(404, { message: 'Unknown results version' });
 		const f = await request.formData();
@@ -66,7 +62,6 @@ export const actions: Actions = {
 		if (!k) return fail(400, { message: BAD_KEY });
 		return guarded({ on }, async () => ({ saved: (await writeMarks(c, k.map((locator) => ({ locator })), { selected: on })).saved.length }));
 	},
-	/** Mark files Copy or Original; each `base` is the mark the page last saw stored for its key ('' for none). */
 	co: async ({ request, params }) => {
 		const c = await caseOf(params.vid); if (!c) return fail(404, { message: 'Unknown results version' });
 		const f = await request.formData();
@@ -79,7 +74,6 @@ export const actions: Actions = {
 			return { saved: r.saved.length };
 		});
 	},
-	/** The schedule shown: a view preference, so the last tab to switch wins (no conflict). */
 	mode: async ({ request, params }) => {
 		const c = await caseOf(params.vid); if (!c) return fail(404, { message: 'Unknown results version' });
 		const m = (await request.formData()).get('mode');

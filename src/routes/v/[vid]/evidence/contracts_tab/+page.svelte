@@ -13,8 +13,6 @@
 	const k = $derived(data.content);
 	const files = $derived(new Map(data.files));
 	const exportCsv = () => download(data.exportName.name, toCSV(contractsCsvRows(c?.groups ?? [])));
-	// the data is complete when the page renders (data-ready, also in the server's HTML); data-hydrated marks the
-	// moment its controls respond
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>

@@ -1,10 +1,3 @@
-/**
- * Text for the PDFs the builder draws: Helvetica-Bold widths and WinAnsi encoding (v5 PDFK 1357-1380).
- *
- * v5's `ascii()` dropped every character outside printable ASCII, so an accented name lost its letters in the PDF
- * index (S-court_bundle_tab-6). Here every character the WinAnsi font has is kept, a letter it lacks falls back to
- * its unaccented base letter, and anything else becomes '?'. Curly quotes and dashes are kept as themselves.
- */
 
 const HELV_B = (
 	'278 333 474 556 556 889 722 238 333 333 389 584 278 333 278 278 556 556 556 556 556 556 556 556 556 556 333 333 ' +
@@ -21,7 +14,6 @@ const WIN_HIGH: Record<string, number> = {
 	'‹': 0x8b, 'Œ': 0x8c, 'Ž': 0x8e, '‘': 0x91, '’': 0x92, '“': 0x93, '”': 0x94, '•': 0x95, '–': 0x96, '—': 0x97,
 	'˜': 0x98, '™': 0x99, 'š': 0x9a, '›': 0x9b, 'œ': 0x9c, 'ž': 0x9e, 'Ÿ': 0x9f,
 };
-/** Helvetica-Bold widths of the punctuation outside ASCII that indexes use; other letters take their base letter's. */
 const WIDE: Record<string, number> = {
 	'‘': 278, '’': 278, '‚': 278, '“': 500, '”': 500, '„': 500, '–': 556, '—': 1000, '…': 1000, '•': 350, '€': 556,
 	'«': 556, '»': 556, '°': 400, '§': 556, '©': 737, '®': 737, '™': 1000, '·': 278, '×': 584, '½': 834, '¼': 834,
@@ -36,7 +28,6 @@ const encodable = (c: string) => {
 	return (k >= 0x20 && k <= 0x7e) || (k >= 0xa1 && k <= 0xff) || c in WIN_HIGH;
 };
 
-/** One line of index text as the WinAnsi font can show it (still Unicode; `winAnsi` encodes it). */
 export function clean(s: unknown): string {
 	let out = '';
 	for (const ch of String(s ?? '')
@@ -60,14 +51,12 @@ function charWidth(ch: string): number {
 	return base >= 32 && base <= 126 ? HELV_B[base - 32] : 556;
 }
 
-/** Width in points of cleaned text in Helvetica-Bold at `size`. */
 export function textWidth(s: string, size: number): number {
 	let w = 0;
 	for (const ch of s) w += charWidth(ch);
 	return (w * size) / 1000;
 }
 
-/** Cleaned text as a WinAnsi byte string, escaped for a literal string in a content stream. */
 export function pdfText(s: string): string {
 	let out = '';
 	for (const ch of s) {

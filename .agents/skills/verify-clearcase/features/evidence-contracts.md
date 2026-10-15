@@ -14,9 +14,11 @@ Contracts shows the imported contract groups (header, item count, table of ref, 
 
 ## Driving it with verify-clearcase
 
-- **Open.** Choose `#nav-contracts_tab`. `main[data-ready=contracts_tab]`, title `Contracts · <case> · ClearCase`, heading focused, `#classification-status[data-verification=unverified]`.
-- **Citation.** Choose the `a.doc` link of `tr[data-ref=<ref>]`. The document page `main[data-ready="doc:<ref>"]` shows `section.original` with its Open link.
-- **Export.** Choose `#export-contracts`: the download (`contracts.csv` when the package names none) has `group,ref,date,title,note,text_status,url`.
+Preconditions: `activate` passed on the synthetic case of `lib/inner.mjs` (`buildCase`, 7 rows); step `every-view` has opened this view once.
+
+- **Open.** Step `every-view` (page and heading only). Choose `#nav-contracts_tab`. `main[data-ready=contracts_tab]`, title `Contracts · <case> · ClearCase`, heading focused, `#classification-status[data-verification=unverified]`.
+- **Citation.** *Not yet driven.* Choose the `a.doc` link of `tr[data-ref=<ref>]`. The document page `main[data-ready="doc:<ref>"]` shows `section.original` with its Open link.
+- **Export.** *Not yet driven.* Choose `#export-contracts`: the download (`contracts.csv` when the package names none) has `group,ref,date,title,note,text_status,url`.
 
 ## Gotchas
 

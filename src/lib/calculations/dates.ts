@@ -1,15 +1,9 @@
-// Calendar-date arithmetic for the quantum views (GRS-16). Dates are ISO `YYYY-MM-DD` proleptic Gregorian calendar
-// dates with a year from 1000 to 9999, and a day count is pure arithmetic on them, so it never depends on the host
-// time zone or daylight saving (v5 subtracted local-time dates: S-interest_calc_tab-4) and never maps a year below 100
-// to 1900 + y as Date.UTC does (CC-06 r2, D7). Browser-safe and pure.
 
 const ISO = /^(\d{4})-(\d{2})-(\d{2})$/;
 
-/** The accepted years: four digits, 1000 to 9999. */
 export const MIN_YEAR = 1000;
 export const MAX_YEAR = 9999;
 
-/** [year, month 1-12, day] of a real calendar date with a year from 1000 to 9999, else null ('2026-02-30', '2026-13-01' and '0024-03-01' are not accepted). */
 export function ymd(s: string | null | undefined): [number, number, number] | null {
 	const m = ISO.exec(s ?? '');
 	if (!m) return null;
@@ -23,7 +17,6 @@ export const daysInMonth = (y: number, m: number) => (m === 2 ? (isLeapYear(y) ?
 
 const iso = (y: number, m: number, d: number) => `${String(y).padStart(4, '0')}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
 
-/** Why a typed date is not accepted ('' when it is): the message names the field, the text and the year range. */
 export function dateProblem(label: string, s: string): string {
 	if (ymd(s)) return '';
 	if (s.trim() === '') return `${label}: enter a date.`;
@@ -42,7 +35,6 @@ function dayNumber(y: number, m: number, d: number): number {
 	return era * 146097 + doe - 719468;
 }
 
-/** Whole days from `from` to `to` on the calendar (negative when reversed); null when either is not an accepted date. */
 export function daysBetween(from: string, to: string): number | null {
 	const a = ymd(from), b = ymd(to);
 	if (!a || !b) return null;
@@ -61,7 +53,6 @@ export function addYears(date: string, n: number): string | null {
 	return iso(y, p[1], Math.min(p[2], daysInMonth(y, p[1])));
 }
 
-/** The calendar date of an instant in UTC. */
 export const utcDate = (t: Date) => t.toISOString().slice(0, 10);
 
 /**

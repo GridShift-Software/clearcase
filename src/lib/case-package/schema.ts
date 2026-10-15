@@ -1,5 +1,3 @@
-// Package-level schemas (TypeBox values are JSON Schema 2020-12 objects; exported to
-// src/lib/case-package/schema/ by scripts/case-package/export-schemas.ts).
 import Type, { type Static } from 'typebox';
 import { ASSET_KEY_PATTERN, REF_PATTERN } from './refs.ts';
 
@@ -21,7 +19,7 @@ const Digest = Type.String({ pattern: DIGEST });
 const Size = Type.Integer({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER });
 const Slug = Type.String({ pattern: CASE_ID });
 const ShortText = Type.String({ maxLength: 200 });
-const RelPath = Type.String({ minLength: 1, maxLength: 1024 }); // full rules in paths.ts
+const RelPath = Type.String({ minLength: 1, maxLength: 1024 });
 const DatasetKey = Type.String({ pattern: DATASET_KEY, maxLength: 64 });
 const DateTime = Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d{1,3})?)?(?:Z|[+-]\\d{2}:\\d{2})?$' });
 const Kind = Type.Union([Type.Literal('generated'), Type.Literal('authored')]);

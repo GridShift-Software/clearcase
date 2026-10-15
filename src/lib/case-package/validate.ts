@@ -1,7 +1,3 @@
-// Structural, integrity and quality validation of a package snapshot (bytes in memory).
-// Order: manifest and version policy (before any shape check), listed files, envelopes and
-// record shapes, the document register, the asset index, citations, links and text, source
-// metadata, identity. Originals in the case folder are checked separately (originals.ts).
 import Value from 'typebox/value';
 import { canonicalJson, canonicalText } from './canonical.ts';
 import type { DiagSink } from './diagnostics.ts';
@@ -25,10 +21,8 @@ export interface CitationHit { ref: string; file: string; pointer: string; inlin
 export interface ValidatedPackage {
   manifest: Manifest;
   manifestSha256: string;
-  /** recomputed; equals manifest.resultsVersion when no PKG_VERSION_MISMATCH */
   resultsVersion: string;
   inputRevisionId: string;
-  /** manifest.json and every listed file, exact bytes */
   files: Map<string, Uint8Array>;
   datasets: Map<string, DatasetEnvelope>;
   assets: Record<string, Asset>;
@@ -52,18 +46,12 @@ function parseFile(bytes: Uint8Array, file: string, sink: DiagSink): JsonValue |
 
 const decoder = new TextDecoder();
 
-/** Untrusted value as text without invoking any of its own properties. */
 export function textOf(v: unknown): string {
   if (typeof v === 'string') return v;
   try { return canonicalJson(v); } catch { return '(unprintable)'; }
 }
 
-/**
- * `check` is called between files, datasets and every few thousand values; it throws to stop
- * (deadline or cancellation), so a large package cannot block past the import deadline.
- */
 export function validateSnapshot(snap: Snapshot, sink: DiagSink, L: Limits, check: () => void = () => {}): ValidatedPackage | null {
-  // 1. manifest, format and version: one actionable error and nothing else for an unsupported version
   const mBytes = snap.files.get('manifest.json');
   if (!snap.present.has('manifest.json')) { sink.add('PKG_MANIFEST_MISSING', 'manifest.json not found at the package root'); return null; }
   if (!mBytes) { sink.add('PKG_TOO_LARGE', `manifest.json is larger than ${L.manifestBytes} bytes`, { file: 'manifest.json' }); return null; }
@@ -88,7 +76,6 @@ export function validateSnapshot(snap: Snapshot, sink: DiagSink, L: Limits, chec
   const irId = inputRevisionId(manifest.inputRevision.sources);
   if (irId !== manifest.inputRevision.id) sink.add('PKG_INPUT_REVISION_MISMATCH', 'inputRevision.id does not match its sources', { file: 'manifest.json', pointer: '/inputRevision/id' });
 
-  // 2. listed files: containment, uniqueness, presence, bounds, fingerprint, strict JSON, canonical form
   const listed = new Set<string>(['manifest.json']);
   const folded = new Map<string, string>(); folded.set('manifest.json', 'manifest.json');
   const files = new Map<string, Uint8Array>([['manifest.json', mBytes]]);
@@ -130,7 +117,6 @@ export function validateSnapshot(snap: Snapshot, sink: DiagSink, L: Limits, chec
   for (const p of snap.present.keys()) if (!listed.has(p)) sink.add('PKG_UNLISTED_FILE', 'not listed in the manifest; ignored and never imported', { file: p, subject: p });
   if (assetsListed !== 1) sink.add('PKG_ROLE_INVALID', 'exactly one assets.json must be listed', { file: 'manifest.json' });
 
-  // 3. envelopes, user-work boundary and record shapes
   const datasets = new Map<string, DatasetEnvelope>();
   for (const { f, value } of loaded) {
     check();
@@ -164,7 +150,6 @@ export function validateSnapshot(snap: Snapshot, sink: DiagSink, L: Limits, chec
   }
   for (const k of REQUIRED_DATASETS) if (!KNOWN_SCHEMAS.has(datasets.get(k)?.schema ?? '')) sink.add('DS_REQUIRED_MISSING', `dataset ${k} is required`, { subject: k });
 
-  // 4. document register
   const register = new Set<string>();
   const chron = datasets.get('chronology');
   const chronRows = chron && Array.isArray(chron.data) ? (chron.data as JsonObject[]) : [];
@@ -180,7 +165,6 @@ export function validateSnapshot(snap: Snapshot, sink: DiagSink, L: Limits, chec
     }
   });
 
-  // 5. asset index
   let assets: Record<string, Asset> = Object.create(null);
   if (assetsValue !== undefined) {
     if (isObject(assetsValue) && assetsValue.index === ASSET_INDEX && assetsValue.root === 'case-folder' && isObject(assetsValue.assets) && Object.keys(assetsValue).length === 3) {
@@ -215,22 +199,18 @@ export function validateSnapshot(snap: Snapshot, sink: DiagSink, L: Limits, chec
     }
   }
 
-  // 6. citations, links, text hygiene, nested user-work shapes
   const targets = new Set<string>([...register, ...Object.keys(assets)]);
   const citations: CitationHit[] = [];
   for (const env of datasets.values()) { check(); scanDataset(env, { sink, file: `datasets/${env.key}.json`, targets, citations, check }); }
 
-  // 7. source metadata against derived counts; seeds
   checkMetaCounts(datasets, sink);
   checkSeeds(datasets, sink);
 
-  // 8. identity
   const resultsVersion = resultsVersionOf({ formatVersion: manifest.formatVersion, caseId: manifest.case.id, inputRevisionId: manifest.inputRevision.id, files: manifest.files });
   if (resultsVersion !== manifest.resultsVersion) sink.add('PKG_VERSION_MISMATCH', 'resultsVersion is not the digest of the listed content', { file: 'manifest.json', pointer: '/resultsVersion' });
   return { manifest, manifestSha256: sha256Hex(mBytes), resultsVersion, inputRevisionId: irId, files, datasets, assets, register, citations };
 }
 
-// ---- record shapes -------------------------------------------------------------------------
 
 function recordSubject(data: unknown, path: string): string {
   const m = /^\/(\d+)/.exec(path);
@@ -259,7 +239,6 @@ function checkShape(schema: unknown, env: DatasetEnvelope, file: string, sink: D
 
 type Sch = { type?: string; properties?: Record<string, Sch>; patternProperties?: Record<string, Sch>; additionalProperties?: boolean | Sch; items?: Sch | false; prefixItems?: Sch[]; anyOf?: Sch[] };
 
-/** Fields the schema does not name, keyed by stable pointer (array indexes as "*"). */
 function unknownFields(s: Sch, v: unknown, ptr: string, out: Map<string, number>): void {
   if (s.anyOf) {
     const branch = s.anyOf.find((b) => Value.Check(b as never, v));
@@ -283,7 +262,6 @@ function unknownFields(s: Sch, v: unknown, ptr: string, out: Map<string, number>
   }
 }
 
-// ---- asset index ---------------------------------------------------------------------------
 
 function checkAssets(assets: Record<string, Asset>, register: Set<string>, sink: DiagSink, L: Limits): void {
   const F = 'assets.json';
@@ -304,7 +282,6 @@ function checkAssets(assets: Record<string, Asset>, register: Set<string>, sink:
     if (a.kind === 'embedded' && ref !== `${a.parentRef}.a${a.ordinal}`) sink.add('ID_REF_INVALID', 'an embedded asset key must be <parentRef>.a<ordinal>', at(''));
     if (a.kind === 'missing') sink.add('ASSET_MISSING_AT_BUILD', 'the converter found no original for this document', at('/path'));
     if (a.kind === 'file') {
-      // shared content matters for re-anchoring documents; a package file is not a candidate
       if (!isPathKey(ref)) bySha.set(a.sha256, [...(bySha.get(a.sha256) ?? []), ref]);
       if (a.size > L.originalBytes) sink.add('ASSET_TOO_LARGE', `declared size ${a.size} exceeds ${L.originalBytes} bytes`, at('/size'));
       if (byPath.get(a.path) === ref) declared += a.size;
@@ -325,7 +302,6 @@ function checkAssets(assets: Record<string, Asset>, register: Set<string>, sink:
       }
     } else if (!register.has(ref) && !isPathKey(ref)) sink.add('ASSET_ORPHAN', 'asset has neither a document row nor a parent', at(''));
     const ts = a.textStatus as TextStatus;
-    // a package file is opened or downloaded, never read for text: only an impossible status is reported
     if (isPathKey(ref)) { if (!textStatusConsistent(a.mediaType, ts)) sink.add('TEXT_STATUS_INCONSISTENT', `textStatus ${ts} is impossible for ${a.mediaType} (capability ${capabilityOf(a.mediaType)})`, at('/textStatus')); continue; }
     if (!textStatusConsistent(a.mediaType, ts)) sink.add('TEXT_STATUS_INCONSISTENT', `textStatus ${ts} is impossible for ${a.mediaType} (capability ${capabilityOf(a.mediaType)})`, at('/textStatus'));
     else if (ts === 'unsupported') sink.add('MEDIA_UNSUPPORTED', `no text extractor for ${a.mediaType}; open or download only`, at('/mediaType'));
@@ -337,13 +313,9 @@ function checkAssets(assets: Record<string, Asset>, register: Set<string>, sink:
   for (const [sha, refs] of bySha) if (refs.length > 1) sink.add('ASSET_DUPLICATE_CONTENT', `${refs.length} refs share one sha256`, { file: F, subject: sha.slice(0, 16) });
 }
 
-// ---- generic scan: citations, links, text, nested user-work shapes ------------------------------
 
 interface ScanContext { sink: DiagSink; file: string; targets: Set<string>; citations: CitationHit[]; check: () => void }
 
-// C0 except TAB/LF/CR, DEL, C1, every default-ignorable code point (soft hyphen, bidi embeddings, overrides and
-// isolates, zero-width and directional marks, invisible operators, variation selectors, fillers, tags, BOM) and
-// the interlinear annotation controls
 const BAD_TEXT = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\p{Default_Ignorable_Code_Point}\ufff9-\ufffb]/u;
 const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
 
@@ -359,7 +331,6 @@ const short = (s: string): string => sha256Hex(s).slice(0, 12);
 
 const ENTITIES: Record<string, string> = { colon: ':', sol: '/', bsol: '\\', amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", tab: '\t', newline: '\n', lpar: '(', rpar: ')', period: '.', num: '#', percnt: '%', excl: '!', quest: '?', equals: '=', semi: ';', comma: ',', nbsp: ' ' };
 
-/** HTML character references as a Markdown renderer would decode them inside a link destination. */
 export function decodeEntities(s: string): string {
   if (!s.includes('&')) return s;
   return s.replace(/&(#[0-9]{1,7}|#[xX][0-9a-fA-F]{1,6}|[A-Za-z]{1,10});?/g, (m, e: string) => {
@@ -371,28 +342,17 @@ export function decodeEntities(s: string): string {
   });
 }
 
-/**
- * Link destinations in Markdown prose, found in linear time: inline links [x](dest) and
- * [x](<dest>), reference definitions [x]: dest, and autolinks <scheme:...>. Entities are decoded.
- */
 export function markdownLinkTargets(s: string): string[] {
   const out: string[] = [];
   const isSpace = (c: string | undefined) => c === ' ' || c === '\t' || c === '\n' || c === '\r';
-  /**
-   * Records the destination s[from, to). One longer than MAX_LINK is recorded as its first
-   * MAX_LINK + 1 raw characters, undecoded, so it stays over the limit and is rejected: it is
-   * never cut or decoded into a shorter locator that could pass.
-   */
   const push = (from: number, to: number, decode: (d: string) => string) => {
     out.push(to - from > MAX_LINK ? s.slice(from, from + MAX_LINK + 1) : decode(s.slice(from, to)));
   };
-  /** Index of `ch` within MAX_LINK + 1 characters of `from`, else where the bounded search stopped (at most from + MAX_LINK + 1). */
   const closing = (ch: string, from: number): number => {
     let k = from;
     while (k < s.length && k - from <= MAX_LINK && s[k] !== ch) k++;
     return k;
   };
-  /** Reads one destination at `from`; returns where scanning may resume (never before `from`). */
   const take = (from: number): number => {
     let i = from;
     while (s[i] === ' ' || s[i] === '\t') i++;
@@ -408,7 +368,6 @@ export function markdownLinkTargets(s: string): string[] {
     if (end > i) push(i, end, unescapeDest);
     return end;
   };
-  // each search resumes after the previous destination, so the scan stays linear in the text length
   for (let i = s.indexOf(']('); i >= 0; ) i = s.indexOf('](', Math.max(i + 2, take(i + 2)));
   // reference definitions: "[label]: dest" only where the label opens a line (at most 3 spaces of indent)
   for (let i = s.indexOf(']:'); i >= 0; ) {
@@ -430,15 +389,9 @@ export function markdownLinkTargets(s: string): string[] {
   return out;
 }
 
-/** Markdown destination text: backslash escapes of ASCII punctuation removed, then character references decoded. */
 const unescapeDest = (d: string): string => decodeEntities(d.replace(/\\([!-\/:-@\[-`{-~])/g, '$1'));
 
 const arrayIds = new WeakMap<unknown[], string[]>();
-/**
- * Stable identities of an array's elements, computed once per array: the element's own id when
- * `idField` names the record key (the register's ref), otherwise a digest of its canonical
- * content plus its occurrence number among equal elements. Independent of the array's order.
- */
 function elementIds(arr: unknown[], idField: string | null): string[] {
   let ids = arrayIds.get(arr);
   if (!ids) {
@@ -465,11 +418,8 @@ function scanDataset(env: DatasetEnvelope, ctx: ScanContext): void {
   const parents: unknown[] = [];
   let visited = 0;
   const ptr = () => '/data' + path.map((p) => '/' + escapePointer(p)).join('');
-  /** The pointer with each array index replaced by the element's stable identity (fingerprints). */
-  // only the register's own top-level rows are identified by ref; elsewhere a ref is a citation, not an identity
   const idField = (level: number) => (level === 0 && nonCite?.has('ref') ? 'ref' : null);
   const stable = () => '/data' + path.map((p, i) => '/' + (Array.isArray(parents[i]) ? elementIds(parents[i] as unknown[], idField(i))[Number(p)] : escapePointer(p))).join('');
-  // pointers are computed at most once per visited value, however many diagnostics it yields
   let here: { pointer: string; stablePointer: string } | null = null;
   const at = (subject: string) => {
     here ??= { pointer: ptr(), stablePointer: stable() };
@@ -523,7 +473,6 @@ function scanDataset(env: DatasetEnvelope, ctx: ScanContext): void {
       return;
     }
     if (isObject(v)) {
-      // a template-form link (view-content) is checked as the link its literal text spells, params empty
       const tpl: unknown = v;
       if (key !== undefined && LINK_FIELDS.has(key) && isViewTemplate(tpl)) { here = null; checkLink(templateLinkText(tpl), key); }
       for (const k of Object.keys(v)) {
@@ -543,16 +492,13 @@ function scanDataset(env: DatasetEnvelope, ctx: ScanContext): void {
   walk(env.data, undefined, undefined, false);
 }
 
-/** User-work store keys anywhere inside a value (used for manifest extensions). */
 function storeKeysIn(v: unknown, out: string[] = []): string[] {
   if (Array.isArray(v)) for (const x of v) storeKeysIn(x, out);
   else if (isObject(v)) for (const k of Object.keys(v)) { if (STORE_KEY.test(k)) out.push(k); storeKeysIn(v[k], out); }
   return out;
 }
 
-// ---- source metadata and seeds -----------------------------------------------------------------
 
-/** Compare raw META counts with counts derived from validated records. META is never changed. */
 function checkMetaCounts(datasets: Map<string, DatasetEnvelope>, sink: DiagSink): void {
   const meta = datasets.get('meta');
   const chron = datasets.get('chronology');
@@ -564,7 +510,6 @@ function checkMetaCounts(datasets: Map<string, DatasetEnvelope>, sink: DiagSink)
   const types = by('doc_type');
   const bundles = by('bundle');
   const people = datasets.get('people');
-  // [group or null, field, derived count]; names are untrusted and may contain any character
   const derived: [string | null, string, number][] = [
     [null, 'docCount', rows.length],
     [null, 'textNone', status.get('none') ?? 0],

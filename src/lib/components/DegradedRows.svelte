@@ -1,5 +1,4 @@
 <script lang="ts">
-	// The degraded state of the document-row contract: a provider whose rows() failed is left out, and the reader says so.
 	let { failed }: { failed: { source: string; owner: string; reason: string }[] } = $props();
 </script>
 

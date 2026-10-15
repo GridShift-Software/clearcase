@@ -13,11 +13,9 @@
 	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
 	const vid = $derived(data.version.id);
-	// local copies of the stored user work: the page shows what the user did at once and saves it in the background
 	let mode = $state<Mode>(untrack(() => data.mode));
 	const sel = new SvelteSet<string>(untrack(() => data.selected));
 	const marks = new SvelteMap<string, CO>(untrack(() => data.marks));
-	// what this page last knew to be stored: a Copy/Original change sends it as its base, and Discard restores it
 	const storedSel = new Set<string>(untrack(() => data.selected));
 	const storedMarks = new Map<string, CO>(untrack(() => data.marks));
 	let storedMode: Mode = untrack(() => data.mode);
@@ -28,12 +26,8 @@
 	const files = $derived(selectedFiles(data.schedules, sel, marks));
 	const notes = $derived(incompleteNotes(files, sel));
 	const label = (m: Mode) => data.meta[m].label ?? (m === 'discovery' ? 'Discovery schedule' : 'Supplementary schedule');
-	// item numbers the package repeats within this schedule: every row renders, and each repeat is flagged
 	const repeated = $derived.by(() => { const seen = new Set<number>(), dup = new Set<number>(); for (const i of items) (seen.has(i.no) ? dup : seen).add(i.no); return dup; });
 
-	// Writes go one at a time, in order (ops.ts). A failed op keeps its own error, Retry and Discard and never blocks a
-	// later op; a later op on the same field of the same file takes that file out of the failed op. A large selection
-	// is sent in chunks under the server's body limit.
 	let queue: Op[] = [];
 	let pending = $state(0);
 	let failed = $state<Op[]>([]);
@@ -80,7 +74,6 @@
 	};
 	const retry = (o: Op) => { failed = failed.filter((x) => x.id !== o.id); send({ action: o.action, value: o.value, keys: o.keys }); };
 	const retryAll = () => { const ops = failed; failed = []; for (const o of ops) send({ action: o.action, value: o.value, keys: o.keys }); };
-	/** Drop a failed change: the page shows what is stored again for its files. */
 	const discard = (o: Op) => {
 		failed = failed.filter((x) => x.id !== o.id);
 		if (o.action === 'mode') mode = storedMode;
@@ -99,7 +92,6 @@
 		for (const k of sel) marks.set(k, v);
 		send({ action: 'co', value: v, keys: [...sel] });
 	};
-	/** Clear and Empty bundle untick the files this page has selected (v5 keeps the marks). */
 	const clearSel = () => { const keys = [...sel]; sel.clear(); if (keys.length) send({ action: 'select', value: '0', keys }); };
 	const switchMode = (m: Mode) => { mode = m; ds.q = ''; ds.onlyMissing = false; send({ action: 'mode', value: m, keys: [] }); };
 	const removeKey = (key: string) => toggleFile(key, false);
@@ -111,8 +103,6 @@
 		if (nav.type === 'leave' || !confirm('Some selection or Copy/Original changes are not saved. Leave this page and lose them?')) nav.cancel();
 	});
 
-	// S-discovery_tab-1 corrected: each control has exactly one handler, so one click is one action after any number of
-	// visits and mode switches.
 	const coverFile = () => `${meta.file ?? 'Schedule (cover)'}.html`;
 	const cover = () => coverDoc(data.caption, meta, items, marks);
 	const coverDownload = () => downloadBlob(coverFile(), cover(), 'text/html');
@@ -138,13 +128,11 @@
 	const filter = (v: string) => { qInput = v; clearTimeout(filterTimer); filterTimer = setTimeout(() => { ds.q = v; }, 140); };
 	$effect(() => { qInput = ds.q; });
 
-	// without JavaScript nothing here can save or export, so every control renders disabled with a note until hydrated
 	let ready = $state(false);
 	const off = $derived(!ready);
 	onMount(() => { ready = true; });
 </script>
 
-<!-- a document opens its page; a package file (GRS-45) its originals-site link, in a new tab as v5 -->
 {#snippet open(ref: string)}{#if data.files[ref]}<a class="cite" href={data.files[ref]} target="_blank" rel="noopener">Open</a>{:else}<CitationLink resultsVersion={vid} {ref} label="Open" />{/if}{/snippet}
 
 <main id="main" tabindex="-1" data-ready="discovery_tab" data-hydrated={ready ? '1' : null} data-pending={pending} data-unsaved={failed.length} aria-busy={pending > 0} class:ds-printing={printing}>
@@ -219,8 +207,6 @@
 	.ds-switch button.on { font-weight: 600; }
 	.ds-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 6px 0; }
 	.ds-bar .sp { flex: 1; }
-	/* the filter input gives way when the bar's count grows (' · saving…' while a write is in flight), so the rows below
-	   never shift under a click that follows a tick */
 	.ds-in { flex: 1 1 10em; min-width: min(8em, 100%); max-width: 260px; }
 	.ds-tbl { width: 100%; border-collapse: collapse; }
 	.ds-tbl tr.sel > td { background: var(--tint); }
@@ -236,8 +222,6 @@
 	.co-c { color: var(--navy); font-weight: 600; text-align: center; }
 	.fn { font-family: ui-monospace, monospace; font-size: 0.85em; overflow-wrap: anywhere; }
 	.ds-fail { margin: 2px 0; }
-	/* visible states kept out of the text content: saving, and a change that is not saved */
-	/* the saving mark occupies the same width whether shown or not, so no row below moves while a write is in flight */
 	.ds-bar .cnt::after { content: ''; display: inline-block; width: 5.4em; white-space: nowrap; overflow: hidden; vertical-align: bottom; }
 	main[aria-busy='true'] .ds-bar .cnt::after { content: ' · saving…'; color: #8a5a0b; }
 	.unsaved { outline: 2px dashed var(--danger); }

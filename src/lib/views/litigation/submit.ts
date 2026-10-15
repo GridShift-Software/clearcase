@@ -5,19 +5,15 @@
 
 export const LOST = 'Not saved: the app could not be reached. Your entry is kept below; try again once it is running.';
 
-/** The app's request size limit for a form post (request-limit.server.ts DEFAULT_BODY_LIMIT; a test keeps the two equal). */
 export const REQUEST_LIMIT = '512 KiB';
 
 export type Op = 'add' | 'delete' | 'status';
 export interface Failure { message: string; retry: boolean }
 
-/** The message of a failed action result, or null when the action declined silently (v5's no-op adds). */
 export const failureMessage = (data: Record<string, unknown> | undefined) => (typeof data?.message === 'string' ? data.message : null);
 
-/** A failed action result (`fail(...)`): its message, and whether the same request can succeed later (a busy store). */
 export const refused = (data: Record<string, unknown> | undefined, fallback: string): Failure => ({ message: failureMessage(data) ?? fallback, retry: data?.retry === true });
 
-/** An 'error' result: no status is a lost request; a status is an HTTP error from the app before or in the action. */
 export function lostMessage(op: Op, status?: number): Failure {
 	const what = op === 'delete' ? 'Not deleted' : 'Not saved';
 	const kept = op === 'add' ? 'Your entry is kept below' : op === 'status' ? 'Your choice is kept' : 'The entry is still listed';

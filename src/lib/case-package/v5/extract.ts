@@ -1,11 +1,3 @@
-// Data-only extraction from the workspace HTML. The HTML and its JavaScript are treated as opaque
-// text. Two generations are read, never evaluated:
-//  * v5: four anchored payload lines (`const DATA = `, `const META = `, `window.__SCHED__ = `,
-//    `window.__CASELINES_IDX__ = `) are sliced and handed to the strict JSON parser;
-//  * the newer generation: the `<script id="app-data">` and `<script id="app-seed">` JSON script
-//    tags are parsed the same way and mapped onto the v5 roots (json-workspace.ts).
-// A payload that is not pure JSON is refused. NAV, IC, STORE_KEYS and the other code literals are
-// viewer code and are only listed as ignored.
 import type { DiagSink } from '../diagnostics.ts';
 import { decodeUtf8Strict, isObject, parseStrictJson, StrictJsonError, type JsonValue } from '../strict-json.ts';
 import { JSON_SCRIPT_IDS, toV5Roots, type JsonScriptId } from './json-workspace.ts';
@@ -14,23 +6,17 @@ import { isNewerGeneration } from './newer-workspace.ts';
 export const V5_ROOTS = ['DATA', 'META', 'window.__SCHED__', 'window.__CASELINES_IDX__'] as const;
 export type V5Root = (typeof V5_ROOTS)[number];
 const REQUIRED: readonly V5Root[] = ['DATA', 'META'];
-/** App code literals: viewer code, never imported. */
 export const V5_CODE_LITERALS = ['NAV', 'IC', 'STORE_KEYS', 'ENF_OPTS', 'CBK', 'CBPH', 'CBHF', 'IFRAME_EXT'];
 
 const ASSIGN = /^(?:const (DATA|META)|window\.(__SCHED__|__CASELINES_IDX__)) = (.*)$/;
 const ASSIGN_LOOSE = /^\s*(?:(?:const|let|var)\s+(DATA|META)|window\.(__SCHED__|__CASELINES_IDX__))\s*=/;
 const JSON_SCRIPT = /^\s*<script id="(app-data|app-seed)" type="application\/json">(.*)<\/script>\s*$/;
 
-/**
- * Which generation of the workspace HTML the data was read from: the v5 payload lines, the same lines written by the
- * newer builder (`v5-js-newer`: META.version, a profile, changed dataset shapes), or the JSON script tags.
- */
 export type Generation = 'v5-js' | 'v5-js-newer' | 'json-script';
 
 export interface V5Source {
   generation: Generation;
   roots: Partial<Record<V5Root, JsonValue>>;
-  /** 1-based line of each payload read as data: a v5 root, or a JSON script id */
   lines: Partial<Record<V5Root | JsonScriptId, number>>;
   html: { bytes: number; lineCount: number; bom: boolean; crlf: boolean };
   codeLiteralsSeen: string[];

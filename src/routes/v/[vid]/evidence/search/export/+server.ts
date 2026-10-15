@@ -15,7 +15,6 @@ export const GET: RequestHandler = ({ params, url }) => {
 	if (!sr) error(404, 'Unknown results version');
 	const { rows } = sr;
 	const { query } = queryFromParams(url.searchParams);
-	// the page's rule: a reversed or malformed interval, or a value the form cannot show, is refused (D3)
 	const invalid = invalidReason(query, searchOptions(rows));
 	if (invalid) error(400, invalid);
 	return new Response(toCSV(exportRows(searchRows(rows, query))), { headers: { 'content-type': 'text/csv; charset=utf-8', 'cache-control': 'no-store' } });

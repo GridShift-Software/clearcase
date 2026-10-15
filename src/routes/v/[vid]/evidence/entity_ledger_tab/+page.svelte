@@ -4,8 +4,6 @@
 	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
 	const es = $derived(data.entities ?? []);
-	// the data is complete when the page renders (data-ready, also in the server's HTML); data-hydrated marks the
-	// moment its controls respond
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>

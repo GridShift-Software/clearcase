@@ -243,7 +243,7 @@ describe('freshness', () => {
 		expect(git(w, 'status', '--porcelain')).toBe('');
 		expect(freshness(w, { revision: head, dirty: false }).reasons).toEqual([locally('src/routes/new/+page.svelte')]);
 	});
-	test('an untracked build input hidden only by a global excludes file is refused (a temporary XDG_CONFIG_HOME, a repository core.excludesFile)', () => {
+	test('an untracked build input hidden only by a global excludes file is refused (an isolated HOME and XDG_CONFIG_HOME, a repository core.excludesFile)', () => {
 		const { d, head } = repo();
 		const xdg = join(root, `xdg-${head.slice(0, 8)}`);
 		mkdirSync(join(xdg, 'git'), { recursive: true });
@@ -251,11 +251,16 @@ describe('freshness', () => {
 		mkdirSync(join(d, 'src'));
 		writeFileSync(join(d, 'src', '.page.svelte.swp'), 'synthetic\n');
 		const was = process.env.XDG_CONFIG_HOME;
+		const originalHome = process.env.HOME;
 		try {
+			process.env.HOME = xdg;
 			process.env.XDG_CONFIG_HOME = xdg;
 			expect(git(d, 'status', '--porcelain')).toBe('');
 			expect(freshness(d, { revision: head, dirty: false }).reasons).toEqual([locally('src/.page.svelte.swp')]);
-		} finally { if (was === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = was; }
+		} finally {
+			if (was === undefined) delete process.env.XDG_CONFIG_HOME; else process.env.XDG_CONFIG_HOME = was;
+			if (originalHome === undefined) delete process.env.HOME; else process.env.HOME = originalHome;
+		}
 		git(d, 'config', 'core.excludesFile', join(xdg, 'git', 'ignore'));
 		expect(git(d, 'status', '--porcelain')).toBe('');
 		expect(freshness(d, { revision: head, dirty: false }).reasons).toEqual([locally('src/.page.svelte.swp')]);

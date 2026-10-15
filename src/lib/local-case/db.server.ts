@@ -101,7 +101,7 @@ export function readPragmas(d: DatabaseSync): Pragmas {
 
 export class StoreGoneError extends Error {}
 
-/** SQLITE_BUSY / SQLITE_LOCKED: another process holds the write lock (beyond busy_timeout). */
+/** SQLite primary result codes: SQLITE_BUSY = 5, SQLITE_LOCKED = 6. */
 export const isBusy = (e: unknown) => {
 	const x = e as { errcode?: number; code?: string; message?: string };
 	return x?.errcode === 5 || x?.errcode === 6 || /database is locked|SQLITE_BUSY|database table is locked/i.test(String(x?.message ?? ''));

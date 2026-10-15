@@ -124,7 +124,7 @@ Workers version URLs exist only on `workers.dev`. They are public by default (pr
 1. The hook fails closed: no cookie, an expired token, a token from client app B on client A, a wrong `azp`, and missing secrets (503).
 2. The handshake works on SSR with and without ClerkJS, for each [Clerk option](#clerk-on-sveltekit-and-workers) above. The CSP stays strict on case pages.
 3. Two Clerk apps on sibling subdomains don't share cookies (needs a production-style custom domain, not `workers.dev`).
-4. The build-time guard: no `node:sqlite`, `node:fs` or `local-case` module in the Worker bundle.
+4. The build-time guard: no `node:sqlite`, `node:child_process`, `local-case`/originals/backup/rescan module, and no persistence-dependent `node:fs` use in the Worker bundle.
 5. TypeBox `Value.Check` works in workerd.
 6. Kit 2.70.3 self-fetch fallback paths (GHSA-prjg) run with a hostile `Host`.
 7. Private SSR, `/api` and asset responses carry `cache-control: private, no-store` and never enter a shared cache.

@@ -19,8 +19,10 @@
 <style>
 :root{--ink:#1d232b;--bg:#fafafa;--line:#d9dde3;--soft:#eceef1;--nav:#1d2b3a;--nav-2:#2c3e52;--on-nav-muted:#d7dee8;--link:#0b4f9c;--muted:#555;--faint:#666;--focus:#d35400;--ok:#1d5b1d;--ok-bg:#e3f4e3;--warn:#6a4b00;--warn-bg:#fff1c2;--bad:#7a1010;--bad-bg:#fde8e8;--plan:#4b2f86;--plan-bg:#f1ecfa;--cite-bg:#eef4fb;--cite-line:#b9cde6;--viewer-w:min(46vw,640px);--sw-h:44px;--sw-bottom:12px;color-scheme:light;font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);background:var(--bg)}
 *,*::before,*::after{box-sizing:border-box}
-/* keyboard focus and in-page jumps stop clear of the sticky bars at the top and the fixed bars at the bottom (see measure()) */
+/* keyboard focus and in-page jumps in the content stop clear of the sticky bars at the top and the fixed bars at the bottom (see measure()).
+   Focus inside a bar itself never scrolls the page: the bar is already on screen, and padding would push the content away. */
 html{scroll-padding-top:calc(var(--stick,80px) + 4px);scroll-padding-bottom:var(--obstruct-b,64px)}
+html:has(:is(.a-top,.a-side,.a-toc,.b-top,.b-tools,.b-taskrow,.b-context,.b-bottom,.b-fab,.b-capture,.b-sheet,.viewer,.switcher):focus-within){scroll-padding:0}
 body{margin:0;padding-bottom:calc(var(--sw-h) + var(--sw-bottom) + 24px)}
 a{color:var(--link)}
 :focus-visible{outline:3px solid var(--focus);outline-offset:2px}
@@ -718,9 +720,9 @@ function cite(ref, page) {
 }
 const withCites = (text) => esc(text).replace(/\{(K\d):(\d+)\}/g, (_, k, p) => cite(BYKEY[k].ref, Number(p)));
 const issueTag = (k) => k ? `<span class="tag ${k}" title="${esc(ISSUES[k])}">${k} · ${esc(ISSUES[k])}</span>` : '';
-const issueLink = (k) => k ? `<a class="tag ${k}" href="${href('matter')}" data-nav="matter" data-sec="${SECTION_OF_ISSUE[k]}" title="Open issue ${k} in Matter &amp; Strategy">${k} · ${esc(ISSUES[k])}</a>` : '';
+const issueLink = (k) => k ? `<a class="tag ${k}" href="${href('matter', SECTION_OF_ISSUE[k])}" data-nav="matter" data-sec="${SECTION_OF_ISSUE[k]}" title="Open issue ${k} in Matter &amp; Strategy">${k} · ${esc(ISSUES[k])}</a>` : '';
 const riskLink = (k) => RISK_BY_ISSUE[k] ? `<a href="${href('risk_matrix_tab')}" data-nav="risk_matrix_tab" data-row="${RISK_BY_ISSUE[k].id}">Risk ${RISK_BY_ISSUE[k].id}</a>` : '';
-const href = (id) => `?variant=${S.variant}&view=${id}&rv=${S.viewing}`;
+const href = (id, sec) => `?variant=${S.variant}&view=${id}&rv=${S.viewing}${sec ? '&sec=' + sec : ''}`;
 const LIVE_COUNT = { timesheet_tab: () => S.time.length, annotations_tab: () => S.notes.length, hosted_packet: () => S.packet.size, chronology: () => chrono().length };
 function countOf(v) { const n = LIVE_COUNT[v.id] ? LIVE_COUNT[v.id]() : v.count; return n == null ? '' : fmtN(n); }
 function hl(text, q) {
@@ -747,7 +749,7 @@ function linkHTML(l) {
   if (!l || l === 'case') return 'Whole case';
   const [k, a, b] = l.split(':');
   if (k === 'doc') return cite(a, Number(b));
-  if (k === 'sec') return `<a href="${href('matter')}" data-nav="matter" data-sec="${a}">${esc(linkLabel(l))}</a>`;
+  if (k === 'sec') return `<a href="${href('matter', a)}" data-nav="matter" data-sec="${a}">${esc(linkLabel(l))}</a>`;
   return `<a href="${href(a)}" data-nav="${a}">${esc(linkLabel(l))}</a>`;
 }
 // A note or time entry links to the case, a document page or an analysis section (the settled Notes anchors), and by default
@@ -927,7 +929,7 @@ function overviewHTML() {
   return `<div class="cards">
    <div class="card"><h2>Documents</h2><div class="big">${fmtN(CASE.docs)}</div><div>${fmtN(CASE.docs - MANUAL_COUNT)} text read · <a href="${href('documents')}" data-nav="documents" data-preset="docs-manual">${MANUAL_COUNT} need a manual read</a></div></div>
    <div class="card"><h2>Chronology</h2><div class="big">${fmtN(chrono().length)}</div><div><a href="${href('chronology')}" data-nav="chronology">events with citations</a></div></div>
-   <div class="card"><h2>Issues</h2><div class="big">3</div><div>${secs().filter((s) => s.issue).map((s) => `<a href="${href('matter')}" data-nav="matter" data-sec="${s.id}">${s.issue}: ${s.position.toLowerCase()}</a>`).join(' · ')}</div></div>
+   <div class="card"><h2>Issues</h2><div class="big">3</div><div>${secs().filter((s) => s.issue).map((s) => `<a href="${href('matter', s.id)}" data-nav="matter" data-sec="${s.id}">${s.issue}: ${s.position.toLowerCase()}</a>`).join(' · ')}</div></div>
    <div class="card"><h2>Next deadline</h2><div class="big">${nd[0]}</div><div>${esc(nd[1])} · ${daysTo(nd[0])} days · <a href="${href('deadlines_tab')}" data-nav="deadlines_tab">all ${DEADLINES.length}</a></div></div>
    <div class="card"><h2>Time today</h2><div class="big" data-live="today">${todayHours().toFixed(1)} h</div><div><a href="${href('timesheet_tab')}" data-nav="timesheet_tab">Timesheet</a> · unbilled <span data-live="unbilled">${money(unbilled())}</span></div></div>
    <div class="card"><h2>Results &amp; submission <span class="pl">Planned</span></h2><div class="big" style="font-size:1.15rem" data-live="substate">${esc(S.sub.step >= 4 ? 'Published' : subStep())}</div><div class="small">Results ${act.id} active since ${esc(act.date)}. <span data-live="sublast">S-4 last updated ${esc(subLast().at)}.</span></div><div><a href="${href('hosted_intake')}" data-nav="hosted_intake">Submission status</a> <span class="muted small">(simulated)</span></div></div>
@@ -1179,7 +1181,7 @@ function catalogGroups() {
     : TASKS.map((t) => ({ label: `${t.label} · ${t.sub}`, items: [...VIEWS.filter((v) => v.task === t.key), ...PLANNED.filter((p) => p.task === t.key)] }));
 }
 function catalogHTML() {
-  return `<form class="filters" data-form="noop" role="search" aria-label="Filter all tools"><label for="cat-q" class="grow">Filter ${VIEWS.length} views, ${PLANNED.length} planned capabilities and ${OPS.length} operator surfaces<input id="cat-q" type="search" value="${esc(S.catalogQ)}" placeholder="e.g. interest, privilege, witness, email" autocomplete="off"></label></form>
+  return `<form class="filters" data-form="noop" role="search" aria-label="Filter all tools"><label for="cat-q" class="grow">Filter ${VIEWS.length} views and ${PLANNED.length} planned capabilities<input id="cat-q" type="search" value="${esc(S.catalogQ)}" placeholder="e.g. interest, privilege, witness, email" autocomplete="off"></label></form>
   <p class="muted small">Grouped the way Variant ${S.variant} groups them (${S.variant === 'A' ? 'by topic' : 'by task'}). The 42 v5 views are the parity target; planned items come from the production route map and V2 plans and are not counted in the 42.</p><div id="cat-list">${catalogList()}</div>`;
 }
 function catalogList() {
@@ -1477,7 +1479,7 @@ function citedInLinks(d) {
   if (!d.key) return '';
   const inSecs = secs().filter((s) => s.paras.some((p) => p.includes('{' + d.key + ':')));
   const inRisks = risks().filter((r) => r.refs.some(([k]) => k === d.key));
-  const out = [...inSecs.map((s) => `<a href="${href('matter')}" data-nav="matter" data-sec="${s.id}">${esc(s.short)}</a>`), ...inRisks.map((r) => `<a href="${href('risk_matrix_tab')}" data-nav="risk_matrix_tab" data-row="${r.id}">Risk ${r.id}</a>`)];
+  const out = [...inSecs.map((s) => `<a href="${href('matter', s.id)}" data-nav="matter" data-sec="${s.id}">${esc(s.short)}</a>`), ...inRisks.map((r) => `<a href="${href('risk_matrix_tab')}" data-nav="risk_matrix_tab" data-row="${r.id}">Risk ${r.id}</a>`)];
   return out.length ? `<p class="small">Cited in: ${out.join(' \u00b7 ')}</p>` : '';
 }
 function renderViewer() {
@@ -1634,7 +1636,19 @@ function go(id, { push = true, sec = null, row = null } = {}) {
   if (sec) { scrollToSection(S.section); return; }
   if (row) { focusRow(row); return; }
   scrollTo(0, S.scroll[id] || 0);
-  $('#page-h1').focus({ preventScroll: true });
+  focusVisibleContext();
+}
+// After a page change that restores a scrolled place, focus what you can see: the page heading when it is on screen, else the
+// section heading (Matter & Strategy) or the first block in view, so the next Tab continues from there instead of jumping away.
+function focusVisibleContext() {
+  const h1 = $('#page-h1'), stick = stickPx();
+  let el = h1 && h1.getBoundingClientRect().bottom > stick ? h1 : null;
+  if (!el && S.view === 'matter') el = $('#h-' + S.section);
+  if (!el) el = $$('[data-anchor]').find((b) => b.getBoundingClientRect().bottom > stick + 4);
+  el = el || h1;
+  if (!el) return;
+  if (el.tabIndex < 0 && !el.hasAttribute('tabindex')) el.tabIndex = -1;
+  el.focus({ preventScroll: true });
 }
 function focusRow(row) {
   const el = document.getElementById(row) || document.getElementById('row-' + row);
@@ -2022,7 +2036,7 @@ addEventListener('popstate', (e) => {
   if (changed) {
     render();
     if (st.anchor) restoreAnchor(st.anchor); else scrollTo(0, st.scroll || 0);
-    const h = $('#page-h1'); if (h) h.focus({ preventScroll: true });
+    focusVisibleContext();
   } else writeURL(false);
 });
 addEventListener('resize', () => { bodyClass(); measure(); syncModal(); });

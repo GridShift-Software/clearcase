@@ -115,7 +115,7 @@
 				<p class="muted">Click the case pack's .zip, or open the folder it was extracted to and choose Use this folder.</p>
 				<FolderBrowser id="case-browser" mode="case" chooseLabel="Use this folder" onchoose={chosen} />
 			{:else}
-				<p class="muted">ClearCase extracts a .zip here and writes the converted results beside the case. It never writes into a case folder.</p>
+				<p class="muted">ClearCase extracts a .zip and writes the converted results in this storage folder. It never writes into a case folder.</p>
 				<FolderBrowser id="destination-browser" mode="destination" chooseLabel="Store cases in this folder" onchoose={chosen} />
 			{/if}
 		{/if}

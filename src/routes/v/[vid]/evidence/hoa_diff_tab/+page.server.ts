@@ -5,7 +5,6 @@ import { candidates, compare } from '$lib/views/evidence/diff';
 import { coverage } from '$lib/views/evidence/search';
 import type { PageServerLoad } from './$types';
 
-// The chosen pair and mode are the URL (a GET form), so a comparison survives reload and Back.
 export const load: PageServerLoad = async ({ parent, url }) => {
 	const { version } = await parent();
 	const ev = evidenceRows(app().store, version.id);

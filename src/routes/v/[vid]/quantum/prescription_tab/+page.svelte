@@ -13,17 +13,12 @@
 	let { data } = $props();
 	const vid = $derived(data.version.id);
 	const known = $derived(new Set(data.known));
-	// S-prescription_tab-1: the filter and page live in the URL (replaced, not pushed), and the controls show them
-	// (PageState is shared and declares only the chronology's key, so this view's entry is typed locally)
 	type State = { prescription?: string };
 	let ready = $state(false);
 	const risks = $derived(riskOptions(data.rows));
-	// CC-06 r2, D12: a risk the select cannot show is ignored, and the page says so (urlNotes)
 	const fromUrl = () => new URLSearchParams((page.state as State).prescription ?? page.url.search);
 	let query = $state<PrescQuery>(queryFrom(untrack(fromUrl), untrack(() => risks)));
 	let notes = $state<string[]>([]);
-	// D19: every navigation (a sidebar link to this view, back, forward) re-derives the filter from its URL, so the URL
-	// and the controls always agree
 	afterNavigate(() => {
 		const p = new URLSearchParams(page.url.search);
 		query = queryFrom(p, risks);
@@ -38,7 +33,6 @@
 	const go = (d: number) => { query = { ...query, page: pg.page + d }; sync(); };
 	const shown = $derived(filterRows(data.rows, query));
 	const pg = $derived(paginate(shown, query.page));
-	// rendered on the server too (no JavaScript): the notes of the URL the page was loaded with
 	const ssrNotes = $derived(ready ? notes : urlNotes(fromUrl(), risks, pg.pages));
 	const arith = $derived(arithmetic(data.rows, data.asOf));
 	const check = $derived(data.summary ? summaryCheck(data.summary, data.rows) : null);
@@ -70,7 +64,6 @@
 		</div>
 	{/if}
 	<div class="q-card">
-		<!-- a real GET form, so the filter and the pager work without JavaScript too (Apply filter shows only then) -->
 		<form method="GET" id="pr-form" class="q-row">
 			<input id="pr-q" name="q" aria-label="Filter invoice / ref" placeholder="Filter invoice / ref" value={query.q} oninput={(e) => set('q', e.currentTarget.value)} class="q-filter" />
 			<select id="pr-risk" name="risk" aria-label="Risk" value={query.risk} onchange={(e) => set('risk', e.currentTarget.value)}><option value="">Any risk</option>{#each risks as r (r)}<option value={r}>{r}</option>{/each}</select>

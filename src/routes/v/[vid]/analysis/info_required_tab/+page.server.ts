@@ -12,7 +12,6 @@ export const load: PageServerLoad = async ({ parent }) => {
 	return { rows, detached };
 };
 
-/** The refused saves a page without JavaScript still shows: every form posts them back as `pending` inputs (JSON). */
 const carried = (f: FormData, items: InfoItem[], except: string) => {
 	const keys = new Set(itemKeys(items));
 	const out: { key: string; done: boolean; message: string }[] = [];
@@ -21,15 +20,12 @@ const carried = (f: FormData, items: InfoItem[], except: string) => {
 			const p = JSON.parse(String(raw));
 			const key = String(p.key);
 			if (key !== except && keys.has(key) && !out.some((o) => o.key === key)) out.push({ key, done: p.done === true, message: String(p.message ?? 'Not saved.').slice(0, 300) });
-		} catch { /* not one of ours: dropped */ }
+		} catch {}
 	}
 	return out;
 };
 
 export const actions: Actions = {
-	// One item's done flag. A busy store answers 503 after its retries: the form gets the values back with the error,
-	// so nothing the operator chose is lost and a retry saves it. The failures the page still shows come back too
-	// (`pending`, without this item), so a save of another row never clears them.
 	toggle: async ({ request, params }) => {
 		const a = app();
 		const v = a.store.getVersion(params.vid);

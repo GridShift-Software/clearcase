@@ -30,7 +30,6 @@ export function sortRows(rows: readonly ChronologyListRow[], sort: SortKey, dir:
 
 export const queryRows = (rows: readonly ChronologyListRow[], q: ChronologyQuery) => sortRows(filterRows(rows, q), q.sort, q.dir);
 
-/** Every distinct value of a field, sorted by code unit, for the filter selects. */
 export const optionsOf = (rows: readonly ChronologyListRow[], f: 'bundle' | 'docType' | 'textStatus') => [...new Set(rows.map((r) => r[f]))].sort();
 
 /** The package contract's text-status vocabulary, in v5's filter order (results-package.md). */
@@ -44,7 +43,6 @@ export const statusLabel = (s: string) => (s === 'none' ? 'scan · none' : s || 
 /** v5's excerpt preview (drawChron): the first 140 UTF-16 code units, always followed by an ellipsis. */
 export const excerptPreview = (s: string) => (s ? `${s.slice(0, 140)}…` : '');
 
-/** Query <-> URL search params, so filters survive Back and reload (BA-14). Defaults are omitted. */
 export function queryFromParams(p: URLSearchParams): ChronologyQuery {
 	const sort = p.get('sort') as SortKey | null;
 	return {

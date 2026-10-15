@@ -1,4 +1,3 @@
-// Each route's own request size limit (PRFIX-21 r2): decided from the declared size, whatever BODY_SIZE_LIMIT is.
 import { describe, expect, it } from 'vitest';
 import { REQUEST_LIMIT } from '$lib/views/litigation/submit';
 import { MAX_BACKUP_BYTES } from '$lib/user-work/backup/backup.server';

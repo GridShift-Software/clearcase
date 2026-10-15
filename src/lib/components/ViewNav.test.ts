@@ -1,6 +1,3 @@
-// The sidebar's memory of each view's last query (ViewNav.svelte, used by src/routes/v/[vid]/+layout.svelte): one
-// sessionStorage key per case and view, saving and reading back, values that are not a query string, blocked or full
-// storage, and saving only while the address is the current view's own. Synthetic case ids and versions only.
 import { describe, expect, test } from 'vitest';
 import { versionPath } from '../local-case/model.ts';
 
@@ -13,7 +10,6 @@ const { queryKey, savedQuery, saveQuery, rememberQueries } = (await import('./Vi
 	rememberQueries: (store: Store | null, caseId: string, resultsVersion: string, current: string | null, address: { pathname: string; search: string }) => Record<string, string>;
 };
 
-/** An in-memory sessionStorage. */
 function memory() {
 	const map = new Map<string, string>();
 	return { map, getItem: (k: string) => map.get(k) ?? null, setItem: (k: string, v: string) => void map.set(k, String(v)), removeItem: (k: string) => void map.delete(k) };
@@ -72,7 +68,6 @@ describe('after a navigation', () => {
 		expect(q.chronology).toBe('?q=zebra');
 		expect(Object.keys(q)).toHaveLength(42);
 		expect(Object.entries(q).filter(([, v]) => v)).toEqual([['chronology', '?q=zebra']]);
-		// another view, then the chronology again without a query of its own: saved, then forgotten
 		expect(rememberQueries(s, 'c', RV, 'search', at('/evidence/search')).chronology).toBe('?q=zebra');
 		expect(rememberQueries(s, 'c', RV, 'chronology', at('/chronology')).chronology).toBe('');
 	});

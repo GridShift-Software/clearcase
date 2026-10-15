@@ -18,6 +18,10 @@ _Avoid_: Data directory, which holds the app's own stores.
 A source file supplied for the case, or an extracted attachment whose parent source is recorded.
 _Avoid_: Result when referring to source evidence.
 
+**Case pack**:
+The `.zip` supplied for a case, or the folder it was extracted to, containing the workspace HTML and originals. The local app converts its processed workspace data into a results package.
+_Avoid_: Results package, which is the versioned output of that conversion.
+
 **Citation**:
 A reference in results text to an original, optionally to one page, that the reader can follow to that original.
 _Avoid_: Link when referring to the case reference itself.

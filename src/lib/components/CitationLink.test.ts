@@ -1,4 +1,3 @@
-// CitationLink's optional tooltip (CC-05: v5 shows a chip's file name on hover). Server-rendered, invented values only.
 import { render } from 'svelte/server';
 import { describe, expect, it } from 'vitest';
 import CitationLink from './CitationLink.svelte';

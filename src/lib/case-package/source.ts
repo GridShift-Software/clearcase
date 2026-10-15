@@ -1,7 +1,3 @@
-// Snapshot a package source into memory: a directory, a zip file or a caller-owned byte
-// collection. Only manifest.json and the files it lists are read; other files are reported
-// and never read. Bytes are copied once, so later changes to the producer directory or to
-// caller-owned buffers cannot change what is validated or stored.
 import { constants } from 'node:fs';
 import { lstat, open, readdir } from 'node:fs/promises';
 import path from 'node:path';
@@ -11,18 +7,14 @@ import { checkRelPath } from './paths.ts';
 import { decodeUtf8Strict, isObject, parseStrictJson } from './strict-json.ts';
 import { readCentralDirectory, readEntry, ZipError } from './zip.ts';
 
-/** A package source: a directory path, a .zip path, or bytes keyed by package-relative path. */
 export type PackageSource = string | { files: ReadonlyMap<string, Uint8Array> | Readonly<Record<string, Uint8Array>> };
 
 export interface Snapshot {
-  /** manifest.json and every listed file that was present and within bounds */
   files: Map<string, Uint8Array>;
-  /** every regular file present, with its size */
   present: Map<string, number>;
   transport: 'directory' | 'zip' | 'memory';
 }
 
-/** Paths a manifest lists, read leniently only to decide what to snapshot; the validator judges the manifest. */
 function listedPaths(manifest: Uint8Array): string[] {
   try {
     const m = parseStrictJson(decodeUtf8Strict(manifest));
@@ -68,7 +60,6 @@ async function snapshotDirectory(root: string, L: Limits, sink: DiagSink): Promi
   const readOne = async (rel: string, max: number): Promise<void> => {
     const size = present.get(rel);
     if (size === undefined || size > max) return;
-    // O_NOFOLLOW: a file swapped for a link after the walk is refused, not followed
     const fh = await open(path.join(root, ...rel.split('/')), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK).catch(() => null);
     if (!fh) return;
     try {

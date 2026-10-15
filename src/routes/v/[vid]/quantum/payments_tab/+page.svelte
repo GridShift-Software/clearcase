@@ -20,15 +20,8 @@
 	const rows: (Payment & { hash: string })[] = $derived(data.payments.map((p) => ({ ...p, amountCents: p.amountCents === null ? null : BigInt(p.amountCents) })));
 	const t = $derived(totals(importedUnits(data.claim) ?? 0n, rows));
 	const R = (c: bigint) => fmtR(centsText(c));
-	// S-payments_tab-4: the POD column shows only when some month has a proof-of-delivery ref
 	const showPod = $derived(data.recon.some((m) => m.pod.length));
 
-	// An entry typed into the Add form is never lost and never shown as saved (CC-06 r2, D1 to D4). Each action keeps its
-	// own state: the Add's failure (with Retry and Discard) stays until that entry is saved, retried or discarded; a
-	// Delete's failure shows by its row; neither clears the other. An Add's result applies to what it submitted: on
-	// success only the fields still holding the submitted text are cleared, so text typed while it was in flight
-	// stays. Without JavaScript every answer (an Add's or a Delete's, which is submitted through the Add form) carries
-	// the typed entry back, and a refused entry's reason with it.
 	type Entry = Record<EntryField, string>;
 	type Answer = { op?: 'add' | 'delete'; values?: Entry; message?: string | null; field?: EntryField | null; retry?: boolean; target?: string; gone?: boolean; addError?: string } | null;
 	const FIELDS = ['date', 'amount', 'method', 'note'] as const;
@@ -40,15 +33,12 @@
 		: answered?.op === 'delete' && answered.addError ? { message: answered.addError, field: answered.field ?? null, retry: false } : null);
 	let deleteErrors = $state<Record<string, string>>(answered?.op === 'delete' && answered.message && !answered.gone && answered.target ? { [answered.target]: answered.message } : {});
 	let goneNotice = $state<string | null>(answered?.op === 'delete' && answered.gone && answered.message ? answered.message : null);
-	/** the entry an Add in flight submitted, and the row whose Delete is in flight */
 	let sending = $state<Entry | null>(null);
 	let deleting = $state<string | null>(null);
 	const busy = $derived(sending !== null || deleting !== null);
 	const unsaved = $derived(sending !== null || addError !== null || FIELDS.some((k) => fields[k] !== ''));
-	/** a navigation waiting for the user to confirm that the unsaved entry may be dropped */
 	let ask = $state<{ what: string; go: () => void } | null>(null);
 
-	// the request may or may not have reached the app; a 413 is refused before the action runs, so nothing was saved
 	const lost = (status?: number) =>
 		status === 413 ? 'Not saved: the entry is too large to send. Your entry is kept; shorten it, then add it again.'
 		: status ? `Not saved: the app reported an error (${status}). Your entry is kept; check the table, then try again.`
@@ -56,7 +46,6 @@
 
 	const add: SubmitFunction = ({ cancel }) => {
 		const sent = { ...fields };
-		// an over-long field is refused here too, so it never meets the server's body limit (a 413)
 		const c = checkEntry(sent);
 		if (!c.ok && sent[c.field].length > MAX_LENGTH[c.field]) { cancel(); addError = { message: c.error, field: c.field, retry: false }; return; }
 		addError = null;
@@ -85,14 +74,12 @@
 					const message = String(result.data?.message ?? 'Not deleted; try again.');
 					if (result.data?.gone) goneNotice = message;
 					else deleteErrors = { ...deleteErrors, [id]: message };
-					// gone or changed elsewhere: the table shows the payments as stored now
 					if (result.status === 404 || result.status === 409) await invalidateAll();
 				} else if (result.type === 'redirect') await applyAction(result);
 				else deleteErrors = { ...deleteErrors, [id]: lost(result.status).replace('Not saved', 'Not deleted').replace('Your entry is kept; check the table, then try again', 'Check the table, then try again').replace('Your entry is kept; try again', 'Try again') };
 			} finally { deleting = null; }
 		};
 	};
-	/** one form: its Add button adds, each row's Delete button (formaction ?/delete) deletes that row */
 	const submit: SubmitFunction = (input) => {
 		if (busy) { input.cancel(); return; }
 		return input.action.search.includes('delete') ? remove(String(input.formData.get('rowId') ?? '')) : add(input);
@@ -170,8 +157,6 @@
 							<td class="num">{#if p.amountCents !== null}{R(p.amountCents)}{:else}{p.amount} <small class="q-flag" data-not-counted>not counted: not a valid amount</small>{/if}</td>
 							<td>{p.method}</td>
 							<td>{p.note}</td>
-							<!-- Delete submits the Add form (formaction ?/delete), so the typed entry travels with it and comes back
-							     without JavaScript; the row's stored-fields hash travels too (the changed-elsewhere check) -->
 							<td class="q-nowrap"><input type="hidden" form="pay-form" name="hash.{p.rowId}" value={p.hash} /><button form="pay-form" formaction="?/delete" name="rowId" value={p.rowId} disabled={busy} data-delete>Delete</button><form method="POST" action="?/delete" hidden><input type="hidden" name="rowId" value={p.rowId} /><input type="hidden" name="hash" value={p.hash} /></form>
 								{#if deleteErrors[p.rowId]}<p class="error" role="alert" data-delete-error={p.rowId}>{deleteErrors[p.rowId]}</p>{/if}</td>
 						</tr>

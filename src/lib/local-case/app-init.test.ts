@@ -1,5 +1,3 @@
-// Process start with an invalid CLEARCASE_FIXED_NOW: a configuration error, refused before anything is opened, with
-// one FATAL line and exit code 1 (like a taken originals port), never an unhandled rejection from the startup checks.
 import { existsSync, rmSync, statSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
@@ -36,16 +34,16 @@ it('an invalid CLEARCASE_FIXED_NOW exits at boot with a FATAL message, before th
 it('a second instance refused by the instance lock leaves link-key alone: no chmod (ctime) and no new key when it is missing', async () => {
 	root = await tempRoot('second');
 	const data = path.join(root, 'data');
-	const first = service(data); // holds the instance lock on data
+	const first = service(data);
 	try {
 		const { LinkCapability } = await import('./originals.server.ts');
-		new LinkCapability(data); // the first instance's link-key
+		new LinkCapability(data);
 		const key = path.join(data, 'link-key');
 		const before = statSync(key);
 		Object.assign(process.env, { CLEARCASE_DATA_DIR: data, PORT: '1', ORIGINALS_PORT: String(await freePort()) });
 		vi.spyOn(process, 'exit').mockImplementation(((code: number) => { throw new Error(`exit ${code}`); }) as never);
 		const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-		await new Promise((r) => setTimeout(r, 20)); // a chmod now would show as a later ctime
+		await new Promise((r) => setTimeout(r, 20));
 		await expect(initApp()).rejects.toThrow('exit 1');
 		expect(String(err.mock.calls[0]?.[0])).toMatch(/^FATAL: another ClearCase process/);
 		expect(statSync(key).ctimeMs).toBe(before.ctimeMs);
@@ -54,4 +52,18 @@ it('a second instance refused by the instance lock leaves link-key alone: no chm
 		await expect(initApp()).rejects.toThrow('exit 1');
 		expect(existsSync(key)).toBe(false);
 	} finally { first.shutdown(); }
+});
+
+it('two concurrent first calls to initApp share one start-up: one instance, one originals listener, every call resolves', async () => {
+	root = await tempRoot('concurrent');
+	const originalsPort = await freePort();
+	Object.assign(process.env, { CLEARCASE_DATA_DIR: path.join(root, 'data'), PORT: '1', ORIGINALS_PORT: String(originalsPort) });
+	await Promise.all([initApp(), initApp()]);
+	const g = globalThis as { __clearcase?: { id: string } };
+	const id = g.__clearcase?.id;
+	expect(id).toBeDefined();
+	await initApp();
+	expect(g.__clearcase?.id).toBe(id);
+	const r = await fetch(`http://127.0.0.1:${originalsPort}/`);
+	expect([r.status, await r.text()]).toEqual([421, 'misdirected request: unknown Host']);
 });

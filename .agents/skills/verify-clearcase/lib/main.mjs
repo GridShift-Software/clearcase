@@ -18,7 +18,7 @@ import { featureIndex, formatIndex } from './features.mjs';
 export const SKILL = resolve(import.meta.dirname, '..');
 export const REPO = resolve(SKILL, '..', '..', '..');
 const HARNESS = join(REPO, 'tests', 'e2e', 'pilot');
-const HARNESS_FILES = ['offline.sh', 'lib/netproof.mjs', 'lib/server.mjs', 'lib/cdp.mjs', 'lib/canary.mjs', 'lib/client.mjs', 'lib/isolated-build.mjs', 'lib/fixtures.ts'];
+const HARNESS_FILES = ['offline.sh', 'lib/netproof.mjs', 'lib/server.mjs', 'lib/cdp.mjs', 'lib/canary.mjs', 'lib/client.mjs', 'lib/isolated-build.mjs', 'lib/fixtures.ts', 'suite/context.mjs'];
 const env = process.env;
 const SYSTEM_PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin';
 

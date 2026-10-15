@@ -18,15 +18,12 @@
 	const bundles = $derived(optionsOf(data.rows, 'bundle'));
 	const types = $derived(optionsOf(data.rows, 'docType'));
 	const statuses = $derived(statusOptions(data.rows));
-	// Filters live in the URL (replaced, not pushed), so Back from a document returns to the same filtered list.
 	const sync = () => {
 		const p = paramsFromQuery(query).toString();
 		if (p !== new URLSearchParams(location.search).toString()) replaceState(`${page.url.pathname}${p ? `?${p}` : ''}`, { chronology: p });
 	};
 	const set = (k: 'q' | 'bundle' | 'type' | 'status', v: string) => { query = { ...query, [k]: v }; sync(); };
 	const sortBy = (k: string) => { query = query.sort === k ? { ...query, dir: query.dir === 1 ? -1 : 1 } : { ...query, sort: k as SortKey, dir: 1 }; sync(); };
-	// The Date basis column carries information only when the source supplies a date type or provenance for some row
-	// (BA-04); the "undated" label in the Date column stays either way.
 	const showBasis = $derived(data.rows.some((r) => r.dateType || r.dateSource));
 	const basisLabel = (r: ChronologyListRow) => r.dateType ?? (r.dateSource ? `from ${r.dateSource}` : r.date ? 'unknown' : 'undated');
 	const columns: Column[] = $derived([
@@ -79,7 +76,6 @@
 </main>
 
 <style>
-	/* without the Date basis column (no row has a known basis) */
 	:global(.chrono-grid.no-basis .grid-row) { grid-template-columns: 5.8em 6.6em minmax(12em, 1fr) 7.2em 7.4em 6.6em 5.6em 4.4em; }
 	.excerpt, .also-in { display: block; }
 </style>

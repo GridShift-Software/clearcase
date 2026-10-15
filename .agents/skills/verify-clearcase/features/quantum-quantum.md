@@ -4,7 +4,7 @@ The quantum summary of a results version: the imported amount due with its sourc
 
 ## Sub-features
 
-- `quantum-kpis` shows the four KPI cards (`.kpi`: label, value, caption); captions that v5 hard-coded come from view-content.
+- `quantum-kpis` shows the four key-figure cards (`.q-kpis > .kpi`: label, value, caption; the Charging & statements card has three more `.kpi`); captions that v5 hard-coded come from view-content.
 - `quantum-reconcile` flags (`#reconcile-flag`) an imported invoice count or gross that differs from the ledger rows.
 - `quantum-series` lists the amount-due series latest first (`#amount-due-series`), each row linking to its document.
 - `quantum-ledger-export` downloads every ledger row as `invoices.csv` (`#export-invoices`).
@@ -17,11 +17,11 @@ The quantum summary of a results version: the imported amount due with its sourc
 
 ## Driving it with verify-clearcase
 
-Preconditions: `activate` passed on a synthetic case (`tests/e2e/quantum/lib.mjs` `quantumCase` edits the quantum dataset so the imported count and gross disagree with three ledger rows).
+Preconditions: `activate` passed on the synthetic case. The plain synthetic case that `lib/inner.mjs` builds (`tests/case-package/fixtures/synth.ts`) has one invoice whose gross matches the ledger, so no `#reconcile-flag` shows; the quantum e2e suite's `quantumCase` (`tests/e2e/quantum/lib.mjs`) makes them disagree.
 
 - **Open.** *Not yet driven by the skill runner; `tests/e2e/quantum/suite.mjs` drives it.* Choose `#nav-quantum_tab`. `main[data-ready=quantum_tab]` appears, the heading `Quantum & Interest` has focus and the title is `Quantum & Interest · <case> · ClearCase`.
-- **Reconciliation.** `#reconcile-flag` names both the imported figure and the ledger's (`Q1-INVOICE-TOTALS`).
-- **Links.** The `Latest computation` KPI holds `a.cite` `Open source PDF` to `/v/<rv>/doc/<headline_ref>`; `#charging-link` is `/v/<rv>/chronology?type=charging+calculation` (`Q-LINKS`).
+- **Reconciliation.** *Not yet driven.* `#reconcile-flag` names both the imported figure and the ledger's (`Q1-INVOICE-TOTALS`).
+- **Links.** *Not yet driven.* The `Latest computation` KPI holds `a.cite` `Open source PDF` to `/v/<rv>/doc/<headline_ref>`; `#charging-link` is `/v/<rv>/chronology?type=charging+calculation` (`Q-LINKS`).
 
 ## Gotchas
 

@@ -1,8 +1,3 @@
-// Projector: a validated Candidate (GRS-10's readCandidate) -> the read-model rows the pilot stores next to the
-// exact package bytes. Raw values stay raw: row_json is the source chronology row in canonical JSON, unchanged;
-// display fields are derived from it in the views, never written back. Nothing is synthesised: no full text from
-// excerpts, no inferred dates, no narrative that is not in a dataset. The same projection runs at import and again
-// on the freshly revalidated candidate at activation, and the read-model digest must agree.
 import { createHash } from 'node:crypto';
 import { canonicalJson, readCandidate, type Candidate } from '../case-package/index.ts';
 import { isPathKey } from '../case-package/refs.ts';
@@ -31,7 +26,6 @@ export function project(candidate: Candidate, counts: Readonly<Record<string, nu
 	const r = readCandidate(candidate);
 	const documents: DocumentRowW[] = [];
 	const list: ChronologyListRow[] = [];
-	// rows are schema-validated, but every value is read as untrusted text
 	(r.chronology as readonly unknown[]).forEach((value, ord) => {
 		const raw = value as Record<string, unknown>;
 		const ref = str(raw.ref);
@@ -53,7 +47,6 @@ export function project(candidate: Candidate, counts: Readonly<Record<string, nu
 		documents.push({ ref, ord, row_json: canonicalJson(raw), state_json: JSON.stringify(state), attachments_json: JSON.stringify(attachments) });
 		list.push({
 			ref, ord, date: str(raw.date),
-			// BA-04: a date type or provenance is shown only when the source supplies it; v5 supplies neither
 			dateType: optStr(raw.date_type), dateSource: optStr(raw.date_source),
 			docType: str(raw.doc_type), bundle: str(raw.bundle), subject: str(raw.subject), filename: str(raw.filename),
 			sender: str(raw.sender), to: str(raw.to), excerpt: str(raw.excerpt), amount: str(raw.amount),
@@ -88,7 +81,6 @@ export function project(candidate: Candidate, counts: Readonly<Record<string, nu
 	const meta = r.sourceMeta as Record<string, unknown> | null;
 	const quantum = r.dataset<Record<string, unknown>>('quantum');
 	const contra = r.dataset<Record<string, unknown>>('contradictions');
-	// the overview counts document originals: package files (P- keys: bundle, index, extract and schedule files) are not documents
 	const docAssets = assets.filter((a) => !isPathKey(a.key));
 	const tallyStatus = (s: string) => docAssets.filter((a) => a.status === s).length;
 	const overview: OverviewModel = {
@@ -117,17 +109,12 @@ export function project(candidate: Candidate, counts: Readonly<Record<string, nu
 	};
 }
 
-/** How a document that is itself an attachment reaches its bytes (BA-09); null for an ordinary document. */
 function selfRoute(r: ReturnType<typeof readCandidate>, ref: string): DocumentStateRow['self'] {
 	const route = r.resolveAttachment(ref);
 	if (!route) return null;
 	return { route: route.route, parentRef: route.parentRef, reason: route.route === 'unavailable' ? route.reason : null, via: route.route === 'unavailable' ? null : route.original.ref };
 }
 
-/**
- * Digest over every projected row of a version in a fixed order. Import and verification feed identical rows, and
- * activation compares it with a fresh projection of the revalidated candidate.
- */
 export function readModelDigest(p: { documents: DocumentRowW[]; assets: AssetRowW[]; seeds: SeedRowW[]; chronologyJson: string; overview: string; expect: string }): string {
 	const h = createHash('sha256');
 	const line = (s: string) => h.update(s).update('\n');

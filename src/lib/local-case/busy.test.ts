@@ -1,7 +1,3 @@
-// The production busy budget of Storage.tx() on real SQLite: another connection holds work.sqlite's write lock
-// (BEGIN IMMEDIATE) through every attempt, so tx() waits busy_timeout (2,000 ms) inside each of its four attempts, backs
-// off 250, 500 and 750 ms between them, then answers 503 with nothing written. Unit tests that only need the refusal use
-// withoutBusyWait (test-support.ts), which this file also pins: it skips the wait inside each attempt and keeps the rest.
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { isHttpError } from '@sveltejs/kit';
@@ -21,7 +17,6 @@ afterAll(async () => {
 	if (root) await cleanup(root);
 });
 
-/** One write through tx() while another connection holds the lock throughout: its status, message and duration. */
 async function refusedWrite() {
 	const l = new DatabaseSync(lc.storage.workFile);
 	l.exec('PRAGMA busy_timeout=0; BEGIN IMMEDIATE');

@@ -4,8 +4,6 @@ import { evidenceRows } from '$lib/views/evidence/rows.server';
 import { documentsModel } from '$lib/views/evidence/documents';
 import type { PageServerLoad } from './$types';
 
-// The bundle, filter and page live in the URL, so they survive Back from a document and reload; the server filters
-// the cached rows and sends one page, never the whole register.
 export const load: PageServerLoad = async ({ parent, url }) => {
 	const { version } = await parent();
 	const ev = evidenceRows(app().store, version.id);

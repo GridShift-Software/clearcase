@@ -24,10 +24,8 @@ export function fingerprint(code: string, at: At): string {
 type Pending = Omit<Diagnostic, 'baseline'>;
 
 export class DiagSink {
-  /** per code; trimmed to the `cap` smallest in sort order, so the listed set never depends on timing */
   private readonly byCode = new Map<Code, Pending[]>();
   readonly counts = new Map<Code, number>();
-  /** every warning fingerprint, uncapped */
   readonly warningFingerprints = new Set<string>();
   readonly errorFingerprints = new Set<string>();
   private readonly cap: number;
@@ -44,7 +42,6 @@ export class DiagSink {
     if (!list) { list = []; this.byCode.set(code, list); }
     list.push({
       code, severity: def.severity, cls: def.cls,
-      // stored text is always well-formed, so the canonical diagnostics digest cannot fail on a cut value
       ...(at.file !== undefined && { file: at.file.toWellFormed() }),
       ...(at.pointer !== undefined && { pointer: at.pointer.toWellFormed() }),
       ...(at.subject !== undefined && { subject: cutText(at.subject, 200).toWellFormed() }),
@@ -61,7 +58,6 @@ export class DiagSink {
   get errors(): number { return this.count('error'); }
   has(code: Code): boolean { return (this.counts.get(code) ?? 0) > 0; }
 
-  /** Sorted, capped list plus DIAG_TRUNCATED totals, annotated against a trusted baseline. */
   finish(trusted: ReadonlySet<string> = new Set()): Diagnostic[] {
     const out: Pending[] = [];
     for (const list of this.byCode.values()) out.push(...[...list].sort(compareDiagnostics).slice(0, this.cap));

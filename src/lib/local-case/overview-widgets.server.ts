@@ -1,7 +1,3 @@
-// Server registry of overview widget loaders, discovered from the owners' subtrees, and the slot states the overview
-// renders. A loader that throws, does not settle within SLOT_LOADER_TIMEOUT_MS, or returns something the page data
-// cannot carry (a function, a class instance, a symbol, a reserved key, nesting deeper than MAX_SLOT_DATA_DEPTH),
-// marks its slot as an error; it never breaks or hangs the overview.
 import { collect, OVERVIEW_SLOTS, type OverviewWidgetLoader, type SlotId, type SlotState, type WidgetContext } from '../components/overview-slots.ts';
 
 const modules = import.meta.glob<Record<string, unknown>>('/src/lib/views/*/overview-widgets.server.ts', { eager: true });
@@ -20,10 +16,6 @@ export const MAX_SLOT_DATA_DEPTH = 100;
 /** Own keys devalue refuses (`__proto__`) or that could reach a prototype when the data is merged client-side. */
 const RESERVED_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
-/** Why a loader's value cannot travel as page data, or null. Plain data only: primitives (not symbols), arrays, plain
- *  objects without own `__proto__`, `constructor` or `prototype` keys, Date, Map and Set, nested at most
- *  MAX_SLOT_DATA_DEPTH deep, and nothing thenable; a subset of what SvelteKit's devalue serializes (stringify and
- *  uneval), so an accepted value never fails the page. The reason never echoes the value. */
 export function notPlainData(v: unknown, seen = new Set<object>(), depth = 0): string | null {
 	if (v === null || v === undefined || typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' || typeof v === 'bigint') return null;
 	if (typeof v !== 'object') return `a ${typeof v}`;
@@ -45,7 +37,6 @@ export function notPlainData(v: unknown, seen = new Set<object>(), depth = 0): s
 	return null;
 }
 
-/** The loader's value, or a rejection once `ms` pass without it settling (the timer never outlives the race). */
 async function within<T>(p: Promise<T> | T, ms: number): Promise<T> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {

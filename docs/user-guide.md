@@ -50,10 +50,10 @@ This is the setup for the side-by-side comparison with the production system on 
 
    Set `CLEARCASE_DATA_DIR` each time you open a new Ubuntu window, otherwise ClearCase uses `~/.local/share/clearcase`. Keep the window open while you use the app. `start` prints the app address (`http://127.0.0.1:41101` by default) and the originals address (the next port). To stop the app, press Ctrl+C in that window, or run `bun run --bun start --stop` in another Ubuntu window from the same folder.
 
-5. Open the app address in Chrome or Edge on Windows. WSL2 forwards `localhost` to Linux, so `http://127.0.0.1:41101` should open (unverified). If it does not open, the app cannot be reached from Windows on this computer (it listens on 127.0.0.1 only): report it with the output of `wsl --version`. Import the case through the app:
+5. Open the app address in Chrome or Edge on Windows. WSL2 forwards `localhost` to Linux, so `http://127.0.0.1:41101` should open (unverified). If it does not open, the app cannot be reached from Windows on this computer (it listens on 127.0.0.1 only): report it with the output of `wsl --version`. Import the case through the app. To import the case pack, follow [Importing a case](#importing-a-case). To import a results package you received:
    1. Choose **Import results**.
-   2. In the case folder field, type the full WSL path of the case folder, for example `/home/<your user>/cases/<case folder>`. The app reads paths as Linux sees them, so a Windows path such as `D:\Cases\<case folder>` does not work.
-   3. In the package field, type the full WSL path of the results package.
+   2. Under **Already have a results package?**, type the full WSL path of the case folder in **Case folder**, for example `/home/<your user>/cases/<case folder>`. The app reads paths as Linux sees them, so a Windows path such as `D:\Cases\<case folder>` does not work.
+   3. In **Results package**, type the full WSL path of the results package.
    4. Choose **Validate package**, and read the validation report.
    5. Accept the warnings it lists, then choose **Activate this version**.
 
@@ -85,9 +85,9 @@ You import a case by clicking. You don't type paths or use a terminal.
 5. Choose **Open case**. The status label and the progress line show each phase (Extracting, Converting, Checking originals, Ready to review), and **Cancel the running import** stops any of them:
    1. A `.zip` is extracted into a new folder named after it, for example `ESS_DCS_Lawyer_Pack_v5-002`. ClearCase checks the free space first, and it refuses a pack with unsafe entries. If that folder already holds exactly the pack's files from an earlier import (the same names, sizes and contents, each file read back and checked), ClearCase uses it as it is; if it holds other files, or a file that differs, ClearCase refuses and names the file. If the pack holds a single top folder, that folder is the case folder.
    2. ClearCase finds the case's workspace HTML in the case folder: the one `.html` file without a variant in brackets (`ESS_DCS_Workspace.html`, not `ESS_DCS_Workspace (bundles update only).html`). If it finds none or several, it stops and names them.
-   3. It converts the workspace HTML into a results package in `<name>-results` beside the case folder. A later import of the same case writes `<name>-results-2`, and so on.
+   3. It converts the workspace HTML into a results package in the storage folder, named after the case folder: `<name>-results`. A later import of the same case writes `<name>-results-2`, and so on.
    4. It validates the package and every original.
-6. The validation report opens. **Preview** shows the candidate read-only. **Activate** makes it the case's active results version after you acknowledge any new warning. Importing the same pack again, with the same case name, opens the same version.
+6. The validation report opens. **Preview the candidate** shows it read-only. **Activate this version** makes it the case's active results version after you acknowledge any new warning. Importing the same pack again, with the same case name, opens the same version.
 
 If any step fails or you cancel, the message says why, and the active case stays active. The folders that import created in the storage folder are removed, so you can simply try again.
 

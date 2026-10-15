@@ -16,7 +16,9 @@ Reproduces the interest on a capital figure: simple (exact) or compound monthly 
 
 ## Driving it with verify-clearcase
 
-- *Driven by `tests/e2e/quantum/suite.mjs`*: the dated R1,000 year (`Q2-R100`: R 99.93 for 365 days, R 100.21 for 366), change, reload and reset (`Q3-DEFAULTS-INTEREST`), a two-day leap period (`Q4-LEAP-MONTH-END`), refusals (`Q5-INVALID-INTEREST`), identical output under the fixed clock (`Q10-FIXED-CLOCK`).
+Preconditions: `activate` passed on the synthetic case of `lib/inner.mjs` (`buildCase`, 7 rows); step `every-view` has opened this view once.
+
+- *Not yet driven by verify-clearcase.* *Proven instead by `tests/e2e/quantum/suite.mjs`*: the dated R1,000 year (`Q2-R100`: R 99.93 for 365 days, R 100.21 for 366), change, reload and reset (`Q3-DEFAULTS-INTEREST`), a two-day leap period (`Q4-LEAP-MONTH-END`), refusals (`Q5-INVALID-INTEREST`), identical output under the fixed clock (`Q10-FIXED-CLOCK`).
 
 ## Gotchas
 

@@ -636,7 +636,7 @@ def system_tool(name):
 
 
 def chromium():
-    """The Chromium the app skill drives: CLEARCASE_CHROMIUM, else the Playwright build the e2e harness uses."""
+    """The Chromium the app skill drives: CLEARCASE_CHROMIUM, else the build scripts/ci/install-chrome.sh installs."""
     return os.environ.get("CLEARCASE_CHROMIUM") or str(Path(HOME or "~", ".cache/ms-playwright/chromium-1223/chrome-linux64/chrome"))
 
 
@@ -658,8 +658,8 @@ def app_rows(add):
         add("FAIL" if problem else "PASS", f"app-{name}", problem or f"{version} at {path}" + (
             "; unshare -rn works" if name == "unshare" else ""), fix if problem else None)
     chrome = chromium()
-    fix = ("set CLEARCASE_CHROMIUM to a Chromium binary, or install the Playwright build at "
-           "~/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome")
+    fix = ("run scripts/ci/install-chrome.sh, which installs CI's checksum-pinned Chrome for Testing at "
+           "~/.cache/ms-playwright/chromium-1223, or set CLEARCASE_CHROMIUM to a Chromium binary")
     if not (os.path.isfile(chrome) and os.access(chrome, os.X_OK)):
         add("FAIL", "app-chromium", f"{chrome} is not an executable file", fix)
     else:

@@ -1,18 +1,3 @@
-// The local case service: import -> candidate -> explicit activation, startup recovery and backups.
-//  * Inputs are checked on EVERY import: absolute existing case folder that neither equals, contains nor lies inside
-//    the data directory; an existing package directory or .zip.
-//  * importCandidate (GRS-10) validates read-only. A rejection stores only its attempt row with the diagnostics; the
-//    active version and every stored version stay unchanged.
-//  * A candidate is stored in ONE BEGIN IMMEDIATE transaction: exactly candidate.snapshot() into package_file plus
-//    the projection (project.server.ts). The same resultsVersion with the same manifest is a no-op when the stored
-//    copy verifies and a repair when it does not; a different manifest, a retired id or another case folder rejects.
-//    The no-op holds only while the fresh validation reproduces the stored diagnostics and read model: once the
-//    originals changed, the re-import rejects with the current diagnostics (APP_ORIGINALS_CHANGED), because a stored
-//    version never changes and only restoring the originals or a new results version can be activated.
-//  * Activation, in order: stored bytes (verifyCandidateBytes); revalidation of the originals by importCandidate on
-//    the stored bytes; the fresh projection must equal the stored read model; canActivate on that fresh result with
-//    the operator's acknowledgement and the case's trusted baseline; then the pointer swap and the bound
-//    acknowledgement in work.sqlite, and a VACUUM INTO backup. Any failure leaves every version unchanged.
 import { createHash } from 'node:crypto';
 import { realpath, rm, stat } from 'node:fs/promises';
 import { mkdirSync, readdirSync, rmSync } from 'node:fs';
@@ -32,7 +17,6 @@ import { CaseStore, type CaseVersionRow, type Verification } from './store.serve
 import { UserWork } from './user-work.server.ts';
 
 export type AppCode = 'APP_INPUT_INVALID' | 'APP_CASE_FOLDER_OVERLAPS_DATA' | 'APP_VERSION_CONFLICT' | 'APP_VERSION_RETIRED' | 'APP_CASE_FOLDER_DIFFERS' | 'APP_ORIGINALS_CHANGED' | 'APP_UNLISTED_IGNORED';
-/** App-level findings next to GRS-10's diagnostics; only errors reject. */
 export interface AppDiagnostic { code: AppCode; severity: 'error' | 'info'; message: string; hint: string }
 
 export const IMPORT_REPORT = 'clearcase.pilot.import-report/1';
@@ -48,7 +32,6 @@ export interface ImportReport {
 	counts: Record<string, number>;
 	warningFingerprints: string[];
 	errorFingerprints: string[];
-	/** warnings not in the case's trusted baseline at import time */
 	newWarnings: string[];
 	diagnostics: Diagnostic[];
 	app: AppDiagnostic[];
@@ -70,10 +53,8 @@ export class LocalCase {
 	readonly store: CaseStore;
 	readonly userWork: UserWork;
 	storageError: string | null = null;
-	/** storageError came from a lock held by another process: retry startup after this time (ms epoch) */
 	retryAt: number | null = null;
 	readonly cases = new Map<string, CaseRecovery>();
-	/** non-blocking problems shown as a banner on every page (key -> message) */
 	readonly warnings = new Map<string, string>();
 	startupReport: StartupReport | null = null;
 	#verified = new Map<string, Verification>();
@@ -92,17 +73,7 @@ export class LocalCase {
 		this.userWork = new UserWork(this.storage, this.store, () => this.scheduleUserWorkBackup());
 	}
 
-	// ---- startup and recovery -------------------------------------------------------------------------------
 
-	/**
-	 * Startup checks; never throws (storage problems become a storage error page):
-	 *  1. remove crash leftovers of our own file protocol (backups/.tmp-*, serve-tmp/*);
-	 *  2. open storage (SQLite rolls back any incomplete transaction) and quick_check both files;
-	 *  3. verify every active pointer (stored bytes, counts, read-model digest) and that it agrees with the newest
-	 *     activation-log entry of its case; otherwise fall back to the newest logged activation that verifies and show
-	 *     a recovery banner (the operator confirms with one click);
-	 *  4. candidate retention (non-fatal).
-	 */
 	async startup(): Promise<void> {
 		const t0 = performance.now();
 		const cleaned: string[] = [], pruned: string[] = [], checked: Record<string, Verification> = {};
@@ -141,7 +112,7 @@ export class LocalCase {
 					const r = (checked[e.version_id] = this.verify(e.version_id, true));
 					if (r.ok) { effective = e.version_id; break; }
 				}
-				if (effective === p.version_id && v.ok) effective = null; // never "fall back" to the questioned pointer itself
+				if (effective === p.version_id && v.ok) effective = null;
 				this.cases.set(p.case_id, { caseId: p.case_id, configured: p.version_id, effective, reason, at: now() });
 				console.error(`RECOVERY case ${p.case_id}: active ${p.version_id}: ${reason}; ${effective ? `showing ${effective}, the newest verified activation` : 'no verified activation to fall back to'}`);
 			}
@@ -156,7 +127,6 @@ export class LocalCase {
 		console.log(`startup checks: ${JSON.stringify({ ms: this.startupReport.ms, cleaned: cleaned.length, pruned, pruneError, verified: Object.fromEntries(Object.entries(checked).map(([k, v]) => [k, v.ok ? `ok ${v.ms}ms` : v.reason])), recovery: [...this.cases.values()], warnings: [...this.warnings.keys()], storageError: this.storageError })}`);
 	}
 
-	/** A startup that failed on a lock is retried (once at a time) on the next request after retryAt. */
 	async retryStartupIfDue(): Promise<void> {
 		if (!this.storageError || this.retryAt === null || Date.now() < this.retryAt) return;
 		this.#retrying ??= this.startup().finally(() => { this.#retrying = null; });
@@ -169,7 +139,7 @@ export class LocalCase {
 	 */
 	verify(vid: string, force = false): Verification {
 		let dv: string | null = null;
-		try { dv = this.storage.dataVersion(); } catch { /* storage broken: verify below reports it */ }
+		try { dv = this.storage.dataVersion(); } catch {}
 		if (dv === null || dv !== this.#verifiedAt) { this.#verified.clear(); this.#verifiedAt = dv; }
 		if (!force && this.#verified.has(vid)) return this.#verified.get(vid)!;
 		let r: Verification;
@@ -178,19 +148,16 @@ export class LocalCase {
 		return r;
 	}
 
-	/** The version the app shows for a case: the configured pointer, unless startup recovery replaced it. */
 	effectiveActive(caseId: string): string | undefined {
 		const r = this.cases.get(caseId);
 		if (r) return r.effective ?? undefined;
 		return this.store.activeVersionId(caseId);
 	}
-	/** The most recently activated case and its effective active version. */
 	currentActive(): { caseId: string; vid: string | undefined } | undefined {
 		const p = this.store.activePointers()[0];
 		return p && { caseId: p.case_id, vid: this.effectiveActive(p.case_id) };
 	}
 	anyRecovery(): CaseRecovery | undefined { return [...this.cases.values()][0]; }
-	/** Every stored case: the most recently activated first, then cases with only candidates, newest import first. */
 	listCases(): CaseSummary[] {
 		const byCase = new Map<string, CaseVersionRow[]>();
 		for (const v of this.store.caseVersions()) byCase.set(v.case_id, [...(byCase.get(v.case_id) ?? []), v]);
@@ -209,22 +176,16 @@ export class LocalCase {
 		});
 	}
 
-	/**
-	 * Trusted baseline of a case: the warnings accepted with its active version plus its operator-accepted register.
-	 * Scoped by caseId (GRS-10 fingerprints are not bound to a case); nothing comes from package content.
-	 */
 	trustedFor(caseId: string): Set<string> {
 		const active = this.effectiveActive(caseId);
 		return new Set([...(active ? this.store.acceptedWarningsOf(active) ?? [] : []), ...this.store.trustedRegister(caseId)]);
 	}
 
-	// ---- import -----------------------------------------------------------------------------------------------
 
 	get serveTmpDir() { return path.join(this.config.dataDir, 'serve-tmp'); }
 	importProgress() { return this.#current && { packageSource: this.#current.packageSource, startedAt: this.#current.startedAt, progress: this.#current.progress }; }
 	cancelImport(): boolean { if (!this.#current) return false; this.#current.abort.abort(); return true; }
 
-	/** Case folder and package source checks, run on every import before anything is read. */
 	async checkInputs(caseFolder: string, packageSource: string): Promise<{ app: AppDiagnostic[]; caseRoot?: { path: string; dev: string; ino: string } }> {
 		const app: AppDiagnostic[] = [];
 		const bad = (code: AppCode, message: string, hint: string) => app.push({ code, severity: 'error', message, hint });
@@ -245,12 +206,6 @@ export class LocalCase {
 		return { app, caseRoot: { path: cfReal, dev: String(rst.dev), ino: String(rst.ino) } };
 	}
 
-	/**
-	 * Import by clicking (GRS-70): extract a case pack .zip into the destination (or take an extracted folder), convert
-	 * its workspace HTML into a results package beside it, then importPackage. One running import at a time, and Cancel
-	 * stops every phase. A failure before importPackage records no attempt and changes nothing ClearCase stores. A failure,
-	 * a rejection or a Cancel removes the folders this run created in the destination; a stored or identical import keeps them.
-	 */
 	async importCasePack(source: string, destination: string, caseLabel?: string): Promise<ImportOutcome | { kind: 'failed'; message: string }> {
 		if (this.#current) return { kind: 'failed', message: 'Another import is still running. Wait for it to finish or cancel it, then import again.' };
 		const abort = new AbortController();
@@ -274,7 +229,6 @@ export class LocalCase {
 		}
 	}
 
-	/** `own`: the running import's controller when importCasePack calls this as its last phase. */
 	async importPackage(caseFolder: string, packageSource: string, own?: AbortController): Promise<ImportOutcome> {
 		const t0 = performance.now();
 		const at = now();
@@ -289,9 +243,6 @@ export class LocalCase {
 			const progress = { signal: abort.signal, onProgress: (p: Progress) => { if (this.#current) this.#current.progress = p; }, concurrency: 4 };
 			let result = await importCandidate(packageSource, inputs.caseRoot.path, progress);
 			const app: AppDiagnostic[] = [];
-			// Files the manifest does not list are reported and never read (PKG_UNLISTED_FILE). What is stored is the
-			// snapshot without them, and activation revalidates exactly that, so the candidate's report is the snapshot's:
-			// the same diagnostics and digest activation will reproduce. The ignored files stay visible as an info line.
 			const unlisted = result.diagnostics.filter((d) => d.code === 'PKG_UNLISTED_FILE');
 			if (result.candidate && unlisted.length) {
 				const snap = new Map([...result.candidate.snapshot()].map(({ path: p, bytes }) => [p, bytes]));
@@ -308,7 +259,6 @@ export class LocalCase {
 			if (existing && existing.case_root !== inputs.caseRoot.path)
 				return conflict('APP_CASE_FOLDER_DIFFERS', `${c.resultsVersion} was imported against the case folder ${existing.case_root}; this import names ${inputs.caseRoot.path}`, 'Import it against the same case folder, or export a new results version for the other folder.');
 			if (existing && this.verify(existing.id, true).ok) {
-				// the stored report is only still true while this fresh validation reproduces it; otherwise show the fresh one
 				const proj = project(c, result.counts);
 				if (result.diagnosticsSha256 !== existing.diagnostics_sha256 || readModelDigest({ ...proj, expect: JSON.stringify(proj.expect) }) !== existing.read_model_sha256)
 					return conflict('APP_ORIGINALS_CHANGED', `the case folder no longer matches what was validated when ${c.resultsVersion} was stored (import #${existing.import_id}); the diagnostics below are the current ones`, `A stored results version never changes, so importing this package again cannot update it. Restore the changed or missing originals byte for byte and activate import #${existing.import_id} again, or convert the case folder and import the package as a new results version.`);
@@ -328,7 +278,6 @@ export class LocalCase {
 				projection: project(c, result.counts),
 			};
 			if (existing) {
-				// the stored copy of this exact package fails verification: rebuild it from the freshly validated bytes
 				const res = await this.store.repairVersion(write);
 				if (res.kind !== 'repaired') return conflict('APP_VERSION_CONFLICT', `${c.resultsVersion} changed while it was being repaired`, 'Import it again.');
 				this.storage.checkpointResults();
@@ -341,7 +290,7 @@ export class LocalCase {
 			if (res.kind === 'identical') return { kind: 'identical', importId: res.existing.import_id };
 			if (res.kind === 'conflict') return conflict('APP_VERSION_CONFLICT', `${c.resultsVersion} was stored concurrently with a different manifest`, 'Results versions are immutable. Export a new results version.');
 			if (res.kind === 'retired') return conflict('APP_VERSION_RETIRED', `${c.resultsVersion} was imported before with a different manifest and removed by the retention policy on ${res.retiredAt}`, 'A results version id is never reused for different content. Export a new results version.');
-			this.storage.checkpointResults(); // the import now lives in results.sqlite itself, not only in its -wal
+			this.storage.checkpointResults();
 			await this.store.pruneCandidates(this.config.keepCandidates, c.resultsVersion).catch((e) => console.error('retention failed', e));
 			return { kind: 'stored', importId: res.kind === 'stored' || res.kind === 'repaired' ? res.importId : 0 };
 		} finally {
@@ -349,16 +298,13 @@ export class LocalCase {
 		}
 	}
 
-	// ---- activation -------------------------------------------------------------------------------------------
 
-	/** Activations run one at a time in this process. */
 	#serially<T>(fn: () => Promise<T>): Promise<T> {
 		const run = this.#queue.then(fn, fn);
 		this.#queue = run.catch(() => {});
 		return run;
 	}
 
-	/** null on success, otherwise what the operator needs to know. */
 	activate(vid: string, ack: AckInput | null, kind: ActivationKind = 'activate'): Promise<ActivationRefusal | null> {
 		return this.#serially(() => this.#activateNow(vid, ack, kind));
 	}
@@ -372,11 +318,9 @@ export class LocalCase {
 		const root = await stat(v.case_root, { bigint: true }).catch(() => null);
 		if (!root || String(root.dev) !== v.case_dev || String(root.ino) !== v.case_ino)
 			return { message: `Activation refused: the case folder ${v.case_root} is missing, or was moved or replaced since import. Nothing was changed.` };
-		// 1. the stored bytes
 		const files = this.store.packageFiles(vid);
 		const bytes = verifyCandidateBytes(files, { resultsVersion: v.id, manifestSha256: v.manifest_sha256 });
 		if (!bytes.ok) return { message: `Activation refused: stored package bytes do not verify (${bytes.problems.slice(0, 3).join('; ')}).` };
-		// 2. revalidate the originals, read-only, from the stored bytes
 		const register = this.store.trustedRegister(v.case_id);
 		const trusted = kind === 'activate' ? this.trustedFor(v.case_id) : new Set([...(this.store.acceptedWarningsOf(vid) ?? []), ...register]);
 		const fresh = await importCandidate({ files }, v.case_root, { trustedBaseline: trusted, concurrency: 4 });
@@ -384,12 +328,10 @@ export class LocalCase {
 			const errs = fresh.diagnostics.filter((d) => d.severity === 'error').slice(0, 3).map((d) => `${d.code} ${d.subject}`.trim());
 			return { message: `Activation refused: revalidating ${vid} against the case folder now rejects it (${errs.join('; ') || 'rejected'}). An original changed or became unreadable since import. Nothing was changed.` };
 		}
-		// the fresh projection must be the read model that was stored and previewed
 		const proj = project(fresh.candidate, fresh.counts);
 		const digest = readModelDigest({ ...proj, expect: JSON.stringify(proj.expect) });
 		if (digest !== v.read_model_sha256)
 			return { message: `Activation refused: the case folder no longer matches what was previewed for ${vid} (originals changed, moved or became unavailable). Restore the originals byte for byte and activate again, or convert the case folder and import a new results version: a stored version never changes, so importing this package again only shows the current diagnostics. Nothing was changed.` };
-		// 3. the activation policy over the fresh result
 		const ack: Acknowledgement | null = ackInput ? {
 			acknowledgement: 'clearcase.acknowledgement/1', resultsVersion: ackInput.resultsVersion, manifestSha256: ackInput.manifestSha256,
 			diagnosticsSha256: ackInput.diagnosticsSha256, validatorVersion: ackInput.validatorVersion,
@@ -397,7 +339,6 @@ export class LocalCase {
 		} : null;
 		const decision = canActivate(fresh, ack, trusted);
 		if (!decision.ok) return { message: `Activation refused: ${decision.reasons.map((r) => `${r.code}: ${r.message}`).join('; ')}. Nothing was changed.`, reasons: decision.reasons };
-		// 4. record the activation with the bound acknowledgement
 		const bound = decision.newWarnings.length > 0 ? ack : null;
 		const wrote = await this.store.writeActivation(v, kind, bound, acceptedWarnings(fresh, bound, trusted));
 		this.cases.delete(v.case_id);
@@ -405,11 +346,6 @@ export class LocalCase {
 		return null;
 	}
 
-	/**
-	 * Return to the version that was active before the current one. The form carries the version the page showed as
-	 * active (`expect`) and the target it offered (`to`); both are re-checked inside the activation queue, so a stale
-	 * page (second tab, Back, double submit) can never flip the pointer back again.
-	 */
 	rollback(caseId: string, expect: string | null, to: string | null): Promise<ActivationRefusal | null> {
 		return this.#serially(async () => {
 			const cur = this.effectiveActive(caseId);
@@ -421,7 +357,6 @@ export class LocalCase {
 		});
 	}
 
-	/** Adopt the recovery fallback as the active version (one click on the banner). */
 	adoptRecovery(caseId: string): Promise<ActivationRefusal | null> {
 		const r = this.cases.get(caseId);
 		if (!r?.effective) return Promise.resolve({ message: 'Nothing to adopt.' });
@@ -435,9 +370,7 @@ export class LocalCase {
 		return prev && this.store.getVersion(prev) ? prev : null;
 	}
 
-	// ---- backups ------------------------------------------------------------------------------------------------
 
-	/** Back work.sqlite up now; a failure is shown as a banner (and logged), the change itself stands. */
 	backupNow(label: string) {
 		try {
 			this.store.backupWork(label, this.config.keepBackups);
@@ -447,23 +380,20 @@ export class LocalCase {
 			this.warnings.set('backup-failed', `The last backup of work.sqlite failed (${String((e as Error).message ?? e).slice(0, 200)}). Your change was saved, but ${this.storage.backupDir} has no copy of it yet.`);
 		}
 	}
-	/** User work is backed up shortly after each write (debounced), so the newest backup lags by seconds at most. */
 	scheduleUserWorkBackup() {
 		if (this.#backupTimer) clearTimeout(this.#backupTimer);
 		this.#backupTimer = setTimeout(() => { this.#backupTimer = null; this.backupNow('user-work'); }, this.config.userWorkBackupDelayMs);
 		this.#backupTimer.unref?.();
 	}
-	/** Graceful shutdown: write a pending user-work backup, then close the stores. */
 	shutdown() {
 		if (this.#backupTimer) { clearTimeout(this.#backupTimer); this.#backupTimer = null; this.backupNow('user-work'); }
 		this.#current?.abort.abort();
 		this.storage.close();
 	}
 
-	/** The rejection page names the restore procedure; it never touches the data directory itself. */
 	restoreHelp(): string {
 		const d = this.config.dataDir;
-		return `The data directory was left untouched. To restore user work from a backup: stop ClearCase; move work.sqlite AND its sidecar files (work.sqlite-journal, and any old work.sqlite-wal or work.sqlite-shm) out of ${d}; copy the newest ${path.join(d, 'backups', 'work-*.sqlite')} to ${path.join(d, 'work.sqlite')}; start ClearCase. Backups are written at every activation and a few seconds after user-work changes. Results versions can always be imported again from their packages.`;
+		return `The data directory was left untouched. To restore user work from a backup: stop ClearCase; move work.sqlite AND its sidecar files (work.sqlite-journal, and any old work.sqlite-wal or work.sqlite-shm) out of ${d}; copy the newest ${path.join(d, 'backups', 'work-*.sqlite')} to ${path.join(d, 'work.sqlite')}; start ClearCase. Backups are written at every activation, after user-work editing pauses, and on clean shutdown when a backup is pending. Results versions can always be imported again from their packages.`;
 	}
 }
 

@@ -1,47 +1,27 @@
-// The document-row read contract (the equivalent of v5's allRows()): every document row of a results version, the
-// imported register first in source order, then rows published by registered providers. GRS-20's rescan will
-// publish rescanned rows as a provider; readers (chronology, documents, search, exports) call documentRows() or
-// listJson() and never change when a provider appears.
-//  * Imported rows are the raw chronology rows exactly as stored (canonical JSON), with the projected list entry and
-//    document state. They are immutable results.
-//  * Provider rows are not results: each carries its provider id as `source`, and its own list entry and state.
-//    A provider ref that collides with an imported ref is dropped and reported, never shadowing the register; so is
-//    a row whose list entry names another ref. A row whose property read throws is dropped like a malformed one; a
-//    present original without its path, size, sha256 and media type is left out of the row and reported.
-//  * revision() must return a safe ETag token (REVISION); anything else marks the provider failed.
 import type { ChronologyListRow, DocumentStateRow } from './model.ts';
 import type { CaseStore } from './store.server.ts';
 
 export type DocumentSource = 'results' | `provider:${string}`;
 export interface DocumentRow {
 	ref: string;
-	/** imported rows: position in the source register; provider rows continue after the last imported row */
 	ord: number;
 	source: DocumentSource;
-	/** the raw source row, unchanged (v5 chronology shape), frozen */
 	row: Readonly<Record<string, unknown>>;
-	/** the display projection used by lists */
 	list: Readonly<ChronologyListRow>;
 	state: Readonly<DocumentStateRow>;
 }
 export interface ProviderRow { ref: string; row: Record<string, unknown>; list: Omit<ChronologyListRow, 'ord'>; state: DocumentStateRow }
 export interface DocumentRowProvider {
-	/** stable id, e.g. 'rescan' */
 	id: string;
-	/** owning Linear issue, e.g. 'GRS-20' */
 	owner: string;
-	/** rows for one version of one case, in the order to show them */
 	rows(ctx: { caseId: string; resultsVersion: string }): readonly ProviderRow[];
-	/** changes whenever rows() would return something else (part of the list ETag); 1-128 characters of REVISION */
 	revision(ctx: { caseId: string; resultsVersion: string }): string;
 }
 
 const providers = new Map<string, DocumentRowProvider>();
 const ID = /^[a-z][a-z0-9-]{0,31}$/;
-/** A provider revision: a safe ETag token (no quote, space, control character or list separator). */
 export const REVISION = /^[A-Za-z0-9._:+\/=-]{1,128}$/;
 
-/** Register a provider (once per id). Returns an unregister function (tests, shutdown). */
 export function registerDocumentRowProvider(p: DocumentRowProvider): () => void {
 	if (!ID.test(p.id)) throw new Error(`invalid document-row provider id ${p.id}`);
 	if (providers.has(p.id)) throw new Error(`document-row provider ${p.id} is already registered`);
@@ -55,7 +35,6 @@ const freeze = <T>(v: T): T => {
 	return v;
 };
 
-/** Why a provider row, or only its original, was left out (`dropped[].reason`). Never echoes row values. */
 export type DropReason =
 	| 'the ref already names a document of this version'
 	| 'the list entry names another ref'
@@ -63,12 +42,7 @@ export type DropReason =
 	| `malformed row: ${string}`;
 export interface DocumentRowsResult {
 	rows: readonly DocumentRow[];
-	/** provider rows left out (a ref already taken, a list entry naming another ref, or a malformed row: not the
-	 *  ProviderRow shape, not plain data, or a property read that throws), and rows shown without their invalid
-	 *  original (state.original became null) */
 	dropped: { source: DocumentSource; ref: string; reason: DropReason }[];
-	/** providers whose rows() or revision() threw, returned the wrong type or an unsafe revision, or whose row list
-	 *  could not be read: their rows are left out and the readers show a degraded state */
 	failed: { source: DocumentSource; owner: string; reason: string }[];
 }
 
@@ -78,11 +52,9 @@ const FILE = new Set(['present', 'missing', 'blocked']);
 const isObject = (v: unknown): v is Record<string, unknown> => v !== null && typeof v === 'object' && !Array.isArray(v);
 const isText = (v: unknown) => typeof v === 'string';
 const isTextOrNull = (v: unknown) => v === null || typeof v === 'string';
-/** A present original carries what the document page reads: its path, size, sha256 and media type. */
 const validOriginal = (o: Record<string, unknown>) => typeof o.path === 'string' && o.path.length > 0 && Number.isSafeInteger(o.size) && (o.size as number) >= 0 &&
 	typeof o.sha256 === 'string' && /^[0-9a-f]{64}$/.test(o.sha256) && typeof o.mediaType === 'string';
 
-/** Why a provider row cannot be shown (null when it is a well-formed ProviderRow). */
 function malformed(x: unknown): string | null {
 	if (!isObject(x)) return 'not an object';
 	if (typeof x.ref !== 'string' || !x.ref) return 'ref is not a non-empty string';
@@ -98,20 +70,15 @@ function malformed(x: unknown): string | null {
 	return null;
 }
 
-/** A thrown value as report text; total, so a value that cannot be stringified never escapes provider isolation. */
 const message = (e: unknown) => {
 	try { return String((e as Error)?.message ?? e).slice(0, 200); } catch { return 'a value that cannot be shown as text was thrown'; }
 };
 
-/** Reads a provider row's ref for a report without letting a throwing getter escape. */
 function refOf(x: unknown, i: number): string {
 	try { const ref = (x as { ref?: unknown } | null)?.ref; if (typeof ref === 'string' && ref.isWellFormed()) return ref.slice(0, 200); } catch { /* reported by index */ }
 	return `#${i}`;
 }
 
-/** Provider rows in registration order, minus refs already taken (imported refs first) and malformed rows; a provider
- *  whose rows() or revision() throws, or whose row list cannot be read, is isolated. Each row is copied as JSON first
- *  and the copy is validated and used, so every property is read once and readers get plain, checked data only. */
 function fromProviders(caseId: string, resultsVersion: string, taken: (ref: string) => boolean) {
 	const rows: { source: DocumentSource; x: ProviderRow }[] = [];
 	const dropped: DocumentRowsResult['dropped'] = [];
@@ -120,7 +87,6 @@ function fromProviders(caseId: string, resultsVersion: string, taken: (ref: stri
 	const seen = new Set<string>();
 	for (const p of providers.values()) {
 		const source = `provider:${p.id}` as const;
-		// this provider's results are kept only if its whole row list could be read
 		const mine: typeof rows = [], drops: typeof dropped = [], refs = new Set<string>();
 		let rev: unknown;
 		try {
@@ -165,7 +131,6 @@ function fromProviders(caseId: string, resultsVersion: string, taken: (ref: stri
 	return { rows, dropped, failed, revisions };
 }
 
-/** Every document row of a stored version: the imported register in source order, then provider rows. */
 export function documentRows(store: CaseStore, resultsVersion: string): DocumentRowsResult {
 	const { rows, dropped, failed } = collect(store, resultsVersion);
 	return { rows, dropped, failed };
@@ -185,7 +150,6 @@ function collect(store: CaseStore, resultsVersion: string): DocumentRowsResult &
 	return { rows, dropped: p.dropped, failed: p.failed, revisions: p.revisions };
 }
 
-/** One document row by ref through the same contract (an imported ref always wins), or null. */
 export function documentRow(store: CaseStore, resultsVersion: string, ref: string): DocumentRow | null {
 	if (!store.getVersion(resultsVersion)) return null;
 	const d = store.document(resultsVersion, ref);
@@ -197,10 +161,6 @@ export function documentRow(store: CaseStore, resultsVersion: string, ref: strin
 	return documentRows(store, resultsVersion).rows.find((r) => r.ref === ref) ?? null;
 }
 
-/**
- * Which of `refs` name a document row of the version, imported or provided (GRS-51): the one rule every view uses to
- * decide whether a ref is a link. Exact refs only; a ref nothing names is left out (it renders broken, never matched).
- */
 export function resolveRefs(store: CaseStore, resultsVersion: string, refs: Iterable<string>): Set<string> {
 	const want = [...new Set(refs)];
 	const found = store.existingRefs(resultsVersion, want);
@@ -212,14 +172,8 @@ export function resolveRefs(store: CaseStore, resultsVersion: string, refs: Iter
 	return found;
 }
 
-/**
- * Whether any imported register row has a source-supplied date type or provenance (BA-04). Reads the stored list
- * JSON without parsing it: JSON escapes every quote inside a string value, so the unescaped `"dateType":"` or
- * `"dateSource":"` occurs only as the key of a string value (a missing basis is stored as null).
- */
 export const anyDateBasis = (store: CaseStore, resultsVersion: string): boolean => { const j = store.chronologyJson(resultsVersion) ?? ''; return j.includes('"dateType":"') || j.includes('"dateSource":"'); };
 
-/** How many document rows documentRows() returns, without parsing the register: imported plus accepted provider rows. */
 export function documentCounts(store: CaseStore, resultsVersion: string): { total: number; imported: number; provided: number; failed: DocumentRowsResult['failed'] } {
 	const v = store.getVersion(resultsVersion);
 	if (!v) return { total: 0, imported: 0, provided: 0, failed: [] };
@@ -229,8 +183,6 @@ export function documentCounts(store: CaseStore, resultsVersion: string): { tota
 	return { total: imported + p.rows.length, imported, provided: p.rows.length, failed: p.failed };
 }
 
-/** The chronology list JSON and its ETag: the stored list as-is when no provider publishes rows. `failed` names the
- *  providers left out because rows() or revision() threw (the list is then degraded, and its ETag says so). */
 export function listJson(store: CaseStore, resultsVersion: string): { json: string; etag: string; failed: DocumentRowsResult['failed'] } | null {
 	const v = store.getVersion(resultsVersion);
 	if (!v) return null;
@@ -240,7 +192,6 @@ export function listJson(store: CaseStore, resultsVersion: string): { json: stri
 	return { json: JSON.stringify(rows.map((r) => r.list)), etag: `"${v.read_model_sha256}|${revisions.join(';')}${tag}"`, failed };
 }
 
-/** The active version's document rows for a case (what v5's allRows() returned), or none when nothing is active. */
 export function activeDocumentRows(lc: { store: CaseStore; effectiveActive(caseId: string): string | undefined }, caseId: string): DocumentRowsResult & { resultsVersion: string | null } {
 	const vid = lc.effectiveActive(caseId) ?? null;
 	return vid ? { resultsVersion: vid, ...documentRows(lc.store, vid) } : { resultsVersion: null, rows: [], dropped: [], failed: [] };

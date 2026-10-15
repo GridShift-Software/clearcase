@@ -1,11 +1,6 @@
 <script lang="ts">
-	// Open or download one original, with explicit missing, unsupported and parent-route states (BA-09). Labels come
-	// from the verified mapping (its real path and the family the originals site serves), never from the row's
-	// declared filename, media type or text claim alone. Links point at the separate originals site and open in a new
-	// browsing context without opener or referrer; they carry the server's link capability.
 	import { displayFilename } from '../case-package/browser.ts';
 	import type { DocumentStateRow, OriginalLinks } from '../local-case/model.ts';
-	// onDisk: why an original that was present at import cannot be served now (checked when the page renders), or null
 	let { state, links, onDisk = null, page = null, parentHref = null }: { state: DocumentStateRow; links: OriginalLinks; onDisk?: string | null; page?: number | null; parentHref?: string | null } = $props();
 	const o = $derived(state.original);
 	const label = $derived(

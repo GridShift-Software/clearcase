@@ -1,6 +1,3 @@
-// Package writer shared by producers (the v5 adapter, later the pipeline and the Markdown
-// round trip). buildPackage is pure and returns exact bytes; writePackageDir writes them to
-// an explicit, empty output directory and nowhere else.
 import { mkdir, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { canonicalBytes } from './canonical.ts';

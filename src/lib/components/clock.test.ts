@@ -1,4 +1,3 @@
-// The shared clock seam: CLEARCASE_FIXED_NOW fixes now() for tests and verification; unset means the real clock.
 import { afterEach, describe, expect, it } from 'vitest';
 import { fixedNowSetting, now, parseFixedNow } from './clock.ts';
 

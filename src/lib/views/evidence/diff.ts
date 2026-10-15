@@ -14,7 +14,6 @@ import { cleanName } from './common.ts';
 export type Op = 'eq' | 'del' | 'add';
 export interface Segment { op: Op; text: string }
 
-/** v5 lcsDiff: tokens of A and B; `sep` follows every emitted token (lines mode), outside a change. Adjacent same-op output merges. */
 export function lcsDiff(A: readonly string[], B: readonly string[], sep = ''): Segment[] {
 	const n = A.length, m = B.length;
 	const dp = Array.from({ length: n + 1 }, () => new Int32Array(m + 1));
@@ -37,14 +36,9 @@ const words = (s: string) => s.split(/(\s+)/);
 const lines = (s: string) => s.split(/\n/);
 export const diffWords = (a: string, b: string) => lcsDiff(words(a), words(b));
 export const diffLines = (a: string, b: string) => lcsDiff(lines(a), lines(b), '\n');
-/**
- * The largest LCS table compared (token pairs): about 16 MB and some tens of milliseconds. Today's excerpts (at most
- * 500 characters, so at most about 500 tokens a side, 250,000 pairs) stay far below it.
- */
 export const MAX_CELLS = 4_000_000;
 
 export interface Candidate { ref: string; label: string }
-/** Every document with an excerpt, in register order, labelled as v5 does ('ref · clean file name'). */
 export const candidates = (rows: readonly ChronologyListRow[]): Candidate[] => rows.filter((r) => r.excerpt).map((r) => ({ ref: r.ref, label: `${r.ref} · ${cleanName(r.filename)}` }));
 
 export interface Side { ref: string; name: string; chars: number; textStatus: string }
@@ -54,8 +48,6 @@ export type Comparison =
 	| { kind: 'too-long'; mode: 'words' | 'lines'; a: Side; b: Side; cells: number }
 	| { kind: 'diff'; mode: 'words' | 'lines'; a: Side; b: Side; same: boolean; segments: Segment[] };
 
-/** Compare the chosen pair (v5 runDiff): both refs must name a candidate (a document with an excerpt), else 'Pick two
- *  documents.', with the reason for a ref that is chosen but cannot be compared. */
 export function compare(rows: readonly ChronologyListRow[], a: string | null, b: string | null, mode: string | null, submitted: boolean): Comparison {
 	if (!submitted) return { kind: 'none' };
 	const map = new Map<string, ChronologyListRow>();

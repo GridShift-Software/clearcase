@@ -1,8 +1,5 @@
-// The tour proxy's rules, apart from its server so that every encoding of a refused route can be tested directly.
 import { timingSafeEqual } from 'node:crypto';
 
-/** Routes a tour visitor may not reach, matched against the canonical path: the import page and its folder browser and
- *  progress feed, recovery, and a version's system views (backups, downloads). */
 const REFUSED = [/^\/import(\/|$)/, /^\/api\/browse(\/|$)/, /^\/api\/import-progress(\/|$)/, /^\/recovery(\/|$)/, /^\/v\/[^/]+\/system(\/|$)/];
 
 /**
@@ -33,7 +30,6 @@ const same = (a: string, b: string): boolean => {
 	return x.byteLength === y.byteLength && timingSafeEqual(x, y);
 };
 
-/** Whether an Authorization header carries the tour's user and password as HTTP Basic credentials. Never throws. */
 export function authorised(header: string | undefined, user: string, password: string): boolean {
 	if (typeof header !== 'string' || !header.startsWith('Basic ')) return false;
 	const [u, ...rest] = Buffer.from(header.slice(6), 'base64').toString('utf8').split(':');

@@ -5,7 +5,7 @@ People lists the correspondents and signatories inferred from e-mail headers (na
 ## Sub-features
 
 - `people-list` shows each person with raw values and only inferred roles.
-- `entities-list` shows the organisations read from the People table with their imported roles.
+- `entities-list` shows the organisations of the imported `entities` dataset with their roles and notes.
 
 ## How to get to it (user POV)
 
@@ -13,8 +13,10 @@ People lists the correspondents and signatories inferred from e-mail headers (na
 
 ## Driving it with verify-clearcase
 
-- **Open.** `main[data-ready=people]` (or `entity_ledger_tab`), heading focused, `#identity-status[data-verification=unverified]`.
-- **Automated sender.** A row with `data-automated=true` keeps its raw `.addr` and organisation and carries no badge or verified label.
+Preconditions: `activate` passed on the synthetic case of `lib/inner.mjs` (`buildCase`, 7 rows); step `every-view` has opened this view once.
+
+- **Open.** Step `every-view` (page and heading only). `main[data-ready=people]` (or `entity_ledger_tab`), heading focused, `#identity-status[data-verification=unverified]`.
+- **Automated sender.** *Not yet driven.* A row with `data-automated=true` keeps its raw `.addr` and organisation and carries no badge or verified label.
 
 ## Gotchas
 

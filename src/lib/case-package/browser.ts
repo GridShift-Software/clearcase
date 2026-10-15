@@ -1,5 +1,3 @@
-// Browser-safe exports: rendering, link policy, ref grammar, canonical JSON, diagnostic codes,
-// serving policy and user-work types. None of these modules imports filesystem code or Node built-ins.
 export { renderNarrative, isSafeAppHref, documentRoute, displayText, displayFilename, revealInvisible, escapeHtml, safeExternalHref, exportCell, type RenderNarrativeOptions } from './render.ts';
 export { classifyLink, REJECTED_SCHEMES, type LinkClass } from './links.ts';
 export { isRef, isAssetKey, parseCitationToken, REF_PATTERN, ASSET_KEY_PATTERN } from './refs.ts';

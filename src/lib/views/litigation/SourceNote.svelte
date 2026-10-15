@@ -1,7 +1,4 @@
 <script lang="ts">
-	// The scope disclosure every litigation view ends with (GRS-18 acceptance: label dataset scope and unverified legal
-	// assertions). Generic wording only; the counts come from the imported data.
-	// A register adds a second paragraph for the user's own rows (each paragraph is pinned whole in the parity register).
 	let { text, more = null }: { text: string; more?: string | null } = $props();
 </script>
 

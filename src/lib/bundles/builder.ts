@@ -1,13 +1,7 @@
-/**
- * The Court Bundle builder's rules (v5 CBBLD, main HTML 2120-2382), kept pure so the page, the tests and the parity
- * sweep share them: picked files, items made of page ranges, the running page plan, the index spec, and the saved
- * bundle-list entry. The PDF bytes and parsed documents stay in the page's session state, keyed by file id.
- */
 import { cleanName, desc, slug, type Bundle, type BundleRow, type Header } from '../views/bundles/court.ts';
 import type { IndexSpec } from './pdf/index.ts';
 
 export interface BFile { id: string; name: string; size: number; pages: number }
-/** One range of one source; `fileId` null until a file with the matching name is added. */
 export interface Seg { fileId: string | null; name: string; from: number; to: number }
 export interface BRow { desc: string; segs: Seg[] }
 export interface Builder { files: BFile[]; rows: BRow[]; name: string; seq: number }
@@ -110,9 +104,7 @@ export function plan(b: Builder): Plan {
 	});
 	return { rows, pages: p - 1 };
 }
-/** Items with a range whose file is not added (skipped on Create, after a confirm). */
 export const unlinked = (pl: Plan) => pl.rows.filter((r) => r.segs.some((s) => !s.file));
-/** The (file, range) list the assembler copies, in order. */
 export const sourcesOf = (pl: Plan) => pl.rows.flatMap((r) => r.segs.filter((s) => s.file).map((s) => ({ fileId: s.file!.id, from: s.from, to: s.to })));
 
 /** v5 cbBldTitle. */
@@ -126,7 +118,6 @@ export function spec(pl: Plan, t: string, h: Header): IndexSpec {
 	return { header: { ...h }, title: t, rows: pl.rows.map((pr, k) => ({ n: k + 1, desc: desc({ desc: pr.row.desc, date: '' }), from: pr.from, to: pr.to, pages: pr.pages })) };
 }
 
-/** What Create Bundle produced; Save and the linked Word index use it. */
 export interface Output { id: string; title: string; file: string; pages: number; indexPages: number; bodyPages: number; plan: Plan }
 /** v5 cbBldIndexDocx links into the bundle when the title and the item count match; here every item's page numbers must
  * match too, or an edited range sends the links to the wrong pages (v5 L2352; IDR-378). */
@@ -136,7 +127,6 @@ export const linkable = (o: Output | null, pl: Plan, t: string): o is Output =>
 const row = (n: number, desc: string, pages: number, from: number, to: number, parts: BundleRow['parts']): BundleRow => ({
 	n, key: '', desc, date: '', blank: false, missing: false, review: false, pages, from, to, sliceUrl: '', caselines: null, parts,
 });
-/** The builder's own Word index as a bundle: hyperlinked to `file` only when linkable. */
 export function docxBundle(pl: Plan, t: string, o: Output | null): Bundle {
 	const lk = linkable(o, pl, t);
 	return { no: '', name: t, title: t, note: '', pages: pl.pages, indexPages: lk ? o.indexPages : 0, file: lk ? o.file : '', indexFile: '', rows: pl.rows.map((pr, k) => row(k + 1, pr.row.desc, pr.pages, pr.from, pr.to, [])) };
@@ -165,7 +155,6 @@ export function savedBundle(o: Output, no: string): Custom {
 const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const str = (v: unknown) => (typeof v === 'string' ? v : '');
 const rec = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
-/** One custom bundle from untrusted data (v5 storage or a stored row), or null when it has no number. */
 export function customOf(c: unknown): Custom | null {
 	if (!rec(c) || (typeof c.no !== 'string' && typeof c.no !== 'number') || String(c.no).trim() === '') return null;
 	return {
@@ -176,8 +165,6 @@ export function customOf(c: unknown): Custom | null {
 		})),
 	};
 }
-/** The value of v5's `ess_dcs_custom_bundles_v1` (a JSON string or the parsed array) as custom bundles: entries without
- * a number are dropped, and a repeated number keeps its first entry. */
 export function importV5CustomBundles(raw: unknown): (Custom & { id: string })[] {
 	let v = raw;
 	if (typeof v === 'string') {
@@ -189,8 +176,6 @@ export function importV5CustomBundles(raw: unknown): (Custom & { id: string })[]
 	for (const c of v.map(customOf)) if (c && !seen.has(c.no)) { seen.add(c.no); out.push({ ...c, id: importedId(c.no) }); }
 	return out;
 }
-/** The stable id of an imported entry, for the `(case_id, id)` key and the save action's id pattern: `v5-` and the number
- * when that fits, else a hash of it, so importing the same value twice writes the same rows. */
 function importedId(no: string): string {
 	if (/^[A-Za-z0-9_-]{1,40}$/.test(no)) return 'v5-' + no;
 	let h = 0x811c9dc5;

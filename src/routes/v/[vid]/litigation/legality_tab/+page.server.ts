@@ -17,13 +17,11 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const scenarios = rows(L?.scenarios).map((x) => ({ scenario: s(x.scenario), effect: s(x.effect), prob: s(x.prob), action: s(x.action) }));
 	const factors = rows(L?.factors).map((x) => ({ factor: s(x.factor), note: s(x.note) }));
 	const intro = s(L?.intro);
-	// documents are linked by ref against the version (a missing ref renders broken, never fuzzy-matched)
 	const vc = viewContentOf(a.store, version.id);
 	const exists = [...resolveRefs(a.store, version.id, docs.map((d) => d.ref).filter(Boolean))];
 	return {
 		present: L !== null, intro, docs, scenarios, factors, exists,
 		subtitle: viewText(vc, 'legality_tab', 'subtitle'),
-		// v5's case wording for the docs caption and the scenario action heading (view-content), else the neutral wording
 		docsHeading: viewText(vc, 'legality_tab', 'docsHeading', { count: docs.length }) ?? `Documents in the bundle (${docs.length})`,
 		actionHeading: viewText(vc, 'legality_tab', 'scenarioActionHeading') ?? 'Action',
 		known: knownRefs(version.id, [intro, ...scenarios.flatMap((x) => [x.effect, x.action]), ...factors.map((x) => x.note)]),

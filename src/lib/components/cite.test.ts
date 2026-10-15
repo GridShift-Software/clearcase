@@ -1,12 +1,9 @@
-// The refs a page looks up for its narrative are the refs the renderer links: padded tokens included (CC-05 lane 03).
-// Invented refs and texts only.
 import { describe, expect, it } from 'vitest';
 import { renderNarrative } from '../case-package/render.ts';
 import { citedRefs, narrativeHtml } from './cite.ts';
 
 const RV = 'sha256:' + 'c'.repeat(64);
 const rv = encodeURIComponent(RV);
-/** What a page does: look up the cited refs, keep those that exist, render with them. */
 const page = (text: string, existing: readonly string[]) => narrativeHtml(text, RV, citedRefs([text]).filter((r) => existing.includes(r)));
 
 describe('citedRefs', () => {

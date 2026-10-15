@@ -3,10 +3,6 @@ import { app } from '$lib/local-case/app.server';
 import { listJson } from '$lib/local-case/documents.server';
 import type { RequestHandler } from './$types';
 
-// Per-version chronology list through the document-row contract (documents.server.ts): the list stored at import,
-// served as-is, plus rows from registered providers (none in the pilot); a provider that throws is left out, never a 500. The browser may keep a copy but must
-// revalidate it (private, no-cache): the ETag is the read-model digest (and provider revisions), so an unchanged
-// version costs a 304 and content stored again under the same id is never shown from a stale copy.
 export const GET: RequestHandler = ({ params, request }) => {
 	const a = app();
 	const v = a.store.getVersion(params.vid);

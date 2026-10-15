@@ -17,9 +17,6 @@
 	let pg = $state('');
 	const goPage = () => { const n = parseInt(pg || '0', 10); const h = n >= 1 ? bundleHref(n) : null; if (h) goto(h); };
 
-	// session uploads (S-caselines_tab-1 corrected): kept in this page only and offered as downloads. A file the user
-	// adds never renders or runs on the app origin: its object URL is made from an application/octet-stream copy, never
-	// from the file's own type, so opening the link, a new tab or a copied address only downloads it (CC-09-r2 D1).
 	type Upload = { id: number; name: string; size: number; url: string };
 	let uploads = $state<Upload[]>([]);
 	let seq = 0;
@@ -27,12 +24,9 @@
 	const addUploads = (files: FileList | null | undefined) => { for (const f of files ?? []) uploads.push({ id: ++seq, name: f.name, size: f.size, url: uploadUrl(f) }); };
 	const removeUpload = (u: Upload) => { URL.revokeObjectURL(u.url); uploads = uploads.filter((x) => x.id !== u.id); };
 
-	// Link and Remove each keep their own error: a success elsewhere never clears another action's failure. Link
-	// snapshots the path it sent and clears the input only when it is unchanged, so text typed meanwhile stays.
 	let path = $state('');
 	let linkError = $state<string | null>(null);
 	let removeErrors = $state<Record<string, string>>({});
-	// `linking` alone gates Link and Retry; `unlinking` counts Removes in flight, so one finishing never re-enables a button for the other
 	let linking = $state(false);
 	let unlinking = $state(0);
 	const busy = $derived(linking || unlinking > 0);
@@ -57,11 +51,9 @@
 		if (nav.to?.route.id === nav.from?.route.id || (!path.trim() && !linkError && !Object.keys(removeErrors).length)) return;
 		if (nav.type === 'leave' || !confirm('A file path is typed but not linked, or a change failed. Leave this page and lose it?')) nav.cancel();
 	});
-	// without JavaScript nothing here can search, link or add files, so every control renders disabled with a note
 	let ready = $state(false);
 	const off = $derived(!ready);
 	onMount(() => { ready = true; });
-	// page numbers the page-text index repeats: every hit renders and each repeat is flagged
 	const repeatedPages = $derived.by(() => { const seen = new Set<number>(), dup = new Set<number>(); for (const h of data.search?.hits ?? []) (seen.has(h.p) ? dup : seen).add(h.p); return dup; });
 </script>
 

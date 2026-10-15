@@ -6,14 +6,11 @@
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data, form } = $props();
-	/** which form's import is running: the case pack's or the results package's */
 	let busy = $state<'' | 'case' | 'package'>('');
 	let ready = $state(false);
 	let progress = $state('');
 	let stage = $state('');
 	const mb = (n: number) => (n / 1e6).toFixed(1);
-	// Open a case (GRS-70): the case pack (a .zip or a folder) and where to store it, both chosen in the folder browser
-	// in a dialog. The case name starts as the pack's name and stays editable.
 	let caseSource = $state('');
 	let destination = $state('');
 	let caseName = $state('');
@@ -35,7 +32,6 @@
 	}
 	onMount(() => {
 		ready = true;
-		// ?pick=case or ?pick=destination opens the dialog on load (the UI class suite measures it at narrow widths)
 		const q = page.url.searchParams.get('pick');
 		if (q === 'case' || q === 'destination') { picking = q; dialog.showModal(); }
 	});
@@ -46,7 +42,6 @@
 	});
 	const effectiveDestination = $derived(destination || data.defaultDestination);
 	const stageOf = (phase: string) => (phase === 'extract' || phase === 'check' ? 'Extracting' : phase === 'find' || phase === 'convert' || phase === 'write' ? 'Converting' : 'Checking originals');
-	// With JS: poll the import's progress while its request runs. Without JS the plain form post works the same.
 	const track = (which: 'case' | 'package') => () => {
 		busy = which;
 		stage = 'Starting';
@@ -115,7 +110,7 @@
 				<p class="muted">Click the case pack's .zip, or open the folder it was extracted to and choose Use this folder.</p>
 				<FolderBrowser id="case-browser" mode="case" chooseLabel="Use this folder" onchoose={chosen} />
 			{:else}
-				<p class="muted">ClearCase extracts a .zip here and writes the converted results beside the case. It never writes into a case folder.</p>
+				<p class="muted">ClearCase extracts a .zip and writes the converted results in this storage folder. It never writes into a case folder.</p>
 				<FolderBrowser id="destination-browser" mode="destination" chooseLabel="Store cases in this folder" onchoose={chosen} />
 			{/if}
 		{/if}
@@ -145,7 +140,6 @@
 </main>
 
 <style>
-	/* production's new-case window (prod-inspo.md): a serif title over one large rounded card */
 	.import-page :global(h1) { font-family: var(--font-serif); font-size: 36px; font-weight: 400; }
 	.card, .picker { border-radius: var(--radius-lg); padding: 24px 28px; }
 	.card { max-width: 52rem; margin-bottom: 1.5rem; }

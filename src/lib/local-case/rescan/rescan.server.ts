@@ -1,14 +1,3 @@
-// Rescan & Update (GRS-20): walk the active version's case folder read-only, record how it differs from the results
-// (rules.ts) in two user-work tables, and publish the additions through the document-row read contract, so the
-// chronology, documents, search and counts show them without knowing about rescan.
-//  * rescan_file (case scope): one row per difference, keyed by case, results version and path. An unchanged repeat
-//    scan writes nothing, so a repeat scan is idempotent row for row.
-//  * rescan_run (case scope): the last scan of a version (mode, time, counts, verdict) and the highest ref number
-//    issued per prefix, so a cleared addition's ref is never issued again.
-// Both are ordinary defined tables: Backup / Restore carries them like every other table.
-// The walk skips hidden entries, symbolic links, anything that is not a regular file or folder, a processing package
-// folder (manifest.json beside assets.json) and the ClearCase data directory. It reads file contents only in a full
-// scan (SHA-256), never writes to the case folder, and stops at MAX_FILES.
 import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { opendir, stat } from 'node:fs/promises';
@@ -30,7 +19,6 @@ export const MAX_FILES = 200_000;
 const T = (name: string, notNull = false) => ({ name, type: 'TEXT' as const, notNull });
 const I = (name: string) => ({ name, type: 'INTEGER' as const });
 
-/** Define both tables (once per LocalCase). */
 const defined = new WeakMap<LocalCase, Promise<void>>();
 export function rescanTables(lc: LocalCase): Promise<void> {
 	let p = defined.get(lc);
@@ -61,7 +49,6 @@ const str = (c: TableCell | undefined) => (typeof c === 'string' ? c : '');
 
 export interface RunSummary { mode: ScanMode; at: string; ms: number; counts: ScanOutcome['counts']; issued: Record<string, number>; current: boolean; verdict: string }
 
-/** The stored rows of one version (empty before the first scan). */
 export function rescanRows(lc: LocalCase, caseId: string, resultsVersion: string): RescanFile[] {
 	if (!isDefined(lc, FILE_TABLE)) return [];
 	return lc.userWork.listTableRows(FILE_TABLE, { caseId }).filter((r) => r.results_version === resultsVersion).map((r) => ({
@@ -79,7 +66,6 @@ export function lastRun(lc: LocalCase, caseId: string, resultsVersion: string): 
 	} catch { return null; }
 }
 
-/** The originals the version indexed and found, with their bundle, and every ref the version uses. */
 function indexedOf(lc: LocalCase, resultsVersion: string): { indexed: IndexedOriginal[]; taken: Set<string> } {
 	const { documents, assets } = lc.store.projectionRows(resultsVersion);
 	const bundle = new Map<string, string>();
@@ -102,7 +88,6 @@ async function sha256File(file: string): Promise<string> {
 
 export class ScanError extends Error {}
 
-/** Walk the case folder (read-only). `hash(rel, size)` says which files a full scan fingerprints. */
 export async function walk(root: string, opts: { skip?: readonly string[]; hash?: (rel: string) => boolean } = {}): Promise<{ files: WalkedFile[]; skipped: number }> {
 	const skip = new Set((opts.skip ?? []).map((p) => path.resolve(p)));
 	const files: WalkedFile[] = [];
@@ -112,7 +97,6 @@ export async function walk(root: string, opts: { skip?: readonly string[]; hash?
 		const entries: { name: string; isFile: boolean; isDir: boolean }[] = [];
 		for await (const e of await opendir(dir)) entries.push({ name: e.name, isFile: e.isFile(), isDir: e.isDirectory() });
 		const names = new Set(entries.map((e) => e.name));
-		// a processing package (or a copy of one) inside the case folder is not case material
 		if (rel && names.has('manifest.json') && names.has('assets.json')) { skipped++; return; }
 		for (const e of entries.sort((a, b) => (a.name < b.name ? -1 : 1))) {
 			if (e.name.startsWith('.') || (!e.isFile && !e.isDir)) { skipped++; continue; }
@@ -130,7 +114,6 @@ export async function walk(root: string, opts: { skip?: readonly string[]; hash?
 	return { files, skipped };
 }
 
-// one scan per case at a time, in the case's register queue: a restore of the case waits for a scan, and a scan for it
 const serial = <T>(lc: LocalCase, caseId: string, fn: () => Promise<T>): Promise<T> => inTurn(lc.userWork, caseId, 'rescan\u0000', fn);
 
 const cellsOf = (caseId: string, rv: string, r: RescanFile): Record<string, TableCell> => ({
@@ -141,10 +124,6 @@ const same = (a: RescanFile, b: RescanFile) => JSON.stringify(a) === JSON.string
 
 export interface ScanResult extends RunSummary { rows: RescanFile[]; skipped: number }
 
-/**
- * Scan the case folder of one version and record the result. Rows are written only where they changed and removed
- * only where they no longer apply; the run summary is replaced. One scan per case at a time.
- */
 export function rescan(lc: LocalCase, resultsVersion: string, mode: ScanMode): Promise<ScanResult> {
 	const v = lc.store.getVersion(resultsVersion);
 	if (!v) return Promise.reject(new ScanError('unknown results version'));
@@ -176,8 +155,6 @@ export function rescan(lc: LocalCase, resultsVersion: string, mode: ScanMode): P
 	});
 }
 
-/** Clear the additions of a version (v5 "Clear rescan additions"). Changed and removed originals stay reported, and
- *  the issued ref numbers are kept, so a cleared ref is never issued again. Returns how many were cleared. */
 export function clearAdditions(lc: LocalCase, resultsVersion: string): Promise<number> {
 	const v = lc.store.getVersion(resultsVersion);
 	if (!v) return Promise.reject(new ScanError('unknown results version'));
@@ -191,7 +168,6 @@ export function clearAdditions(lc: LocalCase, resultsVersion: string): Promise<n
 	});
 }
 
-/** A '/'-relative path as the import writes document URLs ('./' and each segment percent-encoded). */
 export const urlOf = (p: string) => `./${p.split('/').map(encodeURIComponent).join('/')}`;
 
 /** An addition as a document row: the v5 rescan row shape (L2809-2814) with the app's './' URL base. */
@@ -204,19 +180,11 @@ export function providerRow(r: RescanFile): ProviderRow {
 	return { ref: r.ref, row, list, state };
 }
 
-/** The additions of a version as provider rows, in path order. */
 export function additions(lc: LocalCase, caseId: string, resultsVersion: string): ProviderRow[] {
 	return rescanRows(lc, caseId, resultsVersion).filter((r) => r.kind === 'added').map(providerRow);
 }
 
 let registered: { lc: LocalCase; undo: () => void } | null = null;
-/**
- * Publish the additions of `lc` through the document-row read contract (provider 'rescanned', owner GRS-20). Called
- * by every page that can show rescan state (the overview's freshness loader, the system pages) and by a scan; a later
- * call with another LocalCase (tests) re-registers. An id already taken by someone else is left alone. It registers
- * only once `caseId` has an addition: a registered provider changes every document list's ETag, so until a scan finds
- * a file the lists and their ETags stay exactly the imported ones.
- */
 export function ensureRescanProvider(lc: LocalCase, caseId: string): void {
 	if (registered?.lc === lc) return;
 	if (!isDefined(lc, FILE_TABLE) || !lc.userWork.listTableRows(FILE_TABLE, { caseId }).some((r) => r.kind === 'added')) return;

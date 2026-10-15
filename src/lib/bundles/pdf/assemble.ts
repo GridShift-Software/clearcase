@@ -1,15 +1,3 @@
-/**
- * Bundle assembly and the drawn index (v5 PDFK 1382-1826).
- *
- * Corrections against v5:
- * - S-court_bundle_tab-1: a Form XObject is recognised by its /Subtype name, so a form without resources of its own
- *   keeps the page resources it draws with (v5 compared String(PName), which never matched, and pruned them away).
- * - S-court_bundle_tab-6: index text keeps accented letters (./text.ts).
- * - S-court_bundle_tab-7: index page ranges use an en dash ('001 – 004'), as the page and the Word index do.
- * - S-court_bundle_tab-8: the page number is placed in the visible area (CropBox), not the MediaBox.
- * - S-court_bundle_tab-14: no debug hook.
- * - The index pages get a /Parent, like every other page.
- */
 import { INHERIT } from './doc.ts';
 import type { Doc, PageEntry } from './doc.ts';
 import { dec, enc, isDict, isName, nm, PRef, PStream } from './objects.ts';
@@ -44,7 +32,6 @@ async function contentBytes(doc: Doc, page: PDict): Promise<Uint8Array> {
 			try {
 				parts.push(await doc.decode(st));
 			} catch {
-				/* keep going */
 			}
 		}
 	}
@@ -72,7 +59,7 @@ async function usedNames(doc: Doc, res: PDict, bytes: Uint8Array): Promise<Set<s
 			const v = doc.get(xo.get(name));
 			if (!isForm(doc, v)) continue;
 			const own = v.d.get('Resources');
-			if (own !== undefined && own !== null) continue; // it brings its own
+			if (own !== undefined && own !== null) continue;
 			try {
 				for (const k of namesIn(await doc.decode(v)))
 					if (!used.has(k)) {
@@ -80,7 +67,7 @@ async function usedNames(doc: Doc, res: PDict, bytes: Uint8Array): Promise<Set<s
 						grew = true;
 					}
 			} catch {
-				return null; // undecodable: don't prune
+				return null;
 			}
 		}
 		if (!grew || ++rounds > 8) break;
@@ -88,7 +75,6 @@ async function usedNames(doc: Doc, res: PDict, bytes: Uint8Array): Promise<Set<s
 	return used;
 }
 
-/** A pruned Resources dictionary in source space (for the Copier). */
 async function pruneRes(doc: Doc, resRaw: PdfValue | undefined, bytes: Uint8Array, depth: number, seen: Set<string>): Promise<PdfValue | undefined> {
 	const res = doc.get(resRaw);
 	if (!isDict(res) || depth > 6 || !bytes.length) return res;
@@ -118,7 +104,6 @@ async function pruneRes(doc: Doc, resRaw: PdfValue | undefined, bytes: Uint8Arra
 								val = new PStream(nd, xo.raw);
 							}
 						} catch {
-							/* leave the form untouched */
 						}
 					}
 				}
@@ -130,7 +115,6 @@ async function pruneRes(doc: Doc, resRaw: PdfValue | undefined, bytes: Uint8Arra
 	return outRes;
 }
 
-// ---------------------------------------------------------------- page numbers
 const A4: [number, number, number, number] = [0, 0, 595.28, 841.89];
 
 function box(doc: Doc, v: PdfValue | undefined): [number, number, number, number] | null {
@@ -142,7 +126,6 @@ function box(doc: Doc, v: PdfValue | undefined): [number, number, number, number
 	return [Math.min(a, d), Math.min(c, e), Math.max(a, d), Math.max(c, e)];
 }
 
-/** The visible area of a page: its CropBox clipped to the MediaBox, else the MediaBox, else A4. */
 export function visibleBox(doc: Doc, p: PageEntry): [number, number, number, number] {
 	const pick = (k: 'MediaBox' | 'CropBox') => (p.dict.get(k) !== undefined ? p.dict.get(k) : p.inh[k]);
 	const mb = box(doc, pick('MediaBox')) ?? A4;
@@ -152,7 +135,6 @@ export function visibleBox(doc: Doc, p: PageEntry): [number, number, number, num
 	return r[2] > r[0] && r[3] > r[1] ? r : mb;
 }
 
-/** The stamp's content-stream operators: the number in 11 pt Helvetica-Bold, 18 pt in from the page's foot. */
 export function stampOps(txt: string, b: readonly number[], rot: number): string {
 	const [x0, y0, x1, y1] = b;
 	const w = x1 - x0;
@@ -173,7 +155,6 @@ export function stampOps(txt: string, b: readonly number[], rot: number): string
 	return `q\n1 1 1 rg\nBT /ZaPgNo ${fs} Tf 3 Tr ${tm} Tm (${t}) Tj ET\nQ\nq\n0 g\nBT /ZaPgNo ${fs} Tf ${tm} Tm (${t}) Tj ET\nQ\n`;
 }
 
-// ---------------------------------------------------------------- the index
 export interface IndexHeader {
 	court: string;
 	judge: string;
@@ -187,12 +168,10 @@ export interface IndexHeader {
 export interface IndexSpec {
 	header: Partial<IndexHeader>;
 	title: string;
-	/** `from`/`to` are stamped body pages; 0 for a row with no pages. */
 	rows: { n: number; desc: string; from: number; to: number }[];
 }
 
 const pad3 = (n: number) => String(n).padStart(3, '0');
-/** The page-number cell: '005', '005 – 007', or '' with no pages. */
 export const pageNos = (r: { from: number; to: number }) => (r.from && r.to ? (r.to > r.from ? `${pad3(r.from)} – ${pad3(r.to)}` : pad3(r.from)) : '');
 
 type Link = { p: number; rect: number[]; t: number };
@@ -227,7 +206,6 @@ const helveticaBold = () =>
 		['Encoding', nm('WinAnsiEncoding')],
 	]);
 
-/** Draw the index pages into `out`: the case heading, INDEX and the title, then a boxed row per item. */
 export function drawIndex(out: Out, spec: IndexSpec): { pages: PRef[]; links: Link[] } {
 	const PW = 595.28;
 	const PH = 841.89;
@@ -299,7 +277,6 @@ export function drawIndex(out: Out, spec: IndexSpec): { pages: PRef[]; links: Li
 				T(LM, y, 'and', 10);
 				y -= 20;
 			}
-			// every typed line of a party keeps its own line; the role sits against the first
 			mlwrap(name ?? '', 10, CW - 130).forEach((l, i) => {
 				T(LM, y, l, 10);
 				if (i === 0) TR(y, role ?? '', 10);
@@ -340,7 +317,6 @@ export function drawIndex(out: Out, spec: IndexSpec): { pages: PRef[]; links: Li
 	return { pages, links };
 }
 
-/** /Link annotations on the index pages; `dest(t)` gives the action for stamped page t. */
 function linkIndex(out: Out, idxPages: PRef[], links: Link[], dest: (t: number) => PDict | null) {
 	const by = new Map<number, Link[]>();
 	for (const L of links) by.set(L.p, [...(by.get(L.p) ?? []), L]);
@@ -369,10 +345,8 @@ function linkIndex(out: Out, idxPages: PRef[], links: Link[], dest: (t: number) 
 	});
 }
 
-// ---------------------------------------------------------------- assemble
 export interface Source {
 	doc: Doc;
-	/** 1-based, inclusive; clamped to the document. */
 	from: number;
 	to: number;
 	pages?: PageEntry[];
@@ -385,10 +359,6 @@ export interface Assembled {
 	map: { i: number; from: number; to: number; pages: number }[];
 }
 
-/**
- * One bundle: the index pages (when `index` is given) linked to their items, then every source range's pages
- * stamped with continuous numbers from `start`.
- */
 export async function assemble(
 	sources: Source[],
 	opts: { start?: number; index?: IndexSpec | null; onProgress?: (done: number, total: number, pages: number) => unknown } = {},
@@ -403,7 +373,6 @@ export async function assemble(
 	let n = start;
 	const fontRef = out.add(helveticaBold());
 
-	// the index first, so the body always starts at 1
 	let idx: { pages: PRef[]; links: Link[] } = { pages: [], links: [] };
 	if (opts.index) {
 		idx = drawIndex(out, opts.index);
@@ -427,7 +396,7 @@ export async function assemble(
 				try {
 					pruned = await pruneRes(src.doc, resSrc, await contentBytes(src.doc, p.dict), 0, new Set());
 				} catch {
-					pruned = src.doc.get(resSrc); // unpruned, resolved in the source: the page keeps its fonts
+					pruned = src.doc.get(resSrc);
 				}
 			}
 			const shallow: PDict = new Map(p.dict);
@@ -440,7 +409,6 @@ export async function assemble(
 			d.set('Type', nm('Page'));
 
 			const vb = visibleBox(src.doc, p);
-			// read in source space: the copied value may be a reference into the output, not the source
 			const r0 = src.doc.get(p.dict.get('Rotate') ?? p.inh.Rotate);
 			const rot = typeof r0 === 'number' ? (((Math.round(r0) % 360) + 360) % 360) : 0;
 
@@ -453,7 +421,6 @@ export async function assemble(
 			const post = out.add(new PStream(new Map(), enc('Q\n' + stampOps(String(n), vb, rot))));
 			d.set('Contents', [pre, ...arr, post]);
 
-			// the stamp font, without mutating a shared Font dictionary
 			const r = d.get('Resources');
 			const res: PDict = isDict(r) ? new Map(r) : new Map();
 			const f = res.get('Font');
@@ -499,16 +466,11 @@ export async function assemble(
 	return { bytes: out.bytes([['Root', new PRef(catN, 0)]]), pages: kids.length, indexPages, bodyPages: n - start, map };
 }
 
-/** A Font dictionary already copied into `out` (an indirect one), as a fresh map. v5 dropped it instead. */
 function copiedDict(out: Out, r: PRef): PDict {
 	const d = out.objs[r.num];
 	return d instanceof Map ? d : new Map();
 }
 
-/**
- * The index on its own. With `remote` (the bundle's file name) each row links into that file with GoToR, at the
- * stamped page offset by `frontPages` (default: this index's own page count).
- */
 export function indexOnly(spec: IndexSpec, remote: string, frontPages?: number): { bytes: Uint8Array; pages: number } {
 	const out = new Out();
 	const catN = out.alloc();

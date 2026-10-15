@@ -1,5 +1,4 @@
 <script lang="ts">
-	// The explicit state of a registry entry whose owning issue has not passed yet. It never imitates a finished view.
 	import PageHeader from './PageHeader.svelte';
 	import type { ViewEntry } from './view-registry.ts';
 	import { blockedBy } from './views.ts';

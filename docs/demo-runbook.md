@@ -14,6 +14,8 @@ bun run --bun build
 bun run --bun start
 ```
 
+The safe build predates two later additions. Importing the newer ESS pack (below) needs `v0.0.1-rc.5` or later. The read-only tour and `ORIGINALS_PUBLIC_ORIGIN` need a build after `v0.0.1-rc.5`; no tag marks one yet.
+
 The data directory is not touched by a checkout, so imported cases stay. A case imported by a newer build may carry a results version the safe build cannot read; if a case shows a recovery banner after switching back, import its pack again.
 
 ## Before the demo (10 minutes)
@@ -67,14 +69,14 @@ Same page, different shape: search and diff work on 500-character excerpts (prod
 
 ## Letting visitors click around (read-only tour)
 
-`scripts/demo/tour-proxy.ts` is a password-protected, read-only front door for the running app, meant to sit behind a Cloudflare quick tunnel. Visitors can open every case view; the import page, the folder browser, the system views and every form submission are refused, and the app itself refuses foreign-origin form posts as a second fence. Originals do not open through the tour: their links point at the originals site on this machine.
+`scripts/demo/tour-proxy.ts` is a password-protected, read-only front door for the running app, meant to sit behind a Cloudflare quick tunnel. Visitors can open every case view. The proxy passes only `GET` and `HEAD`, and refuses the import page, the folder browser, the import progress feed, recovery and every case's system views (`scripts/demo/tour-policy.ts`). The app itself refuses foreign-origin form posts as a second fence. Originals do not open through the tour: their links point at the originals site on this machine.
 
 ```sh
 TOUR_PASSWORD='choose-one' bun scripts/demo/tour-proxy.ts          # listens on 127.0.0.1:41190, forwards to 41101
 ~/bin/cloudflared tunnel --url http://127.0.0.1:41190 --protocol http2   # prints the https://….trycloudflare.com link
 ```
 
-Share the link with the user name `tour` and the password. The name takes up to a minute to resolve. To end the tour, `Ctrl-C` the cloudflared process and the proxy; the link stops working at once. `--protocol http2` is needed where UDP is blocked.
+`TOUR_PORT` (41190; `0` takes any free port and prints it), `UPSTREAM_PORT` (41101) and `TOUR_USER` (`tour`) change the defaults. Share the link with the user name and the password. The name takes up to a minute to resolve. To end the tour, `Ctrl-C` the cloudflared process and the proxy; the link stops working at once. `--protocol http2` is needed where UDP is blocked.
 
 For originals (the PDF viewer) to open for visitors, give the originals site a tunnel of its own and tell the app to write that origin into its links:
 

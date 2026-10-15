@@ -1,16 +1,3 @@
-// User work of the bundle views (GRS-19), all in app().userWork:
-// - table bundles_schedule_mark (case scope, key case_id + locator): the Discovery Schedule's selection and
-//   Copy/Original marks per file, keyed by the decoded locator path (v5 ess_dcs_schedule_sel_v1 and _co_v1). A
-//   defined table, not register_row, because the key must be unique per file: two register rows for one locator
-//   could disagree, and register_row cannot enforce that.
-// - register store discovery-mode: one row {mode} (v5 ess_dcs_schedule_mode_v1).
-// - register store bundle-header: one row of the 8 index header fields (v5 ess_dcs_bundle_header_v2).
-// - register store caselines-links: {path, seq} per linked file (v5 ess_dcs_caselines_docs_v1).
-// - table bundles_custom (case scope, key case_id + id): the bundles saved from the builder (v5
-//   ess_dcs_custom_bundles_v1), keyed by the id of the builder output they were saved from, so saving one output
-//   twice updates its entry (S-court_bundle_tab-12). `no` is C<i>, `rows` the v5 rows as JSON, `seq` the list order.
-// Every write runs in one in-process queue per case and store (serial), re-reading what it changes just before it
-// writes; a form sends the fields-hash of what it loaded, and a write over another tab's change is refused (409).
 import { createHash } from 'node:crypto';
 import { fail, isHttpError } from '@sveltejs/kit';
 import { app } from '../../local-case/app.server.ts';
@@ -22,7 +9,6 @@ import { customOf, nextCustomNo, type Custom } from '../../bundles/builder.ts';
 export const OWNER = 'GRS-19';
 export const MARK_TABLE = 'bundles_schedule_mark';
 let defined: Promise<void> | null = null;
-/** Define the mark table once per process. */
 export function marksTable(): Promise<void> {
 	defined ??= app().userWork.defineTable({
 		name: MARK_TABLE, owner: OWNER, scope: 'case',
@@ -39,31 +25,18 @@ export async function readMarks(caseId: string): Promise<Mark[]> {
 	return app().userWork.listTableRows(MARK_TABLE, { caseId }).map((r) => ({ locator: String(r.locator), selected: Number(r.selected) === 1, co: r.co === 'C' || r.co === 'O' ? r.co : null }));
 }
 
-// One server process serves a data directory, so this queue (the register store's) orders every tab's CC-09 writes of
-// a case and store, and a restore of the case. A write from another process on the same store is not ordered by it.
-/** Run `fn` after every earlier CC-09 write of the same case and store (a failed write does not block the queue). */
 export const serial = <T>(caseId: string, store: string, fn: () => Promise<T>): Promise<T> => inTurn(app().userWork, caseId, store, fn);
 
-/** The fields-hash a form sends back: of the stored fields, not updatedAt (which never changes under CLEARCASE_FIXED_NOW). */
 export const fieldsHash = (fields: unknown): string => createHash('sha256').update(JSON.stringify(fields ?? null)).digest('hex').slice(0, 24);
 
-/** One file of a mark action: its locator and, for a Copy/Original change, the mark this tab last saw stored. */
 export interface MarkChange { locator: string; base?: CO | null }
 export interface MarkResult { saved: string[]; conflicts: { locator: string; stored: CO | null }[] }
-/** A multi-file write a busy store interrupted after `saved` files were written (each file is its own transaction). */
 export class PartialWrite extends Error {
 	readonly saved: string[];
 	readonly reason: unknown;
 	constructor(saved: string[], reason: unknown) { super('partly saved'); this.saved = saved; this.reason = reason; }
 }
 
-/**
- * Set `selected` or `co` on each locator, in the marks queue: the rows are re-read just before the write and only that
- * column changes, so a tick and an O on one file both survive. A Copy/Original change on a file another tab set to the
- * other mark since this tab saw it (stored is neither `base` nor the new mark) refuses the whole action, with nothing
- * written (`conflicts`). The user-work API has no multi-row transaction for a defined table, so each file is its own
- * transaction: a busy store part-way throws PartialWrite naming the files already written.
- */
 export function writeMarks(caseId: string, changes: readonly MarkChange[], patch: { selected: boolean } | { co: CO }): Promise<MarkResult> {
 	return serial(caseId, MARK_TABLE, async () => {
 		const cur = new Map((await readMarks(caseId)).map((m) => [m.locator, m]));
@@ -109,7 +82,6 @@ export function customTable(): Promise<void> {
 	return customDefined;
 }
 export type SavedCustom = Custom & { id: string; seq: number };
-/** The saved bundles in list order; a row whose fields do not read as a bundle is left out. */
 export async function readCustom(caseId: string): Promise<SavedCustom[]> {
 	await customTable();
 	const out: SavedCustom[] = [];
@@ -121,8 +93,6 @@ export async function readCustom(caseId: string): Promise<SavedCustom[]> {
 	}
 	return out.sort((a, b) => a.seq - b.seq || (a.id < b.id ? -1 : 1));
 }
-/** Save `c` under the builder output `id` in the custom queue: an existing entry keeps its number and place; a new
- * one takes the lowest free C<i> (none of the saved or `shipped` numbers) and goes last. Returns its number. */
 export function saveCustom(caseId: string, id: string, c: Omit<Custom, 'no'>, shipped: readonly { no: string }[]): Promise<string> {
 	return serial(caseId, CUSTOM_TABLE, async () => {
 		const cur = await readCustom(caseId);
@@ -133,9 +103,6 @@ export function saveCustom(caseId: string, id: string, c: Omit<Custom, 'no'>, sh
 		return no;
 	});
 }
-/** Write bundles imported from v5 under their stable ids (the legacy import, GRS-20): an id already saved keeps its place
- * and takes the imported content, a new one goes last in the given order, so importing one file twice writes the same
- * rows. One transaction: a refused or failing row leaves none of the file's bundles written. */
 export function importCustom(caseId: string, list: readonly (Custom & { id: string })[]): Promise<number> {
 	return serial(caseId, CUSTOM_TABLE, async () => {
 		const cur = await readCustom(caseId);
@@ -144,17 +111,14 @@ export function importCustom(caseId: string, list: readonly (Custom & { id: stri
 		return list.length;
 	});
 }
-/** Remove the saved bundle of output `id` (no document is deleted); removing one already gone is not an error. */
 export const deleteCustom = (caseId: string, id: string) => serial(caseId, CUSTOM_TABLE, async () => {
 	await customTable();
 	await app().userWork.deleteTableRow(CUSTOM_TABLE, { case_id: caseId, id }, { owner: OWNER });
 });
 
-/** A one-row register store: its single row (the first by seq, then id), or null. */
 export function singleRow(caseId: string, store: string): RegisterRow | null {
 	return app().userWork.listRows(caseId, store)[0] ?? null;
 }
-/** The fields-hash of a one-row store as a form loads it ('' fields for no row). */
 export const singleHash = (caseId: string, store: string) => fieldsHash(singleRow(caseId, store)?.fields ?? null);
 export async function putSingle(caseId: string, store: string, fields: Record<string, RegisterValue>): Promise<void> {
 	const rows = app().userWork.listRows(caseId, store);
@@ -170,7 +134,6 @@ export const LINKS_STORE = 'caselines-links';
 export const HEADER_STORE = 'bundle-header';
 export const readMode = (caseId: string): Mode => (singleRow(caseId, MODE_STORE)?.fields.mode === 'supplementary' ? 'supplementary' : 'discovery');
 
-/** Add one CaseLines link in the links queue: its seq is computed there, so links saved together keep their order. */
 export const addLink = (caseId: string, path: string) => serial(caseId, LINKS_STORE, async () => {
 	const seq = Math.max(0, ...app().userWork.listRows(caseId, LINKS_STORE).map((r) => Number(r.fields.seq) || 0)) + 1;
 	return app().userWork.putRow(caseId, LINKS_STORE, null, { path, seq });
@@ -178,16 +141,10 @@ export const addLink = (caseId: string, path: string) => serial(caseId, LINKS_ST
 
 export const busyMessage = (e: unknown) => `the case store is busy (${isHttpError(e) ? e.body.message : 'locked'})`;
 
-/**
- * Run a user-work write for a form action. A busy store (503 after the store's retries) or a refused write returns
- * `fail` with the user's values, so the page keeps the input and shows the error. A single write is one transaction,
- * so it is saved or not; a multi-file write reports the files it saved (PartialWrite), never "Not saved" after a part.
- */
 export async function guarded<T>(values: Record<string, unknown>, fn: () => Promise<T>) {
 	try { return await fn(); }
 	catch (e) {
 		if (e instanceof PartialWrite) {
-			// the store's own busy message says "nothing was written", which is true of that one file only
 			const why = isHttpError(e.reason) && e.reason.status === 503 ? 'the case store was busy (another process holds it)' : e.reason instanceof UserWorkError ? `a write was refused (${e.reason.message})` : 'a write failed';
 			return fail(503, { message: `Partly saved: ${e.saved.length} file${e.saved.length === 1 ? '' : 's'} saved, then ${why}. The rest are not saved; Retry saves them.`, saved: e.saved, values });
 		}

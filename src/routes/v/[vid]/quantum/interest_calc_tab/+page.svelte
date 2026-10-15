@@ -10,14 +10,10 @@
 	import { defaultInputs, INTEREST_FIELDS, interestOutcome, MAX_RATE, queryInputs, type InterestInputs } from '$lib/views/quantum/interest';
 	import '$lib/views/quantum/quantum.css';
 	let { data } = $props();
-	// BA-03: the inputs are the URL query; Compute submits them (GET), so a reload gives the same result
 	const submitted = $derived(queryInputs(page.url.searchParams, data.defaults));
 	const inputs = $derived(submitted ?? defaultInputs(data.defaults));
 	const out = $derived(submitted ? interestOutcome(submitted, importedUnits(data.headlineDue)) : null);
 	const errs = $derived(out?.errors ?? {});
-	// The fields are the user's (CC-06 r2, D4 and D17): a Compute applies the URL's values only to the fields that still
-	// hold what was submitted, so text typed while it is in flight stays; any other navigation (Reset to defaults, back,
-	// a link) shows the URL's values, the defaults when it has none.
 	let vals = $state<InterestInputs>({ ...untrack(() => inputs) });
 	let sent: InterestInputs | null = null;
 	afterNavigate(() => {

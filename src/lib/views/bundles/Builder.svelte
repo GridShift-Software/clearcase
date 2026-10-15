@@ -1,7 +1,4 @@
 <script lang="ts">
-	// The Court Bundle builder (v5 cbBuildView and cbBld*, main HTML 2120-2382): pick PDFs, choose the pages of each, and
-	// assemble one numbered bundle with its index, in this browser; nothing is uploaded. The item list can be saved to
-	// the bundle list (user work); the PDF stays in this session.
 	import { goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
 	import {
@@ -22,7 +19,6 @@
 	const why = (e: unknown) => (e instanceof Error ? e.message : String(e));
 	const size = (n: number) => (n > 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB');
 
-	/** v5 cbBldAdd: read each picked PDF once (same name and size skipped), in order; the page updates as each is read. */
 	async function addFiles(input: HTMLInputElement) {
 		const list = Array.from(input.files ?? []).filter((f) => /\.pdf$/i.test(f.name));
 		const picked = input.files?.length ?? 0;
@@ -47,7 +43,6 @@
 	}
 	function clear() {
 		if (!confirm('Clear the builder? Files and page selections are discarded.')) return;
-		// a save in flight still has this output's PDF to keep (blobs[o.id] is set when it lands)
 		if (bld.out && !bld.out.saved && !bld.saving) URL.revokeObjectURL(bld.out.url);
 		bld.b = { ...emptyBuilder(), name: bld.b.name, seq: bld.b.seq };
 		docs.clear();
@@ -70,7 +65,6 @@
 	}
 	const named = () => (bld.b.name = title(bld.b.name));
 
-	/** v5 cbBldRun: the index, then every range stamped from 1. An output saved to the list keeps its PDF (S-court_bundle_tab-2). */
 	async function run() {
 		if (bld.busy) return;
 		const p = plan(bld.b);
@@ -97,30 +91,22 @@
 			bld.busy = false;
 		}
 	}
-	/** v5 cbBldIndexOnly: the index alone, each row linking into <name>.pdf (GoToR). */
 	function indexPdf() {
 		const t = named();
 		try {
 			downloadBlob(indexPdfName(t), indexOnly(spec(pl, t, h), pdfName(t)).bytes, 'application/pdf');
 		} catch (e) { alert('Could not build the index: ' + why(e)); }
 	}
-	/** v5 cbBldIndexDocx: hyperlinked into the bundle only when it was assembled from these items under this name. */
 	function indexWord() {
 		const t = named();
 		downloadBlob(indexDocxName(t), indexDocx([docxBundle(pl, t, bld.out)], h, creator), DOCX_TYPE);
 	}
-	/** v5 cbBldPrint. */
 	function print() {
 		if (!bld.out) return;
 		const w = window.open(bld.out.url, '_blank');
 		if (!w) return alert('Allow pop-ups so the bundle can open for printing.');
 		setTimeout(() => { try { w.focus(); w.print(); } catch { /* closed */ } }, 1200);
 	}
-	/**
-	 * v5 cbBldSave: the item list goes to the bundle list under this output's id, so saving it again updates the same
-	 * entry (S-court_bundle_tab-12). The saved bundle opens afterwards only if the builder is still showing
-	 * (S-court_bundle_tab-5); what is typed meanwhile stays in the builder.
-	 */
 	async function save() {
 		const o = bld.out;
 		if (!o || bld.saving) return;
@@ -131,7 +117,7 @@
 			const r = await postAction('save', [['id', o.id], ['bundle', JSON.stringify(entry)]]);
 			if (!r.ok) {
 				if (bld.out?.id === o.id) bld.saveError = r.message;
-				else URL.revokeObjectURL(o.url); // replaced meanwhile and not saved: nothing links to it now
+				else URL.revokeObjectURL(o.url);
 				return;
 			}
 			const no = String(r.data?.no ?? '');
@@ -234,7 +220,6 @@
 	label.btn:has(+ .vh:focus-visible) { outline: 3px solid var(--focus); outline-offset: 2px; }
 	.saving { color: #8a5a0b; font-weight: 600; }
 	.empty { padding: 8px 0; }
-	/* narrow screens: each item stacks, so nothing scrolls sideways */
 	@media (max-width: 40rem) {
 		.items thead { display: none; }
 		.items tr, .items td { display: block; }

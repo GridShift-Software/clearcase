@@ -5,9 +5,10 @@ const REFUSED = [/^\/import(\/|$)/, /^\/api\/browse(\/|$)/, /^\/api\/import-prog
 /**
  * The path SvelteKit will route on, or null when the request-target is malformed or ambiguous. SvelteKit's
  * decode_pathname runs decodeURI over each part between literal "%25" before matching routes, so "/api/%62rowse"
- * reaches /api/browse; the rules must see the same string. A percent sequence that survives that decoding (%2F, %25),
- * a backslash, a control character or a dot segment occurs in none of the app's routes, so such a path is refused
- * rather than guessed at.
+ * reaches /api/browse; the rules must see the same string. Of the percent sequences that survive that decoding, only
+ * %3A occurs in the app's routes: versionPath encodes the colon of 'sha256:<hex>' and SvelteKit decodes it from the
+ * matched parameter. Any other (%2F, %25, so also a double encoding such as %253A), a backslash, a control character or
+ * a dot segment occurs in none of the app's routes, so such a path is refused rather than guessed at.
  */
 export function canonicalPath(target: string): string | null {
 	const cut = target.search(/[?#]/);
@@ -15,7 +16,7 @@ export function canonicalPath(target: string): string | null {
 	if (!raw.startsWith('/')) return null;
 	let p: string;
 	try { p = raw.split('%25').map(decodeURI).join('%25'); } catch { return null; }
-	if (/[%\\\u0000-\u001f\u007f]/.test(p)) return null;
+	if (/[\\\u0000-\u001f\u007f]|%(?!3a)/i.test(p)) return null;
 	if (p.split('/').some((s) => s === '.' || s === '..')) return null;
 	return p;
 }

@@ -72,6 +72,7 @@ export class OriginalsServer {
 
 	constructor(app: LocalCase) {
 		this.app = app;
+		// links name the public origin when one is configured (a tunnel in front of this site); the Host check below stays on the site's own host
 		this.origin = app.config.originalsPublicOrigin ?? originalsOrigin(app.config);
 		this.host = originalsHost(app.config);
 		this.links = new LinkCapability(app.config.dataDir);
@@ -194,6 +195,8 @@ export class OriginalsServer {
 				res.once('close', () => abort.abort());
 				if (!(await snapshotVerified(o, a.sha256, snapshot, abort.signal))) { snapshot = null; return res.destroyed ? undefined : changed(); }
 			} finally { this.#largeInFlight--; }
+			// Stream from the verified snapshot through its descriptor; its name is removed first, so nothing is left
+			// behind even if the process dies while streaming (startup also clears serve-tmp).
 			const fh = await open(snapshot, 'r');
 			await rm(snapshot, { force: true });
 			snapshot = null;

@@ -13,6 +13,9 @@ export const init: ServerInit = async () => {
 	try { for (const p of app().store.activePointers()) ensureRescanProvider(app(), p.case_id); } catch (e) { console.error('rescan provider not registered at start-up:', e); }
 };
 
+// Exact Host allowlist: only 127.0.0.1:<PORT>. 'localhost:<PORT>' (or any *.localhost) is refused on purpose: the
+// originals site is clearcase-originals.localhost and the two must never share a site. The production listener
+// (scripts/pilot/start.ts) applies the same check to static assets before SvelteKit sees them.
 const appHost = () => `127.0.0.1:${app().config.appPort}`;
 
 const plain = (status: number, body: string, extra: Record<string, string> = {}) =>
@@ -25,6 +28,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 	if (!building && !event.isSubRequest) {
 		if (!isLoopback(clientAddress(event))) return plain(403, 'ClearCase answers this machine only (loopback clients)');
 		const a = app();
+		// DNS-rebinding guard. Sub-requests (SSR fetch of /api/...) are exempt: they carry no browser Host.
 		if (event.request.headers.get('host') !== appHost()) return plain(421, 'misdirected request: unknown Host');
 		if (event.url.pathname.startsWith('/api/')) {
 			const site = event.request.headers.get('sec-fetch-site');
@@ -61,6 +65,7 @@ export const handle: Handle = async ({ event, resolve }) => {
 	return res;
 };
 
+// SQLITE_FULL is primary result code 13; the mask also recognizes extended SQLite result codes.
 const diskFull = (e: unknown) => { const x = e as { errcode?: number; code?: string; message?: string }; return (x?.errcode !== undefined && (x.errcode & 0xff) === 13) || x?.code === 'ENOSPC' || /database or disk is full|ENOSPC|no space left on device/i.test(String(x?.message ?? '')); };
 const DISK_FULL = 'The disk holding the ClearCase data directory is full, so nothing was written. Free some space and try again.';
 

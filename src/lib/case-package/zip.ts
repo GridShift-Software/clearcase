@@ -170,6 +170,7 @@ export async function readEntry(fh: FileHandle, e: ZipEntry): Promise<Buffer> {
   if (e.method === 0) data = raw;
   else {
     try {
+      // maxOutputLength bounds the actual expansion even if the declared size lies
       data = inflateRawSync(raw, { maxOutputLength: Math.max(1, e.uncompressedSize) });
     } catch (err) {
       const code = (err as NodeJS.ErrnoException).code;
@@ -200,6 +201,7 @@ export async function extractEntries(fh: FileHandle, entries: readonly ZipEntry[
   await mkdir(root, { recursive: true });
   const target = (name: string) => {
     const t = path.resolve(root, ...name.replace(/\/$/, '').split('/'));
+    // the name rules above make this impossible; checked again because a write outside `dir` must never happen
     if (!t.startsWith(root + path.sep)) throw new ZipError('ARC_ENTRY_INVALID', 'entry resolves outside the target folder', name);
     return t;
   };

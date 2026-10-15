@@ -139,7 +139,7 @@ export class LocalCase {
 	 */
 	verify(vid: string, force = false): Verification {
 		let dv: string | null = null;
-		try { dv = this.storage.dataVersion(); } catch {   }
+		try { dv = this.storage.dataVersion(); } catch {}
 		if (dv === null || dv !== this.#verifiedAt) { this.#verified.clear(); this.#verifiedAt = dv; }
 		if (!force && this.#verified.has(vid)) return this.#verified.get(vid)!;
 		let r: Verification;
@@ -393,7 +393,7 @@ export class LocalCase {
 
 	restoreHelp(): string {
 		const d = this.config.dataDir;
-		return `The data directory was left untouched. To restore user work from a backup: stop ClearCase; move work.sqlite AND its sidecar files (work.sqlite-journal, and any old work.sqlite-wal or work.sqlite-shm) out of ${d}; copy the newest ${path.join(d, 'backups', 'work-*.sqlite')} to ${path.join(d, 'work.sqlite')}; start ClearCase. Backups are written at every activation and a few seconds after user-work changes. Results versions can always be imported again from their packages.`;
+		return `The data directory was left untouched. To restore user work from a backup: stop ClearCase; move work.sqlite AND its sidecar files (work.sqlite-journal, and any old work.sqlite-wal or work.sqlite-shm) out of ${d}; copy the newest ${path.join(d, 'backups', 'work-*.sqlite')} to ${path.join(d, 'work.sqlite')}; start ClearCase. Backups are written at every activation, after user-work editing pauses, and on clean shutdown when a backup is pending. Results versions can always be imported again from their packages.`;
 	}
 }
 

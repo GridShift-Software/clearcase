@@ -14,7 +14,7 @@ export type Selector =
   | { pattern: string; on?: 'str' | 're'; nth?: number }
   | { html: string; attr?: string; all?: boolean };
 
-export interface Param { name: string;   expect: string }
+export interface Param { name: string; expect: string }
 
 export interface Entry {
   view: string;

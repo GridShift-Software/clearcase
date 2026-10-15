@@ -20,7 +20,7 @@ const carried = (f: FormData, items: InfoItem[], except: string) => {
 			const p = JSON.parse(String(raw));
 			const key = String(p.key);
 			if (key !== except && keys.has(key) && !out.some((o) => o.key === key)) out.push({ key, done: p.done === true, message: String(p.message ?? 'Not saved.').slice(0, 300) });
-		} catch {   }
+		} catch {}
 	}
 	return out;
 };

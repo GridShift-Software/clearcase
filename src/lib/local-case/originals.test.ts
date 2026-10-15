@@ -39,12 +39,12 @@ describe('presentation', () => {
 		const p = (key: string) => OriginalsServer.presentation(lc.store.assetForServe(rv, key)!);
 		expect(p('OD-001')).toBe('viewer');
 		expect(p('EM-0001')).toBe('text');
-		expect(p('HX-001')).toBe('text');
-		expect(p('HX-002')).toBe('download');
+		expect(p('HX-001')).toBe('text'); // HTML is shown as source text, never rendered
+		expect(p('HX-002')).toBe('download'); // SVG is scriptable
 		expect(p('HX-009')).toBe('inline');
-		expect(p('HX-010')).toBe('download');
-		expect(p('EM-0002')).toBe('download');
-		expect(p('HX-004')).toBe('viewer');
+		expect(p('HX-010')).toBe('download'); // content contradicts the declared type
+		expect(p('EM-0002')).toBe('download'); // .msg
+		expect(p('HX-004')).toBe('viewer'); // the polyglot sniffs as PDF: it may only reach pdf.js in the sandbox
 	});
 });
 

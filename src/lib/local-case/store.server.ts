@@ -231,6 +231,7 @@ export class CaseStore {
 		return this.d.prepare(`SELECT a.key, a.kind, a.indexed_path, a.real_path, a.sha256, a.size, a.media_type, a.status, a.download_only, v.case_root, v.case_dev, v.case_ino
 			FROM asset a JOIN version v ON v.id = a.version_id WHERE a.version_id = ? AND length(a.key) = 18 AND a.key GLOB 'P-[0-9a-f]*' AND a.indexed_path IS NOT NULL ORDER BY a.key`).all(id) as unknown as (AssetServeRow & { indexed_path: string })[];
 	}
+	/** Every verified document original of a version as {ref, sha256}: the candidates for fingerprint re-anchoring (package files are not documents). */
 	fingerprints(id: string): { ref: string; sha256: string }[] {
 		return this.d.prepare("SELECT key AS ref, sha256 FROM asset WHERE version_id = ? AND sha256 IS NOT NULL AND status IN ('verified', 'case-mismatch') AND NOT (length(key) = 18 AND key GLOB 'P-[0-9a-f]*') ORDER BY key").all(id) as { ref: string; sha256: string }[];
 	}

@@ -17,6 +17,7 @@ export const field = (f: FormData, k: string) => { const v = f.get(k); return ty
 export const valuesOf = <K extends string>(f: FormData, keys: readonly K[]) => Object.fromEntries(keys.map((k) => [k, field(f, k)])) as Record<K, string>;
 
 export const deleteValue = (id: string, version: string) => `${id} ${version}`;
+/** The id and version of a Delete button's value; a value without a version (a scripted post) is not re-checked. */
 export function deleteTarget(v: string): { id: string; version: string | null } {
 	const i = v.lastIndexOf(' ');
 	return i < 0 ? { id: v, version: null } : { id: v.slice(0, i), version: v.slice(i + 1) || null };

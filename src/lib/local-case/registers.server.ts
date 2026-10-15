@@ -11,6 +11,7 @@ export type AddResult = { rowId: string; repeated: boolean };
 export type ReplaceResult = 'replaced' | 'gone' | 'stale';
 export type DeleteResult = 'deleted' | 'gone' | 'stale';
 
+/** One store's reads and writes. `version` null skips the re-check (a scripted post without one). */
 export interface RegisterTx {
 	rows(): VersionedRow[];
 	add(fields: Fields, opts?: { addId?: string | null }): Promise<AddResult>;

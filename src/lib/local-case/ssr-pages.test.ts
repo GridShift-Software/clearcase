@@ -227,3 +227,29 @@ describe('hooks.server.ts: loopback clients only, and a disk-full diagnostic', (
 		} finally { err.mockRestore(); }
 	});
 });
+
+describe('server init is idempotent: a re-run reuses the running app and its originals listener', () => {
+	type Startable = { initApp: () => Promise<void>; instance: () => { id: string } };
+	const originalsAnswers = async () => { const r = await fetch(`http://127.0.0.1:${process.env.ORIGINALS_PORT}/`); return [r.status, await r.text()]; };
+
+	it('repeated and concurrent initApp calls share one start-up: same instance, the listener keeps answering', async () => {
+		const before = (globalThis as { __clearcase?: { id: string } }).__clearcase?.id;
+		expect(before).toBeDefined();
+		const mod = (await vite.ssrLoadModule('/src/lib/local-case/app.server.ts')) as Startable;
+		await Promise.all([mod.initApp(), mod.initApp()]);
+		await mod.initApp();
+		expect(mod.instance().id).toBe(before);
+		expect(await originalsAnswers()).toEqual([421, 'misdirected request: unknown Host']);
+		expect((await get('/api/health')).status).toBe(200);
+	});
+
+	it('warm SSR: after Vite invalidates the server module graph (as dependency re-optimisation does), the next request re-runs the Kit init on the same instance and still answers', async () => {
+		const g = globalThis as { __clearcase?: { id: string } };
+		const before = g.__clearcase?.id;
+		vite.environments.ssr.moduleGraph.invalidateAll();
+		expect((await get('/api/health')).status).toBe(200);
+		expect(g.__clearcase?.id).toBe(before);
+		expect((await get(`${v()}/chronology`)).status).toBe(200);
+		expect(await originalsAnswers()).toEqual([421, 'misdirected request: unknown Host']);
+	});
+});

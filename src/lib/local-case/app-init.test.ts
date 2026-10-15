@@ -53,3 +53,17 @@ it('a second instance refused by the instance lock leaves link-key alone: no chm
 		expect(existsSync(key)).toBe(false);
 	} finally { first.shutdown(); }
 });
+
+it('two concurrent first calls to initApp share one start-up: one instance, one originals listener, every call resolves', async () => {
+	root = await tempRoot('concurrent');
+	const originalsPort = await freePort();
+	Object.assign(process.env, { CLEARCASE_DATA_DIR: path.join(root, 'data'), PORT: '1', ORIGINALS_PORT: String(originalsPort) });
+	await Promise.all([initApp(), initApp()]);
+	const g = globalThis as { __clearcase?: { id: string } };
+	const id = g.__clearcase?.id;
+	expect(id).toBeDefined();
+	await initApp();
+	expect(g.__clearcase?.id).toBe(id);
+	const r = await fetch(`http://127.0.0.1:${originalsPort}/`);
+	expect([r.status, await r.text()]).toEqual([421, 'misdirected request: unknown Host']);
+});

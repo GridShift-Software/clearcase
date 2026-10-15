@@ -1,5 +1,4 @@
 <script lang="ts">
-	// Freshness (GRS-20): the stamp, then what the last rescan found. A quick scan never says the analysis is current.
 	import type { WidgetContext } from '$lib/components/overview-slots';
 	import { stamp, type FreshnessData } from './freshness';
 	let { data }: { data: FreshnessData; ctx: WidgetContext } = $props();

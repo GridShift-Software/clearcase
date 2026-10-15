@@ -1,5 +1,3 @@
-// The overview's Freshness slot, server side (GRS-20): the stamp's figures through the document-row read contract
-// (so additions a rescan found count, as v5's allRows() counted them) and the last rescan of this version.
 import type { OverviewWidgetLoader } from '$lib/components/overview-slots';
 import { viewHref, viewById } from '$lib/components/views';
 import { documentRows } from '$lib/local-case/documents.server';

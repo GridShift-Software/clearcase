@@ -9,10 +9,8 @@ import { documentRoute } from '../../case-package/render.ts';
 
 export const NOT_SERVED = 'not in the verified index; not served';
 
-/** One document row as the path index needs it. */
 export interface IndexedRow { ref: string; ord: number; originalPath: string | null; url: string | null }
 
-/** path -> ref, from the original's indexed path or else a decodable row locator; the lowest `ord` wins a shared path. */
 export function pathIndex(rows: Iterable<IndexedRow>): Map<string, string> {
 	const best = new Map<string, { ref: string; ord: number }>();
 	for (const r of rows) {
@@ -25,14 +23,12 @@ export function pathIndex(rows: Iterable<IndexedRow>): Map<string, string> {
 	return new Map([...best].map(([p, v]) => [p, v.ref]));
 }
 
-/** The decoded path of a v5 locator, or null when it does not decode. */
 export const locatorPath = (url: unknown): string | null => {
 	if (typeof url !== 'string') return null;
 	const d = decodeLegacyLocator(url);
 	return d.ok && !d.directory ? d.path : null;
 };
 
-/** A page fragment ('page=N', N >= 1) of a v5 locator, or null. */
 export const fragmentPage = (url: unknown): number | null => {
 	if (typeof url !== 'string') return null;
 	const d = decodeLegacyLocator(url);
@@ -42,18 +38,12 @@ export const fragmentPage = (url: unknown): number | null => {
 
 export interface Resolved { ref: string; page: number | null }
 
-/** The document a locator names, by exact indexed path; `page` from its '#page=N' fragment. Null when not indexed. */
 export function resolveLocator(index: ReadonlyMap<string, string>, url: unknown, page: number | null = fragmentPage(url)): Resolved | null {
 	const path = locatorPath(url);
 	const ref = path === null ? undefined : index.get(path);
 	return ref === undefined ? null : { ref, page };
 }
 
-/**
- * Where a resolved locator opens: a document's page in the app, or a package file's originals-site link (`files`, key
- * -> link, only for files served now) with the page as a '#page=N' fragment. `page` overrides the locator's own page.
- * A package-file key without a link is null (not served), never a document link.
- */
 export function hrefOf(vid: string, files: Readonly<Record<string, string>>, r: Resolved | null, page: number | null = r?.page ?? null): string | null {
 	if (!r) return null;
 	if (Object.hasOwn(files, r.ref)) return page ? `${files[r.ref]}#page=${page}` : files[r.ref]!;

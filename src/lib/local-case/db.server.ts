@@ -1,13 +1,3 @@
-// Storage: two SQLite files on one node:sqlite connection, in the data directory.
-//   results.sqlite (main)  immutable results versions: the exact validated package bytes (package_file) and
-//                          their projection into read-model rows (rebuildable from the bytes)
-//   work.sqlite    (work)  precious user work and activation state: the active pointer, the activation log with
-//                          bound acknowledgements, the per-case trusted-warning register, notes, seed overlays and
-//                          register rows
-// Journal modes: results.sqlite uses WAL (large immutable imports; checkpointed with TRUNCATE after each import
-// and at close); work.sqlite uses a rollback journal (journal_mode=DELETE) so every acknowledged user-work write
-// and activation is in the main file at COMMIT: no -wal sidecar that can be truncated, lost, or replayed onto a
-// restored backup. synchronous=FULL on both, set per schema AFTER the ATTACH.
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -111,7 +101,6 @@ export function readPragmas(d: DatabaseSync): Pragmas {
 
 export class StoreGoneError extends Error {}
 
-/** SQLITE_BUSY / SQLITE_LOCKED: another process holds the write lock (beyond busy_timeout). */
 export const isBusy = (e: unknown) => {
 	const x = e as { errcode?: number; code?: string; message?: string };
 	return x?.errcode === 5 || x?.errcode === 6 || /database is locked|SQLITE_BUSY|database table is locked/i.test(String(x?.message ?? ''));
@@ -131,14 +120,10 @@ export class Storage {
 	readonly workFile: string;
 	#db: DatabaseSync | null = null;
 	#lock: DatabaseSync | null = null;
-	/** this process's instance.pid record while it holds the lock (removed again on release if still ours) */
 	#owner: string | null = null;
 	#pragmas: Pragmas | null = null;
-	/** inode of each store file as opened; a different (or no) file at the path means it was removed or replaced */
 	#opened: { results: number; work: number } | null = null;
-	/** work.sqlite did not exist when storage was opened (a fresh, empty file was created) */
 	workCreatedAtOpen = false;
-	/** committed transactions of this process; with the instance id it tells a restored page whether state changed */
 	writes = 0;
 
 	constructor(dataDir: string) {
@@ -151,7 +136,6 @@ export class Storage {
 	get pragmas() { return this.#pragmas; }
 	get isOpen() { return this.#db !== null; }
 
-	/** Open (once). Throws on an unusable store; callers turn that into a storage error page, never a crash. */
 	db(): DatabaseSync {
 		if (this.#db) return this.#db;
 		mkdirSync(this.dataDir, { recursive: true, mode: 0o700 });
@@ -193,14 +177,6 @@ export class Storage {
 		}
 	}
 
-	/**
-	 * Exclusive instance lock on the data directory, taken before startup touches anything. It is a SQLite file held
-	 * in EXCLUSIVE locking mode: the kernel releases it when the process dies (no stale lock files), and a second
-	 * process on the same directory fails at once instead of pruning, sweeping or writing. The owner is also recorded
-	 * in instance.pid as pid plus kernel start time: if instance.lock is unlinked under a running owner, a new
-	 * instance.lock carries no lock, so a live recorded owner (same pid AND same start time, i.e. not a reused pid)
-	 * refuses the second process too. That check only reads, so a refused process writes nothing.
-	 */
 	acquireInstanceLock(): { ok: true } | { ok: false; reason: string } {
 		if (this.#lock) return { ok: true };
 		const pidFile = path.join(this.dataDir, 'instance.pid');
@@ -215,7 +191,7 @@ export class Storage {
 			l.exec(`PRAGMA busy_timeout=0; PRAGMA journal_mode=DELETE; PRAGMA locking_mode=EXCLUSIVE;
 				BEGIN EXCLUSIVE; CREATE TABLE IF NOT EXISTS owner(pid INTEGER, started_at TEXT);
 				DELETE FROM owner; COMMIT;`);
-			l.prepare('INSERT INTO owner VALUES (?, ?)').run(process.pid, new Date().toISOString()); // keeps the EXCLUSIVE lock
+			l.prepare('INSERT INTO owner VALUES (?, ?)').run(process.pid, new Date().toISOString());
 			this.#lock = l;
 			this.#owner = `${process.pid} ${procStart(process.pid) ?? ''}`.trim();
 			try { writeFileSync(pidFile, `${this.#owner}\n`); } catch { /* the SQLite lock still holds */ }
@@ -238,12 +214,6 @@ export class Storage {
 		this.#owner = null;
 	}
 
-	/**
-	 * One BEGIN IMMEDIATE transaction (write lock taken up front, so no mid-transaction SQLITE_BUSY upgrade). Every
-	 * write goes through here. If another process holds the lock beyond busy_timeout, retry with backoff (the event
-	 * loop is free between attempts); afterwards answer 503 (with Retry-After), never 500. Nothing is half-written
-	 * either way. Also refuses to write into a store whose files were removed or replaced under the running process.
-	 */
 	async tx<T>(fn: (d: DatabaseSync) => T): Promise<T> {
 		const d = this.db();
 		try { this.checkStoreFiles(); } catch (e) { error(503, (e as Error).message); }
@@ -269,7 +239,6 @@ export class Storage {
 		}
 	}
 
-	/** After an import: move the committed import from results.sqlite-wal into the main file (best effort). */
 	checkpointResults() {
 		try { this.db().exec('PRAGMA main.wal_checkpoint(TRUNCATE);'); } catch (e) { console.error('results checkpoint skipped:', (e as Error).message); }
 	}
@@ -287,7 +256,6 @@ export class Storage {
 	close() {
 		if (this.#db) {
 			try {
-				// A clean close checkpoints the results WAL into the main file and removes -wal/-shm.
 				this.#db.exec('PRAGMA main.wal_checkpoint(TRUNCATE);');
 				this.#db.close();
 			} catch (e) { console.error('storage close failed', e); }

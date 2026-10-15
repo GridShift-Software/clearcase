@@ -1,10 +1,3 @@
-// A read-only, password-protected front door for a tour of the running app, meant to sit behind a Cloudflare quick
-// tunnel: `TOUR_PASSWORD=... bun scripts/demo/tour-proxy.ts`, then
-// `cloudflared tunnel --url http://127.0.0.1:41190 --protocol http2`. Only GET and HEAD pass; the import page, the
-// folder browser, the import progress feed, recovery and the system views are refused (tour-policy.ts), so a visitor
-// can read every case view but cannot see the machine's folders or change anything. The app itself still refuses
-// every form POST from a foreign origin, so this is a second fence, not the only one. Env: TOUR_PORT (41190; 0 for any
-// free port, printed on start), UPSTREAM_PORT (41101), TOUR_USER (tour), TOUR_PASSWORD (required).
 import { createServer, request, type IncomingMessage, type ServerResponse } from 'node:http';
 import { authorised, canonicalPath, refused } from './tour-policy.ts';
 
@@ -35,7 +28,6 @@ const serve = (req: IncomingMessage, res: ServerResponse) => {
 };
 
 const server = createServer((req, res) => {
-	// a thrown error here would end the process, and with it the tour; answer 500 and keep serving
 	try { serve(req, res); } catch (e) {
 		console.error(`tour proxy: ${(e as Error).stack ?? e}`);
 		if (!res.headersSent) refuse(res, 500, 'The tour could not answer that request.');

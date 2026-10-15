@@ -15,8 +15,6 @@
 	const sorted = (m: [string, number][]) => [...m].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1));
 	const claim = (k: string) => t.claims.find(([x]) => x === k)?.[1] ?? null;
 	const count = (m: [string, number][], k: string) => m.find(([x]) => x === k)?.[1] ?? 0;
-	// S-meta-counts: counts are derived from the package data; the source's own figure is shown beside one only where
-	// they differ, as provenance.
 	const beside = (k: string, n: number) => { const x = claim(k); return x !== null && String(x) !== String(n) ? ` (the source claims ${x})` : ''; };
 	const content = $derived(data.content);
 	let ready = $state(false);

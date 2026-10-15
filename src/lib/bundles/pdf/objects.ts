@@ -1,7 +1,3 @@
-/**
- * PDF objects, byte helpers and the lexer of the bundle builder's PDF engine: a TypeScript port of v5's PDFK
- * (main HTML 691-907). Everything runs in the browser on the bytes of a picked file; nothing is uploaded.
- */
 
 export class PName {
 	readonly n: string;
@@ -37,7 +33,6 @@ export class PStream {
 export type PdfValue = null | boolean | number | PName | PRef | PStr | PStream | PdfValue[] | PDict;
 
 const NAMES = new Map<string, PName>();
-/** One PName per name, so names compare by identity as well as by `.n`. */
 export function nm(s: string): PName {
 	let v = NAMES.get(s);
 	if (!v) NAMES.set(s, (v = new PName(s)));
@@ -78,12 +73,10 @@ export const isWS = (c: number) => c === 0x20 || c === 0x0a || c === 0x0d || c =
 export const isDelim = (c: number) =>
 	c === 0x28 || c === 0x29 || c === 0x3c || c === 0x3e || c === 0x5b || c === 0x5d || c === 0x7b || c === 0x7d || c === 0x2f || c === 0x25;
 
-/** What the lexer needs from a document: resolving an indirect /Length. */
 export interface Resolver {
 	get(v: PdfValue | undefined): PdfValue | undefined;
 }
 
-/** `undefined` from obj() means a closing delimiter (or nothing parseable) was met. */
 export class Lex {
 	readonly b: Uint8Array;
 	p: number;
@@ -127,7 +120,6 @@ export class Lex {
 		this.p = q;
 		return t;
 	}
-	/** '/' already consumed; #xx escapes decoded. */
 	name(): PName {
 		const b = this.b;
 		const s = this.p;
@@ -142,7 +134,6 @@ export class Lex {
 		}
 		return nm(out);
 	}
-	/** '(' already consumed. */
 	litstr(): PStr {
 		const b = this.b;
 		const out: number[] = [];
@@ -175,11 +166,9 @@ export class Lex {
 		}
 		return new PStr(new Uint8Array(out), false);
 	}
-	/** '<' already consumed. */
 	hexstr(): PStr {
 		return new PStr(hexBytes(this), true);
 	}
-	/** One object. `doc` lets a stream's indirect /Length resolve. */
 	obj(doc?: Resolver): PdfValue | undefined {
 		this.ws();
 		const b = this.b;
@@ -241,9 +230,8 @@ export class Lex {
 			return parseFloat(t);
 		}
 		this.p = save + Math.max(1, t.length);
-		return nm(t); // a keyword not modelled
+		return nm(t);
 	}
-	/** '<<' already consumed; a following `stream` makes it a PStream. */
 	dict(doc?: Resolver): PDict | PStream {
 		const d: PDict = new Map();
 		const b = this.b;
@@ -291,7 +279,6 @@ export class Lex {
 	}
 }
 
-/** Hex digits up to '>' (or the end), odd digit padded with 0: shared by hex strings and ASCIIHexDecode. */
 function hexBytes(src: { b: Uint8Array; p: number }): Uint8Array {
 	const b = src.b;
 	const out: number[] = [];

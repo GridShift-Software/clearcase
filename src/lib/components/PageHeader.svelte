@@ -1,6 +1,4 @@
 <script lang="ts">
-	// Shared page header: the document title (BA-16), the page heading that receives focus after navigation (BA-14)
-	// and an optional slot for export and other page controls.
 	import type { Snippet } from 'svelte';
 	import { pageTitle } from './titles.ts';
 	let { heading, section, caseName = null, document = null, status = null, subtitle = null, actions }:

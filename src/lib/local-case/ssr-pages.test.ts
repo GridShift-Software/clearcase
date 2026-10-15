@@ -1,7 +1,3 @@
-// Full SSR page loads: the SvelteKit app runs in a Vite dev server in this process, so the test registers
-// document-row providers in the same module graph the routes use. A degraded provider must never take a reader down
-// (chronology page, its API, the overview, document pages): the pages answer 200 and say so. Import-time states are
-// labelled as such (overview originals), and a container whose original is gone says its attachments are unavailable.
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer as httpServer, type Server } from 'node:http';
 import { createServer as netServer } from 'node:net';
@@ -105,7 +101,6 @@ describe('SSR readers with a degraded document-row provider', () => {
 });
 
 describe('SSR document page: every action it offers succeeds on the real write path', () => {
-	/** Submit the page's note form as the browser does; null when the page offers none. */
 	const note = async (ref: string) => {
 		const page = await get(`${v()}/doc/${ref}`);
 		if (!page.text.includes('id="note-form"')) return { offered: false, status: 0, text: '', page };
@@ -116,7 +111,6 @@ describe('SSR document page: every action it offers succeeds on the real write p
 		await withProvider({ revision: () => 'r1', rows: () => [{ ref: 'RS-001', row: { ref: 'RS-001' }, list: list('RS-001'), state }] }, async () => {
 			const prov = await note('RS-001');
 			expect(prov.page.status).toBe(200);
-			// either the form is offered and saves, or it is not offered and the page says why
 			if (prov.offered) expect([prov.status, prov.text.includes('No such document')]).toEqual([200, false]);
 			else expect(prov.page.text).toContain('id="note-unavailable"');
 			const imp = await note('OD-001');

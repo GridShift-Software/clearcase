@@ -1,6 +1,4 @@
 <script lang="ts">
-	// A link to a cited document of the version being viewed; a ref that does not exist there renders visibly broken.
-	// `title` (imported text, e.g. a file name) is a tooltip on the link only; null renders no attribute.
 	import { docPath } from '../local-case/model.ts';
 	let { resultsVersion, ref, page = null, exists = true, label = null, title = null }: { resultsVersion: string; ref: string; page?: number | null; exists?: boolean; label?: string | null; title?: string | null } = $props();
 </script>

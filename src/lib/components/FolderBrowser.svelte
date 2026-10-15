@@ -1,7 +1,4 @@
 <script lang="ts">
-	// The Import page's folder browser (GRS-70): it lists one folder at a time through /api/browse (names, kinds and
-	// sizes only). Folders open on click; in "case" mode a .zip is chosen on click and the open folder can be chosen
-	// too, in "destination" mode only the open folder. Every control is a labelled button, so it works by keyboard.
 	import type { FolderListing } from '$lib/local-case/case-pack.server';
 	import TableScroll from './TableScroll.svelte';
 	let { id, mode, start = null, chooseLabel, onchoose }:
@@ -25,7 +22,6 @@
 			if (n === seq) loading = false;
 		}
 	}
-	// the first listing only: later moves come from the buttons
 	$effect(() => { void go(start); });
 	const rows = $derived((listing?.entries ?? []).filter((e) => mode === 'case' || e.kind === 'folder'));
 </script>
@@ -76,7 +72,6 @@
 	.row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin: 0 0 8px; }
 	.crumbs { display: flex; flex-wrap: wrap; list-style: none; margin: 0; padding: 0; }
 	.crumbs li + li::before { content: '/'; padding: 0 0.25rem; }
-	/* the shared TableScroll box, capped in height so a long folder scrolls inside it */
 	:global(.folder-scroll) { max-height: 22rem; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius); }
 	.entries { width: 100%; }
 	.entries th:nth-child(1), .entries td:nth-child(1) { width: 60%; overflow-wrap: anywhere; }

@@ -19,10 +19,7 @@
 	] as [string, string][]);
 	let ready = $state(false);
 	onMount(() => { ready = true; });
-	// the note field takes no input while its save is in flight, so nothing typed then is lost when the form resets;
-	// a save the app did not answer keeps the text with a message instead of replacing the page
 	let noteBusy = $state(false);
-	// a refused note's text lives only in this page; a Delete would reload it without that text, so it waits
 	const noteRefused = $derived(!!form && 'body' in form);
 	let noteError = $state<string | null>(null);
 	const submitNote: SubmitFunction = () => {

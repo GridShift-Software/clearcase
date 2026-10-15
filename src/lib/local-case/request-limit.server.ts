@@ -5,22 +5,17 @@
 import { MAX_BACKUP_BYTES } from '$lib/user-work/backup/backup.server';
 
 const KIB = 1024;
-/** What a form post may carry: a register entry (at most 64 KiB, stored), a note, a path or a choice. The litigation 413 message names it (views/litigation/submit.ts). */
 export const DEFAULT_BODY_LIMIT = 512 * KIB;
-/** Backup restore posts the backup file itself, with the form's other fields. */
 export const BACKUP_BODY_LIMIT = MAX_BACKUP_BYTES + 1024 * KIB;
 
-/** The court bundle page saves a bundle's item list (the route refuses over 2,000,000 characters or 5,000 items itself); a v5-size list is far over the default. */
 export const COURT_BUNDLE_BODY_LIMIT = 2 * 1024 * KIB;
 
 const BACKUP_ROUTE = /^\/v\/[^/]+\/system\/backup_tab\/?$/;
 const COURT_BUNDLE_ROUTE = /^\/v\/[^/]+\/bundles\/court_bundle_tab\/?$/;
-/** The most a request to this path may carry in its body, in bytes. */
 export const bodyLimit = (pathname: string) => (BACKUP_ROUTE.test(pathname) ? BACKUP_BODY_LIMIT : COURT_BUNDLE_ROUTE.test(pathname) ? COURT_BUNDLE_BODY_LIMIT : DEFAULT_BODY_LIMIT);
 
 const size = (n: number) => (n >= 1024 * KIB ? `${n / (1024 * KIB)} MiB` : `${n / KIB} KiB`);
 
-/** The refusal for a request whose body is over its route's limit, or whose size is not declared; null when it may be read. */
 export function oversize(request: Pick<Request, 'method' | 'headers'>, pathname: string): { status: 411 | 413; message: string } | null {
 	if (request.method === 'GET' || request.method === 'HEAD' || request.method === 'OPTIONS') return null;
 	const limit = bodyLimit(pathname);

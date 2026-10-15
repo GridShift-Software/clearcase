@@ -17,7 +17,6 @@ export const load: PageServerLoad = ({ params, url }) => {
 	const stored = imp.outcome === 'stored' && v?.import_id === imp.id;
 	const caseId = report.caseId;
 	const active = caseId ? a.effectiveActive(caseId) ?? null : null;
-	// the trusted baseline is recomputed now: it may have changed since this import (another activation)
 	const trusted = caseId ? a.trustedFor(caseId) : new Set<string>();
 	const newWarnings = report.warningFingerprints.filter((f) => !trusted.has(f));
 	const fresh = new Set(newWarnings);

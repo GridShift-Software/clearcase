@@ -50,7 +50,6 @@ export class Candidate {
     this.resultsVersion = init.resultsVersion;
     this.manifestSha256 = init.manifestSha256;
     this.inputRevisionId = init.inputRevisionId;
-    // own copies: nothing the caller still holds can alter the candidate
     this.#files = new Map([...init.files].map(([p, b]) => [p, new Uint8Array(b)]));
     this.#datasets = new Map([...init.datasets].map(([k, e]) => [k, deepFreeze(e)]));
     this.assets = deepFreeze(Object.assign(Object.create(null), init.assets));

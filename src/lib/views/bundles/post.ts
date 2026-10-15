@@ -1,6 +1,3 @@
-// Form actions posted with fetch (no navigation), so a failed write keeps what the user did on the page and shows the
-// error. A busy store answers fail(503) after its retries; a lost server is a network error; a body over the server's
-// limit is 413. A failure's data (a 409's stored values, a partial write's saved files) is passed on.
 import { deserialize } from '$app/forms';
 
 export type Posted = { ok: true; data: Record<string, unknown> | undefined } | { ok: false; message: string; status: number; data?: Record<string, unknown> };

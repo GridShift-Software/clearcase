@@ -1,5 +1,3 @@
-// The projector keeps raw values raw, derives display fields without inventing any, and its digest covers every
-// projected row.
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { canonicalJson, importCandidate, type ImportResult } from '../case-package/index.ts';
@@ -68,7 +66,7 @@ describe('projection', () => {
 		const tampered = { ...p, documents: p.documents.map((x, i) => (i === 0 ? { ...x, state_json: x.state_json.replace('present', 'missing') } : x)) };
 		expect(d(tampered)).not.toBe(d(p));
 		const reordered = { ...p, assets: [...p.assets].reverse() };
-		expect(d(reordered)).toBe(d(p)); // row order in storage does not matter, content does
+		expect(d(reordered)).toBe(d(p));
 	});
 });
 

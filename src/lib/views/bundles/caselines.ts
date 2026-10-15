@@ -1,5 +1,3 @@
-// CaseLines (v5 caselines_tab, L3513-3644): page-text search over the imported caselines-index, the coverage that
-// search has (BA-08), and the v5 path normalisation of linked files. Pure; the server runs the search.
 
 export type PageText = readonly [number, string];
 export interface Hit { p: number; count: number; pre: string; mid: string; post: string }
@@ -13,7 +11,6 @@ export function snippet(t: string, at: number, len: number): Pick<Hit, 'pre' | '
 	return { pre: (s > 0 ? '… ' : '') + t.slice(s, at), mid: t.slice(at, at + len), post: t.slice(at + len, e) + (e < t.length ? ' …' : '') };
 }
 
-/** v5 doSearch (L3579): case-insensitive substring per page; the count stops once it exceeds 50; ascending pages. */
 export function searchPages(index: readonly PageText[], query: string): Hit[] {
 	const q = query.trim();
 	if (!q) return [];
@@ -28,7 +25,6 @@ export function searchPages(index: readonly PageText[], query: string): Hit[] {
 	return res.sort((a, b) => a.p - b.p);
 }
 
-/** What search covers (BA-08): the pages the index holds, those without text, and the bundle's page count. */
 export function coverage(index: readonly PageText[], pages: number | null) {
 	const empty = index.filter(([, t]) => !t.trim()).map(([p]) => p);
 	return { indexed: index.length, withoutText: empty.length, emptyPages: empty.slice(0, 50), pages };
@@ -42,7 +38,6 @@ export function linkedPath(raw: string): string | null {
 }
 export const linkedName = (path: string) => path.split('/').pop() || path;
 
-/** Upload list size label (v5 L3634). */
 export const sizeLabel = (bytes: number) => `${Math.round(bytes / 1024).toLocaleString('en')} KB`;
 
 /** A session upload's link (CC-09-r2 D1): an object URL of an application/octet-stream copy of the file, never of the

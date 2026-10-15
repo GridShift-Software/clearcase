@@ -13,7 +13,6 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const a = app();
 	const vc = viewContentOf(a.store, version.id);
 	const saved = orderedRows(version.caseId, STORES.heads);
-	// evidence refs resolve against every document row of the version, provider (rescan) rows included
 	const docs = resolveRefs(a.store, version.id, saved.flatMap((r) => splitRefs(text(r.fields.ref))));
 	return {
 		rows: saved.map((r) => {
@@ -21,7 +20,6 @@ export const load: PageServerLoad = async ({ parent }) => {
 			return { rowId: r.rowId, del: deleteValue(r.rowId, r.version), ...v, evidence: evidenceTokens(v.ref, (t) => docs.has(t)) };
 		}),
 		caption: viewText(vc, 'heads_tab', 'exportCaption'),
-		// the export's file name is case content (GRS-38): the package's view-content field, else the neutral name and a note
 		exportName: exportFileName(vc, 'heads_tab', HEADS_FILE),
 		addId: randomUUID(),
 	};
@@ -35,7 +33,6 @@ export const actions: Actions = {
 		if (!canAddHead(values)) return fail(400, { op: 'add', values, message: null });
 		return addAction(caseId, STORES.heads, values, formAddId(f));
 	},
-	// a row's Delete submits the add form (formaction), so the typed entry travels with it and comes back in the answer
 	delete: async ({ params, request }) => {
 		const { caseId } = actionCase(params);
 		const f = await request.formData();

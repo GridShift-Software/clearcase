@@ -1,6 +1,3 @@
-// Ref grammar. Refs are package-local aliases for documents; they are never equated across
-// independently built packages (identity of an original is sha256 + size).
-// Browser-safe: no Node built-ins.
 
 /**
  * Document register ref: a letter prefix, an optional second segment that may carry digits (the newer generator
@@ -23,7 +20,6 @@ export const isRef = (s: unknown): s is string => typeof s === 'string' && REF.t
 export const isAssetKey = (s: unknown): s is string => typeof s === 'string' && ASSET_KEY.test(s);
 export const isPathKey = (s: unknown): s is string => typeof s === 'string' && PATH_KEY.test(s);
 
-/** Refs mentioned inside a free-text "refs" field, e.g. "VDM-001 – VDM-005". */
 export const REF_IN_TEXT = /\b[A-Z]{1,8}(?:-[A-Z][A-Z0-9]{0,7})?-[0-9]{1,8}\b/g;
 
 /** Inline citation token in authored prose: [[REF]] or [[REF#p<page>]]. */

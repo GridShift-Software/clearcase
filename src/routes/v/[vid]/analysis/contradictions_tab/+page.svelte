@@ -10,7 +10,6 @@
 	let { data } = $props();
 	const vid = $derived(data.version.id);
 	const known = $derived(new Set(data.known));
-	// the page data carries package-keyed records as entries; rebuild them as own-property records here
 	const c = $derived<Contradictions | null>(data.c ? {
 		...data.c, byCat: Object.fromEntries(data.c.byCat),
 		categories: data.c.categories.map((cat) => ({ ...cat, items: cat.items.map((it) => ({ ...it, rates: it.rates ? Object.fromEntries(it.rates) : undefined })) })),

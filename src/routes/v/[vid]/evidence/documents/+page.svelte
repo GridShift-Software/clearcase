@@ -10,17 +10,13 @@
 	let { data } = $props();
 	const vid = $derived(data.version.id);
 	const m = $derived(data.model);
-	// the typed filter is the page's own state, so a slow answer never overwrites newer typing
 	let q = $state(page.url.searchParams.get('q') ?? '');
-	/** Change the bundle, filter or page: the state is replaced in the URL (Back returns to the same list). */
 	function go(change: { bundle?: string; q?: string; page?: number }) {
 		const p = new URLSearchParams(page.url.search);
 		for (const [k, v] of Object.entries(change)) { if (v === '' || v === undefined || (k === 'page' && v === 1)) p.delete(k); else p.set(k, String(v)); }
 		const s = p.toString();
 		goto(`${page.url.pathname}${s ? `?${s}` : ''}`, { replaceState: true, keepFocus: true, noScroll: true });
 	}
-	// the data is complete when the page renders (data-ready, also in the server's HTML); data-hydrated marks the
-	// moment its controls respond
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>

@@ -17,7 +17,6 @@
 </script>
 
 {#snippet event(e: TimelineEvent)}
-	<!-- S-double-escape: the title is shown once, as text (v5 escapes it twice, so '&amp;' is visible there) -->
 	<div class="ev" role="listitem"><span class="d">{e.date}</span> · <span class="badge b-mut">{e.kind}</span> <span class="mono">{e.ref}</span> <CitationLink resultsVersion={vid} ref={e.ref} exists={known.has(e.ref)} label="{cleanName(e.title)} ↗" />{#if e.note}<div class="ex">{e.note}</div>{/if}</div>
 {/snippet}
 

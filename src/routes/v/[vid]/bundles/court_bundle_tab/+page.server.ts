@@ -8,7 +8,6 @@ import { HEADER_STORE, deleteCustom, deleteSingle, guarded, putSingle, readCusto
 import { customOf, toBundle } from '$lib/bundles/builder';
 import type { Actions, PageServerLoad } from './$types';
 
-/** Per header field; over it a save is refused with the field named and every typed field kept (never cut). */
 const MAX_FIELD = 2000;
 type Raw = { headerDefaults?: Record<string, unknown>; source?: unknown; indexSource?: unknown; caselinesSrc?: unknown };
 
@@ -19,8 +18,6 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const shipped = bundlesOf(raw);
 	const custom = (await readCustom(version.caseId)).map((c) => toBundle(c, c.id));
 	const { paths, files } = await bundleLinks(a.store, version.id);
-	// links resolve only by exact indexed path (a document, or a package file served now); parts open at their first page when it is above 1, as v5's docLink does.
-	// A saved builder bundle has no file on disk: its PDF lives in the page session, and its parts have no url (S-3).
 	const links = [...shipped.map((b) => ({
 		file: resolveLocator(paths, b.file), indexFile: resolveLocator(paths, b.indexFile),
 		rows: b.rows.map((r) => ({
@@ -38,7 +35,6 @@ export const load: PageServerLoad = async ({ parent }) => {
 	return {
 		present: raw !== null,
 		bundles, links,
-		// package-file key -> its originals-site link (GRS-45)
 		files,
 		content: {
 			kpiBundlesNote: t('kpiBundlesNote'), kpiExtractsValue: vc.number('court_bundle_tab', 'kpiExtractsValue'), kpiExtractsNote: t('kpiExtractsNote'),
@@ -49,9 +45,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 		},
 		header: headerRaw(raw?.headerDefaults ?? {}, stored ? stored.fields : null),
 		headerStored: stored !== null,
-		// the fields-hash of the stored header, sent back with Save, Restore and Clear (refused when another tab changed it)
 		headerHash: singleHash(version.caseId, HEADER_STORE),
-		// the original's download link (attachment, nosniff, sandbox CSP from the originals site) per served ref
 		downloads: Object.fromEntries(await bundleDownloads(version.id, refs)),
 	};
 };
@@ -59,10 +53,6 @@ export const load: PageServerLoad = async ({ parent }) => {
 const versionCase = (vid: string) => app().store.getVersion(vid)?.case_id ?? null;
 const CONFLICT = 'Not saved: the header was changed in another tab since this page loaded. Your typed fields are kept and the stored header is shown below; Retry saves yours over it, or use the stored header.';
 
-/**
- * One header write in the header queue, refused (409) when the stored header's fields-hash is not the one the page
- * loaded: the stored header and its hash come back, so the page keeps the typed fields and shows both.
- */
 function headerWrite(vid: string, c: string, version: string, values: Record<string, string>, write: () => Promise<void>) {
 	return guarded(values, () => serial(c, HEADER_STORE, async () => {
 		const now = singleHash(c, HEADER_STORE);
@@ -75,11 +65,9 @@ function headerWrite(vid: string, c: string, version: string, values: Record<str
 	}));
 }
 const versionOf = (f: FormData) => String(f.get('version') ?? '');
-/** A saved bundle's item list over this many rows, or its JSON over this many characters, is refused. */
 const MAX_ROWS = 5000, MAX_JSON = 2_000_000;
 
 export const actions: Actions = {
-	/** Save header: all eight fields (v5 cbHdrSave); a field over MAX_FIELD is refused, never cut. */
 	header: async ({ request, params }) => {
 		const c = versionCase(params.vid); if (!c) return fail(404, { message: 'Unknown results version' });
 		const f = await request.formData();
@@ -89,18 +77,14 @@ export const actions: Actions = {
 		if (long) return fail(400, { message: `Not saved: “${long.label}” is ${values[long.key]!.length.toLocaleString('en')} characters; the limit is ${MAX_FIELD.toLocaleString('en')} per field. Your typed fields are kept.`, values, field: long.key });
 		return headerWrite(params.vid, c, versionOf(f), values, () => putSingle(c, HEADER_STORE, values));
 	},
-	/** Restore matter defaults: the stored header is removed, so the imported defaults show (v5 cbHdrReset). */
 	restore: async ({ request, params }) => {
 		const c = versionCase(params.vid); if (!c) return fail(404, { message: 'Unknown results version' });
 		return headerWrite(params.vid, c, versionOf(await request.formData()), {}, () => deleteSingle(c, HEADER_STORE));
 	},
-	/** Clear all: every field stored empty, so placeholders print (v5 cbHdrClear). */
 	clear: async ({ request, params }) => {
 		const c = versionCase(params.vid); if (!c) return fail(404, { message: 'Unknown results version' });
 		return headerWrite(params.vid, c, versionOf(await request.formData()), {}, () => putSingle(c, HEADER_STORE, Object.fromEntries(HEADER_KEYS.map((k) => [k, '']))));
 	},
-	/** Save to the bundle list (v5 cbBldSave): the builder output `id` and its entry as JSON; saving one output again
-	 * updates its entry and keeps its number. */
 	save: async ({ request, params }) => {
 		const c = versionCase(params.vid); if (!c) return fail(404, { message: 'Unknown results version' });
 		const f = await request.formData();
@@ -115,7 +99,6 @@ export const actions: Actions = {
 		const shipped = bundlesOf(datasetOf<Raw>(app().store, params.vid, 'bundles'));
 		return guarded({ id }, async () => ({ saved: true, id, no: await saveCustom(c, id, entry, shipped) }));
 	},
-	/** Delete a saved bundle from the list (v5 cbDeleteBundle); the page asks first. */
 	delete: async ({ request, params }) => {
 		const c = versionCase(params.vid); if (!c) return fail(404, { message: 'Unknown results version' });
 		const id = String((await request.formData()).get('id') ?? '');

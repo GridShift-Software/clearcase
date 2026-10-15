@@ -19,7 +19,8 @@
     "start": "bun scripts/pilot/start.ts",
     "convert": "bun scripts/case-package/cli.ts convert",
     "validate": "bun scripts/case-package/cli.ts validate",
-    "verify:package": "bun scripts/case-package/verify-package.ts"
+    "verify:package": "bun scripts/case-package/verify-package.ts",
+    "prototype:navigation": "bun src/routes/prototype/navigation/serve.mjs"
   },
   "dependencies": {
     "typebox": "1.3.36"

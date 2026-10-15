@@ -1,0 +1,1308 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTOTYPE · Navigation options (GRS-89) · ClearCase</title>
+<!--
+  PROTOTYPE, throwaway (GRS-89). Not app code: no SvelteKit route, no store, no network.
+  Plan: two structurally different navigation variants on one page, switched by ?variant=A|B and a floating bar.
+  Question: where should users find existing capabilities in a large legal case, while keeping evidence context and
+  mobile quick work (notes, time)?
+    A  Topic sidebar: resources grouped by topic in a persistent sidebar, section navigation inside a view.
+    B  Task-led case desk: top-level task navigation, the task's tools as a strip, contextual tools beside the work,
+       and a quick-capture panel reachable from anywhere.
+  Shared: synthetic case data, search, forms, the original viewer, tables and style tokens.
+  All case content below is invented. Nothing is fetched, stored or sent; state lives in memory until reload.
+-->
+<style>
+:root{--ink:#1d232b;--bg:#fafafa;--line:#d9dde3;--soft:#eceef1;--nav:#1d2b3a;--nav-2:#2c3e52;--on-nav-muted:#d7dee8;--link:#0b4f9c;--muted:#555;--faint:#666;--focus:#d35400;--ok:#1d5b1d;--ok-bg:#e3f4e3;--warn:#6a4b00;--warn-bg:#fff1c2;--bad:#7a1010;--bad-bg:#fde8e8;--plan:#4b2f86;--plan-bg:#f1ecfa;--cite-bg:#eef4fb;--cite-line:#b9cde6;--viewer-w:min(46vw,640px);--sw-h:44px;--sw-bottom:12px;color-scheme:light;font:14px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;color:var(--ink);background:var(--bg)}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;padding-bottom:calc(var(--sw-h) + var(--sw-bottom) + 24px)}
+a{color:var(--link)}
+:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+h1:focus,h2:focus,main:focus{outline:none}
+h1,h2,h3{line-height:1.25}
+code{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.skip{position:absolute;left:-9999px;top:0;z-index:100;background:#fff;color:var(--ink);padding:.4rem .8rem}
+.skip:focus{left:.5rem;top:.5rem}
+.muted{color:var(--muted)}.small{font-size:.86em}.nowrap{white-space:nowrap}
+.h3{font-size:1rem;margin:0 0 .3rem}
+.btn{font:inherit;line-height:1.2;border:1px solid #8c96a3;background:#fff;color:var(--ink);border-radius:4px;padding:.3rem .65rem;cursor:pointer;min-height:30px;text-decoration:none;display:inline-flex;align-items:center;gap:.3rem}
+.btn:hover{background:#f1f4f8}
+.btn.primary{background:var(--nav);border-color:var(--nav);color:#fff}
+.btn.primary:hover{background:var(--nav-2)}
+.btn.on{background:var(--nav);color:#fff;border-color:var(--nav)}
+.btn:disabled{opacity:.5;cursor:default}
+.linkbtn{font:inherit;background:none;border:0;padding:0;color:var(--link);text-decoration:underline;cursor:pointer}
+.cite{font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--cite-bg);border:1px solid var(--cite-line);color:var(--link);border-radius:3px;padding:0 .3rem;cursor:pointer;white-space:nowrap}
+.cite:hover{background:#dde9f7}
+.returned{animation:ret 1.8s ease-out}
+@keyframes ret{0%{box-shadow:0 0 0 5px #f6b26b}100%{box-shadow:0 0 0 0 transparent}}
+.tag{display:inline-block;font-size:.78em;border-radius:3px;padding:0 .35rem;border:1px solid var(--line);background:#f6f7f9;white-space:nowrap}
+.tag.A{background:#e8f0fe;border-color:#b6c9ef}.tag.B{background:#fdf0e3;border-color:#efc9a1}.tag.C{background:#eef6ea;border-color:#bcd8b0}
+.tag.built{background:var(--ok-bg);border-color:#a8d3a8;color:var(--ok)}
+.tag.planned{background:var(--plan-bg);border-color:#cbbbe8;color:var(--plan)}
+.tag.warn{background:var(--warn-bg);border-color:#e8cf7a;color:var(--warn)}
+.proto-flag{background:var(--warn-bg);color:var(--warn);border:1px solid #e8cf7a;border-radius:6px;padding:.45rem .7rem;margin:.2rem 0 .7rem}
+.plan-flag{background:var(--plan-bg);color:var(--plan);border:1px dashed #a891d6;border-radius:6px;padding:.55rem .8rem;margin-bottom:.7rem}
+.ph-box{background:#fff;border:1px dashed #999;border-radius:6px;padding:.7rem .9rem;max-width:60rem}
+.card{background:#fff;border:1px solid var(--line);border-radius:6px;padding:.6rem .8rem;min-width:0}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(15rem,100%),1fr));gap:.7rem;margin-bottom:1rem}
+.card h2,.card h3{margin:0 0 .25rem;font-size:.76rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}
+.big{font-size:1.5rem;font-weight:650;font-variant-numeric:tabular-nums}
+.table-scroll{overflow-x:auto;max-width:100%;border:1px solid var(--line);border-radius:6px;background:#fff}
+table.t{border-collapse:collapse;width:100%;font-size:.95em}
+.t th,.t td{padding:3px 8px;border-bottom:1px solid var(--soft);text-align:left;vertical-align:top}
+.t thead th{position:sticky;top:0;background:#f6f7f9;font-weight:600;white-space:nowrap}
+.t .n{text-align:right;font-variant-numeric:tabular-nums}
+.t.wide{min-width:46rem}
+.filters{display:flex;flex-wrap:wrap;gap:.5rem .8rem;align-items:end;margin:.3rem 0 .6rem}
+.filters label{display:flex;flex-direction:column;font-size:.85em;color:var(--muted);gap:.15rem}
+.filters .grow{flex:1 1 18rem}
+.filters .grow input{width:100%}
+.scope{border:0;padding:0;margin:0;display:flex;flex-wrap:wrap;gap:.2rem .7rem;align-items:center}
+.scope legend{font-size:.85em;color:var(--muted);padding:0;float:left;margin-right:.4rem}
+.scope label{flex-direction:row;align-items:center;gap:.25rem;color:var(--ink);font-size:.95em}
+input,select,textarea{font:inherit;color:var(--ink);background:#fff;border:1px solid #8c96a3;border-radius:4px;padding:.3rem .45rem;max-width:100%}
+input[type=checkbox],input[type=radio]{width:auto}
+.qform{display:grid;gap:.3rem;background:#fff;border:1px solid var(--line);border-radius:6px;padding:.7rem .8rem;max-width:34rem;min-width:0}
+.qform label{font-weight:600;font-size:.9em}
+.qform textarea,.qform input[type=text],.qform select{width:100%}
+.qf-title{margin:0 0 .1rem;font-size:1rem}
+.qf-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.5rem}
+.qf-grid>div{display:grid;gap:.2rem;min-width:0}
+.qf-grid input,.qf-grid select{width:100%}
+.check{display:flex;gap:.45rem;align-items:flex-start;font-weight:400!important}
+.check input{margin-top:.2rem}
+.err{color:var(--bad);margin:0;font-weight:600}
+.err:empty,.confirm:empty{display:none}
+.confirm{margin:.2rem 0 0;color:var(--ok);background:var(--ok-bg);border:1px solid #a8d3a8;border-radius:4px;padding:.4rem .55rem;font-weight:600}
+[aria-invalid=true]{border-color:var(--bad);box-shadow:0 0 0 1px var(--bad)}
+.page-head{display:flex;flex-wrap:wrap;justify-content:space-between;gap:.4rem 1rem;align-items:start;margin-bottom:.6rem}
+.page-head h1{margin:0;font-size:1.45rem}
+.crumb{margin:0 0 .15rem;font-size:.85em;color:var(--muted)}
+.sub{margin:.15rem 0 0;color:var(--muted);max-width:70ch}
+section.an{background:#fff;border:1px solid var(--line);border-radius:6px;padding:.6rem .9rem;margin-bottom:.8rem;scroll-margin-top:var(--stick,80px)}
+.an-head{display:flex;flex-wrap:wrap;gap:.3rem .8rem;align-items:baseline;justify-content:space-between}
+section.an h2{font-size:1.1rem;margin:.1rem 0 .3rem}
+.an p{margin:.35rem 0;max-width:75ch}
+.an-actions{margin-top:.3rem}
+.inline-slot:not(:empty){margin-top:.5rem}
+.notes-inline{font-size:.92em;border-left:3px solid #f6b26b;padding-left:.6rem;margin:.4rem 0}
+pre.out{background:#f6f7f9;border:1px solid var(--line);border-radius:6px;padding:.5rem;overflow:auto;max-width:100%;font-size:12px;max-height:16rem;margin:.3rem 0}
+mark{background:#ffe58a;color:inherit}
+.stages{display:flex;flex-wrap:wrap;gap:.35rem;list-style:none;padding:0;margin:.4rem 0}
+.stages li{border:1px solid var(--line);border-radius:4px;padding:.25rem .55rem;background:#fff}
+.stages li.done{background:var(--ok-bg);border-color:#a8d3a8}
+.stages li.now{background:var(--warn-bg);border-color:#e8cf7a;font-weight:600}
+.bar{height:6px;background:var(--soft);border-radius:3px;overflow:hidden;margin-top:.25rem}
+.bar>span{display:block;height:100%;background:var(--nav)}
+ul.plain,ol.plain{list-style:none;padding:0;margin:0}
+.list li{border-bottom:1px solid var(--soft);padding:.35rem 0;overflow-wrap:anywhere}
+.res{margin-bottom:1rem}
+.res h2{font-size:1.02rem;margin:.4rem 0}
+.res .count,.count{color:var(--faint);font-size:.85em;font-variant-numeric:tabular-nums;font-weight:400}
+.snip{color:var(--muted);font-size:.92em;margin:.1rem 0 0 .2rem}
+.kv{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:.25rem 1rem;margin:.6rem 0}
+.kv dt{color:var(--muted)}.kv dd{margin:0}
+.two{display:grid;grid-template-columns:minmax(0,34rem) minmax(0,1fr);gap:1rem;align-items:start;margin-bottom:1rem}
+.row{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center}
+.cat-group{margin-bottom:.9rem}
+.cat-group h2{font-size:.95rem;margin:.3rem 0}
+.cat-list li{display:grid;grid-template-columns:minmax(10rem,14rem) 9rem minmax(0,1fr);gap:.1rem .8rem;padding:.2rem 0;border-bottom:1px solid var(--soft)}
+/* ---------- shared viewer: a pane beside the work on desktop, a full-screen sheet on a phone ---------- */
+.viewer{position:fixed;top:0;right:0;bottom:0;width:var(--viewer-w);background:#f3f1ec;border-left:2px solid var(--nav);z-index:30;display:flex;flex-direction:column;box-shadow:-6px 0 18px rgba(0,0,0,.12)}
+.viewer[hidden]{display:none}
+.vw-head{background:#fff;border-bottom:1px solid var(--line);padding:.5rem .8rem;display:grid;gap:.3rem}
+.vw-row{display:flex;justify-content:space-between;gap:.5rem;align-items:center}
+.vw-head h2{margin:0;font-size:1.02rem;overflow-wrap:anywhere}
+.vw-head p{margin:0}
+.vw-body{overflow:auto;padding:.9rem;padding-bottom:calc(var(--sw-h) + 36px);flex:1}
+.paper{background:#fff;max-width:36rem;margin:0 auto;padding:1.3rem 1.5rem;box-shadow:0 1px 4px rgba(0,0,0,.18);font-family:Georgia,"Times New Roman",serif;font-size:14px;min-height:26rem;overflow-wrap:anywhere}
+.paper .lh{font:600 11px/1.3 system-ui,sans-serif;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--soft);padding-bottom:.4rem;margin-bottom:.8rem;display:flex;justify-content:space-between;gap:1rem}
+.paper p{margin:.45rem 0}
+.paper .scan{height:2.2rem;background:repeating-linear-gradient(0deg,#e9e9e9 0 2px,transparent 2px 9px);margin:.6rem 0}
+.vw-note{max-width:36rem;margin:.8rem auto 0}
+body.viewer-open #app{margin-right:var(--viewer-w)}
+body.viewer-open .switcher{left:calc((100vw - var(--viewer-w)) / 2)}
+/* with the original open, the viewer takes the place of A's page rail and B's context rail */
+body.viewer-open .a-withtoc,body.viewer-open .b-work{grid-template-columns:minmax(0,1fr)}
+body.viewer-open .a-toc,body.viewer-open .b-context{display:none}
+/* ---------- prototype chrome (not part of either design) ---------- */
+.switcher{position:fixed;bottom:var(--sw-bottom);left:50%;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:.25rem;height:var(--sw-h);max-width:calc(100vw - 16px);padding:0 .3rem;background:#111;color:#fff;border-radius:999px;box-shadow:0 4px 16px rgba(0,0,0,.35);border:2px solid #f6b26b;font-size:13px}
+.sw-btn{font:inherit;font-size:18px;line-height:1;width:34px;height:34px;border-radius:50%;border:0;background:#333;color:#fff;cursor:pointer;flex:none}
+.sw-btn:hover{background:#555}
+.sw-label{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 .35rem;min-width:0}
+.sw-label .k{background:#f6b26b;color:#111;border-radius:3px;padding:0 .35rem;font-weight:700;margin-right:.3rem}
+.toast{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:80;width:max-content;max-width:min(38rem,calc(100vw - 16px));background:#10261a;color:#fff;border-radius:6px;padding:.5rem .8rem;box-shadow:0 4px 14px rgba(0,0,0,.3)}
+.toast:empty{display:none}
+/* ---------- shared header pieces ---------- */
+.brand{font-weight:700}
+.proto-tag{font-size:.7em;font-weight:700;letter-spacing:.05em;background:#f6b26b;color:#111;border-radius:3px;padding:.05rem .35rem;white-space:nowrap}
+.case-name{font-weight:600;overflow-wrap:anywhere}
+.meta{font-size:.85em;display:flex;flex-wrap:wrap;gap:.1rem .9rem}
+.livechips{display:flex;flex-wrap:wrap;gap:.35rem}
+.chip-s{font-size:.82em;text-decoration:none;border:1px solid;border-radius:999px;padding:.05rem .55rem;white-space:nowrap}
+.gsearch{display:flex;gap:.3rem;min-width:0}
+.gsearch input{flex:1;min-width:0}
+/* ---------- Variant A: topic sidebar ---------- */
+.a-top{position:sticky;top:0;z-index:20;background:var(--nav);color:#fff;display:grid;grid-template-columns:minmax(0,1fr) minmax(15rem,27rem);grid-template-areas:"id search" "id chips";gap:.35rem 1.2rem;align-items:center;padding:.45rem 1rem}
+.a-id{grid-area:id;min-width:0}.a-top .gsearch{grid-area:search}.a-top .livechips{grid-area:chips}
+.case-name .short{display:none}
+.a-top .meta{color:var(--on-nav-muted)}
+.a-top .chip-s{color:#fff;border-color:#5d7590}
+.a-top .chip-s:hover{background:var(--nav-2)}
+.a-top .t1{display:flex;flex-wrap:wrap;gap:.2rem .6rem;align-items:center}
+.a-menu{display:none}
+.a-body{display:grid;grid-template-columns:16.5rem minmax(0,1fr);align-items:start}
+.a-side{position:sticky;top:var(--a-top,64px);max-height:calc(100vh - var(--a-top,64px));overflow:auto;background:#fff;border-right:1px solid var(--line);padding:.4rem .5rem 5rem}
+.a-side .drawer-head{display:none}
+.a-side details{margin:.1rem 0}
+.a-side summary{list-style:none;display:flex;justify-content:space-between;align-items:center;font-size:.76em;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:.35rem .3rem;cursor:pointer;border-radius:3px}
+.a-side summary::-webkit-details-marker{display:none}
+.a-side summary::before{content:'\25BE';margin-right:.3rem}
+.a-side details:not([open]) summary::before{content:'\25B8'}
+.a-side summary span:first-child{flex:1}
+.a-side ul{list-style:none;margin:0 0 .3rem;padding:0}
+.a-side a{display:flex;justify-content:space-between;gap:.5rem;padding:.13rem .4rem;border-radius:3px;text-decoration:none;color:var(--link)}
+.a-side a:hover{background:#eef3f9}
+.a-side a[aria-current=page]{background:var(--nav);color:#fff}
+.a-side a[aria-current=page] .count{color:var(--on-nav-muted)}
+.a-side .phm{color:var(--faint)}
+.a-side .planned{border-top:1px dashed #a891d6;margin-top:.6rem;padding-top:.2rem}
+.a-side .planned a{color:var(--plan)}
+.a-side .side-all{margin:.2rem 0 .4rem;padding-bottom:.4rem;border-bottom:1px solid var(--soft)}
+.a-side .side-all a{font-weight:600}
+.a-main{padding:.8rem 1.25rem 1rem;min-width:0;max-width:1300px}
+.a-withtoc{display:grid;grid-template-columns:minmax(0,1fr) 13.5rem;gap:1.25rem;align-items:start}
+.a-toc{position:sticky;top:calc(var(--a-top,64px) + 12px);border-left:2px solid var(--line);padding:.2rem 0 .2rem .8rem;font-size:.92em}
+.a-toc h2{font-size:.76em;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 .3rem}
+.a-toc a{display:block;padding:.15rem 0;text-decoration:none}
+.a-toc a[aria-current=true]{font-weight:700;color:var(--ink)}
+.a-scrim{display:none}
+/* ---------- Variant B: task-led case desk ---------- */
+.b-top{background:#fff;border-bottom:1px solid var(--line);padding:.5rem 1rem .45rem;display:flex;flex-wrap:wrap;gap:.4rem 1rem;align-items:center}
+.b-id{flex:1 1 22rem;min-width:0}.b-top .gsearch{flex:0 1 24rem}
+.b-top .case-name{font-size:1.05rem}
+.b-top .meta{color:var(--muted)}
+.b-top .chip-s{color:var(--ink);border-color:var(--line);background:#f6f7f9}
+.b-top .chip-s:hover{background:#e9edf2}
+.b-taskrow{position:sticky;top:0;z-index:20;background:var(--nav);display:flex;align-items:stretch;gap:.1rem;padding:0 .6rem;overflow-x:auto}
+.b-task{font:inherit;color:var(--on-nav-muted);background:none;border:0;border-bottom:3px solid transparent;padding:.45rem .85rem .35rem;cursor:pointer;text-align:left;white-space:nowrap}
+.b-task b{display:block;color:#fff;font-size:1rem}
+.b-task span{font-size:.78em}
+.b-task:hover{background:var(--nav-2)}
+.b-task[aria-current=page]{background:var(--bg);color:var(--muted);border-bottom-color:#f6b26b}
+.b-task[aria-current=page] b{color:var(--ink)}
+.b-task.b-all{margin-left:auto}
+.b-tools{display:flex;gap:.35rem;overflow-x:auto;padding:.45rem 1rem;background:#eef1f5;border-bottom:1px solid var(--line);position:sticky;top:var(--b-task-h,52px);z-index:19}
+.tchip{display:inline-flex;gap:.35rem;align-items:center;white-space:nowrap;text-decoration:none;color:var(--link);background:#fff;border:1px solid var(--line);border-radius:999px;padding:.12rem .65rem;font:inherit;font-size:.92em;cursor:pointer}
+.tchip[aria-current=page],.tchip[aria-current=true]{background:var(--nav);color:#fff;border-color:var(--nav)}
+.tchip[aria-current] .count{color:var(--on-nav-muted)}
+.tchip.planned{border-style:dashed;color:var(--plan);background:var(--plan-bg)}
+.tchip .phm{color:var(--faint)}
+.b-issues{display:flex;flex-wrap:wrap;gap:.35rem;margin:0 0 .7rem}
+.b-work{display:grid;grid-template-columns:minmax(0,1fr) 18.5rem;gap:1.1rem;padding:.9rem 1.1rem;align-items:start;max-width:1500px}
+.b-main{min-width:0}
+.b-context{position:sticky;top:calc(var(--b-stick,96px) + 10px);display:grid;gap:.6rem;min-width:0}
+.b-context ul{margin:0;padding-left:1rem}
+.b-context li{margin:.15rem 0}
+.b-fab{position:fixed;right:16px;bottom:14px;z-index:55;font:inherit;font-weight:600;background:var(--nav);color:#fff;border:2px solid #fff;border-radius:999px;padding:.55rem 1rem;box-shadow:0 4px 14px rgba(0,0,0,.3);cursor:pointer}
+body.viewer-open .b-fab{right:calc(var(--viewer-w) + 16px)}
+.b-capture{position:fixed;right:16px;bottom:66px;z-index:56;width:min(26rem,calc(100vw - 32px));max-height:calc(100vh - 100px);overflow:auto;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.25);padding:.6rem}
+body.viewer-open .b-capture{right:calc(var(--viewer-w) + 16px)}
+.b-capture[hidden]{display:none}
+.b-capture .qform{border:0;padding:.3rem 0 0}
+.cap-head{display:flex;gap:.5rem;align-items:center;justify-content:space-between}
+.cap-head h2{margin:0}
+.b-bottom{display:none}
+.b-sheet{position:fixed;right:16px;top:70px;z-index:56;width:min(24rem,calc(100vw - 32px));max-height:calc(100vh - 140px);overflow:auto;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 28px rgba(0,0,0,.25);padding:.7rem}
+.b-sheet[hidden]{display:none}
+.sheet-head{display:flex;justify-content:space-between;align-items:center;gap:.5rem;margin-bottom:.4rem}
+.sheet-head h2{margin:0;font-size:1.05rem}
+.more-list li{margin:.3rem 0}
+.more-list .btn{width:100%;justify-content:space-between;flex-wrap:wrap}
+/* ---------- phone ---------- */
+@media (max-width:760px){
+  .btn{min-height:38px}
+  .cite{padding:.15rem .4rem;font-size:13px}
+  .viewer{width:100%;border-left:0;z-index:70}
+  body.viewer-open #app{margin-right:0}
+  body.sheet-open{overflow:hidden}
+  body.sheet-open .switcher{display:none}
+  .vw-body{padding:.6rem .5rem 1.5rem}
+  .paper{padding:1rem}
+  .qf-grid{grid-template-columns:1fr 1fr}
+  .qf-grid>div:last-child{grid-column:1/-1}
+  .two{grid-template-columns:minmax(0,1fr)}
+  .kv{grid-template-columns:minmax(0,1fr)}
+  .kv dd{margin-bottom:.3rem}
+  .cat-list li{grid-template-columns:minmax(0,1fr)}
+  .t.stack{min-width:0}
+  .t.stack thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+  .t.stack tr{display:block;padding:.4rem .55rem;border-bottom:1px solid var(--line)}
+  .t.stack td{display:flex;gap:.5rem;border:0;padding:.06rem 0;overflow-wrap:anywhere;text-align:left}
+  .t.stack td::before{content:attr(data-label);flex:0 0 4.8rem;color:var(--muted);font-size:.85em}
+  /* A */
+  .a-top{grid-template-columns:minmax(0,1fr) auto;grid-template-areas:"id chips" "search search";padding:.4rem .6rem;gap:.35rem .5rem}
+  .a-top .meta,.a-top .brand,.a-top .proto-tag,.a-top .full,.a-top .chip-s.proc{display:none}
+  .a-top .case-name .short{display:inline}
+  .a-top .livechips{flex-wrap:nowrap}
+  .a-menu{display:inline-flex;background:#fff}
+  .a-body{grid-template-columns:minmax(0,1fr)}
+  .a-side{position:fixed;top:0;left:0;bottom:0;width:min(86vw,21rem);max-height:none;z-index:50;transform:translateX(-105%);visibility:hidden;transition:transform .18s,visibility .18s;box-shadow:4px 0 18px rgba(0,0,0,.25);padding-top:0}
+  .a-side.open{transform:none;visibility:visible;transition:transform .18s,visibility 0s}
+  .a-side .drawer-head{display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:1;background:#fff;padding:.5rem .2rem;border-bottom:1px solid var(--line)}
+  .a-side a{padding:.45rem .4rem}
+  .a-scrim.open{display:block;position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:45}
+  .a-main{padding:.7rem .75rem}
+  .a-withtoc{grid-template-columns:minmax(0,1fr)}
+  .a-toc{position:static;order:-1;border:1px solid var(--line);background:#fff;border-radius:6px;padding:.4rem .6rem}
+  .a-toc ol{display:flex;flex-wrap:wrap;gap:0 .9rem}
+  .a-toc a{padding:.3rem 0}
+  /* B */
+  body.vB{--sw-bottom:66px;padding-bottom:128px}
+  .b-top{padding:.4rem .6rem}
+  .b-top .gsearch{flex-basis:100%}
+  .b-taskrow{display:none}
+  .b-tools{top:0;padding:.4rem .6rem}
+  .tchip{padding:.35rem .7rem}
+  .b-work{grid-template-columns:minmax(0,1fr);padding:.7rem .75rem}
+  .b-context{position:static}
+  .b-fab{display:none}
+  .b-bottom{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));position:fixed;left:0;right:0;bottom:0;height:58px;z-index:58;background:var(--nav)}
+  .b-bottom button{font:inherit;font-size:.85em;background:none;border:0;color:var(--on-nav-muted);cursor:pointer;padding:0 .2rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .b-bottom button[aria-current=page]{color:#fff;font-weight:700;box-shadow:inset 0 3px 0 #f6b26b}
+  .b-bottom .cap{color:#111;background:#f6b26b;font-weight:700;margin:8px 4px;border-radius:8px}
+  .b-capture,.b-sheet{left:0;right:0;top:auto;bottom:58px;width:auto;max-height:calc(100vh - 58px - 32px);border-radius:12px 12px 0 0}
+  body.viewer-open .b-capture{right:0}
+}
+</style>
+</head>
+<body>
+<noscript>This prototype needs JavaScript.</noscript>
+<div id="app"></div>
+<aside id="viewer" class="viewer" role="dialog" aria-labelledby="viewer-title" hidden></aside>
+<div id="capture" class="b-capture" role="dialog" aria-labelledby="cap-h" hidden></div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<div id="switcher" class="switcher" role="group" aria-label="Prototype variant switcher, not part of the design"></div>
+<script>
+'use strict';
+/* ====================================================================================================
+   Synthetic data. Every name, number and sentence is invented for this prototype.
+   ==================================================================================================== */
+function rng(seed) { return () => { seed = (seed + 0x6D2B79F5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+function hash(s) { let h = 2166136261; for (const c of s) h = Math.imul(h ^ c.charCodeAt(0), 16777619); return h >>> 0; }
+const R = rng(89);
+const pick = (a) => a[Math.floor(R() * a.length)];
+const pad = (n, w = 4) => String(n).padStart(w, '0');
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+const fmtN = (n) => Number(n).toLocaleString('en-US');
+const money = (n) => 'R ' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+const $ = (s, root = document) => root.querySelector(s);
+const $$ = (s, root = document) => [...root.querySelectorAll(s)];
+const isMobile = () => matchMedia('(max-width: 760px)').matches;
+const localDate = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1, 2)}-${pad(d.getDate(), 2)}`;
+const TODAY = localDate(new Date());
+const nowStamp = () => { const d = new Date(); return `${TODAY} ${pad(d.getHours(), 2)}:${pad(d.getMinutes(), 2)}`; };
+const RATE = 2400;
+
+const CASE = { name: 'Kestrel Grain Logistics (Pty) Ltd v Marula Port Authority', short: 'Kestrel v Marula', forum: 'Arbitration AR-2025-118', results: 'Results v3', rv: 'rv-9f3c1e07', activated: '2026-09-04', docs: 1214, chrono: 412 };
+const SHORTP = ['T. Naidoo', 'R. van der Berg', 'L. Mokoena', 'J. Ferreira', 'A. Dlamini', 'S. Pillay'];
+const SUBJECTS = ['berth allocation', 'demurrage at Berth 7', 'silo 4 storage charges', 'vessel delay', 'force majeure notice', 'grain moisture readings', 'Crane 3 outage', 'payment reminder', 'tariff schedule 2025', 'without prejudice proposal', 'survey report', 'anchorage waiting times'];
+const VESSELS = ['MV Sable Crest', 'MV Orca Dawn', 'MV Kudu Star', 'MV Tern Bay'];
+const TYPES = ['Email', 'Email', 'Email', 'Letter', 'Invoice', 'Bill of lading', 'Minutes', 'Statement', 'Report', 'Addendum'];
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const ISSUES = { A: 'Delay & demurrage', B: 'Force majeure', C: 'Set-off' };
+
+function titleFor(type, n) {
+  const s = pick(SUBJECTS);
+  switch (type) {
+    case 'Email': return `Email ${pick(SHORTP)} to ${pick(SHORTP)}: ${s}`;
+    case 'Letter': return `Letter ${pick(['Kestrel', 'Marula', 'Ibis Stevedoring'])} re ${s}`;
+    case 'Invoice': return `Invoice INV-${7000 + n} - ${pick(['silo storage', 'stevedoring', 'berth dues', 'surveyor fees'])}`;
+    case 'Bill of lading': return `Bill of lading BL-${3100 + n} ${pick(VESSELS)}`;
+    case 'Minutes': return `Minutes of site meeting ${1 + (n % 40)}`;
+    case 'Statement': return `Statement of account, ${pick(MONTHS)}`;
+    case 'Report': return `Berth occupancy report, week ${1 + (n % 52)}`;
+    default: return `Addendum ${1 + (n % 9)} to Port Services Agreement (draft)`;
+  }
+}
+
+// The eight documents the analysis cites. Each carries the passage the citation points at.
+const KEY = {
+  K1: { date: '2024-11-18', type: 'Contract', title: 'Port Services Agreement, signed', pages: 34, quote: { 12: 'Clause 14.2: demurrage accrues at R 38,500 per vessel day after 36 free hours, save where the delay is caused by the Authority\u2019s own equipment.' } },
+  K2: { date: '2025-03-05', type: 'Letter', title: 'Letter Marula to Kestrel re Crane 3 outage', pages: 3, quote: { 2: 'Crane 3 at Berth 7 was out of service from 02:00 on 3 March 2025 because of a gearbox failure.' } },
+  K3: { date: '2025-03-06', type: 'Email', title: 'Email T. Naidoo to J. Ferreira: MV Sable Crest waiting time', pages: 1, quote: { 1: 'MV Sable Crest waited 41 hours at anchorage before it was allocated Berth 7.' } },
+  K4: { date: '2025-03-21', type: 'Letter', title: 'Notice of force majeure from Marula Port Authority', pages: 2, quote: { 1: 'The Authority gives notice of force majeure in respect of the events of 3 March 2025.' } },
+  K5: { date: '2025-05-02', type: 'Invoice', title: 'Invoice INV-7731 - silo 4 storage, April 2025', pages: 2, quote: { 1: 'Storage, silo 4, 1 to 30 April 2025: R 412,880.00.' } },
+  K6: { date: '2025-05-14', type: 'Minutes', title: 'Minutes of site meeting 9', pages: 5, quote: { 3: 'L. Mokoena confirmed that the replacement gearbox arrived on 11 March 2025.' } },
+  K7: { date: '2025-09-03', type: 'Statement', title: 'Statement of account, August 2025', pages: 4, quote: { 2: 'Balance after set-off of storage charges: R 1,184,220.00.' } },
+  K8: { date: '2026-02-10', type: 'Affidavit', title: 'Affidavit of T. Naidoo', pages: 14, quote: { 6: 'Paragraph 23: at no time before 21 March 2025 did the Authority call the outage force majeure.' } },
+};
+
+const DOCS = (() => {
+  const start = Date.UTC(2024, 10, 1), span = Date.UTC(2026, 8, 30) - start;
+  const rows = [];
+  for (let i = 0; i < CASE.docs - 8; i++) {
+    const type = pick(TYPES);
+    rows.push({ date: new Date(start + Math.floor(R() * span)).toISOString().slice(0, 10), type, title: titleFor(type, i), pages: 1 + Math.floor(R() * (type === 'Email' ? 3 : 18)) });
+  }
+  for (const [key, d] of Object.entries(KEY)) rows.push({ ...d, key });
+  rows.sort((a, b) => a.date.localeCompare(b.date) || a.title.localeCompare(b.title));
+  const manual = new Set();
+  while (manual.size < 16) { const i = Math.floor(R() * rows.length); if (!rows[i].key) manual.add(i); }
+  rows.forEach((d, i) => {
+    d.ref = 'D-' + pad(i + 1);
+    d.text = manual.has(i) ? 'manual' : 'read';
+    d.hay = `${d.ref} ${d.title} ${d.type} ${Object.values(d.quote || {}).join(' ')}`.toLowerCase();
+  });
+  return rows;
+})();
+const BYREF = new Map(DOCS.map((d) => [d.ref, d]));
+const BYKEY = Object.fromEntries(DOCS.filter((d) => d.key).map((d) => [d.key, d]));
+const MANUAL_COUNT = DOCS.filter((d) => d.text === 'manual').length;
+
+const CHRONO = (() => {
+  const keyEvents = [
+    ['K1', 12, 'Port Services Agreement signed; clause 14.2 sets demurrage after 36 free hours', 'A', 'R. van der Berg, J. Ferreira'],
+    ['K2', 2, 'Marula reports Crane 3 at Berth 7 out of service from 02:00 on 3 March', 'A', 'L. Mokoena'],
+    ['K3', 1, 'MV Sable Crest waits 41 hours at anchorage before berthing', 'A', 'T. Naidoo'],
+    ['K4', 1, 'Marula gives notice of force majeure, 18 days after the outage', 'B', 'J. Ferreira'],
+    ['K5', 1, 'Marula invoices R 412,880.00 for silo 4 storage in April', 'C', 'J. Ferreira'],
+    ['K6', 3, 'Replacement gearbox confirmed as arrived on 11 March', 'B', 'L. Mokoena'],
+    ['K7', 2, 'Statement sets storage charges off against Kestrel\u2019s claim', 'C', 'R. van der Berg'],
+    ['K8', 6, 'T. Naidoo states force majeure was first raised on 21 March', 'B', 'T. Naidoo'],
+  ];
+  const ev = keyEvents.map(([k, page, text, issue, actors]) => ({ date: BYKEY[k].date, text, actors, ref: BYKEY[k].ref, page, issue }));
+  const pool = DOCS.filter((d) => !d.key);
+  while (ev.length < CASE.chrono) {
+    const d = pool[Math.floor(R() * pool.length)];
+    ev.push({ date: d.date, text: `${pick(SHORTP)} ${pick(['records', 'raises', 'queries', 'confirms', 'disputes'])} ${pick(SUBJECTS)}${R() < .4 ? ' for ' + pick(VESSELS) : ''}`, actors: pick(SHORTP), ref: d.ref, page: 1 + Math.floor(R() * d.pages), issue: pick(['A', 'B', 'C', '', '', '']) });
+  }
+  ev.sort((a, b) => a.date.localeCompare(b.date));
+  return ev;
+})();
+
+const SECTIONS = [
+  { id: 'summary', short: 'Summary', title: 'Summary of the claim', paras: ['Kestrel claims demurrage and storage losses from delays at Berth 7 between March and May 2025 {K3:1}. The Authority relies on force majeure {K4:1} and has set its own storage charges off against the claim {K7:2}.'] },
+  { id: 'issue-a', short: 'A \u00b7 Delay & demurrage', issue: 'A', position: 'Strong', title: 'Issue A: delay at Berth 7 and demurrage', paras: ['Clause 14.2 removes the free-time defence where the Authority\u2019s own equipment causes the delay {K1:12}.', 'The Authority admits Crane 3 failed on 3 March {K2:2}, and the vessel waited 41 hours at anchorage {K3:1}.'] },
+  { id: 'issue-b', short: 'B \u00b7 Force majeure', issue: 'B', position: 'Moderate', title: 'Issue B: timing of the force majeure notice', paras: ['Notice came 18 days after the outage {K4:1}, after the replacement gearbox had already arrived {K6:3}.', 'Kestrel\u2019s deponent says nobody called the outage force majeure before 21 March {K8:6}. The clause 22 notice period still needs confirming (Info Required, item 4).'] },
+  { id: 'issue-c', short: 'C \u00b7 Set-off', issue: 'C', position: 'Weak', title: 'Issue C: set-off of storage charges', paras: ['April storage is invoiced at R 412,880.00 {K5:1} and was set off in the August statement {K7:2}.', 'If Issue A succeeds, part of that storage period is attributable to the Authority\u2019s own delay.'] },
+  { id: 'quantum', short: 'Quantum', title: 'Quantum position', paras: ['Demurrage at R 38,500 per vessel day {K1:12} over 4.2 delayed vessel days gives R 161,700.00 before interest. The balance claimed after set-off is R 1,184,220.00 {K7:2}.'] },
+  { id: 'next', short: 'Next steps', title: 'Strategy and next steps', paras: ['Ask for the crane maintenance log. Prepare cross-examination of L. Mokoena on the gearbox timeline {K6:3}. Export a packet of the eight cited documents for counsel.'] },
+];
+const SEC_BY = Object.fromEntries(SECTIONS.map((s) => [s.id, s]));
+
+const DEADLINES = [
+  ['2026-10-22', 'Respondent\u2019s discovery affidavit due', 'Discovery'],
+  ['2026-10-29', 'Kestrel\u2019s reply to the amended defence', 'Pleadings'],
+  ['2026-11-06', 'Expert notice (marine surveyor)', 'Experts'],
+  ['2026-11-20', 'Bundle index to the tribunal', 'Bundles'],
+  ['2026-12-04', 'Claimant\u2019s heads of argument', 'Hearing'],
+  ['2027-01-25', 'Hearing, three days', 'Hearing'],
+];
+const STAGES = ['Received', 'Virus scan', 'Text extraction', 'Analysis', 'Operator review', 'Ready to publish'];
+const SUBMISSIONS = [
+  { id: 'S-1', date: '2026-06-20', files: 812, state: 'Published as Results v1' },
+  { id: 'S-2', date: '2026-07-19', files: 236, state: 'Published as Results v2' },
+  { id: 'S-3', date: '2026-09-03', files: 166, state: 'Published as Results v3 (active)' },
+];
+const S4_FILES = Array.from({ length: 58 }, (_, i) => `S4-${pad(i + 1, 3)} ${pick(['Email export', 'Invoice', 'Quay photo', 'Survey report', 'Letter', 'Berth log'])}.pdf`);
+
+/* ====================================================================================================
+   The 42 v5 views (ids, labels and v5 groups from src/lib/components/view-registry.ts at the base SHA),
+   each placed in one Variant A topic and one Variant B task. built: 1 = working here, 0 = summary placeholder.
+   ==================================================================================================== */
+const VIEWS = [
+  ['overview', 'Overview', 'Matter', 'case', 'desk', 1, null, 'Case summary, counts and processing state.'],
+  ['matter', 'Matter & Strategy', 'Matter', 'case', 'argue', 1, 3, 'Issues, positions and strategy, with citations to the originals.'],
+  ['timeline', 'Timeline', 'Matter', 'case', 'find', 0, 64, 'Key dates on a visual timeline.'],
+  ['chronology', 'Chronology', 'Matter', 'case', 'find', 1, CASE.chrono, 'Every dated event with its source citation.'],
+  ['quantum_tab', 'Quantum & Interest', 'Matter', 'money', 'numbers', 0, 9, 'Claim heads, amounts and interest.'],
+  ['documents', 'Documents', 'Evidence', 'docs', 'find', 1, CASE.docs, 'The full document list with text status and originals.'],
+  ['contracts_tab', 'Contracts', 'Evidence', 'docs', 'find', 0, 14, 'Agreements and their clauses.'],
+  ['filings_tab', 'Filings & Affidavits', 'Evidence', 'docs', 'find', 0, 38, 'Pleadings, affidavits and notices filed.'],
+  ['search', 'Advanced Search', 'Evidence', 'docs', 'find', 1, null, 'Full-text search across documents, chronology and notes.'],
+  ['people', 'People', 'Evidence', 'parties', 'find', 0, 86, 'People named in the documents and their roles.'],
+  ['entity_ledger_tab', 'Entities', 'Evidence', 'parties', 'find', 0, 41, 'Companies and public bodies, with their links.'],
+  ['hoa_diff_tab', 'Document Diff', 'Evidence', 'docs', 'find', 0, 6, 'Compare two versions of a document.'],
+  ['invoice_ledger_tab', 'Invoice Ledger', 'Case management', 'money', 'numbers', 0, 212, 'Invoices with amounts, dates and payment state.'],
+  ['disbursements_tab', 'Disbursements', 'Case management', 'money', 'record', 0, 27, 'Out-of-pocket costs.'],
+  ['timesheet_tab', 'Timesheet', 'Case management', 'registers', 'record', 1, null, 'Time entries, billable and unbilled.'],
+  ['deadlines_tab', 'Deadlines', 'Case management', 'court', 'desk', 1, DEADLINES.length, 'Procedural and contractual deadlines.'],
+  ['discovery_tab', 'Discovery Schedule', 'Case management', 'court', 'prepare', 0, 118, 'Discovery schedule and its items.'],
+  ['court_bundle_tab', 'Court Bundle', 'Case management', 'court', 'prepare', 1, null, 'Choose documents for a bundle or packet and export it.'],
+  ['caselines_tab', 'CaseLines', 'Case management', 'court', 'prepare', 0, 1840, 'CaseLines pagination and page lookup.'],
+  ['contradictions_tab', 'Contradiction Tracker', 'Analysis', 'issues', 'argue', 0, 11, 'Statements that conflict, with both sources.'],
+  ['risk_matrix_tab', 'Risk Matrix', 'Analysis', 'issues', 'argue', 0, 18, 'Risks by likelihood and impact.'],
+  ['vdm_matrix_tab', 'Defence & Rebuttal', 'Analysis', 'issues', 'argue', 0, 9, 'Each defence raised and the rebuttal to it.'],
+  ['info_required_tab', 'Info Required', 'Analysis', 'issues', 'desk', 0, 7, 'Information still needed from the client.'],
+  ['witness_tab', 'Witnesses', 'Analysis', 'parties', 'argue', 0, 12, 'Witnesses and what each can speak to.'],
+  ['conflict_tab', 'Conflict Check', 'Analysis', 'parties', 'admin', 0, 127, 'Conflict check across parties and entities.'],
+  ['enforcement_tab', 'Enforcement Roadmap', 'Litigation strategy', 'issues', 'argue', 0, 6, 'Steps to enforce an award or judgment.'],
+  ['legality_tab', 'Legality & SIU Risk', 'Litigation strategy', 'issues', 'argue', 0, 4, 'Legality and SIU exposure.'],
+  ['prescription_tab', 'Prescription', 'Litigation strategy', 'issues', 'argue', 0, 5, 'Prescription dates per claim.'],
+  ['interest_calc_tab', 'Interest Recalculator', 'Litigation strategy', 'money', 'numbers', 0, 3, 'Recalculate interest by rate and period.'],
+  ['payments_tab', 'Payments & Net Claim', 'Litigation strategy', 'money', 'numbers', 0, 46, 'Payments received and the net claim.'],
+  ['elements_tab', 'Cause of Action', 'Litigation strategy', 'issues', 'argue', 0, 3, 'Elements of each cause of action and the evidence for each.'],
+  ['authorities_tab', 'Authorities', 'Litigation strategy', 'issues', 'argue', 0, 23, 'Case law and statutes relied on.'],
+  ['heads_tab', 'Heads of Argument', 'Litigation strategy', 'issues', 'argue', 0, 0, 'User-built heads of argument.'],
+  ['crossexam_tab', 'Cross-Exam Prep', 'Litigation strategy', 'court', 'prepare', 0, 15, 'Cross-examination topics per witness.'],
+  ['settlement_tab', 'Settlement / BATNA', 'Litigation strategy', 'money', 'numbers', 0, 4, 'Settlement range and BATNA.'],
+  ['privilege_tab', 'Privilege Log', 'Registers', 'registers', 'record', 0, 31, 'Privilege log.'],
+  ['popia_tab', 'POPIA Register', 'Registers', 'registers', 'record', 0, 19, 'Personal-information processing register.'],
+  ['annotations_tab', 'Annotations', 'Registers', 'registers', 'record', 1, null, 'Notes on documents, pages, issues and views.'],
+  ['transcriptions_tab', 'Transcripts', 'Registers', 'docs', 'find', 0, 8, 'Transcript register.'],
+  ['rescan_tab', 'Rescan & Update', 'System', 'system', 'admin', 0, null, 'Rescan the case folder and update results.'],
+  ['backup_tab', 'Backup / Restore', 'System', 'system', 'admin', 0, null, 'Back up or restore user work.'],
+  ['manual', 'Manual', 'System', 'system', 'admin', 0, null, 'Usage guide and build report.'],
+].map(([id, label, group, topic, task, built, count, blurb]) => ({ id, label, group, topic, task, built: !!built, count, blurb }));
+
+// Hosted capabilities the production system has and this app does not yet: shown as planned, never as working.
+const PLANNED = [
+  ['hosted_intake', 'Intake & processing status', 'admin', 'v2-owned (GRS-28 uploads, GRS-29 operator download, GRS-31 publication).', 'Client uploads and their processing status. Simulated here with invented submissions; nothing is uploaded.'],
+  ['hosted_email', 'Email & Outlook', 'record', 'Deferred: Outlook integration is outside parity scope; email threads and silences are newer-export data (CC-12).', 'Email threads, silences, drafts and templates, with Outlook integration.'],
+  ['hosted_kyc', 'KYC', 'admin', 'Deferred: not in v5, no ticket.', 'Client due-diligence register.'],
+  ['hosted_billing', 'Billing', 'record', 'Deferred: not in v5, no ticket.', 'Fee notes built from time entries and disbursements.'],
+  ['hosted_audit', 'Audit log', 'admin', 'Deferred: not in v5, no ticket owns it.', 'Firm activity history for the case.'],
+  ['hosted_bundles', 'Bundle builder (uploads)', 'prepare', 'Deferred: PDF assembly from uploads needs a scope decision.', 'Assemble court bundles as PDFs from uploaded files.'],
+].map(([id, label, task, scope, blurb]) => ({ id, label, task, topic: 'planned', planned: true, sim: id === 'hosted_intake', built: false, scope, blurb, count: null, group: 'Hosted' }));
+
+const CATALOG = { id: 'catalog', label: 'All tools', topic: null, task: null, built: true, catalog: true, blurb: 'Every view and planned capability in one filterable list.', count: null, group: 'Prototype' };
+const ALL = [...VIEWS, ...PLANNED, CATALOG];
+const VBY = Object.fromEntries(ALL.map((v) => [v.id, v]));
+
+const TOPICS = [
+  { key: 'case', label: 'Case' }, { key: 'docs', label: 'Documents & evidence' }, { key: 'parties', label: 'Parties & witnesses' },
+  { key: 'issues', label: 'Issues & argument' }, { key: 'money', label: 'Money' }, { key: 'court', label: 'Court & procedure' },
+  { key: 'registers', label: 'Notes, time & registers' }, { key: 'system', label: 'System' },
+];
+const TASKS = [
+  { key: 'desk', label: 'Desk', sub: 'what needs me' }, { key: 'find', label: 'Find', sub: 'evidence' }, { key: 'argue', label: 'Argue', sub: 'issues & strategy' },
+  { key: 'numbers', label: 'Numbers', sub: 'quantum & money' }, { key: 'prepare', label: 'Prepare', sub: 'court & packets' },
+  { key: 'record', label: 'Record', sub: 'notes, time, registers' }, { key: 'admin', label: 'Admin', sub: 'intake & system' },
+];
+const TASK_DEFAULT = { desk: 'overview', find: 'search', argue: 'matter', numbers: 'quantum_tab', prepare: 'court_bundle_tab', record: 'timesheet_tab', admin: 'hosted_intake' };
+const topicLabel = (k) => k === 'planned' ? 'Hosted \u00b7 planned' : (TOPICS.find((t) => t.key === k) || { label: 'Case' }).label;
+const taskLabel = (k) => (TASKS.find((t) => t.key === k) || { label: 'All tasks' }).label;
+const VARIANTS = ['A', 'B'];
+const VARIANT_NAME = { A: 'Topic sidebar', B: 'Task-led case desk' };
+
+/* ====================================================================================================
+   State: in memory only. Shared by both variants, so work done in A is there in B.
+   ==================================================================================================== */
+const S = {
+  variant: 'A', view: 'overview', section: 'summary',
+  notes: [
+    { id: 'N-2', text: 'Gearbox arrival date conflicts with the harbour master\u2019s email of 9 March.', link: `doc:${BYKEY.K6.ref}:3`, created: '2026-10-14 16:40' },
+    { id: 'N-1', text: 'Check whether clause 22 requires notice within 7 days.', link: 'sec:issue-b', created: '2026-10-14 16:20' },
+  ],
+  time: [
+    { id: 'T-2', date: TODAY, hours: 0.5, activity: 'Drafting', desc: 'Notes on the force majeure timeline', billable: true, link: 'sec:issue-b' },
+    { id: 'T-1', date: '2026-10-14', hours: 1.2, activity: 'Perusal', desc: 'Perused berth occupancy reports', billable: true, link: 'view:documents' },
+  ],
+  seq: { note: 2, time: 2 },
+  chrono: { q: '', issue: '', shown: 120 },
+  docs: { q: '', type: '', status: '', shown: 150 },
+  query: '', scope: 'all', searches: [],
+  catalogQ: '',
+  scroll: {},
+  viewer: null,
+  lastCtx: null,
+  lastInTask: {},
+  packet: new Set(Object.keys(KEY).map((k) => BYKEY[k].ref)), packetNotes: true, exports: [],
+  intake: { stage: 2, pct: 62 },
+  drawer: false, more: false, capture: null, capLink: null, capOpener: null,
+};
+
+/* ====================================================================================================
+   Shared small renderers
+   ==================================================================================================== */
+let uid = 0;
+function cite(ref, page) {
+  const id = 'c' + (++uid);
+  return `<button type="button" class="cite" id="${id}" data-cite="${ref}:${page}" aria-label="Open original ${ref}, page ${page}">${ref} p.${page}</button>`;
+}
+const withCites = (text) => esc(text).replace(/\{(K\d):(\d+)\}/g, (_, k, p) => cite(BYKEY[k].ref, Number(p)));
+const issueTag = (k) => k ? `<span class="tag ${k}" title="${esc(ISSUES[k])}">${k} \u00b7 ${esc(ISSUES[k])}</span>` : '';
+const href = (id) => `?variant=${S.variant}&view=${id}`;
+const LIVE_COUNT = { timesheet_tab: () => S.time.length, annotations_tab: () => S.notes.length, court_bundle_tab: () => S.packet.size };
+function countOf(v) { const n = LIVE_COUNT[v.id] ? LIVE_COUNT[v.id]() : v.count; return n == null ? '' : fmtN(n); }
+function hl(text, q) {
+  const t = String(text), i = t.toLowerCase().indexOf(q);
+  return i < 0 ? esc(t) : esc(t.slice(0, i)) + '<mark>' + esc(t.slice(i, i + q.length)) + '</mark>' + esc(t.slice(i + q.length));
+}
+function stateTag(v) {
+  if (v.sim) return '<span class="tag planned">Planned hosted \u00b7 simulated here</span>';
+  if (v.planned) return '<span class="tag planned">Planned hosted capability</span>';
+  if (v.catalog) return '<span class="tag">Prototype index</span>';
+  return v.built ? '<span class="tag built">Working in prototype</span>' : '<span class="tag">Summary placeholder</span>';
+}
+function linkLabel(l) {
+  if (!l || l === 'case') return 'Whole case';
+  const [k, a, b] = l.split(':');
+  if (k === 'doc') return `${a} p.${b}`;
+  if (k === 'sec') return `Matter & Strategy \u00b7 ${SEC_BY[a] ? SEC_BY[a].short : a}`;
+  if (k === 'view') return VBY[a] ? VBY[a].label : a;
+  return l;
+}
+function linkHTML(l) {
+  if (!l || l === 'case') return 'Whole case';
+  const [k, a, b] = l.split(':');
+  if (k === 'doc') return cite(a, Number(b));
+  if (k === 'sec') return `<a href="${href('matter')}" data-nav="matter" data-sec="${a}">${esc(linkLabel(l))}</a>`;
+  return `<a href="${href(a)}" data-nav="${a}">${esc(linkLabel(l))}</a>`;
+}
+const REGISTER_VIEWS = new Set(['timesheet_tab', 'annotations_tab', 'catalog', 'search']);
+function ctxLink() {
+  if (S.viewer) return `doc:${S.viewer.ref}:${S.viewer.page}`;
+  if (S.view === 'matter') return 'sec:' + S.section;
+  if (REGISTER_VIEWS.has(S.view)) return S.lastCtx || 'case';
+  return 'view:' + S.view;
+}
+function linkOptions(def) {
+  const opts = new Map();
+  for (const l of [def, S.viewer && `doc:${S.viewer.ref}:${S.viewer.page}`, S.lastCtx, !REGISTER_VIEWS.has(S.view) && 'view:' + S.view, 'case']) if (l && !opts.has(l)) opts.set(l, linkLabel(l));
+  return [...opts].map(([v, l]) => `<option value="${esc(v)}">${esc(l)}</option>`).join('');
+}
+const todayHours = () => S.time.filter((t) => t.date === TODAY).reduce((s, t) => s + t.hours, 0);
+const unbilled = () => S.time.filter((t) => t.billable).reduce((s, t) => s + t.hours * RATE, 0);
+function procLabel() {
+  const { stage, pct } = S.intake;
+  return stage >= STAGES.length - 1 ? 'S-4 ready to publish' : `S-4 ${STAGES[stage].toLowerCase()} ${pct}%`;
+}
+function chipsInner() {
+  return `<a class="chip-s proc" href="${href('hosted_intake')}" data-nav="hosted_intake" title="Submission S-4 processing status (simulated)">${esc(procLabel())}</a>`
+    + `<a class="chip-s" href="${href('timesheet_tab')}" data-nav="timesheet_tab">Today ${todayHours().toFixed(1)} h</a>`
+    + `<a class="chip-s" href="${href('annotations_tab')}" data-nav="annotations_tab">${S.notes.length} notes</a>`;
+}
+const caseMeta = () => `<span>${esc(CASE.forum)}</span><span>${CASE.results} active (${CASE.rv})</span><span>${fmtN(CASE.docs)} documents</span><span>${MANUAL_COUNT} need a manual read</span>`;
+function searchForm() {
+  return `<form class="gsearch" role="search" data-form="gsearch" aria-label="Search the case"><label for="gs" class="vh">Search documents, chronology and notes</label><input id="gs" name="q" type="search" placeholder="Search ${fmtN(CASE.docs)} documents, events, notes" value="${esc(S.query)}" autocomplete="off"><button class="btn" type="submit">Search</button></form>`;
+}
+function pageHead(v) {
+  const where = S.variant === 'A' ? (v.topic ? topicLabel(v.topic) : 'Case') : (v.task ? taskLabel(v.task) : 'All tasks');
+  return `<div class="page-head"><div><p class="crumb">${esc(where)} \u203a ${esc(v.label)} \u00b7 <code>${v.id}</code></p><h1 id="page-h1" tabindex="-1">${esc(v.label)}</h1><p class="sub">${esc(v.blurb)}</p></div>${stateTag(v)}</div>`;
+}
+
+/* ---------- shared forms ---------- */
+function noteForm(px, link) {
+  return `<form class="qform" data-form="note" novalidate aria-labelledby="${px}-nt">
+  <h3 id="${px}-nt" class="qf-title">Quick note</h3>
+  <label for="${px}-ntext">Note</label>
+  <textarea id="${px}-ntext" name="text" rows="3" aria-describedby="${px}-nerr"></textarea>
+  <p class="err" id="${px}-nerr"></p>
+  <label for="${px}-nlink">Linked to</label>
+  <select id="${px}-nlink" name="link">${linkOptions(link)}</select>
+  <div class="row"><button class="btn primary" type="submit">Save note</button></div>
+  <p class="confirm" role="status"></p></form>`;
+}
+function timeForm(px, link) {
+  return `<form class="qform" data-form="time" novalidate aria-labelledby="${px}-tt">
+  <h3 id="${px}-tt" class="qf-title">Log time</h3>
+  <div class="qf-grid">
+    <div><label for="${px}-tdate">Date</label><input id="${px}-tdate" name="date" type="date" value="${TODAY}"></div>
+    <div><label for="${px}-th">Hours</label><input id="${px}-th" name="hours" type="number" inputmode="decimal" min="0.1" max="24" step="0.1" value="0.3" aria-describedby="${px}-terr"></div>
+    <div><label for="${px}-ta">Activity</label><select id="${px}-ta" name="activity">${['Perusal', 'Drafting', 'Consultation', 'Research', 'Court', 'Travel'].map((a) => `<option>${a}</option>`).join('')}</select></div>
+  </div>
+  <label for="${px}-td">Description</label><input id="${px}-td" name="desc" type="text" autocomplete="off" aria-describedby="${px}-terr">
+  <label class="check"><input type="checkbox" name="billable" checked> <span>Billable at ${money(RATE)} per hour (synthetic rate)</span></label>
+  <label for="${px}-tl">Linked to</label><select id="${px}-tl" name="link">${linkOptions(link)}</select>
+  <p class="err" id="${px}-terr"></p>
+  <div class="row"><button class="btn primary" type="submit">Save time entry</button></div>
+  <p class="confirm" role="status"></p></form>`;
+}
+
+/* ====================================================================================================
+   View bodies: identical content in both variants
+   ==================================================================================================== */
+function viewBody(id) {
+  switch (id) {
+    case 'overview': return overviewHTML();
+    case 'matter': return matterHTML();
+    case 'chronology': return chronologyHTML();
+    case 'documents': return documentsHTML();
+    case 'search': return searchHTML();
+    case 'timesheet_tab': return timesheetHTML();
+    case 'annotations_tab': return annotationsHTML();
+    case 'court_bundle_tab': return packetHTML();
+    case 'deadlines_tab': return deadlinesHTML();
+    case 'catalog': return catalogHTML();
+    case 'hosted_intake': return intakeHTML();
+  }
+  const v = VBY[id];
+  return v.planned ? plannedHTML(v) : placeholderHTML(v);
+}
+
+function daysTo(date) { return Math.round((Date.parse(date) - Date.parse(TODAY)) / 86400000); }
+function nextDeadline() { return DEADLINES.find((d) => d[0] >= TODAY) || DEADLINES[DEADLINES.length - 1]; }
+
+function overviewHTML() {
+  const nd = nextDeadline(), { stage, pct } = S.intake;
+  const overall = Math.round(((stage + pct / 100) / (STAGES.length - 1)) * 100);
+  return `<div class="cards">
+   <div class="card"><h2>Documents</h2><div class="big">${fmtN(CASE.docs)}</div><div>${fmtN(CASE.docs - MANUAL_COUNT)} text read \u00b7 <a href="${href('documents')}" data-nav="documents" data-preset="docs-manual">${MANUAL_COUNT} need a manual read</a></div></div>
+   <div class="card"><h2>Chronology</h2><div class="big">${fmtN(CHRONO.length)}</div><div><a href="${href('chronology')}" data-nav="chronology">events with citations</a></div></div>
+   <div class="card"><h2>Issues</h2><div class="big">3</div><div>${SECTIONS.filter((s) => s.issue).map((s) => `<a href="${href('matter')}" data-nav="matter" data-sec="${s.id}">${s.issue}: ${s.position.toLowerCase()}</a>`).join(' \u00b7 ')}</div></div>
+   <div class="card"><h2>Next deadline</h2><div class="big">${nd[0]}</div><div>${esc(nd[1])} \u00b7 ${daysTo(nd[0])} days \u00b7 <a href="${href('deadlines_tab')}" data-nav="deadlines_tab">all ${DEADLINES.length}</a></div></div>
+   <div class="card"><h2>Time today</h2><div class="big" data-live="today">${todayHours().toFixed(1)} h</div><div><a href="${href('timesheet_tab')}" data-nav="timesheet_tab">Timesheet</a> \u00b7 unbilled <span data-live="unbilled">${money(unbilled())}</span></div></div>
+   <div class="card"><h2>Processing</h2><div class="big">${overall}%</div><div><a href="${href('hosted_intake')}" data-nav="hosted_intake">Submission S-4: ${esc(STAGES[stage])}</a></div><div class="bar" aria-hidden="true"><span style="width:${overall}%"></span></div></div>
+  </div>
+  <p class="muted small">${CASE.results} activated ${CASE.activated} \u00b7 resultsVersion <code>${CASE.rv}</code> \u00b7 ${esc(CASE.forum)}</p>
+  <h2 class="h3">Recent work</h2><ul class="plain list" id="recent">${recentHTML()}</ul>`;
+}
+function recentHTML() {
+  const items = [...S.notes.map((n) => ({ at: n.created, html: `Note <strong>${n.id}</strong>: ${esc(n.text)} <span class="muted">\u00b7 ${linkHTML(n.link)}</span>` })),
+    ...S.time.map((t) => ({ at: t.date, html: `Time <strong>${t.id}</strong>: ${t.hours.toFixed(1)} h ${esc(t.activity.toLowerCase())}, ${esc(t.desc)} <span class="muted">\u00b7 ${linkHTML(t.link)}</span>` }))]
+    .sort((a, b) => b.at.localeCompare(a.at)).slice(0, 6);
+  return items.map((i) => `<li>${i.html}</li>`).join('') || '<li class="muted">Nothing yet.</li>';
+}
+
+function matterHTML() {
+  return `<p class="muted small">Citations open the simulated original beside this analysis. Close it, or press Escape, to return to the same citation.</p>`
+    + SECTIONS.map((s) => `<section class="an" id="sec-${s.id}" aria-labelledby="h-${s.id}" data-secblock="${s.id}">
+    <div class="an-head"><h2 id="h-${s.id}" tabindex="-1">${esc(s.title)}</h2>${s.position ? `<span class="tag ${s.issue}">Position: ${s.position}</span>` : ''}</div>
+    ${s.paras.map((p) => `<p>${withCites(p)}</p>`).join('')}
+    <div data-sec-notes="${s.id}">${secNotes(s.id)}</div>
+    <div class="an-actions"><button type="button" class="linkbtn" data-action="note-here" data-link="sec:${s.id}">Add a note to this section</button></div>
+    <div class="inline-slot" id="${slotId('sec:' + s.id)}"></div></section>`).join('');
+}
+function secNotes(id) {
+  const ns = S.notes.filter((n) => n.link === 'sec:' + id);
+  return ns.length ? `<ul class="plain notes-inline" aria-label="Your notes on this section">${ns.map((n) => `<li><strong>${n.id}</strong> ${esc(n.text)}</li>`).join('')}</ul>` : '';
+}
+const slotId = (link) => 'slot-' + link.replace(/[^a-z0-9]+/gi, '-');
+
+function filteredChrono() {
+  const { q, issue } = S.chrono, t = q.trim().toLowerCase();
+  return CHRONO.filter((e) => (!issue || e.issue === issue) && (!t || `${e.text} ${e.ref} ${e.actors} ${e.date}`.toLowerCase().includes(t)));
+}
+function chronologyHTML() {
+  const c = S.chrono;
+  return `<form class="filters" data-form="noop" role="search" aria-label="Filter the chronology">
+    <label for="cf-q" class="grow">Filter events<input id="cf-q" type="search" value="${esc(c.q)}" placeholder="e.g. gearbox, Sable Crest, ${BYKEY.K2.ref}" autocomplete="off"></label>
+    <label for="cf-issue">Issue<select id="cf-issue"><option value="">All issues</option>${Object.entries(ISSUES).map(([k, l]) => `<option value="${k}"${c.issue === k ? ' selected' : ''}>${k} \u00b7 ${esc(l)}</option>`).join('')}</select></label>
+  </form><div id="chrono-wrap">${chronoTable()}</div>`;
+}
+function chronoTable() {
+  const rows = filteredChrono(), shown = Math.min(S.chrono.shown, rows.length);
+  return `<p class="muted small">${fmtN(shown)} of ${fmtN(rows.length)} events shown${rows.length < CHRONO.length ? ` (filtered from ${fmtN(CHRONO.length)})` : ''}</p>
+  <div class="table-scroll" role="region" aria-label="Chronology events" tabindex="0"><table class="t stack wide"><thead><tr><th scope="col">Date</th><th scope="col">Event</th><th scope="col">People</th><th scope="col">Issue</th><th scope="col">Source</th></tr></thead><tbody>
+  ${rows.slice(0, shown).map((e) => `<tr><td data-label="Date" class="nowrap">${e.date}</td><td data-label="Event">${esc(e.text)}</td><td data-label="People">${esc(e.actors)}</td><td data-label="Issue">${issueTag(e.issue)}</td><td data-label="Source">${cite(e.ref, e.page)}</td></tr>`).join('')}
+  </tbody></table></div>${rows.length > shown ? `<p><button type="button" class="btn" data-action="more-chrono">Show ${Math.min(120, rows.length - shown)} more events</button></p>` : ''}`;
+}
+
+const DOC_TYPES = [...new Set(DOCS.map((d) => d.type))].sort();
+function filteredDocs() {
+  const { q, type, status } = S.docs, t = q.trim().toLowerCase();
+  return DOCS.filter((d) => (!type || d.type === type) && (!status || d.text === status) && (!t || d.hay.includes(t)));
+}
+function documentsHTML() {
+  const f = S.docs;
+  return `<form class="filters" data-form="noop" role="search" aria-label="Filter documents">
+    <label for="df-q" class="grow">Filter by ref or title<input id="df-q" type="search" value="${esc(f.q)}" placeholder="e.g. invoice, ${BYKEY.K5.ref}" autocomplete="off"></label>
+    <label for="df-type">Type<select id="df-type"><option value="">All types</option>${DOC_TYPES.map((t) => `<option${f.type === t ? ' selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+    <label for="df-status">Text<select id="df-status"><option value="">Any</option><option value="read"${f.status === 'read' ? ' selected' : ''}>Text read</option><option value="manual"${f.status === 'manual' ? ' selected' : ''}>Needs a manual read</option></select></label>
+  </form><div id="docs-wrap">${docsTable()}</div>`;
+}
+function docsTable() {
+  const rows = filteredDocs(), shown = Math.min(S.docs.shown, rows.length);
+  return `<p class="muted small">${fmtN(shown)} of ${fmtN(rows.length)} documents shown${rows.length < DOCS.length ? ` (filtered from ${fmtN(DOCS.length)})` : ''}</p>
+  <div class="table-scroll" role="region" aria-label="Documents" tabindex="0"><table class="t stack wide"><thead><tr><th scope="col">Ref</th><th scope="col">Date</th><th scope="col">Type</th><th scope="col">Title</th><th scope="col" class="n">Pages</th><th scope="col">Text</th><th scope="col">Original</th></tr></thead><tbody>
+  ${rows.slice(0, shown).map((d) => `<tr><td data-label="Ref" class="nowrap"><code>${d.ref}</code></td><td data-label="Date" class="nowrap">${d.date}</td><td data-label="Type">${esc(d.type)}</td><td data-label="Title">${esc(d.title)}</td><td data-label="Pages" class="n">${d.pages}</td><td data-label="Text">${d.text === 'manual' ? '<span class="tag warn">Needs a manual read</span>' : 'Text read'}</td><td data-label="Original">${cite(d.ref, 1)}</td></tr>`).join('')}
+  </tbody></table></div>${rows.length > shown ? `<p><button type="button" class="btn" data-action="more-docs">Show ${Math.min(150, rows.length - shown)} more documents</button></p>` : ''}`;
+}
+
+function searchHTML() {
+  return `<form class="filters" data-form="noop" role="search" aria-label="Search the case">
+    <label for="sq" class="grow">Search documents, chronology and notes<input id="sq" type="search" value="${esc(S.query)}" placeholder="Try: gearbox, force majeure, silo 4" autocomplete="off"></label>
+    <fieldset class="scope"><legend>Look in</legend>${[['all', 'Everything'], ['docs', 'Documents'], ['events', 'Chronology'], ['notes', 'My notes']].map(([k, l]) => `<label><input type="radio" name="scope" value="${k}"${S.scope === k ? ' checked' : ''}> ${l}</label>`).join('')}</fieldset>
+  </form><div id="search-results">${searchResultsHTML()}</div>`;
+}
+function searchResultsHTML() {
+  const q = S.query.trim().toLowerCase();
+  if (q.length < 2) return `<p class="muted">Type at least two characters, or try ${['gearbox', 'force majeure', 'silo 4', 'Sable Crest'].map((t) => `<button type="button" class="linkbtn" data-q="${t}">${t}</button>`).join(', ')}.</p>`;
+  const sc = S.scope, out = [];
+  const group = (title, n, items, more) => `<section class="res"><h2>${title} <span class="count">${fmtN(n)}</span></h2>${n ? `<ul class="plain list">${items.join('')}</ul>${n > items.length ? `<p class="muted small">First ${items.length} of ${fmtN(n)}. ${more}</p>` : ''}` : '<p class="muted">No matches.</p>'}</section>`;
+  if (sc === 'all' || sc === 'docs') {
+    const hits = DOCS.filter((d) => d.hay.includes(q));
+    out.push(group('Documents', hits.length, hits.slice(0, 40).map((d) => {
+      const qp = Object.entries(d.quote || {}).find(([, t]) => t.toLowerCase().includes(q));
+      const page = qp ? Number(qp[0]) : 1;
+      return `<li>${cite(d.ref, page)} ${hl(d.title, q)} <span class="muted small">\u00b7 ${esc(d.type)} \u00b7 ${d.date}${d.text === 'manual' ? ' \u00b7 needs a manual read' : ''}</span>${qp ? `<div class="snip">\u201c${hl(qp[1], q)}\u201d</div>` : ''}</li>`;
+    }), 'Add words to narrow it.'));
+  }
+  if (sc === 'all' || sc === 'events') {
+    const hits = CHRONO.filter((e) => e.text.toLowerCase().includes(q));
+    out.push(group('Chronology', hits.length, hits.slice(0, 40).map((e) => `<li><span class="nowrap">${e.date}</span> ${hl(e.text, q)} ${issueTag(e.issue)} ${cite(e.ref, e.page)}</li>`), `<a href="${href('chronology')}" data-nav="chronology" data-preset="chrono-q">Open all in the chronology</a>.`));
+  }
+  if (sc === 'all' || sc === 'notes') {
+    const hits = S.notes.filter((n) => n.text.toLowerCase().includes(q));
+    out.push(group('My notes', hits.length, hits.map((n) => `<li><strong>${n.id}</strong> ${hl(n.text, q)} <span class="muted">\u00b7 ${linkHTML(n.link)}</span></li>`), ''));
+  }
+  return out.join('');
+}
+
+function timesheetHTML() {
+  return `<div class="two">${timeForm('ts', ctxLink())}<div class="card"><h2>Totals</h2><div id="time-totals">${timeTotals()}</div></div></div>
+  <h2 class="h3">Entries</h2><div id="time-list">${timeTable()}</div>`;
+}
+function timeTotals() {
+  const all = S.time.reduce((s, t) => s + t.hours, 0);
+  return `<dl class="kv"><dt>Today</dt><dd>${todayHours().toFixed(1)} h</dd><dt>All entries</dt><dd>${all.toFixed(1)} h in ${S.time.length} entries</dd><dt>Unbilled</dt><dd>${money(unbilled())}</dd></dl><p class="muted small">Billing is a planned hosted capability; nothing is invoiced here.</p>`;
+}
+function timeTable() {
+  return `<div class="table-scroll" role="region" aria-label="Time entries" tabindex="0"><table class="t stack"><thead><tr><th scope="col">Entry</th><th scope="col">Date</th><th scope="col" class="n">Hours</th><th scope="col">Work</th><th scope="col">Billable</th><th scope="col">Linked to</th></tr></thead><tbody>
+  ${S.time.map((t) => `<tr data-row="${t.id}"><td data-label="Entry"><strong>${t.id}</strong></td><td data-label="Date" class="nowrap">${t.date}</td><td data-label="Hours" class="n">${t.hours.toFixed(1)}</td><td data-label="Work">${esc(t.activity)}: ${esc(t.desc)}</td><td data-label="Billable">${t.billable ? money(t.hours * RATE) : 'No'}</td><td data-label="Linked to">${linkHTML(t.link)}</td></tr>`).join('')}
+  </tbody></table></div>`;
+}
+function annotationsHTML() {
+  return `<div class="two">${noteForm('an', ctxLink())}<div class="card"><h2>Where notes come from</h2><p class="small">Notes saved anywhere, in either variant, land here: from a section of the analysis, from a page of an original, or from quick capture.</p></div></div>
+  <h2 class="h3">All notes <span class="count" data-count="annotations_tab">${S.notes.length}</span></h2><ul class="plain list" id="notes-list">${notesList()}</ul>`;
+}
+const notesList = () => S.notes.map((n) => `<li data-row="${n.id}"><strong>${n.id}</strong> ${esc(n.text)}<div class="muted small">${n.created} \u00b7 ${linkHTML(n.link)}</div></li>`).join('');
+
+function citedIn(key) { return SECTIONS.filter((s) => s.paras.some((p) => p.includes('{' + key + ':'))).map((s) => s.short).join('; '); }
+function packetDocs() { return Object.keys(KEY).map((k) => BYKEY[k]).filter((d) => S.packet.has(d.ref)); }
+function packetNotes() { const refs = new Set(packetDocs().map((d) => d.ref)); return S.packetNotes ? S.notes.filter((n) => n.link.startsWith('sec:') || refs.has(n.link.split(':')[1])) : []; }
+const packetSummary = () => { const d = packetDocs(); return `${d.length} documents, ${d.reduce((s, x) => s + x.pages, 0)} pages, ${packetNotes().length} notes selected`; };
+function packetHTML() {
+  return `<p class="proto-flag"><strong>Prototype export.</strong> This writes a synthetic CSV and JSON manifest in your browser. No PDF is assembled, nothing is sent, and the full bundle editor is not built here.</p>
+  <fieldset class="card"><legend class="h3">Packet: documents cited in Matter &amp; Strategy</legend><ul class="plain list">
+  ${Object.keys(KEY).map((k) => BYKEY[k]).map((d) => `<li><label class="check"><input type="checkbox" data-packet="${d.ref}"${S.packet.has(d.ref) ? ' checked' : ''}> <span><strong>${d.ref}</strong> ${esc(d.title)} <span class="muted small">\u00b7 ${d.date} \u00b7 ${d.pages} pp \u00b7 cited in ${esc(citedIn(d.key))}</span></span></label></li>`).join('')}
+  </ul><label class="check"><input type="checkbox" id="pk-notes"${S.packetNotes ? ' checked' : ''}> <span>Include my notes on these documents and on the analysis</span></label></fieldset>
+  <p class="row"><button type="button" class="btn primary" data-action="export">Export packet manifest (prototype)</button> <span class="muted small" id="pk-summary">${packetSummary()}</span></p>
+  <div id="export-out">${S.exports.length ? exportOut(S.exports[0]) : ''}</div>`;
+}
+function csvCell(v) { const s = String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+function exportOut(x) {
+  return `<p class="confirm">Generated ${esc(x.file)} at ${x.at}: ${x.n} documents, ${x.pages} pages, ${x.notes} notes. Prototype output; synthetic data only.</p>
+  <p class="row"><a class="btn" download="${x.file}.csv" href="${x.csvUrl}">Download CSV</a> <a class="btn" download="${x.file}.json" href="${x.jsonUrl}">Download manifest JSON</a></p>
+  <details open><summary>CSV preview</summary><pre class="out">${esc(x.csv)}</pre></details>
+  ${S.exports.length > 1 ? `<p class="muted small">Earlier exports this session: ${S.exports.slice(1).map((e) => esc(e.file)).join(', ')}</p>` : ''}`;
+}
+
+function deadlinesHTML() {
+  return `<div class="table-scroll" role="region" aria-label="Deadlines" tabindex="0"><table class="t stack"><thead><tr><th scope="col">Due</th><th scope="col" class="n">Days</th><th scope="col">Deadline</th><th scope="col">Type</th></tr></thead><tbody>
+  ${DEADLINES.map(([d, t, k]) => `<tr><td data-label="Due" class="nowrap">${d}</td><td data-label="Days" class="n">${daysTo(d)}</td><td data-label="Deadline">${esc(t)}</td><td data-label="Type">${esc(k)}</td></tr>`).join('')}
+  </tbody></table></div><p class="muted small">Days are counted from today, ${TODAY}.</p>`;
+}
+
+function intakeHTML() {
+  const { stage, pct } = S.intake, final = stage >= STAGES.length - 1;
+  const doneFiles = stage > 2 ? 58 : stage === 2 ? Math.floor(58 * pct / 100) : 0;
+  const fileState = (i) => i < doneFiles ? (i % 19 === 7 ? '<span class="tag warn">Needs a manual read</span>' : 'Text read') : (stage === 2 && i < doneFiles + 2 ? 'Extracting text' : (stage < 2 || stage === 2 ? 'Queued' : 'Text read'));
+  return `<div class="plan-flag"><strong>Planned hosted capability, simulated.</strong> In the hosted product clients upload here and watch processing. This prototype invents the submissions; nothing is uploaded or processed. Scope: ${esc(VBY.hosted_intake.scope)}</div>
+  <div class="card"><h2>Submission S-4 \u00b7 received 2026-10-14 \u00b7 58 files</h2>
+   <ol class="stages" aria-label="Processing stages">${STAGES.map((s, i) => `<li class="${i < stage || final ? 'done' : i === stage ? 'now' : ''}">${i < stage || final ? '\u2713 ' : ''}${esc(s)}${i === stage && !final ? ` ${pct}%` : ''}${i === stage && !final ? '<span class="vh"> (current)</span>' : ''}</li>`).join('')}</ol>
+   <p>${final ? 'Ready to publish. An operator would now review and publish Results v4 (not simulated).' : `Current stage: <strong>${esc(STAGES[stage])}</strong>, ${pct}%.`}</p>
+   <p class="row"><button type="button" class="btn" data-action="advance-intake"${final ? ' disabled' : ''}>Advance the simulation</button> <span class="muted small">Prototype only: moves the invented progress forward.</span></p></div>
+  <h2 class="h3">Earlier submissions</h2>
+  <div class="table-scroll" role="region" aria-label="Earlier submissions" tabindex="0"><table class="t stack"><thead><tr><th scope="col">Submission</th><th scope="col">Received</th><th scope="col" class="n">Files</th><th scope="col">State</th></tr></thead><tbody>
+  ${SUBMISSIONS.map((s) => `<tr><td data-label="Submission">${s.id}</td><td data-label="Received">${s.date}</td><td data-label="Files" class="n">${fmtN(s.files)}</td><td data-label="State">${esc(s.state)}</td></tr>`).join('')}
+  </tbody></table></div>
+  <h2 class="h3">S-4 files</h2>
+  <div class="table-scroll" role="region" aria-label="Files in submission S-4" tabindex="0"><table class="t stack"><thead><tr><th scope="col">File</th><th scope="col">State</th></tr></thead><tbody>
+  ${S4_FILES.map((f, i) => `<tr><td data-label="File">${esc(f)}</td><td data-label="State">${fileState(i)}</td></tr>`).join('')}
+  </tbody></table></div>`;
+}
+
+function placeholderHTML(v) {
+  const near = VIEWS.filter((x) => (S.variant === 'A' ? x.topic === v.topic : x.task === v.task) && x.id !== v.id);
+  return `<div class="ph-box"><p><strong>Summary placeholder.</strong> ${esc(v.label)} is one of the 42 views (v5 id <code>${v.id}</code>). This prototype shows where it sits and how you reach it, not its content.</p>
+  <dl class="kv"><dt>What it holds</dt><dd>${esc(v.blurb)}</dd><dt>Synthetic size</dt><dd>${v.count == null ? 'not a list' : fmtN(v.count) + ' rows'}</dd><dt>v5 group</dt><dd>${esc(v.group)}</dd><dt>Variant A topic</dt><dd>${esc(topicLabel(v.topic))}</dd><dt>Variant B task</dt><dd>${esc(taskLabel(v.task))}</dd></dl>
+  <p>Nearby in this ${S.variant === 'A' ? 'topic' : 'task'}: ${near.map((x) => `<a href="${href(x.id)}" data-nav="${x.id}">${esc(x.label)}</a>`).join(' \u00b7 ')}</p>
+  <p><button type="button" class="btn" data-action="note-here" data-link="view:${v.id}">Add a note about ${esc(v.label)}</button></p>
+  <div class="inline-slot" id="${slotId('view:' + v.id)}"></div></div>`;
+}
+function plannedHTML(p) {
+  return `<div class="plan-flag"><strong>Planned hosted capability. It does not work in this prototype.</strong> ${esc(p.blurb)}</div>
+  <dl class="kv"><dt>Scope today</dt><dd>${esc(p.scope)}</dd><dt>Where it would live</dt><dd>Variant A: sidebar group \u201cHosted \u00b7 planned\u201d. Variant B: the ${esc(taskLabel(p.task))} task.</dd></dl>`;
+}
+
+function catalogGroups() {
+  const planned = (pred) => PLANNED.filter(pred);
+  return S.variant === 'A'
+    ? [...TOPICS.map((t) => ({ label: t.label, items: VIEWS.filter((v) => v.topic === t.key) })), { label: 'Hosted \u00b7 planned', items: PLANNED }]
+    : TASKS.map((t) => ({ label: `${t.label} \u00b7 ${t.sub}`, items: [...VIEWS.filter((v) => v.task === t.key), ...planned((p) => p.task === t.key)] }));
+}
+function catalogHTML() {
+  return `<form class="filters" data-form="noop" role="search" aria-label="Filter all tools"><label for="cat-q" class="grow">Filter ${VIEWS.length} views and ${PLANNED.length} planned capabilities<input id="cat-q" type="search" value="${esc(S.catalogQ)}" placeholder="e.g. interest, privilege, witness" autocomplete="off"></label></form>
+  <p class="muted small">Grouped the way Variant ${S.variant} groups them (${S.variant === 'A' ? 'by topic' : 'by task'}).</p><div id="cat-list">${catalogList()}</div>`;
+}
+function catalogList() {
+  const q = S.catalogQ.trim().toLowerCase();
+  const html = catalogGroups().map((g) => {
+    const items = g.items.filter((v) => !q || `${v.id} ${v.label} ${v.blurb}`.toLowerCase().includes(q));
+    return items.length ? `<section class="cat-group"><h2>${esc(g.label)} <span class="count">${items.length}</span></h2><ul class="plain cat-list">${items.map((v) => `<li><a href="${href(v.id)}" data-nav="${v.id}">${esc(v.label)}</a><span>${stateTag(v)}</span><span class="muted small">${esc(v.blurb)} <code>${v.id}</code></span></li>`).join('')}</ul></section>` : '';
+  }).join('');
+  return html || '<p class="muted">No tool matches.</p>';
+}
+
+/* ====================================================================================================
+   Variant A: topic sidebar. Every resource is listed by topic in a persistent sidebar; a view with sections
+   gets an "On this page" rail. Notes and time live in their own resources (and notes inline on a section).
+   ==================================================================================================== */
+function navLinkA(v) {
+  const ph = !v.built && !v.planned && !v.catalog;
+  return `<a href="${href(v.id)}" data-nav="${v.id}"${S.view === v.id ? ' aria-current="page"' : ''}><span>${esc(v.label)}${ph ? '<span class="phm" aria-hidden="true"> \u00b7</span><span class="vh"> (summary placeholder)</span>' : ''}${v.planned ? '<span class="vh"> (planned)</span>' : ''}</span><span class="count" data-count="${v.id}">${countOf(v)}</span></a>`;
+}
+function shellA() {
+  const v = VBY[S.view];
+  const groups = TOPICS.map((t) => {
+    const items = VIEWS.filter((x) => x.topic === t.key);
+    return `<details open><summary><span>${esc(t.label)}</span><span class="count">${items.length}</span></summary><ul>${items.map((x) => `<li>${navLinkA(x)}</li>`).join('')}</ul></details>`;
+  }).join('');
+  const body = S.view === 'matter'
+    ? `<div class="a-withtoc"><div>${viewBody('matter')}</div><nav class="a-toc" aria-label="On this page"><h2>On this page</h2><ol class="plain">${SECTIONS.map((s) => `<li><a href="#sec-${s.id}" data-section="${s.id}"${S.section === s.id ? ' aria-current="true"' : ''}>${esc(s.short)}</a></li>`).join('')}</ol></nav></div>`
+    : viewBody(S.view);
+  return `<a class="skip" href="#main">Skip to content</a>
+  <header class="a-top" id="hdr">
+    <div class="a-id"><div class="t1"><button type="button" class="btn a-menu" data-action="drawer" aria-expanded="${S.drawer}" aria-controls="a-side">Menu</button><span class="brand">ClearCase</span><span class="proto-tag">PROTOTYPE \u00b7 SYNTHETIC</span><span class="case-name"><span class="full">${esc(CASE.name)}</span><span class="short">${esc(CASE.short)}</span></span></div>
+    <div class="meta">${caseMeta()}</div></div>
+    <div class="livechips" data-live="chips">${chipsInner()}</div>
+    ${searchForm()}
+  </header>
+  <div class="a-body">
+    <nav id="a-side" class="a-side${S.drawer ? ' open' : ''}" aria-label="Case resources by topic">
+      <div class="drawer-head"><strong>Case resources</strong><button type="button" class="btn" data-action="close-drawer">Close menu</button></div>
+      <p class="side-all">${navLinkA(CATALOG).replace('<span class="count" data-count="catalog"></span>', `<span class="count">${VIEWS.length + PLANNED.length}</span>`)}</p>
+      ${groups}
+      <details open class="planned"><summary><span>Hosted \u00b7 planned</span><span class="count">${PLANNED.length}</span></summary><ul>${PLANNED.map((x) => `<li>${navLinkA(x)}</li>`).join('')}</ul></details>
+    </nav>
+    <div class="a-scrim${S.drawer ? ' open' : ''}" data-action="close-drawer" aria-hidden="true"></div>
+    <main id="main" class="a-main" tabindex="-1">${pageHead(v)}${body}</main>
+  </div>`;
+}
+
+/* ====================================================================================================
+   Variant B: task-led case desk. Seven tasks are the top level; the task's tools sit in a strip; a context rail
+   beside the work changes with the task; quick capture (note or time) is one button away everywhere.
+   ==================================================================================================== */
+function toolChip(v) {
+  const ph = !v.built && !v.planned;
+  return `<a class="tchip${v.planned ? ' planned' : ''}" href="${href(v.id)}" data-nav="${v.id}"${S.view === v.id ? ' aria-current="page"' : ''}>${esc(v.label)}${ph ? '<span class="phm" aria-hidden="true">\u00b7</span><span class="vh"> (summary placeholder)</span>' : ''}${v.planned ? '<span class="vh"> (planned)</span>' : ''}<span class="count" data-count="${v.id}">${countOf(v)}</span></a>`;
+}
+function issueStepper() {
+  return `<nav class="b-issues" aria-label="Sections of the analysis">${SECTIONS.map((s) => `<button type="button" class="tchip" data-section="${s.id}"${S.section === s.id ? ' aria-current="true"' : ''}>${esc(s.short)}</button>`).join('')}</nav>`;
+}
+function contextB(v) {
+  const card = (title, body) => `<section class="card"><h2>${title}</h2>${body}</section>`;
+  const capture = card('Quick capture', `<div class="row"><button type="button" class="btn primary" data-action="capture" data-kind="note">Note</button><button type="button" class="btn" data-action="capture" data-kind="time">Log time</button></div><p class="muted small">Links to: <span data-live="ctx">${esc(linkLabel(ctxLink()))}</span></p>`);
+  const proc = card('Processing', `<p><a href="${href('hosted_intake')}" data-nav="hosted_intake">${esc(procLabel())}</a> <span class="tag planned">simulated</span></p>`);
+  switch (v.task) {
+    case 'desk': {
+      const nd = nextDeadline();
+      return card('Needs attention', `<ul><li><a href="${href('deadlines_tab')}" data-nav="deadlines_tab">${esc(nd[1])}</a>, ${daysTo(nd[0])} days</li><li><a href="${href('documents')}" data-nav="documents" data-preset="docs-manual">${MANUAL_COUNT} documents need a manual read</a></li><li><a href="${href('info_required_tab')}" data-nav="info_required_tab">7 items of information required</a></li><li>${money(unbilled())} unbilled</li></ul>`) + capture + proc;
+    }
+    case 'find':
+      return card('Jump to', `<ul>${Object.entries(ISSUES).map(([k, l]) => `<li><a href="${href('chronology')}" data-nav="chronology" data-preset="chrono-${k}">Chronology, issue ${k}: ${esc(l)}</a></li>`).join('')}<li><a href="${href('documents')}" data-nav="documents" data-preset="docs-manual">Documents needing a manual read</a></li></ul>`)
+        + card('Recent searches', S.searches.length ? `<ul>${S.searches.slice(0, 5).map((q) => `<li><button type="button" class="linkbtn" data-q="${esc(q)}">${esc(q)}</button></li>`).join('')}</ul>` : '<p class="muted small">None yet this session.</p>') + capture;
+    case 'argue': {
+      const sec = v.id === 'matter' ? SEC_BY[S.section] : null;
+      const secs = sec ? [sec] : SECTIONS;
+      const refs = [...new Set(secs.flatMap((s) => s.paras.join(' ').match(/\{K\d:\d+\}/g) || []))];
+      const notes = S.notes.filter((n) => sec ? n.link === 'sec:' + sec.id : n.link.startsWith('sec:'));
+      return card(sec ? `Evidence for \u201c${esc(sec.short)}\u201d` : 'Evidence cited in the analysis', `<ul class="plain list">${refs.map((r) => { const [, k, p] = r.match(/\{(K\d):(\d+)\}/); return `<li>${cite(BYKEY[k].ref, Number(p))} <span class="small">${esc(BYKEY[k].title)}</span></li>`; }).join('') || '<li class="muted">No citations in this section.</li>'}</ul>`)
+        + card(`Notes ${sec ? 'on this section' : 'on the analysis'} (${notes.length})`, notes.length ? `<ul>${notes.map((n) => `<li><strong>${n.id}</strong> ${esc(n.text)}</li>`).join('')}</ul>` : '<p class="muted small">None yet.</p>') + capture;
+    }
+    case 'numbers':
+      return card('Key figures', `<dl class="kv"><dt>Demurrage</dt><dd>${money(161700)}</dd><dt>Storage set off</dt><dd>${money(412880)}</dd><dt>Net claimed</dt><dd>${money(1184220)}</dd></dl><p class="muted small">From Matter &amp; Strategy, Quantum.</p>`) + capture;
+    case 'prepare':
+      return card('Packet', `<p>${esc(packetSummary())}</p><p><a class="btn" href="${href('court_bundle_tab')}" data-nav="court_bundle_tab">Open packet export</a></p>`)
+        + card('Coming up', `<ul>${DEADLINES.filter((d) => d[0] >= TODAY).slice(0, 3).map((d) => `<li>${d[0]}: ${esc(d[1])}</li>`).join('')}</ul>`) + capture;
+    case 'record':
+      return card('Today', `<p><span data-live="today">${todayHours().toFixed(1)} h</span> logged \u00b7 <span data-live="unbilled">${money(unbilled())}</span> unbilled</p>`)
+        + card('Latest', `<ul>${[...S.time.slice(0, 2).map((t) => `${t.id}: ${t.hours.toFixed(1)} h ${esc(t.desc)}`), ...S.notes.slice(0, 2).map((n) => `${n.id}: ${esc(n.text)}`)].map((x) => `<li>${x}</li>`).join('')}</ul>`) + capture;
+    case 'admin':
+      return proc + card('Planned hosted, admin', `<ul>${PLANNED.filter((p) => p.task === 'admin').map((p) => `<li><a href="${href(p.id)}" data-nav="${p.id}">${esc(p.label)}</a></li>`).join('')}</ul>`) + capture;
+    default:
+      return capture + proc;
+  }
+}
+function shellB() {
+  const v = VBY[S.view];
+  const tools = v.task ? [...VIEWS.filter((x) => x.task === v.task), ...PLANNED.filter((x) => x.task === v.task)] : [];
+  const inMore = !v.task || ['numbers', 'prepare', 'record', 'admin'].includes(v.task);
+  return `<a class="skip" href="#main">Skip to content</a>
+  <header class="b-top" id="hdr">
+    <div class="b-id"><span class="brand">ClearCase</span> <span class="proto-tag">PROTOTYPE \u00b7 SYNTHETIC</span><div class="case-name">${esc(CASE.name)}</div><div class="meta">${caseMeta()}</div></div>
+    <div class="livechips" data-live="chips">${chipsInner()}</div>
+    ${searchForm()}
+  </header>
+  <nav class="b-taskrow" id="b-taskrow" aria-label="Tasks">${TASKS.map((t) => `<button type="button" class="b-task" data-task="${t.key}"${v.task === t.key ? ' aria-current="page"' : ''}><b>${t.label}</b><span>${t.sub}</span></button>`).join('')}<a class="b-task b-all" href="${href('catalog')}" data-nav="catalog"${v.catalog ? ' aria-current="page"' : ''}><b>All tools</b><span>${VIEWS.length + PLANNED.length} destinations</span></a></nav>
+  <nav class="b-tools" id="b-tools" aria-label="${v.task ? esc(taskLabel(v.task)) + ' tools' : 'Tools'}">${v.task ? tools.map(toolChip).join('') : `<span class="muted">Every destination, grouped by task. <a href="${href('overview')}" data-nav="overview">Back to the desk</a></span>`}</nav>
+  <div class="b-work"><main id="main" class="b-main" tabindex="-1">${pageHead(v)}${S.view === 'matter' ? issueStepper() : ''}${viewBody(S.view)}</main>
+  <aside class="b-context" id="b-context" aria-label="Tools for this task">${contextB(v)}</aside></div>
+  <button type="button" class="b-fab" data-action="capture" data-kind="note" aria-haspopup="dialog">+ Capture note or time</button>
+  <nav class="b-bottom" aria-label="Tasks">${['desk', 'find', 'argue'].map((k) => `<button type="button" data-task="${k}"${v.task === k ? ' aria-current="page"' : ''}>${taskLabel(k)}</button>`).join('')}<button type="button" class="cap" data-action="capture" data-kind="note" aria-haspopup="dialog">+ Capture</button><button type="button" data-action="more" aria-expanded="${S.more}" aria-controls="b-more"${inMore ? ' aria-current="page"' : ''}>More${inMore && v.task ? ' \u00b7 ' + taskLabel(v.task) : ''}</button></nav>
+  <div class="b-sheet" id="b-more" role="dialog" aria-labelledby="more-h"${S.more ? '' : ' hidden'}>
+    <div class="sheet-head"><h2 id="more-h">All tasks</h2><button type="button" class="btn" data-action="more">Close</button></div>
+    <ul class="plain more-list">${TASKS.map((t) => `<li><button type="button" class="btn" data-task="${t.key}"><strong>${t.label}</strong><span class="muted small">${t.sub} \u00b7 ${VIEWS.filter((x) => x.task === t.key).length + PLANNED.filter((x) => x.task === t.key).length} tools</span></button></li>`).join('')}
+    <li><a class="btn" href="${href('catalog')}" data-nav="catalog"><strong>All tools</strong><span class="muted small">${VIEWS.length} views, ${PLANNED.length} planned</span></a></li></ul>
+  </div>`;
+}
+function renderCapture() {
+  const el = $('#capture');
+  if (S.variant !== 'B' || !S.capture) { el.hidden = true; el.innerHTML = ''; return; }
+  const link = S.capLink || ctxLink();
+  el.hidden = false;
+  el.innerHTML = `<div class="cap-head"><h2 id="cap-h" class="h3">Quick capture</h2><div class="row" role="group" aria-label="What to capture"><button type="button" class="btn${S.capture === 'note' ? ' on' : ''}" aria-pressed="${S.capture === 'note'}" data-action="capture" data-kind="note">Note</button><button type="button" class="btn${S.capture === 'time' ? ' on' : ''}" aria-pressed="${S.capture === 'time'}" data-action="capture" data-kind="time">Time</button></div><button type="button" class="btn" data-action="close-capture" aria-label="Close quick capture">\u2715</button></div>
+  ${S.capture === 'note' ? noteForm('cap', link) : timeForm('cap', link)}`;
+}
+
+/* ====================================================================================================
+   Shared viewer: the simulated original opens beside the work and returns to the citation on close.
+   ==================================================================================================== */
+function pageLines(doc, p) {
+  const r = rng(hash(doc.ref) * 31 + p), pk = (a) => a[Math.floor(r() * a.length)];
+  const lines = Array.from({ length: 7 + Math.floor(r() * 5) }, () => `${pk(['The parties', 'Kestrel', 'The Authority', 'Ibis Stevedoring', 'The surveyor', 'Operations'])} ${pk(['recorded', 'confirmed', 'disputed', 'noted', 'requested', 'reported'])} the ${pk(SUBJECTS)} ${pk(['for', 'during', 'after', 'before'])} ${pk(VESSELS)} ${pk(['at Berth 7.', 'at anchorage.', 'in silo 4.', 'on the quay.', 'under the tariff schedule.'])}`);
+  const q = doc.quote && doc.quote[p];
+  return q ? [...lines.slice(0, 3), { q }, ...lines.slice(3)] : lines;
+}
+function originLabel(opener) {
+  const sec = opener.closest('[data-secblock]');
+  if (sec) return `Matter & Strategy \u00b7 ${SEC_BY[sec.dataset.secblock].short}`;
+  if (opener.closest('#b-context')) return `${VBY[S.view].label} \u00b7 task tools`;
+  return VBY[S.view].label;
+}
+function renderViewer() {
+  const el = $('#viewer');
+  if (!S.viewer) { el.hidden = true; el.innerHTML = ''; return; }
+  const { ref, page, origin, noteOpen } = S.viewer, d = BYREF.get(ref);
+  const body = d.text === 'manual'
+    ? `<p><strong>No extracted text.</strong> This original needs a manual read. In the app the page image would show here.</p><div class="scan"></div><div class="scan"></div><div class="scan"></div>`
+    : pageLines(d, page).map((l) => typeof l === 'string' ? `<p>${esc(l)}</p>` : `<p><mark>${esc(l.q)}</mark> <span class="vh">(cited passage)</span></p>`).join('');
+  el.innerHTML = `<div class="vw-head">
+    <div class="vw-row"><button type="button" class="btn" data-action="close-viewer">\u2190 Back to ${esc(origin ? origin.label : 'the page')}</button><button type="button" class="btn" data-action="close-viewer" aria-label="Close original">\u2715</button></div>
+    <h2 id="viewer-title" tabindex="-1">${d.ref} \u00b7 ${esc(d.title)}</h2>
+    <p class="muted small">${esc(d.type)} \u00b7 ${d.date} \u00b7 page ${page} of ${d.pages} \u00b7 <strong>simulated original</strong>, synthetic text, no file opened</p>
+    <div class="row"><button type="button" class="btn" data-action="viewer-prev"${page <= 1 ? ' disabled' : ''}>\u2039 Previous page</button><button type="button" class="btn" data-action="viewer-next"${page >= d.pages ? ' disabled' : ''}>Next page \u203a</button><button type="button" class="btn" data-action="viewer-note" aria-expanded="${!!noteOpen}">Note on this page</button></div>
+  </div>
+  <div class="vw-body"><div class="paper" role="document" aria-label="Page ${page} of ${d.ref}"><div class="lh"><span>Synthetic \u00b7 ${esc(d.type)}</span><span>${d.ref} \u00b7 p.${page}</span></div>${body}</div>
+  ${noteOpen ? `<div class="vw-note">${noteForm('vw', `doc:${ref}:${page}`)}</div>` : ''}</div>`;
+  el.hidden = false;
+}
+function openViewer(ref, page, opener) {
+  const d = BYREF.get(ref);
+  if (!d) return;
+  if (!opener.id) opener.id = 'c' + (++uid);
+  S.viewer = { ref, page: Math.max(1, Math.min(page, d.pages)), noteOpen: false, origin: { id: opener.id, label: originLabel(opener), scrollY, view: S.view } };
+  S.lastCtx = `doc:${ref}:${S.viewer.page}`;
+  renderViewer(); bodyClass(); refreshCtx();
+  $('#viewer-title').focus({ preventScroll: true });
+  if (!isMobile()) opener.scrollIntoView({ block: 'nearest' });
+}
+function closeViewer() {
+  const o = S.viewer && S.viewer.origin;
+  S.viewer = null; renderViewer(); bodyClass(); refreshCtx();
+  if (!o) return;
+  if (isMobile()) scrollTo(0, o.scrollY);
+  const el = o.view === S.view && document.getElementById(o.id);
+  if (el) {
+    el.focus({ preventScroll: true });
+    el.scrollIntoView({ block: 'nearest' });
+    el.classList.remove('returned'); void el.offsetWidth; el.classList.add('returned');
+  }
+}
+
+/* ====================================================================================================
+   Rendering, navigation and URL
+   ==================================================================================================== */
+let observer = null;
+function bodyClass() {
+  const sheet = isMobile() && (S.viewer || S.drawer || S.more || S.capture);
+  document.body.className = ['v' + S.variant, S.viewer ? 'viewer-open' : '', sheet ? 'sheet-open' : ''].filter(Boolean).join(' ');
+}
+function measure() {
+  const root = document.documentElement.style;
+  if (S.variant === 'A') {
+    const h = $('#hdr').offsetHeight;
+    root.setProperty('--a-top', h + 'px'); root.setProperty('--stick', h + 10 + 'px');
+  } else {
+    const t = $('#b-taskrow').offsetHeight, tools = $('#b-tools').offsetHeight;
+    root.setProperty('--b-task-h', t + 'px'); root.setProperty('--b-stick', t + tools + 'px'); root.setProperty('--stick', t + tools + 12 + 'px');
+  }
+}
+function render() {
+  bodyClass();
+  $('#app').innerHTML = S.variant === 'A' ? shellA() : shellB();
+  renderCapture(); renderSwitcher(); measure(); observeSections();
+}
+function renderSwitcher() {
+  $('#switcher').innerHTML = `<button type="button" class="sw-btn" data-action="variant-prev" aria-label="Previous variant">\u2039</button><span class="sw-label"><span class="k">${S.variant}</span>${VARIANT_NAME[S.variant]} <span>\u00b7 ${esc(VBY[S.view].label)}</span></span><button type="button" class="sw-btn" data-action="variant-next" aria-label="Next variant">\u203a</button>`;
+}
+function writeURL(push) {
+  try {
+    const u = new URL(location.href);
+    u.searchParams.set('variant', S.variant); u.searchParams.set('view', S.view);
+    history[push ? 'pushState' : 'replaceState'](null, '', u);
+  } catch { /* a sandboxed preview frame may refuse history changes; the prototype still works */ }
+}
+function readURL() {
+  const p = new URLSearchParams(location.search);
+  const v = (p.get('variant') || 'A').toUpperCase(), id = p.get('view');
+  S.variant = VARIANTS.includes(v) ? v : 'A';
+  S.view = VBY[id] ? id : 'overview';
+}
+function go(id, { push = true, sec = null } = {}) {
+  if (!VBY[id]) id = 'overview';
+  if (!REGISTER_VIEWS.has(S.view)) S.lastCtx = ctxLink();
+  S.scroll[S.view] = scrollY;
+  S.view = id; S.drawer = false; S.more = false; S.capture = null;
+  if (VBY[id].task) S.lastInTask[VBY[id].task] = id;
+  render(); writeURL(push);
+  if (sec) { scrollToSection(sec); return; }
+  scrollTo(0, S.scroll[id] || 0);
+  $('#page-h1').focus({ preventScroll: true });
+}
+function setVariant(v) {
+  S.scroll[S.view] = scrollY;
+  S.variant = v; S.drawer = false; S.more = false; S.capture = null;
+  render(); writeURL(false);
+  if (S.view === 'matter') scrollToSection(S.section, false); else scrollTo(0, 0);
+  toast(`Variant ${v}: ${VARIANT_NAME[v]}. Still on ${VBY[S.view].label}. ${S.notes.length} notes and ${S.time.length} time entries carried over.`);
+}
+const cycle = (d) => setVariant(VARIANTS[(VARIANTS.indexOf(S.variant) + d + VARIANTS.length) % VARIANTS.length]);
+
+function scrollToSection(id, focus = true) {
+  const el = $('#sec-' + id);
+  if (!el) return;
+  S.section = id; updateSectionUI();
+  el.scrollIntoView({ block: 'start' });
+  if (focus) $('#h-' + id).focus({ preventScroll: true });
+}
+function updateSectionUI() {
+  for (const a of $$('[data-section]')) { if (a.dataset.section === S.section) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current'); }
+  if (S.variant === 'B' && $('#b-context')) $('#b-context').innerHTML = contextB(VBY[S.view]);
+}
+function observeSections() {
+  if (observer) observer.disconnect();
+  if (S.view !== 'matter' || !('IntersectionObserver' in window)) return;
+  observer = new IntersectionObserver((entries) => {
+    const hit = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+    if (hit && hit.target.dataset.secblock !== S.section) { S.section = hit.target.dataset.secblock; updateSectionUI(); }
+  }, { rootMargin: '-25% 0px -65% 0px' });
+  $$('[data-secblock]').forEach((s) => observer.observe(s));
+}
+
+let toastTimer;
+function toast(msg) {
+  const t = $('#toast');
+  t.textContent = '';
+  requestAnimationFrame(() => { t.textContent = msg; });
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.textContent = ''; }, 6000);
+}
+const refreshCtx = () => $$('[data-live=ctx]').forEach((e) => { e.textContent = linkLabel(ctxLink()); });
+// After user work changes: update every place that shows it, without re-rendering forms the user is in.
+function refreshLive() {
+  $$('[data-live=chips]').forEach((e) => { e.innerHTML = chipsInner(); });
+  $$('[data-live=today]').forEach((e) => { e.textContent = todayHours().toFixed(1) + ' h'; });
+  $$('[data-live=unbilled]').forEach((e) => { e.textContent = money(unbilled()); });
+  for (const id of Object.keys(LIVE_COUNT)) $$(`[data-count=${id}]`).forEach((e) => { e.textContent = countOf(VBY[id]); });
+  const set = (sel, html) => { const e = $(sel); if (e) e.innerHTML = html; };
+  set('#time-list', timeTable()); set('#time-totals', timeTotals()); set('#notes-list', notesList()); set('#recent', recentHTML());
+  $$('[data-sec-notes]').forEach((e) => { e.innerHTML = secNotes(e.dataset.secNotes); });
+  if (S.variant === 'B' && $('#b-context')) $('#b-context').innerHTML = contextB(VBY[S.view]);
+}
+
+/* ---------- saving user work ---------- */
+function fail(form, field, msg) {
+  const err = $('.err', form), input = form.elements[field];
+  err.textContent = msg; input.setAttribute('aria-invalid', 'true'); input.focus();
+}
+function saveNote(form) {
+  const text = form.elements.text.value.trim(), link = form.elements.link.value;
+  form.elements.text.removeAttribute('aria-invalid'); $('.err', form).textContent = '';
+  if (!text) return fail(form, 'text', 'Write the note before saving it.');
+  const id = 'N-' + (++S.seq.note);
+  S.notes.unshift({ id, text, link, created: nowStamp() });
+  form.elements.text.value = '';
+  $('.confirm', form).innerHTML = `Saved note ${id}, linked to ${esc(linkLabel(link))}. <a href="${href('annotations_tab')}" data-nav="annotations_tab">See all notes</a>`;
+  toast(`Note ${id} saved. It shows in Annotations in both variants.`);
+  refreshLive();
+}
+function saveTime(form) {
+  const f = form.elements, hours = Math.round(parseFloat(f.hours.value) * 10) / 10, desc = f.desc.value.trim();
+  for (const n of ['hours', 'desc']) f[n].removeAttribute('aria-invalid');
+  $('.err', form).textContent = '';
+  if (!(hours >= 0.1 && hours <= 24)) return fail(form, 'hours', 'Enter hours between 0.1 and 24.');
+  if (!desc) return fail(form, 'desc', 'Describe the work before saving.');
+  const id = 'T-' + (++S.seq.time), billable = f.billable.checked;
+  S.time.unshift({ id, date: f.date.value || TODAY, hours, activity: f.activity.value, desc, billable, link: f.link.value });
+  f.desc.value = '';
+  $('.confirm', form).innerHTML = `Saved ${id}: ${hours.toFixed(1)} h ${esc(f.activity.value.toLowerCase())}, ${billable ? 'billable ' + money(hours * RATE) : 'not billable'}, linked to ${esc(linkLabel(f.link.value))}. Today: ${todayHours().toFixed(1)} h. <a href="${href('timesheet_tab')}" data-nav="timesheet_tab">Open the timesheet</a>`;
+  toast(`Time entry ${id} saved: ${hours.toFixed(1)} h. It shows in the Timesheet in both variants.`);
+  refreshLive();
+}
+function exportPacket() {
+  const docs = packetDocs(), notes = packetNotes();
+  if (!docs.length) { toast('Choose at least one document for the packet.'); return; }
+  const n = S.exports.length + 1, at = nowStamp(), file = `kestrel-v-marula-packet-${n}-PROTOTYPE`;
+  const csv = ['ref,date,type,title,pages,cited_in', ...docs.map((d) => [d.ref, d.date, d.type, d.title, d.pages, citedIn(d.key)].map(csvCell).join(','))].join('\n') + '\n';
+  const manifest = { prototype: true, note: 'GRS-89 navigation prototype. Synthetic data; no PDF assembled.', case: CASE.name, forum: CASE.forum, resultsVersion: CASE.rv, generatedAt: at, documents: docs.map((d) => ({ ref: d.ref, date: d.date, type: d.type, title: d.title, pages: d.pages })), notes: notes.map((x) => ({ id: x.id, text: x.text, linkedTo: linkLabel(x.link) })) };
+  const url = (s, type) => URL.createObjectURL(new Blob([s], { type }));
+  S.exports.unshift({ file, at, n: docs.length, pages: docs.reduce((s, d) => s + d.pages, 0), notes: notes.length, csv, csvUrl: url(csv, 'text/csv'), jsonUrl: url(JSON.stringify(manifest, null, 2), 'application/json') });
+  $('#export-out').innerHTML = exportOut(S.exports[0]);
+  toast(`Packet manifest ${n} generated: ${docs.length} documents. Prototype output only.`);
+}
+function openCapture(kind, link, opener) {
+  S.capture = kind; S.capLink = link || null;
+  if (opener && !opener.closest('#capture')) S.capOpener = opener;
+  renderCapture(); bodyClass();
+  const pressed = opener && opener.closest('#capture') && $(`#capture [data-kind=${kind}]`);
+  (pressed || $(kind === 'note' ? '#cap-ntext' : '#cap-th')).focus();
+}
+function closeCapture() {
+  S.capture = null; renderCapture(); bodyClass();
+  if (S.capOpener && document.contains(S.capOpener)) S.capOpener.focus();
+}
+function noteHere(btn) {
+  const link = btn.dataset.link;
+  if (S.variant === 'B') return openCapture('note', link, btn);
+  const slot = document.getElementById(slotId(link));
+  if (slot.innerHTML) { slot.innerHTML = ''; btn.setAttribute('aria-expanded', 'false'); return; }
+  slot.innerHTML = noteForm(slotId(link), link);
+  btn.setAttribute('aria-expanded', 'true');
+  $('textarea', slot).focus();
+}
+function applyPreset(p) {
+  if (p === 'docs-manual') Object.assign(S.docs, { q: '', type: '', status: 'manual', shown: 150 });
+  else if (p === 'chrono-q') Object.assign(S.chrono, { q: S.query, issue: '', shown: 120 });
+  else if (p.startsWith('chrono-')) Object.assign(S.chrono, { q: '', issue: p.slice(7), shown: 120 });
+}
+function runSearch(q) {
+  S.query = q;
+  if (q.trim() && S.searches[0] !== q.trim()) S.searches.unshift(q.trim());
+  if (S.view !== 'search') go('search');
+  else { $('#sq').value = q; $('#search-results').innerHTML = searchResultsHTML(); }
+  const gs = $('#gs'); if (gs) gs.value = q;
+}
+function setDrawer(open) {
+  S.drawer = open; bodyClass();
+  $('#a-side').classList.toggle('open', open); $('.a-scrim').classList.toggle('open', open);
+  $('[data-action=drawer]').setAttribute('aria-expanded', String(open));
+  if (open) ($('#a-side [aria-current=page]') || $('#a-side a')).focus(); else $('[data-action=drawer]').focus();
+}
+function setMore(open) {
+  S.more = open; bodyClass();
+  $('#b-more').hidden = !open;
+  $('.b-bottom [data-action=more]').setAttribute('aria-expanded', String(open));
+  if (open) $('#b-more button').focus(); else $('.b-bottom [data-action=more]').focus();
+}
+
+/* ---------- events ---------- */
+// Forms are handled on the submit button's click (Enter in a field clicks it too), so they work even in a preview frame
+// sandboxed without allow-forms, where no submit event fires. The submit listener below covers everything else.
+function handleForm(f) {
+  const kind = f.dataset.form;
+  if (kind === 'gsearch') runSearch(f.elements.q.value);
+  else if (kind === 'note') saveNote(f);
+  else if (kind === 'time') saveTime(f);
+}
+document.addEventListener('click', (e) => {
+  const sb = e.target.closest('form[data-form] button[type=submit]');
+  if (sb) { e.preventDefault(); handleForm(sb.form); return; }
+  const el = e.target.closest('[data-nav],[data-cite],[data-action],[data-section],[data-task],[data-q]');
+  if (!el) return;
+  if (el.dataset.nav) {
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+    e.preventDefault();
+    if (el.dataset.preset) applyPreset(el.dataset.preset);
+    if (S.viewer && isMobile()) { S.viewer = null; renderViewer(); }
+    go(el.dataset.nav, { sec: el.dataset.sec || null });
+    return;
+  }
+  if (el.dataset.cite) { const [ref, p] = el.dataset.cite.split(':'); openViewer(ref, Number(p), el); return; }
+  if (el.dataset.section) { e.preventDefault(); scrollToSection(el.dataset.section); return; }
+  if (el.dataset.task) { const k = el.dataset.task; go(S.lastInTask[k] || TASK_DEFAULT[k]); return; }
+  if (el.dataset.q) { runSearch(el.dataset.q); return; }
+  const a = el.dataset.action;
+  if (a === 'variant-prev') cycle(-1);
+  else if (a === 'variant-next') cycle(1);
+  else if (a === 'drawer') setDrawer(!S.drawer);
+  else if (a === 'close-drawer') setDrawer(false);
+  else if (a === 'more') setMore(!S.more);
+  else if (a === 'capture') openCapture(el.dataset.kind, el.closest('#capture') ? S.capLink : null, el);
+  else if (a === 'close-capture') closeCapture();
+  else if (a === 'note-here') noteHere(el);
+  else if (a === 'close-viewer') closeViewer();
+  else if (a === 'viewer-prev' || a === 'viewer-next') {
+    S.viewer.page += a === 'viewer-next' ? 1 : -1; S.lastCtx = `doc:${S.viewer.ref}:${S.viewer.page}`;
+    renderViewer(); refreshCtx(); const b = $(`#viewer [data-action=${a}]`); (b.disabled ? $('#viewer-title') : b).focus();
+  } else if (a === 'viewer-note') {
+    S.viewer.noteOpen = !S.viewer.noteOpen; renderViewer();
+    if (S.viewer.noteOpen) $('#vw-ntext').focus(); else $('#viewer [data-action=viewer-note]').focus();
+  } else if (a === 'more-chrono' || a === 'more-docs') {
+    const k = a === 'more-chrono' ? 'chrono' : 'docs';
+    S[k].shown += k === 'chrono' ? 120 : 150;
+    $(`#${k}-wrap`).innerHTML = k === 'chrono' ? chronoTable() : docsTable();
+    const more = $(`[data-action=${a}]`); (more || $(`#${k}-wrap .table-scroll`)).focus();
+  } else if (a === 'export') exportPacket();
+  else if (a === 'advance-intake') {
+    const it = S.intake;
+    it.pct += 25;
+    if (it.pct >= 100) { it.stage += 1; it.pct = it.stage >= STAGES.length - 1 ? 100 : 0; }
+    $('#main').innerHTML = pageHead(VBY.hosted_intake) + intakeHTML(); refreshLive();
+    const b = $('[data-action=advance-intake]'); (b.disabled ? $('#page-h1') : b).focus();
+    toast(`Simulation: S-4 is now at ${procLabel().slice(4)}.`);
+  }
+});
+document.addEventListener('submit', (e) => {
+  const f = e.target, kind = f.dataset.form;
+  if (!kind) return;
+  e.preventDefault();
+  handleForm(f);
+});
+let searchTimer;
+document.addEventListener('input', (e) => {
+  const t = e.target;
+  if (t.id === 'sq') { S.query = t.value; clearTimeout(searchTimer); searchTimer = setTimeout(() => { $('#search-results').innerHTML = searchResultsHTML(); }, 120); }
+  else if (t.id === 'cf-q') { S.chrono.q = t.value; S.chrono.shown = 120; $('#chrono-wrap').innerHTML = chronoTable(); }
+  else if (t.id === 'df-q') { S.docs.q = t.value; S.docs.shown = 150; $('#docs-wrap').innerHTML = docsTable(); }
+  else if (t.id === 'cat-q') { S.catalogQ = t.value; $('#cat-list').innerHTML = catalogList(); }
+});
+document.addEventListener('change', (e) => {
+  const t = e.target;
+  if (t.name === 'scope') { S.scope = t.value; $('#search-results').innerHTML = searchResultsHTML(); }
+  else if (t.id === 'cf-issue') { S.chrono.issue = t.value; S.chrono.shown = 120; $('#chrono-wrap').innerHTML = chronoTable(); }
+  else if (t.id === 'df-type' || t.id === 'df-status') { S.docs[t.id === 'df-type' ? 'type' : 'status'] = t.value; S.docs.shown = 150; $('#docs-wrap').innerHTML = docsTable(); }
+  else if (t.dataset.packet) { if (t.checked) S.packet.add(t.dataset.packet); else S.packet.delete(t.dataset.packet); $('#pk-summary').textContent = packetSummary(); refreshLive(); }
+  else if (t.id === 'pk-notes') { S.packetNotes = t.checked; $('#pk-summary').textContent = packetSummary(); }
+});
+document.addEventListener('keydown', (e) => {
+  const t = e.target, inField = t.closest && t.closest('input,textarea,select,[contenteditable]:not([contenteditable=false])');
+  if (e.key === 'Escape') {
+    if (S.viewer) closeViewer(); else if (S.capture) closeCapture(); else if (S.drawer) setDrawer(false); else if (S.more) setMore(false);
+    return;
+  }
+  if (inField || e.altKey || e.ctrlKey || e.metaKey) return;
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); cycle(e.key === 'ArrowRight' ? 1 : -1); }
+  else if (e.key === '/') { e.preventDefault(); $('#gs').focus(); }
+});
+addEventListener('popstate', () => { readURL(); render(); });
+addEventListener('resize', () => { bodyClass(); measure(); });
+
+/* ---------- self-check, readable from a console or a browser driver ---------- */
+function selfCheck() {
+  const ids = VIEWS.map((v) => v.id);
+  const r = {
+    views: ids.length, unique: new Set(ids).size === ids.length,
+    badTopic: VIEWS.filter((v) => !TOPICS.some((t) => t.key === v.topic)).map((v) => v.id),
+    badTask: VIEWS.filter((v) => !TASKS.some((t) => t.key === v.task)).map((v) => v.id),
+    planned: PLANNED.length, docs: DOCS.length, chronology: CHRONO.length, manual: MANUAL_COUNT,
+    built: VIEWS.filter((v) => v.built).map((v) => v.id),
+  };
+  r.ok = r.views === 42 && r.unique && !r.badTopic.length && !r.badTask.length && r.docs === CASE.docs && r.chronology === CASE.chrono;
+  if (!r.ok) console.error('GRS-89 prototype self-check failed', r);
+  return r;
+}
+window.__grs89 = { selfCheck, state: S, views: VIEWS.map(({ id, label, group, topic, task, built }) => ({ id, label, group, topic, task, built })), planned: PLANNED.map(({ id, label, task }) => ({ id, label, task })) };
+
+readURL(); render(); writeURL(false); selfCheck();
+</script>
+</body>
+</html>

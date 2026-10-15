@@ -6,7 +6,7 @@ import { configFromEnv } from './config.server.ts';
 import { OriginalsServer } from './originals.server.ts';
 import { LocalCase } from './service.server.ts';
 
-type Instance = { app: LocalCase; originals: OriginalsServer; id: string; startedAt: string; build: Record<string, unknown> | null };
+type Instance = { app: LocalCase; originals: OriginalsServer; id: string; startedAt: string; build: Record<string, unknown> | null; started?: Promise<void> };
 const g = globalThis as { __clearcase?: Instance };
 
 function create(): Instance {
@@ -26,13 +26,21 @@ export async function initApp(): Promise<void> {
 		console.error(`FATAL: ${(e as Error).message}. Unset it to use the real clock. Exiting without touching the data directory.`);
 		process.exit(1);
 	}
-	const a = app();
+	const i = instance();
+	await (i.started ??= start(i));
+}
+
+// Vite re-evaluates the server modules after a dependency re-optimisation or an invalidation, and SvelteKit then runs its
+// init hook again in the same process. The instance outlives the module on globalThis, so its start-up runs once. A second
+// bind of the originals port is EADDRINUSE and exits the process.
+async function start(i: Instance): Promise<void> {
+	const a = i.app;
 	const lock = a.storage.acquireInstanceLock();
 	if (!lock.ok) {
 		console.error(`FATAL: ${lock.reason}. This instance exits without touching the data directory.`);
 		process.exit(1);
 	}
-	const o = originals();
+	const o = i.originals;
 	try {
 		await o.start();
 	} catch (e) {

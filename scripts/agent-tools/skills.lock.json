@@ -3,34 +3,42 @@
   "provenance": {
     "pstack": {
       "upstream": "https://github.com/backnotprop/pstack",
-      "revision": "3a604672c46cd8187d2b19980eae0a34f9f91138",
-      "revisionDate": "2026-10-07T18:39:16-07:00",
-      "revisionSubject": "Use kebab-case names for poteto-mode and make-bot-ui",
-      "version": "0.15.15",
+      "revision": "1f0f9c3bac03c4297f6fc8f7644fa412eda57085",
+      "revisionDate": "2026-10-13T23:13:07-04:00",
+      "revisionSubject": "Sync upstream cursor/plugins/pstack @ 837067b (0.15.23)",
+      "version": "0.15.23",
       "license": "MIT",
       "copyright": "Copyright (c) 2026 Lauren Tan",
-      "mirrorOf": "cursor/plugins/pstack@ccb5507 (short ID as recorded by the mirror's upstream commit 4aed5afa251ea30ebcd694f894687301ee8bc1b3; main merges it in 1edf0a5cf2337f69ca81cc65cbdcac7a4ffe29dd, then adds 3a604672c46c)",
+      "mirrorOf": "cursor/plugins/pstack@837067b (short ID as recorded by the mirror's upstream commit c3ed187a; main merges it in 1f0f9c3bac03)",
       "about": "The user designated backnotprop/pstack as the pstack source on 2026-10-08. It is an MIT-licensed, harness-neutral mirror of cursor/plugins/pstack by Lauren Tan. Per its MIRROR.md, branch upstream holds Cursor's files verbatim and main is upstream plus the mirror's harness-neutral edits.",
       "notInstalled": [],
-      "checkedAt": "2026-10-09",
+      "checkedAt": "2026-10-15",
       "checks": [
         "2026-10-08T15:28:36+02:00, coordinator on puk: the previous pin 124f622bcaeac490e7e9dac6af83f3ef9611d554 (0.15.9) matched 47 installed skills byte for byte (diff -rq).",
-        "2026-10-09, relock worker on puk after the host bundle changed at 2026-10-09T07:20+02:00: diff -rq of every skill in both the revision's skills/ and ~/.agents/skills against all 18 commits of backnotprop/pstack main and upstream (no tags exist). Only 3a604672c46c (main HEAD) matches: all 51 upstream skills are installed and byte-identical. 1edf0a5 differs in 2 skills, 124f622 in 10, older revisions in more. Record: .orchestration/reports/CC-27/pstack-provenance-20261009.txt."
+        "2026-10-09, relock worker on puk after the host bundle changed at 2026-10-09T07:20+02:00: diff -rq of every skill in both the revision's skills/ and ~/.agents/skills against all 18 commits of backnotprop/pstack main and upstream (no tags exist). Only 3a604672c46c (main HEAD) matches: all 51 upstream skills are installed and byte-identical. 1edf0a5 differs in 2 skills, 124f622 in 10, older revisions in more. Record: .orchestration/reports/CC-27/pstack-provenance-20261009.txt.",
+        "2026-10-15, maintenance-tooling worker on archlinux: before the update every installed skill matched the tree hash the skills CLI recorded in ~/.agents/.skill-lock.json (no local edits), and every pstack skill matched 124f622 (0.15.9). After `skills update -g` and `skills add backnotprop/pstack -g` (skills CLI 1.7.2), diff -rq of all 53 skills of 1f0f9c3bac03 (main HEAD) against ~/.agents/skills prints nothing."
       ],
-      "reproduce": "git clone https://github.com/backnotprop/pstack.git p && git -C p worktree add ../p3a6 3a60467 && for d in p3a6/skills/*/; do n=$(basename $d); [ -e ~/.agents/skills/$n ] && diff -rq $d ~/.agents/skills/$n; done",
+      "reproduce": "git clone https://github.com/backnotprop/pstack.git p && git -C p worktree add ../p1f0 1f0f9c3 && for d in p1f0/skills/*/; do n=$(basename $d); [ -e ~/.agents/skills/$n ] && diff -rq $d ~/.agents/skills/$n; done",
       "verify": "scripts/agent-tools/verify pstack-upstream --checkout DIR, where DIR is any clone that contains the revision above",
-      "installedAt": "$HOME/.agents/skills, verified on puk; ~/.claude/skills entries are symlinks into it",
-      "copiedFrom": "host bundle updated in place on puk at 2026-10-09T07:20+02:00 (installer not recorded); previously archlinux:~/.agents/skills by rsync"
+      "installedAt": "$HOME/.agents/skills, installed with the skills CLI (npm skills, vercel-labs/skills), which records each skill's source and tree hash in ~/.agents/.skill-lock.json; agent skill directories such as ~/.claude/skills hold symlinks into it",
+      "copiedFrom": "archlinux: npx skills@1.7.2 update -g, then add backnotprop/pstack -g for the renamed poteto-mode and make-bot-ui and the skills new since 0.15.9, on 2026-10-15. puk keeps 3a604672c46c until it is updated the same way."
     },
     "matt-pocock": {
-      "upstream": null,
-      "revision": null,
-      "license": null,
+      "upstream": "https://github.com/mattpocock/skills",
+      "revision": "49dd158d1076134a641b33efb035946536778336",
+      "revisionDate": "2026-10-09T11:56:49+01:00",
+      "license": "MIT",
+      "copyright": "Copyright (c) 2026 Matt Pocock",
+      "paths": {
+        "ask-matt": "skills/engineering/ask-matt",
+        "codebase-design": "skills/engineering/codebase-design",
+        "domain-modeling": "skills/engineering/domain-modeling"
+      },
       "evidence": [
-        "ask-matt, domain-modeling and codebase-design name no repository, revision or license.",
-        "The unpinned companion skill setup-matt-pocock-skills refers to labels \"in mattpocock/skills\", which suggests that repository. This is not verified."
+        "~/.agents/.skill-lock.json records source mattpocock/skills for all three, with the skill paths above.",
+        "2026-10-15, archlinux: after `skills update -g`, each installed directory is byte-identical (diff -rq) to its path at 49dd158d1076 (main HEAD), and the tree hash the skills CLI recorded equals that path's Git tree."
       ],
-      "note": "Source unknown. Not a HOLD item: GRS-35 acceptance item 1 concerns pstack."
+      "reproduce": "git clone https://github.com/mattpocock/skills.git m && for n in ask-matt codebase-design domain-modeling; do git -C m archive 49dd158 skills/engineering/$n | tar -x -C /tmp && diff -rq /tmp/skills/engineering/$n ~/.agents/skills/$n; done"
     }
   },
   "hashing": "Per skill: sha256 over the sorted relative paths and file sha256s (symlinks by target), excluding node_modules, __pycache__ and .DS_Store (tree_hash in agent_tools.py). bootstrap --relock writes the skills map; provenance is edited by hand and checked by verify pstack-upstream.",
@@ -53,17 +61,17 @@
     "architect": {
       "group": "pstack",
       "files": 4,
-      "sha256": "3e8c7a02231f7f3a4c85307c853f92621cb9e4d0075407aeb617b69a862886ef"
+      "sha256": "6a7fbccb93f962e0ff8ee461e2af997e9cbe1cad0cbda0bc08efe0f54cccd702"
     },
     "arena": {
       "group": "pstack",
       "files": 1,
-      "sha256": "8eb9fb9e3b46b07c8ea2a7fad8121daa417ec06d7d85fa432da55e9f2f88e5cb"
+      "sha256": "7cffc8e2844f0b173edfcb2d2fe688fcb708be89350f91e2a1ee3afa19fc7c5a"
     },
     "ask-matt": {
       "group": "matt-pocock",
       "files": 3,
-      "sha256": "1fc44acc1e90ffda101108895a56fc4e325d1beb10724237e3c79fcb13684d26"
+      "sha256": "ce22f792cd2b9d2e734c941bb60cfccb1327b480d03b6cc5f5305caa076f40ef"
     },
     "automate-me": {
       "group": "pstack",
@@ -73,7 +81,7 @@
     "benchmark-checklist": {
       "group": "pstack",
       "files": 1,
-      "sha256": "14e689a8d52d76238a63dd278ffe3f268a962570d3feaad3b2ea9c1f38bffc31"
+      "sha256": "f2d5abe2bd77d16c5b937024ad2fca3b3055f8bc229e6aa1ffaf77b06ace3754"
     },
     "blast-radius": {
       "group": "pstack",
@@ -98,7 +106,7 @@
     "create-verification-skill": {
       "group": "pstack",
       "files": 4,
-      "sha256": "30b72ea9c383b24840a11624e292b889e1a1ca6e33babff84bbd2ccb32a0d4c3"
+      "sha256": "879277d80fb9ba189eb7cb966a66eaca4d0cb998e821503100f9e9d9737b90ac"
     },
     "domain-modeling": {
       "group": "matt-pocock",
@@ -108,17 +116,27 @@
     "figure-it-out": {
       "group": "pstack",
       "files": 1,
-      "sha256": "3bbde440d2b6128e08421c5c14a927e1f18e51c4a64004669f61603496734c64"
+      "sha256": "9abec2d2bb81310bd8e52ff0de83b97a7ac2dc6cae390b0ee1c46de1bd07aae7"
     },
     "how": {
       "group": "pstack",
       "files": 3,
-      "sha256": "5f40e5c386b21d47921862694bf79bbcfcd0a9da2aef306649f9da5fb382f0ff"
+      "sha256": "7fa16afe3de2af45eb4863c21dc30a875c0393022f1935c2e49cd606ca7d420f"
+    },
+    "in-your-own-words": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "1a890e3246675f6567bdd5ab13bf2d739be0d0a3cc202f793dd34bef783e6f49"
     },
     "interrogate": {
       "group": "pstack",
       "files": 5,
-      "sha256": "49cd543b8b87a24ba83571128fb7dd06494ddba43e5447f3c2ed5f593ac3a6d1"
+      "sha256": "9c0d82454c336a33529ac239c127f843662ce8d66a268880d959ec1d1462191f"
+    },
+    "ketchup": {
+      "group": "pstack",
+      "files": 1,
+      "sha256": "7bb9cac3d47d8952c05586ebadebe93b8ef90fd094d1a46c5eb6067b3c550d5f"
     },
     "maintain-verification-skill": {
       "group": "pstack",
@@ -133,17 +151,17 @@
     "no-comments": {
       "group": "pstack",
       "files": 2,
-      "sha256": "67b670d8f115c262ca9de6e089d2281aa53b8b8829a766604ab1cd40477d624d"
+      "sha256": "60119b0d741a2ff0e563cd54899bd8b9ff1f988e8820b98499b03fd9d6e2f534"
     },
     "poteto-help": {
       "group": "pstack",
       "files": 3,
-      "sha256": "7df231648fcd5ad3a1c51575d61a44ed837b24007b4a7c396ff8eecc857cce1a"
+      "sha256": "8e1337d96b741d2c0c9a551202afc4a2c4085b1e63796c87ae0268336a1b4461"
     },
     "poteto-mode": {
       "group": "pstack",
-      "files": 45,
-      "sha256": "eafa51147c738f81c6aa690929cab40e6b320b55d66db2a7cd87403e956763ad"
+      "files": 46,
+      "sha256": "928efc124f0f56740ea1aa3397c3e7caf2ae39670cd974489c69c2e974989fc2"
     },
     "principle-attack-the-premise": {
       "group": "pstack",
@@ -158,17 +176,17 @@
     "principle-build-the-lever": {
       "group": "pstack",
       "files": 1,
-      "sha256": "5024609447675ea04f20c9e00d7046a30c1bd8e4eb60073f0e1e9bc124b7efff"
+      "sha256": "c1c3bda363eb1f51732f075510366ca9a7f988316e98fa2a3de2ec1a39212740"
     },
     "principle-encode-lessons-in-structure": {
       "group": "pstack",
       "files": 1,
-      "sha256": "6551c3dabd2f010d0e4212fbc886e37cf42857946c48e331ef999a5420335aa2"
+      "sha256": "4bd6a12f893f5e592ef678da30299e1d268e9fe42e732a4bb6fde621f1fad029"
     },
     "principle-exhaust-the-design-space": {
       "group": "pstack",
       "files": 1,
-      "sha256": "51658c5aabb7fe79ca0860ced87a4034d377d266d0e9220f51f233771bfca8d8"
+      "sha256": "706fbcf571e4f5075f4d15176a95f4e6344d86916faee17295230497cebc4610"
     },
     "principle-experience-first": {
       "group": "pstack",
@@ -178,12 +196,12 @@
     "principle-explain-the-number": {
       "group": "pstack",
       "files": 1,
-      "sha256": "5ec02ebd13cc98a465970a7ed90dc0386dd59be66d43b36cdf9c6c04bd1f13ea"
+      "sha256": "4c889eb98d5c25f0862f1eae54d83b37a1d1f3eb65c5da7ff3e2805d358bd683"
     },
     "principle-fix-root-causes": {
       "group": "pstack",
       "files": 1,
-      "sha256": "d8c08e6ab65d1c6502e9539048b047bdc0e29c2efe53348043d64df31992191b"
+      "sha256": "ed50c6ee229de88baa566ad66b4ea6f9b6a17531b2f05bc84bd1c5c3d55bafc2"
     },
     "principle-foundational-thinking": {
       "group": "pstack",
@@ -193,12 +211,12 @@
     "principle-guard-the-context-window": {
       "group": "pstack",
       "files": 1,
-      "sha256": "723614be54d89dd4cc8ef97988c47b713cd81008ff300b829dc7a37b7df5aa79"
+      "sha256": "3084202920fd1fb2a79c1344e7cfca1976a2f0a258a67dbbd81a7576b7f79cbd"
     },
     "principle-laziness-protocol": {
       "group": "pstack",
       "files": 1,
-      "sha256": "1284cbac89390acd4a99e6d2263e10ac2831b4f492dbe23e353d5ec9cbd57721"
+      "sha256": "9b3e0e54b9614e588bc09030067e547d2dc7d452179501a6131279ebc637ca1f"
     },
     "principle-make-operations-idempotent": {
       "group": "pstack",
@@ -213,17 +231,17 @@
     "principle-minimize-reader-load": {
       "group": "pstack",
       "files": 1,
-      "sha256": "e7e5deb0921041061354eb22a98dd73f99abaf60be5c57bbd050a3317a5d60f1"
+      "sha256": "b3807d4518a1a6d2b6dd8f31f35b829aef0ae05edd09bc7b822b27b4f74f4688"
     },
     "principle-model-the-domain": {
       "group": "pstack",
       "files": 1,
-      "sha256": "a79be80f53ac9949c1baf2e69e30ce53a790b06d5133b9dfc8769ad09ff60561"
+      "sha256": "dbb9948e61d277fd88b1959a27b8eed5c996436bb115cb4b1a04dbd58a1dba60"
     },
     "principle-never-block-on-the-human": {
       "group": "pstack",
       "files": 1,
-      "sha256": "c9e012a3466a616dd644de041d3bbdbfc50f04bf7942bb000a59add8a9ac02c0"
+      "sha256": "d7eb95f91d1b8e3990548975df76d751244601687268a66b406819335587faf6"
     },
     "principle-outcome-oriented-execution": {
       "group": "pstack",
@@ -238,7 +256,7 @@
     "principle-redesign-from-first-principles": {
       "group": "pstack",
       "files": 1,
-      "sha256": "bac696a5b1643d0a8489f6ec062e8c5d3ce2384c2853df9c8c5e784c74d76c72"
+      "sha256": "79d3c9a3472b700a2cf8a6eddc0316802ad5ba3188f9193930cb04b53dcdeba7"
     },
     "principle-separate-before-serializing-shared-state": {
       "group": "pstack",
@@ -253,17 +271,17 @@
     "principle-subtract-before-you-add": {
       "group": "pstack",
       "files": 1,
-      "sha256": "0cdc458d9e27192abf6de6fba5ad42a9293c7ec700ca63d19c56aacfc9884b1e"
+      "sha256": "2dc9f4a455caf18796d9c5bbd85a8e7d3f028797f560558d9f017055e72fd548"
     },
     "principle-test-behavior-not-implementation": {
       "group": "pstack",
       "files": 1,
-      "sha256": "a80cb9d116c8262aba52c0a6ecb69cdd2676ed5399affa3656f7303e9bd6275f"
+      "sha256": "5156e914bfdfdb8b4dbea09e0f85e725aa9f2653737d6211f117b5fd13e1ec87"
     },
     "principle-type-system-discipline": {
       "group": "pstack",
       "files": 1,
-      "sha256": "97e28237c4dae05eb5de412cc0e092de41ee3dbd9c8052d68a25bd2ae4f364f1"
+      "sha256": "b6f8a50deaf1cf9f0479fa5f3f162e6ec2f3d8a109b839b217633f2843c808a7"
     },
     "recall": {
       "group": "pstack",
@@ -273,7 +291,7 @@
     "reflect": {
       "group": "pstack",
       "files": 5,
-      "sha256": "5b1ce53df57a0291cb8534e4aa12b3573da96d39dde1647772320193493e80fa"
+      "sha256": "2b04c78c48a099e280d3a76f4775be4eb3b89a35d51f495c9b510e0442bcd3b8"
     },
     "setup-pstack": {
       "group": "pstack",
@@ -303,7 +321,7 @@
     "technical-writing": {
       "group": "pstack",
       "files": 1,
-      "sha256": "692c5a2d68b1101cdd7db12de1a7e85444192d71ac86728e9521c580855ea2ca"
+      "sha256": "af6c853ba79c099f9af50c74da7a2336f2ee1b47825a56db794274e466d09f9b"
     },
     "typescript-best-practices": {
       "group": "pstack",
@@ -313,12 +331,12 @@
     "unslop": {
       "group": "pstack",
       "files": 1,
-      "sha256": "b5ecb51b7228b2e9957c804a2ec7a55279c6221768f2360ef491eaf2b1f1f39f"
+      "sha256": "17a8344c39f122b0a4d8d6d15f2ee99c2e985b19e6692a0d2ceb96f9e48ae254"
     },
     "why": {
       "group": "pstack",
       "files": 13,
-      "sha256": "57ccd1c11eddc5aa07d88e8d2438b5800bafedfb1e44ca4f8b35226e8cee7782"
+      "sha256": "b7a19d41b60c3ecf74c386ab4d4edcbcc648feb33075fb3e61ddb55e097928fa"
     }
   }
 }

@@ -18,25 +18,26 @@ Run them from the worktree root, or by absolute path from anywhere. `receipt` is
 
 | Component | Source | Version or revision | Access and license |
 | --- | --- | --- | --- |
-| pstack skill bundle: `poteto-mode` and 50 companion skills | [`backnotprop/pstack`](https://github.com/backnotprop/pstack), designated by the user on 2026-10-08. It is a harness-neutral mirror of [`cursor/plugins/pstack`](https://github.com/cursor/plugins/tree/main/pstack). Installed in `~/.agents/skills/`; `~/.claude/skills/*` are symlinks into it. | 0.15.15, revision `3a604672c46cd8187d2b19980eae0a34f9f91138` (2026-10-07), which mirrors `cursor/plugins/pstack@ccb5507` (short ID as the mirror records it; upstream-branch commit `4aed5afa251ea30ebcd694f894687301ee8bc1b3`, merged on `main` in `1edf0a5cf2337f69ca81cc65cbdcac7a4ffe29dd`). Pinned per skill by content hash in `scripts/agent-tools/skills.lock.json`. | MIT, Copyright (c) 2026 Lauren Tan. Public; no credentials. |
+| pstack skill bundle: `poteto-mode` and 52 companion skills | [`backnotprop/pstack`](https://github.com/backnotprop/pstack), designated by the user on 2026-10-08. It is a harness-neutral mirror of [`cursor/plugins/pstack`](https://github.com/cursor/plugins/tree/main/pstack). Installed in `~/.agents/skills/` with the [skills CLI](#install-and-update-the-global-skills); agent skill directories such as `~/.claude/skills/` hold symlinks into it. | 0.15.23, revision `1f0f9c3bac03c4297f6fc8f7644fa412eda57085` (2026-10-13), which mirrors `cursor/plugins/pstack@837067b` (short ID as the mirror records it; upstream-branch commit `c3ed187a`, merged on `main` in `1f0f9c3bac03`). Pinned per skill by content hash in `scripts/agent-tools/skills.lock.json`. | MIT, Copyright (c) 2026 Lauren Tan. Public; no credentials. |
 | `poteto-mode/scripts/check-plan.mjs` | Same bundle. | Pinned with `poteto-mode`. Dependency-free Node ESM. | Same. |
-| Matt Pocock skills (`ask-matt`, `domain-modeling`, `codebase-design`) | `~/.agents/skills/`. The files name no upstream. | Pinned by content hash in the same lock. | Not recorded. |
+| Matt Pocock skills (`ask-matt`, `domain-modeling`, `codebase-design`) | [`mattpocock/skills`](https://github.com/mattpocock/skills), paths `skills/engineering/NAME`, as `~/.agents/.skill-lock.json` records. Installed in `~/.agents/skills/` with the skills CLI. | Revision `49dd158d1076134a641b33efb035946536778336` (2026-10-09). Pinned by content hash in the same lock; `provenance.matt-pocock` holds the reproduce command. | MIT, Copyright (c) 2026 Matt Pocock. Public; no credentials. |
 | `scripts/planning/check.py`, `generate.py` | This repository. | Git revision. | Repository. |
 | Bun, the app toolchain | The user's choice of 2026-10-08 (`AGENTS.md`, App toolchain). On `puk` it comes from the official installer at <https://bun.sh>, in `~/.bun/bin`, and `bun` and `bunx` are linked into `~/.local/bin`. Arch Linux packages it as `bun` in `extra`. | Stable 1.4.2, the minimum the doctor accepts; see [Bun](#bun). Upgrade with `bun upgrade --stable` (`pacman -Syu bun` for the package). The pin moves only with a reviewed commit. | MIT for Bun's own code; bundled components keep their licenses. Public; no credentials. |
 | Runtimes | System packages. | bash >= 4.4, Python >= 3.10, Node.js >= 18, git, and Bun as above. Tested with bash 5.3, Python 3.14, Node 26.10, git 2.56 and Bun 1.4.2 on CachyOS. | Distribution packages. |
 
 How the pstack pin was established:
 
-- At the pinned revision, `.cursor-plugin/plugin.json` names `pstack` 0.15.15 by Lauren Tan under the MIT license, and `LICENSE` is the MIT license. `MIRROR.md` explains the mirror: branch `upstream` holds Cursor's files verbatim, and `main` is `upstream` plus the mirror's harness-neutral edits.
-- All 51 skills in the revision's `skills/` are installed in `~/.agents/skills/` and byte-identical. The relock worker compared them with `diff -rq` from a fresh clone on 2026-10-09, after the host bundle changed in place at 07:20 SAST, and checked every commit of `main` and `upstream`: only `3a604672c46c` matches. The record is `.orchestration/reports/CC-27/pstack-provenance-20261009.txt`.
-- Every upstream skill at that revision is installed and pinned. The relock added `benchmark-checklist`, `correct` and `principle-explain-the-number`, which the earlier pin left uninstalled, and `poteto-help`, new in 0.15.15.
+- At the pinned revision, `.cursor-plugin/plugin.json` names `pstack` 0.15.23 by Lauren Tan under the MIT license, and `LICENSE` is the MIT license. `MIRROR.md` explains the mirror: branch `upstream` holds Cursor's files verbatim, and `main` is `upstream` plus the mirror's harness-neutral edits.
+- All 53 skills in the revision's `skills/` are installed in `~/.agents/skills/` on `archlinux` and byte-identical. On 2026-10-15 the maintenance worker updated them with the skills CLI and compared them with `diff -rq` against a fresh clone. `1f0f9c3bac03` was `main` HEAD.
+- Before that update, every installed skill matched the Git tree hash the skills CLI had recorded for it, so the update overwrote no local edit. Every pstack skill on `archlinux` then matched 0.15.9.
+- Every upstream skill at that revision is installed and pinned. The relock added `in-your-own-words` and `ketchup`, new since 0.15.15.
 - `tdd` belongs to pstack, not to the Matt Pocock skills.
-- The previous pin was 0.15.9, revision `124f622bcaeac490e7e9dac6af83f3ef9611d554`, which matched 47 installed skills on 2026-10-08. `3a604672c46c` was `main` HEAD when the relock worker checked it.
+- The previous pins were 0.15.15, revision `3a604672c46cd8187d2b19980eae0a34f9f91138`, set on `puk` on 2026-10-09 (record: `.orchestration/reports/CC-27/pstack-provenance-20261009.txt`), and before it 0.15.9, revision `124f622bcaeac490e7e9dac6af83f3ef9611d554`. `puk` keeps 0.15.15 until someone updates it the same way, and its doctor fails on the pin until then.
 
 The lock's `provenance.pstack` block records the same facts. Its reproduce command prints nothing when the install matches:
 
 ```sh
-git clone https://github.com/backnotprop/pstack.git p && git -C p worktree add ../p3a6 3a60467 && for d in p3a6/skills/*/; do n=$(basename $d); [ -e ~/.agents/skills/$n ] && diff -rq $d ~/.agents/skills/$n; done
+git clone https://github.com/backnotprop/pstack.git p && git -C p worktree add ../p1f0 1f0f9c3 && for d in p1f0/skills/*/; do n=$(basename $d); [ -e ~/.agents/skills/$n ] && diff -rq $d ~/.agents/skills/$n; done
 ```
 
 `scripts/agent-tools/verify pstack-upstream --checkout DIR` makes the same comparison from the pinned revision's Git objects in any clone that contains it, so files in the clone's working tree do not count. Like the pin, and unlike the reproduce command, it skips `node_modules`, `__pycache__` and `.DS_Store`. It also checks the lock and writes a receipt. Install pstack only from this source; do not install a package merely because it is named pstack.
@@ -51,7 +52,9 @@ Prerequisites are bash, git, python3 and node on a standard PATH such as `/usr/l
 
 ```sh
 sudo pacman -S --needed bash git python nodejs bun
-rsync -a puk:.agents/skills/ ~/.agents/skills/   # or another host that holds the pinned bundle
+npx -y skills@1.7.2 add backnotprop/pstack -g -y -a AGENTS -s '*'   # AGENTS: the agents you use, e.g. claude-code codex
+npx -y skills@1.7.2 add mattpocock/skills -g -y -a AGENTS -s ask-matt domain-modeling codebase-design
+scripts/ci/install-chrome.sh   # the Chromium that CI and verify app use
 scripts/agent-tools/bootstrap
 ```
 
@@ -64,13 +67,26 @@ To use a bundle elsewhere, pass `--skills-dir DIR` to any command or set `CLEARC
 The doctor fails and names each pinned skill whose installed content differs from the pin, so a bundle change cannot pass unnoticed. To move pstack to a new upstream revision:
 
 1. Clone the upstream at that revision: `git clone https://github.com/backnotprop/pstack.git .local/pstack-upstream && git -C .local/pstack-upstream checkout --detach REV`. `.local/` is ignored.
-2. Install the revision's skills on the host one directory per skill, for example `rsync -a --delete .local/pstack-upstream/skills/NAME/ ~/.agents/skills/NAME/`. Never use `--delete` on `~/.agents/skills` itself, because it holds other skills. The tools never write there.
+2. Install the revision's skills on the host with the skills CLI, as [Install and update the global skills](#install-and-update-the-global-skills) describes. The CLI installs upstream `main` HEAD, so clone the same revision in step 1. The tools never write to `~/.agents/skills`.
 3. Compare the install with `diff -rq`, as in the reproduce command above. It must print nothing.
 4. Run `scripts/agent-tools/bootstrap --relock --checkout .local/pstack-upstream`. It reads the skills at the checkout's HEAD from Git objects. It refuses a path without a Git HEAD that carries `.cursor-plugin/plugin.json`, a checkout none of whose skills is installed, and an install that differs from HEAD. It also refuses to remove a pstack pin that the checkout does not install unless you pass `--allow-drop`. Otherwise it pins every installed skill of the checkout as group `pstack` and rehashes the other pins. It prints the revision, the skills it added, moved to `pstack` or removed, the upstream skills that are not installed, and whether HEAD differs from `provenance.pstack.revision`.
 5. Edit `provenance.pstack` in `skills.lock.json` (revision, its date and subject, version, license, `mirrorOf`, `notInstalled`, `checkedAt` and `checks`) and the table above. Provenance is never written automatically.
 6. Run `scripts/agent-tools/verify pstack-upstream --checkout .local/pstack-upstream` and `scripts/agent-tools/doctor`. Both must pass. Commit the lock and this document through a reviewed pull request into `dev`.
 
-For a skill with no recorded upstream, such as the Matt Pocock skills, review the installed change and run `bootstrap --relock` without `--checkout`. That rehashes the existing pins and changes no membership. A pin change is a reviewed repository change, never an automatic one.
+For a skill outside pstack, such as the Matt Pocock skills, compare the installed change with its upstream, update its block under `provenance`, and run `bootstrap --relock` without `--checkout`. That rehashes the existing pins and changes no membership. A pin change is a reviewed repository change, never an automatic one.
+
+### Install and update the global skills
+
+The skills CLI ([`vercel-labs/skills`](https://github.com/vercel-labs/skills), npm package `skills`) owns `~/.agents/skills`. It records each skill's source repository, path and Git tree hash in `~/.agents/.skill-lock.json`, and it links the skills into the skill directory of each agent the user selected. Skills it did not install, such as the user's own symlinks, are not in that file, and it leaves them alone. Version 1.7.2 was used on 2026-10-15.
+
+1. Back up `~/.agents` and the agent skill directories that link into it, for example with `tar -cf` of `~/.agents` and every directory that `find ~ -maxdepth 4 -type l -lname '*/.agents/skills/*'` finds.
+2. Check that no installed skill was edited by hand. For each entry in `~/.agents/.skill-lock.json`, the Git tree hash of the installed directory must equal `skillFolderHash`. The update overwrites a skill without checking.
+3. Update every recorded skill: `DO_NOT_TRACK=1 DISABLE_TELEMETRY=1 npx -y skills@1.7.2 update -g -y`. It updates in place, keeps the user's agent links, and does not reinstall skills the user deleted.
+4. Add what `update` cannot: skills new upstream, and skills that upstream renamed. `update` fails, with exit 1, on a lock entry whose recorded name no longer exists upstream; 0.15.15 renamed `Poteto Mode` and `Make Bot UI` to `poteto-mode` and `make-bot-ui`. Run `npx -y skills@1.7.2 add backnotprop/pstack -g -y -a AGENTS -s NAME...`, where AGENTS is `lastSelectedAgents` from the lock file. Without `-a`, `add` links the skills into every agent the CLI knows.
+5. After `add` has recorded a renamed skill under its new name, delete the old entry from `~/.agents/.skill-lock.json`. Do not run `skills remove` on the old name, because it removes the directory that both names share.
+6. Compare the result with the upstream clone (`diff -rq`), then relock as above.
+
+The T3 Code plugin `t3-pstack` (a pstack variant from [`chhoumann/t3-pstack`](https://github.com/chhoumann/t3-pstack), cached under `~/.codex/plugins/cache/t3-pstack/`) is a separate distribution that T3 Code installs and updates. The project does not pin it, and the doctor does not check it.
 
 To remove, run `scripts/agent-tools/bootstrap --remove`. It deletes only `.local/agent-tools/`. Receipts in `.local/agent-receipts/` and the global skills stay.
 

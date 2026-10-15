@@ -101,15 +101,37 @@ export async function readCentralDirectory(fh: FileHandle, L: Limits): Promise<Z
     const flags = cd.readUInt16LE(p + 8);
     const method = cd.readUInt16LE(p + 10);
     const crc = cd.readUInt32LE(p + 16);
-    const csize = cd.readUInt32LE(p + 20);
-    const usize = cd.readUInt32LE(p + 24);
+    let csize = cd.readUInt32LE(p + 20);
+    let usize = cd.readUInt32LE(p + 24);
     const nlen = cd.readUInt16LE(p + 28), xlen = cd.readUInt16LE(p + 30), clen = cd.readUInt16LE(p + 32);
-    const startDisk = cd.readUInt16LE(p + 34);
+    let startDisk = cd.readUInt16LE(p + 34);
     const ext = cd.readUInt32LE(p + 38);
-    const loff = cd.readUInt32LE(p + 42);
+    let loff = cd.readUInt32LE(p + 42);
     if (p + 46 + nlen + xlen + clen > cd.length) throw new ZipError('ARC_MALFORMED', 'central directory entry overruns');
     if (nlen > L.archiveNameBytes) throw new ZipError('ARC_LIMIT', 'entry name too long');
     const name = decodeName(cd.subarray(p + 46, p + 46 + nlen), (flags & 0x800) !== 0);
+    // A zip64 extended-information extra field (APPNOTE 4.5.3) carries, in this order, only the fields the fixed
+    // record marks with 0xffffffff (or 0xffff for the disk): some archivers (Google Drive's among them) use it for
+    // entries past 2 GB even in archives under 4 GB. Read it; a zip64 end-of-central-directory is still refused above.
+    const extra = cd.subarray(p + 46 + nlen, p + 46 + nlen + xlen);
+    for (let q = 0; q + 4 <= extra.length; ) {
+      const id = extra.readUInt16LE(q), len = extra.readUInt16LE(q + 2);
+      if (q + 4 + len > extra.length) throw new ZipError('ARC_MALFORMED', 'extra field overruns', name);
+      if (id === 0x0001) {
+        let r = q + 4;
+        const take64 = (what: string): number => {
+          if (r + 8 > q + 4 + len) throw new ZipError('ARC_MALFORMED', `zip64 extra field lacks ${what}`, name);
+          const v = extra.readBigUInt64LE(r); r += 8;
+          if (v > BigInt(Number.MAX_SAFE_INTEGER)) throw new ZipError('ARC_LIMIT', `${what} beyond the supported range`, name);
+          return Number(v);
+        };
+        if (usize === 0xffffffff) usize = take64('uncompressed size');
+        if (csize === 0xffffffff) csize = take64('compressed size');
+        if (loff === 0xffffffff) loff = take64('local header offset');
+        if (startDisk === 0xffff) { if (r + 4 > q + 4 + len) throw new ZipError('ARC_MALFORMED', 'zip64 extra field lacks the disk number', name); startDisk = extra.readUInt32LE(r); r += 4; }
+      }
+      q += 4 + len;
+    }
     p += 46 + nlen + xlen + clen;
     if (startDisk !== 0) throw new ZipError('ARC_UNSUPPORTED', 'multi-disk entry', name);
     if (flags & 0x1) throw new ZipError('ARC_UNSUPPORTED', 'encrypted entry', name);

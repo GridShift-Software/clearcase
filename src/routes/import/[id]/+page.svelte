@@ -11,10 +11,12 @@
 </script>
 
 <main id="main" tabindex="-1" data-ready="import:{data.imp.id}" data-verdict={r.verdict}>
-	<PageHeader heading="Validation report: import #{data.imp.id}" section="Validation report #{data.imp.id}" {caseName} status={r.verdict} subtitle="Verdict {r.verdict.toUpperCase()} · validated in {r.ms} ms by {r.validatorVersion || 'the importer'}" />
+	<PageHeader heading="Validation report: import #{data.imp.id}" section="Validation report #{data.imp.id}" {caseName} status={r.verdict} subtitle="Verdict {r.verdict.toUpperCase()} · validated in {r.ms} ms by {r.validatorVersion || 'the importer'}">
+		{#snippet actions()}<span class="badge {r.verdict === 'accept' ? 'b-ok' : r.verdict === 'reject' ? 'b-dang' : 'b-warn'}" id="verdict-badge">{r.verdict}</span>{/snippet}
+	</PageHeader>
 	{#if data.noop}<p class="card" id="noop-msg">This exact package (same results version, byte-identical manifest and files, same case folder) is already stored as import #{data.imp.id} and still verifies. Nothing was written.</p>{/if}
 	{#if data.repaired}<p class="card" id="repaired-msg">The stored copy of this results version failed verification; it was rebuilt from this freshly validated package in one transaction.</p>{/if}
-	<p>Package <code class="wrap">{data.imp.packageSource}</code> against case folder <code class="wrap">{data.imp.caseFolder}</code>.</p>
+	<p class="meta">Package <code class="wrap">{data.imp.packageSource}</code> against case folder <code class="wrap">{data.imp.caseFolder}</code>.</p>
 	{#if rv}<p>Case <strong class="wrap">{caseName}</strong> (<code class="wrap">{r.caseId}</code>), results version <code id="results-version" class="wrap">{rv}</code>, manifest sha256 <code>{r.manifestSha256?.slice(0, 16)}…</code>.</p>{/if}
 
 	{#if r.verdict === 'reject'}
@@ -28,7 +30,7 @@
 			<h2 id="candidate-heading">Candidate</h2>
 			<p>Stored as a candidate. It is <strong id="active-state">{data.active === data.vid ? 'ACTIVE' : 'not active'}</strong>{data.active && data.active !== data.vid ? `; the active version is ${data.active}` : ''}.
 				Stored copy: <span class={data.check?.ok ? 'ok' : 'unresolved'} id="verify-state">{data.check?.ok ? 'verified' : `FAILED (${data.check?.reason})`}</span>.</p>
-			<p><a href="{versionPath(data.vid)}/overview" id="preview">Preview the candidate</a> (read-only; previewing never activates it).</p>
+			<p class="actions"><a class="btn" href="{versionPath(data.vid)}/overview" id="preview">Preview the candidate</a> <span class="muted">(read-only; previewing never activates it)</span></p>
 			{#if data.active !== data.vid}
 				<form method="POST" action="?/activate" id="activate-form" onsubmit={() => { busy = true; }}>
 					<input type="hidden" name="resultsVersion" value={rv} />
@@ -42,7 +44,7 @@
 						<p>All {plural(r.warnings, 'warning')} were already accepted for this case; no acknowledgement is needed.</p>
 					{/if}
 					<p><small>Activation re-checks the stored bytes, revalidates every original in the case folder and the acknowledgement, then switches the active version. It takes a few seconds; on any failure nothing changes.</small></p>
-					<button id="activate" disabled={busy}>Activate this version</button>
+					<button id="activate" class="primary" disabled={busy}>Activate this version</button>
 				</form>
 			{/if}
 			{#if form?.message}<p class="error" id="activate-error" role="alert" data-reasons={(form.reasons ?? []).join(' ')}>{form.message}</p>{/if}

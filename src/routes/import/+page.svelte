@@ -77,20 +77,29 @@
 	<PageHeader heading="Open a case" section="Import results" />
 	<div class="card">
 		<form method="POST" action="?/importCase" use:enhance={track('case')} id="import-case-form">
-			<p class="field"><label for="case-name">Case name</label><input id="case-name" name="caseName" bind:value={caseName} oninput={() => { nameEdited = true; }} placeholder="New case name" autocomplete="off" /></p>
-			<section aria-labelledby="documents-heading">
-				<h3 id="documents-heading">Documents</h3>
+			<div class="step">
+				<span class="step-n" aria-hidden="true">1</span><label for="case-name" class="step-h">Case name</label>
+				<p class="field"><input id="case-name" name="caseName" bind:value={caseName} oninput={() => { nameEdited = true; }} placeholder="New case name" autocomplete="off" /></p>
+			</div>
+			<section class="step" aria-labelledby="documents-heading">
+				<span class="step-n" aria-hidden="true">2</span><h3 id="documents-heading">Documents</h3>
 				<p class="muted">Choose the case pack as you received it (a .zip), or the folder it was extracted to. ClearCase processes it on this computer; nothing is uploaded.</p>
 				{#if caseSource}<p>Case pack: <strong class="wrap" id="chosen-case">{tilde(caseSource)}</strong></p>{/if}
 				<p><button type="button" class="secondary" id="add-documents" onclick={(e) => pick('case', e)}>{caseSource ? 'Change documents' : 'Add documents'}</button></p>
 			</section>
-			<p class="muted">Stored in <strong class="wrap" id="chosen-destination">{tilde(effectiveDestination)}</strong> <button type="button" class="secondary" id="change-destination" onclick={(e) => pick('destination', e)}>Change</button></p>
+			<div class="step">
+				<span class="step-n" aria-hidden="true">3</span><h3>Where to store it</h3>
+				<p class="muted">Stored in <strong class="wrap" id="chosen-destination">{tilde(effectiveDestination)}</strong> <button type="button" class="secondary sm" id="change-destination" onclick={(e) => pick('destination', e)}>Change</button></p>
+			</div>
 			<input type="hidden" name="caseSource" value={caseSource} />
 			<input type="hidden" name="destination" value={effectiveDestination} />
 			{#if form?.packMessage}<p class="error wrap" role="alert" id="import-case-error">{form.packMessage}</p>{/if}
-			<p><button class="primary" disabled={!!busy || !caseSource} id="import-case">Open case</button></p>
-			{#if busy === 'case'}<p class="status-row"><span class="pill" id="import-case-stage">{stage}</span> <span class="muted" id="import-case-progress" role="status">{progress || 'starting…'}</span></p>{/if}
-			<p class="muted"><small>Open case extracts the pack if it is a .zip, converts the case's workspace HTML and checks every original, then shows the report. The active case changes only when you activate the new version.</small></p>
+			<div class="step">
+				<span class="step-n" aria-hidden="true">4</span><h3>Open the case</h3>
+				<p><button class="primary" disabled={!!busy || !caseSource} id="import-case">Open case</button></p>
+				{#if busy === 'case'}<div class="progress" aria-hidden="true"></div><p class="status-row"><span class="pill" id="import-case-stage">{stage}</span> <span class="muted" id="import-case-progress" role="status">{progress || 'starting…'}</span></p>{/if}
+				<p class="muted"><small>Open case extracts the pack if it is a .zip, converts the case's workspace HTML and checks every original, then shows the report. The active case changes only when you activate the new version.</small></p>
+			</div>
 		</form>
 		{#if busy || data.running}
 			<form method="POST" action="?/cancel" use:enhance><button class="secondary" id="cancel-import">Cancel the running import</button></form>
@@ -111,15 +120,17 @@
 			{/if}
 		{/if}
 	</dialog>
-	<h2>Already have a results package?</h2>
+	<section class="card alt-import" aria-labelledby="package-heading">
+	<h2 id="package-heading">Already have a results package?</h2>
 	<form method="POST" action="?/import" use:enhance={track('package')} id="import-form">
 		<p><label for="caseFolder">Case folder (the folder with the originals)</label><br /><input id="caseFolder" name="caseFolder" size="100" value={form?.caseFolder ?? ''} required autocomplete="off" /></p>
 		<p><label for="packageSource">Results package (folder or .zip)</label><br /><input id="packageSource" name="packageSource" size="100" value={form?.packageSource ?? ''} required autocomplete="off" /></p>
 		{#if form?.message}<p class="error" role="alert">{form.message}</p>{/if}
 		<button disabled={!!busy} id="validate">Validate package</button>
-		{#if busy === 'package'}<span id="import-progress" role="status">{progress || 'validating…'}</span>{/if}
+		{#if busy === 'package'}<span class="muted" id="import-progress" role="status">{progress || 'validating…'}</span>{/if}
 		<p><small>Validation reads the package and the referenced originals only, writes nothing into the case folder and never changes the active version. A valid package becomes a candidate you can preview and then activate.</small></p>
 	</form>
+	</section>
 	<h2>Previous imports</h2>
 	<TableScroll label="Previous imports"><table>
 		<thead><tr><th>#</th><th>When</th><th>Case</th><th>Results version</th><th>Verdict</th><th>Outcome</th></tr></thead>
@@ -134,23 +145,17 @@
 </main>
 
 <style>
-	/* production's new-case window (prod-inspo.md); muted text is #536477, not production's #8290a0, for 4.5:1 on white */
-	.import-page :global(h1) { font-family: Georgia, 'Times New Roman', serif; font-size: 36px; font-weight: 400; }
-	.card, .picker { background: #fff; color: #17212d; border: 1px solid #dce5ee; border-radius: 18px; padding: 24px; box-shadow: none; }
-	.card { max-width: 48rem; margin-bottom: 1.5rem; }
-	.card h3 { font-size: 15px; font-weight: 600; margin: 1rem 0 0.25rem; }
-	.muted { color: #536477; }
-	.field label { display: block; font-weight: 500; margin-bottom: 0.25rem; }
-	.field input { width: min(100%, 28rem); box-sizing: border-box; background: #fff; border: 1px solid #dce5ee; border-radius: 10px; padding: 8px 12px; font: inherit; color: #17212d; }
-	.primary, .secondary { border-radius: 10px; padding: 8px 16px; font: inherit; font-weight: 500; cursor: pointer; }
-	.primary { color: #fff; border: 1px solid #0a1c34; background: linear-gradient(#1a4372 0%, #102b4e 52%, #0a1c34 100%); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1), 0 1px 2px rgba(7, 20, 38, 0.28); }
-	.primary:disabled { background: #536477; border-color: #536477; cursor: not-allowed; }
-	.secondary { color: #17212d; background: transparent; border: 1px solid #dce5ee; }
-	.secondary:hover { border-color: #536477; }
-	.status-row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
-	.pill { font-size: 13px; color: #245f91; background: #eaf2fa; border-radius: 10px; padding: 4px 12px; }
-	.picker { width: min(56rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); box-sizing: border-box; overflow: auto; }
-	.picker::backdrop { background: rgba(23, 33, 45, 0.45); }
-	.picker-head { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; justify-content: space-between; }
+	/* production's new-case window (prod-inspo.md): a serif title over one large rounded card */
+	.import-page :global(h1) { font-family: var(--font-serif); font-size: 36px; font-weight: 400; }
+	.card, .picker { border-radius: var(--radius-lg); padding: 24px 28px; }
+	.card { max-width: 52rem; margin-bottom: 1.5rem; }
+	.alt-import { max-width: 52rem; }
+	.alt-import :global(h2) { margin-top: 0; }
+	.alt-import input { width: 100%; }
+	.field { margin: 0; }
+	.field input { width: min(100%, 28rem); }
+	.picker { width: min(64rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); overflow: auto; border: 1px solid var(--border); box-shadow: var(--shadow-md); }
+	.picker::backdrop { background: rgb(23 33 45 / 0.45); }
+	.picker-head { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; justify-content: space-between; margin-bottom: 8px; }
 	.picker-head h2 { font-size: 15px; font-weight: 600; margin: 0; }
 </style>

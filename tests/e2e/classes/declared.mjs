@@ -82,6 +82,7 @@ export const OTHER_ACTION_OFF = {
 
 /** Pages outside a case version: there is no case navigation to leave by and come back (class back). Checked: the url is not under /v/. */
 export const NO_BACK = {
+	'/cases': 'outside a case version there is no case navigation to leave by and come back',
 	'/import': 'outside a case version there is no case navigation to leave by and come back',
 	'/import/[id]': 'outside a case version there is no case navigation to leave by and come back',
 	'/recovery': 'outside a case version there is no case navigation to leave by and come back',

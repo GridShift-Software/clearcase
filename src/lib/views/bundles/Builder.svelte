@@ -214,24 +214,16 @@
 </section>
 
 <style>
-	.card { border: 1px solid #ddd; border-radius: 6px; padding: 12px; margin: 12px 0; }
-	.card.pad0 { padding: 0; }
-	.chead { font-weight: 700; padding: 8px 12px; }
 	.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
 	.toolbar.pad { padding: 0 12px; }
-	.toolbar.out { border-top: 1px solid #ddd; padding-top: 12px; }
-	.preview { margin-top: 12px; border: 1px solid #ddd; border-radius: 8px; overflow: hidden; }
+	.toolbar.out { border-top: 1px solid var(--border); padding: 12px 20px; }
+	.preview { margin-top: 12px; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
 	.preview iframe { display: block; width: 100%; height: 70vh; border: 0; }
 	.toolbar h2 { margin: 0; flex: 1; overflow-wrap: anywhere; }
-	.tbl { width: 100%; border-collapse: collapse; }
-	.tbl td, .tbl th { border-bottom: 1px solid #eee; padding: 4px 8px; text-align: left; vertical-align: top; }
-	.num { text-align: right; }
 	.nowrap { white-space: nowrap; }
 	.name { overflow-wrap: anywhere; }
-	.tag, .count { font-size: 0.85em; color: #555; overflow-wrap: anywhere; }
+	.tag, .count { overflow-wrap: anywhere; }
 	.need { margin-top: 10px; }
-	.badge { border-radius: 8px; padding: 1px 6px; font-size: 0.8em; }
-	.b-ok { background: #dcfce7; } .b-warn { background: #fef3c7; }
 	.seg { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 4px; }
 	.seg .file { max-width: min(230px, 100%); }
 	.seg .pg { width: 4.5em; text-align: right; }
@@ -239,16 +231,15 @@
 	#cbbfrom { max-width: min(320px, 100%); }
 	label.btn { cursor: pointer; }
 	.vh { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
-	label.btn:has(+ .vh:focus-visible) { outline: 2px solid #1d4ed8; }
-	.error { color: #b91c1c; }
-	.saving { color: #92400e; font-weight: 700; }
-	.empty { padding: 8px 0; color: #555; }
+	label.btn:has(+ .vh:focus-visible) { outline: 3px solid var(--focus); outline-offset: 2px; }
+	.saving { color: #8a5a0b; font-weight: 600; }
+	.empty { padding: 8px 0; }
 	/* narrow screens: each item stacks, so nothing scrolls sideways */
 	@media (max-width: 40rem) {
 		.items thead { display: none; }
 		.items tr, .items td { display: block; }
 		.items td.num { text-align: left; }
-		.items tr { border-bottom: 1px solid #ddd; padding: 6px 0; }
+		.items tr { border-bottom: 1px solid var(--border); padding: 6px 0; }
 		.items td { border: 0; }
 	}
 </style>

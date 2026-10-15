@@ -1,41 +1,21 @@
-/* Shared styles of the analysis views (GRS-15). Chips follow v5's badge colours; imported values stay text. */
-.an-card { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: .6rem .8rem; margin-bottom: 1rem; min-width: 0; }
-.an-card.pad0 { padding: 0; }
-.an-card h2 { font-size: 1.05rem; margin: .2rem 0 .5rem; }
-.an-card h3 { font-size: .95rem; margin: .8rem 0 .2rem; }
-.an-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 1rem; }
-.an-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: .75rem; margin-bottom: 1rem; }
-.an-kpis .kpi { background: #fff; border: 1px solid #ddd; border-radius: 6px; padding: .5rem .7rem; }
-.an-kpis .k { font-size: .8em; text-transform: uppercase; letter-spacing: .03em; color: #555; }
-.an-kpis .v { font-size: 1.6rem; font-weight: 700; font-variant-numeric: tabular-nums; }
-.an-kpis .s { font-size: .85em; color: #555; }
-.an-tag { color: #555; font-size: .9em; }
-.an-empty { color: #555; padding: 1rem; text-align: center; }
+/* Shared layout of the analysis views (GRS-15). Surfaces, badges and chips come from app.css; imported values stay text. */
+.an-card { margin-bottom: 16px; min-width: 0; }
+.an-card h3 { font-size: 14px; margin: 14px 0 4px; }
+.an-two { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 16px; }
+.an-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr)); gap: 16px; margin-bottom: 16px; }
 .an-scroll { overflow-x: auto; }
 .an-table { width: 100%; }
 /* A long imported word or URL (explanations, phase notes, narrative) breaks instead of scrolling the page sideways. */
 main[data-analysis] { overflow-wrap: anywhere; }
 .an-table th, .an-table td { overflow-wrap: break-word; }
-/* v5's table headings are upper case (.tbl th, text-transform); copied, as a cosmetic v5 behaviour. */
-.an-table th { text-transform: uppercase; letter-spacing: .04em; }
 .an-table td.num, .an-table th.num { white-space: nowrap; }
-.badge { display: inline-block; padding: 0 .4em; border-radius: 3px; font-size: .85em; font-weight: 600; background: #eceff3; color: #333; white-space: nowrap; }
-.badge.b-dang { background: #fde8e8; color: #8a1010; }
-.badge.b-warn { background: #fff1c2; color: #6a4b00; }
-.badge.b-ok { background: #e3f4e3; color: #1d5b1d; }
-.badge.b-info { background: #e3eefc; color: #0b3f7c; }
-.badge.b-mut { background: #eceff3; color: #444; }
-.chips { display: flex; flex-wrap: wrap; gap: .3rem; }
-.chips a.cite, .chips .cite-broken { font-size: .85em; padding: 0 .35em; border-radius: 3px; background: #e7edf6; white-space: nowrap; }
-.an-danger { color: #a01010; }
-.an-error { background: #fde8e8; border: 1px solid #e0a0a0; color: #7a1010; padding: .5rem .8rem; border-radius: 6px; }
 
 /* BA-21: below 40rem a table of this kind becomes one card per row, each cell labelled by its column, so nothing
    scrolls sideways; desktop widths keep the table. The labels are generated content, not page text. */
 @media (max-width: 40rem) {
 	.an-stack thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
 	.an-stack, .an-stack tbody, .an-stack tr, .an-stack td { display: block; width: auto; }
-	.an-stack tr { border: 1px solid #ddd; border-radius: 6px; margin: .5rem; padding: .3rem .5rem; background: #fff; }
+	.an-stack tr { border: 1px solid var(--border); border-radius: var(--radius); margin: .5rem; padding: .3rem .5rem; background: var(--surface); }
 	.an-stack td { border: 0; padding: .2rem 0; text-align: left; overflow-wrap: anywhere; }
 	.an-stack td.num { white-space: normal; }
 	/* Badges and citation chips wrap on a phone instead of pushing the page sideways; desktop widths keep them on one

@@ -11,6 +11,8 @@ export interface LocalCaseConfig {
 	originalsPort: number;
 	/** host name of the originals site: a site of its own, with its own cookie jar (RFC 6761 *.localhost) */
 	originalsHostname: string;
+	/** The origin written into originals links when the originals site is reached through a tunnel or proxy (ORIGINALS_PUBLIC_ORIGIN); null links to the site's own host */
+	originalsPublicOrigin: string | null;
 	/** never-activated candidates kept per case */
 	keepCandidates: number;
 	/** work.sqlite backups kept */
@@ -36,6 +38,15 @@ const int = (v: string | undefined, d: number, min = 0) => {
 	return n;
 };
 
+/** An http(s) origin with no path, query or fragment, or null. Anything else is refused loudly: a wrong value would put broken links on every document page. */
+export function publicOrigin(v: string | undefined): string | null {
+	if (!v) return null;
+	let u: URL;
+	try { u = new URL(v); } catch { throw new Error(`ORIGINALS_PUBLIC_ORIGIN is not a URL: ${v}`); }
+	if ((u.protocol !== 'http:' && u.protocol !== 'https:') || u.pathname !== '/' || u.search || u.hash || u.username) throw new Error(`ORIGINALS_PUBLIC_ORIGIN must be an http(s) origin such as https://example.test, not ${v}`);
+	return u.origin;
+}
+
 export function configFromEnv(env: Env = process.env): LocalCaseConfig {
 	const appPort = int(env.PORT, 41101, 1);
 	return {
@@ -43,6 +54,7 @@ export function configFromEnv(env: Env = process.env): LocalCaseConfig {
 		appPort,
 		originalsPort: int(env.ORIGINALS_PORT, appPort + 1, 1),
 		originalsHostname: env.ORIGINALS_HOSTNAME || 'clearcase-originals.localhost',
+		originalsPublicOrigin: publicOrigin(env.ORIGINALS_PUBLIC_ORIGIN),
 		keepCandidates: int(env.CLEARCASE_KEEP_CANDIDATES, 3, 1),
 		keepBackups: int(env.CLEARCASE_KEEP_BACKUPS, 10, 2),
 		userWorkBackupDelayMs: int(env.CLEARCASE_USERWORK_BACKUP_DELAY_MS, 3000),

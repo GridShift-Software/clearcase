@@ -49,11 +49,9 @@
 	/* a select takes the width of its longest option, so each cell may shrink below it and the select stops at its cell */
 	.row > div { min-width: 0; max-width: 100%; }
 	.row .in { max-width: min(28rem, 100%); }
-	.fld { display: block; font-size: .85em; color: #555; }
-	.tag, .coverage { color: #555; font-size: .9em; }
 	.files { margin-bottom: .6rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 	.diff-body { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
-	.diffdel { background: #fde8e8; color: #7a1010; text-decoration: line-through; }
-	.diffadd { background: #e3f4e3; color: #1d5b1d; }
+	.diffdel { background: var(--danger-bg); color: #7a2323; text-decoration: line-through; }
+	.diffadd { background: var(--ok-bg); color: #0f5e42; }
 	#diffOut { margin-top: 1rem; }
 </style>

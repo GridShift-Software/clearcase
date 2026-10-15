@@ -6,7 +6,7 @@
     "assets": {
       "additionalProperties": false,
       "patternProperties": {
-        "^(?:[A-Z]{1,8}-[0-9]{1,8}(?:\\.a[1-9][0-9]{0,3})?|P-[0-9a-f]{16})$": {
+        "^(?:[A-Z]{1,8}(?:-[A-Z][A-Z0-9]{0,7})?-[0-9]{1,8}(?:\\.a[1-9][0-9]{0,3})?|P-[0-9a-f]{16})$": {
           "anyOf": [
             {
               "additionalProperties": false,
@@ -21,7 +21,7 @@
                 },
                 "parentRef": {
                   "maxLength": 32,
-                  "pattern": "^[A-Z]{1,8}-[0-9]{1,8}$",
+                  "pattern": "^[A-Z]{1,8}(?:-[A-Z][A-Z0-9]{0,7})?-[0-9]{1,8}$",
                   "type": "string"
                 },
                 "path": {
@@ -96,7 +96,7 @@
                 },
                 "parentRef": {
                   "maxLength": 32,
-                  "pattern": "^[A-Z]{1,8}-[0-9]{1,8}$",
+                  "pattern": "^[A-Z]{1,8}(?:-[A-Z][A-Z0-9]{0,7})?-[0-9]{1,8}$",
                   "type": "string"
                 },
                 "sha256": {
@@ -156,7 +156,7 @@
                 },
                 "parentRef": {
                   "maxLength": 32,
-                  "pattern": "^[A-Z]{1,8}-[0-9]{1,8}$",
+                  "pattern": "^[A-Z]{1,8}(?:-[A-Z][A-Z0-9]{0,7})?-[0-9]{1,8}$",
                   "type": "string"
                 },
                 "path": {

@@ -226,25 +226,13 @@
 <style>
 	.grid.g12 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
 	@media (max-width: 40rem) { .grid.g12 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-	.kpi { border: 1px solid #ddd; border-radius: 6px; padding: 10px; overflow-wrap: anywhere; }
-	.kpi .k { font-size: 0.85em; color: #555; }
-	.kpi .v { font-size: 1.6em; font-weight: 700; }
-	.kpi .s { font-size: 0.8em; color: #555; }
-	.card { border: 1px solid #ddd; border-radius: 6px; padding: 12px; margin: 12px 0; }
-	.card.pad0 { padding: 0; }
 	#cb-bundle-h { overflow-wrap: anywhere; }
-	.chead { font-weight: 700; padding: 8px 12px; }
 	.row { display: flex; flex-wrap: wrap; gap: 10px; }
 	.fld { min-width: min(230px, 100%); flex: 1; display: flex; flex-direction: column; }
 	.fld.ml { min-width: min(320px, 100%); flex: 2; }
 	.toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 10px 0; }
-	.tbl { width: 100%; border-collapse: collapse; }
-	.tbl td, .tbl th { border-bottom: 1px solid #eee; padding: 4px 8px; text-align: left; vertical-align: top; }
-	.num { text-align: right; }
-	.ex, .tag { font-size: 0.85em; color: #555; overflow-wrap: anywhere; }
-	.badge { border-radius: 8px; padding: 1px 6px; font-size: 0.8em; }
-	.b-ok { background: #dcfce7; } .b-warn { background: #fef3c7; } .b-info { background: #dbeafe; }
-	.not-served { color: #92400e; font-style: italic; }
+	.ex, .tag { overflow-wrap: anywhere; }
+	.not-served { color: #8a5a0b; font-style: italic; }
 	.cbindex { font-family: Verdana, Geneva, sans-serif; font-size: 13px; line-height: 1.9; }
 	.cbindex p { margin: 0; font-weight: 700; }
 	.cbindex p.c { text-align: center; }
@@ -254,10 +242,8 @@
 	.cbixt { border-collapse: collapse; width: 100%; }
 	.cbixt td { border: 1px solid #000; padding: 6px 8px; font-weight: 700; vertical-align: top; }
 	.cbixt td.c { text-align: center; white-space: nowrap; }
-	.error { color: #b91c1c; }
-	.saving { color: #92400e; font-weight: 700; }
+	.saving { color: #8a5a0b; font-weight: 600; }
 	#cb-header[aria-busy='true'] .in { background: #fffbeb; }
-	.in.changed { border-color: #b45309; }
-	.conflict { border: 1px solid #b91c1c; border-radius: 6px; padding: 8px; margin: 6px 0; white-space: pre-line; }
-	.dup { margin-left: 4px; font-size: 0.8em; color: #92400e; background: #fef3c7; border-radius: 6px; padding: 0 4px; }
+	.in.changed { border-color: var(--warn); }
+	.conflict { border: 1px solid var(--danger); border-radius: var(--radius); padding: 8px; margin: 6px 0; white-space: pre-line; }
 </style>

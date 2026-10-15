@@ -21,8 +21,8 @@
 					{#each data.risks as r, i (i)}
 						<tr>
 							<td data-label="Issue">{r.issue}</td>
-							<td data-label="Likelihood"><span class="badge {riskTone(r.likelihood)}">{r.likelihood}</span></td>
-							<td data-label="Impact"><span class="badge {riskTone(r.impact)}">{r.impact}</span></td>
+							<td data-label="Likelihood"><span class="badge {riskTone(r.likelihood)}">{r.likelihood}{#if r.likelihoodScore !== null}{' '}({r.likelihoodScore}){/if}</span></td>
+							<td data-label="Impact"><span class="badge {riskTone(r.impact)}">{r.impact}{#if r.impactScore !== null}{' '}({r.impactScore}){/if}</span></td>
 							<td data-label="Mitigation">{r.mitigation}</td>
 						</tr>
 					{/each}

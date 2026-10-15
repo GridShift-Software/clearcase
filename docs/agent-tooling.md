@@ -96,6 +96,16 @@ The app builds and runs with Bun, so the doctor fails unless `bun --version` pri
 
 The doctor uses `CLEARCASE_BUN` when it is set, otherwise the `bun` on PATH. It fails, with a fix, when no bun is found, when the version is older than the minimum, and when `bun --version` does not print exactly one version. That means it fails when `--version` exits nonzero, writes anything to stderr, even with exit 0, or prints on stdout anything other than one line holding a version such as `1.4.2`. White space around that line is ignored; a second line is not. Versions compare as numbers, and a prerelease such as `1.4.2-canary.1` counts as older than `1.4.2`. The row names the bun it checked and where the minimum came from, and the receipt lists that bun's path and its whole stdout as the version.
 
+`verify app` and its live doctor need the pinned version exactly, not a newer one. When the host's `bun` is newer than the pin, install the pinned release next to it and select it for the run. `~/.bun` and the user's default `bun` stay as they are:
+
+```sh
+v=1.4.2 d=~/.local/share/bun-versions/1.4.2 t=$(mktemp -d)
+curl -fsSL -o $t/bun.zip https://github.com/oven-sh/bun/releases/download/bun-v$v/bun-linux-x64.zip
+curl -fsSL https://github.com/oven-sh/bun/releases/download/bun-v$v/SHASUMS256.txt | grep ' bun-linux-x64.zip$' | sed "s|bun-linux-x64.zip|$t/bun.zip|" | sha256sum -c -
+unzip -q $t/bun.zip -d $t && mkdir -p $d && install -m755 $t/bun-linux-x64/bun $d/bun && ln -sf bun $d/bunx
+export CLEARCASE_BUN=$d/bun PATH=$d:$PATH   # bun run --bun gate then runs under the pin too
+```
+
 To move the pin, run `bun upgrade --stable` (`pacman -Syu bun` for the distribution package) and record the `bun --version` it installs. Then change `packageManager` (and `MIN_BUN` with it) in a reviewed commit into `dev`. The tools never upgrade Bun or change the pin themselves.
 
 ## Entry points

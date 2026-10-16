@@ -1,0 +1,71 @@
+# Hosted alpha acceptance and operations — planning baseline
+
+Planning reference: `b93bad097fdd7b3c076d68025267c36395fc9921`.
+Updated 16 October 2026. No hosted acceptance evidence has been collected for this draft.
+
+## Authority and decision state
+
+[Chart the route from the ClearCase POC to hosted alpha](https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha) remains the implementation gate. The full written plan still needs user approval.
+
+[Define alpha acceptance, rollout and recovery](https://linear.app/vaper/issue/GRS-93/define-alpha-acceptance-rollout-and-recovery) holds the settled policy decisions, accepted answers and qualifications. This checklist is a planning baseline, not launch sign-off or permission to deploy.
+
+The initial operations answers are recorded in comment `401ed474-bc31-4378-bd0d-bd3a9aa8bb0f`; the recovery answers are recorded in comment `0edc3a04-237c-4dcc-8acb-942f2a6d2481`; the notification/deletion answers are recorded in comment `2a075945-47da-418f-b53e-8c596404d46a`; final operating ownership is recorded in comment `b2e82ad5-85b8-4fe9-a2a3-5cc18051ef90`. Later decisions in the issue supersede this snapshot.
+
+## Accepted operating policy
+
+| Area | Accepted direction | Treatment before alpha |
+| --- | --- | --- |
+| Rollout | Prefer one client first, review a real submission-to-publication/viewing/export cycle, then add the second. | Operating guidance only. Do not enforce a client-count cap or this sequence in code. |
+| Launch scope | Agreed workflows and required checks pass. Explicitly reviewed scope realignment near the deadline is allowed. | Update scope and acceptance together, then rerun affected checks. A failing, skipped, mocked or stale check is not a pass. |
+| Coverage | Manual processing/support Monday–Friday, 09:00–17:00 SAST; clients can use the app outside those hours. | Define operator coverage in the runbook. This does not settle a new processing-SLA clock. |
+| Processing target | Approximately 24–36 hours, with a fair metric to follow actual pilot timings. | Preserve submitted/readiness/wait/processing/review/publication measurements; refine the service promise later. |
+| Recovery time | Aim for four staffed hours for an incident we can repair; outside coverage, count from the next staffed period. | Initial goal, not a hard alpha SLA or strict time-based launch blocker. Measure restore drills and refine in a later sprint. Provider outages are observed separately. |
+| Disaster recovery | At most one hour of lost recent Notes/case edits; uploads acknowledged as received must remain recoverable. | Prove against the defined failure scenarios. This is an objective, not current provider certification. |
+| Publication rollback | Preserve all user work when returning to a prior published results version. | Distinct from the disaster-recovery allowance; demonstrate preservation. |
+| Recovery history | Initial rolling 30-day recovery-copy window. | Verify restoration across metadata, originals and published assets. It does not expire live cases or replace bundle-history policy. |
+| Live case retention | No automatic case/client purge. Firm-admin removal request and Global Admin approval; offer a full export first. Any archive remains viewable. | Approved deletion removes live data/access. Recovery copies may persist until rotation within 30 days; retain and reapply deletion records on restore. Audited Notes deletion and optional protected bundle pruning are separate. |
+| Notification channel | In-app status plus a minimal email to the uploader on publication or input-needed. Secure app link; no case text, sensitive identifiers or attachments. | Initial provider: Cloudflare-native sending through Workers Paid, subject to real-provider proof. Consider Resend or another provider later if needed. This does not add live mailbox integration. |
+| Sender profile | Initial ClearCase branding, a separate sending subdomain per client and stored full-message previews off. | Provisional planning defaults. Investigate DNS, configuration and provider behavior in depth in the implementing ticket. No account change or permanent provider lock is made here. |
+| Email failure | Successful publication and file access remain available; retry and expose failures to operators, with in-app status authoritative. | Initial behavior accepted. Advanced backoff, delivery reconciliation and alert tuning are later-sprint refinements, not blanket alpha blockers or a strict delivery SLA. |
+| Retry tradeoff | Prefer a possible duplicate generic link notification over a missed notification, using bounded retries. | Use app-side deduplication where possible without claiming exactly-once recipient delivery. |
+| Operating ownership | The user/Global Admin owns alpha go/no-go, incident escalation and spend review, supported by the internal operator dashboard and runbook. | Refine alert and budget thresholds from measured usage. This does not grant automatic case-content access or change results-publication permissions. |
+
+## Evidence checklist
+
+Every row below is **UNRUN**. It describes intended evidence, not existing implementation acceptance. Final implementation owners and test commands will be assigned in the delivery operating plan.
+
+| Area | Observable outcome and evidence needed |
+| --- | --- |
+| Client and case access | Two synthetic client instances demonstrate denial of cross-client and unassigned-case access, including direct URLs, original/ranged-file delivery, previews, exports and Notes. Firm-admin and Global Admin authority do not silently grant case-content access. Revoked access is denied. |
+| Authentication and provisioning | Separate client and staff Clerk applications, invite-only onboarding and the initially-off MFA flag behave as agreed. Target manifests and negative tests catch swapped client resources or credentials. |
+| Intake | A fresh submission survives the supported upload/resume/retry paths. Acknowledged originals have durable, verifiable bytes and can be retrieved; interrupted or invalid finalization is not reported as success. Use the agreed POC workload envelope and measured hosted limits. |
+| Manual queue | Operators claim, download and process a complete submission. Missing-input submissions retain their original submission time and rejoin the back when corrected; service mistakes retain their agreed priority. Client status reflects the submission and publication states. |
+| Results handoff | The single results-import contract accepts valid manual output into private review and rejects invalid required content. Client intake remains a distinct API. Unknown sections are retained privately; unsupported required sections hold publication. |
+| Review and publication | A reviewer can correct candidate content with an audit trail. A saved change needs fresh exact-version sign-off. A failed update leaves the prior publication available. Publication and rollback preserve user work. |
+| In-app viewing | Every accepted file has readable in-app contents, intact originals and valid original/processed references. Failed required previews or invalid supplied references hold the update. Exercise the selected PDF, image, document, spreadsheet and email viewers on desktop and mobile; include media/ZIP when accepted by the frozen coverage. |
+| Notes | Assigned-case permissions, author/editor management, read-only viewers and audit history work. Notes are absent from packet exports unless explicitly selected, with the selected scope visible before download. |
+| Alpha integrations | Provider-neutral email-file import/viewing and app-side drafts, manual represented-client/KYC review, existing case costs, scoped audit access and explicit privilege handling meet their accepted boundaries. Live mailbox connections remain later. |
+| Bundles and exports | Published bundles are durable versioned case assets. Default keep-all and an explicitly configured latest-plus-N limit protect Keep-marked versions and source files. Complete exports include originals, published previews and a manifest; Notes remain opt-in. |
+| Compatibility and preserved work | Controlled v5, newer-export and JSON tests verify supported content, user work and version changes. There are no live clients to migrate. Standalone Markdown authoring is outside alpha. |
+| Backup and recovery | Restore a coherent case/client state from the chosen recovery design and verify original hashes, metadata, published assets and the one-hour recent-edit objective. Measure recovery time rather than silently turning the four-hour goal into a hard SLA. Verify recovery-copy rotation within 30 days and that approved deletions are reapplied instead of returning deleted cases to the live system. |
+| Notifications | Exercise the selected initial notification path with synthetic content and owned test inboxes. Record provider acceptance separately from mail-server acceptance and observed inbox placement. Email failure must not impair successful publication or file access. Test the selected retry/failure policy; advanced reliability refinements remain later. |
+| Release operations | Retain a reproducible target/configuration record, current independent review, working recovery/export procedures and a record of required checks and any explicitly accepted minor issues. The user/Global Admin owns go/no-go, incident escalation and spend review; verify the selected dashboard/runbook support. Alert and budget thresholds are refined from measured usage. |
+
+## Evidence rules
+
+- Run checks and independent review throughout delivery, followed by integrated end-to-end verification at the exact release candidate SHA.
+- Exercise real hosted boundaries for hosted acceptance. Mocks and local source inspection can support development but cannot replace those proofs.
+- Keep real case files, extracted text, private screenshots and secrets out of Git and external agent/test services. Shared and hosted test fixtures are synthetic. Private v5 evidence remains local and ignored.
+- Record the SHA, fixture identity, selected configuration, results and artifact locations. A different revision or an unselected feature path does not satisfy a required check.
+- Recheck affected outcomes after a fix or accepted scope change. Keep the current navigation baseline while the UX lead explores later designs.
+
+## Delivery handoff
+
+- Detailed notification onboarding, sender configuration and provider behavior belong to the implementing ticket's investigation. The initial profile above is accepted; those engineering details are not frozen here. Numerical hosting/performance budgets come from the bounded architecture proofs before the hosted design gate.
+- [Define the Fable and swarm delivery operating plan](https://linear.app/vaper/issue/GRS-94/define-the-fable-and-swarm-delivery-operating-plan) assigns evidence owners, ticket splits, paths, execution order and bounded worker/review roles. The complete written plan still needs approval through the parent planning gate.
+
+## Research pointers
+
+[Research Cloudflare-first transactional alpha notifications](https://linear.app/vaper/issue/GRS-103/research-cloudflare-first-transactional-alpha-notifications) links the published note at `684b853c55a48663ea4e6c72604aaf93b1ef863e`. Its nine provider/runtime proofs are UNRUN and some legs depend on the selected route/event approach. Its resolution carries three small wording/proof-matrix clarifications. Its earlier pending-decision statements are historical; the later policy comments above choose Cloudflare initially and settle recovery, retries and deletion. Cloudflare Queues remains an unadopted implementation choice.
+
+[Assess D1 and R2 performance and overhead for the alpha workload](https://linear.app/vaper/issue/GRS-95/assess-d1-and-r2-performance-and-overhead-for-the-alpha-workload) holds the storage workload and unrun hosted integrity, user-work, recovery and export proofs. [Prove the hosted architecture and Cloudflare deployment](https://linear.app/vaper/issue/GRS-26/prove-the-hosted-architecture-and-cloudflare-deployment) consumes those accepted choices and proofs; its work must be split into bounded owners before dispatch.

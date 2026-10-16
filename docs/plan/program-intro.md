@@ -22,11 +22,11 @@ The implementation test commands below are required deliverables, not existing r
 
 - [ ] Treat this session as planning only. Start implementation when the user supplies the kickoff as an execution instruction.
 - [ ] Run `scripts/agent-tools/doctor` and `scripts/agent-tools/check-plan` from the worktree before each dispatch; see `docs/agent-tooling.md`. Read the current local skills and record their paths. `origin/dev` is the integration base; use `git show origin/main:<path>` only to compare against the release branch, which changes only through user-approved merges.
-- [ ] Read the orchestration, swarm, verification and relevant implementation skills before each phase. The user's no-Cursor and Opus-high settings override default model choices.
+- [ ] Read the orchestration, swarm, verification and relevant implementation skills before each phase. The user's no-Cursor rule and large/xhigh pstack choice override earlier high-effort defaults; Fable/Astra remain rare escalators.
 - [ ] Do not arm `/loop 1h` during planning. If later authorized, use the app scheduler for an hourly audit with a status message only for material changes; T3 task completion already supplies wakeups.
 - [ ] On hold, send every active writer a zero-writes instruction and preserve their artifacts.
 - [ ] Dispatch no hosted work until the user approves the complete plan in GRS-69. Every hosted issue is natively blocked by it.
-- [ ] Use Fable or Astra only as a rare escalator for a documented blocker: create the linked Linear escalation issue before dispatch and update it after. Spend targets are reported, not enforced; numeric retry and runtime limits are still to be chosen.
+- [ ] Use Fable or Astra only as a rare escalator for a documented blocker: create the linked Linear escalation issue before dispatch and update it after. Spend targets are reporting only. Keep bounded retries and the accepted 90-minute writing, 30-minute review and 30-minute stall-assessment controls, with declared long tests and checkpoint/cancellation evidence.
 
 ### Spawn owners
 

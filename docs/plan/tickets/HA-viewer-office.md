@@ -13,7 +13,7 @@ Accepted Word/spreadsheet files have complete in-app contents and faithful prepa
 * src/lib/viewers/office/\*\*
 * tests/viewers/office/\*\*
 * docs/acceptance/viewers/office.md
-* manual-processing format recipe section by serialized handoff
+* Format-preparation recipe lives only in docs/acceptance/viewers/office.md. The operator-handoff owner reads/links it from docs/manual-processing.md; this issue does not write that shared document.
 
 These are initial reservations. Pin exact files and accepted upstream SHA in the coordinator brief. Shared config, lockfiles, hooks and schema changes have one writer; request a handoff rather than widening scope.
 

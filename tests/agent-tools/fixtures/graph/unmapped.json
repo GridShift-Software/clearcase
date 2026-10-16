@@ -7,7 +7,7 @@
   "expect": {
     "exit": 1,
     "output": [
-      "Missing Linear issue mappings"
+      "CC-05: missing Linear issue mapping"
     ]
   }
 }

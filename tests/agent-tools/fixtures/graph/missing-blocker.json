@@ -1,0 +1,13 @@
+{
+  "description": "HA-pool depends on a key that is not in the plan",
+  "capability": "plan-graph",
+  "append": {
+    "HA-pool.depends": "HA-ghost"
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "HA-pool: missing dependency HA-ghost"
+    ]
+  }
+}

@@ -5,8 +5,8 @@
   "expect": {
     "exit": 0,
     "output": [
-      "Compared Linear snapshot",
-      "PASS: 30 issues"
+      "Compared the Linear readback",
+      "PASS: 71 planning issues"
     ]
   }
 }

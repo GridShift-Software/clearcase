@@ -1,0 +1,13 @@
+{
+  "description": "A view names a hosted owner that is not a hosted delivery owner",
+  "capability": "plan-graph",
+  "views": {
+    "overview.hostedOwner": "HA-nobody"
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "overview: unknown hosted owner HA-nobody"
+    ]
+  }
+}

@@ -10,6 +10,7 @@
       "key": "M0",
       "name": "M0 - Reference and package contract",
       "exit": "Agent CLI tooling and verification skills are reproducible before baseline work. The v5 reference is reproducible, all 42 behaviors and audit dispositions are inventoried, and a portable candidate package validates. Planning only. Dates and implementation are not committed; see the linked issue acceptance gates.",
+      "phase": "V1",
       "linear": {
         "id": "e990477c-bdba-4cf1-a14a-37c4eafc0385",
         "name": "M0 - Reference and package contract"
@@ -19,6 +20,7 @@
       "key": "M1",
       "name": "M1 - Complete local pilot",
       "exit": "Import, preview, activation, overview, chronology and original-document navigation work locally before fan-out. Planning only. Dates and implementation are not committed; see the linked issue acceptance gates.",
+      "phase": "V1",
       "linear": {
         "id": "25aa3bbf-da48-41bd-bdfe-169648f5711b",
         "name": "M1 - Complete local pilot"
@@ -28,6 +30,7 @@
       "key": "M2",
       "name": "M2 - Full v5 local parity",
       "exit": "All 42 views, user work, exports, offline operation and acceptance evidence pass. Planning only. Dates and implementation are not committed; see the linked issue acceptance gates.",
+      "phase": "V1",
       "linear": {
         "id": "38a14039-ca61-41df-896c-96cb80d0e5e1",
         "name": "M2 - Full v5 local parity"
@@ -37,6 +40,7 @@
       "key": "M3",
       "name": "M3 - Export compatibility",
       "exit": "Verify original v5, newer 2,131-document and JSON-style export inputs through the validated results-package contract, preserving v5 behavior and correctly scoped user work. Required unsupported sections hold publication; retained opaque data does not count as completed presentation. Independent exact-revision compatibility evidence is required. Standalone Markdown authoring is explicitly deferred to M7.",
+      "phase": "V1",
       "linear": {
         "id": "ad937e7c-a2a1-4897-b7af-fa684d799303",
         "name": "M3 - Export compatibility"
@@ -46,6 +50,7 @@
       "key": "M4",
       "name": "M4 - Hosted alpha realignment and design",
       "exit": "Find and approve the route from the local client-alignment POC to hosted alpha. The wayfinder map governs client instances, roles, stack audit, manual processing, private preview/publication, UX, file viewers, production integrations, compatibility and acceptance. No hosted implementation before the realignment gate closes.",
+      "phase": "V2",
       "linear": {
         "id": "7fac31f7-8e3d-43da-9c35-88dc2f9b64b9",
         "name": "M4 - Hosted alpha realignment and design"
@@ -55,6 +60,7 @@
       "key": "M5",
       "name": "M5 - Hosted alpha delivery and acceptance",
       "exit": "Deliver the user-approved hosted alpha through bounded foundation, workspace/viewer, production-integration and manual-processing owners. Separate client instances/subdomains, durable user work and source assets, private editable review and exact-version publication are required. Native issue blockers and serial path handoffs govern parallel work. Checks and independent review throughout; integrated hosted isolation/recovery/viewer and fresh manual E2E acceptance before user-owned launch go/no-go. All hosted execution remains behind the planning/design gates.",
+      "phase": "V2",
       "linear": {
         "id": "58d780f9-5863-44ef-bdbf-4faa3525a08c",
         "name": "M5 - Hosted alpha delivery and acceptance"
@@ -64,6 +70,7 @@
       "key": "M6",
       "name": "M6 - Later processing automation",
       "exit": "Deferred until the manual hosted workflow is proven. Evaluate sandbox-based processing automation against the agreed submission/results contracts. CF or boat sandboxes are user suggestions, not a selected provider or approved execution design.",
+      "phase": "Later",
       "linear": {
         "id": "37622da5-6163-4a0a-9dc2-beb74a2449fa",
         "name": "M6 - Later processing automation"
@@ -73,6 +80,7 @@
       "key": "M7",
       "name": "M7 - Later integrations and authoring",
       "exit": "Explicitly deferred until hosted alpha is proven: live mailbox connections and mailbox draft creation, fuller Outlook/Gmail integration and synchronization, and the standalone Markdown authoring round-trip. Revisit architecture, providers, permissions and acceptance in a focused pass. These issues do not block alpha; exported email intake and app-side drafts/templates remain alpha scope.",
+      "phase": "Later",
       "linear": {
         "id": "e9691898-3452-4a8f-9d49-481dc9a98f8b",
         "name": "M7 - Later integrations and authoring"
@@ -117,6 +125,7 @@
       "performanceMetric": "Archive inventory elapsed time and peak memory",
       "performanceBudget": "Record the first baseline. Fail a repeat above 1.25 times the median baseline on the same unchanged fixture.",
       "kind": "delivery",
+      "role": "writer",
       "phase": "V1",
       "linear": {
         "id": "d39e207b-064a-48a9-b35b-002e8c6c1a0b",
@@ -167,6 +176,7 @@
       "performanceMetric": "Candidate conversion and validation time, peak memory",
       "performanceBudget": "Set numeric conversion and memory limits from the CC-01 baseline before implementation. Repeat imports must stay within 1.25 times the accepted median.",
       "kind": "delivery",
+      "role": "writer",
       "phase": "V1",
       "linear": {
         "id": "eebbcaac-f801-4ed5-a9ca-f4e7b4f2dab4",
@@ -227,6 +237,7 @@
       "performanceMetric": "Cold usable-overview time, warm navigation and original-open latency",
       "performanceBudget": "Overview <=2,000 ms and warm navigation <=200 ms at p95 on the recorded local machine. Report original-open separately with a numeric budget fixed after CC-01.",
       "kind": "delivery",
+      "role": "writer",
       "phase": "V1",
       "linear": {
         "id": "62cdd4a4-f210-4dc8-972f-efc1e383b7fc",
@@ -278,6 +289,7 @@
       "performanceMetric": "Search latency and warm evidence navigation",
       "performanceBudget": "Search <=300 ms and warm navigation <=200 ms at p95; no unexpected whole-corpus reload per filter.",
       "kind": "delivery",
+      "role": "writer",
       "phase": "V1",
       "linear": {
         "id": "4d8b931a-5983-46e9-ab86-b35bf823292e",
@@ -327,6 +339,7 @@
       "performanceMetric": "Analysis navigation and expanded-detail latency",
       "performanceBudget": "Warm navigation <=200 ms at p95; no uncaught error on empty optional datasets.",
       "kind": "delivery",
+      "role": "writer",
       "phase": "V1",
       "linear": {
         "id": "209e2d58-e023-473d-ac32-8816c207b5cf",
@@ -377,6 +390,7 @@
       "performanceMetric": "Scenario recalculation and ledger navigation latency",
       "performanceBudget": "Recalculation <=200 ms and warm navigation <=200 ms at p95; zero unexplained numeric differences.",
       "kind": "delivery",
+      "role": "writer",
       "phase": "V1",
       "linear": {
         "id": "5d284b8f-dc6b-4577-9193-5140608afd23",
@@ -427,6 +441,7 @@
       "performanceMetric": "Register save/read latency",
       "performanceBudget": "Save/read <=200 ms at p95 on the acceptance fixture. This issue has no dependency on a later restore baseline; CC-10 / [GRS-20](https://linear.app/vaper/issue/GRS-20/rescan-local-files-and-restore-user-work-safely) owns backup/restore time and memory budgets and measurements.",
       "kind": "delivery",
+      "role": "writer",
       "phase": "V1",
       "linear": {
         "id": "52849de3-b0de-4db7-b8b7-d4ac8b824595",
@@ -476,6 +491,7 @@
       "performanceMetric": "Preparation navigation and save latency",
       "performanceBudget": "Warm navigation and save <=200 ms at p95 on the acceptance fixture.",
       "kind": "delivery",
+      "role": "writer",
       "phase": "V1",
       "linear": {
         "id": "08e42c1e-ffc4-4848-b26e-73905525f883",
@@ -525,6 +541,7 @@
       "performanceMetric": "Bundle selection, export and large-document open latency",
       "performanceBudget": "Selection <=200 ms at p95. Record export and large-document budgets from CC-01 before optimizing or claiming a speedup.",
       "kind": "delivery",
+      "role": "writer",
       "phase": "V1",
       "linear": {
         "id": "dcdf52c1-beee-4304-aa14-89e9bf5556eb",
@@ -581,6 +598,7 @@
       "performanceMetric": "Rescan duration, backup/restore duration and peak memory",
       "performanceBudget": "Record unchanged-scan baseline first and fail regression above 1.25 times median; set numeric backup/restore memory and time budgets before implementation.",
       "kind": "delivery",
+      "role": "writer",
       "phase": "V1",
       "linear": {
         "id": "77652879-4559-4fcc-8bac-816b7f79f52c",
@@ -640,6 +658,7 @@
       "performanceMetric": "Cold overview, warm navigation, search and state-write p95",
       "performanceBudget": "Cold overview <=2,000 ms; warm navigation/state write <=200 ms; search <=300 ms. Use at least 20 recorded samples per metric after warmup; no ratio across unlike scenarios.",
       "kind": "gate",
+      "role": "writer",
       "phase": "V1",
       "linear": {
         "id": "9c8b3267-fbf1-4821-a6f1-69ff48337884",
@@ -697,6 +716,7 @@
       "performanceMetric": "Import validation, overview load and search latency",
       "performanceBudget": "Retain the V1 2,000/200/300 ms budgets for overview/navigation/search. Record import/memory baseline for this distinct fixture; do not compare unlike corpus sizes as a speedup.",
       "kind": "delivery",
+      "role": "writer",
       "phase": "V1",
       "linear": {
         "id": "3c0abf63-59db-4f84-b10b-71e35a5162f3",
@@ -758,7 +778,8 @@
       "performanceMetric": "Template/parse/validation elapsed time and preview update",
       "performanceBudget": "A single authored record validates and updates preview within 300 ms at p95; bulk authoring remains outside this ticket.",
       "kind": "delivery",
-      "phase": "V1",
+      "role": "writer",
+      "phase": "Later",
       "linear": {
         "id": "3870b97b-8f6a-4c63-b21d-5ce87971dd7f",
         "identifier": "GRS-23",
@@ -795,6 +816,7 @@
       "performanceMetric": "Not applicable to this read-only discovery",
       "performanceBudget": "No performance claim. Completion needs primary evidence or an explicitly unresolved external dependency.",
       "kind": "discovery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "dc4d07d1-1866-4d54-9819-06f541b709c6",
@@ -834,6 +856,15 @@
       "performanceMetric": "Hosted cold-start, upload and data-read latency",
       "performanceBudget": "Set numeric staging budgets and expected load in the decision record before CC-16 starts.",
       "kind": "decision",
+      "role": "aggregate",
+      "children": [
+        "HA-runtime-proof",
+        "HA-deploy-proof",
+        "HA-auth-proof",
+        "HA-storage-proof",
+        "HA-recovery-proof",
+        "HA-email-proof"
+      ],
       "phase": "V2",
       "linear": {
         "id": "42b36cd3-282a-42ee-b4ce-e6b04374cae7",
@@ -883,6 +914,7 @@
       "performanceMetric": "Upload throughput, finalize latency and retry recovery",
       "performanceBudget": "Use the numeric staging budgets and load envelope fixed by CC-15.",
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "29ff2f3f-0e74-4750-951e-c27851e2b166",
@@ -925,6 +957,7 @@
       "performanceMetric": "Notification dispatch delay and download throughput",
       "performanceBudget": "Use CC-15 budgets and an explicit retry/recovery bound; verify with synthetic recipients.",
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "e0957bbc-d8e6-4215-8073-65795f406468",
@@ -965,6 +998,7 @@
       "performanceMetric": "Candidate import and preview navigation latency",
       "performanceBudget": "Use hosted budgets from CC-15; include complete large-package validation without blocking UI indefinitely.",
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "bbd61cf6-18f0-4a4f-a234-e40700eedf51",
@@ -1005,6 +1039,7 @@
       "performanceMetric": "Publication switch and rollback latency",
       "performanceBudget": "Use CC-15 budgets; clients must never observe a mixed or partially written version.",
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "07b2f5cd-c6a9-432a-88e0-0c0ff13e69c5",
@@ -1056,6 +1091,7 @@
       "performanceMetric": "End-to-end completion, recovery time, cold and warm hosted latency",
       "performanceBudget": "Pass the CC-15 budgets with measured receipts. No release on blocked isolation, publication or restore evidence.",
       "kind": "gate",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "51458563-33f0-4e38-bbfb-8eef5834a872",
@@ -1099,6 +1135,7 @@
       "performanceMetric": "Future processing runtime, recovery and cost envelope",
       "performanceBudget": "Define during this future design; no execution in the V1 kickoff.",
       "kind": "future",
+      "role": "writer",
       "phase": "Later",
       "linear": {
         "id": "9527fa41-34da-4d69-bcea-234682a2c0dd",
@@ -1133,6 +1170,7 @@
       "performanceMetric": "Metrics and budgets are defined by CC-21",
       "performanceBudget": "Deferred until the approved automation design exists.",
       "kind": "future",
+      "role": "writer",
       "phase": "Later",
       "linear": {
         "id": "426c9091-31b6-474f-991d-52d575eb3120",
@@ -1171,6 +1209,7 @@
       "performanceMetric": "Review existing measurements at the exact integrated revision",
       "performanceBudget": "No missing, stale or incomparable receipt counts as a pass.",
       "kind": "gate",
+      "role": "writer",
       "phase": "V1",
       "linear": {
         "id": "0cb23722-f91a-41f9-b7bf-f2e9322aba86",
@@ -1204,6 +1243,7 @@
       "performanceMetric": "Review existing measurements at the exact integrated revision",
       "performanceBudget": "No missing, stale or incomparable receipt counts as a pass.",
       "kind": "gate",
+      "role": "writer",
       "phase": "V1",
       "linear": {
         "id": "0fe685e7-3e37-443e-ac71-0d55b9cabcd5",
@@ -1234,6 +1274,7 @@
       "performanceMetric": "Review existing measurements at the exact integrated revision",
       "performanceBudget": "No missing, stale or incomparable receipt counts as a pass.",
       "kind": "gate",
+      "role": "writer",
       "phase": "V1",
       "linear": {
         "id": "12ae502f-2d9b-4910-90f4-a5b8c7d20e71",
@@ -1272,6 +1313,7 @@
       "performanceMetric": "Review existing measurements at the exact integrated revision",
       "performanceBudget": "No missing, stale or incomparable receipt counts as a pass.",
       "kind": "gate",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "c99e1ba3-dc84-4bbc-aee5-f8c3c34692f2",
@@ -1332,6 +1374,7 @@
       "handoff": "Use the existing project agent/model policy. Only the coordinator updates Linear and releases dependent work. Do not expose private case material to external services, change production, or embed secrets. Return changed paths, setup commands, pinned sources/versions, tested environments, evidence and unresolved prerequisites. No application implementation or deployment is authorized by completion of this setup ticket.",
       "liveScenarios": [],
       "kind": "enablement",
+      "role": "writer",
       "phase": "V1",
       "linear": {
         "id": "8f0ca638-7ca4-409b-894c-5a15d4913429",
@@ -1372,6 +1415,16 @@
       "handoff": "V2 work only; this ticket does not expand the local V1 kickoff. Use controlled data and a local/disposable staging environment. Preserve human publication approval and the existing project execution authority. No live notifications, public deployment or production changes under this planning update. Return changed paths, contracts, evidence and the explicit shared-path handoff.",
       "liveScenarios": [],
       "kind": "gate",
+      "role": "aggregate",
+      "children": [
+        "HA-framework",
+        "HA-identity",
+        "HA-provision",
+        "HA-storage",
+        "HA-audit",
+        "HA-user-work",
+        "HA-recovery"
+      ],
       "phase": "V2",
       "linear": {
         "id": "3ee13f2b-c1b4-44bb-9c43-cd750b3623e5",
@@ -1433,6 +1486,7 @@
       "performanceMetric": "Wall time and peak memory of a full 42-view parity run",
       "performanceBudget": "Record the first full-run baseline on the accepted fixture; fail a regression above 1.25 times the median.",
       "kind": "delivery",
+      "role": "writer",
       "phase": "V1",
       "linear": {
         "id": "36617753-147f-4224-b9d6-51dde4359acf",
@@ -1478,6 +1532,7 @@
       "performanceMetric": "Conversion time and peak memory on the v5 sample",
       "performanceBudget": "Record the pre-change conversion baseline first; fail a regression above 1.25 times the median.",
       "kind": "delivery",
+      "role": "writer",
       "phase": "V1",
       "linear": {
         "id": "e9c8ec5a-550b-462e-80d3-2cfc2c7a5fd7",
@@ -1513,6 +1568,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "75c4dcbc-09d3-4db9-b156-0c1fb1ea6aa7",
@@ -1553,6 +1609,7 @@
       ],
       "liveScenarios": [],
       "kind": "discovery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "933340fe-62ca-4f4a-984f-105da431a3e4",
@@ -1592,6 +1649,7 @@
       ],
       "liveScenarios": [],
       "kind": "discovery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "3e18e69c-1912-45e4-aa6a-5e4d6ceac22c",
@@ -1635,6 +1693,7 @@
       ],
       "liveScenarios": [],
       "kind": "discovery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "7507dd41-b705-4f4d-98f2-e043b7f2d873",
@@ -1678,6 +1737,7 @@
       ],
       "liveScenarios": [],
       "kind": "discovery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "e7b17013-7e17-4d20-9c8f-da68df35245d",
@@ -1721,6 +1781,7 @@
       ],
       "liveScenarios": [],
       "kind": "discovery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "a6cdcaa6-192c-4503-bd0e-b80a078c0974",
@@ -1763,6 +1824,7 @@
       ],
       "liveScenarios": [],
       "kind": "discovery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "30d4d40c-3537-4bda-9879-49d543d70a2a",
@@ -1805,6 +1867,7 @@
       ],
       "liveScenarios": [],
       "kind": "discovery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "10ea3b8e-dcb7-4754-a5b6-c65b5aa2da31",
@@ -1865,6 +1928,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "f67f5b3e-15b5-4e48-9b82-a1a1d78cd700",
@@ -1911,6 +1975,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "c4b67eb1-ae1c-4c4a-81e6-88f2392eddd9",
@@ -1959,6 +2024,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "d2eb4788-3a92-47ec-b89a-e03cebf4a8df",
@@ -2008,6 +2074,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "13f1315c-d8af-4ac6-ae9a-e700a682f570",
@@ -2052,6 +2119,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "69bbbf3b-13dc-4196-bcff-8c6af6202e39",
@@ -2097,6 +2165,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "b2c3b0e8-4aab-48c1-8f5e-8a3c02d7be7a",
@@ -2146,6 +2215,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "f82e9243-2d68-47ee-8ae1-b62cb98f4d58",
@@ -2192,6 +2262,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "44b99ddf-7231-417e-bb2a-61d6d39f990c",
@@ -2239,6 +2310,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "96a2872f-99a5-4f0d-b37f-454c41e9dc76",
@@ -2267,7 +2339,7 @@
         "src/lib/viewers/office/**",
         "tests/viewers/office/**",
         "docs/acceptance/viewers/office.md",
-        "manual-processing format recipe section by serialized handoff"
+        "docs/manual-processing.md (format recipe section only; serialized handoff)"
       ],
       "acceptance": [
         "Use selected maintained readers or manually prepared previews behind the frozen viewer extension point; do not send case files to external conversion services.",
@@ -2281,6 +2353,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "5be4c666-5f8b-407b-b395-ae462e8b64f1",
@@ -2321,6 +2394,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "8488a9a6-d8ae-4305-b8a6-5be5b00783f6",
@@ -2363,6 +2437,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "905fae8a-e27e-4a16-8e67-37d068571b9b",
@@ -2406,6 +2481,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "6b714bcb-488f-471c-b09a-b99c34f358e9",
@@ -2449,6 +2525,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "cbf51c70-4275-42de-b3d5-3666f029f99a",
@@ -2493,6 +2570,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "31a23c21-67c6-418a-9101-f9b28651d760",
@@ -2536,6 +2614,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "2ba4a7f1-517c-44b6-bf66-2d5e3cc4ca75",
@@ -2582,6 +2661,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "723db8a5-ef31-4b65-bd41-49afefb56a97",
@@ -2627,6 +2707,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "f3505255-2b80-47ea-8b95-5726664d0c95",
@@ -2669,6 +2750,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "be596ca1-3a0e-4ef9-a39f-172d65b2bf2c",
@@ -2717,6 +2799,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "edaf46ac-dee4-4092-b8ec-bb2f5323baaa",
@@ -2764,6 +2847,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "9481b6b3-353c-494c-9a5c-a813cfec7928",
@@ -2811,6 +2895,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "f876701a-fcca-4b29-82cd-78db5c025681",
@@ -2857,6 +2942,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "2e930308-19c5-4cd0-a880-73ed3c08edc1",
@@ -2898,6 +2984,7 @@
       ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "b97a8bee-9190-453b-9a7d-6e98099ad25f",
@@ -2922,6 +3009,10 @@
       "acceptance": [],
       "liveScenarios": [],
       "kind": "gate",
+      "role": "map",
+      "children": [
+        "HA-grs-94"
+      ],
       "phase": "V2",
       "linear": {
         "id": "7e83827a-23fd-431a-96c5-3d2471790e1c",
@@ -2943,6 +3034,7 @@
       "acceptance": [],
       "liveScenarios": [],
       "kind": "decision",
+      "role": "decision",
       "phase": "V2",
       "linear": {
         "id": "92cf7851-5bc9-4214-a856-481f3850db98",
@@ -2983,6 +3075,14 @@
       ],
       "liveScenarios": [],
       "kind": "gate",
+      "role": "aggregate",
+      "children": [
+        "HA-kyc",
+        "HA-costs",
+        "HA-drafts",
+        "HA-privilege",
+        "HA-bundles"
+      ],
       "phase": "V2",
       "linear": {
         "id": "2ff35fa6-1f76-4c3a-9d65-d9dd57bc4551",
@@ -3014,11 +3114,24 @@
         "HA-tooling",
         "HA-grs-69"
       ],
-      "outcome": "See the synchronized Linear description.",
-      "scope": [],
-      "acceptance": [],
+      "outcome": "A dedicated viewer evaluation selects maintained components or a justified custom approach and freezes a testable alpha viewer contract before the hosted design gate.",
+      "scope": [
+        "docs/acceptance/viewers/**"
+      ],
+      "scopeNotes": [
+        "The evaluation harness and synthetic viewer fixtures have no named path; the coordinator pins them before dispatch. Production viewers belong to GRS-120 to GRS-123."
+      ],
+      "acceptance": [
+        "Map every accepted format to an in-app original view or a faithful prepared preview. PDF/images/Word/Excel/EML-MSG are minimum coverage; accepted media/ZIP contents also need a verified viewing path. Downloads remain optional.",
+        "Exercise original versus processed-preview references, rendition version/page mappings, supplied sheet/cell/range and message/attachment targets, and explicit file-level references. Unmatched supplied locations require repair, not guessed mappings or silent clamping.",
+        "Exercise workbook tabs/search, exact values, hidden content, missing formula results and meaningful chart/format/comment content; email headers/body and nested attachments; media playback/seeking; archive entries and contained-file previews.",
+        "Evaluate desktop and mobile usability, keyboard/focus, zoom/find/page navigation where applicable and large files at the initial POC scale. Report actual browser methods and failures; documentation support is not runtime evidence.",
+        "Freeze the format/codec matrix, preview-readiness and candidate-import contracts, file reservations and concrete integration checks. A failed preview holds the whole update. Flag any original-integrity/range-delivery proof still needed at the design gate.",
+        "Provide an independent verdict on the exact evaluation revision. This component evaluation does not replace the final hosted viewer pass in release acceptance."
+      ],
       "liveScenarios": [],
       "kind": "delivery",
+      "role": "writer",
       "phase": "V2",
       "linear": {
         "id": "ea230ba7-d71a-41fa-8916-530a865a1392",
@@ -3045,12 +3158,21 @@
       "milestone": "M3",
       "title": "Gate approved analysis additions pending client approval",
       "depends": [],
-      "outcome": "See the synchronized Linear description.",
+      "outcome": "Questionnaire item 2 additions sit behind an explicit feature flag, default off until the client approves, while correctness fixes apply in both flag states.",
       "scope": [],
-      "acceptance": [],
+      "scopeNotes": [
+        "The live issue names no paths; the coordinator pins them before dispatch."
+      ],
+      "acceptance": [
+        "Identify the exact item 2 additions (defence-matrix references omitted by v5 and analysis headings that match navigation labels) and gate them behind an explicit flag, default off. Product-owner approval is not client approval.",
+        "Timeline title escaping and other correctness fixes apply in both flag states; the flag never restores the v5 escaping bug (ADR 0003).",
+        "Document how client approval enables full inclusion. Keep the flag to item 2 and preserve existing v5 behavior.",
+        "Keep verification and conditional parity evidence for both flag states."
+      ],
       "liveScenarios": [],
       "kind": "delivery",
-      "phase": "V2",
+      "role": "writer",
+      "phase": "V1",
       "linear": {
         "id": "d8679af2-6e42-466f-bfcb-eebe1c301175",
         "identifier": "GRS-48",
@@ -3066,12 +3188,20 @@
       "milestone": "M3",
       "title": "Export validated monetary credits as numeric CSV values",
       "depends": [],
-      "outcome": "See the synchronized Linear description.",
+      "outcome": "Validated monetary credits such as -500 export as numeric CSV cells, so spreadsheet totals include them.",
       "scope": [],
-      "acceptance": [],
+      "scopeNotes": [
+        "The shared CSV boundary is coordinator-owned; its path is pinned before dispatch."
+      ],
+      "acceptance": [
+        "Synthetic negative monetary credits export as numeric cells; only values accepted by the monetary parser are exempt.",
+        "Malformed monetary strings are not exempted from formula protection.",
+        "Free-text formula protection stays intact in every column, including formula starts after semicolon, tab, CR or LF."
+      ],
       "liveScenarios": [],
       "kind": "delivery",
-      "phase": "V2",
+      "role": "writer",
+      "phase": "V1",
       "linear": {
         "id": "b193afaf-40e3-4b28-8b5f-ab1cb0fd7cbf",
         "identifier": "GRS-49",
@@ -3080,19 +3210,31 @@
       "linearDescription": "User selected questionnaire item 9 option A on 12 October 2026. Validated monetary credit values such as -500 must export as numeric CSV cells so spreadsheet totals include them. Exempt only values accepted by the monetary parser; keep formula protection for free-text values, including formula starts after semicolon, tab, CR or LF in every column. Negative disbursement credits were already approved on 11 October. The shared CSV boundary is coordinator-owned; do not edit another active worktree. Acceptance: synthetic negative monetary credits remain numeric, malformed monetary strings are not exempted, and free-text formula protection remains intact. Verify behavior under Bun at the exact changed SHA.",
       "nativeBlockedBy": [],
       "externalPrerequisites": [],
-      "status": "Backlog"
+      "status": "Backlog",
+      "verification": [
+        "Verify the behavior under Bun at the exact changed SHA."
+      ]
     },
     {
       "key": "HA-grs-61",
       "milestone": "M3",
       "title": "UI class suite: close the last two fail-open paths (dialog \"answered\", CSV discovery)",
       "depends": [],
-      "outcome": "See the synchronized Linear description.",
-      "scope": [],
-      "acceptance": [],
+      "outcome": "The UI class suite closes its last two fail-open paths: the dialog answered by an in-flight save, and CSV producer discovery.",
+      "scope": [
+        "tests/e2e/classes/suite.mjs",
+        "tests/e2e/classes/targets.mjs",
+        "tests/e2e/classes/declared.mjs"
+      ],
+      "acceptance": [
+        "Class 3: the ask-then-save scenario clicks Discard or the page's answer, or declares per target why the save closes the question and checks that it did. A closing save or a disabled Discard no longer counts as answered.",
+        "CSV discovery: a CSV producer that is a non-route `.ts` file or a component nested in another component is mapped to a page or fails as unrecognised.",
+        "Each path fails on a reintroduced shape, `bun run --bun gate` passes and the diff is reviewed once. Then the coordinator removes classes 3 and 4 from `REVIEW.md`."
+      ],
       "liveScenarios": [],
       "kind": "delivery",
-      "phase": "V2",
+      "role": "writer",
+      "phase": "V1",
       "linear": {
         "id": "92e17db8-7c47-4fe9-abdf-db2977bc76e6",
         "identifier": "GRS-61",
@@ -3108,12 +3250,19 @@
       "milestone": "M3",
       "title": "Make the CC-11 matrix refuse crashed or partial evidence inputs",
       "depends": [],
-      "outcome": "See the synchronized Linear description.",
-      "scope": [],
-      "acceptance": [],
+      "outcome": "The CC-11 matrix refuses crashed or partial layout evidence instead of reporting 42 PASS.",
+      "scope": [
+        "scripts/verify/matrix.mjs"
+      ],
+      "acceptance": [
+        "Medium: BLOCK when a layout input has `exit` 2, sets `error`, or lacks any `VIEWS` id, for both the synthetic and the v5 layout inputs.",
+        "Low: `isSha` accepts only 12 or more characters.",
+        "Low: a per-category `*/summary.json` left from an earlier gate does not count as current e2e evidence."
+      ],
       "liveScenarios": [],
       "kind": "delivery",
-      "phase": "V2",
+      "role": "writer",
+      "phase": "V1",
       "linear": {
         "id": "eabb087b-41a7-4dc8-85a8-9244c05ff23d",
         "identifier": "GRS-68",
@@ -3132,12 +3281,28 @@
         "CC-20",
         "HA-grs-69"
       ],
-      "outcome": "See the synchronized Linear description.",
-      "scope": [],
-      "acceptance": [],
+      "outcome": "A prompt change to the V2 processing prompt pack gets separate Function, Content and Rigour verdicts from one command.",
+      "scope": [
+        "scripts/fixtures/v5fixture/** (Tier 1 synthetic gold set)",
+        "docs/development.md (evals section)"
+      ],
+      "scopeNotes": [
+        "The `bun run --bun evals` CLI location is not named; results stay under the ignored `.local/evals/`. Pin paths in the later M6 pass."
+      ],
+      "acceptance": [
+        "The CLI has all five subcommands and `docs/development.md` documents them.",
+        "`evals check` runs offline in seconds and `bun run --bun gate` runs it.",
+        "The risk-matrix pilot has a prompt template, a JSON schema, and an adapter whose output `validate` accepts.",
+        "L0 and L1 are green on the synthetic case.",
+        "One L2 run at k=5 has its cost recorded. A `--replay` of that run costs nothing.",
+        "`compare` prints Function, Content and Rigour verdicts with paired confidence intervals.",
+        "No case text, names or amounts appear in Git, fixtures, or any JSON schema sent to the API. A leak scan passes.",
+        "No L2 code path is reachable from `gate` or CI. A test shows it."
+      ],
       "liveScenarios": [],
       "kind": "delivery",
-      "phase": "V2",
+      "role": "writer",
+      "phase": "Later",
       "linear": {
         "id": "d162785d-bd47-4686-86c2-e187507e6045",
         "identifier": "GRS-63",
@@ -3149,7 +3314,10 @@
         "GRS-69"
       ],
       "externalPrerequisites": [],
-      "status": "Backlog"
+      "status": "Backlog",
+      "verification": [
+        "Report PASS or FAIL at an exact SHA with `bun run --bun gate` green, the L2 run spend in USD and the recorded run and replay paths under `.local/evals/`."
+      ]
     }
   ],
   "snapshot": {
@@ -3159,6 +3327,132 @@
     "planningGate": "GRS-69",
     "operatingDecision": "GRS-94",
     "runtimeEvidence": "UNRUN",
-    "note": "Historical v5 owners stay recorded. nativeBlockedBy retains all relations, including sources absent from the local item index. New hosted scope is refined against the accepted head at pickup."
-  }
+    "note": "Historical v5 owners stay recorded. nativeBlockedBy retains all relations, including sources absent from the local item index. New hosted scope is refined against the accepted head at pickup.",
+    "readback": {
+      "source": "Coordinator readback .local/alpha-delivery-tickets.json (ignored): liveIssues for every project issue, liveGraph for open issues with native relations and descriptions.",
+      "projectIssues": 108,
+      "openIssues": 60,
+      "statusCounts": {
+        "Backlog": 58,
+        "In Progress": 2,
+        "Done": 48
+      },
+      "openOutsidePlan": [
+        {
+          "identifier": "GRS-47",
+          "status": "Backlog",
+          "milestone": null,
+          "title": "Provide per-case local import and update with user-chosen source folders"
+        },
+        {
+          "identifier": "GRS-64",
+          "status": "Backlog",
+          "milestone": null,
+          "title": "Compare the local app with the live production deploy, page by page, before the V1 demo release"
+        },
+        {
+          "identifier": "GRS-65",
+          "status": "Backlog",
+          "milestone": null,
+          "title": "Tag the V1 demo release and merge it into main"
+        },
+        {
+          "identifier": "GRS-70",
+          "status": "In Progress",
+          "milestone": null,
+          "title": "Import a case by clicking: pick the case pack and a destination, and the app does the rest"
+        },
+        {
+          "identifier": "GRS-99",
+          "status": "Backlog",
+          "milestone": "M7 - Later integrations and authoring",
+          "title": "Plan live Outlook and Gmail integrations after alpha"
+        }
+      ]
+    },
+    "externalSources": {
+      "GRS-86": "Done",
+      "GRS-90": "Done",
+      "GRS-93": "Done",
+      "GRS-96": "Done",
+      "GRS-101": "Done"
+    },
+    "hostedDeliveryOwners": [
+      "HA-tooling",
+      "HA-pool",
+      "HA-runtime-proof",
+      "HA-deploy-proof",
+      "HA-auth-proof",
+      "HA-storage-proof",
+      "HA-recovery-proof",
+      "HA-email-proof",
+      "HA-framework",
+      "HA-identity",
+      "HA-provision",
+      "HA-storage",
+      "HA-audit",
+      "HA-user-work",
+      "HA-recovery",
+      "HA-notes",
+      "HA-viewer-core",
+      "HA-viewer-office",
+      "HA-viewer-email",
+      "HA-viewer-media-archive",
+      "HA-kyc",
+      "HA-costs",
+      "HA-drafts",
+      "HA-privilege",
+      "HA-bundles",
+      "HA-notifications",
+      "HA-preview-edit",
+      "HA-views-evidence-analysis",
+      "HA-views-quantum-registers",
+      "HA-views-litigation-bundles",
+      "HA-views-system",
+      "HA-operator-queue"
+    ],
+    "pendingCoordinatorChanges": [
+      {
+        "issue": "GRS-32",
+        "change": "Add GRS-129 as a native blocker so the hosted release gate accepts uploader notifications, an alpha acceptance row.",
+        "covers": "CC-20: release gate does not reach HA-notifications"
+      },
+      {
+        "issue": "GRS-121",
+        "change": "Its office format recipe edits the manual-processing document that GRS-29 reserves, and no native edge orders them. Add GRS-29 as a native blocker of GRS-121, or move the recipe into docs/acceptance/viewers/office.md and drop the shared reservation.",
+        "covers": "Concurrent scopes overlap: CC-17 docs/manual-processing.md; HA-viewer-office docs/manual-processing.md"
+      },
+      {
+        "issue": "GRS-112",
+        "change": "Reserve a test path for the workerd smoke checks and the import-boundary negative test that its verification requires.",
+        "covers": "HA-framework: no test path in write scope"
+      },
+      {
+        "issue": "GRS-68",
+        "change": "Reserve the existing matrix test, tests/gate/matrix.test.ts, beside scripts/verify/matrix.mjs.",
+        "covers": "HA-grs-68: no test path in write scope"
+      },
+      {
+        "issue": "GRS-48",
+        "change": "Name the flag, analysis view and test paths before dispatch.",
+        "covers": "HA-grs-48: no concrete write path"
+      },
+      {
+        "issue": "GRS-49",
+        "change": "Name the coordinator-owned CSV boundary file and its test path before dispatch.",
+        "covers": "HA-grs-49: no concrete write path"
+      }
+    ]
+  },
+  "controls": [
+    "**Roles.** Builds, independent diff reviews and fix rechecks run on `claude-opus-5-5` at effort xhigh. Fixes from written findings run on `claude-sonnet-5-5` at effort xhigh. Deterministic checks run as scripts that leave receipts, not as model calls.",
+    "**Rare escalation.** Only a documented blocker that survives the normal loop escalates, to one of `claude-fable-5-1` at effort xhigh or `gpt-6-astra` at reasoningEffort xhigh, never both. Before dispatch, create the linked Linear escalation issue with the source issue, exact SHA, reproduction, prior attempts, bounded question, model, spend target and completion predicate. Afterwards, record the T3 task ID, findings, outcome, SHA and checks on it.",
+    "**Attempts.** One written-finding fix round with a fresh recheck, at most one justified rare escalation and one transient infrastructure retry. Stop when the same failure repeats twice without a new diagnosis. Attempts count against the original issue and stage, so renaming, restarting or redispatching a task does not reset them.",
+    "**Runtime.** Writing tasks get 90 minutes and reviews 30 minutes. Assess a stall after 30 minutes without meaningful progress. Declare bounded long tests and per-task deadlines in the brief, give a short checkpoint grace, cancel explicitly and keep the branch, evidence and cancellation result. A T3 wait timeout is not a runtime limit.",
+    "**Spend.** The targets are build 20, review 6, written fix 8, recheck 2 and escalation 12 USD. Report actual or unknown spend and the variance. Overspend alone does not pause, cancel or escalate work.",
+    "**Capacity.** At most three worker jobs and two browser jobs. PC2 is the first isolated synthetic test pool and PC1 keeps its CI role.",
+    "**Checks.** Scale checks to the change. App changes keep the required gate until its hosted replacement is reviewed, and documentation or research gets proportionate checks. Mutation and perf runs are for milestone gates only. A skipped, mocked, weakened or other-revision check is not a pass.",
+    "**Merge.** One branch and worktree per writing ticket, merge commits only and serial integration on accepted upstream heads. The external reviewer `dianbrown` approves before anything merges into `dev`, and `main` changes only through the user.",
+    "**Gate.** GRS-69 stays open until the user approves the complete written plan. No hosted work is dispatched before then, and every hosted runtime, provider and acceptance check is UNRUN."
+  ]
 }

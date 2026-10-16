@@ -1,0 +1,22 @@
+{
+  "description": "The hosted foundation no longer waits for the design gate",
+  "capability": "plan-graph",
+  "set": {
+    "CC-28.depends": [
+      "HA-recovery",
+      "HA-audit",
+      "HA-user-work",
+      "HA-storage",
+      "HA-provision",
+      "HA-identity",
+      "HA-framework",
+      "HA-grs-69"
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "Hosted intake must wait for the hosted foundation, which waits for the design gate"
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "description": "The readback created one hosted owner fewer than the plan names",
+  "capability": "linear-relations",
+  "readback": {},
+  "readbackDropOwners": [
+    "HA-kyc"
+  ],
+  "expect": {
+    "exit": 1,
+    "output": [
+      "Hosted delivery owners differ from the issues created by the readback"
+    ]
+  }
+}

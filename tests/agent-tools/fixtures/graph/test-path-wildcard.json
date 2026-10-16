@@ -1,0 +1,16 @@
+{
+  "description": "A wildcard stem is not a reserved test: *.test.ts claims every test beside it",
+  "capability": "plan-graph",
+  "set": {
+    "HA-grs-49.scope": [
+      "src/lib/components/csv.ts",
+      "src/lib/components/*.test.ts"
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "HA-grs-49: no test path in write scope"
+    ]
+  }
+}

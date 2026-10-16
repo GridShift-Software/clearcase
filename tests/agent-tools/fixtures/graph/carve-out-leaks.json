@@ -1,0 +1,25 @@
+{
+  "description": "An except clause frees only the named subdirectory, whichever owner is checked first",
+  "capability": "plan-graph",
+  "set": {
+    "HA-viewer-office.scope": [
+      "src/lib/viewers/office/** except shared",
+      "src/lib/viewers/email/render.ts",
+      "tests/viewers/office/**",
+      "docs/acceptance/viewers/office.md"
+    ],
+    "HA-viewer-email.scope": [
+      "src/lib/viewers/email/** except shared",
+      "src/lib/viewers/office/render.ts",
+      "tests/viewers/email/**",
+      "docs/acceptance/viewers/email.md"
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "Concurrent scopes overlap: HA-viewer-office src/lib/viewers/office/**; HA-viewer-email src/lib/viewers/office/render.ts",
+      "Concurrent scopes overlap: HA-viewer-office src/lib/viewers/email/render.ts; HA-viewer-email src/lib/viewers/email/**"
+    ]
+  }
+}

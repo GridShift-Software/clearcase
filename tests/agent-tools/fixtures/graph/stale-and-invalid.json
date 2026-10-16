@@ -1,0 +1,18 @@
+{
+  "description": "A stale generated document and a validation error are both reported, neither hides the other",
+  "capability": "plan-graph",
+  "patchAfterGenerate": true,
+  "set": {
+    "CC-03.title": "Renamed without regenerating",
+    "HA-pool.depends": [
+      "HA-grs-69"
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "Stale generated plans: docs/plan/tickets/CC-03.md",
+      "HA-pool: native blockers differ from dependencies plus external prerequisites"
+    ]
+  }
+}

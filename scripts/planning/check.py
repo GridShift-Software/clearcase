@@ -17,6 +17,7 @@ ROLES = {"writer", "map", "decision", "aggregate"}
 CLOSED = {"Done", "Canceled", "Duplicate"}
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 PATH = re.compile(r"^([\w.\-\[\]{},*/+@]+)(?:\s+(.*))?$")
+TEST_FILE = re.compile(r"\.(?:test|spec)\.[cm]?[jt]sx?$")
 
 
 def scope_path(entry):
@@ -25,6 +26,18 @@ def scope_path(entry):
     if not match or not re.search(r"/|\.\w+$|\.\*$", match.group(1)):
         return None
     return match.group(1), match.group(2) or ""
+
+
+def is_test_path(glob):
+    """A reserved test: anything under tests/, or one named colocated *.test.* / *.spec.* JS or TS file.
+
+    A wildcard stem (src/**/*.test.ts) would claim every test beside it, so it is not a test reservation. The
+    reservation names a place for the test; it does not prove that a runner collects it.
+    """
+    def named(path):
+        stem = TEST_FILE.sub("", path.rsplit("/", 1)[-1]) if TEST_FILE.search(path) else ""
+        return bool(stem.strip("*"))
+    return glob.startswith("tests/") or all(named(path) for path in expand(glob))
 
 
 def expand(glob):
@@ -188,7 +201,7 @@ def validate(plan, coverage):
         elif role == "aggregate":
             if not item.get("children") or not item["acceptance"] or not item["outcome"]:
                 err(f"{key}: aggregate needs children, outcome and acceptance")
-            if any(not glob.startswith(("docs/", "tests/")) for glob, _ in paths):
+            if any(not glob.startswith("docs/") and not is_test_path(glob) for glob, _ in paths):
                 err(f"{key}: aggregate reserves implementation paths")
         elif role == "writer" and is_open[key]:
             if len(item["acceptance"]) < 3 or not item["outcome"]:
@@ -198,8 +211,8 @@ def validate(plan, coverage):
                     err(f"{key}: future work names no scope owner")
             elif not paths:
                 err(f"{key}: no concrete write path")
-            code = [g for g, _ in paths if not g.startswith(("docs/", "tests/"))]
-            if code and item["phase"] != "Later" and not any(g.startswith("tests/") for g, _ in paths):
+            code = [g for g, _ in paths if not g.startswith("docs/") and not is_test_path(g)]
+            if code and item["phase"] != "Later" and not any(is_test_path(g) for g, _ in paths):
                 err(f"{key}: no test path in write scope")
         if item["liveScenarios"] and len(item["liveScenarios"]) != 10:
             err(f"{key}: expected ten explicit live scenarios")
@@ -357,6 +370,16 @@ def compare_readback(plan, readback_path):
     return errors
 
 
+def generated_findings(root):
+    """Run the generator's own check and return what it reports. It runs beside validation, never behind it."""
+    result = subprocess.run([sys.executable, str(Path(__file__).with_name("generate.py")), "--check", "--root", str(root)],
+                            capture_output=True, text=True)
+    if result.returncode == 0:
+        return []
+    lines = (result.stderr or result.stdout).strip().splitlines()
+    return [lines[-1] if lines else "generate.py --check failed without output"]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=REPO, help="checkout holding docs/plan (default: this repository)")
@@ -369,16 +392,12 @@ def main():
     if args.linear_relations:
         findings += compare_readback(plan, args.linear_relations)
         print(f"Compared the Linear readback {args.linear_relations.name}; this command does not fetch live data.")
-    # A pending change matches one exact finding and must be removed once the coordinator resolves it.
-    pending = {row["covers"]: row for row in plan["snapshot"].get("pendingCoordinatorChanges", [])}
-    for message in [f for f in findings if f in pending]:
-        print(f"PENDING  {message}. Coordinator change: {pending[message]['issue']}: {pending[message]['change']}")
-    errors = [f for f in findings if f not in pending]
-    errors += [f"Pending change no longer matches a finding; remove it: {covers}" for covers in pending if covers not in findings]
-    if errors:
-        raise SystemExit("\n".join(errors))
-    generate = [sys.executable, str(Path(__file__).with_name("generate.py")), "--check", "--root", str(root)]
-    subprocess.run(generate, check=True)
+    # The plan file is the thing under test, so it cannot waive a finding about itself: a recorded coordinator
+    # change is one more finding, and the check holds until the coordinator resolves it and the row is removed.
+    findings += [f"Pending coordinator change {row.get('issue')}: {row.get('change')}" for row in plan["snapshot"].get("pendingCoordinatorChanges", [])]
+    findings += generated_findings(root)
+    if findings:
+        raise SystemExit("\n".join(findings) + f"\nHOLD: {len(findings)} planning finding{'s' * (len(findings) != 1)}; the plan is not accepted.")
     items = plan["items"]
     roles = Counter(i["role"] for i in items if i["status"] not in CLOSED)
     print(f"PASS: {len(items)} planning issues ({sum(i['status'] in CLOSED for i in items)} accepted historical, "
@@ -386,7 +405,7 @@ def main():
           f"{len(plan['milestones'])} milestones, {VIEW_COUNT} unique views with historical and hosted owners, "
           f"{len(plan['snapshot']['hostedDeliveryOwners'])} gated hosted owners, acyclic native blockers, "
           f"{len(GATES)} independent gates, concurrent scopes and test paths, {len(items)} Linear mappings, "
-          f"{len(pending)} pending coordinator changes.")
+          f"generated documents current, 0 pending coordinator changes.")
 
 
 if __name__ == "__main__":

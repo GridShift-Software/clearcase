@@ -1,0 +1,13 @@
+{
+  "description": "Live GRS-104 was renamed after the snapshot",
+  "capability": "linear-relations",
+  "readback": {
+    "HA-tooling.title": "Renamed in Linear after the snapshot"
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "HA-tooling: live title differs"
+    ]
+  }
+}

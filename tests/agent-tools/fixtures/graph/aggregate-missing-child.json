@@ -1,0 +1,34 @@
+{
+  "description": "An aggregate stops depending on one of its children",
+  "capability": "plan-graph",
+  "set": {
+    "CC-28.depends": [
+      "HA-audit",
+      "HA-user-work",
+      "HA-storage",
+      "HA-provision",
+      "HA-identity",
+      "HA-framework",
+      "HA-grs-69",
+      "CC-26"
+    ],
+    "CC-28.nativeBlockedBy": [
+      "GRS-116",
+      "GRS-117",
+      "GRS-115",
+      "GRS-114",
+      "GRS-113",
+      "GRS-112",
+      "GRS-69",
+      "GRS-27"
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "CC-28: aggregate does not depend on its child HA-recovery",
+      "CC-20: release gate does not reach HA-recovery",
+      "backup_tab: hosted owner HA-recovery is not an M5 owner accepted by CC-20"
+    ]
+  }
+}

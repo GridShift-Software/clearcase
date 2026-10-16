@@ -1,0 +1,13 @@
+{
+  "description": "Live GRS-104's description was edited after the snapshot",
+  "capability": "linear-relations",
+  "readback": {
+    "HA-tooling.description": "Edited in Linear after the snapshot."
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "HA-tooling: live description differs from the snapshot"
+    ]
+  }
+}

@@ -80,7 +80,7 @@ Match: `equivalent` (same capability), `partial` (overlapping), `none` (no v5 vi
 
 | Route | Capability | Classification, 8 Oct (historical) | Hosted alpha owner | Findings |
 | --- | --- | --- | --- | --- |
-| `/` | Public home | v2-owned (GRS-26 design, GRS-36 implement, GRS-32 verify) | Gap: no owner named in the snapshot | BA-20 |
+| `/` | Public home | v2-owned (GRS-26 design, GRS-36 implement, GRS-32 verify) | GRS-113 root/login/support entry (no marketing redesign) | BA-20 |
 | `/login` | Sign in | v2-owned (GRS-26, GRS-36, GRS-32) | GRS-113 (Clerk sessions) | BA-19 |
 | `/signup` | Registration | v2-owned (GRS-26 decides whether self-registration exists; GRS-36 implements identity/provisioning) | None: alpha is invite-only through GRS-113; no self-registration |  |
 | `/cases` | Cases list | v2-owned (GRS-36 client and case provisioning) | GRS-114 (cases and explicit grants) |  |
@@ -89,7 +89,7 @@ Match: `equivalent` (same capability), `partial` (overlapping), `none` (no v5 vi
 | not recorded | Case summary/overview outside results (path not recorded; shows uploads, open and publish dates) | v2-owned (GRS-28 intake, GRS-31 publication) | GRS-28 submission status, GRS-31 publication; notices GRS-129 |  |
 | `/api/cases/{id}/documents/{ref}` | Original-file download API (not a page) | v2-owned (GRS-26/GRS-36 hosted storage); local original opening is v1-parity CC-03 | GRS-115 protected R2 assets, GRS-120 viewer | BA-09 |
 | not recorded | Client upload/intake (path not recorded; uploader seen in public client chunk) | v2-owned (GRS-28 uploads, GRS-29 operator notification/download) | GRS-28 |  |
-| not recorded | Quotes/payment and firm billing API (paths not recorded) | v2-owned per product scope, but no GRS ticket currently scopes it (product brief: not in parity scope) | Not alpha: no Pay ClearCase or checkout. Gap: no later owner named |  |
+| not recorded | Quotes/payment and firm billing API (paths not recorded) | v2-owned per product scope, but no GRS ticket currently scopes it (product brief: not in parity scope) | Not alpha: no Pay ClearCase or checkout. No payment/checkout scope is approved; no implementation is inferred |  |
 | not recorded | Result publication (path not recorded) | v2-owned (GRS-30 preview, GRS-31 sign-off/publish, GRS-32 verify) | GRS-31, after GRS-30 and GRS-130 |  |
 
 ## v5 views without an evidenced production route
@@ -109,7 +109,7 @@ Hosted alpha scope, 16 October 2026:
 - **Platform.** Sign-in and invitations (GRS-113); client instances, cases and grants (GRS-114); protected originals (GRS-115, GRS-120 to GRS-123); intake (GRS-28); queue and download (GRS-135, GRS-29); private import, editing and publication (GRS-30, GRS-130, GRS-31).
 - **Newer-export data, required before alpha (GRS-22, gate GRS-24).** Emails; email silences; organogram; anchors page; WhatsApp; imported transcripts; filings split (legal-filings, court-filings); per-invoice interest over quantum.postArb; build-report per-dataset counts.
 - **Later.** Live Outlook and Gmail connections, provider-side drafts and syncing (GRS-99); standalone Markdown authoring (GRS-23); browser-agent product behaviour.
-- **Gaps for the coordinator.** The public home page and any quotes or payment flow have no named owner. The three routes without a slug (rows 12, 14 and 15) and the missing route list stay unknown until the audit snapshots are recovered; nothing here is inferred from them.
+- **Gaps for the coordinator.** The hosted root/login/support entry belongs to GRS-113; payment/checkout is not approved scope. The three routes without a slug (rows 12, 14 and 15) and the missing route list stay unknown until the audit snapshots are recovered; nothing here is inferred from them.
 
 On 8 October these capabilities were classed `deferred`: privilege-suggestions, email-draft, email-templates, outlook, kyc, billing, audit-log and bundle-builder PDF assembly. That classification is superseded above, except that live Outlook connections stay later.
 

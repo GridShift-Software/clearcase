@@ -51,10 +51,10 @@ Operating policy, recovery targets and the evidence checklist belong to [GRS-93]
 ### Still open
 
 - The fair service-target metric behind the 24–36-hour processing target, and how client waiting time counts.
-- Numeric retry and runtime limits for delivery work.
+- Retry/runtime policy is settled in the delivery operating plan: writing 90 minutes, review 30 minutes, stall assessment after 30 minutes without meaningful progress. Enforcement proof belongs to agent tooling; spend is reporting only.
 - The audit event contract, SSO for any client, the viewer components and the frozen format, codec and archive matrix.
 - The proof that private review inside a client instance excludes client access.
-- Production route slugs that were never recorded, and owners for the public home page and any quotes or payment flow.
+- Production route slugs that were never recorded remain evidence gaps. The hosted root/login/support entry belongs to the identity owner; no marketing redesign or unapproved payment/checkout flow is added.
 
 ## Superseded statements
 

@@ -1,0 +1,7 @@
+# Gate approved analysis additions pending client approval
+
+Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-48/gate-approved-analysis-additions-pending-client-approval) is the execution authority.
+
+User accepted questionnaire item 2 on 12 October 2026 conditionally: "make a feature flag for now, need client approval before include fully". Item 2 covers showing/exporting defence-matrix references omitted by v5, correct escaping of timeline titles, and analysis headings matching navigation labels. Preserve existing v5 functionality. Identify the exact gated additions and expose an explicit feature flag, default off pending client approval; do not interpret product-owner approval as client approval. Document how client approval enables full inclusion. Keep this scoped to item 2 rather than hiding unrelated quantum, register, litigation or bundle features approved separately. Maintain verification and conditional parity evidence for flag states; no code changes to another active worker's worktree.
+
+ADR review clarification: the default-off flag gates additions only. Timeline escaping and other correctness fixes apply in both flag states; the flag must never restore v5's escaping bug. ADR 0003 in <issue id="5dbbb1e7-5870-40bd-b7c7-98384a1c9ee1" href="https://linear.app/vaper/issue/GRS-46/record-approved-v1-behavior-and-case-import-decisions-as-adrs">GRS-46</issue>/PR #24 records this distinction.

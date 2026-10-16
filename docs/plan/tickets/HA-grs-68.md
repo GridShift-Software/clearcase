@@ -9,3 +9,5 @@ The <issue id="9c8b3267-fbf1-4821-a6f1-69ff48337884" href="https://linear.app/va
 * **Low:** only the root e2e `summary.json` is stamped (`matrix.mjs:50-60`). A per-category `*/summary.json` left over from an earlier gate would still count.
 
 Until this is fixed, the coordinator checks `exit`, `error` and the view count in both `layout.json` files by hand whenever the matrix is regenerated.
+
+Write reservation: scripts/verify/matrix.mjs and tests/gate/matrix.test.ts. First reconcile the accepted head: if the exact failure classes are already fixed, independently verify and close with receipts rather than reimplementing them.

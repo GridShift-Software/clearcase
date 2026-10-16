@@ -1,0 +1,13 @@
+{
+  "description": "An open live child of GRS-36 is missing from the plan",
+  "capability": "linear-relations",
+  "readback": {
+    "GRS-47.parentId": "GRS-36"
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "GRS-47: open child of GRS-36 is outside the plan"
+    ]
+  }
+}

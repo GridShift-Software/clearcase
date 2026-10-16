@@ -4,7 +4,8 @@
   "expect": {
     "exit": 0,
     "output": [
-      "PASS: 30 issues"
+      "PASS: 71 planning issues",
+      "PENDING  CC-20: release gate does not reach HA-notifications"
     ]
   }
 }

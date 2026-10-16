@@ -1,0 +1,19 @@
+{
+  "description": "HA-grs-49's real shape: csv.ts and its colocated csv.test.ts, outside tests/",
+  "capability": "plan-graph",
+  "set": {
+    "HA-grs-49.scope": [
+      "src/lib/components/csv.ts",
+      "src/lib/components/csv.test.ts"
+    ]
+  },
+  "expect": {
+    "exit": 0,
+    "output": [
+      "PASS: 71 planning issues"
+    ],
+    "absent": [
+      "no test path"
+    ]
+  }
+}

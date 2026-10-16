@@ -1,8 +1,9 @@
 """Build a disposable planning tree from the committed plan plus one graph fixture.
 
 Usage: python3 make_tree.py REPO DEST FIXTURE.json
-Copies the planning scripts and inputs into DEST, applies the fixture's edits,
-regenerates the plan and writes DEST/readback.json when the fixture asks for one.
+Copies the planning scripts and inputs into DEST, applies the fixture's edits
+(set, append and delete on items; snapshot fields; view fields), regenerates the plan and writes
+DEST/readback.json when the fixture asks for one (readback edits rows; readbackDropOwners omits created owners).
 The readback is synthetic: it is derived from the plan and padded with closed
 issues so that the counts recorded in the snapshot hold.
 """
@@ -39,6 +40,7 @@ def patch():
     for target in fixture.get("delete", []):
         key, field = target.split(".")
         del items[key][field]
+    plan["snapshot"].update(fixture.get("snapshot", {}))
     plan_path.write_text(json.dumps(plan, indent=2) + "\n")
     coverage = json.loads(coverage_path.read_text())
     views = {view["id"]: view for view in coverage["views"]}
@@ -78,12 +80,14 @@ if "readback" in fixture:
     counts = dict(snapshot["readback"]["statusCounts"])
     for row in rows.values():
         counts[row["status"]] = counts.get(row["status"], 0) - 1
+    # Only closed issues are padded, so a status moved by a fixture shows up as a count mismatch, not as a synthetic open issue.
     filler = [{"id": f"SYN-{status[:2].upper()}-{n}", "status": status, "parentId": None, "projectMilestone": None}
-              for status, missing in counts.items() for n in range(max(missing, 0))]
+              for status, missing in counts.items() if status in {"Done", "Canceled", "Duplicate"} for n in range(max(missing, 0))]
     live = list(rows.values()) + filler
     graph = {row["id"]: {"description": row["description"], "status": row["status"],
                          "relations": {"blockedBy": [{"id": b} for b in row["blockedBy"]]}}
              for row in live if row["status"] not in {"Done", "Canceled", "Duplicate"}}
-    issues = [{"linear": {"id": items[key]["linear"]["identifier"]}} for key in snapshot["hostedDeliveryOwners"]]
+    issues = [{"linear": {"id": items[key]["linear"]["identifier"]}} for key in snapshot["hostedDeliveryOwners"]
+              if key not in fixture.get("readbackDropOwners", [])]
     readback = {"synthetic": True, "issues": issues, "liveIssues": live, "liveGraph": graph}
     (dest / "readback.json").write_text(json.dumps(readback, indent=2) + "\n")

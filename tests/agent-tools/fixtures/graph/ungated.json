@@ -14,7 +14,8 @@
   "expect": {
     "exit": 1,
     "output": [
-      "HA-kyc: hosted work is not natively blocked by the planning gate"
+      "HA-kyc: hosted work is not natively blocked by the planning gate",
+      "HA-kyc: hosted delivery owner must be a gated Backlog writer with verification"
     ]
   }
 }

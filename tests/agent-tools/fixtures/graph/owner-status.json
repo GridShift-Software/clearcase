@@ -1,0 +1,13 @@
+{
+  "description": "A hosted delivery owner has left Backlog",
+  "capability": "plan-graph",
+  "set": {
+    "HA-kyc.status": "In Progress"
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "HA-kyc: hosted delivery owner must be a gated Backlog writer with verification"
+    ]
+  }
+}

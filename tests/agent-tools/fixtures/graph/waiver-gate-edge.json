@@ -1,0 +1,39 @@
+{
+  "description": "A removed gate edge is not waived by pending rows that quote its exact findings",
+  "capability": "plan-graph",
+  "set": {
+    "CC-28.depends": [
+      "HA-recovery",
+      "HA-audit",
+      "HA-user-work",
+      "HA-storage",
+      "HA-provision",
+      "HA-identity",
+      "HA-framework",
+      "HA-grs-69"
+    ]
+  },
+  "snapshot": {
+    "pendingCoordinatorChanges": [
+      {
+        "issue": "GRS-36",
+        "change": "Accept the missing design-gate blocker",
+        "covers": "Hosted intake must wait for the hosted foundation, which waits for the design gate"
+      },
+      {
+        "issue": "GRS-36",
+        "change": "Accept the missing native blocker",
+        "covers": "CC-28: native blockers differ from dependencies plus external prerequisites"
+      }
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "Hosted intake must wait for the hosted foundation, which waits for the design gate",
+      "CC-28: native blockers differ from dependencies plus external prerequisites",
+      "Pending coordinator change GRS-36: Accept the missing design-gate blocker",
+      "Pending coordinator change GRS-36: Accept the missing native blocker"
+    ]
+  }
+}

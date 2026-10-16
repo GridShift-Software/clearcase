@@ -130,8 +130,8 @@ def plan_sections(plan, coverage):
     rows.append("\n".join(f"- {issue_ref(by_key[key]) if key in by_key else 'Unknown owner'} `{key}`. {len(views)} views: {', '.join(views)}." for key, views in owners.items()))
     pending = snapshot.get("pendingCoordinatorChanges", [])
     rows += ["## Pending coordinator changes",
-             "The checker reports each of these findings as PENDING until the coordinator changes Linear and the snapshot is refreshed." if pending else "None."]
-    rows += ["\n".join(f"- {row['issue']}. {row['change']} Finding: {row['covers']}." for row in pending)] if pending else []
+             "The checker holds, with a non-zero exit, while any of these is listed. It waives nothing: the coordinator changes Linear, refreshes the snapshot and removes the row." if pending else "None."]
+    rows += ["\n".join(f"- {row['issue']}. {row['change']}" for row in pending)] if pending else []
     rows += ["## Close the program", "\n".join([
         "- [ ] Reconcile delegated task IDs, receipts and attempt counts with Linear before closing a milestone.",
         "- [ ] Read back every project issue's status, parent, native blockers and description. Refresh `docs/plan/work-items.json`, regenerate, and run `scripts/agent-tools/check-plan --linear-relations READBACK`.",

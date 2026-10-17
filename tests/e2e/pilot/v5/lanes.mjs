@@ -45,9 +45,12 @@ async function docPage(C, rv, ref, query = '') {
 
 /**
  * The active version's overview, reached the way the app leads there: the root lands on the case list since be66e49
- * (GRS-70 demo; it used to redirect to the active overview), whose Open goes to the active version's overview.
+ * (GRS-70 demo; it used to redirect to the active overview), whose Open goes to the active version's overview. The root
+ * is requested here, with the case active, because the callers no longer navigate through it.
  */
 async function activeOverview(C, L) {
+	const root = await C.c.get('/');
+	L.check('with the case active, the root still redirects to the case list (307 to /cases)', { status: 307, location: '/cases' }, { status: root.status, location: root.location });
 	const home = await C.c.home();
 	L.check('the case list (where the root lands) opens the active version\'s overview', `${vpath(C.fx.accepted.resultsVersion)}/overview`, home);
 	return `${C.origin}${home}`;

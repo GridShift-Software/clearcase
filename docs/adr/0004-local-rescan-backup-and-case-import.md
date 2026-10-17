@@ -21,3 +21,5 @@ This widens the V1 experience in the [product brief](../product-brief.md), which
 - This record does not authorise web-intake or portal implementation, production changes, or agents transferring real case data. Hosted intake stays with the unanswered V2 work.
 
 Affects GRS-20 (PR #21) and GRS-47.
+
+Superseded for hosted work by [ADR 0008](0008-workers-runtime-and-cloudflare-first-stack.md) to [ADR 0011](0011-originals-and-complete-in-app-file-viewing.md) (pointer added 17 October 2026). The text above is unchanged.

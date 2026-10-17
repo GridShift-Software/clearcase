@@ -1,0 +1,59 @@
+{
+  "description": "The planning gate is Done and a hosted delivery owner is dispatched, so it is In Progress with the readback counts to match",
+  "capability": "linear-relations",
+  "set": {
+    "HA-tooling.status": "In Progress"
+  },
+  "snapshot": {
+    "readback": {
+      "source": "Coordinator incremental readback .orchestration/live-linear-readback-20261017T1427.json (ignored): the 14:11Z full capture plus live re-reads of every issue Linear reported updated since 14:10Z; all project issue metadata and the blockedBy relations of every open issue, read at 2026-10-17T14:27Z.",
+      "projectIssues": 115,
+      "openIssues": 62,
+      "statusCounts": {
+        "In Progress": 3,
+        "Backlog": 59,
+        "Done": 52,
+        "Canceled": 1
+      },
+      "openOutsidePlan": [
+        {
+          "identifier": "GRS-99",
+          "status": "Backlog",
+          "milestone": "M7 - Later integrations and authoring",
+          "title": "Plan live Outlook and Gmail integrations after alpha"
+        },
+        {
+          "identifier": "GRS-65",
+          "status": "Backlog",
+          "milestone": null,
+          "title": "Tag the V1 demo release and merge it into main"
+        },
+        {
+          "identifier": "GRS-64",
+          "status": "Backlog",
+          "milestone": null,
+          "title": "Compare the local app with the live production deploy, page by page, before the V1 demo release"
+        },
+        {
+          "identifier": "GRS-47",
+          "status": "Backlog",
+          "milestone": "M7 - Later integrations and authoring",
+          "title": "Provide per-case local import and update with user-chosen source folders"
+        }
+      ]
+    }
+  },
+  "readback": {},
+  "expect": {
+    "exit": 0,
+    "output": [
+      "Compared the Linear readback",
+      "PASS: 77 planning issues",
+      "generated documents current, 0 pending coordinator changes"
+    ],
+    "absent": [
+      "PENDING",
+      "HOLD"
+    ]
+  }
+}

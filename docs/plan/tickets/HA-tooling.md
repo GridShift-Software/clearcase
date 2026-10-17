@@ -24,6 +24,8 @@ These are initial reservations. Pin exact files and accepted upstream SHA in the
 - [ ] Reconcile hosted Bun/build versus workerd runtime guidance, explicit rare Fable/Astra escalation and bounded swarm permissions; preserve external reviewer approval, serial merge rules and main protection.
 - [ ] Encode the accepted escalation workflow: linked Linear issue before dispatch, bounded single-model attempt, task ID and findings/outcome/checks afterward. Do not launch an escalation as a tooling test.
 - [ ] Expose actual spend where available and clearly distinguish unavailable cost, target and enforceable cap. Never claim the T3 API has a hard spend cap. Retain one-page briefs, short reports and current browser locking.
+- [ ] Added 17 October: a deterministic guard, not a prompt rule, that fails a fix-round diff which deletes, skips, loosens or renames a test the review findings named, or lowers an assertion count in a test file it touches without a recorded reason. It runs in the receipt tooling and in CI. The verifying-agent-code reference under <issue id="92cf7851-5bc9-4214-a856-481f3850db98" href="https://linear.app/vaper/issue/GRS-94/define-the-fable-and-swarm-delivery-operating-plan">GRS-94</issue> asks for exactly this hook.
+- [ ] Added 17 October: a review-verdict record in code. A unit's ledger row is `approved` only when its fresh reviewer's report has no P0 or P1 finding and the deterministic checks passed at the same SHA; the record is machine-checked before a push is approved, not read from a chat summary.
 
 ## Verification and handoff
 

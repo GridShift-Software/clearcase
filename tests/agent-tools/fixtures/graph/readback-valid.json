@@ -6,7 +6,7 @@
     "exit": 0,
     "output": [
       "Compared the Linear readback",
-      "PASS: 73 planning issues",
+      "PASS: 76 planning issues",
       "generated documents current, 0 pending coordinator changes"
     ],
     "absent": [

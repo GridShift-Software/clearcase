@@ -136,3 +136,79 @@ architect runners: claudeAgent/claude-opus-5-5 effort=xhigh, codex/gpt-6.1-sol r
 interrogate reviewers: claudeAgent/claude-opus-5-5 effort=xhigh, codex/gpt-6.1-sol reasoningEffort=xhigh
 session hook: on
 ```
+
+## 17 October operating changes
+
+Recorded 17 October 2026. The workspace `AGENTS.md` and `ORCHESTRATOR.md` are the operative copies and override this section where they differ. This section records them in the repository so a reader of `dev` sees the rules the run will follow. Where it conflicts with the text above, including the role table and the pstack block, this section wins. The pyramid and the wave review model are explained in [verification and review](verification-and-review.md).
+
+### Waves, checkpoints and ticket PRs
+
+- One `feature/<linear-id>-<slug>` branch per ticket, each in its own worktree. A ticket branch is cut from the wave branch its brief names, or from the upstream ticket's branch while that is unmerged.
+- A ticket PR targets its wave branch `wave/<name>`. The wave branch's PR targets `dev`. Nothing targets `dev` directly except a wave branch. Merge commits only; never rebase, force-push or touch `main`.
+- The orchestrator merges a ticket PR into the wave branch when the fresh recheck approves and the gate is green at the head. No external review happens at this level.
+- A wave is the set of tickets under one `checkpoint` aggregate, at most seven tickets, on one branch: `wave/proofs` for [GRS-26](https://linear.app/vaper/issue/GRS-26/prove-the-hosted-architecture-and-cloudflare-deployment) and [GRS-97](https://linear.app/vaper/issue/GRS-97/evaluate-viewer-components-and-freeze-alpha-file-coverage), `wave/foundation` for [GRS-36](https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work), `wave/first-workflow` for [GRS-137](https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view), `wave/widen` for [GRS-66](https://linear.app/vaper/issue/GRS-66/accept-hosted-production-integrations-and-page-coverage) and `wave/release` for [GRS-32](https://linear.app/vaper/issue/GRS-32/verify-hosted-isolation-recovery-and-release-readiness).
+- The five checkpoints are [GRS-27](https://linear.app/vaper/issue/GRS-27/gate-the-hosted-design-before-client-intake-implementation), [GRS-36](https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work), [GRS-137](https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view), [GRS-66](https://linear.app/vaper/issue/GRS-66/accept-hosted-production-integrations-and-page-coverage) and [GRS-32](https://linear.app/vaper/issue/GRS-32/verify-hosted-isolation-recovery-and-release-readiness). At each, the user reads the aggregate report and drives the verification skill once. Agents run unattended between checkpoints and stop, with `status.md` written, when only checkpoint-blocked work remains.
+- When the aggregate is accepted, the orchestrator opens one PR from the wave branch into `dev` and requests `dianbrown`. His findings get one fix round per owner on the wave branch, then he is re-requested. The wave merges into `dev` when his latest review on the wave head approves.
+
+### Morning update
+
+A scheduled task at 08:30 SAST on weekdays posts one Linear project status update: wave PRs awaiting the external reviewer, checkpoints and human gates awaiting the user, blocked or stalled units, and spend to date. It is the only routine human notification. A stop line is the only exception.
+
+### Human gate for manual processing
+
+The processing recipe, which is the prompts run over case documents, is never run by an agent. A worker stops with `AWAITING MANUAL RESULTS`, names the submission manifest and the download path in its report, and lets the user run the recipe in their own chat. A fresh session resumes from the import step once the user names the package path. This applies to [GRS-137](https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view) and [GRS-29](https://linear.app/vaper/issue/GRS-29/notify-operators-and-download-a-complete-submission).
+
+### Hosted gate as the pilot unit
+
+[GRS-138](https://linear.app/vaper/issue/GRS-138/build-the-hosted-gate-and-the-verify-clearcase-hosted-skill-before) builds `gate:hosted` and the `verify-clearcase-hosted` skill before the foundation fan-out. Once it lands, `bun run --bun gate:hosted` is the required check for any ticket touching hosted paths. It is also the pilot unit for the hosted brief template. A summary that names a test double for a boundary is not evidence for that boundary. Real Clerk, D1, R2 and email evidence comes only from the proof tickets and the release gate.
+
+### Test protection and approval in code
+
+A fix diff that deletes, skips, loosens or renames a test named in the findings fails its recheck, so the fix writes the failing test first and the sequence reads red then green. [GRS-104](https://linear.app/vaper/issue/GRS-104/align-agent-tooling-with-the-canonical-pstack-plugin-and-delivery) turns this into a deterministic guard in the receipt tooling and in CI, and adds a review-verdict record: a ledger row is `approved` only when the fresh reviewer's report has no P0 or P1 finding and the deterministic checks passed at the same SHA.
+
+### Codebase discovery
+
+Workers do not re-derive the architecture. In order: `docs/development.md` and `GLOSSARY.md`; the ticket's generated brief under `docs/plan/tickets/`, the Linear issue and the upstream report; the ADRs for the area and `docs/results-package.md` for the package or import; then `graphify-out/` when it exists. Every file or content search in the repository uses the `fff` MCP tools (`ffgrep`, `fffind`, `fff-multi-grep`). Whole files are read only when the worker will edit them. What a worker learns that the map lacks goes into a `Map notes` section of its report, at most 10 lines. The orchestrator folds accepted notes into `docs/development.md` at the wave boundary.
+
+### Models and effort
+
+| Role | Model | Effort | Target USD |
+| --- | --- | --- | --- |
+| Orchestrator (T3 thread) | `claude-opus-5-5` | high | none |
+| First implementation of a ticket | `claude-opus-5-5` | xhigh | 20 |
+| Diff review | `claude-opus-5-5` | xhigh | 6 |
+| Recheck of a fix round's diff | `claude-opus-5-5` | high | 2 |
+| Fix round from a written defect list; merges; PR and Linear text | `claude-sonnet-5-5` | high | 8 |
+| A high that survived the fix round | `claude-opus-5-5` with `diagnosing-bugs` | xhigh | 12 |
+| Rare escalation, only with a linked Linear escalation issue | `claude-fable-5-1`, or `gpt-6-astra` by explicit per-task choice | xhigh | 12 |
+| Research and decision sessions with the user | `claude-opus-5-5` | high | 6 |
+| Running checks, reading logs | a script | none | 0 |
+
+Targets are reporting only. Overspend never pauses or cancels work by itself. Attempts are bounded instead: one fix round, one recheck, one escalation and one transient infrastructure retry. The same failure twice without a new diagnosis stops the unit. Model and effort are set explicitly on every launch, and never effort `max`. Verification lanes, adversarial swarms, critic panels, brief drafters and the Workflow tool are not used.
+
+### Pstack sheet as written
+
+The sheet at `~/.config/t3-pstack/models.md` was written on 17 October with budget large (xhigh). Its own comment reads: "ClearCase: routine work is Opus, written-finding fixes are Sonnet (set in the brief), Fable only after a linked escalation issue. Panel rows serve other projects; ClearCase does not run panels." The role lines:
+
+```text
+feature, refactoring: claudeAgent/claude-opus-5-5 effort=xhigh
+bug-fix: claudeAgent/claude-opus-5-5 effort=xhigh
+perf-issue: claudeAgent/claude-opus-5-5 effort=xhigh
+hillclimb: claudeAgent/claude-opus-5-5 effort=xhigh
+judgment and prose: claudeAgent/claude-opus-5-5 effort=high
+hardest tasks: claudeAgent/claude-fable-5-1 effort=xhigh
+how explorer: claudeAgent/claude-opus-5-5 effort=high
+how explainer: claudeAgent/claude-opus-5-5 effort=high
+why investigators: claudeAgent/claude-opus-5-5 effort=high
+why synthesizer: claudeAgent/claude-opus-5-5 effort=xhigh
+reflect tooling: claudeAgent/claude-opus-5-5 effort=high
+reflect judgment, divergent, synthesizer: claudeAgent/claude-opus-5-5 effort=xhigh
+arena runners: claudeAgent/claude-opus-5-5 effort=xhigh, codex/gpt-6.1-sol reasoningEffort=xhigh
+arena cross-judge pool: claudeAgent/claude-opus-5-5 effort=xhigh, codex/gpt-6.1-sol reasoningEffort=xhigh
+swarm workers: claudeAgent/claude-opus-5-5 effort=xhigh
+architect runners: claudeAgent/claude-opus-5-5 effort=xhigh, codex/gpt-6.1-sol reasoningEffort=xhigh
+interrogate reviewers: claudeAgent/claude-opus-5-5 effort=xhigh, codex/gpt-6.1-sol reasoningEffort=xhigh
+session hook: on
+```
+
+The arena, architect, interrogate, reflect and swarm rows serve other projects. The workspace `AGENTS.md` does not allow those skills here and allows Codex only as `gpt-6-astra`, the recorded rare escalator.

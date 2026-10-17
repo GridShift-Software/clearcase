@@ -274,7 +274,7 @@ def validate(plan, coverage):
             err(f"{key}: unknown hosted delivery owner")
         elif (item.get("role") != "writer" or not owner_status_ok(item) or item["phase"] != "V2"
               or not item.get("verification") or gate_key not in item["depends"]):
-            err(f"{key}: hosted delivery owner must be a gated {'open or Done' if gate_done else 'Backlog'} writer with verification")
+            err(f"{key}: hosted delivery owner must be a gated {'open or Done' if gate_done and item['status'] != 'Backlog' else 'Backlog'} writer with verification")
 
     # Views: the frozen v5 baseline keeps its historical owner and gains one hosted owner.
     views = coverage["views"]

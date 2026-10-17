@@ -1,6 +1,6 @@
 # Prove cf and Void deployment, migration and credential boundaries
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-107/prove-cf-and-void-deployment-migration-and-credential-boundaries) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-107/prove-cf-and-void-deployment-migration-and-credential-boundaries) is the execution authority.
 
 Planning key `HA-deploy-proof`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

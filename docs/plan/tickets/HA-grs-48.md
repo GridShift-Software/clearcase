@@ -1,6 +1,6 @@
 # Gate approved analysis additions pending client approval
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-48/gate-approved-analysis-additions-pending-client-approval) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-48/gate-approved-analysis-additions-pending-client-approval) is the execution authority.
 
 User accepted questionnaire item 2 on 12 October 2026 conditionally: "make a feature flag for now, need client approval before include fully". Item 2 covers showing/exporting defence-matrix references omitted by v5, correct escaping of timeline titles, and analysis headings matching navigation labels. Preserve existing v5 functionality. Identify the exact gated additions and expose an explicit feature flag, default off pending client approval; do not interpret product-owner approval as client approval. Document how client approval enables full inclusion. Keep this scoped to item 2 rather than hiding unrelated quantum, register, litigation or bundle features approved separately. Maintain verification and conditional parity evidence for flag states; no code changes to another active worker's worktree.
 

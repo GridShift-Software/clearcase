@@ -1,6 +1,6 @@
 # Edit and revalidate private results before exact-version approval
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-130/edit-and-revalidate-private-results-before-exact-version-approval) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-130/edit-and-revalidate-private-results-before-exact-version-approval) is the execution authority.
 
 Planning key `HA-preview-edit`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

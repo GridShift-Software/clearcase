@@ -1,6 +1,6 @@
 # Implement Clerk invitations, sessions and hosted access checks
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-113/implement-clerk-invitations-sessions-and-hosted-access-checks) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-113/implement-clerk-invitations-sessions-and-hosted-access-checks) is the execution authority.
 
 Planning key `HA-identity`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

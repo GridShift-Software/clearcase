@@ -1,6 +1,6 @@
 # Migrate overview, chronology, evidence and analysis views to hosted contracts
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-131/migrate-overview-chronology-evidence-and-analysis-views-to-hosted) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-131/migrate-overview-chronology-evidence-and-analysis-views-to-hosted) is the execution authority.
 
 Planning key `HA-views-evidence-analysis`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 
@@ -46,3 +46,10 @@ Planning creates this issue; it does not dispatch it. RAWS/current production ar
 * [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)
 * [Implement hosted identity, client provisioning and durable user work](<https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work>)
 * [Implement the protected in-app viewer shell and PDF/image readers](<https://linear.app/vaper/issue/GRS-120/implement-the-protected-in-app-viewer-shell-and-pdfimage-readers>)
+
+## Final workflow alignment — 17 October 2026
+
+Accepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.
+
+- [ ] Wait for acceptance of the first complete hosted PDF workflow before broad migration. Its owner has exclusive minimal overview write scope until an explicit handoff of overview files and accepted head; this owner then completes the full existing overview/chronology/evidence/analysis coverage, preserving all 16 views.
+- [ ] Use the shared visual pending/unavailable state where results are absent or withdrawn. Keep authorized independent user work and source navigation accessible through case-level routes; do not invent results or expose withdrawn/private data.

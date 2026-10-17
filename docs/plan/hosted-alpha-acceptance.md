@@ -11,7 +11,7 @@ Updated 17 October 2026. No hosted acceptance evidence has been collected for th
 
 The initial operations answers are recorded in comment `401ed474-bc31-4378-bd0d-bd3a9aa8bb0f`; the recovery answers are recorded in comment `0edc3a04-237c-4dcc-8acb-942f2a6d2481`; the notification/deletion answers are recorded in comment `2a075945-47da-418f-b53e-8c596404d46a`; final operating ownership is recorded in comment `b2e82ad5-85b8-4fe9-a2a3-5cc18051ef90`. Later decisions in the issue supersede this snapshot.
 
-The final workflow-scenario answers of 17 October are recorded in comment `f9705162-0911-492f-8684-4db568edefa7` on [Stress-test the complete hosted-alpha plan with final workflow scenarios](https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow-scenarios), and amend [ADR-0009](../adr/0009-manual-queue-and-candidate-import-contract.md), [ADR-0010](../adr/0010-exact-version-signoff-and-publication.md) and [ADR-0011](../adr/0011-originals-and-complete-in-app-file-viewing.md).
+The final workflow-scenario answers of 17 October are recorded in comment `f9705162-0911-492f-8684-4db568edefa7` on [Stress-test the complete hosted-alpha plan with final workflow scenarios](https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow), and amend [ADR-0009](../adr/0009-manual-queue-and-candidate-import-contract.md), [ADR-0010](../adr/0010-exact-version-signoff-and-publication.md) and [ADR-0011](../adr/0011-originals-and-complete-in-app-file-viewing.md).
 
 ## Accepted operating policy
 

@@ -1,6 +1,6 @@
 # Persist hosted case user work with stable identities and conflict handling
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-117/persist-hosted-case-user-work-with-stable-identities-and-conflict) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-117/persist-hosted-case-user-work-with-stable-identities-and-conflict) is the execution authority.
 
 Planning key `HA-user-work`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 
@@ -42,3 +42,9 @@ Planning creates this issue; it does not dispatch it. RAWS/current production ar
 * [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)
 * [Gate the hosted design before client intake implementation](<https://linear.app/vaper/issue/GRS-27/gate-the-hosted-design-before-client-intake-implementation>)
 * [Implement permission-scoped audit events and audit views](<https://linear.app/vaper/issue/GRS-116/implement-permission-scoped-audit-events-and-audit-views>)
+
+## Final workflow alignment — 17 October 2026
+
+Accepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.
+
+- [ ] Persist and authorize case-level Notes, time/cost entries and other independent user work without requiring a published resultsVersion. Withdrawal of results preserves both their data and authorized case-level accessibility. Result-dependent anchors may show unavailable context without deleting or hiding the user work; existing conflict/audit/revocation rules still apply.

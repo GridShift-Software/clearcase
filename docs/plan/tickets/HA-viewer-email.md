@@ -1,6 +1,6 @@
 # Implement Outlook and Gmail email-file and attachment viewing
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-122/implement-outlook-and-gmail-email-file-and-attachment-viewing) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-122/implement-outlook-and-gmail-email-file-and-attachment-viewing) is the execution authority.
 
 Planning key `HA-viewer-email`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 
@@ -38,3 +38,9 @@ Planning creates this issue; it does not dispatch it. RAWS/current production ar
 
 * [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)
 * [Implement the protected in-app viewer shell and PDF/image readers](<https://linear.app/vaper/issue/GRS-120/implement-the-protected-in-app-viewer-shell-and-pdfimage-readers>)
+
+## Final workflow alignment — 17 October 2026
+
+Accepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.
+
+- [ ] Before an email file/attachment has its required manually prepared preview, the shared shell may show Preview pending processing and offer unchanged original retrieval. This is a temporary prepublication exception only; every published email/attachment must meet the full in-app viewing contract.

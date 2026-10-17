@@ -1,6 +1,6 @@
 # Implement complete case export, backup recovery and approved deletion
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-118/implement-complete-case-export-backup-recovery-and-approved-deletion) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-118/implement-complete-case-export-backup-recovery-and-approved-deletion) is the execution authority.
 
 Planning key `HA-recovery`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

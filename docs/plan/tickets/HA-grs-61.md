@@ -1,6 +1,6 @@
 # UI class suite: close the last two fail-open paths (dialog "answered", CSV discovery)
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-61/ui-class-suite-close-the-last-two-fail-open-paths-dialog-answered-csv) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-61/ui-class-suite-close-the-last-two-fail-open-paths-dialog-answered-csv) is the execution authority.
 
 Follow-up from <issue id="6428a777-8c34-48b8-a5b6-0d0a249a4574" href="https://linear.app/vaper/issue/GRS-59/p1-kit-one-shared-e2e-test-per-ui-bug-class-run-over-every-form-and">GRS-59</issue>'s re-check (`.orchestration/reports/GRS-59/recheck.md`). The one fix round closed the four highs. These two narrower mediums of the same class (a check that passes without setting up its bug) remain:
 

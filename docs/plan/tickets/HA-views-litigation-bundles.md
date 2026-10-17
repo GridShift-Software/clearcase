@@ -1,6 +1,6 @@
 # Migrate litigation and existing bundle workspaces to hosted contracts
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-133/migrate-litigation-and-existing-bundle-workspaces-to-hosted-contracts) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-133/migrate-litigation-and-existing-bundle-workspaces-to-hosted-contracts) is the execution authority.
 
 Planning key `HA-views-litigation-bundles`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 
@@ -44,3 +44,9 @@ Planning creates this issue; it does not dispatch it. RAWS/current production ar
 * [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)
 * [Implement hosted identity, client provisioning and durable user work](<https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work>)
 * [Implement the protected in-app viewer shell and PDF/image readers](<https://linear.app/vaper/issue/GRS-120/implement-the-protected-in-app-viewer-shell-and-pdfimage-readers>)
+
+## Final workflow alignment — 17 October 2026
+
+Accepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.
+
+- [ ] Wait for acceptance of the first complete hosted PDF workflow before broad migration. When no results are published, use the shared visual unavailable/pending state for result-dependent preparation while preserving authorized independent user work and source access. Retain all existing litigation/bundle coverage and final output checks.

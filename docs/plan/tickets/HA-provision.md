@@ -1,6 +1,6 @@
 # Provision isolated client instances, cases and explicit grants
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-114/provision-isolated-client-instances-cases-and-explicit-grants) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-114/provision-isolated-client-instances-cases-and-explicit-grants) is the execution authority.
 
 Planning key `HA-provision`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 
@@ -45,3 +45,10 @@ Planning creates this issue; it does not dispatch it. RAWS/current production ar
 * [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)
 * [Gate the hosted design before client intake implementation](<https://linear.app/vaper/issue/GRS-27/gate-the-hosted-design-before-client-intake-implementation>)
 * [Implement Clerk invitations, sessions and hosted access checks](<https://linear.app/vaper/issue/GRS-113/implement-clerk-invitations-sessions-and-hosted-access-checks>)
+
+## Final workflow alignment — 17 October 2026
+
+Accepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.
+
+- [ ] A case exists and has explicit assigned-user access before its first publication. Provide case-level entry/navigation without a resultsVersion, showing submissions/originals and links to independent user work; integrate the shared visual pending/unavailable-results state. After results withdrawal preserve those authorized paths and never expose private/withdrawn results.
+- [ ] Coordinate later exclusive handoffs within src/routes/cases/**: the viewer core owns cases/\[caseId\]/files/**; the Notes owner owns cases/\[caseId\]/notes/**; the case-cost owner owns cases/\[caseId\]/costs/**. Do not retain concurrent write ownership over handed-off paths.

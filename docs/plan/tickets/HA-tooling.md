@@ -1,6 +1,6 @@
 # Align agent tooling with the canonical pstack plugin and delivery controls
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-104/align-agent-tooling-with-the-canonical-pstack-plugin-and-delivery) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-104/align-agent-tooling-with-the-canonical-pstack-plugin-and-delivery) is the execution authority.
 
 Planning key `HA-tooling`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

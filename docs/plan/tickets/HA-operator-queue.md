@@ -1,6 +1,6 @@
 # Implement the internal FIFO processing queue and audited operator claims
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-135/implement-the-internal-fifo-processing-queue-and-audited-operator) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-135/implement-the-internal-fifo-processing-queue-and-audited-operator) is the execution authority.
 
 Planning key `HA-operator-queue`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 
@@ -33,3 +33,10 @@ Use doctor at session start and verify/receipt for checks. Return PASS/HOLD/FAIL
 ## Boundaries
 
 Planning creates this issue; it does not dispatch it. RAWS/current production are read-only. Shared pools/committed fixtures use synthetic data; case material, private screenshots and secrets stay out of Git and external services. No production deployment, real external messages, destructive retention action or main merge under this planning update. Normal Opus/Sonnet roles apply; a rare Fable/Astra escalation requires a separate linked issue before dispatch and results recorded afterward.
+
+## Final workflow alignment — 17 October 2026
+
+Accepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.
+
+- [ ] Distinguish the fixed original submission from the processing job tracking it. Requested passwords/missing files are linked supplementary input to that same job; retain submitted time/history, record a new eligible ready time and rejoin the back. Service-team mistakes keep the accepted priority rule.
+- [ ] Ordinary new/additional/replacement batches form new submissions. Never silently merge queued jobs or mutate the finalized submission. The claim/download/attempt manifest must pin the exact original and supplementary input used. Cancellation rights and automatic job-combining are not introduced by this decision.

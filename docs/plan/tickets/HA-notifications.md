@@ -1,6 +1,6 @@
 # Notify uploaders of publication and required input without blocking access
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-129/notify-uploaders-of-publication-and-required-input-without-blocking) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-129/notify-uploaders-of-publication-and-required-input-without-blocking) is the execution authority.
 
 Planning key `HA-notifications`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

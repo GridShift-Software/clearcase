@@ -1,6 +1,6 @@
 # Implement accepted media and archive-contained viewing paths
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-123/implement-accepted-media-and-archive-contained-viewing-paths) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-123/implement-accepted-media-and-archive-contained-viewing-paths) is the execution authority.
 
 Planning key `HA-viewer-media-archive`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 
@@ -40,3 +40,9 @@ Planning creates this issue; it does not dispatch it. RAWS/current production ar
 * [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)
 * [Implement faithful Word and Excel viewing and prepared renditions](<https://linear.app/vaper/issue/GRS-121/implement-faithful-word-and-excel-viewing-and-prepared-renditions>)
 * [Implement Outlook and Gmail email-file and attachment viewing](<https://linear.app/vaper/issue/GRS-122/implement-outlook-and-gmail-email-file-and-attachment-viewing>)
+
+## Final workflow alignment — 17 October 2026
+
+Accepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.
+
+- [ ] Keep this owner and all accepted media/archive coverage required for final release. It no longer blocks the PDF-only early import/workflow by itself. Files of these formats actually included in a candidate must still have all required in-app previews before publication; processing-only pending/download states never waive that rule.

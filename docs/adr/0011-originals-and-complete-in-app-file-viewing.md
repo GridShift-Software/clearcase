@@ -27,6 +27,12 @@ PDF bundle input files and generated bundle outputs are durable case assets, as 
 
 The user requires a dedicated viewer evaluation and quality pass. Compare established components before choosing what to adopt or build, then verify accepted-format coverage, fidelity, citation navigation and desktop/mobile usability at exact revisions. Hosted file delivery must preserve the existing original-integrity guarantees; the feasibility research does not establish a replacement for them.
 
-This rejects download-only fallbacks and publishing the rest of an update while leaving one accepted file unreadable. It increases preview-generation and review work, which the manual processing workflow must accommodate.
+For published results, this rejects download-only fallbacks and publishing the rest of an update while leaving one accepted file unreadable. The requirement increases preview-generation and review work, which the manual processing workflow must accommodate. The only exception is the narrow pre-publication one recorded below.
 
 This record settles original preservation, required web access, citation/reference behavior, complete exports, publication completeness and the durability of PDF bundle files and versions. Specific viewer libraries, operational limits and hosted performance remain design and verification work. A file preview is distinct from private operator review of a candidate results version. No implementation or hosted acceptance is claimed.
+
+## Originals before publication, 17 October
+
+In [Stress-test the complete hosted-alpha plan with final workflow scenarios](https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow-scenarios) the user made one explicit, temporary exception for files that are not yet part of published results. A case's authorized users can retrieve its acknowledged originals while they are being processed. PDFs and images open in the app wherever the viewer supports them. A format that needs a manually prepared preview may show "Preview pending processing" and offer the unchanged original, for now possibly as a download.
+
+The exception ends at publication. Every file in published results still needs its required in-app preview, a failed preview still holds the whole update, and original and source references are preserved. The exception does not let an update publish with a download-only file, and it gives no access to a private candidate's previews or results.

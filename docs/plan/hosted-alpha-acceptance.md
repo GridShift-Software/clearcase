@@ -1,7 +1,7 @@
 # Hosted alpha acceptance and operations — planning baseline
 
 Planning reference: `b93bad097fdd7b3c076d68025267c36395fc9921`.
-Updated 16 October 2026. No hosted acceptance evidence has been collected for this draft.
+Updated 17 October 2026. No hosted acceptance evidence has been collected for this draft.
 
 ## Authority and decision state
 
@@ -11,11 +11,14 @@ Updated 16 October 2026. No hosted acceptance evidence has been collected for th
 
 The initial operations answers are recorded in comment `401ed474-bc31-4378-bd0d-bd3a9aa8bb0f`; the recovery answers are recorded in comment `0edc3a04-237c-4dcc-8acb-942f2a6d2481`; the notification/deletion answers are recorded in comment `2a075945-47da-418f-b53e-8c596404d46a`; final operating ownership is recorded in comment `b2e82ad5-85b8-4fe9-a2a3-5cc18051ef90`. Later decisions in the issue supersede this snapshot.
 
+The final workflow-scenario answers of 17 October are recorded in comment `f9705162-0911-492f-8684-4db568edefa7` on [Stress-test the complete hosted-alpha plan with final workflow scenarios](https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow-scenarios), and amend [ADR-0009](../adr/0009-manual-queue-and-candidate-import-contract.md), [ADR-0010](../adr/0010-exact-version-signoff-and-publication.md) and [ADR-0011](../adr/0011-originals-and-complete-in-app-file-viewing.md).
+
 ## Accepted operating policy
 
 | Area | Accepted direction | Treatment before alpha |
 | --- | --- | --- |
 | Rollout | Prefer one client first, review a real submission-to-publication/viewing/export cycle, then add the second. | Operating guidance only. Do not enforce a client-count cap or this sequence in code. |
+| Primary journeys | Lawyers find, read and cite evidence; understand and develop the case with durable user work; and turn it into a usable PDF bundle or export. All 42 views remain. | Use the current processing prompts. Optimize them later, once the main setup is stable and evals can measure the effect; the existing eval harness stays later work, not an alpha blocker. |
 | Launch scope | Agreed workflows and required checks pass. Explicitly reviewed scope realignment near the deadline is allowed. | Update scope and acceptance together, then rerun affected checks. A failing, skipped, mocked or stale check is not a pass. |
 | Coverage | Manual processing/support Monday–Friday, 09:00–17:00 SAST; clients can use the app outside those hours. | Define operator coverage in the runbook. This does not settle a new processing-SLA clock. |
 | Processing target | Approximately 24–36 hours, with a fair metric to follow actual pilot timings. | Preserve submitted/readiness/wait/processing/review/publication measurements; refine the service promise later. |
@@ -38,11 +41,13 @@ Every row below is **UNRUN**. It describes intended evidence, not existing imple
 | --- | --- |
 | Client and case access | Two synthetic client instances demonstrate denial of cross-client and unassigned-case access, including direct URLs, original/ranged-file delivery, previews, exports and Notes. Firm-admin and Global Admin authority do not silently grant case-content access. Revoked access is denied. |
 | Authentication and provisioning | Separate client and staff Clerk applications, invite-only onboarding and the initially-off MFA flag behave as agreed. Target manifests and negative tests catch swapped client resources or credentials. |
-| Intake | A fresh submission survives the supported upload/resume/retry paths. Acknowledged originals have durable, verifiable bytes and can be retrieved; interrupted or invalid finalization is not reported as success. Use the agreed POC workload envelope and measured hosted limits. |
-| Manual queue | Operators claim, download and process a complete submission. Missing-input submissions retain their original submission time and rejoin the back when corrected; service mistakes retain their agreed priority. Client status reflects the submission and publication states. |
+| Intake | A fresh submission survives the supported upload/resume/retry paths. Acknowledged originals have durable, verifiable bytes and can be retrieved; interrupted or invalid finalization is not reported as success. A finalized submission never changes. Use the agreed POC workload envelope and measured hosted limits. |
+| Manual queue | Operators claim, download and process a complete submission. Requested missing files or passwords arrive as a requested supplement linked to the same processing job, which keeps its original submission time, records a new ready time and rejoins the back of the eligible queue. Other new, additional or replacement uploads form new submissions, with nothing merged or overwritten silently. Service mistakes retain their agreed priority. Client status reflects the submission and publication states. |
+| First complete workflow | Before the broad view migration, a small synthetic PDF case passes hosted submission, operator claim and download, the actual manual recipe, private import, editing and fresh approval, publication, and the client's overview with an original opening ([GRS-137](https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view)). It does not relax required sections, required previews, security or the full-format release gate. |
 | Results handoff | The single results-import contract accepts valid manual output into private review and rejects invalid required content. Client intake remains a distinct API. Unknown sections are retained privately; unsupported required sections hold publication. |
-| Review and publication | A reviewer can correct candidate content with an audit trail. A saved change needs fresh exact-version sign-off. A failed update leaves the prior publication available. Publication and rollback preserve user work. |
-| In-app viewing | Every accepted file has readable in-app contents, intact originals and valid original/processed references. Failed required previews or invalid supplied references hold the update. Exercise the selected PDF, image, document, spreadsheet and email viewers on desktop and mobile; include media/ZIP when accepted by the frozen coverage. |
+| Review and publication | A reviewer can correct candidate content with an audit trail. A saved change needs fresh exact-version sign-off. A failed update leaves the prior publication available. Publication and rollback preserve user work. Fresh, complete manually generated output passes the quality and publication checks. |
+| Unpublished cases | Before a first publication and after a withdrawal, assigned users keep originals, case-level Notes, case costs and other user work that does not depend on results. Results-dependent views show a designed waiting or unavailable state with its reason and next step, and no invented results. Clients still cannot reach private candidates or withdrawn results, and revoked access stays revoked. |
+| In-app viewing | Every file in published results has readable in-app contents, intact originals and valid original/processed references. Before publication, acknowledged originals stay retrievable: PDFs and images open in the app where supported, and a format awaiting a prepared preview shows "Preview pending processing" and offers the unchanged original. Failed required previews or invalid supplied references hold the update. Exercise the selected PDF, image, document, spreadsheet and email viewers on desktop and mobile; include media/ZIP when accepted by the frozen coverage. |
 | Notes | Assigned-case permissions, author/editor management, read-only viewers and audit history work. Notes are absent from packet exports unless explicitly selected, with the selected scope visible before download. |
 | Alpha integrations | Provider-neutral email-file import/viewing and app-side drafts, manual represented-client/KYC review, existing case costs, scoped audit access and explicit privilege handling meet their accepted boundaries. Live mailbox connections remain later. |
 | Bundles and exports | Published bundles are durable versioned case assets. Default keep-all and an explicitly configured latest-plus-N limit protect Keep-marked versions and source files. Complete exports include originals, published previews and a manifest; Notes remain opt-in. |

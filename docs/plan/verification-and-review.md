@@ -41,7 +41,7 @@ The local app has layers 1 to 6. Hosted work had layers 1 to 3 and 6. It said "o
 
 ## 4. Applied on 17 October
 
-The workspace `AGENTS.md` and `ORCHESTRATOR.md` now carry the following. They sit outside the repository and are the operative copies; the [operating plan](agent-delivery-operating-plan.md#17-october-operating-changes) records them.
+The workspace `AGENTS.md` and `ORCHESTRATOR.md` now carry the following. They sit outside the repository and are the operative copies; the [operating plan](agent-delivery-operating-plan.md#waves-and-checkpoints) records them.
 
 - Wave branches, the five checkpoints and the morning update.
 - The hosted-checks rule: `gate:hosted` is the required check for hosted tickets once [GRS-138](https://linear.app/vaper/issue/GRS-138/build-the-hosted-gate-and-the-verify-clearcase-hosted-skill-before) lands.

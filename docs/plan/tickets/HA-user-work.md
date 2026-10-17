@@ -41,7 +41,9 @@ Planning creates this issue; it does not dispatch it. RAWS/current production ar
 
 * [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)
 * [Gate the hosted design before client intake implementation](<https://linear.app/vaper/issue/GRS-27/gate-the-hosted-design-before-client-intake-implementation>)
-* [Implement permission-scoped audit events and audit views](<https://linear.app/vaper/issue/GRS-116/implement-permission-scoped-audit-events-and-audit-views>)
+* [Implement hosted D1 results storage and protected R2 assets](<https://linear.app/vaper/issue/GRS-115/implement-hosted-d1-results-storage-and-protected-r2-assets>)
+
+Restructured 17 October: this owner waits for storage, not for audit. It emits audit events through the framework owner's stub until <issue id="69bbbf3b-13dc-4196-bcff-8c6af6202e39" href="https://linear.app/vaper/issue/GRS-116/implement-permission-scoped-audit-events-and-audit-views">GRS-116</issue> lands, and runs in parallel with provisioning and audit.
 
 ## Final workflow alignment — 17 October 2026
 

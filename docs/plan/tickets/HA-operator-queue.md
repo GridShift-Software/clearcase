@@ -16,6 +16,8 @@ Authorized operators can see, claim and track a mostly FIFO metadata queue witho
 
 These are initial reservations. Pin exact files and accepted upstream SHA in the coordinator brief. Shared config, lockfiles, hooks and schema changes have one writer; request a handoff rather than widening scope.
 
+Restructured 17 October: this owner waits for <issue id="00e869ac-8e6b-4b5c-b961-caec74950e96" href="https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view">GRS-137</issue>, which lands a single claim with no ordering on these paths, instead of for the thick intake ticket. It adds FIFO ordering, release, concurrent-claim protection, input-needed and the dashboard from <issue id="00e869ac-8e6b-4b5c-b961-caec74950e96" href="https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view">GRS-137</issue>'s accepted head.
+
 ## Acceptance
 
 - [ ] Keep shared queue entries to necessary metadata and explicitly granted links; clients retain separate files/results/user work. GA/operator content access remains assigned and audited.

@@ -4,7 +4,7 @@
   "expect": {
     "exit": 0,
     "output": [
-      "PASS: 71 planning issues",
+      "PASS: 73 planning issues",
       "generated documents current, 0 pending coordinator changes"
     ],
     "absent": [

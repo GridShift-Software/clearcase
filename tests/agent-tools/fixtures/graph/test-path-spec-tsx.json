@@ -10,7 +10,7 @@
   "expect": {
     "exit": 0,
     "output": [
-      "PASS: 71 planning issues"
+      "PASS: 73 planning issues"
     ]
   }
 }

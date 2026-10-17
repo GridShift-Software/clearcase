@@ -74,7 +74,7 @@ Accepted under [GRS-94](https://linear.app/vaper/issue/GRS-94/define-the-fable-a
 - **Capacity.** At most three worker jobs and two browser jobs. PC2 is the first isolated synthetic test pool and PC1 keeps its CI role.
 - **Checks.** Scale checks to the change. App changes keep the required gate until its hosted replacement is reviewed, and documentation or research gets proportionate checks. Mutation and perf runs are for milestone gates only. A skipped, mocked, weakened or other-revision check is not a pass.
 - **Merge.** One branch and worktree per writing ticket, cut from the wave branch `wave/<name>` its brief names (or from the upstream ticket's branch while that is unmerged). A ticket PR targets its wave branch and a wave PR targets `dev`; nothing else targets `dev`. Merge commits only and serial integration on accepted upstream heads. The external reviewer `dianbrown` reviews the wave PR, and nothing merges into `dev` before that approval. `main` changes only through the user.
-- **Gate.** GRS-69 stays open until the user approves the complete written plan. No hosted work is dispatched before then, and every hosted runtime, provider and acceptance check is UNRUN. The hosted gate (GRS-138) is the required check for hosted tickets once it lands.
+- **Gate.** GRS-69 is Done: the user approved the complete written plan on 17 October 2026 (GRS-69 comment `45db4bdd-c268-4f6b-8658-cc2edb77bc6a`). Hosted work follows the native blockers, and every hosted runtime, provider and acceptance check is UNRUN until its own ticket proves it. The hosted gate (GRS-138) is the required check for hosted tickets once it lands.
 - **Waves and checkpoints.** A wave is the set of tickets under one checkpoint aggregate (GRS-27, GRS-36, GRS-137, GRS-66, GRS-32), at most seven tickets, on one branch. At a checkpoint the user reads the aggregate report and drives the verification skill once. Agents run unattended between checkpoints. See [verification and review](plan/verification-and-review.md).
 - **Human gate.** Running the manual processing recipe over case documents is the user's own step in a separate chat. A worker stops with `AWAITING MANUAL RESULTS`, names the submission manifest and the download path, and resumes from the import step once the user supplies the package.
 
@@ -82,7 +82,7 @@ Accepted under [GRS-94](https://linear.app/vaper/issue/GRS-94/define-the-fable-a
 
 Snapshot of 17 October 2026 at `8d617c13f1f0`. Live Linear status, descriptions and native blockers; this snapshot is not dispatch authorization. Hosted runtime evidence is UNRUN.
 
-The plan holds 77 issues. 19 are accepted historical work. Of the 58 open issues, 55 are writers, 3 are integration aggregates, 0 is the wayfinder map [GRS-69](https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha) and 0 is a decision record. 34 writers are the hosted delivery owners, each Backlog and natively blocked by [GRS-69](https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha). The readback holds 115 project issues, 62 of them open.
+The plan holds 77 issues. 19 are accepted historical work. Of the 58 open issues, 55 are writers, 3 are integration aggregates. The wayfinder map [GRS-69](https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha) is Done: the user approved the complete written plan on 17 October 2026 (comment `45db4bdd-c268-4f6b-8658-cc2edb77bc6a`). 34 writers are the hosted delivery owners, each Backlog and natively blocked by [GRS-69](https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha). The readback holds 115 project issues, 62 of them open.
 
 Follow the native blockers listed here, not the summary order in the checklist. An aggregate closes only when its children are accepted; a child never waits on its parent.
 
@@ -231,7 +231,7 @@ None.
 
 - [ ] Reconcile delegated task IDs, receipts and attempt counts with Linear before closing a milestone.
 - [ ] Read back every project issue's status, parent, native blockers and description. Refresh `docs/plan/work-items.json`, regenerate, and run `scripts/agent-tools/check-plan --linear-relations READBACK`.
-- [ ] Close [GRS-69](https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha) only on the user's approval of the complete written plan. Dispatch no hosted work before then.
+- [x] [GRS-69](https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha) is closed on the user's approval of the complete written plan.
 - [ ] Accept the hosted alpha only through [GRS-32](https://linear.app/vaper/issue/GRS-32/verify-hosted-isolation-recovery-and-release-readiness) at the exact integrated SHA with independent review. The user decides `main` merges and deployment.
 - [ ] Leave M6 and M7 behind the proven hosted alpha.
 

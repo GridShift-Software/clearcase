@@ -200,8 +200,8 @@ def validate(plan, coverage):
             elif role == "aggregate" and child not in item["depends"]:
                 err(f"{key}: aggregate does not depend on its child {child}")
         if role in {"map", "decision"}:
-            if item["scope"] or not is_open[key]:
-                err(f"{key}: a {role} record is open and writes nothing")
+            if item["scope"] or not (is_open[key] or item["status"] == "Done"):
+                err(f"{key}: a {role} record is open or Done and writes nothing")
         elif role == "aggregate":
             if not item.get("children") or not item["acceptance"] or not item["outcome"]:
                 err(f"{key}: aggregate needs children, outcome and acceptance")
@@ -250,13 +250,15 @@ def validate(plan, coverage):
         ("CC-15" in items["CC-26"]["depends"], "The design gate must wait for the architecture proofs"),
     ]
     errors += [message for ok, message in wiring if not ok]
-    if not gate_key or items[gate_key].get("role") != "map" or not is_open[gate_key]:
-        err(f"Planning gate {snapshot['planningGate']} must be an open map item")
+    # Open before the user's approval, Done after it; a Canceled or Duplicate gate approved nothing.
+    gate_done = bool(gate_key) and items[gate_key]["status"] == "Done"
+    if not gate_key or items[gate_key].get("role") != "map" or not (is_open[gate_key] or gate_done):
+        err(f"Planning gate {snapshot['planningGate']} must be an open or Done map item")
     release = ancestors("CC-20")
     for key, item in items.items():
         if not is_open[key] or item["phase"] != "V2" or item.get("role") not in {"writer", "aggregate"}:
             continue
-        if gate_key not in item["depends"] and key not in OUTSIDE_HOSTED_ORDER:
+        if not gate_done and gate_key not in item["depends"] and key not in OUTSIDE_HOSTED_ORDER:
             err(f"{key}: hosted work is not natively blocked by the planning gate")
         if item["milestone"] == "M5" and key != "CC-20" and key not in release:
             err(f"CC-20: release gate does not reach {key}")

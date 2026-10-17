@@ -1,0 +1,15 @@
+{
+  "description": "HA-pool drops a dependency that is still a native blocker",
+  "capability": "plan-graph",
+  "set": {
+    "HA-pool.depends": [
+      "HA-grs-69"
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "HA-pool: native blockers differ from dependencies plus external prerequisites"
+    ]
+  }
+}

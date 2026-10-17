@@ -1,0 +1,19 @@
+{
+  "description": "An external prerequisite recorded as open is not listed as open outside the plan",
+  "capability": "plan-graph",
+  "snapshot": {
+    "externalSources": {
+      "GRS-86": "Backlog",
+      "GRS-90": "Done",
+      "GRS-93": "Done",
+      "GRS-96": "Done",
+      "GRS-101": "Done"
+    }
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "HA-grs-97: open external prerequisite GRS-86 is not listed as open outside the plan"
+    ]
+  }
+}

@@ -1,10 +1,15 @@
 {
-  "description": "Unmodified copy of the committed plan",
+  "description": "Unmodified copy of the committed plan: no finding, no pending row, generated documents current",
   "capability": "plan-graph",
   "expect": {
     "exit": 0,
     "output": [
-      "PASS: 30 issues"
+      "PASS: 73 planning issues",
+      "generated documents current, 0 pending coordinator changes"
+    ],
+    "absent": [
+      "PENDING",
+      "HOLD"
     ]
   }
 }

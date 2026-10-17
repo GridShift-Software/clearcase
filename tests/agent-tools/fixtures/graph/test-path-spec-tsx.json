@@ -1,0 +1,16 @@
+{
+  "description": "A colocated .spec.tsx file reserves a writer's test path",
+  "capability": "plan-graph",
+  "set": {
+    "HA-grs-49.scope": [
+      "src/lib/components/csv.ts",
+      "src/lib/components/csv.spec.tsx"
+    ]
+  },
+  "expect": {
+    "exit": 0,
+    "output": [
+      "PASS: 73 planning issues"
+    ]
+  }
+}

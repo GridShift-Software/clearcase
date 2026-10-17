@@ -5,7 +5,7 @@ Updated 17 October 2026. No hosted acceptance evidence has been collected for th
 
 ## Authority and decision state
 
-[Chart the route from the ClearCase POC to hosted alpha](https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha) remains the implementation gate. The full written plan still needs user approval.
+[Chart the route from the ClearCase POC to hosted alpha](https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha) was the implementation gate. The user approved the full written plan on 17 October 2026; hosted work now follows its native blockers, the checkpoints and the human gates.
 
 [Define alpha acceptance, rollout and recovery](https://linear.app/vaper/issue/GRS-93/define-alpha-acceptance-rollout-and-recovery) holds the settled policy decisions, accepted answers and qualifications. This checklist is a planning baseline, not launch sign-off or permission to deploy.
 
@@ -67,7 +67,7 @@ Every row below is **UNRUN**. It describes intended evidence, not existing imple
 ## Delivery handoff
 
 - Detailed notification onboarding, sender configuration and provider behavior belong to the implementing ticket's investigation. The initial profile above is accepted; those engineering details are not frozen here. Numerical hosting/performance budgets come from the bounded architecture proofs before the hosted design gate.
-- [Define the Fable and swarm delivery operating plan](https://linear.app/vaper/issue/GRS-94/define-the-fable-and-swarm-delivery-operating-plan) assigns evidence owners, ticket splits, paths, execution order and bounded worker/review roles. The complete written plan still needs approval through the parent planning gate.
+- [Define the Fable and swarm delivery operating plan](https://linear.app/vaper/issue/GRS-94/define-the-fable-and-swarm-delivery-operating-plan) assigns evidence owners, ticket splits, paths, execution order and bounded worker/review roles. The user approved the complete written plan through the parent planning gate on 17 October 2026.
 - Updated 17 October 2026: [verification and review](verification-and-review.md) holds the verification pyramid, the hosted gate [GRS-138](https://linear.app/vaper/issue/GRS-138/build-the-hosted-gate-and-the-verify-clearcase-hosted-skill-before) that fills its integration and end-to-end layers, the five checkpoints ([GRS-27](https://linear.app/vaper/issue/GRS-27/gate-the-hosted-design-before-client-intake-implementation), [GRS-36](https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work), [GRS-137](https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view), [GRS-66](https://linear.app/vaper/issue/GRS-66/accept-hosted-production-integrations-and-page-coverage), [GRS-32](https://linear.app/vaper/issue/GRS-32/verify-hosted-isolation-recovery-and-release-readiness)), the wave review model and the pre-kickoff checklist. The checkpoints are where the user verifies these outcomes in person, and the first hosted case at [GRS-137](https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view) includes the human-gated manual processing step.
 
 ## Research pointers

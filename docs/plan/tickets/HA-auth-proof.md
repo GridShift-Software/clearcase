@@ -22,6 +22,7 @@ These are initial reservations. Pin exact files and accepted upstream SHA in the
 - [ ] Keep case grants, documents, text and Notes outside Clerk. Firm admins/GA do not automatically gain case content; operator access is explicit and audited.
 - [ ] Prove wrong-client issuer/audience/subdomain, wrong-case, logged-out and revoked sessions cannot read metadata, user work, draft/published assets or mutations.
 - [ ] Keep MFA flag off initially with no fabricated usage threshold. Define hooks, auth API, role matrix and public BA-19/BA-20 entry-point contracts for bounded foundation owners.
+- [ ] Added 17 October 2026 (local-first plan, <issue id="42b36cd3-282a-42ee-b4ce-e6b04374cae7" href="https://linear.app/vaper/issue/GRS-26/prove-the-hosted-architecture-and-cloudflare-deployment">GRS-26</issue>): these legs may pass on workerd against the real Clerk development instances (`Clear-Case-Dev-A` client, `Clear-Case-Dev-B` staff) with no Cloudflare account: invite-only flows, server token verification, expiry, revocation and interrupted recovery, wrong-case, logged-out and revoked denial, grants outside Clerk, and staff/client app separation. The wrong-client issuer/audience leg needs one more client dev app and stays HOLD until it exists. Development instances carry sessions in `__clerk_db_jwt` rather than app-domain cookies. Sibling-subdomain session isolation, hosted CSP and production instances therefore stay cloud legs at moment M3, on custom domains under `sandbox.gridshift.co.za`.
 
 ## Verification and handoff
 
@@ -36,6 +37,5 @@ Planning creates this issue; it does not dispatch it. RAWS/current production ar
 ## Native prerequisites
 
 * [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)
-* [Gate v5, newer and JSON export compatibility](<https://linear.app/vaper/issue/GRS-24/gate-v5-newer-and-json-export-compatibility>)
 * [Align agent tooling with the canonical pstack plugin and delivery controls](<https://linear.app/vaper/issue/GRS-104/align-agent-tooling-with-the-canonical-pstack-plugin-and-delivery>)
 * [Prove SvelteKit 3 and Bun builds on the Cloudflare Workers runtime](<https://linear.app/vaper/issue/GRS-106/prove-sveltekit-3-and-bun-builds-on-the-cloudflare-workers-runtime>)

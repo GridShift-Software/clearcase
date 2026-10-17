@@ -22,6 +22,7 @@ These are initial reservations. Pin exact files and accepted upstream SHA in the
 - [ ] Preserve verify-on-load and fail-closed original integrity, including an explicitly proved range-delivery path; do not weaken hashing to hit a latency target.
 - [ ] Test initial POC-scale counts and byte sizes with synthetic material; record cold/warm reads, upload/export bursts, failure/retry and numeric load/latency/memory budgets.
 - [ ] Freeze storage, stable asset/case/version identities and export/backup interfaces for product owners. South Africa preferred/EU fallback accepted; document actual placement without a false residency guarantee.
+- [ ] Added 17 October 2026 (local-first plan, <issue id="42b36cd3-282a-42ee-b4ce-e6b04374cae7" href="https://linear.app/vaper/issue/GRS-26/prove-the-hosted-architecture-and-cloudflare-deployment">GRS-26</issue>): these legs may pass on workerd with local D1 and R2 and no Cloudflare account: P4, P5's batch and recovery logic, P7's packet build and offline restore, P8's corruption detection, crossed client bindings, range-delivery correctness, and the layout chosen from row and object counts. The POC-scale synthetic generator is built locally too. Cloud legs need moment M2 (Workers Paid plus R2) and HOLD until then: P1 latency from SA and the cold-isolate fraction, P2's presigned-PUT burst, P3's verification CPU, enforcement of P5's per-invocation query limit, P6's Time Travel and export, and actual EU placement. Local timings are not budgets.
 
 ## Verification and handoff
 
@@ -36,6 +37,5 @@ Planning creates this issue; it does not dispatch it. RAWS/current production ar
 ## Native prerequisites
 
 * [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)
-* [Gate v5, newer and JSON export compatibility](<https://linear.app/vaper/issue/GRS-24/gate-v5-newer-and-json-export-compatibility>)
 * [Align agent tooling with the canonical pstack plugin and delivery controls](<https://linear.app/vaper/issue/GRS-104/align-agent-tooling-with-the-canonical-pstack-plugin-and-delivery>)
 * [Prove SvelteKit 3 and Bun builds on the Cloudflare Workers runtime](<https://linear.app/vaper/issue/GRS-106/prove-sveltekit-3-and-bun-builds-on-the-cloudflare-workers-runtime>)

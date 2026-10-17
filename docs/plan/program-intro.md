@@ -2,7 +2,7 @@
 
 Carry the accepted local proof of concept into the hosted alpha, preserving the v5 workspace while verifying newer and JSON exports.
 The first baseline contains 1,689 documents and 42 views. The second contains 2,131 documents.
-This is a plan, not an implementation or a completed verification report. Every hosted implementation, runtime and provider check it names is UNRUN, and the hosted-alpha planning gate ([GRS-69](https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha)) is open.
+This is a plan, not an implementation or a completed verification report. Every hosted implementation, runtime and provider check it names is UNRUN, and the hosted-alpha planning gate ([GRS-69](https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha)) is closed: the user approved the complete written plan on 17 October 2026.
 Stable planning keys map to real Linear issues in the milestone and issue graph and `docs/plan/work-items.json`.
 This document is generated from `docs/plan/program-intro.md` and `docs/plan/work-items.json`.
 
@@ -25,7 +25,7 @@ The local baseline and its tooling already exist; accepted historical issues rem
 - [ ] Read the orchestration, swarm, verification and relevant implementation skills before each phase. The user's no-Cursor rule and large/xhigh pstack choice override earlier high-effort defaults; Fable/Astra remain rare escalators.
 - [ ] Do not arm `/loop 1h` during planning. If later authorized, use the app scheduler for an hourly audit with a status message only for material changes; T3 task completion already supplies wakeups.
 - [ ] On hold, send every active writer a zero-writes instruction and preserve their artifacts.
-- [ ] Dispatch no hosted work until the user approves the complete plan in GRS-69. Every hosted issue is natively blocked by it.
+- [x] The user approved the complete plan in GRS-69 on 17 October 2026. Hosted work now follows its native blockers, the checkpoints and the human gates; every hosted issue stays natively blocked by GRS-69.
 - [ ] Use Fable or Astra only as a rare escalator for a documented blocker: create the linked Linear escalation issue before dispatch and update it after. Spend targets are reporting only. Keep bounded retries and the accepted 90-minute writing, 30-minute review and 30-minute stall-assessment controls, with declared long tests and checkpoint/cancellation evidence.
 
 ### Spawn owners

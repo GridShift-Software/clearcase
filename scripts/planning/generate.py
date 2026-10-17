@@ -104,7 +104,8 @@ def plan_sections(plan, coverage):
     gate, readback = by_id[snapshot["planningGate"]], snapshot["readback"]
     open_items = [item for item in items if item["status"] not in CLOSED]
     count = lambda role: sum(item["role"] == role for item in open_items)
-    if gate["status"] == "Done":
+    gate_done = gate["status"] == "Done"
+    if gate_done:
         approval = snapshot["planningGateApproval"]
         records = f". The wayfinder map {issue_ref(gate)} is Done: the user approved the complete written plan on {approval['date']} (comment `{approval['comment']}`)."
     else:
@@ -115,7 +116,7 @@ def plan_sections(plan, coverage):
         "\n".join(f"- {line}" for line in plan["controls"]),
         "## Current issue graph",
         f"Snapshot of {snapshot['date']} at `{snapshot['sourceRevision'][:12]}`. {snapshot['authority']} Hosted runtime evidence is {snapshot['runtimeEvidence']}.",
-        f"The plan holds {len(items)} issues. {len(items) - len(open_items)} are accepted historical work. Of the {len(open_items)} open issues, {count('writer')} are writers, {count('aggregate')} are integration aggregates{records} {len(snapshot['hostedDeliveryOwners'])} writers are the hosted delivery owners, each Backlog and natively blocked by {issue_ref(gate)}. The readback holds {readback['projectIssues']} project issues, {readback['openIssues']} of them open.",
+        f"The plan holds {len(items)} issues. {len(items) - len(open_items)} are accepted historical work. Of the {len(open_items)} open issues, {count('writer')} are writers, {count('aggregate')} are integration aggregates{records} {len(snapshot['hostedDeliveryOwners'])} writers are the hosted delivery owners, {'each natively blocked by' if gate_done else 'each Backlog and natively blocked by'} {issue_ref(gate)}. The readback holds {readback['projectIssues']} project issues, {readback['openIssues']} of them open.",
         "Follow the native blockers listed here, not the summary order in the checklist. An aggregate closes only when its children are accepted; a child never waits on its parent.",
     ]
     for milestone in plan["milestones"]:
@@ -140,7 +141,7 @@ def plan_sections(plan, coverage):
     rows += ["## Close the program", "\n".join([
         "- [ ] Reconcile delegated task IDs, receipts and attempt counts with Linear before closing a milestone.",
         "- [ ] Read back every project issue's status, parent, native blockers and description. Refresh `docs/plan/work-items.json`, regenerate, and run `scripts/agent-tools/check-plan --linear-relations READBACK`.",
-        f"- [ ] Close {issue_ref(gate)} only on the user's approval of the complete written plan. Dispatch no hosted work before then." if gate["status"] != "Done" else f"- [x] {issue_ref(gate)} is closed on the user's approval of the complete written plan.",
+        f"- [ ] Close {issue_ref(gate)} only on the user's approval of the complete written plan. Dispatch no hosted work before then." if not gate_done else f"- [x] {issue_ref(gate)} is closed on the user's approval of the complete written plan.",
         f"- [ ] Accept the hosted alpha only through {issue_ref(by_key['CC-20'])} at the exact integrated SHA with independent review. The user decides `main` merges and deployment.",
         "- [ ] Leave M6 and M7 behind the proven hosted alpha.",
     ])]

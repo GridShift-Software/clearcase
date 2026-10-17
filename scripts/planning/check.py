@@ -263,17 +263,18 @@ def validate(plan, coverage):
         if item["milestone"] == "M5" and key != "CC-20" and key not in release:
             err(f"CC-20: release gate does not reach {key}")
 
-    # The 32 hosted delivery owners stay bounded Backlog briefs behind the planning gate.
+    # The hosted delivery owners stay bounded Backlog briefs behind the open planning gate; once it is Done they may be dispatched.
     owners = snapshot["hostedDeliveryOwners"]
     if len(set(owners)) != len(owners):
         err("Duplicate hosted delivery owners")
+    owner_status_ok = lambda item: item["status"] not in CLOSED - {"Done"} if gate_done else item["status"] == "Backlog"
     for key in owners:
         item = items.get(key)
         if not item:
             err(f"{key}: unknown hosted delivery owner")
-        elif (item.get("role") != "writer" or item["status"] != "Backlog" or item["phase"] != "V2"
+        elif (item.get("role") != "writer" or not owner_status_ok(item) or item["phase"] != "V2"
               or not item.get("verification") or gate_key not in item["depends"]):
-            err(f"{key}: hosted delivery owner must be a gated Backlog writer with verification")
+            err(f"{key}: hosted delivery owner must be a gated {'open or Done' if gate_done else 'Backlog'} writer with verification")
 
     # Views: the frozen v5 baseline keeps its historical owner and gains one hosted owner.
     views = coverage["views"]

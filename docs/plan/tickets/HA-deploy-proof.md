@@ -23,6 +23,7 @@ These are initial reservations. Pin exact files and accepted upstream SHA in the
 - [ ] Prove migration grants/bookmarks, failure behavior and rollback. Explicitly account for Void's config evaluation and automatic D1 migrations; environment scrubbing in child processes alone is insufficient.
 - [ ] Prove no account credentials in shared pools/build artifacts/logs and document actual token breadth. Do not claim unverified resource-scoped tokens exist.
 - [ ] Reserve shared deploy/config writes to one future owner. Record commands and a fallback per unsupported job; catalog/source support alone is not execution evidence.
+- [ ] Added 17 October 2026 (local-first plan, <issue id="42b36cd3-282a-42ee-b4ce-e6b04374cae7" href="https://linear.app/vaper/issue/GRS-26/prove-the-hosted-architecture-and-cloudflare-deployment">GRS-26</issue>): <issue id="24306e48-9eaf-4542-8433-ae7cccffc92a" href="https://linear.app/vaper/issue/GRS-102/assess-cf-and-void-for-the-alpha-agent-tooling-jobs">GRS-102</issue>'s P1 to P9 run offline under `unshare -rn` with placeholder account IDs, and so does the credential scan of artifacts and logs. P10 stays a cloud leg at moment M1 (Workers Free): real prebuilt upload, enforced token grants, Void remote migration with a bookmark, rollback and denied actions. Add the `cc-<ticket>-<worker>-<sha7>` naming, a run manifest, exit-trap teardown and a nightly janitor that deletes only finished or orphaned `cc-*` resources. Prove the janitor with one local dry run and one real sweep.
 
 ## Verification and handoff
 
@@ -37,6 +38,5 @@ Planning creates this issue; it does not dispatch it. RAWS/current production ar
 ## Native prerequisites
 
 * [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)
-* [Gate v5, newer and JSON export compatibility](<https://linear.app/vaper/issue/GRS-24/gate-v5-newer-and-json-export-compatibility>)
 * [Align agent tooling with the canonical pstack plugin and delivery controls](<https://linear.app/vaper/issue/GRS-104/align-agent-tooling-with-the-canonical-pstack-plugin-and-delivery>)
 * [Prove SvelteKit 3 and Bun builds on the Cloudflare Workers runtime](<https://linear.app/vaper/issue/GRS-106/prove-sveltekit-3-and-bun-builds-on-the-cloudflare-workers-runtime>)

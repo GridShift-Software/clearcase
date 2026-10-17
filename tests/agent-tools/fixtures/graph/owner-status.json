@@ -1,14 +1,17 @@
 {
-  "description": "A hosted delivery owner has left Backlog",
+  "description": "The planning gate is open and a hosted delivery owner has left Backlog",
   "capability": "plan-graph",
   "set": {
+    "HA-grs-69.status": "Backlog",
     "HA-kyc.status": "In Progress"
   },
   "expect": {
     "exit": 1,
     "output": [
+      "HA-plan-resync-20261017: hosted work is not natively blocked by the planning gate",
       "HA-kyc: hosted delivery owner must be a gated Backlog writer with verification",
-      "Plan has 2 In Progress items; the readback has 1"
+      "Plan has 3 In Progress items; the readback has 2",
+      "59 open plan items and 4 open outside the plan do not make 62 open issues"
     ]
   }
 }

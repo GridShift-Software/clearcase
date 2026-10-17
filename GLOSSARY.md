@@ -1,34 +1,50 @@
 # ClearCase
 
-ClearCase organizes a legal case's source documents, processed results and working records for review.
+ClearCase organizes a legal case's source documents, processed results and working records for review. The terms cover the local v5 pilot and the hosted alpha.
 
 ## Language
 
 ### Case material
 
 **Case**:
-A legal matter and its associated documents, results and working records.
+A legal matter and its associated documents, results and working records. It exists, with its originals and user work, before any results version is published and after published results are withdrawn.
 _Avoid_: Workspace when referring to the legal matter itself.
 
 **Case folder**:
-The local folder that holds a case's originals. The app reads it and never writes into it.
+The local folder that holds a case's originals in the local app. The app reads it and never writes into it. The hosted app has no case folder.
 _Avoid_: Data directory, which holds the app's own stores.
 
 **Original**:
-A source file supplied for the case, or an extracted attachment whose parent source is recorded.
+A source file supplied for the case, or an extracted attachment whose parent source is recorded. It is kept unchanged.
 _Avoid_: Result when referring to source evidence.
+
+**File preview**:
+A readable or playable representation of an original inside the case workspace. It may be a converted representation and does not replace the original.
+_Avoid_: Preview alone when it could mean the private review of an unpublished results version.
 
 **Case pack**:
 The `.zip` supplied for a case, or the folder it was extracted to, containing the workspace HTML and originals. The local app converts its processed workspace data into a results package.
 _Avoid_: Results package, which is the versioned output of that conversion.
 
 **Citation**:
-A reference in results text to an original, optionally to one page, that the reader can follow to that original.
+A reference in results text to an original and, when supplied, a precise location within it. A reference without a precise location is a file-level citation.
 _Avoid_: Link when referring to the case reference itself.
 
 **Submission**:
-A finalized set of files supplied for processing as one input revision.
+A finalized set of files supplied for processing as one input revision; it never changes once finalized. Files supplied later form a new submission, unless they are a requested supplement.
 _Avoid_: Upload when referring to a completed input revision.
+
+**Requested supplement**:
+Files or passwords that the service team asks for because a submission cannot be processed without them. They join that submission's processing job and leave the submission itself unchanged.
+_Avoid_: Resubmission, amendment, new submission.
+
+**Processing job**:
+The service team's manual processing of one submission, together with any requested supplements linked to it. It is what holds a place in the processing queue.
+_Avoid_: Ticket, task, request.
+
+**Processing queue**:
+The service team's shared list of processing jobs awaiting manual processing, across all clients.
+_Avoid_: Backlog, inbox.
 
 ### Results
 
@@ -45,7 +61,7 @@ The pair {resultsVersion, diagnosticsSha256} that a reviewed conversion of the v
 _Avoid_: Expected hash.
 
 **Candidate**:
-A results version available for internal validation and review before activation or publication.
+A results version held privately for validation, review and correction before activation or publication. Clients cannot see it.
 _Avoid_: Published result for an unapproved version.
 
 **Activation**:
@@ -53,16 +69,24 @@ Selection of the results version used by the local workspace.
 _Avoid_: Publication when there is no hosted client audience.
 
 **Sign-off**:
-A human's approval of a specific results version after review.
+A named person's approval of one exact results version after review.
 _Avoid_: Validation when referring to human approval.
 
 **Publication**:
-Making an approved results version available to the hosted client's users.
-_Avoid_: Upload when referring to client visibility.
+Making a signed-off results version the one that a client instance's assigned users see. Only an authorized person publishes.
+_Avoid_: Upload or import when referring to client visibility.
+
+**Reviewer correction**:
+A change an authorized reviewer makes to candidate results before publication. It belongs to the results, distinct from user work and the unchanged originals.
+_Avoid_: Overlay, which describes a user's edit to a register seed.
 
 **User work**:
 Notes, registers, selections and preparation material entered by people using the workspace. It lives apart from results packages and survives a change of results version.
 _Avoid_: Generated analysis for user-entered records.
+
+**Note**:
+A person's written remark in user work, linked to a case, a location in an original or file preview, or an analysis section. The users assigned to that case can read it.
+_Avoid_: Annotation, document note, comment.
 
 **Register**:
 A list of user work that people maintain in a view, such as deadlines, filings or authorities.
@@ -95,6 +119,28 @@ _Avoid_: Extra document.
 **Ref**:
 The identifier of a document row, unique within a results version. A citation resolves only when its ref names a document row.
 _Avoid_: Document id.
+
+### Case work
+
+**Represented client**:
+A person or entity that the law firm acts for in a case. Distinct from the client, which is the firm or individual that uses ClearCase.
+_Avoid_: Client, customer when the represented party is meant.
+
+**KYC record**:
+The onboarding documents a law firm keeps for one of its represented clients, with the firm's own manual review of them.
+_Avoid_: Identity verification, customer vetting, compliance register.
+
+**Case costs**:
+The time, fees and disbursements recorded against a case.
+_Avoid_: Billing, fee note and invoice when only recorded costs are meant; invoice ledger, which lists invoices from the case material.
+
+**PDF bundle**:
+An ordered compilation of PDFs assembled into one PDF with its index. Distinct from a complete case export, which carries the case's originals, file previews and manifest.
+_Avoid_: Bundle alone, which v5 also uses for a document category; packet, export.
+
+**PDF bundle version**:
+One particular generated PDF bundle with its index, tied to the exact source versions it compiled, in their order. Regenerating a PDF bundle gives a new PDF bundle version and leaves the earlier ones as they were.
+_Avoid_: Bundle revision, bundle update, overwritten bundle.
 
 ### Matching v5
 
@@ -142,5 +188,35 @@ _Avoid_: Review, which is one input to a gate.
 ### People
 
 **Operator**:
-A person on the service team who prepares and reviews results.
-_Avoid_: Firm admin when referring to the current application's unverified operator role.
+A person on the service team who prepares and reviews results. Reaches a client instance only through explicitly granted, audited access.
+_Avoid_: Firm admin, which is a client's administrator.
+
+**Global Admin**:
+The service team's account and role for managing client instances and their administrators. Reaches case contents only through explicitly granted, audited access.
+_Avoid_: Super admin, operator.
+
+**Firm admin**:
+A client's administrator, who manages that client's users and case assignments. The role does not by itself reveal case contents.
+_Avoid_: Global Admin, owner.
+
+### Clients
+
+**Client**:
+A law firm, or an individual working alone, that uses the hosted service for its cases. A client has one or more users.
+_Avoid_: Tenant, customer, and firm when an individual client is meant.
+
+**Client instance**:
+A hosted ClearCase workspace belonging to one client, isolated from other clients' case material and user work.
+_Avoid_: Tenant, workspace, deployment when referring to the client's boundary.
+
+**Case assignment**:
+Granting one of a client's users access to one case as a case viewer or case editor. A user sees only the cases assigned to them. Membership of the client or an admin role does not grant case access.
+_Avoid_: Case sharing, firm-wide access.
+
+**Case viewer**:
+A user assigned to a case who can read and download it, but not change it.
+_Avoid_: Reader, guest.
+
+**Case editor**:
+A user assigned to a case who can do everything a case viewer can and also maintain user work on it. Neither role edits originals or published results.
+_Avoid_: Owner, contributor.

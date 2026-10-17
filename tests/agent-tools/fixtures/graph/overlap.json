@@ -1,13 +1,13 @@
 {
-  "description": "CC-04 claims a file inside concurrent CC-05's scope",
+  "description": "HA-viewer-email claims a file inside concurrent HA-viewer-office's scope",
   "capability": "plan-graph",
   "append": {
-    "CC-04.scope": "src/lib/analysis/summary.ts"
+    "HA-viewer-email.scope": "src/lib/viewers/office/render.ts"
   },
   "expect": {
     "exit": 1,
     "output": [
-      "Concurrent scopes overlap: CC-04 src/lib/analysis/summary.ts; CC-05"
+      "Concurrent scopes overlap: HA-viewer-office src/lib/viewers/office/**; HA-viewer-email src/lib/viewers/office/render.ts"
     ]
   }
 }

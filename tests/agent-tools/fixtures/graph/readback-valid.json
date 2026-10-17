@@ -5,8 +5,13 @@
   "expect": {
     "exit": 0,
     "output": [
-      "Compared Linear snapshot",
-      "PASS: 30 issues"
+      "Compared the Linear readback",
+      "PASS: 73 planning issues",
+      "generated documents current, 0 pending coordinator changes"
+    ],
+    "absent": [
+      "PENDING",
+      "HOLD"
     ]
   }
 }

@@ -1,0 +1,13 @@
+{
+  "description": "A SvelteKit [vid] route reserved by two concurrent owners, matched literally",
+  "capability": "plan-graph",
+  "append": {
+    "HA-kyc.scope": "src/routes/v/[vid]/costs/summary/+page.svelte"
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "Concurrent scopes overlap: HA-kyc src/routes/v/[vid]/costs/summary/+page.svelte; HA-costs src/routes/v/[vid]/costs/**"
+    ]
+  }
+}

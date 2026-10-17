@@ -1,0 +1,24 @@
+{
+  "description": "'dir/** except name' leaves dir/name/** to the other owner, whichever owner is checked first",
+  "capability": "plan-graph",
+  "set": {
+    "HA-viewer-office.scope": [
+      "src/lib/viewers/office/** except shared",
+      "src/lib/viewers/email/shared/mail.ts",
+      "tests/viewers/office/**",
+      "docs/acceptance/viewers/office.md"
+    ],
+    "HA-viewer-email.scope": [
+      "src/lib/viewers/email/** except shared",
+      "src/lib/viewers/office/shared/mail.ts",
+      "tests/viewers/email/**",
+      "docs/acceptance/viewers/email.md"
+    ]
+  },
+  "expect": {
+    "exit": 0,
+    "output": [
+      "PASS: 73 planning issues"
+    ]
+  }
+}

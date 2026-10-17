@@ -1,0 +1,15 @@
+{
+  "description": "The wayfinder map reserves a write path",
+  "capability": "plan-graph",
+  "set": {
+    "HA-grs-69.scope": [
+      "docs/plan/agent-delivery-operating-plan.md"
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "HA-grs-69: a map record is open and writes nothing"
+    ]
+  }
+}

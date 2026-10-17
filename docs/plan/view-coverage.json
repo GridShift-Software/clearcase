@@ -8,6 +8,7 @@
       "label": "Overview",
       "group": "Matter",
       "owner": "CC-03",
+      "hostedOwner": "HA-views-evidence-analysis",
       "reads": {
         "datasets": ["chronology", "contradictions", "matter", "quantum", "META.builtAt", "META.dateSpan", "META.docCount", "META.emails", "META.people", "META.textNone"],
         "stores": ["ess_dcs_deadlines_v1", "ess_dcs_rescan_v1", "ess_dcs_timesheet_v1"]
@@ -19,6 +20,7 @@
       "label": "Matter & Strategy",
       "group": "Matter",
       "owner": "CC-05",
+      "hostedOwner": "HA-views-evidence-analysis",
       "reads": {
         "datasets": ["matter"],
         "stores": []
@@ -30,6 +32,7 @@
       "label": "Timeline",
       "group": "Matter",
       "owner": "CC-05",
+      "hostedOwner": "HA-views-evidence-analysis",
       "reads": {
         "datasets": ["people", "quantum", "timeline", "META.bundles", "META.dateSpan", "META.docCount", "META.textNone"],
         "stores": []
@@ -41,6 +44,7 @@
       "label": "Chronology",
       "group": "Matter",
       "owner": "CC-03",
+      "hostedOwner": "HA-views-evidence-analysis",
       "reads": {
         "datasets": ["chronology"],
         "stores": ["ess_dcs_rescan_v1"]
@@ -52,6 +56,7 @@
       "label": "Quantum & Interest",
       "group": "Matter",
       "owner": "CC-06",
+      "hostedOwner": "HA-views-quantum-registers",
       "reads": {
         "datasets": ["quantum"],
         "stores": []
@@ -63,6 +68,7 @@
       "label": "Documents",
       "group": "Evidence",
       "owner": "CC-04",
+      "hostedOwner": "HA-views-evidence-analysis",
       "reads": {
         "datasets": ["chronology", "META.bundles", "META.docCount"],
         "stores": ["ess_dcs_caselines_docs_v1", "ess_dcs_rescan_v1"]
@@ -75,6 +81,7 @@
       "label": "Contracts",
       "group": "Evidence",
       "owner": "CC-04",
+      "hostedOwner": "HA-views-evidence-analysis",
       "reads": {
         "datasets": ["contracts"],
         "stores": []
@@ -86,6 +93,7 @@
       "label": "Filings & Affidavits",
       "group": "Evidence",
       "owner": "CC-04",
+      "hostedOwner": "HA-views-evidence-analysis",
       "reads": {
         "datasets": ["chronology", "filings"],
         "stores": ["ess_dcs_filings_v1", "ess_dcs_rescan_v1"]
@@ -97,6 +105,7 @@
       "label": "Advanced Search",
       "group": "Evidence",
       "owner": "CC-04",
+      "hostedOwner": "HA-views-evidence-analysis",
       "reads": {
         "datasets": ["chronology"],
         "stores": ["ess_dcs_rescan_v1"]
@@ -108,6 +117,7 @@
       "label": "People",
       "group": "Evidence",
       "owner": "CC-04",
+      "hostedOwner": "HA-views-evidence-analysis",
       "reads": {
         "datasets": ["people"],
         "stores": []
@@ -119,6 +129,7 @@
       "label": "Entities",
       "group": "Evidence",
       "owner": "CC-04",
+      "hostedOwner": "HA-views-evidence-analysis",
       "reads": {
         "datasets": ["entities"],
         "stores": []
@@ -130,6 +141,7 @@
       "label": "Document Diff",
       "group": "Evidence",
       "owner": "CC-04",
+      "hostedOwner": "HA-views-evidence-analysis",
       "reads": {
         "datasets": ["chronology"],
         "stores": ["ess_dcs_rescan_v1"]
@@ -141,6 +153,7 @@
       "label": "Invoice Ledger",
       "group": "Case management",
       "owner": "CC-06",
+      "hostedOwner": "HA-views-quantum-registers",
       "reads": {
         "datasets": ["quantum"],
         "stores": []
@@ -152,6 +165,7 @@
       "label": "Disbursements",
       "group": "Case management",
       "owner": "CC-07",
+      "hostedOwner": "HA-views-quantum-registers",
       "reads": {
         "datasets": ["META.builtAt", "META.docCount"],
         "stores": ["ess_dcs_disbursements_v1", "ess_dcs_rescan_v1"]
@@ -163,6 +177,7 @@
       "label": "Timesheet",
       "group": "Case management",
       "owner": "CC-07",
+      "hostedOwner": "HA-views-quantum-registers",
       "reads": {
         "datasets": ["META.builtAt", "META.docCount"],
         "stores": ["ess_dcs_rescan_v1", "ess_dcs_timesheet_v1"]
@@ -174,6 +189,7 @@
       "label": "Deadlines",
       "group": "Case management",
       "owner": "CC-07",
+      "hostedOwner": "HA-views-quantum-registers",
       "reads": {
         "datasets": ["META.builtAt", "META.docCount"],
         "stores": ["ess_dcs_deadlines_v1", "ess_dcs_rescan_v1"]
@@ -185,6 +201,7 @@
       "label": "Discovery Schedule",
       "group": "Case management",
       "owner": "CC-09",
+      "hostedOwner": "HA-views-litigation-bundles",
       "reads": {
         "datasets": ["window.__SCHED__"],
         "stores": ["ess_dcs_schedule_co_v1", "ess_dcs_schedule_mode_v1", "ess_dcs_schedule_sel_v1"]
@@ -196,6 +213,7 @@
       "label": "Court Bundle",
       "group": "Case management",
       "owner": "CC-09",
+      "hostedOwner": "HA-views-litigation-bundles",
       "reads": {
         "datasets": ["bundles"],
         "stores": ["ess_dcs_bundle_header_v2", "ess_dcs_custom_bundles_v1"]
@@ -207,6 +225,7 @@
       "label": "CaseLines",
       "group": "Case management",
       "owner": "CC-09",
+      "hostedOwner": "HA-views-litigation-bundles",
       "reads": {
         "datasets": ["chronology", "window.__CASELINES_IDX__"],
         "stores": ["ess_dcs_caselines_docs_v1", "ess_dcs_rescan_v1"]
@@ -218,6 +237,7 @@
       "label": "Contradiction Tracker",
       "group": "Analysis",
       "owner": "CC-05",
+      "hostedOwner": "HA-views-evidence-analysis",
       "reads": {
         "datasets": ["contradictions", "META.docCount"],
         "stores": []
@@ -229,6 +249,7 @@
       "label": "Risk Matrix",
       "group": "Analysis",
       "owner": "CC-05",
+      "hostedOwner": "HA-views-evidence-analysis",
       "reads": {
         "datasets": ["riskMatrix"],
         "stores": []
@@ -240,6 +261,7 @@
       "label": "Defence & Rebuttal",
       "group": "Analysis",
       "owner": "CC-05",
+      "hostedOwner": "HA-views-evidence-analysis",
       "reads": {
         "datasets": ["defenceMatrix"],
         "stores": []
@@ -251,6 +273,7 @@
       "label": "Info Required",
       "group": "Analysis",
       "owner": "CC-05",
+      "hostedOwner": "HA-views-evidence-analysis",
       "reads": {
         "datasets": ["infoRequired"],
         "stores": ["ess_dcs_info_done_v1"]
@@ -262,6 +285,7 @@
       "label": "Witnesses",
       "group": "Analysis",
       "owner": "CC-05",
+      "hostedOwner": "HA-views-evidence-analysis",
       "reads": {
         "datasets": ["witnesses"],
         "stores": []
@@ -273,6 +297,7 @@
       "label": "Conflict Check",
       "group": "Analysis",
       "owner": "CC-08",
+      "hostedOwner": "HA-views-litigation-bundles",
       "reads": {
         "datasets": ["entities", "people"],
         "stores": []
@@ -284,6 +309,7 @@
       "label": "Enforcement Roadmap",
       "group": "Litigation strategy",
       "owner": "CC-08",
+      "hostedOwner": "HA-views-litigation-bundles",
       "reads": {
         "datasets": ["lit"],
         "stores": ["ess_dcs_enf_status_v1"]
@@ -295,6 +321,7 @@
       "label": "Legality & SIU Risk",
       "group": "Litigation strategy",
       "owner": "CC-08",
+      "hostedOwner": "HA-views-litigation-bundles",
       "reads": {
         "datasets": ["lit"],
         "stores": []
@@ -306,6 +333,7 @@
       "label": "Prescription",
       "group": "Litigation strategy",
       "owner": "CC-06",
+      "hostedOwner": "HA-views-quantum-registers",
       "reads": {
         "datasets": ["lit"],
         "stores": []
@@ -317,6 +345,7 @@
       "label": "Interest Recalculator",
       "group": "Litigation strategy",
       "owner": "CC-06",
+      "hostedOwner": "HA-views-quantum-registers",
       "reads": {
         "datasets": ["lit"],
         "stores": []
@@ -328,6 +357,7 @@
       "label": "Payments & Net Claim",
       "group": "Litigation strategy",
       "owner": "CC-06",
+      "hostedOwner": "HA-views-quantum-registers",
       "reads": {
         "datasets": ["lit"],
         "stores": ["ess_dcs_payments_v1"]
@@ -339,6 +369,7 @@
       "label": "Cause of Action",
       "group": "Litigation strategy",
       "owner": "CC-08",
+      "hostedOwner": "HA-views-litigation-bundles",
       "reads": {
         "datasets": ["lit"],
         "stores": []
@@ -351,6 +382,7 @@
       "label": "Authorities",
       "group": "Litigation strategy",
       "owner": "CC-08",
+      "hostedOwner": "HA-views-litigation-bundles",
       "reads": {
         "datasets": ["lit"],
         "stores": ["ess_dcs_authorities_v1"]
@@ -362,6 +394,7 @@
       "label": "Heads of Argument",
       "group": "Litigation strategy",
       "owner": "CC-08",
+      "hostedOwner": "HA-views-litigation-bundles",
       "reads": {
         "datasets": [],
         "stores": ["ess_dcs_heads_v1"]
@@ -374,6 +407,7 @@
       "label": "Cross-Exam Prep",
       "group": "Litigation strategy",
       "owner": "CC-08",
+      "hostedOwner": "HA-views-litigation-bundles",
       "reads": {
         "datasets": ["lit"],
         "stores": ["ess_dcs_crossexam_v1"]
@@ -385,6 +419,7 @@
       "label": "Settlement / BATNA",
       "group": "Litigation strategy",
       "owner": "CC-06",
+      "hostedOwner": "HA-views-quantum-registers",
       "reads": {
         "datasets": ["lit"],
         "stores": []
@@ -396,6 +431,7 @@
       "label": "Privilege Log",
       "group": "Registers",
       "owner": "CC-07",
+      "hostedOwner": "HA-views-quantum-registers",
       "reads": {
         "datasets": ["META.builtAt", "META.docCount"],
         "stores": ["ess_dcs_privilege_v1", "ess_dcs_rescan_v1"]
@@ -407,6 +443,7 @@
       "label": "POPIA Register",
       "group": "Registers",
       "owner": "CC-07",
+      "hostedOwner": "HA-views-quantum-registers",
       "reads": {
         "datasets": ["META.builtAt", "META.docCount"],
         "stores": ["ess_dcs_popia_v1", "ess_dcs_rescan_v1"]
@@ -418,6 +455,7 @@
       "label": "Annotations",
       "group": "Registers",
       "owner": "CC-07",
+      "hostedOwner": "HA-notes",
       "reads": {
         "datasets": ["META.builtAt", "META.docCount"],
         "stores": ["ess_dcs_annotations_v1", "ess_dcs_rescan_v1"]
@@ -429,6 +467,7 @@
       "label": "Transcripts",
       "group": "Registers",
       "owner": "CC-07",
+      "hostedOwner": "HA-views-quantum-registers",
       "reads": {
         "datasets": ["META.builtAt", "META.docCount"],
         "stores": ["ess_dcs_rescan_v1", "ess_dcs_transcripts_v1"]
@@ -440,6 +479,7 @@
       "label": "Rescan & Update",
       "group": "System",
       "owner": "CC-10",
+      "hostedOwner": "HA-views-system",
       "reads": {
         "datasets": ["chronology", "META.builtAt", "META.docCount"],
         "stores": ["ess_dcs_rescan_v1"]
@@ -451,6 +491,7 @@
       "label": "Backup / Restore",
       "group": "System",
       "owner": "CC-10",
+      "hostedOwner": "HA-recovery",
       "reads": {
         "datasets": ["META.builtAt", "META.docCount"],
         "stores": ["ess_dcs_annotations_v1", "ess_dcs_authorities_v1", "ess_dcs_bundle_extents_v1", "ess_dcs_bundle_header_v1", "ess_dcs_bundle_overrides_v1", "ess_dcs_courtbundle_v1", "ess_dcs_crossexam_v1", "ess_dcs_custom_bundles_v1", "ess_dcs_deadlines_v1", "ess_dcs_disbursements_v1", "ess_dcs_enf_status_v1", "ess_dcs_filings_v1", "ess_dcs_heads_v1", "ess_dcs_info_done_v1", "ess_dcs_payments_v1", "ess_dcs_popia_v1", "ess_dcs_privilege_v1", "ess_dcs_rescan_v1", "ess_dcs_timesheet_v1", "ess_dcs_transcripts_v1"]
@@ -462,6 +503,7 @@
       "label": "Manual",
       "group": "System",
       "owner": "CC-10",
+      "hostedOwner": "HA-views-system",
       "reads": {
         "datasets": ["buildReport", "linkSample", "quantum", "META.docCount", "META.emails", "META.people", "META.textNone", "META.textPending"],
         "stores": []
@@ -497,5 +539,12 @@
     "ess_dcs_schedule_sel_v1": "CC-09",
     "ess_dcs_timesheet_v1": "CC-07",
     "ess_dcs_transcripts_v1": "CC-07"
+  },
+  "hostedOwnership": {
+    "sourceRevision": "b93bad097fdd7b3c076d68025267c36395fc9921",
+    "snapshotDate": "16 October 2026",
+    "note": "owner remains the historical v5 implementation owner used by the registry. hostedOwner names the hosted caller/feature migration owner. Shared core storage/auth/viewer contracts have separate Linear owners; no navigation redesign is approved.",
+    "planningGate": "GRS-69",
+    "acceptanceOwner": "CC-20"
   }
 }

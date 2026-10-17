@@ -175,6 +175,8 @@ receipt_is "invalid plan receipt is FAIL" FAIL 1
 if grep -qF "long dash" "$(compgen -G "$RECEIPTS/*/stderr.txt")"; then ok "checker stderr preserved in receipt"; else bad "checker stderr preserved in receipt"; fi
 
 echo "# planning graph fixtures through verify plan-graph / linear-relations"
+# fixture_list FIXTURE KEY : the strings in the fixture's expect.KEY, one per line
+fixture_list() { python3 -c 'import json,sys; [print(m) for m in json.load(open(sys.argv[1]))["expect"].get(sys.argv[2], [])]' "$1" "$2"; }
 for fixture in "$FIXTURES"/graph/*.json; do
 	name=$(basename "$fixture" .json)
 	tree="$WORK/tree-$name"
@@ -183,8 +185,12 @@ for fixture in "$FIXTURES"/graph/*.json; do
 	args=("$TOOLS/verify" "$capability" --root "$tree")
 	[[ $capability == linear-relations ]] && args+=(--readback "$tree/readback.json")
 	run "graph $name" "$expected" "${args[@]}"
-	while IFS= read -r message; do has "graph $name diagnoses: $message" "$message"; done < <(
-		python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))["expect"]["output"]))' "$fixture")
+	while IFS= read -r message; do has "graph $name diagnoses: $message" "$message"; done < <(fixture_list "$fixture" output)
+	while IFS= read -r message; do lacks "graph $name omits: $message" "$message"; done < <(fixture_list "$fixture" absent)
+	[[ $expected == 0 ]] || lacks "graph $name does not print PASS" "PASS"
+	# a negative fixture must fail for its own cause: every finding line is one the fixture names
+	unexpected=$(grep -vF -e "receipt: " -e "Compared the Linear readback" -e "HOLD: " "$OUT" | grep -v '^$' | grep -vFf <(fixture_list "$fixture" output))
+	if [[ -z $unexpected ]]; then ok "graph $name reports only the expected findings"; else bad "graph $name reports a finding the fixture does not name" "$unexpected"; fi
 	receipt_is "graph $name receipt" "$([[ $expected == 0 ]] && echo PASS || echo FAIL)" "$expected"
 done
 

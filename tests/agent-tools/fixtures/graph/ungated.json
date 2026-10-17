@@ -1,0 +1,21 @@
+{
+  "description": "A hosted delivery owner is not blocked by the planning gate",
+  "capability": "plan-graph",
+  "set": {
+    "HA-kyc.depends": [
+      "CC-28",
+      "HA-viewer-core"
+    ],
+    "HA-kyc.nativeBlockedBy": [
+      "GRS-36",
+      "GRS-120"
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "HA-kyc: hosted work is not natively blocked by the planning gate",
+      "HA-kyc: hosted delivery owner must be a gated Backlog writer with verification"
+    ]
+  }
+}

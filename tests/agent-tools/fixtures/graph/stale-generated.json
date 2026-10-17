@@ -1,5 +1,5 @@
 {
-  "description": "work-items.json changes after generation",
+  "description": "work-items.json changes after generation: only the generated documents are stale",
   "capability": "plan-graph",
   "patchAfterGenerate": true,
   "set": {

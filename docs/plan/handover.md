@@ -4,7 +4,7 @@ This page indexes everything an external reviewer needs, in one place. It is wri
 
 ## The review
 
-- **Review SHA:** REVIEW_SHA_PLACEHOLDER. It is the content commit of branch `feature/grs-69-docs-consistency`, cut from `dev` at `525aa8a`; the next commit changes only this line. After the merge, review `dev` at the merge commit.
+- **Review SHA:** `383c385e54ea492d6665f5d90b644be1aba8b6fc`. It is the content commit of branch `feature/grs-69-docs-consistency`, cut from `dev` at `525aa8a`; the next commit changes only this line. After the merge, review `dev` at the merge commit.
 - **The opinion asked for:** is the plan, the verification model and the operating rules sound before kickoff? Say what you would change, and say which findings you would block on.
 - **What this is not:** runtime acceptance. Every hosted implementation, runtime and provider check is UNRUN. The approval below approves the written plan only.
 

@@ -19,7 +19,7 @@ A source file supplied for the case, or an extracted attachment whose parent sou
 _Avoid_: Result when referring to source evidence.
 
 **File preview**:
-A readable or playable representation of an original inside the case workspace. It may be a converted representation and does not replace the original.
+A readable or playable representation of an original inside the case workspace. It may be a converted representation and does not replace the original. Rendition is a synonym; prefer file preview. An unchanged acknowledged original is not a candidate-derived asset: a file preview or other asset derived while a candidate is private stays private until publication, while the original keeps its own access rule.
 _Avoid_: Preview alone when it could mean the private review of an unpublished results version.
 
 **Case pack**:
@@ -36,7 +36,7 @@ _Avoid_: Upload when referring to a completed input revision.
 
 **Requested supplement**:
 Files or passwords that the service team asks for because a submission cannot be processed without them. They join that submission's processing job and leave the submission itself unchanged.
-_Avoid_: Resubmission, amendment, new submission.
+_Avoid_: Resubmission, amendment, new submission, new revision, supplementary input.
 
 **Processing job**:
 The service team's manual processing of one submission, together with any requested supplements linked to it. It is what holds a place in the processing queue.
@@ -61,8 +61,8 @@ The pair {resultsVersion, diagnosticsSha256} that a reviewed conversion of the v
 _Avoid_: Expected hash.
 
 **Candidate**:
-A results version held privately for validation, review and correction before activation or publication. Clients cannot see it.
-_Avoid_: Published result for an unapproved version.
+A results version held privately for validation, review and correction before activation or publication. Clients cannot see it. A candidate is identified by its resultsVersion. Review, correction and sign-off are events recorded against that identity and are not versions themselves. Correcting content gives a new resultsVersion, so a fresh candidate that needs its own sign-off. Importing identical content again gives the same resultsVersion, and a sign-off never carries from one resultsVersion to another.
+_Avoid_: Published result for an unapproved version; published candidate (say published results version).
 
 **Activation**:
 Selection of the results version used by the local workspace.
@@ -73,7 +73,7 @@ A named person's approval of one exact results version after review.
 _Avoid_: Validation when referring to human approval.
 
 **Publication**:
-Making a signed-off results version the one that a client instance's assigned users see. Only an authorized person publishes.
+Making a signed-off results version the one that a client instance's assigned users see; that version is the published results version. Only an authorized person publishes.
 _Avoid_: Upload or import when referring to client visibility.
 
 **Reviewer correction**:
@@ -93,7 +93,7 @@ A list of user work that people maintain in a view, such as deadlines, filings o
 _Avoid_: Register alone for the intentional-differences register.
 
 **Store**:
-A local database the app owns. The results store holds the imported results versions; the user-work store holds user work, apart from results, and survives a change of results version.
+A local database the app owns. The results store holds the imported results versions; the user-work store holds user work, apart from results, and survives a change of results version. In the hosted app the equivalents are D1, which holds results and user-work records, and R2, which holds originals, file previews and exports; each client instance has its own D1 and R2. Name D1 or R2 when the hosted boundary is meant.
 _Avoid_: Workspace store, local store and case store in user messages; say which store.
 
 **Seed**:
@@ -135,8 +135,12 @@ The time, fees and disbursements recorded against a case.
 _Avoid_: Billing, fee note and invoice when only recorded costs are meant; invoice ledger, which lists invoices from the case material.
 
 **PDF bundle**:
-An ordered compilation of PDFs assembled into one PDF with its index. Distinct from a complete case export, which carries the case's originals, file previews and manifest.
-_Avoid_: Bundle alone, which v5 also uses for a document category; packet, export.
+An ordered compilation of PDFs assembled into one PDF with its index. Distinct from a complete case export, which carries the case's originals, file previews and manifest. Notes are in neither output unless the user explicitly selects them, and the selected scope is shown before download.
+_Avoid_: Bundle alone, which v5 also uses for a document category; packet, case packet, packet export.
+
+**Complete case export**:
+The download of one case's originals, published file previews and manifest. It is not a PDF bundle. Notes are absent unless explicitly selected, with the selected scope shown before download.
+_Avoid_: Case packet, packet export, backup.
 
 **PDF bundle version**:
 One particular generated PDF bundle with its index, tied to the exact source versions it compiled, in their order. Regenerating a PDF bundle gives a new PDF bundle version and leaves the earlier ones as they were.
@@ -177,12 +181,16 @@ _Avoid_: Allow list.
 A check run that counts toward acceptance: complete, unmocked, and on a fresh build of one exact revision.
 _Avoid_: Passing run, for a reduced or stale run.
 
-**Lane**:
-One numbered acceptance check in a run against the real v5 sample, with its own transcript and screenshot.
-_Avoid_: Scenario, which runs on a synthetic case.
+**Release candidate source SHA**:
+The Git revision of the app that a release gate accepts. It names the app build and is unrelated to a candidate's resultsVersion, which names results content.
+_Avoid_: Candidate SHA.
+
+**Pilot lane**:
+One numbered acceptance check in a `verify:pilot:v5` run against the real v5 sample, with its own transcript and screenshot. Only this local pilot check keeps the word. Verification lanes as a way to fan out agents are retired and not used.
+_Avoid_: Lane alone; scenario, which runs on a synthetic case.
 
 **Gate**:
-A pass or fail decision on one exact revision that must pass before work depending on it proceeds. Every ticket passes the gate command; a milestone ends with an independent gate.
+A pass or fail decision on one exact revision that must pass before work depending on it proceeds. The checks are scaled to the change: a ticket that touches the app runs `bun run --bun gate`, a hosted ticket also runs `gate:hosted` once it exists, and a documentation or research ticket runs `check` and `test` plus `check-plan`. A milestone ends with an independent gate.
 _Avoid_: Review, which is one input to a gate.
 
 ### People

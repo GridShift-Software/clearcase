@@ -45,7 +45,10 @@ Planning creates this issue; it does not dispatch it. RAWS/current production ar
 
 * [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)
 * [Gate the hosted design before client intake implementation](<https://linear.app/vaper/issue/GRS-27/gate-the-hosted-design-before-client-intake-implementation>)
-* [Provision isolated client instances, cases and explicit grants](<https://linear.app/vaper/issue/GRS-114/provision-isolated-client-instances-cases-and-explicit-grants>)
+* [Migrate the app build and shared server entry points to Workers](<https://linear.app/vaper/issue/GRS-112/migrate-the-app-build-and-shared-server-entry-points-to-workers>) (its storage interface stub)
+* <issue id="ab5e730e-f8a2-48d3-9b1c-ff54c6fd8498" href="https://linear.app/vaper/issue/GRS-138/build-the-hosted-gate-and-the-verify-clearcase-hosted-skill-before">GRS-138</issue>, the hosted gate
+
+Restructured 17 October: this owner no longer waits for provisioning (<issue id="d2eb4788-3a92-47ec-b89a-e03cebf4a8df" href="https://linear.app/vaper/issue/GRS-114/provision-isolated-client-instances-cases-and-explicit-grants">GRS-114</issue>). It implements against the framework owner's storage stub and runs in parallel with identity.
 
 ## Final workflow alignment — 17 October 2026
 

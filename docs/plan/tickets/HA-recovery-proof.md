@@ -22,6 +22,7 @@ These are initial reservations. Pin exact files and accepted upstream SHA in the
 - [ ] Model firm-admin deletion request, GA approval and export offer, live access removal, copy rotation within 30 days and deletion records reapplied on restore.
 - [ ] Measure the four staffed-hour recovery aim as a soft initial goal, not a strict provider-outage SLA or invented launch time gate.
 - [ ] Document restore scope, corruption checks and a concrete product/runbook handoff. No current live clients need a migration/cutover project.
+- [ ] Added 17 October 2026 (local-first plan, <issue id="42b36cd3-282a-42ee-b4ce-e6b04374cae7" href="https://linear.app/vaper/issue/GRS-26/prove-the-hosted-architecture-and-cloudflare-deployment">GRS-26</issue>): the deletion flow (request, approval, export offer, access removal), deletion records reapplied on restore, publication rollback without lost user work, restore from an R2 copy and the corruption checks may pass on workerd with local D1 and R2. The one-hour RPO through Time Travel, 30-day rotation and the elapsed-restore observation stay cloud legs at moment M2. Time Travel is remote-only and keeps 30 days only on Paid.
 
 ## Verification and handoff
 
@@ -36,5 +37,4 @@ Planning creates this issue; it does not dispatch it. RAWS/current production ar
 ## Native prerequisites
 
 * [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)
-* [Gate v5, newer and JSON export compatibility](<https://linear.app/vaper/issue/GRS-24/gate-v5-newer-and-json-export-compatibility>)
 * [Prove D1 and R2 integrity, layout and POC workload performance](<https://linear.app/vaper/issue/GRS-109/prove-d1-and-r2-integrity-layout-and-poc-workload-performance>)

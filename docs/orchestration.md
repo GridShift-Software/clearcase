@@ -1,6 +1,6 @@
 # Run the ClearCase delivery queue
 
-> Partly historical: the workspace `AGENTS.md` (11 October 2026) overrides this protocol. Sections marked historical below are superseded by it.
+> Historical record, updated 17 October 2026. The current entrypoints are the workspace `AGENTS.md` and `ORCHESTRATOR.md` (outside the clone; their text is in the appendix of [handover](plan/handover.md)) and [verification and review](plan/verification-and-review.md). Every section below is historical unless it is marked current. Where this file disagrees with those, they win.
 
 Use this protocol with pstack's `playbooks/orchestrate.md`. The coordinator owns the program and delegates implementation. Run checks with `bun run --bun gate`. Start with the V1 queue and leave hosted delivery and processing automation behind their phase gates.
 
@@ -25,6 +25,8 @@ The blocking first steps are the baseline, package contract and pilot. After the
 
 ## Reserve files before dispatch
 
+> Historical for branching and PR targets: a ticket branch is cut from its wave branch and its PR targets the wave (workspace `AGENTS.md`, Git). Current: one writer owns each worktree, workers do not edit sibling worktrees, and a needed shared file goes to the coordinator as a request in the report.
+
 Create `feature/<linear-id>-<slug>` in a separate worktree based on the accepted integration revision, or on the upstream ticket's accepted head for a stacked ticket. The integration branch is `dev`; `main` is release-only and changes only through user-approved merges from `dev`. One writer owns each worktree. The coordinator records the issue, task ID, branch, worktree, base revision and allowed paths before work starts.
 
 Workers cannot edit sibling worktrees, shared planning files, source archives or production. If a ticket needs a shared file owned elsewhere, return a precise request to the coordinator. Resolve overlaps before dispatch; a warning in a prompt is not isolation.
@@ -41,7 +43,7 @@ Retain each delegated task ID. Read completion once, reconcile it with the reser
 
 ## Verify and integrate
 
-> Historical: verification lanes are retired. Each ticket runs build, review, at most one fix round, then ship (workspace `AGENTS.md`, The loop for each ticket).
+> Historical: verification lanes are retired, and the external reviewer now reviews wave PRs, not every ticket PR. Each ticket runs build, review, at most one fix round, then ship (workspace `AGENTS.md`, The loop for each ticket).
 
 Require PASS, HOLD or FAIL with the exact revision or reproducible diff digest, commands, exit codes, output files and known limits. Preserve failure logs. Check actual artifacts rather than worker summaries. For browser behavior, prefer the T3 collaborative preview. Use another browser system only under the platform's documented fallback conditions.
 
@@ -53,7 +55,7 @@ Integrate clean, accepted commits serially into the integration branch under the
 
 ## Execution hosts
 
-> Historical: workers run as T3 tasks or headless Claude resumes; Codex is not used (workspace `AGENTS.md`).
+> Historical: workers run as T3 tasks or headless Claude resumes; Codex is not used except `gpt-6-astra` as the recorded rare escalator, plus scoped per-task user authorizations (workspace `AGENTS.md`).
 
 The coordinator thread runs in T3 on `puk`. Workers and verifiers run on the host `puk` (reachable over Tailscale as `puk`) as headless Claude Code or Codex CLI sessions inside tmux, one session per ticket. The `dev` clone on puk is `/home/vaper/Work/Active/MX-two/ClearCase/clearcase`; worker worktrees live under `/home/vaper/Work/Active/MX-two/ClearCase/worktrees/<branch-slug>`. `archlinux` remains a supported developer host; RAWS is mirrored read-only at the same absolute path on both hosts. The coordinator's ignored `.orchestration/` state lives in the puk `dev` clone. A worker reports by writing its report file; the coordinator reads it locally after the tmux session exits.
 

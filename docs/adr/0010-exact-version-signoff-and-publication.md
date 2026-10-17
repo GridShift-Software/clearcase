@@ -28,3 +28,9 @@ Reviewers can edit candidate text, headings, formatting, citations and structure
 Each saved correction batch records who changed it, when, the before/after values and a brief reason. Corrections remain part of published and exported results. Later processing surfaces prior corrections for the reviewer to retain or replace and flags conflicts instead of silently overwriting them.
 
 The product workflow is settled. Detailed review topology and its access-isolation proof remain obligations of the hosted design gate. The overall planning gate ([GRS-69](https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha)) remains open.
+
+## Cases without a publication, 17 October
+
+In [Stress-test the complete hosted-alpha plan with final workflow scenarios](https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow-scenarios) the user confirmed that a case exists without a publication: before its first publication, and after authorized staff withdraw its results. Its authorized users keep their originals, case-level Notes, case costs and other user work that does not depend on results. How originals open before publication is set in [ADR-0011](0011-originals-and-complete-in-app-file-viewing.md).
+
+Results-dependent views show a designed waiting or unavailable state with a meaningful reason and the relevant next action or status. They never show placeholder or invented results, and they keep user work and access intact. None of this gives clients access to a private candidate, bypasses revoked access, exposes withdrawn results or requires a navigation redesign. Work that does not depend on results is reached through the case's stable identity rather than a resultsVersion; concrete routing belongs to the implementing tickets.

@@ -8,6 +8,10 @@ During execution, live Linear status and blocking relations determine readiness.
 
 Use the team's existing statuses. Planned work starts in Backlog. The coordinator moves ready work to Todo, dispatched work to In Progress, review candidates to In Review and independently accepted work to Done. A dependency or missing receipt is not completion. Record external blockers in the issue and coordination state because the team has no separate Blocked status.
 
+The `checkpoint` label marks the five aggregates where the user reads the report and drives the verification skill once: GRS-27, GRS-36, GRS-137, GRS-66 and GRS-32. Agents run unattended between checkpoints. See [verification and review](../plan/verification-and-review.md).
+
+`AWAITING MANUAL RESULTS` is the human-gate marker for the manual processing step ([GRS-137](https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view), [GRS-29](https://linear.app/vaper/issue/GRS-29/notify-operators-and-download-a-complete-submission)). It is not a Linear status. A worker reports it, and the coordinator records it in the issue with the submission manifest and the download path. A fresh session resumes from the import step once the user names the package path.
+
 Only the coordinator writes Linear status. Workers return evidence and proposed follow-ups. Keep issues self-contained with outcome, scope, blockers, acceptance, verification and forbidden actions. Planning-created issues do not need a second triage pass. Do not create a parallel GitHub or local issue tracker.
 
 The user authorized this plan's issues and milestones on 8 October 2026. Do not import unrelated per-issue approval requirements from Jove history. Newly discovered work outside the authorized product scope belongs in a proposal until the user expands that scope.

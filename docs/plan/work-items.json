@@ -673,7 +673,8 @@
       "milestone": "M3",
       "title": "Verify newer 2,131-document and JSON export compatibility",
       "depends": [
-        "CC-11"
+        "CC-11",
+        "HA-dev-gate-20261017"
       ],
       "outcome": "The same workspace loads the September export without replacing or weakening the v5 compatibility contract.",
       "scope": [
@@ -726,7 +727,8 @@
       "testPath": "tests/compatibility",
       "linearDescription": "Planning key `CC-12`. Phase V1. Milestone `M3`. Type delivery.\n\n## Outcome\n\nThe migration/operator tooling supports the newer 2,131-document generation and the newer JSON-style generation through one validated results-package contract, retaining original v5 compatibility. Import/adapter work is already merged on dev; inspect current implementation and exact-revision evidence before adding code. Do not treat a merged PR or unit tests alone as acceptance.\n\n## Dependencies\n\n[GRS-21](<https://linear.app/vaper/issue/GRS-21/verify-complete-v5-parity-and-local-release-readiness>)\n\n## Write scope\n\n* `src/lib/case-package/v5/newer-workspace.ts`\n* `src/lib/case-package/v5/json-workspace.ts`\n* Related format detection/mapping under `src/lib/case-package/v5/**`, only after confirming current ownership\n* `tests/case-package/**` and existing compatibility acceptance probes\n* `docs/compatibility.md`\n\n## Acceptance\n\n- [ ] Identify the source format explicitly and preserve all 2,131 chronology rows, 24 DATA keys and two auxiliary top-level datasets in the observed export. Confirm counts from the source before coding.\n- [ ] Handle changed shapes such as storyline records and numeric/string row positions through the format adapter, not scattered UI conditionals.\n- [ ] Document extra dataset presentation or an explicit unsupported state for every new dataset. Preserve attachment sources and disclose the 4,000-character text cap.\n- [ ] Re-run all v5 gates after adding compatibility. Ref collisions between versions never silently attach old notes to a different original.\n- [ ] Recheck BA-04, BA-05, BA-07, BA-09 and BA-11 on the newer export. Date basis, classification/identity uncertainty, direct-versus-parent originals and email-subset coverage must be explicit wherever those datasets are presented. An unsupported view/dataset is reported as unsupported, not as a completed feature. Full metadata re-extraction and expanded OCR remain deferred.\n- [ ] Verify the JSON-style export generation against its own source inventory and counts, with explicit detection rather than ad hoc UI checks.\n- [ ] Preserve unrecognized sections privately and expose repair/coverage diagnostics. Unsupported or invalid required sections prevent publication; opaque residual retention with a warning is not complete presentation. Optional unsupported information must not silently disappear.\n\n## Verification\n\nReport PASS, HOLD or FAIL at the exact reviewed revision. Include commands, exit codes and artifact paths. A skipped check is not a pass. Read the local delivery plan and orchestration protocol before dispatch.\n\n- [ ] 1\\. Re-run the v5 pilot unchanged.\n- [ ] 2\\. Import exactly 2,131 newer chronology rows.\n- [ ] 3\\. Account for every top-level dataset.\n- [ ] 4\\. Convert the changed storyline shape.\n- [ ] 5\\. Render risks with category owner and refs.\n- [ ] 6\\. Open an indexed attachment or its parent route.\n- [ ] 7\\. Display text truncation coverage.\n- [ ] 8\\. Handle a reused ref with changed file identity.\n- [ ] 9\\. Refuse unrecognized formats as ready results outside the explicitly supported generations, retaining received input privately for diagnosis.\n- [ ] 10\\. Switch versions while preserving correctly scoped user work.\n\nMetric: Import validation, overview load and search latency. Budget: Retain the V1 2,000/200/300 ms budgets for overview/navigation/search. Record import/memory baseline for this distinct fixture; do not compare unlike corpus sizes as a speedup.\n\n## Boundaries\n\nKeep RAWS and current production read-only. Do not commit case documents, extracted text or secrets. No Cursor agents; every Opus agent uses high effort. Only the coordinator updates Linear. No deployment, production publication or external messages under this issue without the appropriate execution authority.\n\n## Handoff\n\nReturn the branch/worktree, base and head revision, changed paths, accepted criteria, failed or skipped checks, evidence paths and proposed follow-ups. Do not mark the issue Done yourself.",
       "nativeBlockedBy": [
-        "GRS-21"
+        "GRS-21",
+        "GRS-141"
       ],
       "externalPrerequisites": [],
       "status": "Backlog"
@@ -798,9 +800,7 @@
       "key": "CC-14",
       "milestone": "M4",
       "title": "Confirm the existing operator results-import contract",
-      "depends": [
-        "HA-grs-69"
-      ],
+      "depends": [],
       "outcome": "The team has a verified operator upload route and payload contract. Until evidence is available, the issue records an explicit unresolved access dependency.",
       "scope": [
         "docs/operator-contract.md",
@@ -824,11 +824,9 @@
         "url": "https://linear.app/vaper/issue/GRS-25/confirm-the-existing-operator-results-import-contract"
       },
       "linearDescription": "Planning key `CC-14`. Phase V2. Milestone `M4`. Type discovery.\n\n## Outcome\n\nThe team has a verified operator upload route and payload contract. Until evidence is available, the issue records an explicit unresolved access dependency.\n\n## Dependencies\n\nNone\n\n## Write scope\n\n* `docs/operator-contract.md`\n* `docs/evidence.md`\n\n## Acceptance\n\n- [ ] Inspect only authorized source or operator UI once available. Record the route, role, accepted packaging, validation behavior and publication semantics.\n- [ ] Do not brute-force paths, bypass roles, upload results, or change production. Client intake endpoints are not the results-import endpoint.\n- [ ] Record the current firm-admin redirect and checked sources. If access/source is still absent, leave the investigation unresolved and route local work around it.\n- [ ] Compare any discovered contract with the proposed package and record a migration decision. Do not make V1 depend on inaccessible production internals.\n\n## Verification\n\nReport PASS, HOLD or FAIL at the exact reviewed revision. Include commands, exit codes and artifact paths. A skipped check is not a pass. Read the local delivery plan and orchestration protocol before dispatch.\n\nUse an independent reviewer for a gate. For discovery or design, verify the cited source or probe and record unresolved choices. Later-phase implementation requires a concrete test recipe before dispatch.\n\nMetric: Not applicable to this read-only discovery. Budget: No performance claim. Completion needs primary evidence or an explicitly unresolved external dependency.\n\n## Boundaries\n\nKeep RAWS and current production read-only. Do not commit case documents, extracted text or secrets. No Cursor agents; every Opus agent uses high effort. Only the coordinator updates Linear. No deployment, production publication or external messages under this issue without the appropriate execution authority.\n\n## Handoff\n\nReturn the branch/worktree, base and head revision, changed paths, accepted criteria, failed or skipped checks, evidence paths and proposed follow-ups. Do not mark the issue Done yourself.",
-      "nativeBlockedBy": [
-        "GRS-69"
-      ],
+      "nativeBlockedBy": [],
       "externalPrerequisites": [],
-      "status": "Backlog"
+      "status": "Canceled"
     },
     {
       "key": "CC-15",
@@ -894,7 +892,8 @@
       "title": "Submit and resume client document uploads",
       "depends": [
         "HA-grs-69",
-        "CC-28"
+        "CC-28",
+        "HA-first-workflow"
       ],
       "outcome": "An authenticated client uploads files into its own case and finalizes a durable input revision.",
       "scope": [
@@ -923,10 +922,11 @@
         "identifier": "GRS-28",
         "url": "https://linear.app/vaper/issue/GRS-28/submit-and-resume-client-document-uploads"
       },
-      "linearDescription": "Planning key `CC-16`. Phase V2. Milestone `M5`. Type delivery.\n\n## Outcome\n\nAn authenticated client uploads files into its own case and finalizes a durable input revision.\n\n## Dependencies\n\n[GRS-36](<https://linear.app/vaper/issue/GRS-36>)\n\n## Write scope\n\n* `src/routes/client/intake/**`\n* `src/lib/submissions/**`\n* `src/lib/storage/cloud/**`\n* `tests/intake/**`\n\n## Acceptance\n\n- [ ] Support files and folders with preserved relative paths, progress, resume and bounded retries. Reject unsafe paths and unsupported input with clear feedback.\n- [ ] Finalize an immutable submission manifest with content identity and size. Handle duplicate finalization idempotently; post-finalization additions require a new revision.\n- [ ] Enforce case/client authorization at every upload and asset endpoint, not only in the UI.\n- [ ] Exercise interrupted upload, duplicate request, wrong-client access, storage failure and multi-gigabyte sample scale using controlled data.\n- [ ] Reuse the accepted authentication, case provisioning and authorization contracts from <issue id=\"3ee13f2b-c1b4-44bb-9c43-cd750b3623e5\" href=\"https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work\">GRS-36</issue>. Take ownership of `src/lib/storage/cloud/**` only after the foundation owner stops writing there; serialize subsequent shared changes through the coordinator.\n\n## Verification\n\nReport PASS, HOLD or FAIL at the exact reviewed revision. Include commands, exit codes and artifact paths. A skipped check is not a pass. Read the local delivery plan and orchestration protocol before dispatch.\n\nUse an independent reviewer for a gate. For discovery or design, verify the cited source or probe and record unresolved choices. Later-phase implementation requires a concrete test recipe before dispatch.\n\nMetric: Upload throughput, finalize latency and retry recovery. Budget: Use the numeric staging budgets and load envelope fixed by CC-15.\n\n## Boundaries\n\nKeep RAWS and current production read-only. Do not commit case documents, extracted text or secrets. No Cursor agents; every Opus agent uses high effort. Only the coordinator updates Linear. No deployment, production publication or external messages under this issue without the appropriate execution authority.\n\n## Handoff\n\nReturn the branch/worktree, base and head revision, changed paths, accepted criteria, failed or skipped checks, evidence paths and proposed follow-ups. Do not mark the issue Done yourself.\n\nFile availability: after a durable upload is acknowledged, authorized assigned-case users retain access to their source files while queued, processing, input-needed or in private review, and after a failed processing/publication/notification attempt. Preserve the prior publication and distinguish source availability from processed-preview readiness. Never expose private processed candidates or require a live mailbox connection to retrieve copied files.\n\n## Final workflow alignment — 17 October 2026\n\nAccepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.\n\n- [ ] Keep every finalized submission unchanged. Requested missing files/passwords are linked supplementary input to the same processing job; preserve its original submitted time and give it a new eligible ready time at the back of the queue. Ordinary new/additional/replacement files create a new submission. Never overwrite or silently combine finalized submissions.\n- [ ] Authorized case users can retrieve acknowledged unchanged originals while processing is pending. Supported PDF/images open in-app where supported; a format awaiting manual preview preparation clearly says Preview pending processing and may temporarily require downloading the original. This exception ends for any file included in published results.",
+      "linearDescription": "Planning key `CC-16`. Phase V2. Milestone `M5`. Type delivery.\n\n## Outcome\n\nAn authenticated client uploads files into its own case and finalizes a durable input revision.\n\n## Dependencies\n\n[GRS-36](<https://linear.app/vaper/issue/GRS-36>) and, since the 17 October restructure, <issue id=\"00e869ac-8e6b-4b5c-b961-caec74950e96\" href=\"https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view\">GRS-137</issue>. The first complete workflow lands a single-file upload with no resume on the intake paths; this owner takes those paths over from its accepted head and adds folders, progress, resume, bounded retries, scale and the full authorization matrix.\n\n## Write scope\n\n* `src/routes/client/intake/**`\n* `src/lib/submissions/**`\n* `src/lib/storage/cloud/**`\n* `tests/intake/**`\n\n## Acceptance\n\n- [ ] Support files and folders with preserved relative paths, progress, resume and bounded retries. Reject unsafe paths and unsupported input with clear feedback.\n- [ ] Finalize an immutable submission manifest with content identity and size. Handle duplicate finalization idempotently; post-finalization additions require a new revision.\n- [ ] Enforce case/client authorization at every upload and asset endpoint, not only in the UI.\n- [ ] Exercise interrupted upload, duplicate request, wrong-client access, storage failure and multi-gigabyte sample scale using controlled data.\n- [ ] Reuse the accepted authentication, case provisioning and authorization contracts from <issue id=\"3ee13f2b-c1b4-44bb-9c43-cd750b3623e5\" href=\"https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work\">GRS-36</issue>. Take ownership of `src/lib/storage/cloud/**` only after the foundation owner stops writing there; serialize subsequent shared changes through the coordinator.\n\n## Verification\n\nReport PASS, HOLD or FAIL at the exact reviewed revision. Include commands, exit codes and artifact paths. A skipped check is not a pass. Read the local delivery plan and orchestration protocol before dispatch.\n\nUse an independent reviewer for a gate. For discovery or design, verify the cited source or probe and record unresolved choices. Later-phase implementation requires a concrete test recipe before dispatch.\n\nMetric: Upload throughput, finalize latency and retry recovery. Budget: Use the numeric staging budgets and load envelope fixed by CC-15.\n\n## Boundaries\n\nKeep RAWS and current production read-only. Do not commit case documents, extracted text or secrets. No Cursor agents; every Opus agent uses high effort. Only the coordinator updates Linear. No deployment, production publication or external messages under this issue without the appropriate execution authority.\n\n## Handoff\n\nReturn the branch/worktree, base and head revision, changed paths, accepted criteria, failed or skipped checks, evidence paths and proposed follow-ups. Do not mark the issue Done yourself.\n\nFile availability: after a durable upload is acknowledged, authorized assigned-case users retain access to their source files while queued, processing, input-needed or in private review, and after a failed processing/publication/notification attempt. Preserve the prior publication and distinguish source availability from processed-preview readiness. Never expose private processed candidates or require a live mailbox connection to retrieve copied files.\n\n## Final workflow alignment — 17 October 2026\n\nAccepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.\n\n- [ ] Keep every finalized submission unchanged. Requested missing files/passwords are linked supplementary input to the same processing job; preserve its original submitted time and give it a new eligible ready time at the back of the queue. Ordinary new/additional/replacement files create a new submission. Never overwrite or silently combine finalized submissions.\n- [ ] Authorized case users can retrieve acknowledged unchanged originals while processing is pending. Supported PDF/images open in-app where supported; a format awaiting manual preview preparation clearly says Preview pending processing and may temporarily require downloading the original. This exception ends for any file included in published results.",
       "nativeBlockedBy": [
         "GRS-69",
-        "GRS-36"
+        "GRS-36",
+        "GRS-137"
       ],
       "externalPrerequisites": [],
       "status": "Backlog"
@@ -937,8 +937,7 @@
       "title": "Notify operators and download a complete submission",
       "depends": [
         "HA-operator-queue",
-        "HA-grs-69",
-        "CC-16"
+        "HA-grs-69"
       ],
       "outcome": "An operator learns a submission is ready and can download exactly the files recorded in that revision.",
       "scope": [
@@ -968,11 +967,10 @@
         "identifier": "GRS-29",
         "url": "https://linear.app/vaper/issue/GRS-29/notify-operators-and-download-a-complete-submission"
       },
-      "linearDescription": "Planning key `CC-17`. Phase V2. Milestone `M5`. Type delivery.\n\n## Outcome\n\nAn operator learns a submission is ready and can download exactly the files recorded in that revision.\n\n## Dependencies\n\n[GRS-28](<https://linear.app/vaper/issue/GRS-28/submit-and-resume-client-document-uploads>)\n\n## Write scope\n\n* `src/lib/operator-notifications/**`\n* `src/routes/admin/submissions/**`\n* `tests/operator-intake/**`\n* `docs/manual-processing.md`\n\n## Acceptance\n\n- [ ] Emit notification only after durable submission finalization. Retry safely without duplicate operator jobs; expose delivery state.\n- [ ] Provide authorized operator listing and download with the manifest, paths, counts and integrity information.\n- [ ] Verify downloaded content against the revision manifest and distinguish a partial download from a complete one.\n- [ ] Use a test notification sink for verification. No live emails or external messages in development. Document the manual processing handoff.\n- [ ] Ownership transfer after CC-13 is accepted. Extend docs/manual-processing.md serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths.\n- [ ] Document an executable manual recipe that turns a fresh controlled submission into a complete supported results package: required datasets, exact input revision, file identities, original mappings, citations, provenance and validation. List optional/unsupported outputs explicitly. A single edited risk record or a prebuilt sample package does not prove this handoff.\n\n## Verification\n\nReport PASS, HOLD or FAIL at the exact reviewed revision. Include commands, exit codes and artifact paths. A skipped check is not a pass. Read the local delivery plan and orchestration protocol before dispatch.\n\nUse an independent reviewer for a gate. For discovery or design, verify the cited source or probe and record unresolved choices. Later-phase implementation requires a concrete test recipe before dispatch.\n\nMetric: Notification dispatch delay and download throughput. Budget: Use CC-15 budgets and an explicit retry/recovery bound; verify with synthetic recipients.\n\n## Boundaries\n\nKeep RAWS and current production read-only. Do not commit case documents, extracted text or secrets. No Cursor agents; every Opus agent uses high effort. Only the coordinator updates Linear. No deployment, production publication or external messages under this issue without the appropriate execution authority.\n\n## Handoff\n\nReturn the branch/worktree, base and head revision, changed paths, accepted criteria, failed or skipped checks, evidence paths and proposed follow-ups. Do not mark the issue Done yourself.\n\nQueue ownership belongs to [Implement the internal FIFO processing queue and audited operator claims](<https://linear.app/vaper/issue/GRS-135/implement-the-internal-fifo-processing-queue-and-audited-operator>). Reuse its claim/status/audit contract; this issue owns notifications, manifest-verified complete download and the fresh executable manual-processing recipe, without duplicating queue state. Coordinate format-preparation recipe sections with the accepted viewer owners. Approximate 24–36h processing is a service goal whose fair metric is refined later.\n\n## Final workflow alignment — 17 October 2026\n\nAccepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.\n\n- [ ] The download manifest identifies the frozen original submission plus all explicitly linked supplementary input needed for this processing attempt. An operator can distinguish them and reproduce the exact input set; missing-input re-entry is the same job, not an invisible overwrite or automatic combination of ordinary submissions.\n- [ ] Use the current manual processing prompts/recipe to produce a fresh complete valid package for the early PDF workflow. Prompt optimization/eval work remains later after setup stabilizes; it is not a prerequisite or a waiver of required content/quality.",
+      "linearDescription": "Planning key `CC-17`. Phase V2. Milestone `M5`. Type delivery.\n\n## Outcome\n\nAn operator learns a submission is ready and can download exactly the files recorded in that revision.\n\n## Dependencies\n\n<issue id=\"b97a8bee-9190-453b-9a7d-6e98099ad25f\" href=\"https://linear.app/vaper/issue/GRS-135/implement-the-internal-fifo-processing-queue-and-audited-operator\">GRS-135</issue>, the queue owner. Since the 17 October restructure this owner no longer waits for the thick intake ticket (<issue id=\"29ff2f3f-0e74-4750-951e-c27851e2b166\" href=\"https://linear.app/vaper/issue/GRS-28/submit-and-resume-client-document-uploads\">GRS-28</issue>); the submission manifest contract comes from <issue id=\"00e869ac-8e6b-4b5c-b961-caec74950e96\" href=\"https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view\">GRS-137</issue>'s accepted head.\n\n## Write scope\n\n* `src/lib/operator-notifications/**`\n* `src/routes/admin/submissions/**`\n* `tests/operator-intake/**`\n* `docs/manual-processing.md`\n\n## Acceptance\n\n- [ ] Emit notification only after durable submission finalization. Retry safely without duplicate operator jobs; expose delivery state.\n- [ ] Provide authorized operator listing and download with the manifest, paths, counts and integrity information.\n- [ ] Verify downloaded content against the revision manifest and distinguish a partial download from a complete one.\n- [ ] Use a test notification sink for verification. No live emails or external messages in development. Document the manual processing handoff.\n- [ ] Ownership transfer after CC-13 is accepted. Extend docs/manual-processing.md serially, preserving the accepted behavior and documentation. The previous owner is no longer an active writer on these paths.\n- [ ] Document an executable manual recipe that turns a fresh controlled submission into a complete supported results package: required datasets, exact input revision, file identities, original mappings, citations, provenance and validation. List optional/unsupported outputs explicitly. A single edited risk record or a prebuilt sample package does not prove this handoff.\n\n## Verification\n\nReport PASS, HOLD or FAIL at the exact reviewed revision. Include commands, exit codes and artifact paths. A skipped check is not a pass. Read the local delivery plan and orchestration protocol before dispatch.\n\nUse an independent reviewer for a gate. For discovery or design, verify the cited source or probe and record unresolved choices. Later-phase implementation requires a concrete test recipe before dispatch.\n\nMetric: Notification dispatch delay and download throughput. Budget: Use CC-15 budgets and an explicit retry/recovery bound; verify with synthetic recipients.\n\n## Boundaries\n\nKeep RAWS and current production read-only. Do not commit case documents, extracted text or secrets. No Cursor agents; every Opus agent uses high effort. Only the coordinator updates Linear. No deployment, production publication or external messages under this issue without the appropriate execution authority.\n\n## Handoff\n\nReturn the branch/worktree, base and head revision, changed paths, accepted criteria, failed or skipped checks, evidence paths and proposed follow-ups. Do not mark the issue Done yourself.\n\nQueue ownership belongs to [Implement the internal FIFO processing queue and audited operator claims](<https://linear.app/vaper/issue/GRS-135/implement-the-internal-fifo-processing-queue-and-audited-operator>). Reuse its claim/status/audit contract; this issue owns notifications, manifest-verified complete download and the fresh executable manual-processing recipe, without duplicating queue state. Coordinate format-preparation recipe sections with the accepted viewer owners. Approximate 24–36h processing is a service goal whose fair metric is refined later.\n\n## Final workflow alignment — 17 October 2026\n\nAccepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.\n\n- [ ] The download manifest identifies the frozen original submission plus all explicitly linked supplementary input needed for this processing attempt. An operator can distinguish them and reproduce the exact input set; missing-input re-entry is the same job, not an invisible overwrite or automatic combination of ordinary submissions.\n- [ ] Use the current manual processing prompts/recipe to produce a fresh complete valid package for the early PDF workflow. Prompt optimization/eval work remains later after setup stabilizes; it is not a prerequisite or a waiver of required content/quality.\n\nHuman gate, decided 17 October 2026: producing that package is the user's own processing run in a separate chat, not agent work under this ticket. This owner documents the executable recipe and the handoff; the user executes it and supplies the package path. See the same section on <issue id=\"00e869ac-8e6b-4b5c-b961-caec74950e96\" href=\"https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view\">GRS-137</issue>.",
       "nativeBlockedBy": [
         "GRS-135",
-        "GRS-69",
-        "GRS-28"
+        "GRS-69"
       ],
       "externalPrerequisites": [],
       "status": "Backlog"
@@ -982,9 +980,8 @@
       "milestone": "M5",
       "title": "Import processed results into a private hosted preview",
       "depends": [
-        "HA-viewer-core",
         "HA-grs-69",
-        "CC-17"
+        "HA-first-workflow"
       ],
       "outcome": "An admin uploads results for an exact input revision and reviews a validated private candidate through the client viewer.",
       "scope": [
@@ -1011,11 +1008,10 @@
         "identifier": "GRS-30",
         "url": "https://linear.app/vaper/issue/GRS-30/import-processed-results-into-a-private-hosted-preview"
       },
-      "linearDescription": "Planning key `CC-18`. Phase V2. Milestone `M5`. Type delivery.\n\n## Outcome\n\nAn admin uploads results for an exact input revision and reviews a validated private candidate through the client viewer.\n\n## Dependencies\n\n[Notify operators and download a complete submission](<https://linear.app/vaper/issue/GRS-29/notify-operators-and-download-a-complete-submission>). The alpha handoff is the validated results package plus editable private preview. Standalone Markdown round-trip authoring is after alpha and is not a prerequisite.\n\n## Write scope\n\n* `src/routes/admin/results/**`\n* `src/lib/results-review/**`\n* `tests/results-review/**`\n\n## Acceptance\n\n- [ ] Import the versioned package, record provenance and show record counts, unmatched assets and validation errors. Resolve or explicitly waive reviewed nonblocking source defects.\n- [ ] Reuse the local package validator and viewer. Keep draft and published objects separate and prevent direct client access to draft data or assets.\n- [ ] Preserve the current publication and user work on malformed uploads, mismatched input revisions and interrupted imports.\n- [ ] Record an internal review checklist and reviewer identity; candidate changes invalidate any earlier approval.\n\n## Verification\n\nReport PASS, HOLD or FAIL at the exact reviewed revision. Include commands, exit codes and artifact paths. A skipped check is not a pass. Read the local delivery plan and orchestration protocol before dispatch.\n\nUse an independent reviewer for a gate. For discovery or design, verify the cited source or probe and record unresolved choices. Later-phase implementation requires a concrete test recipe before dispatch.\n\nMetric: Candidate import and preview navigation latency. Budget: Use hosted budgets from CC-15; include complete large-package validation without blocking UI indefinitely.\n\n## Boundaries\n\nKeep RAWS and current production read-only. Do not commit case documents, extracted text or secrets. No Cursor agents; every Opus agent uses high effort. Only the coordinator updates Linear. No deployment, production publication or external messages under this issue without the appropriate execution authority.\n\n## Handoff\n\nReturn the branch/worktree, base and head revision, changed paths, accepted criteria, failed or skipped checks, evidence paths and proposed follow-ups. Do not mark the issue Done yourself.\n\nRequired-section publication boundary: retain unsupported/unrecognized source sections privately with repair diagnostics, but do not permit publication until every required section validates and displays correctly. Opaque storage or warnings do not substitute for required presentation. Preserve the previous published version during repair. No real-client migration is a launch prerequisite; end-to-end preservation tests use controlled cases and user work.\n\n[Edit and revalidate private results before exact-version approval](<https://linear.app/vaper/issue/GRS-130/edit-and-revalidate-private-results-before-exact-version-approval>) owns the subsequent editable-candidate layer after import acceptance. Reserve old local /import and /api/import-progress routes plus service.server.ts import facets for a serialized handoff: hosted clients cannot reach filesystem pickers or private results import. Use the ONE new results-import contract for both manual uploads now and later automation; it is distinct from client intake and does not certify the inaccessible legacy endpoint.\n\n## Final workflow alignment — 17 October 2026\n\nAccepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.\n\n- [ ] The protected PDF/image viewer core is the direct viewer prerequisite for the early complete workflow. Office/email/media/archive implementation does not block accepting this import contract for a PDF-only case. Keep every other prerequisite and all candidate validation/isolation rules; require every actual candidate file/required section to be ready before publication.\n- [ ] The first complete hosted PDF workflow consumes this accepted import contract before broad workspace migration. It is an early scoped proof, not the final accepted-format or 42-view certification.",
+      "linearDescription": "Planning key `CC-18`. Phase V2. Milestone `M5`. Type delivery.\n\n## Outcome\n\nAn admin uploads results for an exact input revision and reviews a validated private candidate through the client viewer.\n\n## Dependencies\n\n<issue id=\"00e869ac-8e6b-4b5c-b961-caec74950e96\" href=\"https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view\">GRS-137</issue>, the first complete workflow, which lands the minimal private import on these paths. Since the 17 October restructure this owner no longer waits for operator download (<issue id=\"e0957bbc-d8e6-4215-8073-65795f406468\" href=\"https://linear.app/vaper/issue/GRS-29/notify-operators-and-download-a-complete-submission\">GRS-29</issue>) or the viewer shell (<issue id=\"96a2872f-99a5-4f0d-b37f-454c41e9dc76\" href=\"https://linear.app/vaper/issue/GRS-120/implement-the-protected-in-app-viewer-shell-and-pdfimage-readers\">GRS-120</issue>); it thickens validation, diagnostics and review state from <issue id=\"00e869ac-8e6b-4b5c-b961-caec74950e96\" href=\"https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view\">GRS-137</issue>'s accepted head. The alpha handoff is the validated results package plus editable private preview. Standalone Markdown round-trip authoring is after alpha and is not a prerequisite.\n\n## Write scope\n\n* `src/routes/admin/results/**`\n* `src/lib/results-review/**`\n* `tests/results-review/**`\n\n## Acceptance\n\n- [ ] Import the versioned package, record provenance and show record counts, unmatched assets and validation errors. Resolve or explicitly waive reviewed nonblocking source defects.\n- [ ] Reuse the local package validator and viewer. Keep draft and published objects separate and prevent direct client access to draft data or assets.\n- [ ] Preserve the current publication and user work on malformed uploads, mismatched input revisions and interrupted imports.\n- [ ] Record an internal review checklist and reviewer identity; candidate changes invalidate any earlier approval.\n\n## Verification\n\nReport PASS, HOLD or FAIL at the exact reviewed revision. Include commands, exit codes and artifact paths. A skipped check is not a pass. Read the local delivery plan and orchestration protocol before dispatch.\n\nUse an independent reviewer for a gate. For discovery or design, verify the cited source or probe and record unresolved choices. Later-phase implementation requires a concrete test recipe before dispatch.\n\nMetric: Candidate import and preview navigation latency. Budget: Use hosted budgets from CC-15; include complete large-package validation without blocking UI indefinitely.\n\n## Boundaries\n\nKeep RAWS and current production read-only. Do not commit case documents, extracted text or secrets. No Cursor agents; every Opus agent uses high effort. Only the coordinator updates Linear. No deployment, production publication or external messages under this issue without the appropriate execution authority.\n\n## Handoff\n\nReturn the branch/worktree, base and head revision, changed paths, accepted criteria, failed or skipped checks, evidence paths and proposed follow-ups. Do not mark the issue Done yourself.\n\nRequired-section publication boundary: retain unsupported/unrecognized source sections privately with repair diagnostics, but do not permit publication until every required section validates and displays correctly. Opaque storage or warnings do not substitute for required presentation. Preserve the previous published version during repair. No real-client migration is a launch prerequisite; end-to-end preservation tests use controlled cases and user work.\n\n[Edit and revalidate private results before exact-version approval](<https://linear.app/vaper/issue/GRS-130/edit-and-revalidate-private-results-before-exact-version-approval>) owns the subsequent editable-candidate layer after import acceptance. Reserve old local /import and /api/import-progress routes plus service.server.ts import facets for a serialized handoff: hosted clients cannot reach filesystem pickers or private results import. Use the ONE new results-import contract for both manual uploads now and later automation; it is distinct from client intake and does not certify the inaccessible legacy endpoint.\n\n## Final workflow alignment — 17 October 2026\n\nAccepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.\n\n- [ ] The protected PDF/image viewer core is the direct viewer prerequisite for the early complete workflow. Office/email/media/archive implementation does not block accepting this import contract for a PDF-only case. Keep every other prerequisite and all candidate validation/isolation rules; require every actual candidate file/required section to be ready before publication.\n- [ ] The first complete hosted PDF workflow consumes this accepted import contract before broad workspace migration. It is an early scoped proof, not the final accepted-format or 42-view certification.",
       "nativeBlockedBy": [
-        "GRS-120",
         "GRS-69",
-        "GRS-29"
+        "GRS-137"
       ],
       "externalPrerequisites": [],
       "status": "Backlog"
@@ -1078,7 +1074,8 @@
         "HA-views-system",
         "HA-viewer-media-archive",
         "HA-grs-69",
-        "CC-19"
+        "CC-19",
+        "CC-16"
       ],
       "outcome": "A reviewer can prove the complete client/operator workflow in staging and assess a concrete release candidate.",
       "scope": [
@@ -1122,7 +1119,8 @@
         "GRS-134",
         "GRS-123",
         "GRS-69",
-        "GRS-31"
+        "GRS-31",
+        "GRS-28"
       ],
       "externalPrerequisites": [],
       "status": "Backlog"
@@ -1409,7 +1407,8 @@
         "HA-identity",
         "HA-framework",
         "HA-grs-69",
-        "CC-26"
+        "CC-26",
+        "HA-hosted-gate"
       ],
       "outcome": "Accept the integrated hosted foundation before client intake: framework/entry points, identity, per-client/case provisioning, protected storage, scoped audit, durable user work and recovery/export primitives.",
       "scope": [
@@ -1454,7 +1453,8 @@
         "GRS-113",
         "GRS-112",
         "GRS-69",
-        "GRS-27"
+        "GRS-27",
+        "GRS-138"
       ],
       "externalPrerequisites": [],
       "status": "Backlog"
@@ -1560,7 +1560,8 @@
       "milestone": "M4",
       "title": "Align agent tooling with the canonical pstack plugin and delivery controls",
       "depends": [
-        "HA-grs-69"
+        "HA-grs-69",
+        "HA-dev-gate-20261017"
       ],
       "outcome": "A fresh shell/worktree discovers the installed canonical plugin, validates the agreed model sheet, and produces trustworthy check/cost receipts before hosted workers start.",
       "scope": [
@@ -1588,9 +1589,10 @@
         "identifier": "GRS-104",
         "url": "https://linear.app/vaper/issue/GRS-104/align-agent-tooling-with-the-canonical-pstack-plugin-and-delivery"
       },
-      "linearDescription": "Planning key `HA-tooling`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.\n\n## Outcome\n\nA fresh shell/worktree discovers the installed canonical plugin, validates the agreed model sheet, and produces trustworthy check/cost receipts before hosted workers start.\n\n## Reserved write scope\n\n* scripts/agent-tools/\\*\\*\n* tests/agent-tools/\\*\\*\n* docs/agent-tooling.md\n* proposed workspace instruction changes as a reviewable patch; active machine-wide model settings only through the later approved setup-pstack run\n\nThese are initial reservations. Pin exact files and accepted upstream SHA in the coordinator brief. Shared config, lockfiles, hooks and schema changes have one writer; request a handoff rather than widening scope.\n\n## Acceptance\n\n- [ ] Fix the known legacy skills-directory lookup without reinstalling upstream pstack, suppressing required failures or reopening the historically completed setup issue.\n- [ ] Preserve bootstrap/doctor/verify/receipt entry points and exact revision/fingerprint binding; prove missing plugin/model, failed command and stale evidence fail clearly.\n- [ ] Reconcile hosted Bun/build versus workerd runtime guidance, explicit rare Fable/Astra escalation and bounded swarm permissions; preserve external reviewer approval, serial merge rules and main protection.\n- [ ] Encode the accepted escalation workflow: linked Linear issue before dispatch, bounded single-model attempt, task ID and findings/outcome/checks afterward. Do not launch an escalation as a tooling test.\n- [ ] Expose actual spend where available and clearly distinguish unavailable cost, target and enforceable cap. Never claim the T3 API has a hard spend cap. Retain one-page briefs, short reports and current browser locking.\n\n## Verification and handoff\n\nRun doctor and positive/negative receipt/plugin-discovery tests in a fresh worktree and shell. Independently review the instruction/config candidate. Pstack's own sheet validator checks a fresh catalog; do not edit global role settings before the user's full-sheet choices.\n\nUse doctor at session start and verify/receipt for checks. Return PASS/HOLD/FAIL at the exact revision, changed paths, commands/exit codes, evidence and unresolved findings. Required skipped or mocked checks do not pass. One fresh independent diff review, one bounded written-finding fix and fresh recheck; only the coordinator changes Linear. No work starts while native blockers remain open.\n\n## Boundaries\n\nPlanning creates this issue; it does not dispatch it. RAWS/current production are read-only. Shared pools/committed fixtures use synthetic data; case material, private screenshots and secrets stay out of Git and external services. No production deployment, real external messages, destructive retention action or main merge under this planning update. Normal Opus/Sonnet roles apply; a rare Fable/Astra escalation requires a separate linked issue before dispatch and results recorded afterward.\n\n## Native prerequisites\n\n* [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)\n\n## Accepted retry, runtime and spend controls\n\nSpend targets are reporting only; overspend is not an automatic pause/cancel/escalation trigger. Writing tasks have an initial 90-minute limit, reviews 30 minutes, and a stall assessment after 30 minutes without meaningful progress. Declare legitimate bounded long tests and per-task deadlines before dispatch; allow a short checkpoint grace, explicitly cancel an overlong/stalled job, retain work/evidence/cancellation outcome and clean up only its own resources. One transient infrastructure retry, one written-review fix round plus fresh recheck, and at most one justified rare escalation; stop the same failure twice without a new diagnosis. Renaming/restarting/redispatching cannot reset the original issue/stage attempt count.\n\nT3 wait timeout is not a child runtime limit. Prove genuine deadline, cancellation and failed-cancellation/checkpoint paths before claiming enforcement. Recording this policy does not install a watchdog.",
+      "linearDescription": "Planning key `HA-tooling`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.\n\n## Outcome\n\nA fresh shell/worktree discovers the installed canonical plugin, validates the agreed model sheet, and produces trustworthy check/cost receipts before hosted workers start.\n\n## Reserved write scope\n\n* scripts/agent-tools/\\*\\*\n* tests/agent-tools/\\*\\*\n* docs/agent-tooling.md\n* proposed workspace instruction changes as a reviewable patch; active machine-wide model settings only through the later approved setup-pstack run\n\nThese are initial reservations. Pin exact files and accepted upstream SHA in the coordinator brief. Shared config, lockfiles, hooks and schema changes have one writer; request a handoff rather than widening scope.\n\n## Acceptance\n\n- [ ] Fix the known legacy skills-directory lookup without reinstalling upstream pstack, suppressing required failures or reopening the historically completed setup issue.\n- [ ] Preserve bootstrap/doctor/verify/receipt entry points and exact revision/fingerprint binding; prove missing plugin/model, failed command and stale evidence fail clearly.\n- [ ] Reconcile hosted Bun/build versus workerd runtime guidance, explicit rare Fable/Astra escalation and bounded swarm permissions; preserve external reviewer approval, serial merge rules and main protection.\n- [ ] Encode the accepted escalation workflow: linked Linear issue before dispatch, bounded single-model attempt, task ID and findings/outcome/checks afterward. Do not launch an escalation as a tooling test.\n- [ ] Expose actual spend where available and clearly distinguish unavailable cost, target and enforceable cap. Never claim the T3 API has a hard spend cap. Retain one-page briefs, short reports and current browser locking.\n- [ ] Added 17 October: a deterministic guard, not a prompt rule, that fails a fix-round diff which deletes, skips, loosens or renames a test the review findings named, or lowers an assertion count in a test file it touches without a recorded reason. It runs in the receipt tooling and in CI. The verifying-agent-code reference under <issue id=\"92cf7851-5bc9-4214-a856-481f3850db98\" href=\"https://linear.app/vaper/issue/GRS-94/define-the-fable-and-swarm-delivery-operating-plan\">GRS-94</issue> asks for exactly this hook.\n- [ ] Added 17 October: a review-verdict record in code. A unit's ledger row is `approved` only when its fresh reviewer's report has no P0 or P1 finding and the deterministic checks passed at the same SHA; the record is machine-checked before a push is approved, not read from a chat summary.\n\n## Verification and handoff\n\nRun doctor and positive/negative receipt/plugin-discovery tests in a fresh worktree and shell. Independently review the instruction/config candidate. Pstack's own sheet validator checks a fresh catalog; do not edit global role settings before the user's full-sheet choices.\n\nUse doctor at session start and verify/receipt for checks. Return PASS/HOLD/FAIL at the exact revision, changed paths, commands/exit codes, evidence and unresolved findings. Required skipped or mocked checks do not pass. One fresh independent diff review, one bounded written-finding fix and fresh recheck; only the coordinator changes Linear. No work starts while native blockers remain open.\n\n## Boundaries\n\nPlanning creates this issue; it does not dispatch it. RAWS/current production are read-only. Shared pools/committed fixtures use synthetic data; case material, private screenshots and secrets stay out of Git and external services. No production deployment, real external messages, destructive retention action or main merge under this planning update. Normal Opus/Sonnet roles apply; a rare Fable/Astra escalation requires a separate linked issue before dispatch and results recorded afterward.\n\n## Native prerequisites\n\n* [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)\n\n## Accepted retry, runtime and spend controls\n\nSpend targets are reporting only; overspend is not an automatic pause/cancel/escalation trigger. Writing tasks have an initial 90-minute limit, reviews 30 minutes, and a stall assessment after 30 minutes without meaningful progress. Declare legitimate bounded long tests and per-task deadlines before dispatch; allow a short checkpoint grace, explicitly cancel an overlong/stalled job, retain work/evidence/cancellation outcome and clean up only its own resources. One transient infrastructure retry, one written-review fix round plus fresh recheck, and at most one justified rare escalation; stop the same failure twice without a new diagnosis. Renaming/restarting/redispatching cannot reset the original issue/stage attempt count.\n\nT3 wait timeout is not a child runtime limit. Prove genuine deadline, cancellation and failed-cancellation/checkpoint paths before claiming enforcement. Recording this policy does not install a watchdog.",
       "nativeBlockedBy": [
-        "GRS-69"
+        "GRS-69",
+        "GRS-141"
       ],
       "externalPrerequisites": [],
       "status": "Backlog"
@@ -1642,7 +1644,6 @@
       "milestone": "M4",
       "title": "Prove SvelteKit 3 and Bun builds on the Cloudflare Workers runtime",
       "depends": [
-        "CC-25",
         "HA-tooling",
         "HA-grs-69"
       ],
@@ -1671,7 +1672,6 @@
       },
       "linearDescription": "Planning key `HA-runtime-proof`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.\n\n## Outcome\n\nA minimal synthetic probe proves the chosen framework/adapter/runtime and names the actual app migration work before product changes.\n\n## Reserved write scope\n\n* tests/hosting-probe/runtime/\\*\\*\n* docs/acceptance/hosting/runtime.md\n\nThese are initial reservations. Pin exact files and accepted upstream SHA in the coordinator brief. Shared config, lockfiles, hooks and schema changes have one writer; request a handoff rather than widening scope.\n\n## Acceptance\n\n- [ ] Pin compatible SvelteKit 3, Svelte, adapter and Bun versions from current primary sources; use supported Node helpers where vendor CLIs/Workers test hosts require them. Bun evidence and workerd evidence remain distinct.\n- [ ] Exercise build, Worker request/render/action and binding access; identify actual filesystem/SQLite/process/browser-local persistence dependencies in the inherited app.\n- [ ] Record upgrade/security/license decisions and unresolved advisories; a version inventory alone is not approval to ship.\n- [ ] Produce an exact migration surface and numeric cold/warm staging budgets with an initial POC workload, approved by the architecture aggregator before the design gate. Probe code is not the production migration.\n\n## Verification and handoff\n\nBuild with Bun and run the artifact under the actual Workers runtime/disposable authorized staging. Exercise representative request/action failures. Pin tool versions, exact source SHA, commands, budgets and receipts; unsupported/mocked paths stay HOLD.\n\nUse doctor at session start and verify/receipt for checks. Return PASS/HOLD/FAIL at the exact revision, changed paths, commands/exit codes, evidence and unresolved findings. Required skipped or mocked checks do not pass. One fresh independent diff review, one bounded written-finding fix and fresh recheck; only the coordinator changes Linear. No work starts while native blockers remain open.\n\n## Boundaries\n\nPlanning creates this issue; it does not dispatch it. RAWS/current production are read-only. Shared pools/committed fixtures use synthetic data; case material, private screenshots and secrets stay out of Git and external services. No production deployment, real external messages, destructive retention action or main merge under this planning update. Normal Opus/Sonnet roles apply; a rare Fable/Astra escalation requires a separate linked issue before dispatch and results recorded afterward.\n\n## Native prerequisites\n\n* [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)\n* [Gate v5, newer and JSON export compatibility](<https://linear.app/vaper/issue/GRS-24/gate-v5-newer-and-json-export-compatibility>)\n* [Align agent tooling with the canonical pstack plugin and delivery controls](<https://linear.app/vaper/issue/GRS-104/align-agent-tooling-with-the-canonical-pstack-plugin-and-delivery>)",
       "nativeBlockedBy": [
-        "GRS-24",
         "GRS-104",
         "GRS-69"
       ],
@@ -1684,7 +1684,6 @@
       "title": "Prove cf and Void deployment, migration and credential boundaries",
       "depends": [
         "HA-tooling",
-        "CC-25",
         "HA-runtime-proof",
         "HA-grs-69"
       ],
@@ -1716,7 +1715,6 @@
       "linearDescription": "Planning key `HA-deploy-proof`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.\n\n## Outcome\n\nThe preferred cf/Void jobs have proven commands and a trusted per-client deployment path; demonstrated gaps have a measured Wrangler fallback.\n\n## Reserved write scope\n\n* tests/hosting-probe/deployment/\\*\\*\n* deploy/probes/\\*\\*\n* docs/acceptance/hosting/deployment.md\n\nThese are initial reservations. Pin exact files and accepted upstream SHA in the coordinator brief. Shared config, lockfiles, hooks and schema changes have one writer; request a handoff rather than widening scope.\n\n## Acceptance\n\n- [ ] Evaluate the published job matrix against fresh versions: dev/build/prebuilt upload, binding selection, migrations, rollback and test-pool fit. Void/cf first where capable; do not adopt their Platform SDK/ORM/auth implicitly.\n- [ ] Keep app builds credential-free. A trusted parent handles reviewed config/prebuilt artifacts with a checked target manifest; prove same-account wrong-client identifiers are rejected.\n- [ ] Prove migration grants/bookmarks, failure behavior and rollback. Explicitly account for Void's config evaluation and automatic D1 migrations; environment scrubbing in child processes alone is insufficient.\n- [ ] Prove no account credentials in shared pools/build artifacts/logs and document actual token breadth. Do not claim unverified resource-scoped tokens exist.\n- [ ] Reserve shared deploy/config writes to one future owner. Record commands and a fallback per unsupported job; catalog/source support alone is not execution evidence.\n\n## Verification and handoff\n\nOn synthetic disposable targets, run successful and intentionally wrong-client/migration-failure paths, inspect the produced artifact and credential boundaries. Credentialed actions use separately authorized execution and secret entry. All unrun legs remain HOLD.\n\nUse doctor at session start and verify/receipt for checks. Return PASS/HOLD/FAIL at the exact revision, changed paths, commands/exit codes, evidence and unresolved findings. Required skipped or mocked checks do not pass. One fresh independent diff review, one bounded written-finding fix and fresh recheck; only the coordinator changes Linear. No work starts while native blockers remain open.\n\n## Boundaries\n\nPlanning creates this issue; it does not dispatch it. RAWS/current production are read-only. Shared pools/committed fixtures use synthetic data; case material, private screenshots and secrets stay out of Git and external services. No production deployment, real external messages, destructive retention action or main merge under this planning update. Normal Opus/Sonnet roles apply; a rare Fable/Astra escalation requires a separate linked issue before dispatch and results recorded afterward.\n\n## Native prerequisites\n\n* [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)\n* [Gate v5, newer and JSON export compatibility](<https://linear.app/vaper/issue/GRS-24/gate-v5-newer-and-json-export-compatibility>)\n* [Align agent tooling with the canonical pstack plugin and delivery controls](<https://linear.app/vaper/issue/GRS-104/align-agent-tooling-with-the-canonical-pstack-plugin-and-delivery>)\n* [Prove SvelteKit 3 and Bun builds on the Cloudflare Workers runtime](<https://linear.app/vaper/issue/GRS-106/prove-sveltekit-3-and-bun-builds-on-the-cloudflare-workers-runtime>)",
       "nativeBlockedBy": [
         "GRS-104",
-        "GRS-24",
         "GRS-106",
         "GRS-69"
       ],
@@ -1730,7 +1728,6 @@
       "depends": [
         "HA-runtime-proof",
         "HA-tooling",
-        "CC-25",
         "HA-grs-69"
       ],
       "outcome": "The design gate receives a working Clerk integration and an explicit role/session/asset authorization contract.",
@@ -1761,7 +1758,6 @@
       "nativeBlockedBy": [
         "GRS-106",
         "GRS-104",
-        "GRS-24",
         "GRS-69"
       ],
       "externalPrerequisites": [],
@@ -1774,7 +1770,6 @@
       "depends": [
         "HA-tooling",
         "HA-runtime-proof",
-        "CC-25",
         "HA-grs-69"
       ],
       "outcome": "Per-client D1/R2 layout, integrity and latency are measured against the POC workload before production storage is implemented.",
@@ -1805,7 +1800,6 @@
       "nativeBlockedBy": [
         "GRS-104",
         "GRS-106",
-        "GRS-24",
         "GRS-69"
       ],
       "externalPrerequisites": [],
@@ -1816,7 +1810,6 @@
       "milestone": "M4",
       "title": "Prove recovery, deletion and retention contracts for hosted alpha",
       "depends": [
-        "CC-25",
         "HA-storage-proof",
         "HA-grs-69"
       ],
@@ -1846,7 +1839,6 @@
       },
       "linearDescription": "Planning key `HA-recovery-proof`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.\n\n## Outcome\n\nA tested recovery design preserves acknowledged originals and ordinary rollback user work while defining deletion/backup behavior.\n\n## Reserved write scope\n\n* tests/hosting-probe/recovery/\\*\\*\n* docs/acceptance/hosting/recovery.md\n\nThese are initial reservations. Pin exact files and accepted upstream SHA in the coordinator brief. Shared config, lockfiles, hooks and schema changes have one writer; request a handoff rather than widening scope.\n\n## Acceptance\n\n- [ ] Prove acknowledged originals recover and disaster recovery loses at most one hour of recent Notes/case edits. Ordinary results rollback loses no user work.\n- [ ] Separate rolling 30-day recovery copies from live case retention and bundle history; no automatic case/client purge.\n- [ ] Model firm-admin deletion request, GA approval and export offer, live access removal, copy rotation within 30 days and deletion records reapplied on restore.\n- [ ] Measure the four staffed-hour recovery aim as a soft initial goal, not a strict provider-outage SLA or invented launch time gate.\n- [ ] Document restore scope, corruption checks and a concrete product/runbook handoff. No current live clients need a migration/cutover project.\n\n## Verification and handoff\n\nExercise synthetic loss/corruption, backup restore, deleted-case restoration and publication rollback; verify exact object identities and user-work timestamps. Record RPO evidence and elapsed recovery observations separately from soft targets.\n\nUse doctor at session start and verify/receipt for checks. Return PASS/HOLD/FAIL at the exact revision, changed paths, commands/exit codes, evidence and unresolved findings. Required skipped or mocked checks do not pass. One fresh independent diff review, one bounded written-finding fix and fresh recheck; only the coordinator changes Linear. No work starts while native blockers remain open.\n\n## Boundaries\n\nPlanning creates this issue; it does not dispatch it. RAWS/current production are read-only. Shared pools/committed fixtures use synthetic data; case material, private screenshots and secrets stay out of Git and external services. No production deployment, real external messages, destructive retention action or main merge under this planning update. Normal Opus/Sonnet roles apply; a rare Fable/Astra escalation requires a separate linked issue before dispatch and results recorded afterward.\n\n## Native prerequisites\n\n* [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)\n* [Gate v5, newer and JSON export compatibility](<https://linear.app/vaper/issue/GRS-24/gate-v5-newer-and-json-export-compatibility>)\n* [Prove D1 and R2 integrity, layout and POC workload performance](<https://linear.app/vaper/issue/GRS-109/prove-d1-and-r2-integrity-layout-and-poc-workload-performance>)",
       "nativeBlockedBy": [
-        "GRS-24",
         "GRS-109",
         "GRS-69"
       ],
@@ -1859,7 +1851,6 @@
       "title": "Prove minimal Cloudflare transactional notifications for alpha",
       "depends": [
         "HA-runtime-proof",
-        "CC-25",
         "HA-tooling",
         "HA-grs-69"
       ],
@@ -1890,7 +1881,6 @@
       "linearDescription": "Planning key `HA-email-proof`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.\n\n## Outcome\n\nThe initial Cloudflare-native provider route has a proven minimal notification, safe configuration and bounded failure behavior.\n\n## Reserved write scope\n\n* tests/hosting-probe/notifications/\\*\\*\n* docs/acceptance/hosting/notifications.md\n\nThese are initial reservations. Pin exact files and accepted upstream SHA in the coordinator brief. Shared config, lockfiles, hooks and schema changes have one writer; request a handoff rather than widening scope.\n\n## Acceptance\n\n- [ ] Start with the accepted Cloudflare Workers Paid route, using current primary documentation and disposable synthetic recipients. Resend remains a later alternative.\n- [ ] Resolve the research's Paid qualifier, selected-route versus core checks, pricing/binding conflicts and actual SPF/DKIM/DMARC DNS evidence before claiming readiness.\n- [ ] Investigate provisional ClearCase branding/per-client sender subdomain/full-message-preview-off defaults in depth; do not treat them as irrevocable product constraints.\n- [ ] Prove minimal publication/input-needed notices to the uploader with authenticated links only, no case text, sensitive identifiers or attachments. Differentiate provider acceptance, delivery and inbox arrival.\n- [ ] Prove bounded retry/operator visibility and possible ambiguous duplicates. Email failure leaves publication/files/in-app state intact. Advanced reliability/alert tuning stays later; do not introduce CF Queues automatically.\n\n## Verification and handoff\n\nRun required core and selected-route research proof legs with genuine authorized provider/DNS dependencies; dev tests use a sink. Report exact SHA, delivery evidence and residual unknowns. No live client email or paid account change is authorized merely by creating this issue.\n\nUse doctor at session start and verify/receipt for checks. Return PASS/HOLD/FAIL at the exact revision, changed paths, commands/exit codes, evidence and unresolved findings. Required skipped or mocked checks do not pass. One fresh independent diff review, one bounded written-finding fix and fresh recheck; only the coordinator changes Linear. No work starts while native blockers remain open.\n\n## Boundaries\n\nPlanning creates this issue; it does not dispatch it. RAWS/current production are read-only. Shared pools/committed fixtures use synthetic data; case material, private screenshots and secrets stay out of Git and external services. No production deployment, real external messages, destructive retention action or main merge under this planning update. Normal Opus/Sonnet roles apply; a rare Fable/Astra escalation requires a separate linked issue before dispatch and results recorded afterward.\n\n## Native prerequisites\n\n* [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)\n* [Gate v5, newer and JSON export compatibility](<https://linear.app/vaper/issue/GRS-24/gate-v5-newer-and-json-export-compatibility>)\n* [Align agent tooling with the canonical pstack plugin and delivery controls](<https://linear.app/vaper/issue/GRS-104/align-agent-tooling-with-the-canonical-pstack-plugin-and-delivery>)\n* [Prove SvelteKit 3 and Bun builds on the Cloudflare Workers runtime](<https://linear.app/vaper/issue/GRS-106/prove-sveltekit-3-and-bun-builds-on-the-cloudflare-workers-runtime>)",
       "nativeBlockedBy": [
         "GRS-106",
-        "GRS-24",
         "GRS-104",
         "GRS-69"
       ],
@@ -1904,7 +1894,8 @@
       "depends": [
         "HA-tooling",
         "CC-26",
-        "HA-grs-69"
+        "HA-grs-69",
+        "HA-ci-verdict"
       ],
       "outcome": "The app builds with Bun on the accepted SvelteKit/Cloudflare stack and shared server entry points run on workerd.",
       "scope": [
@@ -1956,7 +1947,8 @@
       "nativeBlockedBy": [
         "GRS-104",
         "GRS-27",
-        "GRS-69"
+        "GRS-69",
+        "GRS-139"
       ],
       "externalPrerequisites": [],
       "status": "Backlog"
@@ -1968,7 +1960,8 @@
       "depends": [
         "CC-26",
         "HA-framework",
-        "HA-grs-69"
+        "HA-grs-69",
+        "HA-hosted-gate"
       ],
       "outcome": "Invited client/staff users sign in through their correct identity application with revocable sessions and server-enforced role checks.",
       "scope": [
@@ -2003,7 +1996,8 @@
       "nativeBlockedBy": [
         "GRS-27",
         "GRS-112",
-        "GRS-69"
+        "GRS-69",
+        "GRS-138"
       ],
       "externalPrerequisites": [],
       "status": "Backlog"
@@ -2065,8 +2059,9 @@
       "title": "Implement hosted D1 results storage and protected R2 assets",
       "depends": [
         "CC-26",
-        "HA-provision",
-        "HA-grs-69"
+        "HA-grs-69",
+        "HA-hosted-gate",
+        "HA-framework"
       ],
       "outcome": "The hosted app reads validated immutable results and serves authorized original/preview bytes through per-client storage.",
       "scope": [
@@ -2104,8 +2099,9 @@
       "linearDescription": "Planning key `HA-storage`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.\n\n## Outcome\n\nThe hosted app reads validated immutable results and serves authorized original/preview bytes through per-client storage.\n\n## Reserved write scope\n\n* src/lib/storage/cloud/\\*\\*\n* src/lib/results/hosted/\\*\\*\n* src/routes/api/cases/\\[caseId\\]/assets/\\*\\*\n* tests/hosted-foundation/storage/\\*\\*\n* docs/hosted-foundation/storage.md\n* shared local-case read-contract files only by explicit serialized handoff\n* src/lib/local-case/{app,db,store,results,documents,project,model,config,originals}.server.ts (explicit serial core migration)\n* src/routes/api/state/\\*\\*\n* src/routes/api/health/\\*\\*\n* src/routes/v/\\[vid\\]/+layout.server.ts (serial handoff after framework owner)\n\nThese are initial reservations. Pin exact files and accepted upstream SHA in the coordinator brief. Shared config, lockfiles, hooks and schema changes have one writer; request a handoff rather than widening scope.\n\n## Acceptance\n\n- [ ] Implement the proven physical layout and async storage/read contract; preserve canonical package validation/projection and immutable case/input/results identities.\n- [ ] Separate originals, private candidates, published previews and user-work records. Deny wrong-client/case/version and private-candidate asset access.\n- [ ] Preserve original bytes and verify-on-load/fail-closed behavior, including the accepted range-delivery proof. Active original content cannot execute with app privileges.\n- [ ] Make acknowledged upload/finalization and imported asset references durable with explicit failure/retry behavior; no local filesystem/SQLite dependency in hosted requests.\n- [ ] Hand storage adapter ownership to intake only after acceptance; serialize later shared adapter writes through the coordinator. Product import/publish state transitions remain their own owners.\n\n## Verification and handoff\n\nRun real D1/R2/Workers storage and original-byte/range tests on synthetic files, including corruption, missing objects, reused identifiers and crossed client namespaces. Meet approved measured budgets and record exact SHA.\n\nUse doctor at session start and verify/receipt for checks. Return PASS/HOLD/FAIL at the exact revision, changed paths, commands/exit codes, evidence and unresolved findings. Required skipped or mocked checks do not pass. One fresh independent diff review, one bounded written-finding fix and fresh recheck; only the coordinator changes Linear. No work starts while native blockers remain open.\n\n## Boundaries\n\nPlanning creates this issue; it does not dispatch it. RAWS/current production are read-only. Shared pools/committed fixtures use synthetic data; case material, private screenshots and secrets stay out of Git and external services. No production deployment, real external messages, destructive retention action or main merge under this planning update. Normal Opus/Sonnet roles apply; a rare Fable/Astra escalation requires a separate linked issue before dispatch and results recorded afterward.\n\n## Native prerequisites\n\n* [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)\n* [Gate the hosted design before client intake implementation](<https://linear.app/vaper/issue/GRS-27/gate-the-hosted-design-before-client-intake-implementation>)\n* [Provision isolated client instances, cases and explicit grants](<https://linear.app/vaper/issue/GRS-114/provision-isolated-client-instances-cases-and-explicit-grants>)\n\n## Final workflow alignment — 17 October 2026\n\nAccepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.\n\n- [ ] Serve acknowledged client-supplied originals through authorized case identity while processing is pending or no results are published. Distinguish those originals from private candidate-derived assets: permission to see a submitted original never grants access to private candidate results/previews or withdrawn results. Preserve hash/integrity/range and revocation checks.",
       "nativeBlockedBy": [
         "GRS-27",
-        "GRS-114",
-        "GRS-69"
+        "GRS-69",
+        "GRS-138",
+        "GRS-112"
       ],
       "externalPrerequisites": [],
       "status": "Backlog"
@@ -2117,7 +2113,8 @@
       "depends": [
         "HA-storage",
         "CC-26",
-        "HA-grs-69"
+        "HA-grs-69",
+        "HA-identity"
       ],
       "outcome": "Hosted actions write durable audit events and each user sees only the administrative, case or internal activity their grants permit.",
       "scope": [
@@ -2150,7 +2147,8 @@
       "nativeBlockedBy": [
         "GRS-115",
         "GRS-27",
-        "GRS-69"
+        "GRS-69",
+        "GRS-113"
       ],
       "externalPrerequisites": [],
       "status": "Backlog"
@@ -2160,9 +2158,9 @@
       "milestone": "M5",
       "title": "Persist hosted case user work with stable identities and conflict handling",
       "depends": [
-        "HA-audit",
         "CC-26",
-        "HA-grs-69"
+        "HA-grs-69",
+        "HA-storage"
       ],
       "outcome": "Notes/register/case edits persist separately from results without lost concurrent writes or reassignment across results versions.",
       "scope": [
@@ -2195,9 +2193,9 @@
       },
       "linearDescription": "Planning key `HA-user-work`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.\n\n## Outcome\n\nNotes/register/case edits persist separately from results without lost concurrent writes or reassignment across results versions.\n\n## Reserved write scope\n\n* src/lib/user-work/hosted/\\*\\*\n* src/lib/local-case/user-work.server.ts\n* src/lib/local-case/registers.server.ts\n* src/lib/local-case/answer.server.ts\n* tests/hosted-foundation/user-work/\\*\\*\n* docs/hosted-foundation/user-work.md\n\nThese are initial reservations. Pin exact files and accepted upstream SHA in the coordinator brief. Shared config, lockfiles, hooks and schema changes have one writer; request a handoff rather than widening scope.\n\n## Acceptance\n\n- [ ] Implement the accepted async durable contract for all existing user-work categories and case scoping, with explicit schema upgrades and expected-version/concurrency behavior.\n- [ ] Reject stale writes and preserve clear failed-save guidance; no browser-local or process-local lock stands in for cross-request durability.\n- [ ] Keep stable document identity distinct from reused legacy refs. Changed/removed/ambiguous targets remain explicitly unresolved across replacement publication and rollback.\n- [ ] Retain the existing records during controlled import/update; no live-client migration project is required. Contextual Notes UI/consolidation belongs to its separate owner.\n- [ ] Provide backup/export/restore primitives to the recovery owner and audit mutations through the accepted event API. Feature caller migration owners consume this contract without editing its implementation.\n\n## Verification and handoff\n\nExercise simultaneous edits, process restart, schema upgrade, reused refs, removed/changed originals and rollback on synthetic cases. Check every named user-work category for preservation at the exact integrated revision.\n\nUse doctor at session start and verify/receipt for checks. Return PASS/HOLD/FAIL at the exact revision, changed paths, commands/exit codes, evidence and unresolved findings. Required skipped or mocked checks do not pass. One fresh independent diff review, one bounded written-finding fix and fresh recheck; only the coordinator changes Linear. No work starts while native blockers remain open.\n\n## Boundaries\n\nPlanning creates this issue; it does not dispatch it. RAWS/current production are read-only. Shared pools/committed fixtures use synthetic data; case material, private screenshots and secrets stay out of Git and external services. No production deployment, real external messages, destructive retention action or main merge under this planning update. Normal Opus/Sonnet roles apply; a rare Fable/Astra escalation requires a separate linked issue before dispatch and results recorded afterward.\n\n## Native prerequisites\n\n* [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)\n* [Gate the hosted design before client intake implementation](<https://linear.app/vaper/issue/GRS-27/gate-the-hosted-design-before-client-intake-implementation>)\n* [Implement permission-scoped audit events and audit views](<https://linear.app/vaper/issue/GRS-116/implement-permission-scoped-audit-events-and-audit-views>)\n\n## Final workflow alignment — 17 October 2026\n\nAccepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.\n\n- [ ] Persist and authorize case-level Notes, time/cost entries and other independent user work without requiring a published resultsVersion. Withdrawal of results preserves both their data and authorized case-level accessibility. Result-dependent anchors may show unavailable context without deleting or hiding the user work; existing conflict/audit/revocation rules still apply.",
       "nativeBlockedBy": [
-        "GRS-116",
         "GRS-27",
-        "GRS-69"
+        "GRS-69",
+        "GRS-115"
       ],
       "externalPrerequisites": [],
       "status": "Backlog"
@@ -2209,7 +2207,8 @@
       "depends": [
         "CC-26",
         "HA-user-work",
-        "HA-grs-69"
+        "HA-grs-69",
+        "HA-storage"
       ],
       "outcome": "Authorized users can export complete case assets and operators can restore protected user work while honoring approved deletions.",
       "scope": [
@@ -2247,7 +2246,8 @@
       "nativeBlockedBy": [
         "GRS-27",
         "GRS-117",
-        "GRS-69"
+        "GRS-69",
+        "GRS-115"
       ],
       "externalPrerequisites": [],
       "status": "Backlog"
@@ -2309,7 +2309,8 @@
       "depends": [
         "CC-28",
         "HA-grs-97",
-        "HA-grs-69"
+        "HA-grs-69",
+        "HA-hosted-gate"
       ],
       "outcome": "A case user opens a protected original or faithful processed rendition inside the app with reliable citations and usable desktop/mobile controls.",
       "scope": [
@@ -2347,7 +2348,8 @@
       "nativeBlockedBy": [
         "GRS-36",
         "GRS-97",
-        "GRS-69"
+        "GRS-69",
+        "GRS-138"
       ],
       "externalPrerequisites": [],
       "status": "Backlog"
@@ -3009,7 +3011,7 @@
       "title": "Implement the internal FIFO processing queue and audited operator claims",
       "depends": [
         "HA-grs-69",
-        "CC-16"
+        "HA-first-workflow"
       ],
       "outcome": "Authorized operators can see, claim and track a mostly FIFO metadata queue without sharing client case storage.",
       "scope": [
@@ -3041,7 +3043,7 @@
       "linearDescription": "Planning key `HA-operator-queue`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.\n\n## Outcome\n\nAuthorized operators can see, claim and track a mostly FIFO metadata queue without sharing client case storage.\n\n## Reserved write scope\n\n* src/lib/processing-queue/\\*\\*\n* src/routes/admin/queue/\\*\\*\n* tests/operator-queue/\\*\\*\n\nThese are initial reservations. Pin exact files and accepted upstream SHA in the coordinator brief. Shared config, lockfiles, hooks and schema changes have one writer; request a handoff rather than widening scope.\n\n## Acceptance\n\n- [ ] Keep shared queue entries to necessary metadata and explicitly granted links; clients retain separate files/results/user work. GA/operator content access remains assigned and audited.\n- [ ] Implement claim/release, status, reasons and concurrent-claim protection; make the queue visible in an internal dashboard and avoid duplicate jobs on retried finalization.\n- [ ] Missing passwords/files put work into input-needed. When the client supplies the missing input, rejoin the back with a new readyAt while preserving submittedAt; operator/service mistakes keep their priority.\n- [ ] Expose client-safe submitted/input-needed/published events/status to the notification owner without leaking internal details.\n- [ ] Treat 24–36 hours as the initial service goal, with fair measurement/SLA refinement later. Do not hardcode an unapproved SLA, automated processing or automatic priority penalties.\n\n## Verification and handoff\n\nDrive two synthetic clients, concurrent operator claims, retries, missing passwords, corrected input and service mistakes. Verify FIFO ordering/timestamps, case grants, audit and no duplicate job while real files stay in their own client stores.\n\nUse doctor at session start and verify/receipt for checks. Return PASS/HOLD/FAIL at the exact revision, changed paths, commands/exit codes, evidence and unresolved findings. Required skipped or mocked checks do not pass. One fresh independent diff review, one bounded written-finding fix and fresh recheck; only the coordinator changes Linear. No work starts while native blockers remain open.\n\n## Boundaries\n\nPlanning creates this issue; it does not dispatch it. RAWS/current production are read-only. Shared pools/committed fixtures use synthetic data; case material, private screenshots and secrets stay out of Git and external services. No production deployment, real external messages, destructive retention action or main merge under this planning update. Normal Opus/Sonnet roles apply; a rare Fable/Astra escalation requires a separate linked issue before dispatch and results recorded afterward.\n\n## Final workflow alignment — 17 October 2026\n\nAccepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.\n\n- [ ] Distinguish the fixed original submission from the processing job tracking it. Requested passwords/missing files are linked supplementary input to that same job; retain submitted time/history, record a new eligible ready time and rejoin the back. Service-team mistakes keep the accepted priority rule.\n- [ ] Ordinary new/additional/replacement batches form new submissions. Never silently merge queued jobs or mutate the finalized submission. The claim/download/attempt manifest must pin the exact original and supplementary input used. Cancellation rights and automatic job-combining are not introduced by this decision.",
       "nativeBlockedBy": [
         "GRS-69",
-        "GRS-28"
+        "GRS-137"
       ],
       "externalPrerequisites": [],
       "status": "Backlog"
@@ -3050,9 +3052,7 @@
       "key": "HA-grs-69",
       "milestone": "M4",
       "title": "Chart the route from the ClearCase POC to hosted alpha",
-      "depends": [
-        "HA-grs-136"
-      ],
+      "depends": [],
       "outcome": "See the synchronized Linear description.",
       "scope": [],
       "acceptance": [],
@@ -3060,8 +3060,7 @@
       "kind": "gate",
       "role": "map",
       "children": [
-        "HA-grs-94",
-        "HA-grs-136"
+        "HA-grs-94"
       ],
       "phase": "V2",
       "linear": {
@@ -3069,11 +3068,13 @@
         "identifier": "GRS-69",
         "url": "https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha"
       },
-      "linearDescription": "## Destination\n\nA user-approved, agent-navigable plan for ClearCase 0.1 alpha: convert the client-alignment POC into an intuitive hosted case application, initially for one or two clients with a separate instance and subdomain each. Align scope, stack, UX, ADRs, Linear milestones, delivery dependencies and acceptance gates before implementation starts.\n\n## Notes\n\nThis is the canonical planning map and retains the existing realignment gate. No V2 implementation begins until this issue is Done. Done requires the user's approval of the written scope, architecture, milestones and ordered implementation tickets, with blocked issues reconciled.\n\nUse grill-with-docs, grilling and domain-modeling for decision sessions; wayfinder for map maintenance. Resolve at most one decision ticket per session. Claim a child by assigning it to the person driving the decision before work. Query open, unassigned children whose native blockers are closed for the frontier. Use only wayfinder labels on map and decision children. Record answers in resolution comments and index closed children here. Keep implementation tickets separate.\n\nUser direction is recorded in this issue's interview comments, dated 14 October. Retain production capabilities, conduct a software and dependency audit, improve information grouping and in-app viewing, and implement manual queue/download/processing/upload/private-preview/approval/publication first. Checks and review throughout, plus final gates. Fable and swarm are requested for later execution; reconcile the older operating rules before dispatch.\n\nOriginal case archives and production are read-only. Real case data, extracted text, private screenshots and credentials stay out of Git and external agent/test services. No production changes, deployment or main merge is authorized by this planning map.\n\nExisting POC acceptance and unfinished demo/compatibility work are inputs, not assumed hosted acceptance. Older Cloudflare, local-product and automation assumptions are subject to decisions here.\n\n## Decisions so far\n\n* [Define client instances, membership and case permissions](<https://linear.app/vaper/issue/GRS-85/define-client-instances-membership-and-case-permissions>): isolated client instances, Clerk authentication, assigned viewer/editor case access, and distinct Global Admin, firm-admin and audited operator authority. The resolution comment holds the full decision.\n* [Define the manual processing queue and results handoff](<https://linear.app/vaper/issue/GRS-87/define-the-manual-processing-queue-and-results-handoff>): mostly FIFO claimed jobs, corrected submissions rejoin last, and one candidate-import contract for manual processing and later automation. SLA measurement is deferred to release evidence.\n* [Assess D1 and R2 performance and overhead for the alpha workload](<https://linear.app/vaper/issue/GRS-95/assess-d1-and-r2-performance-and-overhead-for-the-alpha-workload>): D1/R2 remains a reasonable candidate; local CPU evidence does not prove hosted performance. The ticket links the corrected research and required hosted probes.\n* [Define private preview, approval and client publication](<https://linear.app/vaper/issue/GRS-88/define-private-preview-approval-and-client-publication>): editable, audited candidates require exact-version sign-off; alpha permits preparer approval, recovery preserves user work, and later processing flags correction conflicts. Review topology awaits the design gate.\n* [Define an intuitive case workspace and information hierarchy](<https://linear.app/vaper/issue/GRS-89/define-an-intuitive-case-workspace-and-information-hierarchy>): retain the current app navigation as the planning baseline; the user and UX lead will explore later designs in Figma. The prototypes remain research, and the resolution retains the settled Notes and mobile requirements.\n* [Assess browser viewers and manual previews for alpha file types](<https://linear.app/vaper/issue/GRS-96/assess-browser-viewers-and-manual-previews-for-alpha-file-types>): manual derived previews make the minimum families and conditional media/ZIP browsing feasible in principle; rendition fidelity and fail-closed range integrity still require proof. The ticket links the corrected research.\n* [Define in-app file viewing and original integrity](<https://linear.app/vaper/issue/GRS-90/define-in-app-file-viewing-and-original-integrity>): every accepted file is viewable in-app, original/processed references remain traceable, failed previews hold publication, and complete exports include originals and published previews. A dedicated component evaluation and integrated viewer gate are planned.\n* [Assess Outlook drafts and user-controlled case-email import](<https://linear.app/vaper/issue/GRS-98/assess-outlook-drafts-and-user-controlled-case-email-import>): Graph drafts and selected-message import are feasible candidates with mailbox-wide consent and durable-copy constraints; the research informs the later live-integration pass, with synthetic proofs still unrun.\n* [Define alpha behavior for every production integration](<https://linear.app/vaper/issue/GRS-91/define-alpha-behavior-for-every-production-integration>): provider-neutral email files and app-side drafts in alpha, manual KYC and existing case costs, scoped audit access, explicit privilege handling and protected bundle history. Live mailbox connections are later; the ticket resolution holds the full decision.\n* [Reconcile POC, demo and newer-export work with the hosted plan](<https://linear.app/vaper/issue/GRS-92/reconcile-poc-demo-and-newer-export-work-with-the-hosted-plan>): preserve reviewed work and v5 contracts, support newer/JSON exports, hold unsupported required sections, and use controlled E2E preservation tests; no live-client migration is needed. Standalone Markdown authoring is later.\n* [Audit hosted software choices and Clerk–Workers integration](<https://linear.app/vaper/issue/GRS-100/audit-hosted-software-choices-and-clerk-workers-integration>): dated dependency/advisory inventory, Clerk integration and residency constraints, local Workers testing and Void comparison are published. Adoption and all runtime proofs remain with the stack decision.\n* [Assess a local agent test platform on PC1 and PC2](<https://linear.app/vaper/issue/GRS-101/assess-a-local-agent-test-platform-on-pc1-and-pc2>): local Workers tooling and both PCs’ read-only capacity are assessed; PC2 is the recommended first pool candidate, while the delivery decision holds roles, isolation proofs and measured concurrency. No platform is installed.\n* [Assess cf and Void for the alpha agent tooling jobs](<https://linear.app/vaper/issue/GRS-102/assess-cf-and-void-for-the-alpha-agent-tooling-jobs>): released source supports a Void/Kit 3 prebuilt route and cf resource/automation jobs; native D1, credential separation and same-account client boundaries have explicit unrun proofs. Research is published, without tool adoption or cloud execution.\n* [Choose the hosted stack and software audit criteria](<https://linear.app/vaper/issue/GRS-86/choose-the-hosted-stack-and-software-audit-criteria>): SvelteKit 3/Workers with Bun app builds and supported Node tooling; D1/R2, separate client/staff Clerk apps and invite-only access; MFA initially off. Void/cf are preferred proof candidates with Wrangler fallback. The resolution holds the accepted constraints and required proofs.\n* [Research Cloudflare-first transactional alpha notifications](<https://linear.app/vaper/issue/GRS-103/research-cloudflare-first-transactional-alpha-notifications>): native email is a feasible candidate with separate free/Paid recipient paths, delivery/retry constraints and unrun proofs. Research is published; provider and notification-failure choices remain with acceptance planning.\n* [Define alpha acceptance, rollout and recovery](<https://linear.app/vaper/issue/GRS-93/define-alpha-acceptance-rollout-and-recovery>): accepted outcome/evidence checklist, practical rollout guidance, soft recovery timing, data-recovery/deletion policy, initial notifications and user-owned release/incident/spend decisions. Later SLA/reliability refinement stays explicit; hosted proofs remain unrun.\n\n## Not yet specified\n\nNo additional unticketed planning questions are currently identified. Surface any further questions as the remaining delivery operating plan is worked.\n\n## Out of scope\n\nExecuting the hosted build in this charting session; maintaining a separately shipped local product as an alpha requirement. Automated processing is later work, after the manual workflow is proven. Main merges and deployment remain under the user's control.\n\n[Plan live Outlook and Gmail integrations after alpha](<https://linear.app/vaper/issue/GRS-99/plan-live-outlook-and-gmail-integrations-after-alpha>) preserves the explicitly deferred live mailbox connections, provider-side draft creation and syncing. Alpha handles exported provider-neutral email files; this later work does not block alpha.\n\n[Round-trip one manually authored analysis through Markdown](<https://linear.app/vaper/issue/GRS-23/round-trip-one-manually-authored-analysis-through-markdown>) is preserved in M7 after alpha. Validated package upload and editable private preview cover alpha; Markdown no longer blocks hosted delivery. There are no current live clients requiring production migration or cutover; controlled preservation/recovery E2E remains in scope.",
+      "linearDescription": "## Destination\n\nA user-approved, agent-navigable plan for ClearCase 0.1 alpha: convert the client-alignment POC into an intuitive hosted case application, initially for one or two clients with a separate instance and subdomain each. Align scope, stack, UX, ADRs, Linear milestones, delivery dependencies and acceptance gates before implementation starts.\n\n## Notes\n\nThis is the canonical planning map and retains the existing realignment gate. No V2 implementation begins until this issue is Done. Done requires the user's approval of the written scope, architecture, milestones and ordered implementation tickets, with blocked issues reconciled.\n\nUse grill-with-docs, grilling and domain-modeling for decision sessions; wayfinder for map maintenance. Resolve at most one decision ticket per session. Claim a child by assigning it to the person driving the decision before work. Query open, unassigned children whose native blockers are closed for the frontier. Use only wayfinder labels on map and decision children. Record answers in resolution comments and index closed children here. Keep implementation tickets separate.\n\nUser direction is recorded in this issue's interview comments, dated 14 October. Retain production capabilities, conduct a software and dependency audit, improve information grouping and in-app viewing, and implement manual queue/download/processing/upload/private-preview/approval/publication first. Checks and review throughout, plus final gates. Fable and swarm are requested for later execution; reconcile the older operating rules before dispatch.\n\nOriginal case archives and production are read-only. Real case data, extracted text, private screenshots and credentials stay out of Git and external agent/test services. No production changes, deployment or main merge is authorized by this planning map.\n\nExisting POC acceptance and unfinished demo/compatibility work are inputs, not assumed hosted acceptance. Older Cloudflare, local-product and automation assumptions are subject to decisions here.\n\n## Decisions so far\n\n* [Define client instances, membership and case permissions](<https://linear.app/vaper/issue/GRS-85/define-client-instances-membership-and-case-permissions>): isolated client instances, Clerk authentication, assigned viewer/editor case access, and distinct Global Admin, firm-admin and audited operator authority. The resolution comment holds the full decision.\n* [Define the manual processing queue and results handoff](<https://linear.app/vaper/issue/GRS-87/define-the-manual-processing-queue-and-results-handoff>): mostly FIFO claimed jobs, corrected submissions rejoin last, and one candidate-import contract for manual processing and later automation. SLA measurement is deferred to release evidence.\n* [Assess D1 and R2 performance and overhead for the alpha workload](<https://linear.app/vaper/issue/GRS-95/assess-d1-and-r2-performance-and-overhead-for-the-alpha-workload>): D1/R2 remains a reasonable candidate; local CPU evidence does not prove hosted performance. The ticket links the corrected research and required hosted probes.\n* [Define private preview, approval and client publication](<https://linear.app/vaper/issue/GRS-88/define-private-preview-approval-and-client-publication>): editable, audited candidates require exact-version sign-off; alpha permits preparer approval, recovery preserves user work, and later processing flags correction conflicts. Review topology awaits the design gate.\n* [Define an intuitive case workspace and information hierarchy](<https://linear.app/vaper/issue/GRS-89/define-an-intuitive-case-workspace-and-information-hierarchy>): retain the current app navigation as the planning baseline; the user and UX lead will explore later designs in Figma. The prototypes remain research, and the resolution retains the settled Notes and mobile requirements.\n* [Assess browser viewers and manual previews for alpha file types](<https://linear.app/vaper/issue/GRS-96/assess-browser-viewers-and-manual-previews-for-alpha-file-types>): manual derived previews make the minimum families and conditional media/ZIP browsing feasible in principle; rendition fidelity and fail-closed range integrity still require proof. The ticket links the corrected research.\n* [Define in-app file viewing and original integrity](<https://linear.app/vaper/issue/GRS-90/define-in-app-file-viewing-and-original-integrity>): every accepted file is viewable in-app, original/processed references remain traceable, failed previews hold publication, and complete exports include originals and published previews. A dedicated component evaluation and integrated viewer gate are planned.\n* [Assess Outlook drafts and user-controlled case-email import](<https://linear.app/vaper/issue/GRS-98/assess-outlook-drafts-and-user-controlled-case-email-import>): Graph drafts and selected-message import are feasible candidates with mailbox-wide consent and durable-copy constraints; the research informs the later live-integration pass, with synthetic proofs still unrun.\n* [Define alpha behavior for every production integration](<https://linear.app/vaper/issue/GRS-91/define-alpha-behavior-for-every-production-integration>): provider-neutral email files and app-side drafts in alpha, manual KYC and existing case costs, scoped audit access, explicit privilege handling and protected bundle history. Live mailbox connections are later; the ticket resolution holds the full decision.\n* [Reconcile POC, demo and newer-export work with the hosted plan](<https://linear.app/vaper/issue/GRS-92/reconcile-poc-demo-and-newer-export-work-with-the-hosted-plan>): preserve reviewed work and v5 contracts, support newer/JSON exports, hold unsupported required sections, and use controlled E2E preservation tests; no live-client migration is needed. Standalone Markdown authoring is later.\n* [Audit hosted software choices and Clerk–Workers integration](<https://linear.app/vaper/issue/GRS-100/audit-hosted-software-choices-and-clerk-workers-integration>): dated dependency/advisory inventory, Clerk integration and residency constraints, local Workers testing and Void comparison are published. Adoption and all runtime proofs remain with the stack decision.\n* [Assess a local agent test platform on PC1 and PC2](<https://linear.app/vaper/issue/GRS-101/assess-a-local-agent-test-platform-on-pc1-and-pc2>): local Workers tooling and both PCs’ read-only capacity are assessed; PC2 is the recommended first pool candidate, while the delivery decision holds roles, isolation proofs and measured concurrency. No platform is installed.\n* [Assess cf and Void for the alpha agent tooling jobs](<https://linear.app/vaper/issue/GRS-102/assess-cf-and-void-for-the-alpha-agent-tooling-jobs>): released source supports a Void/Kit 3 prebuilt route and cf resource/automation jobs; native D1, credential separation and same-account client boundaries have explicit unrun proofs. Research is published, without tool adoption or cloud execution.\n* [Choose the hosted stack and software audit criteria](<https://linear.app/vaper/issue/GRS-86/choose-the-hosted-stack-and-software-audit-criteria>): SvelteKit 3/Workers with Bun app builds and supported Node tooling; D1/R2, separate client/staff Clerk apps and invite-only access; MFA initially off. Void/cf are preferred proof candidates with Wrangler fallback. The resolution holds the accepted constraints and required proofs.\n* [Research Cloudflare-first transactional alpha notifications](<https://linear.app/vaper/issue/GRS-103/research-cloudflare-first-transactional-alpha-notifications>): native email is a feasible candidate with separate free/Paid recipient paths, delivery/retry constraints and unrun proofs. Research is published; provider and notification-failure choices remain with acceptance planning.\n* [Define alpha acceptance, rollout and recovery](<https://linear.app/vaper/issue/GRS-93/define-alpha-acceptance-rollout-and-recovery>): accepted outcome/evidence checklist, practical rollout guidance, soft recovery timing, data-recovery/deletion policy, initial notifications and user-owned release/incident/spend decisions. Later SLA/reliability refinement stays explicit; hosted proofs remain unrun.\n* [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>): early hosted PDF workflow before broad migration, explicit pending-preview and supplement rules, usable unpublished cases, and prompt optimization after stabilization.\n\n## Not yet specified\n\nNo additional unticketed planning questions are currently identified. Surface any further questions as the remaining delivery operating plan is worked.\n\n## Out of scope\n\nExecuting the hosted build in this charting session; maintaining a separately shipped local product as an alpha requirement. Automated processing is later work, after the manual workflow is proven. Main merges and deployment remain under the user's control.\n\n[Plan live Outlook and Gmail integrations after alpha](<https://linear.app/vaper/issue/GRS-99/plan-live-outlook-and-gmail-integrations-after-alpha>) preserves the explicitly deferred live mailbox connections, provider-side draft creation and syncing. Alpha handles exported provider-neutral email files; this later work does not block alpha.\n\n[Round-trip one manually authored analysis through Markdown](<https://linear.app/vaper/issue/GRS-23/round-trip-one-manually-authored-analysis-through-markdown>) is preserved in M7 after alpha. Validated package upload and editable private preview cover alpha; Markdown no longer blocks hosted delivery. There are no current live clients requiring production migration or cutover; controlled preservation/recovery E2E remains in scope.",
       "nativeBlockedBy": [
         "GRS-136"
       ],
-      "externalPrerequisites": [],
+      "externalPrerequisites": [
+        "GRS-136"
+      ],
       "status": "Backlog"
     },
     {
@@ -3380,35 +3381,13 @@
       ]
     },
     {
-      "key": "HA-grs-136",
-      "milestone": "M4",
-      "title": "Stress-test the complete hosted-alpha plan with final workflow scenarios",
-      "depends": [],
-      "outcome": "Resolve the final human workflow alignment and synchronize the accepted plan.",
-      "scope": [],
-      "acceptance": [],
-      "liveScenarios": [],
-      "kind": "decision",
-      "role": "decision",
-      "phase": "V2",
-      "linear": {
-        "id": "05d8220f-29db-42ac-a1ec-7632be8459e0",
-        "identifier": "GRS-136",
-        "url": "https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow"
-      },
-      "status": "In Progress",
-      "linearDescription": "## Question\n\nDoes the reviewed hosted-alpha plan match the intended client and operator experience, delivery order and launch boundaries when tested against concrete success and failure scenarios? Identify any remaining contradictions or decisions, settle them with the user, and synchronize only the affected planning records before overall approval.\n\nThis is the user's requested final grill-with-docs and wayfinder pass. Work from the existing decisions; do not silently reopen settled choices or infer approval of the full plan, machine-wide model sheet, implementation, provisioning or release. This ticket resolves alignment through a live human exchange. Record answers in resolution comments; keep the map an index.\n\n## Review assets\n\n* [Complete delivery plan — review candidate](<https://linear.app/vaper/document/clearcase-hosted-alpha-complete-delivery-plan-review-candidate-3fc604523f44>)\n* [Decision map and agent navigation](<https://linear.app/vaper/document/clearcase-hosted-alpha-decision-map-and-agent-navigation-f2429d7a1ba5>)\n* [Agent delivery operating plan and proposed model sheet](<https://linear.app/vaper/document/clearcase-alpha-agent-delivery-operating-plan-draft-edc361b21242>)\n* [Reviewed planning revision](<https://github.com/GridShift-Software/clearcase/commit/8d617c13f1f081440c7f7681baed6af5806d5d32>)\n\nUse grilling and domain-modeling. Reconcile domain terms in GLOSSARY only when a term is actually resolved; add ADRs only for durable, surprising trade-offs. All hosted proofs remain unrun. Existing planning repair PASS does not prove hosted behavior.",
-      "nativeBlockedBy": [],
-      "externalPrerequisites": []
-    },
-    {
       "key": "HA-first-workflow",
       "milestone": "M5",
       "title": "Prove the first complete hosted PDF case workflow before broad view migration",
       "depends": [
         "HA-grs-69",
-        "HA-viewer-core",
-        "CC-19"
+        "HA-hosted-gate",
+        "CC-28"
       ],
       "outcome": "Prove the first complete hosted synthetic PDF case workflow before broad view migration.",
       "scope": [
@@ -3438,12 +3417,173 @@
         "url": "https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view"
       },
       "status": "Backlog",
-      "linearDescription": "Planning key `HA-first-workflow`. Accepted by the user in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). This creates an execution owner, not a dispatch.\n\n## Outcome\n\nOne exact hosted revision proves a small synthetic PDF case through client upload, operator queue/claim/download, actual manual processing with the current prompts/recipe, private import/editing, fresh sign-off, publication and authorized client viewing. Broader workspace migration waits for this accepted evidence.\n\n## Reserved write scope\n\n* `src/routes/v/[vid]/overview/**` — minimal hosted published-case read path only; sole writer until explicit handoff to the overview/evidence migration owner.\n* `tests/hosted-smoke/**`\n* `scripts/verify/hosted-smoke.mjs`\n* `docs/acceptance/hosted-smoke.md`\n\nUnderlying auth/storage/viewer/intake/queue/import/editing/publication owners implement their own contracts first. This owner integrates the minimal overview and evidence; it does not recreate those services, bypass their checks, or own all 42 views. Serialize any shared layout change through its existing owner.\n\n## Acceptance\n\n- [ ] At one exact hosted SHA, submit a fresh synthetic PDF case, claim and download it completely, follow the current manual processing recipe and produce a complete valid results package linked to the exact inputs. Do not substitute parity data, mocked output or an incomplete pilot.\n- [ ] Import privately; clients are denied candidate content. Correct candidate content, invalidate any previous approval, revalidate and explicitly sign off the new exact version before publishing.\n- [ ] Through a real client session, open the published overview and PDF original, follow a valid source reference and verify bytes/content. Deny unauthorized, wrong-case/client and private-candidate requests.\n- [ ] Keep previous publication and user work intact on a selected failed import/publication attempt. Record outputs, identities, task/check receipts, commands and exact SHA.\n- [ ] Use PDF-only coverage for this small test without weakening publication validation for files actually in the candidate. Office/email/accepted media/archive coverage and all 42 views remain mandatory in final acceptance; this test cannot satisfy that broader gate.\n- [ ] Hand the exact overview files and accepted upstream head to the broad overview/evidence migration owner. Obtain fresh independent review of implementation and any verification code; the author cannot self-certify the path.\n\n## Verification and boundaries\n\nExecute a real hosted synthetic workflow, with browser evidence and retained downloaded/generated package manifests; record PASS/HOLD/FAIL at the exact SHA via receipt tooling. Freeze concrete boot/test commands and fixture expectations in the design gate/dispatch brief before execution. Shared files and browser capacity follow the operating plan. A skip, mock, weak assertion or another-SHA run is not PASS. Existing external review is required before dev integration. All hosted checks remain UNRUN now.\n\nRAWS/current production read-only; real case material, private evidence and secrets stay out of Git and external test/agent services. No main merge, production deployment, live email or cloud provisioning is authorized by this planning issue. Read live native blockers before pickup.",
+      "linearDescription": "Planning key `HA-first-workflow`. Accepted by the user in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). This creates an execution owner, not a dispatch.\n\n## Outcome\n\nOne exact hosted revision proves a small synthetic PDF case through client upload, operator queue/claim/download, actual manual processing with the current prompts/recipe, private import/editing, fresh sign-off, publication and authorized client viewing. Broader workspace migration and the thick intake, queue, import, editing and publication owners wait for this accepted evidence.\n\n## Reserved write scope\n\n* `src/routes/v/[vid]/overview/**` — minimal hosted published-case read path only; sole writer until explicit handoff to the overview/evidence migration owner.\n* `tests/hosted-smoke/**`\n* `scripts/verify/hosted-smoke.mjs`\n* `docs/acceptance/hosted-smoke.md`\n\n**Restructured 17 October 2026.** This is the tracer bullet, not the final verifier. It runs directly after the foundation aggregate (<issue id=\"3ee13f2b-c1b4-44bb-9c43-cd750b3623e5\" href=\"https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work\">GRS-36</issue>) and the hosted gate, and before the intake, queue, import, editing, publication and view-migration owners. It builds the thinnest end-to-end slice of each stage itself, on the foundation contracts: a single-file upload with no resume, a claim with no FIFO ordering, a package import with no editing, a sign-off with no rollback, and the published overview with the existing originals viewer. Each later owner thickens its stage from this ticket's accepted head and takes over the paths below. This owner does not own all 42 views or the viewer shell, and it serializes any shared layout change through its existing owner.\n\nAdditional minimal reservations, handed to the named owner at acceptance: src/routes/client/intake/\\*\\* and src/lib/submissions/\\*\\* (to <issue id=\"29ff2f3f-0e74-4750-951e-c27851e2b166\" href=\"https://linear.app/vaper/issue/GRS-28/submit-and-resume-client-document-uploads\">GRS-28</issue>), src/lib/processing-queue/\\*\\* and src/routes/admin/queue/\\*\\* (to <issue id=\"b97a8bee-9190-453b-9a7d-6e98099ad25f\" href=\"https://linear.app/vaper/issue/GRS-135/implement-the-internal-fifo-processing-queue-and-audited-operator\">GRS-135</issue>), src/routes/admin/submissions/\\*\\* (to <issue id=\"e0957bbc-d8e6-4215-8073-65795f406468\" href=\"https://linear.app/vaper/issue/GRS-29/notify-operators-and-download-a-complete-submission\">GRS-29</issue>), src/lib/results-review/\\*\\* and src/routes/admin/results/\\*\\* (to <issue id=\"bbd61cf6-18f0-4a4f-a234-e40700eedf51\" href=\"https://linear.app/vaper/issue/GRS-30/import-processed-results-into-a-private-hosted-preview\">GRS-30</issue> and <issue id=\"be596ca1-3a0e-4ef9-a39f-172d65b2bf2c\" href=\"https://linear.app/vaper/issue/GRS-130/edit-and-revalidate-private-results-before-exact-version-approval\">GRS-130</issue>), src/lib/publication/\\*\\* and src/routes/admin/publication/\\*\\* (to <issue id=\"07b2f5cd-c6a9-432a-88e0-0c0ff13e69c5\" href=\"https://linear.app/vaper/issue/GRS-31/sign-off-and-publish-an-exact-results-version\">GRS-31</issue>).\n\n## Acceptance\n\n- [ ] At one exact hosted SHA, submit a fresh synthetic PDF case, claim and download it completely, follow the current manual processing recipe and produce a complete valid results package linked to the exact inputs. Do not substitute parity data, mocked output or an incomplete pilot.\n- [ ] Import privately; clients are denied candidate content. Correct candidate content, invalidate any previous approval, revalidate and explicitly sign off the new exact version before publishing.\n- [ ] Through a real client session, open the published overview and PDF original, follow a valid source reference and verify bytes/content. Deny unauthorized, wrong-case/client and private-candidate requests.\n- [ ] Keep previous publication and user work intact on a selected failed import/publication attempt. Record outputs, identities, task/check receipts, commands and exact SHA.\n- [ ] Use PDF-only coverage for this small test without weakening publication validation for files actually in the candidate. Office/email/accepted media/archive coverage and all 42 views remain mandatory in final acceptance; this test cannot satisfy that broader gate.\n- [ ] Hand the exact overview files and accepted upstream head to the broad overview/evidence migration owner. Obtain fresh independent review of implementation and any verification code; the author cannot self-certify the path.\n\n## Human gate: the manual processing step\n\nDecided by the user on 17 October 2026. The processing step (running the current prompts and recipe on the downloaded submission to produce the results package) is a **human gate**, not agent work, because a processing run is expensive and is not yet trusted unattended. The worker builds and proves everything up to the operator download, then stops with status `AWAITING MANUAL RESULTS` and a report naming the exact submission manifest, the download path and the expected package shape. The user runs the recipe in their own chat, as processing is done today, and places the resulting package at a path they name on the ticket. A fresh worker session then resumes from the import step at the same SHA. The checkpoint sitting for this ticket includes that handoff. No agent may run the processing recipe under this ticket.\n\n## Verification and boundaries\n\nExecute a real hosted synthetic workflow, with browser evidence and retained downloaded/generated package manifests; record PASS/HOLD/FAIL at the exact SHA via receipt tooling. Freeze concrete boot/test commands and fixture expectations in the design gate/dispatch brief before execution. Shared files and browser capacity follow the operating plan. A skip, mock, weak assertion or another-SHA run is not PASS. Existing external review is required before dev integration. All hosted checks remain UNRUN now.\n\nRAWS/current production read-only; real case material, private evidence and secrets stay out of Git and external test/agent services. No main merge, production deployment, live email or cloud provisioning is authorized by this planning issue. Read live native blockers before pickup.",
       "nativeBlockedBy": [
         "GRS-69",
-        "GRS-120",
-        "GRS-31"
+        "GRS-138",
+        "GRS-36"
       ],
+      "externalPrerequisites": []
+    },
+    {
+      "key": "HA-hosted-gate",
+      "milestone": "M5",
+      "title": "Build the hosted gate and the verify-clearcase-hosted skill before foundation fan-out",
+      "depends": [
+        "CC-26",
+        "HA-framework",
+        "HA-grs-69",
+        "HA-ci-verdict"
+      ],
+      "outcome": "One command proves a hosted revision under workerd with synthetic D1 and R2 bindings, drives one user path through real Chromium, and writes a summary that names the exact SHA and which boundaries were test doubles, plus a project-local verify-clearcase-hosted skill.",
+      "scope": [
+        "scripts/gate-hosted.mjs, or a hosted mode of scripts/gate.mjs if that is smaller",
+        "tests/hosted-foundation/gate/**",
+        ".agents/skills/verify-clearcase-hosted/**",
+        ".github/workflows/ci.yml (hosted job only)",
+        "docs/development.md (hosted checks section, serialized with <issue id=\"f67f5b3e-15b5-4e48-9b82-a1a1d78cd700\" href=\"https://linear.app/vaper/issue/GRS-112/migrate-the-app-build-and-shared-server-entry-points-to-workers\">GRS-112</issue>)",
+        "package.json scripts entry, by handoff from <issue id=\"f67f5b3e-15b5-4e48-9b82-a1a1d78cd700\" href=\"https://linear.app/vaper/issue/GRS-112/migrate-the-app-build-and-shared-server-entry-points-to-workers\">GRS-112</issue>"
+      ],
+      "acceptance": [
+        "The gate fails closed on a build stamp that is not HEAD, a dirty tree, a missing binding, a reduced-run variable, or a summary without `evidence: true` for HEAD. A throwaway test for each of these fails the gate and is reported.",
+        "A hosted entry point that imports a local-only module (filesystem, SQLite, process listener) fails the gate.",
+        "The driven user path reaches the app only over loopback. The identity boundary is a documented test-mode provider; the summary records it as a test double, and no gate run claims Clerk evidence.",
+        "The credential-free gate runs on the PC1 CI runner inside its 30 minute job limit and leaves a receipt through the existing receipt tooling.",
+        "CI review note, 17 October: the guest needs nothing new as root. `workerd` arrives as a platform package through `bun install` (cached in the persistent runner), Ubuntu 24.04's glibc is new enough, D1 and R2 run locally under Miniflare with their persist directory under the step's `/dev/shm` directory, `CI=1` and Wrangler telemetry off, no bindings to a Cloudflare account and no token in the job. Add it as a third `receipt` step and list it in the CI summary.",
+        "The verification skill is proven once end to end per the create-verification-skill rules: launch, doctor, drive one mapped feature, keep evidence, clean up, and the evidence survives cleanup.",
+        "Hosted probe classes are proposed for the workspace review checklist: wrong client, wrong case, stale results version, draft asset access, and a failed preview that must hold publication. The report lists them; the coordinator adds them to REVIEW.md."
+      ],
+      "verification": [
+        "Run the new gate at the exact revision and keep its summary and receipts. Run the local gate too, since this ticket touches shared config. One fresh independent diff review, one bounded written-finding fix and fresh recheck. Return PASS/HOLD/FAIL at the exact revision with commands, exit codes and evidence paths. Only the coordinator changes Linear."
+      ],
+      "liveScenarios": [],
+      "kind": "delivery",
+      "role": "writer",
+      "phase": "V2",
+      "linear": {
+        "id": "ab5e730e-f8a2-48d3-9b1c-ff54c6fd8498",
+        "identifier": "GRS-138",
+        "url": "https://linear.app/vaper/issue/GRS-138/build-the-hosted-gate-and-the-verify-clearcase-hosted-skill-before"
+      },
+      "status": "Backlog",
+      "linearDescription": "Planning key `HA-hosted-gate`. Added by the 17 October restructure. Backlog until the overall plan is approved.\n\n## Why this exists\n\nEvery hosted ticket says \"run the existing required gate or its independently reviewed hosted replacement\". The existing gate proves v5 parity of the local SQLite app and says nothing about Workers, D1, R2 or Clerk. Without this ticket, the six proofs and the seven foundation owners would be verified by self-report and three throwaway probes, which is the failure mode the 12 October retro recorded. The local plan solved this with CC-27 and CC-03 before fan-out; this ticket is the hosted equivalent and is the pilot unit for the hosted brief template.\n\n## What to build\n\nOne command proves a hosted revision the way `bun run --bun gate` proves the local app:\n\n1. Build with Bun for the accepted Workers adapter and stamp the build with the exact source revision.\n2. Start the app locally under workerd with synthetic D1 and R2 bindings and no cloud credentials.\n3. Run the foundation request/render/action smoke tests and the hosted import-boundary negative test that <issue id=\"f67f5b3e-15b5-4e48-9b82-a1a1d78cd700\" href=\"https://linear.app/vaper/issue/GRS-112/migrate-the-app-build-and-shared-server-entry-points-to-workers\">GRS-112</issue> reserves.\n4. Drive one user path through real Chromium: sign in as a test identity, open a provisioned synthetic case, open an original, and deny a wrong-client request.\n5. Write a summary that names the exact SHA, the fixture identity, which boundaries were real and which were test doubles, and `evidence: true` only when nothing was reduced, stale or skipped.\n\nA project-local verification skill, `verify-clearcase-hosted`, wraps the same lifecycle with a feature map, so a worker can prove one hosted user path in seconds the way `verify-clearcase` does for the local app. PC1 CI runs the credential-free part on every PR to `dev` and `feature/**`. Checks that need real Clerk, D1 or R2 stay in the proof tickets and the release gate, and the summary says so.\n\n## Acceptance criteria\n\n- [ ] The gate fails closed on a build stamp that is not HEAD, a dirty tree, a missing binding, a reduced-run variable, or a summary without `evidence: true` for HEAD. A throwaway test for each of these fails the gate and is reported.\n- [ ] A hosted entry point that imports a local-only module (filesystem, SQLite, process listener) fails the gate.\n- [ ] The driven user path reaches the app only over loopback. The identity boundary is a documented test-mode provider; the summary records it as a test double, and no gate run claims Clerk evidence.\n- [ ] The credential-free gate runs on the PC1 CI runner inside its 30 minute job limit and leaves a receipt through the existing receipt tooling.\n- [ ] CI review note, 17 October: the guest needs nothing new as root. `workerd` arrives as a platform package through `bun install` (cached in the persistent runner), Ubuntu 24.04's glibc is new enough, D1 and R2 run locally under Miniflare with their persist directory under the step's `/dev/shm` directory, `CI=1` and Wrangler telemetry off, no bindings to a Cloudflare account and no token in the job. Add it as a third `receipt` step and list it in the CI summary.\n- [ ] The verification skill is proven once end to end per the create-verification-skill rules: launch, doctor, drive one mapped feature, keep evidence, clean up, and the evidence survives cleanup.\n- [ ] Hosted probe classes are proposed for the workspace review checklist: wrong client, wrong case, stale results version, draft asset access, and a failed preview that must hold publication. The report lists them; the coordinator adds them to REVIEW.md.\n\n## Reserved write scope\n\n* scripts/gate-hosted.mjs, or a hosted mode of scripts/gate.mjs if that is smaller\n* tests/hosted-foundation/gate/\\*\\*\n* .agents/skills/verify-clearcase-hosted/\\*\\*\n* .github/workflows/ci.yml (hosted job only)\n* docs/development.md (hosted checks section, serialized with <issue id=\"f67f5b3e-15b5-4e48-9b82-a1a1d78cd700\" href=\"https://linear.app/vaper/issue/GRS-112/migrate-the-app-build-and-shared-server-entry-points-to-workers\">GRS-112</issue>)\n* package.json scripts entry, by handoff from <issue id=\"f67f5b3e-15b5-4e48-9b82-a1a1d78cd700\" href=\"https://linear.app/vaper/issue/GRS-112/migrate-the-app-build-and-shared-server-entry-points-to-workers\">GRS-112</issue>\n\nThese are initial reservations. Pin exact files and the accepted upstream SHA in the coordinator brief.\n\n## Verification and handoff\n\nRun the new gate at the exact revision and keep its summary and receipts. Run the local gate too, since this ticket touches shared config. One fresh independent diff review, one bounded written-finding fix and fresh recheck. Return PASS/HOLD/FAIL at the exact revision with commands, exit codes and evidence paths. Only the coordinator changes Linear.\n\n## Boundaries\n\nSynthetic data only. No cloud credentials in the repository, CI or the gate. RAWS and current production are read-only. No deployment or main merge under this issue.\n\n## Blocked by\n\nNative edges: <issue id=\"f67f5b3e-15b5-4e48-9b82-a1a1d78cd700\" href=\"https://linear.app/vaper/issue/GRS-112/migrate-the-app-build-and-shared-server-entry-points-to-workers\">GRS-112</issue> (the Workers build this gate runs), <issue id=\"c99e1ba3-dc84-4bbc-aee5-f8c3c34692f2\" href=\"https://linear.app/vaper/issue/GRS-27/gate-the-hosted-design-before-client-intake-implementation\">GRS-27</issue> (the design gate), <issue id=\"7e83827a-23fd-431a-96c5-3d2471790e1c\" href=\"https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha\">GRS-69</issue> (the plan). It blocks the foundation fan-out (<issue id=\"c4b67eb1-ae1c-4c4a-81e6-88f2392eddd9\" href=\"https://linear.app/vaper/issue/GRS-113/implement-clerk-invitations-sessions-and-hosted-access-checks\">GRS-113</issue>, <issue id=\"13f1315c-d8af-4ac6-ae9a-e700a682f570\" href=\"https://linear.app/vaper/issue/GRS-115/implement-hosted-d1-results-storage-and-protected-r2-assets\">GRS-115</issue>), the viewer core (<issue id=\"96a2872f-99a5-4f0d-b37f-454c41e9dc76\" href=\"https://linear.app/vaper/issue/GRS-120/implement-the-protected-in-app-viewer-shell-and-pdfimage-readers\">GRS-120</issue>), the first workflow (<issue id=\"00e869ac-8e6b-4b5c-b961-caec74950e96\" href=\"https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view\">GRS-137</issue>) and the foundation aggregate (<issue id=\"3ee13f2b-c1b4-44bb-9c43-cd750b3623e5\" href=\"https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work\">GRS-36</issue>).",
+      "nativeBlockedBy": [
+        "GRS-27",
+        "GRS-112",
+        "GRS-69",
+        "GRS-139"
+      ],
+      "externalPrerequisites": []
+    },
+    {
+      "key": "HA-ci-verdict",
+      "milestone": "M4",
+      "title": "CI verdict without GitHub: pc1-vm verify and verdict answer PASS or FAIL from the CI VM alone",
+      "depends": [],
+      "outcome": "An agent learns whether a SHA passed CI when GitHub is down: pc1-vm verify runs the job commands in the CI VM and a guest receipt store answers pc1-vm verdict for any SHA.",
+      "scope": [
+        "scripts/ci/pc1-vm",
+        "scripts/ci/guest-provision.sh (store directory only)",
+        ".github/workflows/ci.yml (one receipt-store step)",
+        "docs/ci-runner.md",
+        "tests/ci/** (new)"
+      ],
+      "acceptance": [
+        "With GitHub unreachable (simulate by pointing `GH_HOST` at a dead name), `verify` still produces a verdict for a fresh bundle, and `verdict` still answers for a SHA that ran earlier.",
+        "`verify` refuses to start while a job is running and never leaves the runner service stopped; a failed run restarts it.",
+        "A `verify` verdict names what it proves (that bundle's SHA passed `check` and `test` in the CI VM environment) and does not claim a GitHub check status or satisfy branch protection or the external reviewer.",
+        "Receipts carry no tokens or secrets; the store survives a guest reboot and is documented as lost on `destroy`.",
+        "`docs/ci-runner.md` documents both commands, the store layout and the trust model (any job can write the store; it is as trusted as a push)."
+      ],
+      "verification": [
+        "Prove on the real runner in a quiet window with the user's consent for the runner stop; keep the boundary probe green afterwards (`scripts/ci/vm-boundary-probe`). pc1 access over Tailscale needs a human re-login first (the review stalled on it). No changes to repository settings, no new listener on pc1, no credential in the guest. One fresh independent diff review, one bounded fix round, fresh re-check. Only the coordinator changes Linear."
+      ],
+      "liveScenarios": [],
+      "kind": "delivery",
+      "role": "writer",
+      "phase": "V2",
+      "linear": {
+        "id": "617fe50a-a4ea-45e2-8834-659b007ffdf6",
+        "identifier": "GRS-139",
+        "url": "https://linear.app/vaper/issue/GRS-139/ci-verdict-without-github-pc1-vm-verify-and-verdict-answer-pass-or"
+      },
+      "status": "Backlog",
+      "linearDescription": "Planning key `HA-ci-verdict`. From the read-only CI review of 17 October 2026 (`clearcase/.orchestration/reports/CI-REVIEW-20261017/report.md`). Infrastructure work on the CI runner, not hosted-app work; it may run before the hosted plan gate.\n\n## Why\n\nCI is already fast (median job 57 s, median queue 4 s over the last 23 runs, no infrastructure failures). The gap is that an agent cannot learn whether a SHA passed when GitHub is down, and the runner's own idle check asks the GitHub API and fails closed in that case. Recent GitHub outages made this matter.\n\n## What to build\n\n1. `scripts/ci/pc1-vm verify REV`: bundle the revision, confirm in the guest that no job is running without asking GitHub (`pgrep -u runner Runner.Worker`), stop the runner service, run the job's exact commands under `scripts/agent-tools/receipt`, run the summary, write the result to the store below, restart the runner, and print `PASS <sha>` or `FAIL <sha>` plus the receipt path. Exit 0 only on PASS.\n2. A receipt store in the guest keyed by commit: `~runner/ci-results/<sha>-<run>-<attempt>/`, written by every GitHub-dispatched job as one extra workflow step (recording both `GITHUB_SHA` and `PR_HEAD_SHA`, since a PR run tests the merge commit) and by `verify`. The guest cannot reach pc1 by design, so the store lives in the guest and is read over the existing management SSH; do not open a guest-to-host path.\n3. `scripts/ci/pc1-vm verdict SHA`: read the store and print the verdict and receipt path for a SHA GitHub or `verify` already ran, or `UNKNOWN`.\n\n## Acceptance criteria\n\n- [ ] With GitHub unreachable (simulate by pointing `GH_HOST` at a dead name), `verify` still produces a verdict for a fresh bundle, and `verdict` still answers for a SHA that ran earlier.\n- [ ] `verify` refuses to start while a job is running and never leaves the runner service stopped; a failed run restarts it.\n- [ ] A `verify` verdict names what it proves (that bundle's SHA passed `check` and `test` in the CI VM environment) and does not claim a GitHub check status or satisfy branch protection or the external reviewer.\n- [ ] Receipts carry no tokens or secrets; the store survives a guest reboot and is documented as lost on `destroy`.\n- [ ] `docs/ci-runner.md` documents both commands, the store layout and the trust model (any job can write the store; it is as trusted as a push).\n\n## Reserved write scope\n\n* scripts/ci/pc1-vm\n* scripts/ci/guest-provision.sh (store directory only)\n* .github/workflows/ci.yml (one receipt-store step)\n* docs/ci-runner.md\n* tests/ci/\\*\\* (new)\n\n## Verification and boundaries\n\nProve on the real runner in a quiet window with the user's consent for the runner stop; keep the boundary probe green afterwards (`scripts/ci/vm-boundary-probe`). pc1 access over Tailscale needs a human re-login first (the review stalled on it). No changes to repository settings, no new listener on pc1, no credential in the guest. One fresh independent diff review, one bounded fix round, fresh re-check. Only the coordinator changes Linear.",
+      "nativeBlockedBy": [],
+      "externalPrerequisites": []
+    },
+    {
+      "key": "HA-ci-second-guest",
+      "milestone": "M4",
+      "title": "Second CI guest on pc1: instance-aware VM scripts and two jobs at once",
+      "depends": [
+        "HA-ci-verdict"
+      ],
+      "outcome": "A second CI guest on pc1 runs beside the first without touching it, removing queue waits when a PR run and a dev merge overlap.",
+      "scope": [
+        "scripts/ci/vm-host.sh",
+        "scripts/ci/pc1-vm",
+        "scripts/ci/guest-provision.sh",
+        "docs/ci-runner.md"
+      ],
+      "acceptance": [
+        "`pc1-vm create --instance 2` brings up a second guest and registers a second runner while instance 1 keeps running a job.",
+        "Two CI jobs run at the same time on two guests, both PASS, with receipts.",
+        "`scripts/ci/vm-boundary-probe` passes on both guests; neither can reach pc1's loopback, the other guest, multicast or broadcast.",
+        "`pc1-vm destroy --instance 2` removes only instance 2's unit, directory, nft table and runner.",
+        "`docs/ci-runner.md` documents instances, sizing numbers measured, and the host services decision."
+      ],
+      "verification": [
+        "Runner stops and host changes need the user's consent in a quiet window. No repository settings changes. One fresh independent diff review, one bounded fix round, fresh re-check. Only the coordinator changes Linear."
+      ],
+      "liveScenarios": [],
+      "kind": "delivery",
+      "role": "writer",
+      "phase": "V2",
+      "linear": {
+        "id": "f5750194-4a9a-4386-af90-86946d823234",
+        "identifier": "GRS-140",
+        "url": "https://linear.app/vaper/issue/GRS-140/second-ci-guest-on-pc1-instance-aware-vm-scripts-and-two-jobs-at-once"
+      },
+      "status": "Backlog",
+      "linearDescription": "Planning key `HA-ci-second-guest`. From the read-only CI review of 17 October 2026 (`clearcase/.orchestration/reports/CI-REVIEW-20261017/report.md`). Optional: it buys redundancy and removes the 40 to 75 s queue waits when a PR run and a dev merge overlap. It does not shorten a job. Do it after the CI verdict ticket, and only after pc1's headroom is measured.\n\n## What to build\n\nMake `scripts/ci/vm-host.sh` and `scripts/ci/pc1-vm` instance-aware so a second guest can be created without touching the first: a template unit `clearcase-ci-vm@N`, a separate `/var/lib/clearcase-ci-N`, its own SSH forward address and port in `IPAddressAllow=` and the nft reply rule, its own nft table (today one instance's `ExecStopPost` would delete a shared table), its own QMP socket, hostname, `HostKeyAlias` and runner name, and the busy check per runner name. Instance 1 keeps today's paths. Prefer several guests over several runners in one guest: runners in one guest would share the Chrome cache that `install-chrome.sh` deletes, `~/.bun`, `/dev/shm` and one network namespace for the tests' local servers. `ci.yml` needs no change; every runner carries the `clearcase-pc1` label and the per-ref concurrency group already lets different PRs run at once.\n\n## Before sizing\n\nMeasure RAM per job with the guest cgroup's `memory.peak` during a job, and read pc1's `nproc` and `free -g`. Plan 4 vCPU and 6 to 8 GiB per guest; N is the smaller of (threads minus 2) over 4 and (RAM minus 4 GiB) over 9. pc1 still runs desktop services (KDE Connect and CUPS were named in the <issue id=\"c3a1a1b4-dad8-4263-87ed-18fd3ba8a7e5\" href=\"https://linear.app/vaper/issue/GRS-57/move-clearcase-ci-to-a-disposable-vm-runner-on-pc1\">GRS-57</issue> review), so it is not yet a dedicated host; decide whether to strip those first.\n\n## Acceptance criteria\n\n- [ ] `pc1-vm create --instance 2` brings up a second guest and registers a second runner while instance 1 keeps running a job.\n- [ ] Two CI jobs run at the same time on two guests, both PASS, with receipts.\n- [ ] `scripts/ci/vm-boundary-probe` passes on both guests; neither can reach pc1's loopback, the other guest, multicast or broadcast.\n- [ ] `pc1-vm destroy --instance 2` removes only instance 2's unit, directory, nft table and runner.\n- [ ] `docs/ci-runner.md` documents instances, sizing numbers measured, and the host services decision.\n\n## Reserved write scope\n\n* scripts/ci/vm-host.sh\n* scripts/ci/pc1-vm\n* scripts/ci/guest-provision.sh\n* docs/ci-runner.md\n\n## Boundaries\n\nRunner stops and host changes need the user's consent in a quiet window. No repository settings changes. One fresh independent diff review, one bounded fix round, fresh re-check. Only the coordinator changes Linear.",
+      "nativeBlockedBy": [
+        "GRS-139"
+      ],
+      "externalPrerequisites": []
+    },
+    {
+      "key": "HA-dev-gate-20261017",
+      "milestone": "M3",
+      "title": "Dev gate FAIL at 8ab9ef4: overview and documents subtitles differ from v5 since the demo merges",
+      "depends": [],
+      "outcome": "Dev passes strict parity again: the overview second subtitle line and the documents subtitle are either registered with approvedBy null or restored to the v5 wording.",
+      "scope": [
+        "src/routes/v/[vid]/overview/+page.svelte",
+        "src/routes/v/[vid]/evidence/documents/+page.svelte",
+        "docs/reference/parity/register/CC-04.json",
+        "the overview owner's register fragment under docs/reference/parity/register/"
+      ],
+      "acceptance": [
+        "`bun run --bun parity -- --all --strict-register` reports 0 unregistered differences at the fix head, and `orch-bin/dev-gate` on the merged `dev` head records PASS.",
+        "Any new register entry names the audit disposition or ADR that justifies it and keeps `approvedBy: null` until the user approves it in the PR.",
+        "No other view's counts change."
+      ],
+      "verification": [
+        "For each difference decide, with the user, between:\n\n1. A register entry under the view owner's fragment (`docs/reference/parity/register/CC-04.json` for documents, the overview owner's for overview) with `approvedBy: null`, which the user approves in the PR. Use this when the demo wording is wanted (an improvement or a defect fix the audit dispositions support).\n2. Restoring the v5 wording. Use this when the change was incidental to the restyle.\n\nThen run `bun run --bun gate` to green at the head, including `verify:pilot:v5`, and the coordinator reruns `orch-bin/dev-gate` after merge."
+      ],
+      "liveScenarios": [],
+      "kind": "delivery",
+      "role": "writer",
+      "phase": "V1",
+      "linear": {
+        "id": "7ee8f208-ad5b-4717-8513-dc512aff98d7",
+        "identifier": "GRS-141",
+        "url": "https://linear.app/vaper/issue/GRS-141/dev-gate-fail-at-8ab9ef4-overview-and-documents-subtitles-differ-from"
+      },
+      "status": "Backlog",
+      "linearDescription": "Found by `orch-bin/dev-gate 8ab9ef4` on 17 October 2026 (verdict file under `.orchestration/dev-gate/`). Build, check, test and the e2e suite PASS; strict parity FAILS with exactly two unregistered differences and `verify:pilot:v5` was skipped behind it.\n\n## What is wrong\n\n| View | Path | Kind | What parity saw |\n| -- | -- | -- | -- |\n| overview | `text.subtitle.2` | app-only | The app renders a second subtitle line that v5 does not have. |\n| documents | `text.subtitle` | value | The subtitle text differs from v5's. The current source builds it as `<count> documents · filter by bundle, sorted by type then date`. |\n\nValues are not quoted here because the parity run used the real v5 sample; see `.local/parity-out/dev-8ab9ef4/views/{overview,documents}.json` on the workstation.\n\n## Where it came from\n\nThe planning branch merged today (PR #45) changed nothing under `src/`, the parity adapters or the register. The demo merges PR #42 to #44 on 15 October did change both pages (`ae27bf2` \"Apply the design system to every page\", `c7bd883` \"docs(ui): correct document ordering and v5 backup help\", `2772b00` comment removal), and no dev gate ran on `b93bad0`. The last PASS on record is `a4880fd`. So `dev` has failed strict parity since 15 October.\n\n## What to do\n\nFor each difference decide, with the user, between:\n\n1. A register entry under the view owner's fragment (`docs/reference/parity/register/CC-04.json` for documents, the overview owner's for overview) with `approvedBy: null`, which the user approves in the PR. Use this when the demo wording is wanted (an improvement or a defect fix the audit dispositions support).\n2. Restoring the v5 wording. Use this when the change was incidental to the restyle.\n\nThen run `bun run --bun gate` to green at the head, including `verify:pilot:v5`, and the coordinator reruns `orch-bin/dev-gate` after merge.\n\n## Acceptance criteria\n\n- [ ] `bun run --bun parity -- --all --strict-register` reports 0 unregistered differences at the fix head, and `orch-bin/dev-gate` on the merged `dev` head records PASS.\n- [ ] Any new register entry names the audit disposition or ADR that justifies it and keeps `approvedBy: null` until the user approves it in the PR.\n- [ ] No other view's counts change.\n\n## Scope and boundaries\n\nSmallest change (`ponytail`). Sonnet-sized: one or two text lines plus register fragments. Reserved paths: the two page files, their owners' register fragments, and nothing else. No case values in the PR, the register notes or this issue. First dispatch after the plan approval; it blocks <issue id=\"3c0abf63-59db-4f84-b10b-71e35a5162f3\" href=\"https://linear.app/vaper/issue/GRS-22/verify-newer-2131-document-and-json-export-compatibility\">GRS-22</issue> and <issue id=\"75c4dcbc-09d3-4db9-b156-0c1fb1ea6aa7\" href=\"https://linear.app/vaper/issue/GRS-104/align-agent-tooling-with-the-canonical-pstack-plugin-and-delivery\">GRS-104</issue> because both need a green dev gate as their base.",
+      "nativeBlockedBy": [],
       "externalPrerequisites": []
     }
   ],
@@ -3454,15 +3594,16 @@
     "planningGate": "GRS-69",
     "operatingDecision": "GRS-94",
     "runtimeEvidence": "UNRUN",
-    "note": "The final human alignment adds an early PDF workflow before broad view migration, pending-preview timing, fixed submissions with linked missing input, and case-level work without publication. Historical v5 owners remain recorded. Read current native Linear status, reserved paths and accepted upstream head before dispatch. All hosted runtime/provider acceptance remains UNRUN.",
+    "note": "The 17 October restructure adds the hosted gate (GRS-138) before the foundation fan-out, a tracer-bullet first workflow (GRS-137) directly after the foundation aggregate, the CI verdict and second-guest tickets (GRS-139, GRS-140) and the dev gate repair (GRS-141). The final human alignment (GRS-136) is Done. Historical v5 owners remain recorded. Read current native Linear status, reserved paths and accepted upstream head before dispatch. All hosted runtime/provider acceptance remains UNRUN.",
     "readback": {
-      "source": "Coordinator readback .local/grs136-final-linear-readback.json (ignored); all project issue metadata and all open native relations/descriptions.",
-      "projectIssues": 110,
-      "openIssues": 62,
+      "source": "Coordinator readback .orchestration/linear-readback-20261017.json (ignored); all project issue metadata and the blockedBy relations of every open issue, read live at 2026-10-17T08:20Z.",
+      "projectIssues": 114,
+      "openIssues": 63,
       "statusCounts": {
-        "In Progress": 3,
-        "Backlog": 59,
-        "Done": 48
+        "In Progress": 1,
+        "Backlog": 62,
+        "Done": 50,
+        "Canceled": 1
       },
       "openOutsidePlan": [
         {
@@ -3470,12 +3611,6 @@
           "status": "Backlog",
           "milestone": "M7 - Later integrations and authoring",
           "title": "Plan live Outlook and Gmail integrations after alpha"
-        },
-        {
-          "identifier": "GRS-70",
-          "status": "In Progress",
-          "milestone": null,
-          "title": "Import a case by clicking: pick the case pack and a destination, and the app does the rest"
         },
         {
           "identifier": "GRS-65",
@@ -3492,7 +3627,7 @@
         {
           "identifier": "GRS-47",
           "status": "Backlog",
-          "milestone": null,
+          "milestone": "M7 - Later integrations and authoring",
           "title": "Provide per-case local import and update with user-chosen source folders"
         }
       ]
@@ -3502,7 +3637,8 @@
       "GRS-90": "Done",
       "GRS-93": "Done",
       "GRS-96": "Done",
-      "GRS-101": "Done"
+      "GRS-101": "Done",
+      "GRS-136": "Done"
     },
     "hostedDeliveryOwners": [
       "HA-tooling",
@@ -3537,19 +3673,22 @@
       "HA-views-litigation-bundles",
       "HA-views-system",
       "HA-operator-queue",
-      "HA-first-workflow"
+      "HA-first-workflow",
+      "HA-hosted-gate"
     ],
     "pendingCoordinatorChanges": []
   },
   "controls": [
-    "**Roles.** Builds, independent diff reviews and fix rechecks run on `claude-opus-5-5` at effort xhigh. Fixes from written findings run on `claude-sonnet-5-5` at effort xhigh. Deterministic checks run as scripts that leave receipts, not as model calls.",
+    "**Roles.** First implementation runs on `claude-opus-5-5` at effort xhigh, independent diff reviews at xhigh and the recheck of a fix diff at high. Fixes from written findings, merges, and PR and Linear text run on `claude-sonnet-5-5` at high. A high finding that survives the fix round gets one Opus xhigh round with `diagnosing-bugs`. No agent runs at effort `max`. Deterministic checks run as scripts that leave receipts, not as model calls.",
     "**Rare escalation.** Only a documented blocker that survives the normal loop escalates, to one of `claude-fable-5-1` at effort xhigh or `gpt-6-astra` at reasoningEffort xhigh, never both. Before dispatch, create the linked Linear escalation issue with the source issue, exact SHA, reproduction, prior attempts, bounded question, model, spend target and completion predicate. Afterwards, record the T3 task ID, findings, outcome, SHA and checks on it.",
     "**Attempts.** One written-finding fix round with a fresh recheck, at most one justified rare escalation and one transient infrastructure retry. Stop when the same failure repeats twice without a new diagnosis. Attempts count against the original issue and stage, so renaming, restarting or redispatching a task does not reset them.",
     "**Runtime.** Writing tasks get 90 minutes and reviews 30 minutes. Assess a stall after 30 minutes without meaningful progress. Declare bounded long tests and per-task deadlines in the brief, give a short checkpoint grace, cancel explicitly and keep the branch, evidence and cancellation result. A T3 wait timeout is not a runtime limit.",
     "**Spend.** The targets are build 20, review 6, written fix 8, recheck 2 and escalation 12 USD. Report actual or unknown spend and the variance. Overspend alone does not pause, cancel or escalate work.",
     "**Capacity.** At most three worker jobs and two browser jobs. PC2 is the first isolated synthetic test pool and PC1 keeps its CI role.",
     "**Checks.** Scale checks to the change. App changes keep the required gate until its hosted replacement is reviewed, and documentation or research gets proportionate checks. Mutation and perf runs are for milestone gates only. A skipped, mocked, weakened or other-revision check is not a pass.",
-    "**Merge.** One branch and worktree per writing ticket, merge commits only and serial integration on accepted upstream heads. The external reviewer `dianbrown` approves before anything merges into `dev`, and `main` changes only through the user.",
-    "**Gate.** GRS-69 stays open until the user approves the complete written plan. No hosted work is dispatched before then, and every hosted runtime, provider and acceptance check is UNRUN."
+    "**Merge.** One branch and worktree per writing ticket, cut from the wave branch `wave/<name>` its brief names (or from the upstream ticket's branch while that is unmerged). A ticket PR targets its wave branch and a wave PR targets `dev`; nothing else targets `dev`. Merge commits only and serial integration on accepted upstream heads. The external reviewer `dianbrown` reviews the wave PR, and nothing merges into `dev` before that approval. `main` changes only through the user.",
+    "**Gate.** GRS-69 stays open until the user approves the complete written plan. No hosted work is dispatched before then, and every hosted runtime, provider and acceptance check is UNRUN. The hosted gate (GRS-138) is the required check for hosted tickets once it lands.",
+    "**Waves and checkpoints.** A wave is the set of tickets under one checkpoint aggregate (GRS-27, GRS-36, GRS-137, GRS-66, GRS-32), at most seven tickets, on one branch. At a checkpoint the user reads the aggregate report and drives the verification skill once. Agents run unattended between checkpoints. See [verification and review](plan/verification-and-review.md).",
+    "**Human gate.** Running the manual processing recipe over case documents is the user's own step in a separate chat. A worker stops with `AWAITING MANUAL RESULTS`, names the submission manifest and the download path, and resumes from the import step once the user supplies the package."
   ]
 }

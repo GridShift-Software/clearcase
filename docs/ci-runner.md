@@ -118,3 +118,28 @@ Accepted and not fixed in GRS-57:
 - If guest provisioning fails while the runner is stopped for an upgrade (for example in the `tar` unpack), the runner service stays stopped. Rerun `scripts/ci/pc1-vm provision`, or start the service in the guest.
 - `wait_guest` runs a second SSH command for `cloud-init status --wait`; if that command fails with an SSH error it is reported as a cloud-init error with exit 255.
 - `nft flush ruleset` on pc1 removes the boundary table until the VM restarts, a host reboot has not been tested, and the busy check can race a job that starts just after it.
+
+## Review, 17 October 2026
+
+A read-only review at `origin/dev` `8ab9ef4` of the last 30 CI runs (12 to 15 October). Verdict: CI is already fast. The gap is independence from GitHub, not speed. Step times come from GitHub's whole-second timestamps.
+
+| Median seconds (range) | 6 runs before GRS-60 | 23 runs on GRS-60 code |
+| --- | --- | --- |
+| Queue wait | 48 (4-105) | 4 (3-75) |
+| Job | 116 (60-122) | 57 (54-88) |
+| `check` | 10 | 11 |
+| `test` | 85 | 28 |
+| Checkout, setup-bun, install-chrome, `bun install` | 1.5, 0, 4, 0 | 2, 0, 0, 0 |
+
+- Queue waits over 30 s: 5 of 29. Two were a push run and a PR run of the same SHA, which GRS-60 removed. Two were one run waiting behind another on the single runner (75 s and 42 s). One was the first run after setup.
+- No infrastructure failures. "Set up job" took 12 to 16 s on 15 October against 3 to 4 s on other days.
+- All 9 failures in the last 200 runs were `bun run --bun test` failures under the pre-GRS-57 workflow.
+
+pc1 headroom, measured 17 October 09:43 SAST after the Tailscale re-login (read-only): AMD Ryzen 7 8700F with 8 cores and 16 threads, load 0.33 over 21 days of uptime. RAM 30 GiB with 19 GiB available, swap unused. 399 GB free on the disk that holds `/var/lib/clearcase-ci`. The guest is `-smp 4 -m 8G` with `MemoryMax=11G`. `plasmalogin.service` and `cups.service` are desktop services, so pc1 is not yet a dedicated host. By the formula `min((threads - 2) / 4, (RAM - 4 GiB) / 9)` there is room for two guests at 4 vCPU and 8 GiB, or three if `memory.peak` confirms 6 GiB is enough. One 8 vCPU guest also fits.
+
+Proposals, ranked by payoff per hour:
+
+1. **GitHub-independent verdict (about 4 h).** `pc1-vm verify REV` runs the job's exact commands in the guest under `receipt` and writes a verdict. A receipt store in the guest, keyed by commit, lets `pc1-vm verdict SHA` answer for any SHA that GitHub or `verify` already ran. No new listener, no credential in the guest. It proves one bundle's SHA passed `check` and `test` in the CI VM. It does not satisfy branch protection or the external reviewer. Ticket: [GRS-139](https://linear.app/vaper/issue/GRS-139/ci-verdict-without-github-pc1-vm-verify-and-verdict-answer-pass-or).
+2. **Second guest (about 1 day).** Instance-aware `vm-host.sh` and `pc1-vm`, one guest per runner, to remove the 40 to 75 s queues when merges overlap and to keep CI up when one guest is down. It does not shorten a job. Do it after the verdict ticket. Ticket: [GRS-140](https://linear.app/vaper/issue/GRS-140/second-ci-guest-on-pc1-instance-aware-vm-scripts-and-two-jobs-at-once).
+3. **Faster single job (1 to 3 h each, 10 to 20 s of the 57 s).** An 8 vCPU guest, then `check` and `test` as parallel jobs once a second guest exists. Caching is already done. Not ticketed.
+4. **Hosted workerd gate in the same job (2 to 4 h).** The guest needs nothing new as root. `workerd` arrives through `bun install`, D1 and R2 run under Miniflare with their persist directory under `/dev/shm`, and no Cloudflare binding or token enters the job. It is an acceptance item of [GRS-138](https://linear.app/vaper/issue/GRS-138/build-the-hosted-gate-and-the-verify-clearcase-hosted-skill-before).

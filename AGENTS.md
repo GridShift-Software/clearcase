@@ -39,6 +39,6 @@ These hold in a clean clone, where the workspace `AGENTS.md` is absent.
 ## Branches and stacks
 
 - `dev` is the integration branch. `main` is release-only and changes only through the user.
-- A dependent ticket's branch is cut from its upstream ticket's accepted head, and its PR targets that branch. GitHub retargets it to `dev` when the layer below merges.
+- A ticket branch is cut from the wave branch `wave/<name>` its brief names, or from the upstream ticket's branch while that is unmerged. A ticket PR targets its wave branch. A wave PR targets `dev`, and nothing else targets `dev` directly.
 - When a lower layer changes, merge the updated upstream branch into each layer above and rerun the affected checks. `gh stack link --base dev` links the layers. `gh stack sync` and `gh stack rebase` rebase, so they are not used.
-- Nothing merges into `dev` before the external reviewer approves.
+- Nothing merges into `dev` before the external reviewer approves the wave PR.

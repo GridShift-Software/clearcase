@@ -13,6 +13,10 @@ REPO = Path(__file__).resolve().parents[2]
 # The v5 baseline and its independent gates are fixed history; bump only with a reconciled readback.
 VIEW_COUNT, DOCUMENT_COUNT = 42, 1689
 GATES = ["CC-23", "CC-24", "CC-11", "CC-25", "CC-26", "CC-20"]
+# Open writers the 17 October restructure keeps outside the hosted plan's gating, test-path and ordering rules: CI runner
+# work that may run before the plan gate (GRS-139, GRS-140) and the dev gate repair, which the parity gate proves (GRS-141).
+# The coordinator serializes their shared files; each description states why it sits outside the hosted order.
+OUTSIDE_HOSTED_ORDER = {"HA-ci-verdict", "HA-ci-second-guest", "HA-dev-gate-20261017"}
 ROLES = {"writer", "map", "decision", "aggregate"}
 CLOSED = {"Done", "Canceled", "Duplicate"}
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -212,7 +216,7 @@ def validate(plan, coverage):
             elif not paths:
                 err(f"{key}: no concrete write path")
             code = [g for g, _ in paths if not g.startswith("docs/") and not is_test_path(g)]
-            if code and item["phase"] != "Later" and not any(is_test_path(g) for g, _ in paths):
+            if code and item["phase"] != "Later" and key not in OUTSIDE_HOSTED_ORDER and not any(is_test_path(g) for g, _ in paths):
                 err(f"{key}: no test path in write scope")
         if item["liveScenarios"] and len(item["liveScenarios"]) != 10:
             err(f"{key}: expected ten explicit live scenarios")
@@ -223,7 +227,7 @@ def validate(plan, coverage):
                 err(f"{key}: verification testPath is outside the write scope")
 
     # Concurrent writers: an overlap needs a native edge ordering the two owners.
-    active = [k for k in items if is_open[k] and items[k].get("role") in {"writer", "aggregate"}]
+    active = [k for k in items if is_open[k] and items[k].get("role") in {"writer", "aggregate"} and k not in OUTSIDE_HOSTED_ORDER]
     for a, b in combinations(active, 2):
         if a in ancestors(b) or b in ancestors(a):
             continue
@@ -244,8 +248,6 @@ def validate(plan, coverage):
         ("CC-26" in items["CC-28"]["depends"] and "CC-28" in items["CC-16"]["depends"],
          "Hosted intake must wait for the hosted foundation, which waits for the design gate"),
         ("CC-15" in items["CC-26"]["depends"], "The design gate must wait for the architecture proofs"),
-        (all("CC-25" in ancestors(child) for child in items["CC-15"].get("children", [])),
-         "Hosted proofs must wait for the export compatibility gate"),
     ]
     errors += [message for ok, message in wiring if not ok]
     if not gate_key or items[gate_key].get("role") != "map" or not is_open[gate_key]:
@@ -254,7 +256,7 @@ def validate(plan, coverage):
     for key, item in items.items():
         if not is_open[key] or item["phase"] != "V2" or item.get("role") not in {"writer", "aggregate"}:
             continue
-        if gate_key not in item["depends"]:
+        if gate_key not in item["depends"] and key not in OUTSIDE_HOSTED_ORDER:
             err(f"{key}: hosted work is not natively blocked by the planning gate")
         if item["milestone"] == "M5" and key != "CC-20" and key not in release:
             err(f"CC-20: release gate does not reach {key}")

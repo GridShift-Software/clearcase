@@ -17,8 +17,6 @@ GATES = ["CC-23", "CC-24", "CC-11", "CC-25", "CC-26", "CC-20"]
 # work that may run before the plan gate (GRS-139, GRS-140) and the dev gate repair, which the parity gate proves (GRS-141).
 # The coordinator serializes their shared files; each description states why it sits outside the hosted order.
 OUTSIDE_HOSTED_ORDER = {"HA-ci-verdict", "HA-ci-second-guest", "HA-dev-gate-20261017"}
-# GRS-32 no longer reaches the thick intake owner GRS-28 after the restructure. Drop this entry when Linear restores the edge.
-OUTSIDE_RELEASE_PATH = {"CC-16"}
 ROLES = {"writer", "map", "decision", "aggregate"}
 CLOSED = {"Done", "Canceled", "Duplicate"}
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -260,7 +258,7 @@ def validate(plan, coverage):
             continue
         if gate_key not in item["depends"] and key not in OUTSIDE_HOSTED_ORDER:
             err(f"{key}: hosted work is not natively blocked by the planning gate")
-        if item["milestone"] == "M5" and key != "CC-20" and key not in release | OUTSIDE_RELEASE_PATH:
+        if item["milestone"] == "M5" and key != "CC-20" and key not in release:
             err(f"CC-20: release gate does not reach {key}")
 
     # The 32 hosted delivery owners stay bounded Backlog briefs behind the planning gate.

@@ -1,49 +1,60 @@
-# Hosted alpha agent delivery plan — proposal
+# Hosted alpha agent delivery plan
 
-Planning reference: `b93bad097fdd7b3c076d68025267c36395fc9921`.
-Updated 17 October 2026. This is a proposal under [Define the Fable and swarm delivery operating plan](https://linear.app/vaper/issue/GRS-94/define-the-fable-and-swarm-delivery-operating-plan). The [overall planning gate](https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha) remains open.
+Updated 17 October 2026. The user approved this plan on 17 October 2026 at 14:20 SAST (GRS-69 comment `45db4bdd-c268-4f6b-8658-cc2edb77bc6a`). GRS-69 and [GRS-94](https://linear.app/vaper/issue/GRS-94/define-the-fable-and-swarm-delivery-operating-plan) are Done in Linear. Approval is not runtime acceptance: every hosted implementation, runtime and provider check is UNRUN.
 
-## Model roles
+The workspace `AGENTS.md` and `ORCHESTRATOR.md` are the operative rules. The sections up to "Snapshot of the earlier proposal" are current and agree with them. The snapshot at the end is archived history. [Verification and review](verification-and-review.md) holds the verification model, and [handover](handover.md) indexes the lot for an external reviewer.
 
-The user explicitly wants Claude Fable and GPT Astra as rare escalators. Fable is a model, not a separate product to install. The live T3 catalog lists both targets below and allows their provider instances to run child tasks. Catalog presence does not prove a completed dispatch or establish comparative cost/performance.
+## Current state
 
-| Role | Proposed target | Source and treatment |
-| --- | --- | --- |
-| Feature implementation and normal swarm workers | `claudeAgent/claude-opus-5-5`, `effort=xhigh` | The user-selected large/xhigh preset supersedes the earlier high-effort default. Keep routine work in this lane. |
-| Independent diff review and fix recheck | `claudeAgent/claude-opus-5-5`, `effort=xhigh` | Fresh reviewer session at the declared revision; retain the existing one-reviewer process. |
-| Routine corrections from written findings | `claudeAgent/claude-sonnet-5-5`, `effort=xhigh` | Written-finding fixes retain Sonnet, using the selected xhigh preset; one bounded fix round. |
-| Rare escalation | One of `claudeAgent/claude-fable-5-1`, `effort=xhigh`, or `codex/gpt-6-astra`, `reasoningEffort=xhigh` | Rare use is user-approved. The particular trigger, model selection and bounded scope are recorded before launch. Do not automatically fan out both. Proposed reasoning level follows the existing escalation preference. |
-| Deterministic checks and measurements | Scripts and the real test harness | No model call is needed merely to run a check. Preserve receipts. |
+- The dev gate at `8ab9ef4` is FAIL at strict parity (two demo-merge subtitles). App code is unchanged at `525aa8a`. The repair is GRS-141 (with GRS-143 and GRS-142) on `wave/preflight-parity`, the recorded exception to needing a green base.
+- Cloudflare account, domain and provider work is pinned until the user unpins it (GRS-26 decision `d6367d1a`). Local proof legs may run. Any leg that needs a real provider, a Paid plan or a credential is HOLD, never a mock PASS. Once unpinned, the ceiling is USD 25 a month with an alert at USD 10. GRS-105 (PC2) is no-go.
+- GRS-24 no longer gates the proof tickets GRS-106 to GRS-111. It still gates GRS-26 and so the design gate GRS-27.
+
+## Models and effort
+
+Set model and effort explicitly on every launch, including subagents. Nothing inherits the orchestrator's settings. Never effort `max`.
+
+| Role | Model | Effort | Target USD |
+| --- | --- | --- | --- |
+| Orchestrator (T3 thread) | `claude-opus-5-5` | high | none |
+| First implementation of a ticket | `claude-opus-5-5` | xhigh | 20 |
+| Diff review | `claude-opus-5-5` | xhigh | 6 |
+| Recheck of a fix round's diff | `claude-opus-5-5` | high | 2 |
+| Fix round from a written defect list; merges; PR and Linear text | `claude-sonnet-5-5` | high | 8 |
+| A high that survived the fix round | `claude-opus-5-5` with `diagnosing-bugs` | xhigh | 12 |
+| Rare escalation, only with a linked Linear escalation issue | `claude-fable-5-1`, or `gpt-6-astra` by explicit per-task choice | xhigh | 12 |
+| Research and decision sessions with the user | `claude-opus-5-5` | high | 6 |
+| Running checks, reading logs | a script | none | 0 |
+
+Targets are reporting only. Overspend never pauses or cancels work by itself. Attempts are bounded instead: one fix round, one recheck, one escalation and one transient infrastructure retry. The same failure twice without a new diagnosis stops the unit. The T3 task API has no spend cap, and the prepared headless resume scripts carry `--max-budget-usd` caps from the M2 run that are not policy.
+
+Not used: the `swarm`, `arena`, `interrogate` and `reflect` skills, verification lanes, adversarial swarms, critic panels, brief drafters and the Workflow tool. At most three workers and two browser jobs at once is capacity, not permission to fan out. Codex is allowed only as `gpt-6-astra`, the recorded rare escalator.
+
+### The one current pstack sheet
+
+The sheet written on 17 October at `~/.config/t3-pstack/models.md` is the one current sheet. `.orchestration/pstack-models.md` is its copy in the coordination folder (ignored by Git) and is quoted under "Pstack sheet as written" below. It sets budget large (xhigh) and session hook on. Its panel rows (arena, architect, interrogate, reflect, swarm) serve other projects and are not authority to run panels here. Launch settings in the table above override any sheet row. Any earlier candidate sheet, including the block in the archived snapshot, is superseded.
+
+### Escalation rule
 
 Accepted escalation rule: first use the normal build/review/written-fix/recheck process. Escalate a remaining substantive blocker or a clearly documented technical impasse with the exact failure, attempted fixes, evidence and a bounded question. Before dispatch, create a linked Linear escalation issue recording the source issue, exact SHA, reproduction, prior attempts, evidence, bounded question, selected model/effort, spend target and completion predicate. Choose one escalator and add its T3 task ID to that issue. After the attempt, update the same issue with findings, outcome, resulting SHA and checks. Keep the source blocked if unresolved; after one bounded escalation, return the unresolved blocker or design decision to the user. Do not create an escalation issue or dispatch a model when no blocker exists. Missing access, unavailable infrastructure and simple editorial corrections do not by themselves justify an expensive escalation.
 
 The user permits Astra in this rare role despite the older blanket workspace ban on Codex. This is a scoped exception; it does not enable all Codex roles or recurring model panels. Keep the existing restriction on `max` and unrequested modes.
 
-## Pstack configuration handoff
+## Work loop and controls
 
-- The canonical plugin is t3-pstack `2.0.0-rc.7` (installed when this snapshot was updated). Do not reinstall its upstream skill mirror.
-- The canonical machine model sheet is currently absent. The Codex and Claude legacy sheets match and contain Fable defaults for all bug-fix/performance/hillclimb work, plus the retired `strongest judgment` role.
-- That broad Fable routing conflicts with rare escalation. The proposed sheet routes routine bug/performance work to Opus and renames `strongest judgment` to `hardest tasks`.
-- The sheet has one `hardest tasks` target. Keep a single default there; the coordinator selects the other approved escalator through an explicit per-task T3 target when appropriate. Do not invent unsupported role keys or a scalar role containing a list.
-- Before writing a sheet, review every role and the reasoning budget, validate all entries against a fresh T3 catalog, and account for machine-wide effects on other projects. Preserve unrelated global settings deliberately.
-- Existing panel rows are not authority to run panels in this project. Swarm permission covers the agreed bounded workload shape, not automatic races or critic panels.
-- The user selected `large - xhigh reasoning` and session hook on (decision comment `68ef42c3-ac86-4a1c-b7f6-ef908922859e`). The complete candidate validates against the live catalog; full role-sheet confirmation remains before the machine-wide write. No model sheet, session hook or live agent configuration has changed during this planning stage.
+1. Pick a native Linear issue whose blockers are accepted. The coordinator pins its upstream base, scope, reserved paths, acceptance and test recipe in a one-page brief; workers do not draft briefs for other workers.
+2. Use one `feature/<linear-id>-<slug>` branch and worktree per writing ticket, cut from the wave branch its brief names. A dependent ticket's branch may be cut from its upstream ticket's branch for ancestry, but its PR still targets the wave branch. For T3 children, request `isolation: worktree` and check the actual checkout and base before any writes.
+3. Build once, run the checks scaled to the change, then obtain one fresh internal diff review. App changes run `bun run --bun gate`; a hosted ticket also runs `gate:hosted` once it exists; documentation and research get `check` and `test` plus `check-plan`.
+4. Apply one bounded written-finding fix round on Sonnet and obtain a fresh recheck of that fix diff. Highs and mediums are fixed; lows become a Linear follow-up. A high that survives gets one Opus xhigh round with `diagnosing-bugs`. Use the rare escalator only for a justified remaining blocker.
+5. A required check that is skipped, mocked at its boundary, weakened or run at a different revision is not a pass. Code that authors gate or acceptance verification is independently reviewed (CC-20); an author cannot approve their own final acceptance suite.
+6. Leak-scan and push only the reviewed revision. The ticket PR targets its wave branch and the orchestrator merges it (merge commit) when the fresh recheck approves and the gate is green at the head. Only a wave PR targets `dev`, and `dianbrown` reviews the wave PR. Never rebase, force-push or touch `main`.
+7. After an upstream change, merge it into dependent branches and rerun affected checks. A worktree isolates files; it is not a security boundary.
 
-## Proposed work loop and controls
-
-1. Pick a native Linear issue whose blockers are accepted. Pin its actual upstream base, scope, reserved paths, acceptance and test recipe. The coordinator writes the brief; workers do not draft briefs for other workers.
-2. Use one branch and worktree per writing ticket. For T3 children, request `isolation: worktree`; check the actual checkout/base before any writes. Stay in that checkout. Do not use a prompt's `cd` instruction to substitute for T3 workspace binding.
-3. Build once, run the appropriate deterministic checks, then obtain one fresh independent diff review. App changes retain the required gate until its hosted replacement is reviewed. Documentation and source research receive proportionate checks rather than an irrelevant app gate.
-4. Apply one bounded written-finding fix round on Sonnet and obtain a fresh recheck of that fix diff. Use the rare escalation lane only for a justified remaining blocker. Record low findings as follow-ups rather than widening every review.
-5. Preserve tests and acceptance boundaries. A required check that is skipped, mocked at its boundary, weakened, or run at a different revision is not a pass. An author cannot independently approve their own final acceptance suite/verdict.
-6. Leak-scan and push only the reviewed revision, open/link the PR, and retain the existing external-review requirement before merging into `dev`. Use merge commits, accepted upstream heads and serial integration; never rebase, force-push or merge `main`.
-7. After an upstream change, merge it into dependent branches and rerun affected checks. Integrate one ready layer at a time and record exact revision/evidence handoffs. A worktree isolates files; it is not a security boundary.
-
-Accepted initial limits: at most three worker jobs in total and two browser jobs, preserving current limits until measurement justifies more. Use PC2 as the first isolated test pool and preserve PC1's current CI role. KVM access and spare RAM are capacity inputs, not VM boot, isolation or concurrency proofs. Provisioning, allocations and job cleanup/reset behavior need their own bounded work.
+Accepted limits: at most three worker jobs in total and two browser jobs. This is capacity, not fan-out permission. PC1 keeps its CI role; PC2 (GRS-105) is no-go. KVM access and spare RAM are capacity inputs, not VM boot, isolation or concurrency proofs. Provisioning, allocations and job cleanup/reset behavior need their own bounded work.
 
 Shared agent/test pools use synthetic data and have no production/account tokens. Keep trusted deployment credentials outside those pools and outside app builds. Use reviewed target manifests/configuration for credentialed steps; the cf/Void research proofs still apply. A local pass does not substitute for real hosted isolation, storage, provider or recovery acceptance.
 
-Existing USD targets are build 20, review 6, written fix 8, recheck 2 and escalation 12. The user chose reporting only: exceeding a target does not automatically pause, cancel or escalate work. Report actual/unknown spend and variance. These are not a T3-enforced cap; the older headless runner can enforce some spend limits, but the T3 task API does not. Bound repeated attempts and excessive runtime independently of spending using the accepted controls below. A delegate_task wait timeout is not a child runtime limit; explicit task cancellation or a proven runner deadline is required. Keep briefs to one page, reports under 40 lines and one fresh session per stage.
+Existing USD targets are build 20, review 6, written fix 8, recheck 2 and escalation 12. The user chose reporting only: exceeding a target does not automatically pause, cancel or escalate work. Report actual/unknown spend and variance. These are not a T3-enforced cap; the historical headless runner could enforce caps for the finished M2 sessions, but those are not policy and the T3 task API has none. Bound repeated attempts and excessive runtime independently of spending using the accepted controls below. A delegate_task wait timeout is not a child runtime limit; explicit task cancellation or a proven runner deadline is required. Keep briefs to one page, reports under 40 lines and one fresh session per stage.
 
 ## Accepted retry and runtime controls
 
@@ -53,9 +64,45 @@ Existing USD targets are build 20, review 6, written fix 8, recheck 2 and escala
 - Give a short checkpoint grace period, then explicitly cancel an overlong/stalled job. Retain its branch/diff, completed checks, failure evidence and cancellation result; clean up only that job's processes/resources. Do not mark interrupted verification as PASS or automatically respawn the same failing job.
 - These are agent-run limits, not application restrictions. The tooling/test-pool owners must prove deadline/cancellation failure paths; this planning record does not install a watchdog. A T3 wait timeout alone is not runtime enforcement.
 
+## Waves and checkpoints
+
+A wave is a set of tickets on one branch `wave/<name>`, at most seven writers, reviewed together in one wave PR into `dev`. The checkpoint ticket is reviewed with its wave PR. Coordinator-owned membership, 17 October 2026:
+
+| Wave branch | Tickets | Checkpoint |
+| --- | --- | --- |
+| `wave/preflight-parity` | GRS-141, GRS-143, GRS-142 (in flight) | none |
+| `wave/compat` | GRS-22, GRS-24, GRS-48, GRS-49, GRS-61, GRS-68 | none |
+| `wave/tooling` | GRS-104, GRS-139, GRS-140, GRS-144, GRS-145 | none |
+| `wave/proofs` | GRS-106 to GRS-111 and GRS-97 | GRS-27 |
+| `wave/foundation-bootstrap` | GRS-112, GRS-138 | none |
+| `wave/foundation` | GRS-113 to GRS-118 | GRS-36 |
+| `wave/first-workflow` | GRS-137 and GRS-120 | GRS-137 |
+| `wave/widen-1` | GRS-28, GRS-135, GRS-29, GRS-30, GRS-130, GRS-31, GRS-129 | none |
+| `wave/widen-2` | GRS-121, GRS-122, GRS-123, GRS-131, GRS-132, GRS-133, GRS-134 | none |
+| `wave/widen-3` | GRS-119, GRS-124 to GRS-128 | GRS-66 |
+| `wave/release` | GRS-32 | GRS-32 |
+
+At each checkpoint the user reads the aggregate report and drives the verification skill once. Agents run unattended between checkpoints and stop, with `status.md` written, when only checkpoint-blocked work remains. When the aggregate is accepted, the orchestrator opens one PR from the wave branch into `dev` and requests `dianbrown`. His findings get one fix round per owner on the wave branch, then he is re-requested. The wave merges into `dev` when his latest review on the wave head approves. A scheduled task at 08:30 SAST on weekdays posts one Linear project status update; it is the only routine human notification.
+
+## The first workflow and the human gate
+
+[GRS-137](https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view) is the tracer bullet. It runs directly after GRS-36 and [GRS-138](https://linear.app/vaper/issue/GRS-138/build-the-hosted-gate-and-the-verify-clearcase-hosted-skill-before) and before the thick intake, queue, download, import, editing and publication owners (GRS-28, GRS-135, GRS-29, GRS-30, GRS-130, GRS-31). It builds the minimal version of each stage itself and proves one small synthetic PDF case, not a POC-scale case. The thick owners then take over their stages from its accepted head, and GRS-131 to GRS-134 follow it. A PDF-only first case does not permit missing required sections, missing required previews or unsafe publication.
+
+The processing recipe, which is the prompts run over case documents, is never run by an agent. A worker stops with `AWAITING MANUAL RESULTS`, names the submission manifest and the download path in its report, and lets the user run the recipe in their own chat. A fresh session resumes from the import step once the user names the package path. This applies to GRS-137, GRS-29 and the release gate GRS-32 alike.
+
+GRS-138 builds `gate:hosted` and the `verify-clearcase-hosted` skill before the foundation fan-out. Its first version runs against the identity, storage and user-work stubs and the synthetic case fixture that GRS-112 lands. GRS-113 and GRS-115 then extend the skill's feature map to the real boundaries, and every summary names each boundary as real or a double. A summary that names a test double for a boundary is not evidence for that boundary. Real Clerk, D1, R2 and email evidence comes only from the proof tickets and the release gate, and only once Cloudflare is unpinned.
+
+## Test protection and approval in code
+
+A fix diff that deletes, skips, loosens or renames a test named in the findings fails its recheck, so the fix writes the failing test first and the sequence reads red then green. [GRS-104](https://linear.app/vaper/issue/GRS-104/align-agent-tooling-with-the-canonical-pstack-plugin-and-delivery) turns this into a deterministic guard in the receipt tooling and in CI, and adds a review-verdict record. A ledger row is `approved` only when the fresh reviewer's report has no high or medium finding and the deterministic checks passed at the same SHA. For the approval record a review's high and medium findings map to P0 and P1 and its lows to P2, so a row with no P0 or P1 finding is exactly a row with no high or medium.
+
+## Codebase discovery
+
+Workers do not re-derive the architecture. In order: `docs/development.md` and `GLOSSARY.md`; the ticket's generated brief under `docs/plan/tickets/`, the Linear issue and the upstream report; the ADRs for the area and `docs/results-package.md` for the package or import; then `graphify-out/` when it exists. Every file or content search in the repository uses the `fff` MCP tools. Whole files are read only when the worker will edit them. What a worker learns that the map lacks goes into a `Map notes` section of its report, at most 10 lines, and the orchestrator folds accepted notes into `docs/development.md` at the wave boundary.
+
 ## Concrete delivery owners
 
-Thirty-two concrete Backlog issues have been created from the live graph, and the answers to [Stress-test the complete hosted-alpha plan with final workflow scenarios](https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow) on 17 October add a thirty-third, GRS-137. They carry bounded scope, acceptance, evidence recipes and native prerequisites. All hosted work remains behind the overall planning gate; no implementation is dispatched. Exact paths and accepted upstream SHA are pinned again at pickup.
+The plan snapshot holds 76 items, of which 34 are hosted delivery owners and 17 are accepted historical work. The 17 October morning readback (08:20Z) captured 114 project issues, 63 of them open; the 14:27Z capture holds 115 issues and records the approval. The owners carry bounded scope, acceptance, evidence recipes and native prerequisites. Exact paths and the accepted upstream SHA are pinned again at pickup. The table lists the initial scope of each delivery owner.
 
 | Delivery owner | Initial scope |
 | --- | --- |
@@ -93,100 +140,19 @@ Thirty-two concrete Backlog issues have been created from the live graph, and th
 | [Implement the internal FIFO processing queue and audited operator claims](https://linear.app/vaper/issue/GRS-135/implement-the-internal-fifo-processing-queue-and-audited-operator) | src/lib/processing-queue/**; src/routes/admin/queue/** |
 | [Prove the first complete hosted PDF case workflow before broad view migration](https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view) | tests/hosted-smoke/**; scripts/verify/hosted-smoke.mjs; docs/acceptance/hosted-smoke.md; src/routes/v/[vid]/overview/** for a minimal read path until the GRS-131 handoff |
 
-The first complete workflow (planning key `HA-first-workflow`) proves one small synthetic PDF case end to end before the broad view migration: hosted submission, operator claim and download, the actual manual recipe, private import, editing and fresh approval, publication, and the client's overview with an original opening. It follows the existing chain GRS-28 → GRS-135 and GRS-29 → GRS-30 → GRS-130 → GRS-31. The coordinator replaces only GRS-30's GRS-123 prerequisite with GRS-120 and makes GRS-137 a prerequisite of GRS-131 to GRS-134. Every other prerequisite, the security owners and the full-format release gate GRS-32 stay intact. A PDF-only first case does not permit missing required sections, missing required previews or unsafe publication.
+The production-integration aggregate remains open until its alpha delivery owners and integrated route coverage are accepted; later mailbox scope is tracked separately. Native dependencies and serial path handoffs are recorded on the tickets. Check the live graph before dispatch: parent aggregates depend on their children without a reverse dependency.
 
-The production-integration aggregate now remains open until its alpha delivery owners and integrated route coverage are accepted; later mailbox scope is tracked separately. Native dependencies and serial path handoffs are recorded on the tickets. Check the live DAG before dispatch; parent aggregates must depend on their children without a reverse child dependency on that parent. Reconcile the JSON plan/view coverage, product brief, route map, operating docs and ADR drafts against the same live issue graph before requesting overall plan approval.
+The source-only ownership check at the planning reference found 46 shared `app()` callers, synchronous results APIs, local filesystem import/rescan and absolute-path backup restore assumptions. Hosted storage owns the async seam before caller fan-out. Recovery must reject forged server paths and unscoped table restore and export; this is not a claim about current production. Hosted Rescan & Update uses the same upload, queue, private-review and publication flow for editor additions and replacements, and current publication and user work stay intact.
 
-## Decisions, consolidation and approvals
+## Decisions and approvals
 
-- Bounded escalation and initial worker/test-pool roles are accepted (Linear decision comment `410c1a45-c3d6-4359-acb4-bc5281a69201`). Spend reporting-only and the shared Rescan & Update flow are accepted in decision comment `045279af-b2f6-4867-b17f-c9017593cae3`; Retry/runtime limits are now accepted: writing 90 minutes, review 30 minutes, stall assessment at 30 minutes, with bounded retry counts. Prove cancellation/checkpoint behavior before unattended execution.
-- The 17 October readback captures 110 project issues and all 62 open issue descriptions/relations. All 33 hosted delivery owners are Backlog and blocked by the planning gate. Dependency-cycle and snapshot consistency checks are required on the revised candidate before publication; no new PASS is claimed here. The JSON work-item/ticket snapshot and all 42 hosted-view owners are synchronized. The product brief, route map, glossary, accepted ADR 0007 to 0011 and the alpha acceptance baseline are consolidated on this branch (commits `3781573` and `4b9e93d`). That is documentation of the accepted decisions, not runtime acceptance: every hosted proof is UNRUN. Four caller groups cover 16 evidence/analysis, 12 quantum/register, 10 litigation/bundle and two system views; Notes and backup/export each have a dedicated owner.
-- The final workflow-scenario answers of GRS-136 are accepted (decision comment `f9705162-0911-492f-8684-4db568edefa7`, 17 October): the primary lawyer journeys with all 42 views and the current processing prompts; the first complete workflow GRS-137; retrievable originals before publication; requested supplements linked to the same processing job; and cases that exist without a publication. ADR-0009 to ADR-0011, the glossary, product brief and acceptance baseline record them. The coordinator has applied its native edges and synchronized the 73-item JSON snapshot and generated briefs. The early workflow owns the minimal overview until the explicit broad-migration handoff. Live Linear must be read again at dispatch.
-- Reconcile the obsolete workspace bans/runtime instructions with the accepted hosted stack, controlled swarm request and rare Fable/Astra roles. Prepare the exact changes before updating active instructions.
-- The prior planning-tool repair received an independent PASS at 8d617c13; this final-alignment revision still requires its own proportional checks and independent review. Still required before GRS-69 closes: confirmation of the full pstack role sheet below, after which the coordinator writes the machine-wide sheet and hook (the large/xhigh preset and hook on are already chosen, and nothing has been written); and the user's approval of the complete written plan. Hosted implementation remains gated by GRS-69 until then.
-- Planning-tool limits, recorded as follow-ups: the readback file is coordinator-supplied and unauthenticated, so `--linear-relations` shows agreement with that file, not that it is live; a reserved test path names where a test lives, not that a runner collects it; the legacy ten-lane plan-format template is obsolete and its check is SKIPPED (GRS-104), so `check-plan` is not a PASS overall; and 11 open tickets still carry the older "high effort" wording that the coordinator normalizes at pickup.
+- Bounded escalation and the initial worker roles are accepted (Linear decision comment `410c1a45-c3d6-4359-acb4-bc5281a69201`). Spend reporting-only and the shared Rescan & Update flow are accepted in `045279af-b2f6-4867-b17f-c9017593cae3`. Retry and runtime limits: writing 90 minutes, review 30 minutes, stall assessment at 30 minutes, with bounded retry counts.
+- The final workflow-scenario answers of GRS-136 are accepted (decision comment `f9705162-0911-492f-8684-4db568edefa7`): the primary lawyer journeys with all 42 views and the current processing prompts; the first complete workflow GRS-137; retrievable originals before publication; requested supplements linked to the same processing job; and cases that exist without a publication.
+- The large/xhigh preset and session hook on were chosen (decision comment `68ef42c3-ac86-4a1c-b7f6-ef908922859e`) and the sheet was written on 17 October.
+- The user approved the complete written plan on 17 October at 14:20 SAST. Runtime acceptance is UNRUN.
+- Planning-tool limits, recorded as follow-ups: the readback file is coordinator-supplied and unauthenticated, so `--linear-relations` shows agreement with that file, not that it is live; a reserved test path names where a test lives, not that a runner collects it; the legacy ten-lane plan-format template is obsolete and its check is SKIPPED (GRS-104), so `check-plan` is not a PASS overall. Eleven open tickets still carry the older "every Opus agent uses high" boundary wording in their Linear text; the workspace `AGENTS.md` table overrides it, and the next readback refresh normalizes it.
 
-
-The source-only ownership check at the planning reference found 46 shared `app()` callers, synchronous results APIs, local filesystem import/rescan and absolute-path backup restore assumptions. Hosted storage owns the async seam before caller fan-out. Recovery must reject forged server paths and unscoped table restore/export; this is not a claim about current production. The check did not execute hosted workflows. Hosted Rescan & Update now uses the same upload/queue/private-review/publication flow for editor additions/replacements; current publication and user work stay intact. Spend is reporting only. Retry/runtime limits are settled, the large/xhigh preset and hook-on choice are made and the document consolidation is done; the final-alignment revision checks/review, the full-sheet confirmation and the GRS-69 approval remain. Spend-triggered pauses are not part of the policy.
-
-## Proposed complete pstack role sheet
-
-Routine bug/performance/hillclimb work moves from Fable to Opus. Rename `strongest judgment` to `hardest tasks`; its default is Fable, used only after the escalation issue exists. Astra xhigh is the explicit alternative per task. Sonnet xhigh written-finding fixes use explicit coordinator launches because the sheet has no dedicated written-fix role. Existing panel targets are retained for other workflows; ClearCase panels remain unauthorized. No other retired or invalid rows were found.
-
-```text
-# pstack model configuration (T3). One line per role.
-# budget: large (xhigh)
-# ClearCase permits bounded partitioned swarm work; panel rows below do not authorize panels here.
-feature, refactoring: claudeAgent/claude-opus-5-5 effort=xhigh
-bug-fix: claudeAgent/claude-opus-5-5 effort=xhigh
-perf-issue: claudeAgent/claude-opus-5-5 effort=xhigh
-hillclimb: claudeAgent/claude-opus-5-5 effort=xhigh
-judgment and prose: claudeAgent/claude-opus-5-5 effort=xhigh
-hardest tasks: claudeAgent/claude-fable-5-1 effort=xhigh
-how explorer: claudeAgent/claude-opus-5-5 effort=xhigh
-how explainer: claudeAgent/claude-opus-5-5 effort=xhigh
-why investigators: claudeAgent/claude-opus-5-5 effort=xhigh
-why synthesizer: claudeAgent/claude-opus-5-5 effort=xhigh
-reflect tooling: claudeAgent/claude-opus-5-5 effort=xhigh
-reflect judgment, divergent, synthesizer: claudeAgent/claude-opus-5-5 effort=xhigh
-arena runners: claudeAgent/claude-opus-5-5 effort=xhigh, codex/gpt-6.1-sol reasoningEffort=xhigh
-arena cross-judge pool: claudeAgent/claude-opus-5-5 effort=xhigh, codex/gpt-6.1-sol reasoningEffort=xhigh
-swarm workers: claudeAgent/claude-opus-5-5 effort=xhigh
-architect runners: claudeAgent/claude-opus-5-5 effort=xhigh, codex/gpt-6.1-sol reasoningEffort=xhigh
-interrogate reviewers: claudeAgent/claude-opus-5-5 effort=xhigh, codex/gpt-6.1-sol reasoningEffort=xhigh
-session hook: on
-```
-
-## 17 October operating changes
-
-Recorded 17 October 2026. The workspace `AGENTS.md` and `ORCHESTRATOR.md` are the operative copies and override this section where they differ. This section records them in the repository so a reader of `dev` sees the rules the run will follow. Where it conflicts with the text above, including the role table and the pstack block, this section wins. The pyramid and the wave review model are explained in [verification and review](verification-and-review.md).
-
-### Waves, checkpoints and ticket PRs
-
-- One `feature/<linear-id>-<slug>` branch per ticket, each in its own worktree. A ticket branch is cut from the wave branch its brief names, or from the upstream ticket's branch while that is unmerged.
-- A ticket PR targets its wave branch `wave/<name>`. The wave branch's PR targets `dev`. Nothing targets `dev` directly except a wave branch. Merge commits only; never rebase, force-push or touch `main`.
-- The orchestrator merges a ticket PR into the wave branch when the fresh recheck approves and the gate is green at the head. No external review happens at this level.
-- A wave is the set of tickets under one `checkpoint` aggregate, at most seven tickets, on one branch: `wave/proofs` for [GRS-26](https://linear.app/vaper/issue/GRS-26/prove-the-hosted-architecture-and-cloudflare-deployment) and [GRS-97](https://linear.app/vaper/issue/GRS-97/evaluate-viewer-components-and-freeze-alpha-file-coverage), `wave/foundation` for [GRS-36](https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work), `wave/first-workflow` for [GRS-137](https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view), `wave/widen` for [GRS-66](https://linear.app/vaper/issue/GRS-66/accept-hosted-production-integrations-and-page-coverage) and `wave/release` for [GRS-32](https://linear.app/vaper/issue/GRS-32/verify-hosted-isolation-recovery-and-release-readiness).
-- The five checkpoints are [GRS-27](https://linear.app/vaper/issue/GRS-27/gate-the-hosted-design-before-client-intake-implementation), [GRS-36](https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work), [GRS-137](https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view), [GRS-66](https://linear.app/vaper/issue/GRS-66/accept-hosted-production-integrations-and-page-coverage) and [GRS-32](https://linear.app/vaper/issue/GRS-32/verify-hosted-isolation-recovery-and-release-readiness). At each, the user reads the aggregate report and drives the verification skill once. Agents run unattended between checkpoints and stop, with `status.md` written, when only checkpoint-blocked work remains.
-- When the aggregate is accepted, the orchestrator opens one PR from the wave branch into `dev` and requests `dianbrown`. His findings get one fix round per owner on the wave branch, then he is re-requested. The wave merges into `dev` when his latest review on the wave head approves.
-
-### Morning update
-
-A scheduled task at 08:30 SAST on weekdays posts one Linear project status update: wave PRs awaiting the external reviewer, checkpoints and human gates awaiting the user, blocked or stalled units, and spend to date. It is the only routine human notification. A stop line is the only exception.
-
-### Human gate for manual processing
-
-The processing recipe, which is the prompts run over case documents, is never run by an agent. A worker stops with `AWAITING MANUAL RESULTS`, names the submission manifest and the download path in its report, and lets the user run the recipe in their own chat. A fresh session resumes from the import step once the user names the package path. This applies to [GRS-137](https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view) and [GRS-29](https://linear.app/vaper/issue/GRS-29/notify-operators-and-download-a-complete-submission).
-
-### Hosted gate as the pilot unit
-
-[GRS-138](https://linear.app/vaper/issue/GRS-138/build-the-hosted-gate-and-the-verify-clearcase-hosted-skill-before) builds `gate:hosted` and the `verify-clearcase-hosted` skill before the foundation fan-out. Once it lands, `bun run --bun gate:hosted` is the required check for any ticket touching hosted paths. It is also the pilot unit for the hosted brief template. A summary that names a test double for a boundary is not evidence for that boundary. Real Clerk, D1, R2 and email evidence comes only from the proof tickets and the release gate.
-
-### Test protection and approval in code
-
-A fix diff that deletes, skips, loosens or renames a test named in the findings fails its recheck, so the fix writes the failing test first and the sequence reads red then green. [GRS-104](https://linear.app/vaper/issue/GRS-104/align-agent-tooling-with-the-canonical-pstack-plugin-and-delivery) turns this into a deterministic guard in the receipt tooling and in CI, and adds a review-verdict record: a ledger row is `approved` only when the fresh reviewer's report has no P0 or P1 finding and the deterministic checks passed at the same SHA.
-
-### Codebase discovery
-
-Workers do not re-derive the architecture. In order: `docs/development.md` and `GLOSSARY.md`; the ticket's generated brief under `docs/plan/tickets/`, the Linear issue and the upstream report; the ADRs for the area and `docs/results-package.md` for the package or import; then `graphify-out/` when it exists. Every file or content search in the repository uses the `fff` MCP tools (`ffgrep`, `fffind`, `fff-multi-grep`). Whole files are read only when the worker will edit them. What a worker learns that the map lacks goes into a `Map notes` section of its report, at most 10 lines. The orchestrator folds accepted notes into `docs/development.md` at the wave boundary.
-
-### Models and effort
-
-| Role | Model | Effort | Target USD |
-| --- | --- | --- | --- |
-| Orchestrator (T3 thread) | `claude-opus-5-5` | high | none |
-| First implementation of a ticket | `claude-opus-5-5` | xhigh | 20 |
-| Diff review | `claude-opus-5-5` | xhigh | 6 |
-| Recheck of a fix round's diff | `claude-opus-5-5` | high | 2 |
-| Fix round from a written defect list; merges; PR and Linear text | `claude-sonnet-5-5` | high | 8 |
-| A high that survived the fix round | `claude-opus-5-5` with `diagnosing-bugs` | xhigh | 12 |
-| Rare escalation, only with a linked Linear escalation issue | `claude-fable-5-1`, or `gpt-6-astra` by explicit per-task choice | xhigh | 12 |
-| Research and decision sessions with the user | `claude-opus-5-5` | high | 6 |
-| Running checks, reading logs | a script | none | 0 |
-
-Targets are reporting only. Overspend never pauses or cancels work by itself. Attempts are bounded instead: one fix round, one recheck, one escalation and one transient infrastructure retry. The same failure twice without a new diagnosis stops the unit. Model and effort are set explicitly on every launch, and never effort `max`. Verification lanes, adversarial swarms, critic panels, brief drafters and the Workflow tool are not used.
-
-### Pstack sheet as written
+## Pstack sheet as written
 
 The sheet at `~/.config/t3-pstack/models.md` was written on 17 October with budget large (xhigh). Its own comment reads: "ClearCase: routine work is Opus, written-finding fixes are Sonnet (set in the brief), Fable only after a linked escalation issue. Panel rows serve other projects; ClearCase does not run panels." The role lines:
 
@@ -211,4 +177,15 @@ interrogate reviewers: claudeAgent/claude-opus-5-5 effort=xhigh, codex/gpt-6.1-s
 session hook: on
 ```
 
-The arena, architect, interrogate, reflect and swarm rows serve other projects. The workspace `AGENTS.md` does not allow those skills here and allows Codex only as `gpt-6-astra`, the recorded rare escalator.
+The arena, architect, interrogate, reflect and swarm rows serve other projects. The workspace `AGENTS.md` does not allow those skills here.
+
+## Snapshot of the earlier proposal (superseded, kept as history)
+
+Archived 17 October 2026. Everything in this section is the pre-approval proposal as it stood on the morning of 17 October. It is superseded by the sections above and by the sheet as written. It is kept only so a reader can see what was proposed and changed.
+
+- The proposal listed a role table that set implementation, review, recheck and written fixes all to xhigh, and a rare-escalation row with Fable or Astra. The table above replaces it.
+- The proposal said the canonical machine model sheet was absent and proposed a sheet with every Opus role at xhigh and the comment "ClearCase permits bounded partitioned swarm work". The sheet as written has mixed high and xhigh roles, and swarm work is not permitted. The proposed block is not reproduced here.
+- The proposal assumed the user permitted Astra "despite the older blanket workspace ban on Codex" as a scoped exception. The exception stands: `gpt-6-astra` as the recorded rare escalator, plus scoped per-task user authorizations such as the 17 October Codex design and review jobs, which do not enable routine Codex work.
+- The proposal asked for external review of every PR before it merged into `dev`. The wave rule above replaces it.
+- The proposal said hosted work waited for the planning gate and counted 32 owners, then 33, in a 73-item snapshot over 110 project issues. The snapshot now holds 76 items and 34 hosted owners.
+- It chained the first workflow after the thick owners (GRS-28 to GRS-135 to GRS-29 to GRS-30 to GRS-130 to GRS-31, then GRS-137). The graph now runs GRS-137 first.

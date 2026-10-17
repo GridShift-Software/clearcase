@@ -1,6 +1,6 @@
 # Migrate the app build and shared server entry points to Workers
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-112/migrate-the-app-build-and-shared-server-entry-points-to-workers) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-112/migrate-the-app-build-and-shared-server-entry-points-to-workers) is the execution authority.
 
 Planning key `HA-framework`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 
@@ -58,3 +58,10 @@ Planning creates this issue; it does not dispatch it. RAWS/current production ar
 * [Align agent tooling with the canonical pstack plugin and delivery controls](<https://linear.app/vaper/issue/GRS-104/align-agent-tooling-with-the-canonical-pstack-plugin-and-delivery>)
 
 Concrete verification reservation: tests/hosted-foundation/runtime/\*\* owns the workerd request/render/action smoke tests and the negative hosted-import-boundary test. Use this path in the dispatch brief; no other foundation owner writes it.
+
+## Final workflow alignment — 17 October 2026
+
+Accepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.
+
+- [ ] Reserve src/lib/components/ResultsState.svelte as the small shared visual for pending or unavailable published results, consumed by the case owner and result-dependent view owners. Show a meaningful safe status/reason and relevant next action without fake results or private-candidate data. Preserve the current navigation; no separate navigation redesign is required.
+- [ ] Keep the shell usable through stable case identity when no publication/resultsVersion exists. Do not make independent user-work access depend on an active result version.

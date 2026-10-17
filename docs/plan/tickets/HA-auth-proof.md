@@ -1,6 +1,6 @@
 # Prove Clerk sessions and explicit case authorization on Workers
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-108/prove-clerk-sessions-and-explicit-case-authorization-on-workers) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-108/prove-clerk-sessions-and-explicit-case-authorization-on-workers) is the execution authority.
 
 Planning key `HA-auth-proof`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

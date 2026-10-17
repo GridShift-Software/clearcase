@@ -1,6 +1,6 @@
 # Carry case costs, timesheets and disbursements into the hosted app
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-125/carry-case-costs-timesheets-and-disbursements-into-the-hosted-app) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-125/carry-case-costs-timesheets-and-disbursements-into-the-hosted-app) is the execution authority.
 
 Planning key `HA-costs`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 
@@ -40,3 +40,9 @@ Planning creates this issue; it does not dispatch it. RAWS/current production ar
 * [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)
 * [Implement hosted identity, client provisioning and durable user work](<https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work>)
 * [Migrate quantum and case registers to hosted contracts](<https://linear.app/vaper/issue/GRS-132/migrate-quantum-and-case-registers-to-hosted-contracts>)
+
+## Final workflow alignment — 17 October 2026
+
+Accepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.
+
+- [ ] Allow authorized case time/cost entries and other independent cost records before first publication and after results withdrawal. Add reserved write scope src/routes/cases/\[caseId\]/costs/\*\* after the provisioning owner's accepted handoff. Keep existing case-cost semantics, permissions and ZAR presentation; no new payment checkout.

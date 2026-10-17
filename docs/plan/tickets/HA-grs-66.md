@@ -1,6 +1,6 @@
 # Accept hosted production integrations and page coverage
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-66/accept-hosted-production-integrations-and-page-coverage) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-66/accept-hosted-production-integrations-and-page-coverage) is the execution authority.
 
 ## Outcome
 

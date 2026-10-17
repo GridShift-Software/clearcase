@@ -1,6 +1,6 @@
 # Define the Fable and swarm delivery operating plan
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-94/define-the-fable-and-swarm-delivery-operating-plan) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-94/define-the-fable-and-swarm-delivery-operating-plan) is the execution authority.
 
 ## Question
 

@@ -1,6 +1,6 @@
 # Build the V2 prompt-pack eval harness
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-63/build-the-v2-prompt-pack-eval-harness) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-63/build-the-v2-prompt-pack-eval-harness) is the execution authority.
 
 ## Outcome
 
@@ -61,3 +61,9 @@ Report PASS or FAIL at an exact SHA. `bun run --bun gate` must be green at that 
 Case text, names or amounts in Git, fixtures or JSON schemas. L2 in `gate` or CI. Codex, Cursor, and effort `max`. Writes to `RAWS/` or production.
 
 Hosted-alpha sequencing: this advanced prompt-pack evaluation/pilot is later M6 work after the manual hosted workflow is proven; it does not block alpha. The alpha operator-handoff issue must still prove a fresh complete results package using its actual manual recipe, without pretending this risk-only pilot supplies every required section. Preserve the existing synthetic-only external model/eval boundary and explicit budgeted live runs.
+
+## Final workflow alignment — 17 October 2026
+
+Accepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.
+
+- [ ] The user reconfirmed on 17 October: use the current processing prompts while stabilizing the main hosted setup; optimize prompts later when repeatable evals can measure the change. Preserve this later M6 sequencing. The primary lawyer acceptance journeys remain required with the current manual recipe; optimization is not an alpha prerequisite.

@@ -1,6 +1,6 @@
 # Persist PDF bundles with pinned inputs and protected version history
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-128/persist-pdf-bundles-with-pinned-inputs-and-protected-version-history) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-128/persist-pdf-bundles-with-pinned-inputs-and-protected-version-history) is the execution authority.
 
 Planning key `HA-bundles`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

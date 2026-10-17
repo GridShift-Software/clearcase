@@ -1,6 +1,6 @@
 # Implement permission-scoped audit events and audit views
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-116/implement-permission-scoped-audit-events-and-audit-views) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-116/implement-permission-scoped-audit-events-and-audit-views) is the execution authority.
 
 Planning key `HA-audit`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

@@ -1,6 +1,6 @@
 # Implement hosted D1 results storage and protected R2 assets
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-115/implement-hosted-d1-results-storage-and-protected-r2-assets) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-115/implement-hosted-d1-results-storage-and-protected-r2-assets) is the execution authority.
 
 Planning key `HA-storage`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 
@@ -46,3 +46,9 @@ Planning creates this issue; it does not dispatch it. RAWS/current production ar
 * [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)
 * [Gate the hosted design before client intake implementation](<https://linear.app/vaper/issue/GRS-27/gate-the-hosted-design-before-client-intake-implementation>)
 * [Provision isolated client instances, cases and explicit grants](<https://linear.app/vaper/issue/GRS-114/provision-isolated-client-instances-cases-and-explicit-grants>)
+
+## Final workflow alignment — 17 October 2026
+
+Accepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.
+
+- [ ] Serve acknowledged client-supplied originals through authorized case identity while processing is pending or no results are published. Distinguish those originals from private candidate-derived assets: permission to see a submitted original never grants access to private candidate results/previews or withdrawn results. Preserve hash/integrity/range and revocation checks.

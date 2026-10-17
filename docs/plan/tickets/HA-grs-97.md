@@ -1,6 +1,6 @@
 # Evaluate viewer components and freeze alpha file coverage
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-97/evaluate-viewer-components-and-freeze-alpha-file-coverage) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-97/evaluate-viewer-components-and-freeze-alpha-file-coverage) is the execution authority.
 
 ## Outcome
 
@@ -32,3 +32,9 @@ Provider-neutral email coverage: the user explicitly requires Outlook- and Gmail
 Delivery handoff: [Implement the protected in-app viewer shell and PDF/image readers](<https://linear.app/vaper/issue/GRS-120/implement-the-protected-in-app-viewer-shell-and-pdfimage-readers>), [Implement faithful Word and Excel viewing and prepared renditions](<https://linear.app/vaper/issue/GRS-121/implement-faithful-word-and-excel-viewing-and-prepared-renditions>), [Implement Outlook and Gmail email-file and attachment viewing](<https://linear.app/vaper/issue/GRS-122/implement-outlook-and-gmail-email-file-and-attachment-viewing>) and [Implement accepted media and archive-contained viewing paths](<https://linear.app/vaper/issue/GRS-123/implement-accepted-media-and-archive-contained-viewing-paths>) implement the selected contract after the design/foundation gates. This issue evaluates and freezes coverage; it does not own production routes. Canonical plugin discovery must pass first.
 
 Concrete evaluation reservation: tests/viewer-evaluation/\*\* (harness and synthetic fixtures) and docs/acceptance/viewers/\*\*. Do not edit production viewer routes/components. Hand the frozen contract to the existing implementation owners after the independent design gate.
+
+## Final workflow alignment — 17 October 2026
+
+Accepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.
+
+- [ ] Freeze two distinct readiness states: acknowledged originals are retrievable during processing, with supported PDF/images viewable where supported and manual-conversion formats clearly Preview pending processing; published files must have their required in-app previews. The temporary retrieval/download exception must not silently reduce published-format coverage.

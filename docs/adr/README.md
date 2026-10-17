@@ -1,6 +1,6 @@
 # Decision records
 
-These ADRs record the product decisions the user confirmed from 11 to 16 October 2026. Records 0001 to 0006 govern the local v5 pilot; records 0007 to 0011 govern the hosted alpha. The 12 October answers refer to the orchestrator's 23-item V1 questionnaire. Each record says whether a decision is accepted, conditional or still pending, and names the issues and pull requests it affects.
+These ADRs record the product decisions the user confirmed from 11 to 17 October 2026. Records 0001 to 0006 govern the local v5 pilot; records 0007 to 0011 govern the hosted alpha. The 12 October answers refer to the orchestrator's 23-item V1 questionnaire. Each record says whether a decision is accepted, conditional or still pending, and names the issues and pull requests it affects.
 
 | ADR | Decision | Status | Affects |
 | --- | --- | --- | --- |
@@ -12,9 +12,9 @@ These ADRs record the product decisions the user confirmed from 11 to 16 October
 | [0006](0006-local-case-pack-import.md) | The local app converts a case pack itself (import by clicking) | Accepted, 13 Oct; PRs in review | GRS-70 (#42), demo build (#43) |
 | [0007](0007-hosted-client-isolation-and-identity.md) | One isolated client instance per client, Global Admin and firm admin roles, assigned case viewer/editor grants, audited service-team access, Clerk authentication | Accepted, 14 Oct; audit contract and SSO open | GRS-85, GRS-113, GRS-114, GRS-116 |
 | [0008](0008-workers-runtime-and-cloudflare-first-stack.md) | Hosted SvelteKit on Workers with Bun builds; per-client Worker, D1, R2, secrets and subdomain in one Cloudflare account; per-client and internal Clerk applications, invite-only, MFA initially off | Accepted, 14–15 Oct; runtime, storage, identity and tooling proofs UNRUN | GRS-86, GRS-26 (GRS-106 to GRS-111), GRS-36 (GRS-112 to GRS-118) |
-| [0009](0009-manual-queue-and-candidate-import-contract.md) | Shared FIFO processing queue, one results-import contract into private candidates, hosted Rescan & Update through the same path | Accepted, 14 Oct; Rescan & Update 16 Oct; SLA metric open | GRS-87, GRS-28 to GRS-30, GRS-134, GRS-135 |
-| [0010](0010-exact-version-signoff-and-publication.md) | Exact-version sign-off, explicit publisher, editable private candidates with audited corrections, failed required content holds the update | Accepted, 15 Oct; review topology proof UNRUN | GRS-88, GRS-30, GRS-31, GRS-130 |
-| [0011](0011-originals-and-complete-in-app-file-viewing.md) | Unchanged originals, every accepted format viewable in the app, verified citations, complete exports, durable PDF bundle versions | Accepted, 15 Oct; viewer selection and proofs UNRUN | GRS-90, GRS-97, GRS-120 to GRS-123, GRS-118, GRS-128 |
+| [0009](0009-manual-queue-and-candidate-import-contract.md) | Shared FIFO processing jobs, fixed submissions with linked requested supplements, one results-import contract and hosted Rescan & Update | Accepted, 14–17 Oct; SLA metric open | GRS-87, GRS-28 to GRS-30, GRS-134 to GRS-137 |
+| [0010](0010-exact-version-signoff-and-publication.md) | Exact-version sign-off and audited candidate editing; independent case user work remains accessible without a publication | Accepted, 15–17 Oct; review topology proof UNRUN | GRS-88, GRS-30, GRS-31, GRS-114, GRS-117, GRS-130, GRS-136 |
+| [0011](0011-originals-and-complete-in-app-file-viewing.md) | Unchanged originals, complete published-file in-app viewing, explicit temporary pending-preview retrieval, verified citations, complete exports and durable PDF bundle versions | Accepted, 15–17 Oct; viewer selection and proofs UNRUN | GRS-90, GRS-97, GRS-120 to GRS-123, GRS-118, GRS-128, GRS-136 |
 
 ## Superseded for the hosted app
 

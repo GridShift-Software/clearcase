@@ -1,6 +1,6 @@
 # Migrate quantum and case registers to hosted contracts
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-132/migrate-quantum-and-case-registers-to-hosted-contracts) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-132/migrate-quantum-and-case-registers-to-hosted-contracts) is the execution authority.
 
 Planning key `HA-views-quantum-registers`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 
@@ -44,3 +44,9 @@ Planning creates this issue; it does not dispatch it. RAWS/current production ar
 * [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)
 * [Implement hosted identity, client provisioning and durable user work](<https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work>)
 * [Implement the protected in-app viewer shell and PDF/image readers](<https://linear.app/vaper/issue/GRS-120/implement-the-protected-in-app-viewer-shell-and-pdfimage-readers>)
+
+## Final workflow alignment — 17 October 2026
+
+Accepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.
+
+- [ ] Wait for acceptance of the first complete hosted PDF workflow before broad migration. Registers and result-dependent views must distinguish unavailable generated seeds/results from independent manual user work; preserve and expose the latter through case-level paths without requiring a publication. Use the shared visual state, preserving all existing coverage.

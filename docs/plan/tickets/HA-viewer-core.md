@@ -1,6 +1,6 @@
 # Implement the protected in-app viewer shell and PDF/image readers
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-120/implement-the-protected-in-app-viewer-shell-and-pdfimage-readers) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-120/implement-the-protected-in-app-viewer-shell-and-pdfimage-readers) is the execution authority.
 
 Planning key `HA-viewer-core`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 
@@ -43,3 +43,10 @@ Planning creates this issue; it does not dispatch it. RAWS/current production ar
 * [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)
 * [Implement hosted identity, client provisioning and durable user work](<https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work>)
 * [Evaluate viewer components and freeze alpha file coverage](<https://linear.app/vaper/issue/GRS-97/evaluate-viewer-components-and-freeze-alpha-file-coverage>)
+
+## Final workflow alignment — 17 October 2026
+
+Accepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.
+
+- [ ] Add reserved write scope src/routes/cases/\[caseId\]/files/\*\* after provisioning/storage handoff for sources without a published resultsVersion. Authorized case users can open supported PDF/images where supported and retrieve acknowledged unchanged originals while processing. Clearly label manual-conversion formats Preview pending processing and offer original retrieval, possibly download temporarily.
+- [ ] Keep temporary pending-preview handling distinct from publication readiness: every published file needs its required in-app preview. A pending prepublication original is not permission to retrieve private candidate-derived assets or display unreviewed results. Supply the core contract for the early hosted PDF workflow.

@@ -1,6 +1,6 @@
 # Prove D1 and R2 integrity, layout and POC workload performance
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-109/prove-d1-and-r2-integrity-layout-and-poc-workload-performance) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-109/prove-d1-and-r2-integrity-layout-and-poc-workload-performance) is the execution authority.
 
 Planning key `HA-storage-proof`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

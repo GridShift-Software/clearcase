@@ -1,6 +1,6 @@
 # Adapt system help and Rescan & Update for hosted processing
 
-Planning snapshot, 16 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-134/adapt-system-help-and-rescan-and-update-for-hosted-processing) is the execution authority.
+Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-134/adapt-system-help-and-rescan-and-update-for-hosted-processing) is the execution authority.
 
 Planning key `HA-views-system`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 
@@ -43,3 +43,9 @@ Planning creates this issue; it does not dispatch it. RAWS/current production ar
 * [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)
 * [Implement hosted identity, client provisioning and durable user work](<https://linear.app/vaper/issue/GRS-36/implement-hosted-identity-client-provisioning-and-durable-user-work>)
 * [Sign off and publish an exact results version](<https://linear.app/vaper/issue/GRS-31/sign-off-and-publish-an-exact-results-version>)
+
+## Final workflow alignment — 17 October 2026
+
+Accepted in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). These are this owner's acceptance obligations; the decision record remains there.
+
+- [ ] Wait for acceptance of the first complete hosted PDF workflow before broad migration. Display case-level submission/source status even before the first publication; explain Preview pending processing and provide relevant next actions without implying results are published. Results-dependent views use the shared visual state, including after authorized results withdrawal.

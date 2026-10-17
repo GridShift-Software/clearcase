@@ -7,7 +7,7 @@ ClearCase organizes a legal case's source documents, processed results and worki
 ### Case material
 
 **Case**:
-A legal matter and its associated documents, results and working records.
+A legal matter and its associated documents, results and working records. It exists, with its originals and user work, before any results version is published and after published results are withdrawn.
 _Avoid_: Workspace when referring to the legal matter itself.
 
 **Case folder**:
@@ -31,11 +31,19 @@ A reference in results text to an original and, when supplied, a precise locatio
 _Avoid_: Link when referring to the case reference itself.
 
 **Submission**:
-A finalized set of files supplied for processing as one input revision. Files supplied later form a new submission.
+A finalized set of files supplied for processing as one input revision; it never changes once finalized. Files supplied later form a new submission, unless they are a requested supplement.
 _Avoid_: Upload when referring to a completed input revision.
 
+**Requested supplement**:
+Files or passwords that the service team asks for because a submission cannot be processed without them. They join that submission's processing job and leave the submission itself unchanged.
+_Avoid_: Resubmission, amendment, new submission.
+
+**Processing job**:
+The service team's manual processing of one submission, together with any requested supplements linked to it. It is what holds a place in the processing queue.
+_Avoid_: Ticket, task, request.
+
 **Processing queue**:
-The service team's shared list of submissions awaiting manual processing, across all clients.
+The service team's shared list of processing jobs awaiting manual processing, across all clients.
 _Avoid_: Backlog, inbox.
 
 ### Results

@@ -237,7 +237,7 @@ class ApprovalLedger(ControlCase):
             'unresolvedFindings': unresolved or [], 'requiredChecks': [{
                 'name': 'tooling', 'execution': json.loads(self.check.read_text())['execution'],
                 'inputs': json.loads(self.check.read_text())['inputs']}]})
-        self.cli('review-record', '--unit', 'GRS-104/implementation', '--review', self.review, '--findings', self.findings)
+        self.cli('review-record', '--unit', getattr(self, 'unit', 'GRS-104/implementation'), '--review', self.review, '--findings', self.findings)
 
     def approve(self, code=0):
         return self.cli('approve', '--unit', 'GRS-104/implementation', '--sha', self.sha,
@@ -524,6 +524,8 @@ class DispatchBookkeeping(ControlCase):
         row = self.last_receipt()['dispatch']
         self.assertEqual(row['counts'], {'initial': 1, 'fix': 1, 'recheck': 1, 'escalation': 1, 'infra-retry': 0})
         self.assertEqual(row['deadline'], self.deadline)
+        self.assertEqual(row['deadlines']['initial'], self.deadline)
+        self.assertTrue(row['attemptDeadline'])
         self.dispatch('fix', task='renamed-again', code=1)
         row = self.last_receipt()['dispatch']
         self.assertEqual(row['outcome'], 'refuse')
@@ -571,13 +573,31 @@ class DispatchBookkeeping(ControlCase):
         soon = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=0.5)).isoformat()
         self.dispatch('initial', '--deadline', soon)
         time.sleep(0.6)
-        self.dispatch('fix', code=1)
+        self.dispatch('fix', '--deadline', soon, code=1)
         self.dispatch('cancel', '--cancel-outcome', 'confirmed', '--reason', 'Deadline expired')
         row = self.last_receipt()['dispatch']
         self.assertEqual(row['outcome'], 'cancelled')
         self.assertEqual(row['cancellation']['reason'], 'Deadline expired')
         self.assertEqual(row['counts']['fix'], 0)
         self.dispatch('fix', code=1)
+
+    def test_each_attempt_gets_its_own_bounded_deadline(self):
+        soon = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=1)).isoformat()
+        self.dispatch('initial', '--deadline', soon)
+        time.sleep(1.2)  # a fix normally starts after the initial attempt's window has closed
+        self.dispatch('fix')
+        row = self.last_receipt()['dispatch']
+        self.assertEqual(row['outcome'], 'recorded')
+        self.assertEqual(row['deadlines']['initial'], soon)
+        self.assertGreater(datetime.datetime.fromisoformat(row['attemptDeadline']), datetime.datetime.now(datetime.timezone.utc))
+        too_late = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=3)).isoformat()
+        past = (datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=1)).isoformat()
+        self.dispatch('recheck', '--deadline', too_late, code=1)
+        self.dispatch('recheck', '--deadline', past, code=1)
+        mine = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=40)).isoformat()
+        self.dispatch('recheck', '--deadline', mine)
+        self.assertEqual(self.last_receipt()['dispatch']['attemptDeadline'], mine)
+        self.dispatch('recheck', code=1)
 
     def test_failed_cancellation_is_recorded_and_stops_attempts(self):
         self.initial()
@@ -842,7 +862,9 @@ class FixRoundManifest(ControlCase):
     def test_no_manifest_has_nothing_to_protect(self):
         self.fix_round(self.original, manifest=False)
         self.assertIn('no fix-round manifest', self.guard())
-        self.assertFalse(self.receipts.exists())
+        receipt = self.last_receipt()
+        self.assertEqual((receipt['name'], receipt['result']), ('fix-round-guard', 'PASS'))
+        self.assertTrue(receipt['guard']['nothingToProtect'])
 
     def test_manifest_runs_the_guard_at_head(self):
         head = self.fix_round(self.original)
@@ -873,6 +895,272 @@ class FixRoundManifest(ControlCase):
                 self.guard(code=1)
 
 
+class GuardClosure(ControlCase):
+    """H2/H3: the protected closure covers what decides whether a named test runs and what it reads, and nothing a
+    legitimate fix has to change."""
+    original = TestWeakening.original
+    named = [{'file': 'tests/protected.test.ts', 'name': 'rejects stale evidence'}]
+
+    def protect(self, files=None, test=None):
+        for name, text in (files or {}).items():
+            self.write(name, text)
+        self.write('tests/protected.test.ts', test or self.original)
+        self.base = self.commit('reviewed')
+
+    def guard(self, code=0, reasons=None):
+        data = {'tests': self.named}
+        if reasons:
+            data['assertionCountReasons'] = reasons
+        findings = self.document('findings.json', data)
+        return self.cli('test-guard', '--fix-base', self.base, '--findings', findings, code=code)
+
+    def test_runner_configuration_setup_files_and_test_scripts_are_protected(self):
+        config = "export default { test: { include: ['tests/**/*.test.ts'], setupFiles: ['./tests/setup.ts'] } };\n"
+        package = {'name': 'x', 'version': '1.0.0', 'scripts': {'test': 'vitest run', 'start': 'node a.js'}}
+        files = {'vitest.config.ts': config, 'tests/setup.ts': 'export {};\n', 'package.json': json.dumps(package)}
+        variants = {
+            'exclude': ('vitest.config.ts', config.replace("setupFiles", "exclude: ['tests/protected.test.ts'], setupFiles")),
+            'setup file': ('tests/setup.ts', "import { beforeEach } from 'vitest'; beforeEach(() => {});\n"),
+            'test script': ('package.json', json.dumps({**package, 'scripts': {**package['scripts'], 'test': 'vitest run --exclude tests/protected.test.ts'}})),
+            'new config': ('vitest.workspace.ts', 'export default [];\n'),
+        }
+        for label, (file, text) in variants.items():
+            with self.subTest(bypass=label):
+                self.protect(files)
+                self.write(file, text)
+                self.commit(f'bypass {label}')
+                self.assertIn('protected', self.guard(code=1))
+        with self.subTest(control='unrelated package.json fields'):
+            self.protect(files)
+            self.write('package.json', json.dumps({**package, 'version': '1.0.1', 'scripts': {**package['scripts'], 'start': 'node b.js'}}))
+            self.write('app.txt', 'fixed\n')
+            self.commit('legitimate')
+            self.guard()
+
+    def test_fixtures_a_protected_test_reads_are_protected(self):
+        reader = "import { readFileSync } from 'node:fs';\nconst data = readFileSync('tests/data/cases.txt', 'utf8');\n" + self.original
+        joined = ("import { readFileSync } from 'node:fs';\nimport { join } from 'node:path';\n"
+                  "const data = readFileSync(join(__dirname, 'data/cases.txt'), 'utf8');\n" + self.original)
+        for label, test in (('literal path', reader), ('dirname join', joined)):
+            with self.subTest(read=label):
+                self.protect({'tests/data/cases.txt': 'false\n'}, test)
+                self.write('tests/data/cases.txt', 'true\n')
+                self.commit('flip fixture')
+                self.assertIn('protected', self.guard(code=1))
+        with self.subTest('fixture directory'):
+            self.protect({'tests/fixtures/other.json': '{"a":false}'})
+            self.write('tests/fixtures/other.json', '{"a":true}')
+            self.commit('flip a fixture file in the test tree')
+            self.assertIn('protected', self.guard(code=1))
+        with self.subTest(control='unread file'):
+            self.protect({'tests/data/unread.txt': 'x\n', 'docs/note.md': 'x\n'})
+            self.write('docs/note.md', 'changed\n')
+            self.commit('legitimate')
+            self.guard()
+
+    def test_a_reason_cannot_excuse_a_loosened_matcher_a_new_mock_or_isolation(self):
+        helper = "export function check(value) { expect(value).toEqual(false); }"
+        head = "import { check } from '../support/helper';\n"
+        reasons = {'support/helper.ts': 'Tidy', 'tests/protected.test.ts': 'Tidy'}
+        with self.subTest(bypass='loosened helper matcher'):
+            self.protect({'support/helper.ts': helper}, head + self.original)
+            self.write('support/helper.ts', "export function check(value) { expect(value).toBeDefined(); }")
+            self.commit('loosen')
+            self.guard(code=1, reasons=reasons)
+        with self.subTest(bypass='flipped helper constant'):
+            self.protect({'support/helper.ts': 'export const expected = false;'}, "import { expected } from '../support/helper';\n" + self.original)
+            self.write('support/helper.ts', 'export const expected = true;')
+            self.commit('flip')
+            self.guard(code=1, reasons=reasons)
+        for label, extra in (('vi.mock', "vi.mock('../src/clamp');\n"), ('hook', "beforeEach(() => { reset(); });\n"),
+                             ('only', "test.only('added', () => { expect(1).toEqual(1); });\n"),
+                             ('mock inside an added test', "test('added', () => { vi.mock('../src/clamp'); expect(1).toEqual(1); });\n")):
+            with self.subTest(bypass=label):
+                self.protect(None)
+                self.write('tests/protected.test.ts', self.original + extra)
+                self.commit('add ' + label)
+                self.guard(code=1, reasons=reasons)
+        with self.subTest(control='reviewed added test'):
+            self.protect(None)
+            self.write('tests/protected.test.ts', self.original + "test('added', () => { expect(1).toEqual(1); });\n")
+            self.commit('added test')
+            self.guard(reasons=reasons)
+
+    def test_a_fix_in_the_module_under_test_passes(self):
+        # Almost every real fix changes the module its named test imports; only test code is protected.
+        test = "import { clamp } from '../src/clamp';\n" + self.original
+        self.protect({'src/clamp.ts': 'export function clamp(x: number) { return x; }\n'}, test)
+        self.write('src/clamp.ts', 'export function clamp(x: number) { if (x < 0) return 0; return x; }\n')
+        self.commit('fix: clamp negatives')
+        self.guard()
+        self.assertEqual(self.last_receipt()['result'], 'PASS')
+        # the same change to a helper under a test directory stays refused
+        self.write('support/helper.ts', 'export function f(x: number) { return x; }\n')
+        self.write('tests/protected.test.ts', "import { f } from '../support/helper';\n" + self.original)
+        self.base = self.commit('helper baseline')
+        self.write('support/helper.ts', 'export function f(x: number) { if (x < 0) return 0; return x; }\n')
+        self.commit('helper control flow')
+        self.guard(code=1)
+
+
+class GuardBinding(ControlCase):
+    """H1: once a fix attempt is recorded, approval needs a PASS guard receipt bound to the reviewed commit and findings."""
+    unit = 'GRS-104/implementation'
+    original = TestWeakening.original
+    tests = [{'file': 'tests/protected.test.ts', 'name': 'rejects stale evidence'}]
+    manifest_path = 'docs/acceptance/fix-rounds/GRS-104-1.json'
+    prepare = ApprovalLedger.prepare
+
+    def setUp(self):
+        super().setUp()
+        self.write('tests/protected.test.ts', self.original)
+        self.reviewed = self.commit('reviewed tests')
+        self.start(self.unit, {'protectedTests': self.tests})
+
+    def start(self, unit, extra):
+        """A review of the reviewed commit with a high, then the unit's initial and fix dispatches."""
+        self.review_findings = self.document(f'first-findings-{unit[4:7]}.json', {
+            'sha': self.reviewed, 'updatedAt': '2026-10-17T09:00:00+00:00',
+            'unresolvedFindings': [{'id': 'H1', 'severity': 'high'}], **extra})
+        first = self.document(f'first-review-{unit[4:7]}.json', {
+            'schema': 'clearcase-review/1', 'sha': self.reviewed, 'verdict': 'FAIL',
+            'findingsSha256': hashlib.sha256(self.review_findings.read_bytes()).hexdigest(),
+            'unresolvedFindings': [{'id': 'H1', 'severity': 'high'}]})
+        self.cli('review-record', '--unit', unit, '--review', first, '--findings', self.review_findings)
+        deadline = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=20)).isoformat()
+        self.cli('dispatch', '--unit', unit, '--phase', 'initial', '--task-id', 'impl', '--deadline', deadline)
+        self.cli('dispatch', '--unit', unit, '--phase', 'fix', '--task-id', 'fix')
+
+    def guarded(self, code=0, fix_base=None, unit=None, **overrides):
+        data = {'schema': 'clearcase-fix-round/1', 'unit': unit or self.unit, 'fixBase': fix_base or self.reviewed,
+                'reviewFindingsSha256': hashlib.sha256(self.review_findings.read_bytes()).hexdigest(),
+                'tests': self.tests, **overrides}
+        self.write(self.manifest_path, json.dumps(data))
+        self.write('app.txt', 'fixed\n')
+        self.commit('fix round')
+        self.cli('test-guard', '--fix-base', data['fixBase'], '--findings', self.repo / self.manifest_path, code=code)
+        self.guard_receipt = sorted(self.receipts.glob('*/receipt.json'))[-1]
+
+    def approve(self, *extra, code=0):
+        return self.cli('approve', '--unit', self.unit, '--sha', self.sha, '--review', self.review,
+                        '--findings', self.findings, '--check-receipt', self.check, '--approved-by', 'coordinator',
+                        *extra, code=code)
+
+    def weaken(self):
+        self.write('tests/protected.test.ts', self.original.replace('.toEqual(false)', '.toBeDefined()'))
+        return self.commit('weaken the named test')
+
+    def test_a_recorded_fix_attempt_needs_a_guard_receipt_to_approve(self):
+        self.guarded()
+        self.prepare([{'id': 'L1', 'severity': 'low'}])
+        self.assertIn('guard', self.approve(code=1))
+
+    def test_a_bound_guard_receipt_approves_and_reads_back(self):
+        self.guarded()
+        self.prepare([{'id': 'L1', 'severity': 'low'}])
+        self.approve('--guard-receipt', self.guard_receipt)
+        approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        self.assertEqual(json.loads(approved.read_text())['approval']['guard']['fixBase'], self.reviewed)
+        self.cli('approval-check', '--unit', self.unit, '--sha', self.sha, '--approval-receipt', approved)
+        data = json.loads(self.guard_receipt.read_text())
+        data['guard']['tests'] = []
+        self.guard_receipt.write_text(json.dumps(data))
+        self.cli('approval-check', '--unit', self.unit, '--sha', self.sha, '--approval-receipt', approved, code=1)
+
+    def test_a_manifest_naming_a_later_fix_base_does_not_bind(self):
+        weakened = self.weaken()
+        self.guarded(fix_base=weakened)  # the guard passes: nothing changed since the weakening
+        self.assertEqual(json.loads(self.guard_receipt.read_text())['result'], 'PASS')
+        self.prepare([{'id': 'L1', 'severity': 'low'}])
+        self.assertIn('fix base', self.approve('--guard-receipt', self.guard_receipt, code=1))
+
+    def test_a_manifest_dropping_the_weakened_test_does_not_bind(self):
+        self.weaken()
+        self.guarded(tests=[{'file': 'tests/protected.test.ts', 'name': 'other behavior'}])
+        self.prepare([{'id': 'L1', 'severity': 'low'}])
+        self.assertIn('tests', self.approve('--guard-receipt', self.guard_receipt, code=1))
+
+    def test_a_manifest_for_other_findings_does_not_bind(self):
+        self.guarded(reviewFindingsSha256='0' * 64)
+        self.prepare([{'id': 'L1', 'severity': 'low'}])
+        self.assertIn('findings', self.approve('--guard-receipt', self.guard_receipt, code=1))
+
+    def test_a_failing_guard_receipt_does_not_approve(self):
+        self.weaken()
+        self.guarded(code=1)
+        self.prepare([{'id': 'L1', 'severity': 'low'}])
+        self.approve('--guard-receipt', self.guard_receipt, code=1)
+
+    def test_a_review_that_names_no_protected_tests_cannot_prompt_a_guarded_fix(self):
+        self.unit = 'GRS-105/implementation'
+        self.start(self.unit, {})
+        self.guarded(unit=self.unit)
+        self.prepare([{'id': 'L1', 'severity': 'low'}])
+        self.assertIn('protectedTests', self.approve('--guard-receipt', self.guard_receipt, code=1))
+
+    def test_a_review_that_names_nothing_to_protect_needs_no_guard_receipt(self):
+        self.unit = 'GRS-105/implementation'
+        self.start(self.unit, {'protectedTests': []})
+        self.write('app.txt', 'fixed\n')
+        self.commit('fix round')
+        self.prepare([{'id': 'L1', 'severity': 'low'}])
+        self.approve()
+        approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        self.assertTrue(json.loads(approved.read_text())['approval']['guard']['nothingToProtect'])
+
+
+class FixRoundGuardRequired(ControlCase):
+    """H1 in CI: a fix-round pull request with no manifest cannot pass as 'nothing to protect'."""
+    original = TestWeakening.original
+    path = FixRoundManifest.path
+    fix_round = FixRoundManifest.fix_round
+    manifest = FixRoundManifest.manifest
+
+    def record_fix_attempt(self):
+        deadline = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=20)).isoformat()
+        self.cli('dispatch', '--unit', 'GRS-104/implementation', '--phase', 'initial', '--task-id', 'impl', '--deadline', deadline)
+        self.cli('dispatch', '--unit', 'GRS-104/implementation', '--phase', 'fix', '--task-id', 'fix')
+
+    def test_a_ledger_fix_event_makes_a_missing_manifest_fail(self):
+        self.fix_round(self.original, manifest=False)
+        self.record_fix_attempt()
+        out = self.cli('fix-round-guard', '--base', 'dev', '--ledger', self.receipts,
+                       '--branch', 'feature/grs-104-tooling', code=1)
+        self.assertIn('fix', out)
+        self.cli('fix-round-guard', '--base', 'dev', '--ledger', self.receipts, '--branch', 'feature/grs-105-other')
+
+    def test_the_fix_round_label_makes_a_missing_manifest_fail(self):
+        self.fix_round(self.original, manifest=False)
+        self.assertIn('manifest', self.cli('fix-round-guard', '--base', 'dev', '--require-manifest', code=1))
+
+    def test_a_pull_request_without_a_fix_event_passes_and_the_receipt_says_so(self):
+        self.fix_round(self.original, manifest=False)
+        self.cli('fix-round-guard', '--base', 'dev', '--ledger', self.receipts, '--branch', 'feature/grs-104-tooling')
+        self.assertTrue(self.last_receipt()['guard']['nothingToProtect'])
+
+
+class RetainedPaths(ControlCase):
+    """L1 and L2."""
+    prepare = ApprovalLedger.prepare
+    approve = ApprovalLedger.approve
+
+    def test_ledger_events_store_raw_receipt_paths(self):
+        self.env['HOME'] = str(self.work)
+        self.prepare()
+        self.approve()
+        events = [json.loads(line) for line in (self.receipts / 'events.jsonl').read_text().splitlines()]
+        stored = [e['payload']['receipt'] for e in events if e['kind'] == 'approval']
+        self.assertTrue(stored and all(path.startswith(str(self.receipts)) for path in stored), stored)
+
+    def test_a_relative_ledger_directory_refuses(self):
+        self.env['CLEARCASE_LEDGER_DIR'] = '../relative-ledger'
+        self.assertIn('absolute', self.cli('review-record', '--unit', 'GRS-104/implementation', '--review', 'r.json',
+                                           '--findings', 'f.json', code=1))
+        del self.env['CLEARCASE_LEDGER_DIR']
+        self.assertIn('absolute', self.cli('review-record', '--unit', 'GRS-104/implementation', '--review', 'r.json',
+                                           '--findings', 'f.json', '--ledger', 'relative', code=1))
+
+
 class ContinuousIntegrationWiring(unittest.TestCase):
     def test_pull_requests_run_the_fix_round_guard_on_their_head_under_bun(self):
         workflow = (TOOLS.parents[1] / '.github/workflows/ci.yml').read_text()
@@ -881,6 +1169,16 @@ class ContinuousIntegrationWiring(unittest.TestCase):
         for needle in ("github.event_name == 'pull_request'", 'github.event.pull_request.head.sha',
                        'CLEARCASE_NODE=$(command -v bun)', 'scripts/agent-tools/fix-round-guard', 'origin/$BASE_REF'):
             self.assertIn(needle, step)
+
+    def test_the_guard_comes_from_the_base_branch_and_a_fix_round_label_requires_a_manifest(self):
+        workflow = (TOOLS.parents[1] / '.github/workflows/ci.yml').read_text()
+        step = workflow[workflow.index('- name: test guard'):]
+        step = step[:step.index('\n      - ')]
+        for needle in ('git worktree add -q --detach "$base_tools" "origin/$BASE_REF"', 'ln -s', 'node_modules',
+                       '"$base_tools/scripts/agent-tools/fix-round-guard"', '--require-manifest', "'fix-round'",
+                       'github.head_ref'):
+            self.assertIn(needle, step)
+        self.assertNotIn('\n          CLEARCASE_NODE=$(command -v bun) scripts/agent-tools/fix-round-guard', step)
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

@@ -403,6 +403,33 @@ class ApprovalLedger(ControlCase):
         self.cli('approval-check', '--unit', 'GRS-104/implementation', '--sha', self.sha,
                  '--approval-receipt', approved, code=1)
 
+    def approve_and_read_back_under_home(self, command):
+        """PR #62 (dianbrown, P1): a PASS receipt whose argv names a path under HOME approves and reads back."""
+        home = self.work / 'reviewer-home'
+        home.mkdir(exist_ok=True)
+        self.env['HOME'] = str(home)
+        self.prepare(command=[word.replace('$HOME', str(home)) for word in command])
+        self.approve()
+        approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        self.cli('approval-check', '--unit', 'GRS-104/implementation', '--sha', self.sha,
+                 '--approval-receipt', approved)
+
+    def test_embedded_home_path_in_an_option_argument_approves_and_reads_back(self):
+        self.approve_and_read_back_under_home(['bash', '-c', ':', '--outputFile.json=$HOME/results.json'])
+
+    def test_inline_snippet_with_a_home_path_approves_and_reads_back(self):
+        self.approve_and_read_back_under_home(['python3', '-I', '-c', "path = '$HOME/out.json'; assert path"])
+        self.approve_and_read_back_under_home(['bash', '-c', 'test -n "$HOME/out.json"'])
+
+    def test_changed_argv_with_a_home_path_still_refuses(self):
+        home = self.work / 'reviewer-home'
+        home.mkdir(exist_ok=True)
+        self.env['HOME'] = str(home)
+        self.prepare(command=['bash', '-c', ':', f'--outputFile.json={home}/results.json'])
+        self.cli('receipt', '--name', 'tooling', '--', 'bash', '-c', ':', f'--outputFile.json={home}/other.json')
+        self.check = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        self.approve(code=1)
+
     def test_name_only_cannot_substitute_another_command(self):
         self.prepare()
         self.cli('receipt', '--name', 'tooling', '--', 'bash', '-c', 'true')

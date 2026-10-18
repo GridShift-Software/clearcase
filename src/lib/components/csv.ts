@@ -8,4 +8,5 @@ export const csvCell = (c: Cell) => { const s = atSegments(text(c)); return /[",
 export const toCSV = (rows: readonly (readonly Cell[])[]) => rows.map((r) => r.map(csvCell).join(',')).join('\r\n');
 export const userCell = (v: string | readonly string[]) => atSegments(exportCell(typeof v === 'string' ? v : v.join('; ')));
 
-export { download } from './download.ts';
+import { download as save } from './download.ts';
+export const download = (name: string, content: string | Uint8Array, type = 'text/csv;charset=utf-8') => save(name, content, type);

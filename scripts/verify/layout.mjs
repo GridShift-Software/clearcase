@@ -19,7 +19,9 @@
 //             heading and aria-current on the link; Back returns to the previous view with focus inside the page (BA-14);
 //   contrast  every visible element with its own text in main, against its effective background: 4.5:1, or 3:1 for
 //             large text (WCAG 2.2 1.4.3; disabled controls are exempt), at 1280 px (BA-13); the shared navigation and top bar are checked on every
-//             view and reported once, as the shell's;
+//             view and reported once, as the shell's. A gradient is measured stop by stop, each composited over the layers beneath,
+//             and the worst stop counts; a gradient with its own background-size or no repeat counts the layers without it too
+//             (layout-color.mjs);
 // and once, the shared components (navigation link, button, link, input, table header) in their default, :hover,
 // :focus-visible and :active states (CDP CSS.forcePseudoState): text contrast in each state, and a visible focus indicator
 // with 3:1 against the background (WCAG 2.2 1.4.11, 2.4.7); an element that cannot take focus has no focus check. --shots saves one viewport PNG per view and width under

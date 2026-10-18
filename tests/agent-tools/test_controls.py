@@ -704,6 +704,14 @@ class RetainedLedger(ControlCase):
         self.assertFalse((self.repo / '.local').exists())
         self.assertEqual(self.git('status', '--porcelain'), '')
 
+    def test_store_elsewhere_in_the_checkout_of_a_subdirectory_root_refuses(self):
+        (self.repo / 'sub').mkdir()
+        deadline = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=20)).isoformat()
+        self.assertIn('outside the checkout', self.cli(
+            'dispatch', '--unit', 'GRS-104/implementation', '--phase', 'initial', '--task-id', 't', '--deadline', deadline,
+            '--root', self.repo / 'sub', '--ledger', self.repo / 'ledger', code=1))
+        self.assertFalse((self.repo / 'ledger').exists())
+
     def test_ledger_dir_holds_review_and_approval_events_apart_from_check_receipts(self):
         ledger = self.work / 'ledger'
         self.env['CLEARCASE_LEDGER_DIR'] = str(ledger)

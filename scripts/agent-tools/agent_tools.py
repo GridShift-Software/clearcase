@@ -569,6 +569,11 @@ def write_receipt(folder, started, name, result, code, reason, argv, cwd, tool_r
     if "dispatch" in receipt:
         event = append_event(folder.parent, "dispatch", {"receipt": redact(folder / "receipt.json"), "row": receipt["dispatch"]})
         receipt["dispatchEvent"] = event["hash"]
+    if name == "approve" and result == "PASS":
+        # The ledger row is this event; approval-check refuses a receipt that differs from it or is missing from the log.
+        event = append_event(folder.parent, "approval", {"receipt": redact(folder / "receipt.json"),
+                                                         "row": receipt["approval"], "inputs": receipt["inputs"]})
+        receipt["approvalEvent"] = event["hash"]
     (folder / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     cost = receipt["spend"]
     actual = "unavailable" if cost["actualUsd"] is None else f"USD {cost['actualUsd']:g} ({cost['actualSource']})"
@@ -1537,6 +1542,18 @@ def approval_evidence(args, identity, paths):
             "findings": str(findings_path), "unresolvedFindings": unresolved, "checks": checks, "requirements": requirements, "reviewEvent": event["hash"]}
 
 
+def approval_event(store, receipt, path):
+    """The approval receipt at path is a ledger row only when the store's append-only log holds its event unchanged."""
+    for event in ledger_events(store):
+        if event["kind"] == "approval" and event["hash"] == receipt.get("approvalEvent"):
+            payload = event["payload"]
+            if (Path(payload["receipt"]).expanduser().resolve() != path or payload["row"] != receipt.get("approval")
+                    or payload["inputs"] != receipt.get("inputs")):
+                raise ValueError("approval receipt differs from its append-only ledger event")
+            return event
+    raise ValueError("approval receipt has no event in the ledger store's append-only log")
+
+
 def cmd_approval(args):
     root = Path(args.root).resolve() if args.root else REPO
     identity, problem = revision(root, args.base)
@@ -1559,6 +1576,7 @@ def cmd_approval(args):
             row = ledger.get("approval", {})
             if row.get("state") != "approved" or row.get("sha") != args.sha or row.get("unit") != args.unit:
                 raise ValueError("approval ledger unit/SHA/state mismatch")
+            approval_event(receipts_root(args.receipts), ledger, ledger_path)
             recorded = ledger.get("inputs")
             if not isinstance(recorded, list) or not recorded:
                 raise ValueError("approval ledger lacks evidence fingerprints")
@@ -1692,6 +1710,99 @@ def cmd_dispatch(args):
         return 1
 
 
+# Push and CI callers -----------------------------------------------------------
+
+LEDGER_COMMANDS = ("review-record", "approve", "approval-check", "dispatch", "pre-push")
+FEATURE_REF = re.compile(r"refs/heads/feature/([a-z][a-z0-9]*-[0-9]+)(?:-.+)?")
+FIX_ROUNDS = "docs/acceptance/fix-rounds"
+
+
+def ledger_store(args):
+    """The ledger store as (path, problem): --ledger, else CLEARCASE_LEDGER_DIR, else the receipt store. It must lie
+    outside the checkout it checks, so the worker's own tree, git clean and worktree removal cannot reach it."""
+    root = Path(args.root).resolve() if args.root else REPO
+    _, out, problem = git(root, "rev-parse", "--show-toplevel")
+    top = root if problem else Path(os.fsdecode(out.rstrip(b"\n"))).resolve()
+    store = Path(args.ledger or os.environ.get("CLEARCASE_LEDGER_DIR") or receipts_root(args.receipts)).expanduser().resolve()
+    if any(store == checkout or checkout in store.parents for checkout in (root, top)):
+        return store, (f"{args.cmd}: refuse. the ledger store {redact(store)} must be outside the checkout {redact(root)}; "
+                       "pass --ledger DIR or set CLEARCASE_LEDGER_DIR to the coordinator's store (docs/agent-tooling.md)")
+    return store, None
+
+
+def cmd_pre_push(args):
+    """The repo-side half of the coordinator's pre-push hook. Reads the hook's stdin; each pushed feature branch needs
+    an approved ledger row for the exact commit and the branch's Linear issue, rechecked by approval-check. Other refs
+    and deletions pass here; the hook keeps its own rules for them."""
+    store, status = receipts_root(args.receipts), 0
+    for line in sys.stdin.read().splitlines():
+        words = line.split()
+        if not words:
+            continue
+        if len(words) != 4:
+            sys.stderr.write(f"pre-push: BLOCKED: unreadable ref line {line!r}\n")
+            status = 1
+            continue
+        _, sha, ref, _ = words
+        if re.fullmatch(r"0+", sha) or not ref.startswith("refs/heads/feature/"):
+            continue
+        match = FEATURE_REF.fullmatch(ref)
+        try:
+            if not match:
+                raise ValueError("the branch names no Linear issue (feature/<linear-id>-<slug>)")
+            unit = canonical_unit(f"{match[1].upper()}/implementation")
+            rows = [event["payload"] for event in ledger_events(store) if event["kind"] == "approval"
+                    and event["payload"]["row"].get("unit") == unit and event["payload"]["row"].get("sha") == sha]
+            if not rows:
+                raise ValueError(f"no approved ledger row for {unit} at this commit in {redact(store)}")
+            check = argparse.Namespace(**{**vars(args), "cmd": "approval-check", "unit": unit, "sha": sha,
+                                          "approval_receipt": rows[-1]["receipt"]})
+            if cmd_approval(check) != 0:
+                raise ValueError("approval-check refused its approval (above)")
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+            sys.stderr.write(f"pre-push: BLOCKED: {ref} at {sha}: {error}\n")
+            status = 1
+    return status
+
+
+def cmd_fix_round_guard(args):
+    """CI's half of the test guard: runs it at HEAD for each fix-round manifest added or changed since the merge base
+    with --base. A manifest is the fix round's review findings plus the reviewed fixBase; deleting one refuses."""
+    root = Path(args.root).resolve() if args.root else REPO
+    identity, problem = revision(root, args.base)
+    _, out, problem = (None, b"", problem) if problem else git(
+        root, "diff", "--name-status", "--no-renames", "-z", identity["mergeBase"], identity["head"], "--", FIX_ROUNDS)
+    if problem:
+        sys.stderr.write(f"fix-round-guard: FAIL. {problem}\n")
+        return 1
+    fields = os.fsdecode(out).split("\0")[:-1]
+    changes = list(zip(fields[::2], fields[1::2]))
+    status = 0
+    for kind, path in changes:
+        if kind == "D":
+            sys.stderr.write(f"fix-round-guard: FAIL {path}: deleted; a fix round's protection cannot be withdrawn\n")
+            status = 1
+    manifests = [path for kind, path in changes if kind != "D" and path.endswith(".json")]
+    if not manifests and not status:
+        print(f"fix-round-guard: no fix-round manifest added or changed under {FIX_ROUNDS}/ since "
+              f"{identity['mergeBase'][:12]}; nothing to protect")
+    for path in manifests:
+        try:
+            manifest = json_object(root / path)
+            if manifest.get("schema") != "clearcase-fix-round/1":
+                raise ValueError("schema must be clearcase-fix-round/1")
+            canonical_unit(str(manifest.get("unit")))
+            if not isinstance(manifest.get("fixBase"), str) or not FULL_ID.fullmatch(manifest["fixBase"]):
+                raise ValueError("fixBase must be the full SHA of the reviewed commit")
+        except (OSError, ValueError) as error:
+            sys.stderr.write(f"fix-round-guard: FAIL {path}: {error}\n")
+            status = 1
+            continue
+        guard = argparse.Namespace(**{**vars(args), "findings": str(root / path), "fix_base": manifest["fixBase"]})
+        status = run_capability("test-guard", guard) or status
+    return 1 if status else 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="agent-tools")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -1783,9 +1894,23 @@ def main(argv=None):
     dispatch.add_argument("--failure", help="stable failure fingerprint")
     dispatch.add_argument("--diagnosis")
     dispatch.set_defaults(func=cmd_dispatch)
+    push = common(sub.add_parser("pre-push"))
+    push.add_argument("remote", nargs="?", help="the hook's remote name; unused")
+    push.add_argument("url", nargs="?", help="the hook's remote URL; unused")
+    push.set_defaults(func=cmd_pre_push)
+    common(sub.add_parser("fix-round-guard")).set_defaults(func=cmd_fix_round_guard)
+    for name in LEDGER_COMMANDS:
+        sub.choices[name].add_argument("--ledger", help="coordinator's ledger store outside the checkout "
+                                                        "(default: $CLEARCASE_LEDGER_DIR, then the receipt store)")
     args = parser.parse_args(argv)
     if (args.actual_usd is None) != (args.actual_source is None) or args.actual_source is not None and not args.actual_source.strip():
         parser.error("--actual-usd and a nonempty --actual-source must be supplied together")
+    if args.cmd in LEDGER_COMMANDS:
+        store, problem = ledger_store(args)
+        if problem:
+            sys.stderr.write(problem + "\n")
+            return 1
+        args.receipts = str(store)
     return args.func(args)
 
 

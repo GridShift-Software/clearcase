@@ -567,11 +567,11 @@ def write_receipt(folder, started, name, result, code, reason, argv, cwd, tool_r
     receipt["spend"] = spend or {"actualUsd": None, "actualSource": None, "targetUsd": None,
                                  "capUsd": None, "capEnforced": False}
     if "dispatch" in receipt:
-        event = append_event(folder.parent, "dispatch", {"receipt": redact(folder / "receipt.json"), "row": receipt["dispatch"]})
+        event = append_event(folder.parent, "dispatch", {"receipt": str(folder / "receipt.json"), "row": receipt["dispatch"]})
         receipt["dispatchEvent"] = event["hash"]
     if name == "approve" and result == "PASS":
         # The ledger row is this event; approval-check refuses a receipt that differs from it or is missing from the log.
-        event = append_event(folder.parent, "approval", {"receipt": redact(folder / "receipt.json"),
+        event = append_event(folder.parent, "approval", {"receipt": str(folder / "receipt.json"),
                                                          "row": receipt["approval"], "inputs": receipt["inputs"]})
         receipt["approvalEvent"] = event["hash"]
     (folder / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
@@ -1148,13 +1148,29 @@ def cmd_compare_upstream(args):
     return 1
 
 
+def guard_claims(root, args):
+    """What a test-guard receipt binds for approval: the commit the diff is measured from and the manifest's own claims
+    about the review that prompted the fix round. approve compares them with the ledger's recorded review."""
+    base = commit_of(root, args.fix_base)[0] if args.fix_base else None
+    claims = dict.fromkeys(("manifestSha256", "reviewFindingsSha256", "unit", "tests"))
+    try:
+        findings = Path(args.findings).expanduser().resolve()
+        manifest = json_object(findings)
+        claims.update(manifestSha256=sha256_file(findings), reviewFindingsSha256=manifest.get("reviewFindingsSha256"),
+                      unit=manifest.get("unit"), tests=manifest.get("tests"))
+    except (OSError, ValueError, TypeError):
+        pass  # the guard itself refuses a missing or malformed manifest
+    return {"guard": {"fixBase": base, **claims}}
+
+
 def run_capability(name, args):
     root = Path(args.root).resolve() if args.root else REPO
     argv, tools, inputs, skip, pstack = capability_command(name, args)
+    metadata = {"pstack": pstack} if pstack else guard_claims(root, args) if name == "test-guard" else None
     return run_with_receipt(name, argv, cwd=root, tools=tools, inputs=inputs, receipts=args.receipts,
                             base=args.base, root=root, skip_reason=skip,
                             required=name in ("plan-format", "pstack", "models", "test-guard", *RETIRED),
-                            metadata={"pstack": pstack} if pstack else None, spend=spend_fields(args))
+                            metadata=metadata, spend=spend_fields(args))
 
 
 def cmd_verify(args):
@@ -1488,6 +1504,53 @@ def cmd_review_record(args):
                             skip_reason=problem, metadata={"reviewEvent": event["hash"] if event else None})
 
 
+def fix_state(store, unit):
+    """(the first recorded fix dispatch, the review-record that prompted it) for unit in the store's log. The fix
+    answers the latest review recorded before it; that review's commit and findings are what the guard must bind."""
+    events = ledger_events(store)
+    fix = next((e for e in events if e["kind"] == "dispatch" and e["payload"]["row"].get("unit") == unit
+                and e["payload"]["row"].get("phase") == "fix" and e["payload"]["row"].get("outcome") == "recorded"), None)
+    if fix is None:
+        return None, None
+    reviews = [e for e in events if e["kind"] == "review" and e["payload"]["unit"] == unit and e["sequence"] < fix["sequence"]]
+    return fix, (reviews[-1] if reviews else None)
+
+
+def guard_binding(store, unit, supplied, identity):
+    """(binding, evidence paths). A unit with a recorded fix attempt needs a PASS test-guard receipt at the approved
+    HEAD whose fix base is the commit the prompting review recorded, whose manifest names that review's findings by
+    content hash and lists exactly the tests that review protects. None when no fix attempt is recorded."""
+    fix, prompting = fix_state(store, unit)
+    if fix is None:
+        return None, []
+    if prompting is None:
+        raise ValueError("a fix attempt is recorded for this unit with no review-record before it")
+    record = prompting["payload"]
+    protected = json_object(store / "blobs" / record["findingsHash"]).get("protectedTests")
+    if not isinstance(protected, list):
+        raise ValueError("the review that prompted the fix lists no protectedTests (a list of {file, name}; empty "
+                         "only when it names no test); the guard cannot be bound to it")
+    binding = {"nothingToProtect": not protected, "reviewEvent": prompting["hash"], "fixEvent": fix["hash"], "fixBase": record["sha"]}
+    if not protected:
+        return binding, []
+    if not supplied:
+        raise ValueError("a fix attempt is recorded for this unit: approval needs the PASS test-guard receipt "
+                         "(--guard-receipt) bound to the reviewed commit and findings")
+    path = Path(supplied).expanduser().resolve()
+    receipt = json_object(path)
+    passing_check(receipt, identity)
+    claims = receipt.get("guard") if receipt.get("name") == "test-guard" else None
+    if not isinstance(claims, dict):
+        raise ValueError("the guard receipt is not a test-guard receipt")
+    if claims.get("fixBase") != record["sha"]:
+        raise ValueError(f"guard fix base {str(claims.get('fixBase'))[:12]} differs from the reviewed SHA {record['sha'][:12]} in the ledger")
+    if claims.get("reviewFindingsSha256") != record["findingsHash"] or claims.get("unit") != unit:
+        raise ValueError("the guard manifest names other review findings than the ledger's review for this unit")
+    if json.dumps(claims.get("tests"), sort_keys=True) != json.dumps(protected, sort_keys=True):
+        raise ValueError("the guard manifest's tests differ from the review's protectedTests")
+    return {**binding, "receipt": str(path), "manifestSha256": claims.get("manifestSha256"), "tests": protected}, [path]
+
+
 def approval_evidence(args, identity, paths):
     review_path, findings_path = Path(args.review).resolve(), Path(args.findings).resolve()
     paths.extend([review_path, findings_path])
@@ -1537,7 +1600,9 @@ def approval_evidence(args, identity, paths):
         checks[name] = str(path)
     if set(checks) != set(requirements):
         raise ValueError(f"required check receipt mismatch: expected {required}, got {list(checks)}")
-    return {"state": "approved", "unit": args.unit, "sha": args.sha, "approvedBy": args.approved_by,
+    guard, guard_paths = guard_binding(receipts_root(args.receipts), args.unit, args.guard_receipt, identity)
+    paths.extend(guard_paths)
+    return {"state": "approved", "unit": args.unit, "sha": args.sha, "approvedBy": args.approved_by, "guard": guard,
             "reviewer": review["reviewer"], "reviewVerdict": review["verdict"], "review": str(review_path),
             "findings": str(findings_path), "unresolvedFindings": unresolved, "checks": checks, "requirements": requirements, "reviewEvent": event["hash"]}
 
@@ -1587,6 +1652,10 @@ def cmd_approval(args):
             event = review_record(receipts_root(args.receipts), args.unit, Path(row["review"]).expanduser(), Path(row["findings"]).expanduser())
             if event["hash"] != row["reviewEvent"]:
                 raise ValueError("approval review-step record mismatch")
+            guard, guard_paths = guard_binding(receipts_root(args.receipts), args.unit, (row.get("guard") or {}).get("receipt"), identity)
+            if guard != row.get("guard"):
+                raise ValueError("approval row lacks the test-guard binding the ledger now requires for this unit")
+            paths.extend(guard_paths)
             for name, requirement in row["requirements"].items():
                 check = json_object(Path(row["checks"][name]).expanduser())
                 passing_check(check, identity)
@@ -1636,10 +1705,10 @@ def dispatch_record(args, root, store, row):
         receipt = json_object(path)
         if "dispatch" in receipt and receipt.get("dispatchEvent") not in indexed:
             raise ValueError("attempt receipt is missing its append-only event")
-    deadlines = {prior["deadline"] for prior in history if prior.get("deadline")}
-    if len(deadlines) > 1:
-        raise ValueError("inconsistent unit deadlines; refusing to reset the unit")
-    row["deadline"] = next(iter(deadlines), None)
+    # Each attempt carries its own deadline; the unit's first (initial) deadline stays in "deadline" for reference.
+    row["deadlines"] = {prior["phase"]: prior.get("attemptDeadline") or prior.get("deadline")
+                        for prior in history if prior.get("outcome") == "recorded" and (prior.get("attemptDeadline") or prior.get("deadline"))}
+    row["deadline"] = row["deadlines"].get("initial")
     if args.phase == "cancel":
         if not row["counts"]["initial"] or not args.cancel_outcome or not (args.reason or "").strip():
             raise ValueError("cancellation requires an existing unit, --cancel-outcome and --reason")
@@ -1649,19 +1718,18 @@ def dispatch_record(args, root, store, row):
         return None if args.cancel_outcome == "confirmed" else "cancellation not confirmed; unit stopped"
     if any(prior.get("cancellation") for prior in history):
         raise ValueError("unit has a cancellation record; no further attempts")
-    if args.deadline and row["deadline"] and args.deadline != row["deadline"]:
-        raise ValueError("unit deadline cannot be changed by a restart or a renamed task")
-    if row["deadline"] and timestamp(row["deadline"]) <= now():
-        raise ValueError("unit deadline expired; record cancellation and preserve work/evidence")
     if args.phase == "initial":
+        if row["deadline"] and args.deadline != row["deadline"]:
+            raise ValueError("the initial deadline cannot be changed by a restart or a renamed task")
         if not args.deadline:
             raise ValueError("initial attempt requires --deadline before dispatch")
-        limit = 90 if args.unit.endswith("/implementation") else 30
-        duration = (timestamp(args.deadline) - now()).total_seconds()
-        if not 0 < duration <= limit * 60:
-            raise ValueError(f"deadline must be in the future within {limit} minutes")
     elif not row["counts"]["initial"]:
         raise ValueError("record the initial attempt and deadline first")
+    # Every attempt, not only the first, is bounded when it is dispatched: in the future, within the unit's limit.
+    limit = 90 if args.unit.endswith("/implementation") else 30
+    attempt = args.deadline or (now() + datetime.timedelta(minutes=limit)).isoformat()
+    if not 0 < (timestamp(attempt) - now()).total_seconds() <= limit * 60:
+        raise ValueError(f"the {args.phase} deadline must be in the future within {limit} minutes of its dispatch")
     if args.phase == "recheck" and not row["counts"]["fix"]:
         raise ValueError("recheck requires the unit's written-finding fix round")
     if args.phase == "escalation" and not row["counts"]["recheck"]:
@@ -1677,7 +1745,9 @@ def dispatch_record(args, root, store, row):
                and prior.get("outcome") == "recorded" for prior in history):
             raise ValueError("same failure twice without a new diagnosis; stop this unit")
     row["counts"][args.phase] += 1
-    row["deadline"] = row["deadline"] or args.deadline
+    row["attemptDeadline"] = attempt
+    row["deadlines"][args.phase] = attempt
+    row["deadline"] = row["deadline"] or attempt
     row["outcome"] = "recorded"
     return None
 
@@ -1686,7 +1756,8 @@ def cmd_dispatch(args):
     import fcntl
     root = Path(args.root).resolve() if args.root else REPO
     store = receipts_root(args.receipts)
-    row = {"unit": args.unit, "phase": args.phase, "taskId": args.task_id, "deadline": None,
+    row = {"unit": args.unit, "phase": args.phase, "taskId": args.task_id, "deadline": None, "attemptDeadline": None,
+           "deadlines": {},
            "counts": dict.fromkeys(DISPATCH_PHASES, 0), "outcome": "refuse", "dispatchPerformed": False,
            "failure": args.failure, "diagnosis": args.diagnosis}
     # Keep the receipt append under the same lock as the read; concurrent reservations cannot both win.
@@ -1723,7 +1794,11 @@ def ledger_store(args):
     root = Path(args.root).resolve() if args.root else REPO
     _, out, problem = git(root, "rev-parse", "--show-toplevel")
     top = root if problem else Path(os.fsdecode(out.rstrip(b"\n"))).resolve()
-    store = Path(args.ledger or os.environ.get("CLEARCASE_LEDGER_DIR") or receipts_root(args.receipts)).expanduser().resolve()
+    chosen = args.ledger or os.environ.get("CLEARCASE_LEDGER_DIR")
+    if chosen and not Path(chosen).expanduser().is_absolute():
+        return Path(chosen), (f"{args.cmd}: refuse. the ledger directory {chosen!r} must be an absolute path: a relative one "
+                              "resolves against each caller's working directory and splits the store")
+    store = Path(chosen or receipts_root(args.receipts)).expanduser().resolve()
     if any(store == checkout or checkout in store.parents for checkout in (root, top)):
         return store, (f"{args.cmd}: refuse. the ledger store {redact(store)} must be outside the checkout {redact(root)}; "
                        "pass --ledger DIR or set CLEARCASE_LEDGER_DIR to the coordinator's store (docs/agent-tooling.md)")
@@ -1783,9 +1858,23 @@ def cmd_fix_round_guard(args):
             sys.stderr.write(f"fix-round-guard: FAIL {path}: deleted; a fix round's protection cannot be withdrawn\n")
             status = 1
     manifests = [path for kind, path in changes if kind != "D" and path.endswith(".json")]
+    required = "the pull request carries the fix-round label" if args.require_manifest else None
+    match = FEATURE_REF.fullmatch(f"refs/heads/{args.branch or ''}")
+    if not required and args.ledger and match:
+        unit = canonical_unit(f"{match[1].upper()}/implementation")
+        if fix_state(Path(args.ledger).expanduser().resolve(), unit)[0]:
+            required = f"the ledger records a fix attempt for {unit}"
+    if not manifests and not status and required:
+        sys.stderr.write(f"fix-round-guard: FAIL. {required}, but no fix-round manifest was added or changed under "
+                         f"{FIX_ROUNDS}/ since {identity['mergeBase'][:12]}; a fix round commits one (docs/agent-tooling.md)\n")
+        return 1
     if not manifests and not status:
         print(f"fix-round-guard: no fix-round manifest added or changed under {FIX_ROUNDS}/ since "
               f"{identity['mergeBase'][:12]}; nothing to protect")
+        return run_with_receipt("fix-round-guard", [sys.executable, "-I", "-B", "-c", "print('nothing to protect')"], cwd=root,
+                                root=root, tools=["python3"], receipts=args.receipts, base=args.base, required=True,
+                                metadata={"guard": {"nothingToProtect": True, "mergeBase": identity["mergeBase"]}},
+                                spend=spend_fields(args))
     for path in manifests:
         try:
             manifest = json_object(root / path)
@@ -1881,6 +1970,7 @@ def main(argv=None):
             approval.add_argument("--findings", required=True)
             approval.add_argument("--check-receipt", action="append", required=True)
             approval.add_argument("--approved-by", required=True)
+            approval.add_argument("--guard-receipt", help="PASS test-guard receipt; required once a fix attempt is recorded")
         else:
             approval.add_argument("--approval-receipt", required=True)
         approval.set_defaults(func=cmd_approval)
@@ -1898,7 +1988,13 @@ def main(argv=None):
     push.add_argument("remote", nargs="?", help="the hook's remote name; unused")
     push.add_argument("url", nargs="?", help="the hook's remote URL; unused")
     push.set_defaults(func=cmd_pre_push)
-    common(sub.add_parser("fix-round-guard")).set_defaults(func=cmd_fix_round_guard)
+    fix_guard = common(sub.add_parser("fix-round-guard"))
+    fix_guard.add_argument("--ledger", help="the coordinator's ledger store, read only: a recorded fix attempt for the "
+                                            "branch's unit makes a missing manifest a failure")
+    fix_guard.add_argument("--branch", help="the pull request's head branch (feature/<linear-id>-<slug>)")
+    fix_guard.add_argument("--require-manifest", action="store_true",
+                           help="fail when no manifest was added or changed (the pull request carries the fix-round label)")
+    fix_guard.set_defaults(func=cmd_fix_round_guard)
     for name in LEDGER_COMMANDS:
         sub.choices[name].add_argument("--ledger", help="coordinator's ledger store outside the checkout "
                                                         "(default: $CLEARCASE_LEDGER_DIR, then the receipt store)")

@@ -65,20 +65,37 @@ jobs:
             bun run --bun test --maxWorkers=6 --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/receipts/vitest.json"
       # A fix round commits its review findings and the reviewed SHA under docs/acceptance/fix-rounds/
       # (docs/agent-tooling.md). The guard fails a pull request that deletes, skips, loosens or renames a test those
-      # findings name, or that deletes a manifest. It checks the pull request's own head, not the merge commit, and runs
-      # under Bun because the runner has no Node. A push to dev ran it in its pull request.
+      # findings name, that changes the test code, runner configuration or fixtures they depend on, or that deletes a
+      # manifest. It checks the pull request's own head, not the merge commit, and runs under Bun because the runner has
+      # no Node. The guard itself is the base branch's copy, checked out beside the head with the installed
+      # node_modules: a pull request cannot weaken the check that judges it. A pull request labelled fix-round must
+      # carry a manifest; the coordinator's ledger has no copy here, so the label is how CI learns of a fix round. A
+      # push to dev ran it in its pull request.
       - name: test guard
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          FIX_ROUND_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'fix-round') }}
         run: |
           head=$RUNNER_TEMP/pr-head
+          base_tools=$RUNNER_TEMP/base-tools
           git worktree prune
           git worktree add -q --detach "$head" "$PR_HEAD_SHA"
-          trap 'git worktree remove --force "$head"' EXIT
-          CLEARCASE_NODE=$(command -v bun) scripts/agent-tools/fix-round-guard --root "$head" --base "origin/$BASE_REF" \
-            --receipts "$RUNNER_TEMP/receipts"
+          trap 'git worktree remove --force "$head"; git worktree remove --force "$base_tools" 2>/dev/null || true' EXIT
+          runner=scripts/agent-tools/fix-round-guard
+          if git cat-file -e "origin/$BASE_REF:scripts/agent-tools/fix-round-guard" 2>/dev/null; then
+            git worktree add -q --detach "$base_tools" "origin/$BASE_REF"
+            ln -s "$PWD/node_modules" "$base_tools/node_modules"
+            runner="$base_tools/scripts/agent-tools/fix-round-guard"
+          else
+            echo "the base branch has no fix-round guard yet (this pull request adds it): running the pull request's own copy" >&2
+          fi
+          require=()
+          if [ "$FIX_ROUND_LABEL" = true ]; then require=(--require-manifest); fi
+          CLEARCASE_NODE=$(command -v bun) "$runner" --root "$head" --base "origin/$BASE_REF" --branch "$HEAD_REF" \
+            --receipts "$RUNNER_TEMP/receipts" "${require[@]}"
       # Fails the job unless both receipts are PASS for this checkout and every tracked test file ran with no failed or
       # skipped test; writes the job summary and summary.json, which name each problem and how to reproduce it.
       - name: summary

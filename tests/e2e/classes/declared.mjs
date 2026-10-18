@@ -137,6 +137,15 @@ export const NO_TABLE = {
 };
 
 /**
+ * Pages whose main sets no data-ready marker (class narrow), with why. Every other page must show a ready marker that is
+ * not an error before narrow counts it rendered; a declared page must show content in its main instead, and a marker it
+ * does set fails the declaration.
+ */
+export const NO_READY = {
+	'/cases': 'the cases list is server-rendered with no client step to wait for; its main holds the page header and the case cards',
+};
+
+/**
  * Page states that appear only after a choice (class narrow) and that the suite opens as well as the page's default
  * state: `query` is the URL the choice makes (every such choice in the app is a query, a GET form or a link), `expect`
  * a selector that must then be on the page (a state that did not come up fails). Each state is measured at 320 and

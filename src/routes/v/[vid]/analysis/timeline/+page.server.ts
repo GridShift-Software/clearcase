@@ -1,9 +1,11 @@
-import { analysisDataset, existingOf } from '$lib/analysis/data.server';
+import { analysisAdditionsEnabled, analysisDataset, existingOf } from '$lib/analysis/data.server';
 import { app } from '$lib/local-case/app.server';
 import { documentCounts } from '$lib/local-case/documents.server';
 import { money } from '$lib/components/format';
+import { viewById } from '$lib/components/views';
 import type { OverviewModel } from '$lib/local-case/model';
 import { viewContentOf, viewText } from '$lib/local-case/results.server';
+import { viewHeading } from '$lib/views/analysis/headings';
 import { phaseGroups, quantumBars, templateParts, yearBars, type SeriesPoint, type TimelineEvent } from '$lib/views/analysis/timeline';
 import type { PageServerLoad } from './$types';
 
@@ -39,6 +41,7 @@ export const load: PageServerLoad = async ({ parent }) => {
 		evidenceNotes: meta ? viewText(vc, 'timeline', 'evidenceNotes', { textNone: String(meta.textNone) }) : null,
 	};
 	return {
+		heading: viewHeading(viewById('timeline')!, analysisAdditionsEnabled()),
 		phases: grouped.phases,
 		unplaced: grouped.unplaced,
 		years,

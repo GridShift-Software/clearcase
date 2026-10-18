@@ -1,0 +1,28 @@
+{
+  "pages": [
+    "/v/[vid]/analysis/contradictions_tab",
+    "/v/[vid]/analysis/vdm_matrix_tab",
+    "/v/[vid]/chronology",
+    "/v/[vid]/evidence/contracts_tab",
+    "/v/[vid]/evidence/filings_tab",
+    "/v/[vid]/evidence/search",
+    "/v/[vid]/litigation/authorities_tab",
+    "/v/[vid]/litigation/heads_tab",
+    "/v/[vid]/quantum/invoice_ledger_tab",
+    "/v/[vid]/quantum/payments_tab",
+    "/v/[vid]/quantum/prescription_tab",
+    "/v/[vid]/quantum/quantum_tab",
+    "/v/[vid]/registers/annotations_tab",
+    "/v/[vid]/registers/deadlines_tab",
+    "/v/[vid]/registers/disbursements_tab",
+    "/v/[vid]/registers/popia_tab",
+    "/v/[vid]/registers/privilege_tab",
+    "/v/[vid]/registers/timesheet_tab",
+    "/v/[vid]/registers/transcriptions_tab"
+  ],
+  "servers": [
+    "/v/[vid]/evidence/search/export"
+  ],
+  "unrecognised": [],
+  "declaredButCsv": []
+}

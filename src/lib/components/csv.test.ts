@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseCsv } from '../../../scripts/parity/lib/exports.mjs';
-import { csvCell, toCSV, userCell, type Cell } from './csv.ts';
+import { csvCell, monetaryCell, toCSV, userCell, type Cell } from './csv.ts';
 
 function parse(text: string, sep: string): string[][] {
 	const rows: string[][] = [];
@@ -134,4 +134,31 @@ describe('imported cells in any column of a multi-column row (BASE-R2g)', () => 
 	it("leaves an imported cell's own first character alone (v5 parity)", () => {
 		expect([csvCell('=A1'), csvCell('-5'), csvCell(-5), csvCell('@x')]).toEqual(['=A1', '-5', '-5', '@x']);
 	});
+});
+
+describe('explicit monetary CSV cells (GRS-49)', () => {
+	it.each([
+		['-500', '-500.00'], ['-500.25', '-500.25'], ['-R 1 250.50', '-1250.50'],
+		['-999999999999.99', '-999999999999.99'], ['R 1,250.50', '1250.50'], ['0', '0.00'], [' -500 ', '-500.00'],
+	])('exports the validated monetary amount %j as a numeric CSV cell', (raw, numeric) => {
+		expect(toCSV([['amount'], [monetaryCell(raw)]])).toBe(`amount\r\n${numeric}`);
+		expect(userCell(raw)).toBe(raw.startsWith('-') ? `'${raw}` : raw);
+	});
+	it.each(['-1+2', '-1e3', '-12,34', '-5.001', '-1000000000000', '=1', '@SUM(A1)', '', 'plain'])('does not exempt malformed monetary text %j', (raw) => {
+		expect(monetaryCell(raw)).toBe(userCell(raw));
+	});
+	for (const sep of [';', '\t', '\r', '\n']) {
+		for (const lead of ['=', '+', '-', '@', '"']) {
+			it(`neutralises free text after ${JSON.stringify(sep)} and ${lead} in every column`, () => {
+				const raw = `-500${sep} ${lead}1`;
+				for (let col = 0; col < 3; col++) {
+					const cells = ['synthetic', 'synthetic', 'synthetic'];
+					cells[col] = monetaryCell(raw);
+					expect(cells[col]).toBe(userCell(raw));
+					expect(cells[col]).toContain(`${sep} '${lead}1`);
+					expect(parseCsv(toCSV([cells]))).toEqual([cells]);
+				}
+			});
+		}
+	}
 });

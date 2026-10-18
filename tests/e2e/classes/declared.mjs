@@ -137,6 +137,15 @@ export const NO_TABLE = {
 };
 
 /**
+ * Pages whose main sets no data-ready marker (class narrow), with why. Every other page must show a ready marker that is
+ * not an error before narrow counts it rendered; a declared page must show content in its main instead, and a marker it
+ * does set fails the declaration.
+ */
+export const NO_READY = {
+	'/cases': 'the cases list is server-rendered with no client step to wait for; its main holds the page header and the case cards',
+};
+
+/**
  * Page states that appear only after a choice (class narrow) and that the suite opens as well as the page's default
  * state: `query` is the URL the choice makes (every such choice in the app is a query, a GET form or a link), `expect`
  * a selector that must then be on the page (a state that did not come up fails). Each state is measured at 320 and
@@ -165,4 +174,27 @@ export const NO_CHOICE_STATE = {
 	'/v/[vid]/bundles/discovery_tab: supplementary': 'a client-side switch that saves the mode to the case; it shows the same items table in the same TableScroll box as the default mode (discovery_tab: one {#each items} block), and driving it would change the case for the later scenarios',
 	'edit rows and add forms (registers, filings, litigation)': 'inline forms open inside the table\'s TableScroll box or in the page flow, whose width the other states fix; the inflight and dialog classes drive them',
 	'alertdialog (the question before leaving with typed input)': 'RegisterPage, filings and payments show it in flow with flex-wrap, and LeaveGuard as position:fixed with a max-width inside the viewport; the dialog class drives it',
+};
+
+
+export const UI_CLASSES = ['inflight', 'nojs', 'dialog', 'csv', 'narrow', 'back'];
+
+/** Ask-then-save targets that cancel the existing question at save start; the suite must observe it closed in flight. */
+const SAVE_CLOSES_QUESTION = 'Save clears the pending edit/leave question at submit start; the held request must leave no visible question.';
+export const DIALOG_CLOSED_BY_SAVE = {
+	'/v/[vid]/evidence/filings_tab ?/add': SAVE_CLOSES_QUESTION,
+	'/v/[vid]/registers/annotations_tab ?/save': SAVE_CLOSES_QUESTION,
+	'/v/[vid]/registers/deadlines_tab ?/save': SAVE_CLOSES_QUESTION,
+	'/v/[vid]/registers/disbursements_tab ?/save': SAVE_CLOSES_QUESTION,
+	'/v/[vid]/registers/popia_tab ?/save': SAVE_CLOSES_QUESTION,
+	'/v/[vid]/registers/privilege_tab ?/save': SAVE_CLOSES_QUESTION,
+	'/v/[vid]/registers/timesheet_tab ?/save': SAVE_CLOSES_QUESTION,
+	'/v/[vid]/registers/transcriptions_tab ?/save': SAVE_CLOSES_QUESTION,
+};
+
+
+/** Pages reached through the shared download helper that intentionally export no CSV; checked against their downloads. */
+export const NON_CSV_PAGES = {
+	'/v/[vid]/registers/deadlines_tab': 'Export calendar produces only an ICS file; the registers suite checks its TEXT escaping.',
+	'/v/[vid]/litigation/heads_tab': 'Export outline produces only a plain-text outline; the litigation suite checks it.',
 };

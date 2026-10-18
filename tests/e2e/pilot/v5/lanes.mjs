@@ -6,6 +6,7 @@ import { existsSync, readdirSync, readFileSync, rmSync, statSync, truncateSync }
 import { join } from 'node:path';
 import { documentRoute } from '../../../../src/lib/case-package/browser.ts';
 import { writePackageDir } from '../../../../src/lib/case-package/writer.ts';
+import { viewHeading } from '../../../../src/lib/views/analysis/headings.ts';
 import { editPackage } from '../../../case-package/fixtures/build.ts';
 import { frameEvaluator } from '../lib/cdp.mjs';
 import { vpath } from '../lib/client.mjs';
@@ -553,7 +554,8 @@ export async function checkRegistry(C, L) {
 	const want = cov.views.map((v) => ({ id: v.id, label: v.label, group: v.group, status: v.owner === 'CC-03' || (implemented.has(v.id) && reg.views.find((x) => x.id === v.id)?.status === 'available') ? 'available' : `unavailable-until:${linearOf(v.owner)}`, href: `${vpath(rv)}${v.owner === 'CC-03' ? `/${v.id}` : `/${OWNER_CATEGORY[v.owner]}/${v.id}`}` }));
 	L.check('navigation: all 42 entries in inventory order with id, task label, group, status and route', want, nav);
 	// heading = label, data-ready="<id>", no unavailable state and aria-current on an implemented view's entry; every
-	// other M2 view keeps the unavailable state and its owner
+	// other M2 view keeps the unavailable state and its owner. The app runs without CLEARCASE_ANALYSIS_ADDITIONS, so
+	// Timeline, Defence & Rebuttal and Info Required keep v5's heading (ADR 0003, GRS-48)
 	L.note(`tree under test: ${JSON.stringify(modeSummary(reg.views, implemented, filledSlots(C.build.root, reg.slots)))}`);
 	let ok = 0, implOk = 0, unavailOk = 0;
 	for (const v of want) {
@@ -564,7 +566,7 @@ export async function checkRegistry(C, L) {
 		if (implemented.has(v.id)) {
 			const navTag = new RegExp(`<a [^>]*id="nav-${v.id}"[^>]*>`).exec(r.text)?.[0] ?? '';
 			const got = { status: r.status, heading: h1, ready: /<main[^>]*data-ready="([^"]*)"/.exec(r.text)?.[1] ?? null, unavailable: /data-unavailable=/.test(r.text), current: /aria-current="page"/.test(navTag) };
-			if (L.check(`${v.id}: implemented (owner route present): heading matches the label (BA-18), data-ready, no unavailable state, aria-current`, { status: 200, heading: v.label, ready: v.id, unavailable: false, current: true }, got)) { ok++; implOk++; }
+			if (L.check(`${v.id}: implemented (owner route present): heading matches the label (BA-18; v5's on Timeline, Defence & Rebuttal and Info Required while the analysis additions are off), data-ready, no unavailable state, aria-current`, { status: 200, heading: viewHeading(v, false), ready: v.id, unavailable: false, current: true }, got)) { ok++; implOk++; }
 			continue;
 		}
 		const avail = v.status === 'available';

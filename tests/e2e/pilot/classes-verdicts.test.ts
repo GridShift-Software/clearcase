@@ -1,8 +1,9 @@
 // The verdicts of the UI class suite (GRS-59) on recorded evidence: a refused or failed save never passes inflight-ok,
 // a save that took effect does, and the verdict still refuses an inert field that only looked fine (no browser needed).
 import { describe, expect, test } from 'vitest';
+import { toCSV, userCell } from '../../../src/lib/components/csv.ts';
 // @ts-expect-error plain .mjs
-import { actionResult, inflightChecks } from '../classes/verdicts.mjs';
+import { actionResult, csvChecks, csvFileEvidence, dialogChecks, inflightChecks } from '../classes/verdicts.mjs';
 
 const json = (http: number, body: object) => ({ http, body: JSON.stringify(body) });
 const SUCCESS = json(200, { type: 'success', status: 200, data: '[{"restored":1},3]' });
@@ -64,4 +65,53 @@ describe('inflightChecks in mode fail', () => {
 		expect(passes(inflightChecks({ ...lost, errors: [] }))).toBe(false);
 		expect(passes(inflightChecks({ ...lost, result: actionResult(SUCCESS) }))).toBe(false);
 	});
+});
+
+
+describe('dialog evidence must prove an answer (GRS-61)', () => {
+	const evidence = { setUpSaved: true, inApp: true, paused: {}, asked: 'edit', answered: 'Discard it', questionClosed: true, closedBySave: false, closedBySaveReason: null, onPage: true, holds: true, errors: [{ text: 'The entry was not saved.' }] };
+	test('passes a clicked answer only after the question closes, with the error beside its own text', () => {
+		expect(passes(dialogChecks(evidence))).toBe(true);
+		for (const over of [{ questionClosed: false }, { answered: 'disabled' }, { answered: null }, { holds: false }, { errors: [] }, { paused: null }]) {
+			expect(passes(dialogChecks({ ...evidence, ...over })), JSON.stringify(over)).toBe(false);
+		}
+	});
+	test('requires a per-target reason and observed closure when the save takes back the question', () => {
+		const closed = { ...evidence, answered: null, closedBySave: true };
+		expect(passes(dialogChecks(closed))).toBe(false);
+		expect(passes(dialogChecks({ ...closed, closedBySaveReason: 'this target closes its edit question at save start' }))).toBe(true);
+		expect(passes(dialogChecks({ ...closed, closedBySaveReason: 'declared', questionClosed: false }))).toBe(false);
+	});
+	test('a failed save must leave no error on the page left for', () => {
+		expect(passes(dialogChecks({ ...evidence, onPage: false, errors: [] }))).toBe(true);
+		expect(passes(dialogChecks({ ...evidence, onPage: false }))).toBe(false);
+	});
+});
+
+describe('CSV evidence cannot pass without checking CSV (GRS-61)', () => {
+	test('no CSV, including a download set containing only ICS or TXT, cannot pass', () => {
+		expect(passes(csvChecks([]))).toBe(false);
+		expect(passes(csvChecks([csvFileEvidence({ name: 'empty.csv', text: 'safe' })]))).toBe(false);
+	});
+	test('does not miss a formula preceded by more than twenty spaces after a delimiter', () => {
+		const file = csvFileEvidence({ name: 'synthetic.csv', text: `safe;${' '.repeat(40)}=CCX(1),safe` });
+		expect(file.bad).toBe(1);
+		expect(passes(csvChecks([file]))).toBe(false);
+	});
+	for (const sep of [';', '\t', '\r', '\n']) {
+		for (const lead of ['=', '+', '-', '@']) {
+			test(`detects a formula after ${JSON.stringify(sep)} and ${lead} in every column`, () => {
+				for (let col = 0; col < 3; col++) {
+					const cells = ['synthetic', 'synthetic', 'synthetic'];
+					cells[col] = `synthetic${sep} ${lead}CCX(1)`;
+					const unsafe = csvFileEvidence({ name: 'synthetic.csv', text: cells.join(',') });
+					expect(unsafe.bad).toBe(1);
+					expect(passes(csvChecks([unsafe]))).toBe(false);
+					const safe = csvFileEvidence({ name: 'synthetic.csv', text: toCSV([cells.map(userCell)]) });
+					expect(safe.bad).toBe(0);
+					expect(passes(csvChecks([safe]))).toBe(true);
+				}
+			});
+		}
+	}
 });

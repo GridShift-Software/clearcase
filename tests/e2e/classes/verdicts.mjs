@@ -43,3 +43,32 @@ export function inflightChecks(e) {
 			: { lost: !e.result || e.result.kind === 'none', failureShown: (e.errors ?? []).some((x) => NOT_SAVED.test(x.text)) }),
 	};
 }
+
+
+/** A clicked answer or a declared save closure must actually close the question before the failed request is released. */
+export function dialogChecks(e) {
+	return {
+		setUpSaved: e.setUpSaved === true,
+		inApp: e.inApp === true,
+		requestHeld: !!e.paused,
+		asked: !!e.asked,
+		answered: e.questionClosed === true && (
+			(typeof e.answered === 'string' && e.answered !== '' && e.answered !== 'disabled') ||
+			(e.answered === null && e.closedBySave === true && typeof e.closedBySaveReason === 'string' && e.closedBySaveReason.length > 0)),
+		ownError: e.onPage ? (e.errors ?? []).some((x) => NOT_SAVED.test(x.text)) && e.holds === true : e.errors?.length === 0,
+	};
+}
+
+/** Inspect every payload mark, including those in later columns and after each spreadsheet delimiter. */
+export function csvFileEvidence(d) {
+	const marks = [...d.text.matchAll(/[=+\-@"]CCX\(/g)];
+	const bad = [...d.text.matchAll(/[;\t\r\n] *[=+\-@"]CCX\(/g)];
+	return { name: d.name, bytes: d.text.length, marks: marks.length, bad: bad.length,
+		sample: bad.slice(0, 3).map((m) => JSON.stringify(d.text.slice(Math.max(0, m.index - 30), m.index + 8))) };
+}
+
+export const csvChecks = (files) => ({
+	exported: files.length > 0,
+	hostileReached: files.every((c) => c.marks > 0),
+	noFormula: files.every((c) => c.bad === 0),
+});

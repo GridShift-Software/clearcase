@@ -26,6 +26,7 @@ import { allowStale, evidenceRecord, evidenceSuffix, freshLine, freshness, notCo
 import { implementedViews, registryOf } from './lib/implemented.mjs';
 import { outDir } from './lib/record.mjs';
 import { bunIdentity } from './lib/server.mjs';
+import { UI_CLASSES } from '../classes/declared.mjs';
 
 const here = import.meta.dirname;
 const root = join(here, '..', '..', '..');
@@ -100,6 +101,10 @@ export function suiteProblems(out, category, implemented) {
 	if (doc.byClass && typeof doc.byClass === 'object') {
 		const empty = Object.entries(doc.byClass).filter(([c, n]) => (!Array.isArray(doc.only) || doc.only.includes(c)) && !(n?.pass > 0)).map(([c]) => c);
 		if (empty.length) problems.push(`class(es) with no passing scenario: ${empty.join(', ')}: every class must run at least one scenario that passes`);
+	}
+	if (category === 'classes') {
+		const missing = UI_CLASSES.filter((c) => !(doc.byClass?.[c]?.pass > 0) || !sc.some((x) => x?.pass === true && x.id.startsWith(c) && /^[-:]/.test(x.id.slice(c.length))));
+		if (missing.length) problems.push(`required UI class(es) without passing evidence: ${missing.join(', ')}`);
 	}
 	const seen = new Set(sc.map((x) => x?.view));
 	const uncovered = [...implemented].filter((v) => !seen.has(v));

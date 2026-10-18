@@ -1,0 +1,674 @@
+"""Synthetic CLI acceptance tests for the unattended controls; no case data or network."""
+import datetime
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import tempfile
+import time
+import unittest
+from pathlib import Path
+
+TOOLS = Path(__file__).resolve().parents[2] / 'scripts/agent-tools'
+
+
+class ControlCase(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix='grs104-controls-', dir=os.environ.get('TMPDIR'))
+        self.addCleanup(self.temp.cleanup)
+        self.work = Path(self.temp.name)
+        self.repo = self.work / 'repo'
+        self.repo.mkdir()
+        self.receipts = self.work / 'receipts'
+        self.env = {k: v for k, v in os.environ.items() if k not in ('CLEARCASE_BASE_REF', 'GIT_DIR', 'GIT_WORK_TREE')}
+        self.env['CLEARCASE_RECEIPTS_DIR'] = str(self.receipts)
+        self.git('init', '-q', '-b', 'dev')
+        self.write('app.txt', 'before\n')
+        self.commit('base')
+
+    def git(self, *args):
+        return subprocess.check_output(['git', '-C', str(self.repo), *args], env=self.env, stderr=subprocess.STDOUT).decode().strip()
+
+    def write(self, name, text):
+        path = self.repo / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        return path
+
+    def document(self, name, data):
+        path = self.work / name
+        path.write_text(json.dumps(data))
+        return path
+
+    def commit(self, name):
+        self.git('add', '-A')
+        self.git('-c', 'user.name=Synthetic', '-c', 'user.email=test@example.invalid', 'commit', '-qm', name)
+        return self.git('rev-parse', 'HEAD')
+
+    def cli(self, command, *args, code=0):
+        result = subprocess.run([str(TOOLS / command), '--root', str(self.repo), *map(str, args)], cwd=self.repo,
+                                env=self.env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+        return result.stdout + result.stderr
+
+    def last_receipt(self):
+        return json.loads(sorted(self.receipts.glob('*/receipt.json'))[-1].read_text())
+
+
+class TestWeakening(ControlCase):
+    original = '''import { test, expect } from 'vitest';
+ test('rejects stale evidence', () => {
+   expect(validate('old')).toEqual(false);
+   expect(validate('new')).toEqual(true);
+ });
+ test('other behavior', () => { expect(other()).toEqual(42); });
+'''
+
+    def prepare(self, after):
+        self.write('tests/protected.test.ts', self.original)
+        self.base = self.commit('reviewed tests')
+        self.write('tests/protected.test.ts', after)
+        self.write('app.txt', 'fixed\n')
+        self.commit('fix')
+        self.findings = self.document('findings.json', {'tests': [
+            {'file': 'tests/protected.test.ts', 'name': 'rejects stale evidence'}]})
+
+    def guard(self, code=0):
+        return self.cli('test-guard', '--fix-base', self.base, '--findings', self.findings, code=code)
+
+    def test_clean_fix_preserves_named_test(self):
+        self.prepare(self.original + "test('new behavior', () => { expect(newValue()).toEqual(1); });\n")
+        data = json.loads(self.findings.read_text())
+        data['assertionCountReasons'] = {'tests/protected.test.ts': 'Reviewed addition of a new independent test'}
+        self.findings.write_text(json.dumps(data))
+        self.guard()
+        self.assertEqual(self.last_receipt()['result'], 'PASS')
+
+    def test_named_test_cannot_be_deleted_renamed_skipped_or_weakened(self):
+        variants = {
+            'deleted': self.original.replace(self.original[self.original.index(" test('rejects"):self.original.index(" test('other")], ''),
+            'renamed': self.original.replace('rejects stale evidence', 'accepts stale evidence'),
+            'skip': self.original.replace("test('rejects", "test.skip('rejects"),
+            'xit': self.original.replace("test('rejects", "xit('rejects"),
+            'todo': self.original.replace("test('rejects", "test.todo('rejects"),
+            'removed assertion': self.original.replace("   expect(validate('new')).toEqual(true);\n", ''),
+            'loosened matcher': self.original.replace('.toEqual(false)', '.toBeDefined()'),
+            'loosened value': self.original.replace("validate('old')", 'true'),
+            'skipped parent': self.original.replace(" test('rejects", "describe.skip('hidden', () => { test('rejects").replace(" test('other", "}); test('other"),
+        }
+        for name, after in variants.items():
+            with self.subTest(name=name):
+                self.prepare(after)
+                self.assertIn('test-guard: FAIL', self.guard(code=1))
+                self.assertEqual(self.last_receipt()['result'], 'FAIL')
+
+    def test_assertion_drop_elsewhere_needs_recorded_reason(self):
+        self.prepare(self.original.replace('expect(other()).toEqual(42);', 'other();'))
+        self.assertIn('assertion count', self.guard(code=1))
+        data = json.loads(self.findings.read_text())
+        data['assertionCountReasons'] = {'tests/protected.test.ts': 'Duplicate coverage removed after review'}
+        self.findings.write_text(json.dumps(data))
+        self.guard()
+
+    def test_hiding_named_test_in_unexecuted_statement_refuses(self):
+        self.prepare(self.original.replace(" test('rejects", "if (false) { test('rejects").replace(" test('other", "} test('other"))
+        self.guard(code=1)
+
+    def test_receipt_refuses_guard_failure_before_command(self):
+        self.prepare(self.original.replace('.toEqual(false)', '.toBeTruthy()'))
+        marker = self.work / 'must-not-run'
+        self.cli('receipt', '--name', 'fix-check', '--fix-base', self.base, '--findings', self.findings,
+                 '--', 'touch', marker, code=1)
+        self.assertFalse(marker.exists())
+
+    def test_git_overrides_cannot_redirect_guard_away_from_receipt_repository(self):
+        self.prepare(self.original)
+        unchanged = self.work / 'unchanged'
+        subprocess.run(['git', 'clone', '-q', str(self.repo), str(unchanged)], check=True)
+        self.write('tests/protected.test.ts', self.original.replace('.toEqual(false)', '.toMatchObject(false)'))
+        weakened = self.commit('weakened matcher')
+        self.env.update(GIT_DIR=str(unchanged / '.git'), GIT_WORK_TREE=str(unchanged))
+        self.guard(code=1)
+        row = self.last_receipt()
+        self.assertEqual(row['revision']['head'], weakened)
+        self.assertEqual(row['result'], 'FAIL')
+
+    def test_protected_dependency_closure_refuses_helper_fixture_and_control_flow_changes(self):
+        variants = {
+            'helper matcher': ('support/helper.ts', 'expect(value).toBeDefined();'),
+            'helper early return': ('support/helper.ts', 'return; expect(value).toEqual(false);'),
+            'helper conditional': ('support/helper.ts', 'if (false) { expect(value).toEqual(false); }'),
+            'transitive fixture': ('support/fixture.ts', 'export const expected = true;'),
+            'same-file helper': ('tests/protected.test.ts', 'function validate() { return true; }'),
+        }
+        for label, (file, change) in variants.items():
+            with self.subTest(bypass=label):
+                self.write('support/helper.ts', "import { expected } from './fixture.js'; export function check(value) { expect(value).toEqual(false); }")
+                self.write('support/fixture.ts', 'export const expected = false;')
+                original = "import { check } from '../support/helper.js';\n" + self.original + 'function validate() { return false; }'
+                self.write('tests/protected.test.ts', original)
+                self.base = self.commit('protected closure baseline')
+                if file.endswith('helper.ts'):
+                    change = "import { expected } from './fixture.js'; export function check(value) { " + change + ' }'
+                if file.startswith('tests/'):
+                    change = original.replace('function validate() { return false; }', change)
+                self.write(file, change)
+                self.commit('dependency bypass')
+                self.findings = self.document('findings.json', {'tests': [
+                    {'file': 'tests/protected.test.ts', 'name': 'rejects stale evidence'}]})
+                self.guard(code=1)
+
+    def test_symlinked_module_cannot_hide_protected_dependency_changes(self):
+        self.write('support/real.ts', 'export const expected = false;')
+        (self.repo / 'support/helper.ts').symlink_to('real.ts')
+        self.write('tests/protected.test.ts', "import { expected } from '../support/helper';\n" + self.original)
+        self.base = self.commit('symlink dependency baseline')
+        self.write('support/real.ts', 'export const expected = true;')
+        self.commit('change symlink target module')
+        self.findings = self.document('findings.json', {'tests': [
+            {'file': 'tests/protected.test.ts', 'name': 'rejects stale evidence'}]})
+        self.guard(code=1)
+
+    def test_explicit_exception_cannot_hide_new_dependency_control_flow(self):
+        for body in ('return; expect(value).toEqual(false);', 'if (false) { expect(value).toEqual(false); }'):
+            with self.subTest(body=body):
+                self.write('support/helper.ts', 'export function check(value) { expect(value).toEqual(false); }')
+                self.write('tests/protected.test.ts', "import { check } from '../support/helper';\n" + self.original)
+                self.base = self.commit('helper baseline')
+                self.write('support/helper.ts', 'export function check(value) { ' + body + ' }')
+                self.commit('hide helper behind control flow')
+                self.findings = self.document('findings.json', {'tests': [
+                    {'file': 'tests/protected.test.ts', 'name': 'rejects stale evidence'}],
+                    'assertionCountReasons': {'support/helper.ts': 'Claimed independent review'}})
+                self.assertIn('control flow changed', self.guard(code=1))
+
+    def test_resolver_configuration_cannot_swap_or_hide_dependency_closure(self):
+        for variant in ('swapped paths', 'extended config'):
+            with self.subTest(bypass=variant):
+                self.write('support/false.ts', 'export const expected = false;')
+                self.write('support/true.ts', 'export const expected = true;')
+                config = {'compilerOptions': {'baseUrl': '.', 'paths': {
+                    'first': ['support/false.ts'], 'second': ['support/true.ts']}}}
+                if variant == 'extended config':
+                    self.write('tsconfig.paths.json', json.dumps(config))
+                    self.write('tsconfig.json', '{"extends":"./tsconfig.paths.json"}')
+                else:
+                    self.write('tsconfig.json', json.dumps(config))
+                self.write('tests/protected.test.ts', "import { expected as first } from 'first'; import { expected as second } from 'second'; test('rejects stale evidence', () => { expect(first).toEqual(false); expect(second).toEqual(true); });")
+                self.base = self.commit('reviewed alias closure')
+                self.findings = self.document('findings.json', {'tests': [
+                    {'file': 'tests/protected.test.ts', 'name': 'rejects stale evidence'}]})
+                self.guard()
+                if variant == 'extended config':
+                    self.write('support/false.ts', 'export const expected = true;')
+                else:
+                    config['compilerOptions']['paths'] = {'first': ['support/true.ts'], 'second': ['support/false.ts']}
+                    self.write('tsconfig.json', json.dumps(config))
+                self.commit('resolver bypass')
+                self.findings = self.document('findings.json', {'tests': [
+                    {'file': 'tests/protected.test.ts', 'name': 'rejects stale evidence'}]})
+                self.guard(code=1)
+
+    def test_bad_findings_or_missing_baseline_never_pass(self):
+        self.prepare(self.original)
+        self.findings.write_text('{}')
+        self.guard(code=1)
+        self.findings.write_text(json.dumps({'tests': [{'file': 'missing.test.ts', 'name': 'missing'}]}))
+        self.guard(code=1)
+
+
+
+class ApprovalLedger(ControlCase):
+    def prepare(self, unresolved=None, command=None, inputs=()):
+        self.sha = self.git('rev-parse', 'HEAD')
+        options = [part for path in inputs for part in ('--input', path)]
+        self.cli('receipt', '--name', 'tooling', *options, '--', *(command or ['true']))
+        self.check = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        self.review_index = getattr(self, 'review_index', 0) + 1
+        self.findings = self.document(f'approval-findings-{self.review_index}.json', {
+            'sha': self.sha, 'updatedAt': '2026-10-17T10:00:00+00:00',
+            'unresolvedFindings': unresolved or []})
+        self.review = self.document(f'review-{self.review_index}.json', {
+            'schema': 'clearcase-review/1', 'sha': self.sha, 'verdict': 'PASS',
+            'reviewer': 'fresh-reviewer', 'implementer': 'implementation-agent', 'fresh': True,
+            'reviewedAt': '2026-10-17T11:00:00+00:00',
+            'findingsSha256': hashlib.sha256(self.findings.read_bytes()).hexdigest(),
+            'unresolvedFindings': unresolved or [], 'requiredChecks': [{
+                'name': 'tooling', 'execution': json.loads(self.check.read_text())['execution'],
+                'inputs': json.loads(self.check.read_text())['inputs']}]})
+        self.cli('review-record', '--unit', 'GRS-104/implementation', '--review', self.review, '--findings', self.findings)
+
+    def approve(self, code=0):
+        return self.cli('approve', '--unit', 'GRS-104/implementation', '--sha', self.sha,
+                        '--review', self.review, '--findings', self.findings,
+                        '--check-receipt', self.check, '--approved-by', 'coordinator', code=code)
+
+    def test_exact_review_checks_and_approval_form_a_ledger_row(self):
+        self.prepare([{'id': 'L1', 'severity': 'low'}])
+        self.approve()
+        row = self.last_receipt()
+        self.assertEqual(row['approval']['state'], 'approved')
+        self.assertEqual(row['approval']['sha'], self.sha)
+        self.assertEqual(row['approval']['unresolvedFindings'], [{'id': 'L1', 'severity': 'low'}])
+        self.assertTrue(row['inputs'])
+        approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        self.cli('approval-check', '--unit', 'GRS-104/implementation', '--sha', self.sha,
+                 '--approval-receipt', approved)
+        self.write('app.txt', 'later change\n')
+        self.commit('later revision')
+        self.cli('approval-check', '--unit', 'GRS-104/implementation', '--sha', self.git('rev-parse', 'HEAD'),
+                 '--approval-receipt', approved, code=1)
+
+    def test_stale_or_failed_or_dirty_check_receipt_refuses(self):
+        for field, value in [('head', '0' * 40), ('dirty', True), ('result', 'FAIL')]:
+            with self.subTest(field=field):
+                self.prepare()
+                data = json.loads(self.check.read_text())
+                (data['revision'] if field in ('head', 'dirty') else data)[field] = value
+                self.check.write_text(json.dumps(data))
+                self.approve(code=1)
+                self.assertEqual(self.last_receipt()['approval']['state'], 'refuse')
+
+    def test_dirty_tree_cannot_be_approved(self):
+        self.prepare()
+        self.write('app.txt', 'dirty\n')
+        self.approve(code=1)
+        self.assertEqual(self.last_receipt()['approval']['state'], 'refuse')
+
+    def test_newer_findings_or_changed_findings_refuse(self):
+        self.prepare()
+        os.utime(self.findings, ns=(self.review.stat().st_mtime_ns + 1_000_000,) * 2)
+        self.approve(code=1)
+        self.prepare()
+        data = json.loads(self.findings.read_text())
+        data['updatedAt'] = '2026-10-17T12:00:00+00:00'
+        self.findings.write_text(json.dumps(data))
+        self.approve(code=1)
+
+    def test_unresolved_blocker_or_unknown_severity_cannot_approve(self):
+        for severity in ('high', 'medium', 'P0', 'P1', 'unknown'):
+            with self.subTest(severity=severity):
+                self.prepare([{'id': 'F1', 'severity': severity}])
+                self.approve(code=1)
+
+    def test_worker_cannot_downgrade_recorded_original_severity(self):
+        self.prepare([{'id': 'F1', 'severity': 'high'}])
+        self.approve(code=1)
+        findings = json.loads(self.findings.read_text())
+        findings['unresolvedFindings'][0]['severity'] = 'low'
+        self.findings.write_text(json.dumps(findings))
+        review = json.loads(self.review.read_text())
+        review['unresolvedFindings'] = findings['unresolvedFindings']
+        review['findingsSha256'] = hashlib.sha256(self.findings.read_bytes()).hexdigest()
+        self.review.write_text(json.dumps(review))
+        self.approve(code=1)
+
+    def superseded_review(self):
+        self.prepare()
+        self.approve()
+        approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        previous = (self.review, self.findings, self.check)
+        self.prepare([{'id': 'F1', 'severity': 'high'}])
+        self.approve(code=1)
+        self.review, self.findings, self.check = previous
+        return approved
+
+    def test_superseded_review_cannot_be_resurrected_at_approval(self):
+        self.superseded_review()
+        self.approve(code=1)
+
+    def test_superseded_review_cannot_be_resurrected_at_readback(self):
+        approved = self.superseded_review()
+        self.cli('approval-check', '--unit', 'GRS-104/implementation', '--sha', self.sha,
+                 '--approval-receipt', approved, code=1)
+
+    def test_review_and_required_checks_must_be_complete(self):
+        self.prepare()
+        data = json.loads(self.review.read_text())
+        data['requiredChecks'] = ['tooling', 'unit']
+        self.review.write_text(json.dumps(data))
+        self.approve(code=1)
+        data['requiredChecks'] = []
+        self.review.write_text(json.dumps(data))
+        self.approve(code=1)
+        data['requiredChecks'] = ['tooling']
+        data['fresh'] = False
+        self.review.write_text(json.dumps(data))
+        self.approve(code=1)
+
+    def test_approval_readback_rechecks_input_identity(self):
+        self.prepare()
+        self.approve()
+        approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        self.review.write_text(self.review.read_text() + ' ')
+        self.cli('approval-check', '--unit', 'GRS-104/implementation', '--sha', self.sha,
+                 '--approval-receipt', approved, code=1)
+
+    def test_changed_check_inputs_refuse_at_approval_and_readback(self):
+        external = self.work / 'EXTERNAL_INPUT'
+        external.write_text('PASS\n')
+        command = ['grep', '-qx', 'PASS', str(external)]
+        self.prepare(command=command, inputs=[external])
+        external.write_text('FAIL\n')
+        self.approve(code=1)
+        external.write_text('PASS\n')
+        self.prepare(command=command, inputs=[external])
+        self.approve()
+        approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        external.write_text('FAIL again\n')
+        self.cli('approval-check', '--unit', 'GRS-104/implementation', '--sha', self.sha,
+                 '--approval-receipt', approved, code=1)
+
+    def test_external_input_symlink_retarget_refuses_approval_and_readback(self):
+        good, bad, link = [self.work / name for name in ('good', 'bad', 'EXTERNAL_INPUT')]
+        good.write_text('PASS\n')
+        bad.write_text('FAIL\n')
+        link.symlink_to(good)
+        command = ['grep', '-qx', 'PASS', str(link)]
+        self.prepare(command=command, inputs=[link])
+        link.unlink()
+        link.symlink_to(bad)
+        self.approve(code=1)
+        link.unlink()
+        link.symlink_to(good)
+        self.prepare(command=command, inputs=[link])
+        self.approve()
+        approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        link.unlink()
+        link.symlink_to(bad)
+        self.cli('approval-check', '--unit', 'GRS-104/implementation', '--sha', self.sha,
+                 '--approval-receipt', approved, code=1)
+
+    def test_true_cannot_satisfy_reviewed_tooling_command(self):
+        self.prepare(command=['bash', '-c', ':'])
+        self.cli('receipt', '--name', 'tooling', '--', 'true')
+        self.check = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        self.approve(code=1)
+
+    def test_runtime_byte_changes_at_same_path_refuse_both_boundaries(self):
+        shims = self.work / 'runtime'
+        shims.mkdir()
+        shim = shims / 'bun'
+        shim.write_text('#!/bin/bash\nexec "' + shutil.which('bun') + '" "$@"\n')
+        shim.chmod(0o755)
+        self.env['PATH'] = str(shims) + os.pathsep + self.env['PATH']
+        self.prepare()
+        shim.write_text(shim.read_text() + '# bytes changed\n')
+        self.approve(code=1)
+        self.prepare()
+        self.approve()
+        approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        shim.write_text(shim.read_text() + '# bytes changed again\n')
+        self.cli('approval-check', '--unit', 'GRS-104/implementation', '--sha', self.sha,
+                 '--approval-receipt', approved, code=1)
+
+    def test_name_only_cannot_substitute_another_command(self):
+        self.prepare()
+        self.cli('receipt', '--name', 'tooling', '--', 'bash', '-c', 'true')
+        self.check = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        self.approve(code=1)
+
+    def test_path_shim_cannot_stand_in_for_reviewed_bun(self):
+        command = ['bun', '-e', "console.log('checks ran')"]
+        self.prepare(command=command)
+        shims = self.work / 'shims'
+        shims.mkdir()
+        shim = shims / 'bun'
+        shim.write_text('#!/bin/bash\nif [ "$1" = --version ]; then echo 1.4.2; fi\nexit 0\n')
+        shim.chmod(0o755)
+        self.env['CLEARCASE_BUN'] = shutil.which('bun')
+        self.env['PATH'] = str(shims) + os.pathsep + self.env['PATH']
+        self.cli('receipt', '--name', 'tooling', '--tool', 'bun', '--', *command)
+        self.check = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        self.approve(code=1)
+
+    def test_environment_and_runtime_changes_refuse_at_both_approval_boundaries(self):
+        for key in ('TMPDIR', 'CLEARCASE_TEST_MODE'):
+            with self.subTest(environment=key):
+                self.prepare()
+                self.env[key] = str(self.work)
+                self.approve(code=1)
+                self.env.pop(key)
+        self.prepare()
+        self.approve()
+        approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        self.env['CLEARCASE_TEST_MODE'] = 'skip-checks'
+        self.cli('approval-check', '--unit', 'GRS-104/implementation', '--sha', self.sha,
+                 '--approval-receipt', approved, code=1)
+
+
+class ModelSheet(ControlCase):
+    def setUp(self):
+        super().setUp()
+        self.plugin_home = self.work / 'home'
+        helper = TOOLS.parents[1] / 'tests/agent-tools/make_plugin.py'
+        subprocess.run(['python3', '-I', str(helper), str(self.plugin_home), '2.0.0-rc.5'], check=True)
+        self.env['HOME'] = str(self.plugin_home)
+        self.env.pop('T3_PSTACK_ROOT', None)
+        self.plugin = self.plugin_home / '.claude/plugins/cache/t3-pstack/t3-pstack/2.0.0-rc.5'
+        fixture = TOOLS.parents[1] / 'tests/agent-tools/fixtures/pstack'
+        shutil.copytree(fixture / 'skills', self.plugin / 'skills', dirs_exist_ok=True)
+        shutil.copy2(fixture / 'models.json', self.plugin / 'models.json')
+        self.sheet = self.work / 'models.md'
+        self.sheet.write_text('feature, refactoring: claudeAgent/claude-opus-5-5 effort=high\n')
+        def model(name, option):
+            return {'id': name, 'options': [{'id': option, 'type': 'enum', 'options': [
+                {'id': 'high'}, {'id': 'xhigh'}, {'id': 'max'}]}]}
+        self.catalog = self.document('catalog.json', {
+            'capturedAt': datetime.datetime.now(datetime.timezone.utc).isoformat(), 'providers': [
+                {'providerInstanceId': 'claudeAgent', 'canRunChildTask': True, 'models': [
+                    model('claude-opus-5-5', 'effort'), model('claude-fable-5-1', 'effort')]},
+                {'providerInstanceId': 'codex', 'canRunChildTask': True, 'models': [model('gpt-6.1-sol', 'reasoningEffort')]},
+                {'providerInstanceId': 'grok', 'canRunChildTask': True, 'models': [model('grok-4.7', 'reasoningEffort')]},
+                {'providerInstanceId': 'ultracode', 'canRunChildTask': True, 'models': [model('ultracode', 'effort')]}]})
+
+    def verify_sheet(self, code=0):
+        return self.cli('verify', 'models', '--model-sheet', self.sheet, '--catalog', self.catalog, code=code)
+
+    def test_positive_sheet_uses_canonical_validator_and_is_unchanged(self):
+        before = self.sheet.read_bytes()
+        self.assertIn('model-sheet: PASS', self.verify_sheet())
+        self.assertEqual(self.sheet.read_bytes(), before)
+        self.assertEqual(self.last_receipt()['result'], 'PASS')
+        self.assertTrue(any('t3-sheet.mjs' in i['path'] for i in self.last_receipt()['inputs']))
+
+    def test_missing_sheet_is_clear_failure(self):
+        self.sheet.unlink()
+        self.assertIn('model sheet', self.verify_sheet(code=1))
+        self.assertEqual(self.last_receipt()['result'], 'FAIL')
+
+    def test_missing_catalogue_model_fails_clearly(self):
+        self.sheet.write_text('feature, refactoring: claudeAgent/missing-model effort=high\n')
+        self.assertIn('missing-model', self.verify_sheet(code=1))
+
+    def test_max_and_ultracode_refuse_even_if_catalogue_allows(self):
+        for entry in ('claudeAgent/claude-opus-5-5 effort=max', 'ultracode/ultracode effort=high',
+                      'codex/gpt-6.1-sol reasoningEffort=max'):
+            with self.subTest(entry=entry):
+                self.sheet.write_text('feature, refactoring: ' + entry + '\n')
+                self.verify_sheet(code=1)
+
+    def test_offset_free_catalogue_timestamp_refuses(self):
+        data = json.loads(self.catalog.read_text())
+        data['capturedAt'] = datetime.datetime.now().isoformat()
+        self.catalog.write_text(json.dumps(data))
+        self.assertIn('catalogue', self.verify_sheet(code=1))
+
+    def test_stale_catalogue_refuses(self):
+        data = json.loads(self.catalog.read_text())
+        data['capturedAt'] = '2000-01-01T00:00:00+00:00'
+        self.catalog.write_text(json.dumps(data))
+        self.assertIn('catalogue', self.verify_sheet(code=1))
+
+
+class DispatchBookkeeping(ControlCase):
+    def setUp(self):
+        super().setUp()
+        self.deadline = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=20)).isoformat()
+
+    def dispatch(self, phase, *args, code=0, task='task-one'):
+        return self.cli('dispatch', '--unit', 'GRS-104/implementation', '--phase', phase,
+                        '--task-id', task, *args, code=code)
+
+    def initial(self):
+        self.dispatch('initial', '--deadline', self.deadline)
+
+    def test_counts_and_deadline_survive_task_rename_revision_and_restart(self):
+        self.initial()
+        self.dispatch('fix')
+        self.dispatch('recheck', task='new-task-name')
+        self.write('app.txt', 'next revision\n')
+        self.commit('fixed revision')
+        self.dispatch('escalation', task='another-task-name')
+        row = self.last_receipt()['dispatch']
+        self.assertEqual(row['counts'], {'initial': 1, 'fix': 1, 'recheck': 1, 'escalation': 1, 'infra-retry': 0})
+        self.assertEqual(row['deadline'], self.deadline)
+        self.dispatch('fix', task='renamed-again', code=1)
+        row = self.last_receipt()['dispatch']
+        self.assertEqual(row['outcome'], 'refuse')
+        self.assertEqual(row['counts']['fix'], 1)
+        self.assertFalse(row['dispatchPerformed'])
+
+    def test_moving_checkout_cannot_reset_original_unit_in_same_store(self):
+        self.initial()
+        self.dispatch('fix')
+        relocated = self.work / 'relocated'
+        subprocess.run(['git', 'clone', '-q', '--local', str(self.repo), str(relocated)], check=True)
+        self.dispatch('fix', '--root', relocated, code=1)
+        self.assertEqual(self.last_receipt()['dispatch']['counts']['fix'], 1)
+        self.assertEqual(self.last_receipt()['dispatch']['deadline'], self.deadline)
+
+    def test_concurrent_reservations_only_consume_one_fix_attempt(self):
+        self.initial()
+        args = [str(TOOLS / 'dispatch'), '--root', str(self.repo), '--unit', 'GRS-104/implementation',
+                '--phase', 'fix', '--task-id', 'simultaneous']
+        children = [subprocess.Popen(args, env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE) for _ in range(2)]
+        for child in children:
+            child.communicate(timeout=15)
+        self.assertEqual(sorted(child.returncode for child in children), [0, 1])
+
+    def test_each_bounded_phase_and_infrastructure_retry_refuses_repeat(self):
+        self.initial()
+        self.dispatch('fix')
+        self.dispatch('fix', code=1)
+        self.dispatch('recheck')
+        self.dispatch('recheck', code=1)
+        self.dispatch('infra-retry')
+        self.dispatch('infra-retry', code=1)
+        self.dispatch('initial', '--deadline', self.deadline, code=1)
+
+    def test_deadline_is_required_bounded_and_cannot_be_extended(self):
+        self.dispatch('initial', code=1)
+        self.dispatch('initial', '--deadline', '2000-01-01T00:00:00+00:00', code=1)
+        too_late = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=3)).isoformat()
+        self.dispatch('initial', '--deadline', too_late, code=1)
+        self.initial()
+        self.dispatch('fix', '--deadline', too_late, code=1)
+        self.assertEqual(self.last_receipt()['dispatch']['deadline'], self.deadline)
+
+    def test_expired_deadline_refuses_next_attempt_and_keeps_cancellation(self):
+        soon = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(seconds=0.5)).isoformat()
+        self.dispatch('initial', '--deadline', soon)
+        time.sleep(0.6)
+        self.dispatch('fix', code=1)
+        self.dispatch('cancel', '--cancel-outcome', 'confirmed', '--reason', 'Deadline expired')
+        row = self.last_receipt()['dispatch']
+        self.assertEqual(row['outcome'], 'cancelled')
+        self.assertEqual(row['cancellation']['reason'], 'Deadline expired')
+        self.assertEqual(row['counts']['fix'], 0)
+        self.dispatch('fix', code=1)
+
+    def test_failed_cancellation_is_recorded_and_stops_attempts(self):
+        self.initial()
+        self.dispatch('cancel', '--cancel-outcome', 'failed', '--reason', 'Launcher could not confirm stop', code=1)
+        row = self.last_receipt()['dispatch']
+        self.assertEqual(row['outcome'], 'cancellation-failed')
+        self.dispatch('fix', code=1)
+
+    def test_same_failure_twice_needs_a_new_diagnosis(self):
+        self.initial()
+        self.dispatch('fix', '--failure', 'same-failure', '--diagnosis', 'first diagnosis')
+        self.dispatch('recheck', '--failure', 'same-failure', '--diagnosis', 'first diagnosis', code=1)
+        self.dispatch('recheck', '--failure', 'same-failure', '--diagnosis', 'new diagnosis')
+
+    def test_worker_cannot_reset_stored_fix_counts(self):
+        self.initial()
+        self.dispatch('fix')
+        for path in self.receipts.glob('*/receipt.json'):
+            data = json.loads(path.read_text())
+            data['dispatch']['counts']['fix'] = 0
+            path.write_text(json.dumps(data))
+        self.dispatch('fix', code=1)
+
+    def test_removing_attempt_receipt_cannot_reset_budget(self):
+        self.initial()
+        self.dispatch('fix')
+        latest = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        latest.unlink()
+        self.dispatch('fix', code=1)
+
+    def test_noncanonical_linear_spelling_cannot_reset_unit_deadline_or_attempts(self):
+        self.initial()
+        self.dispatch('fix')
+        later = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=80)).isoformat()
+        for unit in ('GRS-0104/implementation', 'grs-104/implementation', 'GrS-00104/implementation'):
+            with self.subTest(unit=unit):
+                self.cli('dispatch', '--unit', unit, '--phase', 'initial', '--task-id', 'renamed',
+                         '--deadline', later, code=1)
+        self.dispatch('fix', code=1)
+
+    def test_truncated_event_history_refuses(self):
+        self.initial()
+        self.dispatch('fix')
+        log = self.receipts / 'events.jsonl'
+        log.write_text(log.read_text().splitlines()[0] + '\n')
+        self.dispatch('recheck', code=1)
+
+    def test_out_of_order_stage_and_corrupt_store_refuse(self):
+        self.dispatch('recheck', code=1)
+        self.initial()
+        damaged = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        damaged.write_text('not JSON')
+        self.dispatch('fix', code=1)
+
+
+class LegacyRegistry(ControlCase):
+    def setUp(self):
+        super().setUp()
+        home = self.work / 'home'
+        helper = TOOLS.parents[1] / 'tests/agent-tools/make_plugin.py'
+        subprocess.run(['python3', '-I', str(helper), str(home), '2.0.0-rc.5'], check=True)
+        plugin = home / '.claude/plugins/cache/t3-pstack/t3-pstack/2.0.0-rc.5'
+        self.skills = home / '.agents/skills'
+        shutil.copytree(plugin / 'skills', self.skills)
+        shutil.rmtree(home / '.claude/plugins/cache')
+        self.registry = home / '.claude/plugins/installed_plugins.json'
+        self.registry.write_text('{"plugins":{}}')
+        self.env['HOME'] = str(home)
+        self.env.pop('T3_PSTACK_ROOT', None)
+
+    def test_existing_legacy_registry_is_fingerprinted(self):
+        self.cli('verify', 'pstack', '--skills-dir', self.skills)
+        paths = [row['path'] for row in self.last_receipt()['inputs']]
+        self.assertTrue(any(path.endswith('/installed_plugins.json') for path in paths))
+
+    def test_changed_legacy_registry_fails_receipt(self):
+        wrapper = self.work / 'node-wrapper'
+        # Mutate only when the real checker runs, after discovery and version probing.
+        wrapper.write_text('#!/bin/bash\nif [ "$1" != "--version" ]; then printf " " >>"$LEGACY_REGISTRY"; fi\nexec "' + shutil.which('node') + '" "$@"\n')
+        wrapper.chmod(0o755)
+        self.env['CLEARCASE_NODE'] = str(wrapper)
+        self.env['LEGACY_REGISTRY'] = str(self.registry)
+        plan = TOOLS.parents[1] / 'tests/agent-tools/fixtures/plans/valid.md'
+        self.assertIn('input changed during the run', self.cli('verify', 'plan-format', '--skills-dir', self.skills,
+                      '--plan', plan, code=1))
+        self.assertEqual(self.last_receipt()['result'], 'FAIL')
+
+    def test_absent_legacy_registry_keeps_positive_fallback(self):
+        self.registry.unlink()
+        self.cli('verify', 'pstack', '--skills-dir', self.skills)
+        self.assertEqual(self.last_receipt()['result'], 'PASS')
+
+if __name__ == '__main__':
+    unittest.main(verbosity=2)

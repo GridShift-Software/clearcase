@@ -8,10 +8,12 @@ import argparse
 import datetime
 import hashlib
 import json
+import math
 import os
 import platform
 import re
 import shutil
+import shlex
 import stat
 import subprocess
 import sys
@@ -22,6 +24,7 @@ TOOLS_DIR = Path(__file__).resolve().parent
 REPO = TOOLS_DIR.parents[1]
 LOCK_PATH = TOOLS_DIR / "skills.lock.json"
 HOME = os.environ.get("HOME", "")
+HOME = HOME.rstrip("/") or ("/" if HOME else "")  # /home/x/ and /home/x redact and join alike
 SKIPPED = 3
 MIN_NODE = (18, 0)
 MIN_PYTHON = (3, 10)
@@ -39,8 +42,29 @@ IGNORED_PARTS = {"node_modules", "__pycache__", ".DS_Store"}
 
 
 def redact(value):
+    """Display and serialization only. Paths the tools open stay raw: a redacted ~... string is not a path."""
     text = str(value)
     return text.replace(HOME, "~") if HOME and HOME != "/" else text
+
+
+def redacted(value):
+    """redact() through the strings of a JSON-like value, for receipts and the bootstrap state."""
+    if isinstance(value, str):
+        return redact(value)
+    if isinstance(value, dict):
+        return {key: redacted(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [redacted(item) for item in value]
+    return value
+
+
+def home_dir():
+    """The home directory for the global skill and plugin locations. An empty or relative HOME is an error: it
+    would resolve ~/.agents/skills and ~/.claude/plugins against the working directory, here the project's own."""
+    if not HOME or not os.path.isabs(HOME):
+        raise ValueError(f"HOME is {os.environ.get('HOME')!r}, not an absolute path; the tools locate ~/.agents/skills "
+                         "and ~/.claude/plugins from it. Set HOME")
+    return Path(HOME)
 
 
 def now():
@@ -61,7 +85,7 @@ def ended(argv, code, stderr):
 
 def failed(error, path):
     """'PATH: why' for an OSError raised while reading path."""
-    return f"{redact(path)}: {error.strerror or error}"
+    return f"{redact(path)}: {getattr(error, "strerror", None) or error}"
 
 
 def version_probe(argv):
@@ -180,48 +204,6 @@ def tree_hash(directory):
     return rows_hash(rows), len(rows)
 
 
-def upstream_tree(checkout, revision):
-    """plugin.json and skill name -> manifest() rows at a pstack revision, read from Git objects, not the working tree,
-    as (plugin, skills, problem). plugin is None when they cannot be read, and problem then holds Git's message."""
-    def run(*args, data=None):
-        argv = ["git", "--no-replace-objects", "-C", str(checkout), *args]
-        return argv, subprocess.run(argv, input=data, capture_output=True)
-    if not shutil.which("git"):
-        return None, {}, "git not found on PATH"
-    argv, listing = run("ls-tree", "-r", "-z", f"{revision}^{{commit}}", "--", "skills", ".cursor-plugin/plugin.json")
-    if listing.returncode:
-        return None, {}, ended(argv, listing.returncode, listing.stderr)
-    blobs = [(meta.split()[0], meta.split()[2], path.decode()) for meta, path in
-             (record.split(b"\t", 1) for record in listing.stdout.split(b"\0") if record) if meta.split()[1] == b"blob"]
-    argv, batch = run("cat-file", "--batch", data=b"".join(oid + b"\n" for _, oid, _ in blobs))
-    out = batch.stdout
-    plugin, skills, pos = None, {}, 0
-    for mode, oid, path in blobs:
-        end = out.find(b"\n", pos)
-        header = out[pos:end].split() if end >= 0 else []
-        if batch.returncode or len(header) != 3 or header[:2] != [oid, b"blob"]:
-            seen = b" ".join(header).decode(errors="replace") or "no object"
-            return None, {}, f"cannot read {path} ({oid.decode()}) from its Git objects: {seen}" + (
-                f"; {ended(argv, batch.returncode, batch.stderr)}" if batch.returncode else "")
-        size = int(header[2])
-        content, pos = out[end + 1:end + 1 + size], end + 2 + size
-        parts = Path(path).parts
-        if path == ".cursor-plugin/plugin.json":
-            plugin = content
-        elif len(parts) > 2 and parts[0] == "skills" and not IGNORED_PARTS.intersection(parts[2:]):
-            value = content if mode == b"120000" else hashlib.sha256(content).digest()
-            skills.setdefault(parts[1], []).append((Path(*parts[2:]), value))
-    rows = {name: {rel.as_posix(): value for rel, value in sorted(entries)} for name, entries in skills.items()}
-    return plugin, {name: files for name, files in rows.items() if "SKILL.md" in files}, None
-
-
-def upstream_diff(theirs, installed):
-    """diff -rq between a skill's upstream rows and its installed directory, with the pin's exclusions."""
-    ours = manifest(installed)
-    return [f"{rel} {'only upstream' if rel not in ours else 'only installed' if rel not in theirs else 'differs'}"
-            for rel in sorted(theirs.keys() | ours.keys()) if theirs.get(rel) != ours.get(rel)]
-
-
 def os_release():
     try:
         rows = dict(
@@ -334,7 +316,7 @@ def revision(root, base_ref=None):
         return fields, f"no head revision: {problem}; check the repository with git fsck" if problem else (
             f"no head revision: {redact(root)} has no commit yet")
     _, out, problem = git(root, "rev-parse", "--abbrev-ref", "HEAD")
-    fields.update(repository=True, head=head, branch=None if problem else out.decode(errors="backslashreplace").strip())
+    fields.update(repository=True, toplevel=redact(Path(top).resolve()), head=head, branch=None if problem else out.decode(errors="backslashreplace").strip())
     if problem:
         return fields, f"branch unknown: {problem}"
     dirty, digest, problem = worktree_state(root)
@@ -408,7 +390,7 @@ def fingerprints(paths):
                 found = file_identity(path)
             except OSError as error:
                 unreadable.append(failed(error, path))
-        rows.append({"path": redact(Path(path).resolve()), **found})
+        rows.append({"path": redact(Path(path).absolute()), "realpath": redact(Path(path).resolve()), **found})
     return rows, ((missing and f"required input not found: {', '.join(missing)}")
                   or (unreadable and f"input not fingerprinted: {'; '.join(unreadable)}") or None)
 
@@ -424,6 +406,8 @@ def inputs_changed(paths, rows):
         except OSError as error:
             problems.append(failed(error, path))
             continue
+        if row.get("realpath") is not None and row["realpath"] != redact(Path(path).resolve()):
+            problems.append(f"{redact(path)}: input realpath changed")
         differ = [f"{key} {str(row[key])[:12]} -> {str(now[key])[:12]}" if key == "sha256" else
                   f"{key} {row[key]} -> {now[key]}" for key in now if now[key] != row[key]]
         if differ:
@@ -467,6 +451,66 @@ def capture_lost(capture, written):
     return None
 
 
+def command_environment():
+    # Prevent interpreter startup hooks and Git redirection; hash all other environment values.
+    removed = {"BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS", "NODE_OPTIONS", "BUN_OPTIONS", "LD_PRELOAD", "LD_LIBRARY_PATH"}
+    return {key: value for key, value in os.environ.items()
+            if key not in removed and not key.startswith(("GIT_", "PYTHON"))}
+
+
+def executing_path(name, cwd):
+    if "/" in name:
+        path = Path(name)
+        return (path if path.is_absolute() else Path(cwd) / path).resolve()
+    selected = shutil.which(name, path=command_environment().get("PATH", os.defpath))
+    return Path(selected).resolve() if selected else None
+
+
+def binary_identity(name, cwd):
+    path = executing_path(name, cwd)
+    return {"path": redact(path), **file_identity(path)} if path else None
+
+
+def execution_identity(argv, cwd):
+    env = command_environment()
+    snapshot = {key: hashlib.sha256(value.encode()).hexdigest() for key, value in sorted(env.items())
+                if key not in ("_", "SHLVL", "PWD", "OLDPWD")}
+    # Keep PATH/TMPDIR inspectable; other values (including every CLEARCASE_* value) stay secret.
+    return {"argv": [redact(part) for part in argv], "commandLine": redact(shlex.join(argv)),
+            "argvSha256": hashlib.sha256(json.dumps(argv).encode()).hexdigest(), "cwd": redact(Path(cwd).resolve()),
+            "executable": binary_identity(argv[0], cwd) if argv else None,
+            "runtimes": {name: binary_identity(name, cwd) for name in ("bun", "python3", "bash")},
+            "environment": {"PATH": redact(env.get("PATH", "")), "TMPDIR": redact(env.get("TMPDIR", "")),
+                            "valuesSha256": snapshot}}
+
+
+def check_inputs(check):
+    rows = check.get("inputs")
+    if not isinstance(rows, list):
+        raise ValueError("check lacks input fingerprints")
+    paths = [Path(row["path"]).expanduser().absolute() for row in rows]
+    changed = inputs_changed(paths, rows)
+    if changed:
+        raise ValueError(f"check inputs changed: {changed}")
+    return paths
+
+
+def validate_execution(check, requirement):
+    expected = requirement.get("execution")
+    if not isinstance(expected, dict) or not expected.get("executable"):
+        raise ValueError("required check must bind execution identity; a name alone is insufficient")
+    recorded = check.get("execution")
+    if recorded != expected or check.get("command") != expected.get("argv"):
+        raise ValueError("required check command/argv/executable/environment mismatch")
+    argv = [str(Path(word).expanduser()) if word.startswith("~/") else word for word in recorded["argv"]]
+    current = execution_identity(argv, Path(recorded["cwd"]).expanduser())
+    if current != recorded:
+        raise ValueError("check execution identity changed at approval (runtime, PATH or environment)")
+    if requirement.get("inputs") != check.get("inputs"):
+        raise ValueError("required check input identities mismatch")
+    return check_inputs(check)
+
+
 def run_captured(argv, cwd, folder):
     """Run argv, streaming its output live and capturing it in folder, as (exit code, problem). The code is None when
     argv did not start; otherwise problem names output that was not captured whole, or a capture file that lost or
@@ -474,7 +518,7 @@ def run_captured(argv, cwd, folder):
     code, problems = None, []
     try:
         with open(folder / "stdout.txt", "w+b") as out_file, open(folder / "stderr.txt", "w+b") as err_file:
-            child = subprocess.Popen(argv, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            child = subprocess.Popen([str(executing_path(argv[0], cwd) or argv[0]), *argv[1:]], cwd=cwd, env=command_environment(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             written = [hashlib.sha256(), hashlib.sha256()]
             threads = [threading.Thread(target=tee, args=(child.stdout, out_file, sys.stdout.buffer, problems, written[0])),
                        threading.Thread(target=tee, args=(child.stderr, err_file, sys.stderr.buffer, problems, written[1]))]
@@ -487,11 +531,12 @@ def run_captured(argv, cwd, folder):
                 problems += filter(None, map(capture_lost, (out_file, err_file), written))
     except OSError as error:
         if not problems:  # a capture write that failed fails again when its file is closed
-            problems.append(failed(error, error.filename or folder))
+            problems.append(failed(error, argv[0] if error.filename == str(executing_path(argv[0], cwd)) else error.filename or folder))
     return code, "; ".join(problems) or None
 
 
-def write_receipt(folder, started, name, result, code, reason, argv, cwd, tool_rows, inputs, identity):
+def write_receipt(folder, started, name, result, code, reason, argv, cwd, tool_rows, inputs, identity,
+                  *, metadata=None, spend=None):
     finished = now()
     receipt = {
         "schema": "clearcase-agent-receipt/1",
@@ -514,13 +559,27 @@ def write_receipt(folder, started, name, result, code, reason, argv, cwd, tool_r
             "stderr": redact(folder / "stderr.txt"),
         },
     }
+    receipt.update(redacted(metadata or {}))
+    if "approval" in receipt and result != "PASS":
+        receipt["approval"]["state"] = "refuse"
+    if "dispatch" in receipt and result != "PASS" and receipt["dispatch"]["outcome"] != "cancellation-failed":
+        receipt["dispatch"]["outcome"] = "refuse"
+    receipt["spend"] = spend or {"actualUsd": None, "actualSource": None, "targetUsd": None,
+                                 "capUsd": None, "capEnforced": False}
+    if "dispatch" in receipt:
+        event = append_event(folder.parent, "dispatch", {"receipt": redact(folder / "receipt.json"), "row": receipt["dispatch"]})
+        receipt["dispatchEvent"] = event["hash"]
     (folder / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
+    cost = receipt["spend"]
+    actual = "unavailable" if cost["actualUsd"] is None else f"USD {cost['actualUsd']:g} ({cost['actualSource']})"
+    target = "unavailable" if cost["targetUsd"] is None else f"USD {cost['targetUsd']:g} (reporting only)"
+    sys.stderr.write(f"spend: actual={actual}; target={target}; cap=unavailable (no enforcement; no T3 cap)\n")
     sys.stderr.write(f"receipt: {result} {name} exit={code} {redact(folder / 'receipt.json')}\n")
     sys.stderr.flush()
 
 
 def run_with_receipt(name, argv, *, cwd=None, tools=(), inputs=(), receipts=None, base=None, root=None,
-                     skip_reason=None):
+                     skip_reason=None, required=False, metadata=None, spend=None, expected_head=None):
     """Collect the evidence first: the revision, each tool's path and version and each input's identity. Run argv
     only if all of it was collected, stream and capture its output, look at the captures, inputs and revision again
     and write a receipt. Evidence that cannot be collected, or changes during the run, is never PASS. Returns the exit
@@ -530,10 +589,10 @@ def run_with_receipt(name, argv, *, cwd=None, tools=(), inputs=(), receipts=None
     try:
         folder = receipt_folder(receipts, name, started)
     except OSError as error:
-        sys.stderr.write(f"SKIPPED {name}: cannot create its receipt directory: "
+        sys.stderr.write(f"{'FAIL' if required else 'SKIPPED'} {name}: cannot create its receipt directory: "
                          f"{failed(error, error.filename or receipts_root(receipts))}; pass --receipts DIR or set "
                          "CLEARCASE_RECEIPTS_DIR to a writable directory. The command did not run.\n")
-        return SKIPPED
+        return 1 if required else SKIPPED
     probed = [tool_info(tool) for tool in dict.fromkeys(["git", *tools])]
     tool_rows = [row for row, _ in probed]
     unprobed = [problem for _, problem in probed if problem]
@@ -541,6 +600,18 @@ def run_with_receipt(name, argv, *, cwd=None, tools=(), inputs=(), receipts=None
     if argv and not missing and not skip_reason and not (shutil.which(argv[0]) or Path(argv[0]).is_file()):
         missing.append(argv[0])
     identity, unidentified = revision(root, base)
+    if str(TOOLS_DIR / "test_guard.mjs") in argv and not unidentified:
+        argv = list(argv)
+        fix_ref = argv[argv.index("--fix-base") + 1]
+        fix_base, guard_problem = commit_of(root, fix_ref)
+        if guard_problem or not fix_base:
+            unidentified = guard_problem or "guard fix base is not a commit"
+        else:
+            position = argv.index("--") if "--" in argv else len(argv)
+            argv[position:position] = ["--expected-root", str(root.resolve()), "--expected-head", identity["head"],
+                                       "--expected-base", fix_base]
+    if expected_head and not unidentified and (identity["head"] != expected_head or identity["dirty"]):
+        unidentified = "the escalation source no longer names the exact clean HEAD SHA"
     here = Path(cwd or root).resolve()
     if not unidentified and here != root.resolve():
         _, out, problem = git(here, "rev-parse", "--show-toplevel")
@@ -548,12 +619,21 @@ def run_with_receipt(name, argv, *, cwd=None, tools=(), inputs=(), receipts=None
             unidentified = (f"the command would run in {redact(here)}, outside the checkout {redact(root.resolve())} "
                             "whose revision the receipt records; run it inside that checkout, or pass --root DIR "
                             "naming the checkout it runs in")
+    inputs = list(dict.fromkeys([*inputs, *[Path(here) / word for word in argv
+                  if not word.startswith("-") and (Path(here) / word).is_file()]]))
     rows, unfingerprinted = fingerprints(inputs)
+    execution, execution_problem = None, None
+    try:
+        execution = execution_identity(argv, here)
+    except OSError as error:
+        execution_problem = f"execution identity unreadable: {error}"
+    metadata = {**(metadata or {}), "execution": execution}
     reason = (skip_reason
               or (missing and f"required tool not found: {', '.join(missing)}; install it or put it on PATH "
                               "(scripts/agent-tools/doctor names the fix)")
               or (unprobed and f"tool version unknown: {'; '.join(unprobed)}")
               or unidentified
+              or execution_problem
               or unfingerprinted
               or None)
     exited, result, code = None, "SKIPPED", SKIPPED
@@ -561,29 +641,38 @@ def run_with_receipt(name, argv, *, cwd=None, tools=(), inputs=(), receipts=None
         exited, problem = run_captured(argv, cwd or root, folder)
         moved = None if exited is None else inputs_changed(inputs, rows)
         shifted = None if exited is None else revision_changed(root, base, identity)
+        if exited is not None:
+            try:
+                if execution_identity(argv, here) != execution:
+                    shifted = "execution identity changed during the run"
+            except OSError as error:
+                shifted = f"execution identity unreadable after run: {error}"
         if exited is None:
             reason = f"the command did not start: {problem}"
         elif problem:
             reason = f"output not captured whole: {problem}; the command exited {exited}"
-            result, code = ("FAIL", exited) if exited else ("SKIPPED", SKIPPED)
+            result, code = ("FAIL", exited or 1)
         elif moved or shifted:
             reason = "; ".join(filter(None, [moved and f"input changed during the run: {moved}", shifted,
                                              f"the command exited {exited}"]))
-            result, code = ("FAIL", exited) if exited else ("SKIPPED", SKIPPED)
+            result, code = ("FAIL", exited or 1)
         else:
             result, code = "PASS" if exited == 0 else "FAIL", exited
-    if result == "SKIPPED":
-        sys.stderr.write(f"SKIPPED {name}: {redact(reason)}\n")
+    if required and result == "SKIPPED":
+        result, code = "FAIL", 1
+    if reason:
+        sys.stderr.write(f"{result} {name}: {redact(reason)}\n")
     try:
         if exited is None:
             (folder / "stdout.txt").write_bytes(b"")
-            (folder / "stderr.txt").write_text(f"SKIPPED: {redact(reason)}\n")
-        write_receipt(folder, started, name, result, code, reason, argv, cwd or root, tool_rows, rows, identity)
-    except OSError as error:
-        sys.stderr.write(f"receipt: {name} has no receipt: {failed(error, error.filename or folder)}. The command "
+            (folder / "stderr.txt").write_text(f"{result}: {redact(reason)}\n")
+        write_receipt(folder, started, name, result, code, reason, argv, cwd or root, tool_rows, rows, identity,
+                      metadata=metadata, spend=spend)
+    except (OSError, ValueError) as error:
+        sys.stderr.write(f"receipt: {name} has no receipt: {failed(error, getattr(error, "filename", None) or folder)}. The command "
                          f"{'did not run' if exited is None else f'exited {exited}'}; without a receipt this exits "
                          f"{code or SKIPPED}. Pass --receipts DIR or set CLEARCASE_RECEIPTS_DIR to a writable directory.\n")
-        return code or SKIPPED
+        return code or (1 if required else SKIPPED)
     return code
 
 
@@ -593,20 +682,123 @@ def load_lock():
     return json.loads(LOCK_PATH.read_text())
 
 
+REQUIRED_PSTACK_FILES = (
+    "poteto-mode/SKILL.md", "poteto-mode/playbooks/orchestrate.md",
+    "poteto-mode/playbooks/multi-phase-plan.md", "poteto-mode/scripts/check-plan.mjs",
+    "create-verification-skill/SKILL.md", "maintain-verification-skill/SKILL.md",
+    "setup-pstack/SKILL.md", "swarm/SKILL.md",
+)
+
+
 def skills_dir(explicit=None):
-    """An explicit directory is used as given; otherwise the first default holding poteto-mode wins."""
+    """Independent leaf skills, also the legacy pstack fallback when no plugin is installed. A raw path; ValueError
+    when nothing names it and HOME cannot."""
     chosen = explicit or os.environ.get("CLEARCASE_SKILLS_DIR")
-    if chosen:
-        return Path(chosen).expanduser().resolve()
-    defaults = [REPO / ".local/agent-tools/skills"]
-    if HOME:
-        defaults += [Path(HOME) / ".agents/skills", Path(HOME) / ".claude/skills"]
-    return next((path.resolve() for path in defaults if (path / "poteto-mode/SKILL.md").is_file()), None)
+    return (Path(chosen).expanduser() if chosen else home_dir() / ".agents/skills").resolve()
 
 
-def check_plan_script(explicit=None):
-    base = skills_dir(explicit)
-    return (base / "poteto-mode/scripts/check-plan.mjs") if base else Path("<skills-dir>/poteto-mode/scripts/check-plan.mjs")
+def plugin_version(value):
+    """SemVer precedence, including numeric prerelease identifiers (rc.10 sorts after rc.9)."""
+    match = SEMVER.fullmatch(value)
+    if not match:
+        raise ValueError(f"invalid plugin version {value!r}")
+    prerelease = match[4]
+    parts = tuple((0, int(part)) if part.isdigit() else (1, part)
+                  for part in prerelease[1:].split(".")) if prerelease else ()
+    return (*map(int, match.groups()[:3]), not prerelease, parts)
+
+
+def pstack_registered(registry):
+    """Whether installed_plugins.json has a t3-pstack record. A missing registry proves the plugin is absent; one that
+    cannot be read or understood proves nothing, so it is an error."""
+    try:
+        text = registry.read_text()
+    except FileNotFoundError:
+        return False
+    except OSError as error:
+        raise ValueError(f"cannot read the plugin registry {failed(error, registry)}; "
+                         "that leaves t3-pstack absence unproven") from None
+    try:
+        records = json.loads(text)["plugins"].get("t3-pstack@t3-pstack", [])
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise ValueError(f"{registry} is not a plugin registry (JSON with a plugins object); "
+                         "that leaves t3-pstack absence unproven") from None
+    if not isinstance(records, list):
+        raise ValueError(f"{registry} lists t3-pstack@t3-pstack as {type(records).__name__}, not a list of installs")
+    return bool(records)
+
+
+def pstack_source(explicit=None):
+    """Return the selected source (raw paths; redact only to display it), its fingerprint inputs, and a failure. A
+    broken or registered plugin never falls back: legacy skills are used only when the registry shows no t3-pstack."""
+    source = {"kind": "plugin", "root": None, "skillsDir": None, "version": None, "gitCommitSha": None}
+    paths = []
+    try:
+        home = home_dir()
+        cache = home / ".claude/plugins/cache/t3-pstack/t3-pstack"
+        registry = home / ".claude/plugins/installed_plugins.json"
+        if "T3_PSTACK_ROOT" in os.environ:
+            chosen = os.environ["T3_PSTACK_ROOT"]
+            if not chosen.strip():
+                raise ValueError("T3_PSTACK_ROOT is empty; give the installed plugin root")
+            root = Path(chosen).expanduser().resolve()
+            source["selection"] = "T3_PSTACK_ROOT"
+        else:
+            versions = [path for path in cache.iterdir() if path.is_dir()] if cache.exists() else []
+            if not versions:
+                if pstack_registered(registry):
+                    raise ValueError(f"t3-pstack is registered in installed_plugins.json but {cache} holds no installed "
+                                     "version; repair or reinstall the plugin through T3. Legacy skills never stand in "
+                                     "for a registered plugin")
+                base = skills_dir(explicit)
+                source.update(kind="legacy", root=str(base), skillsDir=str(base), selection="legacy fallback")
+                paths = [*([registry] if registry.exists() else []), *[base / rel for rel in REQUIRED_PSTACK_FILES]]
+                if not (base / "poteto-mode/SKILL.md").is_file():
+                    raise ValueError("canonical t3-pstack plugin and legacy pstack bundle not found; "
+                                     "install t3-pstack through T3 or set T3_PSTACK_ROOT to a registered install")
+                missing = [str(path) for path in paths if not path.is_file() or not os.access(path, os.R_OK)]
+                if missing:
+                    raise ValueError(f"required legacy pstack file missing or unreadable: {', '.join(missing)}")
+                return source, paths, None
+            root = max(versions, key=lambda path: plugin_version(path.name)).resolve()
+            source["selection"] = "newest Claude plugin cache version"
+        source.update(root=str(root), skillsDir=str(root / "skills"))
+        manifest_path = root / ".claude-plugin/plugin.json"
+        paths = [registry, manifest_path, *[root / "skills" / rel for rel in REQUIRED_PSTACK_FILES]]
+        manifest = json.loads(manifest_path.read_text())
+        if manifest.get("name") != "t3-pstack":
+            raise ValueError(f"{manifest_path} names {manifest.get('name')!r}, expected t3-pstack")
+        version = manifest.get("version")
+        if not isinstance(version, str) or plugin_version(version) < plugin_version("2.0.0-rc.5") or plugin_version(version)[0] != 2:
+            raise ValueError(f"unsupported t3-pstack version {version!r}; expected >= 2.0.0-rc.5 and < 3.0.0")
+        if source["selection"] != "T3_PSTACK_ROOT" and root.name != version:
+            raise ValueError(f"plugin directory version {root.name!r} differs from manifest version {version!r}")
+        source["version"] = version
+        installed = json.loads(registry.read_text())
+        records = installed.get("plugins", {}).get("t3-pstack@t3-pstack", [])
+        records = [row for row in records if Path(row["installPath"]).expanduser().resolve() == root]
+        if len(records) != 1:
+            raise ValueError(f"{registry} must contain exactly one t3-pstack install record for {root}")
+        record = records[0]
+        if record.get("version") != version:
+            raise ValueError(f"installed_plugins.json version {record.get('version')!r} differs from manifest version {version!r}")
+        sha = record.get("gitCommitSha")
+        if not isinstance(sha, str) or not FULL_ID.fullmatch(sha):
+            raise ValueError("installed_plugins.json gitCommitSha must be an exact Git SHA")
+        source["gitCommitSha"] = sha
+        missing = [str(path) for path in paths if not path.is_file() or not os.access(path, os.R_OK)]
+        if missing:
+            raise ValueError(f"required pstack file missing or unreadable: {', '.join(missing)}")
+        return source, paths, None
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
+        return source, paths, f"pstack discovery failed: {error}"
+
+
+def pstack_summary(source):
+    """The one-line identity the pstack capability prints, from the discovery its receipt records."""
+    return (f"pstack: PASS. {source['selection']} at {redact(source['root'])}; "
+            f"version {source['version'] or 'unavailable (legacy)'}; SHA {source['gitCommitSha'] or 'unavailable (legacy)'}. "
+            "Upstream bundle comparison is retired.")
 
 
 # Doctor ---------------------------------------------------------------------
@@ -672,7 +864,7 @@ def app_rows(add):
         f"restore .agents/skills/verify-clearcase from the repository (git checkout -- .agents) and chmod +x {APP_RUNNER}")
 
 
-def doctor_rows(skills=None, receipts=None, identity=None, unidentified=None, tools=None):
+def doctor_rows(skills=None, receipts=None, identity=None, unidentified=None, tools=None, pstack=None):
     """The doctor's (status, name, detail, fix) rows. tools maps git, python3, node and bun to tool_info()."""
     rows = []
 
@@ -752,23 +944,29 @@ def doctor_rows(skills=None, receipts=None, identity=None, unidentified=None, to
         add("PASS" if present else "FAIL", "planning", script if present else f"{script} is missing or unreadable",
             None if present else "check out the full repository with readable files")
 
-    base = skills_dir(skills)
+    try:
+        base = skills_dir(skills)
+    except ValueError as error:
+        base = None
+        add("FAIL", "skills-dir", str(error), "set HOME, or pass --skills-dir DIR / set CLEARCASE_SKILLS_DIR")
     try:
         lock = load_lock()
     except (OSError, ValueError) as error:
         lock = None
         add("FAIL", "skill-pin", f"cannot read {LOCK_PATH.relative_to(REPO)}: {error}",
             "restore it with git checkout -- scripts/agent-tools/skills.lock.json")
-    if not base or not (base / "poteto-mode/SKILL.md").is_file():
-        add("FAIL", "skills-dir", f"pstack bundle not found at {redact(base) if base else 'any default location'} (looked for poteto-mode/SKILL.md)",
-            "install the pinned bundle into ~/.agents/skills (see Bootstrap in docs/agent-tooling.md) "
-            "or set CLEARCASE_SKILLS_DIR / bootstrap --skills-dir DIR")
-    elif lock:
-        add("PASS", "skills-dir", redact(base))
-        for rel in lock["requiredFiles"]:
-            present = (base / rel).is_file()
+    source, _, problem = pstack
+    add("FAIL" if problem else "PASS", "pstack-source", problem or
+        f"{source['selection']}: {source['root']}; version {source['version'] or 'unavailable (legacy)'}; "
+        f"SHA {source['gitCommitSha'] or 'unavailable (legacy)'}",
+        "check T3_PSTACK_ROOT and installed_plugins.json; do not reinstall upstream pstack" if problem else None)
+    if not problem:
+        plugin_skills = Path(source["skillsDir"])
+        for rel in REQUIRED_PSTACK_FILES:
+            present = (plugin_skills / rel).is_file() and os.access(plugin_skills / rel, os.R_OK)
             add("PASS" if present else "FAIL", "skill-file", rel,
-                None if present else "reinstall the pstack bundle; this file is required by the project tools")
+                None if present else "restore the required file in the selected pstack installation")
+    if lock and base:
         drift = []
         for name, pinned in sorted(lock["skills"].items()):
             path = base / name
@@ -788,14 +986,11 @@ def doctor_rows(skills=None, receipts=None, identity=None, unidentified=None, to
                 drift.append(name)
                 add("FAIL", f"skill:{pinned['group']}", f"{name} differs from the pin ({count} files, {digest[:12]})",
                     "review the installed change, then relock as docs/agent-tooling.md describes (bootstrap --relock "
-                    "--checkout DIR for pstack, bootstrap --relock otherwise) and commit skills.lock.json")
+                    "for independent leaf skills) and commit skills.lock.json")
         if not drift:
             groups = sorted({row["group"] for row in lock["skills"].values()})
             counts = ", ".join(f"{group} {sum(row['group'] == group for row in lock['skills'].values())}" for group in groups)
             add("PASS", "skill-pin", f"{len(lock['skills'])} skills match skills.lock.json ({counts})")
-        pin = lock["provenance"]["pstack"]
-        add("INFO", "pstack-source", f"{pin['upstream']} at {pin['revision'][:12]}, version {pin['version']}, "
-            f"{pin['license']}; compare with scripts/agent-tools/verify pstack-upstream --checkout DIR")
         for name in lock.get("knownAbsent", []):
             state = "present" if (base / name / "SKILL.md").is_file() else "absent"
             add("INFO", "leaf-skill", f"{name} {state} (not installed or claimed by this project)")
@@ -825,9 +1020,10 @@ def cmd_doctor(args):
     identity, unidentified = revision(REPO, args.base)
     tools = {name: tool_info(name) for name in ("git", "python3", "node", "bun")}
     package = REPO / "package.json"
-    paths = [LOCK_PATH, *([package] if os.path.lexists(package) else [])]
+    pstack = pstack_source(args.skills_dir)
+    paths = [LOCK_PATH, *([package] if os.path.lexists(package) else []), *pstack[1]]
     inputs, unfingerprinted = fingerprints(paths)
-    rows = doctor_rows(args.skills_dir, args.receipts, identity, unidentified, tools)
+    rows = doctor_rows(args.skills_dir, args.receipts, identity, unidentified, tools, pstack)
     if unfingerprinted:
         rows.append(("FAIL", "receipt-input", redact(unfingerprinted), "make it readable; the receipt records its sha256"))
     elif moved := inputs_changed(paths, inputs):
@@ -857,7 +1053,7 @@ def cmd_doctor(args):
         (folder / "stderr.txt").write_text("")
         write_receipt(folder, started, "doctor", verdict, code, "; ".join(failures) or None,
                       [sys.executable, *sys.orig_argv[1:]], Path.cwd(), [row for row, _ in tools.values()], inputs,
-                      identity)
+                      identity, metadata={"pstack": pstack[0]}, spend=spend_fields(args))
     except OSError as error:
         sys.stderr.write(f"doctor: FAIL. Receipt not written: {error}\n")
         return 1
@@ -866,120 +1062,100 @@ def cmd_doctor(args):
 
 # Verification capabilities --------------------------------------------------
 
+RETIRED = {"pstack-upstream": "pstack-upstream is retired: it compares nothing against upstream, and a passing result "
+                              "under its name would claim that; use scripts/agent-tools/verify pstack for the "
+                              "installed-plugin identity check (--checkout is not used)."}
+
+
 def capability_command(name, args):
+    """(argv, tools, inputs, skip reason, pstack source or None). The source is the one whose paths are fingerprinted."""
     root = Path(args.root).resolve() if args.root else REPO
     python = which("python3")
     check = root / "scripts/planning/check.py"
     if name == "plan-graph":
-        return [python, str(check), "--require-linear-ids"], ["python3"], [check], None
+        return [python, str(check), "--require-linear-ids"], ["python3"], [check], None, None
     if name == "linear-relations":
         readback = getattr(args, "readback", None)
         if not readback:
             return [python, str(check)], ["python3"], [check], (
-                "no Linear readback supplied; local ID checks do not prove live graph agreement")
+                "no Linear readback supplied; local ID checks do not prove live graph agreement"), None
         readback = Path(readback).expanduser().resolve()
         return ([python, str(check), "--require-linear-ids", "--linear-relations", str(readback)], ["python3"],
-                [check, readback], None)
-    if name == "plan-format":
-        script = check_plan_script(args.skills_dir)
-        plan = Path(getattr(args, "plan", None) or root / "docs/delivery-plan.md").resolve()
-        return [which("node") or "node", str(script), str(plan)], ["node"], [script, plan], None
-    if name == "pstack-upstream":
-        command = [python, "-I", "-B", str(TOOLS_DIR / "agent_tools.py"), "compare-upstream"]
-        if not getattr(args, "checkout", None):
-            return command, ["python3"], [LOCK_PATH], (
-                "no pstack checkout supplied; pass --checkout DIR, a clone holding the pinned upstream revision")
-        checkout = Path(args.checkout).expanduser().resolve()
-        command += ["--checkout", str(checkout)]
-        if args.skills_dir:
-            command += ["--skills-dir", str(Path(args.skills_dir).expanduser().resolve())]
-        missing = None if checkout.is_dir() else f"pstack checkout not found: {redact(checkout)}"
-        return command, ["python3", "git"], [LOCK_PATH], missing
+                [check, readback], None, None)
+    if name in RETIRED:
+        return [], [], [], RETIRED[name], None
+    if name in ("plan-format", "pstack"):
+        source, paths, problem = pstack_source(args.skills_dir)
+        if name == "plan-format":
+            script = Path(source["skillsDir"] or "<pstack>/skills") / "poteto-mode/scripts/check-plan.mjs"
+            plan = Path(getattr(args, "plan", None) or root / "docs/delivery-plan.md").resolve()
+            return [which("node") or "node", str(script), str(plan)], ["node"], [LOCK_PATH, *paths, plan], problem, source
+        # The identity was discovered once, above; print that, so the receipt and its fingerprints cannot disagree.
+        return [python, "-I", "-B", "-c", "import sys; print(sys.argv[1])", "" if problem else pstack_summary(source)], \
+            ["python3"], [LOCK_PATH, *paths], problem, source
+    if name == "models":
+        source, paths, problem = pstack_source(args.skills_dir)
+        config = Path(os.environ.get("XDG_CONFIG_HOME") or home_dir() / ".config")
+        sheet = Path(args.model_sheet).expanduser().resolve() if args.model_sheet else config / "t3-pstack/models.md"
+        catalog = Path(args.catalog).expanduser().resolve() if args.catalog else None
+        plugin = Path(source["root"] or "<plugin>")
+        validator = Path(source["skillsDir"] or "<skills>") / "setup-pstack/scripts/t3-sheet.mjs"
+        models = plugin / "models.json"
+        wrapper = TOOLS_DIR / "model_sheet.mjs"
+        if not sheet.is_file():
+            problem = f"model sheet missing: {sheet}; supply --model-sheet PATH (no settings are written)"
+        elif catalog is None:
+            problem = "fresh model catalogue missing: supply --catalog PATH from orchestrator_capabilities"
+        elif not validator.is_file() or not models.is_file():
+            problem = "canonical model-sheet validator/models.json missing from selected plugin"
+        return ([which("node") or "node", str(wrapper), str(sheet), str(catalog or ""), str(validator), str(models)],
+                ["node"], [*paths, wrapper, sheet, validator, models, *([catalog] if catalog else [])], problem, source)
+    if name == "test-guard":
+        script = TOOLS_DIR / "test_guard.mjs"
+        findings = Path(args.findings).expanduser().resolve() if args.findings else None
+        problem = None if findings and args.fix_base else "test-guard requires --findings PATH and --fix-base REF"
+        return ([which("node") or "node", str(script), "--root", str(root), "--fix-base", args.fix_base or "",
+                 "--findings", str(findings or "")], ["node"], [script, *([findings] if findings else [])], problem, None)
     if name == "app":
         runner = root / APP_RUNNER
         sources = sorted(runner.parent.parent.glob("lib/*.mjs")) if runner.is_file() else []
         missing = None if runner.is_file() and os.access(runner, os.X_OK) else (
             f"{redact(runner)} is missing or not executable; scripts/agent-tools/doctor names the fix")
-        return [str(runner), "run"], ["bun"], [runner, *sources, root / "package.json", root / "bun.lock"], missing
+        return [str(runner), "run"], ["bun"], [runner, *sources, root / "package.json", root / "bun.lock"], missing, None
     raise SystemExit(f"unknown capability {name}")
 
 
 CAPABILITIES = {
+    "models": "canonical model sheet/catalogue validation plus ClearCase max/ultracode prohibition",
+    "test-guard": "protect findings-named JS/TS tests and touched-file assertion counts across a fix diff",
     "plan-graph": "python3 scripts/planning/check.py --require-linear-ids (graph, coverage, Linear ID map, generated files)",
     "linear-relations": "python3 scripts/planning/check.py --require-linear-ids --linear-relations READBACK",
     "plan-format": "node <skills>/poteto-mode/scripts/check-plan.mjs PLAN (pstack multi-phase plan structure)",
-    "pstack-upstream": "installed pstack bundle and skills.lock.json against a checkout of the pinned revision (--checkout DIR)",
+    "pstack": "canonical t3-pstack install identity and required files (legacy fallback only when absent)",
+    "pstack-upstream": "retired; FAILs with a migration message to verify pstack (no upstream comparison is made)",
     "app": "verify-clearcase run: isolated build of HEAD, offline boot under Bun, live doctor, Chromium drive, cleanup",
 }
 
 
 def cmd_compare_upstream(args):
-    """Run by verify pstack-upstream: check the pin against the pinned revision's Git objects in a pstack clone."""
-    lock, base, checkout = load_lock(), skills_dir(args.skills_dir), Path(args.checkout).resolve()
-    pin = lock["provenance"]["pstack"]
-    target = f"{pin['upstream']} at {pin['revision'][:12]} ({pin['version']}, {pin['license']})"
-    problem = None
-    if not base:
-        problem = "pstack bundle not found; run scripts/agent-tools/doctor"
-    elif not re.fullmatch(r"[0-9a-f]{40}|[0-9a-f]{64}", pin["revision"]):
-        problem = f"provenance.pstack.revision {pin['revision']!r} is not a full commit ID"
-    else:
-        plugin, upstream, unread = upstream_tree(checkout, pin["revision"])
-        if plugin is None:
-            problem = (f"{redact(checkout)} has no .cursor-plugin/plugin.json at {pin['revision']}"
-                       f"{f' ({unread})' if unread else ''}; pass a clone of {pin['upstream']} that contains the "
-                       "pinned revision")
-    if problem:
-        print(f"FAIL     {problem}\npstack-upstream: FAIL. 1 problem against {target}.")
-        return 1
-    problems = []
-    plugin = json.loads(plugin)
-    for field in ("version", "license"):
-        if plugin.get(field) != pin[field]:
-            problems.append(f"plugin.json {field} is {plugin.get(field)!r}, provenance.pstack records {pin[field]!r}")
-    installed = {name for name in upstream if (base / name / "SKILL.md").is_file()}
-    absent = set(upstream) - installed
-    pinned = {name for name, row in lock["skills"].items() if row["group"] == "pstack"}
-    relock = f"review it, then run scripts/agent-tools/bootstrap --relock --checkout {redact(checkout)}"
-    for name in sorted(installed - pinned):
-        group = lock["skills"].get(name, {}).get("group")
-        problems.append(f"{name} is an installed upstream skill but is {f'pinned as {group}' if group else 'not pinned'}; {relock}")
-    for name in sorted(pinned - installed):
-        problems.append(f"{name} is pinned as pstack but is {'not installed' if name in absent else 'not in the pinned revision'}")
-    if sorted(absent) != sorted(pin["notInstalled"]):
-        problems.append(f"upstream skills not installed are {sorted(absent)}, provenance.pstack.notInstalled "
-                        f"records {sorted(pin['notInstalled'])}")
-    for name in sorted(pinned & installed):
-        try:
-            diff = upstream_diff(upstream[name], base / name)
-        except OSError as error:
-            problems.append(f"{name}: installed files cannot be read: {error}")
-            continue
-        problems += [f"{name}/{line}" for line in diff]
-        if not diff and rows_hash(upstream[name]) != lock["skills"][name]["sha256"]:
-            problems.append(f"{name}: installed files match the revision but not the pinned sha256; {relock}")
-    for problem in problems:
-        print(f"FAIL     {problem}")
-    if problems:
-        print(f"pstack-upstream: FAIL. {len(problems)} problems against {target}.")
-        return 1
-    print(f"pstack-upstream: PASS. {len(pinned)} pinned pstack skills match {target} file for file, read from its "
-          f"Git objects; {', '.join(sorted(IGNORED_PARTS))} are excluded. "
-          f"Upstream skills not installed: {', '.join(sorted(absent)) or 'none'}.")
-    return 0
+    """Callable so old scripts get a clear failure, never a PASS under the retired comparison's name."""
+    sys.stderr.write(f"compare-upstream: FAIL. {RETIRED['pstack-upstream']}\n")
+    return 1
 
 
 def run_capability(name, args):
     root = Path(args.root).resolve() if args.root else REPO
-    argv, tools, inputs, skip = capability_command(name, args)
+    argv, tools, inputs, skip, pstack = capability_command(name, args)
     return run_with_receipt(name, argv, cwd=root, tools=tools, inputs=inputs, receipts=args.receipts,
-                            base=args.base, root=root, skip_reason=skip)
+                            base=args.base, root=root, skip_reason=skip,
+                            required=name in ("plan-format", "pstack", "models", "test-guard", *RETIRED),
+                            metadata={"pstack": pstack} if pstack else None, spend=spend_fields(args))
 
 
 def cmd_verify(args):
     if args.capability == "list":
         for name, text in CAPABILITIES.items():
-            print(f"{name:<17} available {text}")
+            print(f"{name:<17} {'retired  ' if name in RETIRED else 'available'} {text}")
         return 0
     return run_capability(args.capability, args)
 
@@ -995,7 +1171,7 @@ def cmd_check_plan(args):
         print(f"== {step}", flush=True)
         results[step] = run_capability(step, args)
     first_failure = next((code for code in results.values() if code != 0), 0)
-    summary = ", ".join(f"{step}={'PASS' if code == 0 else 'SKIPPED' if code == SKIPPED else 'FAIL'}"
+    summary = ", ".join(f"{step}={'PASS' if code == 0 else 'SKIPPED' if code == SKIPPED and step != 'plan-format' else 'FAIL'}"
                         for step, code in results.items())
     not_run = "" if "linear-relations" in results else " NOT RUN: linear-relations (pass --linear-relations PATH)."
     print(f"check-plan: {'PASS' if first_failure == 0 else 'FAIL'}. {summary}.{not_run}")
@@ -1006,8 +1182,15 @@ def cmd_receipt(args):
     argv = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not argv:
         raise SystemExit("receipt: give the command after --")
+    if args.findings or args.fix_base:
+        guard, tools, inputs, problem, _ = capability_command("test-guard", args)
+        return run_with_receipt(args.name, [*guard, "--", *argv], cwd=Path.cwd(), tools=[*args.tool, *tools],
+                                inputs=[*args.input, *inputs], receipts=args.receipts, base=args.base,
+                                root=Path(args.root).resolve() if args.root else REPO, skip_reason=problem,
+                                required=True, spend=spend_fields(args))
     return run_with_receipt(args.name, argv, cwd=Path.cwd(), tools=args.tool, inputs=args.input,
-                            receipts=args.receipts, base=args.base, root=Path(args.root).resolve() if args.root else REPO)
+                            receipts=args.receipts, base=args.base, root=Path(args.root).resolve() if args.root else REPO,
+                            spend=spend_fields(args))
 
 
 # Bootstrap ------------------------------------------------------------------
@@ -1036,40 +1219,18 @@ def bootstrap(args):
             removed.append(redact(local))
         print(f"bootstrap: removed {', '.join(removed) or 'nothing (not bootstrapped)'}. Global skills untouched.")
         return 0
-    base = skills_dir(args.skills_dir)
     if (args.checkout or args.allow_drop) and not args.relock:
         raise SystemExit("bootstrap: --checkout and --allow-drop are only used with --relock")
     if args.relock:
-        if not base:
-            raise SystemExit("bootstrap --relock: pstack bundle not found")
+        try:
+            base = skills_dir(args.skills_dir)
+        except ValueError as error:
+            raise SystemExit(f"bootstrap --relock: FAIL. {error}") from None
         lock = load_lock()
         groups = {name: row["group"] for name, row in lock["skills"].items()}
-        if args.checkout:
-            checkout = Path(args.checkout).expanduser().resolve()
-            _, out, unread = git(checkout, "rev-parse", "--verify", "HEAD")
-            head = None if unread else out.decode(errors="replace").strip()
-            plugin, upstream, unread = upstream_tree(checkout, head) if head else (None, {}, unread)
-            if plugin is None:
-                raise SystemExit(f"bootstrap --relock: {redact(checkout)} is not a pstack checkout (no Git HEAD with "
-                                 ".cursor-plugin/plugin.json); pass the root of a clone of the pstack upstream"
-                                 + (f" ({unread})" if unread else ""))
-            installed = {name for name in upstream if (base / name / "SKILL.md").is_file()}
-            absent = set(upstream) - installed
-            if not installed:
-                raise SystemExit(f"bootstrap --relock: no skill of {redact(checkout)} at {head} is installed in "
-                                 f"{redact(base)}; check --skills-dir")
-            changed = [f"{name}/{line}" for name in sorted(installed)
-                       for line in upstream_diff(upstream[name], base / name)]
-            if changed:
-                raise SystemExit("bootstrap --relock: the installed bundle differs from the checkout's HEAD, so it is "
-                                 "not that revision:\n  " + "\n  ".join(changed))
-            dropped = sorted(name for name, group in groups.items() if group == "pstack" and name not in installed)
-            if dropped and not args.allow_drop:
-                raise SystemExit(f"bootstrap --relock: {', '.join(dropped)} pinned as pstack but not installed skills of "
-                                 f"{redact(checkout)} at {head}. Pass --allow-drop to remove these pins.")
-            added = sorted(installed - set(groups))
-            moved = sorted(f"{name} (was {groups[name]})" for name in installed & set(groups) if groups[name] != "pstack")
-            groups = {name: group for name, group in groups.items() if group != "pstack"} | dict.fromkeys(installed, "pstack")
+        if args.checkout or args.allow_drop:
+            raise SystemExit("bootstrap --relock: upstream comparison and pstack relocking are retired; "
+                             "omit --checkout/--allow-drop to relock independent leaf skills only")
         missing = [name for name in sorted(groups) if not (base / name / "SKILL.md").is_file()]
         if missing:
             raise SystemExit(f"bootstrap --relock: missing skills {', '.join(missing)}")
@@ -1079,17 +1240,11 @@ def bootstrap(args):
             lock["skills"][name] = {"group": groups[name], "files": count, "sha256": digest}
         LOCK_PATH.write_text(json.dumps(lock, indent=2) + "\n")
         print(f"bootstrap: relocked {len(groups)} skills from {redact(base)}. Review and commit {LOCK_PATH.relative_to(REPO)}.")
-        if args.checkout:
-            pinned_revision = lock["provenance"]["pstack"]["revision"]
-            print(f"bootstrap: {len(installed)} pinned as pstack from {redact(checkout)} at {head} "
-                  f"(version {json.loads(plugin).get('version')}). Added: {', '.join(added) or 'none'}. "
-                  f"Moved to pstack: {', '.join(moved) or 'none'}. Removed: {', '.join(dropped) or 'none'}. "
-                  f"Upstream skills not installed: {', '.join(sorted(absent)) or 'none'}.")
-            print("bootstrap: " + ("HEAD is the pinned revision; run" if head == pinned_revision else
-                                   f"HEAD differs from provenance.pstack.revision {pinned_revision[:12]}; update "
-                                   "provenance.pstack to match, then run")
-                  + " scripts/agent-tools/verify pstack-upstream --checkout DIR.")
         return 0
+    source, _, problem = pstack_source(args.skills_dir)
+    if problem:
+        return cmd_doctor(args)
+    base = Path(source["skillsDir"])
     current = Path(os.readlink(link)) if link.is_symlink() else link if link.exists() else None
     if current and current != base:
         print(f"bootstrap: FAIL. {redact(link)} already points to {redact(current)}, not {redact(base)}. "
@@ -1108,10 +1263,433 @@ def bootstrap(args):
     receipts_root(args.receipts).mkdir(parents=True, exist_ok=True)
     (local / "bootstrap.json").write_text(json.dumps({
         "skillsDir": redact(base), "receipts": redact(receipts_root(args.receipts)),
-        "lockSha256": sha256_file(LOCK_PATH), "at": now().isoformat(),
+        "lockSha256": sha256_file(LOCK_PATH), "pstack": redacted(source), "at": now().isoformat(),
     }, indent=2) + "\n")
     print(f"bootstrap: PASS. {redact(link)} {action} -> {redact(base)}. No global files were written.")
     return 0
+
+
+def usd(value):
+    try:
+        amount = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("USD must be a finite nonnegative number") from None
+    if not math.isfinite(amount) or amount < 0:
+        raise argparse.ArgumentTypeError("USD must be a finite nonnegative number")
+    return amount
+
+
+def spend_fields(args):
+    return {"actualUsd": args.actual_usd, "actualSource": args.actual_source, "targetUsd": args.target_usd,
+            "capUsd": None, "capEnforced": False}
+
+
+def cmd_escalate(args):
+    """Record a bounded request or its outcome locally; dispatch and Linear writes belong to the coordinator."""
+    issue_pattern = r"[A-Z][A-Z0-9]*-[1-9][0-9]*"
+    if not re.fullmatch(issue_pattern, args.issue) or not re.fullmatch(issue_pattern, args.source_issue):
+        raise SystemExit("escalate: issue and source issue must be Linear IDs, e.g. GRS-104")
+    if args.issue == args.source_issue or not re.fullmatch(
+            rf"https://linear\.app/[^/?#]+/issue/{re.escape(args.issue)}(?:/[^?#]*)?", args.issue_url):
+        raise SystemExit("escalate: give a separate linked escalation issue URL matching --issue")
+    if not FULL_ID.fullmatch(args.sha) or not 1 <= len(args.question.strip()) <= 1000:
+        raise SystemExit("escalate: give an exact SHA and a bounded question (1-1000 characters)")
+    if args.phase == "outcome" and not all(value and value.strip() for value in
+            (args.task_id, args.findings, args.outcome, args.checks)):
+        raise SystemExit("escalate: outcome requires --task-id, --findings, --outcome and --checks")
+    root = Path(args.root).resolve() if args.root else REPO
+    identity, problem = revision(root, args.base)
+    if problem or identity["head"] != args.sha or identity["dirty"]:
+        raise SystemExit(f"escalate: needs the exact clean HEAD SHA; {problem or 'SHA differs or checkout is dirty'}")
+    record = {"issue": args.issue, "issueUrl": args.issue_url, "sourceIssue": args.source_issue, "sha": args.sha,
+              "question": args.question.strip(), "model": args.model, "effort": "xhigh", "attemptLimit": 1,
+              "phase": args.phase, "taskId": args.task_id, "findings": args.findings,
+              "outcome": args.outcome, "checks": args.checks, "dispatchPerformed": False}
+    # Use the same revision/capture checks as command receipts, with no network or task launch.
+    return run_with_receipt(f"escalation-{args.phase}", [sys.executable, "-I", "-B", "-c",
+                            "print('Escalation record only; no dispatch or Linear contact.')"],
+                            root=root, cwd=root, receipts=args.receipts, base=args.base, tools=("python3",),
+                            required=True, metadata={"escalation": record}, spend=spend_fields(args), expected_head=args.sha)
+
+
+# Approval ledger ------------------------------------------------------------
+
+def json_object(path):
+    value = json.loads(Path(path).read_text())
+    if not isinstance(value, dict):
+        raise ValueError(f"{path} must hold a JSON object")
+    return value
+
+
+def timestamp(value):
+    parsed = datetime.datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        raise ValueError("timestamps must include a UTC offset")
+    return parsed
+
+
+def canonical_unit(value):
+    match = re.fullmatch(r"([A-Z][A-Z0-9]*)-([0-9]+)/(implementation|review)", value, re.IGNORECASE)
+    if not match or int(match[2]) < 1:
+        raise ValueError("unit must be ORIGINAL-ISSUE/implementation or ORIGINAL-ISSUE/review")
+    canonical = f"{match[1].upper()}-{int(match[2])}/{match[3].lower()}"
+    if value != canonical:
+        raise ValueError(f"noncanonical unit spelling; use {canonical}")
+    return canonical
+
+
+def exact_clean(identity, sha):
+    if not FULL_ID.fullmatch(sha) or identity["head"] != sha or identity["dirty"]:
+        raise ValueError("approval requires the exact clean HEAD SHA")
+
+
+def passing_check(check, identity):
+    if (check.get("schema") != "clearcase-agent-receipt/1" or check.get("result") != "PASS"
+            or check.get("exitCode") != 0 or check.get("reason") or not check.get("command")):
+        raise ValueError("check receipt is not a complete PASS")
+    recorded = check.get("revision", {})
+    if any(recorded.get(key) != identity[key] for key in ("head", "root", "toplevel", "dirty", "diffSha256")):
+        raise ValueError("check receipt revision mismatch (SHA, checkout or dirty state)")
+    if not recorded.get("repository") or not FULL_ID.fullmatch(recorded.get("base") or ""):
+        raise ValueError("check receipt lacks revision evidence")
+
+
+def check_artifacts(check):
+    artifacts = check.get("artifacts", {})
+    if set(artifacts) != {"receipt", "stdout", "stderr"}:
+        raise ValueError("check receipt lacks captured artifacts")
+    paths = [Path(artifacts[key]).expanduser().resolve() for key in ("stdout", "stderr")]
+    for path in paths:
+        file_identity(path)
+    return paths
+
+
+def event_hash(value):
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+
+def ledger_events(store):
+    log, tip = store / "events.jsonl", store / "events.tip"
+    if not log.exists() and not tip.exists():
+        return []
+    events, previous = [], "0" * 64
+    for line in log.read_text().splitlines():
+        event = json.loads(line)
+        digest = event.pop("hash")
+        if event.get("sequence") != len(events) + 1 or event.get("previous") != previous or event_hash(event) != digest:
+            raise ValueError("append-only ledger chain is corrupt")
+        event["hash"] = digest
+        previous = digest
+        events.append(event)
+    if json_object(tip) != {"sequence": len(events), "hash": previous}:
+        raise ValueError("append-only ledger tip mismatch (history truncated or replaced)")
+    return events
+
+
+def append_event(store, kind, payload):
+    import fcntl
+    store.mkdir(parents=True, exist_ok=True)
+    with (store / "events.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        events = ledger_events(store)
+        if kind == "review":
+            originals = {}
+            for prior in events:
+                if prior["kind"] == "review" and prior["payload"]["unit"] == payload["unit"]:
+                    for finding in prior["payload"]["originalFindings"]:
+                        originals.setdefault(finding["id"], finding)
+            for finding in payload["originalFindings"]:
+                originals.setdefault(finding["id"], finding)
+            payload["originalFindings"] = list(originals.values())
+        event = {"sequence": len(events) + 1, "previous": events[-1]["hash"] if events else "0" * 64,
+                 "kind": kind, "payload": payload}
+        event["hash"] = event_hash(event)
+        with (store / "events.jsonl").open("a") as log:
+            log.write(json.dumps(event, sort_keys=True) + "\n")
+            log.flush()
+            os.fsync(log.fileno())
+        temporary = store / "events.tip.new"
+        with temporary.open("w") as tip:
+            json.dump({"sequence": event["sequence"], "hash": event["hash"]}, tip)
+            tip.flush()
+            os.fsync(tip.fileno())
+        temporary.replace(store / "events.tip")
+        return event
+
+
+def content_blob(store, path):
+    data = Path(path).read_bytes()
+    digest = hashlib.sha256(data).hexdigest()
+    blobs = store / "blobs"
+    blobs.mkdir(exist_ok=True)
+    target = blobs / digest
+    try:
+        with target.open("xb") as handle:
+            handle.write(data)
+        target.chmod(0o444)
+    except FileExistsError:
+        if target.read_bytes() != data:
+            raise ValueError("review content-addressed blob corrupt")
+    return digest
+
+
+def review_record(store, unit, review, findings):
+    review_hash, findings_hash = sha256_file(review), sha256_file(findings)
+    latest = None
+    for event in ledger_events(store):
+        if event["kind"] != "review":
+            continue
+        record = event["payload"]
+        for key in ("reviewHash", "findingsHash"):
+            if sha256_file(store / "blobs" / record[key]) != record[key]:
+                raise ValueError("recorded original review/findings content changed")
+        if record["unit"] == unit:
+            latest = event
+    if latest and latest["payload"]["reviewHash"] == review_hash and latest["payload"]["findingsHash"] == findings_hash:
+        return latest
+    raise ValueError("review/findings differ from the latest review-step record; original severity cannot be rewritten or superseded reviews reused")
+
+
+def cmd_review_record(args):
+    store = receipts_root(args.receipts)
+    root = Path(args.root).resolve() if args.root else REPO
+    paths = [Path(args.review).resolve(), Path(args.findings).resolve()]
+    problem, event = None, None
+    try:
+        identity, problem = revision(root, args.base)
+        if problem:
+            raise ValueError(problem)
+        canonical_unit(args.unit)
+        review, findings = map(json_object, paths)
+        exact_clean(identity, review["sha"])
+        if review.get("findingsSha256") != sha256_file(paths[1]) or review["unresolvedFindings"] != findings["unresolvedFindings"]:
+            raise ValueError("review step must bind findings hash and original severity list")
+        # Retain the first severity even if a subsequent review attempts to relabel it.
+        originals = {}
+        for prior in ledger_events(store):
+            if prior["kind"] == "review" and prior["payload"]["unit"] == args.unit:
+                for finding in prior["payload"]["originalFindings"]:
+                    originals.setdefault(finding["id"], finding)
+        for finding in findings["unresolvedFindings"]:
+            originals.setdefault(finding["id"], finding)
+        store.mkdir(parents=True, exist_ok=True)
+        event = append_event(store, "review", {"unit": args.unit, "sha": review["sha"],
+                             "reviewHash": content_blob(store, paths[0]), "findingsHash": content_blob(store, paths[1]),
+                             "originalFindings": list(originals.values())})
+    except (OSError, ValueError, TypeError, KeyError) as error:
+        problem = f"review-record: refuse. {error}"
+    return run_with_receipt("review-record", [sys.executable, "-I", "-c", "print('review step recorded')"],
+                            root=root, cwd=root, receipts=store, base=args.base, inputs=paths, required=True,
+                            skip_reason=problem, metadata={"reviewEvent": event["hash"] if event else None})
+
+
+def approval_evidence(args, identity, paths):
+    review_path, findings_path = Path(args.review).resolve(), Path(args.findings).resolve()
+    paths.extend([review_path, findings_path])
+    event = review_record(receipts_root(args.receipts), args.unit, review_path, findings_path)
+    record = event["payload"]
+    paths.extend([receipts_root(args.receipts) / "blobs" / record[key] for key in ("reviewHash", "findingsHash")])
+    review, findings = [json_object(receipts_root(args.receipts) / "blobs" / record[key]) for key in ("reviewHash", "findingsHash")]
+    if (review.get("schema") != "clearcase-review/1" or review.get("sha") != args.sha
+            or findings.get("sha") != args.sha or review.get("verdict") != "PASS"):
+        raise ValueError("review verdict, findings and approval must name the same SHA and a PASS review")
+    if (review.get("fresh") is not True or not review.get("reviewer") or not review.get("implementer")
+            or review["reviewer"] == review["implementer"]):
+        raise ValueError("a fresh, distinct reviewer and implementer must be recorded")
+    if (findings_path.stat().st_mtime_ns > review_path.stat().st_mtime_ns
+            or timestamp(findings["updatedAt"]) > timestamp(review["reviewedAt"])):
+        raise ValueError("finding list is newer than the review")
+    if review.get("findingsSha256") != sha256_file(findings_path):
+        raise ValueError("finding list hash differs from the review")
+    unresolved = findings.get("unresolvedFindings")
+    if not isinstance(unresolved, list) or review.get("unresolvedFindings") != unresolved:
+        raise ValueError("review must bind the exact unresolved findings list")
+    original_severity = {finding["id"]: finding["severity"] for finding in record["originalFindings"]}
+    for finding in unresolved:
+        if isinstance(finding, dict) and original_severity.get(finding.get("id")) != finding.get("severity"):
+            raise ValueError("finding severity differs from original review-step record")
+        if (not isinstance(finding, dict) or not finding.get("id")
+                or finding.get("severity") not in ("low", "P2")):
+            raise ValueError("unresolved P0/high, P1/medium or unknown severity blocks approval")
+    required = review.get("requiredChecks")
+    if (not isinstance(required, list) or not required or any(not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"].strip() for item in required)
+            or len({item["name"] for item in required}) != len(required)):
+        raise ValueError("review.requiredChecks must bind a nonempty unique set of {name, execution, inputs}; names alone refuse")
+    requirements = {item["name"]: item for item in required}
+    checks = {}
+    for supplied in args.check_receipt:
+        path = Path(supplied).expanduser().resolve()
+        paths.append(path)
+        check = json_object(path)
+        passing_check(check, identity)
+        name = check.get("name")
+        if not isinstance(name, str) or name in checks:
+            raise ValueError("check receipt names must be unique")
+        if name not in requirements:
+            raise ValueError("check name is absent from reviewed requirements")
+        paths.extend(validate_execution(check, requirements[name]))
+        paths.extend(check_artifacts(check))
+        checks[name] = str(path)
+    if set(checks) != set(requirements):
+        raise ValueError(f"required check receipt mismatch: expected {required}, got {list(checks)}")
+    return {"state": "approved", "unit": args.unit, "sha": args.sha, "approvedBy": args.approved_by,
+            "reviewer": review["reviewer"], "reviewVerdict": review["verdict"], "review": str(review_path),
+            "findings": str(findings_path), "unresolvedFindings": unresolved, "checks": checks, "requirements": requirements, "reviewEvent": event["hash"]}
+
+
+def cmd_approval(args):
+    root = Path(args.root).resolve() if args.root else REPO
+    identity, problem = revision(root, args.base)
+    paths = []
+    row = {"state": "refuse", "unit": args.unit, "sha": args.sha}
+    try:
+        if problem:
+            raise ValueError(problem)
+        exact_clean(identity, args.sha)
+        canonical_unit(args.unit)
+        if args.cmd == "approve":
+            if not args.approved_by.strip():
+                raise ValueError("approved-by must be nonempty")
+            row = approval_evidence(args, identity, paths)
+        else:
+            ledger_path = Path(args.approval_receipt).expanduser().resolve()
+            paths.append(ledger_path)
+            ledger = json_object(ledger_path)
+            passing_check(ledger, identity)
+            row = ledger.get("approval", {})
+            if row.get("state") != "approved" or row.get("sha") != args.sha or row.get("unit") != args.unit:
+                raise ValueError("approval ledger unit/SHA/state mismatch")
+            recorded = ledger.get("inputs")
+            if not isinstance(recorded, list) or not recorded:
+                raise ValueError("approval ledger lacks evidence fingerprints")
+            originals = [Path(entry["path"]).expanduser().absolute() for entry in recorded]
+            changed = inputs_changed(originals, recorded)
+            if changed:
+                raise ValueError(f"approval evidence changed: {changed}")
+            event = review_record(receipts_root(args.receipts), args.unit, Path(row["review"]).expanduser(), Path(row["findings"]).expanduser())
+            if event["hash"] != row["reviewEvent"]:
+                raise ValueError("approval review-step record mismatch")
+            for name, requirement in row["requirements"].items():
+                check = json_object(Path(row["checks"][name]).expanduser())
+                passing_check(check, identity)
+                paths.extend(validate_execution(check, requirement))
+            paths.extend(originals)
+            paths.extend(check_artifacts(ledger))
+    except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
+        problem = f"approval: refuse. {error}"
+        row = {"state": "refuse", "unit": args.unit, "sha": args.sha}
+    return run_with_receipt(args.cmd, [sys.executable, "-I", "-B", "-c", "print('approval: approved')"],
+                            cwd=root, root=root, tools=["python3"], inputs=paths, receipts=args.receipts,
+                            base=args.base, skip_reason=problem, required=True, expected_head=args.sha,
+                            metadata={"approval": row}, spend=spend_fields(args))
+
+
+# Local dispatch bookkeeping (records only; never launches or cancels a process)
+
+DISPATCH_PHASES = ("initial", "fix", "recheck", "escalation", "infra-retry")
+
+
+def dispatch_record(args, root, store, row):
+    canonical_unit(args.unit)
+    identity, problem = revision(root, args.base)
+    if problem or identity["dirty"]:
+        raise ValueError(problem or "dispatch bookkeeping requires a clean revision")
+    events = ledger_events(store)
+    history = []
+    for event in events:
+        if event["kind"] != "dispatch":
+            continue
+        payload = event["payload"]
+        receipt = json_object(Path(payload["receipt"]).expanduser())
+        prior = receipt.get("dispatch")
+        if prior != payload["row"] or receipt.get("dispatchEvent") != event["hash"]:
+            raise ValueError("stored attempt record/counts mismatch with append-only event")
+        if prior.get("unit") != args.unit:
+            continue
+        if prior.get("outcome") == "recorded":
+            phase = prior["phase"]
+            row["counts"][phase] += 1
+            if row["counts"][phase] > 1 or prior.get("counts") != row["counts"]:
+                raise ValueError("stored attempt counts mismatch with derived events")
+        history.append(prior)
+    # A receipt without its event is also corrupt; do not silently adopt legacy mutable history.
+    indexed = {event["hash"] for event in events if event["kind"] == "dispatch"}
+    for path in sorted(store.glob("*/receipt.json")):
+        receipt = json_object(path)
+        if "dispatch" in receipt and receipt.get("dispatchEvent") not in indexed:
+            raise ValueError("attempt receipt is missing its append-only event")
+    deadlines = {prior["deadline"] for prior in history if prior.get("deadline")}
+    if len(deadlines) > 1:
+        raise ValueError("inconsistent unit deadlines; refusing to reset the unit")
+    row["deadline"] = next(iter(deadlines), None)
+    if args.phase == "cancel":
+        if not row["counts"]["initial"] or not args.cancel_outcome or not (args.reason or "").strip():
+            raise ValueError("cancellation requires an existing unit, --cancel-outcome and --reason")
+        row.update(outcome="cancelled" if args.cancel_outcome == "confirmed" else "cancellation-failed",
+                   cancellation={"outcome": args.cancel_outcome, "reason": args.reason,
+                                 "taskId": args.task_id, "performedByTool": False})
+        return None if args.cancel_outcome == "confirmed" else "cancellation not confirmed; unit stopped"
+    if any(prior.get("cancellation") for prior in history):
+        raise ValueError("unit has a cancellation record; no further attempts")
+    if args.deadline and row["deadline"] and args.deadline != row["deadline"]:
+        raise ValueError("unit deadline cannot be changed by a restart or a renamed task")
+    if row["deadline"] and timestamp(row["deadline"]) <= now():
+        raise ValueError("unit deadline expired; record cancellation and preserve work/evidence")
+    if args.phase == "initial":
+        if not args.deadline:
+            raise ValueError("initial attempt requires --deadline before dispatch")
+        limit = 90 if args.unit.endswith("/implementation") else 30
+        duration = (timestamp(args.deadline) - now()).total_seconds()
+        if not 0 < duration <= limit * 60:
+            raise ValueError(f"deadline must be in the future within {limit} minutes")
+    elif not row["counts"]["initial"]:
+        raise ValueError("record the initial attempt and deadline first")
+    if args.phase == "recheck" and not row["counts"]["fix"]:
+        raise ValueError("recheck requires the unit's written-finding fix round")
+    if args.phase == "escalation" and not row["counts"]["recheck"]:
+        raise ValueError("escalation bookkeeping requires the unit's recheck")
+    if row["counts"][args.phase]:
+        raise ValueError(f"bounded attempts exhausted: one {args.phase} per original issue/stage")
+    if all(row["counts"][phase] for phase in ("fix", "recheck", "escalation")):
+        raise ValueError("bounded unit exhausted: one fix, one recheck and one escalation")
+    if args.failure:
+        if not (args.diagnosis or "").strip():
+            raise ValueError("a failure fingerprint requires --diagnosis")
+        if any(prior.get("failure") == args.failure and prior.get("diagnosis") == args.diagnosis
+               and prior.get("outcome") == "recorded" for prior in history):
+            raise ValueError("same failure twice without a new diagnosis; stop this unit")
+    row["counts"][args.phase] += 1
+    row["deadline"] = row["deadline"] or args.deadline
+    row["outcome"] = "recorded"
+    return None
+
+
+def cmd_dispatch(args):
+    import fcntl
+    root = Path(args.root).resolve() if args.root else REPO
+    store = receipts_root(args.receipts)
+    row = {"unit": args.unit, "phase": args.phase, "taskId": args.task_id, "deadline": None,
+           "counts": dict.fromkeys(DISPATCH_PHASES, 0), "outcome": "refuse", "dispatchPerformed": False,
+           "failure": args.failure, "diagnosis": args.diagnosis}
+    # Keep the receipt append under the same lock as the read; concurrent reservations cannot both win.
+    try:
+        store.mkdir(parents=True, exist_ok=True)
+        with (store / "dispatch.lock").open("a") as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            try:
+                if not args.task_id.strip():
+                    raise ValueError("task-id must be nonempty")
+                problem = dispatch_record(args, root, store, row)
+            except (OSError, ValueError, TypeError, KeyError, AttributeError) as error:
+                problem = str(error)
+                row["outcome"] = "refuse"
+            row["reason"] = problem
+            return run_with_receipt("dispatch", [sys.executable, "-I", "-B", "-c", "print('dispatch: local record only')"],
+                                    cwd=root, root=root, tools=["python3"], receipts=store, base=args.base,
+                                    skip_reason=problem, required=True, metadata={"dispatch": row}, spend=spend_fields(args))
+    except OSError as error:
+        sys.stderr.write(f"dispatch: refuse. cannot lock receipt store: {error}\n")
+        return 1
 
 
 def main(argv=None):
@@ -1119,10 +1697,14 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     def common(p):
-        p.add_argument("--skills-dir", help="pstack bundle directory (default: $CLEARCASE_SKILLS_DIR, bootstrap link, ~/.agents/skills)")
+        p.add_argument("--skills-dir", help="independent leaf skills / legacy fallback (default: $CLEARCASE_SKILLS_DIR or ~/.agents/skills)")
+        p.add_argument("--actual-usd", type=usd, help="reported actual spend, with --actual-source")
+        p.add_argument("--actual-source", help="provider usage export or billing source for --actual-usd")
+        p.add_argument("--target-usd", type=usd, help="reporting-only spend target; never an enforcement cap")
         p.add_argument("--receipts", help="receipt directory (default: $CLEARCASE_RECEIPTS_DIR or .local/agent-receipts)")
         p.add_argument("--base", help="base ref recorded in receipts; must resolve to a commit "
                                       "(default: $CLEARCASE_BASE_REF, then origin/dev, then dev)")
+        p.add_argument("--fix-base", help="reviewed ancestor for test protection")
         p.add_argument("--root", help="repository root to check (default: this checkout)")
         return p
 
@@ -1131,8 +1713,8 @@ def main(argv=None):
     mode = boot.add_mutually_exclusive_group()
     mode.add_argument("--relock", action="store_true")
     mode.add_argument("--remove", action="store_true")
-    boot.add_argument("--checkout", help="with --relock: pin every installed skill of this pstack checkout as group pstack")
-    boot.add_argument("--allow-drop", action="store_true", help="with --relock --checkout: remove pstack pins it does not install")
+    boot.add_argument("--checkout", help="retired pstack relock option; refused with a migration message")
+    boot.add_argument("--allow-drop", action="store_true", help="retired pstack relock option; refused")
     boot.set_defaults(func=cmd_bootstrap)
     check = common(sub.add_parser("check-plan"))
     check.add_argument("--linear-relations", metavar="READBACK")
@@ -1141,20 +1723,69 @@ def main(argv=None):
     check.set_defaults(func=cmd_check_plan)
     verify = common(sub.add_parser("verify"))
     verify.add_argument("capability", choices=["list", *CAPABILITIES])
+    verify.add_argument("--findings", help="findings JSON naming protected tests")
+    verify.add_argument("--model-sheet", help="sheet path (default: XDG config t3-pstack/models.md)")
+    verify.add_argument("--catalog", help="fresh orchestrator_capabilities JSON with capturedAt")
     verify.add_argument("--readback", help="Linear readback JSON for linear-relations")
     verify.add_argument("--plan", help="plan for plan-format (default: docs/delivery-plan.md)")
-    verify.add_argument("--checkout", help="pstack checkout at the pinned revision for pstack-upstream")
+    verify.add_argument("--checkout", help="retired; accepted so an old caller reaches the migration FAIL, never used")
     verify.set_defaults(func=cmd_verify)
+    guard = common(sub.add_parser("test-guard"))
+    guard.add_argument("--findings")
+    guard.set_defaults(func=lambda args: run_capability("test-guard", args))
     compare = common(sub.add_parser("compare-upstream"))
-    compare.add_argument("--checkout", required=True)
+    compare.add_argument("--checkout", help="retired; accepted so an old caller reaches the migration FAIL, never used")
     compare.set_defaults(func=cmd_compare_upstream)
     receipt = common(sub.add_parser("receipt"))
+    receipt.add_argument("--findings", help="run test protection before the command")
     receipt.add_argument("--name", required=True)
     receipt.add_argument("--tool", action="append", default=[], help="required tool to version-probe; missing means SKIPPED")
     receipt.add_argument("--input", action="append", default=[], help="input file to fingerprint; missing means SKIPPED")
     receipt.add_argument("command", nargs=argparse.REMAINDER)
     receipt.set_defaults(func=cmd_receipt)
+    escalation = common(sub.add_parser("escalate"))
+    escalation.add_argument("--issue", required=True, help="linked Linear escalation issue ID")
+    escalation.add_argument("--issue-url", required=True, help="URL linking the escalation issue")
+    escalation.add_argument("--source-issue", required=True)
+    escalation.add_argument("--sha", required=True, help="exact clean HEAD SHA")
+    escalation.add_argument("--question", required=True, help="bounded question, 1-1000 characters")
+    escalation.add_argument("--model", required=True, choices=("claude-fable-5-1", "gpt-6-astra"))
+    escalation.add_argument("--phase", choices=("request", "outcome"), default="request")
+    escalation.add_argument("--task-id")
+    escalation.add_argument("--findings")
+    escalation.add_argument("--outcome")
+    escalation.add_argument("--checks")
+    escalation.set_defaults(func=cmd_escalate)
+    review_step = common(sub.add_parser("review-record"))
+    review_step.add_argument("--unit", required=True)
+    review_step.add_argument("--review", required=True)
+    review_step.add_argument("--findings", required=True)
+    review_step.set_defaults(func=cmd_review_record)
+    for name in ("approve", "approval-check"):
+        approval = common(sub.add_parser(name))
+        approval.add_argument("--unit", required=True)
+        approval.add_argument("--sha", required=True)
+        if name == "approve":
+            approval.add_argument("--review", required=True)
+            approval.add_argument("--findings", required=True)
+            approval.add_argument("--check-receipt", action="append", required=True)
+            approval.add_argument("--approved-by", required=True)
+        else:
+            approval.add_argument("--approval-receipt", required=True)
+        approval.set_defaults(func=cmd_approval)
+    dispatch = common(sub.add_parser("dispatch"))
+    dispatch.add_argument("--unit", required=True)
+    dispatch.add_argument("--task-id", required=True)
+    dispatch.add_argument("--phase", required=True, choices=(*DISPATCH_PHASES, "cancel"))
+    dispatch.add_argument("--deadline")
+    dispatch.add_argument("--cancel-outcome", choices=("confirmed", "failed"))
+    dispatch.add_argument("--reason")
+    dispatch.add_argument("--failure", help="stable failure fingerprint")
+    dispatch.add_argument("--diagnosis")
+    dispatch.set_defaults(func=cmd_dispatch)
     args = parser.parse_args(argv)
+    if (args.actual_usd is None) != (args.actual_source is None) or args.actual_source is not None and not args.actual_source.strip():
+        parser.error("--actual-usd and a nonempty --actual-source must be supplied together")
     return args.func(args)
 
 

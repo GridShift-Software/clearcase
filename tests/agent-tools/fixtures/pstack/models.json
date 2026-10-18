@@ -1,0 +1,30 @@
+{
+  "tiers": {
+    "default": "claudeAgent/claude-opus-5-5 effort=xhigh",
+    "strongest": "claudeAgent/claude-fable-5-1 effort=xhigh",
+    "panel": [
+      "claudeAgent/claude-opus-5-5 effort=xhigh",
+      "codex/gpt-6.1-sol reasoningEffort=xhigh",
+      "grok/grok-4.7 reasoningEffort=xhigh"
+    ]
+  },
+  "roles": [
+    { "role": "feature, refactoring", "tier": "default", "skill": "poteto-mode" },
+    { "role": "bug-fix", "tier": "strongest", "skill": "poteto-mode" },
+    { "role": "perf-issue", "tier": "strongest", "skill": "poteto-mode" },
+    { "role": "hillclimb", "tier": "strongest", "skill": "poteto-mode" },
+    { "role": "judgment and prose", "tier": "default", "skill": "poteto-mode" },
+    { "role": "hardest tasks", "alias": "strongest judgment", "tier": "strongest", "skill": "poteto-mode" },
+    { "role": "how explorer", "tier": "default", "skill": "how" },
+    { "role": "how explainer", "tier": "default", "skill": "how" },
+    { "role": "why investigators", "tier": "default", "skill": "why" },
+    { "role": "why synthesizer", "tier": "default", "skill": "why" },
+    { "role": "reflect tooling", "tier": "default", "skill": "reflect" },
+    { "role": "reflect judgment, divergent, synthesizer", "tier": "default", "skill": "reflect" },
+    { "role": "arena runners", "tier": "panel", "skill": "arena" },
+    { "role": "arena cross-judge pool", "tier": "panel", "skill": "arena" },
+    { "role": "swarm workers", "tier": "default", "skill": "swarm" },
+    { "role": "architect runners", "tier": "panel", "skill": "architect" },
+    { "role": "interrogate reviewers", "tier": "panel", "skill": "interrogate" }
+  ]
+}

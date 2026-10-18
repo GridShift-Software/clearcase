@@ -114,16 +114,19 @@ register)
   export ACTIONS_RUNNER_INPUT_TOKEN
   cd "$runner_dir"
   unit=actions.runner.GridShift-Software-clearcase.clearcase-pc1-vm
-  entry_state= backup= uninstalled=0 registered=0
+  entry_state= backup= entry_files= uninstalled=0 registered=0
   # Until config.sh succeeds, every exit puts back the previous registration and the entry state, under the lock.
   finish_register() {
     local status=$? restored_state file
     trap - EXIT HUP INT TERM
     if (( ! registered )); then
-      # Put back exactly the files that existed at entry, dropping any a failed config.sh wrote.
+      # Put back exactly the files that existed at entry, dropping only those a failed config.sh wrote. A file that existed
+      # at entry and was not moved yet (a failed or interrupted move aside) is the original: leave it.
       if [[ -n $backup ]]; then
         for file in .runner .credentials .credentials_rsaparams; do
-          if [[ -e $backup/$file ]]; then mv -f "$backup/$file" "$file" || status=1; else rm -f "$file" || status=1; fi
+          if [[ -e $backup/$file ]]; then mv -f "$backup/$file" "$file" || status=1
+          elif [[ " $entry_files " != *" $file "* ]]; then rm -f "$file" || status=1
+          fi
         done
       fi
       if (( uninstalled )); then ./svc.sh install runner || status=1; fi
@@ -166,6 +169,7 @@ register)
     ./svc.sh uninstall
   fi
   # --replace takes over the name on GitHub; the old local registration has to go first. Keep it until config.sh succeeds.
+  for file in .runner .credentials .credentials_rsaparams; do [[ ! -e $file ]] || entry_files+=" $file"; done
   backup=$(mktemp -d)
   for file in .runner .credentials .credentials_rsaparams; do [[ ! -e $file ]] || mv "$file" "$backup/"; done
   runuser -u runner -- ./config.sh --unattended --replace --url https://github.com/GridShift-Software/clearcase \

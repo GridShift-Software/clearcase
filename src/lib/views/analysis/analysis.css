@@ -14,7 +14,7 @@ main[data-analysis] { overflow-wrap: anywhere; }
 	.an-stack tr { border: 1px solid var(--border); border-radius: var(--radius); margin: .5rem; padding: .3rem .5rem; background: var(--surface); }
 	.an-stack td { border: 0; padding: .2rem 0; text-align: left; overflow-wrap: anywhere; }
 	.an-stack td.num { white-space: normal; }
-	main[data-analysis] :is(.badge, .chips a.cite, .chips .cite-broken) { white-space: normal; max-width: 100%; }
+	main[data-analysis] :is(.badge, a.cite, .cite-broken) { white-space: normal; overflow-wrap: anywhere; max-width: 100%; }
 	.an-stack td[data-label]::before { content: attr(data-label); display: block; font-size: .78em; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; color: #555; }
 	.an-scroll { overflow-x: visible; }
 }

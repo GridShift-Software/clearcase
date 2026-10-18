@@ -94,6 +94,24 @@ describe('CSV export (S-csv)', () => {
 	it('matches v5 for the privilege example (ledger-privilege-add-add-delete header and row)', () => {
 		expect(registerCsv(REGISTERS.privilege_tab, [row('a', { ref: 'OD-001', date: '', desc: '', basis: 'Litigation' })])).toBe('ref,date,desc,basis\r\nOD-001,,,Litigation');
 	});
+	it('writes a validated credit as a plain number, so a spreadsheet total includes it (GRS-49)', () => {
+		const csv = registerCsv(REGISTERS.disbursements_tab, [row('a', { date: '2026-10-01', desc: 'Synthetic credit', payee: 'Synthetic payee', amount: '-500' }), row('b', { date: '2026-10-01', desc: 'Synthetic fee', payee: 'Synthetic payee', amount: 'R 1 000.00' })]);
+		expect(csv).toBe('date,desc,payee,amount\r\n2026-10-01,Synthetic credit,Synthetic payee,-500.00\r\n2026-10-01,Synthetic fee,Synthetic payee,1000.00');
+		expect(csv.split('\r\n').slice(1).reduce((sum, line) => sum + Number(line.split(',')[3]), 0)).toBe(500);
+	});
+	it.each([
+		['=SUM(A1)', "'=SUM(A1)"], ['+SUM(A1)', "'+SUM(A1)"], ['@SUM(A1)', "'@SUM(A1)"], ['-500+1', "'-500+1"], ['-1e3', "'-1e3"], ['-5.001', "'-5.001"],
+		['safe;=SUM(A1)', `"safe;'=SUM(A1)"`], ['safe\t=SUM(A1)', `"safe\t'=SUM(A1)"`], ['safe\r=SUM(A1)', `"safe\r'=SUM(A1)"`], ['safe\n=SUM(A1)', `"safe\n'=SUM(A1)"`],
+		['-500; =1', `"'-500; '=1"`], ['', ''], ['   ', '   '],
+	])('keeps %j protected (or blank) in every column, the amount included (GRS-49)', (value, cell) => {
+		const d = REGISTERS.disbursements_tab;
+		expect(registerCsv(d, [row('a', Object.fromEntries(d.fields.map((x) => [x.k, value])))])).toBe(`date,desc,payee,amount\r\n${[cell, cell, cell, cell].join(',')}`);
+	});
+	it('exempts only signed-money fields: text, hours and rates keep the apostrophe in every register (GRS-49)', () => {
+		for (const d of Object.values(REGISTERS)) expect(registerCsv(d, [row('a', Object.fromEntries(d.fields.map((x) => [x.k, '-500'])))]).split('\r\n')[1]).toBe(d.fields.map((x) => (x.amount === 'signed-money' ? '-500.00' : "'-500")).join(','));
+		expect(Object.values(REGISTERS).flatMap((d) => d.fields.filter((x) => x.amount === 'signed-money').map((x) => x.k))).toEqual(['amount']);
+		expect(registerCsv(REGISTERS.timesheet_tab, [row('a', { date: '', fee_earner: 'Synthetic', activity: '-x', hours: '-1.5', rate: '-1200', billed: 'no' })])).toBe("date,fee_earner,activity,hours,rate,billed\r\n,Synthetic,'-x,'-1.5,'-1200,no");
+	});
 });
 
 describe('calendar export (S-deadlines_tab-2, S-ics)', () => {

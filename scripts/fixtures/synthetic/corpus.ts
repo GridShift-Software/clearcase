@@ -28,7 +28,10 @@ export async function generateCorpus({ out, seed, documents: count, profile }: C
   const random = seededRandom(seed);
   const integer = (n: number) => Math.floor(random() * n);
   const word = () => words[integer(words.length)] ?? 'Acorn';
-  const name = () => `Synthetic ${word()} ${word()}`;
+  // The vocabulary mixes given names and surnames, so whitespace between two words could spell a
+  // real person's name (leak-scan person and party needles); hyphenated pairs cannot.
+  const pair = () => `${word()}-${word()}`;
+  const name = () => `Synthetic ${pair()}`;
   // Seeded day offsets in a fictional future decade avoid modern case-date needles.
   const date = () => new Date(Date.UTC(2200, 0, 1) + integer(3652) * 86400000).toISOString().slice(0, 10);
   const amount = () => ((10000 + integer(990000)) / 100).toFixed(2);
@@ -45,16 +48,16 @@ export async function generateCorpus({ out, seed, documents: count, profile }: C
     const ref = `SY-${String(i + 1).padStart(4, '0')}`;
     const image = i >= count - imageCount;
     const pages = i > 0 && i % 250 === 0 ? 3 + integer(3) : 1;
-    const filename = `${ref} SYNTHETIC ${word()} ${word()}.${image ? 'png' : 'pdf'}`;
+    const filename = `${ref} SYNTHETIC ${pair()}.${image ? 'png' : 'pdf'}`;
     const rel = `SYNTHETIC-${String(i % 8 + 1).padStart(2, '0')}/${filename}`;
     const targetBytes = originalSize(profile, random);
-    const bytes = image ? png(integer, targetBytes) : pdf(`SYNTHETIC ${ref} seed ${seedHash} ${word()} ${word()}`, pages, targetBytes);
+    const bytes = image ? png(integer, targetBytes) : pdf(`SYNTHETIC ${ref} seed ${seedHash} ${pair()}`, pages, targetBytes);
     await save(rel, bytes);
     pageCounts.set(ref, image ? 1 : pages);
     const base = {
       ref, date: date(), filename,
-      subject: `${name()} ${word()} record ${i + 1}`, sender: name(), to: name(),
-      excerpt: `SYNTHETIC ONLY. ${Array.from({ length: 45 }, () => `${word()} ${word()} invented text.`).join(' ')}`,
+      subject: `${name()} record ${i + 1}`, sender: name(), to: name(),
+      excerpt: `SYNTHETIC ONLY. ${Array.from({ length: 45 }, () => `${pair()} invented text.`).join(' ')}`,
       doc_type: image ? 'image' : docTypes[i % docTypes.length] ?? 'other', bundle: `Synthetic group ${i % 8 + 1}`,
       amount: amount(), text_status: image ? 'none' : i % 37 === 0 ? 'ocr' : 'extracted',
       url: url(rel), invoice_no: `SYNINV${String(i + 1).padStart(5, '0')}`,
@@ -84,7 +87,7 @@ export async function generateCorpus({ out, seed, documents: count, profile }: C
     types[d.doc_type] = (types[d.doc_type] ?? 0) + 1; bundles[d.bundle] = (bundles[d.bundle] ?? 0) + 1;
     const bucket = typeByYear[year] ??= {}; bucket[d.doc_type] = (bucket[d.doc_type] ?? 0) + 1;
   }
-  const narrative = (d: typeof first) => `SYNTHETIC ${word()} ${word()} analysis of [[${d.ref}#p1]]. Invented only.`;
+  const narrative = (d: typeof first) => `SYNTHETIC ${pair()} analysis of [[${d.ref}#p1]]. Invented only.`;
   const quantum = {
     amountDueSeries: invoices.map(series), statementSeries: statements.map(series), interestSeries: invoices.slice(0, 40).map(series),
     invoiceLedger: invoices.map(d => ({ amount: d.amount, bundle: d.bundle, date: d.date, no: d.invoice_no, ref: d.ref, text_status: d.text_status, url: d.url })),
@@ -147,7 +150,7 @@ export async function generateCorpus({ out, seed, documents: count, profile }: C
     };
     roots.META = { builtAt, docCount: docs.length, dataFolderName: 'SYNTHETIC ONLY', bundles, emails: types.email ?? 0, invoices: invoices.length, people: people.length, textNone: imageCount, textPending: 0, dateSpan: [...docs.map(d => d.date)].sort().filter((_, i) => i === 0 || i === docs.length - 1), docTypes: types };
     roots.SCHED = { discovery: schedule(docs.slice(0, 96)), supplementary: schedule(docs.slice(96, 120)) };
-    roots.CASELINES = { file: 'SYNTHETIC-BUNDLES/bundle.pdf', pages: totalPages, index: Array.from({ length: totalPages }, (_, i): [number, string] => [i + 1, `SYNTHETIC page ${i + 1}: ${word()} ${word()} invented text`]) };
+    roots.CASELINES = { file: 'SYNTHETIC-BUNDLES/bundle.pdf', pages: totalPages, index: Array.from({ length: totalPages }, (_, i): [number, string] => [i + 1, `SYNTHETIC page ${i + 1}: ${pair()} invented text`]) };
   } });
   const present = [...result.files.keys()].filter(p => p.startsWith('datasets/')).map(p => p.slice(9, -5)).sort();
   const summary = {

@@ -218,7 +218,9 @@ Output contains `pkg/` (results package), `case/` (invented originals) and deter
 The generator reuses the pilot fixture helper and real v5 converter, covering all 35 named dataset schemas.
 `small` uses tiny valid PDFs/PNGs; `poc` targets 60% at 16–128 KiB, 30% at 128 KiB–2 MiB, 9% at 2–8 MiB and 1% at 8–32 MiB, plus format overhead.
 Those bands are synthetic; repeating inert padding measures byte volume, with no claim about case distributions, compression, rendering, OCR, all 42 views or hosted boundaries.
-Seeded dates occupy 2200–2209 (prescription through 2212), excluding 1900–2099 to avoid modern case-date leak needles; `bun run --bun test tests/fixtures` proves validation, activation policy and determinism only. AC2 is proved by `bun run --bun test tests/e2e/pilot/synthetic-corpus.test.ts` (also collected by the gate's `test` step).
+Seeded dates occupy 2200–2209 (prescription through 2212), excluding 1900–2099 to avoid modern case-date leak needles.
+Invented names hyphenate vocabulary pairs (`Synthetic Hazel-Moss`), because a space between a given name and a surname could spell a real person's name.
+`bun run --bun test tests/fixtures` proves validation, activation policy, determinism and those date and name shapes only. AC2 is proved by `bun run --bun test tests/e2e/pilot/synthetic-corpus.test.ts` (also collected by the gate's `test` step).
 It generates the default 1,689-document corpus with the default `small` profile, imports and activates it through real SvelteKit HTTP form actions (303 redirects), and asserts a 200 chronology API response with exactly 1,689 rows.
 The test uses disposable scratch SQLite storage and removes it and the generated corpus afterwards; `poc` byte-volume performance is outside this acceptance proof.
 

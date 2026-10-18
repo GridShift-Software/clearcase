@@ -895,9 +895,7 @@ class FixRoundManifest(ControlCase):
                 self.guard(code=1)
 
 
-class GuardClosure(ControlCase):
-    """H2/H3: the protected closure covers what decides whether a named test runs and what it reads, and nothing a
-    legitimate fix has to change."""
+class GuardCase(ControlCase):
     original = TestWeakening.original
     named = [{'file': 'tests/protected.test.ts', 'name': 'rejects stale evidence'}]
 
@@ -914,6 +912,11 @@ class GuardClosure(ControlCase):
             data['assertionCountReasons'] = reasons
         findings = self.document('findings.json', data)
         return self.cli('test-guard', '--fix-base', self.base, '--findings', findings, code=code)
+
+
+class GuardClosure(GuardCase):
+    """H2/H3: the protected closure covers what decides whether a named test runs and what it reads, and nothing a
+    legitimate fix has to change."""
 
     def test_runner_configuration_setup_files_and_test_scripts_are_protected(self):
         config = "export default { test: { include: ['tests/**/*.test.ts'], setupFiles: ['./tests/setup.ts'] } };\n"
@@ -1012,6 +1015,171 @@ class GuardClosure(ControlCase):
         self.write('support/helper.ts', 'export function f(x: number) { if (x < 0) return 0; return x; }\n')
         self.commit('helper control flow')
         self.guard(code=1)
+
+
+class GuardAllowlist(GuardCase):
+    """Diagnosing round, H2(c) as a class: a free test, a new import or a changed module may only add what cannot change
+    what a named test proves. A recorded reason excuses free tests and new imports, never a mock, matcher, global or
+    module patch, and never anything that runs before the named tests."""
+    named_api = '''import { test, expect, vi } from 'vitest';
+import * as api from '../src/api';
+test('rejects stale evidence', () => {
+  expect(api.validate('old')).toEqual(false);
+  expect(api.validate('new')).toEqual(true);
+});
+'''
+    api = "export const settings = { strict: true };\nexport function configure(strict: boolean) { settings.strict = strict; }\nexport function validate(v: string) { return v === 'new'; }\n"
+    weakened = "export const settings = { strict: false };\nexport function configure(strict: boolean) { settings.strict = strict; }\nexport function validate(v: string) { return settings.strict ? v === 'new' : true; }\n"
+    reason = {'tests/protected.test.ts': 'Reviewed addition of an independent test'}
+    patch = "import { expect } from 'vitest';\nexpect.extend({ toEqual: () => ({ pass: true, message: () => '' }) });\nexport const patched = true;\n"
+
+    def weaken(self, test, files=None, reasons=None, code=1):
+        """The reviewed named test against reviewed code, then weakened code plus the test file `test`."""
+        self.protect({'src/api.ts': self.api, **(files or {})}, self.named_api)
+        self.write('src/api.ts', self.weakened)
+        self.write('tests/protected.test.ts', test)
+        self.commit('weaken')
+        return self.guard(code=code, reasons=reasons)
+
+    def place(self, free, where):
+        """`free` as a new top-level test before or after the named test."""
+        named = self.named_api.index("test('rejects")
+        return self.named_api[:named] + free + self.named_api[named:] if where == 'before' else self.named_api + free
+
+    def test_a_free_test_with_a_reason_cannot_spy_extend_or_patch_globals(self):
+        free = {
+            'vi.spyOn': "test('added', () => { vi.spyOn(api, 'validate').mockImplementation((v) => v !== 'old'); expect(1).toEqual(1); });\n",
+            'expect.extend': "test('added', () => { expect.extend({ toEqual: () => ({ pass: true, message: () => '' }) }); expect(1).toEqual(1); });\n",
+            'globalThis': "test('added', () => { Object.assign(globalThis, { validate: () => false }); expect(1).toEqual(1); });\n",
+        }
+        for label, body in free.items():
+            for where in ('before', 'after'):
+                with self.subTest(bypass=label, where=where):
+                    self.assertIn('test-guard: FAIL', self.weaken(self.place(body, where), reasons=self.reason))
+
+    def test_a_new_side_effect_or_unreviewed_import_refuses(self):
+        head = "import '../lib/patch';\n"
+        for label, (line, reasons) in {
+            'side-effect import, no reason': (head, None),
+            'side-effect import, with a reason': (head, self.reason),
+            'named import of a new patch module, with a reason': ("import { patched } from '../lib/patch';\n", self.reason),
+        }.items():
+            with self.subTest(bypass=label):
+                self.protect({'src/api.ts': self.api}, self.named_api)
+                self.write('src/api.ts', self.weakened)
+                self.write('lib/patch.ts', self.patch)
+                self.write('tests/protected.test.ts', line + self.named_api)
+                self.commit('import a matcher patch')
+                self.guard(code=1, reasons=reasons)
+        with self.subTest(bypass='named import of an unchanged module, no reason'):
+            self.protect({'src/api.ts': self.api, 'src/other.ts': 'export const other = 1;\n'}, self.named_api)
+            self.write('tests/protected.test.ts', "import { other } from '../src/other';\n" + self.named_api)
+            self.commit('new import without a reason')
+            self.guard(code=1)
+        with self.subTest(bypass='named import of an unchanged module that patches expect, with a reason'):
+            self.protect({'src/api.ts': self.api, 'src/matchers.ts': self.patch}, self.named_api)
+            self.write('src/api.ts', self.weakened)
+            self.write('tests/protected.test.ts', "import { patched } from '../src/matchers';\n" + self.named_api)
+            self.commit('import an existing matcher patch')
+            self.guard(code=1, reasons=self.reason)
+
+    def test_a_changed_module_cannot_reach_the_test_framework(self):
+        for label, text in {
+            'imports vitest': self.patch + self.weakened,
+            'global expect': "expect.extend({ toEqual: () => ({ pass: true, message: () => '' }) });\n" + self.weakened,
+            'global vi': "vi.spyOn(console, 'error');\n" + self.weakened,
+            'dynamic vitest import': "await import('vitest').then((v) => v.expect.extend({}));\n" + self.weakened,
+            'matcher state symbol': "(Symbol.for('$$jest-matchers-object') as any);\n" + self.weakened,
+        }.items():
+            with self.subTest(bypass=label):
+                self.protect({'src/api.ts': self.api}, self.named_api)
+                self.write('src/api.ts', text)
+                self.commit('patch the framework from the module under test')
+                self.guard(code=1)
+        with self.subTest(control='a local function named expect'):
+            self.protect({'src/api.ts': self.api}, self.named_api)
+            self.write('src/api.ts', self.api + "function expect(v: unknown) { return v; }\nexport const checked = expect(1);\n")
+            self.commit('legitimate')
+            self.guard()
+
+    def test_runner_configuration_imports_are_resolved_and_protected(self):
+        test = "import { test, expect } from 'vitest';\n" + self.original
+        for specifier, file in (('./vitest.shared', 'vitest.shared.ts'), ('./vitest.shared.ts', 'vitest.shared.ts'),
+                                ('./vitest.shared.js', 'vitest.shared.ts'), ('./vitest.shared.mjs', 'vitest.shared.mjs'),
+                                ('./config/shared', 'config/shared.ts')):
+            with self.subTest(bypass=f'config imports {specifier}'):
+                shared = "export const shared = { include: ['tests/**/*.test.ts'], exclude: [] };\n"
+                config = f"import {{ shared }} from '{specifier}';\nexport default {{ test: {{ ...shared }} }};\n"
+                self.protect({'vitest.config.ts': config, file: shared}, test)
+                self.write(file, shared.replace('exclude: []', "exclude: ['tests/protected.test.ts']"))
+                self.commit('exclude the named test from an imported config module')
+                self.assertIn('protected', self.guard(code=1))
+        with self.subTest(bypass='transitive config import'):
+            config = "import { shared } from './vitest.shared';\nexport default { test: { ...shared } };\n"
+            shared = "import { skip } from './vitest.skip';\nexport const shared = { exclude: skip };\n"
+            self.protect({'vitest.config.ts': config, 'vitest.shared.ts': shared, 'vitest.skip.ts': 'export const skip: string[] = [];\n'}, test)
+            self.write('vitest.skip.ts', "export const skip = ['tests/protected.test.ts'];\n")
+            self.commit('exclude through a transitive config import')
+            self.guard(code=1)
+        with self.subTest(bypass='unresolved local config import'):
+            config = "import { shared } from './vitest.missing';\nexport default { test: { ...shared } };\n"
+            self.protect({'vitest.config.ts': config}, test)
+            self.write('app.txt', 'fixed\n')
+            self.commit('fix')
+            self.guard(code=1)
+        with self.subTest(control='unchanged config closure and a fix in the module under test'):
+            config = "import { shared } from './vitest.shared';\nimport { defineConfig } from 'vitest/config';\nexport default defineConfig({ test: { ...shared } });\n"
+            self.protect({'vitest.config.ts': config, 'vitest.shared.ts': "export const shared = { exclude: [] };\n",
+                          'src/clamp.ts': 'export function clamp(x: number) { return x; }\n'}, test)
+            self.write('src/clamp.ts', 'export function clamp(x: number) { if (x < 0) return 0; return x; }\n')
+            self.commit('fix')
+            self.guard()
+
+    def test_nothing_new_may_run_before_the_named_tests(self):
+        # own variant: content the allowlist admits (a plain call into the module under test) still changes what the
+        # named test proves when it runs first, in a free test placed before it or in a free describe body
+        with self.subTest(bypass='free test before the named test restores module state'):
+            self.weaken(self.place("test('added', () => { api.configure(true); expect(api.settings.strict).toBe(true); });\n", 'before'),
+                        reasons=self.reason)
+        with self.subTest(bypass='collection-time call in a free describe'):
+            self.weaken(self.place("describe('added', () => { api.configure(true); test('x', () => { expect(1).toEqual(1); }); });\n", 'after'),
+                        reasons=self.reason)
+        with self.subTest(bypass='an earlier free test dropped'):
+            earlier = "test('earlier', () => { expect(api.validate('x')).toBe(false); });\n"
+            self.protect({'src/api.ts': self.api}, self.place(earlier, 'before'))
+            self.write('tests/protected.test.ts', self.named_api)
+            self.commit('drop an earlier free test')
+            self.guard(code=1, reasons=self.reason)
+
+    def test_free_test_content_outside_the_allowlist_refuses(self):
+        # own variants: effects the install-call denylist never named, each placed after the named test
+        for label, body in {
+            'dynamic import of a patch module': "test('added', async () => { await import('../lib/patch'); expect(1).toEqual(1); });\n",
+            'process.env assignment': "test('added', () => { process.env.STRICT = '0'; expect(1).toEqual(1); });\n",
+            'assignment to an import binding member': "test('added', () => { api.settings.strict = false; expect(1).toEqual(1); });\n",
+            'Object.defineProperty on a prototype': "test('added', () => { Object.defineProperty(Array.prototype, 'x', { value: 1 }); expect(1).toEqual(1); });\n",
+            'expect passed out': "test('added', () => { api.configure(expect as any); expect(1).toEqual(1); });\n",
+            'chai plugin through an assertion': "test('added', () => { (expect(1) as any).constructor.overwriteMethod('toEqual', () => () => {}); });\n",
+            'a hook inside a free describe': "describe('added', () => { beforeAll(() => {}); test('x', () => { expect(1).toEqual(1); }); });\n",
+            'test.concurrent': "test.concurrent('added', () => { expect(1).toEqual(1); });\n",
+            'computed test name': "test(String(api.configure(true)), () => { expect(1).toEqual(1); });\n",
+        }.items():
+            with self.subTest(bypass=label):
+                self.weaken(self.place(body, 'after'), {'lib/patch.ts': self.patch}, reasons=self.reason)
+
+    def test_a_legitimate_free_test_and_import_pass(self):
+        free = ("test('added', async () => {\n  const result = api.validate('x');\n  expect(result).toBe(false);\n"
+                "  expect(Object.keys({ a: 1 })).toEqual(['a']);\n  expect(() => api.validate(null as any)).not.toThrow(TypeError);\n"
+                "  for (const v of ['a', 'b']) expect(api.validate(v)).toBe(false);\n  await expect(Promise.resolve(other)).resolves.toBe(1);\n"
+                "  expect({ v: api.validate('new') }).toEqual(expect.objectContaining({ v: true }));\n});\n"
+                "describe('more', () => { it('nested', () => { expect(api.validate('new')).toBe(true); }); });\n")
+        imports = "import { other } from '../src/other';\nimport { validate } from '../src/api';\n"
+        self.protect({'src/api.ts': self.api, 'src/other.ts': 'export const other = 1;\n'}, self.named_api)
+        self.write('src/api.ts', self.api.replace("v === 'new'", "v === 'new' && v.length === 3"))
+        self.write('tests/protected.test.ts', imports + self.named_api + free)
+        self.commit('fix with an added test')
+        self.guard(reasons=self.reason)
+        self.assertEqual(self.last_receipt()['result'], 'PASS')
 
 
 class GuardBinding(ControlCase):

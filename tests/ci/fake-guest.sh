@@ -140,6 +140,8 @@ fake-ci-chrome)
   assert_locked
   event chrome
   if [[ $scenario == guest-term ]]; then kill -TERM "$(cat "$root/guest-shell.pid")"; fi
+  # Holds the checks open until the test interrupts the workstation.
+  if [[ $scenario == chrome-hang ]]; then sleep 10; fi
   [[ $scenario != chrome-fail ]]
   ;;
 bun)
@@ -184,7 +186,36 @@ PY
   *) echo "unexpected fake bun command: $*" >&2; exit 2 ;;
   esac
   ;;
-ssh | gh)
+gh)
+  # GitHub's runner API for clearcase-pc1-vm. Each call records how many guest events preceded it, so tests can order
+  # the pause and resume against the service stop and start. The state file holds "id status busy labelled".
+  printf '%s %s\n' "$(wc -l <"$root/events")" "$*" >>"$root/github-calls"
+  github=$(cat "$root/github-scenario")
+  [[ $github != unreachable ]] || { echo 'error connecting to api.github.com' >&2; exit 1; }
+  read -r id status busy labelled <"$root/github"
+  runners=repos/GridShift-Software/clearcase/actions/runners
+  case $* in
+  "api $runners --jq "*)
+    [[ $github != missing ]] || exit 0
+    [[ $github != busy-after-pause || $labelled == true ]] || busy=true
+    printf '%s\t%s\t%s\t%s\n' "$id" "$status" "$busy" "$labelled"
+    ;;
+  "api -X DELETE $runners/$id/labels/clearcase-pc1 --silent")
+    [[ $github != pause-fail ]] || { echo 'HTTP 403: Must have admin rights to Repository.' >&2; exit 1; }
+    printf '%s %s %s false\n' "$id" "$status" "$busy" >"$root/github"
+    ;;
+  "api -X POST $runners/$id/labels -f labels[]=clearcase-pc1 --silent")
+    [[ $github != resume-fail ]] || { echo 'error connecting to api.github.com' >&2; exit 1; }
+    printf '%s %s %s true\n' "$id" "$status" "$busy" >"$root/github"
+    ;;
+  *)
+    event 'forbidden gh'
+    echo "unexpected gh call: $*" >&2
+    exit 99
+    ;;
+  esac
+  ;;
+ssh)
   event "forbidden $tool"
   echo "test attempted forbidden $tool call" >&2
   exit 99

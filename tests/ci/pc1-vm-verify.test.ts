@@ -195,6 +195,15 @@ for (const [state, expected] of [['active', 'active'], ['inactive', 'inactive'],
   }
 }
 
+test('register restores exactly the previous registration files after a partial config failure', () => {
+  const f = registerFixture('config-partial-fail');
+  const result = f.register();
+  assert.equal(result.status, 1, result.stderr + result.stdout);
+  assert.deepEqual(f.registration(), ['previous registration\n', 'previous credential\n']);
+  assert.equal(existsSync(path.join(f.guest, 'home/runner/actions-runner/.credentials_rsaparams')), false);
+  assert.equal(f.state(), 'active\n');
+});
+
 test('register refuses a held verification lock before any mutation', () => {
   const f = registerFixture();
   const result = f.registerLocked();

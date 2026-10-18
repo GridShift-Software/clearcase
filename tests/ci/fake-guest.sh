@@ -132,6 +132,12 @@ fake-ci-config)
   [[ ${ACTIONS_RUNNER_INPUT_TOKEN:-} == synthetic-registration-token && $* != *synthetic-registration-token* ]] || exit 2
   [[ ! -e .runner && ! -e .credentials ]] || exit 2
   if [[ $scenario == config-term ]]; then kill -TERM "$(cat "$root/guest-shell.pid")"; exit 1; fi
+  if [[ $scenario == config-partial-fail ]]; then
+    # A registration that fails after writing some of its files.
+    printf 'partial registration\n' >.runner
+    printf 'partial key\n' >.credentials_rsaparams
+    exit 1
+  fi
   [[ $scenario != config-fail ]] || exit 1
   printf 'new registration\n' >.runner
   printf 'new credential\n' >.credentials

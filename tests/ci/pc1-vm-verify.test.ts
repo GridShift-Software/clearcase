@@ -38,6 +38,9 @@ function fixture(scenario = 'pass') {
   mkdirSync(diag, { recursive: true });
   writeFileSync(path.join(diag, 'Worker_fixture.log'), 'previous job\n');
   writeFileSync(path.join(guest, 'events'), '');
+  // GitHub's view of the runner: id, status, busy and whether it carries the clearcase-pc1 label.
+  writeFileSync(path.join(guest, 'github'), '22 online false true\n');
+  writeFileSync(path.join(guest, 'github-scenario'), 'ok');
   cpSync(path.join(app, 'scripts/agent-tools'), path.join(source, 'scripts/agent-tools'), { recursive: true });
   for (const script of ['pc1-vm', 'summary.ts', 'guest-provision.sh']) cpSync(path.join(app, 'scripts/ci', script), path.join(source, 'scripts/ci', script));
   writeFileSync(path.join(source, 'scripts/ci/install-chrome.sh'), '#!/bin/bash\nset -euo pipefail\nfake-ci-chrome\n');
@@ -56,7 +59,7 @@ function fixture(scenario = 'pass') {
   const sha = git(source, 'rev-parse', 'HEAD');
   // This must never enter the checkout or receipts: verify tests the committed bundle, not the working tree.
   writeFileSync(path.join(source, 'uncommitted.txt'), 'not in the bundle\n');
-  const env = { ...process.env, CLEARCASE_CI_SSH: fake, FAKE_GUEST_ROOT: guest, GH_HOST: 'github.invalid', HOME: path.join(guest, 'home/runner'), PATH: `${bin}:${process.env.PATH}`, CLEARCASE_CI_QUIET_SECONDS: '0.04', CLEARCASE_CI_IDLE_OBSERVATIONS: '3', CLEARCASE_CI_DRAIN_TIMEOUT: '1' };
+  const env = { ...process.env, CLEARCASE_CI_SSH: fake, FAKE_GUEST_ROOT: guest, GH_HOST: 'github.invalid', HOME: path.join(guest, 'home/runner'), PATH: `${bin}:${process.env.PATH}`, CLEARCASE_CI_QUIET_SECONDS: '0.04', CLEARCASE_CI_IDLE_OBSERVATIONS: '3', CLEARCASE_CI_DRAIN_TIMEOUT: '1', CLEARCASE_CI_PAUSE_SETTLE_SECONDS: '0' };
   const run = (...args: string[]) => {
     const result = spawnSync(path.join(source, 'scripts/ci/pc1-vm'), args, { cwd: source, env, encoding: 'utf8', timeout: 20_000 });
     assert.equal(result.error, undefined);
@@ -66,7 +69,12 @@ function fixture(scenario = 'pass') {
   const events = () => readFileSync(path.join(guest, 'events'), 'utf8').trim().split('\n').filter(Boolean);
   const store = path.join(guest, 'home/runner/ci-results');
   const results = () => readdirSync(store).filter((name) => name.startsWith(`${sha}-`)).map((name) => path.join(store, name));
-  return { source, guest, sha, env, run, events, store, results };
+  // Each GitHub call with the number of guest events that preceded it.
+  const github = () => existsSync(path.join(guest, 'github-calls')) ? readFileSync(path.join(guest, 'github-calls'), 'utf8').trim().split('\n').filter(Boolean).map((line) => {
+    const [at, ...call] = line.split(' ');
+    return { at: Number(at), call: call.join(' ') };
+  }) : [];
+  return { source, guest, sha, env, run, events, store, results, github };
 }
 
 function provisionFixture(scenario = 'pass') {
@@ -521,3 +529,148 @@ for (const link of ['receipt', 'directory', 'summary', 'root', 'stdout', 'fifo']
     assert.deepEqual(readdirSync(f.store), []);
   });
 }
+
+const runnerApi = 'repos/GridShift-Software/clearcase/actions/runners';
+const pause = `api -X DELETE ${runnerApi}/22/labels/clearcase-pc1 --silent`;
+const resume = `api -X POST ${runnerApi}/22/labels -f labels[]=clearcase-pc1 --silent`;
+const isRead = (call: string) => call.startsWith(`api ${runnerApi} --jq `);
+const githubState = (f: ReturnType<typeof fixture>) => readFileSync(path.join(f.guest, 'github'), 'utf8');
+
+test('verify pauses dispatch through GitHub before touching the guest and resumes it after the restart', () => {
+  const f = fixture();
+  const result = f.run('verify', 'HEAD');
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  const calls = f.github();
+  assert.deepEqual(calls.map(({ call }) => isRead(call) ? 'read' : call), ['read', pause, 'read', resume]);
+  // The pause and its confirmation precede every guest observation; the resume follows the service restart.
+  assert.deepEqual(calls.slice(0, 3).map(({ at }) => at), [0, 0, 0]);
+  const events = f.events();
+  assert.equal(events.at(-1), 'start');
+  assert.equal(calls[3]?.at, events.length);
+  assert.equal(githubState(f), '22 online false true\n');
+  assert.equal(existsSync(path.join(f.guest, 'uploads')), true);
+});
+
+for (const scenario of ['check-fail', 'busy', 'guest-term', 'job-after-observation', 'drain-timeout', 'stop-fail', 'start-fail']) {
+  test(`verify resumes dispatch through GitHub after ${scenario}`, () => {
+    const f = fixture(scenario);
+    if (scenario === 'drain-timeout') f.env.CLEARCASE_CI_DRAIN_TIMEOUT = '0.1';
+    const result = f.run('verify', 'HEAD');
+    assert.notEqual(result.status, 0, result.stderr + result.stdout);
+    const calls = f.github();
+    assert.equal(calls.filter(({ call }) => call === pause).length, 1);
+    assert.deepEqual(calls.at(-1), { at: f.events().length, call: resume });
+    assert.equal(githubState(f), '22 online false true\n');
+  });
+}
+
+test('verify refuses a worker still running after the GitHub pause without stopping the service', () => {
+  const f = fixture('busy');
+  const result = f.run('verify', 'HEAD');
+  assert.equal(result.status, 1, result.stderr + result.stdout);
+  assert.match(result.stderr, /running a job/);
+  assert.deepEqual(f.events(), ['pgrep']);
+  assert.equal(readFileSync(path.join(f.guest, 'service-state'), 'utf8'), 'active\n');
+  assert.deepEqual(f.github().map(({ call }) => isRead(call) ? 'read' : call), ['read', pause, 'read', resume]);
+});
+
+test('verify refuses without contacting the guest when GitHub is unreachable for the pause', () => {
+  const f = fixture();
+  writeFileSync(path.join(f.guest, 'github-scenario'), 'unreachable');
+  const result = f.run('verify', 'HEAD');
+  assert.equal(result.status, 1, result.stderr + result.stdout);
+  assert.match(result.stderr, /could not read clearcase-pc1-vm's state from GitHub; verify refuses without a GitHub pause/);
+  assert.deepEqual(f.events(), []);
+  assert.equal(existsSync(path.join(f.guest, 'uploads')), false);
+  assert.equal(existsSync(f.store), false);
+  assert.deepEqual(f.github().map(({ call }) => isRead(call)), [true]);
+  assert.equal(readFileSync(path.join(f.guest, 'service-state'), 'utf8'), 'active\n');
+});
+
+test('verify refuses without contacting the guest when the GitHub pause fails', () => {
+  const f = fixture();
+  writeFileSync(path.join(f.guest, 'github-scenario'), 'pause-fail');
+  const result = f.run('verify', 'HEAD');
+  assert.equal(result.status, 1, result.stderr + result.stdout);
+  assert.match(result.stderr, /could not pause clearcase-pc1-vm through GitHub; verify refuses without a pause/);
+  assert.deepEqual(f.events(), []);
+  assert.equal(existsSync(path.join(f.guest, 'uploads')), false);
+  assert.deepEqual(f.github().map(({ call }) => isRead(call) ? 'read' : call), ['read', pause, resume]);
+  assert.equal(githubState(f), '22 online false true\n');
+});
+
+test('verify refuses a job GitHub assigned before the pause took effect, without contacting the guest', () => {
+  const f = fixture();
+  writeFileSync(path.join(f.guest, 'github-scenario'), 'busy-after-pause');
+  const result = f.run('verify', 'HEAD');
+  assert.equal(result.status, 3, result.stderr + result.stdout);
+  assert.match(result.stderr, /still assigned a job after the GitHub pause/);
+  assert.deepEqual(f.events(), []);
+  assert.equal(existsSync(path.join(f.guest, 'uploads')), false);
+  assert.deepEqual(f.github().map(({ call }) => isRead(call) ? 'read' : call), ['read', pause, 'read', resume]);
+  assert.equal(githubState(f), '22 online false true\n');
+});
+
+for (const [setup, pattern] of [['busy', /clearcase-pc1-vm is running a job/], ['missing', /GitHub does not list a runner named clearcase-pc1-vm/]] satisfies [string, RegExp][]) {
+  test(`verify refuses a runner GitHub reports ${setup} at entry without pausing it`, () => {
+    const f = fixture();
+    if (setup === 'busy') writeFileSync(path.join(f.guest, 'github'), '22 online true true\n');
+    else writeFileSync(path.join(f.guest, 'github-scenario'), 'missing');
+    const result = f.run('verify', 'HEAD');
+    assert.equal(result.status, 1, result.stderr + result.stdout);
+    assert.match(result.stderr, pattern);
+    assert.deepEqual(f.events(), []);
+    assert.deepEqual(f.github().map(({ call }) => isRead(call)), [true]);
+  });
+}
+
+test('verify leaves a runner that was already paused at entry paused', () => {
+  const f = fixture();
+  writeFileSync(path.join(f.guest, 'github'), '22 online false false\n');
+  const result = f.run('verify', 'HEAD');
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  assert.match(result.stderr, /already paused/);
+  assert.deepEqual(f.github().map(({ call }) => isRead(call)), [true, true]);
+  assert.equal(githubState(f), '22 online false false\n');
+});
+
+test('verify reports a failed resume with the command that lifts the pause', () => {
+  const f = fixture();
+  writeFileSync(path.join(f.guest, 'github-scenario'), 'resume-fail');
+  const result = f.run('verify', 'HEAD');
+  assert.equal(result.status, 1, result.stderr + result.stdout);
+  assert.match(result.stdout, new RegExp(`^PASS ${f.sha}$`, 'm'));
+  assert.ok(result.stderr.includes(`gh api -X POST ${runnerApi}/22/labels -f 'labels[]=clearcase-pc1'`), result.stderr);
+  assert.equal(readFileSync(path.join(f.guest, 'service-state'), 'utf8'), 'active\n');
+  assert.equal(githubState(f), '22 online false false\n');
+});
+
+test('verify resumes dispatch when the workstation is interrupted during the checks', () => {
+  const f = fixture('chrome-hang');
+  // Job control gives verify its own process group, which receives the interrupt as a terminal's Ctrl-C would.
+  const script = 'set -m; "$1" verify HEAD & job=$!; until grep -qx chrome "$2"; do sleep 0.02; done; kill -INT -- "-$job"; wait "$job"; status=$?; while pgrep -g "$job" >/dev/null; do sleep 0.02; done; exit "$status"';
+  const result = spawnSync('bash', ['-c', script, 'interrupt', path.join(f.source, 'scripts/ci/pc1-vm'), path.join(f.guest, 'events')], { cwd: f.source, env: f.env, encoding: 'utf8', timeout: 20_000 });
+  assert.equal(result.signal, null);
+  assert.equal(result.status, 130, result.stderr + result.stdout);
+  assert.deepEqual(f.github().at(-1)?.call, resume);
+  assert.equal(githubState(f), '22 online false true\n');
+  assert.equal(readFileSync(path.join(f.guest, 'service-state'), 'utf8'), 'active\n');
+});
+
+test('verdict answers with GitHub unreachable and never calls GitHub', () => {
+  const f = fixture();
+  assert.equal(f.run('verify', 'HEAD').status, 0);
+  const before = f.github().length;
+  writeFileSync(path.join(f.guest, 'github-scenario'), 'unreachable');
+  const verdict = f.run('verdict', f.sha);
+  assert.equal(verdict.status, 0, verdict.stderr);
+  assert.match(verdict.stdout, new RegExp(`^PASS ${f.sha}$`, 'm'));
+  assert.equal(f.github().length, before);
+});
+
+test('every self-hosted workflow job requires the clearcase-pc1 label that verify removes', () => {
+  const workflows = path.join(app, '.github/workflows');
+  const runsOn = readdirSync(workflows).flatMap((name) => readFileSync(path.join(workflows, name), 'utf8').split('\n').filter((line) => /^\s*runs-on:/.test(line)));
+  assert.ok(runsOn.length > 0);
+  for (const line of runsOn) assert.match(line, /\bclearcase-pc1\b/, line);
+});

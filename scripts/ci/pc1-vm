@@ -5,6 +5,8 @@ set -euo pipefail
 here=$(cd "${BASH_SOURCE[0]%/*}" && pwd)
 host=${CLEARCASE_CI_HOST:-root@100.80.13.122}
 state=${CLEARCASE_CI_STATE:-$HOME/.config/clearcase-ci}
+# ssh splits a -o value on whitespace, so a state path containing any would silently change which known_hosts file pins the guest.
+[[ $state != *[[:space:]]* ]] || { echo 'pc1-vm: CLEARCASE_CI_STATE must not contain whitespace' >&2; exit 2; }
 key=$state/pc1-vm_ed25519
 repo=GridShift-Software/clearcase
 name=clearcase-pc1-vm
@@ -61,7 +63,7 @@ runner_state() {
 }
 
 verify_revision() (
-  local revision=$1 root sha base work remote_work state id online busy labelled pausing= paused= guest_phase=
+  local revision=$1 root sha base work remote_work gh_state id online busy labelled pausing= paused= guest_phase=
   local quiet=${CLEARCASE_CI_QUIET_SECONDS:-5} observations=${CLEARCASE_CI_IDLE_OBSERVATIONS:-3} drain_timeout=${CLEARCASE_CI_DRAIN_TIMEOUT:-30}
   local settle=${CLEARCASE_CI_PAUSE_SETTLE_SECONDS:-5} lock_wait=${CLEARCASE_CI_RESUME_WAIT_SECONDS:-300}
   # These values enter the remote shell command; accept only numeric literals.
@@ -106,10 +108,10 @@ verify_revision() (
   git -C "$work/source.git" bundle create "$work/source.bundle" ci-bundle dev
   # Pause dispatch through GitHub before touching the guest. A sampled absence of jobs cannot exclude a dispatch that
   # lands just before the stop, so verify refuses rather than falling back to sampling when GitHub is unavailable.
-  state=$(runner_state) ||
+  gh_state=$(runner_state) ||
     { echo "pc1-vm: could not read $name's state from GitHub; verify refuses without a GitHub pause" >&2; exit 1; }
-  [[ -n $state ]] || { echo "pc1-vm: GitHub does not list a runner named $name; run register first" >&2; exit 1; }
-  read -r id online busy labelled <<<"$state"
+  [[ -n $gh_state ]] || { echo "pc1-vm: GitHub does not list a runner named $name; run register first" >&2; exit 1; }
+  read -r id online busy labelled <<<"$gh_state"
   [[ $busy != true ]] || { echo "pc1-vm: $name is running a job; try again when it is idle" >&2; exit 1; }
   [[ $id =~ ^[0-9]+$ && $busy == false && ( $labelled == true || $labelled == false ) ]] ||
     { echo "pc1-vm: could not read $name's state from GitHub; verify refuses without a GitHub pause" >&2; exit 1; }
@@ -124,8 +126,8 @@ verify_revision() (
   echo "pc1-vm: paused dispatch to $name (removed its $label label)" >&2
   # A job GitHub assigned before the label went is still marked busy.
   sleep "$settle"
-  state=$(runner_state) || { echo "pc1-vm: could not confirm the GitHub pause; verification refused" >&2; exit 1; }
-  read -r id online busy labelled <<<"$state"
+  gh_state=$(runner_state) || { echo "pc1-vm: could not confirm the GitHub pause; verification refused" >&2; exit 1; }
+  read -r id online busy labelled <<<"$gh_state"
   [[ $busy != true ]] || { echo "pc1-vm: $name is still assigned a job after the GitHub pause; verification refused" >&2; exit 3; }
   [[ $busy == false && $labelled == false ]] ||
     { echo "pc1-vm: could not confirm the GitHub pause; verification refused" >&2; exit 1; }

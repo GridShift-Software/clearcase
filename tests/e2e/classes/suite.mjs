@@ -492,7 +492,7 @@ async function dialog(t) {
 async function csv(route, url, viewId, forms) {
 	const nonCsvReason = D.NON_CSV_PAGES[route];
 	if (nonCsvReason) notApplicable('csv', route, nonCsvReason);
-	return scenario(`${nonCsvReason ? 'non-csv' : 'csv'}:${route}`, viewId, nonCsvReason ?? 'no formula starts unneutralised after ;, tab, CR or LF in any column of the export', async () => {
+	return scenario(`csv:${route}`, viewId, nonCsvReason ?? 'no formula starts unneutralised after ;, tab, CR or LF in any column of the export', async () => {
 		await open(url);
 		const typed = [];
 		for (const f of (await p.evaluate(FORMS)).filter((x) => x.fields.length && forms.has(x.action))) {

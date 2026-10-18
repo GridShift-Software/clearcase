@@ -11,6 +11,8 @@ const { afterEach, test }: Pick<typeof import('vitest'), 'afterEach' | 'test'> =
 const app = fileURLToPath(new URL('../..', import.meta.url));
 const fake = path.join(app, 'tests/ci/fake-guest.sh');
 const scratch: string[] = [];
+// The line verify and verdict print under every PASS or FAIL.
+const scope = 'scope: check and test of this SHA in the CI VM only; not a GitHub check status, branch protection or approval by the external reviewer';
 const git = (cwd: string, ...args: string[]) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
 
 afterEach(() => {
@@ -279,9 +281,12 @@ test('verify bundles the exact SHA, runs the job through real receipts and summa
     assert.match(receipt, /"dirty": false/);
   }
   assert.match(readFileSync(path.join(stored, 'summary.json'), 'utf8'), /"verdict": "PASS"/);
+  // verify needs GitHub for the pause (user decision, 18 October); the verdict read never calls it.
+  const githubCalls = f.github().length;
   const verdict = f.run('verdict', f.sha);
+  assert.equal(f.github().length, githubCalls);
   assert.equal(verdict.status, 0, verdict.stderr);
-  assert.equal(verdict.stdout, `PASS ${f.sha}\nreceipts ${stored}\n`);
+  assert.equal(verdict.stdout, `PASS ${f.sha}\nreceipts ${stored}\n${scope}\n`);
   // The upload and checkout are removed; the results remain outside them.
   for (const upload of readFileSync(path.join(f.guest, 'uploads'), 'utf8').trim().split('\n')) assert.equal(existsSync(upload), false);
 });
@@ -303,7 +308,7 @@ for (const scenario of ['check-fail', 'test-fail', 'chrome-fail', 'install-fail'
     if (scenario === 'check-fail' || scenario === 'test-fail') assert.match(readFileSync(path.join(stored, 'summary.json'), 'utf8'), /"verdict": "FAIL"/);
     const verdict = f.run('verdict', f.sha);
     assert.equal(verdict.status, 1, verdict.stderr);
-    assert.equal(verdict.stdout, `FAIL ${f.sha}\nreceipts ${stored}\n`);
+    assert.equal(verdict.stdout, `FAIL ${f.sha}\nreceipts ${stored}\n${scope}\n`);
   });
 }
 
@@ -337,7 +342,7 @@ test('verdict reads GitHub run keys and ignores an unfinished or mismatched resu
   writeFileSync(path.join(wrong, 'verdict.txt'), `PASS ${'b'.repeat(40)}\n`);
   const result = f.run('verdict', f.sha);
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stdout, `PASS ${f.sha}\nreceipts ${completed}\n`);
+  assert.equal(result.stdout, `PASS ${f.sha}\nreceipts ${completed}\n${scope}\n`);
   assert.deepEqual(f.events(), []);
 });
 
@@ -673,4 +678,22 @@ test('every self-hosted workflow job requires the clearcase-pc1 label that verif
   const runsOn = readdirSync(workflows).flatMap((name) => readFileSync(path.join(workflows, name), 'utf8').split('\n').filter((line) => /^\s*runs-on:/.test(line)));
   assert.ok(runsOn.length > 0);
   for (const line of runsOn) assert.match(line, /\bclearcase-pc1\b/, line);
+});
+
+test('verify and verdict print what a verdict proves and what it does not', () => {
+  const f = fixture();
+  const pass = f.run('verify', 'HEAD');
+  assert.equal(pass.status, 0, pass.stderr + pass.stdout);
+  const [stored] = f.results();
+  assert.ok(pass.stdout.endsWith(`PASS ${f.sha}\nreceipts ${stored}\n${scope}\n`), pass.stdout);
+  writeFileSync(path.join(f.guest, 'scenario'), 'check-fail');
+  const fail = f.run('verify', 'HEAD');
+  assert.equal(fail.status, 1, fail.stderr + fail.stdout);
+  assert.ok(fail.stdout.endsWith(`\n${scope}\n`), fail.stdout);
+  const verdict = f.run('verdict', f.sha);
+  assert.equal(verdict.status, 1, verdict.stderr);
+  assert.ok(verdict.stdout.endsWith(`\n${scope}\n`), verdict.stdout);
+  // A refusal proves nothing, so it prints no scope.
+  writeFileSync(path.join(f.guest, 'scenario'), 'busy');
+  assert.equal(f.run('verify', 'HEAD').stdout.includes(scope), false);
 });

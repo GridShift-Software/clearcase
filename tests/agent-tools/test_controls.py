@@ -1182,6 +1182,37 @@ test('rejects stale evidence', () => {
         self.assertEqual(self.last_receipt()['result'], 'PASS')
 
 
+    def test_framework_names_and_custom_registrations_refuse_whatever_they_are_bound_to(self):
+        # vitest hoists vi.mock by name, so a vi re-exported by a reviewed helper is still vi; a file-level function
+        # named like a registration can run its callback while tests are collected, before the named test
+        helper = "export { vi } from 'vitest';\n"
+        with self.subTest(bypass='vi re-exported by a support helper'):
+            test = self.named_api.replace("import { test, expect, vi } from 'vitest';", "import { test, expect } from 'vitest';\nimport { vi } from '../support/helpers';")
+            self.protect({'src/api.ts': self.api, 'support/helpers.ts': helper}, test)
+            self.write('tests/protected.test.ts', test + "test('added', () => { vi.mock('../src/api'); expect(1).toEqual(1); });\n")
+            self.commit('mock through a re-exported vi')
+            self.guard(code=1, reasons=self.reason)
+        with self.subTest(bypass='a file-level registration function'):
+            test = self.named_api + "function it(name: string, fn: () => void) { fn(); }\n"
+            self.protect({'src/api.ts': self.api}, test)
+            self.write('src/api.ts', self.weakened)
+            self.write('tests/protected.test.ts', test + "it('added', () => { api.configure(true); expect(1).toBe(1); });\n")
+            self.commit('run a callback at collection')
+            self.guard(code=1, reasons=self.reason)
+
+    def test_setup_files_named_by_a_path_expression_or_without_an_extension_are_protected(self):
+        test = "import { test, expect } from 'vitest';\n" + self.original
+        for label, setup in (('dirname join', "join(__dirname, 'tests', 'setup.ts')"), ('import.meta.dirname resolve', "resolve(import.meta.dirname, 'tests/setup.ts')"),
+                             ('URL', "fileURLToPath(new URL('./tests/setup.ts', import.meta.url))"), ('extensionless', "'./tests/setup'")):
+            with self.subTest(bypass=label):
+                config = ("import { join, resolve } from 'node:path';\nimport { fileURLToPath } from 'node:url';\n"
+                          f"export default {{ test: {{ setupFiles: [{setup}] }} }};\n")
+                self.protect({'vitest.config.ts': config, 'tests/setup.ts': 'export {};\n'}, test)
+                self.write('tests/setup.ts', "import { expect } from 'vitest';\nexpect.extend({ toEqual: () => ({ pass: true, message: () => '' }) });\n")
+                self.commit('patch matchers in the setup file')
+                self.assertIn('protected', self.guard(code=1))
+
+
 class GuardBinding(ControlCase):
     """H1: once a fix attempt is recorded, approval needs a PASS guard receipt bound to the reviewed commit and findings."""
     unit = 'GRS-104/implementation'

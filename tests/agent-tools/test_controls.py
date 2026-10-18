@@ -13,6 +13,15 @@ from pathlib import Path
 TOOLS = Path(__file__).resolve().parents[2] / 'scripts/agent-tools'
 
 
+def without_exact(value, keep=()):
+    """A receipt or ledger row as an older tool wrote it: every *Exact field dropped except those in keep."""
+    if isinstance(value, dict):
+        return {key: without_exact(item, keep) for key, item in value.items() if not key.endswith('Exact') or key in keep}
+    if isinstance(value, list):
+        return [without_exact(item, keep) for item in value]
+    return value
+
+
 class ControlCase(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='grs104-controls-', dir=os.environ.get('TMPDIR'))
@@ -499,6 +508,90 @@ class ApprovalLedger(ControlCase):
         self.check = sorted(self.receipts.glob('*/receipt.json'))[-1]
         self.approve(code=1)
 
+    def test_review_findings_and_receipts_beside_a_home_named_directory_approve_and_read_back(self):
+        """PR #62 re-check r2 (M1): with HOME=/inner, .../x/inner/f displays as .../x~/f, which is not a path. The
+        review, findings, check receipt and its stdout and stderr are read back from their exact records."""
+        self.env['HOME'] = '/inner'
+        self.receipts = self.work / 'inner' / 'receipts'
+        self.env['CLEARCASE_RECEIPTS_DIR'] = str(self.receipts)
+        self.prepare()
+        for name in ('findings', 'review'):
+            beside = self.work / 'inner' / getattr(self, name).name
+            shutil.copy2(getattr(self, name), beside)
+            setattr(self, name, beside)
+        self.approve()
+        approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        self.assertNotIn('/inner/', approved.read_text())
+        self.cli('approval-check', '--unit', 'GRS-104/implementation', '--sha', self.sha,
+                 '--approval-receipt', approved)
+
+    def test_receipt_without_the_exact_input_realpath_refuses_clearly(self):
+        """PR #62 re-check r2 (L1): the realpath check is never skipped; a row without realpathExact is refused."""
+        evidence = self.work / 'evidence.txt'
+        evidence.write_text('evidence\n')
+        self.prepare(inputs=[str(evidence)])
+        for document in (self.check, self.review):
+            data = json.loads(document.read_text())
+            for row in data['inputs'] if document == self.check else data['requiredChecks'][0]['inputs']:
+                del row['realpathExact']
+            document.write_text(json.dumps(data))
+        self.cli('review-record', '--unit', 'GRS-104/implementation', '--review', self.review, '--findings', self.findings)
+        self.assertIn('predates the exact input record', self.approve(code=1))
+
+    def rewrite_approval(self, approved, change):
+        """Rewrite an approval receipt and its ledger event alike and rehash the chain, as an older tool wrote both."""
+        receipt = change(json.loads(approved.read_text()))
+        log, previous, events = self.receipts / 'events.jsonl', '0' * 64, []
+        for line in log.read_text().splitlines():
+            event = json.loads(line)
+            matched = event.pop('hash') == receipt['approvalEvent']
+            if matched:
+                event['payload'].update(row=receipt['approval'], inputs=receipt['inputs'])
+            event['previous'] = previous
+            previous = hashlib.sha256(json.dumps(event, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+            events.append({**event, 'hash': previous})
+            if matched:
+                receipt['approvalEvent'] = previous
+        log.write_text(''.join(json.dumps(event, sort_keys=True) + '\n' for event in events))
+        (self.receipts / 'events.tip').write_text(json.dumps({'sequence': len(events), 'hash': previous}))
+        approved.write_text(json.dumps(receipt, indent=2) + '\n')
+
+    def test_older_ledger_rows_and_receipts_refuse_clearly(self):
+        """PR #62 re-check r2 (L2): a row or receipt without the exact records is refused with a clear message at
+        approval-check and approve, never read back from its display form."""
+        self.prepare()
+        older = {
+            'an approval row without its exact paths': lambda receipt: {**receipt, 'approval': without_exact(
+                receipt['approval'], keep=('argvExact', 'cwdExact', 'pathExact', 'realpathExact'))},
+            'an f1266f6 approval receipt': without_exact,
+        }
+        for label, change in older.items():
+            with self.subTest(label):
+                self.approve()
+                approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+                self.rewrite_approval(approved, change)
+                self.assertIn('predates the exact', self.cli(
+                    'approval-check', '--unit', 'GRS-104/implementation', '--sha', self.sha,
+                    '--approval-receipt', approved, code=1))
+        with self.subTest('f1266f6 check receipt'):
+            for document in (self.check, self.review):
+                document.write_text(json.dumps(without_exact(json.loads(document.read_text()))))
+            self.cli('review-record', '--unit', 'GRS-104/implementation', '--review', self.review, '--findings', self.findings)
+            self.assertIn('predates the exact', self.approve(code=1))
+
+    def test_a_check_receipt_from_a_checkout_that_displays_alike_refuses(self):
+        """Revision identity is compared exactly: with HOME=/inner, .../x/inner/repo and a literal .../x~/repo
+        display alike, but a check run in one is no evidence for the other."""
+        self.env['HOME'] = '/inner'
+        twin = Path(f'{self.work}~') / 'repo'
+        self.addCleanup(shutil.rmtree, twin.parent, True)
+        for checkout in (self.work / 'inner' / 'repo', twin):
+            subprocess.check_call(['git', 'clone', '-q', str(self.repo), str(checkout)], env=self.env)
+        self.repo = self.work / 'inner' / 'repo'
+        self.prepare()
+        self.repo = twin
+        self.assertIn('revision mismatch', self.approve(code=1))
+
     def test_name_only_cannot_substitute_another_command(self):
         self.prepare()
         self.cli('receipt', '--name', 'tooling', '--', 'bash', '-c', 'true')
@@ -707,6 +800,26 @@ class DispatchBookkeeping(ControlCase):
         self.dispatch('fix', '--failure', 'same-failure', '--diagnosis', 'first diagnosis')
         self.dispatch('recheck', '--failure', 'same-failure', '--diagnosis', 'first diagnosis', code=1)
         self.dispatch('recheck', '--failure', 'same-failure', '--diagnosis', 'new diagnosis')
+
+    def test_same_failure_naming_a_home_path_twice_needs_a_new_diagnosis(self):
+        """The stored failure and diagnosis are compared from their exact record; displayed, a path under HOME is ~."""
+        self.env['HOME'] = str(self.work)
+        failure, diagnosis = f'fails at {self.work}/repo/app.txt', f'stale fixture under {self.work}/fixtures'
+        self.initial()
+        self.dispatch('fix', '--failure', failure, '--diagnosis', diagnosis)
+        self.assertNotIn(str(self.work), json.dumps(self.last_receipt()))
+        self.dispatch('recheck', '--failure', failure, '--diagnosis', diagnosis, code=1)
+        self.dispatch('recheck', '--failure', failure, '--diagnosis', f'{diagnosis}, read again')
+
+    def test_a_home_that_redaction_would_take_out_of_a_stored_row_refuses_or_is_not_redacted(self):
+        """An absolute HOME can only reach a unit's /implementation or /review suffix, so those refuse; a relative
+        HOME is not a home directory and redacts nothing, so a stored outcome such as recorded stays itself."""
+        self.env['HOME'] = '/implementation'
+        self.assertIn('would redact the unit', self.dispatch('initial', '--deadline', self.deadline, code=1))
+        self.env['HOME'] = 'recorded'
+        self.initial()
+        self.dispatch('fix')
+        self.dispatch('fix', code=1)
 
     def test_worker_cannot_reset_stored_fix_counts(self):
         self.initial()
@@ -1372,6 +1485,26 @@ class GuardBinding(ControlCase):
         data['guard']['tests'] = []
         self.guard_receipt.write_text(json.dumps(data))
         self.cli('approval-check', '--unit', self.unit, '--sha', self.sha, '--approval-receipt', approved, code=1)
+
+    def guarded_approval_reads_back(self):
+        self.guarded()
+        self.prepare([{'id': 'L1', 'severity': 'low'}])
+        self.approve('--guard-receipt', self.guard_receipt)
+        approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        self.assertNotIn(self.env['HOME'] + '/', approved.read_text())
+        self.cli('approval-check', '--unit', self.unit, '--sha', self.sha, '--approval-receipt', approved)
+
+    def test_a_guard_receipt_under_home_approves_and_reads_back(self):
+        """PR #62 re-check r2 (M2): the coordinator's store lives under HOME. The fresh binding names the guard
+        receipt exactly and so must the stored one, never ~/... beside a raw path."""
+        self.env['HOME'] = str(self.work)
+        self.guarded_approval_reads_back()
+
+    def test_protected_test_paths_holding_the_home_text_bind_and_read_back(self):
+        """The guard's tests are compared from their exact record: HOME=/protected.test.ts displays the protected
+        file tests/protected.test.ts as tests~."""
+        self.env['HOME'] = '/protected.test.ts'
+        self.guarded_approval_reads_back()
 
     def test_a_manifest_naming_a_later_fix_base_does_not_bind(self):
         weakened = self.weaken()

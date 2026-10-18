@@ -11,7 +11,7 @@ name=clearcase-pc1-vm
 
 # The service allows only 127.0.0.57 on pc1's loopback, so socat on pc1 binds that source address for the forward.
 guest() {
-  ssh -i "$key" -o IdentitiesOnly=yes -o UserKnownHostsFile="$state/known_hosts" -o HostKeyAlias=$name \
+  "${CLEARCASE_CI_SSH:-ssh}" -i "$key" -o IdentitiesOnly=yes -o UserKnownHostsFile="$state/known_hosts" -o HostKeyAlias=$name \
     -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10 \
     -o ProxyCommand="ssh $host socat - TCP:127.0.0.57:2257,bind=127.0.0.57" ciadmin@127.0.0.57 "$@"
 }
@@ -52,7 +52,342 @@ provision_guest() {
   guest sudo clearcase-ci-guest provision $release
 }
 
+# Every workflow job runs on this runner label. Without it GitHub assigns the runner no new job.
+label=clearcase-pc1
+# Prints "id status busy labelled" for the runner, or nothing when GitHub does not list it.
+runner_state() {
+  gh api "repos/$repo/actions/runners" \
+    --jq ".runners[] | select(.name == \"$name\") | [.id, .status, .busy, any(.labels[]; .name == \"$label\")] | @tsv"
+}
+
+verify_revision() (
+  local revision=$1 root sha base work remote_work state id online busy labelled pausing= paused= guest_phase=
+  local quiet=${CLEARCASE_CI_QUIET_SECONDS:-5} observations=${CLEARCASE_CI_IDLE_OBSERVATIONS:-3} drain_timeout=${CLEARCASE_CI_DRAIN_TIMEOUT:-30}
+  local settle=${CLEARCASE_CI_PAUSE_SETTLE_SECONDS:-5} lock_wait=${CLEARCASE_CI_RESUME_WAIT_SECONDS:-300}
+  # These values enter the remote shell command; accept only numeric literals.
+  [[ $quiet =~ ^[0-9]+([.][0-9]+)?$ && $observations =~ ^[0-9]+$ && $drain_timeout =~ ^[0-9]+([.][0-9]+)?$ &&
+    $settle =~ ^[0-9]+([.][0-9]+)?$ && $lock_wait =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo 'pc1-vm: invalid drain settings' >&2; exit 2; }
+  root=$(cd "$here/../.." && pwd)
+  sha=$(git -C "$root" rev-parse --verify --end-of-options "$revision^{commit}")
+  # Bundle the cached CI base as well: the job's receipt commands require origin/dev. Never fetch from GitHub.
+  base=$(git -C "$root" rev-parse --verify 'origin/dev^{commit}')
+  work=$(mktemp -d)
+  # Every exit after a successful pause gives the label back, after the guest has restored the service. A guest session
+  # can outlive its SSH client (an interrupt, a dropped connection), keep sampling and stop the runner after the label is
+  # back, so once the guest phase has begun the label returns only when a fresh session finds the guest lock free.
+  resume_dispatch() {
+    local status=$?
+    trap - EXIT HUP INT TERM
+    local resume_command="gh api -X POST repos/$repo/actions/runners/${paused:-$pausing}/labels -f 'labels[]=$label'"
+    if [[ -n $paused ]]; then
+      if [[ -n $guest_phase ]] && ! guest "sudo flock -w $lock_wait /run/clearcase-ci-verify.lock true" >/dev/null 2>&1; then
+        echo "pc1-vm: could not confirm the guest verification has finished, so $name keeps its $label label off. Once it has, run: $0 ssh sudo flock -w 300 /run/clearcase-ci-verify.lock true && $resume_command" >&2
+        (( status != 0 )) || status=1
+      elif gh api -X POST "repos/$repo/actions/runners/$paused/labels" -f "labels[]=$label" --silent; then
+        echo "pc1-vm: resumed dispatch to $name" >&2
+      else
+        echo "pc1-vm: could not resume dispatch; $name gets no jobs until: $resume_command" >&2
+        status=1
+      fi
+    elif [[ -n $pausing ]]; then
+      # The removal failed or was interrupted. Adding the label back could lift another verify's pause.
+      echo "pc1-vm: if $name has lost its $label label and no other verify is running, restore it: $resume_command" >&2
+    fi
+    rm -rf "$work"
+    exit "$status"
+  }
+  trap resume_dispatch EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  # Advertise fixed ref names without changing any refs or the working tree in the caller's repository.
+  git init -q --bare "$work/source.git"
+  git -C "$work/source.git" fetch -q --no-tags "$root" "$sha:refs/heads/ci-bundle" "$base:refs/heads/dev"
+  git -C "$work/source.git" bundle create "$work/source.bundle" ci-bundle dev
+  # Pause dispatch through GitHub before touching the guest. A sampled absence of jobs cannot exclude a dispatch that
+  # lands just before the stop, so verify refuses rather than falling back to sampling when GitHub is unavailable.
+  state=$(runner_state) ||
+    { echo "pc1-vm: could not read $name's state from GitHub; verify refuses without a GitHub pause" >&2; exit 1; }
+  [[ -n $state ]] || { echo "pc1-vm: GitHub does not list a runner named $name; run register first" >&2; exit 1; }
+  read -r id online busy labelled <<<"$state"
+  [[ $busy != true ]] || { echo "pc1-vm: $name is running a job; try again when it is idle" >&2; exit 1; }
+  [[ $id =~ ^[0-9]+$ && $busy == false && ( $labelled == true || $labelled == false ) ]] ||
+    { echo "pc1-vm: could not read $name's state from GitHub; verify refuses without a GitHub pause" >&2; exit 1; }
+  # Another verify may hold that pause and lift it mid-run.
+  [[ $labelled == true ]] ||
+    { echo "pc1-vm: $name is already paused (no $label label), possibly by another verify; try again when it is resumed" >&2; exit 1; }
+  # Only one removal can succeed, so the label also excludes a concurrent verify from another workstation.
+  pausing=$id
+  gh api -X DELETE "repos/$repo/actions/runners/$id/labels/$label" --silent ||
+    { echo "pc1-vm: could not pause $name through GitHub; verify refuses without a pause" >&2; exit 1; }
+  paused=$id
+  echo "pc1-vm: paused dispatch to $name (removed its $label label)" >&2
+  # A job GitHub assigned before the label went is still marked busy.
+  sleep "$settle"
+  state=$(runner_state) || { echo "pc1-vm: could not confirm the GitHub pause; verification refused" >&2; exit 1; }
+  read -r id online busy labelled <<<"$state"
+  [[ $busy != true ]] || { echo "pc1-vm: $name is still assigned a job after the GitHub pause; verification refused" >&2; exit 3; }
+  [[ $busy == false && $labelled == false ]] ||
+    { echo "pc1-vm: could not confirm the GitHub pause; verification refused" >&2; exit 1; }
+  remote_work=$(guest 'set -eu; umask 077; work=$(mktemp -d /tmp/clearcase-ci-verify.XXXXXX); trap '\''rm -rf "$work"'\'' ERR; cat >"$work/source.bundle"; printf "%s\n" "$work"' <"$work/source.bundle")
+  [[ $remote_work =~ ^/tmp/clearcase-ci-verify\.[A-Za-z0-9]+$ ]] ||
+    { echo 'pc1-vm: invalid guest upload path' >&2; exit 1; }
+  guest_phase=1
+  guest "sudo bash -s -- $sha $remote_work $quiet $observations $drain_timeout" <<'VERIFY'
+set -euo pipefail
+sha=$1 work=$2 result= entry_state= restore_active=0 checks_status=
+quiet=$3 observations=$4 drain_timeout=$5
+unit=actions.runner.GridShift-Software-clearcase.clearcase-pc1-vm
+finish() {
+  local status=$? verdict= restored_state
+  trap - EXIT HUP INT TERM
+  if (( restore_active )); then
+    systemctl start "$unit" || { echo 'pc1-vm: runner restart failed; restart it before accepting more work' >&2; status=1; }
+  fi
+  case $entry_state in
+    active | inactive | failed)
+      restored_state=$(systemctl show --property=ActiveState --value "$unit") || restored_state=unreadable
+      if [[ $restored_state != "$entry_state" ]]; then
+        echo "pc1-vm: runner service state was not restored to $entry_state" >&2
+        status=1
+      fi
+      ;;
+  esac
+  rm -rf "$work" || status=1
+  # A verdict exists only when the checks ran to completion (CHECKS exited 0 or 1). A refusal or an interrupt leaves the
+  # entry unpublished and prints nothing; a failed restart or cleanup changes the exit status, never the verdict.
+  if [[ -n $checks_status ]]; then
+    (( checks_status == 0 )) && verdict=PASS || verdict=FAIL
+    # Write as runner, never as root through a runner-writable path. Publish the verdict only after cleanup.
+    if sudo -u runner -H bash -c 'printf "%s %s\n" "$2" "$3" >"$1/.verdict.tmp" && mv "$1/.verdict.tmp" "$1/verdict.txt"' _ "$result" "$verdict" "$sha"; then
+      # The same scope line as read_verdict prints.
+      printf '%s %s\nreceipts %s\nscope: check and test of this SHA in the CI VM only; not a GitHub check status, branch protection or approval by the external reviewer\n' "$verdict" "$sha" "$result"
+    else
+      echo 'pc1-vm: could not store verdict' >&2
+      status=1
+    fi
+  fi
+  exit "$status"
+}
+trap finish EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+# Serialize manual verifications, including the idle check and service restart. The kernel releases this on exit.
+exec 9>/run/clearcase-ci-verify.lock
+flock -n 9 || { echo 'pc1-vm: another verification is running' >&2; exit 1; }
+entry_state=$(systemctl show --property=ActiveState --value "$unit") ||
+  { echo 'pc1-vm: could not read runner service state; refusing verification' >&2; exit 1; }
+case $entry_state in
+  active | inactive | failed) ;;
+  *) echo 'pc1-vm: could not read a stable runner service state; refusing verification' >&2; exit 1 ;;
+esac
+# Directory times retain evidence of logs created then deleted between observations.
+job_activity() {
+  python3 - "$@" <<'PY'
+import json, math, pathlib, stat, subprocess, sys, time
+diag = pathlib.Path("/home/runner/actions-runner/_diag")
+def identity(info):
+    return (info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+
+def snapshot():
+    directory = diag.lstat()
+    if not stat.S_ISDIR(directory.st_mode) or diag.resolve() != diag:
+        raise SystemExit("pc1-vm: unsafe runner diagnostic directory")
+    files = []
+    for entry in diag.iterdir():
+        if entry.name.startswith("Worker_") and entry.name.endswith(".log"):
+            info = entry.lstat()
+            if not stat.S_ISREG(info.st_mode):
+                raise SystemExit("pc1-vm: unsafe worker diagnostic file")
+            files.append((entry.name, *identity(info)))
+    if identity(directory) != identity(diag.lstat()):
+        refuse("job activity changed during admission")
+    return json.dumps((identity(directory), sorted(files)))
+
+def refuse(reason):
+    print(f"pc1-vm: {reason}; verification refused", file=sys.stderr)
+    sys.exit(3)
+
+if len(sys.argv) == 1:
+    print(snapshot())
+else:
+    before, quiet, observations, timeout = sys.argv[1:]
+    quiet, observations, timeout = float(quiet), int(observations), float(timeout)
+    if not (math.isfinite(quiet) and math.isfinite(timeout) and 0 < quiet <= timeout <= 300 and 2 <= observations <= 100):
+        raise SystemExit("pc1-vm: drain requires 0 < quiet <= timeout <= 300 seconds and 2..100 observations")
+    deadline = time.monotonic() + timeout
+    # The shell already made the first idle observation against this snapshot.
+    for _ in range(observations - 1):
+        interval = quiet / (observations - 1)
+        if deadline - time.monotonic() <= interval:
+            refuse("runner never became quiet before drain timeout")
+        time.sleep(interval)
+        if snapshot() != before:
+            refuse("job activity changed during admission")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            refuse("runner never became quiet before drain timeout")
+        try:
+            busy = subprocess.run(["pgrep", "-u", "runner", "Runner.Worker"], stdout=subprocess.DEVNULL, timeout=remaining).returncode
+        except subprocess.TimeoutExpired:
+            refuse("runner never became quiet before drain timeout")
+        if busy == 0:
+            refuse("runner worker present during drain")
+        if busy != 1:
+            raise SystemExit("pc1-vm: could not inspect guest jobs during drain")
+        if time.monotonic() >= deadline:
+            refuse("runner never became quiet before drain timeout")
+PY
+}
+before=$(job_activity) || { echo 'pc1-vm: could not inspect job activity before stop' >&2; exit 1; }
+# GitHub has paused dispatch and reported the runner idle; confirm in the guest that no worker remains.
+busy=0
+pgrep -u runner Runner.Worker >/dev/null || busy=$?
+case $busy in
+  1) ;;
+  0) echo 'pc1-vm: runner is running a job; try again when it is idle' >&2; exit 1 ;;
+  *) echo 'pc1-vm: could not inspect guest jobs' >&2; exit 1 ;;
+esac
+# Post-pause confirmation: consecutive idle samples over a quiet period before any stop (docs/ci-runner.md).
+job_activity "$before" "$quiet" "$observations" "$drain_timeout"
+if [[ $entry_state == active ]]; then
+  # Set this before stop: an interrupted or failed stop still needs restoration under the same lock.
+  restore_active=1
+  systemctl stop "$unit"
+fi
+# Also refuse a worker still present after stopping the listener, before touching the runner's caches.
+busy=0
+pgrep -u runner Runner.Worker >/dev/null || busy=$?
+after=$(job_activity) || { echo 'pc1-vm: could not inspect job activity after stop' >&2; exit 1; }
+[[ $before == "$after" ]] || { echo 'pc1-vm: job activity changed during admission; verification refused' >&2; exit 3; }
+case $busy in
+  1) ;;
+  0) echo 'pc1-vm: runner worker present after stop; verification refused' >&2; exit 3 ;;
+  *) echo 'pc1-vm: could not inspect guest jobs after stop' >&2; exit 1 ;;
+esac
+# Created only now, after every refusal: an entry without verdict.txt is an interrupted run, which `verdict` ignores.
+result=$(sudo -u runner -H bash -c 'umask 077; mkdir -p "$HOME/ci-results"; mktemp -d "$HOME/ci-results/$1-verify-XXXXXX"' _ "$sha")
+chmod 0755 "$work"
+chmod 0644 "$work/source.bundle"
+install -d -o runner -g runner -m 0700 "$work/checkout"
+# No Actions environment or credentials are inherited by the checks. CI=true matches the job environment.
+rc=0
+# CHECKS exits 0 (PASS) or 1 (FAIL) once it has run the checks; any other status, such as 2 for a checkout that could not be
+# prepared or 128+N for a signal, means they did not run to completion.
+sudo -u runner -H env -i HOME=/home/runner USER=runner LOGNAME=runner PATH=/usr/local/bin:/usr/bin:/bin CI=true \
+  bash -s -- "$sha" "$work/source.bundle" "$work/checkout" "$result" <<'CHECKS' || rc=$?
+set -euo pipefail
+umask 077
+sha=$1 bundle=$2 checkout=$3 receipts=$4
+git clone -q --branch ci-bundle "$bundle" "$checkout" &&
+  cd "$checkout" &&
+  [[ $(git rev-parse HEAD) == "$sha" ]] &&
+  python3 - "$receipts/run-metadata.json" "$sha" "${receipts##*-verify-}" <<'PY' ||
+import json, sys
+with open(sys.argv[1], "w") as f:
+    json.dump({"source": "verify", "checkout_head": sys.argv[2], "GITHUB_SHA": "", "PR_HEAD_SHA": "",
+               "GITHUB_RUN_ID": "verify", "GITHUB_RUN_ATTEMPT": sys.argv[3]}, f, indent=2)
+PY
+  exit 2
+checks=0
+if scripts/ci/install-chrome.sh && bun install --frozen-lockfile &&
+  scripts/agent-tools/receipt --receipts "$receipts" --base origin/dev --name check --tool bun -- bun run --bun check &&
+  (
+    tmp=$(mktemp -d /dev/shm/clearcase-ci-test.XXXXXX) || exit 1
+    trap 'rm -rf "$tmp"' EXIT
+    TMPDIR=$tmp CLEARCASE_TEST_TMP=$tmp scripts/agent-tools/receipt --receipts "$receipts" --base origin/dev --name test --tool bun -- \
+      bun run --bun test --maxWorkers=6 --reporter=default --reporter=json --outputFile.json="$receipts/vitest.json"
+  ); then :; else checks=$?; fi
+summary=0
+bun scripts/ci/summary.ts "$receipts" check test || summary=$?
+[[ $checks == 0 && $summary == 0 ]]
+CHECKS
+case $rc in
+  0 | 1) checks_status=$rc ;;
+  *) exit "$rc" ;;
+esac
+exit "$rc"
+VERIFY
+)
+
+read_verdict() {
+  local sha=${1,,}
+  [[ $sha =~ ^[0-9a-f]{40}$ ]] || { echo 'pc1-vm: verdict requires a full 40-character commit SHA' >&2; return 2; }
+  guest "sudo -u runner -H python3 - $sha" <<'VERDICT'
+import fnmatch, os, pathlib, stat, sys
+sha = sys.argv[1]
+store = pathlib.Path("/home/runner/ci-results")
+def unsafe(reason):
+    print(f"UNKNOWN {sha}")
+    print(f"pc1-vm: unsafe verdict store: {reason}", file=sys.stderr)
+    sys.exit(2)
+
+def confined(fd):
+    if not pathlib.Path(os.readlink(f"/proc/self/fd/{fd}")).is_relative_to(store):
+        unsafe("opened path resolves outside store")
+
+# Ignore unfinished/invalid entries. Select the latest completed verdict, with the directory name breaking ties.
+hits = []
+try:
+    info = store.lstat()
+except FileNotFoundError:
+    print(f"UNKNOWN {sha}")
+    sys.exit(2)
+if not stat.S_ISDIR(info.st_mode) or store.resolve() != store:
+    unsafe("store root is symlinked or not a directory")
+try:
+    store_fd = os.open(store, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+except OSError:
+    unsafe("store root changed or could not be safely opened")
+try:
+    confined(store_fd)
+    for name in os.listdir(store_fd):
+        if not fnmatch.fnmatchcase(name, f"{sha}-*-*"):
+            continue
+        info = os.stat(name, dir_fd=store_fd, follow_symlinks=False)
+        if not stat.S_ISDIR(info.st_mode) or not (store / name).resolve().is_relative_to(store):
+            unsafe("entry is symlinked, outside store or not a directory")
+        entry_fd = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=store_fd)
+        try:
+            confined(entry_fd)
+            try:
+                info = os.stat("verdict.txt", dir_fd=entry_fd, follow_symlinks=False)
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISREG(info.st_mode):
+                unsafe("verdict is symlinked or not a regular file")
+            verdict_fd = os.open("verdict.txt", os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=entry_fd)
+            with os.fdopen(verdict_fd) as verdict_file:
+                confined(verdict_file.fileno())
+                info = os.fstat(verdict_file.fileno())
+                if not stat.S_ISREG(info.st_mode):
+                    unsafe("opened verdict is not a regular file")
+                verdict = verdict_file.read().strip()
+                if verdict in (f"PASS {sha}", f"FAIL {sha}"):
+                    hits.append((info.st_mtime_ns, name, verdict, store / name))
+        finally:
+            os.close(entry_fd)
+except OSError:
+    unsafe("entry changed or could not be safely opened")
+finally:
+    os.close(store_fd)
+if not hits:
+    print(f"UNKNOWN {sha}")
+    sys.exit(2)
+_, _, verdict, entry = max(hits)
+print(f"{verdict}\nreceipts {entry}")
+# The same scope line as verify prints.
+print("scope: check and test of this SHA in the CI VM only; not a GitHub check status, branch protection or approval by the external reviewer")
+sys.exit(0 if verdict.startswith("PASS ") else 1)
+VERDICT
+}
+
 case ${1:-} in
+verify | verdict)
+  [[ $# == 2 && -n $2 ]] || { echo "usage: scripts/ci/pc1-vm $1 REV_OR_SHA" >&2; exit 2; }
+  if [[ $1 == verify ]]; then verify_revision "$2"; else read_verdict "$2"; fi
+  ;;
 create)
   install -d -m 0700 "$state"
   [[ -f $key ]] || ssh-keygen -q -t ed25519 -N '' -C $name -f "$key"
@@ -92,7 +427,7 @@ destroy)
   rm -f "$state/known_hosts"
   ;;
 *)
-  echo "usage: scripts/ci/pc1-vm create | provision | register | refresh | ssh [COMMAND] | start | stop | restart | status | destroy" >&2
+  echo "usage: scripts/ci/pc1-vm create | provision | register | refresh | ssh [COMMAND] | start | stop | restart | status | destroy | verify REV | verdict SHA" >&2
   exit 2
   ;;
 esac

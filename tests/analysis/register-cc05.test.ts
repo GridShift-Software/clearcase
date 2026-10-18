@@ -36,24 +36,35 @@ describe('CC-05 register: no entry masks a wrong app value', () => {
 	it('leaves a print capture still holding the app shell, and any printed-content difference, unregistered', () => {
 		expect(cover('timeline', 'export.print_pdf.print.text', 'value', 'Skip to content Shell Chronology & Timeline Phase one Event A', 'Skip to content ClearCase Timeline (nothing)')).toBeNull();
 		expect(cover('timeline', 'sweep.timeline_print.content', 'value', 'Phase one Event A Event B', 'Phase one')).toBeNull();
-		expect(cover('timeline', 'export.print_pdf.print.text', 'value', 'Skip to content Shell Chronology & Timeline Phase one Event A', 'Timeline Phase one Event A')).toBe('IDR-168');
+		expect(cover('timeline', 'export.print_pdf.print.text', 'value', 'Skip to content Shell Chronology & Timeline Phase one Event A', 'Chronology & Timeline Phase one Event A')).toBe('IDR-168');
+		// with the analysis additions off (GRS-48) the app prints v5's heading, so the navigation label in its place is unregistered
+		expect(cover('timeline', 'export.print_pdf.print.text', 'value', 'Skip to content Shell Chronology & Timeline Phase one Event A', 'Timeline Phase one Event A')).toBeNull();
 		expect(byId('IDR-168').type).toBe('known-gap');
 	});
 
-	it('pins the Defence table and CSV columns to v5 order with refs last', () => {
-		for (const [id, path] of [['IDR-157', 'table.table_1.columns'], ['IDR-169', 'export.export_csv.columns']] as const) {
-			const v5 = byId(id).when!.v5 as string;
+	it('pins the Defence table and CSV columns to v5\'s, leaving a refs column anywhere unregistered while the analysis additions are off (GRS-48)', () => {
+		for (const [path, v5] of [['table.table_1.columns', 'dcs_point | dcs_case | ess_supporting_evidence | documents | ess_rebuttal'], ['export.export_csv.columns', 'dcs_point | dcs_case | ess_evidence | documents | rebuttal']] as const) {
 			const cols = v5.split(' | ');
-			expect(cover('vdm_matrix_tab', path, 'value', v5, `${v5} | refs`)).toBe(id);
+			expect(cover('vdm_matrix_tab', path, 'value', v5, `${v5} | refs`)).toBeNull();
 			expect(cover('vdm_matrix_tab', path, 'value', v5, [cols[1], cols[0], ...cols.slice(2), 'refs'].join(' | '))).toBeNull();
 			expect(cover('vdm_matrix_tab', path, 'value', v5, ['refs', ...cols].join(' | '))).toBeNull();
 		}
+		expect(cover('vdm_matrix_tab', 'table.table_1.col.refs', 'app-only', '<absent>', 'Refs')).toBeNull();
+		for (const path of ['table.table_1.row.r0.refs', 'export.export_csv.row.r0.refs']) expect(cover('vdm_matrix_tab', path, 'app-only', '<absent>', 'OD-001 – OD-002')).toBeNull();
+	});
+
+	it('leaves a navigation-label heading unregistered on the three views that keep v5\'s heading while the analysis additions are off (GRS-48)', () => {
+		expect(cover('timeline', 'title', 'value', 'Chronology & Timeline', 'Timeline')).toBeNull();
+		expect(cover('vdm_matrix_tab', 'title', 'value', 'Defence & Rebuttal Matrix', 'Defence & Rebuttal')).toBeNull();
+		expect(cover('info_required_tab', 'title', 'value', 'Information & Documents Required', 'Info Required')).toBeNull();
 	});
 
 	it('names an owner on the known gaps', () => {
 		// CC-05's own harness-capture gap, plus the GRS-67 source-defect dispositions, each with the owner that would close it
 		expect(entries.filter((e) => e.type === 'known-gap' && !e.owner)).toEqual([]);
 		expect(entries.find((e) => e.id === 'IDR-168')).toMatchObject({ type: 'known-gap', owner: 'GRS-15' });
+		// v5's missing refs and its Timeline heading return while CLEARCASE_ANALYSIS_ADDITIONS is off: GRS-48 owns the switch
+		for (const source of ['S-vdm_matrix_tab-1', 'S-timeline-4']) expect(entries.filter((e) => e.source === source)).toMatchObject([{ field: [], type: 'known-gap', owner: 'GRS-48' }]);
 	});
 });
 

@@ -434,6 +434,16 @@ class ApprovalLedger(ControlCase):
         self.cli('review-record', '--unit', 'GRS-104/implementation', '--review', self.review, '--findings', self.findings)
         self.assertIn('predates the exact execution record', self.approve(code=1))
 
+    def test_input_path_with_the_home_text_beside_a_directory_name_approves_and_reads_back(self):
+        self.env['HOME'] = '/inner'
+        (self.work / 'inner').mkdir()
+        (self.work / 'inner' / 'evidence.txt').write_text('evidence\n')
+        self.prepare(inputs=[str(self.work / 'inner' / 'evidence.txt')])
+        self.approve()
+        approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        self.cli('approval-check', '--unit', 'GRS-104/implementation', '--sha', self.sha,
+                 '--approval-receipt', approved)
+
     def test_changed_argv_with_a_home_path_still_refuses(self):
         home = self.work / 'reviewer-home'
         home.mkdir(exist_ok=True)

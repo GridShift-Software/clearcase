@@ -58,6 +58,14 @@ describe('acceptance matrix', () => {
 		expect([r.pass, r.fail, r.blocked]).toEqual([n, 0, 0]);
 	});
 
+	it('names the analysis-additions state each layout run expected, and accepts either state', () => {
+		edit('layout.json', (d) => { d.analysisAdditions = false; });
+		edit('layout-v5.json', (d) => { d.analysisAdditions = true; });
+		const r = run();
+		expect([r.status, r.pass], r.out).toEqual([0, n]);
+		expect(readFileSync(at('matrix.md'), 'utf8')).toContain('synthetic off, v5 sample on');
+	});
+
 	for (const file of ['layout.json', 'layout-v5.json']) {
 		const early = { exit: 2, error: 'browser launch failed', views: [], components: [], failures: [] };
 		it(`blocks every view when ${file} stopped early (exit 2, an error, no rows)`, () => {

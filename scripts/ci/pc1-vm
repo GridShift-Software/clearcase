@@ -128,11 +128,11 @@ verify_revision() (
     { echo 'pc1-vm: invalid guest upload path' >&2; exit 1; }
   guest "sudo bash -s -- $sha $remote_work $quiet $observations $drain_timeout" <<'VERIFY'
 set -euo pipefail
-sha=$1 work=$2 result= entry_state= restore_active=0
+sha=$1 work=$2 result= entry_state= restore_active=0 checks_status=
 quiet=$3 observations=$4 drain_timeout=$5
 unit=actions.runner.GridShift-Software-clearcase.clearcase-pc1-vm
 finish() {
-  local status=$? verdict=FAIL restored_state
+  local status=$? verdict= restored_state
   trap - EXIT HUP INT TERM
   if (( restore_active )); then
     systemctl start "$unit" || { echo 'pc1-vm: runner restart failed; restart it before accepting more work' >&2; status=1; }
@@ -147,15 +147,18 @@ finish() {
       ;;
   esac
   rm -rf "$work" || status=1
-  if [[ -n $result ]]; then
-    (( status != 0 )) || verdict=PASS
+  # A verdict exists only when the checks ran to completion (CHECKS exited 0 or 1). A refusal or an interrupt leaves the
+  # entry unpublished and prints nothing; a failed restart or cleanup changes the exit status, never the verdict.
+  if [[ -n $checks_status ]]; then
+    (( checks_status == 0 )) && verdict=PASS || verdict=FAIL
     # Write as runner, never as root through a runner-writable path. Publish the verdict only after cleanup.
-    if ! sudo -u runner -H bash -c 'printf "%s %s\n" "$2" "$3" >"$1/.verdict.tmp" && mv "$1/.verdict.tmp" "$1/verdict.txt"' _ "$result" "$verdict" "$sha"; then
-      verdict=FAIL status=1
+    if sudo -u runner -H bash -c 'printf "%s %s\n" "$2" "$3" >"$1/.verdict.tmp" && mv "$1/.verdict.tmp" "$1/verdict.txt"' _ "$result" "$verdict" "$sha"; then
+      # The same scope line as read_verdict prints.
+      printf '%s %s\nreceipts %s\nscope: check and test of this SHA in the CI VM only; not a GitHub check status, branch protection or approval by the external reviewer\n' "$verdict" "$sha" "$result"
+    else
       echo 'pc1-vm: could not store verdict' >&2
+      status=1
     fi
-    # The same scope line as read_verdict prints.
-    printf '%s %s\nreceipts %s\nscope: check and test of this SHA in the CI VM only; not a GitHub check status, branch protection or approval by the external reviewer\n' "$verdict" "$sha" "$result"
   fi
   exit "$status"
 }
@@ -241,7 +244,6 @@ case $busy in
 esac
 # Post-pause confirmation: consecutive idle samples over a quiet period before any stop (docs/ci-runner.md).
 job_activity "$before" "$quiet" "$observations" "$drain_timeout"
-result=$(sudo -u runner -H bash -c 'umask 077; mkdir -p "$HOME/ci-results"; mktemp -d "$HOME/ci-results/$1-verify-XXXXXX"' _ "$sha")
 if [[ $entry_state == active ]]; then
   # Set this before stop: an interrupted or failed stop still needs restoration under the same lock.
   restore_active=1
@@ -257,24 +259,30 @@ case $busy in
   0) echo 'pc1-vm: runner worker present after stop; verification refused' >&2; exit 3 ;;
   *) echo 'pc1-vm: could not inspect guest jobs after stop' >&2; exit 1 ;;
 esac
+# Created only now, after every refusal: an entry without verdict.txt is an interrupted run, which `verdict` ignores.
+result=$(sudo -u runner -H bash -c 'umask 077; mkdir -p "$HOME/ci-results"; mktemp -d "$HOME/ci-results/$1-verify-XXXXXX"' _ "$sha")
 chmod 0755 "$work"
 chmod 0644 "$work/source.bundle"
 install -d -o runner -g runner -m 0700 "$work/checkout"
 # No Actions environment or credentials are inherited by the checks. CI=true matches the job environment.
+rc=0
+# CHECKS exits 0 (PASS) or 1 (FAIL) once it has run the checks; any other status, such as 2 for a checkout that could not be
+# prepared or 128+N for a signal, means they did not run to completion.
 sudo -u runner -H env -i HOME=/home/runner USER=runner LOGNAME=runner PATH=/usr/local/bin:/usr/bin:/bin CI=true \
-  bash -s -- "$sha" "$work/source.bundle" "$work/checkout" "$result" <<'CHECKS'
+  bash -s -- "$sha" "$work/source.bundle" "$work/checkout" "$result" <<'CHECKS' || rc=$?
 set -euo pipefail
 umask 077
 sha=$1 bundle=$2 checkout=$3 receipts=$4
-git clone -q --branch ci-bundle "$bundle" "$checkout"
-cd "$checkout"
-[[ $(git rev-parse HEAD) == "$sha" ]]
-python3 - "$receipts/run-metadata.json" "$sha" "${receipts##*-verify-}" <<'PY'
+git clone -q --branch ci-bundle "$bundle" "$checkout" &&
+  cd "$checkout" &&
+  [[ $(git rev-parse HEAD) == "$sha" ]] &&
+  python3 - "$receipts/run-metadata.json" "$sha" "${receipts##*-verify-}" <<'PY' ||
 import json, sys
 with open(sys.argv[1], "w") as f:
     json.dump({"source": "verify", "checkout_head": sys.argv[2], "GITHUB_SHA": "", "PR_HEAD_SHA": "",
                "GITHUB_RUN_ID": "verify", "GITHUB_RUN_ATTEMPT": sys.argv[3]}, f, indent=2)
 PY
+  exit 2
 checks=0
 if scripts/ci/install-chrome.sh && bun install --frozen-lockfile &&
   scripts/agent-tools/receipt --receipts "$receipts" --base origin/dev --name check --tool bun -- bun run --bun check &&
@@ -288,6 +296,11 @@ summary=0
 bun scripts/ci/summary.ts "$receipts" check test || summary=$?
 [[ $checks == 0 && $summary == 0 ]]
 CHECKS
+case $rc in
+  0 | 1) checks_status=$rc ;;
+  *) exit "$rc" ;;
+esac
+exit "$rc"
 VERIFY
 )
 

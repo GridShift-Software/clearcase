@@ -323,7 +323,7 @@ for (const scenario of ['check-fail', 'test-fail', 'chrome-fail', 'install-fail'
 
 // The checks never ran to completion, so these exits are not verdicts: no entry is published and nothing is printed that
 // reads like one. A verdict from an earlier verify of the same SHA stays the answer.
-const verdicts = (f: ReturnType<typeof fixture>) => f.results().filter((entry) => existsSync(path.join(entry, 'verdict.txt')));
+const verdicts = (f: ReturnType<typeof fixture>) => (existsSync(f.store) ? f.results() : []).filter((entry) => existsSync(path.join(entry, 'verdict.txt')));
 for (const [scenario, status] of [['stop-fail', 1], ['busy-after-stop', 3], ['job-during-stop', 3], ['transient-during-stop', 3], ['guest-term', 143]] satisfies [string, number][]) {
   for (const earlier of [false, true]) {
     test(`verify publishes no verdict and no scope line when ${scenario}${earlier ? ' after an earlier PASS' : ''}`, () => {
@@ -332,6 +332,8 @@ for (const [scenario, status] of [['stop-fail', 1], ['busy-after-stop', 3], ['jo
       const [first] = verdicts(f);
       writeFileSync(path.join(f.guest, 'scenario'), scenario);
       writeFileSync(path.join(f.guest, 'service-state'), 'active\n');
+      // The fake derives some behaviour from the events so far, so start the second run from none.
+      writeFileSync(path.join(f.guest, 'events'), '');
       const result = f.run('verify', 'HEAD');
       assert.equal(result.status, status, result.stderr + result.stdout);
       assert.equal(f.events().at(-1), 'start');

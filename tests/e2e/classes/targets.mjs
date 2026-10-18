@@ -55,8 +55,8 @@ const routeOf = (routes, f) => '/' + relative(routes, f).split(sep).slice(0, -1)
 
 const CODE_EXT = ['.svelte', '.ts', '.js', '.mjs'];
 const LOCAL = /^(\$lib(\/|$)|\.{1,2}(\/|$))/;
-// an `import(` call, not the word "import" in prose or a method named import (`at import (size differs)`, `db.import(`)
-const IMPORT_CALL = String.raw`(?:(?<![\w$.]\s*)|(?<=\b(?:await|return|yield)\s+))import\s*\(`;
+// an `import(` call in expression position: after a keyword, punctuation or a line start. Not prose (`at import (size differs)`), a method (`db.import(`) or an identifier ending in import (`$import(`)
+const IMPORT_CALL = String.raw`(?:(?<![\w$.]\s*)|(?<=(?<![\w$.])(?:await|return|yield|void|else|throw|case|in|of|do|typeof|delete|default)\s+))import\s*\(`;
 const LITERAL_IMPORT = new RegExp(IMPORT_CALL + String.raw`\s*['"\`]((?:(?!\$\{)[^'"\`])+)['"\`]\s*\)`, 'g');
 /** Every import specifier a source names: `from '…'` (imports and re-exports), `import '…'` and a literal `import('…')`; `computed` when an `import(` takes anything else. */
 function specifiers(text) {

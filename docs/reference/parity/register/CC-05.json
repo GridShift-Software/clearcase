@@ -269,7 +269,7 @@
       "type": "known-gap",
       "source": "S-vdm_matrix_tab-1",
       "owner": "GRS-15",
-      "reason": "v5 never shows or exports the defence matrix free-text refs. ClearCase reproduces this by default: the Refs column and the CSV's last refs column are analysis additions behind CLEARCASE_ANALYSIS_ADDITIONS, off until the client approves them (ADR 0003, GRS-48); with the flag set to 1 both show, after v5's columns. Evidence: tests/analysis/flag-states.test.ts:66.",
+      "reason": "v5 never shows or exports the defence matrix free-text refs. ClearCase reproduces this by default: the Refs column and the CSV's last refs column are analysis additions behind CLEARCASE_ANALYSIS_ADDITIONS, off until the client approves them (ADR 0003, GRS-48); with the flag set to 1 both show, after v5's columns. Evidence: tests/analysis/flag-states.test.ts:70.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,

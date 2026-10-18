@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { analysisAdditionsEnabled } from '../../src/lib/analysis/additions.server.ts';
+import { analysisAdditionsEnabled } from '../../src/lib/analysis/data.server.ts';
 import { defenceCsv } from '../../src/lib/views/analysis/defence.ts';
 // defenceCsv run over these synthetic rows in a 15da042 tree; the flag must not change these bytes.
 import base from './base-15da042.json';

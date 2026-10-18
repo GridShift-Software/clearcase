@@ -34,7 +34,7 @@ const { buildCase } = await import('../pilot/lib/fixtures.ts');
 const { VIEWS } = await import('../../../src/lib/components/view-registry.ts');
 const { csvExports, hasActions, hasEditRows, hasLeaveGuard, pageTargets, pageUses } = await import('./targets.mjs');
 const D = await import('./declared.mjs');
-const { NOT_SAVED, actionResult, inflightChecks } = await import('./verdicts.mjs');
+const { NOT_SAVED, actionResult, csvChecks, csvFileEvidence, dialogChecks, inflightChecks } = await import('./verdicts.mjs');
 
 const ROOT = resolve(join(import.meta.dirname, '..', '..', '..'));
 const BUILD = resolve(process.env.E2E_BUILD_DIR ?? join(ROOT, 'build'));
@@ -42,7 +42,7 @@ const OUT = join(process.env.CLEARCASE_E2E_OUT ?? join(ROOT, '.local', 'e2e'), '
 mkdirSync(OUT, { recursive: true });
 const CLOCK = '2026-10-08T09:00:00Z';
 const J = JSON.stringify;
-const CLASSES = ['inflight', 'nojs', 'dialog', 'csv', 'narrow', 'back'];
+const CLASSES = D.UI_CLASSES;
 const ONLY = process.env.CLASSES_ONLY ? process.env.CLASSES_ONLY.split(',') : CLASSES;
 const runs = (c) => ONLY.includes(c);
 const TARGET = process.env.CLASSES_TARGET ? new RegExp(process.env.CLASSES_TARGET) : null;
@@ -409,7 +409,7 @@ async function nojs(t) {
  * left the page, no error of it shows on the page left for.
  */
 async function dialog(t) {
-	const answer = (re) => p.evaluate(`(() => { const d = ${ASK}; const btn = d && [...d.querySelectorAll('button')].find((x) => ${re}.test(x.textContent)); if (!btn || btn.disabled) return btn ? 'disabled' : null; btn.click(); return btn.id || btn.textContent.trim(); })()`);
+	const answer = (re) => p.evaluate(`(() => { const d = ${ASK}; const btn = d && [...d.querySelectorAll('button')].find((x) => ${re}.test(x.textContent)); if (!btn || btn.disabled) return null; btn.click(); return btn.id || btn.textContent.trim(); })()`);
 	/** Open the page by client navigation, so Back stays in the app, and edit the first row when rows are editable. */
 	const start = async () => {
 		await open(t.url.replace(/\/v\/([^/]+)\/.*$/, '/v/$1/overview'));
@@ -457,32 +457,30 @@ async function dialog(t) {
 		ok = (await scenario(`dialog-${order}:${t.key}`, t.view, order === 'ask-then-save' ? 'a save started while the question is open, then the question answered with discard while it is in flight, then the save fails: its error stays with the submitted entry' : 'the question raised and answered with discard while a save is in flight, then the save fails: its error stays with the submitted entry', async () => {
 			const { f, field, typed, edits, viaLink, href } = await start();
 			const h = await holdAction();
-			let asked = null, answered = null, paused = null, closedBySave = false;
+			let asked = null, answered = null, paused = null, closedBySave = false, questionClosed = false;
 			try {
 				if (order === 'ask-then-save') {
 					asked = await trigger(edits);
 					await p.evaluate(`document.querySelector(${J(f.submit)})?.click()`);
 					paused = await h.paused;
 					answered = asked ? await answer('/discard/i') : null;
-					// the page took the question back itself when the save began: nothing is left to answer
-					closedBySave = !!asked && answered === null;
 				} else {
 					await p.click(f.submit);
 					paused = await h.paused;
 					asked = await trigger(edits);
 					answered = asked ? await answer('/discard/i') : null;
 				}
-				await sleep(150);
-				} finally { await h.release(true); }
+				await settle(); await sleep(150);
+				questionClosed = await p.evaluate(`!(${ASK})`);
+				closedBySave = order === 'ask-then-save' && !!asked && answered === null && questionClosed;
+			} finally { await h.release(true); }
 			await quiet();
 			const o = await outcome(typed, field);
 			const onPage = o.path === href;
-			return { evidence: { url: t.url, edits, viaLink, asked, answered, closedBySave, request: paused?.request?.url ?? null, onPage, ...o },
-				checks: { setUpSaved: setUp.every(Boolean), inApp: edits >= 2 || viaLink, requestHeld: !!paused, asked: !!asked,
-					// answered with discard, or the answer is switched off while the save is in flight (a register allows only leaving then)
-					answered: !!answered || closedBySave,
-					// the failed save's own error shows with its own entry; when the answer left the page, none shows on the page left for
-					ownError: onPage ? o.errors.some((e) => NOT_SAVED.test(e.text)) && o.holds : o.errors.length === 0 } };
+			const closedBySaveReason = order === 'ask-then-save' ? D.DIALOG_CLOSED_BY_SAVE[t.key] ?? null : null;
+			return { evidence: { url: t.url, edits, viaLink, asked, answered, questionClosed, closedBySave, closedBySaveReason, request: paused?.request?.url ?? null, onPage, ...o },
+				checks: dialogChecks({ setUpSaved: setUp.every(Boolean), inApp: edits >= 2 || viaLink, paused, asked, answered,
+					questionClosed, closedBySave, closedBySaveReason, onPage, ...o }) };
 		})) && ok;
 		// leave the page settled for the next order (answer any open question, no pending input)
 		await answer('/discard/i').catch(() => {});
@@ -492,7 +490,9 @@ async function dialog(t) {
 
 /** csv: every CSV download of the page (and a typed entry first, where the page has a form) is checked. */
 async function csv(route, url, viewId, forms) {
-	return scenario(`csv:${route}`, viewId, 'no formula starts unneutralised after ;, tab, CR or LF in any column of the export', async () => {
+	const nonCsvReason = D.NON_CSV_PAGES[route];
+	if (nonCsvReason) notApplicable('csv', route, nonCsvReason);
+	return scenario(`${nonCsvReason ? 'non-csv' : 'csv'}:${route}`, viewId, nonCsvReason ?? 'no formula starts unneutralised after ;, tab, CR or LF in any column of the export', async () => {
 		await open(url);
 		const typed = [];
 		for (const f of (await p.evaluate(FORMS)).filter((x) => x.fields.length && forms.has(x.action))) {
@@ -512,13 +512,9 @@ async function csv(route, url, viewId, forms) {
 		const other = downloads.filter((d) => !isCsv(d));
 		const undeclared = other.filter((d) => !Object.keys(D.NON_CSV_DOWNLOADS).some((x) => d.name.toLowerCase().endsWith(x))).map((d) => d.name);
 		const files = downloads.filter(isCsv);
-		const checked = files.map((d) => {
-			const marks = [...d.text.matchAll(/[=+\-@"]CCX\(/g)];
-			const bad = marks.filter((m) => /[;\t\r\n] *$/.test(d.text.slice(Math.max(0, m.index - 20), m.index)));
-			return { name: d.name, bytes: d.text.length, marks: marks.length, bad: bad.length, sample: bad.slice(0, 3).map((m) => J(d.text.slice(Math.max(0, m.index - 30), m.index + 8))) };
-		});
-		return { evidence: { url, typed, controls, files: checked, nonCsv: other.map((d) => d.name), undeclared },
-			checks: { exported: downloads.length > 0, typedSaved: typed.every((x) => x.errors.length === 0 && x.saved), onlyDeclaredNonCsv: undeclared.length === 0, hostileReached: checked.every((c) => c.marks > 0), noFormula: checked.every((c) => c.bad === 0) } };
+		const checked = files.map(csvFileEvidence);
+		return { evidence: { url, nonCsvReason: nonCsvReason ?? null, typed, controls, files: checked, nonCsv: other.map((d) => d.name), undeclared },
+			checks: { ...(nonCsvReason ? { declaredNotCsv: files.length === 0, downloaded: downloads.length > 0 } : csvChecks(checked)), typedSaved: typed.every((x) => x.errors.length === 0 && x.saved), onlyDeclaredNonCsv: undeclared.length === 0 } };
 	});
 }
 

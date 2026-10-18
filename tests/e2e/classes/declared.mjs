@@ -166,3 +166,26 @@ export const NO_CHOICE_STATE = {
 	'edit rows and add forms (registers, filings, litigation)': 'inline forms open inside the table\'s TableScroll box or in the page flow, whose width the other states fix; the inflight and dialog classes drive them',
 	'alertdialog (the question before leaving with typed input)': 'RegisterPage, filings and payments show it in flow with flex-wrap, and LeaveGuard as position:fixed with a max-width inside the viewport; the dialog class drives it',
 };
+
+
+export const UI_CLASSES = ['inflight', 'nojs', 'dialog', 'csv', 'narrow', 'back'];
+
+/** Ask-then-save targets that cancel the existing question at save start; the suite must observe it closed in flight. */
+const SAVE_CLOSES_QUESTION = 'Save clears the pending edit/leave question at submit start; the held request must leave no visible question.';
+export const DIALOG_CLOSED_BY_SAVE = {
+	'/v/[vid]/evidence/filings_tab ?/add': SAVE_CLOSES_QUESTION,
+	'/v/[vid]/registers/annotations_tab ?/save': SAVE_CLOSES_QUESTION,
+	'/v/[vid]/registers/deadlines_tab ?/save': SAVE_CLOSES_QUESTION,
+	'/v/[vid]/registers/disbursements_tab ?/save': SAVE_CLOSES_QUESTION,
+	'/v/[vid]/registers/popia_tab ?/save': SAVE_CLOSES_QUESTION,
+	'/v/[vid]/registers/privilege_tab ?/save': SAVE_CLOSES_QUESTION,
+	'/v/[vid]/registers/timesheet_tab ?/save': SAVE_CLOSES_QUESTION,
+	'/v/[vid]/registers/transcriptions_tab ?/save': SAVE_CLOSES_QUESTION,
+};
+
+
+/** Pages reached through the shared download helper that intentionally export no CSV; checked against their downloads. */
+export const NON_CSV_PAGES = {
+	'/v/[vid]/registers/deadlines_tab': 'Export calendar produces only an ICS file; the registers suite checks its TEXT escaping.',
+	'/v/[vid]/litigation/heads_tab': 'Export outline produces only a plain-text outline; the litigation suite checks it.',
+};

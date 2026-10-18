@@ -107,6 +107,7 @@ describe('fresh-build evidence', () => {
 		g('commit', '-q', '-m', 'synthetic');
 		const copy = join(repo, '.local', 'copy');
 		cpSync(HERE, join(copy, 'tests', 'e2e', 'pilot'), { recursive: true });
+		cpSync(join(HERE, '..', 'classes'), join(copy, 'tests', 'e2e', 'classes'), { recursive: true });
 		put(join(copy, 'tests', 'e2e', 'pilot', 'suite.mjs'), `${readFileSync(join(HERE, 'suite.mjs'), 'utf8')}\n// modified in the copy\n`);
 		put(join(copy, 'build', 'handler.js'));
 		put(join(copy, 'build', 'clearcase-build.json'), JSON.stringify({ revision: g('rev-parse', 'HEAD'), dirty: false, buildId: 'synthetic' }));
@@ -262,5 +263,24 @@ describe('a step that timed out or aborted is not evidence (fail fast)', () => {
 		expect(src).toContain('for (const f of Object.values(STEP_RECORDS)) rmSync(join(dir, f), { force: true });');
 		expect(src).toContain("timeout: STEP_TIMEOUT_MS, killSignal: 'SIGTERM' });");
 		expect(src).toContain('const evidence = evidenceRecord(fresh, allowed, [...e2eNonEvidence(process.env, steps.map(([, [, args]]) => args.at(-1)), read), ...results.map((r) => stepAbort(dir, r)).filter(Boolean)]);');
+	});
+});
+
+
+describe('required UI classes (GRS-61)', () => {
+	test('requires every UI class even when byClass is absent or incomplete', async () => {
+		const { suiteProblems } = await import(join(HERE, 'run.mjs'));
+		const out = mkdtempSync(join(root, 'class-contract-'));
+		const file = join(out, 'classes', 'summary.json');
+		const names = ['inflight', 'nojs', 'dialog', 'csv', 'narrow', 'back'];
+		const scenarios = names.map((c) => ({ id: `${c}:synthetic`, view: 'synthetic', pass: true }));
+		put(file, JSON.stringify({ scenarios }));
+		expect(suiteProblems(out, 'classes', []).join()).toMatch(/required UI class/);
+		const byClass = Object.fromEntries(names.map((c) => [c, { pass: 1 }]));
+		put(file, JSON.stringify({ scenarios, byClass }));
+		expect(suiteProblems(out, 'classes', [])).toEqual([]);
+		delete byClass.dialog;
+		put(file, JSON.stringify({ scenarios, byClass }));
+		expect(suiteProblems(out, 'classes', []).join()).toMatch(/required UI class.*dialog/);
 	});
 });

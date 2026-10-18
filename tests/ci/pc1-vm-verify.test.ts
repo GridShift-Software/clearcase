@@ -811,6 +811,32 @@ test('a normal verify confirms the lock with one fresh session before the resume
   assert.deepEqual(refused.github().at(-1)?.call, resume);
 });
 
+test('of two racing verifies exactly one pauses; the loser refuses before the guest and never adds the label', () => {
+  const f = fixture();
+  writeFileSync(path.join(f.guest, 'github-scenario'), 'race');
+  const out = (name: string) => path.join(f.guest, name);
+  const script = 'pc1=$1; out=$2; "$pc1" verify HEAD >"$out/a.out" 2>"$out/a.err" & a=$!; "$pc1" verify HEAD >"$out/b.out" 2>"$out/b.err" & b=$!; wait "$a"; echo $? >"$out/a.status"; wait "$b"; echo $? >"$out/b.status"';
+  const result = spawnSync('bash', ['-c', script, 'race', path.join(f.source, 'scripts/ci/pc1-vm'), f.guest], { cwd: f.source, env: f.env, encoding: 'utf8', timeout: 30_000 });
+  assert.equal(result.status, 0, result.stderr);
+  const runs = ['a', 'b'].map((name) => ({ status: Number(readFileSync(out(`${name}.status`), 'utf8')), stdout: readFileSync(out(`${name}.out`), 'utf8'), stderr: readFileSync(out(`${name}.err`), 'utf8') }));
+  const winner = runs.find((run) => run.status === 0);
+  const loser = runs.find((run) => run.status !== 0);
+  assert.ok(winner && loser, JSON.stringify(runs));
+  assert.match(winner.stdout, new RegExp(`^PASS ${f.sha}$`, 'm'));
+  assert.equal(loser.status, 1);
+  assert.match(loser.stderr, /could not pause clearcase-pc1-vm through GitHub; verify refuses without a pause/);
+  assert.equal(/^(PASS|FAIL) /m.test(loser.stdout), false);
+  const calls = f.github();
+  assert.equal(calls.filter(({ call }) => call === pause).length, 2);
+  // Only the winner reaches the guest and only the winner gives the label back, after its own restart.
+  assert.equal(f.events().filter((event) => event === 'stop').length, 1);
+  assert.equal(readFileSync(path.join(f.guest, 'uploads'), 'utf8').trim().split('\n').length, 1);
+  assert.equal(calls.filter(({ call }) => call === resume).length, 1);
+  assert.deepEqual(calls.at(-1), { at: f.events().length, call: resume });
+  assert.equal(githubState(f), '22 online false true\n');
+  assert.equal(readFileSync(path.join(f.guest, 'service-state'), 'utf8'), 'active\n');
+});
+
 test('verdict answers with GitHub unreachable and never calls GitHub', () => {
   const f = fixture();
   assert.equal(f.run('verify', 'HEAD').status, 0);

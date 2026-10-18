@@ -47,3 +47,62 @@ describe('hasLeaveGuard', () => {
 		expect(hasLeaveGuard(root, '/g3')).toBe(false);
 	});
 });
+
+
+describe('CSV producers that discovery cannot map (GRS-61)', () => {
+	const tree = () => mkdtempSync(join(root, 'unmapped-'));
+	const file = (dir: string, rel: string, text: string) => { const f = join(dir, 'src', rel); mkdirSync(dirname(f), { recursive: true }); writeFileSync(f, text); };
+	test('refuses a non-route TypeScript CSV producer instead of dropping it', () => {
+		const dir = tree();
+		file(dir, 'routes/a/+page.svelte', '<main />');
+		file(dir, 'lib/export.ts', "import { download } from '$lib/components/csv'; export const save = () => download('a.csv', 'x');");
+		expect(csvExports(dir).unrecognised).toEqual(['src/lib/export.ts']);
+	});
+	test('refuses a nested CSV component that is not mapped to a checked page', () => {
+		const dir = tree();
+		file(dir, 'routes/a/+page.svelte', "<script>import Shell from '$lib/Shell.svelte';</script><Shell />");
+		file(dir, 'lib/Shell.svelte', "<script>import Maker from '$lib/Maker.svelte';</script><Maker />");
+		file(dir, 'lib/Maker.svelte', "<script>import { download } from '$lib/components/csv'; const save = () => download('a.csv', 'x');</script>");
+		expect(csvExports(dir).unrecognised).toEqual(['src/lib/Maker.svelte']);
+	});
+});
+
+
+describe('shared direct and nested CSV producers (GRS-61)', () => {
+ test('discovers every consuming page, including aliases, relative paths, cycles and several wrapper levels', () => {
+  const dir = mkdtempSync(join(root, 'mixed-'));
+  const file = (rel: string, source: string) => { const path = join(dir, 'src', rel); mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, source); };
+  file('routes/direct/+page.svelte', "<script>import Maker from '$lib/Maker.svelte';</script><Maker />");
+  file('routes/wrapped/+page.svelte', "<script>import Shell from '$lib/Shell.svelte';</script><Shell />");
+  file('routes/deep/+page.svelte', "<script>import Outer from '../../lib/Outer.svelte';</script><Outer />");
+  file('lib/Outer.svelte', "<script>import Shell from './Shell.svelte';</script><Shell />");
+  file('lib/Shell.svelte', "<script>import Renamed from './Maker.svelte'; import Outer from './Outer.svelte';</script><Renamed />");
+  file('lib/Maker.svelte', "<script>import { download } from '$lib/components/csv'; const save = () => download('a.csv', 'x');</script>");
+  expect(csvExports(dir)).toEqual({ pages: ['/deep', '/direct', '/wrapped'], servers: [], unrecognised: [], declaredButCsv: [] });
+ });
+ test('keeps every page the base found: a mapped producer reached through a barrel or a dynamic import, or a wrapper imported dynamically', () => {
+  const dir = mkdtempSync(join(root, 'unfollowed-'));
+  const file = (rel: string, source: string) => { const path = join(dir, 'src', rel); mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, source); };
+  file('routes/direct/+page.svelte', "<script>import Maker from '$lib/Maker.svelte';</script><Maker />");
+  file('routes/barrel/+page.svelte', "<script>import { Maker } from '$lib';</script><Maker />");
+  file('routes/lazy/+page.svelte', "<script>const Maker = import('$lib/Maker.svelte');</script>{#await Maker then M}<M.default />{/await}");
+  file('routes/lazy-wrapped/+page.svelte', "<script>const Box = import('$lib/Shell.svelte');</script>{#await Box then B}<B.default />{/await}");
+  file('lib/index.ts', "export { default as Maker } from './Maker.svelte';");
+  file('lib/Shell.svelte', "<script>import Maker from './Maker.svelte';</script><Maker />");
+  file('lib/Maker.svelte', "<script>import { download } from '$lib/components/csv'; const save = () => download('a.csv', 'x');</script>");
+  expect(csvExports(dir)).toEqual({ pages: ['/barrel', '/direct', '/lazy', '/lazy-wrapped'], servers: [], unrecognised: [], declaredButCsv: [] });
+ });
+});
+
+// The real app's CSV inventory at the GRS-61 base (1332ea8), recomputed there with that revision's own targets.mjs and declarations.
+import baseProducers from './csv-producers.json';
+// @ts-expect-error plain .mjs
+import * as declared from '../classes/declared.mjs';
+test('keeps the real app inventory at the base 19 pages and one server without rejected producers', () => {
+ const result = csvExports(join(import.meta.dirname, '..', '..', '..'), { notProducers: declared.NOT_PRODUCERS, helpers: declared.HELPERS });
+ expect(result).toEqual(baseProducers);
+ expect(result.pages).toHaveLength(19);
+ expect(result.servers).toHaveLength(1);
+ expect(result.declaredButCsv).toEqual([]);
+ expect(result.unrecognised).toEqual([]);
+});

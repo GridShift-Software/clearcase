@@ -34,7 +34,7 @@ const { buildCase } = await import('../pilot/lib/fixtures.ts');
 const { VIEWS } = await import('../../../src/lib/components/view-registry.ts');
 const { csvExports, hasActions, hasEditRows, hasLeaveGuard, pageTargets, pageUses } = await import('./targets.mjs');
 const D = await import('./declared.mjs');
-const { NOT_SAVED, actionResult, inflightChecks } = await import('./verdicts.mjs');
+const { NOT_SAVED, actionResult, csvChecks, csvFileEvidence, dialogChecks, inflightChecks, pageRendered, stateShown } = await import('./verdicts.mjs');
 
 const ROOT = resolve(join(import.meta.dirname, '..', '..', '..'));
 const BUILD = resolve(process.env.E2E_BUILD_DIR ?? join(ROOT, 'build'));
@@ -42,7 +42,7 @@ const OUT = join(process.env.CLEARCASE_E2E_OUT ?? join(ROOT, '.local', 'e2e'), '
 mkdirSync(OUT, { recursive: true });
 const CLOCK = '2026-10-08T09:00:00Z';
 const J = JSON.stringify;
-const CLASSES = ['inflight', 'nojs', 'dialog', 'csv', 'narrow', 'back'];
+const CLASSES = D.UI_CLASSES;
 const ONLY = process.env.CLASSES_ONLY ? process.env.CLASSES_ONLY.split(',') : CLASSES;
 const runs = (c) => ONLY.includes(c);
 const TARGET = process.env.CLASSES_TARGET ? new RegExp(process.env.CLASSES_TARGET) : null;
@@ -409,7 +409,7 @@ async function nojs(t) {
  * left the page, no error of it shows on the page left for.
  */
 async function dialog(t) {
-	const answer = (re) => p.evaluate(`(() => { const d = ${ASK}; const btn = d && [...d.querySelectorAll('button')].find((x) => ${re}.test(x.textContent)); if (!btn || btn.disabled) return btn ? 'disabled' : null; btn.click(); return btn.id || btn.textContent.trim(); })()`);
+	const answer = (re) => p.evaluate(`(() => { const d = ${ASK}; const btn = d && [...d.querySelectorAll('button')].find((x) => ${re}.test(x.textContent)); if (!btn || btn.disabled) return null; btn.click(); return btn.id || btn.textContent.trim(); })()`);
 	/** Open the page by client navigation, so Back stays in the app, and edit the first row when rows are editable. */
 	const start = async () => {
 		await open(t.url.replace(/\/v\/([^/]+)\/.*$/, '/v/$1/overview'));
@@ -457,32 +457,30 @@ async function dialog(t) {
 		ok = (await scenario(`dialog-${order}:${t.key}`, t.view, order === 'ask-then-save' ? 'a save started while the question is open, then the question answered with discard while it is in flight, then the save fails: its error stays with the submitted entry' : 'the question raised and answered with discard while a save is in flight, then the save fails: its error stays with the submitted entry', async () => {
 			const { f, field, typed, edits, viaLink, href } = await start();
 			const h = await holdAction();
-			let asked = null, answered = null, paused = null, closedBySave = false;
+			let asked = null, answered = null, paused = null, closedBySave = false, questionClosed = false;
 			try {
 				if (order === 'ask-then-save') {
 					asked = await trigger(edits);
 					await p.evaluate(`document.querySelector(${J(f.submit)})?.click()`);
 					paused = await h.paused;
 					answered = asked ? await answer('/discard/i') : null;
-					// the page took the question back itself when the save began: nothing is left to answer
-					closedBySave = !!asked && answered === null;
 				} else {
 					await p.click(f.submit);
 					paused = await h.paused;
 					asked = await trigger(edits);
 					answered = asked ? await answer('/discard/i') : null;
 				}
-				await sleep(150);
-				} finally { await h.release(true); }
+				await settle(); await sleep(150);
+				questionClosed = await p.evaluate(`!(${ASK})`);
+				closedBySave = order === 'ask-then-save' && !!asked && answered === null && questionClosed;
+			} finally { await h.release(true); }
 			await quiet();
 			const o = await outcome(typed, field);
 			const onPage = o.path === href;
-			return { evidence: { url: t.url, edits, viaLink, asked, answered, closedBySave, request: paused?.request?.url ?? null, onPage, ...o },
-				checks: { setUpSaved: setUp.every(Boolean), inApp: edits >= 2 || viaLink, requestHeld: !!paused, asked: !!asked,
-					// answered with discard, or the answer is switched off while the save is in flight (a register allows only leaving then)
-					answered: !!answered || closedBySave,
-					// the failed save's own error shows with its own entry; when the answer left the page, none shows on the page left for
-					ownError: onPage ? o.errors.some((e) => NOT_SAVED.test(e.text)) && o.holds : o.errors.length === 0 } };
+			const closedBySaveReason = order === 'ask-then-save' ? D.DIALOG_CLOSED_BY_SAVE[t.key] ?? null : null;
+			return { evidence: { url: t.url, edits, viaLink, asked, answered, questionClosed, closedBySave, closedBySaveReason, request: paused?.request?.url ?? null, onPage, ...o },
+				checks: dialogChecks({ setUpSaved: setUp.every(Boolean), inApp: edits >= 2 || viaLink, paused, asked, answered,
+					questionClosed, closedBySave, closedBySaveReason, onPage, ...o }) };
 		})) && ok;
 		// leave the page settled for the next order (answer any open question, no pending input)
 		await answer('/discard/i').catch(() => {});
@@ -492,7 +490,9 @@ async function dialog(t) {
 
 /** csv: every CSV download of the page (and a typed entry first, where the page has a form) is checked. */
 async function csv(route, url, viewId, forms) {
-	return scenario(`csv:${route}`, viewId, 'no formula starts unneutralised after ;, tab, CR or LF in any column of the export', async () => {
+	const nonCsvReason = D.NON_CSV_PAGES[route];
+	if (nonCsvReason) notApplicable('csv', route, nonCsvReason);
+	return scenario(`csv:${route}`, viewId, nonCsvReason ?? 'no formula starts unneutralised after ;, tab, CR or LF in any column of the export', async () => {
 		await open(url);
 		const typed = [];
 		for (const f of (await p.evaluate(FORMS)).filter((x) => x.fields.length && forms.has(x.action))) {
@@ -512,13 +512,9 @@ async function csv(route, url, viewId, forms) {
 		const other = downloads.filter((d) => !isCsv(d));
 		const undeclared = other.filter((d) => !Object.keys(D.NON_CSV_DOWNLOADS).some((x) => d.name.toLowerCase().endsWith(x))).map((d) => d.name);
 		const files = downloads.filter(isCsv);
-		const checked = files.map((d) => {
-			const marks = [...d.text.matchAll(/[=+\-@"]CCX\(/g)];
-			const bad = marks.filter((m) => /[;\t\r\n] *$/.test(d.text.slice(Math.max(0, m.index - 20), m.index)));
-			return { name: d.name, bytes: d.text.length, marks: marks.length, bad: bad.length, sample: bad.slice(0, 3).map((m) => J(d.text.slice(Math.max(0, m.index - 30), m.index + 8))) };
-		});
-		return { evidence: { url, typed, controls, files: checked, nonCsv: other.map((d) => d.name), undeclared },
-			checks: { exported: downloads.length > 0, typedSaved: typed.every((x) => x.errors.length === 0 && x.saved), onlyDeclaredNonCsv: undeclared.length === 0, hostileReached: checked.every((c) => c.marks > 0), noFormula: checked.every((c) => c.bad === 0) } };
+		const checked = files.map(csvFileEvidence);
+		return { evidence: { url, nonCsvReason: nonCsvReason ?? null, typed, controls, files: checked, nonCsv: other.map((d) => d.name), undeclared },
+			checks: { ...(nonCsvReason ? { declaredNotCsv: files.length === 0, downloaded: downloads.length > 0 } : csvChecks(checked)), typedSaved: typed.every((x) => x.errors.length === 0 && x.saved), onlyDeclaredNonCsv: undeclared.length === 0 } };
 	});
 }
 
@@ -529,12 +525,14 @@ async function csv(route, url, viewId, forms) {
  * fits the viewport, takes keyboard focus and is a labelled region (a box that fits its table is not a tab stop); and every heading of the page that an export or
  * page control (the page header's actions, a button or link named export, csv or download) overlaps.
  */
-async function measure(url, expect = null) {
+async function measure(url, expect = null, ready = true) {
 	const layouts = {};
 	try {
 		for (const width of [320, 390]) {
 			await p.s('Emulation.setDeviceMetricsOverride', { width, height: 800, deviceScaleFactor: 1, mobile: true });
 			await open(url);
+			// a page that hydrates sets its ready marker then; one that never does is measured without it and fails rendered
+			if (ready) await p.waitFor(`!!document.querySelector('main#main[data-ready]')`, 5000).catch(() => {});
 			// every <details> is opened: what a closed one holds is a state the reader reaches by a click
 			layouts[width] = await p.evaluate(`(() => { const closed = [...document.querySelectorAll('details:not([open])')]; closed.forEach((d) => { d.open = true; }); const se = document.scrollingElement; const vw = se.clientWidth; const out = (e) => e.getBoundingClientRect().right > vw + 1 && getComputedStyle(e).position !== 'fixed';
 				const vis = ${VIS};
@@ -554,7 +552,7 @@ async function measure(url, expect = null) {
 				const meet = (a, b) => { const r = a.getBoundingClientRect(), s = b.getBoundingClientRect(); return Math.min(r.right, s.right) - Math.max(r.left, s.left) > 1 && Math.min(r.bottom, s.bottom) - Math.max(r.top, s.top) > 1; };
 				const overlaps = headings.flatMap((h) => controls.filter((c) => !h.contains(c) && !c.contains(h) && meet(h, c)).map((c) => name(h) + ' x ' + name(c)));
 				const main = document.querySelector('main#main'); const nav = performance.getEntriesByType('navigation')[0];
-				return { vw, rendered: !!main && !/^error/.test(main.dataset.ready ?? '') && (nav?.responseStatus ?? 200) < 400, status: nav?.responseStatus ?? null, ready: main?.dataset.ready ?? null, stateShown: ${J(expect)} ? !!document.querySelector(${J(expect)}) : true, detailsOpened: closed.length, scrollWidth: se.scrollWidth, wide: [...document.querySelectorAll('body *')].filter(out).slice(0, 3).map(name), idShown: holders.length > 0, idOut: holders.filter(out).map(name),
+				return { vw, main: !!main, content: !!main && main.textContent.trim() !== '', status: nav?.responseStatus ?? null, ready: main?.dataset.ready ?? null, stateShown: ${J(expect)} ? !!document.querySelector(${J(expect)}) : false, detailsOpened: closed.length, scrollWidth: se.scrollWidth, wide: [...document.querySelectorAll('body *')].filter(out).slice(0, 3).map(name), idShown: holders.length > 0, idOut: holders.filter(out).map(name),
 					tables, controls: controls.length, overlaps, controlsOut: controls.filter((c) => { const r = c.getBoundingClientRect(); return r.left < -1 || r.right > vw + 1; }).map(name) }; })()`);
 		}
 	} finally { await p.s('Emulation.clearDeviceMetricsOverride').catch(() => {}); }
@@ -569,19 +567,21 @@ const TABLE_SOURCE = /<table\b|role="(table|grid)"/;
  * viewport, takes keyboard focus (tabindex 0) and is a labelled region; no heading overlaps an export or page control,
  * and none of those controls sticks out. A page whose source renders a table and that shows none at a width fails,
  * unless declared.mjs NO_TABLE says why (and then it must show none); TABLE_QUERY names the query that shows it. It also
- * fails a page that did not render (error page, failed load). Page states that exist only after a choice are opened
+ * fails a page that did not render (error page, failed load, no navigation answer, or no ready marker unless declared.mjs
+ * NO_READY says why). Page states that exist only after a choice are opened
  * through declared.mjs CHOICE_STATES (a state that did not come up fails); every <details> is opened first.
  */
 async function narrow(t, idKind, state = null) {
 	return scenario(`narrow:${t.route}${t.route.endsWith('[view]') ? ':' + t.view : ''}${state ? '#' + state.name : ''}@${idKind}`, t.view, `with ${idKind === 'long' ? 'a 64-character case id without break opportunity' : 'an ordinary case id'} the page${state ? ` in its ${state.name} state` : ''} does not scroll sideways at 320 or 390 px; wide tables scroll in a labelled, focusable box; headings and export controls do not overlap`, async () => {
 		const url = t.url + (state ? state.query : D.TABLE_QUERY[t.route]?.query ?? '');
-		const layouts = await measure(url, state?.expect ?? null);
+		const noReady = D.NO_READY[t.route] ?? null;
+		const layouts = await measure(url, state?.expect ?? null, !noReady);
 		const all = Object.values(layouts);
 		const expects = pageUses(ROOT, t.route, TABLE_SOURCE);
 		const declared = state ? null : D.NO_TABLE[t.route];
 		const wide = all.flatMap((l) => l.tables.filter((x) => x.width > l.vw + 1));
 		// a page that did not render (an error page, a failed load) has nothing to measure: it fails, never passes by being empty
-		const checks = { rendered: all.every((l) => l.rendered), ...(state ? { stateShown: all.every((l) => l.stateShown) } : {}), noSideways: all.every((l) => l.scrollWidth <= l.vw), wideTablesScrollInBox: wide.every((x) => !!x.box && x.fits), scrollBoxesFocusable: wide.every((x) => x.focusable), scrollBoxesLabelled: wide.every((x) => x.region), scrollBoxesTabStopOnlyWhenWide: all.every((l) => l.tables.every((x) => !x.idleTabStop)), headingsClearOfControls: all.every((l) => l.overlaps.length === 0), controlsInView: all.every((l) => l.controlsOut.length === 0) };
+		const checks = { rendered: all.every((l) => pageRendered(l, noReady)), ...(noReady ? { declaredNoReady: all.every((l) => l.ready == null) } : {}), ...(state ? { stateShown: stateShown(state, all) } : {}), noSideways: all.every((l) => l.scrollWidth <= l.vw), wideTablesScrollInBox: wide.every((x) => !!x.box && x.fits), scrollBoxesFocusable: wide.every((x) => x.focusable), scrollBoxesLabelled: wide.every((x) => x.region), scrollBoxesTabStopOnlyWhenWide: all.every((l) => l.tables.every((x) => !x.idleTabStop)), headingsClearOfControls: all.every((l) => l.overlaps.length === 0), controlsInView: all.every((l) => l.controlsOut.length === 0) };
 		if (declared) checks.declaredNoTable = all.every((l) => l.tables.length === 0);
 		else if (expects && !state) checks.tableRendered = all.every((l) => l.tables.length > 0);
 		return { evidence: { url, state: state?.name ?? null, expectsTable: expects, declaredNoTable: declared ?? null, layouts }, checks };
@@ -672,6 +672,7 @@ try {
 	const pages = pagesOf(rv, imp.importId);
 	if (runs('narrow')) {
 		for (const route of Object.keys(D.CHOICE_STATES)) if (!pages.some((x) => x.route === route && x.url)) await undriven('narrow', route, route, 'a declared choice state of a page the suite opens', 'declared in CHOICE_STATES but the route is not a page the suite opens: remove or fix the declaration');
+		for (const route of Object.keys(D.NO_READY)) if (!pages.some((x) => x.route === route && x.url)) await undriven('narrow', `no-ready:${route}`, route, 'a page declared without a ready marker that the suite opens', 'declared in NO_READY but the route is not a page the suite opens: remove or fix the declaration');
 		for (const [state, why] of Object.entries(D.NO_CHOICE_STATE)) notApplicable('narrow', state, why);
 	}
 	// narrow at the ordinary id: every page, before a 64-character id is imported and listed (/import lists every import)

@@ -24,7 +24,7 @@
 <main id="main" tabindex="-1" data-ready={ready ? 'overview' : null}>
 	<PageHeader heading="Overview" section="Overview" caseName={data.version.titleName} subtitle={content.subtitle ?? (o.matter?.title || data.version.caseName)} />
 	<DegradedRows failed={data.documents.failed} />
-	<p class="meta">Results version <code title={vid}>{vid.slice(0, 19)}…</code> · produced {o.created} by {o.producer} from {o.inputKind} input.</p>
+	<p>Results version <code title={vid}>{vid.slice(0, 19)}…</code> · produced {o.created} by {o.producer} from {o.inputKind} input.</p>
 	{#if data.previous}
 		<form method="POST" action="?/rollback" id="rollback-form">
 			<input type="hidden" name="expect" value={vid} />

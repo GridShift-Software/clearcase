@@ -31,7 +31,8 @@ const hidden = (html, name) => [...html.matchAll(new RegExp(`<input type="hidden
 async function docPage(C, rv, ref, query = '') {
 	const r = await C.c.get(`${citeRoute(rv, ref)}${query}`);
 	const t = r.text;
-	const section = /<section class="original"[^>]*data-original-state="([a-z]+)" data-presentation="([a-z]+)"/.exec(t);
+	// the section may carry more classes after `original` (`original card` since the design system, ae27bf2)
+	const section = /<section class="original(?: [^"]*)?"[^>]*data-original-state="([a-z]+)" data-presentation="([a-z]+)"/.exec(t);
 	return {
 		status: r.status, html: t, state: section?.[1] ?? null, presentation: section?.[2] ?? null,
 		route: /<p[^>]*id="original-state"[^>]*><span class="route" data-route="([a-z]+)">([^<]*)</.exec(t)?.slice(1) ?? null,
@@ -40,6 +41,19 @@ async function docPage(C, rv, ref, query = '') {
 		open: attrById(t, 'open-original', 'href'), openText: /id="open-original">([^<]*)</.exec(t)?.[1] ?? null, download: attrById(t, 'download-original', 'href'),
 		title: decode(/<title>([^<]*)<\/title>/.exec(t)?.[1] ?? ''),
 	};
+}
+
+/**
+ * The active version's overview, reached the way the app leads there: the root lands on the case list since be66e49
+ * (GRS-70 demo; it used to redirect to the active overview), whose Open goes to the active version's overview. The root
+ * is requested here, with the case active, because the callers no longer navigate through it.
+ */
+async function activeOverview(C, L) {
+	const root = await C.c.get('/');
+	L.check('with the case active, the root still redirects to the case list (307 to /cases)', { status: 307, location: '/cases' }, { status: root.status, location: root.location });
+	const home = await C.c.home();
+	L.check('the case list (where the root lands) opens the active version\'s overview', `${vpath(C.fx.accepted.resultsVersion)}/overview`, home);
+	return `${C.origin}${home}`;
 }
 
 // ---- lane 2: import and preview without activation ---------------------------------------------------------------
@@ -90,7 +104,9 @@ export async function lane2(C, L) {
 	L.check('preview overview counts the documents', fx.summary.mainHtml.docCount, Number(await P.evaluate(`document.getElementById('count-documents').dataset.count`)));
 	await P.shot(L.file(join(C.out, 'lane-02.png')));
 	const after = await C.c.get('/');
-	L.check('after previewing, the root still does not redirect to the candidate', { status: 307, location: '/import' }, { status: after.status, location: after.location });
+	// the root lands on the case list since be66e49 (GRS-70 demo); the candidate is not active there, so the case's
+	// Open still leads to its validation report, not to a version
+	L.check('after previewing, the root still redirects to the case list, whose Open leads to the report, not the candidate', { status: 307, location: '/cases', open: `/import/${importId}` }, { status: after.status, location: after.location, open: await C.c.home() });
 	const h = await C.c.health();
 	L.check('health: no recovery, no storage error', { recovery: null, storageError: null }, { recovery: h.recovery, storageError: h.storageError });
 }
@@ -321,8 +337,8 @@ export async function lane9(C, L) {
 	const { openPage } = await import('./browser.mjs');
 	const P = await openPage(b, { fresh: true });
 	try {
-		L.cmd(`browser (fresh context): ${C.origin}/ (redirects to the active overview)`);
-		await P.goto(`${C.origin}/`, ready('overview'));
+		L.cmd(`browser (fresh context): the active overview, where the case list's Open goes`);
+		await P.goto(await activeOverview(C, L), ready('overview'));
 		const focus = `(() => { const e = document.activeElement; return e ? { tag: e.tagName.toLowerCase(), id: e.id || null, cls: e.className || null, heading: e.hasAttribute('data-page-heading'), text: (e.textContent || '').trim().slice(0, 60) } : null; })()`;
 		await P.key('Tab');
 		L.check('first Tab focuses the skip link', { tag: 'a', cls: 'skip' }, (({ tag, cls }) => ({ tag, cls }))(await P.evaluate(focus)));
@@ -365,7 +381,7 @@ export async function lane9(C, L) {
 	const Q = await openPage(b, { fresh: true });
 	try {
 		L.cmd('browser (fresh context): overview, Tab to the skip link, Enter');
-		await Q.goto(`${C.origin}/`, ready('overview'));
+		await Q.goto(await activeOverview(C, L), ready('overview'));
 		const h0 = await Q.evaluate('history.length');
 		await Q.key('Tab');
 		await Q.key('Enter');
@@ -469,7 +485,7 @@ export async function lane8(C, L) {
 		L.check(`${label}: active version, read model digest and health unchanged`, before, after);
 		if (n++ === 0) { await P.goto(`${C.origin}/import/${imp.importId}`, ready(`import:${imp.importId}`)); await P.shot(L.file(join(C.out, 'lane-08-rejected.png'))); }
 	}
-	await P.goto(`${C.origin}/`, ready('overview'));
+	await P.goto(await activeOverview(C, L), ready('overview'));
 	L.check('the active v5 version stays usable: overview counts and the active banner', { count: fx.summary.mainHtml.docCount, active: true }, await P.evaluate(`({ count: Number(document.getElementById('count-documents').dataset.count), active: !!document.getElementById('active-banner') })`));
 	await P.goto(`${C.origin}${vpath(rv)}/chronology`, ready('chronology'), 60000);
 	L.check('and its chronology lists every record', fx.summary.mainHtml.docCount, await P.settled(`document.querySelectorAll('.grid-table .grid-row[data-ref]').length`));
@@ -507,7 +523,7 @@ export async function lane10(C, L) {
 	await P.goto(`${C.origin}${citeRoute(rv, ref)}`, ready(`doc:${ref}`));
 	L.check('browser after restart: the note is shown, no recovery banner', { note: true, recovery: false }, await P.evaluate(`({ note: !!document.querySelector('#notes li[data-note=${JSON.stringify(id)}]'), recovery: !!document.getElementById('recovery-banner') })`));
 	await P.shot(L.file(join(C.out, 'lane-10.png')));
-	await P.goto(`${C.origin}/`, ready('overview'));
+	await P.goto(await activeOverview(C, L), ready('overview'));
 	const ov = await P.evaluate(`({ total: document.getElementById('notes-total').textContent.trim(), link: [...document.querySelectorAll('section[aria-labelledby=kpi-notes] a.cite')].map((a) => a.getAttribute('href')) })`);
 	L.check('overview "My notes": one note, linked by the citation route', { one: true, link: [citeRoute(rv, ref)] }, { one: /^1 note for this case/.test(ov.total), link: ov.link });
 	C.S.noteLink = ov.link[0] ?? null;

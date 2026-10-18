@@ -1,0 +1,22 @@
+{
+  "description": "The planning gate and its decision record are Done, and a hosted writer carries no gate blocker",
+  "capability": "plan-graph",
+  "set": {
+    "CC-17.depends": [
+      "HA-operator-queue"
+    ],
+    "CC-17.nativeBlockedBy": [
+      "GRS-135"
+    ]
+  },
+  "expect": {
+    "exit": 0,
+    "output": [
+      "PASS: 77 planning issues",
+      "generated documents current, 0 pending coordinator changes"
+    ],
+    "absent": [
+      "HOLD"
+    ]
+  }
+}

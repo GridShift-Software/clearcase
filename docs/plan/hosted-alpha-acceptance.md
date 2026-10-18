@@ -5,7 +5,7 @@ Updated 17 October 2026. No hosted acceptance evidence has been collected for th
 
 ## Authority and decision state
 
-[Chart the route from the ClearCase POC to hosted alpha](https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha) remains the implementation gate. The full written plan still needs user approval.
+[Chart the route from the ClearCase POC to hosted alpha](https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha) was the implementation gate. The user approved the full written plan on 17 October 2026; hosted work now follows its native blockers, the checkpoints and the human gates.
 
 [Define alpha acceptance, rollout and recovery](https://linear.app/vaper/issue/GRS-93/define-alpha-acceptance-rollout-and-recovery) holds the settled policy decisions, accepted answers and qualifications. This checklist is a planning baseline, not launch sign-off or permission to deploy.
 

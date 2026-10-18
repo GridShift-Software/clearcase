@@ -42,9 +42,10 @@ IGNORED_PARTS = {"node_modules", "__pycache__", ".DS_Store"}
 
 
 def redact(value):
-    """Display and serialization only. Paths the tools open stay raw: a redacted ~... string is not a path."""
+    """Display and serialization only. Paths the tools open stay raw: a redacted ~... string is not a path. HOME is
+    replaced only where a path continues it or ends, so /home/x2 never becomes ~2 under HOME=/home/x."""
     text = str(value)
-    return text.replace(HOME, "~") if HOME and HOME != "/" else text
+    return re.sub(re.escape(HOME) + r"(?=[/\s:'\"]|$)", "~", text) if HOME and HOME != "/" else text
 
 
 def redacted(value):
@@ -502,7 +503,7 @@ def validate_execution(check, requirement):
     recorded = check.get("execution")
     if recorded != expected or check.get("command") != expected.get("argv"):
         raise ValueError("required check command/argv/executable/environment mismatch")
-    argv = [str(Path(word).expanduser()) if word.startswith("~/") else word for word in recorded["argv"]]
+    argv = [str(Path(word).expanduser()) if word == "~" or word.startswith("~/") else word for word in recorded["argv"]]
     current = execution_identity(argv, Path(recorded["cwd"]).expanduser())
     if current != recorded:
         raise ValueError("check execution identity changed at approval (runtime, PATH or environment)")
@@ -1880,9 +1881,19 @@ def cmd_fix_round_guard(args):
             manifest = json_object(root / path)
             if manifest.get("schema") != "clearcase-fix-round/1":
                 raise ValueError("schema must be clearcase-fix-round/1")
-            canonical_unit(str(manifest.get("unit")))
+            unit = canonical_unit(str(manifest.get("unit")))
             if not isinstance(manifest.get("fixBase"), str) or not FULL_ID.fullmatch(manifest["fixBase"]):
                 raise ValueError("fixBase must be the full SHA of the reviewed commit")
+            # The manifest is the fix worker's file. With the coordinator's ledger, the reviewed commit and findings come
+            # from the review it recorded before the first fix; CI has no ledger and relies on the approval binding.
+            fix, prompting = fix_state(Path(args.ledger).expanduser().resolve(), unit) if args.ledger else (None, None)
+            if fix is not None and prompting is None:
+                raise ValueError(f"the ledger records a fix attempt for {unit} with no review-record before it")
+            if fix is not None and manifest["fixBase"] != prompting["payload"]["sha"]:
+                raise ValueError(f"fixBase {manifest['fixBase'][:12]} is not the reviewed commit "
+                                 f"{prompting['payload']['sha'][:12]} the ledger recorded for {unit}")
+            if fix is not None and manifest.get("reviewFindingsSha256") != prompting["payload"]["findingsHash"]:
+                raise ValueError(f"reviewFindingsSha256 names other findings than the review the ledger recorded for {unit}")
         except (OSError, ValueError) as error:
             sys.stderr.write(f"fix-round-guard: FAIL {path}: {error}\n")
             status = 1

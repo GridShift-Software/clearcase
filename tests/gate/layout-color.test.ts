@@ -8,7 +8,7 @@ const kit = (chain: Style[]) => {
 	const els = chain.map((s, i) => ({ s, parentElement: null as unknown }));
 	els.forEach((e, i) => { e.parentElement = els[i + 1] ?? null; });
 	const getComputedStyle = (e: { s: Style }) => ({ backgroundImage: 'none', backgroundSize: 'auto', backgroundRepeat: 'repeat', ...e.s });
-	const k = new Function('getComputedStyle', `${COLOR}; return { bgOf, ratio, rgba };`)(getComputedStyle);
+	const k = new Function('getComputedStyle', `${COLOR}; return { bgOf, ratio, rgba, ringOf };`)(getComputedStyle);
 	return { el: els[0], ...k };
 };
 const WHITE = { r: 255, g: 255, b: 255, a: 1 };
@@ -56,5 +56,15 @@ describe('layout contrast background', () => {
 			const { el, bgOf, ratio } = kit([{ backgroundColor: 'rgba(0, 0, 0, 0)', backgroundImage: GRADIENT, ...own }, { backgroundColor: 'rgb(255, 255, 255)' }]);
 			expect(ratio(WHITE, bgOf(el, WHITE)), JSON.stringify(own)).toBeLessThan(1.2);
 		}
+	});
+
+	it('a focus ring is weighed against the worst stop of a gradient behind it, as text is', () => {
+		const { el, ringOf } = kit([{ backgroundColor: 'rgba(0, 0, 0, 0)' }, { backgroundColor: 'rgb(10, 28, 52)', backgroundImage: 'linear-gradient(rgba(0, 0, 0, 0), rgb(255, 255, 255))' }]);
+		expect(ringOf(WHITE, el)).toBeLessThan(1.2);
+	});
+
+	it('a focus ring on a solid background keeps its ratio', () => {
+		const { el, ringOf } = kit([{ backgroundColor: 'rgba(0, 0, 0, 0)' }, { backgroundColor: 'rgb(10, 28, 52)' }]);
+		expect(ringOf(WHITE, el)).toBeCloseTo(17.09, 1);
 	});
 });

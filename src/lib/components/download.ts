@@ -1,4 +1,4 @@
-export function download(name: string, content: string | Uint8Array, type = 'text/csv;charset=utf-8') {
+export function download(name: string, content: string | Uint8Array, type: string) {
 	const url = URL.createObjectURL(new Blob([typeof content === 'string' ? content : new Uint8Array(content)], { type }));
 	const a = document.createElement('a');
 	a.href = url;

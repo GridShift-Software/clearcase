@@ -43,9 +43,10 @@ IGNORED_PARTS = {"node_modules", "__pycache__", ".DS_Store"}
 
 def redact(value):
     """Display and serialization only. Paths the tools open stay raw: a redacted ~... string is not a path. HOME is
-    replaced only where a path continues it or ends, so /home/x2 never becomes ~2 under HOME=/home/x."""
+    replaced only where a path continues it or ends, so /home/x2 never becomes ~2 under HOME=/home/x, and only where it
+    starts a path, so /srv/home/x/f is not read back as ~ by expanduser."""
     text = str(value)
-    return re.sub(re.escape(HOME) + r"(?=[/\s:'\"]|$)", "~", text) if HOME and HOME != "/" else text
+    return re.sub(r"(?<![\w/.~-])" + re.escape(HOME) + r"(?=[/\s:'\"]|$)", "~", text) if HOME and HOME != "/" else text
 
 
 def seal(value):

@@ -213,7 +213,13 @@ gh)
     ;;
   "api -X DELETE $runners/$id/labels/clearcase-pc1 --silent")
     [[ $github != pause-fail ]] || { echo 'HTTP 403: Must have admin rights to Repository.' >&2; exit 1; }
-    printf '%s %s %s false\n' "$id" "$status" "$busy" >"$root/github"
+    # GitHub answers 404 for a label the runner does not carry, so of two concurrent removals exactly one succeeds.
+    (
+      flock 8
+      read -r id status busy labelled <"$root/github"
+      [[ $labelled == true ]] || { echo 'HTTP 404: Not Found' >&2; exit 1; }
+      printf '%s %s %s false\n' "$id" "$status" "$busy" >"$root/github"
+    ) 8>"$root/github.lock"
     ;;
   "api -X POST $runners/$id/labels -f labels[]=clearcase-pc1 --silent")
     [[ $github != resume-fail ]] || { echo 'error connecting to api.github.com' >&2; exit 1; }

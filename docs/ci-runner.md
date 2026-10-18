@@ -6,7 +6,7 @@ CI (`.github/workflows/ci.yml`) runs `bun run --bun check` and `bun run --bun te
 
 | Where | What | Created by |
 | --- | --- | --- |
-| Workstation | `~/.config/clearcase-ci/pc1-vm_ed25519` (guest management key) and `known_hosts` | `scripts/ci/pc1-vm` |
+| Workstation | `~/.config/clearcase-ci/pc1-vm_ed25519` (guest management key) and `known_hosts`, which pins the guest host key (`CLEARCASE_CI_STATE` relocates the directory and must not contain whitespace) | `scripts/ci/pc1-vm` |
 | pc1 host | `/var/lib/clearcase-ci/` (`disk.qcow2`, `seed.iso`, `console.log`, `powerdown`), system user `clearcase-ci`, `/etc/systemd/system/clearcase-ci-vm.service`, `/etc/clearcase-ci-vm.nft` and the nftables table `inet clearcase_ci_vm` it loads while the VM runs, packages `qemu-system-x86`, `qemu-img`, `libisoburn`, `nftables`, `socat` | `scripts/ci/vm-host.sh` |
 | Guest | Ubuntu 24.04 cloud image, 4 vCPU, 8 GiB, 40 GiB sparse disk; admin user `ciadmin`; runner user `runner` (no sudo); Bun 1.4.2 in `/usr/local/bin`; runner in `/home/runner/actions-runner`; service `actions.runner.GridShift-Software-clearcase.clearcase-pc1-vm` | `scripts/ci/guest-provision.sh`, installed as `/usr/local/sbin/clearcase-ci-guest` |
 

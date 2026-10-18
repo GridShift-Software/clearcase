@@ -987,6 +987,16 @@ class GuardClosure(ControlCase):
             self.commit('added test')
             self.guard(reasons=reasons)
 
+    def test_sveltekit_generated_tsconfig_is_not_a_resolver_input_but_other_missing_extends_still_fail_closed(self):
+        test = "import { clamp } from '../src/clamp';\n" + self.original
+        for extended, code in (('./.svelte-kit/tsconfig.json', 0), ('./tsconfig.missing.json', 1)):
+            with self.subTest(extends=extended):
+                self.protect({'src/clamp.ts': 'export function clamp(x: number) { return x; }\n',
+                              'tsconfig.json': json.dumps({'extends': extended})}, test)
+                self.write('src/clamp.ts', 'export function clamp(x: number) { if (x < 0) return 0; return x; }\n')
+                self.commit('fix')
+                self.guard(code=code)
+
     def test_a_fix_in_the_module_under_test_passes(self):
         # Almost every real fix changes the module its named test imports; only test code is protected.
         test = "import { clamp } from '../src/clamp';\n" + self.original

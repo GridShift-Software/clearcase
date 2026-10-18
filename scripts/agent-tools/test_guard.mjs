@@ -102,7 +102,10 @@ function main() {
       const config = ts.parseConfigFileTextToJson('tsconfig.json', host.readFile(path.join(root, 'tsconfig.json')));
       if (config.error) throw Error('cannot parse protected resolver configuration');
       const parsed = ts.parseJsonConfigFileContent(config.config, host, root);
-      const errors = parsed.errors.filter(error => error.code !== 18003); // no-inputs does not affect module resolution
+      // No inputs does not affect module resolution. SvelteKit's generated .svelte-kit/tsconfig.json is ignored by Git, so
+      // neither snapshot has it and the guard never reads the worker's copy; the $lib alias it carries is built in below.
+      const errors = parsed.errors.filter(error => error.code !== 18003
+        && !(error.code === 5083 && /[/\\]\.svelte-kit[/\\]tsconfig\.json/.test(ts.flattenDiagnosticMessageText(error.messageText, ' '))));
       if (errors.length) throw Error('unsupported or unavailable protected resolver configuration: ' + errors.map(error => ts.flattenDiagnosticMessageText(error.messageText, ' ')).join('; '));
       configured = parsed.options;
     }

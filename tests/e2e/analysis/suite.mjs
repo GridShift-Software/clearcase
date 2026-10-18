@@ -20,6 +20,7 @@ const { VIEWS } = await import('../../../src/lib/components/view-registry.ts');
 const { pageTitle } = await import('../../../src/lib/components/titles.ts');
 const { EXPORT_COLUMNS_NOTE, EXPORT_NAME_NOTE } = await import('../../../src/lib/local-case/results.server.ts');
 const { DEFENCE_CSV_NAME, NEUTRAL_CSV_KEYS } = await import('../../../src/lib/views/analysis/defence.ts');
+const { viewHeading } = await import('../../../src/lib/views/analysis/headings.ts');
 const { CONTRADICTIONS_CSV_NAME } = await import('../../../src/lib/views/analysis/contradictions.ts');
 const L = await import('./lib.mjs');
 
@@ -29,7 +30,12 @@ const OUT = join(process.env.CLEARCASE_E2E_OUT ?? join(ROOT, '.local', 'e2e'), '
 const SCREENS = join(OUT, 'screens');
 mkdirSync(SCREENS, { recursive: true });
 const PORT = 43500, ORIG_PORT = 43501;
+const additions = process.env.CLEARCASE_ANALYSIS_ADDITIONS === '1';
 const label = (id) => VIEWS.find((v) => v.id === id).label;
+/** The heading the app server below shows: the label, or v5's heading for three views while the additions are off (ADR 0003). */
+const heading = (id) => viewHeading(VIEWS.find((v) => v.id === id), additions);
+/** The defence CSV's refs column, an addition shown only with the flag on. */
+const REFS = additions ? ['refs'] : [];
 const route = (id) => VIEWS.find((v) => v.id === id).route;
 const J = JSON.stringify;
 
@@ -52,7 +58,7 @@ const offline = await proveOffline();
 const tmp = mkdtempSync(join(tmpdir(), 'cc-e2e-analysis-'));
 for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => { rmSync(tmp, { recursive: true, force: true }); process.exit(1); });
 let canary, b;
-const A = appServer({ name: 'analysis', root: ROOT, buildDir: BUILD, port: PORT, origPort: ORIG_PORT, dir: tmp });
+const A = appServer({ name: 'analysis', root: ROOT, buildDir: BUILD, port: PORT, origPort: ORIG_PORT, dir: tmp, env: { CLEARCASE_ANALYSIS_ADDITIONS: additions ? '1' : '0' } });
 const ctx = {};
 
 /** Import and activate a package through the app's own forms; returns the active results version. */
@@ -66,7 +72,8 @@ async function importActivate(sc) {
 
 /**
  * Arrive at a view the way a user does, from the overview through its navigation link, and read what BA-14 and BA-16
- * require: the document title '<label> · <case> · ClearCase' and the focus on the page heading, which is the label.
+ * require: the document title '<label> · <case> · ClearCase' and the focus on the page heading, which is the label
+ * (v5's heading on Timeline, Defence & Rebuttal and Info Required while the additions are off).
  */
 async function arrive(p, vid, view, caseName) {
 	await p.goto(`/v/${encodeURIComponent(vid)}/overview`, L.ready('overview'));
@@ -74,7 +81,7 @@ async function arrive(p, vid, view, caseName) {
 	await p.waitFor(`${L.ready(view)} && location.pathname.endsWith(${J(route(view))})`, 30000);
 	await sleep(80);
 	const got = await p.evaluate(`({ title: document.title, heading: document.querySelector('h1[data-page-heading]')?.textContent.trim() ?? null, focused: document.activeElement?.matches?.('h1[data-page-heading]') ?? false, current: document.querySelector('nav.views a[aria-current="page"]')?.id ?? null })`);
-	const want = { title: pageTitle({ section: label(view), caseName }), heading: label(view), focused: true, current: `nav-${view}` };
+	const want = { title: pageTitle({ section: label(view), caseName }), heading: heading(view), focused: true, current: `nav-${view}` };
 	return { ok: J(got) === J(want), got, want };
 }
 const V = (vid, view) => `/v/${encodeURIComponent(vid)}${route(view)}`;
@@ -208,7 +215,7 @@ try {
 		return { pass: ok, evidence: { ...out, risk, screenshots: 'screens/<view>-<width>.png' } };
 	});
 
-	await scenario('AN-07', 'vdm_matrix_tab', 'Scenario 7: trace a defence to its evidence: document chips open their documents; the free-text refs are shown and exported after the package\'s CSV keys, under the package\'s file name (S-vdm_matrix_tab-1)', async () => {
+	await scenario('AN-07', 'vdm_matrix_tab', 'Scenario 7: trace a defence to its evidence: document chips open their documents; the export keeps the package\'s CSV keys and file name; the free-text refs are shown, and exported after those keys, only with CLEARCASE_ANALYSIS_ADDITIONS=1 (S-vdm_matrix_tab-1, GRS-48)', async () => {
 		const nav = await arrive(p, vid, 'vdm_matrix_tab', name);
 		const note = await notes();
 		await p.shot(join(SCREENS, 'vdm_matrix_tab-desktop.png'));
@@ -220,8 +227,9 @@ try {
 		const lines = dl[0]?.text.split('\r\n') ?? [];
 		await p.click('#defence-table .chips a.cite');
 		await p.waitFor(`location.pathname.endsWith('/doc/OD-001') && document.querySelector('main#main')?.dataset.ready === 'doc:OD-001'`, 30000);
-		const ok = nav.ok && J(rows[0].chips) === J(['OD-001', 'OD-002']) && rows[1].dash === '—' && rows[0].refs === 'OD-001 – OD-002' && rows[1].refs === '' && heads.length === 6 && heads[5] === 'Refs'
-			&& pkgExport.defence !== null && pkgExport.defenceKeys?.length === 5 && dl[0]?.name === pkgExport.defence && note.length === 0 && lines[0] === [...pkgExport.defenceKeys, 'refs'].join(',') && lines[1].endsWith(',OD-001 – OD-002') && lines[2] === 'Point without documents,Invented case,Invented evidence,,Invented rebuttal,';
+		const ok = nav.ok && J(rows[0].chips) === J(['OD-001', 'OD-002']) && rows[1].dash === '—' && rows[0].refs === (additions ? 'OD-001 – OD-002' : null) && rows[1].refs === (additions ? '' : null) && heads.length === (additions ? 6 : 5) && (!additions || heads[5] === 'Refs')
+			&& pkgExport.defence !== null && pkgExport.defenceKeys?.length === 5 && dl[0]?.name === pkgExport.defence && note.length === 0 && lines[0] === [...pkgExport.defenceKeys, ...REFS].join(',')
+			&& (additions ? lines[1].endsWith(',OD-001 – OD-002') : lines[1].endsWith(` ${L.TOKEN}`) && !lines[1].includes('OD-001 – OD-002')) && lines[2] === `Point without documents,Invented case,Invented evidence,,Invented rebuttal${additions ? ',' : ''}`;
 		return { pass: ok, evidence: { nav, rows, heads, csv: { name: dl[0]?.name, head: lines[0], rows: lines.length - 1 }, expected: pkgExport, note } };
 	});
 
@@ -610,7 +618,7 @@ try {
 				const st = await p.evaluate(`({ heading: document.querySelector('h1')?.textContent.trim(), empty: [...document.querySelectorAll('main .an-empty')].filter((e) => e.getClientRects().length).map((e) => e.textContent.trim()), unavailable: !!document.querySelector('[data-unavailable]') })`);
 				const errors = errorsSince(mk);
 				const needsEmpty = tag === 'empty';
-				const good = st.heading === label(view) && !st.unavailable && errors.length === 0 && (!needsEmpty || st.empty.length > 0);
+				const good = st.heading === heading(view) && !st.unavailable && errors.length === 0 && (!needsEmpty || st.empty.length > 0);
 				ev[`${tag}/${view}`] = { ...st, errors: errors.map((e) => e.text) };
 				if (!good) ok = false;
 			}
@@ -635,7 +643,7 @@ try {
 		}
 		const d = out.vdm_matrix_tab, c = out.contradictions_tab;
 		const ok = L.viewContentText(novc, 'vdm_matrix_tab', 'exportFileName') === null && L.viewContentList(novc, 'vdm_matrix_tab', 'exportColumns') === null
-			&& d.downloads === 1 && d.name === DEFENCE_CSV_NAME && d.head === [...NEUTRAL_CSV_KEYS, 'refs'].join(',') && J(d.note) === J([EXPORT_NAME_NOTE, EXPORT_COLUMNS_NOTE])
+			&& d.downloads === 1 && d.name === DEFENCE_CSV_NAME && d.head === [...NEUTRAL_CSV_KEYS, ...REFS].join(',') && J(d.note) === J([EXPORT_NAME_NOTE, EXPORT_COLUMNS_NOTE])
 			&& c.downloads === 1 && c.name === CONTRADICTIONS_CSV_NAME && c.head === 'category,severity,item,detail,spread,refs' && J(c.note) === J([EXPORT_NAME_NOTE]);
 		return { pass: ok, evidence: out };
 	});

@@ -29,7 +29,7 @@ Preconditions:
 
 ## Gotchas
 
-- The page heading is the navigation label `Timeline`; v5 says "Chronology & Timeline" (register IDR-163).
+- The page heading is v5's "Chronology & Timeline" by default, and the navigation label `Timeline` only with `CLEARCASE_ANALYSIS_ADDITIONS=1` (ADR 0003, S-timeline-4). The navigation entry and the document title say `Timeline` in both states.
 - Case wording (subtitle, synopsis, narrative, notes) comes only from the package's `view-content`; without it those paragraphs are absent, not replaced by other text.
 - Year bars are SVG (`.bar rect`), because the app's CSP refuses inline styles. Read heights from `rect`, not `style.height`.
 - The amount-due note's `source ↗` is a citation of `quantum.headline_ref`, built from the template parts.

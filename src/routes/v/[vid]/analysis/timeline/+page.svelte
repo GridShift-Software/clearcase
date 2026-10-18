@@ -21,7 +21,7 @@
 {/snippet}
 
 <main id="main" tabindex="-1" data-analysis data-ready="timeline" data-hydrated={hydrated ? '' : null}>
-	<PageHeader heading="Timeline" section="Timeline" caseName={data.version.titleName} subtitle={c.subtitle}>
+	<PageHeader heading={data.heading} section="Timeline" caseName={data.version.titleName} subtitle={c.subtitle}>
 		{#snippet actions()}<button type="button" onclick={() => window.print()} id="print">Print / PDF</button> <button type="button" onclick={() => goto(href('chronology'))} id="full-chronology">Full chronology</button>{/snippet}
 	</PageHeader>
 

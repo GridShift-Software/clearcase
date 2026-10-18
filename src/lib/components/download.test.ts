@@ -1,5 +1,6 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { download, toCSV } from './csv.ts';
+import { download as shared } from './download.ts';
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
@@ -39,4 +40,10 @@ it('downloads identical fixture bytes through the CSV string and bundle binary p
 	expect(revoke).not.toHaveBeenCalled();
 	vi.advanceTimersByTime(1);
 	expect(revoke.mock.calls).toEqual(cases.map((_, i) => [`blob:fixture-${i + 1}`]));
+});
+
+it('requires an explicit type on the shared helper, so only csv.ts defaults to CSV and the formula class suite sees every CSV export', () => {
+	// @ts-expect-error the shared helper has no type default; a declared non-producer must name its type
+	const untyped = () => shared('x.csv', 'a,b');
+	expect(untyped).toBeTypeOf('function');
 });

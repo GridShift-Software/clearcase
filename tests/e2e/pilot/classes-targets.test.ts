@@ -2,7 +2,7 @@
 // what it refuses to leave unrecognised.
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 // @ts-expect-error plain .mjs
 import { csvExports, hasLeaveGuard } from '../classes/targets.mjs';
@@ -94,12 +94,12 @@ describe('shared direct and nested CSV producers (GRS-61)', () => {
  });
 });
 
-// Base inventory captured from db73856 using its own declarations and csvExports.
-import baseProducers from './csv-producers-db73856.json';
+// The real app's CSV inventory at the GRS-61 base (1332ea8), recomputed there with that revision's own targets.mjs and declarations.
+import baseProducers from './csv-producers.json';
 // @ts-expect-error plain .mjs
-import { NOT_PRODUCERS, HELPERS } from '../classes/declared.mjs';
+import * as declared from '../classes/declared.mjs';
 test('keeps the real app inventory at the base 19 pages and one server without rejected producers', () => {
- const result = csvExports(resolve(import.meta.dirname, '../../..'), { notProducers: NOT_PRODUCERS, helpers: HELPERS });
+ const result = csvExports(join(import.meta.dirname, '..', '..', '..'), { notProducers: declared.NOT_PRODUCERS, helpers: declared.HELPERS });
  expect(result).toEqual(baseProducers);
  expect(result.pages).toHaveLength(19);
  expect(result.servers).toHaveLength(1);

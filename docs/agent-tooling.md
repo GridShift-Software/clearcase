@@ -284,7 +284,11 @@ A branch with no new or changed manifest exits 0, prints `nothing to protect` an
 receipt whose `guard.nothingToProtect` is true: the receipt says no guard ran, and approval never accepts it as a guard
 receipt. That exit is refused, with exit 1, when the pull request is a fix round: `--require-manifest` (CI passes it
 for a pull request labelled `fix-round`, which the coordinator applies when it dispatches the fix), or `--ledger DIR
---branch feature/<id>-<slug>` when the coordinator's ledger records a `fix` dispatch for that branch's unit.
+--branch feature/<id>-<slug>` when the coordinator's ledger records a `fix` dispatch for that branch's unit. With
+`--ledger`, the ledger and not the manifest names what the guard compares against: a manifest whose `fixBase` is not
+the commit of the review the ledger recorded before the unit's first `fix` dispatch, or whose `reviewFindingsSha256`
+names other findings, refuses, and so does a `fix` dispatch with no review recorded before it. CI has no copy of the
+ledger, so there the manifest's `fixBase` is used, and the binding at `approve` is what ties it to the review.
 
 The CI job's `test guard` step runs on pull requests only. It adds a detached worktree at the pull request's head
 (GitHub tests the merge commit, which would include the base branch's later changes) and a second one at the base
@@ -314,8 +318,12 @@ Comments and whitespace may change. The protected closure, resolved from both Gi
   refuses, with no exception: a recorded reason does not excuse a loosened matcher, a flipped constant or a
   control-flow change there.
 - the runner configuration (`vitest`, `vite`, `jest` and `playwright` config, workspace and setup files, `bunfig.toml`),
-  every file those configurations name by string (`setupFiles`, `globalSetup`), and the `package.json` scripts
-  `test*`/`pretest*`/`posttest*`. An `exclude` edit, a new setup file or a changed test script refuses. For a
+  every local module a configuration imports (resolved like any import, so an extensionless `./vitest.shared` or a
+  `.js` specifier that lands on a `.ts` file is followed, transitively), every file a configuration names by a path
+  expression (`setupFiles`, `globalSetup`: a literal, a literal without its extension, `join`/`resolve` from
+  `__dirname` or `import.meta.dirname`, `new URL(..., import.meta.url)`), and the `package.json` scripts
+  `test*`/`pretest*`/`posttest*`. All of it is compared as text. An `exclude` edit in the configuration or in a module
+  it imports, a new setup file or a changed test script refuses; an unresolved local configuration import fails closed. For a
   `package.json` only the fields that steer module resolution (`name`, `type`, `main`, `module`, `browser`, `imports`,
   `exports`) are compared otherwise, so a dependency or version edit passes.
 - fixtures: every file in a fixture directory (`fixtures`, `__fixtures__`, `__mocks__`, `__snapshots__`) under a
@@ -323,7 +331,8 @@ Comments and whitespace may change. The protected closure, resolved from both Gi
   (`readFileSync('p')`, `readFile`, `Bun.file`, `join(__dirname, 'p')`, `new URL('p', import.meta.url)`), must keep its
   Git blob. A new fixture may be added.
 - resolver inputs read from Git (tsconfig, tracked extended configurations). Missing or unsupported extended
-  configurations fail closed. Nonliteral or unresolved local imports refuse; symlink and submodule dependencies fail
+  configurations fail closed, with one exemption: SvelteKit's generated `.svelte-kit/tsconfig.json`, which Git ignores,
+  so neither snapshot has it; the `$lib` alias it carries is built into the guard. Nonliteral or unresolved local imports refuse; symlink and submodule dependencies fail
   closed without being followed; external packages are bound by the lockfile, not traversed; private RAWS/.local
   imports refuse without being read.
 
@@ -333,13 +342,42 @@ imports passes. A test helper that lives outside these directories is not protec
 configuration reaches it by a literal path that lands in them; keep helpers under a test-support directory.
 
 A protected test file keeps every top-level statement as reviewed except its free tests: top-level `test`, `it` and
-`describe` calls that hold no named test. A recorded `assertionCountReasons[file]` entry lets free tests change,
-be added or be dropped, and lets new imports arrive; it never lets a mock, hook or isolation arrive: `vi.mock`,
-`vi.doMock`, `vi.hoisted`, `vi.stubGlobal`/`stubEnv`, `.only` and a top-level hook refuse even with a reason.
-Touched JS/TS test files cannot lose assertion calls (`expect`/`assert`) unless the findings
-include a nonempty `assertionCountReasons` object entry keyed by the file. That exception never
-allows changes to a named test. Unsupported named syntax or changed Python/shell test sources
-fail closed; this draft does not claim semantic understanding of arbitrary test frameworks.
+`describe` calls that hold no named test. Tests in a file run in order and a `describe` body runs while tests are
+collected, so the guard bounds both what a free test may contain and where it may change:
+
+- nothing changes up to the file's last named test. A free test may be added, changed or dropped only after it, so no
+  new code runs before a named test.
+- a free test that is added or changed is an allowlist, not a list of forbidden calls: the runner's own
+  `test`/`it`/`describe` (or `.skip`/`.todo`) with a literal name, a callback without parameters and at most a numeric
+  timeout; a `describe` body holds only such registrations. A test body holds `expect(...)` or `expect.soft(...)`, then
+  `.not`/`.resolves`/`.rejects`, then one `.toXxx(...)` matcher; the asymmetric `expect` members (`any`, `anything`,
+  `arrayContaining`, `objectContaining`, `stringContaining`, `stringMatching`, `closeTo`) and `expect.assertions`/
+  `hasAssertions`; plain calls into the module under test (an import binding, a file declaration, a local, or an
+  unbound name that is not a runtime global); and a short list of pure builtins (`Object.keys`, `JSON.parse`, `Math.*`,
+  `new Map()`, `String(...)`, ...). `const`/`let`, `if`, `for...of`, `try` and arrow callbacks are allowed. Everything
+  else refuses: `vi`, `vitest`, `jest`, `chai`, hooks and other framework names whatever they are bound to (Vitest
+  hoists `vi.mock` by name), any other use of `expect` (`expect.extend`, passing `expect` on), `globalThis`, `process`,
+  `require`, `Reflect`, `Proxy`, `Function`, any other global, `constructor`/`prototype`/`__proto__`, assignment and
+  update, `delete`, dynamic `import()`, `this`, `import.meta`, computed member access, getters, classes, `.only`,
+  `.concurrent`, `.each` and computed test names.
+- a new import needs the reason and must bind names (a side-effect import refuses even with one). It may load only a
+  module the reviewed file already imports, a helper already in the protected closure, or a tracked module under test
+  that is unchanged since the fix base and whose local imports, followed transitively, never reach the test framework.
+
+A changed free test, a new import or a dropped free test needs a nonempty `assertionCountReasons[file]` entry; the
+reason excuses nothing outside the bounds above. Touched JS/TS test files cannot lose assertion calls
+(`expect`/`assert`) unless the findings include that entry for the file; it never allows changes to a named test.
+
+The module under test may change freely, but a changed non-test module (any changed JS/TS file, or a Svelte
+component's script, outside the test-support directories and the runner configuration) that imports, re-exports,
+requires or loads `vitest`, `jest`, `chai`, `bun:test` or a `@vitest`/`@jest` package, uses an unbound `expect`, `vi`,
+`vitest`, `jest` or `chai`, reads `import.meta.vitest` or names the matcher registry through `Symbol.for` refuses. A
+local function named `expect` is fine. The guard reads application code statically: a change that reaches the runner
+through computed names (`globalThis[name]`) is not detected, and is left to the re-check reviewer, as is any fix that
+special-cases a test's input.
+
+Unsupported named syntax or changed Python/shell test sources fail closed; this draft does not claim semantic
+understanding of arbitrary test frameworks.
 
 ## Exact-revision approval ledger
 

@@ -94,6 +94,72 @@ describe('shared direct and nested CSV producers (GRS-61)', () => {
  });
 });
 
+describe('barrel and alias edges between pages and a mapped CSV producer (GRS-61, PR #63 review)', () => {
+ const MAKER = "<script>import { download } from '$lib/components/csv'; const save = () => download('a.csv', 'x');</script>";
+ const build = (files: Record<string, string>) => {
+  const dir = mkdtempSync(join(root, 'barrel-'));
+  for (const [rel, source] of Object.entries(files)) { const path = join(dir, 'src', rel); mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, source); }
+  return dir;
+ };
+ // every consuming page is discovered, or the file that hides it is refused: never neither
+ const accounted = (r: { pages: string[]; unrecognised: string[] }, page: string, file: string) => r.pages.includes(page) || r.unrecognised.includes(file);
+ test('a page importing the producer through an aliased barrel re-export is discovered next to a direct page', () => {
+  const dir = build({
+   'routes/direct/+page.svelte': "<script>import Maker from '$lib/Maker.svelte';</script><Maker />",
+   'routes/alias/+page.svelte': "<script>import { CsvDownload } from '$lib';</script><CsvDownload />",
+   'lib/index.ts': "export { default as CsvDownload } from './Maker.svelte';",
+   'lib/Maker.svelte': MAKER,
+  });
+  const r = csvExports(dir);
+  expect(accounted(r, '/alias', 'src/routes/alias/+page.svelte')).toBe(true);
+  expect(r).toEqual({ pages: ['/alias', '/direct'], servers: [], unrecognised: [], declaredButCsv: [] });
+ });
+ test('a wrapper that reaches the producer through a barrel counts for every page that renders it', () => {
+  const dir = build({
+   'routes/direct/+page.svelte': "<script>import Maker from '$lib/Maker.svelte';</script><Maker />",
+   'routes/shell/+page.svelte': "<script>import Shell from '$lib/Shell.svelte';</script><Shell />",
+   'lib/Shell.svelte': "<script>import { CsvDownload } from './index';</script><CsvDownload />",
+   'lib/index.ts': "export { default as CsvDownload } from './Maker.svelte';",
+   'lib/Maker.svelte': MAKER,
+  });
+  const r = csvExports(dir);
+  expect(accounted(r, '/shell', 'src/routes/shell/+page.svelte')).toBe(true);
+  expect(r).toEqual({ pages: ['/direct', '/shell'], servers: [], unrecognised: [], declaredButCsv: [] });
+ });
+ test('follows nested barrels, export * and export { X }, with and without an extension on the barrel path', () => {
+  const dir = build({
+   'routes/direct/+page.svelte': "<script>import Maker from '$lib/Maker.svelte';</script><Maker />",
+   'routes/star/+page.svelte': "<script>import { Csv } from '$lib/widgets';</script><Csv />",
+   'routes/named/+page.svelte': "<script>import { Csv } from '$lib/widgets/index.ts';</script><Csv />",
+   'lib/widgets/index.ts': "export * from './inner';",
+   'lib/widgets/inner.ts': "export { default as Csv } from '../Maker.svelte';",
+   'lib/Maker.svelte': MAKER,
+  });
+  expect(csvExports(dir).pages).toEqual(['/direct', '/named', '/star']);
+ });
+ test('refuses a consumer it cannot follow instead of dropping it: a computed dynamic import, and a barrel path that resolves to nothing', () => {
+  const dir = build({
+   'routes/direct/+page.svelte': "<script>import Maker from '$lib/Maker.svelte';</script><Maker />",
+   'routes/computed/+page.svelte': "<script>const load = (n) => import(`$lib/${n}.svelte`);</script>",
+   'routes/missing/+page.svelte': "<script>import { Csv } from '$lib/vendor';</script><Csv />",
+   'lib/Maker.svelte': MAKER,
+  });
+  const r = csvExports(dir);
+  expect(accounted(r, '/computed', 'src/routes/computed/+page.svelte')).toBe(true);
+  expect(accounted(r, '/missing', 'src/routes/missing/+page.svelte')).toBe(true);
+  expect(r.unrecognised).toEqual(['src/routes/computed/+page.svelte', 'src/routes/missing/+page.svelte']);
+  expect(r.pages).toEqual(['/direct']);
+ });
+ test('imports of non-code files and packages are not consumers to refuse', () => {
+  const dir = build({
+   'routes/direct/+page.svelte': "<script>import Maker from '$lib/Maker.svelte'; import raw from '$lib/x.css?raw'; import { page } from '$app/state'; import z from 'zod'; import d from './data.json';</script><Maker />",
+   'routes/direct/data.json': '{}',
+   'lib/Maker.svelte': MAKER,
+  });
+  expect(csvExports(dir)).toEqual({ pages: ['/direct'], servers: [], unrecognised: [], declaredButCsv: [] });
+ });
+});
+
 // The real app's CSV inventory at the GRS-61 base (1332ea8), recomputed there with that revision's own targets.mjs and declarations.
 import baseProducers from './csv-producers.json';
 // @ts-expect-error plain .mjs

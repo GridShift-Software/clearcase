@@ -268,7 +268,11 @@ PY
     [[ $1 != register ]] || exec bash "$root/provision.sh" register
     exec bash "$root/provision.sh" provision 99.0.0 "$(printf 'a%.0s' {1..64})"
   fi
-  # pc1-vm passes the normal SSH options and management target to its transport override.
+  # pc1-vm passes the normal SSH options and management target to its transport override. Record each UserKnownHostsFile
+  # option exactly as received, one line per guest session, so a test can check the host-key pin.
+  for option in "$@"; do
+    [[ $option != UserKnownHostsFile=* ]] || printf '%s\n' "$option" >>"$root/ssh-known-hosts"
+  done
   while [[ ${1:-} != ciadmin@127.0.0.57 ]]; do
     (( $# )) || { echo 'missing management SSH target' >&2; exit 2; }
     shift

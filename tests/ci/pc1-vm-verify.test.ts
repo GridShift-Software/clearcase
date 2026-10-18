@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,7 +32,7 @@ function fixture(scenario = 'pass') {
   const guest = path.join(dir, 'guest');
   const bin = path.join(guest, 'bin');
   for (const subdir of [bin, path.join(guest, 'home/runner'), path.join(source, 'scripts/ci'), path.join(source, 'tests')]) mkdirSync(subdir, { recursive: true });
-  for (const tool of ['sudo', 'systemctl', 'pgrep', 'install', 'bun', 'fake-ci-chrome', 'ssh', 'gh']) symlinkSync(fake, path.join(bin, tool));
+  for (const tool of ['sudo', 'systemctl', 'pgrep', 'install', 'bun', 'fake-ci-chrome', 'ssh', 'gh']) copyFileSync(fake, path.join(bin, tool));
   writeFileSync(path.join(guest, 'real-bun'), execFileSync('bash', ['-c', 'command -v bun'], { encoding: 'utf8' }).trim());
   writeFileSync(path.join(guest, 'scenario'), scenario);
   writeFileSync(path.join(guest, 'service-state'), 'active\n');
@@ -84,7 +84,7 @@ function provisionFixture(scenario = 'pass') {
   const runner = path.join(f.guest, 'home/runner/actions-runner');
   mkdirSync(path.join(runner, 'bin'));
   mkdirSync(path.join(f.guest, 'etc/sysctl.d'), { recursive: true });
-  for (const tool of ['apt-get', 'sysctl', 'chown', 'id', 'runuser', 'curl', 'sha256sum', 'tar', 'fake-ci-deps']) symlinkSync(fake, path.join(f.guest, 'bin', tool));
+  for (const tool of ['apt-get', 'sysctl', 'chown', 'id', 'runuser', 'curl', 'sha256sum', 'tar', 'fake-ci-deps']) copyFileSync(fake, path.join(f.guest, 'bin', tool));
   writeFileSync(path.join(runner, '.service'), 'actions.runner.GridShift-Software-clearcase.clearcase-pc1-vm\n');
   writeFileSync(path.join(runner, '.clearcase-version'), '98.0.0\n');
   writeFileSync(path.join(f.guest, 'os-release'), 'PRETTY_NAME="Synthetic guest"\n');
@@ -153,7 +153,7 @@ test('provision refuses a held verification lock before any mutation', () => {
 function registerFixture(scenario = 'pass') {
   const f = provisionFixture(scenario);
   const runner = path.join(f.guest, 'home/runner/actions-runner');
-  for (const tool of ['fake-ci-svc', 'fake-ci-config', 'mv']) symlinkSync(fake, path.join(f.guest, 'bin', tool));
+  for (const tool of ['fake-ci-svc', 'fake-ci-config', 'mv']) copyFileSync(fake, path.join(f.guest, 'bin', tool));
   writeFileSync(path.join(runner, 'svc.sh'), '#!/bin/bash\nexec fake-ci-svc "$@"\n');
   writeFileSync(path.join(runner, 'config.sh'), '#!/bin/bash\nexec fake-ci-config "$@"\n');
   for (const script of ['svc.sh', 'config.sh']) chmodSync(path.join(runner, script), 0o755);

@@ -1,6 +1,6 @@
 # Agent tooling
 
-Implementation and review agents run the project's planning checks and verification capabilities through `scripts/agent-tools/`. Every entry point works from a fresh non-interactive shell in any worktree and needs no GUI or shell profile. Every check writes a receipt; [Receipts](#receipts) lists exactly which commands do. CC-27 ([GRS-35](https://linear.app/vaper/issue/GRS-35/set-up-pstack-and-verification-skills-for-agent-cli-access)) owns this tooling. It implements no application behavior.
+Implementation and review agents run the project's planning checks and verification capabilities through `scripts/agent-tools/`. Every entry point works from a fresh non-interactive shell in any worktree and needs no GUI or shell profile. Every check writes a receipt; [Receipts](#receipts) lists exactly which commands do. GRS-104 updates the tooling originally delivered by CC-27 (GRS-35). It implements no application behavior.
 
 ## Quick start
 
@@ -16,79 +16,39 @@ Run them from the worktree root, or by absolute path from anywhere. `receipt` is
 
 ## Sources and versions
 
-| Component | Source | Version or revision | Access and license |
-| --- | --- | --- | --- |
-| pstack skill bundle: `poteto-mode` and 52 companion skills | [`backnotprop/pstack`](https://github.com/backnotprop/pstack), designated by the user on 2026-10-08. It is a harness-neutral mirror of [`cursor/plugins/pstack`](https://github.com/cursor/plugins/tree/main/pstack). Installed in `~/.agents/skills/` with the [skills CLI](#install-and-update-the-global-skills); agent skill directories such as `~/.claude/skills/` hold symlinks into it. | 0.15.23, revision `1f0f9c3bac03c4297f6fc8f7644fa412eda57085` (2026-10-13), which mirrors `cursor/plugins/pstack@837067b` (short ID as the mirror records it; upstream-branch commit `c3ed187a`, merged on `main` in `1f0f9c3bac03`). Pinned per skill by content hash in `scripts/agent-tools/skills.lock.json`. | MIT, Copyright (c) 2026 Lauren Tan. Public; no credentials. |
-| `poteto-mode/scripts/check-plan.mjs` | Same bundle. | Pinned with `poteto-mode`. Dependency-free Node ESM. | Same. |
-| Matt Pocock skills (`ask-matt`, `domain-modeling`, `codebase-design`) | [`mattpocock/skills`](https://github.com/mattpocock/skills), paths `skills/engineering/NAME`, as `~/.agents/.skill-lock.json` records. Installed in `~/.agents/skills/` with the skills CLI. | Revision `49dd158d1076134a641b33efb035946536778336` (2026-10-09). Pinned by content hash in the same lock; `provenance.matt-pocock` holds the reproduce command. | MIT, Copyright (c) 2026 Matt Pocock. Public; no credentials. |
-| `scripts/planning/check.py`, `generate.py` | This repository. | Git revision. | Repository. |
-| Bun, the app toolchain | The user's choice of 2026-10-08 (`AGENTS.md`, App toolchain). On `puk` it comes from the official installer at <https://bun.sh>, in `~/.bun/bin`, and `bun` and `bunx` are linked into `~/.local/bin`. Arch Linux packages it as `bun` in `extra`. | Stable 1.4.2, the minimum the doctor accepts; see [Bun](#bun). Upgrade with `bun upgrade --stable` (`pacman -Syu bun` for the package). The pin moves only with a reviewed commit. | MIT for Bun's own code; bundled components keep their licenses. Public; no credentials. |
-| Runtimes | System packages. | bash >= 4.4, Python >= 3.10, Node.js >= 18, git, and Bun as above. Tested with bash 5.3, Python 3.14, Node 26.10, git 2.56 and Bun 1.4.2 on CachyOS. | Distribution packages. |
+T3 Code's canonical `t3-pstack` plugin owns pstack. Do not reinstall `backnotprop/pstack` into global skill directories. The tools only read installed plugins and independent leaf skills; they install nothing and change no global settings.
 
-How the pstack pin was established:
+Discovery uses `T3_PSTACK_ROOT` when set, otherwise the newest version directory under `~/.claude/plugins/cache/t3-pstack/t3-pstack/`, ordered by semantic version (including numeric prereleases). An empty or broken override fails. A present but broken plugin fails without trying an older version or legacy skills. A newer cache directory that has no matching install record (an orphan) also fails; the tools never silently choose the registered older install. `HOME` must be an absolute path (a trailing slash is ignored): the plugin cache, the registry and `~/.agents/skills` are located from it, and an empty or relative `HOME` fails with a message naming it instead of resolving them against the working directory. Supported plugin versions are `>= 2.0.0-rc.5` and `< 3.0.0`; a new major requires review of the tool contract.
 
-- At the pinned revision, `.cursor-plugin/plugin.json` names `pstack` 0.15.23 by Lauren Tan under the MIT license, and `LICENSE` is the MIT license. `MIRROR.md` explains the mirror: branch `upstream` holds Cursor's files verbatim, and `main` is `upstream` plus the mirror's harness-neutral edits.
-- All 53 skills in the revision's `skills/` are installed in `~/.agents/skills/` on `archlinux` and byte-identical. On 2026-10-15 the maintenance worker updated them with the skills CLI and compared them with `diff -rq` against a fresh clone. `1f0f9c3bac03` was `main` HEAD.
-- Before that update, every installed skill matched the Git tree hash the skills CLI had recorded for it, so the update overwrote no local edit. Every pstack skill on `archlinux` then matched 0.15.9.
-- Every upstream skill at that revision is installed and pinned. The relock added `in-your-own-words` and `ketchup`, new since 0.15.15.
-- `tdd` belongs to pstack, not to the Matt Pocock skills.
-- The previous pins were 0.15.15, revision `3a604672c46cd8187d2b19980eae0a34f9f91138`, set on `puk` on 2026-10-09 (record: `.orchestration/reports/CC-27/pstack-provenance-20261009.txt`), and before it 0.15.9, revision `124f622bcaeac490e7e9dac6af83f3ef9611d554`. `puk` keeps 0.15.15 until someone updates it the same way, and its doctor fails on the pin until then.
+The selected root must contain `.claude-plugin/plugin.json` naming `t3-pstack`. Its version must match the directory and the matching `installPath` record in `~/.claude/plugins/installed_plugins.json`. The record must have an exact `gitCommitSha`. Doctor records version, SHA, root and selection in its receipt's `pstack` field. It fingerprints the install registry, manifest and required skill files, then reads those inputs again after the checks. This is installed provenance, not a claim that the cache is a Git checkout or that every plugin file was compared with upstream.
 
-The lock's `provenance.pstack` block records the same facts. Its reproduce command prints nothing when the install matches:
+On 17 October 2026, the Claude install was `2.0.0-rc.5` at `bfd36b17e7ab74a7bedb2b40ae7af05a1c1284c9`. The Codex cache also contained `2.0.0-rc.7` and the same checker bytes, but no corresponding Claude install record. Pointing `T3_PSTACK_ROOT` there requires matching install metadata; the tools never invent a version or SHA. T3 manages plugin updates outside these tools.
 
-```sh
-git clone https://github.com/backnotprop/pstack.git p && git -C p worktree add ../p1f0 1f0f9c3 && for d in p1f0/skills/*/; do n=$(basename $d); [ -e ~/.agents/skills/$n ] && diff -rq $d ~/.agents/skills/$n; done
-```
+"Absent" means two things at once: the cache holds no version directory, and `installed_plugins.json` either does not exist or has no `t3-pstack@t3-pstack` install record. Any record means the plugin is registered, so a missing or empty cache is a FAIL (receipt included), never a legacy PASS. A registry that exists but cannot be read, or is not a JSON object with a `plugins` object, leaves absence unproven and also fails. Only when the plugin is absent do the tools accept legacy pstack in `--skills-dir DIR`, `CLEARCASE_SKILLS_DIR`, or `~/.agents/skills`. Doctor names `legacy fallback`, with version and SHA unavailable. An existing install registry is fingerprinted in legacy mode too, so mid-run changes fail the receipt. A registry absent before discovery is not an input; creation after that look is outside this two-look fingerprint contract. The bootstrap link cannot mask a newer plugin. Required files are `poteto-mode/SKILL.md`, its `playbooks/orchestrate.md`, `playbooks/multi-phase-plan.md` and `scripts/check-plan.mjs`, plus `SKILL.md` for `create-verification-skill`, `maintain-verification-skill`, `setup-pstack` and `swarm`. Presence does not authorize using a skill forbidden by workspace instructions.
 
-`scripts/agent-tools/verify pstack-upstream --checkout DIR` makes the same comparison from the pinned revision's Git objects in any clone that contains it, so files in the clone's working tree do not count. Like the pin, and unlike the reproduce command, it skips `node_modules`, `__pycache__` and `.DS_Store`. It also checks the lock and writes a receipt. Install pstack only from this source; do not install a package merely because it is named pstack.
+`skills.lock.json` retains only the three independent Matt Pocock leaf skills (`ask-matt`, `codebase-design`, `domain-modeling`), their provenance and content pins. These continue to come from `--skills-dir`, `CLEARCASE_SKILLS_DIR`, or `~/.agents/skills`, independently of pstack discovery. Their hashes still cover sorted relative paths and file bytes, symlink targets, and exclude `node_modules`, `__pycache__` and `.DS_Store`.
 
-The leaf skills `to-spec`, `to-tickets` and `implement-spec` are absent. The doctor reports them as INFO, and nothing here installs or claims them.
+The 53 upstream pstack content pins, mirror provenance, Git-object comparison and pstack relock branches are retired. `verify pstack` validates the installed source and required files with a receipt. `verify pstack-upstream [--checkout DIR]` and the internal `compare-upstream` entry point stay callable only so that an old script gets a clear failure: both exit 1 with a message pointing to `verify pstack`, `verify pstack-upstream` writes a FAIL receipt under that name, and `--checkout` is accepted but never used. Neither can PASS, so no receipt named `pstack-upstream` is mistaken for upstream-content evidence. The independent leaf skills still need content pins because a plugin install record does not own them.
 
-pstack's `orch` and `watch-pr` scripts also run on bun, and this project does not use them. The doctor requires Bun for the app, not for them.
+The leaf skills `to-spec`, `to-tickets` and `implement-spec` are not installed or claimed here. Doctor reports their presence as INFO only.
+
+Runtimes remain bash >= 4.4, Python >= 3.10, Node >= 18, git and Bun >= the `packageManager` pin. Node runs the dependency-free plan checker; it is not evidence of the app running under Bun. Local build and app verification use Bun. Hosted artifacts are built with Bun and run under workerd; Wrangler is hosted by Node, as ADR 0008 records. A local pilot check does not prove the hosted boundary.
 
 ## Bootstrap, upgrade and removal
 
-Prerequisites are bash, git, python3 and node on a standard PATH such as `/usr/local/bin:/usr/bin:/bin`, Bun at the app's minimum version on PATH or named by `CLEARCASE_BUN`, and the skill bundle in `~/.agents/skills`. The checkout needs `origin/dev` or `dev` for the default receipt base; otherwise pass `--base REF` (see [Revision identity](#revision-identity)). On a new Arch-family host:
+Start a fresh shell with the installed T3 plugin and leaf skills available, then run:
 
 ```sh
-sudo pacman -S --needed bash git python nodejs bun
-npx -y skills@1.7.2 add backnotprop/pstack -g -y -a AGENTS -s '*'   # AGENTS: the agents you use, e.g. claude-code codex
-npx -y skills@1.7.2 add mattpocock/skills -g -y -a AGENTS -s ask-matt domain-modeling codebase-design
-scripts/ci/install-chrome.sh   # the Chromium that CI and verify app use
+scripts/agent-tools/doctor
 scripts/agent-tools/bootstrap
+scripts/agent-tools/verify pstack
 ```
 
-On `puk`, `~/.local/bin/bun` lies outside that standard PATH, so a shell started with only `/usr/local/bin:/usr/bin:/bin` needs `CLEARCASE_BUN=~/.local/bin/bun`. `docs/acceptance/CC-27/rerun.sh` sets it that way.
+Use `--base REF` (or `CLEARCASE_BASE_REF`) when neither `origin/dev` nor `dev` is available. The accepted base must resolve locally; an archive initialized as a new repository needs its own explicit base. Bun can be selected with `CLEARCASE_BUN`, and Chromium with `CLEARCASE_CHROMIUM`; no shell profile is required.
 
-`bootstrap` runs the doctor, then creates ignored local state only, `.local/agent-tools/skills` (a symlink to the resolved bundle) and `.local/agent-tools/bootstrap.json`. Rerunning it reports `unchanged`. If the link already points somewhere else it refuses with exit 1 instead of creating a second installation. It writes no global files and no tracked files. Bootstrap is optional; without it the tools find `~/.agents/skills` directly.
+Plain `bootstrap` runs doctor, then creates only ignored local state: `.local/agent-tools/skills` points to the selected pstack skills directory and `bootstrap.json` records its identity. Repeated calls report `unchanged`. A conflicting existing link fails and asks for `bootstrap --remove` before replacing it. The link is kept only for compatibility; nothing in these tools reads it, and it names a version-specific plugin path, so a plugin update makes the next plain `bootstrap` FAIL with the conflict message until `bootstrap --remove` clears it. A later change may drop the link. Discovery always checks the plugin cache again. Removing bootstrap deletes only its local link and state; receipts and installed skills stay.
 
-To use a bundle elsewhere, pass `--skills-dir DIR` to any command or set `CLEARCASE_SKILLS_DIR`. An explicit directory is used as given, with no fallback.
-
-The doctor fails and names each pinned skill whose installed content differs from the pin, so a bundle change cannot pass unnoticed. To move pstack to a new upstream revision:
-
-1. Clone the upstream at that revision: `git clone https://github.com/backnotprop/pstack.git .local/pstack-upstream && git -C .local/pstack-upstream checkout --detach REV`. `.local/` is ignored.
-2. Install the revision's skills on the host with the skills CLI, as [Install and update the global skills](#install-and-update-the-global-skills) describes. The CLI installs upstream `main` HEAD, so clone the same revision in step 1. The tools never write to `~/.agents/skills`.
-3. Compare the install with `diff -rq`, as in the reproduce command above. It must print nothing.
-4. Run `scripts/agent-tools/bootstrap --relock --checkout .local/pstack-upstream`. It reads the skills at the checkout's HEAD from Git objects. It refuses a path without a Git HEAD that carries `.cursor-plugin/plugin.json`, a checkout none of whose skills is installed, and an install that differs from HEAD. It also refuses to remove a pstack pin that the checkout does not install unless you pass `--allow-drop`. Otherwise it pins every installed skill of the checkout as group `pstack` and rehashes the other pins. It prints the revision, the skills it added, moved to `pstack` or removed, the upstream skills that are not installed, and whether HEAD differs from `provenance.pstack.revision`.
-5. Edit `provenance.pstack` in `skills.lock.json` (revision, its date and subject, version, license, `mirrorOf`, `notInstalled`, `checkedAt` and `checks`) and the table above. Provenance is never written automatically.
-6. Run `scripts/agent-tools/verify pstack-upstream --checkout .local/pstack-upstream` and `scripts/agent-tools/doctor`. Both must pass. Commit the lock and this document through a reviewed pull request into `dev`.
-
-For a skill outside pstack, such as the Matt Pocock skills, compare the installed change with its upstream, update its block under `provenance`, and run `bootstrap --relock` without `--checkout`. That rehashes the existing pins and changes no membership. A pin change is a reviewed repository change, never an automatic one.
-
-### Install and update the global skills
-
-The skills CLI ([`vercel-labs/skills`](https://github.com/vercel-labs/skills), npm package `skills`) owns `~/.agents/skills`. It records each skill's source repository, path and Git tree hash in `~/.agents/.skill-lock.json`, and it links the skills into the skill directory of each agent the user selected. Skills it did not install, such as the user's own symlinks, are not in that file, and it leaves them alone. Version 1.7.2 was used on 2026-10-15.
-
-1. Back up `~/.agents` and the agent skill directories that link into it, for example with `tar -cf` of `~/.agents` and every directory that `find ~ -maxdepth 4 -type l -lname '*/.agents/skills/*'` finds.
-2. Check that no installed skill was edited by hand. For each entry in `~/.agents/.skill-lock.json`, the Git tree hash of the installed directory must equal `skillFolderHash`. The update overwrites a skill without checking.
-3. Update every recorded skill: `DO_NOT_TRACK=1 DISABLE_TELEMETRY=1 npx -y skills@1.7.2 update -g -y`. It updates in place, keeps the user's agent links, and does not reinstall skills the user deleted.
-4. Add what `update` cannot: skills new upstream, and skills that upstream renamed. `update` fails, with exit 1, on a lock entry whose recorded name no longer exists upstream; 0.15.15 renamed `Poteto Mode` and `Make Bot UI` to `poteto-mode` and `make-bot-ui`. Run `npx -y skills@1.7.2 add backnotprop/pstack -g -y -a AGENTS -s NAME...`, where AGENTS is `lastSelectedAgents` from the lock file. Without `-a`, `add` links the skills into every agent the CLI knows.
-5. After `add` has recorded a renamed skill under its new name, delete the old entry from `~/.agents/.skill-lock.json`. Do not run `skills remove` on the old name, because it removes the directory that both names share.
-6. Compare the result with the upstream clone (`diff -rq`), then relock as above.
-
-The T3 Code plugin `t3-pstack` (a pstack variant from [`chhoumann/t3-pstack`](https://github.com/chhoumann/t3-pstack), cached under `~/.codex/plugins/cache/t3-pstack/`) is a separate distribution that T3 Code installs and updates. The project does not pin it, and the doctor does not check it.
-
-To remove, run `scripts/agent-tools/bootstrap --remove`. It deletes only `.local/agent-tools/`. Receipts in `.local/agent-receipts/` and the global skills stay.
+`bootstrap --relock` rehashes the existing independent leaf pins. Review their source changes first, then review and commit the lock change. `--relock --checkout` and `--allow-drop` are refused with a retirement message; a plugin update is never translated into new upstream skill pins. Tools never update the plugin, install packages globally, or edit model settings.
 
 ### Bun
 
@@ -122,12 +82,12 @@ To move the pin, run `bun upgrade --stable` (`pacman -Syu bun` for the distribut
 
 | Command | Runs | Exit codes |
 | --- | --- | --- |
-| `scripts/agent-tools/doctor` | OS and bash, Python, git and repository, the revision receipts record (head, base and merge base), Node, Bun at the app's minimum version, planning scripts, skill bundle discovery, required skill files, the content pin, writable receipt directory. Before any install or build, the app/browser prerequisites of `verify app`: `unshare` (and that `unshare -rn` works), `ip`, Chromium and the verify-clearcase runner (see [App verification](#app-verification)). Reports the pinned pstack source and optional tools (gh, tmux). Writes one receipt with the report. | 0 all required checks pass, 1 a check failed, 2 unsupported OS, old bash or no python3 (no receipt, because Python never starts) |
-| `scripts/agent-tools/check-plan [--linear-relations PATH] [--require-linear-relations] [--plan PATH]` | `plan-graph` and `plan-format`, plus `linear-relations` when a readback is given (or `CLEARCASE_LINEAR_READBACK` is set). One receipt per step. | 0 every step passed, otherwise the first failing step's code. A required comparison without a readback exits 3. |
+| `scripts/agent-tools/doctor` | OS and bash, Python, git and repository, the revision receipts record (head, base and merge base), Node, Bun at the app's minimum version, planning scripts, skill bundle discovery, required skill files, independent leaf content pins, writable receipt directory. Before any install or build, the app/browser prerequisites of `verify app`: `unshare` (and that `unshare -rn` works), `ip`, Chromium and the verify-clearcase runner (see [App verification](#app-verification)). Reports the selected plugin or legacy source and optional tools (gh, tmux). Writes one receipt with the report. | 0 all required checks pass, 1 a check failed, 2 unsupported OS, old bash or no python3 (no receipt, because Python never starts) |
+| `scripts/agent-tools/check-plan [--linear-relations PATH] [--require-linear-relations] [--plan PATH]` | `plan-graph` and `plan-format`, plus `linear-relations` when a readback is given (or `CLEARCASE_LINEAR_READBACK` is set). One receipt per step. | 0 every step passed, otherwise the first failing step's code. A missing required comparison exits 3 unless an earlier required step already failed. Required `plan-format` prerequisites fail with exit 1. |
 | `scripts/agent-tools/verify list` | Lists the capabilities; all are available. Writes no receipt. | 0 |
 | `scripts/agent-tools/verify CAPABILITY [--readback PATH] [--plan PATH] [--checkout DIR]` | One capability with a receipt. | The wrapped command's own exit code, or 3 when skipped |
 | `scripts/agent-tools/receipt --name NAME [--tool T]... [--input FILE]... -- CMD ARGS...` | Any command with a receipt. A missing `--tool`, `--input`, command or revision is SKIPPED and is not run, and so is one whose version, fingerprint or state cannot be read (see [Evidence failures](#evidence-failures)). | The command's own exit code, or 3 when skipped |
-| `scripts/agent-tools/bootstrap [--relock [--checkout DIR [--allow-drop]] \| --remove]` | See above. Plain `bootstrap` runs the doctor, which writes the doctor's receipt. A refused conflicting link, `--relock` and `--remove` write none. | 0 or 1 |
+| `scripts/agent-tools/bootstrap [--relock \| --remove]` | See above. Plain `bootstrap` runs the doctor, which writes the doctor's receipt. A refused conflicting link, `--relock` and `--remove` write none. | 0 or 1 |
 | `python3 scripts/planning/generate.py --compare-linear EXPORT` | Diffs generated briefs against the descriptions in a full Linear export. Writes no receipt unless wrapped in `receipt`. | 0 all match, 1 drift |
 
 All commands accept `--skills-dir`, `--receipts`, `--base REF` and `--root DIR`. `--root` checks a different planning tree, which must be the top of a Git checkout; the tests use it for fixtures. `doctor` and `bootstrap` ignore `--root` and check the checkout that holds the tools. `--base` names the revision that receipts compare against; see [Revision identity](#revision-identity).
@@ -138,8 +98,9 @@ Capabilities and the commands they wrap, unchanged:
 | --- | --- | --- |
 | `plan-graph` | `python3 scripts/planning/check.py --require-linear-ids` | available |
 | `linear-relations` | `python3 scripts/planning/check.py --require-linear-ids --linear-relations READBACK` | available. A readback is a file the coordinator exports from Linear; this command never fetches live data. |
-| `plan-format` | `node ~/.agents/skills/poteto-mode/scripts/check-plan.mjs docs/delivery-plan.md` | available |
-| `pstack-upstream` | `python3 scripts/agent-tools/agent_tools.py compare-upstream --checkout DIR` | available with `--checkout DIR`, a clone that contains the pinned revision, which must be recorded as a full commit ID. It reads that commit's Git objects, not the working tree, and ignores replace refs. It checks its `plugin.json` version and license against `provenance.pstack`. It requires every installed skill of the revision to be pinned as `pstack` and no other skill to be. `notInstalled` must list exactly the upstream skills that are not installed. Each pinned skill must match the revision file for file and match its pinned hash; as in the pin, `node_modules`, `__pycache__` and `.DS_Store` are excluded on both sides. SKIPPED, exit 3, without `--checkout` or when DIR does not exist. FAIL when DIR lacks the pinned revision. |
+| `plan-format` | `node <plugin root>/skills/poteto-mode/scripts/check-plan.mjs docs/delivery-plan.md` | available |
+| `pstack` | Selected source identity and required files | available; FAIL exit 1 for a missing/broken plugin without a valid legacy fallback, unsupported/mismatched version, missing exact install SHA, or missing required file. |
+| `pstack-upstream` | Retired | always FAIL (exit 1) with a migration message to `verify pstack`; `--checkout` is accepted and unused. No upstream comparison exists. |
 | `app` | `.agents/skills/verify-clearcase/bin/verify-clearcase run` | available. The whole lifecycle of the project verification skill with one receipt; see [App verification](#app-verification). PASS only when every step passed; exit 1 on a failed step, 3 (SKIPPED) when a prerequisite is missing or the runner is not executable. |
 
 pstack's `create-verification-skill` generated `.agents/skills/verify-clearcase/` (GRS-12); `maintain-verification-skill` keeps its feature map honest. The doctor checks that both skill files are present.
@@ -157,7 +118,7 @@ pstack's `create-verification-skill` generated `.agents/skills/verify-clearcase/
 
 Evidence goes to `$CLEARCASE_REPORT_DIR/skill/<run-id>/` when set, else `.local/verify-clearcase/<run-id>/`: `summary.json`, `inner.json`, `health.json`, `clearcase-build.json`, `server.log`, `offline.log` and `screens/*.png`. Ports default to 43600 (app), 43601 (originals) and 43699 (`CANARY_PORT`); `VERIFY_CLEARCASE_PORT` and `CANARY_PORT` override them. Chromium is `CLEARCASE_CHROMIUM`, else `~/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome`, which `scripts/ci/install-chrome.sh` installs: Chrome for Testing 148.0.7778.96, checked by SHA-256, the same build CI uses. Other Playwright builds in that cache are not used unless `CLEARCASE_CHROMIUM` names one. A run takes about 7 seconds on `puk`. The skill's `SKILL.md` documents the subcommands (`preflight`, `live-doctor`, `cleanup`, `self-test`) and how M2 owners extend the drive.
 
-Only committed code is verified: the build is of `HEAD`, not the working tree. A commit or any edit in the checkout while it runs (untracked files are fingerprinted too) turns the receipt SKIPPED, or FAIL if the runner failed (see [Revision identity](#revision-identity)).
+Only committed code is verified: the build is of `HEAD`, not the working tree. A commit or any edit in the checkout while it runs (untracked files are fingerprinted too) turns the receipt FAIL, exit 1 if the runner succeeded, otherwise preserving its failure code (see [Revision identity](#revision-identity)).
 
 ## Supported environments
 
@@ -173,9 +134,9 @@ The entry points use `#!/bin/bash` rather than `#!/usr/bin/env bash`. With an em
 ## Failure behavior
 
 - Wrapped commands keep their stdout, stderr and exit code. Output streams live and is also saved to the receipt. If the console stops accepting output, for example a closed pipe, the capture continues and the command is not stalled.
-- A missing tool, input, command or revision produces result SKIPPED and exit 3. git is a required tool of every receipt. The command does not run. SKIPPED never counts as PASS.
+- A missing tool, input, command or revision produces result SKIPPED and exit 3 for generic `receipt`, graph and app preflight. Required `plan-format` and pstack identity checks produce FAIL and exit 1 instead. git is a required tool of every receipt. The command does not run. SKIPPED never counts as PASS.
 - Evidence that cannot be collected is never PASS either; see [Evidence failures](#evidence-failures).
-- `check-plan` runs every step, even after a failure, so one run shows all diagnostics. Its summary line names each step's result and anything not run.
+- `check-plan` runs every step, even after a failure, so one run shows all diagnostics. The canonical checker runs unchanged against `docs/delivery-plan.md` by default. The current generated plan produces 27 findings (18 mid-sentence colons, a missing verification rule, two missing program markers, five sections lacking PR sub-blocks and a missing prototype appendix). The step stays FAIL. Some checker requirements conflict with workspace policy; the coordinator must resolve the plan/checker contract explicitly. Do not weaken the checker or rewrite the plan to authorize forbidden schedules or swarms. Its summary line names each step's result and anything not run.
 - Without `--linear-relations`, `check-plan` says `NOT RUN: linear-relations`. Local ID checks do not prove agreement with the live Linear graph. Use `--require-linear-relations` where the comparison is mandatory.
 - The doctor's app rows (`app-unshare`, `app-ip`, `app-chromium`, `app-runner`) are required checks. They need no install, build or listener, so a clean checkout passes them; `verify app` then stops at the runner's preflight, exit 3, until `bun install --frozen-lockfile` has run.
 
@@ -187,12 +148,14 @@ Each receipt is a directory `<receipts>/<UTC timestamp>-<name>/` with `receipt.j
 
 `receipt.json` (schema `clearcase-agent-receipt/1`) records:
 
-- `name`, `result` (PASS, FAIL or SKIPPED), `exitCode`, and `reason`: why it is not PASS when the receipt can say. That is a skip, evidence that could not be collected, or the doctor's FAIL rows. It is null for PASS and for a command's own failure.
+- `name`, `result` (PASS, FAIL or SKIPPED), `exitCode`, and `reason`: why it is not PASS when the receipt can say. That is a skip, evidence that could not be collected, or the doctor's FAIL rows. It is null for PASS and for a command's own failure; captured stderr keeps the command's diagnostics.
 - `command`, the exact argv, and `cwd`.
 - `tools`, git first and then the command's own tools, each with path and the first line of its `--version` output. For bun it is all of its stdout, which the doctor requires to be one version line (see [Bun](#bun)).
 - `inputs`, for example the checker scripts, the plan, the readback, or the lock and any `package.json` the doctor checks. Each row has the `path`, the `sha256` of its bytes, and the `size`, `mtimeNs`, `device` and `inode` of the file they were read from, all read before the command runs. After the command exits, every input is read again, and a difference is never PASS (see [Evidence failures](#evidence-failures)).
 - `revision`, resolved before the command runs and again after it exits, or for the doctor before and after its checks: `root`, `branch`, `head`, `baseRef` (as requested, or the default that resolved), `base`, `mergeBase`, `dirty`, and `diffSha256` when dirty. The receipt records the first resolution. Every key is present. `head`, `base` and `mergeBase` are null only in SKIPPED or FAIL receipts, and so are `dirty` and `diffSha256` when Git could not report the working tree. `diffSha256` is null when the checkout is clean, and `branch` is `HEAD` when it is detached.
 - `dirty` is true when `git status --porcelain`, `git diff HEAD` or the untracked files that are not ignored show anything, so configuration such as `status.showUntrackedFiles=no` cannot hide a change. `diffSha256` hashes the raw `git diff --binary HEAD` output, run with `--no-ext-diff --no-textconv` so a configured diff driver or textconv filter cannot hide a change, and then each untracked file's name with its bytes, a symlink's target or, for a nested repository, all of its files, names hashed as bytes. Ignored files, per `.gitignore`, `.git/info/exclude` and `core.excludesFile`, are not part of it. Git's own change detection is otherwise trusted, for example `core.fileMode`, `core.fsmonitor` and line-ending conversion, and this repository has no submodules.
+- `pstack`, on doctor and pstack/format checks, records the selected source kind, root, version and install SHA.
+- `spend` separates actual, source, target and unenforced cap (see [Spend readout](#spend-readout)).
 - `environment`, with OS, kernel, machine, host, bash, caller shell, Python and PATH.
 - `startedAt`, `finishedAt` and `durationSeconds`.
 - `artifacts`, the paths of the receipt, stdout and stderr.
@@ -230,12 +193,14 @@ A receipt's evidence is its revision, each tool's path and version, each input's
 | An input's identity: the file cannot be read, is not a regular file, or changes while it is read (its size or modification time changes, or the bytes read differ from its size) | SKIPPED, exit 3: `input not fingerprinted: ...`. The command does not run. |
 | The receipt directory cannot be created | No receipt. Exit 3 with a message naming the directory; the command does not run. |
 | The command cannot start, for example a file without execute permission | SKIPPED, exit 3: `the command did not start: ...`. |
-| The output cannot be captured whole, for example a full disk. Or, after the command exits, a capture file's descriptor has no link left, its path is gone or names another file, its size differs from the bytes written to it, or it holds other bytes: the sha256 of the bytes as they were written must equal that of the bytes read back through the descriptor. | The command's exit code and FAIL if it failed. If it exited 0: SKIPPED, exit 3. The reason says `output not captured whole: ...`, for example `stdout.txt: removed during the run` or `stdout.txt: holds other bytes than were written`, and gives the command's exit code. |
-| After the command exits, an input is gone or cannot be read whole, or its sha256, size, modification time, device or inode differs from the identity recorded before the run | The command's exit code and FAIL if it failed. If it exited 0: SKIPPED, exit 3. The reason says `input changed during the run: ...` and names each field that differs, for example `inode 1302892 -> 1302893`. |
+| The output cannot be captured whole, for example a full disk. Or, after the command exits, a capture file's descriptor has no link left, its path is gone or names another file, its size differs from the bytes written to it, or it holds other bytes: the sha256 of the bytes as they were written must equal that of the bytes read back through the descriptor. | The command's exit code and FAIL if it failed. If it exited 0: FAIL, exit 1. The reason says `output not captured whole: ...`, for example `stdout.txt: removed during the run` or `stdout.txt: holds other bytes than were written`, and gives the command's exit code. |
+| After the command exits, an input is gone or cannot be read whole, or its sha256, size, modification time, device or inode differs from the identity recorded before the run | The command's exit code and FAIL if it failed. If it exited 0: FAIL, exit 1. The reason says `input changed during the run: ...` and names each field that differs, for example `inode 1302892 -> 1302893`. |
 | After the command exits, the revision cannot be resolved, or its head, base, merge base, `dirty` or `diffSha256` differs from the one recorded, for example after an edit to a tracked file or a commit | As for inputs. The reason says `the revision cannot be read after the run: ...` or `the checkout changed during the run: ...` with the fields that differ. |
 | The receipt cannot be written after the command ran | No receipt. The command's exit code if it failed, otherwise exit 3, with a message on stderr. |
 
-The doctor reports the same failures for its own evidence as FAIL rows, `git`, `python3`, `node`, `bun`, `revision`, `skill-pin` or `receipt-input`, and exits 1. Its receipt's reason lists every FAIL row. It reads its inputs, the lock and any `package.json`, again after its checks, and a difference is a FAIL `receipt-input` row. It runs no command, but it resolves the revision again after its checks, as the other entry points do after the command exits. A revision that cannot be read then, or whose head, base, merge base, `dirty` or `diffSha256` differs from the first resolution, is a FAIL `revision` row after the checks, `the revision cannot be read after the run: ...` or `the checkout changed during the run: ...`. So a tracked file edited or an index broken during the doctor's checks gives FAIL, not PASS, unless the change is undone before the second look (see [What receipts prove](#what-receipts-prove)). The receipt records the first resolution. It also fails when it is not launched through `scripts/agent-tools/doctor`, because the bash that runs the entry points is then unknown, and when a planning script, the lock or a pinned skill's file or directory cannot be read, or a pinned skill holds something that is not a file, directory or symlink. If it cannot write its receipt, it exits 1 with `doctor: FAIL. Receipt not written`.
+Required pstack and plan-format checks convert missing prerequisites to FAIL, exit 1, with a receipt when the receipt directory is writable. A stale input, changed revision or damaged capture is FAIL for every wrapper, including generic `receipt`; a successful command cannot turn stale evidence green.
+
+The doctor reports the same failures for its own evidence as FAIL rows, `git`, `python3`, `node`, `bun`, `revision`, `skill-pin` or `receipt-input`, and exits 1. Its receipt's reason lists every FAIL row. It reads its inputs, including the lock, any `package.json` and selected plugin files, again after its checks, and a difference is a FAIL `receipt-input` row. It runs no command, but it resolves the revision again after its checks, as the other entry points do after the command exits. A revision that cannot be read then, or whose head, base, merge base, `dirty` or `diffSha256` differs from the first resolution, is a FAIL `revision` row after the checks, `the revision cannot be read after the run: ...` or `the checkout changed during the run: ...`. So a tracked file edited or an index broken during the doctor's checks gives FAIL, not PASS, unless the change is undone before the second look (see [What receipts prove](#what-receipts-prove)). The receipt records the first resolution. It also fails when it is not launched through `scripts/agent-tools/doctor`, because the bash that runs the entry points is then unknown, and when a planning script, the lock or a pinned skill's file or directory cannot be read, or a pinned skill holds something that is not a file, directory or symlink. If it cannot write its receipt, it exits 1 with `doctor: FAIL. Receipt not written`.
 
 No Git query has a time limit; a Git command that hangs blocks the entry point, which then writes no PASS receipt.
 
@@ -257,22 +222,354 @@ A receipt is evidence for an honest rerun, not a signature. It says which comman
 
 **Out of scope.** A malicious local user, a compromised Git, Python, Node, Bun or OS binary, and kernel-level tampering. The tools trust the binaries they run, and what Git reports when it exits 0 without warnings. Receipts are evidence for honest reruns, not signatures; reviewers rerun at the exact revision.
 
+## Escalation records
+
+`scripts/agent-tools/escalate` writes a local receipt only. It contacts neither Linear nor any launcher. The coordinator first creates a separate linked Linear escalation issue, then records the bounded request from a clean exact revision:
+
+```sh
+scripts/agent-tools/escalate --issue GRS-999 \
+  --issue-url https://linear.app/vaper/issue/GRS-999/bounded-question \
+  --source-issue GRS-104 --sha FULL_HEAD_SHA \
+  --question "Which boundary rejects this stale receipt?" --model gpt-6-astra
+```
+
+`--issue`, its matching `https://linear.app/.../issue/ID` URL, a distinct `--source-issue`, an exact clean HEAD SHA, a question of 1-1000 characters and one model are required. Allowed rare models are `claude-fable-5-1` and `gpt-6-astra`, at xhigh with `attemptLimit: 1`. Missing or invalid fields refuse to write a record. A PASS here means the request was recorded, not approved or dispatched. The URL is validated locally, not verified against live Linear.
+
+After the coordinator's attempt, rerun with the same request fields plus `--phase outcome --task-id ID --findings TEXT --outcome TEXT --checks TEXT`. Those four fields are mandatory for an outcome record. Receipts retain source issue, escalation issue, SHA, question and model. This is a record only: not dispatch authorization, not a retry counter and not a deadline watchdog. `attemptLimit: 1` is a constant written into the record; nothing here stops a second request for the same issue, or an outcome recorded with no request. The tool does not link an outcome receipt to its request receipt, and an outcome must name the current clean HEAD, so after any commit made during the escalation it no longer carries the request's SHA. The coordinator enforces issue/stage attempts and keeps the linkage and the actual task evidence.
+
+Workspace rules still own role choices, the single written-finding fix and fresh recheck, rare linked escalation, short reports and one-page briefs, and browser locking. They forbid swarm/panel fanout, preserve external wave review, serial merges, and user-only changes to `main`. No setting here widens those permissions. The fix-diff guard and approval ledger below are callable locally and by CI/push approval callers. This repository carries the CI step that runs the guard (`.github/workflows/ci.yml`, `test guard`) and the repository half of the push hook (`scripts/agent-tools/pre-push`); the hook in `orch-bin` that calls it belongs to the coordinator and is not installed here. Live model-catalogue agreement and deadline/stall enforcement remain separate acceptance boundaries.
+
+## Spend readout
+
+Every receipt prints `actual`, `target` and `cap` separately. Without provider billing evidence, actual is `unavailable` (`actualUsd: null`), never zero. Supply `--actual-usd NUMBER --actual-source SOURCE` together to record reported provider spend, and `--target-usd NUMBER` for a reporting-only target. Values must be finite and nonnegative; zero with a source is actual zero. The source identifies a provider export or billing record; these tools do not fetch or independently certify billing.
+
+```sh
+scripts/agent-tools/receipt --name diff-check --target-usd 6 \
+  --actual-usd 0.42 --actual-source provider-usage-export -- git diff --check
+```
+
+Targets do not pause, cancel or escalate work. `capUsd` is always null and `capEnforced` false because this tool has no spend controller. It makes no T3 API cap claim. The provider's actual cost can remain unavailable even when a target is known.
+
 ## Tests
 
-`bash tests/agent-tools/run.sh` needs bash, coreutils, git, python3 and node, Bun at the minimum (on PATH or in `CLEARCASE_BUN`) for the cases where the doctor and bootstrap pass in this environment, and a checkout with `origin/dev` or `dev`, because its receipts in this checkout use the default base. It must run as a user without root privileges, because root reads files whose permissions deny reading and several cases depend on that. It covers:
+`bash tests/agent-tools/run.sh` needs bash, coreutils, git, Python, Node, the canonical plugin, the three leaf skills, the doctor prerequisites and a non-root user. The checkout needs `origin/dev` or `dev`; the suite deliberately unsets an inherited base for default-base tests. Run it through `receipt` for a record.
 
-- The assertions themselves. `receipt_is`, `receipt_revision` and `receipt_check` fail, showing Python's error, on a receipt that is not JSON or lacks its fields. `lacks` and `lacks_in_receipt` fail when there is nothing to read.
-- The synthetic plans `tests/agent-tools/fixtures/plans/{valid,invalid}.md` through pstack `check-plan.mjs`.
-- Graph fixtures `tests/agent-tools/fixtures/graph/*.json`. Each one edits a disposable Git checkout of the committed plan (cycle, unmapped issue, scope overlap, stale generated files, Linear readback drift) and carries its expected exit code and diagnostics.
-- App verification, in a `git archive` copy of HEAD without `node_modules`: the doctor passes its app rows; `verify app` exits 3 at the runner's preflight, naming the install command and building, starting and contacting nothing; a runner that is not executable is SKIPPED and fails the doctor's `app-runner` row; a missing Chromium and unavailable user namespaces (a test `unshare`) each fail exactly one doctor row. `verify-clearcase self-test` runs too: the clean checkout and a missing Chromium stop at preflight with no bun other than the runner, no Chromium and no connection to a stand-in registry or proxy, and the live doctor fails against a fake `/api/health` that differs in one way at a time (PID, data directory, build ID, revision, build time, no stamp, Bun, ports, journal mode, synchronous, storage error, no pragmas, a PID not running the run's `start.ts`, nothing listening) and passes the matching answer.
-- Skipped checks, the receipt writer's output and exit-code preservation, the doctor with no node and with no python3, and bootstrap idempotency, conflict refusal and removal in a fresh Git checkout.
-- Revision identity. Receipts record `head`, `baseRef`, `base` and `mergeBase` equal to `git rev-parse` and `git merge-base`, in this checkout and in a synthetic repository whose `dev` moved on after the fork. These cases are SKIPPED, exit 3, and the command does not run: no git (`verify`, `check-plan` and `receipt`), an unresolvable or empty `--base` or `CLEARCASE_BASE_REF`, no default base, an unrelated base, a `--root` below a checkout's top, a checkout without a commit, a copy of the tools outside any checkout, and a `receipt` run outside its checkout or in a nested repository. An inherited `GIT_DIR`, `CLEARCASE_GIT` and odd untracked files (non-ASCII and newline names, broken and directory symlinks) do not change or break the recorded revision. Every PASS receipt in the suite must list git and name all three commits.
-- Evidence failures, in a disposable copy of the checkout whose Git data the cases damage and restore. A corrupt index makes `verify`, `doctor`, `receipt` and `check-plan` each refuse PASS, naming the failed `git status` and Git's message, while the intact index records the untracked file as dirty with a fingerprint. These are SKIPPED, or FAIL for the doctor: a missing HEAD tree, HEAD commit or changed file's object, an unreadable tracked or untracked file, an untracked directory Git cannot open (Git exits 0 and warns), a changed file marked assume-unchanged or skip-worktree, an `origin/dev` naming a deleted commit, and a test `git` on PATH that fails `status`, `diff`, `ls-files`, `rev-parse --abbrev-ref`, `rev-parse HEAD^{commit}` or `--version`, or prints a false commit ID. So are an untracked file that disappears between listing and reading, git, node and python3 version probes that fail, a `--tool` that prints no version or cannot start, an unreadable `--input` or plan, an input that changes while it is read (`/proc/self/status`), a command without execute permission, an unwritable receipt directory, one that becomes unwritable during the run, and output that cannot be captured under `ulimit -f`. During the run, these are never PASS either: a test node that renames a valid plan over the invalid one before checking it, as the review's atomic replacement did; an input changed in place (the failing command keeps FAIL and its exit code), replaced by a copy of its bytes, or removed; a tracked file edited, a commit made or the index broken by the command; and a `stdout.txt` capture removed, moved, replaced, appended to by another descriptor or rewritten in place with other bytes of the same size. The doctor fails when an input changes during its run, and when a tracked file is edited or the index broken between its two looks at the revision, by a test `tmux` that it probes after its skill checks; with a test `tmux` that changes nothing it passes. An external diff driver, a textconv filter that prints nothing, a change inside an untracked nested repository and `status.showUntrackedFiles=no` do not hide a change from the fingerprint, and a nested repository with a file name that is not UTF-8 is fingerprinted. A console on `/dev/full` neither stalls the command nor truncates the capture. A 3 MB output, larger than the block in which a capture is read back, passes whole. The doctor fails when it is not launched through its wrapper, and on an unreadable planning script, lock or skill directory, and on a FIFO in a skill. `pstack-upstream` keeps Git's error about a missing revision and fails on an unreadable object or installed file. A relock refuses an unreadable installed file and leaves the lock unchanged.
-- The doctor's Bun row through its entry point. It fails with no bun on PATH, a fake bun 1.3.9 on PATH, a prerelease of the minimum, output that is not a version or holds other text, a version followed by a second line, output on stderr, and a failing `--version`. It passes with 1.4.2, with 1.4.2 between blank lines and spaces, and with 1.10.0, so versions compare as numbers. `CLEARCASE_BUN` finds a bun outside PATH, wins over the one on PATH and fails when it names no executable. In the disposable copy, a `package.json` whose `packageManager` raises or replaces the minimum decides the result, and one that names another package manager, has no `packageManager`, is not JSON or cannot be read fails. Where a test checks it, the Bun row is the only FAIL row. The receipt lists the bun checked and fingerprints `package.json`.
-- Receipts per command. The doctor writes PASS with this checkout's revision and FAIL with a bad base or without git, node or bun. It writes none when python3 is missing. A plain `bootstrap` writes its doctor run's receipt. A refused `bootstrap`, `bootstrap --relock`, `bootstrap --remove` and `verify list` write none.
-- The doctor on a copy of the pinned skills, before and after a planted change and a removed skill.
-- `verify pstack-upstream` and `bootstrap --relock --checkout` against a synthetic upstream Git repository: no checkout and a missing one, mislabelled, unpinned and unlisted skills, a matching pin, a changed installed file, an ignored file in the working tree, a recorded version that differs, a pin the revision lacks, a stale pinned hash, a directory that is not a Git checkout, a skills dir without the checkout's skills, a later upstream HEAD, a replace ref, a recorded revision that is not a commit ID, a clone without the pinned revision, and a relock that removes a pin with and without `--allow-drop`.
+Existing synthetic graph, revision, captured-output, permissions, Bun, app preflight and audit fault tests remain. The valid/invalid plan fixtures include the canonical program markers; the real generated delivery plan remains unchanged and is expected to fail the required format step. The CC-27 rerun script is historical; its inventory was updated for the retired upstream checks (exit 1 where it expected 0 or 3: `checkout_expect`, `readback_expect`, `v2-check-plan`, `v5-pstack-upstream-no-checkout`, `v6-plan-format-without-node`, `v6-required-readback-missing`, `v6-plan-format-without-git`, `v6-plan-format-bad-base`) and the suite now runs the committed script itself, not a rewritten copy, with its eight evidence-corruption assertions. That script is not today's acceptance driver.
 
-- `docs/acceptance/CC-27/rerun.sh` itself, run in a copy of the checkout whose suite is a stub. It stops with exit 2 when it cannot write summary.tsv, revision.txt or identity-audit.txt, when summary.tsv becomes read-only or a transcript is blocked during the run, without a temporary directory, when it cannot add its throwaway worktree, which it then removes, and when it cannot redact an output. In one run that otherwise matches every step, it exits 1 and its audit names each of seven faults planted during the run: a deleted receipt and stdout artifact, a duplicated and a stray summary row, an emptied transcript, a receipt naming another head, and a stray receipt.
+The plugin section of the suite is self-contained. `tests/agent-tools/make_plugin.py` builds throwaway HOME directories whose skill and playbook files are generated text, and whose `check-plan.mjs` is the committed, byte-for-byte copy in `tests/agent-tools/fixtures/pstack/` (with the MIT license and provenance of plugin `2.0.0-rc.5`; the suite checks its sha256). The section never reads or copies from the real HOME and strips `T3_PSTACK_ROOT`, `CLEARCASE_SKILLS_DIR` and `CLEARCASE_CHROMIUM`. The copy is real checker code, not a stand-in, so the valid and invalid plan tests prove the canonical checker's own verdict through discovery, and a permissive checker could not hide a broken path. The real-plan step stays an honest FAIL on the format backlog, and a synthetic valid plan is the check-plan PASS control, so the composite PASS path is tested without the backlog. Expectations that moved from SKIPPED (3) to FAIL (1) are stricter, and the two relock refusals (an unreadable installed file; a refused relock leaves the lock unchanged) are restored for the leaf relock. What went with the retired `pstack-upstream`, `--checkout` and `--allow-drop` section is tested as the retirement itself. Other tests earlier in the suite (the real-plan checker, the doctor in this environment, the leaf-skill copies) still depend on the host's installed plugin and leaf skills. They prove semantic newest-version selection, explicit-root precedence, identity recording, required files, missing plugin and checker failures, version/manifest/registry mismatch, unsupported major version, invalid SHA, fallback only on absence, registered plugins with a missing or empty cache or an unreadable, malformed or wrong-shaped registry (all FAIL), the retired `pstack-upstream`/`compare-upstream` failures, empty and relative HOME, a HOME with a trailing slash, a single discovery per receipt, and changed plugin provenance during a run. Leaf-pin tests still reject unreadable directories, FIFOs, missing skills and drift. Generic command failures retain their exit codes and captured diagnostics; stale evidence now explicitly FAILs.
 
-It exits nonzero if any case fails.
+Escalation tests prove missing linkage, source, exact/clean SHA or bounded question cannot write; complete request/outcome records retain the task fields without dispatch. Spend tests distinguish unavailable and zero, require an actual source, reject invalid numbers and prove overspend targets do not stop commands. These are tooling behavior tests, not evidence of a real escalation, live Linear agreement, provider billing, hosted deployment or deadline enforcement.
+
+The suite exits nonzero on any unexpected behavior. `check-plan` can independently remain FAIL for the real plan even when every tooling behavior test passes.
+
+## Fix-diff test protection
+
+`scripts/agent-tools/test-guard --fix-base REVIEWED_SHA --findings PATH` runs the guard,
+and so does `verify test-guard` with the same arguments. `receipt --name CHECK --fix-base REVIEWED_SHA
+--findings PATH -- COMMAND...` runs the guard before the command inside the same receipt;
+a refusal prevents the command. All three produce a required PASS/FAIL receipt at clean HEAD.
+The base must be an ancestor.
+
+CI runs it from the repository. A fix round commits its findings as a manifest,
+`docs/acceptance/fix-rounds/<ISSUE>-<round>.json`: the findings JSON below plus `"schema": "clearcase-fix-round/1"`,
+the canonical `unit`, `fixBase` (the reviewed commit's full SHA) and `reviewFindingsSha256` (the content hash of the
+review's findings file). The reviewer's findings file, the one `review-record` retains, carries
+`"protectedTests": [{"file", "name"}]` (a list; empty only when the review names no test) and the manifest's `tests`
+must equal it. The fix worker commits the manifest first, with the red tests. `scripts/agent-tools/fix-round-guard
+--base REF [--root DIR]` lists the manifests added or changed between the merge base with REF and HEAD, and runs
+the guard at HEAD for each one, with one `test-guard` receipt per manifest. A deleted manifest, a malformed one, or a
+`fixBase` that is not a full SHA of an ancestor fails (exit 1).
+
+A branch with no new or changed manifest exits 0, prints `nothing to protect` and writes a `fix-round-guard`
+receipt whose `guard.nothingToProtect` is true: the receipt says no guard ran, and approval never accepts it as a guard
+receipt. That exit is refused, with exit 1, when the pull request is a fix round: `--require-manifest` (CI passes it
+for a pull request labelled `fix-round`, which the coordinator applies when it dispatches the fix), or `--ledger DIR
+--branch feature/<id>-<slug>` when the coordinator's ledger records a `fix` dispatch for that branch's unit. With
+`--ledger`, the ledger and not the manifest names what the guard compares against: a manifest whose `fixBase` is not
+the commit of the review the ledger recorded before the unit's first `fix` dispatch, or whose `reviewFindingsSha256`
+names other findings, refuses, and so does a `fix` dispatch with no review recorded before it. CI has no copy of the
+ledger, so there the manifest's `fixBase` is used, and the binding at `approve` is what ties it to the review.
+
+The CI job's `test guard` step runs on pull requests only. It adds a detached worktree at the pull request's head
+(GitHub tests the merge commit, which would include the base branch's later changes) and a second one at the base
+branch (`origin/<base>`), and runs the base branch's `fix-round-guard` with `--root <head worktree>` and
+`--base origin/<the PR's base branch>`. The base copy carries the guard and the Python tools, so a pull request cannot
+weaken the check that judges it; the installed `node_modules` (TypeScript) are linked in from the checkout, so a pull
+request that changes `bun.lock` also changes the parser, and that shows in its diff. When the base branch has no guard
+yet, the pull request that adds it runs its own copy and the step says so. The runner has no Node, so the step sets
+`CLEARCASE_NODE` to Bun and the receipt's `node` row records Bun's version. The step runs even when `check` or `test`
+failed. A manifest stays in the tree, so a wave PR into `dev` runs every manifest its tickets added, at the wave head:
+a later ticket in the same wave that changes a protected file needs a reviewed `assertionCountReasons` entry in that
+manifest, for a free test only. CI has no copy of the ledger, so it cannot tell on its own that a pull request is a
+fix round; the `fix-round` label, and the binding at `approve` below, are the two controls.
+
+Findings JSON has `tests: [{"file": "tests/example.test.ts", "name": "rejects stale evidence"}]`.
+The list must be nonempty. Paths are relative to the repository; literal names must be unique
+and active in both revisions. JS/TS syntax is parsed by the project's TypeScript dependency,
+without executing the tests. Deletion, rename, skip/todo/only and inactive parent groups fail.
+Protection is deliberately conservative: every executable token of the top-level statement containing a named test must stay
+unchanged (including its enclosing suite/control flow), so assertion changes (including strengthening) and callback rewrites also fail.
+Comments and whitespace may change. The protected closure, resolved from both Git snapshots, is test code only:
+
+- the named test files and the test code they import: files whose path has a test-support directory (`tests`,
+  `test`, `__tests__`, `e2e`, `support`, `fixtures`, `__fixtures__`, `__mocks__`, `__snapshots__`, `test-utils`,
+  `test-helpers`) or a `.test.`/`.spec.` name, followed transitively through literal import/export/require (including
+  JS-to-TS resolution, JSON and repository tsconfig paths). A change to any token of such a helper or fixture module
+  refuses, with no exception: a recorded reason does not excuse a loosened matcher, a flipped constant or a
+  control-flow change there.
+- the runner configuration (`vitest`, `vite`, `jest` and `playwright` config, workspace and setup files, `bunfig.toml`),
+  every local module a configuration imports (resolved like any import, so an extensionless `./vitest.shared` or a
+  `.js` specifier that lands on a `.ts` file is followed, transitively), every file a configuration names by a path
+  expression (`setupFiles`, `globalSetup`: a literal, a literal without its extension, `join`/`resolve` from
+  `__dirname` or `import.meta.dirname`, `new URL(..., import.meta.url)`), and the `package.json` scripts
+  `test*`/`pretest*`/`posttest*`. All of it is compared as text. An `exclude` edit in the configuration or in a module
+  it imports, a new setup file or a changed test script refuses; an unresolved local configuration import fails closed. For a
+  `package.json` only the fields that steer module resolution (`name`, `type`, `main`, `module`, `browser`, `imports`,
+  `exports`) are compared otherwise, so a dependency or version edit passes.
+- fixtures: every file in a fixture directory (`fixtures`, `__fixtures__`, `__mocks__`, `__snapshots__`) under a
+  protected test's top-level directory, and every file a protected test or helper reads by literal path
+  (`readFileSync('p')`, `readFile`, `Bun.file`, `join(__dirname, 'p')`, `new URL('p', import.meta.url)`), must keep its
+  Git blob. A new fixture may be added.
+- resolver inputs read from Git (tsconfig, tracked extended configurations). Missing or unsupported extended
+  configurations fail closed, with one exemption: SvelteKit's generated `.svelte-kit/tsconfig.json`, which Git ignores,
+  so neither snapshot has it; the `$lib` alias it carries is built into the guard. Nonliteral or unresolved local imports refuse; symlink and submodule dependencies fail
+  closed without being followed; external packages are bound by the lockfile, not traversed; private RAWS/.local
+  imports refuse without being read.
+
+The module under test is not in the closure. Application code (`src/`, `scripts/` and any path outside the
+test-support directories above) is neither followed nor compared, so a fix that changes the module its named test
+imports passes. A test helper that lives outside these directories is not protected unless a named test file or a
+configuration reaches it by a literal path that lands in them; keep helpers under a test-support directory.
+
+A protected test file keeps every top-level statement as reviewed except its free tests: top-level `test`, `it` and
+`describe` calls that hold no named test. Tests in a file run in order and a `describe` body runs while tests are
+collected, so the guard bounds both what a free test may contain and where it may change:
+
+- nothing changes up to the file's last named test. A free test may be added, changed or dropped only after it, so no
+  new code runs before a named test.
+- a free test that is added or changed is an allowlist, not a list of forbidden calls: the runner's own
+  `test`/`it`/`describe` (or `.skip`/`.todo`) with a literal name, a callback without parameters and at most a numeric
+  timeout; a `describe` body holds only such registrations. A test body holds `expect(...)` or `expect.soft(...)`, then
+  `.not`/`.resolves`/`.rejects`, then one `.toXxx(...)` matcher; the asymmetric `expect` members (`any`, `anything`,
+  `arrayContaining`, `objectContaining`, `stringContaining`, `stringMatching`, `closeTo`) and `expect.assertions`/
+  `hasAssertions`; plain calls into the module under test (an import binding, a file declaration, a local, or an
+  unbound name that is not a runtime global); and a short list of pure builtins (`Object.keys`, `JSON.parse`, `Math.*`,
+  `new Map()`, `String(...)`, ...). `const`/`let`, `if`, `for...of`, `try` and arrow callbacks are allowed. Everything
+  else refuses: `vi`, `vitest`, `jest`, `chai`, hooks and other framework names whatever they are bound to (Vitest
+  hoists `vi.mock` by name), any other use of `expect` (`expect.extend`, passing `expect` on), `globalThis`, `process`,
+  `require`, `Reflect`, `Proxy`, `Function`, any other global, `constructor`/`prototype`/`__proto__`, assignment and
+  update, `delete`, dynamic `import()`, `this`, `import.meta`, computed member access, getters, classes, `.only`,
+  `.concurrent`, `.each` and computed test names.
+- a new import needs the reason and must bind names (a side-effect import refuses even with one). It may load only a
+  module the reviewed file already imports, a helper already in the protected closure, or a tracked module under test
+  that is unchanged since the fix base and whose local imports, followed transitively, never reach the test framework.
+
+A changed free test, a new import or a dropped free test needs a nonempty `assertionCountReasons[file]` entry; the
+reason excuses nothing outside the bounds above. Touched JS/TS test files cannot lose assertion calls
+(`expect`/`assert`) unless the findings include that entry for the file; it never allows changes to a named test.
+
+The module under test may change freely, but a changed non-test module (any changed JS/TS file, or a Svelte
+component's script, outside the test-support directories and the runner configuration) that imports, re-exports,
+requires or loads `vitest`, `jest`, `chai`, `bun:test` or a `@vitest`/`@jest` package, uses an unbound `expect`, `vi`,
+`vitest`, `jest` or `chai`, reads `import.meta.vitest` or names the matcher registry through `Symbol.for` refuses. A
+local function named `expect` is fine. The guard reads application code statically: a change that reaches the runner
+through computed names (`globalThis[name]`) is not detected, and is left to the re-check reviewer, as is any fix that
+special-cases a test's input.
+
+Unsupported named syntax or changed Python/shell test sources fail closed; this draft does not claim semantic
+understanding of arbitrary test frameworks.
+
+## Exact-revision approval ledger
+
+`approve --unit ISSUE/STAGE --sha FULL_SHA --review REVIEW.json --findings FINDINGS.json
+--check-receipt PATH [--check-receipt PATH ...] --approved-by COORDINATOR` appends a ledger row
+inside its receipt's `approval` field. A row becomes `approved` only at clean exact HEAD with
+a PASS fresh review and every declared deterministic check PASS at that SHA and checkout.
+A refusal is receipted as FAIL with `approval.state: refuse`, never an approved row.
+
+The review JSON contract is `schema: clearcase-review/1`, `sha`, `verdict: PASS`, distinct
+`reviewer` and `implementer`, `fresh: true`, offset-aware `reviewedAt`, `findingsSha256`,
+`unresolvedFindings` and a nonempty unique `requiredChecks` list of `{name, execution, inputs}` requirements. The findings JSON holds
+`sha`, offset-aware `updatedAt`, and the identical `unresolvedFindings` list. Each unresolved
+finding has `id` and `severity`; only `low`/`P2` permits approval. High/P0, medium/P1 and unknown
+levels block it. Findings newer than the review (timestamp or file modification time), changed
+hashes, dirty trees and missing/stale/failed/duplicate check receipts all refuse approval.
+Receipts and their captured stdout/stderr join the review and findings as fingerprinted inputs.
+
+Before approving a push, a caller runs `approval-check --unit ISSUE/STAGE --sha FULL_SHA
+--approval-receipt PATH`. It requires the same clean checkout/revision, verifies the approved
+row and rereads every input fingerprint and capture. This is an append-only local receipt
+ledger, not a signature or a proof that reviewer identity/freshness was independently verified.
+Its required-check contract comes from the reviewer. The coordinator's push hook is meant to invoke the reader
+through `scripts/agent-tools/pre-push` (see [Ledger store and push hook](#ledger-store-and-push-hook)); this repository
+does not install that hook, and no remote push, reviewer launch or external approval is performed here.
+
+### The guard binding
+
+Once the store's log holds a recorded `fix` dispatch for a unit, `approve` and `approval-check` need a PASS
+`test-guard` receipt (`approve ... --guard-receipt PATH`) at the approved HEAD. The binding is read from the ledger,
+not from the worker's files: the review that prompted the fix is the unit's latest `review-record` before that
+`fix` event, and the receipt must show (1) a `fixBase` equal to that review's recorded SHA, (2) a manifest whose
+`reviewFindingsSha256` equals the content hash of that review's recorded findings and whose `unit` is the unit, and
+(3) a manifest `tests` list equal to the recorded findings' `protectedTests`. A worker-written manifest with a later
+`fixBase`, another findings hash or a shorter `tests` list refuses. When the recorded review lists no `protectedTests`
+field the approval refuses; an empty list records `guard.nothingToProtect` and needs no receipt. The row keeps the
+binding and the receipt joins the fingerprinted inputs, so editing the receipt afterwards refuses at readback.
+A unit with no recorded `fix` dispatch approves as before.
+
+## Model-sheet verification
+
+`verify models --model-sheet PATH --catalog PATH` reads a candidate or current sheet without
+writing settings. Without `--model-sheet` it reads `$XDG_CONFIG_HOME/t3-pstack/models.md`,
+or `~/.config/t3-pstack/models.md`. Supply a fresh `orchestrator_capabilities` result as JSON
+with `providers` and an offset-aware ISO `capturedAt` ending in `Z` or `±HH:MM` (offset-free timestamps refuse before age calculation); the snapshot must be at most one hour old
+(future clock tolerance five minutes). The tool makes no network request or model launch.
+
+The selected canonical plugin's unmodified `setup-pstack/scripts/t3-sheet.mjs` validates role,
+provider, model and option availability, including implicit tier defaults. ClearCase additionally
+rejects effort `max`, UltraCode and inherited/auto targets. Missing sheets, catalogue models or
+validator prerequisites produce a required FAIL receipt. The sheet, catalogue, canonical
+validator and defaults are fingerprinted alongside plugin provenance. A fresh local snapshot
+is caller-supplied evidence, not an independently authenticated catalogue or dispatch approval.
+
+## Local dispatch bookkeeping
+
+`dispatch --unit GRS-104/implementation --phase initial --task-id ID --deadline ISO_TIMESTAMP`
+reserves a local attempt in the receipt store. Units use the original issue and the fixed
+`implementation` or `review` stage; changing a task ID, checkout or revision does not reset it within that store.
+The initial deadline must be future, within 90 minutes for implementation or 30 for review,
+and cannot be changed by a restart. Every later attempt (`fix`, `recheck`, `escalation`, `infra-retry`) gets its own
+deadline when it is dispatched: `--deadline` if given, else the same limit from now, and either way in the future
+and within the limit. A fix dispatched three hours after the initial attempt is accepted. The receipt's
+`attemptDeadline` is this attempt's, `deadlines` maps each recorded phase to its deadline and `deadline` keeps the
+unit's initial one. Use the same `--receipts` store for every attempt.
+
+Phases `fix`, `recheck`, `escalation` and `infra-retry` each permit one record. Recheck requires
+a fix, escalation requires a recheck, and exhausting fix/recheck/escalation stops the unit.
+Counts and deadline are copied into every receipt's `dispatch` field; refusals have
+`outcome: refuse`, a reason and nonzero exit. A stable `--failure` requires `--diagnosis`;
+repeating the same failure and diagnosis refuses the next attempt. A dispatch whose own deadline is already past
+or beyond the limit is refused. Nothing here stops a task that overruns its deadline: that is the coordinator's job.
+A kernel file lock covers reading history and appending the receipt,
+so simultaneous callers cannot reserve the same remaining attempt. Corrupt history refuses.
+
+`--phase cancel --cancel-outcome confirmed|failed --reason TEXT` records an external cancellation
+outcome, retains counts/deadline/task identity and stops later attempts. Failed cancellation
+is a FAIL receipt with `outcome: cancellation-failed`; confirmed is `cancelled`. This command
+never launches, kills, polls or contacts a task. `dispatchPerformed` and cancellation's
+`performedByTool` are false. It is bookkeeping, not a scheduler, watchdog, real cancellation
+proof or escalation authorization; the separate linked-escalation contract still applies.
+Stall assessment, checkpoint grace, bounded-long-test declarations and live launcher integration
+remain unimplemented. Removing/changing the receipt store would discard this local history.
+
+### Guard repository identity
+
+The receipt revision collector supplies the guard's expected toplevel realpath, HEAD and
+resolved fix base. Every guard Git query (including object-existence checks) strips all
+`GIT_*` overrides, as the collector does. A mismatch refuses before running the command.
+The receipt revision includes `toplevel` and `head` as its repository identity.
+
+### Required check execution provenance
+
+A reviewer binds each requirement to the receipt `execution` object and `inputs` list.
+Execution records exact argv, shell-quoted command line, an argv digest, cwd, the resolved
+executing binary and byte fingerprint, and PATH-resolved bun/python3/bash fingerprints.
+`--tool bun` discovery cannot substitute for the binary that actually executes bare `bun`.
+Input arguments naming files join explicit `--input` files automatically. Reviewers must
+list further external/transitive data inputs explicitly; repository files are bound by SHA.
+No requirement can be satisfied by `--name` alone or by an older names-only review.
+
+Children drop all GIT_* and PYTHON* overrides, interpreter startup hooks (BASH_ENV/ENV,
+SHELLOPTS/BASHOPTS, NODE_OPTIONS/BUN_OPTIONS), and LD_PRELOAD/LD_LIBRARY_PATH. Execution
+records PATH and TMPDIR plus hashes of every other retained environment value, including
+all CLEARCASE_* variables; secret values are never copied. PWD/OLDPWD/SHLVL/_ are excluded
+from the snapshot. Inputs, resolved binary identities and the environment are checked before
+and after execution, against the review requirement at approval, and again at approval-check.
+Approval retains every supplied check input transitively; stale external inputs refuse both
+boundaries. Changed PATH shims, runtime bytes, TMPDIR and behavior overrides require a new
+review and check. Receipts still trust the OS and reviewed binaries; they are not signatures.
+
+### Recorded review and attempt history
+
+The trusted reviewer/coordinator first calls `review-record --unit ISSUE/STAGE --review PATH
+--findings PATH` in the same receipt store. It retains both original byte streams in read-only
+content-addressed blobs and appends their hashes and original severities to `events.jsonl`.
+Approval uses the latest recorded snapshot for the original unit and checks the supplied copies
+against it. A newer recorded review invalidates earlier approvals and review snapshots at
+both approve and approval-check; an older empty/low review cannot be resurrected. Rewriting
+both worker copies cannot downgrade a finding; later review records retain original severity
+for each finding ID. A fresh review can mark a finding resolved by removing it from the
+unresolved list, while its original severity remains in history. Review-record is a trusted
+caller boundary; it does not authenticate a human or launch a reviewer.
+
+Review and dispatch events are append-only, sequence-numbered, and chained by SHA256 with
+a separate stored tip. Every attempt receipt must match its event, including counts. Budgets
+are derived from accepted phase events, rather than copied worker counts. Edited/deleted
+receipts, altered chains, truncated history, mismatched stored counts and unindexed legacy
+attempt receipts refuse. Dispatch reservation and receipt append retain the unit lock.
+A crash between log append, tip update and receipt write fails closed; no automatic reset.
+The coordinator must own and retain the store across workers. Hash chains detect ordinary
+edits; full replacement of the store, its tip and blobs by the same privileged local writer
+cannot be authenticated by a local unsigned ledger and remains outside this boundary.
+
+### Canonical unit keys
+
+All review-record, approve, approval-check and dispatch callers use uppercase Linear keys
+with a positive decimal issue number without leading zeroes and lowercase stage. Identity
+normalisation is case-insensitive (`grs-0104` maps to `GRS-104`), but noncanonical spellings
+are refused with the canonical key rather than creating aliases or a new budget/deadline.
+Only `GRS-104/implementation` or `GRS-104/review` forms are stored for this issue.
+
+Input fingerprints retain the supplied absolute path plus its resolved realpath, so retargeting
+an external input symlink refuses at approval and readback. Review registration serialises
+original-severity retention under the event append lock, including concurrent registrations.
+
+### Ledger store and push hook
+
+`review-record`, `approve`, `approval-check`, `dispatch` and `pre-push` keep their events, blobs, locks and receipts
+in one ledger store: `--ledger DIR`, else `CLEARCASE_LEDGER_DIR`, else the receipt store. A `--ledger` or
+`CLEARCASE_LEDGER_DIR` value must be an absolute path (a relative one resolves against each caller's working
+directory and splits the store, so it refuses). The store must resolve to a
+path outside the checkout the command checks (`--root`, or the checkout holding the tools); inside it, the command
+refuses before it reads or writes anything, with exit 1 and no receipt. The default `.local/agent-receipts/` is
+inside the checkout, so these commands need an explicit store. The coordinator keeps one store outside every
+checkout, for example `${XDG_STATE_HOME:-~/.local/state}/clearcase/ledger`, passes it to every call and runs the
+tools from its own `dev` clone with `--root <worktree>`. Check receipts from `receipt` may stay in the worker's
+receipt store; `approve` names them with `--check-receipt`.
+
+A PASS `approve` appends an `approval` event to the log, holding the approval receipt's path (stored as written,
+not shortened to `~`, so a reader under another HOME or a sibling home directory opens the same file), its
+`approval` row and its `inputs`, and the receipt records the event's hash as `approvalEvent`. `approval-check` refuses an approval
+receipt whose event is missing from the log or differs from it, so an edited, copied or forged receipt, or a log
+rewritten without the event, is not a ledger row. A refused approval appends nothing.
+
+`scripts/agent-tools/pre-push [--ledger DIR] [--root DIR] [REMOTE [URL]]` reads Git's pre-push lines on stdin. For each
+pushed `refs/heads/feature/<linear-id>-<slug>` it takes the issue's `<ISSUE>/implementation` unit, finds the latest
+approval event for that unit at the pushed commit and runs `approval-check` on it, which writes a receipt in the
+store. A missing row, another issue's row, a noncanonical key such as `grs-0104`, a branch with no Linear key, or a
+checkout whose clean HEAD is not the pushed commit prints `pre-push: BLOCKED` and exits 1. Other refs and deletions
+pass; the hook keeps its own rules for them. The hook (in `orch-bin`, outside this repository) calls the script
+from the coordinator's `dev` clone, never from the pushing checkout, whose copy of the tools the worker can edit:
+
+```bash
+refs=$(cat)   # the hook's stdin, read once; its own loop then reads "$refs"
+CLEARCASE_LEDGER_DIR=$LEDGER "$DEV_CLONE/scripts/agent-tools/pre-push" --root "$(git rev-parse --show-toplevel)" \
+  "$@" <<<"$refs" || status=1
+```
+
+This repository installs no hook and changes no `orch-bin` file. Until the coordinator adds the call, the leak-scan
+file under `.orchestration/push-approved/` remains the only push gate.
+
+**The ledger is a record, not a proof.** Every agent runs as the same Unix user, so any of them can mint an `approved`
+row with self-written JSON: write a review, a findings file and a check receipt, call `review-record`, then `approve
+--approved-by anyone`, and `pre-push` passes. Nothing in the store authenticates who wrote a review or who approved.
+The controls that hold without a signed store are the guard binding above (the guard result is bound to the reviewed
+commit and to the findings the ledger recorded, not to files the worker wrote), the base branch's guard in CI, and the external wave review. Until a signed store
+exists, treat an approved row as the coordinator's note to itself.
+
+What the store does not protect against: every agent runs as the same Unix user, so any process can rewrite the log,
+its tip and its blobs together, and the hash chain then verifies. Outside the checkout, the store is out of reach of
+`git clean`, worktree removal and edits confined to the worker's tree, and the chain detects partial edits, truncation
+and a receipt that differs from its event. It is not signed, not on another machine and not backed up; deleting the
+store discards the attempt history and every approval, and later pushes then block. A crash between the log append,
+the tip update and the receipt write fails closed and needs the coordinator to repair the store by hand.

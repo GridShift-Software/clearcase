@@ -1,0 +1,4 @@
+#!/bin/bash
+# Local escalation record only. See docs/agent-tooling.md.
+source "${BASH_SOURCE[0]%/*}/_common.sh"
+run_agent_tools escalate "$@"

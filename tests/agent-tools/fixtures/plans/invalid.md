@@ -14,9 +14,11 @@ Tests alone are not sufficient verification. A PR is verified only when its unit
 
 ### Arm the program
 
+- [ ] Read the instructions with `cat <plugin root>/skills/poteto-mode/SKILL.md`.
+
 - [ ] Compare against the release branch with `git show origin/main:README.md` only.
 
-- [ ] Do not arm `/loop 1h`. Send a status message only for material changes.
+- [ ] Record an hourly schedule_task for the synthetic program and send a status message for material changes.
 
 ### Spawn owners
 

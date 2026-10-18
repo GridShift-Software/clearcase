@@ -87,6 +87,15 @@ install)
 apt-get | sysctl | chown)
   event "$tool"
   ;;
+mv)
+  # Only register's move of the previous credential into the backup directory can be made to fail or be interrupted.
+  if [[ $1 == .credentials ]]; then
+    if [[ $scenario == mv-fail ]]; then exit 1; fi
+    # The signal is handled when this mv returns, so the file stays where it was.
+    if [[ $scenario == mv-term ]]; then kill -TERM "$(cat "$root/guest-shell.pid")"; exit 0; fi
+  fi
+  exec /usr/bin/mv "$@"
+  ;;
 id) [[ $* == runner ]] ;;
 runuser)
   [[ $1 == -u && $2 == runner && $3 == -- ]] || exit 2

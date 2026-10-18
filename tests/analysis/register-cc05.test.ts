@@ -63,8 +63,11 @@ describe('CC-05 register: no entry masks a wrong app value', () => {
 		// CC-05's own harness-capture gap, plus the GRS-67 source-defect dispositions, each with the owner that would close it
 		expect(entries.filter((e) => e.type === 'known-gap' && !e.owner)).toEqual([]);
 		expect(entries.find((e) => e.id === 'IDR-168')).toMatchObject({ type: 'known-gap', owner: 'GRS-15' });
-		// v5's missing refs and its Timeline heading return while CLEARCASE_ANALYSIS_ADDITIONS is off: GRS-48 owns the switch
-		for (const source of ['S-vdm_matrix_tab-1', 'S-timeline-4']) expect(entries.filter((e) => e.source === source)).toMatchObject([{ field: [], type: 'known-gap', owner: 'GRS-48' }]);
+		// v5's missing refs and its Timeline heading return while CLEARCASE_ANALYSIS_ADDITIONS is off (GRS-48)
+		for (const source of ['S-vdm_matrix_tab-1', 'S-timeline-4']) {
+			expect(entries.filter((e) => e.source === source)).toMatchObject([{ field: [], type: 'known-gap', owner: 'GRS-15' }]);
+			expect(entries.find((e) => e.source === source)!.reason).toContain('CLEARCASE_ANALYSIS_ADDITIONS');
+		}
 	});
 });
 

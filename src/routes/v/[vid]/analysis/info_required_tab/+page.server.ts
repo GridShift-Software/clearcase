@@ -1,7 +1,10 @@
 import { fail, isHttpError } from '@sveltejs/kit';
+import { analysisAdditionsEnabled } from '$lib/analysis/data.server';
+import { viewById } from '$lib/components/views';
 import { app } from '$lib/local-case/app.server';
 import { datasetOf } from '$lib/local-case/results.server';
 import { infoRows, itemKeys, saveDone, type InfoItem } from '$lib/analysis/info-required.server';
+import { viewHeading } from '$lib/views/analysis/headings';
 import type { Actions, PageServerLoad } from './$types';
 
 const itemsOf = (vid: string) => datasetOf<InfoItem[]>(app().store, vid, 'info-required') ?? [];
@@ -9,7 +12,7 @@ const itemsOf = (vid: string) => datasetOf<InfoItem[]>(app().store, vid, 'info-r
 export const load: PageServerLoad = async ({ parent }) => {
 	const { version } = await parent();
 	const { rows, detached } = infoRows(app().userWork, version.caseId, itemsOf(version.id));
-	return { rows, detached };
+	return { heading: viewHeading(viewById('info_required_tab')!, analysisAdditionsEnabled()), rows, detached };
 };
 
 const carried = (f: FormData, items: InfoItem[], except: string) => {

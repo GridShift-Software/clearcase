@@ -3,21 +3,21 @@
 	import CitationLink from '$lib/components/CitationLink.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { download } from '$lib/components/csv';
-	import { REFS_HEADING, defenceCsv } from '$lib/views/analysis/defence';
+	import { REFS_HEADING, defenceCsv, refsShown } from '$lib/views/analysis/defence';
 	import '$lib/views/analysis/analysis.css';
 	import TableScroll from '$lib/components/TableScroll.svelte';
 	let { data } = $props();
 	const vid = $derived(data.version.id);
 	const known = $derived(new Set(data.known));
 	const h = $derived(data.headings);
-	const showRefs = $derived(data.analysisAdditions && data.rows.some((r) => r.refs.trim()));
-	const exportCsv = () => download(data.exportName.name, defenceCsv(data.exportColumns.keys, data.rows));
+	const showRefs = $derived(refsShown(data.rows, data.analysisAdditions));
+	const exportCsv = () => download(data.exportName.name, defenceCsv(data.exportColumns.keys, data.rows, data.analysisAdditions));
 	let hydrated = $state(false);
 	onMount(() => { hydrated = true; });
 </script>
 
 <main id="main" tabindex="-1" data-analysis data-ready="vdm_matrix_tab" data-hydrated={hydrated ? '' : null}>
-	<PageHeader heading="Defence & Rebuttal" section="Defence & Rebuttal" caseName={data.version.titleName} subtitle={data.subtitle}>
+	<PageHeader heading={data.heading} section="Defence & Rebuttal" caseName={data.version.titleName} subtitle={data.subtitle}>
 		{#snippet actions()}<button type="button" onclick={exportCsv} id="export-csv" disabled={data.rows.length === 0}>Export CSV</button>{#each [data.exportName.note, data.exportColumns.note] as note, i (i)}{#if note}<span class="export-note" data-export-note>{note}</span>{/if}{/each}{/snippet}
 	</PageHeader>
 	{#if data.rows.length === 0}

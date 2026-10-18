@@ -3,22 +3,6 @@
   "version": 1,
   "entries": [
     {
-      "id": "IDR-150",
-      "view": "info_required_tab",
-      "field": "title",
-      "when": {
-        "v5": "Information & Documents Required",
-        "app": "Info Required"
-      },
-      "type": "improvement",
-      "source": "BA-18",
-      "reason": "The page heading is the navigation label (BA-18), so the destination names the task the operator chose; v5 shows a longer heading than its own navigation entry.",
-      "productVisible": true,
-      "author": "CC-05 worker (GRS-15)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
       "id": "IDR-151",
       "view": "info_required_tab",
       "field": "focus.after_nav",
@@ -83,22 +67,6 @@
       "approvedOn": null
     },
     {
-      "id": "IDR-155",
-      "view": "vdm_matrix_tab",
-      "field": "title",
-      "when": {
-        "v5": "Defence & Rebuttal Matrix",
-        "app": "Defence & Rebuttal"
-      },
-      "type": "improvement",
-      "source": "BA-18",
-      "reason": "The page heading is the navigation label (BA-18), so the destination names the task the operator chose; v5 adds Matrix to its heading only.",
-      "productVisible": true,
-      "author": "CC-05 worker (GRS-15)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
       "id": "IDR-156",
       "view": "vdm_matrix_tab",
       "field": "focus.after_nav",
@@ -115,56 +83,6 @@
       "approvedOn": null
     },
     {
-      "id": "IDR-157",
-      "view": "vdm_matrix_tab",
-      "field": "table.table_1.columns",
-      "when": {
-        "v5": "dcs_point | dcs_case | ess_supporting_evidence | documents | ess_rebuttal",
-        "app": "dcs_point | dcs_case | ess_supporting_evidence | documents | ess_rebuttal | refs"
-      },
-      "type": "defect-fix",
-      "source": "S-vdm_matrix_tab-1",
-      "reason": "v5 never shows the defence matrix free-text refs; the app adds them as a last table column, after v5's columns in v5's exact order (pinned: any other order or column set is unregistered).",
-      "productVisible": true,
-      "author": "CC-05 worker (GRS-15)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
-      "id": "IDR-158",
-      "view": "vdm_matrix_tab",
-      "field": "table.table_1.col.refs",
-      "when": {
-        "v5": "<absent>",
-        "app": "Refs"
-      },
-      "type": "defect-fix",
-      "source": "S-vdm_matrix_tab-1",
-      "reason": "The heading of the refs column v5 never shows.",
-      "productVisible": true,
-      "author": "CC-05 worker (GRS-15)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
-      "id": "IDR-159",
-      "view": "vdm_matrix_tab",
-      "field": [
-        "table.table_1.row.*.refs",
-        "export.export_csv.row.*.refs"
-      ],
-      "when": {
-        "v5": "<absent>"
-      },
-      "type": "defect-fix",
-      "source": "S-vdm_matrix_tab-1",
-      "reason": "Each row shows and exports its imported free-text refs unchanged (empty where the row has none); v5 drops them.",
-      "productVisible": true,
-      "author": "CC-05 worker (GRS-15)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
       "id": "IDR-161",
       "view": "contradictions_tab",
       "field": "focus.after_nav",
@@ -175,22 +93,6 @@
       "type": "improvement",
       "source": "BA-14",
       "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
-      "productVisible": true,
-      "author": "CC-05 worker (GRS-15)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
-      "id": "IDR-163",
-      "view": "timeline",
-      "field": "title",
-      "when": {
-        "v5": "Chronology & Timeline",
-        "app": "Timeline"
-      },
-      "type": "defect-fix",
-      "source": "S-timeline-4",
-      "reason": "v5 heads the page Chronology & Timeline while its navigation and crumb say Timeline; the heading is the navigation label (BA-18).",
       "productVisible": true,
       "author": "CC-05 worker (GRS-15)",
       "approvedBy": null,
@@ -237,29 +139,13 @@
           "re": "^Skip to content .+ Chronology & Timeline .+$"
         },
         "app": {
-          "re": "^Timeline .+$"
+          "re": "^Chronology & Timeline .+$"
         }
       },
       "type": "known-gap",
       "source": "GRS-12",
       "owner": "GRS-15",
-      "reason": "Harness capture, not a product difference: the print capture is the whole page text. The app adapter trims it to the page's main (heading on); the v5 capture keeps v5's shell, which no v5 spec hook can trim (shared-file request in the CC-05 r2 report). The printed content after the heading is compared exactly in sweep.timeline_print.content.",
-      "productVisible": true,
-      "author": "CC-05 worker (GRS-15)",
-      "approvedBy": null,
-      "approvedOn": null
-    },
-    {
-      "id": "IDR-169",
-      "view": "vdm_matrix_tab",
-      "field": "export.export_csv.columns",
-      "when": {
-        "v5": "dcs_point | dcs_case | ess_evidence | documents | rebuttal",
-        "app": "dcs_point | dcs_case | ess_evidence | documents | rebuttal | refs"
-      },
-      "type": "defect-fix",
-      "source": "S-vdm_matrix_tab-1",
-      "reason": "v5 never exports the defence matrix free-text refs; the app adds them as a last CSV column, after v5's columns in v5's exact order (pinned: any other order or column set is unregistered).",
+      "reason": "Harness capture, not a product difference: the print capture is the whole page text. The app adapter trims it to the page's main (heading on); the v5 capture keeps v5's shell, which no v5 spec hook can trim (shared-file request in the CC-05 r2 report). The printed content after the heading is compared exactly in sweep.timeline_print.content. With CLEARCASE_ANALYSIS_ADDITIONS off (GRS-48, ADR 0003) the app's heading, where its capture starts, is v5's.",
       "productVisible": true,
       "author": "CC-05 worker (GRS-15)",
       "approvedBy": null,
@@ -295,7 +181,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-timeline-2",
-      "reason": "v5 hard-codes case narrative, counts and a firm name in the renderer. ClearCase fills the synopsis, narrative, trajectory and notes from the imported view-content dataset, with counts derived from the register and package, so no case wording lives in code. Evidence: src/routes/v/[vid]/analysis/timeline/+page.server.ts:33.",
+      "reason": "v5 hard-codes case narrative, counts and a firm name in the renderer. ClearCase fills the synopsis, narrative, trajectory and notes from the imported view-content dataset, with counts derived from the register and package, so no case wording lives in code. Evidence: src/routes/v/[vid]/analysis/timeline/+page.server.ts:35.",
       "productVisible": false,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,
@@ -308,6 +194,19 @@
       "type": "defect-fix",
       "source": "S-timeline-3",
       "reason": "v5 scales year bars by the maximum, so a map of only zero counts divides by zero and gives NaN heights. ClearCase takes the maximum with a zero floor and draws flat bars for all-zero counts and none for an empty map. Evidence: src/lib/views/analysis/timeline.test.ts:23.",
+      "productVisible": true,
+      "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-181",
+      "view": "timeline",
+      "field": [],
+      "type": "known-gap",
+      "source": "S-timeline-4",
+      "owner": "GRS-15",
+      "reason": "v5 heads the page Chronology & Timeline while its navigation and crumb say Timeline. ClearCase reproduces this by default: a heading equal to the navigation label is an analysis addition behind CLEARCASE_ANALYSIS_ADDITIONS, off until the client approves it (ADR 0003, GRS-48); with the flag set to 1 the heading is Timeline. Info Required and Defence & Rebuttal keep v5's headings the same way. Evidence: src/lib/views/analysis/headings.ts:3.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,
@@ -364,12 +263,25 @@
       "approvedOn": null
     },
     {
+      "id": "IDR-182",
+      "view": "vdm_matrix_tab",
+      "field": [],
+      "type": "known-gap",
+      "source": "S-vdm_matrix_tab-1",
+      "owner": "GRS-15",
+      "reason": "v5 never shows or exports the defence matrix free-text refs. ClearCase reproduces this by default: the Refs column and the CSV's last refs column are analysis additions behind CLEARCASE_ANALYSIS_ADDITIONS, off until the client approves them (ADR 0003, GRS-48); with the flag set to 1 both show, after v5's columns. Evidence: tests/analysis/flag-states.test.ts:66.",
+      "productVisible": true,
+      "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
       "id": "IDR-178",
       "view": "vdm_matrix_tab",
       "field": [],
       "type": "defect-fix",
       "source": "S-vdm_matrix_tab-2",
-      "reason": "v5 hard-codes party abbreviations in the column headings and subtitle. ClearCase reads the subtitle and column headings from the imported view-content dataset, falling back to neutral headings, so the parties are named by the package and not by code. Evidence: src/routes/v/[vid]/analysis/vdm_matrix_tab/+page.server.ts:13.",
+      "reason": "v5 hard-codes party abbreviations in the column headings and subtitle. ClearCase reads the subtitle and column headings from the imported view-content dataset, falling back to neutral headings, so the parties are named by the package and not by code. Evidence: src/routes/v/[vid]/analysis/vdm_matrix_tab/+page.server.ts:17.",
       "productVisible": false,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,

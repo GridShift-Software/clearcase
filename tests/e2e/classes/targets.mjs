@@ -25,10 +25,27 @@ export function pageRoutes(root) {
 	return walk(routes).filter((f) => f.endsWith(`${sep}+page.svelte`)).map((f) => '/' + relative(routes, f).split(sep).slice(0, -1).join('/')).map((r) => (r === '/' ? '/' : r.replace(/\/$/, ''))).sort();
 }
 
-/** Whether a route's +page.server.ts exports form actions (`export const actions`, or re-exports `actions`). */
+/**
+ * Whether a route's +page.server.ts exports form actions: `export const actions`, `export { actions }` (with or without
+ * `from`, aliased or not), or an `export * from` of a module that does. A star re-export it cannot read is an error, not a "no".
+ */
 export function hasActions(root, route) {
 	const f = join(root, 'src', 'routes', ...route.split('/').filter(Boolean), '+page.server.ts');
-	return existsSync(f) && /export const actions\b|export \{[^}]*\bactions\b[^}]*\} from/.test(readFileSync(f, 'utf8'));
+	if (!existsSync(f)) return false;
+	const graph = importGraph(join(root, 'src'));
+	const seen = new Set();
+	const has = (file) => {
+		if (seen.has(file)) return false;
+		seen.add(file);
+		const t = readFileSync(file, 'utf8');
+		if (/export\s+(?:const|let|var)\s+actions\b|export\s*\{[^}]*\bactions\b/.test(t)) return true;
+		const stars = [...t.matchAll(/export\s*\*\s*from\s*['"]([^'"]+)['"]/g)].map((m) => m[1]);
+		if (!stars.length) return false;
+		const { targets, unfollowed } = graph.parse(file);
+		if (unfollowed) throw new Error(`hasActions: cannot follow an export * in ${relative(root, file)}`);
+		return targets.some(has);
+	};
+	return has(f);
 }
 
 const SINK = /\bdownload\(|\bdownloadBlob\(|content-disposition|createObjectURL|text\/csv|<a\b[^>]*\bdownload\b/i;
@@ -80,6 +97,8 @@ function importGraph(src) {
 		return parsed.get(f);
 	};
 	return {
+		/** The code modules `f` imports, and whether it holds an edge the graph cannot follow. */
+		parse,
 		/** The .svelte files `f` imports directly or through code-only modules (barrels), not those further down. */
 		reach(f) {
 			const out = new Set(), seen = new Set([f]), todo = [f];
@@ -141,19 +160,21 @@ export function csvExports(root, { notProducers = {}, helpers = {} } = {}) {
 }
 
 /**
- * Whether a page's source, or a .svelte component it imports (to three levels), matches `re`: LeaveGuard or
- * beforeNavigate for a page that asks before an in-app navigation drops its input; `data-edit` for rows that can be edited.
+ * Whether a page's source, or a .svelte component it imports (to three levels, through `$lib` aliases, barrels and dynamic
+ * imports), matches `re`: LeaveGuard or beforeNavigate for a page that asks before an in-app navigation drops its input;
+ * `data-edit` for rows that can be edited. A page whose imports the graph cannot follow is an error, not a "no".
  */
 export function pageUses(root, route, re) {
 	const dir = join(root, 'src', 'routes', ...route.split('/').filter(Boolean));
+	const graph = importGraph(join(root, 'src'));
 	const seen = new Set();
 	const scan = (f, depth) => {
 		if (seen.has(f) || !existsSync(f)) return false;
 		seen.add(f);
-		const t = readFileSync(f, 'utf8');
-		if (re.test(t)) return true;
+		if (re.test(readFileSync(f, 'utf8'))) return true;
+		if (graph.parse(f).unfollowed) throw new Error(`pageUses: cannot follow an import in ${relative(root, f)}`);
 		if (depth >= 3) return false;
-		return [...t.matchAll(/from\s+['"](\$lib\/[^'"]+\.svelte|\.{1,2}\/[^'"]+\.svelte)['"]/g)].some((m) => scan(m[1].startsWith('$lib/') ? join(root, 'src', 'lib', m[1].slice(5)) : join(f, '..', m[1]), depth + 1));
+		return [...graph.reach(f)].some((c) => scan(c, depth + 1));
 	};
 	return scan(join(dir, '+page.svelte'), 0);
 }

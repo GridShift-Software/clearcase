@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 // @ts-expect-error plain .mjs
-import { csvExports, hasLeaveGuard } from '../classes/targets.mjs';
+import { csvExports, hasActions, hasLeaveGuard } from '../classes/targets.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'cc-targets-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -158,6 +158,46 @@ describe('barrel and alias edges between pages and a mapped CSV producer (GRS-61
    'lib/Maker.svelte': MAKER,
   });
   expect(csvExports(dir)).toEqual({ pages: ['/direct'], servers: [], unrecognised: [], declaredButCsv: [] });
+ });
+});
+
+describe('the other page discoveries follow the same edges (GRS-61, PR #63 review)', () => {
+ const build = (files: Record<string, string>) => {
+  const dir = mkdtempSync(join(root, 'sweep-'));
+  for (const [rel, source] of Object.entries(files)) { const path = join(dir, 'src', rel); mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, source); }
+  return dir;
+ };
+ test('hasLeaveGuard follows an aliased barrel, a dynamic import and a relative directory import', () => {
+  const dir = build({
+   'lib/index.ts': "export { default as Guard } from './Guarded.svelte';",
+   'lib/Guarded.svelte': "<script>import { beforeNavigate } from '$app/navigation';</script>",
+   'routes/barrel/+page.svelte': "<script>import { Guard } from '$lib';</script><Guard />",
+   'routes/lazy/+page.svelte': "<script>const G = import('$lib/Guarded.svelte');</script>",
+   'routes/rel/+page.svelte': "<script>import { Guard } from '../../lib';</script><Guard />",
+   'routes/none/+page.svelte': '<form></form>',
+  });
+  for (const r of ['/barrel', '/lazy', '/rel']) expect(hasLeaveGuard(dir, r)).toBe(true);
+  expect(hasLeaveGuard(dir, '/none')).toBe(false);
+ });
+ test('hasLeaveGuard refuses a page whose import it cannot follow instead of answering no', () => {
+  const dir = build({
+   'lib/vendor/other.ts': 'export const x = 1;',
+   'routes/a/+page.svelte': "<script>import { Guard } from '$lib/vendor';</script><Guard />",
+   'routes/b/+page.svelte': "<script>const load = (n) => import(`$lib/${n}.svelte`);</script>",
+  });
+  expect(() => hasLeaveGuard(dir, '/a')).toThrow(/cannot follow/);
+  expect(() => hasLeaveGuard(dir, '/b')).toThrow(/cannot follow/);
+ });
+ test('hasActions sees a local export { actions }, an aliased re-export and an export * from another module', () => {
+  const dir = build({
+   'lib/forms.ts': 'export const actions = {};',
+   'routes/local/+page.server.ts': 'const a = {}; export { a as actions };',
+   'routes/alias/+page.server.ts': "export { default as actions } from '$lib/forms';",
+   'routes/star/+page.server.ts': "export * from '$lib/forms';",
+   'routes/plain/+page.server.ts': 'export const load = () => ({});',
+  });
+  for (const r of ['/local', '/alias', '/star']) expect(hasActions(dir, r)).toBe(true);
+  expect(hasActions(dir, '/plain')).toBe(false);
  });
 });
 

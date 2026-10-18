@@ -1,18 +1,12 @@
 // App adapter: People (GRS-14). A read-only table in data order.
-import { fromRaw } from '../../lib/snapshot.mjs';
 import { openHydrated } from '../../../../tests/e2e/evidence/lib/parity-app.mjs';
-import { navFocus } from './_shell.mjs';
+import { readSimpleView } from './_shell.mjs';
 
 const VIEW = 'people';
 
 export default {
 	view: VIEW,
 	async extract(p, ctx) {
-		const nav = await navFocus(p, ctx, { from: '/overview', fromView: 'overview', view: VIEW });
-		await openHydrated(p, ctx, ctx.registry[VIEW].route, VIEW);
-		const s = fromRaw(VIEW, 'app', await p.extract('#main'));
-		s.focus.after_nav = nav.focus;
-		s.texts['shell.crumb'] = nav.crumb;
-		return s;
+		return readSimpleView(p, ctx, VIEW, { openView: openHydrated });
 	},
 };

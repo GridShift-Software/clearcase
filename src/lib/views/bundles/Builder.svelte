@@ -9,7 +9,7 @@
 	import { bld, blobs, docs, newId } from './builder.svelte.ts';
 	import { pad, type Bundle, type Header } from './court.ts';
 	import { DOCX_TYPE, indexDocx } from './docx.ts';
-	import { downloadBlob } from './download.ts';
+	import { download } from '../../components/download.ts';
 	import { postAction } from './post.ts';
 	import TableScroll from '$lib/components/TableScroll.svelte';
 
@@ -94,12 +94,12 @@
 	function indexPdf() {
 		const t = named();
 		try {
-			downloadBlob(indexPdfName(t), indexOnly(spec(pl, t, h), pdfName(t)).bytes, 'application/pdf');
+			download(indexPdfName(t), indexOnly(spec(pl, t, h), pdfName(t)).bytes, 'application/pdf');
 		} catch (e) { alert('Could not build the index: ' + why(e)); }
 	}
 	function indexWord() {
 		const t = named();
-		downloadBlob(indexDocxName(t), indexDocx([docxBundle(pl, t, bld.out)], h, creator), DOCX_TYPE);
+		download(indexDocxName(t), indexDocx([docxBundle(pl, t, bld.out)], h, creator), DOCX_TYPE);
 	}
 	function print() {
 		if (!bld.out) return;

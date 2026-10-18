@@ -8,13 +8,5 @@ export const csvCell = (c: Cell) => { const s = atSegments(text(c)); return /[",
 export const toCSV = (rows: readonly (readonly Cell[])[]) => rows.map((r) => r.map(csvCell).join(',')).join('\r\n');
 export const userCell = (v: string | readonly string[]) => atSegments(exportCell(typeof v === 'string' ? v : v.join('; ')));
 
-export function download(name: string, content: string, type = 'text/csv;charset=utf-8') {
-	const url = URL.createObjectURL(new Blob([content], { type }));
-	const a = document.createElement('a');
-	a.href = url;
-	a.download = name;
-	document.body.append(a);
-	a.click();
-	a.remove();
-	setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
+import { download as save } from './download.ts';
+export const download = (name: string, content: string | Uint8Array, type = 'text/csv;charset=utf-8') => save(name, content, type);

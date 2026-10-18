@@ -63,6 +63,22 @@ jobs:
           trap 'rm -rf "$tmp"' EXIT
           TMPDIR=$tmp CLEARCASE_TEST_TMP=$tmp scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base origin/dev --name test --tool bun -- \
             bun run --bun test --maxWorkers=6 --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/receipts/vitest.json"
+      # A fix round commits its review findings and the reviewed SHA under docs/acceptance/fix-rounds/
+      # (docs/agent-tooling.md). The guard fails a pull request that deletes, skips, loosens or renames a test those
+      # findings name, or that deletes a manifest. It checks the pull request's own head, not the merge commit, and runs
+      # under Bun because the runner has no Node. A push to dev ran it in its pull request.
+      - name: test guard
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          head=$RUNNER_TEMP/pr-head
+          git worktree prune
+          git worktree add -q --detach "$head" "$PR_HEAD_SHA"
+          trap 'git worktree remove --force "$head"' EXIT
+          CLEARCASE_NODE=$(command -v bun) scripts/agent-tools/fix-round-guard --root "$head" --base "origin/$BASE_REF" \
+            --receipts "$RUNNER_TEMP/receipts"
       # Fails the job unless both receipts are PASS for this checkout and every tracked test file ran with no failed or
       # skipped test; writes the job summary and summary.json, which name each problem and how to reproduce it.
       - name: summary

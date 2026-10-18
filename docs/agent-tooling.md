@@ -264,11 +264,31 @@ The suite exits nonzero on any unexpected behavior. `check-plan` can independent
 
 ## Fix-diff test protection
 
-CI can invoke `scripts/agent-tools/test-guard --fix-base REVIEWED_SHA --findings PATH` directly,
-or `verify test-guard` with the same arguments. `receipt --name CHECK --fix-base REVIEWED_SHA
+`scripts/agent-tools/test-guard --fix-base REVIEWED_SHA --findings PATH` runs the guard,
+and so does `verify test-guard` with the same arguments. `receipt --name CHECK --fix-base REVIEWED_SHA
 --findings PATH -- COMMAND...` runs the guard before the command inside the same receipt;
 a refusal prevents the command. All three produce a required PASS/FAIL receipt at clean HEAD.
-The base must be an ancestor. No CI configuration or push hook is installed by this spike.
+The base must be an ancestor.
+
+CI runs it from the repository. A fix round commits its findings as a manifest,
+`docs/acceptance/fix-rounds/<ISSUE>-<round>.json`: the findings JSON below plus
+`"schema": "clearcase-fix-round/1"`, the canonical `unit` and `fixBase`, the reviewed commit's full SHA.
+The fix worker commits it first, with the red tests, from the reviewer's written findings, and the re-check reviewer
+compares the two. `scripts/agent-tools/fix-round-guard --base REF [--root DIR]` lists the manifests added or
+changed between the merge base with REF and HEAD, and runs the guard at HEAD for each one, with one `test-guard`
+receipt per manifest. A deleted manifest, a malformed one, or a `fixBase` that is not a full SHA of an ancestor
+fails (exit 1). A branch with no new or changed manifest exits 0, prints `nothing to protect` and writes no
+receipt, because no guard ran.
+
+The CI job's `test guard` step runs on pull requests only. It adds a detached worktree at the pull request's head
+(GitHub tests the merge commit, which would include the base branch's later changes) and runs
+`fix-round-guard --root <that worktree> --base origin/<the PR's base branch>` with the main checkout's tools and
+TypeScript dependency. The runner has no Node, so the step sets `CLEARCASE_NODE` to Bun and the receipt's `node` row
+records Bun's version. The step runs even when `check` or `test` failed. A manifest stays in the tree, so a wave PR
+into `dev` runs every manifest its tickets added, at the wave head: a later ticket in the same wave that changes a
+protected file needs a reviewed `assertionCountReasons` entry in that manifest. CI runs the pull request's own copy
+of the tools and workflow, so it catches weakening by mistake, not a pull request that edits the guard; the local
+receipts and the approval ledger are the control for that.
 
 Findings JSON has `tests: [{"file": "tests/example.test.ts", "name": "rejects stale evidence"}]`.
 The list must be nonempty. Paths are relative to the repository; literal names must be unique
@@ -315,8 +335,10 @@ Before approving a push, a caller runs `approval-check --unit ISSUE/STAGE --sha 
 --approval-receipt PATH`. It requires the same clean checkout/revision, verifies the approved
 row and rereads every input fingerprint and capture. This is an append-only local receipt
 ledger, not a signature or a proof that reviewer identity/freshness was independently verified.
-Its required-check contract comes from the reviewer. Push orchestration must invoke the reader;
-no Git hook, remote push, reviewer launch or external approval is performed here.
+Its required-check contract comes from the reviewer, so a fix round's re-check lists the guard's receipt
+(`receipt --fix-base --findings`) among its `requiredChecks`. The push hook invokes the reader through
+`scripts/agent-tools/pre-push` (see [Ledger store and push hook](#ledger-store-and-push-hook)); no remote push,
+reviewer launch or external approval is performed here.
 
 ## Model-sheet verification
 
@@ -419,3 +441,43 @@ Only `GRS-104/implementation` or `GRS-104/review` forms are stored for this issu
 Input fingerprints retain the supplied absolute path plus its resolved realpath, so retargeting
 an external input symlink refuses at approval and readback. Review registration serialises
 original-severity retention under the event append lock, including concurrent registrations.
+
+### Ledger store and push hook
+
+`review-record`, `approve`, `approval-check`, `dispatch` and `pre-push` keep their events, blobs, locks and receipts
+in one ledger store: `--ledger DIR`, else `CLEARCASE_LEDGER_DIR`, else the receipt store. The store must resolve to a
+path outside the checkout the command checks (`--root`, or the checkout holding the tools); inside it, the command
+refuses before it reads or writes anything, with exit 1 and no receipt. The default `.local/agent-receipts/` is
+inside the checkout, so these commands need an explicit store. The coordinator keeps one store outside every
+checkout, for example `${XDG_STATE_HOME:-~/.local/state}/clearcase/ledger`, passes it to every call and runs the
+tools from its own `dev` clone with `--root <worktree>`. Check receipts from `receipt` may stay in the worker's
+receipt store; `approve` names them with `--check-receipt`.
+
+A PASS `approve` appends an `approval` event to the log, holding the approval receipt's path, its `approval` row and
+its `inputs`, and the receipt records the event's hash as `approvalEvent`. `approval-check` refuses an approval
+receipt whose event is missing from the log or differs from it, so an edited, copied or forged receipt, or a log
+rewritten without the event, is not a ledger row. A refused approval appends nothing.
+
+`scripts/agent-tools/pre-push [--ledger DIR] [--root DIR] [REMOTE [URL]]` reads Git's pre-push lines on stdin. For each
+pushed `refs/heads/feature/<linear-id>-<slug>` it takes the issue's `<ISSUE>/implementation` unit, finds the latest
+approval event for that unit at the pushed commit and runs `approval-check` on it, which writes a receipt in the
+store. A missing row, another issue's row, a noncanonical key such as `grs-0104`, a branch with no Linear key, or a
+checkout whose clean HEAD is not the pushed commit prints `pre-push: BLOCKED` and exits 1. Other refs and deletions
+pass; the hook keeps its own rules for them. The hook (in `orch-bin`, outside this repository) calls the script
+from the coordinator's `dev` clone, never from the pushing checkout, whose copy of the tools the worker can edit:
+
+```bash
+refs=$(cat)   # the hook's stdin, read once; its own loop then reads "$refs"
+CLEARCASE_LEDGER_DIR=$LEDGER "$DEV_CLONE/scripts/agent-tools/pre-push" --root "$(git rev-parse --show-toplevel)" \
+  "$@" <<<"$refs" || status=1
+```
+
+This repository installs no hook and changes no `orch-bin` file. Until the coordinator adds the call, the leak-scan
+file under `.orchestration/push-approved/` remains the only push gate.
+
+What the store does not protect against: every agent runs as the same Unix user, so any process can rewrite the log,
+its tip and its blobs together, and the hash chain then verifies. Outside the checkout, the store is out of reach of
+`git clean`, worktree removal and edits confined to the worker's tree, and the chain detects partial edits, truncation
+and a receipt that differs from its event. It is not signed, not on another machine and not backed up; deleting the
+store discards the attempt history and every approval, and later pushes then block. A crash between the log append,
+the tip update and the receipt write fails closed and needs the coordinator to repair the store by hand.

@@ -743,6 +743,72 @@ test('a workstation interrupt during the checks publishes no verdict and leaves 
   assert.equal(verdict.stdout, `PASS ${f.sha}\nreceipts ${first}\n${scope}\n`);
 });
 
+// A guest session outlives its SSH client (OpenSSH sends a command run without a pty no signal). The label may come back
+// only once a fresh session sees the guest lock free, which is after the guest has restarted the runner.
+function detached(f: ReturnType<typeof fixture>, hangSeconds: string) {
+  writeFileSync(path.join(f.guest, 'scenario'), 'chrome-hang');
+  writeFileSync(path.join(f.guest, 'detached'), '');
+  writeFileSync(path.join(f.guest, 'hang-seconds'), hangSeconds);
+  const finished = () => {
+    for (let waited = 0; waited < 150 && f.events().at(-1) !== 'start'; waited++) spawnSync('sleep', ['0.1']);
+    return f.events().at(-1) === 'start';
+  };
+  return { finished, lockChecks: () => existsSync(path.join(f.guest, 'lock-checks')) ? readFileSync(path.join(f.guest, 'lock-checks'), 'utf8').trim().split('\n') : [] };
+}
+
+test('verify resumes dispatch after an interrupt only once the detached guest session has restarted the runner', () => {
+  const f = fixture();
+  f.env.CLEARCASE_CI_RESUME_WAIT_SECONDS = '30';
+  const guest = detached(f, '1.5');
+  const result = interrupted(f);
+  assert.equal(result.status, 130, result.stderr + result.stdout);
+  assert.equal(guest.finished(), true);
+  const calls = f.github();
+  assert.equal(calls.filter(({ call }) => call === resume).length, 1);
+  // The resume is after the guest's own restart (its last event), never in the gap before the guest stops the runner.
+  assert.deepEqual(calls.at(-1), { at: f.events().length, call: resume });
+  assert.equal(guest.lockChecks().length, 1);
+  assert.equal(githubState(f), '22 online false true\n');
+  assert.equal(readFileSync(path.join(f.guest, 'service-state'), 'utf8'), 'active\n');
+});
+
+test('verify leaves the label off and prints the command when the guest still holds the lock past the bound', () => {
+  const f = fixture();
+  f.env.CLEARCASE_CI_RESUME_WAIT_SECONDS = '0.3';
+  const guest = detached(f, '2');
+  const result = interrupted(f);
+  assert.equal(result.status, 130, result.stderr + result.stdout);
+  assert.equal(f.github().some(({ call }) => call === resume), false);
+  assert.equal(githubState(f), '22 online false false\n');
+  assert.ok(result.stderr.includes(`scripts/ci/pc1-vm ssh sudo flock -w 300 /run/clearcase-ci-verify.lock true && gh api -X POST ${runnerApi}/22/labels -f 'labels[]=clearcase-pc1'`), result.stderr);
+  // The guest session carries on and restores the runner by itself; the operator then lifts the pause.
+  assert.equal(guest.finished(), true);
+  assert.equal(readFileSync(path.join(f.guest, 'service-state'), 'utf8'), 'active\n');
+});
+
+test('verify leaves the label off and prints the command when no fresh session can reach the guest', () => {
+  const f = fixture();
+  writeFileSync(path.join(f.guest, 'lock-check-unreachable'), '');
+  const result = f.run('verify', 'HEAD');
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  assert.match(result.stdout, new RegExp(`^PASS ${f.sha}$`, 'm'));
+  assert.equal(f.github().some(({ call }) => call === resume), false);
+  assert.equal(githubState(f), '22 online false false\n');
+  assert.ok(result.stderr.includes(`gh api -X POST ${runnerApi}/22/labels -f 'labels[]=clearcase-pc1'`), result.stderr);
+});
+
+test('a normal verify confirms the lock with one fresh session before the resume, and a pre-guest refusal needs none', () => {
+  const f = fixture();
+  assert.equal(f.run('verify', 'HEAD').status, 0);
+  assert.equal(existsSync(path.join(f.guest, 'lock-checks')), true);
+  assert.match(readFileSync(path.join(f.guest, 'lock-checks'), 'utf8'), /^sudo flock -w 300 \/run\/clearcase-ci-verify\.lock true\n$/);
+  const refused = fixture('pass');
+  writeFileSync(path.join(refused.guest, 'github-scenario'), 'busy-after-pause');
+  assert.equal(refused.run('verify', 'HEAD').status, 3);
+  assert.equal(existsSync(path.join(refused.guest, 'lock-checks')), false);
+  assert.deepEqual(refused.github().at(-1)?.call, resume);
+});
+
 test('verdict answers with GitHub unreachable and never calls GitHub', () => {
   const f = fixture();
   assert.equal(f.run('verify', 'HEAD').status, 0);

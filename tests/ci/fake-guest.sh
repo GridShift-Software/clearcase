@@ -147,7 +147,7 @@ fake-ci-chrome)
   event chrome
   if [[ $scenario == guest-term ]]; then kill -TERM "$(cat "$root/guest-shell.pid")"; fi
   # Holds the checks open until the test interrupts the workstation.
-  if [[ $scenario == chrome-hang ]]; then sleep 10; fi
+  if [[ $scenario == chrome-hang ]]; then sleep "$(cat "$root/hang-seconds" 2>/dev/null || echo 10)"; fi
   [[ $scenario != chrome-fail ]]
   ;;
 bun)
@@ -273,7 +273,21 @@ script = sys.stdin.read().replace("/home/runner", root + "/home/runner")
 script = script.replace("/run/clearcase-ci-verify.lock", root + "/verify.lock")
 script = script.replace("PATH=/usr/local/bin:/usr/bin:/bin", "PATH=" + root + "/bin:/usr/local/bin:/usr/bin:/bin")
 sys.stdout.write(script)' "$root" >"$script"
+    if [[ -e $root/detached && $command == 'sudo bash -s -- '* ]]; then
+      # A guest session that outlives its SSH client, as OpenSSH leaves a command run without a pty: it moves to a new
+      # session, so an interrupt of the workstation's process group no longer reaches it, and its output goes to files.
+      rm -f "$root/detached.done"
+      setsid -f bash -c 'bash -c "$1"; echo $? >"$2"' _ "$command" "$root/detached.done" <"$script" >>"$root/detached.out" 2>>"$root/detached.err"
+      until [[ -e $root/detached.done ]]; do sleep 0.05; done
+      exit "$(cat "$root/detached.done")"
+    fi
     bash -c "$command" <"$script"
+    ;;
+  'sudo flock -w '*)
+    # The fresh session verify opens to learn whether the guest verification has let go of the lock.
+    printf '%s\n' "$command" >>"$root/lock-checks"
+    [[ ! -e $root/lock-check-unreachable ]] || { echo 'ssh: connect to host 127.0.0.57 port 2257: Connection refused' >&2; exit 255; }
+    bash -c "${command//\/run\/clearcase-ci-verify.lock/$root/verify.lock}"
     ;;
   *) echo "unexpected remote command: $command" >&2; exit 2 ;;
   esac

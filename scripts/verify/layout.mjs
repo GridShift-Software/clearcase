@@ -31,6 +31,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { ensureOffline, PORTS } from '../../tests/e2e/pilot/v5/env.mjs';
 import { COMPONENTS, WIDTHS } from './layout-spec.mjs';
+import { COLOR } from './layout-color.mjs';
 import { analysisAdditionsFrom, labelCheck, serverEnv } from './layout-label.mjs';
 import { revisionStamp } from './stamp.mjs';
 
@@ -57,17 +58,6 @@ const ready = (id) => `document.querySelector('main#main')?.dataset.ready === ${
 
 // ---- in-page measurements --------------------------------------------------------------------------------------------
 
-/** Colour helpers as page source: parse rgb(a), composite on the effective background, WCAG relative luminance and ratio. */
-const COLOR = `
-	const rgba = (s) => { const m = /rgba?\\(([^)]+)\\)/.exec(s || ''); if (!m) return null; const p = m[1].split(/[ ,/]+/).filter(Boolean).map(Number); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
-	const over = (top, under) => ({ r: top.r * top.a + under.r * (1 - top.a), g: top.g * top.a + under.g * (1 - top.a), b: top.b * top.a + under.b * (1 - top.a), a: 1 });
-	const bgOf = (el) => { const layers = []; for (let e = el; e; e = e.parentElement) { const c = rgba(getComputedStyle(e).backgroundColor); if (c && c.a > 0) { layers.push(c); if (c.a >= 1) break; } } let acc = { r: 255, g: 255, b: 255, a: 1 }; for (const l of layers.reverse()) acc = over(l, acc); return acc; };
-	const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
-	const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
-	const VIS = (e) => { const r = e.getBoundingClientRect(); const s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none' && Number(s.opacity) > 0 && !e.closest('.visually-hidden, [hidden], [aria-hidden=true]'); };
-	const large = (s) => { const px = parseFloat(s.fontSize); const bold = Number(s.fontWeight) >= 700 || s.fontWeight === 'bold'; return px >= 24 || (bold && px >= 18.66); };
-	const label = (e) => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + (typeof e.className === 'string' && e.className ? '.' + e.className.trim().split(/\\s+/).slice(0, 2).join('.') : '');
-`;
 
 /**
  * Layout at the requested width `w`: sideways scroll, controls over the heading, overlapping controls, smallest text.
@@ -109,7 +99,7 @@ const CONTRAST = `(() => { ${COLOR}
 		for (const e of els) {
 			const s = getComputedStyle(e);
 			const fg = rgba(s.color); if (!fg) { unparsed++; continue; }
-			const bg = bgOf(e);
+			const bg = bgOf(e, fg);
 			const r = ratio(over(fg, bg), bg);
 			const need = large(s) ? 3 : 4.5;
 			checked++; min = Math.min(min, r);
@@ -223,7 +213,7 @@ try {
 			if (state === 'focus-visible') await p.evaluate(`document.querySelector('[data-verify-target="1"]').focus(); true`);
 			await settle();
 			states[state] = await p.evaluate(`(() => { ${COLOR}
-				const e = document.querySelector('[data-verify-target="1"]'); const s = getComputedStyle(e); const bg = bgOf(e); const fg = rgba(s.color);
+				const e = document.querySelector('[data-verify-target="1"]'); const s = getComputedStyle(e); const fg = rgba(s.color); const bg = bgOf(e, fg);
 				const outline = s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) >= 1 ? rgba(s.outlineColor) : null;
 				const shadow = s.boxShadow && s.boxShadow !== 'none' ? rgba(s.boxShadow) : null;
 				const ring = outline ?? shadow;

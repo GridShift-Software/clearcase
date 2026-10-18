@@ -52,8 +52,19 @@ Planning snapshot validation lives in `scripts/planning/check.py`; `scripts/agen
 | `ORIGINALS_PUBLIC_ORIGIN` | unset (links name the originals site's own host) | an `http(s)` origin with no path, written into originals links instead of the originals site's address, for a tunnel or proxy in front of that site ([demo runbook](demo-runbook.md#letting-visitors-click-around-read-only-tour)); any other value makes `configFromEnv` throw |
 | `BUILD_DIR` | `./build` | the build `start` serves |
 | `CLEARCASE_FIXED_NOW` | unset (the real clock) | tests and verification only: fixes `now()` (see "Adding a view") to an ISO-8601 date or date-time with an offset |
+| `CLEARCASE_ANALYSIS_ADDITIONS` | unset (off) | `1` shows the analysis additions awaiting client approval (see below); any other value leaves them off |
 
 Both listeners bind 127.0.0.1 only. A case folder that equals, contains or lies inside the data directory is refused; nothing is ever written into a case folder. The click import stores a case in `~/ClearCase` unless the operator picks another folder, which may not lie inside the data directory, the folder the server was started from (normally the checkout) or the chosen case folder.
+
+### Analysis additions flag (GRS-48)
+
+ADR 0003 puts three additions to the analysis views behind `CLEARCASE_ANALYSIS_ADDITIONS`, off until the client approves them. Off (the default) is v5's behaviour; exactly `1` shows all three:
+
+- the defence matrix's free-text `Refs` column (`refsShown` in `src/lib/views/analysis/defence.ts`);
+- `refs` as the defence CSV's last column (`defenceCsv(keys, rows, refs)`);
+- headings equal to the navigation label on Timeline, Defence & Rebuttal and Info Required; off, they are v5's (`V5_HEADINGS` in `src/lib/views/analysis/headings.ts`). The navigation entry and the document title keep the label in both states.
+
+Correctness fixes, such as timeline titles escaped once, apply in both states. `analysisAdditionsEnabled()` (`src/lib/analysis/data.server.ts`) reads the variable on each load, not through `config.server.ts`. `CLEARCASE_ANALYSIS_ADDITIONS=1 bun run --bun start` previews the additions; it records no client approval. The gate runs with the flag off: parity, the pilot suites and `verify:pilot:v5` start the app without it, and the parity register records the flag-off state. The analysis browser suite (`tests/e2e/analysis/suite.mjs`) passes its own environment's value to its app, so running it with `CLEARCASE_ANALYSIS_ADDITIONS=1` checks the flag-on state.
 
 ## Architecture
 

@@ -8,3 +8,6 @@ export const analysisDataset = <T>(resultsVersion: string, key: string): T | nul
 export const existingOf = (resultsVersion: string, refs: Iterable<string>): string[] => [...resolveRefs(app().store, resultsVersion, refs)].sort();
 
 export const citedExisting = (resultsVersion: string, texts: Iterable<string>): string[] => existingOf(resultsVersion, citedRefs(texts));
+
+// ADR 0003: an explicit preview opt-in is not client approval and never changes the default.
+export const analysisAdditionsEnabled = () => process.env.CLEARCASE_ANALYSIS_ADDITIONS === '1';

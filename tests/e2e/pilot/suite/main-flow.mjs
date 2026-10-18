@@ -9,6 +9,7 @@ import { destinationOk, expectedSlot, filledSlots, firstUnimplemented, implement
 import { nextPopup, openPage, sleep } from './browser.mjs';
 import { ODD_BUNDLE, missingCase, mainCase } from './cases.mjs';
 import { readJson, vpath } from './context.mjs';
+import { viewHeading } from '../../../../src/lib/views/analysis/headings.ts';
 
 const J = JSON.stringify;
 export const ROWS = `[...document.querySelectorAll('[role=table] [role=row][data-ref]')].map((r) => r.dataset.ref)`;
@@ -362,7 +363,9 @@ export async function titles(ctx) {
 /**
  * BA-18 + the 42 extension points. A view whose owner route exists in the tree under test must render its label as
  * the heading, data-ready="<id>", no unavailable state and aria-current on its entry; every other M2 view keeps the
- * unavailable state naming its owner. Implemented plus unavailable is 40.
+ * unavailable state naming its owner. Implemented plus unavailable is 40. startServer passes the app no
+ * CLEARCASE_ANALYSIS_ADDITIONS, so the analysis additions are off and Timeline, Defence & Rebuttal and Info Required keep
+ * v5's heading (ADR 0003, GRS-48).
  */
 export async function views42(ctx) {
 	const { A, p, main, ROOT } = ctx;
@@ -378,14 +381,15 @@ export async function views42(ctx) {
 	for (const v of inv) {
 		const owner = v.owner === 'CC-03' ? null : plan.get(v.owner);
 		const kind = byId.has(v.id) ? readyKind(byId.get(v.id), m.implemented) : `view:${v.id}`;
+		const heading = viewHeading(v, false);
 		await p.click(`#nav-${v.id}`);
-		await p.waitFor(`${ready(kind)} && document.querySelector('[data-page-heading]')?.textContent.trim() === ${J(v.label)}`, 10000).catch(() => null);
+		await p.waitFor(`${ready(kind)} && document.querySelector('[data-page-heading]')?.textContent.trim() === ${J(heading)}`, 10000).catch(() => null);
 		const s = await p.evaluate(`({ path: location.pathname, h1: document.querySelector('[data-page-heading]')?.textContent.trim() ?? null, ready: document.querySelector('main#main')?.dataset.ready ?? null,
 			unavailable: document.querySelector('[data-unavailable]')?.dataset.unavailable ?? null, owner: document.querySelector('[data-unavailable]')?.dataset.owner ?? null,
 			text: document.querySelector('[data-unavailable]')?.textContent.replace(/\\s+/g, ' ').trim().slice(0, 160) ?? null, current: document.querySelector('nav.views a[aria-current="page"]')?.id ?? null })`);
 		const n = nav.find((x) => x.id === v.id);
 		const implemented = m.implemented.has(v.id);
-		const ok = byId.has(v.id) && destinationOk({ ...byId.get(v.id), label: v.label }, s, { owner, implemented: m.implemented, navStatus: n?.status });
+		const ok = byId.has(v.id) && destinationOk({ ...byId.get(v.id), label: heading }, s, { owner, implemented: m.implemented, navStatus: n?.status });
 		per.push({ id: v.id, ok, owner, implemented, ...s });
 	}
 	const unknown = {};

@@ -1,3 +1,4 @@
+import { divRound } from '../../calculations/money.ts';
 
 export type AmountKind = 'signed-money' | 'rate' | 'hours';
 export type Parsed = { kind: 'empty' } | { kind: 'ok'; units: bigint } | { kind: 'bad'; why: string };
@@ -30,24 +31,14 @@ function badWhy(s: string, kind: AmountKind): string {
 
 const grouped = (digits: string) => digits.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
 
-export function twoDp(units: bigint): string {
-	const a = units < 0n ? -units : units;
-	return `${units < 0n ? '-' : ''}${a / 100n}.${String(a % 100n).padStart(2, '0')}`;
-}
-
-export function roundDiv(n: bigint, d: bigint): bigint {
-	const q = ((n < 0n ? -n : n) + d / 2n) / d;
-	return n < 0n ? -q : q;
-}
-
 export function valueCents(hours: string, rate: string): bigint | null {
 	const h = parseAmount(hours, 'hours'), r = parseAmount(rate, 'rate');
 	if (h.kind === 'bad' || r.kind === 'bad') return null;
-	return roundDiv((h.kind === 'ok' ? h.units : 0n) * (r.kind === 'ok' ? r.units : 0n), 100n);
+	return divRound((h.kind === 'ok' ? h.units : 0n) * (r.kind === 'ok' ? r.units : 0n), 100n);
 }
 
 export function hoursTile(hundredths: bigint): string {
-	const t = roundDiv(hundredths, 10n);
+	const t = divRound(hundredths, 10n);
 	const a = t < 0n ? -t : t;
 	return `${t < 0n ? '-' : ''}${a / 10n}.${a % 10n}`;
 }

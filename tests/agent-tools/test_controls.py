@@ -670,5 +670,209 @@ class LegacyRegistry(ControlCase):
         self.cli('verify', 'pstack', '--skills-dir', self.skills)
         self.assertEqual(self.last_receipt()['result'], 'PASS')
 
+
+class RetainedLedger(ControlCase):
+    """The ledger store sits outside the checked checkout, and every approval is an event in its append-only log."""
+    prepare = ApprovalLedger.prepare
+    approve = ApprovalLedger.approve
+
+    def events(self, store=None):
+        return [json.loads(line) for line in ((store or self.receipts) / 'events.jsonl').read_text().splitlines()]
+
+    def readback(self, receipt, code=0):
+        return self.cli('approval-check', '--unit', 'GRS-104/implementation', '--sha', self.sha,
+                        '--approval-receipt', receipt, code=code)
+
+    def test_store_inside_the_checked_checkout_refuses(self):
+        sha = self.git('rev-parse', 'HEAD')
+        deadline = (datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(minutes=20)).isoformat()
+        commands = [
+            ['dispatch', '--unit', 'GRS-104/implementation', '--phase', 'initial', '--task-id', 't', '--deadline', deadline],
+            ['review-record', '--unit', 'GRS-104/implementation', '--review', 'r.json', '--findings', 'f.json'],
+            ['approve', '--unit', 'GRS-104/implementation', '--sha', sha, '--review', 'r.json', '--findings', 'f.json',
+             '--check-receipt', 'c.json', '--approved-by', 'coordinator'],
+            ['approval-check', '--unit', 'GRS-104/implementation', '--sha', sha, '--approval-receipt', 'a.json']]
+        for variable, value in [('CLEARCASE_LEDGER_DIR', self.repo / '.local/ledger'),
+                                ('CLEARCASE_RECEIPTS_DIR', self.repo / '.local/agent-receipts')]:
+            self.env[variable] = str(value)
+            for command in commands:
+                with self.subTest(variable=variable, command=command[0]):
+                    self.assertIn('outside the checkout', self.cli(*command, code=1))
+            self.env.pop('CLEARCASE_LEDGER_DIR', None)
+        self.env['CLEARCASE_RECEIPTS_DIR'] = str(self.receipts)
+        self.assertIn('outside the checkout', self.cli(*commands[0], '--ledger', self.repo, code=1))
+        self.assertFalse((self.repo / '.local').exists())
+        self.assertEqual(self.git('status', '--porcelain'), '')
+
+    def test_ledger_dir_holds_review_and_approval_events_apart_from_check_receipts(self):
+        ledger = self.work / 'ledger'
+        self.env['CLEARCASE_LEDGER_DIR'] = str(ledger)
+        self.prepare()
+        self.approve()
+        self.assertEqual([event['kind'] for event in self.events(ledger)], ['review', 'approval'])
+        self.assertFalse((self.receipts / 'events.jsonl').exists())
+        approved = sorted(ledger.glob('*/receipt.json'))[-1]
+        self.assertEqual(json.loads(approved.read_text())['name'], 'approve')
+        self.readback(approved)
+
+    def test_approval_row_is_an_append_only_event(self):
+        self.prepare([{'id': 'L1', 'severity': 'low'}])
+        self.approve()
+        approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        receipt = json.loads(approved.read_text())
+        event = [event for event in self.events() if event['kind'] == 'approval'][-1]
+        self.assertEqual(event['hash'], receipt['approvalEvent'])
+        self.assertEqual(event['payload']['row'], receipt['approval'])
+        self.assertEqual(event['payload']['inputs'], receipt['inputs'])
+        self.readback(approved)
+
+    def test_refused_approval_appends_no_approval_event(self):
+        self.prepare([{'id': 'H1', 'severity': 'high'}])
+        self.approve(code=1)
+        self.assertEqual([event['kind'] for event in self.events()], ['review'])
+
+    def test_edited_approval_receipt_refuses_readback(self):
+        self.prepare()
+        self.approve()
+        approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        data = json.loads(approved.read_text())
+        data['approval']['approvedBy'] = 'implementation-agent'
+        approved.write_text(json.dumps(data))
+        self.readback(approved, code=1)
+
+    def test_copied_approval_receipt_is_not_the_ledger_row(self):
+        self.prepare()
+        self.approve()
+        approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        copy = self.work / 'copied-approval' / 'receipt.json'
+        copy.parent.mkdir()
+        shutil.copy(approved, copy)
+        self.readback(copy, code=1)
+
+    def test_rewritten_log_without_the_approval_event_refuses_readback(self):
+        self.prepare()
+        self.approve()
+        approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        first = (self.receipts / 'events.jsonl').read_text().splitlines()[0]
+        (self.receipts / 'events.jsonl').write_text(first + '\n')
+        (self.receipts / 'events.tip').write_text(json.dumps({'sequence': 1, 'hash': json.loads(first)['hash']}))
+        self.readback(approved, code=1)
+
+
+class PrePush(ControlCase):
+    """The repo-side half of the coordinator's pre-push hook: a feature push needs its ledger approval."""
+    prepare = ApprovalLedger.prepare
+    approve = ApprovalLedger.approve
+
+    def push(self, sha, ref='refs/heads/feature/grs-104-tooling', code=0):
+        result = subprocess.run([str(TOOLS / 'pre-push'), '--root', str(self.repo), 'origin', 'git@example.invalid:x.git'],
+                                input=f'refs/heads/local {sha} {ref} {"0" * 40}\n', cwd=self.repo, env=self.env,
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+        return result.stdout + result.stderr
+
+    def test_feature_push_needs_an_approved_row_for_the_exact_sha(self):
+        self.prepare()
+        self.assertIn('BLOCKED', self.push(self.sha, code=1))
+        self.approve()
+        self.push(self.sha)
+        self.assertEqual(self.last_receipt()['name'], 'approval-check')
+        self.assertEqual(self.last_receipt()['result'], 'PASS')
+        self.write('app.txt', 'unreviewed\n')
+        self.assertIn('BLOCKED', self.push(self.commit('unreviewed change'), code=1))
+
+    def test_approval_cannot_cover_another_issue_or_spelling(self):
+        self.prepare()
+        self.approve()
+        for ref in ('refs/heads/feature/grs-105-other', 'refs/heads/feature/grs-0104-tooling',
+                    'refs/heads/feature/tooling'):
+            with self.subTest(ref=ref):
+                self.assertIn('BLOCKED', self.push(self.sha, ref=ref, code=1))
+
+    def test_edited_approval_refuses_push(self):
+        self.prepare()
+        self.approve()
+        approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        data = json.loads(approved.read_text())
+        data['approval']['approvedBy'] = 'implementation-agent'
+        approved.write_text(json.dumps(data))
+        self.assertIn('BLOCKED', self.push(self.sha, code=1))
+
+    def test_non_feature_refs_and_deletions_need_no_row(self):
+        self.push(self.git('rev-parse', 'HEAD'), ref='refs/heads/wave/tooling')
+        self.push('0' * 40)
+
+    def test_store_inside_the_checkout_refuses_push(self):
+        self.env['CLEARCASE_LEDGER_DIR'] = str(self.repo / '.local/ledger')
+        self.assertIn('outside the checkout', self.push(self.git('rev-parse', 'HEAD'), code=1))
+
+
+class FixRoundManifest(ControlCase):
+    """CI's half of the test guard: a fix round's committed manifest runs the guard on the pull request's head."""
+    original = TestWeakening.original
+    path = 'docs/acceptance/fix-rounds/GRS-104-1.json'
+
+    def fix_round(self, after, manifest=True, **overrides):
+        self.pr_base = self.git('rev-parse', 'HEAD')
+        self.git('switch', '-q', '-c', 'feature/grs-104-tooling')
+        self.write('tests/protected.test.ts', self.original)
+        self.base = self.commit('reviewed tests')
+        self.write('tests/protected.test.ts', after)
+        self.write('app.txt', 'fixed\n')
+        if manifest:
+            self.manifest(**overrides)
+        return self.commit('fix round')
+
+    def manifest(self, **overrides):
+        self.write(self.path, json.dumps({
+            'schema': 'clearcase-fix-round/1', 'unit': 'GRS-104/implementation', 'fixBase': self.base,
+            'tests': [{'file': 'tests/protected.test.ts', 'name': 'rejects stale evidence'}], **overrides}))
+
+    def guard(self, code=0):
+        return self.cli('fix-round-guard', '--base', 'dev', code=code)
+
+    def test_no_manifest_has_nothing_to_protect(self):
+        self.fix_round(self.original, manifest=False)
+        self.assertIn('no fix-round manifest', self.guard())
+        self.assertFalse(self.receipts.exists())
+
+    def test_manifest_runs_the_guard_at_head(self):
+        head = self.fix_round(self.original)
+        self.guard()
+        receipt = self.last_receipt()
+        self.assertEqual((receipt['name'], receipt['result'], receipt['revision']['head']), ('test-guard', 'PASS', head))
+        self.assertTrue(any(row['path'].endswith(self.path) for row in receipt['inputs']))
+
+    def test_manifest_refuses_a_weakened_named_test(self):
+        self.fix_round(self.original.replace("toEqual(false)", "toBeDefined()"))
+        self.guard(code=1)
+        self.assertEqual(self.last_receipt()['result'], 'FAIL')
+
+    def test_deleted_manifest_refuses(self):
+        self.fix_round(self.original)
+        self.git('branch', '-f', 'dev', 'HEAD')
+        (self.repo / self.path).unlink()
+        self.commit('drop the manifest')
+        self.assertIn('deleted', self.guard(code=1))
+
+    def test_malformed_manifest_refuses(self):
+        self.fix_round(self.original)
+        for overrides in ({'schema': 'clearcase-fix-round/0'}, {'fixBase': self.base[:12]}, {'fixBase': '0' * 40},
+                          {'unit': 'GRS-0104/implementation'}, {'tests': []}):
+            with self.subTest(overrides=overrides):
+                self.manifest(**overrides)
+                self.commit(f'manifest {sorted(overrides)}')
+                self.guard(code=1)
+
+
+class ContinuousIntegrationWiring(unittest.TestCase):
+    def test_pull_requests_run_the_fix_round_guard_on_their_head_under_bun(self):
+        workflow = (TOOLS.parents[1] / '.github/workflows/ci.yml').read_text()
+        step = workflow[workflow.index('- name: test guard'):]
+        step = step[:step.index('\n      - ')]
+        for needle in ("github.event_name == 'pull_request'", 'github.event.pull_request.head.sha',
+                       'CLEARCASE_NODE=$(command -v bun)', 'scripts/agent-tools/fix-round-guard', 'origin/$BASE_REF'):
+            self.assertIn(needle, step)
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

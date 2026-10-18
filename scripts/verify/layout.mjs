@@ -11,7 +11,10 @@
 //             (BA-12); no two visible controls overlap (compared line box by line box, so a wrapped link is not
 //             mistaken for an overlap); the smallest text size in main is recorded (BA-21 readability
 //             at 320/390; reported, not gated: WCAG sets no minimum size);
-//   label     the page heading equals the registry label shown in the navigation, the title starts with it (BA-18);
+//   label     the page heading is the one the analysis-additions state expects (viewHeading: the registry label, or v5's heading on
+//             Timeline, Defence & Rebuttal and Info Required while CLEARCASE_ANALYSIS_ADDITIONS is not 1; ADR 0003), and the title and
+//             the navigation entry start with the label (BA-18). The state comes from CLEARCASE_ANALYSIS_ADDITIONS on this process,
+//             is passed to the launched app and recorded as analysisAdditions in layout.json;
 //   keyboard  at 1280 px: the navigation link focused by keyboard and activated with Enter opens the view with focus on its
 //             heading and aria-current on the link; Back returns to the previous view with focus inside the page (BA-14);
 //   contrast  every visible element with its own text in main, against its effective background: 4.5:1, or 3:1 for
@@ -28,6 +31,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { ensureOffline, PORTS } from '../../tests/e2e/pilot/v5/env.mjs';
 import { COMPONENTS, WIDTHS } from './layout-spec.mjs';
+import { analysisAdditionsFrom, labelCheck, serverEnv } from './layout-label.mjs';
 import { revisionStamp } from './stamp.mjs';
 
 ensureOffline(import.meta.filename);
@@ -43,6 +47,8 @@ const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? proces
 const CASE = arg('--case', 'synthetic');
 const OUT = resolve(arg('--out', join(ROOT, '.local', 'GRS-21', `layout-${CASE}`)));
 const SHOTS = process.argv.includes('--shots');
+// the analysis-additions state of this run (ADR 0003, GRS-48): CLEARCASE_ANALYSIS_ADDITIONS=1 on the calling process, else off; recorded in layout.json
+const ADDITIONS = analysisAdditionsFrom(process.env);
 if (!['synthetic', 'v5'].includes(CASE)) { console.error('--case synthetic|v5'); process.exit(2); }
 mkdirSync(OUT, { recursive: true });
 const J = JSON.stringify;
@@ -120,8 +126,8 @@ const CONTRAST = `(() => { ${COLOR}
 const offline = await proveOffline();
 if (!offline.pass) { console.error('layout: not offline'); process.exit(2); }
 const tmp = mkdtempSync(join(tmpdir(), 'cc-verify-layout-'));
-const A = appServer({ name: 'layout', root: ROOT, buildDir: join(ROOT, 'build'), port: PORTS.first, origPort: PORTS.first + 1, dir: tmp, env: { CLEARCASE_FIXED_NOW: '2026-10-08T09:00:00Z', TZ: 'UTC' } });
-const out = { case: CASE, revision: revisionStamp(ROOT), widths: WIDTHS, views: [], shellContrast: {}, components: [], shots: [], failures: [] };
+const A = appServer({ name: 'layout', root: ROOT, buildDir: join(ROOT, 'build'), port: PORTS.first, origPort: PORTS.first + 1, dir: tmp, env: serverEnv(ADDITIONS) });
+const out = { case: CASE, analysisAdditions: ADDITIONS, revision: revisionStamp(ROOT), widths: WIDTHS, views: [], shellContrast: {}, components: [], shots: [], failures: [] };
 const fail = (what) => { out.failures.push(what); console.log(`FAIL ${what}`); };
 let b, p, code = 2;
 try {
@@ -170,8 +176,8 @@ try {
 		}
 		// label and title (BA-18), then contrast at 1280 (BA-13)
 		const id = await p.evaluate(`({ heading: document.querySelector('[data-page-heading]')?.textContent.trim() ?? null, title: document.title, nav: document.querySelector('#nav-${v.id}')?.textContent.trim() ?? null })`);
-		row.label = { ...id, ok: id.heading === v.label && id.title.startsWith(v.label) && (id.nav ?? '').startsWith(v.label) };
-		if (!row.label.ok) fail(`${v.id}: label ${J(v.label)} vs heading ${J(id.heading)}, title ${J(id.title)}, nav ${J(id.nav)}`);
+		row.label = { ...id, ...labelCheck(v, id, ADDITIONS) };
+		if (!row.label.ok) fail(`${v.id}: label ${J(v.label)}, expected heading ${J(row.label.expected)} (analysis additions ${ADDITIONS ? 'on' : 'off'}) vs heading ${J(id.heading)}, title ${J(id.title)}, nav ${J(id.nav)}`);
 		row.contrast = await p.evaluate(CONTRAST);
 		const cm = row.contrast.main, cn = row.contrast.nav;
 		if (cm.unparsed || cn.unparsed) fail(`${v.id}: ${cm.unparsed + cn.unparsed} elements with a text colour the contrast check cannot parse`);

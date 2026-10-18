@@ -219,8 +219,7 @@ try {
 				const outline = s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) >= 1 ? rgba(s.outlineColor) : null;
 				const shadow = s.boxShadow && s.boxShadow !== 'none' ? rgba(s.boxShadow) : null;
 				const ring = outline ?? shadow;
-				const outerBg = bgOf(e.parentElement ?? e);
-				return { text: fg ? +ratio(over(fg, bg), bg).toFixed(2) : null, large: large(s), outline: s.outlineStyle + ' ' + s.outlineWidth + ' ' + s.outlineColor, boxShadow: s.boxShadow.slice(0, 60), ring: ring ? +ratio(over(ring, outerBg), outerBg).toFixed(2) : null };
+				return { text: fg ? +ratio(over(fg, bg), bg).toFixed(2) : null, large: large(s), outline: s.outlineStyle + ' ' + s.outlineWidth + ' ' + s.outlineColor, boxShadow: s.boxShadow.slice(0, 60), ring: ring ? +ringOf(ring, e).toFixed(2) : null };
 			})()`);
 			if (state === 'focus-visible') await p.evaluate(`document.activeElement?.blur(); true`);
 		}

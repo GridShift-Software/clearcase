@@ -9,6 +9,8 @@ export const COLOR = `
 	const partial = (cs) => !/^(auto|auto auto)?$/.test(cs.backgroundSize || '') || !/^(repeat|repeat repeat)?$/.test(cs.backgroundRepeat || '');
 	// the composited background(s) under el: the worst by the check's own formula, ratio(over(fg, bg), bg), when the text colour is given
 	const bgOf = (el, fg) => { const layers = []; for (let e = el; e; e = e.parentElement) { const cs = getComputedStyle(e); const g = stops(cs.backgroundImage); if (g.length) layers.push({ g, partial: partial(cs) }); const c = rgba(cs.backgroundColor); if (c && c.a > 0) { layers.push({ c }); if (c.a >= 1) break; } } let accs = [{ r: 255, g: 255, b: 255, a: 1 }]; for (const l of layers.reverse()) accs = l.c ? accs.map((a) => over(l.c, a)) : accs.flatMap((a) => [...l.g.map((s) => over(s, a)), ...(l.partial ? [a] : [])]); return fg ? accs.reduce((w, c) => ratio(over(fg, c), c) < ratio(over(fg, w), w) ? c : w) : accs[0]; };
+	// a focus ring is weighed against the worst background behind the element's parent, by the same rule as text
+	const ringOf = (ring, e) => { const bg = bgOf(e.parentElement ?? e, ring); return ratio(over(ring, bg), bg); };
 	const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
 	const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
 	const VIS = (e) => { const r = e.getBoundingClientRect(); const s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none' && Number(s.opacity) > 0 && !e.closest('.visually-hidden, [hidden], [aria-hidden=true]'); };

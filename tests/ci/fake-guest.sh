@@ -203,6 +203,11 @@ gh)
   case $* in
   "api $runners --jq "*)
     [[ $github != missing ]] || exit 0
+    if [[ $github == race ]]; then
+      # Holds each verify's first read until the other has read too, so both see the label before either removes it.
+      printf '%s\n' "$$" >>"$root/github-reads"
+      for _ in $(seq 100); do [[ $(wc -l <"$root/github-reads") -ge 2 ]] && break; sleep 0.05; done
+    fi
     [[ $github != busy-after-pause || $labelled == true ]] || busy=true
     printf '%s\t%s\t%s\t%s\n' "$id" "$status" "$busy" "$labelled"
     ;;

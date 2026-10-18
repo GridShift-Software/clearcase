@@ -52,22 +52,74 @@ provision_guest() {
   guest sudo clearcase-ci-guest provision $release
 }
 
+# Every workflow job runs on this runner label. Without it GitHub assigns the runner no new job.
+label=clearcase-pc1
+# Prints "id status busy labelled" for the runner, or nothing when GitHub does not list it.
+runner_state() {
+  gh api "repos/$repo/actions/runners" \
+    --jq ".runners[] | select(.name == \"$name\") | [.id, .status, .busy, any(.labels[]; .name == \"$label\")] | @tsv"
+}
+
 verify_revision() (
-  local revision=$1 root sha base work remote_work
+  local revision=$1 root sha base work remote_work state id online busy labelled paused=
   local quiet=${CLEARCASE_CI_QUIET_SECONDS:-5} observations=${CLEARCASE_CI_IDLE_OBSERVATIONS:-3} drain_timeout=${CLEARCASE_CI_DRAIN_TIMEOUT:-30}
+  local settle=${CLEARCASE_CI_PAUSE_SETTLE_SECONDS:-5}
   # These values enter the remote shell command; accept only numeric literals.
-  [[ $quiet =~ ^[0-9]+([.][0-9]+)?$ && $observations =~ ^[0-9]+$ && $drain_timeout =~ ^[0-9]+([.][0-9]+)?$ ]] ||
-    { echo 'pc1-vm: invalid drain settings' >&2; exit 2; }
+  [[ $quiet =~ ^[0-9]+([.][0-9]+)?$ && $observations =~ ^[0-9]+$ && $drain_timeout =~ ^[0-9]+([.][0-9]+)?$ &&
+    $settle =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo 'pc1-vm: invalid drain settings' >&2; exit 2; }
   root=$(cd "$here/../.." && pwd)
   sha=$(git -C "$root" rev-parse --verify --end-of-options "$revision^{commit}")
   # Bundle the cached CI base as well: the job's receipt commands require origin/dev. Never fetch from GitHub.
   base=$(git -C "$root" rev-parse --verify 'origin/dev^{commit}')
   work=$(mktemp -d)
-  trap 'rm -rf "$work"' EXIT
+  # Every exit after the pause gives the label back, after the guest has restored the service.
+  resume_dispatch() {
+    local status=$?
+    trap - EXIT HUP INT TERM
+    if [[ -n $paused ]]; then
+      if gh api -X POST "repos/$repo/actions/runners/$paused/labels" -f "labels[]=$label" --silent; then
+        echo "pc1-vm: resumed dispatch to $name" >&2
+      else
+        echo "pc1-vm: could not resume dispatch; $name gets no jobs until: gh api -X POST repos/$repo/actions/runners/$paused/labels -f 'labels[]=$label'" >&2
+        status=1
+      fi
+    fi
+    rm -rf "$work"
+    exit "$status"
+  }
+  trap resume_dispatch EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
   # Advertise fixed ref names without changing any refs or the working tree in the caller's repository.
   git init -q --bare "$work/source.git"
   git -C "$work/source.git" fetch -q --no-tags "$root" "$sha:refs/heads/ci-bundle" "$base:refs/heads/dev"
   git -C "$work/source.git" bundle create "$work/source.bundle" ci-bundle dev
+  # Pause dispatch through GitHub before touching the guest. A sampled absence of jobs cannot exclude a dispatch that
+  # lands just before the stop, so verify refuses rather than falling back to sampling when GitHub is unavailable.
+  state=$(runner_state) ||
+    { echo "pc1-vm: could not read $name's state from GitHub; verify refuses without a GitHub pause" >&2; exit 1; }
+  [[ -n $state ]] || { echo "pc1-vm: GitHub does not list a runner named $name; run register first" >&2; exit 1; }
+  read -r id online busy labelled <<<"$state"
+  [[ $busy != true ]] || { echo "pc1-vm: $name is running a job; try again when it is idle" >&2; exit 1; }
+  [[ $id =~ ^[0-9]+$ && $busy == false && ( $labelled == true || $labelled == false ) ]] ||
+    { echo "pc1-vm: could not read $name's state from GitHub; verify refuses without a GitHub pause" >&2; exit 1; }
+  if [[ $labelled == true ]]; then
+    # Set before the call: a failed or interrupted removal still needs the label back.
+    paused=$id
+    gh api -X DELETE "repos/$repo/actions/runners/$id/labels/$label" --silent ||
+      { echo "pc1-vm: could not pause $name through GitHub; verify refuses without a pause" >&2; exit 1; }
+    echo "pc1-vm: paused dispatch to $name (removed its $label label)" >&2
+  else
+    echo "pc1-vm: $name was already paused (no $label label); leaving it paused" >&2
+  fi
+  # A job GitHub assigned before the label went is still marked busy.
+  sleep "$settle"
+  state=$(runner_state) || { echo "pc1-vm: could not confirm the GitHub pause; verification refused" >&2; exit 1; }
+  read -r id online busy labelled <<<"$state"
+  [[ $busy != true ]] || { echo "pc1-vm: $name is still assigned a job after the GitHub pause; verification refused" >&2; exit 3; }
+  [[ $busy == false && $labelled == false ]] ||
+    { echo "pc1-vm: could not confirm the GitHub pause; verification refused" >&2; exit 1; }
   remote_work=$(guest 'set -eu; umask 077; work=$(mktemp -d /tmp/clearcase-ci-verify.XXXXXX); trap '\''rm -rf "$work"'\'' ERR; cat >"$work/source.bundle"; printf "%s\n" "$work"' <"$work/source.bundle")
   [[ $remote_work =~ ^/tmp/clearcase-ci-verify\.[A-Za-z0-9]+$ ]] ||
     { echo 'pc1-vm: invalid guest upload path' >&2; exit 1; }
@@ -175,7 +227,7 @@ else:
 PY
 }
 before=$(job_activity) || { echo 'pc1-vm: could not inspect job activity before stop' >&2; exit 1; }
-# not_busy asks GitHub and fails closed during an outage. Only verify uses the guest's process state instead.
+# GitHub has paused dispatch and reported the runner idle; confirm in the guest that no worker remains.
 busy=0
 pgrep -u runner Runner.Worker >/dev/null || busy=$?
 case $busy in
@@ -183,8 +235,7 @@ case $busy in
   0) echo 'pc1-vm: runner is running a job; try again when it is idle' >&2; exit 1 ;;
   *) echo 'pc1-vm: could not inspect guest jobs' >&2; exit 1 ;;
 esac
-# Default admission waits for consecutive idle samples over a quiet period before any stop.
-# This is a bounded local observation, not a listener/GitHub dispatch reservation (docs/ci-runner.md).
+# Post-pause confirmation: consecutive idle samples over a quiet period before any stop (docs/ci-runner.md).
 job_activity "$before" "$quiet" "$observations" "$drain_timeout"
 result=$(sudo -u runner -H bash -c 'umask 077; mkdir -p "$HOME/ci-results"; mktemp -d "$HOME/ci-results/$1-verify-XXXXXX"' _ "$sha")
 if [[ $entry_state == active ]]; then

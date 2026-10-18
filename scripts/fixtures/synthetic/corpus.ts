@@ -12,7 +12,7 @@ import { seededRandom } from './random.ts';
 
 export interface CorpusOptions { out: string; seed: string; documents: number; profile: Profile }
 const enc = (s: string) => new TextEncoder().encode(s);
-const words = ['Amber', 'Acorn', 'Birch', 'Cedar', 'Coral', 'Fern', 'Flint', 'Grove', 'Hazel', 'Iris', 'Jade', 'Juniper', 'Kestrel', 'Larch', 'Maple', 'Moss', 'Opal', 'Pebble', 'Quartz', 'Reed', 'Sage', 'Spruce', 'Thistle', 'Willow'];
+export const words = ['Amber', 'Acorn', 'Birch', 'Cedar', 'Coral', 'Fern', 'Flint', 'Grove', 'Hazel', 'Iris', 'Jade', 'Juniper', 'Kestrel', 'Larch', 'Maple', 'Moss', 'Opal', 'Pebble', 'Quartz', 'Reed', 'Sage', 'Spruce', 'Thistle', 'Willow'];
 
 export async function generateCorpus({ out, seed, documents: count, profile }: CorpusOptions) {
   const parent = await realpath(path.dirname(path.resolve(out)));

@@ -29,7 +29,6 @@ beforeAll(async () => {
 	origin = `http://127.0.0.1:${port}`;
 	expect((await fetch(`${origin}/api/health`)).status).toBe(200); // runs the server init (initApp)
 	const { app } = (await vite.ssrLoadModule('/src/lib/local-case/app.server.ts')) as { app: () => LocalCase };
-	docs = (await vite.ssrLoadModule('/src/lib/local-case/documents.server.ts')) as typeof Documents;
 	lc = app();
 	const c = await buildCase(path.join(root, 'c'));
 	const imp = await lc.importPackage(c.caseDir, c.pkgDir);
@@ -56,6 +55,8 @@ const v = () => `/v/${encodeURIComponent(rv)}`;
 const get = async (p: string) => { const r = await fetch(`${origin}${p}`); return { status: r.status, text: await r.text(), degraded: r.headers.get('x-clearcase-degraded') }; };
 
 async function withProvider(p: Omit<Documents.DocumentRowProvider, 'id' | 'owner'>, fn: () => Promise<void>) {
+	// Dependency re-optimisation can replace the module-scoped registry after setup.
+	docs = (await vite.ssrLoadModule('/src/lib/local-case/documents.server.ts')) as typeof Documents;
 	const undo = docs.registerDocumentRowProvider({ id: 'rescan', owner: 'GRS-20', ...p });
 	try { await fn(); } finally { undo(); }
 }
@@ -251,5 +252,11 @@ describe('server init is idempotent: a re-run reuses the running app and its ori
 		expect(g.__clearcase?.id).toBe(before);
 		expect((await get(`${v()}/chronology`)).status).toBe(200);
 		expect(await originalsAnswers()).toEqual([421, 'misdirected request: unknown Host']);
+		await withProvider({ revision: () => 'after-reload', rows: () => { throw new Error('provider after reload'); } }, async () => {
+			const api = await get(`/api/v/${encodeURIComponent(rv)}/chronology`);
+			expect([api.status, api.degraded !== null]).toEqual([200, true]);
+			expect((await get(`${v()}/chronology`)).text).toContain('provider after reload');
+			expect((await get(`${v()}/overview`)).text).toContain('provider after reload');
+		});
 	});
 });

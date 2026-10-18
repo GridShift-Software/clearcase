@@ -61,7 +61,7 @@ runner_state() {
 }
 
 verify_revision() (
-  local revision=$1 root sha base work remote_work state id online busy labelled paused=
+  local revision=$1 root sha base work remote_work state id online busy labelled pausing= paused=
   local quiet=${CLEARCASE_CI_QUIET_SECONDS:-5} observations=${CLEARCASE_CI_IDLE_OBSERVATIONS:-3} drain_timeout=${CLEARCASE_CI_DRAIN_TIMEOUT:-30}
   local settle=${CLEARCASE_CI_PAUSE_SETTLE_SECONDS:-5}
   # These values enter the remote shell command; accept only numeric literals.
@@ -72,7 +72,7 @@ verify_revision() (
   # Bundle the cached CI base as well: the job's receipt commands require origin/dev. Never fetch from GitHub.
   base=$(git -C "$root" rev-parse --verify 'origin/dev^{commit}')
   work=$(mktemp -d)
-  # Every exit after the pause gives the label back, after the guest has restored the service.
+  # Every exit after a successful pause gives the label back, after the guest has restored the service.
   resume_dispatch() {
     local status=$?
     trap - EXIT HUP INT TERM
@@ -83,6 +83,9 @@ verify_revision() (
         echo "pc1-vm: could not resume dispatch; $name gets no jobs until: gh api -X POST repos/$repo/actions/runners/$paused/labels -f 'labels[]=$label'" >&2
         status=1
       fi
+    elif [[ -n $pausing ]]; then
+      # The removal failed or was interrupted. Adding the label back could lift another verify's pause.
+      echo "pc1-vm: if $name has lost its $label label and no other verify is running, restore it: gh api -X POST repos/$repo/actions/runners/$pausing/labels -f 'labels[]=$label'" >&2
     fi
     rm -rf "$work"
     exit "$status"
@@ -104,15 +107,15 @@ verify_revision() (
   [[ $busy != true ]] || { echo "pc1-vm: $name is running a job; try again when it is idle" >&2; exit 1; }
   [[ $id =~ ^[0-9]+$ && $busy == false && ( $labelled == true || $labelled == false ) ]] ||
     { echo "pc1-vm: could not read $name's state from GitHub; verify refuses without a GitHub pause" >&2; exit 1; }
-  if [[ $labelled == true ]]; then
-    # Set before the call: a failed or interrupted removal still needs the label back.
-    paused=$id
-    gh api -X DELETE "repos/$repo/actions/runners/$id/labels/$label" --silent ||
-      { echo "pc1-vm: could not pause $name through GitHub; verify refuses without a pause" >&2; exit 1; }
-    echo "pc1-vm: paused dispatch to $name (removed its $label label)" >&2
-  else
-    echo "pc1-vm: $name was already paused (no $label label); leaving it paused" >&2
-  fi
+  # Another verify may hold that pause and lift it mid-run.
+  [[ $labelled == true ]] ||
+    { echo "pc1-vm: $name is already paused (no $label label), possibly by another verify; try again when it is resumed" >&2; exit 1; }
+  # Only one removal can succeed, so the label also excludes a concurrent verify from another workstation.
+  pausing=$id
+  gh api -X DELETE "repos/$repo/actions/runners/$id/labels/$label" --silent ||
+    { echo "pc1-vm: could not pause $name through GitHub; verify refuses without a pause" >&2; exit 1; }
+  paused=$id
+  echo "pc1-vm: paused dispatch to $name (removed its $label label)" >&2
   # A job GitHub assigned before the label went is still marked busy.
   sleep "$settle"
   state=$(runner_state) || { echo "pc1-vm: could not confirm the GitHub pause; verification refused" >&2; exit 1; }

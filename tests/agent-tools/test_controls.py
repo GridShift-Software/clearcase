@@ -902,6 +902,7 @@ class GuardClosure(ControlCase):
     named = [{'file': 'tests/protected.test.ts', 'name': 'rejects stale evidence'}]
 
     def protect(self, files=None, test=None):
+        self.write('app.txt', self.git('rev-list', '--count', 'HEAD') + '\n')  # every baseline is a new commit
         for name, text in (files or {}).items():
             self.write(name, text)
         self.write('tests/protected.test.ts', test or self.original)
@@ -1076,7 +1077,8 @@ class GuardBinding(ControlCase):
 
     def test_a_manifest_dropping_the_weakened_test_does_not_bind(self):
         self.weaken()
-        self.guarded(tests=[{'file': 'tests/protected.test.ts', 'name': 'other behavior'}])
+        self.guarded(tests=[{'file': 'tests/protected.test.ts', 'name': 'other behavior'}],
+                     assertionCountReasons={'tests/protected.test.ts': 'Tidy'})
         self.prepare([{'id': 'L1', 'severity': 'low'}])
         self.assertIn('tests', self.approve('--guard-receipt', self.guard_receipt, code=1))
 

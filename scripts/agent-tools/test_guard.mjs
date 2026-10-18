@@ -1,9 +1,20 @@
 // Conservative protection: a named callback must retain every executable token.
 // The TypeScript parser handles JS/TS syntax without running tests or loading their imports.
+// Protected: the named tests; the test code they import (files under test-support directories); the runner
+// configuration, setup files and test scripts; and the fixtures they read or that sit in the test tree. The modules
+// under test (src/, scripts/) are not protected: a fix is expected to change them.
 import ts from 'typescript';
 import { readFileSync, realpathSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import path from 'node:path';
+
+const SUPPORT_DIR = /^(?:tests?|__tests__|e2e|support|test-?utils?|test-?helpers?|fixtures?|__fixtures__|__mocks__|__snapshots__)$/;
+const FIXTURE_DIR = /^(?:fixtures?|__fixtures__|__mocks__|__snapshots__)$/;
+const isSupport = file => /\.(?:test|spec)\.[^/]*$/.test(file) || file.split('/').slice(0, -1).some(part => SUPPORT_DIR.test(part));
+const CONFIG_FILE = /(?:^|\/)(?:(?:vitest|vite|jest|playwright)\.(?:config|workspace|setup)[^/]*|bunfig\.toml)$/;
+const TEST_SCRIPT = /^(?:pre|post)?test(?::|$)/;
+// Test code that changes what runs for every test in the file, or that stands in for a module.
+const INSTALLS = /\b(?:vi|jest)\s*\.\s*(?:mock|doMock|hoisted|stubGlobal|stubEnv|setConfig|resetModules|unmock)\b|\.only\b|\b(?:fit|fdescribe)\s*\(/;
 
 function main() {
   const args = process.argv.slice(2);
@@ -68,12 +79,14 @@ function main() {
     if (!cache.has(file)) cache.set(file, parse(file, source(revision, file)));
     return cache.get(file);
   };
-  // Resolve imports against Git snapshots, never the worker's filesystem or module loader.
+  // Resolve imports against Git snapshots, never the worker's filesystem or module loader. Only test code is followed.
   const closure = (revision, starts) => {
     const entries = git('ls-tree', '-r', '-z', revision).split('\0').filter(Boolean);
     const modes = new Map(entries.map(entry => [entry.slice(entry.indexOf('\t') + 1), entry.split(' ')[0]]));
+    const ids = new Map(entries.map(entry => [entry.slice(entry.indexOf('\t') + 1), entry.split(/[ \t]/)[2]]));
     const files = new Set(modes.keys());
     const resolutionInputs = new Map();
+    const reads = new Set();
     const relative = absolute => path.relative(root, absolute).split(path.sep).join('/');
     const host = { fileExists: absolute => files.has(relative(absolute)),
       readFile: absolute => {
@@ -96,6 +109,34 @@ function main() {
     const options = { allowJs: true, resolveJsonModule: true, moduleResolution: ts.ModuleResolutionKind.Bundler,
       baseUrl: root, ...configured, paths: { '$lib/*': ['src/lib/*'], ...(configured.paths ?? {}) } };
     const found = new Map();
+    // Files a protected file reads by a literal path: relative to the repository (the runner's directory) and, for the
+    // __dirname, import.meta.dirname and new URL(..., import.meta.url) forms, to the file.
+    const literalReads = (tree, file) => {
+      const folder = path.posix.dirname(file);
+      const text = node => node && ts.isStringLiteralLike(node) ? node.text : undefined;
+      const where = node => {
+        if (!node) return [];
+        const literal = text(node);
+        if (literal !== undefined) return [path.posix.normalize(literal), path.posix.normalize(path.posix.join(folder, literal))];
+        if (ts.isNewExpression(node) && node.expression.getText(tree) === 'URL' && node.arguments?.length === 2
+            && text(node.arguments[0]) !== undefined) return [path.posix.normalize(path.posix.join(folder, text(node.arguments[0])))];
+        if (ts.isCallExpression(node) && /(?:^|\.)(?:join|resolve)$/.test(node.expression.getText(tree))) {
+          const [first, ...rest] = node.arguments;
+          const parts = rest.map(text);
+          if (!parts.length || parts.some(part => part === undefined)) return [];
+          if (['__dirname', 'import.meta.dirname'].includes(first?.getText(tree))) return [path.posix.normalize(path.posix.join(folder, ...parts))];
+          if (text(first) !== undefined) return [path.posix.normalize(path.posix.join(text(first), ...parts))];
+        }
+        return [];
+      };
+      const visit = node => {
+        if (ts.isCallExpression(node) && /(?:^|\.)(?:readFileSync|readFile|createReadStream|file)$/.test(node.expression.getText(tree))) {
+          for (const candidate of where(node.arguments[0])) if (files.has(candidate)) reads.add(candidate);
+        }
+        ts.forEachChild(node, visit);
+      };
+      visit(tree);
+    };
     function follow(file) {
       if (found.has(file)) return;
       if (!['100644', '100755'].includes(modes.get(file))) throw Error(`symlink/submodule protected dependency refuses: ${file}`);
@@ -119,17 +160,55 @@ function main() {
         ts.forEachChild(node, visit);
       }
       visit(tree);
+      literalReads(tree, file);
       for (const specifier of imports) {
         const resolved = ts.resolveModuleName(specifier, path.join(root, file), options, host).resolvedModule;
-        if (resolved && files.has(relative(resolved.resolvedFileName))) follow(relative(resolved.resolvedFileName));
-        else if (specifier.startsWith('.') || specifier.startsWith('/') || specifier.startsWith('$') || specifier.startsWith('#')) {
+        const target = resolved && files.has(relative(resolved.resolvedFileName)) ? relative(resolved.resolvedFileName) : undefined;
+        if (target) {
+          if (isSupport(target)) follow(target); // the module under test is not followed
+        } else if (specifier.startsWith('.') || specifier.startsWith('/') || specifier.startsWith('$') || specifier.startsWith('#')) {
           throw Error(`unresolved local protected import ${specifier} in ${file}`);
         }
       }
     }
     starts.forEach(follow);
-    for (const [file, text] of resolutionInputs) if (!found.has(file)) found.set(file, text);
-    return found;
+    // The runner configuration and the setup files it names decide whether and how the named tests run.
+    for (const config of [...files].filter(file => CONFIG_FILE.test(file))) {
+      if (!['100644', '100755'].includes(modes.get(config))) throw Error(`symlink/submodule protected configuration refuses: ${config}`);
+      found.set(config, source(revision, config)); // its imports are tooling, not test code: compared as text only
+      if (!supported(config)) continue;
+      const named = [];
+      (function visit(node) {
+        if (ts.isStringLiteralLike(node)) named.push(node.text);
+        ts.forEachChild(node, visit);
+      })(ts.createSourceFile(config, found.get(config), ts.ScriptTarget.Latest, true));
+      for (const literal of named) {
+        for (const candidate of [path.posix.normalize(literal), path.posix.normalize(path.posix.join(path.posix.dirname(config), literal))]) {
+          if (files.has(candidate) && supported(candidate)) follow(candidate);
+        }
+      }
+    }
+    if (files.has('package.json')) {
+      const scripts = JSON.parse(source(revision, 'package.json')).scripts ?? {};
+      found.set('package.json#scripts', JSON.stringify(Object.keys(scripts).filter(name => TEST_SCRIPT.test(name)).sort().map(name => [name, scripts[name]])));
+    }
+    // A package.json steers resolution only through these fields; a dependency or version edit does not.
+    const steering = text => {
+      const manifest = JSON.parse(text);
+      return JSON.stringify(['name', 'type', 'main', 'module', 'browser', 'imports', 'exports'].map(key => manifest[key] ?? null));
+    };
+    for (const [file, text] of resolutionInputs) {
+      if (path.posix.basename(file) === 'package.json') found.set(`${file}#resolution`, steering(text));
+      else if (!found.has(file)) found.set(file, text);
+    }
+    // Fixtures: files in a fixture directory under a protected test's top-level directory, and files read by literal path.
+    const tops = new Set(starts.filter(file => file.includes('/')).map(file => file.split('/')[0]));
+    const data = new Set(reads);
+    for (const file of files) {
+      const parts = file.split('/');
+      if (tops.has(parts[0]) && parts.slice(1, -1).some(part => FIXTURE_DIR.test(part))) data.add(file);
+    }
+    return { found, ids, data };
   };
   const controlFlow = (file, text) => {
     if (!supported(file)) return [];
@@ -155,20 +234,59 @@ function main() {
     if (current[0].inactive) throw Error(`named test skipped/todo/isolated: ${entry.file}: ${entry.name}`);
     if (old[0].body !== current[0].body) throw Error(`named test changed (assertions may be removed or loosened): ${entry.file}: ${entry.name}`);
   }
-  const starts = findings.tests.map(entry => entry.file);
+  const starts = [...new Set(findings.tests.map(entry => entry.file))];
   const oldClosure = closure(base, starts);
   const currentClosure = closure(head, starts);
-  for (const file of new Set([...oldClosure.keys(), ...currentClosure.keys()])) {
-    const oldText = oldClosure.get(file);
-    const newText = currentClosure.get(file);
+  const reasonFor = file => typeof reasons[file] === 'string' && reasons[file].trim();
+  // A protected test file keeps everything but its free tests (other tests that hold no named test) as reviewed.
+  // A recorded reason lets free tests change, and no more: no mock, hook, stub or isolation can arrive with it.
+  const statements = (file, text, names) => {
+    const tree = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+    return tree.statements.map(node => {
+      const call = ts.isExpressionStatement(node) && ts.isCallExpression(node.expression) ? node.expression : null;
+      let holdsNamed = false;
+      (function visit(child) {
+        if (ts.isCallExpression(child) && /^(?:test|it|xit|xtest)(?:\.|$)/.test(child.expression.getText(tree))
+            && child.arguments[0] && ts.isStringLiteralLike(child.arguments[0]) && names.has(child.arguments[0].text)) holdsNamed = true;
+        ts.forEachChild(child, visit);
+      })(node);
+      const free = Boolean(call) && /^(?:test|it|describe)(?:\.[A-Za-z]+)*$/.test(call.expression.getText(tree)) && !holdsNamed;
+      return { text: tokens(node.getText(tree)), source: node.getText(tree), free, isImport: ts.isImportDeclaration(node) };
+    });
+  };
+  for (const file of starts) {
+    const names = new Set(findings.tests.filter(entry => entry.file === file).map(entry => entry.name));
+    const reviewed = statements(file, oldClosure.found.get(file), names);
+    const current = statements(file, currentClosure.found.get(file), names);
+    const seen = new Set(reviewed.map(statement => statement.text));
+    const fixed = list => JSON.stringify(list.filter(statement => !statement.free).map(statement => statement.text));
+    if (fixed(reviewed) !== fixed(current.filter(statement => !(statement.isImport && !seen.has(statement.text))))) {
+      throw Error(`protected test file changed outside its free tests (imports, helpers, mocks, hooks and the named tests stay as reviewed): ${file}`);
+    }
+    const free = list => JSON.stringify(list.filter(statement => statement.free).map(statement => statement.text));
+    if (free(reviewed) === free(current)) continue;
+    if (!reasonFor(file)) throw Error(`protected dependency changed: ${file}; explicit assertion count reasons required in assertionCountReasons[file]`);
+    for (const statement of current) {
+      if (statement.free && !seen.has(statement.text) && INSTALLS.test(statement.source)) {
+        throw Error(`added test code installs a mock or isolation in ${file}; a recorded reason cannot excuse it`);
+      }
+    }
+  }
+  // Everything else in the closure (helpers, fixtures, resolver and runner configuration, setup files, test scripts)
+  // stays as reviewed. No reason excuses a change there.
+  for (const file of new Set([...oldClosure.found.keys(), ...currentClosure.found.keys()])) {
+    if (starts.includes(file)) continue;
+    const oldText = oldClosure.found.get(file);
+    const newText = currentClosure.found.get(file);
     if (oldText === undefined || newText === undefined) throw Error(`protected dependency added/deleted: ${file}`);
     if (tokens(oldText) === tokens(newText)) continue;
-    if (!(typeof reasons[file] === 'string' && reasons[file].trim())) {
-      throw Error(`protected dependency changed: ${file}; explicit assertion count reasons required in assertionCountReasons[file]`);
-    }
     if (JSON.stringify(controlFlow(file, oldText)) !== JSON.stringify(controlFlow(file, newText))) {
       throw Error(`protected dependency control flow changed (return/conditional/wrapping): ${file}`);
     }
+    throw Error(`protected dependency changed: ${file}; a recorded reason cannot excuse a helper, fixture, configuration or setup change`);
+  }
+  for (const file of oldClosure.data) {
+    if (currentClosure.ids.get(file) !== oldClosure.ids.get(file)) throw Error(`protected fixture changed or deleted: ${file}`);
   }
   const changed = git('diff', '--name-only', '-z', base, head).split('\0').filter(Boolean);
   for (const file of changed) {

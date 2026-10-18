@@ -25,6 +25,9 @@ REPO = TOOLS_DIR.parents[1]
 LOCK_PATH = TOOLS_DIR / "skills.lock.json"
 HOME = os.environ.get("HOME", "")
 HOME = HOME.rstrip("/") or ("/" if HOME else "")  # /home/x/ and /home/x redact and join alike
+# The HOME that redact() and seal() replace: an absolute directory other than /. A relative HOME names no home
+# directory (home_dir() refuses it), and replacing it would rewrite stored words such as the outcome "recorded".
+MARKED_HOME = HOME if HOME.startswith("/") and HOME != "/" else None
 SKIPPED = 3
 MIN_NODE = (18, 0)
 MIN_PYTHON = (3, 10)
@@ -42,39 +45,53 @@ IGNORED_PARTS = {"node_modules", "__pycache__", ".DS_Store"}
 
 
 def redact(value):
-    """Display and serialization only. The printed argv, command line and input paths carry ~, never the home path, and
-    nothing reads them back: the sealed *Exact fields (argvExact, cwdExact, pathExact, realpathExact) are what identity
-    checks recompute from. HOME is replaced only where a path continues it or ends, so /home/x2 never becomes ~2 under
-    HOME=/home/x."""
+    """The display form of a path, argument or text, for output and receipts: HOME becomes ~ where a path continues it
+    or ends, so /home/x2 never becomes ~2 under HOME=/home/x. It is lossy (under HOME=/inner, .../x/inner/f and a
+    literal .../x~/f display alike), so a redacted value is never opened, expanded or compared. A stored value the
+    tools read back has a sealed *Exact twin beside its display form, and exact() is the only way back."""
     text = str(value)
-    return re.sub(re.escape(HOME) + r"(?=[/\s:'\"]|$)", "~", text) if HOME and HOME != "/" else text
+    return re.sub(re.escape(MARKED_HOME) + r"(?=[/\s:'\"]|$)", "~", text) if MARKED_HOME else text
 
 
 def seal(value):
-    """The lossless private form of a path or argument that identity checks recompute from: every HOME becomes \\h and
-    every backslash is doubled, so unseal() restores the exact text, which redact() cannot. It holds no home path."""
+    """The lossless form of a stored path, argument or text: every HOME becomes \\h and every backslash is doubled,
+    so unseal() restores the exact text, which redact() cannot. It holds no home path."""
     text = str(value)
-    pieces = text.split(HOME) if HOME and HOME != "/" else [text]
+    pieces = text.split(MARKED_HOME) if MARKED_HOME else [text]
     return "\\h".join(piece.replace("\\", "\\\\") for piece in pieces)
 
 
 def unseal(text):
     def restore(match):
-        if match[1] not in ("\\", "h"):
-            raise ValueError(f"malformed sealed text {text!r}")
-        return HOME if match[1] == "h" else "\\"
+        if match[1] not in ("\\", "h") or match[1] == "h" and not MARKED_HOME:
+            raise ValueError(f"sealed text {text!r} is malformed or names HOME, which is not an absolute directory here")
+        return MARKED_HOME if match[1] == "h" else "\\"
     return re.sub(r"\\(.?)", restore, text)
+
+
+def each_string(value, function):
+    """function applied to each string of a JSON-like value: redact for display, seal and unseal for exact twins."""
+    if isinstance(value, str):
+        return function(value)
+    if isinstance(value, dict):
+        return {key: each_string(item, function) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [each_string(item, function) for item in value]
+    return value
 
 
 def redacted(value):
     """redact() through the strings of a JSON-like value, for receipts and the bootstrap state."""
-    if isinstance(value, str):
-        return redact(value)
-    if isinstance(value, dict):
-        return {key: redacted(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [redacted(item) for item in value]
-    return value
+    return each_string(value, redact)
+
+
+def exact(row, key, record):
+    """The exact value of a stored field, row[key + "Exact"] unsealed. It is the only way the tools read a stored path,
+    argv or text back; row[key] is its display form. A row without the exact twin predates it and is refused."""
+    if not isinstance(row, dict) or f"{key}Exact" not in row:
+        raise ValueError(f"the receipt predates the exact {record} record (it has no {key}Exact); rerun the step "
+                         "that wrote it to get a new receipt")
+    return each_string(row[f"{key}Exact"], unseal)
 
 
 def home_dir():
@@ -320,8 +337,8 @@ def revision(root, base_ref=None):
     CLEARCASE_BASE_REF), even an empty one, never falls back to a default, and neither does a default that names
     something unreadable."""
     explicit = base_ref if base_ref is not None else os.environ.get("CLEARCASE_BASE_REF")
-    fields = {"repository": False, "root": redact(root), "branch": None, "head": None, "baseRef": explicit,
-              "base": None, "mergeBase": None, "dirty": None, "diffSha256": None}
+    fields = {"repository": False, "root": redact(root), "rootExact": seal(root), "branch": None, "head": None,
+              "baseRef": explicit, "base": None, "mergeBase": None, "dirty": None, "diffSha256": None}
     if not shutil.which("git"):
         return fields, "required tool not found: git; install git and put it on PATH"
     _, out, problem = git(root, "rev-parse", "--show-toplevel")
@@ -335,7 +352,8 @@ def revision(root, base_ref=None):
         return fields, f"no head revision: {problem}; check the repository with git fsck" if problem else (
             f"no head revision: {redact(root)} has no commit yet")
     _, out, problem = git(root, "rev-parse", "--abbrev-ref", "HEAD")
-    fields.update(repository=True, toplevel=redact(Path(top).resolve()), head=head, branch=None if problem else out.decode(errors="backslashreplace").strip())
+    fields.update(repository=True, toplevel=redact(Path(top).resolve()), toplevelExact=seal(Path(top).resolve()), head=head,
+                  branch=None if problem else out.decode(errors="backslashreplace").strip())
     if problem:
         return fields, f"branch unknown: {problem}"
     dirty, digest, problem = worktree_state(root)
@@ -426,7 +444,7 @@ def inputs_changed(paths, rows):
         except OSError as error:
             problems.append(failed(error, path))
             continue
-        if row.get("realpathExact") is not None and row["realpathExact"] != seal(Path(path).resolve()):
+        if exact(row, "realpath", "input") != str(Path(path).resolve()):
             problems.append(f"{redact(path)}: input realpath changed")
         differ = [f"{key} {str(row[key])[:12]} -> {str(now[key])[:12]}" if key == "sha256" else
                   f"{key} {row[key]} -> {now[key]}" for key in now if now[key] != row[key]]
@@ -488,7 +506,7 @@ def executing_path(name, cwd):
 
 def binary_identity(name, cwd):
     path = executing_path(name, cwd)
-    return {"path": redact(path), **file_identity(path)} if path else None
+    return {"path": redact(path), "pathExact": seal(path), **file_identity(path)} if path else None
 
 
 def execution_identity(argv, cwd):
@@ -496,7 +514,7 @@ def execution_identity(argv, cwd):
     snapshot = {key: hashlib.sha256(value.encode()).hexdigest() for key, value in sorted(env.items())
                 if key not in ("_", "SHLVL", "PWD", "OLDPWD")}
     # Keep PATH/TMPDIR inspectable; other values (including every CLEARCASE_* value) stay secret.
-    # argv and cwd are display; argvExact and cwdExact are what validate_execution recomputes from (see seal).
+    # argv and cwd are display; argvExact and cwdExact are what validate_execution recomputes from (see exact).
     return {"argv": [redact(part) for part in argv], "commandLine": redact(shlex.join(argv)),
             "argvExact": [seal(part) for part in argv], "cwdExact": seal(Path(cwd).resolve()),
             "argvSha256": hashlib.sha256(json.dumps(argv).encode()).hexdigest(), "cwd": redact(Path(cwd).resolve()),
@@ -507,10 +525,8 @@ def execution_identity(argv, cwd):
 
 
 def exact_input_paths(rows):
-    """The paths of receipt input rows, from their sealed exact form: the displayed path is redacted and not a path."""
-    if not all(isinstance(row.get("pathExact"), str) for row in rows):
-        raise ValueError("receipt predates the exact input record; rerun the check to get a new receipt")
-    return [Path(unseal(row["pathExact"])) for row in rows]
+    """The paths of receipt input rows, from their exact records; inputs_changed() requires realpathExact too."""
+    return [Path(exact(row, "path", "input")) for row in rows]
 
 
 def check_inputs(check):
@@ -531,9 +547,7 @@ def validate_execution(check, requirement):
     recorded = check.get("execution")
     if recorded != expected or check.get("command") != expected.get("argv"):
         raise ValueError("required check command/argv/executable/environment mismatch")
-    if not isinstance(recorded.get("argvExact"), list) or not isinstance(recorded.get("cwdExact"), str):
-        raise ValueError("check receipt predates the exact execution record; rerun the check to get a new receipt")
-    current = execution_identity([unseal(word) for word in recorded["argvExact"]], Path(unseal(recorded["cwdExact"])))
+    current = execution_identity(exact(recorded, "argv", "execution"), Path(exact(recorded, "cwd", "execution")))
     if current != recorded:
         raise ValueError("check execution identity changed at approval (runtime, PATH or environment)")
     if requirement.get("inputs") != check.get("inputs"):
@@ -568,6 +582,8 @@ def run_captured(argv, cwd, folder):
 def write_receipt(folder, started, name, result, code, reason, argv, cwd, tool_rows, inputs, identity,
                   *, metadata=None, spend=None):
     finished = now()
+    artifacts = {"receipt": str(folder / "receipt.json"), "stdout": str(folder / "stdout.txt"),
+                 "stderr": str(folder / "stderr.txt")}
     receipt = {
         "schema": "clearcase-agent-receipt/1",
         "name": name,
@@ -583,11 +599,8 @@ def write_receipt(folder, started, name, result, code, reason, argv, cwd, tool_r
         "startedAt": started.isoformat(),
         "finishedAt": finished.isoformat(),
         "durationSeconds": round((finished - started).total_seconds(), 3),
-        "artifacts": {
-            "receipt": redact(folder / "receipt.json"),
-            "stdout": redact(folder / "stdout.txt"),
-            "stderr": redact(folder / "stderr.txt"),
-        },
+        "artifacts": redacted(artifacts),
+        "artifactsExact": each_string(artifacts, seal),
     }
     receipt.update(redacted(metadata or {}))
     if "approval" in receipt and result != "PASS":
@@ -1182,12 +1195,13 @@ def guard_claims(root, args):
     """What a test-guard receipt binds for approval: the commit the diff is measured from and the manifest's own claims
     about the review that prompted the fix round. approve compares them with the ledger's recorded review."""
     base = commit_of(root, args.fix_base)[0] if args.fix_base else None
-    claims = dict.fromkeys(("manifestSha256", "reviewFindingsSha256", "unit", "tests"))
+    claims = dict.fromkeys(("manifestSha256", "reviewFindingsSha256", "unit", "tests", "testsExact"))
     try:
         findings = Path(args.findings).expanduser().resolve()
         manifest = json_object(findings)
         claims.update(manifestSha256=sha256_file(findings), reviewFindingsSha256=manifest.get("reviewFindingsSha256"),
-                      unit=manifest.get("unit"), tests=manifest.get("tests"))
+                      unit=manifest.get("unit"), tests=manifest.get("tests"),
+                      testsExact=each_string(manifest.get("tests"), seal))
     except (OSError, ValueError, TypeError):
         pass  # the guard itself refuses a missing or malformed manifest
     return {"guard": {"fixBase": base, **claims}}
@@ -1386,6 +1400,9 @@ def canonical_unit(value):
     canonical = f"{match[1].upper()}-{int(match[2])}/{match[3].lower()}"
     if value != canonical:
         raise ValueError(f"noncanonical unit spelling; use {canonical}")
+    if redact(canonical) != canonical:  # stored rows hold the unit as displayed, and readers compare it
+        raise ValueError(f"HOME names the unit's own suffix, so receipts would redact the unit {canonical}; set HOME "
+                         "to a home directory")
     return canonical
 
 
@@ -1399,7 +1416,8 @@ def passing_check(check, identity):
             or check.get("exitCode") != 0 or check.get("reason") or not check.get("command")):
         raise ValueError("check receipt is not a complete PASS")
     recorded = check.get("revision", {})
-    if any(recorded.get(key) != identity[key] for key in ("head", "root", "toplevel", "dirty", "diffSha256")):
+    if (any(recorded.get(key) != identity[key] for key in ("head", "dirty", "diffSha256"))
+            or any(exact(recorded, key, "revision") != exact(identity, key, "revision") for key in ("root", "toplevel"))):
         raise ValueError("check receipt revision mismatch (SHA, checkout or dirty state)")
     if not recorded.get("repository") or not FULL_ID.fullmatch(recorded.get("base") or ""):
         raise ValueError("check receipt lacks revision evidence")
@@ -1409,7 +1427,7 @@ def check_artifacts(check):
     artifacts = check.get("artifacts", {})
     if set(artifacts) != {"receipt", "stdout", "stderr"}:
         raise ValueError("check receipt lacks captured artifacts")
-    paths = [Path(artifacts[key]).expanduser().resolve() for key in ("stdout", "stderr")]
+    paths = [Path(exact(check, "artifacts", "artifact")[key]).resolve() for key in ("stdout", "stderr")]
     for path in paths:
         file_identity(path)
     return paths
@@ -1576,7 +1594,7 @@ def guard_binding(store, unit, supplied, identity):
         raise ValueError(f"guard fix base {str(claims.get('fixBase'))[:12]} differs from the reviewed SHA {record['sha'][:12]} in the ledger")
     if claims.get("reviewFindingsSha256") != record["findingsHash"] or claims.get("unit") != unit:
         raise ValueError("the guard manifest names other review findings than the ledger's review for this unit")
-    if json.dumps(claims.get("tests"), sort_keys=True) != json.dumps(protected, sort_keys=True):
+    if json.dumps(exact(claims, "tests", "guard"), sort_keys=True) != json.dumps(protected, sort_keys=True):
         raise ValueError("the guard manifest's tests differ from the review's protectedTests")
     return {**binding, "receipt": str(path), "manifestSha256": claims.get("manifestSha256"), "tests": protected}, [path]
 
@@ -1632,9 +1650,12 @@ def approval_evidence(args, identity, paths):
         raise ValueError(f"required check receipt mismatch: expected {required}, got {list(checks)}")
     guard, guard_paths = guard_binding(receipts_root(args.receipts), args.unit, args.guard_receipt, identity)
     paths.extend(guard_paths)
+    # approval-check reads the review, findings, check receipts and guard binding back from their exact twins.
     return {"state": "approved", "unit": args.unit, "sha": args.sha, "approvedBy": args.approved_by, "guard": guard,
-            "reviewer": review["reviewer"], "reviewVerdict": review["verdict"], "review": str(review_path),
-            "findings": str(findings_path), "unresolvedFindings": unresolved, "checks": checks, "requirements": requirements, "reviewEvent": event["hash"]}
+            "guardExact": each_string(guard, seal), "reviewer": review["reviewer"], "reviewVerdict": review["verdict"],
+            "review": str(review_path), "reviewExact": seal(review_path), "findings": str(findings_path),
+            "findingsExact": seal(findings_path), "unresolvedFindings": unresolved, "checks": checks,
+            "checksExact": each_string(checks, seal), "requirements": requirements, "reviewEvent": event["hash"]}
 
 
 def approval_event(store, receipt, path):
@@ -1679,15 +1700,18 @@ def cmd_approval(args):
             changed = inputs_changed(originals, recorded)
             if changed:
                 raise ValueError(f"approval evidence changed: {changed}")
-            event = review_record(receipts_root(args.receipts), args.unit, Path(row["review"]).expanduser(), Path(row["findings"]).expanduser())
+            event = review_record(receipts_root(args.receipts), args.unit, Path(exact(row, "review", "approval")),
+                                  Path(exact(row, "findings", "approval")))
             if event["hash"] != row["reviewEvent"]:
                 raise ValueError("approval review-step record mismatch")
-            guard, guard_paths = guard_binding(receipts_root(args.receipts), args.unit, (row.get("guard") or {}).get("receipt"), identity)
-            if guard != row.get("guard"):
+            bound = exact(row, "guard", "approval")
+            guard, guard_paths = guard_binding(receipts_root(args.receipts), args.unit, (bound or {}).get("receipt"), identity)
+            if guard != bound:
                 raise ValueError("approval row lacks the test-guard binding the ledger now requires for this unit")
             paths.extend(guard_paths)
+            checks = exact(row, "checks", "approval")
             for name, requirement in row["requirements"].items():
-                check = json_object(Path(row["checks"][name]).expanduser())
+                check = json_object(Path(checks[name]))
                 passing_check(check, identity)
                 paths.extend(validate_execution(check, requirement))
             paths.extend(originals)
@@ -1771,8 +1795,8 @@ def dispatch_record(args, root, store, row):
     if args.failure:
         if not (args.diagnosis or "").strip():
             raise ValueError("a failure fingerprint requires --diagnosis")
-        if any(prior.get("failure") == args.failure and prior.get("diagnosis") == args.diagnosis
-               and prior.get("outcome") == "recorded" for prior in history):
+        if any(prior.get("outcome") == "recorded" and exact(prior, "failure", "dispatch") == args.failure
+               and exact(prior, "diagnosis", "dispatch") == args.diagnosis for prior in history):
             raise ValueError("same failure twice without a new diagnosis; stop this unit")
     row["counts"][args.phase] += 1
     row["attemptDeadline"] = attempt
@@ -1789,7 +1813,8 @@ def cmd_dispatch(args):
     row = {"unit": args.unit, "phase": args.phase, "taskId": args.task_id, "deadline": None, "attemptDeadline": None,
            "deadlines": {},
            "counts": dict.fromkeys(DISPATCH_PHASES, 0), "outcome": "refuse", "dispatchPerformed": False,
-           "failure": args.failure, "diagnosis": args.diagnosis}
+           "failure": args.failure, "failureExact": each_string(args.failure, seal), "diagnosis": args.diagnosis,
+           "diagnosisExact": each_string(args.diagnosis, seal)}
     # Keep the receipt append under the same lock as the read; concurrent reservations cannot both win.
     try:
         store.mkdir(parents=True, exist_ok=True)

@@ -300,11 +300,11 @@ test('verify bundles the exact SHA, runs the job through real receipts and summa
   for (const upload of readFileSync(path.join(f.guest, 'uploads'), 'utf8').trim().split('\n')) assert.equal(existsSync(upload), false);
 });
 
-for (const scenario of ['check-fail', 'test-fail', 'chrome-fail', 'install-fail', 'stop-fail', 'start-fail', 'busy-after-stop']) {
-  test(`verify stores FAIL and attempts start after stop when ${scenario}`, () => {
+for (const scenario of ['check-fail', 'test-fail', 'chrome-fail', 'install-fail']) {
+  test(`verify stores FAIL and starts the service again when ${scenario}`, () => {
     const f = fixture(scenario);
     const result = f.run('verify', 'HEAD');
-    assert.equal(result.status, scenario === 'busy-after-stop' ? 3 : 1, result.stderr + result.stdout);
+    assert.equal(result.status, 1, result.stderr + result.stdout);
     assert.match(result.stdout, new RegExp(`^FAIL ${f.sha}$`, 'm'));
     const events = f.events();
     assert.equal(events.filter((event) => event === 'stop').length, 1);
@@ -320,6 +320,50 @@ for (const scenario of ['check-fail', 'test-fail', 'chrome-fail', 'install-fail'
     assert.equal(verdict.stdout, `FAIL ${f.sha}\nreceipts ${stored}\n${scope}\n`);
   });
 }
+
+// The checks never ran to completion, so these exits are not verdicts: no entry is published and nothing is printed that
+// reads like one. A verdict from an earlier verify of the same SHA stays the answer.
+const verdicts = (f: ReturnType<typeof fixture>) => f.results().filter((entry) => existsSync(path.join(entry, 'verdict.txt')));
+for (const [scenario, status] of [['stop-fail', 1], ['busy-after-stop', 3], ['job-during-stop', 3], ['transient-during-stop', 3], ['guest-term', 143]] satisfies [string, number][]) {
+  for (const earlier of [false, true]) {
+    test(`verify publishes no verdict and no scope line when ${scenario}${earlier ? ' after an earlier PASS' : ''}`, () => {
+      const f = fixture();
+      if (earlier) assert.equal(f.run('verify', 'HEAD').status, 0);
+      const [first] = verdicts(f);
+      writeFileSync(path.join(f.guest, 'scenario'), scenario);
+      writeFileSync(path.join(f.guest, 'service-state'), 'active\n');
+      const result = f.run('verify', 'HEAD');
+      assert.equal(result.status, status, result.stderr + result.stdout);
+      assert.equal(f.events().at(-1), 'start');
+      assert.equal(readFileSync(path.join(f.guest, 'service-state'), 'utf8'), 'active\n');
+      assert.equal(/^(PASS|FAIL) /m.test(result.stdout), false, result.stdout);
+      assert.equal(result.stdout.includes(scope), false);
+      assert.equal(verdicts(f).length, earlier ? 1 : 0);
+      const verdict = f.run('verdict', f.sha);
+      if (earlier) {
+        assert.equal(verdict.status, 0, verdict.stderr);
+        assert.equal(verdict.stdout, `PASS ${f.sha}\nreceipts ${first}\n${scope}\n`);
+      } else {
+        assert.equal(verdict.status, 2, verdict.stderr);
+        assert.equal(verdict.stdout, `UNKNOWN ${f.sha}\n`);
+      }
+    });
+  }
+}
+
+test('a failed service start after passing checks changes the exit status, not the verdict', () => {
+  const f = fixture('start-fail');
+  const result = f.run('verify', 'HEAD');
+  assert.equal(result.status, 1, result.stderr + result.stdout);
+  assert.match(result.stderr, /runner restart failed/);
+  const [stored] = f.results();
+  assert.ok(stored);
+  assert.equal(readFileSync(path.join(stored, 'verdict.txt'), 'utf8'), `PASS ${f.sha}\n`);
+  assert.ok(result.stdout.endsWith(`PASS ${f.sha}\nreceipts ${stored}\n${scope}\n`), result.stdout);
+  const verdict = f.run('verdict', f.sha);
+  assert.equal(verdict.status, 0, verdict.stderr);
+  assert.equal(verdict.stdout, `PASS ${f.sha}\nreceipts ${stored}\n${scope}\n`);
+});
 
 for (const scenario of ['busy', 'pgrep-error']) {
   test(`verify refuses ${scenario} without stopping the service or running checks`, () => {
@@ -430,7 +474,8 @@ for (const state of ['inactive', 'failed']) {
       assert.equal(readFileSync(path.join(f.guest, 'service-state'), 'utf8'), `${state}\n`);
       assert.equal(f.events().includes('start'), false);
       assert.equal(f.events().includes('stop'), false);
-      assert.match(result.stdout, new RegExp(`^${status === 0 ? 'PASS' : 'FAIL'} ${f.sha}$`, 'm'));
+      if (scenario === 'guest-term') assert.equal(/^(PASS|FAIL) /m.test(result.stdout), false, result.stdout);
+      else assert.match(result.stdout, new RegExp(`^${status === 0 ? 'PASS' : 'FAIL'} ${f.sha}$`, 'm'));
     });
   }
 }
@@ -450,7 +495,7 @@ test('verify restores an active service after SIGTERM to the guest shell', () =>
   assert.equal(result.status, 143, result.stderr + result.stdout);
   assert.equal(readFileSync(path.join(f.guest, 'service-state'), 'utf8'), 'active\n');
   assert.equal(f.events().at(-1), 'start');
-  assert.match(result.stdout, new RegExp(`^FAIL ${f.sha}$`, 'm'));
+  assert.equal(/^(PASS|FAIL) /m.test(result.stdout), false, result.stdout);
 });
 
 test('verify refuses a held admission lock before inspecting jobs or mutating service state', () => {
@@ -479,7 +524,7 @@ test('verify refuses a job arriving between idle observation and stop and restor
   assert.equal(readFileSync(path.join(f.guest, 'service-state'), 'utf8'), 'active\n');
   assert.deepEqual(f.events(), ['pgrep', 'pgrep', 'pgrep', 'stop', 'pgrep', 'start']);
   const verdict = f.run('verdict', f.sha);
-  assert.equal(verdict.status, 1);
+  assert.equal(verdict.status, 2);
 });
 
 for (const link of ['entry', 'verdict', 'root']) {
@@ -664,16 +709,36 @@ test('verify reports a failed resume with the command that lifts the pause', () 
   assert.equal(githubState(f), '22 online false false\n');
 });
 
-test('verify resumes dispatch when the workstation is interrupted during the checks', () => {
-  const f = fixture('chrome-hang');
-  // Job control gives verify its own process group, which receives the interrupt as a terminal's Ctrl-C would.
+// Job control gives verify its own process group, which receives the interrupt as a terminal's Ctrl-C would.
+function interrupted(f: ReturnType<typeof fixture>) {
   const script = 'set -m; "$1" verify HEAD & job=$!; until grep -qx chrome "$2"; do sleep 0.02; done; kill -INT -- "-$job"; wait "$job"; status=$?; while pgrep -g "$job" >/dev/null; do sleep 0.02; done; exit "$status"';
   const result = spawnSync('bash', ['-c', script, 'interrupt', path.join(f.source, 'scripts/ci/pc1-vm'), path.join(f.guest, 'events')], { cwd: f.source, env: f.env, encoding: 'utf8', timeout: 20_000 });
   assert.equal(result.signal, null);
+  return result;
+}
+
+test('verify resumes dispatch when the workstation is interrupted during the checks', () => {
+  const f = fixture('chrome-hang');
+  const result = interrupted(f);
   assert.equal(result.status, 130, result.stderr + result.stdout);
   assert.deepEqual(f.github().at(-1)?.call, resume);
   assert.equal(githubState(f), '22 online false true\n');
   assert.equal(readFileSync(path.join(f.guest, 'service-state'), 'utf8'), 'active\n');
+});
+
+test('a workstation interrupt during the checks publishes no verdict and leaves an earlier PASS the answer', () => {
+  const f = fixture();
+  assert.equal(f.run('verify', 'HEAD').status, 0);
+  const [first] = verdicts(f);
+  writeFileSync(path.join(f.guest, 'scenario'), 'chrome-hang');
+  const result = interrupted(f);
+  assert.equal(result.status, 130, result.stderr + result.stdout);
+  assert.equal(/^(PASS|FAIL) /m.test(result.stdout), false, result.stdout);
+  assert.equal(result.stdout.includes(scope), false);
+  assert.deepEqual(verdicts(f), [first]);
+  const verdict = f.run('verdict', f.sha);
+  assert.equal(verdict.status, 0, verdict.stderr);
+  assert.equal(verdict.stdout, `PASS ${f.sha}\nreceipts ${first}\n${scope}\n`);
 });
 
 test('verdict answers with GitHub unreachable and never calls GitHub', () => {

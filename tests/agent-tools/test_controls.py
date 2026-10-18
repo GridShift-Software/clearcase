@@ -421,6 +421,19 @@ class ApprovalLedger(ControlCase):
         self.approve_and_read_back_under_home(['python3', '-I', '-c', "path = '$HOME/out.json'; assert path"])
         self.approve_and_read_back_under_home(['bash', '-c', 'test -n "$HOME/out.json"'])
 
+    def test_backslashes_and_a_literal_marker_in_argv_survive_the_exact_record(self):
+        self.approve_and_read_back_under_home(['bash', '-c', ':', r'a\h$HOME\\b', '$HOME/x:$HOME/y'])
+
+    def test_receipt_without_the_exact_execution_record_refuses_clearly(self):
+        self.prepare()
+        for document in (self.check, self.review):
+            data = json.loads(document.read_text())
+            execution = data['execution'] if document == self.check else data['requiredChecks'][0]['execution']
+            del execution['argvExact'], execution['cwdExact']
+            document.write_text(json.dumps(data))
+        self.cli('review-record', '--unit', 'GRS-104/implementation', '--review', self.review, '--findings', self.findings)
+        self.assertIn('predates the exact execution record', self.approve(code=1))
+
     def test_changed_argv_with_a_home_path_still_refuses(self):
         home = self.work / 'reviewer-home'
         home.mkdir(exist_ok=True)

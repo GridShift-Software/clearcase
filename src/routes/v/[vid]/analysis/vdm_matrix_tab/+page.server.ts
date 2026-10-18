@@ -1,3 +1,4 @@
+import { analysisAdditionsEnabled, analysisHeading } from '$lib/analysis/additions.server';
 import { analysisDataset, existingOf } from '$lib/analysis/data.server';
 import { app } from '$lib/local-case/app.server';
 import { EXPORT_COLUMNS_NOTE, exportColumns, exportFileName, viewContentOf, viewText } from '$lib/local-case/results.server';
@@ -9,6 +10,8 @@ export const load: PageServerLoad = async ({ parent }) => {
 	const rows = (analysisDataset<DefenceRow[]>(version.id, 'defence-matrix') ?? []).map((r) => ({ point: r.point, dcs: r.dcs, evidence: r.evidence, rebuttal: r.rebuttal, refs: r.refs, docs: r.docs.map((d) => ({ ref: d.ref })) }));
 	const vc = viewContentOf(app().store, version.id);
 	return {
+		heading: analysisHeading('vdm_matrix_tab'),
+		analysisAdditions: analysisAdditionsEnabled(),
 		rows,
 		subtitle: viewText(vc, 'vdm_matrix_tab', 'subtitle'),
 		headings: [...defenceHeadings(vc.list('vdm_matrix_tab', 'columns'))],

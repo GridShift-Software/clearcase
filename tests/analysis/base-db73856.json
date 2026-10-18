@@ -1,0 +1,41 @@
+{
+  "base": "db73856701514aa191aba1f392d5799bed0e83c6",
+  "keys": [
+    "p,\"q\"",
+    "case",
+    "evidence",
+    "documents",
+    "rebuttal"
+  ],
+  "rows": [
+    {
+      "point": "Quoted \"point\",\nnext line",
+      "dcs": "Their case\r\ncontinued",
+      "evidence": "Evidence;=SUM(A1)",
+      "docs": [
+        {
+          "ref": "OD-1"
+        },
+        {
+          "ref": "SD-2"
+        }
+      ],
+      "rebuttal": "Rebuttal, \"quoted\"",
+      "refs": "OD-1\nSD-2, \"range\""
+    },
+    {
+      "point": "",
+      "dcs": "",
+      "evidence": "",
+      "docs": [],
+      "rebuttal": "",
+      "refs": ""
+    }
+  ],
+  "csv": "\"p,\"\"q\"\"\",case,evidence,documents,rebuttal,refs\r\n\"Quoted \"\"point\"\",\nnext line\",\"Their case\r\ncontinued\",\"Evidence;'=SUM(A1)\",OD-1 SD-2,\"Rebuttal, \"\"quoted\"\"\",\"OD-1\nSD-2, \"\"range\"\"\"\r\n,,,,,",
+  "headings": {
+    "timeline": "Timeline",
+    "vdm_matrix_tab": "Defence & Rebuttal",
+    "info_required_tab": "Info Required"
+  }
+}

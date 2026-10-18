@@ -63,7 +63,7 @@ Read it with `gh run view RUN_ID` (the summary) or `gh run download RUN_ID -n re
 
 ## Commands
 
-Run these from a checkout on a workstation with `ssh root@ci-host.example.invalid` (pc1 over Tailscale) and an admin `gh` login. Override the host with `CLEARCASE_CI_HOST`.
+Run these from a checkout on a workstation with `ssh root@ci-host.example.invalid` (pc1 over Tailscale) and an admin `gh` login. `verify` and `verdict` need only management SSH, without a GitHub login or API request. Override the host with `CLEARCASE_CI_HOST`.
 
 `provision`, `refresh` and `restart` refuse to run unless GitHub reports `clearcase-pc1-vm` as registered and idle, because they would kill a running job: a GitHub API error or a runner missing from the list also refuses. Only `create` provisions a VM that isn't registered yet. `stop` does not check.
 
@@ -74,6 +74,8 @@ Run these from a checkout on a workstation with `ssh root@ci-host.example.invali
 | `scripts/ci/pc1-vm register` | Register again with a fresh token, replacing the runner of the same name |
 | `scripts/ci/pc1-vm refresh` | Rewrite the service unit and `/etc/clearcase-ci-vm.nft` with pc1's current networks and restart the VM; the disk and runner stay |
 | `scripts/ci/pc1-vm ssh [COMMAND]` | SSH to the guest as `ciadmin`, through pc1 to `127.0.0.57:2257` |
+| `scripts/ci/pc1-vm verify REV` | Bundle the committed revision and cached `origin/dev`, run the CI commands in the idle guest, store receipts and print `PASS SHA` or `FAIL SHA` plus the receipt directory |
+| `scripts/ci/pc1-vm verdict SHA` | Read the most recent completed result for a full commit SHA; print its verdict and receipt directory, or `UNKNOWN SHA` (exit 2) |
 | `scripts/ci/pc1-vm status`, `stop`, `start`, `restart` | `systemctl` on `clearcase-ci-vm.service`; `stop` powers the guest off cleanly |
 | `scripts/ci/vm-boundary-probe` | Check from guest root that pc1's loopback, multicast and broadcast are closed and DNS, github.com and SSH work; exits 1 on any reachable denied port |
 | `scripts/ci/pc1-vm destroy` | Delete the runner from GitHub, then stop the VM and delete everything `create` made on pc1 |
@@ -95,6 +97,8 @@ rm -rf /var/lib/clearcase-ci && userdel clearcase-ci
 
 ## Running the CI checks by hand in the guest
 
+Prefer `scripts/ci/pc1-vm verify REV`, described below: it checks for a running job, captures receipts and restarts the runner through an exit trap. The older manual recipe below requires those precautions from the operator.
+
 Stop the runner service first, so a live job doesn't race this run for `~/.cache` and `~/.bun`, and start it again afterwards. The guest holds no GitHub credential, so send the source over the SSH link as a bundle and run the job's commands as `runner`:
 
 ```sh
@@ -108,6 +112,46 @@ scripts/ci/pc1-vm ssh 'sudo systemctl start actions.runner.GridShift-Software-cl
 ```
 
 Recreating the VM registers a new runner ID under the same name and labels, so the workflow needs no change.
+
+## Verdicts without GitHub
+
+```sh
+GH_HOST=github.invalid scripts/ci/pc1-vm verify HEAD
+GH_HOST=github.invalid scripts/ci/pc1-vm verdict FULL_40_CHARACTER_SHA
+```
+
+`verify` resolves `REV` in the script's checkout and sends only that commit's history and the locally cached `origin/dev` history as a Git bundle. It neither fetches nor changes local refs; uncommitted edits are excluded. The cached base must exist because the job's receipt commands use `--base origin/dev`. Both commands use the existing workstation-to-guest management SSH path; no listener, guest credential or guest-to-host connection is added. `CLEARCASE_CI_SSH` is an executable SSH transport override for the local fake-guest tests; leave it unset for real management SSH.
+
+The guest holds one `flock` across admission, service stop, checks, restoration and verdict publication. Before stopping anything it reads systemd's `ActiveState`; unreadable or transitional states refuse verification. An active service is stopped and restored to active after success, failure or HUP/INT/TERM, including a failed stop. An inactive or failed service is left untouched, preserving its entry state without starting it. The exit trap checks that the final state matches the entry state, removes the uploaded bundle and checkout, and reports FAIL if restoration fails. `guest-provision.sh provision` takes the same lock and reads a registered service's entry state before any provisioning mutation. Version replacement stops only an active-at-entry service; its EXIT trap restores that state and removes scratch after success, failure or HUP/INT/TERM under the lock. First provision without a registered service leaves service startup to `register`. A powered-off guest, SIGKILL or broken systemd cannot be repaired by a shell trap.
+
+Admission defaults to a bounded quiet-period drain before any service stop. It requires three consecutive idle observations spanning at least five seconds, with `pgrep -u runner Runner.Worker` absent at each and unchanged Worker diagnostics throughout. An initial busy runner refuses immediately; activity at a later observation refuses with exit 3 before stopping or running checks. The lock remains held throughout. `CLEARCASE_CI_QUIET_SECONDS` (default `5`), `CLEARCASE_CI_IDLE_OBSERVATIONS` (default `3`) and `CLEARCASE_CI_DRAIN_TIMEOUT` (default `30`) are forwarded as numeric arguments to the guest; quiet/timeout accept decimal seconds. Require `0 < quiet <= timeout <= 300` and `2..100` observations. Samples are spaced by `quiet / (observations - 1)`; the sampling loop uses a monotonic deadline and bounds its process probes by the remaining time. Timeout refuses with exit 3; it never proceeds on a partial quiet period. Inspection/configuration errors also fail closed.
+
+The snapshots include Worker log names, inodes, sizes and nanosecond modification/change times, plus the diagnostic directory's inode, size and modification/change times. Directory changes conservatively refuse even if a transient Worker log has already vanished; listener log creation/rotation can also cause a refusal. Writes to existing listener logs are excluded. After stop, compare the original snapshot again and require no worker before running checks; activity in that final interval refuses and restores the service. Missing, unsafe or changing diagnostic history refuses admission. This relies on the guest filesystem recording metadata changes; snapshots do not provide a filesystem event journal.
+
+The bounded wait is the offline fallback, not an admission switch in the running listener. In the [runner listener source](https://github.com/actions/runner/blob/main/src/Runner.Listener/Runner.cs), `--once` is selected at process startup; changing a live registered service to it would itself require a stop/restart. Listener shutdown [cancels running dispatches](https://github.com/actions/runner/blob/main/src/Runner.Listener/JobDispatcher.cs), so ordinary service stop does not establish a graceful drain. No usable live offline drain control is established here. Verification makes no GitHub API calls to disable dispatch.
+
+The guarantee is observed local quiet before stop and refusal on recorded activity through stop. **Residual window:** the listener still accepts jobs during the quiet period and between the final observation and completion of `systemctl stop`. A newly dispatched job can still be interrupted; acceptance killed before a worker or recorded metadata change can remain invisible. The manual lock serializes verify/provision, not GitHub dispatch. Once stopped, this assumes systemd has quiesced the listener and nobody independently starts it. This fallback reduces the race and detects the tested transient-log cases; it does not guarantee that no job is ever interrupted. Other subcommands retain their GitHub-based `not_busy` checks.
+
+Checks run as `runner` in a fresh bundle clone with a minimal environment (`CI=true`). The commands match the job: install Chrome, `bun install --frozen-lockfile`, the `check` and six-worker tmpfs `test` steps under `scripts/agent-tools/receipt --base origin/dev`, then `summary.ts` even after a failed check. A missing, failed or skipped check cannot produce PASS.
+
+Results live on the guest's persistent disk, owned by `runner`:
+
+```text
+/home/runner/ci-results/<full-sha>-<run>-<attempt>/
+  verdict.txt              # PASS <full-sha> or FAIL <full-sha>; published last
+  run-metadata.json        # checkout_head, GITHUB_SHA, PR_HEAD_SHA, run/attempt; no environment dump
+  <timestamp>-check/       # receipt.json (if check ran)
+  <timestamp>-test/        # receipt.json (if test ran)
+  summary.json, summary.md # if summary ran
+```
+
+For manual verification `run` is `verify` and `attempt` is a unique suffix; its GitHub SHA and PR head fields are empty. Manual receipts are written directly into the store and additionally retain `stdout.txt`, `stderr.txt` and `vitest.json`. Every GitHub job copies only regular `receipt.json` files and the top-level `summary.json`/`summary.md` into `<GITHUB_SHA>-<GITHUB_RUN_ID>-<GITHUB_RUN_ATTEMPT>`. It rejects symlinks, special files and paths resolving outside the receipt directory, and never copies raw stdout/stderr into the persistent store. Metadata is regenerated from the allowlist. The existing Actions artifact upload still uploads the original receipt directory, including raw output; this change does not scrub that artifact or manual output.
+
+GitHub entries record both `GITHUB_SHA` and `PR_HEAD_SHA`, and store FAIL if an earlier step failed or the summary is missing or fails. For a PR, the key and verdict refer to GitHub's tested merge commit; `PR_HEAD_SHA` records the branch head without giving it a verdict. Results survive guest reboot and are lost on `destroy`; no automatic retention cleanup is installed.
+
+`verify` exits 0 only for PASS and nonzero for refusal, failure or transport errors. `verdict` requires the full SHA and exits 0 for a stored PASS, 1 for a stored FAIL, or 2 for UNKNOWN. It ignores unfinished entries and entries naming another SHA, chooses the latest completed `verdict.txt` modification time (directory name breaks ties), and prints the guest's receipt directory. Reads use non-following directory/file descriptors, `lstat`-equivalent checks and realpath containment. A symlinked store root, matching entry or verdict, or an unsafe path encountered while opening it, returns UNKNOWN/2 with a reason, even alongside a valid result. Transport errors still fail the command. Paths in copied receipt JSON refer to the original checkout or Actions temporary directory; workflow entries omit the raw output those paths name.
+
+The store is evidence for an honest rerun, not a signature: **any job can write it**, alter caches or forge previous results. It has the same trusted-writer assumption as a push to this runner. Receipt and metadata commands add no tokens, credentials or environment dump; trusted code must also keep secrets out of its output. A `verify` PASS proves only that the bundled SHA passed `check` and `test` in the CI VM environment. It says nothing about GitHub check status, branch protection, a different head or merge commit, the full case-fixture gate, or the external reviewer's approval.
 
 ## Known limits
 

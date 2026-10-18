@@ -10,6 +10,41 @@ runner_dir=/home/runner/actions-runner
 case ${1:-} in
 provision)
   version=${2:?runner version} sha=${3:?runner sha256}
+  unit=actions.runner.GridShift-Software-clearcase.clearcase-pc1-vm
+  entry_state= work= restore_active=0
+  finish_provision() {
+    local status=$? restored_state
+    trap - EXIT HUP INT TERM
+    if (( restore_active )); then
+      systemctl start "$unit" || { echo 'provision: runner restart failed' >&2; status=1; }
+    fi
+    case $entry_state in
+      active | inactive | failed)
+        restored_state=$(systemctl show --property=ActiveState --value "$unit") || restored_state=unreadable
+        if [[ $restored_state != "$entry_state" ]]; then
+          echo "provision: runner service state was not restored to $entry_state" >&2
+          status=1
+        fi
+        ;;
+    esac
+    [[ -z $work ]] || rm -rf "$work" || status=1
+    exit "$status"
+  }
+  trap finish_provision EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  # Share verify's lock through all mutations, restoration and cleanup.
+  exec 9>/run/clearcase-ci-verify.lock
+  flock -n 9 || { echo 'provision: another verification or provision is running' >&2; exit 1; }
+  if [[ -f $runner_dir/.service ]]; then
+    entry_state=$(systemctl show --property=ActiveState --value "$unit") ||
+      { echo 'provision: could not read runner service state; refusing provision' >&2; exit 1; }
+    case $entry_state in
+      active | inactive | failed) ;;
+      *) echo 'provision: could not read a stable runner service state; refusing provision' >&2; exit 1 ;;
+    esac
+  fi
   apt-get update -q
   apt-get -y -q full-upgrade
   # Chrome for Testing's linux64 deb.deps, plus what the checks and the runner need.
@@ -24,6 +59,7 @@ provision)
   sysctl -q -p /etc/sysctl.d/60-clearcase-ci-userns.conf
 
   id runner &>/dev/null || useradd --create-home --shell /bin/bash runner
+  runuser -u runner -- mkdir -p -m 0700 /home/runner/ci-results
 
   # Jobs run as runner and reach only the internet: not the host behind 10.0.2.2, the LAN or the tailnet. The VM's
   # service unit on pc1 enforces the same for every uid; this is a second layer.
@@ -45,7 +81,6 @@ NFT
   systemctl restart nftables
 
   work=$(mktemp -d)
-  trap 'rm -rf "$work"' EXIT
   if [[ $(/usr/local/bin/bun --version 2>/dev/null) != 1.4.2 ]]; then
     curl -fsSLo "$work/bun.zip" https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-linux-x64.zip
     echo "36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913  $work/bun.zip" | sha256sum -c -
@@ -58,12 +93,14 @@ NFT
       "https://github.com/actions/runner/releases/download/v$version/actions-runner-linux-x64-$version.tar.gz"
     echo "$sha  $work/runner.tar.gz" | sha256sum -c -
     # Unpacking over a running service, or one that has updated itself, would mix two versions.
-    [[ ! -f $runner_dir/.service ]] || (cd "$runner_dir" && ./svc.sh stop)
+    if [[ $entry_state == active ]]; then
+      restore_active=1
+      systemctl stop "$unit"
+    fi
     install -d -o runner -g runner "$runner_dir"
     tar -xzf "$work/runner.tar.gz" -C "$runner_dir"
     chown -R runner:runner "$runner_dir"
     echo "$version" >"$runner_dir/.clearcase-version"
-    [[ ! -f $runner_dir/.service ]] || (cd "$runner_dir" && ./svc.sh start)
   fi
   "$runner_dir/bin/installdependencies.sh" >/dev/null
   # Recorded in docs/ci-runner.md and the handoff: the image, kernel and tools are not pinned.

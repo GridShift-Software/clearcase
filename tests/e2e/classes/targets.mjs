@@ -58,7 +58,7 @@ export function csvExports(root, { notProducers = {}, helpers = {} } = {}) {
 	const servers = producers.filter((f) => f.endsWith('+server.ts')).map((f) => routeOf(routes, f));
 	// a shared component that exports (RegisterPage.svelte) counts for every page that renders it
 	const comps = producers.filter((f) => f.endsWith('.svelte') && !f.endsWith('+page.svelte'));
-	const imports = new Map(files.map((f) => [f, [...text.get(f).matchAll(/(?:from\s*|import\s*)['"](\$lib\/[^'"]+\.svelte|\.{1,2}\/[^'"]+\.svelte)['"]/g)].map((m) =>
+	const imports = new Map(files.map((f) => [f, [...text.get(f).matchAll(/(?:from\s*|import\s*\(?\s*)['"](\$lib\/[^'"]+\.svelte|\.{1,2}\/[^'"]+\.svelte)['"]/g)].map((m) =>
 		m[1].startsWith('$lib/') ? join(src, 'lib', m[1].slice(5)) : join(f, '..', m[1]))]));
 	const pageFiles = files.filter((f) => f.startsWith(routes + sep) && f.endsWith('+page.svelte'));
 	const mapped = comps.filter((c) => pageFiles.some((f) => imports.get(f).includes(c)));
@@ -71,7 +71,9 @@ export function csvExports(root, { notProducers = {}, helpers = {} } = {}) {
 		seen.add(f);
 		return (imports.get(f) ?? []).some((c) => reachesProducer(c, seen));
 	};
-	const viaComp = pageFiles.filter((f) => reachesProducer(f, new Set())).map((f) => routeOf(routes, f));
+	// and, as before, a page that names a mapped producer (an import the traversal does not follow, such as a barrel)
+	const names = mapped.map((c) => new RegExp(`\\b${c.split(sep).pop().replace('.svelte', '')}\\b`));
+	const viaComp = pageFiles.filter((f) => reachesProducer(f, new Set()) || names.some((re) => re.test(text.get(f)))).map((f) => routeOf(routes, f));
 	return { pages: [...new Set([...pages, ...viaComp])].sort(), servers: servers.sort(), unrecognised, declaredButCsv };
 }
 

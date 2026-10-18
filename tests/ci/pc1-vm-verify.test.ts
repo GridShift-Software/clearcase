@@ -140,6 +140,73 @@ test('provision refuses a held verification lock before any mutation', () => {
   assert.equal(readFileSync(path.join(f.guest, 'service-state'), 'utf8'), 'active\n');
 });
 
+function registerFixture(scenario = 'pass') {
+  const f = provisionFixture(scenario);
+  const runner = path.join(f.guest, 'home/runner/actions-runner');
+  for (const tool of ['fake-ci-svc', 'fake-ci-config']) symlinkSync(fake, path.join(f.guest, 'bin', tool));
+  writeFileSync(path.join(runner, 'svc.sh'), '#!/bin/bash\nexec fake-ci-svc "$@"\n');
+  writeFileSync(path.join(runner, 'config.sh'), '#!/bin/bash\nexec fake-ci-config "$@"\n');
+  for (const script of ['svc.sh', 'config.sh']) chmodSync(path.join(runner, script), 0o755);
+  writeFileSync(path.join(runner, '.runner'), 'previous registration\n');
+  writeFileSync(path.join(runner, '.credentials'), 'previous credential\n');
+  const script = path.join(f.source, 'scripts/ci/guest-provision.sh');
+  const options = { cwd: f.source, env: f.env, encoding: 'utf8', input: 'synthetic-registration-token\n', timeout: 10_000 } as const;
+  const register = () => spawnSync(fake, ['register', script], options);
+  const registerLocked = () => spawnSync('flock', [path.join(f.guest, 'verify.lock'), fake, 'register', script], options);
+  const registration = () => ['.runner', '.credentials'].map((file) => readFileSync(path.join(runner, file), 'utf8'));
+  const state = () => readFileSync(path.join(f.guest, 'service-state'), 'utf8');
+  return { ...f, register, registerLocked, registration, state };
+}
+
+test('register replaces the registration and starts the service under the verification lock', () => {
+  const f = registerFixture();
+  const result = f.register();
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  assert.deepEqual(f.events(), ['stop', 'uninstall', 'config', 'svc-install', 'start']);
+  assert.deepEqual(f.registration(), ['new registration\n', 'new credential\n']);
+  assert.equal(f.state(), 'active\n');
+});
+
+for (const [state, expected] of [['active', 'active'], ['inactive', 'inactive'], ['failed', 'inactive']] satisfies [string, string][]) {
+  for (const [scenario, status] of [['config-fail', 1], ['config-term', 143]] satisfies [string, number][]) {
+    test(`register restores ${state} at entry and the previous registration after ${scenario}`, () => {
+      const f = registerFixture(scenario);
+      writeFileSync(path.join(f.guest, 'service-state'), `${state}\n`);
+      const result = f.register();
+      assert.equal(result.status, status, result.stderr + result.stdout);
+      assert.equal(result.signal, null);
+      // Reinstalling the unit cannot recreate a failed state; it must not start the service either.
+      assert.equal(f.state(), `${expected}\n`);
+      assert.deepEqual(f.registration(), ['previous registration\n', 'previous credential\n']);
+      const events = f.events();
+      assert.deepEqual(events, [...(state === 'active' ? ['stop'] : []), 'uninstall', 'config', 'svc-install', ...(state === 'active' ? ['start'] : [])]);
+      assert.equal(existsSync(path.join(f.guest, 'home/runner/actions-runner/.service')), true);
+    });
+  }
+}
+
+test('register refuses a held verification lock before any mutation', () => {
+  const f = registerFixture();
+  const result = f.registerLocked();
+  assert.equal(result.status, 1, result.stderr + result.stdout);
+  assert.match(result.stderr, /another verification or provision is running/);
+  assert.deepEqual(f.events(), []);
+  assert.deepEqual(f.registration(), ['previous registration\n', 'previous credential\n']);
+  assert.equal(f.state(), 'active\n');
+});
+
+for (const [setup, pattern] of [['state-unreadable', /could not read.*service state/], ['activating', /could not read a stable runner service state/]] satisfies [string, RegExp][]) {
+  test(`register refuses ${setup} entry state before any mutation`, () => {
+    const f = registerFixture(setup === 'state-unreadable' ? setup : 'pass');
+    if (setup === 'activating') writeFileSync(path.join(f.guest, 'service-state'), 'activating\n');
+    const result = f.register();
+    assert.notEqual(result.status, 0, result.stderr + result.stdout);
+    assert.match(result.stderr, pattern);
+    assert.deepEqual(f.events(), []);
+    assert.deepEqual(f.registration(), ['previous registration\n', 'previous credential\n']);
+  });
+}
+
 for (const scenario of ['job-after-observation', 'transient-after-observation', 'transient-during-stop']) {
   test(`verify refuses ${scenario}, preserves state and runs no checks`, () => {
     const f = fixture(scenario);

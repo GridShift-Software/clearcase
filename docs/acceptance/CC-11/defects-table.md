@@ -36,7 +36,7 @@
 | `S-timeline-1` | low | view-checklist.md | registered | IDR-171 (defect-fix) |  |
 | `S-timeline-2` | low | view-checklist.md | registered | IDR-172 (defect-fix) |  |
 | `S-timeline-3` | low | view-checklist.md | registered | IDR-173 (defect-fix) |  |
-| `S-timeline-4` | low | view-checklist.md | registered | IDR-163 (defect-fix) |  |
+| `S-timeline-4` | low | view-checklist.md | registered | IDR-181 (known-gap) |  |
 | `S-chronology-1` | medium | view-checklist.md | registered | IDR-055 (defect-fix), IDR-056 (defect-fix) |  |
 | `S-chronology-2` | low | view-checklist.md | registered | IDR-087 (defect-fix) |  |
 | `S-chronology-3` | low | view-checklist.md | registered | IDR-088 (known-gap) |  |
@@ -105,7 +105,7 @@
 | `S-contradictions_tab-2` | low | view-checklist.md | registered | IDR-175 (defect-fix) |  |
 | `S-contradictions_tab-3` | low | view-checklist.md | registered | IDR-176 (defect-fix) |  |
 | `S-risk_matrix_tab-1` | low | view-checklist.md | registered | IDR-177 (known-gap) |  |
-| `S-vdm_matrix_tab-1` | medium | view-checklist.md | registered | IDR-157 (defect-fix), IDR-158 (defect-fix), IDR-159 (defect-fix), IDR-169 (defect-fix) |  |
+| `S-vdm_matrix_tab-1` | medium | view-checklist.md | registered | IDR-182 (known-gap) |  |
 | `S-vdm_matrix_tab-2` | low | view-checklist.md | registered | IDR-178 (defect-fix) |  |
 | `S-info_required_tab-1` | medium | view-checklist.md | registered | IDR-170 (defect-fix), IDR-179 (defect-fix) |  |
 | `S-info_required_tab-2` | low | view-checklist.md | registered | IDR-180 (known-gap) |  |

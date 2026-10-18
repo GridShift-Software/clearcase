@@ -1363,6 +1363,52 @@ class FixRoundGuardRequired(ControlCase):
         self.cli('fix-round-guard', '--base', 'dev', '--ledger', self.receipts, '--branch', 'feature/grs-104-tooling')
         self.assertTrue(self.last_receipt()['guard']['nothingToProtect'])
 
+    guard_with_ledger = ('fix-round-guard', '--base', 'dev', '--ledger', None, '--branch', 'feature/grs-104-tooling')
+
+    def ledger_guard(self, code=0):
+        return self.cli(*[self.receipts if word is None else word for word in self.guard_with_ledger], code=code)
+
+    def reviewed_round(self):
+        """The reviewed commit on the feature branch, its review-record and a recorded fix attempt."""
+        self.pr_base = self.git('rev-parse', 'HEAD')
+        self.git('switch', '-q', '-c', 'feature/grs-104-tooling')
+        self.write('tests/protected.test.ts', self.original)
+        self.reviewed = self.commit('reviewed tests')
+        findings = self.document('review-findings.json', {
+            'sha': self.reviewed, 'updatedAt': '2026-10-17T09:00:00+00:00', 'unresolvedFindings': [{'id': 'H1', 'severity': 'high'}],
+            'protectedTests': [{'file': 'tests/protected.test.ts', 'name': 'rejects stale evidence'}]})
+        self.findings_sha = hashlib.sha256(findings.read_bytes()).hexdigest()
+        review = self.document('review.json', {'schema': 'clearcase-review/1', 'sha': self.reviewed, 'verdict': 'FAIL',
+                                               'findingsSha256': self.findings_sha, 'unresolvedFindings': [{'id': 'H1', 'severity': 'high'}]})
+        self.cli('review-record', '--unit', 'GRS-104/implementation', '--review', review, '--findings', findings)
+        self.record_fix_attempt()
+
+    def test_with_the_ledger_the_fix_base_and_findings_come_from_the_recorded_review(self):
+        # CI has no ledger and reads fixBase from the manifest; the coordinator's run with the ledger must not
+        self.reviewed_round()
+        self.write('tests/protected.test.ts', self.original.replace('.toEqual(false)', '.toBeDefined()'))
+        weakened = self.commit('weaken after the review')
+        for label, base, digest in (('a fix base after the weakening', weakened, self.findings_sha),
+                                    ('other findings', self.reviewed, '0' * 64)):
+            with self.subTest(bypass=label):
+                self.base = base
+                self.manifest(reviewFindingsSha256=digest)
+                self.commit('manifest: ' + label)
+                self.assertIn('ledger', self.ledger_guard(code=1))
+
+    def test_with_the_ledger_a_fix_event_without_a_recorded_review_refuses(self):
+        self.fix_round(self.original)
+        self.record_fix_attempt()
+        self.assertIn('review', self.ledger_guard(code=1))
+
+    def test_with_the_ledger_a_manifest_naming_the_recorded_review_passes(self):
+        self.reviewed_round()
+        self.write('app.txt', 'fixed\n')
+        self.base = self.reviewed
+        self.manifest(reviewFindingsSha256=self.findings_sha)
+        self.commit('fix round')
+        self.ledger_guard()
+
 
 class RetainedPaths(ControlCase):
     """L1 and L2."""
@@ -1376,6 +1422,15 @@ class RetainedPaths(ControlCase):
         events = [json.loads(line) for line in (self.receipts / 'events.jsonl').read_text().splitlines()]
         stored = [e['payload']['receipt'] for e in events if e['kind'] == 'approval']
         self.assertTrue(stored and all(path.startswith(str(self.receipts)) for path in stored), stored)
+
+    def test_a_path_beside_home_is_not_redacted_as_home(self):
+        # /home/x2 is not under /home/x: redacting it to ~2 made approval-check reopen another user's home
+        self.env['HOME'] = str(self.work)[:-2]
+        self.prepare(inputs=[self.document('input.txt', {'reviewed': True})])
+        self.approve()
+        approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        self.assertNotIn('"~', approved.read_text())
+        self.cli('approval-check', '--unit', 'GRS-104/implementation', '--sha', self.sha, '--approval-receipt', approved)
 
     def test_a_relative_ledger_directory_refuses(self):
         self.env['CLEARCASE_LEDGER_DIR'] = '../relative-ledger'

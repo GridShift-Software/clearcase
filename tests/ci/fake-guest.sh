@@ -104,6 +104,38 @@ tar)
   if [[ $scenario == provision-term ]]; then kill -TERM "$(cat "$root/guest-shell.pid")"; fi
   ;;
 fake-ci-deps) event dependencies ;;
+fake-ci-svc)
+  # The runner's generated svc.sh, run from the runner directory.
+  unit=actions.runner.GridShift-Software-clearcase.clearcase-pc1-vm
+  case $1 in
+  stop | start) exec systemctl "$1" "$unit" ;;
+  uninstall)
+    assert_locked
+    event uninstall
+    # The real uninstall stops the unit before removing it.
+    printf 'inactive\n' >"$root/service-state"
+    rm -f .service
+    ;;
+  install)
+    [[ ${2:-} == runner ]] || exit 2
+    assert_locked
+    event svc-install
+    printf '%s\n' "$unit" >.service
+    ;;
+  *) exit 2 ;;
+  esac
+  ;;
+fake-ci-config)
+  assert_locked
+  event config
+  # The token arrives only in the environment, and config.sh refuses a runner that is still configured.
+  [[ ${ACTIONS_RUNNER_INPUT_TOKEN:-} == synthetic-registration-token && $* != *synthetic-registration-token* ]] || exit 2
+  [[ ! -e .runner && ! -e .credentials ]] || exit 2
+  if [[ $scenario == config-term ]]; then kill -TERM "$(cat "$root/guest-shell.pid")"; exit 1; fi
+  [[ $scenario != config-fail ]] || exit 1
+  printf 'new registration\n' >.runner
+  printf 'new credential\n' >.credentials
+  ;;
 fake-ci-chrome)
   assert_locked
   event chrome
@@ -158,9 +190,9 @@ ssh | gh)
   exit 99
   ;;
 fake-guest.sh)
-  if [[ ${1:-} == provision ]]; then
+  if [[ ${1:-} == provision || ${1:-} == register ]]; then
     export PATH="$root/bin:$PATH" HOME="$root/home/runner"
-    # Path-map the actual provision script. Every privileged/network operation is a fake tool.
+    # Path-map the actual guest script. Every privileged/network operation is a fake tool.
     python3 - "$root" "$2" <<'PY' >"$root/provision.sh"
 import pathlib, sys
 root = sys.argv[1]
@@ -175,6 +207,8 @@ for source, target in [("/home/runner", root + "/home/runner"),
 sys.stdout.write(script)
 PY
     printf '%s\n' "$$" >"$root/guest-shell.pid"
+    # register reads the registration token from this process's stdin.
+    [[ $1 != register ]] || exec bash "$root/provision.sh" register
     exec bash "$root/provision.sh" provision 99.0.0 "$(printf 'a%.0s' {1..64})"
   fi
   # pc1-vm passes the normal SSH options and management target to its transport override.

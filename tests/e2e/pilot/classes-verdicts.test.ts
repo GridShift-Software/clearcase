@@ -3,7 +3,9 @@
 import { describe, expect, test } from 'vitest';
 import { toCSV, userCell } from '../../../src/lib/components/csv.ts';
 // @ts-expect-error plain .mjs
-import { actionResult, csvChecks, csvFileEvidence, dialogChecks, inflightChecks } from '../classes/verdicts.mjs';
+import { actionResult, csvChecks, csvFileEvidence, dialogChecks, inflightChecks, pageRendered, stateShown } from '../classes/verdicts.mjs';
+// @ts-expect-error plain .mjs
+import { CHOICE_STATES, NO_READY } from '../classes/declared.mjs';
 
 const json = (http: number, body: object) => ({ http, body: JSON.stringify(body) });
 const SUCCESS = json(200, { type: 'success', status: 200, data: '[{"restored":1},3]' });
@@ -114,4 +116,36 @@ describe('CSV evidence cannot pass without checking CSV (GRS-61)', () => {
 			});
 		}
 	}
+});
+
+describe('narrow sees a rendered page only with its own evidence (GRS-61, from RECHECK-62)', () => {
+	const shown = { main: true, content: true, ready: 'overview', status: 200 };
+	test('a ready page answered below 400 is rendered', () => {
+		expect(pageRendered(shown)).toBe(true);
+		expect(pageRendered({ ...shown, status: 303 })).toBe(true);
+	});
+	test('a page whose ready marker never came up is not, unless declared, and then only with content', () => {
+		for (const ready of [null, undefined, '']) expect(pageRendered({ ...shown, ready }), String(ready)).toBe(false);
+		expect(pageRendered({ ...shown, ready: null }, 'the cases list sets no ready marker')).toBe(true);
+		expect(pageRendered({ ...shown, ready: null, content: false }, 'the cases list sets no ready marker')).toBe(false);
+		expect(pageRendered({ ...shown, ready: null }, '')).toBe(false);
+	});
+	test('an error page, a missing main or a missing navigation entry is not', () => {
+		expect(pageRendered({ ...shown, ready: 'error:404' })).toBe(false);
+		expect(pageRendered({ ...shown, main: false })).toBe(false);
+		for (const status of [null, undefined, 0, 404, 500]) expect(pageRendered({ ...shown, status }), String(status)).toBe(false);
+	});
+	test('a choice state counts as shown only with a selector to find, found at every width', () => {
+		const layouts = [{ stateShown: true }, { stateShown: true }];
+		expect(stateShown({ expect: '#diff-body' }, layouts)).toBe(true);
+		expect(stateShown({ expect: '#diff-body' }, [...layouts, { stateShown: false }])).toBe(false);
+		expect(stateShown({ expect: '#diff-body' }, [])).toBe(false);
+		for (const state of [{}, { expect: '' }, { expect: '  ' }, { expect: null }]) expect(stateShown(state, layouts), JSON.stringify(state)).toBe(false);
+	});
+	test('every declared choice state names its selector, and every page without a ready marker says why', () => {
+		for (const [route, states] of Object.entries(CHOICE_STATES as Record<string, { name: string; expect?: string }[]>)) {
+			for (const s of states) expect(typeof s.expect === 'string' && s.expect.trim() !== '', `${route}#${s.name}`).toBe(true);
+		}
+		for (const [route, why] of Object.entries(NO_READY as Record<string, string>)) expect(typeof why === 'string' && why.trim() !== '', route).toBe(true);
+	});
 });

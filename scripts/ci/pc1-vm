@@ -151,7 +151,8 @@ finish() {
       verdict=FAIL status=1
       echo 'pc1-vm: could not store verdict' >&2
     fi
-    printf '%s %s\nreceipts %s\n' "$verdict" "$sha" "$result"
+    # The same scope line as read_verdict prints.
+    printf '%s %s\nreceipts %s\nscope: check and test of this SHA in the CI VM only; not a GitHub check status, branch protection or approval by the external reviewer\n' "$verdict" "$sha" "$result"
   fi
   exit "$status"
 }
@@ -353,6 +354,8 @@ if not hits:
     sys.exit(2)
 _, _, verdict, entry = max(hits)
 print(f"{verdict}\nreceipts {entry}")
+# The same scope line as verify prints.
+print("scope: check and test of this SHA in the CI VM only; not a GitHub check status, branch protection or approval by the external reviewer")
 sys.exit(0 if verdict.startswith("PASS ") else 1)
 VERDICT
 }

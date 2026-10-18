@@ -2,7 +2,8 @@
 # Runs as root inside the CI VM, installed as /usr/local/sbin/clearcase-ci-guest by scripts/ci/pc1-vm
 # (docs/ci-runner.md). Both modes are safe to rerun.
 #   provision VERSION SHA256  packages, Bun, user namespaces, the egress filter and actions/runner VERSION
-#   register                  register the runner with the registration token on stdin and start its service
+#   register                  register the runner with the registration token on stdin and start its service; a
+#                             failure before config.sh succeeds restores the previous registration and service state
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 runner_dir=/home/runner/actions-runner
@@ -10,6 +11,41 @@ runner_dir=/home/runner/actions-runner
 case ${1:-} in
 provision)
   version=${2:?runner version} sha=${3:?runner sha256}
+  unit=actions.runner.GridShift-Software-clearcase.clearcase-pc1-vm
+  entry_state= work= restore_active=0
+  finish_provision() {
+    local status=$? restored_state
+    trap - EXIT HUP INT TERM
+    if (( restore_active )); then
+      systemctl start "$unit" || { echo 'provision: runner restart failed' >&2; status=1; }
+    fi
+    case $entry_state in
+      active | inactive | failed)
+        restored_state=$(systemctl show --property=ActiveState --value "$unit") || restored_state=unreadable
+        if [[ $restored_state != "$entry_state" ]]; then
+          echo "provision: runner service state was not restored to $entry_state" >&2
+          status=1
+        fi
+        ;;
+    esac
+    [[ -z $work ]] || rm -rf "$work" || status=1
+    exit "$status"
+  }
+  trap finish_provision EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  # Share verify's lock through all mutations, restoration and cleanup.
+  exec 9>/run/clearcase-ci-verify.lock
+  flock -n 9 || { echo 'provision: another verification or provision is running' >&2; exit 1; }
+  if [[ -f $runner_dir/.service ]]; then
+    entry_state=$(systemctl show --property=ActiveState --value "$unit") ||
+      { echo 'provision: could not read runner service state; refusing provision' >&2; exit 1; }
+    case $entry_state in
+      active | inactive | failed) ;;
+      *) echo 'provision: could not read a stable runner service state; refusing provision' >&2; exit 1 ;;
+    esac
+  fi
   apt-get update -q
   apt-get -y -q full-upgrade
   # Chrome for Testing's linux64 deb.deps, plus what the checks and the runner need.
@@ -24,6 +60,7 @@ provision)
   sysctl -q -p /etc/sysctl.d/60-clearcase-ci-userns.conf
 
   id runner &>/dev/null || useradd --create-home --shell /bin/bash runner
+  runuser -u runner -- mkdir -p -m 0700 /home/runner/ci-results
 
   # Jobs run as runner and reach only the internet: not the host behind 10.0.2.2, the LAN or the tailnet. The VM's
   # service unit on pc1 enforces the same for every uid; this is a second layer.
@@ -45,7 +82,6 @@ NFT
   systemctl restart nftables
 
   work=$(mktemp -d)
-  trap 'rm -rf "$work"' EXIT
   if [[ $(/usr/local/bin/bun --version 2>/dev/null) != 1.4.2 ]]; then
     curl -fsSLo "$work/bun.zip" https://github.com/oven-sh/bun/releases/download/bun-v1.4.2/bun-linux-x64.zip
     echo "36368faef7527875d5ffa52e53cd48021741f2a83eb6208a8dd64068d422a913  $work/bun.zip" | sha256sum -c -
@@ -58,12 +94,14 @@ NFT
       "https://github.com/actions/runner/releases/download/v$version/actions-runner-linux-x64-$version.tar.gz"
     echo "$sha  $work/runner.tar.gz" | sha256sum -c -
     # Unpacking over a running service, or one that has updated itself, would mix two versions.
-    [[ ! -f $runner_dir/.service ]] || (cd "$runner_dir" && ./svc.sh stop)
+    if [[ $entry_state == active ]]; then
+      restore_active=1
+      systemctl stop "$unit"
+    fi
     install -d -o runner -g runner "$runner_dir"
     tar -xzf "$work/runner.tar.gz" -C "$runner_dir"
     chown -R runner:runner "$runner_dir"
     echo "$version" >"$runner_dir/.clearcase-version"
-    [[ ! -f $runner_dir/.service ]] || (cd "$runner_dir" && ./svc.sh start)
   fi
   "$runner_dir/bin/installdependencies.sh" >/dev/null
   # Recorded in docs/ci-runner.md and the handoff: the image, kernel and tools are not pinned.
@@ -75,11 +113,68 @@ register)
   # config.sh reads the token from the environment, so it never appears in a process list.
   export ACTIONS_RUNNER_INPUT_TOKEN
   cd "$runner_dir"
-  if [[ -f .service ]]; then ./svc.sh stop; ./svc.sh uninstall; fi
-  # --replace takes over the name on GitHub; the old local registration has to go first.
-  rm -f .runner .credentials .credentials_rsaparams
+  unit=actions.runner.GridShift-Software-clearcase.clearcase-pc1-vm
+  entry_state= backup= entry_files= uninstalled=0 registered=0
+  # Until config.sh succeeds, every exit puts back the previous registration and the entry state, under the lock.
+  finish_register() {
+    local status=$? restored_state file
+    trap - EXIT HUP INT TERM
+    if (( ! registered )); then
+      # Put back exactly the files that existed at entry, dropping only those a failed config.sh wrote. A file that existed
+      # at entry and was not moved yet (a failed or interrupted move aside) is the original: leave it.
+      if [[ -n $backup ]]; then
+        for file in .runner .credentials .credentials_rsaparams; do
+          if [[ -e $backup/$file ]]; then mv -f "$backup/$file" "$file" || status=1
+          elif [[ " $entry_files " != *" $file "* ]]; then rm -f "$file" || status=1
+          fi
+        done
+      fi
+      if (( uninstalled )); then ./svc.sh install runner || status=1; fi
+      if [[ $entry_state == active ]]; then
+        systemctl start "$unit" || { echo 'register: runner restart failed' >&2; status=1; }
+      fi
+      if [[ -n $entry_state ]]; then
+        restored_state=$(systemctl show --property=ActiveState --value "$unit") || restored_state=unreadable
+        # A reinstalled unit starts inactive, so failed comes back as inactive.
+        if [[ $restored_state != "$entry_state" && ! ( $entry_state == failed && $restored_state == inactive ) ]]; then
+          echo "register: runner service state was not restored to $entry_state" >&2
+          status=1
+        fi
+      fi
+    fi
+    if [[ -n $backup ]]; then
+      # Keep the previous credential if it could not be put back.
+      if (( registered )); then rm -rf "$backup" || status=1
+      else rmdir "$backup" || { echo "register: the previous registration is still in $backup" >&2; status=1; }
+      fi
+    fi
+    exit "$status"
+  }
+  trap finish_register EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  exec 9>/run/clearcase-ci-verify.lock
+  flock -n 9 || { echo 'register: another verification or provision is running' >&2; exit 1; }
+  if [[ -f .service ]]; then
+    entry_state=$(systemctl show --property=ActiveState --value "$unit") ||
+      { echo 'register: could not read runner service state; refusing registration' >&2; exit 1; }
+    case $entry_state in
+      active | inactive | failed) ;;
+      *) echo 'register: could not read a stable runner service state; refusing registration' >&2; exit 1 ;;
+    esac
+    [[ $entry_state != active ]] || ./svc.sh stop
+    # Set before the call: a partial uninstall still needs the unit back.
+    uninstalled=1
+    ./svc.sh uninstall
+  fi
+  # --replace takes over the name on GitHub; the old local registration has to go first. Keep it until config.sh succeeds.
+  for file in .runner .credentials .credentials_rsaparams; do [[ ! -e $file ]] || entry_files+=" $file"; done
+  backup=$(mktemp -d)
+  for file in .runner .credentials .credentials_rsaparams; do [[ ! -e $file ]] || mv "$file" "$backup/"; done
   runuser -u runner -- ./config.sh --unattended --replace --url https://github.com/GridShift-Software/clearcase \
     --name clearcase-pc1-vm --labels clearcase-pc1 --work _work
+  registered=1
   unset ACTIONS_RUNNER_INPUT_TOKEN
   ./svc.sh install runner
   ./svc.sh start

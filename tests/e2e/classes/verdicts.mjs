@@ -43,3 +43,47 @@ export function inflightChecks(e) {
 			: { lost: !e.result || e.result.kind === 'none', failureShown: (e.errors ?? []).some((x) => NOT_SAVED.test(x.text)) }),
 	};
 }
+
+
+/** A clicked answer or a declared save closure must actually close the question before the failed request is released. */
+export function dialogChecks(e) {
+	return {
+		setUpSaved: e.setUpSaved === true,
+		inApp: e.inApp === true,
+		requestHeld: !!e.paused,
+		asked: !!e.asked,
+		answered: e.questionClosed === true && (
+			(typeof e.answered === 'string' && e.answered !== '' && e.answered !== 'disabled') ||
+			(e.answered === null && e.closedBySave === true && typeof e.closedBySaveReason === 'string' && e.closedBySaveReason.length > 0)),
+		ownError: e.onPage ? (e.errors ?? []).some((x) => NOT_SAVED.test(x.text)) && e.holds === true : e.errors?.length === 0,
+	};
+}
+
+/** Inspect every payload mark, including those in later columns and after each spreadsheet delimiter. */
+export function csvFileEvidence(d) {
+	const marks = [...d.text.matchAll(/[=+\-@"]CCX\(/g)];
+	const bad = [...d.text.matchAll(/[;\t\r\n] *[=+\-@"]CCX\(/g)];
+	return { name: d.name, bytes: d.text.length, marks: marks.length, bad: bad.length,
+		sample: bad.slice(0, 3).map((m) => JSON.stringify(d.text.slice(Math.max(0, m.index - 30), m.index + 8))) };
+}
+
+export const csvChecks = (files) => ({
+	exported: files.length > 0,
+	hostileReached: files.every((c) => c.marks > 0),
+	noFormula: files.every((c) => c.bad === 0),
+});
+
+/**
+ * Whether a narrow measurement saw the page rendered: its main with a ready marker that is not an error, and a
+ * navigation answered below 400. A page without a ready marker passes only when declared.mjs NO_READY says why and its
+ * main shows content. `l`: { main, content, ready, status } as measured.
+ */
+export function pageRendered(l, noReady = null) {
+	const answered = typeof l.status === 'number' && l.status >= 200 && l.status < 400;
+	const ready = typeof l.ready === 'string' && l.ready !== '' && !/^error/.test(l.ready);
+	const declared = l.ready == null && typeof noReady === 'string' && noReady.trim() !== '' && l.content === true;
+	return l.main === true && answered && (ready || declared);
+}
+
+/** A choice state came up when it names a selector and that selector was found at every width measured. */
+export const stateShown = (state, layouts) => typeof state?.expect === 'string' && state.expect.trim() !== '' && layouts.length > 0 && layouts.every((l) => l.stateShown === true);

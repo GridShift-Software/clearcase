@@ -11,12 +11,17 @@
 //             (BA-12); no two visible controls overlap (compared line box by line box, so a wrapped link is not
 //             mistaken for an overlap); the smallest text size in main is recorded (BA-21 readability
 //             at 320/390; reported, not gated: WCAG sets no minimum size);
-//   label     the page heading equals the registry label shown in the navigation, the title starts with it (BA-18);
+//   label     the page heading is the one the analysis-additions state expects (viewHeading: the registry label, or v5's heading on
+//             Timeline, Defence & Rebuttal and Info Required while CLEARCASE_ANALYSIS_ADDITIONS is not 1; ADR 0003), and the title and
+//             the navigation entry start with the label (BA-18). The state comes from CLEARCASE_ANALYSIS_ADDITIONS on this process,
+//             is passed to the launched app and recorded as analysisAdditions in layout.json;
 //   keyboard  at 1280 px: the navigation link focused by keyboard and activated with Enter opens the view with focus on its
 //             heading and aria-current on the link; Back returns to the previous view with focus inside the page (BA-14);
 //   contrast  every visible element with its own text in main, against its effective background: 4.5:1, or 3:1 for
 //             large text (WCAG 2.2 1.4.3; disabled controls are exempt), at 1280 px (BA-13); the shared navigation and top bar are checked on every
-//             view and reported once, as the shell's;
+//             view and reported once, as the shell's. A gradient is measured stop by stop, each composited over the layers beneath,
+//             and the worst stop counts; a gradient with its own background-size or no repeat counts the layers without it too
+//             (layout-color.mjs);
 // and once, the shared components (navigation link, button, link, input, table header) in their default, :hover,
 // :focus-visible and :active states (CDP CSS.forcePseudoState): text contrast in each state, and a visible focus indicator
 // with 3:1 against the background (WCAG 2.2 1.4.11, 2.4.7); an element that cannot take focus has no focus check. --shots saves one viewport PNG per view and width under
@@ -28,6 +33,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { ensureOffline, PORTS } from '../../tests/e2e/pilot/v5/env.mjs';
 import { COMPONENTS, WIDTHS } from './layout-spec.mjs';
+import { COLOR } from './layout-color.mjs';
+import { analysisAdditionsFrom, labelCheck, serverEnv } from './layout-label.mjs';
 import { revisionStamp } from './stamp.mjs';
 
 ensureOffline(import.meta.filename);
@@ -43,6 +50,8 @@ const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? proces
 const CASE = arg('--case', 'synthetic');
 const OUT = resolve(arg('--out', join(ROOT, '.local', 'GRS-21', `layout-${CASE}`)));
 const SHOTS = process.argv.includes('--shots');
+// the analysis-additions state of this run (ADR 0003, GRS-48): CLEARCASE_ANALYSIS_ADDITIONS=1 on the calling process, else off; recorded in layout.json
+const ADDITIONS = analysisAdditionsFrom(process.env);
 if (!['synthetic', 'v5'].includes(CASE)) { console.error('--case synthetic|v5'); process.exit(2); }
 mkdirSync(OUT, { recursive: true });
 const J = JSON.stringify;
@@ -51,17 +60,6 @@ const ready = (id) => `document.querySelector('main#main')?.dataset.ready === ${
 
 // ---- in-page measurements --------------------------------------------------------------------------------------------
 
-/** Colour helpers as page source: parse rgb(a), composite on the effective background, WCAG relative luminance and ratio. */
-const COLOR = `
-	const rgba = (s) => { const m = /rgba?\\(([^)]+)\\)/.exec(s || ''); if (!m) return null; const p = m[1].split(/[ ,/]+/).filter(Boolean).map(Number); return { r: p[0], g: p[1], b: p[2], a: p.length > 3 ? p[3] : 1 }; };
-	const over = (top, under) => ({ r: top.r * top.a + under.r * (1 - top.a), g: top.g * top.a + under.g * (1 - top.a), b: top.b * top.a + under.b * (1 - top.a), a: 1 });
-	const bgOf = (el) => { const layers = []; for (let e = el; e; e = e.parentElement) { const c = rgba(getComputedStyle(e).backgroundColor); if (c && c.a > 0) { layers.push(c); if (c.a >= 1) break; } } let acc = { r: 255, g: 255, b: 255, a: 1 }; for (const l of layers.reverse()) acc = over(l, acc); return acc; };
-	const lum = (c) => { const f = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; }; return 0.2126 * f(c.r) + 0.7152 * f(c.g) + 0.0722 * f(c.b); };
-	const ratio = (a, b) => { const x = lum(a), y = lum(b); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
-	const VIS = (e) => { const r = e.getBoundingClientRect(); const s = getComputedStyle(e); return r.width > 0 && r.height > 0 && s.visibility !== 'hidden' && s.display !== 'none' && Number(s.opacity) > 0 && !e.closest('.visually-hidden, [hidden], [aria-hidden=true]'); };
-	const large = (s) => { const px = parseFloat(s.fontSize); const bold = Number(s.fontWeight) >= 700 || s.fontWeight === 'bold'; return px >= 24 || (bold && px >= 18.66); };
-	const label = (e) => e.tagName.toLowerCase() + (e.id ? '#' + e.id : '') + (typeof e.className === 'string' && e.className ? '.' + e.className.trim().split(/\\s+/).slice(0, 2).join('.') : '');
-`;
 
 /**
  * Layout at the requested width `w`: sideways scroll, controls over the heading, overlapping controls, smallest text.
@@ -103,7 +101,7 @@ const CONTRAST = `(() => { ${COLOR}
 		for (const e of els) {
 			const s = getComputedStyle(e);
 			const fg = rgba(s.color); if (!fg) { unparsed++; continue; }
-			const bg = bgOf(e);
+			const bg = bgOf(e, fg);
 			const r = ratio(over(fg, bg), bg);
 			const need = large(s) ? 3 : 4.5;
 			checked++; min = Math.min(min, r);
@@ -120,8 +118,8 @@ const CONTRAST = `(() => { ${COLOR}
 const offline = await proveOffline();
 if (!offline.pass) { console.error('layout: not offline'); process.exit(2); }
 const tmp = mkdtempSync(join(tmpdir(), 'cc-verify-layout-'));
-const A = appServer({ name: 'layout', root: ROOT, buildDir: join(ROOT, 'build'), port: PORTS.first, origPort: PORTS.first + 1, dir: tmp, env: { CLEARCASE_FIXED_NOW: '2026-10-08T09:00:00Z', TZ: 'UTC' } });
-const out = { case: CASE, revision: revisionStamp(ROOT), widths: WIDTHS, views: [], shellContrast: {}, components: [], shots: [], failures: [] };
+const A = appServer({ name: 'layout', root: ROOT, buildDir: join(ROOT, 'build'), port: PORTS.first, origPort: PORTS.first + 1, dir: tmp, env: serverEnv(ADDITIONS) });
+const out = { case: CASE, analysisAdditions: ADDITIONS, revision: revisionStamp(ROOT), widths: WIDTHS, views: [], shellContrast: {}, components: [], shots: [], failures: [] };
 const fail = (what) => { out.failures.push(what); console.log(`FAIL ${what}`); };
 let b, p, code = 2;
 try {
@@ -170,8 +168,8 @@ try {
 		}
 		// label and title (BA-18), then contrast at 1280 (BA-13)
 		const id = await p.evaluate(`({ heading: document.querySelector('[data-page-heading]')?.textContent.trim() ?? null, title: document.title, nav: document.querySelector('#nav-${v.id}')?.textContent.trim() ?? null })`);
-		row.label = { ...id, ok: id.heading === v.label && id.title.startsWith(v.label) && (id.nav ?? '').startsWith(v.label) };
-		if (!row.label.ok) fail(`${v.id}: label ${J(v.label)} vs heading ${J(id.heading)}, title ${J(id.title)}, nav ${J(id.nav)}`);
+		row.label = { ...id, ...labelCheck(v, id, ADDITIONS) };
+		if (!row.label.ok) fail(`${v.id}: label ${J(v.label)}, expected heading ${J(row.label.expected)} (analysis additions ${ADDITIONS ? 'on' : 'off'}) vs heading ${J(id.heading)}, title ${J(id.title)}, nav ${J(id.nav)}`);
 		row.contrast = await p.evaluate(CONTRAST);
 		const cm = row.contrast.main, cn = row.contrast.nav;
 		if (cm.unparsed || cn.unparsed) fail(`${v.id}: ${cm.unparsed + cn.unparsed} elements with a text colour the contrast check cannot parse`);
@@ -217,12 +215,11 @@ try {
 			if (state === 'focus-visible') await p.evaluate(`document.querySelector('[data-verify-target="1"]').focus(); true`);
 			await settle();
 			states[state] = await p.evaluate(`(() => { ${COLOR}
-				const e = document.querySelector('[data-verify-target="1"]'); const s = getComputedStyle(e); const bg = bgOf(e); const fg = rgba(s.color);
+				const e = document.querySelector('[data-verify-target="1"]'); const s = getComputedStyle(e); const fg = rgba(s.color); const bg = bgOf(e, fg);
 				const outline = s.outlineStyle !== 'none' && parseFloat(s.outlineWidth) >= 1 ? rgba(s.outlineColor) : null;
 				const shadow = s.boxShadow && s.boxShadow !== 'none' ? rgba(s.boxShadow) : null;
 				const ring = outline ?? shadow;
-				const outerBg = bgOf(e.parentElement ?? e);
-				return { text: fg ? +ratio(over(fg, bg), bg).toFixed(2) : null, large: large(s), outline: s.outlineStyle + ' ' + s.outlineWidth + ' ' + s.outlineColor, boxShadow: s.boxShadow.slice(0, 60), ring: ring ? +ratio(over(ring, outerBg), outerBg).toFixed(2) : null };
+				return { text: fg ? +ratio(over(fg, bg), bg).toFixed(2) : null, large: large(s), outline: s.outlineStyle + ' ' + s.outlineWidth + ' ' + s.outlineColor, boxShadow: s.boxShadow.slice(0, 60), ring: ring ? +ringOf(ring, e).toFixed(2) : null };
 			})()`);
 			if (state === 'focus-visible') await p.evaluate(`document.activeElement?.blur(); true`);
 		}

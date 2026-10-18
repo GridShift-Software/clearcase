@@ -1285,11 +1285,25 @@ class GuardBinding(ControlCase):
         self.assertIn('fix base', self.approve('--guard-receipt', self.guard_receipt, code=1))
 
     def test_a_manifest_dropping_the_weakened_test_does_not_bind(self):
-        self.weaken()
-        self.guarded(tests=[{'file': 'tests/protected.test.ts', 'name': 'other behavior'}],
+        # The manifest names a test that runs before the weakened one, so the guard alone passes (a weakened test
+        # before the named one is refused by the guard itself); the binding must still refuse.
+        earlier = "test('earlier behavior', () => { expect(1).toEqual(1); });\n"
+        self.write('tests/protected.test.ts', earlier + self.original)
+        self.reviewed = self.commit('reviewed tests with an earlier test')
+        self.unit = 'GRS-105/implementation'
+        self.start(self.unit, {'protectedTests': self.tests})
+        self.write('tests/protected.test.ts', earlier + self.original.replace('.toEqual(false)', '.toBeDefined()'))
+        self.commit('weaken the named test')
+        self.guarded(tests=[{'file': 'tests/protected.test.ts', 'name': 'earlier behavior'}],
                      assertionCountReasons={'tests/protected.test.ts': 'Tidy'})
         self.prepare([{'id': 'L1', 'severity': 'low'}])
         self.assertIn('tests', self.approve('--guard-receipt', self.guard_receipt, code=1))
+
+    def test_a_manifest_naming_a_test_after_the_weakened_one_is_refused_by_the_guard(self):
+        self.weaken()
+        self.guarded(tests=[{'file': 'tests/protected.test.ts', 'name': 'other behavior'}],
+                     assertionCountReasons={'tests/protected.test.ts': 'Tidy'}, code=1)
+        self.assertEqual(json.loads(self.guard_receipt.read_text())['result'], 'FAIL')
 
     def test_a_manifest_for_other_findings_does_not_bind(self):
         self.guarded(reviewFindingsSha256='0' * 64)

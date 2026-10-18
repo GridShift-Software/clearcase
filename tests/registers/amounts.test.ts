@@ -3,7 +3,8 @@
 // visibly (S-disbursements_tab-1, S-timesheet_tab-3). Synthetic values only.
 process.env.TZ = 'UTC';
 import { describe, expect, it } from 'vitest';
-import { BOUND, hoursTile, parseAmount, roundDiv, twoDp, valueCents } from '../../src/lib/views/registers/amounts';
+import { centsText, divRound } from '../../src/lib/calculations/money.ts';
+import { BOUND, hoursTile, parseAmount, valueCents } from '../../src/lib/views/registers/amounts';
 import { REGISTERS } from '../../src/lib/views/registers/defs';
 import { cellText, entryFrom, invalidReason, timesheetValue, unbilledHours, unbilledTime } from '../../src/lib/views/registers/logic';
 
@@ -60,9 +61,9 @@ describe('exact arithmetic, rounded once half-up', () => {
 		expect(timesheetValue({ hours: '0.3', rate: '1234.45' })).toBe('R 370.34');
 		expect(timesheetValue({ hours: '0.5', rate: '2.01' })).toBe('R 1.01');
 		expect(timesheetValue({ hours: '2.5', rate: '1.07' })).toBe('R 2.68');
-		expect(roundDiv(-5n, 10n)).toBe(-1n);
-		expect(twoDp(-15005n)).toBe('-150.05');
-		expect(twoDp(5n)).toBe('0.05');
+		expect(divRound(-5n, 10n)).toBe(-1n);
+		expect(centsText(-15005n)).toBe('-150.05');
+		expect(centsText(5n)).toBe('0.05');
 	});
 	it("shows the brief's synthetic inputs exactly or refuses them (no R 150 050.00, R 13.00, R 1.50 or R 1e+21.undefined)", () => {
 		const d = REGISTERS.disbursements_tab, t = REGISTERS.timesheet_tab;
@@ -86,5 +87,19 @@ describe('exact arithmetic, rounded once half-up', () => {
 		// 0.25 + 0.1 + 1.0 + 0.1 = 1.45, one decimal half-up: 1.5 (a float sum gives 1.4500000000000002 or less)
 		expect(unbilledHours(['0.25', '0.1', '1', '0.1'].map((h, i) => ({ rowId: String(i), values: { hours: h, billed: '' } })))).toBe('1.5 h');
 		expect(hoursTile(5n)).toBe('0.1');
+	});
+});
+
+describe('register strings preserved with shared money primitives', () => {
+	it('keeps a signed disbursement credit', () => {
+		expect(cellText('money', { amount: '-150.05' }, 'amount')).toBe('-R 150.05');
+	});
+	it('keeps the refusal of a rate with more than two decimals', () => {
+		const t = REGISTERS.timesheet_tab;
+		expect(invalidReason(t, entryFrom(t, { hours: '1.5', rate: '1200.125' }))).toBe('Rate/h (R) can have at most 2 decimals. Nothing was saved; your input is kept.');
+		expect(timesheetValue({ hours: '1.5', rate: '1200.125' })).toBe('');
+	});
+	it('keeps the rounded hours tile', () => {
+		expect(unbilledHours([{ rowId: 'hours', values: { hours: '1.55', billed: '' } }])).toBe('1.6 h');
 	});
 });

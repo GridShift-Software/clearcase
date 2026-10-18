@@ -179,6 +179,26 @@ describe('barrel and alias edges between pages and a mapped CSV producer (GRS-61
   });
   expect(csvExports(dir)).toEqual({ pages: ['/direct'], servers: [], unrecognised: [], declaredButCsv: [] });
  });
+ test('a line-start dynamic import after a line ending in a word, a comment or a \\r\\n ending is discovered', () => {
+  const dir = build({
+   ...WRAPPER,
+   'routes/word/+page.svelte': "<script>let C;\n// preload\nimport('$lib/x/Dl.svelte').then((m) => (C = m.default));</script>",
+   'routes/crlf/+page.svelte': "<script>let C;\r\n// preload\r\nimport('$lib/x/Dl.svelte').then((m) => (C = m.default));</script>",
+   'routes/block/+page.svelte': "<script>let C; /* note */ import('$lib/x/Dl.svelte').then((m) => (C = m.default));</script>",
+  });
+  expect(csvExports(dir)).toEqual({ pages: ['/block', '/crlf', '/direct', '/word'], servers: [], unrecognised: [], declaredButCsv: [] });
+ });
+ test('a line-start computed dynamic import after a line ending in a word is refused instead of dropped', () => {
+  const dir = build({
+   ...WRAPPER,
+   'routes/word/+page.svelte': "<script>let C;\n// preload\nimport(`$lib/x/${n}.svelte`);</script>",
+   'routes/crlf/+page.svelte': "<script>let C;\r\n// preload\r\nimport(`$lib/x/${n}.svelte`);</script>",
+   'routes/block/+page.svelte': "<script>let C; /* note */ import(`$lib/x/${n}.svelte`);</script>",
+  });
+  const r = csvExports(dir);
+  expect(r.unrecognised).toEqual(['src/routes/block/+page.svelte', 'src/routes/crlf/+page.svelte', 'src/routes/word/+page.svelte']);
+  expect(r.pages).toEqual(['/direct']);
+ });
  test('imports of non-code files and packages are not consumers to refuse', () => {
   const dir = build({
    'routes/direct/+page.svelte': "<script>import Maker from '$lib/Maker.svelte'; import raw from '$lib/x.css?raw'; import { page } from '$app/state'; import z from 'zod'; import d from './data.json';</script><Maker />",

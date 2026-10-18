@@ -1,4 +1,3 @@
-import { analysisHeading } from '$lib/analysis/additions.server';
 import { fail, isHttpError } from '@sveltejs/kit';
 import { app } from '$lib/local-case/app.server';
 import { datasetOf } from '$lib/local-case/results.server';
@@ -10,7 +9,7 @@ const itemsOf = (vid: string) => datasetOf<InfoItem[]>(app().store, vid, 'info-r
 export const load: PageServerLoad = async ({ parent }) => {
 	const { version } = await parent();
 	const { rows, detached } = infoRows(app().userWork, version.caseId, itemsOf(version.id));
-	return { rows, detached, heading: analysisHeading('info_required_tab') };
+	return { rows, detached };
 };
 
 const carried = (f: FormData, items: InfoItem[], except: string) => {

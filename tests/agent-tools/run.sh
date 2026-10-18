@@ -349,6 +349,9 @@ READBACK="$WORK/tree-readback-valid/readback.json"
 loose() { local id; id=$(git -C "$EV" rev-parse "$1") && echo "$EV/.git/objects/${id:0:2}/${id:2}"; }
 run "the doctor passes in the copy" 0 "$EVTOOLS/doctor"
 run "check-plan honestly fails the current delivery format in the copy" 1 "$EVTOOLS/check-plan" --require-linear-relations --linear-relations "$READBACK"
+# The positive control needs no backlog: the synthetic valid plan stands in for docs/delivery-plan.md.
+run "check-plan passes on the synthetic valid plan in the copy" 0 "$EVTOOLS/check-plan" --plan "$EVTOOLS/../../tests/agent-tools/fixtures/plans/valid.md" --require-linear-relations --linear-relations "$READBACK"
+has "the composite verdict is PASS with every step PASS" "check-plan: PASS. plan-graph=PASS, plan-format=PASS, linear-relations=PASS."
 echo "untracked synthetic input" >"$EV/untracked.txt"
 run "an intact index records the untracked file" 0 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
 receipt_check "the intact-index receipt is dirty with a fingerprint" 'r["revision"]["dirty"] is True and re.fullmatch("[0-9a-f]{64}", r["revision"]["diffSha256"] or "")'
@@ -938,6 +941,13 @@ run "retired upstream relock is refused" 1 "$TOOLS/bootstrap" --relock --checkou
 has "relock explains retained leaf-only workflow" "independent leaf skills only"
 run "leaf-only relock still works" 0 "${PSTACK_ENV[@]}" "$EVTOOLS/bootstrap" --relock --skills-dir "$PLANTED"
 no_receipt "leaf relock writes no receipt unless wrapped"
+# The leaf relock's refusals stay tested (they went with the retired upstream section in a47c288).
+cp "$EVTOOLS/skills.lock.json" "$WORK/relock.saved"
+chmod 000 "$PLANTED/${pinned[0]}/SKILL.md"
+run "relock refuses an installed file it cannot read" 1 "${PSTACK_ENV[@]}" "$EVTOOLS/bootstrap" --relock --skills-dir "$PLANTED"
+has "refusal names the unreadable file" "bootstrap: FAIL. $PLANTED/${pinned[0]}/SKILL.md: Permission denied"
+if cmp -s "$EVTOOLS/skills.lock.json" "$WORK/relock.saved"; then ok "a refused relock leaves the lock unchanged"; else bad "a refused relock leaves the lock unchanged"; fi
+chmod 644 "$PLANTED/${pinned[0]}/SKILL.md"
 # A plugin identity edited during a successful checker run is stale evidence, not PASS.
 MUTATING_NODE="$WORK/node-mutates-plugin"
 printf '#!/bin/bash\n[[ $1 == --version ]] || echo " " >>%q\nexec %q "$@"\n' "$PLUGIN_REGISTRY" "$(command -v node)" >"$MUTATING_NODE"
@@ -1041,20 +1051,7 @@ RR="$WORK/rerun-copy"
 # Without node_modules, its v5-app-deferred step (verify app) exits 3 at the runner's preflight instead of a full run.
 mkdir -p "$RR" && tar -C "$REPO" --exclude=./.git --exclude=./.local --exclude=./node_modules -cf - . | tar -C "$RR" -xf -
 printf '#!/bin/bash\necho "stub suite of a rerun.sh test: 0 failed"\n' >"$RR/tests/agent-tools/run.sh"
-python3 - "$RR/docs/acceptance/CC-27/rerun.sh" <<'EOF'
-from pathlib import Path
-import sys
-p=Path(sys.argv[1]); text=p.read_text()
-text=text.replace('checkout_expect=$([[ -n $CHECKOUT ]] && echo 0 || echo 3)', 'checkout_expect=1')
-text=text.replace('readback_expect=$([[ -n $READBACK ]] && echo 0 || echo 3)', 'readback_expect=1')
-text=text.replace('need v2-check-plan 0 ', 'need v2-check-plan 1 ')
-text=text.replace('need v5-pstack-upstream-no-checkout 3 ', 'need v5-pstack-upstream-no-checkout 1 ')
-text=text.replace('need v6-plan-format-without-node 3 ', 'need v6-plan-format-without-node 1 ')
-text=text.replace('need v6-required-readback-missing 3 ', 'need v6-required-readback-missing 1 ')
-text=text.replace('need v6-plan-format-without-git 3 ', 'need v6-plan-format-without-git 1 ')
-text=text.replace('need v6-plan-format-bad-base 3 ', 'need v6-plan-format-bad-base 1 ')
-p.write_text(text)
-EOF
+# The committed script runs unchanged: its inventory already expects the current exit codes.
 git_fixture "$RR"
 rr_head=$(git -C "$RR" rev-parse HEAD)
 RERUN=(env CC27_BUN="${CLEARCASE_BUN:-$(command -v bun)}" bash "$RR/docs/acceptance/CC-27/rerun.sh")

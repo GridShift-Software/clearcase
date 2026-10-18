@@ -352,7 +352,13 @@ for (const [scenario, status] of [['stop-fail', 1], ['busy-after-stop', 3], ['jo
       writeFileSync(path.join(f.guest, 'events'), '');
       const result = f.run('verify', 'HEAD');
       assert.equal(result.status, status, result.stderr + result.stdout);
-      assert.equal(f.events().at(-1), 'start');
+      const events = f.events();
+      assert.equal(events.at(-1), 'start');
+      if (['stop-fail', 'busy-after-stop'].includes(scenario)) {
+        assert.equal(events.filter((event) => event === 'stop').length, 1);
+        assert.ok(events.indexOf('start') > events.indexOf('stop'));
+        assert.equal(events.some((event) => event.startsWith('forbidden')), false);
+      }
       assert.equal(readFileSync(path.join(f.guest, 'service-state'), 'utf8'), 'active\n');
       assert.equal(/^(PASS|FAIL) /m.test(result.stdout), false, result.stdout);
       assert.equal(result.stdout.includes(scope), false);
@@ -374,6 +380,11 @@ test('a failed service start after passing checks changes the exit status, not t
   const result = f.run('verify', 'HEAD');
   assert.equal(result.status, 1, result.stderr + result.stdout);
   assert.match(result.stderr, /runner restart failed/);
+  const events = f.events();
+  assert.equal(events.filter((event) => event === 'stop').length, 1);
+  assert.equal(events.at(-1), 'start');
+  assert.ok(events.indexOf('start') > events.indexOf('stop'));
+  assert.equal(events.some((event) => event.startsWith('forbidden')), false);
   const [stored] = f.results();
   assert.ok(stored);
   assert.equal(readFileSync(path.join(stored, 'verdict.txt'), 'utf8'), `PASS ${f.sha}\n`);
@@ -751,8 +762,11 @@ test('a workstation interrupt during the checks publishes no verdict and leaves 
   assert.equal(f.run('verify', 'HEAD').status, 0);
   const [first] = verdicts(f);
   writeFileSync(path.join(f.guest, 'scenario'), 'chrome-hang');
+  // interrupted() waits for a chrome event, so clear the first run's or it interrupts before the second run starts.
+  writeFileSync(path.join(f.guest, 'events'), '');
   const result = interrupted(f);
   assert.equal(result.status, 130, result.stderr + result.stdout);
+  assert.ok(f.events().includes('chrome'), 'the second verify reached the checks');
   assert.equal(/^(PASS|FAIL) /m.test(result.stdout), false, result.stdout);
   assert.equal(result.stdout.includes(scope), false);
   assert.deepEqual(verdicts(f), [first]);

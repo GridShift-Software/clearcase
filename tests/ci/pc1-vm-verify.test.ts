@@ -609,7 +609,9 @@ test('verify refuses without contacting the guest when the GitHub pause fails', 
   assert.match(result.stderr, /could not pause clearcase-pc1-vm through GitHub; verify refuses without a pause/);
   assert.deepEqual(f.events(), []);
   assert.equal(existsSync(path.join(f.guest, 'uploads')), false);
-  assert.deepEqual(f.github().map(({ call }) => isRead(call) ? 'read' : call), ['read', pause, resume]);
+  // A failed removal may mean another verify removed the label first, so this one must not add it back.
+  assert.deepEqual(f.github().map(({ call }) => isRead(call) ? 'read' : call), ['read', pause]);
+  assert.ok(result.stderr.includes(`gh api -X POST ${runnerApi}/22/labels -f 'labels[]=clearcase-pc1'`), result.stderr);
   assert.equal(githubState(f), '22 online false true\n');
 });
 
@@ -642,9 +644,12 @@ test('verify leaves a runner that was already paused at entry paused', () => {
   const f = fixture();
   writeFileSync(path.join(f.guest, 'github'), '22 online false false\n');
   const result = f.run('verify', 'HEAD');
-  assert.equal(result.status, 0, result.stderr + result.stdout);
-  assert.match(result.stderr, /already paused/);
-  assert.deepEqual(f.github().map(({ call }) => isRead(call)), [true, true]);
+  // Another verify may hold that pause and lift it mid-run, so this one refuses rather than relying on it.
+  assert.equal(result.status, 1, result.stderr + result.stdout);
+  assert.match(result.stderr, /already paused \(no clearcase-pc1 label\), possibly by another verify/);
+  assert.deepEqual(f.events(), []);
+  assert.equal(existsSync(path.join(f.guest, 'uploads')), false);
+  assert.deepEqual(f.github().map(({ call }) => isRead(call)), [true]);
   assert.equal(githubState(f), '22 online false false\n');
 });
 

@@ -13,7 +13,10 @@ Considered options: ship the additions unconditionally, which the client has not
 
 ## Consequences
 
-- GRS-48 builds the flag. That follow-up implementation is still pending, and these records implement nothing.
+- GRS-48 uses the server-side `CLEARCASE_ANALYSIS_ADDITIONS` flag. Unset, `0`, and every value other than exactly `1` keep additions off. For an explicit review session, start the app with `CLEARCASE_ANALYSIS_ADDITIONS=1 bun run --bun start`; this opt-in does not record client approval.
+- The flag controls the defence matrix free-text Refs display. The supplied `db73856` base already exports the Refs column and uses the navigation-label headings; both remain byte-identical with the flag off and remain available with opt-in. Document citation chips, checklist saves, escaping, focus and unrelated views remain available.
+- Fix-round instruction, 17 October 2026: "the flag-off path must be byte-identical to the base." This pins compatibility to `db73856`, rather than reconstructing older v5 headings or removing an existing CSV column. It does not record client approval.
+- Run the synthetic analysis browser suite once per flag state. Its display expectations are conditional; baseline export bytes and headings are invariant; timeline-title escaping is checked in both states. Real-v5 parity evidence for both states is still required before acceptance.
 - Timeline escaping fixes ship in both flag states and are not part of GRS-48's gating.
 - When the client approves, a new ADR supersedes this one and the default changes in a reviewed PR.
 

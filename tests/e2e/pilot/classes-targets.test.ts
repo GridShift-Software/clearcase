@@ -151,6 +151,34 @@ describe('barrel and alias edges between pages and a mapped CSV producer (GRS-61
   expect(r.unrecognised).toEqual(['src/routes/computed/+page.svelte', 'src/routes/missing/+page.svelte']);
   expect(r.pages).toEqual(['/direct']);
  });
+
+ // `import(` in expression position after a keyword is a dynamic import; prose and method names are not (GRS-61, PR #63 re-check)
+ const WRAPPER = { 'lib/x/Dl.svelte': "<script>import Maker from '$lib/Maker.svelte';</script><Maker />", 'lib/Maker.svelte': MAKER, 'routes/direct/+page.svelte': "<script>import Maker from '$lib/Maker.svelte';</script><Maker />" };
+ test('a keyword-led dynamic import (void, else) of a wrapper of a mapped producer is discovered', () => {
+  const dir = build({
+   ...WRAPPER,
+   'routes/void/+page.svelte': "<script>let C = $state(); void import('$lib/x/Dl.svelte').then((m) => (C = m.default));</script>",
+   'routes/else/+page.svelte': "<script>let C; if (a) { x(); } else import('$lib/x/Dl.svelte').then((m) => (C = m.default));</script>",
+  });
+  expect(csvExports(dir)).toEqual({ pages: ['/direct', '/else', '/void'], servers: [], unrecognised: [], declaredButCsv: [] });
+ });
+ test('a keyword-led computed dynamic import is refused instead of dropped', () => {
+  const dir = build({
+   ...WRAPPER,
+   'routes/void/+page.svelte': "<script>void import(`$lib/x/${n}.svelte`);</script>",
+   'routes/else/+page.svelte': "<script>if (a) { x(); } else import(`$lib/x/${n}.svelte`);</script>",
+  });
+  const r = csvExports(dir);
+  expect(r.unrecognised).toEqual(['src/routes/else/+page.svelte', 'src/routes/void/+page.svelte']);
+  expect(r.pages).toEqual(['/direct']);
+ });
+ test('prose, a method named import and a $import call are not dynamic imports', () => {
+  const dir = build({
+   ...WRAPPER,
+   'routes/prose/+page.svelte': "<script>const msg = 'changed since import (size differs)'; const t = `at import (size differs)`; db.import(rows); $import(rows);</script>{msg}",
+  });
+  expect(csvExports(dir)).toEqual({ pages: ['/direct'], servers: [], unrecognised: [], declaredButCsv: [] });
+ });
  test('imports of non-code files and packages are not consumers to refuse', () => {
   const dir = build({
    'routes/direct/+page.svelte': "<script>import Maker from '$lib/Maker.svelte'; import raw from '$lib/x.css?raw'; import { page } from '$app/state'; import z from 'zod'; import d from './data.json';</script><Maker />",
@@ -178,6 +206,15 @@ describe('the other page discoveries follow the same edges (GRS-61, PR #63 revie
   });
   for (const r of ['/barrel', '/lazy', '/rel']) expect(hasLeaveGuard(dir, r)).toBe(true);
   expect(hasLeaveGuard(dir, '/none')).toBe(false);
+ });
+ test('hasLeaveGuard follows a keyword-led dynamic import and ignores prose and method calls', () => {
+  const dir = build({
+   'lib/Guarded.svelte': "<script>import { beforeNavigate } from '$app/navigation';</script>",
+   'routes/void/+page.svelte': "<script>void import('$lib/Guarded.svelte').then((m) => m.default);</script>",
+   'routes/prose/+page.svelte': "<script>const msg = 'changed since import (size differs)'; db.import(rows); $import(rows);</script>",
+  });
+  expect(hasLeaveGuard(dir, '/void')).toBe(true);
+  expect(hasLeaveGuard(dir, '/prose')).toBe(false);
  });
  test('hasLeaveGuard refuses a page whose import it cannot follow instead of answering no', () => {
   const dir = build({

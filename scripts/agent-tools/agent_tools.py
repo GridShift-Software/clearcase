@@ -48,6 +48,22 @@ def redact(value):
     return re.sub(re.escape(HOME) + r"(?=[/\s:'\"]|$)", "~", text) if HOME and HOME != "/" else text
 
 
+def seal(value):
+    """The lossless private form of a path or argument that identity checks recompute from: every HOME becomes \\h and
+    every backslash is doubled, so unseal() restores the exact text, which redact() cannot. It holds no home path."""
+    text = str(value)
+    pieces = text.split(HOME) if HOME and HOME != "/" else [text]
+    return "\\h".join(piece.replace("\\", "\\\\") for piece in pieces)
+
+
+def unseal(text):
+    def restore(match):
+        if match[1] not in ("\\", "h"):
+            raise ValueError(f"malformed sealed text {text!r}")
+        return HOME if match[1] == "h" else "\\"
+    return re.sub(r"\\(.?)", restore, text)
+
+
 def redacted(value):
     """redact() through the strings of a JSON-like value, for receipts and the bootstrap state."""
     if isinstance(value, str):
@@ -477,7 +493,9 @@ def execution_identity(argv, cwd):
     snapshot = {key: hashlib.sha256(value.encode()).hexdigest() for key, value in sorted(env.items())
                 if key not in ("_", "SHLVL", "PWD", "OLDPWD")}
     # Keep PATH/TMPDIR inspectable; other values (including every CLEARCASE_* value) stay secret.
+    # argv and cwd are display; argvExact and cwdExact are what validate_execution recomputes from (see seal).
     return {"argv": [redact(part) for part in argv], "commandLine": redact(shlex.join(argv)),
+            "argvExact": [seal(part) for part in argv], "cwdExact": seal(Path(cwd).resolve()),
             "argvSha256": hashlib.sha256(json.dumps(argv).encode()).hexdigest(), "cwd": redact(Path(cwd).resolve()),
             "executable": binary_identity(argv[0], cwd) if argv else None,
             "runtimes": {name: binary_identity(name, cwd) for name in ("bun", "python3", "bash")},
@@ -503,8 +521,9 @@ def validate_execution(check, requirement):
     recorded = check.get("execution")
     if recorded != expected or check.get("command") != expected.get("argv"):
         raise ValueError("required check command/argv/executable/environment mismatch")
-    argv = [str(Path(word).expanduser()) if word == "~" or word.startswith("~/") else word for word in recorded["argv"]]
-    current = execution_identity(argv, Path(recorded["cwd"]).expanduser())
+    if not isinstance(recorded.get("argvExact"), list) or not isinstance(recorded.get("cwdExact"), str):
+        raise ValueError("check receipt predates the exact execution record; rerun the check to get a new receipt")
+    current = execution_identity([unseal(word) for word in recorded["argvExact"]], Path(unseal(recorded["cwdExact"])))
     if current != recorded:
         raise ValueError("check execution identity changed at approval (runtime, PATH or environment)")
     if requirement.get("inputs") != check.get("inputs"):

@@ -21,6 +21,7 @@ These are initial reservations. Pin exact files and accepted upstream SHA in the
 - [ ] Exercise build, Worker request/render/action and binding access; identify actual filesystem/SQLite/process/browser-local persistence dependencies in the inherited app.
 - [ ] Record upgrade/security/license decisions and unresolved advisories; a version inventory alone is not approval to ship.
 - [ ] Produce an exact migration surface and numeric cold/warm staging budgets with an initial POC workload, approved by the architecture aggregator before the design gate. Probe code is not the production migration.
+- [ ] Added 17 October 2026 (local-first plan, <issue id="42b36cd3-282a-42ee-b4ce-e6b04374cae7" href="https://linear.app/vaper/issue/GRS-26/prove-the-hosted-architecture-and-cloudflare-deployment">GRS-26</issue>): the build, request, render, action, binding-access and failure-path legs may pass on workerd through `wrangler dev --local` or the Workers Vitest plugin, using local D1 and R2 and no Cloudflare account. A [workers.dev](<http://workers.dev>) smoke deploy on Workers Free is allowed to show the app runs on real Workers, but it sets no budget. The numeric cold and warm staging budgets still need real Workers on Workers Paid and stay HOLD until then.
 
 ## Verification and handoff
 
@@ -35,5 +36,4 @@ Planning creates this issue; it does not dispatch it. RAWS/current production ar
 ## Native prerequisites
 
 * [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)
-* [Gate v5, newer and JSON export compatibility](<https://linear.app/vaper/issue/GRS-24/gate-v5-newer-and-json-export-compatibility>)
 * [Align agent tooling with the canonical pstack plugin and delivery controls](<https://linear.app/vaper/issue/GRS-104/align-agent-tooling-with-the-canonical-pstack-plugin-and-delivery>)

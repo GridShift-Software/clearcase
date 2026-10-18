@@ -502,6 +502,8 @@ test('verify restores an active service after SIGTERM to the guest shell', () =>
 
 test('verify refuses a held admission lock before inspecting jobs or mutating service state', () => {
   const f = fixture();
+  // The holder here outlives verify, so the lock never frees: the label stays off instead of waiting out the default bound.
+  f.env.CLEARCASE_CI_RESUME_WAIT_SECONDS = '0.2';
   const result = spawnSync('flock', [path.join(f.guest, 'verify.lock'), path.join(f.source, 'scripts/ci/pc1-vm'), 'verify', 'HEAD'], { cwd: f.source, env: f.env, encoding: 'utf8', timeout: 10_000 });
   assert.equal(result.status, 1, result.stderr + result.stdout);
   assert.match(result.stderr, /another verification is running/);
@@ -790,7 +792,7 @@ test('verify leaves the label off and prints the command when no fresh session c
   const f = fixture();
   writeFileSync(path.join(f.guest, 'lock-check-unreachable'), '');
   const result = f.run('verify', 'HEAD');
-  assert.equal(result.status, 0, result.stderr + result.stdout);
+  assert.equal(result.status, 1, result.stderr + result.stdout);
   assert.match(result.stdout, new RegExp(`^PASS ${f.sha}$`, 'm'));
   assert.equal(f.github().some(({ call }) => call === resume), false);
   assert.equal(githubState(f), '22 online false false\n');

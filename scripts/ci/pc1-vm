@@ -61,31 +61,37 @@ runner_state() {
 }
 
 verify_revision() (
-  local revision=$1 root sha base work remote_work state id online busy labelled pausing= paused=
+  local revision=$1 root sha base work remote_work state id online busy labelled pausing= paused= guest_phase=
   local quiet=${CLEARCASE_CI_QUIET_SECONDS:-5} observations=${CLEARCASE_CI_IDLE_OBSERVATIONS:-3} drain_timeout=${CLEARCASE_CI_DRAIN_TIMEOUT:-30}
-  local settle=${CLEARCASE_CI_PAUSE_SETTLE_SECONDS:-5}
+  local settle=${CLEARCASE_CI_PAUSE_SETTLE_SECONDS:-5} lock_wait=${CLEARCASE_CI_RESUME_WAIT_SECONDS:-300}
   # These values enter the remote shell command; accept only numeric literals.
   [[ $quiet =~ ^[0-9]+([.][0-9]+)?$ && $observations =~ ^[0-9]+$ && $drain_timeout =~ ^[0-9]+([.][0-9]+)?$ &&
-    $settle =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo 'pc1-vm: invalid drain settings' >&2; exit 2; }
+    $settle =~ ^[0-9]+([.][0-9]+)?$ && $lock_wait =~ ^[0-9]+([.][0-9]+)?$ ]] || { echo 'pc1-vm: invalid drain settings' >&2; exit 2; }
   root=$(cd "$here/../.." && pwd)
   sha=$(git -C "$root" rev-parse --verify --end-of-options "$revision^{commit}")
   # Bundle the cached CI base as well: the job's receipt commands require origin/dev. Never fetch from GitHub.
   base=$(git -C "$root" rev-parse --verify 'origin/dev^{commit}')
   work=$(mktemp -d)
-  # Every exit after a successful pause gives the label back, after the guest has restored the service.
+  # Every exit after a successful pause gives the label back, after the guest has restored the service. A guest session
+  # can outlive its SSH client (an interrupt, a dropped connection), keep sampling and stop the runner after the label is
+  # back, so once the guest phase has begun the label returns only when a fresh session finds the guest lock free.
   resume_dispatch() {
     local status=$?
     trap - EXIT HUP INT TERM
+    local resume_command="gh api -X POST repos/$repo/actions/runners/${paused:-$pausing}/labels -f 'labels[]=$label'"
     if [[ -n $paused ]]; then
-      if gh api -X POST "repos/$repo/actions/runners/$paused/labels" -f "labels[]=$label" --silent; then
+      if [[ -n $guest_phase ]] && ! guest "sudo flock -w $lock_wait /run/clearcase-ci-verify.lock true" >/dev/null 2>&1; then
+        echo "pc1-vm: could not confirm the guest verification has finished, so $name keeps its $label label off. Once it has, run: $0 ssh sudo flock -w 300 /run/clearcase-ci-verify.lock true && $resume_command" >&2
+        (( status != 0 )) || status=1
+      elif gh api -X POST "repos/$repo/actions/runners/$paused/labels" -f "labels[]=$label" --silent; then
         echo "pc1-vm: resumed dispatch to $name" >&2
       else
-        echo "pc1-vm: could not resume dispatch; $name gets no jobs until: gh api -X POST repos/$repo/actions/runners/$paused/labels -f 'labels[]=$label'" >&2
+        echo "pc1-vm: could not resume dispatch; $name gets no jobs until: $resume_command" >&2
         status=1
       fi
     elif [[ -n $pausing ]]; then
       # The removal failed or was interrupted. Adding the label back could lift another verify's pause.
-      echo "pc1-vm: if $name has lost its $label label and no other verify is running, restore it: gh api -X POST repos/$repo/actions/runners/$pausing/labels -f 'labels[]=$label'" >&2
+      echo "pc1-vm: if $name has lost its $label label and no other verify is running, restore it: $resume_command" >&2
     fi
     rm -rf "$work"
     exit "$status"
@@ -126,6 +132,7 @@ verify_revision() (
   remote_work=$(guest 'set -eu; umask 077; work=$(mktemp -d /tmp/clearcase-ci-verify.XXXXXX); trap '\''rm -rf "$work"'\'' ERR; cat >"$work/source.bundle"; printf "%s\n" "$work"' <"$work/source.bundle")
   [[ $remote_work =~ ^/tmp/clearcase-ci-verify\.[A-Za-z0-9]+$ ]] ||
     { echo 'pc1-vm: invalid guest upload path' >&2; exit 1; }
+  guest_phase=1
   guest "sudo bash -s -- $sha $remote_work $quiet $observations $drain_timeout" <<'VERIFY'
 set -euo pipefail
 sha=$1 work=$2 result= entry_state= restore_active=0 checks_status=

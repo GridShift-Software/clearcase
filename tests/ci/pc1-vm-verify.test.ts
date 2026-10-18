@@ -61,7 +61,7 @@ function fixture(scenario = 'pass') {
   const sha = git(source, 'rev-parse', 'HEAD');
   // This must never enter the checkout or receipts: verify tests the committed bundle, not the working tree.
   writeFileSync(path.join(source, 'uncommitted.txt'), 'not in the bundle\n');
-  const env = { ...process.env, CLEARCASE_CI_SSH: fake, FAKE_GUEST_ROOT: guest, GH_HOST: 'github.invalid', HOME: path.join(guest, 'home/runner'), PATH: `${bin}:${process.env.PATH}`, CLEARCASE_CI_QUIET_SECONDS: '0.04', CLEARCASE_CI_IDLE_OBSERVATIONS: '3', CLEARCASE_CI_DRAIN_TIMEOUT: '1', CLEARCASE_CI_PAUSE_SETTLE_SECONDS: '0' };
+  const env = { ...process.env, CLEARCASE_CI_SSH: fake, FAKE_GUEST_ROOT: guest, GH_HOST: 'github.invalid', HOME: path.join(guest, 'home/runner'), PATH: `${bin}:${process.env.PATH}`, CLEARCASE_CI_QUIET_SECONDS: '0.04', CLEARCASE_CI_IDLE_OBSERVATIONS: '3', CLEARCASE_CI_DRAIN_TIMEOUT: '1', CLEARCASE_CI_PAUSE_SETTLE_SECONDS: '0', CLEARCASE_CI_RESUME_WAIT_SECONDS: '300' };
   const run = (...args: string[]) => {
     const result = spawnSync(path.join(source, 'scripts/ci/pc1-vm'), args, { cwd: source, env, encoding: 'utf8', timeout: 20_000 });
     assert.equal(result.error, undefined);

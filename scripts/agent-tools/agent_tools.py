@@ -42,11 +42,12 @@ IGNORED_PARTS = {"node_modules", "__pycache__", ".DS_Store"}
 
 
 def redact(value):
-    """Display and serialization only. Paths the tools open stay raw: a redacted ~... string is not a path. HOME is
-    replaced only where a path continues it or ends, so /home/x2 never becomes ~2 under HOME=/home/x, and only where it
-    starts a path, so /srv/home/x/f is not read back as ~ by expanduser."""
+    """Display and serialization only. The printed argv, command line and input paths carry ~, never the home path, and
+    nothing reads them back: the sealed *Exact fields (argvExact, cwdExact, pathExact, realpathExact) are what identity
+    checks recompute from. HOME is replaced only where a path continues it or ends, so /home/x2 never becomes ~2 under
+    HOME=/home/x."""
     text = str(value)
-    return re.sub(r"(?<![\w/.~-])" + re.escape(HOME) + r"(?=[/\s:'\"]|$)", "~", text) if HOME and HOME != "/" else text
+    return re.sub(re.escape(HOME) + r"(?=[/\s:'\"]|$)", "~", text) if HOME and HOME != "/" else text
 
 
 def seal(value):
@@ -408,7 +409,8 @@ def fingerprints(paths):
                 found = file_identity(path)
             except OSError as error:
                 unreadable.append(failed(error, path))
-        rows.append({"path": redact(Path(path).absolute()), "realpath": redact(Path(path).resolve()), **found})
+        rows.append({"path": redact(Path(path).absolute()), "realpath": redact(Path(path).resolve()),
+                     "pathExact": seal(Path(path).absolute()), "realpathExact": seal(Path(path).resolve()), **found})
     return rows, ((missing and f"required input not found: {', '.join(missing)}")
                   or (unreadable and f"input not fingerprinted: {'; '.join(unreadable)}") or None)
 
@@ -424,7 +426,7 @@ def inputs_changed(paths, rows):
         except OSError as error:
             problems.append(failed(error, path))
             continue
-        if row.get("realpath") is not None and row["realpath"] != redact(Path(path).resolve()):
+        if row.get("realpathExact") is not None and row["realpathExact"] != seal(Path(path).resolve()):
             problems.append(f"{redact(path)}: input realpath changed")
         differ = [f"{key} {str(row[key])[:12]} -> {str(now[key])[:12]}" if key == "sha256" else
                   f"{key} {row[key]} -> {now[key]}" for key in now if now[key] != row[key]]
@@ -504,11 +506,18 @@ def execution_identity(argv, cwd):
                             "valuesSha256": snapshot}}
 
 
+def exact_input_paths(rows):
+    """The paths of receipt input rows, from their sealed exact form: the displayed path is redacted and not a path."""
+    if not all(isinstance(row.get("pathExact"), str) for row in rows):
+        raise ValueError("receipt predates the exact input record; rerun the check to get a new receipt")
+    return [Path(unseal(row["pathExact"])) for row in rows]
+
+
 def check_inputs(check):
     rows = check.get("inputs")
     if not isinstance(rows, list):
         raise ValueError("check lacks input fingerprints")
-    paths = [Path(row["path"]).expanduser().absolute() for row in rows]
+    paths = exact_input_paths(rows)
     changed = inputs_changed(paths, rows)
     if changed:
         raise ValueError(f"check inputs changed: {changed}")
@@ -1666,7 +1675,7 @@ def cmd_approval(args):
             recorded = ledger.get("inputs")
             if not isinstance(recorded, list) or not recorded:
                 raise ValueError("approval ledger lacks evidence fingerprints")
-            originals = [Path(entry["path"]).expanduser().absolute() for entry in recorded]
+            originals = exact_input_paths(recorded)
             changed = inputs_changed(originals, recorded)
             if changed:
                 raise ValueError(f"approval evidence changed: {changed}")

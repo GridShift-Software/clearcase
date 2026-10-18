@@ -482,10 +482,12 @@ class ApprovalLedger(ControlCase):
         evidence = self.work / 'evidence.txt'
         evidence.write_text('evidence\n')
         self.prepare(inputs=[str(evidence)])
-        data = json.loads(self.check.read_text())
-        for row in data['inputs']:
-            del row['pathExact']
-        self.check.write_text(json.dumps(data))
+        for document in (self.check, self.review):
+            data = json.loads(document.read_text())
+            for row in data['inputs'] if document == self.check else data['requiredChecks'][0]['inputs']:
+                del row['pathExact']
+            document.write_text(json.dumps(data))
+        self.cli('review-record', '--unit', 'GRS-104/implementation', '--review', self.review, '--findings', self.findings)
         self.assertIn('predates the exact input record', self.approve(code=1))
 
     def test_changed_argv_with_a_home_path_still_refuses(self):

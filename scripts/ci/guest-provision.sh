@@ -120,9 +120,12 @@ register)
     local status=$? restored_state file
     trap - EXIT HUP INT TERM
     if (( ! registered )); then
-      for file in .runner .credentials .credentials_rsaparams; do
-        [[ -z $backup || ! -e $backup/$file ]] || mv -f "$backup/$file" "$file" || status=1
-      done
+      # Put back exactly the files that existed at entry, dropping any a failed config.sh wrote.
+      if [[ -n $backup ]]; then
+        for file in .runner .credentials .credentials_rsaparams; do
+          if [[ -e $backup/$file ]]; then mv -f "$backup/$file" "$file" || status=1; else rm -f "$file" || status=1; fi
+        done
+      fi
       if (( uninstalled )); then ./svc.sh install runner || status=1; fi
       if [[ $entry_state == active ]]; then
         systemctl start "$unit" || { echo 'register: runner restart failed' >&2; status=1; }
@@ -136,7 +139,12 @@ register)
         fi
       fi
     fi
-    [[ -z $backup ]] || rm -rf "$backup" || status=1
+    if [[ -n $backup ]]; then
+      # Keep the previous credential if it could not be put back.
+      if (( registered )); then rm -rf "$backup" || status=1
+      else rmdir "$backup" || { echo "register: the previous registration is still in $backup" >&2; status=1; }
+      fi
+    fi
     exit "$status"
   }
   trap finish_register EXIT

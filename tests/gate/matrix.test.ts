@@ -66,6 +66,21 @@ describe('acceptance matrix', () => {
 			expect(r.status, r.out).toBe(1);
 			expect([r.pass, r.fail, r.blocked]).toEqual([0, 0, n]);
 		});
+		it(`blocks every view when ${file} exits 2 despite retaining all measured rows`, () => {
+			edit(file, (d) => { d.exit = 2; });
+			const r = run();
+			expect([r.status, r.pass, r.blocked], r.out).toEqual([1, 0, n]);
+		});
+		it(`blocks every view when ${file} records an error despite exit 0 and complete rows`, () => {
+			edit(file, (d) => { d.error = 'synthetic late failure'; });
+			const r = run();
+			expect([r.status, r.pass, r.blocked], r.out).toEqual([1, 0, n]);
+		});
+		it(`blocks all unmeasured views when ${file} contains only four measured views`, () => {
+			edit(file, (d) => { d.views = d.views.slice(0, 4); });
+			const r = run();
+			expect([r.status, r.pass, r.blocked], r.out).toEqual([1, 4, n - 4]);
+		});
 		it(`blocks the view that ${file} lacks, and only that view`, () => {
 			edit(file, (d) => { d.views = d.views.filter((x: any) => x.view !== VIEWS[3].id); });
 			const r = run();

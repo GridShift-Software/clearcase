@@ -61,7 +61,7 @@ function fixture(scenario = 'pass') {
   const sha = git(source, 'rev-parse', 'HEAD');
   // This must never enter the checkout or receipts: verify tests the committed bundle, not the working tree.
   writeFileSync(path.join(source, 'uncommitted.txt'), 'not in the bundle\n');
-  const env = { ...process.env, CLEARCASE_CI_SSH: fake, FAKE_GUEST_ROOT: guest, GH_HOST: 'github.invalid', HOME: path.join(guest, 'home/runner'), PATH: `${bin}:${process.env.PATH}`, CLEARCASE_CI_QUIET_SECONDS: '0.04', CLEARCASE_CI_IDLE_OBSERVATIONS: '3', CLEARCASE_CI_DRAIN_TIMEOUT: '1', CLEARCASE_CI_PAUSE_SETTLE_SECONDS: '0', CLEARCASE_CI_RESUME_WAIT_SECONDS: '300' };
+  const env = { ...process.env, CLEARCASE_CI_SSH: fake, FAKE_GUEST_ROOT: guest, GH_HOST: 'github.invalid', HOME: path.join(guest, 'home/runner'), PATH: `${bin}:${process.env.PATH}`, CLEARCASE_CI_QUIET_SECONDS: '0.04', CLEARCASE_CI_IDLE_OBSERVATIONS: '3', CLEARCASE_CI_DRAIN_TIMEOUT: '1', CLEARCASE_CI_PAUSE_SETTLE_SECONDS: '0', CLEARCASE_CI_RESUME_WAIT_SECONDS: '300', CLEARCASE_CI_STATE: '' };
   const run = (...args: string[]) => {
     const result = spawnSync(path.join(source, 'scripts/ci/pc1-vm'), args, { cwd: source, env, encoding: 'utf8', timeout: 20_000 });
     assert.equal(result.error, undefined);
@@ -656,6 +656,16 @@ test('verify pins the guest host key to one known_hosts path on every SSH sessio
     assert.doesNotMatch(option, /\s/);
   }
   assert.deepEqual(readdirSync(f.source).sort(), before);
+});
+
+test('pc1-vm refuses a state directory containing whitespace before any command runs', () => {
+  const f = fixture();
+  f.env.CLEARCASE_CI_STATE = path.join(f.guest, 'ci state');
+  const result = f.run('verify', 'HEAD');
+  assert.equal(result.status, 2, result.stderr + result.stdout);
+  assert.match(result.stderr, /CLEARCASE_CI_STATE must not contain whitespace/);
+  assert.deepEqual(f.events(), []);
+  assert.deepEqual(f.github(), []);
 });
 
 for (const scenario of ['check-fail', 'busy', 'guest-term', 'job-after-observation', 'drain-timeout', 'stop-fail', 'start-fail']) {

@@ -237,7 +237,7 @@ scripts/agent-tools/escalate --issue GRS-999 \
 
 After the coordinator's attempt, rerun with the same request fields plus `--phase outcome --task-id ID --findings TEXT --outcome TEXT --checks TEXT`. Those four fields are mandatory for an outcome record. Receipts retain source issue, escalation issue, SHA, question and model. This is a record only: not dispatch authorization, not a retry counter and not a deadline watchdog. `attemptLimit: 1` is a constant written into the record; nothing here stops a second request for the same issue, or an outcome recorded with no request. The tool does not link an outcome receipt to its request receipt, and an outcome must name the current clean HEAD, so after any commit made during the escalation it no longer carries the request's SHA. The coordinator enforces issue/stage attempts and keeps the linkage and the actual task evidence.
 
-Workspace rules still own role choices, the single written-finding fix and fresh recheck, rare linked escalation, short reports and one-page briefs, and browser locking. They forbid swarm/panel fanout, preserve external wave review, serial merges, and user-only changes to `main`. No setting here widens those permissions. The fix-diff guard and approval ledger below are callable locally and by CI/push approval callers; this spike installs neither CI configuration nor a push hook. Live model-catalogue agreement and deadline/stall enforcement remain separate acceptance boundaries.
+Workspace rules still own role choices, the single written-finding fix and fresh recheck, rare linked escalation, short reports and one-page briefs, and browser locking. They forbid swarm/panel fanout, preserve external wave review, serial merges, and user-only changes to `main`. No setting here widens those permissions. The fix-diff guard and approval ledger below are callable locally and by CI/push approval callers. This repository carries the CI step that runs the guard (`.github/workflows/ci.yml`, `test guard`) and the repository half of the push hook (`scripts/agent-tools/pre-push`); the hook in `orch-bin` that calls it belongs to the coordinator and is not installed here. Live model-catalogue agreement and deadline/stall enforcement remain separate acceptance boundaries.
 
 ## Spend readout
 
@@ -254,9 +254,9 @@ Targets do not pause, cancel or escalate work. `capUsd` is always null and `capE
 
 `bash tests/agent-tools/run.sh` needs bash, coreutils, git, Python, Node, the canonical plugin, the three leaf skills, the doctor prerequisites and a non-root user. The checkout needs `origin/dev` or `dev`; the suite deliberately unsets an inherited base for default-base tests. Run it through `receipt` for a record.
 
-Existing synthetic graph, revision, captured-output, permissions, Bun, app preflight and audit fault tests remain. The valid/invalid plan fixtures include the canonical program markers; the real generated delivery plan remains unchanged and is expected to fail the required format step. The legacy CC-27 rerun script is historical and committed unchanged; the suite runs a scratch copy whose inventory expects the current exit codes, including exit 1 for every retired `pstack-upstream` step, while its eight evidence-corruption assertions remain. That historical script is not today's acceptance driver.
+Existing synthetic graph, revision, captured-output, permissions, Bun, app preflight and audit fault tests remain. The valid/invalid plan fixtures include the canonical program markers; the real generated delivery plan remains unchanged and is expected to fail the required format step. The CC-27 rerun script is historical; its inventory was updated for the retired upstream checks (exit 1 where it expected 0 or 3: `checkout_expect`, `readback_expect`, `v2-check-plan`, `v5-pstack-upstream-no-checkout`, `v6-plan-format-without-node`, `v6-required-readback-missing`, `v6-plan-format-without-git`, `v6-plan-format-bad-base`) and the suite now runs the committed script itself, not a rewritten copy, with its eight evidence-corruption assertions. That script is not today's acceptance driver.
 
-The plugin section of the suite is self-contained. `tests/agent-tools/make_plugin.py` builds throwaway HOME directories whose skill and playbook files are generated text, and whose `check-plan.mjs` is the committed, byte-for-byte copy in `tests/agent-tools/fixtures/pstack/` (with the MIT license and provenance of plugin `2.0.0-rc.5`; the suite checks its sha256). The section never reads or copies from the real HOME and strips `T3_PSTACK_ROOT`, `CLEARCASE_SKILLS_DIR` and `CLEARCASE_CHROMIUM`. The copy is real checker code, not a stand-in, so the valid and invalid plan tests prove the canonical checker's own verdict through discovery, and a permissive checker could not hide a broken path. No checker or plan assertion was loosened. Other tests earlier in the suite (the real-plan checker, the doctor in this environment, the leaf-skill copies) still depend on the host's installed plugin and leaf skills. They prove semantic newest-version selection, explicit-root precedence, identity recording, required files, missing plugin and checker failures, version/manifest/registry mismatch, unsupported major version, invalid SHA, fallback only on absence, registered plugins with a missing or empty cache or an unreadable, malformed or wrong-shaped registry (all FAIL), the retired `pstack-upstream`/`compare-upstream` failures, empty and relative HOME, a HOME with a trailing slash, a single discovery per receipt, and changed plugin provenance during a run. Leaf-pin tests still reject unreadable directories, FIFOs, missing skills and drift. Generic command failures retain their exit codes and captured diagnostics; stale evidence now explicitly FAILs.
+The plugin section of the suite is self-contained. `tests/agent-tools/make_plugin.py` builds throwaway HOME directories whose skill and playbook files are generated text, and whose `check-plan.mjs` is the committed, byte-for-byte copy in `tests/agent-tools/fixtures/pstack/` (with the MIT license and provenance of plugin `2.0.0-rc.5`; the suite checks its sha256). The section never reads or copies from the real HOME and strips `T3_PSTACK_ROOT`, `CLEARCASE_SKILLS_DIR` and `CLEARCASE_CHROMIUM`. The copy is real checker code, not a stand-in, so the valid and invalid plan tests prove the canonical checker's own verdict through discovery, and a permissive checker could not hide a broken path. The real-plan step stays an honest FAIL on the format backlog, and a synthetic valid plan is the check-plan PASS control, so the composite PASS path is tested without the backlog. Expectations that moved from SKIPPED (3) to FAIL (1) are stricter, and the two relock refusals (an unreadable installed file; a refused relock leaves the lock unchanged) are restored for the leaf relock. What went with the retired `pstack-upstream`, `--checkout` and `--allow-drop` section is tested as the retirement itself. Other tests earlier in the suite (the real-plan checker, the doctor in this environment, the leaf-skill copies) still depend on the host's installed plugin and leaf skills. They prove semantic newest-version selection, explicit-root precedence, identity recording, required files, missing plugin and checker failures, version/manifest/registry mismatch, unsupported major version, invalid SHA, fallback only on absence, registered plugins with a missing or empty cache or an unreadable, malformed or wrong-shaped registry (all FAIL), the retired `pstack-upstream`/`compare-upstream` failures, empty and relative HOME, a HOME with a trailing slash, a single discovery per receipt, and changed plugin provenance during a run. Leaf-pin tests still reject unreadable directories, FIFOs, missing skills and drift. Generic command failures retain their exit codes and captured diagnostics; stale evidence now explicitly FAILs.
 
 Escalation tests prove missing linkage, source, exact/clean SHA or bounded question cannot write; complete request/outcome records retain the task fields without dispatch. Spend tests distinguish unavailable and zero, require an actual source, reject invalid numbers and prove overspend targets do not stop commands. These are tooling behavior tests, not evidence of a real escalation, live Linear agreement, provider billing, hosted deployment or deadline enforcement.
 
@@ -271,24 +271,33 @@ a refusal prevents the command. All three produce a required PASS/FAIL receipt a
 The base must be an ancestor.
 
 CI runs it from the repository. A fix round commits its findings as a manifest,
-`docs/acceptance/fix-rounds/<ISSUE>-<round>.json`: the findings JSON below plus
-`"schema": "clearcase-fix-round/1"`, the canonical `unit` and `fixBase`, the reviewed commit's full SHA.
-The fix worker commits it first, with the red tests, from the reviewer's written findings, and the re-check reviewer
-compares the two. `scripts/agent-tools/fix-round-guard --base REF [--root DIR]` lists the manifests added or
-changed between the merge base with REF and HEAD, and runs the guard at HEAD for each one, with one `test-guard`
-receipt per manifest. A deleted manifest, a malformed one, or a `fixBase` that is not a full SHA of an ancestor
-fails (exit 1). A branch with no new or changed manifest exits 0, prints `nothing to protect` and writes no
-receipt, because no guard ran.
+`docs/acceptance/fix-rounds/<ISSUE>-<round>.json`: the findings JSON below plus `"schema": "clearcase-fix-round/1"`,
+the canonical `unit`, `fixBase` (the reviewed commit's full SHA) and `reviewFindingsSha256` (the content hash of the
+review's findings file). The reviewer's findings file, the one `review-record` retains, carries
+`"protectedTests": [{"file", "name"}]` (a list; empty only when the review names no test) and the manifest's `tests`
+must equal it. The fix worker commits the manifest first, with the red tests. `scripts/agent-tools/fix-round-guard
+--base REF [--root DIR]` lists the manifests added or changed between the merge base with REF and HEAD, and runs
+the guard at HEAD for each one, with one `test-guard` receipt per manifest. A deleted manifest, a malformed one, or a
+`fixBase` that is not a full SHA of an ancestor fails (exit 1).
+
+A branch with no new or changed manifest exits 0, prints `nothing to protect` and writes a `fix-round-guard`
+receipt whose `guard.nothingToProtect` is true: the receipt says no guard ran, and approval never accepts it as a guard
+receipt. That exit is refused, with exit 1, when the pull request is a fix round: `--require-manifest` (CI passes it
+for a pull request labelled `fix-round`, which the coordinator applies when it dispatches the fix), or `--ledger DIR
+--branch feature/<id>-<slug>` when the coordinator's ledger records a `fix` dispatch for that branch's unit.
 
 The CI job's `test guard` step runs on pull requests only. It adds a detached worktree at the pull request's head
-(GitHub tests the merge commit, which would include the base branch's later changes) and runs
-`fix-round-guard --root <that worktree> --base origin/<the PR's base branch>` with the main checkout's tools and
-TypeScript dependency. The runner has no Node, so the step sets `CLEARCASE_NODE` to Bun and the receipt's `node` row
-records Bun's version. The step runs even when `check` or `test` failed. A manifest stays in the tree, so a wave PR
-into `dev` runs every manifest its tickets added, at the wave head: a later ticket in the same wave that changes a
-protected file needs a reviewed `assertionCountReasons` entry in that manifest. CI runs the pull request's own copy
-of the tools and workflow, so it catches weakening by mistake, not a pull request that edits the guard; the local
-receipts and the approval ledger are the control for that.
+(GitHub tests the merge commit, which would include the base branch's later changes) and a second one at the base
+branch (`origin/<base>`), and runs the base branch's `fix-round-guard` with `--root <head worktree>` and
+`--base origin/<the PR's base branch>`. The base copy carries the guard and the Python tools, so a pull request cannot
+weaken the check that judges it; the installed `node_modules` (TypeScript) are linked in from the checkout, so a pull
+request that changes `bun.lock` also changes the parser, and that shows in its diff. When the base branch has no guard
+yet, the pull request that adds it runs its own copy and the step says so. The runner has no Node, so the step sets
+`CLEARCASE_NODE` to Bun and the receipt's `node` row records Bun's version. The step runs even when `check` or `test`
+failed. A manifest stays in the tree, so a wave PR into `dev` runs every manifest its tickets added, at the wave head:
+a later ticket in the same wave that changes a protected file needs a reviewed `assertionCountReasons` entry in that
+manifest, for a free test only. CI has no copy of the ledger, so it cannot tell on its own that a pull request is a
+fix round; the `fix-round` label, and the binding at `approve` below, are the two controls.
 
 Findings JSON has `tests: [{"file": "tests/example.test.ts", "name": "rejects stale evidence"}]`.
 The list must be nonempty. Paths are relative to the repository; literal names must be unique
@@ -296,19 +305,37 @@ and active in both revisions. JS/TS syntax is parsed by the project's TypeScript
 without executing the tests. Deletion, rename, skip/todo/only and inactive parent groups fail.
 Protection is deliberately conservative: every executable token of the top-level statement containing a named test must stay
 unchanged (including its enclosing suite/control flow), so assertion changes (including strengthening) and callback rewrites also fail.
-Comments and whitespace may change. The whole protected test file and its transitive local
-literal import/export/require dependencies are frozen, resolved from both Git snapshots
-(including JS-to-TS resolution, JSON fixtures and repository tsconfig paths).
-The closure also freezes resolver inputs read from Git, including package metadata, tsconfig
-and tracked extended configurations. Missing/unsupported extended configurations fail closed;
-ignored generated configs cannot establish protected dependency resolution. Changing alias
-targets therefore needs the explicit exception even when the reachable file set stays equal. Nonliteral or
-unresolved local imports refuse. Symlink and submodule dependencies fail closed without following their targets. External packages are bound by the checked revision's lockfile,
-not traversed. Private RAWS/.local imports refuse without reading them. Changes outside the
-named statement, including added tests, need an explicit reviewed `assertionCountReasons[file]`
-entry for every changed closure file. This exception cannot change named test statements or
-introduce/change returns, conditionals, loops or switches anywhere in the dependency closure.
-Application fixes outside that closure may be added.
+Comments and whitespace may change. The protected closure, resolved from both Git snapshots, is test code only:
+
+- the named test files and the test code they import: files whose path has a test-support directory (`tests`,
+  `test`, `__tests__`, `e2e`, `support`, `fixtures`, `__fixtures__`, `__mocks__`, `__snapshots__`, `test-utils`,
+  `test-helpers`) or a `.test.`/`.spec.` name, followed transitively through literal import/export/require (including
+  JS-to-TS resolution, JSON and repository tsconfig paths). A change to any token of such a helper or fixture module
+  refuses, with no exception: a recorded reason does not excuse a loosened matcher, a flipped constant or a
+  control-flow change there.
+- the runner configuration (`vitest`, `vite`, `jest` and `playwright` config, workspace and setup files, `bunfig.toml`),
+  every file those configurations name by string (`setupFiles`, `globalSetup`), and the `package.json` scripts
+  `test*`/`pretest*`/`posttest*`. An `exclude` edit, a new setup file or a changed test script refuses. For a
+  `package.json` only the fields that steer module resolution (`name`, `type`, `main`, `module`, `browser`, `imports`,
+  `exports`) are compared otherwise, so a dependency or version edit passes.
+- fixtures: every file in a fixture directory (`fixtures`, `__fixtures__`, `__mocks__`, `__snapshots__`) under a
+  protected test's top-level directory, and every file a protected test or helper reads by literal path
+  (`readFileSync('p')`, `readFile`, `Bun.file`, `join(__dirname, 'p')`, `new URL('p', import.meta.url)`), must keep its
+  Git blob. A new fixture may be added.
+- resolver inputs read from Git (tsconfig, tracked extended configurations). Missing or unsupported extended
+  configurations fail closed. Nonliteral or unresolved local imports refuse; symlink and submodule dependencies fail
+  closed without being followed; external packages are bound by the lockfile, not traversed; private RAWS/.local
+  imports refuse without being read.
+
+The module under test is not in the closure. Application code (`src/`, `scripts/` and any path outside the
+test-support directories above) is neither followed nor compared, so a fix that changes the module its named test
+imports passes. A test helper that lives outside these directories is not protected unless a named test file or a
+configuration reaches it by a literal path that lands in them; keep helpers under a test-support directory.
+
+A protected test file keeps every top-level statement as reviewed except its free tests: top-level `test`, `it` and
+`describe` calls that hold no named test. A recorded `assertionCountReasons[file]` entry lets free tests change,
+be added or be dropped, and lets new imports arrive; it never lets a mock, hook or isolation arrive: `vi.mock`,
+`vi.doMock`, `vi.hoisted`, `vi.stubGlobal`/`stubEnv`, `.only` and a top-level hook refuse even with a reason.
 Touched JS/TS test files cannot lose assertion calls (`expect`/`assert`) unless the findings
 include a nonempty `assertionCountReasons` object entry keyed by the file. That exception never
 allows changes to a named test. Unsupported named syntax or changed Python/shell test sources
@@ -335,10 +362,22 @@ Before approving a push, a caller runs `approval-check --unit ISSUE/STAGE --sha 
 --approval-receipt PATH`. It requires the same clean checkout/revision, verifies the approved
 row and rereads every input fingerprint and capture. This is an append-only local receipt
 ledger, not a signature or a proof that reviewer identity/freshness was independently verified.
-Its required-check contract comes from the reviewer, so a fix round's re-check lists the guard's receipt
-(`receipt --fix-base --findings`) among its `requiredChecks`. The push hook invokes the reader through
-`scripts/agent-tools/pre-push` (see [Ledger store and push hook](#ledger-store-and-push-hook)); no remote push,
-reviewer launch or external approval is performed here.
+Its required-check contract comes from the reviewer. The coordinator's push hook is meant to invoke the reader
+through `scripts/agent-tools/pre-push` (see [Ledger store and push hook](#ledger-store-and-push-hook)); this repository
+does not install that hook, and no remote push, reviewer launch or external approval is performed here.
+
+### The guard binding
+
+Once the store's log holds a recorded `fix` dispatch for a unit, `approve` and `approval-check` need a PASS
+`test-guard` receipt (`approve ... --guard-receipt PATH`) at the approved HEAD. The binding is read from the ledger,
+not from the worker's files: the review that prompted the fix is the unit's latest `review-record` before that
+`fix` event, and the receipt must show (1) a `fixBase` equal to that review's recorded SHA, (2) a manifest whose
+`reviewFindingsSha256` equals the content hash of that review's recorded findings and whose `unit` is the unit, and
+(3) a manifest `tests` list equal to the recorded findings' `protectedTests`. A worker-written manifest with a later
+`fixBase`, another findings hash or a shorter `tests` list refuses. When the recorded review lists no `protectedTests`
+field the approval refuses; an empty list records `guard.nothingToProtect` and needs no receipt. The row keeps the
+binding and the receipt joins the fingerprinted inputs, so editing the receipt afterwards refuses at readback.
+A unit with no recorded `fix` dispatch approves as before.
 
 ## Model-sheet verification
 
@@ -361,14 +400,19 @@ is caller-supplied evidence, not an independently authenticated catalogue or dis
 reserves a local attempt in the receipt store. Units use the original issue and the fixed
 `implementation` or `review` stage; changing a task ID, checkout or revision does not reset it within that store.
 The initial deadline must be future, within 90 minutes for implementation or 30 for review,
-and cannot be extended by later records. Use the same `--receipts` store for every attempt.
+and cannot be changed by a restart. Every later attempt (`fix`, `recheck`, `escalation`, `infra-retry`) gets its own
+deadline when it is dispatched: `--deadline` if given, else the same limit from now, and either way in the future
+and within the limit. A fix dispatched three hours after the initial attempt is accepted. The receipt's
+`attemptDeadline` is this attempt's, `deadlines` maps each recorded phase to its deadline and `deadline` keeps the
+unit's initial one. Use the same `--receipts` store for every attempt.
 
 Phases `fix`, `recheck`, `escalation` and `infra-retry` each permit one record. Recheck requires
 a fix, escalation requires a recheck, and exhausting fix/recheck/escalation stops the unit.
 Counts and deadline are copied into every receipt's `dispatch` field; refusals have
 `outcome: refuse`, a reason and nonzero exit. A stable `--failure` requires `--diagnosis`;
-repeating the same failure and diagnosis refuses the next attempt. An expired deadline also
-refuses the next attempt. A kernel file lock covers reading history and appending the receipt,
+repeating the same failure and diagnosis refuses the next attempt. A dispatch whose own deadline is already past
+or beyond the limit is refused. Nothing here stops a task that overruns its deadline: that is the coordinator's job.
+A kernel file lock covers reading history and appending the receipt,
 so simultaneous callers cannot reserve the same remaining attempt. Corrupt history refuses.
 
 `--phase cancel --cancel-outcome confirmed|failed --reason TEXT` records an external cancellation
@@ -445,7 +489,9 @@ original-severity retention under the event append lock, including concurrent re
 ### Ledger store and push hook
 
 `review-record`, `approve`, `approval-check`, `dispatch` and `pre-push` keep their events, blobs, locks and receipts
-in one ledger store: `--ledger DIR`, else `CLEARCASE_LEDGER_DIR`, else the receipt store. The store must resolve to a
+in one ledger store: `--ledger DIR`, else `CLEARCASE_LEDGER_DIR`, else the receipt store. A `--ledger` or
+`CLEARCASE_LEDGER_DIR` value must be an absolute path (a relative one resolves against each caller's working
+directory and splits the store, so it refuses). The store must resolve to a
 path outside the checkout the command checks (`--root`, or the checkout holding the tools); inside it, the command
 refuses before it reads or writes anything, with exit 1 and no receipt. The default `.local/agent-receipts/` is
 inside the checkout, so these commands need an explicit store. The coordinator keeps one store outside every
@@ -453,8 +499,9 @@ checkout, for example `${XDG_STATE_HOME:-~/.local/state}/clearcase/ledger`, pass
 tools from its own `dev` clone with `--root <worktree>`. Check receipts from `receipt` may stay in the worker's
 receipt store; `approve` names them with `--check-receipt`.
 
-A PASS `approve` appends an `approval` event to the log, holding the approval receipt's path, its `approval` row and
-its `inputs`, and the receipt records the event's hash as `approvalEvent`. `approval-check` refuses an approval
+A PASS `approve` appends an `approval` event to the log, holding the approval receipt's path (stored as written,
+not shortened to `~`, so a reader under another HOME or a sibling home directory opens the same file), its
+`approval` row and its `inputs`, and the receipt records the event's hash as `approvalEvent`. `approval-check` refuses an approval
 receipt whose event is missing from the log or differs from it, so an edited, copied or forged receipt, or a log
 rewritten without the event, is not a ledger row. A refused approval appends nothing.
 
@@ -474,6 +521,13 @@ CLEARCASE_LEDGER_DIR=$LEDGER "$DEV_CLONE/scripts/agent-tools/pre-push" --root "$
 
 This repository installs no hook and changes no `orch-bin` file. Until the coordinator adds the call, the leak-scan
 file under `.orchestration/push-approved/` remains the only push gate.
+
+**The ledger is a record, not a proof.** Every agent runs as the same Unix user, so any of them can mint an `approved`
+row with self-written JSON: write a review, a findings file and a check receipt, call `review-record`, then `approve
+--approved-by anyone`, and `pre-push` passes. Nothing in the store authenticates who wrote a review or who approved.
+The controls that hold without a signed store are the guard binding above (the guard result is bound to the reviewed
+commit and to the findings the ledger recorded, not to files the worker wrote), the base branch's guard in CI, and the external wave review. Until a signed store
+exists, treat an approved row as the coordinator's note to itself.
 
 What the store does not protect against: every agent runs as the same Unix user, so any process can rewrite the log,
 its tip and its blobs together, and the hash chain then verifies. Outside the checkout, the store is out of reach of

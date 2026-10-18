@@ -137,11 +137,12 @@ describe('barrel and alias edges between pages and a mapped CSV producer (GRS-61
   });
   expect(csvExports(dir).pages).toEqual(['/direct', '/named', '/star']);
  });
- test('refuses a consumer it cannot follow instead of dropping it: a computed dynamic import, and a barrel path that resolves to nothing', () => {
+ test('refuses a consumer it cannot follow instead of dropping it: a computed dynamic import, and a directory import with no index to read', () => {
   const dir = build({
    'routes/direct/+page.svelte': "<script>import Maker from '$lib/Maker.svelte';</script><Maker />",
    'routes/computed/+page.svelte': "<script>const load = (n) => import(`$lib/${n}.svelte`);</script>",
    'routes/missing/+page.svelte': "<script>import { Csv } from '$lib/vendor';</script><Csv />",
+   'lib/vendor/other.ts': 'export const x = 1;',
    'lib/Maker.svelte': MAKER,
   });
   const r = csvExports(dir);

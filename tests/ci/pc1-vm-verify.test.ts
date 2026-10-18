@@ -641,6 +641,23 @@ test('verify pauses dispatch through GitHub before touching the guest and resume
   assert.equal(existsSync(path.join(f.guest, 'uploads')), true);
 });
 
+test('verify pins the guest host key to one known_hosts path on every SSH session, before and after the pause', () => {
+  const f = fixture();
+  const state = path.join(f.guest, 'ci-state');
+  f.env.CLEARCASE_CI_STATE = state;
+  const before = readdirSync(f.source).sort();
+  const result = f.run('verify', 'HEAD');
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  const sessions = readFileSync(path.join(f.guest, 'ssh-known-hosts'), 'utf8').split('\n').filter(Boolean);
+  // Upload, checks and the resume's lock confirmation all follow the GitHub pause.
+  assert.ok(sessions.length >= 3, sessions.join('\n'));
+  for (const option of sessions) {
+    assert.equal(option, `UserKnownHostsFile=${state}/known_hosts`);
+    assert.doesNotMatch(option, /\s/);
+  }
+  assert.deepEqual(readdirSync(f.source).sort(), before);
+});
+
 for (const scenario of ['check-fail', 'busy', 'guest-term', 'job-after-observation', 'drain-timeout', 'stop-fail', 'start-fail']) {
   test(`verify resumes dispatch through GitHub after ${scenario}`, () => {
     const f = fixture(scenario);

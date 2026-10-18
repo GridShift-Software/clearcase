@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { Value } from 'typebox/value';
 import { afterEach, expect, it } from 'vitest';
+import { words } from '../../scripts/fixtures/synthetic/corpus.ts';
 import { sha256Hex } from '../../src/lib/case-package/hash.ts';
 import { KNOWN_KEYS } from '../../src/lib/case-package/registry.ts';
 import { Manifest } from '../../src/lib/case-package/schema.ts';
@@ -51,6 +52,25 @@ it('generates every named dataset, validates without warnings, and reproduces ev
   const changed = generate('--out', other, '--seed', 'another-seed', '--documents', '32');
   expect(changed.status, changed.stderr).toBe(0);
   expect(await resultsVersion(other)).not.toBe(await resultsVersion(a));
+});
+
+it('keeps every default output file clear of modern ISO dates and of invented "First Last" names', async () => {
+  const root = await scratch();
+  const out = path.join(root, 'corpus');
+  const result = generate('--out', out);
+  expect(result.status, result.stderr).toBe(0);
+  // Leak-scan doc-date needles are real ISO dates; person and party needles are real names, and the
+  // vocabulary mixes given names (Hazel, Iris) with surnames (Moss, Reed).
+  const pair = new RegExp(`\\b(?:${words.join('|')})\\s+(?:${words.join('|')})\\b`, 'i');
+  const offenders: string[] = [];
+  for (const { file } of await fingerprints(out)) {
+    const text = (await readFile(path.join(out, file))).toString('latin1');
+    const years = Array.from(text.matchAll(/\b(\d{4})-\d{2}-\d{2}\b/g), match => Number(match[1]));
+    if (years.some(year => year < 2200 || year > 2212)) offenders.push(`${file}: date outside 2200-2212`);
+    const name = pair.exec(text);
+    if (name) offenders.push(`${file}: ${name[0]}`);
+  }
+  expect(offenders).toEqual([]);
 });
 
 it.each([1, 6])('keeps metadata and references valid for %i documents', async documents => {

@@ -895,7 +895,7 @@ test('docs/ci-runner.md states the scope line, the pause commands and the defaul
   assert.ok(docs.includes(scope));
   assert.ok(docs.includes(`gh api -X DELETE ${runnerApi}/ID/labels/clearcase-pc1`));
   assert.ok(docs.includes(`gh api -X POST ${runnerApi}/ID/labels -f 'labels[]=clearcase-pc1'`));
-  for (const [setting, value] of [['CLEARCASE_CI_PAUSE_SETTLE_SECONDS', '5'], ['CLEARCASE_CI_QUIET_SECONDS', '5'], ['CLEARCASE_CI_IDLE_OBSERVATIONS', '3'], ['CLEARCASE_CI_DRAIN_TIMEOUT', '30']]) {
+  for (const [setting, value] of [['CLEARCASE_CI_PAUSE_SETTLE_SECONDS', '5'], ['CLEARCASE_CI_RESUME_WAIT_SECONDS', '300'], ['CLEARCASE_CI_QUIET_SECONDS', '5'], ['CLEARCASE_CI_IDLE_OBSERVATIONS', '3'], ['CLEARCASE_CI_DRAIN_TIMEOUT', '30']]) {
     assert.ok(script.includes(`\${${setting}:-${value}}`), setting);
     assert.ok(docs.includes(`\`${setting}\` (default \`${value}\`)`), setting);
   }

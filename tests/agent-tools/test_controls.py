@@ -444,6 +444,50 @@ class ApprovalLedger(ControlCase):
         self.cli('approval-check', '--unit', 'GRS-104/implementation', '--sha', self.sha,
                  '--approval-receipt', approved)
 
+    def test_home_text_in_printed_argv_words_never_reaches_the_receipt(self):
+        """PR #62 re-check (M1): redaction is display-only, so -I$HOME/inc and file://$HOME/f print as ~ and still approve."""
+        home = self.work / 'reviewer-home'
+        home.mkdir(exist_ok=True)
+        self.env['HOME'] = str(home)
+        self.prepare(command=['bash', '-c', ':', f'-I{home}/inc', f'file://{home}/f', f'--out{home}/x'])
+        execution = json.loads(self.check.read_text())['execution']
+        for field in ('argv', 'commandLine', 'command'):
+            data = json.loads(self.check.read_text())
+            printed = json.dumps(data.get(field, execution.get(field)))
+            self.assertNotIn(str(home), printed, field)
+        self.assertIn('-I~/inc', execution['argv'])
+        self.assertIn('file://~/f', execution['argv'])
+        self.approve()
+        approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        self.cli('approval-check', '--unit', 'GRS-104/implementation', '--sha', self.sha,
+                 '--approval-receipt', approved)
+
+    def test_input_path_with_a_space_or_colon_before_the_home_text_approves_and_reads_back(self):
+        home = self.work / 'reviewer-home'
+        home.mkdir(exist_ok=True)
+        self.env['HOME'] = str(home)
+        for index, separator in enumerate(('x:', 'a ')):
+            evidence = Path(f'{self.work}/{separator}{home}/f{index}.txt')
+            evidence.parent.mkdir(parents=True, exist_ok=True)
+            evidence.write_text('evidence\n')
+            with self.subTest(separator=separator):
+                self.prepare(inputs=[str(evidence)])
+                self.approve()
+                approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
+                self.assertNotIn(str(home), approved.read_text())
+                self.cli('approval-check', '--unit', 'GRS-104/implementation', '--sha', self.sha,
+                         '--approval-receipt', approved)
+
+    def test_receipt_without_the_exact_input_path_refuses_clearly(self):
+        evidence = self.work / 'evidence.txt'
+        evidence.write_text('evidence\n')
+        self.prepare(inputs=[str(evidence)])
+        data = json.loads(self.check.read_text())
+        for row in data['inputs']:
+            del row['pathExact']
+        self.check.write_text(json.dumps(data))
+        self.assertIn('predates the exact input record', self.approve(code=1))
+
     def test_changed_argv_with_a_home_path_still_refuses(self):
         home = self.work / 'reviewer-home'
         home.mkdir(exist_ok=True)

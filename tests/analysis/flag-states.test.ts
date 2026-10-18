@@ -9,10 +9,14 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { buildCase } from '../e2e/pilot/lib/fixtures';
 import type { LocalCase } from '../../src/lib/local-case/service.server';
 import { ackFor, cleanup, tempRoot } from '../../src/lib/local-case/test-support';
-import { defenceCsv, refsShown, type DefenceRow } from '../../src/lib/views/analysis/defence';
+import { defenceCsv, REFS_HEADING, refsShown, type DefenceRow } from '../../src/lib/views/analysis/defence';
+import { V5_HEADINGS } from '../../src/lib/views/analysis/headings';
+import InfoRequiredPage from '../../src/routes/v/[vid]/analysis/info_required_tab/+page.svelte';
 import TimelinePage from '../../src/routes/v/[vid]/analysis/timeline/+page.svelte';
+import DefencePage from '../../src/routes/v/[vid]/analysis/vdm_matrix_tab/+page.svelte';
 
 vi.mock('$app/navigation', () => ({ goto: () => Promise.resolve() }));
+vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
 
 const TITLE = 'Agreement & schedule <signed>';
 let root: string, lc: LocalCase, rv: string, caseId: string;
@@ -74,6 +78,25 @@ describe.each([
 		expect(lines[0]!.split(',')).toEqual(on ? [...d.exportColumns.keys, 'refs'] : d.exportColumns.keys);
 		expect(d.exportColumns.keys).toHaveLength(5);
 		expect(lines[1]!.includes('OD-001 – OD-002')).toBe(on);
+	});
+
+	it(on ? 'renders the defence page with a sixth Refs column and the refs cell' : 'renders the defence page with v5\'s five columns and no refs cell', async () => {
+		stub();
+		const d = await load('vdm_matrix_tab');
+		const body = render(DefencePage, { props: { data: { ...d, version: { id: rv, caseId, titleName: 'Invented case' } } } as never }).body;
+		const head = body.slice(body.indexOf('<thead'), body.indexOf('</thead>'));
+		expect(head.match(/<th[ >]/g)).toHaveLength(on ? 6 : 5);
+		expect(head.includes(`>${REFS_HEADING}</th>`)).toBe(on);
+		expect(body.includes('OD-001 – OD-002')).toBe(on);
+		expect(body.includes(`data-label="${REFS_HEADING}"`)).toBe(on);
+	});
+
+	it(on ? 'renders Info Required under its navigation label' : 'renders Info Required under v5\'s heading', async () => {
+		stub();
+		const d = await load('info_required_tab');
+		const body = render(InfoRequiredPage, { props: { data: { ...d, version: { id: rv, caseId, titleName: 'Invented case' } }, form: null } as never }).body;
+		const h1 = /<h1[^>]*data-page-heading[^>]*>([^<]*)<\/h1>/.exec(body)?.[1];
+		expect(h1).toBe((on ? 'Info Required' : V5_HEADINGS.info_required_tab!).replaceAll('&', '&amp;'));
 	});
 
 	it('passes timeline titles raw and escapes them once on the page, never twice', async () => {

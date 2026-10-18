@@ -1048,8 +1048,10 @@ echo "# rerun.sh stops or fails when a step's evidence is not recorded whole"
 # The real rerun.sh runs in a copy of this checkout whose suite is a stub, so each run takes seconds and cannot rerun
 # these cases. Faults are planted from the background once the run has written the line they wait for.
 RR="$WORK/rerun-copy"
-# Without node_modules, its v5-app-deferred step (verify app) exits 3 at the runner's preflight instead of a full run.
+# rerun.sh requires installed dependencies, so the copy links this checkout's node_modules (ignored by Git); its
+# v5-app-deferred step names a missing Chromium and exits 3 at the runner's preflight instead of a full run.
 mkdir -p "$RR" && tar -C "$REPO" --exclude=./.git --exclude=./.local --exclude=./node_modules -cf - . | tar -C "$RR" -xf -
+ln -s "$REPO/node_modules" "$RR/node_modules"
 printf '#!/bin/bash\necho "stub suite of a rerun.sh test: 0 failed"\n' >"$RR/tests/agent-tools/run.sh"
 # The committed script runs unchanged: its inventory already expects the current exit codes.
 git_fixture "$RR"

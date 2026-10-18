@@ -566,7 +566,7 @@ export async function checkRegistry(C, L) {
 		if (implemented.has(v.id)) {
 			const navTag = new RegExp(`<a [^>]*id="nav-${v.id}"[^>]*>`).exec(r.text)?.[0] ?? '';
 			const got = { status: r.status, heading: h1, ready: /<main[^>]*data-ready="([^"]*)"/.exec(r.text)?.[1] ?? null, unavailable: /data-unavailable=/.test(r.text), current: /aria-current="page"/.test(navTag) };
-			if (L.check(`${v.id}: implemented (owner route present): heading matches the label (BA-18), data-ready, no unavailable state, aria-current`, { status: 200, heading: viewHeading(v, false), ready: v.id, unavailable: false, current: true }, got)) { ok++; implOk++; }
+			if (L.check(`${v.id}: implemented (owner route present): heading matches the label (BA-18; v5's on Timeline, Defence & Rebuttal and Info Required while the analysis additions are off), data-ready, no unavailable state, aria-current`, { status: 200, heading: viewHeading(v, false), ready: v.id, unavailable: false, current: true }, got)) { ok++; implOk++; }
 			continue;
 		}
 		const avail = v.status === 'available';

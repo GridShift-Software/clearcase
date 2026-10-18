@@ -697,3 +697,15 @@ test('verify and verdict print what a verdict proves and what it does not', () =
   writeFileSync(path.join(f.guest, 'scenario'), 'busy');
   assert.equal(f.run('verify', 'HEAD').stdout.includes(scope), false);
 });
+
+test('docs/ci-runner.md states the scope line, the pause commands and the defaults verify uses', () => {
+  const docs = readFileSync(path.join(app, 'docs/ci-runner.md'), 'utf8');
+  const script = readFileSync(path.join(app, 'scripts/ci/pc1-vm'), 'utf8');
+  assert.ok(docs.includes(scope));
+  assert.ok(docs.includes(`gh api -X DELETE ${runnerApi}/ID/labels/clearcase-pc1`));
+  assert.ok(docs.includes(`gh api -X POST ${runnerApi}/ID/labels -f 'labels[]=clearcase-pc1'`));
+  for (const [setting, value] of [['CLEARCASE_CI_PAUSE_SETTLE_SECONDS', '5'], ['CLEARCASE_CI_QUIET_SECONDS', '5'], ['CLEARCASE_CI_IDLE_OBSERVATIONS', '3'], ['CLEARCASE_CI_DRAIN_TIMEOUT', '30']]) {
+    assert.ok(script.includes(`\${${setting}:-${value}}`), setting);
+    assert.ok(docs.includes(`\`${setting}\` (default \`${value}\`)`), setting);
+  }
+});

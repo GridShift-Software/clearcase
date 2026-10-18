@@ -1,5 +1,5 @@
 import { fmtR } from '../../components/format.ts';
-import { toCSV, userCell } from '../../components/csv.ts';
+import { monetaryCell, toCSV, userCell } from '../../components/csv.ts';
 import { parseAmount, twoDp, valueCents, hoursTile } from './amounts.ts';
 import type { RegisterDef } from './defs.ts';
 
@@ -93,7 +93,7 @@ export function cellText(kind: string, e: Entry, field: string | undefined): str
 
 
 export const registerCsv = (def: Shape, rows: readonly Row[]): string =>
-	toCSV([def.fields.map((x) => x.k), ...rows.map((r) => def.fields.map((x) => userCell(r.values[x.k] ?? '')))]);
+	toCSV([def.fields.map((x) => x.k), ...rows.map((r) => def.fields.map((x) => x.amount === 'signed-money' ? monetaryCell(r.values[x.k] ?? '') : userCell(r.values[x.k] ?? '')))]);
 
 /**
  * RFC 5545 TEXT: backslash, semicolon, comma and line breaks escaped; NEL, U+2028 and U+2029 are line breaks too, and

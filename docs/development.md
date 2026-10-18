@@ -270,6 +270,21 @@ The CC-11 gate adds one acceptance suite and five scripts that the gate does not
 
 When running these readiness scripts on the real sample, keep case-bearing output under `.local/` by choosing `--out` accordingly; the scripts do not enforce that containment. Keep real-sample screenshots in `.local/GRS-21/`; documents cite them by path and sha256.
 
+## Synthetic corpus
+
+Run `bun run --bun fixtures:generate --out /tmp/clearcase-synthetic --seed demo --documents 1689 --profile small`.
+The output must not exist; its parent must exist outside the checkout, including through symlinks.
+Defaults are seed `20261017`, 1,689 documents and profile `small`; no case input is accepted.
+Output contains `pkg/` (results package), `case/` (invented originals) and deterministic `generation.json` (sizes and SHA-256s).
+The generator reuses the pilot fixture helper and real v5 converter, covering all 35 named dataset schemas.
+`small` uses tiny valid PDFs/PNGs; `poc` targets 60% at 16–128 KiB, 30% at 128 KiB–2 MiB, 9% at 2–8 MiB and 1% at 8–32 MiB, plus format overhead.
+Those bands are synthetic; repeating inert padding measures byte volume, with no claim about case distributions, compression, rendering, OCR, all 42 views or hosted boundaries.
+Seeded dates occupy 2200–2209 (prescription through 2212), excluding 1900–2099 to avoid modern case-date leak needles.
+Invented names hyphenate vocabulary pairs (`Synthetic Hazel-Moss`), because a space between a given name and a surname could spell a real person's name.
+`bun run --bun test tests/fixtures` proves validation, activation policy, determinism and those date and name shapes only. AC2 is proved by `bun run --bun test tests/e2e/pilot/synthetic-corpus.test.ts` (also collected by the gate's `test` step).
+It generates the default 1,689-document corpus with the default `small` profile, imports and activates it through real SvelteKit HTTP form actions (303 redirects), and asserts a 200 chronology API response with exactly 1,689 rows.
+The test uses disposable scratch SQLite storage and removes it and the generated corpus afterwards; `poc` byte-volume performance is outside this acceptance proof.
+
 ## Known limits
 
 - The store API is synchronous over `node:sqlite` (writes are async transactions). The V2 move to D1 needs an async seam; the judge recommended one from the start.

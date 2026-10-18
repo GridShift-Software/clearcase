@@ -160,7 +160,7 @@ Each receipt is a directory `<receipts>/<UTC timestamp>-<name>/` with `receipt.j
 - `startedAt`, `finishedAt` and `durationSeconds`.
 - `artifacts`, the paths of the receipt, stdout and stderr.
 
-Paths under `$HOME` are written as `~` so receipts carry no machine-specific home directory.
+Paths under `$HOME` are written as `~` so receipts carry no machine-specific home directory. That display form is lossy (under `HOME=/inner`, `/x/inner/f` and a literal `/x~/f` both read `/x~/f`), so the tools never open, expand or compare it. Each stored value they read back has an exact twin beside it, named with `Exact`, in which `HOME` is written `\h` and each backslash doubled: `argvExact`, `cwdExact` and `pathExact` in `execution`, `pathExact` and `realpathExact` in each input row, `rootExact` and `toplevelExact` in `revision`, `artifactsExact`, the approval row's `reviewExact`, `findingsExact`, `checksExact` and `guardExact`, a test-guard receipt's `guard.testsExact`, and a dispatch row's `failureExact` and `diagnosisExact`. A receipt or ledger row without its twin predates it and is refused with "predates the exact ... record"; rerun the step that wrote it. A relative `HOME` is not a home directory and is not replaced, and a `HOME` of `/implementation` or `/review`, which would rewrite a stored unit, makes the ledger commands refuse.
 
 ### Revision identity
 

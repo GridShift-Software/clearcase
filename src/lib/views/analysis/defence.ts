@@ -10,8 +10,7 @@ export const REFS_HEADING = 'Refs';
 
 export const NEUTRAL_CSV_KEYS = ['point', 'case', 'evidence', 'documents', 'rebuttal'] as const;
 export const REFS_KEY = 'refs';
-// The supplied base already exports refs; the display opt-in must not remove baseline CSV bytes.
-export const defenceCsv = (keys: readonly string[], rows: readonly DefenceRow[], _additions = false) =>
+export const defenceCsv = (keys: readonly string[], rows: readonly DefenceRow[]) =>
 	toCSV([[...keys, REFS_KEY], ...rows.map((r) => [r.point, r.dcs, r.evidence, r.docs.map((d) => d.ref).join(' '), r.rebuttal, r.refs])]);
 export const defenceCsvKeys = (cols: { keys: string[]; note: string | null }, note: string): { keys: string[]; note: string | null } =>
 	(cols.keys.includes(REFS_KEY) ? { keys: [...NEUTRAL_CSV_KEYS], note } : cols);

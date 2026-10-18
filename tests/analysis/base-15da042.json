@@ -1,5 +1,5 @@
 {
-  "base": "db73856701514aa191aba1f392d5799bed0e83c6",
+  "base": "15da0427f94f674d3245c33aa99bd98177059e04",
   "keys": [
     "p,\"q\"",
     "case",
@@ -32,10 +32,5 @@
       "refs": ""
     }
   ],
-  "csv": "\"p,\"\"q\"\"\",case,evidence,documents,rebuttal,refs\r\n\"Quoted \"\"point\"\",\nnext line\",\"Their case\r\ncontinued\",\"Evidence;'=SUM(A1)\",OD-1 SD-2,\"Rebuttal, \"\"quoted\"\"\",\"OD-1\nSD-2, \"\"range\"\"\"\r\n,,,,,",
-  "headings": {
-    "timeline": "Timeline",
-    "vdm_matrix_tab": "Defence & Rebuttal",
-    "info_required_tab": "Info Required"
-  }
+  "csv": "\"p,\"\"q\"\"\",case,evidence,documents,rebuttal,refs\r\n\"Quoted \"\"point\"\",\nnext line\",\"Their case\r\ncontinued\",\"Evidence;'=SUM(A1)\",OD-1 SD-2,\"Rebuttal, \"\"quoted\"\"\",\"OD-1\nSD-2, \"\"range\"\"\"\r\n,,,,,"
 }

@@ -77,7 +77,7 @@
 </script>
 
 <main id="main" tabindex="-1" data-analysis data-ready="info_required_tab" data-hydrated={hydrated ? '' : null}>
-	<PageHeader heading={data.heading} section="Info Required" caseName={data.version.titleName} subtitle="Checklist of outstanding items" />
+	<PageHeader heading="Info Required" section="Info Required" caseName={data.version.titleName} subtitle="Checklist of outstanding items" />
 	{#if problems.length}
 		<div class="an-error" role="alert" id="info-error">
 			{#each problems as pr (pr.key)}

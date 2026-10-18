@@ -1,4 +1,3 @@
-import { analysisHeading } from '$lib/analysis/additions.server';
 import { analysisDataset, existingOf } from '$lib/analysis/data.server';
 import { app } from '$lib/local-case/app.server';
 import { documentCounts } from '$lib/local-case/documents.server';
@@ -40,7 +39,6 @@ export const load: PageServerLoad = async ({ parent }) => {
 		evidenceNotes: meta ? viewText(vc, 'timeline', 'evidenceNotes', { textNone: String(meta.textNone) }) : null,
 	};
 	return {
-		heading: analysisHeading('timeline'),
 		phases: grouped.phases,
 		unplaced: grouped.unplaced,
 		years,

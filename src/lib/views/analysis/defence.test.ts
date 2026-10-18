@@ -5,14 +5,14 @@ const row = (o: Partial<Parameters<typeof defenceCsv>[1][number]> = {}) => ({ po
 
 describe('defence & rebuttal export', () => {
 	it('keeps the given keys in their order and appends the free-text refs (S-vdm_matrix_tab-1)', () => {
-		const lines = defenceCsv(['k_point', 'k_case', 'k_evidence', 'documents', 'k_rebuttal'], [row({ docs: [{ ref: 'OD-1' }, { ref: 'SD-2' }], refs: 'OD-1 – OD-2' }), row()], true).split('\r\n');
+		const lines = defenceCsv(['k_point', 'k_case', 'k_evidence', 'documents', 'k_rebuttal'], [row({ docs: [{ ref: 'OD-1' }, { ref: 'SD-2' }], refs: 'OD-1 – OD-2' }), row()]).split('\r\n');
 		expect(lines[0]).toBe('k_point,k_case,k_evidence,documents,k_rebuttal,refs');
-		expect(defenceCsv(NEUTRAL_CSV_KEYS, [], true).split('\r\n')[0]).toBe('point,case,evidence,documents,rebuttal,refs');
+		expect(defenceCsv(NEUTRAL_CSV_KEYS, []).split('\r\n')[0]).toBe('point,case,evidence,documents,rebuttal,refs');
 		expect(lines[1]).toBe('Point,Their case,Evidence,OD-1 SD-2,Rebuttal,OD-1 – OD-2');
 		expect(lines[2]).toBe('Point,Their case,Evidence,,Rebuttal,');
 	});
 	it('exports imported values unchanged, quoting only where CSV needs it', () => {
-		expect(defenceCsv(NEUTRAL_CSV_KEYS, [row({ point: '=SUM(A1)', evidence: 'a, "b"' })], true).split('\r\n')[1]).toBe('=SUM(A1),Their case,"a, ""b""",,Rebuttal,');
+		expect(defenceCsv(NEUTRAL_CSV_KEYS, [row({ point: '=SUM(A1)', evidence: 'a, "b"' })]).split('\r\n')[1]).toBe('=SUM(A1),Their case,"a, ""b""",,Rebuttal,');
 	});
 	it('keeps the package keys unless one would repeat the refs header', () => {
 		const pkg = { keys: ['a', 'b', 'c', 'd', 'e'], note: null };
@@ -24,16 +24,5 @@ describe('defence & rebuttal export', () => {
 		expect(defenceHeadings(null)).toBe(NEUTRAL_HEADINGS);
 		expect(defenceHeadings(['A', 'B'])).toBe(NEUTRAL_HEADINGS);
 		expect(defenceHeadings(['A', 'B', ' ', 'D', 'E'])).toBe(NEUTRAL_HEADINGS);
-	});
-});
-
-
-describe('defence additions default off (GRS-48)', () => {
-	it('omits only the free-text refs column by default, retaining document refs and original columns', () => {
-		const r = row({ refs: 'Synthetic unapproved refs', docs: [{ ref: 'OD-1' }] });
-		expect(defenceCsv(NEUTRAL_CSV_KEYS, [r])).toBe('point,case,evidence,documents,rebuttal,refs\r\nPoint,Their case,Evidence,OD-1,Rebuttal,Synthetic unapproved refs');
-		expect(defenceCsv(NEUTRAL_CSV_KEYS, [r], false)).toBe(defenceCsv(NEUTRAL_CSV_KEYS, [r]));
-		expect(defenceCsv(NEUTRAL_CSV_KEYS, [r], true)).toContain(',Synthetic unapproved refs');
-		expect(r.refs).toBe('Synthetic unapproved refs');
 	});
 });

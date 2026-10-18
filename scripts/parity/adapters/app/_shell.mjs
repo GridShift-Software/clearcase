@@ -25,6 +25,17 @@ export async function navFocus(p, ctx, { from, fromView, view }) {
 	return { focus: await p.focusRole(), crumb: await p.evaluate(`document.querySelector('nav.views a[aria-current="page"]')?.firstChild?.textContent.trim() ?? ''`) };
 }
 
+/** Read a simple view, keeping its hydration requirements and export/sweep work in its own adapter. */
+export async function readSimpleView(p, ctx, view, { openView = open, hydrate } = {}) {
+	const nav = await navFocus(p, ctx, { from: '/overview', fromView: 'overview', view });
+	await openView(p, ctx, ctx.registry[view].route, view);
+	if (hydrate) await hydrate(p);
+	const s = fromRaw(view, 'app', await p.extract('#main'));
+	s.focus.after_nav = nav.focus;
+	s.texts['shell.crumb'] = nav.crumb;
+	return s;
+}
+
 /** The sidebar as 'Group / Label' entries in order (the screen-reader-only availability note is not part of a label). */
 export const navList = (p) => p.evaluate(`[...document.querySelectorAll('nav.views section')].flatMap((s) => [...s.querySelectorAll('a')].map((a) => s.querySelector('h2').textContent.trim() + ' / ' + a.firstChild.textContent.trim()))`);
 

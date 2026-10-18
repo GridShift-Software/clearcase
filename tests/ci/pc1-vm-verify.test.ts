@@ -153,7 +153,7 @@ test('provision refuses a held verification lock before any mutation', () => {
 function registerFixture(scenario = 'pass') {
   const f = provisionFixture(scenario);
   const runner = path.join(f.guest, 'home/runner/actions-runner');
-  for (const tool of ['fake-ci-svc', 'fake-ci-config']) symlinkSync(fake, path.join(f.guest, 'bin', tool));
+  for (const tool of ['fake-ci-svc', 'fake-ci-config', 'mv']) symlinkSync(fake, path.join(f.guest, 'bin', tool));
   writeFileSync(path.join(runner, 'svc.sh'), '#!/bin/bash\nexec fake-ci-svc "$@"\n');
   writeFileSync(path.join(runner, 'config.sh'), '#!/bin/bash\nexec fake-ci-config "$@"\n');
   for (const script of ['svc.sh', 'config.sh']) chmodSync(path.join(runner, script), 0o755);
@@ -203,6 +203,22 @@ test('register restores exactly the previous registration files after a partial 
   assert.equal(existsSync(path.join(f.guest, 'home/runner/actions-runner/.credentials_rsaparams')), false);
   assert.equal(f.state(), 'active\n');
 });
+
+// The previous registration is moved aside one file at a time. A failure or TERM partway leaves later files in place,
+// and only files that were absent at entry may be removed.
+for (const [scenario, status] of [['mv-fail', 1], ['mv-term', 143]] satisfies [string, number][]) {
+  test(`register keeps every previous registration file when the move aside stops partway (${scenario})`, () => {
+    const f = registerFixture(scenario);
+    const runner = path.join(f.guest, 'home/runner/actions-runner');
+    writeFileSync(path.join(runner, '.credentials_rsaparams'), 'previous key\n');
+    const result = f.register();
+    assert.equal(result.status, status, result.stderr + result.stdout);
+    assert.deepEqual(f.registration(), ['previous registration\n', 'previous credential\n']);
+    assert.equal(readFileSync(path.join(runner, '.credentials_rsaparams'), 'utf8'), 'previous key\n');
+    assert.equal(f.state(), 'active\n');
+    assert.equal(f.events().includes('config'), false);
+  });
+}
 
 test('register refuses a held verification lock before any mutation', () => {
   const f = registerFixture();

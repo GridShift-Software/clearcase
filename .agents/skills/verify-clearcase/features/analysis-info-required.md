@@ -25,6 +25,7 @@ Preconditions:
 
 ## Gotchas
 
+- The page heading is v5's `Information & Documents Required` by default, and the navigation label `Info Required` only with `CLEARCASE_ANALYSIS_ADDITIONS=1` (ADR 0003). The title says `Info Required` in both states.
 - Use `IMMEDIATE`, not `EXCLUSIVE`, to hold the store: with a rollback journal, `EXCLUSIVE` also blocks the page's reads.
 - v5 keyed its flags by array index (`ess_dcs_info_done_v1`, S-index-keys). A later import of that store maps index `i` to `itemKeys(infoRequired)[i]` of the same results version only.
 - `main[data-ready=<view-id>]` is already in the server-rendered HTML, because the data is complete there. Wait for `main[data-hydrated]` as well before clicking a control (checkbox, Export CSV, Print / PDF), or the click may land before the page handles it.

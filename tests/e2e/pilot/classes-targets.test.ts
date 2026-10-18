@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 // @ts-expect-error plain .mjs
-import { csvExports, hasLeaveGuard } from '../classes/targets.mjs';
+import { csvExports, hasActions, hasLeaveGuard } from '../classes/targets.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'cc-targets-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
@@ -46,4 +46,227 @@ describe('hasLeaveGuard', () => {
 		expect(hasLeaveGuard(root, '/g2')).toBe(true);
 		expect(hasLeaveGuard(root, '/g3')).toBe(false);
 	});
+});
+
+
+describe('CSV producers that discovery cannot map (GRS-61)', () => {
+	const tree = () => mkdtempSync(join(root, 'unmapped-'));
+	const file = (dir: string, rel: string, text: string) => { const f = join(dir, 'src', rel); mkdirSync(dirname(f), { recursive: true }); writeFileSync(f, text); };
+	test('refuses a non-route TypeScript CSV producer instead of dropping it', () => {
+		const dir = tree();
+		file(dir, 'routes/a/+page.svelte', '<main />');
+		file(dir, 'lib/export.ts', "import { download } from '$lib/components/csv'; export const save = () => download('a.csv', 'x');");
+		expect(csvExports(dir).unrecognised).toEqual(['src/lib/export.ts']);
+	});
+	test('refuses a nested CSV component that is not mapped to a checked page', () => {
+		const dir = tree();
+		file(dir, 'routes/a/+page.svelte', "<script>import Shell from '$lib/Shell.svelte';</script><Shell />");
+		file(dir, 'lib/Shell.svelte', "<script>import Maker from '$lib/Maker.svelte';</script><Maker />");
+		file(dir, 'lib/Maker.svelte', "<script>import { download } from '$lib/components/csv'; const save = () => download('a.csv', 'x');</script>");
+		expect(csvExports(dir).unrecognised).toEqual(['src/lib/Maker.svelte']);
+	});
+});
+
+
+describe('shared direct and nested CSV producers (GRS-61)', () => {
+ test('discovers every consuming page, including aliases, relative paths, cycles and several wrapper levels', () => {
+  const dir = mkdtempSync(join(root, 'mixed-'));
+  const file = (rel: string, source: string) => { const path = join(dir, 'src', rel); mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, source); };
+  file('routes/direct/+page.svelte', "<script>import Maker from '$lib/Maker.svelte';</script><Maker />");
+  file('routes/wrapped/+page.svelte', "<script>import Shell from '$lib/Shell.svelte';</script><Shell />");
+  file('routes/deep/+page.svelte', "<script>import Outer from '../../lib/Outer.svelte';</script><Outer />");
+  file('lib/Outer.svelte', "<script>import Shell from './Shell.svelte';</script><Shell />");
+  file('lib/Shell.svelte', "<script>import Renamed from './Maker.svelte'; import Outer from './Outer.svelte';</script><Renamed />");
+  file('lib/Maker.svelte', "<script>import { download } from '$lib/components/csv'; const save = () => download('a.csv', 'x');</script>");
+  expect(csvExports(dir)).toEqual({ pages: ['/deep', '/direct', '/wrapped'], servers: [], unrecognised: [], declaredButCsv: [] });
+ });
+ test('keeps every page the base found: a mapped producer reached through a barrel or a dynamic import, or a wrapper imported dynamically', () => {
+  const dir = mkdtempSync(join(root, 'unfollowed-'));
+  const file = (rel: string, source: string) => { const path = join(dir, 'src', rel); mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, source); };
+  file('routes/direct/+page.svelte', "<script>import Maker from '$lib/Maker.svelte';</script><Maker />");
+  file('routes/barrel/+page.svelte', "<script>import { Maker } from '$lib';</script><Maker />");
+  file('routes/lazy/+page.svelte', "<script>const Maker = import('$lib/Maker.svelte');</script>{#await Maker then M}<M.default />{/await}");
+  file('routes/lazy-wrapped/+page.svelte', "<script>const Box = import('$lib/Shell.svelte');</script>{#await Box then B}<B.default />{/await}");
+  file('lib/index.ts', "export { default as Maker } from './Maker.svelte';");
+  file('lib/Shell.svelte', "<script>import Maker from './Maker.svelte';</script><Maker />");
+  file('lib/Maker.svelte', "<script>import { download } from '$lib/components/csv'; const save = () => download('a.csv', 'x');</script>");
+  expect(csvExports(dir)).toEqual({ pages: ['/barrel', '/direct', '/lazy', '/lazy-wrapped'], servers: [], unrecognised: [], declaredButCsv: [] });
+ });
+});
+
+describe('barrel and alias edges between pages and a mapped CSV producer (GRS-61, PR #63 review)', () => {
+ const MAKER = "<script>import { download } from '$lib/components/csv'; const save = () => download('a.csv', 'x');</script>";
+ const build = (files: Record<string, string>) => {
+  const dir = mkdtempSync(join(root, 'barrel-'));
+  for (const [rel, source] of Object.entries(files)) { const path = join(dir, 'src', rel); mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, source); }
+  return dir;
+ };
+ // every consuming page is discovered, or the file that hides it is refused: never neither
+ const accounted = (r: { pages: string[]; unrecognised: string[] }, page: string, file: string) => r.pages.includes(page) || r.unrecognised.includes(file);
+ test('a page importing the producer through an aliased barrel re-export is discovered next to a direct page', () => {
+  const dir = build({
+   'routes/direct/+page.svelte': "<script>import Maker from '$lib/Maker.svelte';</script><Maker />",
+   'routes/alias/+page.svelte': "<script>import { CsvDownload } from '$lib';</script><CsvDownload />",
+   'lib/index.ts': "export { default as CsvDownload } from './Maker.svelte';",
+   'lib/Maker.svelte': MAKER,
+  });
+  const r = csvExports(dir);
+  expect(accounted(r, '/alias', 'src/routes/alias/+page.svelte')).toBe(true);
+  expect(r).toEqual({ pages: ['/alias', '/direct'], servers: [], unrecognised: [], declaredButCsv: [] });
+ });
+ test('a wrapper that reaches the producer through a barrel counts for every page that renders it', () => {
+  const dir = build({
+   'routes/direct/+page.svelte': "<script>import Maker from '$lib/Maker.svelte';</script><Maker />",
+   'routes/shell/+page.svelte': "<script>import Shell from '$lib/Shell.svelte';</script><Shell />",
+   'lib/Shell.svelte': "<script>import { CsvDownload } from './index';</script><CsvDownload />",
+   'lib/index.ts': "export { default as CsvDownload } from './Maker.svelte';",
+   'lib/Maker.svelte': MAKER,
+  });
+  const r = csvExports(dir);
+  expect(accounted(r, '/shell', 'src/routes/shell/+page.svelte')).toBe(true);
+  expect(r).toEqual({ pages: ['/direct', '/shell'], servers: [], unrecognised: [], declaredButCsv: [] });
+ });
+ test('follows nested barrels, export * and export { X }, with and without an extension on the barrel path', () => {
+  const dir = build({
+   'routes/direct/+page.svelte': "<script>import Maker from '$lib/Maker.svelte';</script><Maker />",
+   'routes/star/+page.svelte': "<script>import { Csv } from '$lib/widgets';</script><Csv />",
+   'routes/named/+page.svelte': "<script>import { Csv } from '$lib/widgets/index.ts';</script><Csv />",
+   'lib/widgets/index.ts': "export * from './inner';",
+   'lib/widgets/inner.ts': "export { default as Csv } from '../Maker.svelte';",
+   'lib/Maker.svelte': MAKER,
+  });
+  expect(csvExports(dir).pages).toEqual(['/direct', '/named', '/star']);
+ });
+ test('refuses a consumer it cannot follow instead of dropping it: a computed dynamic import, and a directory import with no index to read', () => {
+  const dir = build({
+   'routes/direct/+page.svelte': "<script>import Maker from '$lib/Maker.svelte';</script><Maker />",
+   'routes/computed/+page.svelte': "<script>const load = (n) => import(`$lib/${n}.svelte`);</script>",
+   'routes/missing/+page.svelte': "<script>import { Csv } from '$lib/vendor';</script><Csv />",
+   'lib/vendor/other.ts': 'export const x = 1;',
+   'lib/Maker.svelte': MAKER,
+  });
+  const r = csvExports(dir);
+  expect(accounted(r, '/computed', 'src/routes/computed/+page.svelte')).toBe(true);
+  expect(accounted(r, '/missing', 'src/routes/missing/+page.svelte')).toBe(true);
+  expect(r.unrecognised).toEqual(['src/routes/computed/+page.svelte', 'src/routes/missing/+page.svelte']);
+  expect(r.pages).toEqual(['/direct']);
+ });
+
+ // `import(` in expression position after a keyword is a dynamic import; prose and method names are not (GRS-61, PR #63 re-check)
+ const WRAPPER = { 'lib/x/Dl.svelte': "<script>import Maker from '$lib/Maker.svelte';</script><Maker />", 'lib/Maker.svelte': MAKER, 'routes/direct/+page.svelte': "<script>import Maker from '$lib/Maker.svelte';</script><Maker />" };
+ test('a keyword-led dynamic import (void, else) of a wrapper of a mapped producer is discovered', () => {
+  const dir = build({
+   ...WRAPPER,
+   'routes/void/+page.svelte': "<script>let C = $state(); void import('$lib/x/Dl.svelte').then((m) => (C = m.default));</script>",
+   'routes/else/+page.svelte': "<script>let C; if (a) { x(); } else import('$lib/x/Dl.svelte').then((m) => (C = m.default));</script>",
+  });
+  expect(csvExports(dir)).toEqual({ pages: ['/direct', '/else', '/void'], servers: [], unrecognised: [], declaredButCsv: [] });
+ });
+ test('a keyword-led computed dynamic import is refused instead of dropped', () => {
+  const dir = build({
+   ...WRAPPER,
+   'routes/void/+page.svelte': "<script>void import(`$lib/x/${n}.svelte`);</script>",
+   'routes/else/+page.svelte': "<script>if (a) { x(); } else import(`$lib/x/${n}.svelte`);</script>",
+  });
+  const r = csvExports(dir);
+  expect(r.unrecognised).toEqual(['src/routes/else/+page.svelte', 'src/routes/void/+page.svelte']);
+  expect(r.pages).toEqual(['/direct']);
+ });
+ test('prose, a method named import and a $import call are not dynamic imports', () => {
+  const dir = build({
+   ...WRAPPER,
+   'routes/prose/+page.svelte': "<script>const msg = 'changed since import (size differs)'; const t = `at import (size differs)`; db.import(rows); $import(rows);</script>{msg}",
+  });
+  expect(csvExports(dir)).toEqual({ pages: ['/direct'], servers: [], unrecognised: [], declaredButCsv: [] });
+ });
+ test('a line-start dynamic import after a line ending in a word, a comment or a \\r\\n ending is discovered', () => {
+  const dir = build({
+   ...WRAPPER,
+   'routes/word/+page.svelte': "<script>let C;\n// preload\nimport('$lib/x/Dl.svelte').then((m) => (C = m.default));</script>",
+   'routes/crlf/+page.svelte': "<script>let C;\r\n// preload\r\nimport('$lib/x/Dl.svelte').then((m) => (C = m.default));</script>",
+   'routes/block/+page.svelte': "<script>let C; /* note */ import('$lib/x/Dl.svelte').then((m) => (C = m.default));</script>",
+  });
+  expect(csvExports(dir)).toEqual({ pages: ['/block', '/crlf', '/direct', '/word'], servers: [], unrecognised: [], declaredButCsv: [] });
+ });
+ test('a line-start computed dynamic import after a line ending in a word is refused instead of dropped', () => {
+  const dir = build({
+   ...WRAPPER,
+   'routes/word/+page.svelte': "<script>let C;\n// preload\nimport(`$lib/x/${n}.svelte`);</script>",
+   'routes/crlf/+page.svelte': "<script>let C;\r\n// preload\r\nimport(`$lib/x/${n}.svelte`);</script>",
+   'routes/block/+page.svelte': "<script>let C; /* note */ import(`$lib/x/${n}.svelte`);</script>",
+  });
+  const r = csvExports(dir);
+  expect(r.unrecognised).toEqual(['src/routes/block/+page.svelte', 'src/routes/crlf/+page.svelte', 'src/routes/word/+page.svelte']);
+  expect(r.pages).toEqual(['/direct']);
+ });
+ test('imports of non-code files and packages are not consumers to refuse', () => {
+  const dir = build({
+   'routes/direct/+page.svelte': "<script>import Maker from '$lib/Maker.svelte'; import raw from '$lib/x.css?raw'; import { page } from '$app/state'; import z from 'zod'; import d from './data.json';</script><Maker />",
+   'routes/direct/data.json': '{}',
+   'lib/Maker.svelte': MAKER,
+  });
+  expect(csvExports(dir)).toEqual({ pages: ['/direct'], servers: [], unrecognised: [], declaredButCsv: [] });
+ });
+});
+
+describe('the other page discoveries follow the same edges (GRS-61, PR #63 review)', () => {
+ const build = (files: Record<string, string>) => {
+  const dir = mkdtempSync(join(root, 'sweep-'));
+  for (const [rel, source] of Object.entries(files)) { const path = join(dir, 'src', rel); mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, source); }
+  return dir;
+ };
+ test('hasLeaveGuard follows an aliased barrel, a dynamic import and a relative directory import', () => {
+  const dir = build({
+   'lib/index.ts': "export { default as Guard } from './Guarded.svelte';",
+   'lib/Guarded.svelte': "<script>import { beforeNavigate } from '$app/navigation';</script>",
+   'routes/barrel/+page.svelte': "<script>import { Guard } from '$lib';</script><Guard />",
+   'routes/lazy/+page.svelte': "<script>const G = import('$lib/Guarded.svelte');</script>",
+   'routes/rel/+page.svelte': "<script>import { Guard } from '../../lib';</script><Guard />",
+   'routes/none/+page.svelte': '<form></form>',
+  });
+  for (const r of ['/barrel', '/lazy', '/rel']) expect(hasLeaveGuard(dir, r)).toBe(true);
+  expect(hasLeaveGuard(dir, '/none')).toBe(false);
+ });
+ test('hasLeaveGuard follows a keyword-led dynamic import and ignores prose and method calls', () => {
+  const dir = build({
+   'lib/Guarded.svelte': "<script>import { beforeNavigate } from '$app/navigation';</script>",
+   'routes/void/+page.svelte': "<script>void import('$lib/Guarded.svelte').then((m) => m.default);</script>",
+   'routes/prose/+page.svelte': "<script>const msg = 'changed since import (size differs)'; db.import(rows); $import(rows);</script>",
+  });
+  expect(hasLeaveGuard(dir, '/void')).toBe(true);
+  expect(hasLeaveGuard(dir, '/prose')).toBe(false);
+ });
+ test('hasLeaveGuard refuses a page whose import it cannot follow instead of answering no', () => {
+  const dir = build({
+   'lib/vendor/other.ts': 'export const x = 1;',
+   'routes/a/+page.svelte': "<script>import { Guard } from '$lib/vendor';</script><Guard />",
+   'routes/b/+page.svelte': "<script>const load = (n) => import(`$lib/${n}.svelte`);</script>",
+  });
+  expect(() => hasLeaveGuard(dir, '/a')).toThrow(/cannot follow/);
+  expect(() => hasLeaveGuard(dir, '/b')).toThrow(/cannot follow/);
+ });
+ test('hasActions sees a local export { actions }, an aliased re-export and an export * from another module', () => {
+  const dir = build({
+   'lib/forms.ts': 'export const actions = {};',
+   'routes/local/+page.server.ts': 'const a = {}; export { a as actions };',
+   'routes/alias/+page.server.ts': "export { default as actions } from '$lib/forms';",
+   'routes/star/+page.server.ts': "export * from '$lib/forms';",
+   'routes/plain/+page.server.ts': 'export const load = () => ({});',
+  });
+  for (const r of ['/local', '/alias', '/star']) expect(hasActions(dir, r)).toBe(true);
+  expect(hasActions(dir, '/plain')).toBe(false);
+ });
+});
+
+// The real app's CSV inventory at the GRS-61 base (1332ea8), recomputed there with that revision's own targets.mjs and declarations.
+import baseProducers from './csv-producers.json';
+// @ts-expect-error plain .mjs
+import * as declared from '../classes/declared.mjs';
+test('keeps the real app inventory at the base 19 pages and one server without rejected producers', () => {
+ const result = csvExports(join(import.meta.dirname, '..', '..', '..'), { notProducers: declared.NOT_PRODUCERS, helpers: declared.HELPERS });
+ expect(result).toEqual(baseProducers);
+ expect(result.pages).toHaveLength(19);
+ expect(result.servers).toHaveLength(1);
+ expect(result.declaredButCsv).toEqual([]);
+ expect(result.unrecognised).toEqual([]);
 });

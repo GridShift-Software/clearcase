@@ -30,7 +30,7 @@ const AUTHOR = 'GRS-67 dispositions (scripts/verify/register-dispositions.mjs)';
 /** Ids the main file may give a disposition of a pilot view: above its legacy entries, below every owner's range. */
 const MAIN_RANGE = [74, 99];
 /** Ids an owner used and removed (from the register's git history): never issued again, so old reports stay unambiguous. */
-const RETIRED = new Set([100, 106, 116, 124, 134, 160, 162, 165, 166, 206, 208, 216, 218, 222, 267, 302, 311, 314, 317, 320, 323, 324, 350, 358, 359, 360, 362, 363, 364].map((n) => `IDR-${n}`));
+const RETIRED = new Set([100, 106, 116, 124, 134, 150, 155, 157, 158, 159, 160, 162, 163, 165, 166, 169, 206, 208, 216, 218, 222, 267, 302, 311, 314, 317, 320, 323, 324, 350, 358, 359, 360, 362, 363, 364].map((n) => `IDR-${n}`));
 const FIX = 'defect-fix', GAP = 'known-gap', DATA = 'data-correction-deferred-to-pipeline';
 
 // [defect, view, type, productVisible, evidence file, evidence pattern (a literal substring), covering entry or null, reason]
@@ -113,12 +113,14 @@ const DISPOSITIONS = [
 		"v5 hard-codes case narrative, counts and a firm name in the renderer. ClearCase fills the synopsis, narrative, trajectory and notes from the imported view-content dataset, with counts derived from the register and package, so no case wording lives in code."],
 	["S-timeline-3", "timeline", FIX, true, "src/lib/views/analysis/timeline.test.ts", "all-zero counts draw flat bars, not NaN", null,
 		"v5 scales year bars by the maximum, so a map of only zero counts divides by zero and gives NaN heights. ClearCase takes the maximum with a zero floor and draws flat bars for all-zero counts and none for an empty map."],
+	["S-timeline-4", "timeline", GAP, true, "src/lib/views/analysis/headings.ts", "timeline: 'Chronology & Timeline'", null,
+		"v5 heads the page Chronology & Timeline while its navigation and crumb say Timeline. ClearCase reproduces this by default: a heading equal to the navigation label is an analysis addition behind CLEARCASE_ANALYSIS_ADDITIONS, off until the client approves it (ADR 0003, GRS-48); with the flag set to 1 the heading is Timeline. Info Required and Defence & Rebuttal keep v5's headings the same way."],
 	[["S-quantum_tab-1", "S-quantum_tab-2"], "quantum_tab", FIX, true, "src/routes/v/[vid]/quantum/quantum_tab/+page.svelte", ["label=\"Open source PDF\"", "type: 'charging calculation' })}"], null,
 		"S-quantum_tab-1: v5's headline source link bypasses the viewer, unlike every other document link; ClearCase renders it through the shared citation link, which opens the document page. S-quantum_tab-2: v5's charging shortcut sets only the type filter and keeps earlier filters; ClearCase links to the chronology with the default query and only the type set."],
 	["S-quantum_tab-3", "quantum_tab", GAP, true, "tests/quantum/ledger.test.ts", "draws no negative bar and nothing for an empty series", null,
 		"v5's amount chart assumes non-negative amounts and writes negative heights. ClearCase draws no bar for a negative amount. The bar-width formula with its minimum is unchanged, so bars can still overlap with a very large series, the other half of the defect; closing it would need an app change."],
 	["S-disbursements_tab-2", "disbursements_tab", FIX, true, "tests/registers/logic.test.ts", "neutralising formulas and quoting CR and LF", null,
-		"v5's CSV export writes free-text fields unprotected, so a cell starting with a formula character can run as a formula in a spreadsheet. ClearCase passes every exported user cell through a neutraliser that prefixes such cells, and formula segments after a separator, with an apostrophe."],
+		"v5's CSV export writes free-text fields unprotected, so a cell starting with a formula character can run as a formula in a spreadsheet. ClearCase passes every exported user cell through a neutraliser that prefixes such cells, and formula segments after a separator, with an apostrophe. The exception is a validated amount in a signed-money field (Disbursements Amount): it is written as a plain two-decimal number, credits included, with R and grouping removed, where v5 writes what the user typed."],
 	["S-timesheet_tab-2", "timesheet_tab", GAP, true, "src/lib/views/registers/logic.ts", "def.fields.map((x) => x.k)", null,
 		"v5 exports only the stored fields, so the derived Value is missing from the CSV. ClearCase writes the same stored field keys and rows and does not add the Value column; an app change is needed to export it."],
 	["S-deadlines_tab-3", "deadlines_tab", GAP, true, "src/lib/views/registers/RegisterPage.svelte", "data-edit onclick={() => edit(r)}", null,
@@ -133,6 +135,8 @@ const DISPOSITIONS = [
 		"v5 hard-codes a paragraph of case reasoning in the renderer. ClearCase shows the method note from the imported view-content dataset, with the document count derived from the register, so no case wording lives in code."],
 	["S-risk_matrix_tab-1", "risk_matrix_tab", GAP, true, "src/routes/v/[vid]/analysis/risk_matrix_tab/+page.svelte", "<TableScroll label=\"Risk matrix\" class=\"an-scroll\">", null,
 		"v5 has no export or edit for this register-like view and maps colour by exact, case-sensitive High or Medium. ClearCase reproduces both: the page is a read-only table with no export button and the tone mapping is case-sensitive. Adding export or edit needs an app change."],
+	["S-vdm_matrix_tab-1", "vdm_matrix_tab", GAP, true, "tests/analysis/flag-states.test.ts", "hides the defence Refs column and exports v5", null,
+		"v5 never shows or exports the defence matrix free-text refs. ClearCase reproduces this by default: the Refs column and the CSV's last refs column are analysis additions behind CLEARCASE_ANALYSIS_ADDITIONS, off until the client approves them (ADR 0003, GRS-48); with the flag set to 1 both show, after v5's columns."],
 	["S-vdm_matrix_tab-2", "vdm_matrix_tab", FIX, false, "src/routes/v/[vid]/analysis/vdm_matrix_tab/+page.server.ts", "subtitle: viewText(vc, 'vdm_matrix_tab', 'subtitle')", null,
 		"v5 hard-codes party abbreviations in the column headings and subtitle. ClearCase reads the subtitle and column headings from the imported view-content dataset, falling back to neutral headings, so the parties are named by the package and not by code."],
 	["S-info_required_tab-1", "info_required_tab", FIX, true, "tests/analysis/info-required.test.ts", "saves a flag on its item and keeps it there when a later version", null,

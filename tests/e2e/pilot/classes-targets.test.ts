@@ -80,6 +80,18 @@ describe('shared direct and nested CSV producers (GRS-61)', () => {
   file('lib/Maker.svelte', "<script>import { download } from '$lib/components/csv'; const save = () => download('a.csv', 'x');</script>");
   expect(csvExports(dir)).toEqual({ pages: ['/deep', '/direct', '/wrapped'], servers: [], unrecognised: [], declaredButCsv: [] });
  });
+ test('keeps every page the base found: a mapped producer reached through a barrel or a dynamic import, or a wrapper imported dynamically', () => {
+  const dir = mkdtempSync(join(root, 'unfollowed-'));
+  const file = (rel: string, source: string) => { const path = join(dir, 'src', rel); mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, source); };
+  file('routes/direct/+page.svelte', "<script>import Maker from '$lib/Maker.svelte';</script><Maker />");
+  file('routes/barrel/+page.svelte', "<script>import { Maker } from '$lib';</script><Maker />");
+  file('routes/lazy/+page.svelte', "<script>const Maker = import('$lib/Maker.svelte');</script>{#await Maker then M}<M.default />{/await}");
+  file('routes/lazy-wrapped/+page.svelte', "<script>const Box = import('$lib/Shell.svelte');</script>{#await Box then B}<B.default />{/await}");
+  file('lib/index.ts', "export { default as Maker } from './Maker.svelte';");
+  file('lib/Shell.svelte', "<script>import Maker from './Maker.svelte';</script><Maker />");
+  file('lib/Maker.svelte', "<script>import { download } from '$lib/components/csv'; const save = () => download('a.csv', 'x');</script>");
+  expect(csvExports(dir)).toEqual({ pages: ['/barrel', '/direct', '/lazy', '/lazy-wrapped'], servers: [], unrecognised: [], declaredButCsv: [] });
+ });
 });
 
 // Base inventory captured from db73856 using its own declarations and csvExports.

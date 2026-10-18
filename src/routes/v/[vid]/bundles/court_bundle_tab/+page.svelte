@@ -4,7 +4,7 @@
 	import { page } from '$app/state';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { NOT_SERVED, hrefOf, type Resolved } from '$lib/views/bundles/links';
-	import { downloadBlob } from '$lib/views/bundles/download';
+	import { download } from '$lib/components/download';
 	import { postAction } from '$lib/views/bundles/post';
 	import { printIndex } from '$lib/views/bundles/print';
 	import { DOCX_TYPE, indexDocx } from '$lib/views/bundles/docx';
@@ -94,8 +94,8 @@
 	const rowsOf = (v: string) => Math.max(3, v.split(/\r?\n/).length + 1);
 
 	const creator = () => c.docxCreator ?? 'ClearCase';
-	const wordOne = (x: Bundle) => downloadBlob(indexFileName(x), indexDocx([x], hd.h, creator()), DOCX_TYPE);
-	const wordAll = () => { if (bs.length) downloadBlob(c.allIndexesFileName ?? 'Court_Bundle_Indexes.docx', indexDocx(bs, hd.h, creator()), DOCX_TYPE); };
+	const wordOne = (x: Bundle) => download(indexFileName(x), indexDocx([x], hd.h, creator()), DOCX_TYPE);
+	const wordAll = () => { if (bs.length) download(c.allIndexesFileName ?? 'Court_Bundle_Indexes.docx', indexDocx(bs, hd.h, creator()), DOCX_TYPE); };
 	const print = (x: Bundle) => { message = printIndex(x, hd.h) ? null : 'Allow pop-ups to print the index.'; };
 
 	let ready = $state(false);

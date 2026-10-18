@@ -91,6 +91,7 @@ export const NO_BACK = {
 /** Files that hand content to the user (download, Content-Disposition, an object URL, <a download>) but that are CSV helpers, not producers. */
 export const HELPERS = {
 	'src/lib/components/csv.ts': 'the CSV helper itself: toCSV, userCell and `download`',
+	'src/lib/components/download.ts': 'shared browser download helper for CSV and binary or HTML exports',
 	'src/lib/case-package/media.ts': 'a table of media types for package files',
 };
 
@@ -100,7 +101,6 @@ export const NOT_PRODUCERS = {
 	'src/lib/local-case/originals.server.ts': 'serves original bytes with Content-Disposition',
 	'src/lib/views/bundles/Builder.svelte': 'bundle index as PDF and DOCX',
 	'src/lib/views/bundles/caselines.ts': 'a link to a bundle file',
-	'src/lib/views/bundles/download.ts': 'the blob download helper of the bundles (HTML, DOCX, PDF)',
 	'src/lib/views/bundles/links.server.ts': 'download links to bundle files',
 	'src/routes/v/[vid]/bundles/caselines_tab/+page.svelte': 'downloads of bundle files and session uploads',
 	'src/routes/v/[vid]/bundles/court_bundle_tab/+page.svelte': 'bundle indexes as DOCX',

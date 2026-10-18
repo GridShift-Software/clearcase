@@ -72,3 +72,18 @@ export const csvChecks = (files) => ({
 	hostileReached: files.every((c) => c.marks > 0),
 	noFormula: files.every((c) => c.bad === 0),
 });
+
+/**
+ * Whether a narrow measurement saw the page rendered: its main with a ready marker that is not an error, and a
+ * navigation answered below 400. A page without a ready marker passes only when declared.mjs NO_READY says why and its
+ * main shows content. `l`: { main, content, ready, status } as measured.
+ */
+export function pageRendered(l, noReady = null) {
+	const answered = typeof l.status === 'number' && l.status >= 200 && l.status < 400;
+	const ready = typeof l.ready === 'string' && l.ready !== '' && !/^error/.test(l.ready);
+	const declared = l.ready == null && typeof noReady === 'string' && noReady.trim() !== '' && l.content === true;
+	return l.main === true && answered && (ready || declared);
+}
+
+/** A choice state came up when it names a selector and that selector was found at every width measured. */
+export const stateShown = (state, layouts) => typeof state?.expect === 'string' && state.expect.trim() !== '' && layouts.length > 0 && layouts.every((l) => l.stateShown === true);

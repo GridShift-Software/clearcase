@@ -1,7 +1,7 @@
 {
   "schema": "clearcase-fix-round/1",
   "unit": "PRFIX-75/implementation",
-  "fixBase": "e02d925bde9a9ab5f8779d93bd7a2cf03c0af14a",
+  "fixBase": "282c161a9021dc7704c0750bb5dc0dacc9f52630",
   "reviewFindingsSha256": "65520f35839212e429f00ddbe7ebabe4761da865338d4fbfc805c87ba1ee08f1",
   "review": {
     "pullRequest": 75,
@@ -9,7 +9,7 @@
     "reviewer": "dianbrown",
     "reviewedHead": "60df08777b2cbf36b918a9408e94a826293f75f4",
     "waveBase": "4d5f7be7b021e3db85fb5d95a4d9d92ce9cf20ee",
-    "note": "fixBase is the red commit: the guard needs the named tests to exist at the base, and they are new. The reviewed head and the dev base are recorded here."
+    "note": "fixBase is the red commit: the guard needs each named test to exist, and be readable, at the base, and these regressions are new. The reviewed head and the dev base are recorded here."
   },
   "findings": [
     {

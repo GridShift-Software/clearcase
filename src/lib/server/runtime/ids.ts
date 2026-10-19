@@ -7,7 +7,12 @@ export type SessionId = Id<'session'>;
 export type WorkVersion = Id<'row-version'>;
 export type CaseRevision = Id<'case-revision'>;
 
-export function id<K extends string>(kind: K, value: string): Id<K> {
+// The opaque kinds id() may brand. A results version and a digest have their own validators below; id() refuses them, so
+// no string reaches those brands without its exact digest form.
+const OPAQUE = ['client', 'case', 'session', 'row-version', 'case-revision', 'input-revision', 'snapshot'] as const;
+export type OpaqueKind = (typeof OPAQUE)[number];
+export function id<K extends OpaqueKind>(kind: K, value: string): Id<K> {
+  if (!(OPAQUE as readonly string[]).includes(kind)) throw new TypeError(`id() cannot brand ${kind}`);
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value)) throw new TypeError(`Invalid ${kind} id`);
   return value as Id<K>;
 }

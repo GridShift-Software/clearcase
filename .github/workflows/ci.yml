@@ -119,8 +119,11 @@ jobs:
       - name: gate-hosted
         run: |
           tmp=$(mktemp -d /dev/shm/clearcase-ci-hosted.XXXXXX)
-          trap 'rm -f .local/hosted; rm -rf "$tmp"' EXIT
+          # The test step leaves a real .local/hosted (hosted-cleanup-ownership.test.ts): ln -sfn would link inside it, and
+          # rm -f cannot remove it. rm -rf removes a link without following it and a directory with its contents.
+          trap 'rm -rf -- .local/hosted; rm -rf "$tmp"' EXIT
           mkdir -p .local "$tmp/hosted" "$tmp/scratch"
+          rm -rf -- .local/hosted
           ln -sfn "$tmp/hosted" .local/hosted
           proof='if (process.versions.bun) { console.error("node is Bun"); process.exit(3); } console.log("node " + process.execPath + " " + process.version + " (not Bun)");'
           CI=1 WRANGLER_SEND_METRICS=false WRANGLER_SEND_ERROR_REPORTS=false TMPDIR=$tmp CLEARCASE_HOSTED_SCRATCH=$tmp/scratch \

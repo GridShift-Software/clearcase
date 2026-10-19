@@ -19,9 +19,10 @@ const { gateFixture } = await import(cfg.fixtureModule);
 const ev = cfg.evidence;
 mkdirSync(join(ev, 'screens'), { recursive: true });
 appendFileSync(cfg.pidFile, JSON.stringify({ role: 'drive', pid: process.pid, at: new Date().toISOString() }) + '\n');
+const startedAt = Date.now();
 const results = [];
 let failed = false, shotN = 0, b = null, canary = null;
-const save = (ok = null) => writeFileSync(join(ev, 'drive.json'), JSON.stringify({ ok, partial: ok === null, results }, null, 1));
+const save = (ok = null) => writeFileSync(join(ev, 'drive.json'), JSON.stringify({ ok, partial: ok === null, startedAt, results }, null, 1));
 // The slot wait happens before this process starts, so the deadline counts the drive alone.
 setTimeout(() => { console.log('drive: not finished within 300 s'); save(false); process.exit(1); }, 300_000).unref();
 const step = async (id, feature, title, fn) => {

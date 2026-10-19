@@ -11,7 +11,9 @@ import path from 'node:path';
 
 const SUPPORT_DIR = /^(?:tests?|__tests__|e2e|support|test-?utils?|test-?helpers?|fixtures?|__fixtures__|__mocks__|__snapshots__)$/;
 const FIXTURE_DIR = /^(?:fixtures?|__fixtures__|__mocks__|__snapshots__)$/;
-const isSupport = file => /\.(?:test|spec)\.[^/]*$/.test(file) || file.split('/').slice(0, -1).some(part => SUPPORT_DIR.test(part));
+// A test file: the runner collects it as an entry of its own.
+const isEntry = file => /\.(?:test|spec)\.[^/]*$/.test(file);
+const isSupport = file => isEntry(file) || file.split('/').slice(0, -1).some(part => SUPPORT_DIR.test(part));
 const CONFIG_FILE = /(?:^|\/)(?:(?:vitest|vite|jest|playwright)\.(?:config|workspace|setup)[^/]*|bunfig\.toml)$/;
 const TEST_SCRIPT = /^(?:pre|post)?test(?::|$)/;
 const REGULAR = ['100644', '100755'];
@@ -66,18 +68,22 @@ const importedFrom = declaration => {
 // An identifier that names a value, not a property, a declaration or a label.
 const isReference = id => !((id.parent.name === id && !ts.isShorthandPropertyAssignment(id.parent)) || id.parent.propertyName === id
   || id.parent.label === id || (ts.isQualifiedName(id.parent) && id.parent.right === id));
-// Literal module specifiers a file imports, re-exports, requires or loads; a nonliteral one refuses.
-const importsOf = (tree, file) => {
+// Literal module specifiers a file imports, re-exports, requires or loads; a nonliteral one refuses, or is skipped
+// when `strict` is false (the module under test, which may load what it likes).
+const importsOf = (tree, file, strict = true) => {
   const imports = tree.referencedFiles.map(ref => './' + ref.fileName);
+  const nonliteral = () => {
+    if (strict) throw Error(`nonliteral protected import: ${file}`);
+  };
   (function visit(node) {
     if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) imports.push(node.moduleSpecifier.text);
     if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
-      if (!node.moduleReference.expression || !ts.isStringLiteralLike(node.moduleReference.expression)) throw Error(`nonliteral protected import: ${file}`);
-      imports.push(node.moduleReference.expression.text);
+      if (!node.moduleReference.expression || !ts.isStringLiteralLike(node.moduleReference.expression)) nonliteral();
+      else imports.push(node.moduleReference.expression.text);
     }
     if (ts.isCallExpression(node) && (node.expression.kind === ts.SyntaxKind.ImportKeyword || node.expression.getText(tree) === 'require')) {
-      if (node.arguments.length !== 1 || !ts.isStringLiteralLike(node.arguments[0])) throw Error(`nonliteral protected import: ${file}`);
-      imports.push(node.arguments[0].text);
+      if (node.arguments.length !== 1 || !ts.isStringLiteralLike(node.arguments[0])) nonliteral();
+      else imports.push(node.arguments[0].text);
     }
     ts.forEachChild(node, visit);
   })(tree);
@@ -612,13 +618,41 @@ function main() {
     if (currentClosure.ids.get(file) !== oldClosure.ids.get(file)) throw Error(`protected fixture changed or deleted: ${file}`);
   }
   const changed = git('diff', '--name-only', '-z', base, head).split('\0').filter(Boolean);
-  // A fix may change the module under test freely, but no changed non-test module may reach the test framework: a
-  // matcher, spy or global installed from application code changes what every test proves.
+  // A fix may change the module under test freely, but a matcher, spy or global installed from code the named test
+  // loads changes what every test proves. Any changed module outside the protected closure and the runner can be
+  // loaded that way, the module under test and the test-support files it loads alike, so none may reach the test
+  // framework, and none may newly load a test file or support code that does. Test files are collected as entries of
+  // their own, so they are left to the assertion count below.
+  const compared = new Set([...oldClosure.found.keys(), ...currentClosure.found.keys()]);
+  const walked = new Set();
+  const loadsSupport = (from, module) => {
+    if (walked.has(module) || !isSupport(module)) return; // the module under test is not followed
+    if (isEntry(module)) throw Error(`changed module ${from} newly loads the test file ${module}`);
+    walked.add(module);
+    const script = scriptOf(module, source(head, module));
+    if (script === undefined) return;
+    const reach = reachesFramework(module, script);
+    if (reach) throw Error(`changed module ${from} newly loads ${module}, which reaches the test framework (${reach})`);
+    for (const specifier of importsOf(ts.createSourceFile(module, script, ts.ScriptTarget.Latest, true), module)) {
+      const next = currentClosure.resolve(module, specifier);
+      if (next) loadsSupport(from, next);
+      else if (isLocal(specifier)) throw Error(`changed module ${from} newly loads ${module}, whose local import ${specifier} cannot be inspected`);
+    }
+  };
+  const loads = (revision, resolve, file) => {
+    const script = exists(revision, file) ? scriptOf(file, source(revision, file)) : undefined;
+    if (script === undefined) return new Set();
+    const tree = ts.createSourceFile(file, script, ts.ScriptTarget.Latest, true);
+    return new Set(importsOf(tree, file, false).map(specifier => resolve(file, specifier)).filter(Boolean));
+  };
   for (const file of changed) {
-    if (isSupport(file) || CONFIG_FILE.test(file) || oldClosure.runner.has(file) || currentClosure.runner.has(file) || !exists(head, file)) continue;
+    if (isEntry(file) || compared.has(file) || CONFIG_FILE.test(file) || oldClosure.runner.has(file)
+        || currentClosure.runner.has(file) || !exists(head, file)) continue;
     const script = scriptOf(file, source(head, file));
     const reach = script === undefined ? undefined : reachesFramework(file, script);
-    if (reach) throw Error(`changed non-test module reaches the test framework (${reach}): ${file}`);
+    if (reach) throw Error(`changed module outside the protected closure reaches the test framework (${reach}): ${file}`);
+    const reviewed = loads(base, oldClosure.resolve, file);
+    for (const target of loads(head, currentClosure.resolve, file)) if (!reviewed.has(target)) loadsSupport(file, target);
   }
   for (const file of changed) {
     if (!(/(?:^|\/)(?:tests?|__tests__)\/|\.(?:test|spec)\./.test(file))) continue;

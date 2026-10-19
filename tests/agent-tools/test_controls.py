@@ -1457,7 +1457,7 @@ class GuardReach(GuardCase):
                 self.protect({'src/api.ts': self.api, **files}, self.named_api)
                 self.write('src/api.ts', line + self.weakened)
                 self.commit('load reviewed test code from the module under test')
-                self.guard(code=1)
+                self.assertIn('newly loads', self.guard(code=1))
         with self.subTest(control='a new test file with its plain helper, and a script loading a plain test helper'):
             self.protect({'src/api.ts': self.api, 'tests/e2e/lib/env.ts': 'export const PORT = 1;\n'}, self.named_api)
             self.write('src/api.ts', self.api.replace("v === 'new'", "v === 'new' && v.length === 3"))

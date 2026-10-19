@@ -1,12 +1,27 @@
 import { error, fail, redirect } from '@sveltejs/kit';
-import type { Diagnostic } from '$lib/case-package/browser';
+import { CODES, type Diagnostic } from '$lib/case-package/browser';
+import { CONVERSION_REPORT } from '$lib/case-package/registry';
 import { app } from '$lib/local-case/app.server';
 import { diffVersions } from '$lib/local-case/diff.server';
 import { versionPath } from '$lib/local-case/model';
+import { datasetOf } from '$lib/local-case/results.server';
 import type { ImportReport } from '$lib/local-case/service.server';
 import type { Actions, PageServerLoad } from './$types';
 
 const LISTED_PER_CODE = 100;
+
+/**
+ * How much document text the source export cut short, from the converter's V5_TEXT_CAPPED diagnostics: null when it
+ * reports none, and `known: false` when the package has no readable conversion report, so a missing report never reads
+ * as complete text.
+ */
+function textCoverage(vid: string): { known: boolean; notes: string[]; hint: string } | null {
+	const report = datasetOf<{ diagnostics: { code: string; message: string }[] }>(app().store, vid, CONVERSION_REPORT.key);
+	const hint = CODES.V5_TEXT_CAPPED.hint;
+	if (!report) return { known: false, notes: [], hint };
+	const notes = report.diagnostics.filter((d) => d.code === 'V5_TEXT_CAPPED').map((d) => d.message);
+	return notes.length ? { known: true, notes, hint } : null;
+}
 
 export const load: PageServerLoad = ({ params, url }) => {
 	const a = app();
@@ -36,6 +51,7 @@ export const load: PageServerLoad = ({ params, url }) => {
 		vid, active,
 		pruned: imp.outcome === 'stored' && !v, supersededBy: imp.outcome === 'stored' && v && v.import_id !== imp.id ? v.import_id : null,
 		check: vid ? a.verify(vid) : null,
+		textCoverage: vid ? textCoverage(vid) : null,
 		diff: vid && active && active !== vid ? diffVersions(a.store, vid, active) : null,
 		notes: vid && caseId ? a.userWork.summary(caseId, vid) : null,
 		noop: url.searchParams.has('noop'), repaired: url.searchParams.has('repaired'),

@@ -200,3 +200,6 @@ export const NON_CSV_PAGES = {
 	'/v/[vid]/registers/deadlines_tab': 'Export calendar produces only an ICS file; the registers suite checks its TEXT escaping.',
 	'/v/[vid]/litigation/heads_tab': 'Export outline produces only a plain-text outline; the litigation suite checks it.',
 };
+
+/** Hosted pages with a form, by route id under deploy/client/routes, with why the class suite does not drive them. */
+export const HOSTED_FORMS = {};

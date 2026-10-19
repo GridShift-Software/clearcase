@@ -204,3 +204,6 @@ export function pageTargets(root, { vpath, rv, ref, importId, views }) {
 	}
 	return out;
 }
+
+/** The hosted route ids (`/sign-in`) whose page renders a form or whose +page.server.ts exports actions: not read yet. */
+export const hostedForms = (root) => [];

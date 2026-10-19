@@ -7,15 +7,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { writePidFile } from '../../../scripts/pidfile.ts';
-
-type Cleanup = { stop?: string; staleState?: string; killed: unknown[]; survivors: unknown[]; removed: boolean; preserved?: unknown[] };
-type Main = {
-	REPO: string;
-	cleanupRun: (scratch: string, port: number) => Cleanup;
-	hostedRun: (o: Record<string, unknown>) => Promise<{ ok: boolean; steps: { id: string; status: string; evidence?: Cleanup }[] }>;
-};
-const main = path.resolve(import.meta.dirname, '../../../.agents/skills/verify-clearcase-hosted/lib/main.mjs');
-const load = async () => (await import(/* @vite-ignore */ main)) as Main;
+// @ts-expect-error plain .mjs
+import { cleanupRun, hostedRun, REPO } from '../../../.agents/skills/verify-clearcase-hosted/lib/main.mjs';
 
 const PORT = 44000 + (process.pid % 900);
 const cleanups: (() => void)[] = [];
@@ -75,7 +68,6 @@ function scratchOf(...records: { role: string; pid: number }[]) {
 
 describe('the hosted verification stops only a server it started', () => {
 	it('a run that refused to start because a server holds the port leaves that server, its pid file and its state alone', async () => {
-		const { REPO, cleanupRun } = await load();
 		const other = await server(REPO);
 		// the refusing run recorded its namespace and inner runner, then threw before spawning start:hosted
 		const out = cleanupRun(scratchOf({ role: 'offline-namespace', pid: process.pid }, { role: 'inner', pid: process.pid }), PORT);
@@ -86,7 +78,6 @@ describe('the hosted verification stops only a server it started', () => {
 	}, 60_000);
 
 	it('hostedRun, refused by a server already on the port, fails its own run and leaves that server alive', async () => {
-		const { REPO, hostedRun } = await load();
 		const other = await server(REPO);
 		const dir = mkdtempSync(path.join(tmpdir(), 'hosted-run-'));
 		cleanups.push(() => rmSync(dir, { recursive: true, force: true }));
@@ -98,11 +89,10 @@ describe('the hosted verification stops only a server it started', () => {
 		const run = await hostedRun({ revision: 'r', evidence: path.join(dir, 'evidence'), scratch: path.join(dir, 'scratch'), port: { app: PORT, canary: PORT + 99 }, node: { path: process.execPath, version: '0' }, tools, lock: null, log: () => {} });
 		expect(run.ok).toBe(false);
 		expect([alive(other.pid), existsSync(other.pidFile), existsSync(other.stateFile)]).toEqual([true, true, true]);
-		expect(run.steps.find((s) => s.id === 'cleanup')?.evidence?.stop).toBeUndefined();
+		expect(run.steps.find((s: { id: string }) => s.id === 'cleanup')?.evidence?.stop).toBeUndefined();
 	}, 60_000);
 
 	it('stops the server whose pid file names a process the run recorded', async () => {
-		const { REPO, cleanupRun } = await load();
 		const own = await server(REPO);
 		const out = cleanupRun(scratchOf({ role: 'start-hosted', pid: own.pid }), PORT);
 		expect(out.stop).toMatch(/^0: /);
@@ -111,7 +101,6 @@ describe('the hosted verification stops only a server it started', () => {
 	}, 60_000);
 
 	it('stops the server whose pid file names a descendant of a process the run recorded (the bun wrapper of start:hosted)', async () => {
-		const { REPO, cleanupRun } = await load();
 		const own = await server(REPO);
 		const out = cleanupRun(scratchOf({ role: 'start-hosted', pid: own.wrapper }), PORT);
 		expect(out.stop).toMatch(/^0: /);
@@ -119,7 +108,6 @@ describe('the hosted verification stops only a server it started', () => {
 	}, 60_000);
 
 	it('leaves a server whose state file names another process than its pid file, even when the pid file names a recorded one', async () => {
-		const { REPO, cleanupRun } = await load();
 		const other = await server(REPO);
 		writeFileSync(other.stateFile, JSON.stringify({ schema: 'clearcase.hosted-server/1', pid: process.pid, port: PORT, runId: 'elsewhere' }));
 		const out = cleanupRun(scratchOf({ role: 'start-hosted', pid: other.pid }), PORT);

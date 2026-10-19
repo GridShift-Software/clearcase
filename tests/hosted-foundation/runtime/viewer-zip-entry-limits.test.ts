@@ -2,19 +2,13 @@
 // review, GRS-97): a stored member can declare size 1 and carry far more. Small synthetic ZIPs under a small cap, in the
 // ZIP writer the harness's own fixtures use; the 64 MiB fixture the browser checks open is archive/stored-lying-size.zip.
 import { deflateRawSync } from 'node:zlib';
-import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+// @ts-expect-error plain .mjs
+import { extractEntry, listZip } from '../../viewer-evaluation/harness/shared/formats.mjs';
+// @ts-expect-error plain .mjs
+import { buildZip, crc32 } from '../../viewer-evaluation/fixtures/lib/zip.mjs';
 
-type Entry = { ordinal: number; problems: string[]; csize: number; size: number };
-type Extracted = { ok: boolean; reason?: string; expandedAtStop?: number; bytes?: Uint8Array };
-type Formats = { listZip: (b: Uint8Array, limits: Limits) => { error: string | null; entries: Entry[] }; extractEntry: (b: Uint8Array, e: Entry, limits: Limits) => Extracted };
-type Limits = { maxEntries: number; maxEntryBytes: number; maxTotalBytes: number; maxDepth: number };
-type Writer = { buildZip: (entries: Record<string, unknown>[]) => Uint8Array; crc32: (b: Uint8Array) => number };
-const viewer = path.resolve(import.meta.dirname, '../../viewer-evaluation');
-const { listZip, extractEntry } = (await import(/* @vite-ignore */ path.join(viewer, 'harness/shared/formats.mjs'))) as Formats;
-const { buildZip, crc32 } = (await import(/* @vite-ignore */ path.join(viewer, 'fixtures/lib/zip.mjs'))) as Writer;
-
-const limits: Limits = { maxEntries: 10, maxEntryBytes: 8, maxTotalBytes: 1 << 20, maxDepth: 3 };
+const limits = { maxEntries: 10, maxEntryBytes: 8, maxTotalBytes: 1 << 20, maxDepth: 3 };
 const payload = (n: number) => Uint8Array.from({ length: n }, (_, i) => 65 + (i % 26));
 const extract = (member: Record<string, unknown>, cap = limits) => {
 	const zip = buildZip([{ name: 'm.bin', ...member }]);

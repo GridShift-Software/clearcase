@@ -58,7 +58,11 @@ export const V5Quantum = Obj({
   headline_url: Str,
 });
 
-export const V5RiskMatrix = Type.Array(Obj({ issue: Str, likelihood: Str, impact: Str, mitigation: Str }));
+export const V5RiskMatrix = Type.Array(Obj({
+  issue: Str, likelihood: Str, impact: Str, mitigation: Str,
+  /** newer builder (the JSON script's `type`): the risk's category, its owner and the documents it cites */
+  category: Type.Optional(Str), owner: Type.Optional(Str), refs: Type.Optional(StrArr),
+}));
 const DocLink = Obj({ date: IsoDateOrEmpty, doc_type: Str, filename: Str, ref: Str, url: Str });
 export const V5DefenceMatrix = Type.Array(Obj({ point: Str, dcs: Str, rebuttal: Str, evidence: Str, refs: Str, docs: Type.Array(DocLink) }));
 export const V5InfoRequired = Type.Array(Obj({ item: Str, owner: Str, status: Str }));
@@ -175,6 +179,8 @@ export const V5ConversionReport = Obj({
   adapter: Obj({ name: Str, version: Str }),
   sourceLines: Rec(Count),
   ignoredCodeLiterals: StrArr,
+  /** The detected workspace generation, written only for a generation other than v5 (v5's package bytes stay as they were). */
+  source: Type.Optional(Obj({ generation: Str, builderVersion: Type.Optional(Str) })),
   diagnostics: Type.Array(Obj({ code: Str, subject: Type.Union([Str, Type.Null()]), message: Str })),
 });
 export const VIEW_ID = '^_?[a-z][a-z0-9_]{0,63}$';

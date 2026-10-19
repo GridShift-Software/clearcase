@@ -1,7 +1,7 @@
 import type { DiagSink } from '../diagnostics.ts';
 import { decodeUtf8Strict, isObject, parseStrictJson, StrictJsonError, type JsonValue } from '../strict-json.ts';
 import { JSON_SCRIPT_IDS, toV5Roots, type JsonScriptId } from './json-workspace.ts';
-import { isNewerGeneration } from './newer-workspace.ts';
+import { isNewerGeneration, NEWER_VERSIONS, unsupportedVersion } from './newer-workspace.ts';
 
 export const V5_ROOTS = ['DATA', 'META', 'window.__SCHED__', 'window.__CASELINES_IDX__'] as const;
 export type V5Root = (typeof V5_ROOTS)[number];
@@ -96,6 +96,10 @@ export function extractV5(bytes: Uint8Array, sink: DiagSink): V5Source | null {
   } else for (const r of REQUIRED) if (!seen.has(r)) sink.add('V5_PAYLOAD_MISSING', `${r} payload line not found`, { file: 'input', subject: r });
   if (out.roots.DATA !== undefined && !isObject(out.roots.DATA)) sink.add('V5_PAYLOAD_NOT_JSON', 'DATA must be a JSON object', { file: 'input', subject: 'DATA' });
   if (out.roots.META !== undefined && !isObject(out.roots.META)) sink.add('V5_PAYLOAD_NOT_JSON', 'META must be a JSON object', { file: 'input', subject: 'META' });
-  if (out.generation === 'v5-js' && isObject(out.roots.DATA) && isObject(out.roots.META) && isNewerGeneration(out.roots.DATA, out.roots.META)) out.generation = 'v5-js-newer';
+  if (out.generation === 'v5-js' && isObject(out.roots.DATA) && isObject(out.roots.META) && isNewerGeneration(out.roots.DATA, out.roots.META)) {
+    out.generation = 'v5-js-newer';
+    const v = unsupportedVersion(out.roots.META);
+    if (v !== null) sink.add('VER_UNSUPPORTED', `META.version ${v === 'absent' ? '(absent, though the newer builder\'s markers are present)' : v} is not a workspace generation this converter supports (v5, the newer builder's ${NEWER_VERSIONS.join(', ')}, or the app-data JSON script); refused, nothing converted`, { file: 'input', pointer: '/META/version', subject: 'META.version' });
+  }
   return sink.errors === 0 ? out : null;
 }

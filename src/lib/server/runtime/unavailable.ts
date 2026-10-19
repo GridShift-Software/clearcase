@@ -26,12 +26,12 @@ function unavailableWork(): AsyncUserWork {
 }
 export function createUnavailableServices(a: { clientId: ClientId; now: () => Date }): RequestServices {
   const runtime: Runtime = {
-    get build(): never { throw contractError('invalid-build'); }, gate: null,
+    get build(): never { throw contractError('invalid-build'); }, gate: null, testIdentity: null,
     now: () => new Date(a.now()), probe: rejectUnavailable('missing-binding'),
   };
   return {
     identity: { kind: 'anonymous', principal: null, sessionId: null, clientId: a.clientId, checkRevocation: rejectUnavailable('identity-unavailable'), authorize: rejectUnavailable('identity-unavailable') },
-    store: unavailableStore(), assets: { availability: asset, metadata: asset, links: asset, get: asset },
+    store: unavailableStore(), assets: { originals: asset, availability: asset, metadata: asset, links: asset, get: asset },
     userWork: unavailableWork(), audit: { append: rejectUnavailable('audit-unavailable') }, runtime,
   };
 }

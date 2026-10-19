@@ -1,7 +1,7 @@
 // Contract diagnostics only. No production entry imports this module or accepts these session handles.
 import type * as C from './contracts.ts';
 import { id } from './ids.ts';
-import { contractError } from './errors.ts';
+import { contractError, isDenial } from './errors.ts';
 import { createMemoryReader } from './memory-reader.ts';
 import { createMemoryAssets } from './memory-assets.ts';
 import { createMemoryWork, newWork } from './memory-work.ts';
@@ -33,8 +33,7 @@ export interface MemoryContext {
   authorized(scope: C.Scope, operation: C.CaseOperation, action: string, version?: C.ResultsVersion | null): Promise<void>;
   work(caseId: C.CaseId): WorkState;
 }
-const DENIALS = new Set(['unauthenticated', 'invalid-session', 'wrong-client', 'forbidden']);
-export const isDenial = (e: unknown) => e instanceof Error && 'code' in e && typeof e.code === 'string' && DENIALS.has(e.code);
+export { isDenial } from './errors.ts';
 // Each handle method works on its own copy of its arguments, so a caller that changes an argument while the call awaits
 // changes nothing the call authorized, read or wrote. Provider registrations keep their own functions.
 function detached<T extends object>(handle: T): T {
@@ -107,7 +106,7 @@ export function createMemoryBackend(a: { fixture: MemoryFixture; now: () => Date
     const assets = createMemoryAssets(ctx, (asset) => assetFaults.get(JSON.stringify([clientId, asset])) ?? null);
     return { identity, store: detached(store), assets: detached(assets), userWork: detached(createMemoryWork(ctx, store)),
       audit: { async append(event) { event = structuredClone(event); await before('audit'); await identity.checkRevocation(); ctx.audit(event); return { eventId: event.eventId }; } },
-      runtime: { build: Object.freeze({ revision: fixture.revision, dirty: true, exported: false, builtAt: a.now().toISOString(), bun: '1.4.2', buildId: 'memory-contract-diagnostic', target: 'cloudflare', profile: 'hosted-gate' }), gate: { runId: 'memory-contract-diagnostic', fixtureSha256: fixture.sha256 }, now: ctx.now, async probe() { await before('probe'); throw contractError('missing-binding'); } },
+      runtime: { build: Object.freeze({ revision: fixture.revision, dirty: true, exported: false, builtAt: a.now().toISOString(), bun: '1.4.2', buildId: 'memory-contract-diagnostic', target: 'cloudflare', profile: 'hosted-gate' }), gate: { runId: 'memory-contract-diagnostic', fixtureSha256: fixture.sha256 }, testIdentity: null, now: ctx.now, async probe() { await before('probe'); throw contractError('missing-binding'); } },
     };
   }
   return { request, fail(value: MemoryFault) { fault = value; }, revoke(sessionId: C.SessionId) { revoked.add(sessionId); },

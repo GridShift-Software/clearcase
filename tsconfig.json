@@ -24,6 +24,8 @@
     "tests/**/*.ts",
     "tests/**/*.svelte",
     "scripts/**/*.ts",
+    "deploy/**/*.ts",
+    "deploy/**/*.svelte",
     "vite.config.ts",
     "vitest.config.ts"
   ],

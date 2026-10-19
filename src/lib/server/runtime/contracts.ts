@@ -22,6 +22,8 @@ export type CaseOperation = 'read' | 'read-original' | 'read-preview' | 'write-u
 export type Identity = IdentityState & { readonly clientId: ClientId; checkRevocation(): Promise<void>; authorize(a: Scope & { operation: CaseOperation }): Promise<void> };
 export interface IdentityProvider { authenticate(a: { request: Request }): Promise<Identity> }
 export type Publication = { kind: 'none' | 'withdrawn' } | { kind: 'published'; resultsVersion: ResultsVersion };
+/** Why a case shows no results: none published yet, the published version withdrawn, or results that cannot be read now. */
+export type ResultsStatus = { kind: 'pending' } | { kind: 'withdrawn' } | { kind: 'unavailable'; reason: string };
 export interface CaseInfo { caseId: CaseId; caseLabel: string | null; publication: Publication; href: string; documents: number | null }
 export type VersionInfo = Omit<Version, 'id' | 'case_id' | 'input_revision_id' | 'case_folder' | 'case_root' | 'case_dev' | 'case_ino'> & { id: ResultsVersion; case_id: CaseId; input_revision_id: Id<'input-revision'> };
 export interface DocumentProvider { id: string; owner: string; rows(a: VersionScope): Promise<readonly ProviderRow[]>; revision(a: VersionScope): Promise<string> }
@@ -48,7 +50,10 @@ export type AssetRef = (Scope & { kind: 'original'; assetId: string }) | (Versio
 export interface AssetMetadata { size: number; sha256: Sha256; mediaType: string; filename: string; objectVersion: string; etag: string }
 export type AssetAvailability = { kind: 'available'; metadata: AssetMetadata } | { kind: 'unavailable'; reason: 'missing' | 'changed' | 'embedded'; parent: AssetRef | null };
 export interface ByteRequest { method: 'GET' | 'HEAD'; range: string | null; ifRange: string | null }
+export interface OriginalEntry { assetId: string; filename: string; mediaType: string; size: number }
 export interface AssetsAccess {
+  /** The case's originals, a case-level input: listed through the case grant alone, with or without a publication. */
+  originals(a: Scope): Promise<readonly OriginalEntry[]>;
   availability(a: { asset: AssetRef }): Promise<AssetAvailability>; metadata(a: { asset: AssetRef }): Promise<AssetMetadata>;
   links(a: { asset: AssetRef }): Promise<{ originalHref: string; downloadHref: string; viewerHref: string | null }>;
   get(a: { asset: AssetRef; request: ByteRequest }): Promise<Response>; // integrity-checked 200/206/416; HEAD has no body
@@ -99,6 +104,14 @@ export interface AuditSink { append(a: AuditEvent): Promise<{ eventId: string }>
 export type Profile = 'production' | 'hosted-gate';
 export interface BuildStamp<P extends Profile> { revision: string; dirty: boolean; exported: boolean; builtAt: string; bun: string; buildId: string; target: 'cloudflare'; profile: P }
 export interface BindingProbe { ok: boolean; bindings: { DB: boolean; BUCKET: boolean; ASSETS: boolean }; probes: { d1: boolean; r2: boolean } }
-export type Runtime = { now(): Date; probe(): Promise<BindingProbe> } & ({ build: Readonly<BuildStamp<'hosted-gate'>>; gate: { runId: string; fixtureSha256: Sha256 } } | { build: Readonly<BuildStamp<'production'>>; gate: null });
+export interface TestIdentityOption { clientId: ClientId; subject: string; label: string }
+/** The hosted-gate sign-in double: starts a session for one synthetic fixture identity. It carries no authority itself. */
+export interface TestIdentityDouble {
+  readonly provider: 'test-identity-double';
+  options(): Promise<readonly TestIdentityOption[]>;
+  signIn(a: { clientId: ClientId; subject: string }): Promise<{ sessionId: SessionId; expiresAt: string }>;
+  signOut(a: { sessionId: SessionId }): Promise<void>;
+}
+export type Runtime = { now(): Date; probe(): Promise<BindingProbe> } & ({ build: Readonly<BuildStamp<'hosted-gate'>>; gate: { runId: string; fixtureSha256: Sha256 }; testIdentity: TestIdentityDouble | null } | { build: Readonly<BuildStamp<'production'>>; gate: null; testIdentity: null });
 
 export interface RequestServices { identity: Identity; store: CaseReader; assets: AssetsAccess; userWork: AsyncUserWork; audit: AuditSink; runtime: Runtime }

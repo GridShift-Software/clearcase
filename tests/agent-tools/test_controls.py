@@ -1507,6 +1507,44 @@ class GuardReach(GuardCase):
             self.commit('import a loaded helper directly')
             self.guard(reasons=self.reason)
 
+    def test_every_setup_file_entry_binds_to_a_file_or_the_guard_fails_closed(self):
+        # finding 3 (medium, latent): setup files named by a template literal or a process.cwd() join were not resolved,
+        # and an entry the resolver could not bind did not fail closed; bun's preload list is the same shape
+        test = "import { test, expect } from 'vitest';\n" + self.original
+        # a setup file that never touches the framework but stubs the global the named test calls
+        stub = "(globalThis as any).validate = (v: string) => v === 'new';\nexport {};\n"
+        head = "import { join } from 'node:path';\n"
+        for label, files in (
+                ('dirname template literal', {'vitest.config.ts': "export default { test: { setupFiles: [`${__dirname}/tests/setup.ts`] } };\n"}),
+                ('process.cwd join', {'vitest.config.ts': head + "export default { test: { setupFiles: [join(process.cwd(), 'tests', 'setup.ts')] } };\n"}),
+                ('bunfig preload', {'bunfig.toml': '[test]\npreload = ["./tests/setup.ts"]\n'})):
+            with self.subTest(bypass=label):
+                self.protect({**files, 'tests/setup.ts': 'export {};\n'}, test)
+                self.write('tests/setup.ts', stub)
+                self.commit('stub a global in the setup file')
+                self.assertIn('protected dependency', self.guard(code=1))
+        for label, files in (
+                ('a variable', {'vitest.config.ts': head + "const setup = join(process.env.ROOT ?? '.', 'tests/setup.ts');\nexport default { test: { setupFiles: [setup] } };\n"}),
+                ('a call', {'vitest.config.ts': "const pick = () => ['tests/setup.ts'];\nexport default { test: { globalSetup: pick() } };\n"}),
+                ('a spread', {'vitest.config.ts': "const shared = ['tests/setup.ts'];\nexport default { test: { setupFiles: [...shared] } };\n"}),
+                ('a shorthand property', {'vitest.config.ts': "const setupFiles = ['tests/setup.ts'];\nexport default { test: { setupFiles } };\n"}),
+                ('a missing file', {'vitest.config.ts': "export default { test: { setupFiles: ['./tests/missing.ts'] } };\n"}),
+                ('a bunfig preload that is not a string list', {'bunfig.toml': '[test]\npreload = { file = "./tests/setup.ts" }\n'})):
+            with self.subTest(bypass=f'an unbound entry: {label}'):
+                self.protect({**files, 'tests/setup.ts': 'export {};\n'}, test)
+                self.write('tests/setup.ts', stub)
+                self.commit('stub a global in the setup file')
+                self.assertIn('cannot bind', self.guard(code=1))
+        with self.subTest(control='an unchanged config with path-built setup files and a fix in the module under test'):
+            config = head + ("export default { test: { setupFiles: [`${__dirname}/tests/setup.ts`, join(process.cwd(), 'tests/more.ts')],"
+                             " globalSetup: './tests/global.ts' } };\n")
+            self.protect({'vitest.config.ts': config, 'tests/setup.ts': 'export {};\n', 'tests/more.ts': 'export {};\n',
+                          'tests/global.ts': 'export default () => {};\n', 'bunfig.toml': '[test]\npreload = ["./tests/setup.ts"]\n',
+                          'src/clamp.ts': 'export function clamp(x: number) { return x; }\n'}, test)
+            self.write('src/clamp.ts', 'export function clamp(x: number) { if (x < 0) return 0; return x; }\n')
+            self.commit('fix')
+            self.guard()
+
 
 class GuardBinding(ControlCase):
     """H1: once a fix attempt is recorded, approval needs a PASS guard receipt bound to the reviewed commit and findings."""

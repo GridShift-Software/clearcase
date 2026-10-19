@@ -16,6 +16,8 @@ export function processingState(d) {
 function previewOf(c, id) {
   const d = c.descriptors.get(id);
   const r = d.renditions ?? [];
+  if (d.family === 'pdf') { const p = r.find((x) => x.kind === 'pdf' && x.role === 'rendition'); return { id: p ? p.assetId : id, family: 'pdf' }; }
+  if (d.family === 'email') { const p = r.find((x) => x.kind === 'body-text'); return p ? { id, family: 'email', extra: [p.assetId] } : { id, family: 'email' }; }
   if (d.family === 'word') { const p = r.find((x) => x.kind === 'pdf' && x.role === 'rendition'); return p ? { id: p.assetId, family: 'pdf' } : null; }
   if (d.family === 'image' && !NATIVE_IMAGES.has(d.mime)) { const pages = r.filter((x) => x.kind === 'page-image').map((x) => x.assetId); return pages.length ? { id, family: 'image', extra: pages } : null; }
   if (d.family === 'media' && d.mime === 'video/x-msvideo') { const p = r.find((x) => x.role === 'rendition'); return p ? { id: p.assetId, family: 'media' } : null; }
@@ -36,6 +38,7 @@ async function evaluate(c, name, files) {
     for (const h of d.holds) reasons.push({ file: id, code: h.code });
     const p = previewOf(c, id);
     if (!p) { reasons.push({ file: id, code: 'required-preview-missing' }); continue; }
+    for (const held of [p.id, ...(p.extra ?? [])].filter((x) => x !== id)) for (const h of c.descriptors.get(held).holds) reasons.push({ file: held, code: h.code });
     const r = await c.open(p.id, { kind: 'file' }, { family: p.family, extra: p.extra, timeoutMs: 45000 });
     if (r.type !== 'ready') { reasons.push({ file: id, code: `preview-failed:${r.code ?? r.type}` }); continue; }
     for (const ref of refs) { const n = await c.navigate(ref); if (!n.resolution?.ok) reasons.push({ file: id, ref, code: n.resolution?.code ?? 'no-resolution' }); }
@@ -91,4 +94,7 @@ export default async function readiness(c, { full }) {
   const I = await evaluate(c, 'I RTF-only MSG with a companion', [{ id: 'email/outlook-rtf-only-with-companion.msg' }]);
   const I0 = await evaluate(c, 'I0 RTF-only MSG alone', [{ id: 'email/outlook-rtf-only.msg' }]);
   c.record(F, 'candidate I', C, 'an RTF-only MSG publishes once its readable companion is linked, and is held without one', I.ready && !I0.ready && I0.reasons.some((r) => r.code === 'rtf-only-body-needs-companion'), 'with the companion: ready; the unlinked twin: held rtf-only-body-needs-companion', { linked: I.reasons, alone: I0.reasons });
+  await c.open('email/outlook-rtf-only-with-companion.msg', { kind: 'file' }, { extra: ['email/outlook-rtf-only-with-companion.companion-v1.txt'] });
+  const shown = await c.inFrame(() => ({ text: document.getElementById('rtf-companion')?.textContent ?? '', pending: !!document.getElementById('rtf-only') }));
+  c.record(F, 'candidate I', C, 'the email reader shows the reviewed companion in place of the pending notice', shown.text.includes('MSG-RTF-COMPANION-TOKEN') && !shown.pending, 'companion text shown; no "companion is required" notice', shown);
 }

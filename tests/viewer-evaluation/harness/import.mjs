@@ -122,6 +122,7 @@ export async function importAll(store) {
 
 async function describe(store, a, renditions, descriptors) {
   const holds = [];
+  let encrypted = false;
   const f = a.fixture ?? {};
   const ext = path.extname(a.name).toLowerCase();
   if (DECLARED[ext] && DECLARED[ext] !== a.mime && !(ext === '.tif' && a.mime === 'image/tiff')) holds.push({ code: 'content-type-mismatch', detail: `${a.name} is ${a.mime}` });
@@ -134,7 +135,7 @@ async function describe(store, a, renditions, descriptors) {
   if (a.kind === 'pdf') {
     const tail = new TextDecoder('latin1').decode(a.bytes.subarray(Math.max(0, a.size - 1024)));
     if (!/%%EOF\s*$/.test(tail) || !tail.includes('startxref')) holds.push({ code: 'pdf-damaged', detail: `${a.name}: no startxref/%%EOF trailer` });
-    if (/\/Encrypt(?=[\s()<>[\]{}/%]|$)/.test(new TextDecoder('latin1').decode(a.bytes))) holds.push({ code: 'pdf-encrypted-needs-decrypted-rendition', detail: a.name });
+    encrypted = /\/Encrypt(?=[\s()<>[\]{}/%]|$)/.test(new TextDecoder('latin1').decode(a.bytes));
   }
   if (['video/mp4', 'video/quicktime', 'audio/mp4'].includes(a.mime)) {
     // ISO BMFF top-level boxes must tile the file exactly; a box running past the end means the file was cut
@@ -150,9 +151,10 @@ async function describe(store, a, renditions, descriptors) {
     if (!ok || o !== a.size) holds.push({ code: 'media-damaged', detail: `${a.name}: top-level box at ${o} runs past the end of the file` });
   }
   if (a.variant === 'split') holds.push({ code: 'archive-split-unsupported', detail: a.name });
-  const linked = (renditions.get(a.id) ?? []).map((r) => ({ assetId: r.id, kind: r.fixture.page ? 'page-image' : r.name.endsWith('.txt') ? 'ocr-text' : r.name.endsWith('.vtt') ? 'captions' : 'pdf', version: r.fixture.version ?? 1, page: r.fixture.page ?? null, sha256: r.sha256, role: /supplement/.test(r.name) ? 'supplement' : 'rendition' }));
+  const linked = (renditions.get(a.id) ?? []).map((r) => ({ assetId: r.id, kind: r.fixture.page ? 'page-image' : /\.companion(-v\d+)?\.txt$/.test(r.name) ? 'body-text' : r.name.endsWith('.txt') ? 'ocr-text' : r.name.endsWith('.vtt') ? 'captions' : 'pdf', version: r.fixture.version ?? 1, page: r.fixture.page ?? null, sha256: r.sha256, role: /supplement/.test(r.name) ? 'supplement' : 'rendition' }));
+  if (encrypted && !linked.some((r) => r.kind === 'pdf' && r.role === 'rendition')) holds.push({ code: 'pdf-encrypted-needs-decrypted-rendition', detail: a.name });
   let children = [];
-  if ((a.family === 'email' && a.kind !== 'mbox') || a.family === 'archive') { const r = await expand(store, a, { hasBodyCompanion: false }); children = r.children; holds.push(...r.holds); }
+  if ((a.family === 'email' && a.kind !== 'mbox') || a.family === 'archive') { const r = await expand(store, a, { hasBodyCompanion: linked.some((r) => r.kind === 'body-text') }); children = r.children; holds.push(...r.holds); }
   let visualParts = [];
   if (a.family === 'sheet' && a.kind === 'zip') {
     visualParts = listZip(a.bytes).entries.map((e) => e.path).filter((p) => /^xl\/(charts|drawings)\/[^/]+\.xml$/.test(p));

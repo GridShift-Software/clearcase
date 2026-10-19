@@ -14,7 +14,10 @@ const objs = (v: JsonValue | undefined): JsonObject[] => (Array.isArray(v) ? v.f
 const kebab = (s: string) => s.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'other';
 const tally = (keys: Iterable<string>): Record<string, number> => { const c: Record<string, number> = {}; for (const k of keys) c[k] = (c[k] ?? 0) + 1; return c; };
 const nonEmpty = (parts: string[]) => parts.filter((s) => s !== '');
-const carry = (into: JsonObject, from: JsonObject, keys: readonly string[]): JsonObject => { for (const k of keys) if (from[k] !== undefined) into[k] = from[k]!; return into; };
+/** Every source field the mapping did not read stays on the record under its own name (DS_UNSUPPORTED_FIELD), so nothing is lost silently. */
+const keepRest = <T extends JsonObject>(into: T, from: JsonObject, read: readonly string[]): T => { for (const [k, v] of Object.entries(from)) if (!read.includes(k) && !Object.hasOwn(into, k)) (into as JsonObject)[k] = v; return into; };
+/** A row position as the source wrote it: v5 writes text, the JSON script numbers. */
+const position = (v: JsonValue | undefined): number | string => (typeof v === 'string' ? v : num(v));
 
 const AMOUNT = /^-?\d{1,15}(?:\.\d{1,4})?$/;
 export function amountText(v: JsonValue | undefined): string {
@@ -26,19 +29,19 @@ export function amountText(v: JsonValue | undefined): string {
   return AMOUNT.test(fixed) ? fixed : '';
 }
 
-/** Row fields kept beside the v5 shape: entity, matters, thread, duplicate-of, section, subfolder, firm, upload. */
-const ROW_EXTRAS = ['ent', 'mt', 'th', 'dup', 'sec', 'sub', 'fm', 'up'] as const;
+/** The row fields the v5 shape reads; `ex` is the head of `st`, and an empty `pr` or `ds` says nothing. */
+const ROW_READ = ['n', 'ref', 'date', 'fn', 'sj', 'sd', 'to', 'cc', 'st', 'ex', 'dt', 'bd', 'amt', 'ai', 'ts', 'url', 'sz', 'pr', 'ds'];
 
 /** One app-data chronology row in the v5 row shape. `st` is the longer text of which `ex` is the head. */
 export function chronologyRow(r: JsonObject): JsonObject {
   const row: JsonObject = {
-    ref: str(r.ref), n: num(r.n), seq: num(r.n), date: str(r.date), filename: str(r.fn), subject: str(r.sj), sender: str(r.sd), to: str(r.to), cc: str(r.cc),
+    ref: str(r.ref), n: position(r.n), seq: position(r.n), date: str(r.date), filename: str(r.fn), subject: str(r.sj), sender: str(r.sd), to: str(r.to), cc: str(r.cc),
     excerpt: str(r.st) || str(r.ex), doc_type: str(r.dt), bundle: str(r.bd), amount: amountText(r.amt), also_in: strs(r.ai), text_status: str(r.ts), url: str(r.url),
     refs: [], invoice_no: '', size: count(r.sz), attachments: [],
   };
   if (typeof r.pr === 'string' && r.pr !== '') row.pr = r.pr;
   if (typeof r.ds === 'string' && r.ds !== '') row.date_source = r.ds;
-  return carry(row, r, ROW_EXTRAS);
+  return keepRest(row, r, ROW_READ);
 }
 
 export function metaOf(meta: JsonObject, rows: readonly JsonObject[], people: number): JsonObject {
@@ -75,10 +78,11 @@ function contradictionItem(c: JsonObject, rowsByRef: ReadonlyMap<string, JsonObj
     refs: strs(c.refs).map((ref) => ({ ref, amount: '', filename: str(rowsByRef.get(ref)?.filename), url: str(rowsByRef.get(ref)?.url) })),
   };
   const lo = amountText(c.lo), hi = amountText(c.hi), gap = amountText(c.gap);
-  if (lo === '' && hi === '' && gap === '') return item;
-  item.rates = { LOW: lo, HIGH: hi, GAP: gap };
-  item.spread = nonEmpty([lo && `low ${fmtR(lo)}`, hi && `high ${fmtR(hi)}`, gap && `gap ${gap}%`]).join(', ');
-  return item;
+  if (lo !== '' || hi !== '' || gap !== '') {
+    item.rates = { LOW: lo, HIGH: hi, GAP: gap };
+    item.spread = nonEmpty([lo && `low ${fmtR(lo)}`, hi && `high ${fmtR(hi)}`, gap && `gap ${gap}%`]).join(', ');
+  }
+  return keepRest(item, c, ['kind', 'ent', 'year', 'dt', 'note', 'refs', 'lo', 'hi', 'gap', 'sev']);
 }
 
 export function contradictionsOf(list: readonly JsonObject[], rowsByRef: ReadonlyMap<string, JsonObject>): JsonObject | undefined {
@@ -96,24 +100,24 @@ export function contradictionsOf(list: readonly JsonObject[], rowsByRef: Readonl
   return { byCat: Object.fromEntries(categories.map((c) => [c.key, c.items.length])), categories, checks: [], highCount: list.filter((c) => str(c.sev).toLowerCase() === 'high').length, total: list.length };
 }
 
-const personOf = (p: JsonObject): JsonObject => carry({ name: str(p.name), email: '', org: '', sent: count(p.sent), received: count(p.recv), total: count(p.sent) + count(p.recv), role: str(p.role) }, p, ['side']);
-const entityOf = (e: JsonObject): JsonObject => carry({ name: str(e.name), note: '', role: str(e.role) }, e, ['key', 'count', 'first', 'last', 'tax']);
+const personOf = (p: JsonObject): JsonObject => keepRest({ name: str(p.name), email: '', org: '', sent: count(p.sent), received: count(p.recv), total: count(p.sent) + count(p.recv), role: str(p.role) }, p, ['name', 'sent', 'recv', 'role']);
+const entityOf = (e: JsonObject): JsonObject => keepRest({ name: str(e.name), note: '', role: str(e.role) }, e, ['name', 'role']);
 export const riskLevel = (v: JsonValue | undefined): string => (typeof v !== 'number' ? str(v) : v >= 4 ? 'High' : v >= 3 ? 'Medium' : v >= 1 ? 'Low' : str(v));
 const riskOf = (r: JsonObject): JsonObject => {
-  const out = carry({ issue: str(r.risk), likelihood: riskLevel(r.l), impact: riskLevel(r.i), mitigation: str(r.mit) }, r, ['id', 'matter', 'type', 'owner', 'target', 'res']);
+  const out: JsonObject = keepRest({ issue: str(r.risk), likelihood: riskLevel(r.l), impact: riskLevel(r.i), mitigation: str(r.mit) }, r, ['risk', 'l', 'i', 'mit']);
   if (typeof r.l === 'number') out.likelihood_score = r.l;
   if (typeof r.i === 'number') out.impact_score = r.i;
   return out;
 };
-const defenceOf = (d: JsonObject): JsonObject => ({ point: nonEmpty([str(d.matter) && `Matter ${str(d.matter)}`, str(d.opponent)]).join(' · '), dcs: str(d.contention), rebuttal: str(d.rebuttal), evidence: str(d.evidence), refs: '', docs: [] });
-const infoOf = (i: JsonObject): JsonObject => carry({ item: str(i.doc), owner: str(i.src), status: str(i.pri) }, i, ['matter', 'grp', 'why']);
-const witnessOf = (w: JsonObject): JsonObject => carry({ name: str(w.name), role: str(w.role), willsay: str(w.scope) }, w, ['matter', 'status']);
-const elementOf = (e: JsonObject): JsonObject => carry({ element: str(e.cause), must: strs(e.els).join('; '), evidence: str(e.ev), witness: str(e.wit), tab: '' }, e, ['matter']);
-const authorityOf = (a: JsonObject): JsonObject => carry({ topic: str(a.matter) && `Matter ${str(a.matter)}`, authority: nonEmpty([str(a.src), str(a.cite)]).join(' '), proposition: str(a.prop) }, a, ['note']);
+const defenceOf = (d: JsonObject): JsonObject => keepRest({ point: nonEmpty([str(d.matter) && `Matter ${str(d.matter)}`, str(d.opponent)]).join(' · '), dcs: str(d.contention), rebuttal: str(d.rebuttal), evidence: str(d.evidence), refs: '', docs: [] }, d, ['matter', 'opponent', 'contention', 'rebuttal', 'evidence']);
+const infoOf = (i: JsonObject): JsonObject => keepRest({ item: str(i.doc), owner: str(i.src), status: str(i.pri) }, i, ['doc', 'src', 'pri']);
+const witnessOf = (w: JsonObject): JsonObject => keepRest({ name: str(w.name), role: str(w.role), willsay: str(w.scope) }, w, ['name', 'role', 'scope']);
+const elementOf = (e: JsonObject): JsonObject => keepRest({ element: str(e.cause), must: strs(e.els).join('; '), evidence: str(e.ev), witness: str(e.wit), tab: '' }, e, ['cause', 'els', 'ev', 'wit']);
+const authorityOf = (a: JsonObject): JsonObject => keepRest({ topic: str(a.matter) && `Matter ${str(a.matter)}`, authority: nonEmpty([str(a.src), str(a.cite)]).join(' '), proposition: str(a.prop) }, a, ['matter', 'src', 'cite', 'prop']);
 
 export function schedOf(discovery: readonly JsonObject[]): JsonObject | undefined {
   if (discovery.length === 0) return undefined;
-  return { discovery: discovery.map((d, i) => carry({ no: i + 1, date: str(d.date), desc: str(d.doc), co: str(d.co), nfiles: 0, files: [] }, d, ['matter', 'grp'])), supplementary: [] };
+  return { discovery: discovery.map((d, i) => keepRest({ no: i + 1, date: str(d.date), desc: str(d.doc), co: str(d.co), nfiles: 0, files: [] }, d, ['date', 'doc', 'co'])), supplementary: [] };
 }
 
 export function timelineOf(rows: readonly JsonObject[], rowsByRef: ReadonlyMap<string, JsonObject>, hot: readonly JsonObject[]): JsonObject {
@@ -129,13 +133,17 @@ export function timelineOf(rows: readonly JsonObject[], rowsByRef: ReadonlyMap<s
   return { events, phases, yearCounts, typeByYear };
 }
 
+/** `n` is the agreement's chronology position, which the row of its ref carries. */
+const AGREEMENT_READ = ['date', 'dt', 'ex', 'ent', 'ref', 'fn', 'url', 'n'];
+
 export function contractsOf(agreements: readonly JsonObject[], rowsByRef: ReadonlyMap<string, JsonObject>): JsonObject | undefined {
   if (agreements.length === 0) return undefined;
   const groups = new Map<string, JsonObject[]>();
   for (const a of agreements) {
     const key = str(a.dt) || 'agreement';
     if (!groups.has(key)) groups.set(key, []);
-    groups.get(key)!.push({ date: str(a.date), doc_type: str(a.dt), note: str(a.ex), party: str(a.ent), ref: str(a.ref), role: '', text_status: str(rowsByRef.get(str(a.ref))?.text_status), title: str(a.fn), url: str(a.url) });
+    const item = { date: str(a.date), doc_type: str(a.dt), note: str(a.ex), party: str(a.ent), ref: str(a.ref), role: '', text_status: str(rowsByRef.get(str(a.ref))?.text_status), title: str(a.fn), url: str(a.url) };
+    groups.get(key)!.push(keepRest(item, a, AGREEMENT_READ));
   }
   return { count: agreements.length, groups: [...groups].map(([key, items]) => ({ key, items })) };
 }
@@ -144,26 +152,26 @@ const HEADER_KEYS = ['caseNo', 'claimant', 'claimantRole', 'court', 'defendant',
 
 export function bundlesOf(b: JsonObject): JsonObject {
   const list = objs(b.list).map((x) => {
-    const rows = objs(x.rows).map((r) => ({
+    const rows = objs(x.rows).map((r) => keepRest({
       key: str(r.key), n: count(r.n), desc: str(r.desc), from: count(r.from), to: count(r.to), pages: count(r.pages), date: str(r.date), blank: r.blank === true, missing: r.missing === true, review: r.review === true,
-      parts: objs(r.parts).map((p) => ({ name: str(p.name), rel: str(p.rel), url: str(p.url), from: count(p.from), to: count(p.to) })),
-    }));
+      parts: objs(r.parts).map((p) => keepRest({ name: str(p.name), rel: str(p.rel), url: str(p.url), from: count(p.from), to: count(p.to) }, p, ['name', 'rel', 'url', 'from', 'to'])),
+    }, r, ['key', 'n', 'desc', 'from', 'to', 'pages', 'date', 'blank', 'missing', 'review', 'parts']));
     const name = str(x.name);
-    return {
+    return keepRest({
       no: str(x.no), name, slug: kebab(name), title: str(x.title), note: str(x.note), file: str(x.file), indexFile: str(x.indexFile), planFile: '',
       pages: count(x.pages), bundlePages: count(x.pages), filePages: count(x.filePages), indexPages: count(x.indexPages),
       nDocs: rows.length, nItems: rows.length, nMissing: rows.filter((r) => r.missing).length, nNeedsExtent: 0, nReview: rows.filter((r) => r.review).length,
       items: rows.map((r) => r.key), rows,
-    };
+    }, x, ['no', 'name', 'title', 'note', 'file', 'indexFile', 'pages', 'filePages', 'indexPages', 'rows']);
   });
   const defaults = isObject(b.headerDefaults) ? b.headerDefaults : {};
   const sum = (f: 'nDocs' | 'nItems' | 'pages') => list.reduce((n, x) => n + x[f], 0);
   const out: JsonObject = {
     source: str(b.source), indexSource: str(b.indexSource), folder: str(b.folder), extracts: '', caselinesSrc: str(b.caselinesSrc),
     count: list.length, catCount: 0, totalDocs: sum('nDocs'), totalItems: sum('nItems'), totalPages: sum('pages'),
-    headerDefaults: Object.fromEntries(HEADER_KEYS.map((k) => [k, str(defaults[k])])), caselinesSections: {}, catalogue: {}, list,
+    headerDefaults: keepRest(Object.fromEntries(HEADER_KEYS.map((k) => [k, str(defaults[k])])), defaults, HEADER_KEYS), caselinesSections: {}, catalogue: {}, list,
   };
-  return carry(out, b, ['headerProvenance']);
+  return keepRest(out, b, ['source', 'indexSource', 'folder', 'caselinesSrc', 'headerDefaults', 'list']);
 }
 
 const MAPPED_DATA_KEYS = new Set(['chronology', 'people', 'entities', 'contradictions', 'agreements', 'bundles', 'meta', 'ft']);

@@ -77,7 +77,7 @@ function cells(t: C.UserWorkTable, row: Record<string, C.TableCell>, caseId: C.C
 }
 
 export function createMemoryWork(ctx: MemoryContext, store: C.CaseReader): C.AsyncUserWork {
-  const authorize = async (scope: C.Scope, operation: C.CaseOperation = 'read') => { await ctx.before(operation); await ctx.identity.authorize({ ...scope, operation }); };
+  const authorize = async (scope: C.Scope, operation: C.CaseOperation = 'read') => { await ctx.before(operation); await ctx.authorized(scope, operation, operation === 'read' ? 'user-work.read' : 'user-work.write'); };
   function owned(name: string, owner?: string) {
     if (reserved.has(name)) throw contractError('table-built-in');
     const t = ctx.state.definitions.get(name);

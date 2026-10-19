@@ -23,14 +23,22 @@ export function createMemoryAssets(ctx: MemoryContext, fault: (asset: C.AssetRef
       if (p?.kind !== 'published' || p.resultsVersion !== asset.resultsVersion) throw contractError('forbidden');
     }
   }
+  // Metadata and links release no bytes but are still protected reads: a refusal appends its scoped denial.
+  async function described<T>(asset: C.AssetRef, read: () => Promise<T>): Promise<T> {
+    try { return await read(); }
+    catch (e) {
+      if (isDenial(e)) try { ctx.record({ action: 'asset.describe', object: { kind: 'asset', id: asset.assetId, caseId: asset.caseId }, version: asset.kind === 'preview' ? asset.resultsVersion : null, outcome: 'denied' }); } catch { /* the refusal stands */ }
+      throw e;
+    }
+  }
   const headers = { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'cross-origin-resource-policy': 'same-origin' };
   return {
-    async availability({ asset }) {
+    availability: ({ asset }) => described(asset, async () => {
       try { return { kind: 'available', metadata: (await read(asset)).metadata }; }
       catch (e) { if (e instanceof Error && 'code' in e && (e.code === 'missing-original' || e.code === 'changed-original')) return { kind: 'unavailable', reason: e.code === 'missing-original' ? 'missing' : 'changed', parent: null }; throw e; }
-    },
-    async metadata({ asset }) { return (await read(asset)).metadata; },
-    async links({ asset }) { await read(asset); const href = `/cases/${encodeURIComponent(asset.caseId)}/assets/${encodeURIComponent(asset.assetId)}`; return { originalHref: href, downloadHref: `${href}?download=1`, viewerHref: null }; },
+    }),
+    metadata: ({ asset }) => described(asset, async () => (await read(asset)).metadata),
+    links: ({ asset }) => described(asset, async () => { await read(asset); const href = `/cases/${encodeURIComponent(asset.caseId)}/assets/${encodeURIComponent(asset.assetId)}`; return { originalHref: href, downloadHref: `${href}?download=1`, viewerHref: null }; }),
     async get({ asset, request }) {
       const action = `asset.${asset.kind === 'original' ? 'read-original' : 'read-preview'}`;
       const object = { kind: 'asset', id: asset.assetId, caseId: asset.caseId }, version = asset.kind === 'preview' ? asset.resultsVersion : null;

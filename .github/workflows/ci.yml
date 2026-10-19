@@ -71,7 +71,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 26.10.0
-      - name: gate:hosted
+      - name: gate-hosted
         run: |
           tmp=$(mktemp -d /dev/shm/clearcase-ci-hosted.XXXXXX)
           trap 'rm -f .local/hosted; rm -rf "$tmp"' EXIT
@@ -79,7 +79,7 @@ jobs:
           ln -sfn "$tmp/hosted" .local/hosted
           CI=1 WRANGLER_SEND_METRICS=false WRANGLER_SEND_ERROR_REPORTS=false TMPDIR=$tmp CLEARCASE_HOSTED_SCRATCH=$tmp/scratch \
             CLEARCASE_HOSTED_REPORT_DIR="$RUNNER_TEMP/receipts/hosted" \
-            scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base origin/dev --name gate:hosted --tool bun --tool node -- \
+            scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base origin/dev --name gate-hosted --tool bun --tool node -- \
             bun run --bun gate:hosted
       # A fix round commits its review findings and the reviewed SHA under docs/acceptance/fix-rounds/
       # (docs/agent-tooling.md). The guard fails a pull request that deletes, skips, loosens or renames a test those
@@ -114,12 +114,12 @@ jobs:
           if [ "$FIX_ROUND_LABEL" = true ]; then require=(--require-manifest); fi
           CLEARCASE_NODE=$(command -v bun) "$runner" --root "$head" --base "origin/$BASE_REF" --branch "$HEAD_REF" \
             --receipts "$RUNNER_TEMP/receipts" "${require[@]}"
-      # Fails the job unless every receipt (check, test, gate:hosted) is PASS for this checkout and every tracked test
+      # Fails the job unless every receipt (check, test, gate-hosted) is PASS for this checkout and every tracked test
       # file ran with no failed or skipped test; writes the job summary and summary.json, which name each problem and
       # how to reproduce it.
       - name: summary
         if: always()
-        run: bun scripts/ci/summary.ts "$RUNNER_TEMP/receipts" check test gate:hosted
+        run: bun scripts/ci/summary.ts "$RUNNER_TEMP/receipts" check test gate-hosted
       - name: store verdict
         if: always()
         env:

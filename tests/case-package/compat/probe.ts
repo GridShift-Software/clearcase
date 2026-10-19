@@ -52,9 +52,6 @@ if (src.generation === 'json-script') {
   const DATA = src.roots.DATA as JsonObject, META = (src.roots.META ?? {}) as JsonObject;
   const rows = objs(DATA.chronology);
   const text = isObject(DATA.text) ? Object.values(DATA.text).filter((t): t is string => typeof t === 'string') : [];
-  // the newer viewer's hand-authored analysis module merges this object into DATA at run time; the converter does not read it
-  const overlay = /^\(function\(\)\{ const X = (\{.*\});$/m.exec(new TextDecoder().decode(html));
-  const X = overlay ? parseStrictJson(overlay[1]!) : null;
   keys = sourceKeys(src.generation, { DATA, META, sched: src.roots['window.__SCHED__'], caselines: src.roots['window.__CASELINES_IDX__'] });
   Object.assign(inventory, {
     chronologyRows: rows.length, dataKeys: Object.keys(DATA).length, auxiliaryRoots: ['window.__SCHED__', 'window.__CASELINES_IDX__'].filter((r) => src.roots[r as 'window.__SCHED__'] !== undefined).length,
@@ -63,7 +60,6 @@ if (src.generation === 'json-script') {
     textEntries: text.length, textAtCap: text.filter((t) => t.length >= TEXT_CAP).length, rowsWithoutText: isObject(DATA.text) ? rows.filter((r) => !Object.hasOwn(DATA.text as JsonObject, String(r.ref))).length : null,
     rowsWithParent: rows.filter((r) => typeof r.pr === 'string' && r.pr !== '').length, positionTypes: tally(rows.map((r) => typeof r.n)),
     emails: isObject(DATA.emails) ? { rows: size(DATA.emails.rows), threads: size(DATA.emails.threads), gaps: size(DATA.emails.gaps) } : null,
-    analysisOverlay: isObject(X) ? Object.fromEntries(Object.entries(X).map(([k, v]) => [k, size(v)])) : null,
   });
 }
 
@@ -78,6 +74,9 @@ const validateMs = Math.round(performance.now() - t1);
 if (a.out) await writePackageDir(a.out, conv.files);
 
 const datasets = packageDatasets(conv.files);
+// the newer viewer's hand-authored analysis, as the package holds it: one opaque dataset, keys and counts only
+const overlayPath = 'datasets/v5-residual-analysis-overlay.json';
+inventory.analysisOverlay = conv.files.has(overlayPath) ? Object.fromEntries(Object.entries((json(conv.files, overlayPath) as { data: JsonObject }).data).map(([k, v]) => [k, size(v)])) : null;
 const account = accountFor(src.generation, keys, datasets, new Set(conv.diagnostics.map((d) => d.subject ?? '')));
 const assets = (json(conv.files, 'assets.json') as { assets: Record<string, JsonObject> }).assets;
 const chronology = (json(conv.files, 'datasets/chronology.json') as { data: JsonObject[] }).data;
@@ -97,6 +96,7 @@ const result: JsonObject = {
   matterHeadings: { storyline: size(matter.storyline), strategy: size(matter.strategy) },
   peopleWithRole: people.filter((p) => typeof p.role === 'string' && p.role !== '').length,
   riskFields: { risks: risks.length, category: carry('category'), owner: carry('owner'), refs: carry('refs') },
+  analysisOverlayNotice: conv.diagnostics.find((d) => d.code === 'V5_OVERLAY_UNMAPPED' || d.code === 'V5_OVERLAY_UNREADABLE')?.message ?? null,
   textCapNotice: conv.diagnostics.find((d) => d.code === 'V5_TEXT_CAPPED')?.message ?? null,
   conversionWarnings: tally(conv.diagnostics.filter((d) => d.severity !== 'info').map((d) => d.code)), validation: tally(imported.diagnostics.map((d) => d.code)),
   ms: { convert: convertMs, validate: validateMs }, rssMiB: Math.round(process.memoryUsage().rss / 2 ** 20),

@@ -120,8 +120,8 @@ describe('the JSON-script workspace generation', () => {
     expect(dataset(files, 'contradictions')).toEqual({
       byCat: { 'divergent-figures': 2 }, checks: [], highCount: 1, total: 2,
       categories: [{ key: 'divergent-figures', title: 'Divergent figures', severity: 'high', explain: '', items: [
-        { label: 'Org A Ltd · 2001 · invoice', detail: 'Two invoices differ.', rates: { LOW: '100', HIGH: '1150.5', GAP: '91.3' }, spread: 'low R 100.00, high R 1 150.50, gap 91.3%', refs: [{ ref: 'DC-SYN-001', amount: '', filename: 'OD-001 Supply agreement.pdf', url: url(AGREEMENT) }, { ref: 'DC-SYN-002', amount: '', filename: 'OD-002 Invoice 1001.pdf', url: url(INVOICE) }] },
-        { label: 'Org A Ltd · 2002 · statement', detail: 'Low one.', rates: { LOW: '1', HIGH: '2', GAP: '50' }, spread: 'low R 1.00, high R 2.00, gap 50%', refs: [{ ref: 'DC-CT2-001', amount: '', filename: 'SD-001 Statement.pdf', url: url(STATEMENT) }] },
+        { label: 'Org A Ltd · 2001 · invoice', sev: 'High', detail: 'Two invoices differ.', rates: { LOW: '100', HIGH: '1150.5', GAP: '91.3' }, spread: 'low R 100.00, high R 1 150.50, gap 91.3%', refs: [{ ref: 'DC-SYN-001', amount: '', filename: 'OD-001 Supply agreement.pdf', url: url(AGREEMENT) }, { ref: 'DC-SYN-002', amount: '', filename: 'OD-002 Invoice 1001.pdf', url: url(INVOICE) }] },
+        { label: 'Org A Ltd · 2002 · statement', sev: 'Low', detail: 'Low one.', rates: { LOW: '1', HIGH: '2', GAP: '50' }, spread: 'low R 1.00, high R 2.00, gap 50%', refs: [{ ref: 'DC-CT2-001', amount: '', filename: 'SD-001 Statement.pdf', url: url(STATEMENT) }] },
       ] }],
     });
     expect(dataset(files, 'timeline-events')).toEqual([

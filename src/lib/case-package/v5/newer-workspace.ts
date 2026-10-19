@@ -1,5 +1,6 @@
 import type { DiagSink } from '../diagnostics.ts';
 import { isObject, type JsonObject, type JsonValue } from '../strict-json.ts';
+import { carryTyped, own } from './carry.ts';
 import type { V5Root } from './extract.ts';
 
 type Roots = Partial<Record<V5Root, JsonValue>>;
@@ -10,8 +11,6 @@ const num = (v: JsonValue | undefined): number => (typeof v === 'number' && Numb
 const count = (v: JsonValue | undefined): number => Math.max(0, Math.trunc(num(v)));
 const objs = (v: JsonValue | undefined): JsonObject[] => (Array.isArray(v) ? v.filter(isObject) : []);
 const nonEmpty = (parts: string[]) => parts.filter((s) => s !== '');
-/** Sets an own property, as the strict parser does: a source key such as "__proto__" never swaps a prototype. */
-const own = <T extends object>(o: T, k: string, v: unknown): T => Object.defineProperty(o, k, { value: v, enumerable: true, writable: true, configurable: true });
 const tally = (keys: Iterable<string>): Record<string, number> => { const c: Record<string, number> = {}; for (const k of keys) own(c, k, (Object.hasOwn(c, k) ? c[k]! : 0) + 1); return c; };
 const mapObjs = (v: JsonValue | undefined, f: (o: JsonObject) => JsonObject): JsonValue | undefined => (Array.isArray(v) ? v.map((x) => (isObject(x) ? f(x) : x)) : v);
 
@@ -23,10 +22,11 @@ export function isNewerGeneration(DATA: JsonObject, META: JsonObject): boolean {
   return META.version !== undefined || typeof META.fileCount === 'number' || isObject(DATA.profile);
 }
 
-/** META.version of an unsupported builder generation as text, or null when the version is absent or supported. */
+/** META.version of an unsupported builder generation as text ("absent" when a newer marker comes without one), or null when it is supported. */
 export function unsupportedVersion(META: JsonObject): string | null {
   const v = META.version;
-  if (v === undefined || (typeof v === 'string' && NEWER_VERSIONS.includes(v))) return null;
+  if (v === undefined) return 'absent';
+  if (typeof v === 'string' && NEWER_VERSIONS.includes(v)) return null;
   return JSON.stringify(v).slice(0, 40);
 }
 
@@ -198,6 +198,16 @@ export function reportTextCap(DATA: JsonObject, sink: DiagSink): void {
     + (unmeasured ? `; ${en(unmeasured)} ${unmeasured === 1 ? 'entry is' : 'entries are'} not text and could not be measured` : ''), { file: 'input', subject: 'DATA.text' });
 }
 
+/** The risk fields the Risk Matrix types as optional text or text lists; a value of another type stays on the risk as `source_<name>` so it cannot demote the matrix. */
+export function riskMatrixOf(list: JsonValue | undefined): JsonValue | undefined {
+  return mapObjs(list, (r) => {
+    const out: JsonObject = {};
+    for (const [k, v] of Object.entries(r)) if (!(k === 'category' || k === 'owner' || k === 'refs')) own(out, k, v);
+    for (const [k, kind] of [['category', 'text'], ['owner', 'text'], ['refs', 'strs']] as const) carryTyped(out, r, k, kind);
+    return out;
+  });
+}
+
 const hasMatter = (v: JsonValue | undefined): boolean => isObject(v) && typeof v.title === 'string';
 
 export function mapNewerRoots(roots: Roots): Roots {
@@ -211,6 +221,7 @@ export function mapNewerRoots(roots: Roots): Roots {
   if (isObject(DATA.contracts)) out.contracts = contractsOf(DATA.contracts, rowsByRef);
   if (isObject(DATA.filings)) out.filings = filingsOf(DATA.filings);
   if (isObject(DATA.bundles)) out.bundles = bundlesOf(DATA.bundles);
+  if (DATA.riskMatrix !== undefined) out.riskMatrix = riskMatrixOf(DATA.riskMatrix)!;
   if (DATA.linkSample !== undefined) out.linkSample = linkSampleOf(DATA.linkSample, rowsByRef);
   if (isObject(DATA.buildReport)) out.buildReport = buildReportOf(DATA.buildReport, rowsByRef);
   if (isObject(DATA.lit)) {

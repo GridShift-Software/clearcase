@@ -1,10 +1,11 @@
 // Host-only probes: each mutation is committed in a disposable checkout before the actual check command runs.
 import { execFileSync, spawnSync } from 'node:child_process';
+import { probeGit } from './probe-git.ts';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
 const root = process.cwd();
-const git = (args: string[], cwd = root) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+const git = (args: string[], cwd = root) => probeGit(args, cwd);
 const base = git(['rev-parse', 'HEAD']);
 if (git(['status', '--porcelain'])) throw new Error('Guard probes require a clean committed source tree');
 if (execFileSync('bun', ['--version'], { encoding: 'utf8' }).trim() !== '1.4.2') throw new Error('Bun 1.4.2 required');

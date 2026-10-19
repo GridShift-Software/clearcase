@@ -5,7 +5,7 @@
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import CitationLink from '$lib/components/CitationLink.svelte';
 	import { NOT_SERVED } from '$lib/views/bundles/links';
-	import { downloadBlob } from '$lib/views/bundles/download';
+	import { download } from '$lib/components/download';
 	import { ds } from '$lib/views/bundles/state.svelte';
 	import { postAction } from '$lib/views/bundles/post';
 	import { chunkKeys, stillOwed, supersede, type Op } from '$lib/views/bundles/ops';
@@ -105,7 +105,7 @@
 
 	const coverFile = () => `${meta.file ?? 'Schedule (cover)'}.html`;
 	const cover = () => coverDoc(data.caption, meta, items, marks);
-	const coverDownload = () => downloadBlob(coverFile(), cover(), 'text/html');
+	const coverDownload = () => download(coverFile(), cover(), 'text/html');
 	const coverOpen = () => {
 		const w = window.open('', '_blank');
 		if (!w) { coverDownload(); return; }
@@ -114,7 +114,7 @@
 		w.focus();
 		setTimeout(() => { try { w.print(); } catch { /* the popup was closed */ } }, 350);
 	};
-	const indexDownload = () => downloadBlob(`${data.caption.bundleIndexName ?? 'Court Bundle Index'}.html`, bundleHTML(data.caption, files, notes), 'text/html');
+	const indexDownload = () => download(`${data.caption.bundleIndexName ?? 'Court Bundle Index'}.html`, bundleHTML(data.caption, files, notes), 'text/html');
 	let printing = $state(false);
 	const printIndex = () => {
 		printing = true;

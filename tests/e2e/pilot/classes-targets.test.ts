@@ -3,15 +3,24 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { afterAll, describe, expect, test } from 'vitest';
 // @ts-expect-error plain .mjs
 import { csvExports, hasActions, hasLeaveGuard } from '../classes/targets.mjs';
+// @ts-expect-error plain .mjs
+import { HELPERS, NOT_PRODUCERS } from '../classes/declared.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'cc-targets-'));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 const put = (rel: string, text: string) => { const f = join(root, 'src', rel); mkdirSync(dirname(f), { recursive: true }); writeFileSync(f, text); };
 
 describe('csvExports', () => {
+	test('the app export declarations agree with real CSV discovery', () => {
+		const app = fileURLToPath(new URL('../../../', import.meta.url));
+		const r = csvExports(app, { helpers: HELPERS, notProducers: NOT_PRODUCERS });
+		expect(r.declaredButCsv).toEqual([]);
+		expect(r.unrecognised).toEqual([]);
+	});
 	put('lib/components/csv.ts', "export const download = () => {};");
 	put('routes/v/[vid]/a/+page.svelte', `<script>import { download } from "../../../../lib/components/csv.ts"; const go = () => download('a.csv', 'x');</script>`);
 	put('routes/v/[vid]/b/+page.svelte', "<script>import Maker from '$lib/Maker.svelte';</script><Maker />");

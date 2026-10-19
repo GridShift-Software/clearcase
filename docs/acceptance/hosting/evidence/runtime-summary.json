@@ -1,11 +1,11 @@
 {
   "schema": "clearcase.runtime-probe/1",
-  "sourceSha": "ae43730f30ff00b34f4e087d0f5863d1d3778091",
+  "sourceSha": "098f2ad48363a500e103c9ff0483de5b4b8e4816",
   "treeClean": true,
-  "servedStamp": "ae43730f30ff00b34f4e087d0f5863d1d3778091",
-  "startedAt": "2026-10-19T08:28:24.418Z",
-  "finishedAt": "2026-10-19T08:28:30.902Z",
-  "runDir": ".local/hosting-probe/runtime/2026-10-19T08-28-24-418Z",
+  "servedStamp": "098f2ad48363a500e103c9ff0483de5b4b8e4816",
+  "startedAt": "2026-10-19T09:07:20.769Z",
+  "finishedAt": "2026-10-19T09:07:28.233Z",
+  "runDir": ".local/hosting-probe/runtime/2026-10-19T09-07-20-769Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -25,7 +25,7 @@
     "workerd": "1.20261012.1",
     "wrangler": "4.151.1"
   },
-  "artifact": "sha256:27d16033639c3643ff719eeb1021ef6e518e661e2f5a0834bcf2a69c92726c4b",
+  "artifact": "sha256:8d3e564a70c505d9e8678183a6dbc3793c0f8fa1b6d86f169e549388626dc5ce",
   "isolation": {
     "network": "own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden",
     "env": [
@@ -72,7 +72,7 @@
         "GET / is the SSR page",
         "GET /probe.txt serves the static asset byte for byte through ASSETS",
         "GET /_app/version.json serves the HEAD stamp",
-        "GET /no-such-page answers 404"
+        "GET /no-such-page answers 404 text/html with the \"Not Found\" error page"
       ]
     },
     "render": {
@@ -121,7 +121,7 @@
       "asserted": [
         "an empty form answers 400 with the validation message",
         "a duplicate id answers 409: D1 refused the INSERT (UNIQUE)",
-        "a cross-site form POST answers 403 (SvelteKit Origin check) and runs no action",
+        "a cross-site form POST answers 403 with SvelteKit's Origin-check message and runs no action",
         "D1 holds no row from the refused actions",
         "R2 still holds the last good write"
       ]
@@ -134,7 +134,7 @@
         "GET /"
       ],
       "asserted": [
-        "the server stopped on SIGINT and no process of its tree survived",
+        "the server's process tree ended on SIGINT without SIGKILL, and no process of it survived",
         "a separate wrangler d1 execute reads both rows from the stopped server's state",
         "after a restart SSR renders the persisted D1 rows",
         "after a restart, before any write, R2 returns the persisted object"
@@ -154,6 +154,7 @@
         "GET / answers 503 naming the missing BUCKET binding",
         "no partial page is rendered",
         "the form action answers 503 naming the missing binding",
+        "GET /bindings answers 200 JSON",
         "GET /bindings: DB (answering) and ASSETS present, BUCKET absent"
       ]
     }
@@ -166,7 +167,7 @@
   "failure": null,
   "evidence": true,
   "checker": {
-    "mutationsRefused": 134,
+    "mutationsRefused": 539,
     "accepted": null
   }
 }

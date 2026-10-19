@@ -154,3 +154,18 @@ describe('finding 7: restore parses complete snapshot rows and requires canonica
     await expect(result).rejects.toMatchObject({ code: 'invalid' });
   });
 });
+
+describe('finding 7 sweep: write boundaries parse their DTOs like restore does', () => {
+  it('refuses an unknown note target, an incomplete row anchor and a malformed seed overlay', async () => {
+    const backend = createMemoryBackend({ fixture: fx.data, now });
+    const editor = backend.request({ clientId: clientA(), sessionId: id('session', 'a-editor') });
+    const caseId = fx.caseId, absent = { kind: 'absent' as const };
+    const target = { kind: 'bogus' } as unknown as { kind: 'case' };
+    await expect(editor.userWork.addNote({ caseId, target, body: 'x', expected: absent, operationId: 'op-a' })).rejects.toMatchObject({ code: 'invalid' });
+    const anchor = { caseId, resultsVersion: fx.rv, sha256: null } as unknown as Parameters<typeof editor.userWork.putRow>[0]['anchor'];
+    await expect(editor.userWork.putRow({ caseId, store: 'deadlines', rowId: null, fields: {}, anchor, expected: absent, operationId: 'op-b' })).rejects.toMatchObject({ code: 'invalid' });
+    const overlay = { caseId, datasetKey: 'deadlines', seedId: 7, baseSeedSha256: 'x', fields: {} } as unknown as Parameters<typeof editor.userWork.putSeedOverlay>[0]['overlay'];
+    await expect(editor.userWork.putSeedOverlay({ caseId, overlay, expected: absent, operationId: 'op-c' })).rejects.toMatchObject({ code: 'invalid' });
+    expect(backend.events(clientA()).filter((e) => e.outcome === 'succeeded')).toEqual([]);
+  });
+});

@@ -1624,6 +1624,29 @@ class GuardReach(GuardCase):
                 self.write(f'tests/other-{n}.test.ts', other.replace("from 'vitest'", "from 'bun:test'") if label == 'bun:test' else other)
                 self.commit('patch the framework from another test file')
                 self.assertIn('isolat', self.guard(code=1))
+        with self.subTest(bypass='a test script that runs bun test'):
+            self.protect({'src/api.ts': self.api, 'package.json': json.dumps({'name': 'x', 'scripts': {'test': 'bun test --timeout 5000'}})}, self.named_api)
+            self.write('src/api.ts', self.weakened)
+            self.write('tests/other-bun.test.ts', other)
+            self.commit('patch the framework from another test file')
+            self.assertIn('isolat', self.guard(code=1))
+        with self.subTest(control='isolation named only in comments, and bun running vitest'):
+            config = "// `bun run --bun test` runs this; isolate: false is not set, nor singleFork: true\nexport default { test: { pool: 'forks' } };\n"
+            self.protect({'src/api.ts': self.api, 'vitest.config.ts': config,
+                          'package.json': json.dumps({'name': 'x', 'scripts': {'test': 'vitest run', 'test:all': 'bun run --bun test'}})}, self.named_api)
+            self.write('src/api.ts', self.api.replace("v === 'new'", "v === 'new' && v.length === 3"))
+            self.write('tests/other-control.test.ts', "import { test, expect } from 'vitest';\ntest('other', () => { expect(1).toBe(1); });\n")
+            self.commit('fix with a regression test in another file')
+            self.guard()
+
+    def test_the_guard_itself_may_change_alongside_a_fix(self):
+        # the guard's own source is a module outside the closure when a later ticket changes it: it must not read as
+        # reaching the framework
+        guard = (TOOLS / 'test_guard.mjs').read_text()
+        self.protect({'src/api.ts': self.api, 'scripts/agent-tools/test_guard.mjs': guard}, self.named_api)
+        self.write('scripts/agent-tools/test_guard.mjs', guard + '// a later change\n')
+        self.commit('change the guard')
+        self.guard()
 
 
 class GuardBinding(ControlCase):

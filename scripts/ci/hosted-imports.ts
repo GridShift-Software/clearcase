@@ -118,6 +118,8 @@ export function checkHostedGraph(a: { root: string; profile?: HostedProfile }): 
     const name = relative(file), chain = [...prior, name];
     if (local.test(name)) { visited.add(file); fail(chain, 'forbidden local implementation'); return; }
     if (memoryDouble.test(name) || gateDouble.test(name) && profile !== 'hosted-gate') { visited.add(file); fail(chain, `forbidden test double in the ${profile} graph`); return; }
+    // The local route tree (src/routes, the folder browser at src/routes/api/browse among it) never joins the hosted one.
+    if (name.startsWith('src/routes/')) { visited.add(file); fail(chain, 'forbidden local route module'); return; }
     if (visited.has(file)) return;
     visited.add(file);
     let text: string;

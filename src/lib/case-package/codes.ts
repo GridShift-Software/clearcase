@@ -40,7 +40,7 @@ export const CODES = {
   JSON_MALFORMED: e('structural', 'malformed JSON', REBUILD),
   JSON_DUPLICATE_KEY: e('structural', 'duplicate key in a JSON object', REBUILD),
   JSON_LIMIT: e('structural', 'JSON nesting or size bound exceeded', 'Check the source for runaway data; the bounds are in docs/results-package.md.'),
-  VER_UNSUPPORTED: e('structural', 'unsupported package format or formatVersion', 'Convert the package with a matching converter or upgrade ClearCase.'),
+  VER_UNSUPPORTED: e('structural', 'unsupported package format or formatVersion, or a workspace generation the converter does not support', 'Convert the package with a matching converter or upgrade ClearCase.'),
   ARC_MALFORMED: e('structural', 'malformed zip archive', 'Re-create the zip from the package directory.'),
   ARC_UNSUPPORTED: e('structural', 'unsupported zip feature (encryption, method, multi-disk)', 'Use an unencrypted zip with stored or deflated entries.'),
   ARC_LIMIT: e('structural', 'archive bound exceeded (entries, expanded size or ratio)', 'Check the archive for a decompression bomb; the bounds are in docs/results-package.md.'),
@@ -109,6 +109,7 @@ export const CODES = {
   V5_VIEW_CONTENT_AMBIGUOUS: w('quality', 'a view-content anchor matches more than once in the v5 viewer code (not extracted, never guessed)', 'Review the view-content map against this HTML; the view shows the field as unavailable.'),
   V5_VIEW_CONTENT_LIMIT: w('quality', 'the v5 viewer code is too large or too slow to read; no view content was extracted (fails closed)', 'Review the v5 HTML; the views show code-embedded content as unavailable.'),
   V5_META_COUNT_DISAGREEMENT: w('quality', 'source META count disagrees with the count derived from the records', 'Displayed counts come from the records; acknowledge the source discrepancy.'),
+  V5_TEXT_CAPPED: i('quality', "the source export holds only part of some documents' text (cut at its text cap)", 'Open the original for the complete text.'),
   V5_SOURCE_INDEX_DROPPED: i('quality', "the source's own search index was not carried into the package", 'Nothing to do: ClearCase indexes the imported text on its own.'),
   DIAG_TRUNCATED: i('quality', 'more instances of a code than listed', 'See the counts; every instance is fingerprinted.'),
 } as const satisfies Record<string, CodeDef>;

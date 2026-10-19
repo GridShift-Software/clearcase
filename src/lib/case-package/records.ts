@@ -58,7 +58,11 @@ export const V5Quantum = Obj({
   headline_url: Str,
 });
 
-export const V5RiskMatrix = Type.Array(Obj({ issue: Str, likelihood: Str, impact: Str, mitigation: Str }));
+export const V5RiskMatrix = Type.Array(Obj({
+  issue: Str, likelihood: Str, impact: Str, mitigation: Str,
+  /** newer builder (the JSON script's `type`): the risk's category, its owner and the documents it cites */
+  category: Type.Optional(Str), owner: Type.Optional(Str), refs: Type.Optional(StrArr),
+}));
 const DocLink = Obj({ date: IsoDateOrEmpty, doc_type: Str, filename: Str, ref: Str, url: Str });
 export const V5DefenceMatrix = Type.Array(Obj({ point: Str, dcs: Str, rebuttal: Str, evidence: Str, refs: Str, docs: Type.Array(DocLink) }));
 export const V5InfoRequired = Type.Array(Obj({ item: Str, owner: Str, status: Str }));

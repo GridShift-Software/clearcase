@@ -274,7 +274,7 @@ describe('risks with category, owner and refs (step 5)', () => {
     expect(two).not.toHaveProperty('owner');
     const r = await importCandidate({ files: res.files! }, dir);
     const unsupported = new Set(r.diagnostics.filter((d) => d.file === 'datasets/risk-matrix.json' && d.code === 'DS_UNSUPPORTED_FIELD').map((d) => d.subject));
-    expect([...unsupported].sort()).toEqual(['id']);
+    expect([...unsupported].sort()).toEqual(['id', 'impact_score', 'likelihood_score']);
   });
 
   it('a JSON-script risk that already names a category keeps both fields as written', async () => {

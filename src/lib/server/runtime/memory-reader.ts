@@ -74,7 +74,7 @@ export function createMemoryReader(ctx: MemoryContext): C.CaseReader {
     async getCase(a) { await guard(a); return freeze(copy(ctx.client.cases.find((c) => c.caseId === a.caseId) ?? null)); },
     async getVersion(a) { await ctx.identity.checkRevocation(); const v = ctx.client.versions.find((v) => v.info.id === a.resultsVersion); return v ? freeze(copy((await version({ caseId: v.info.case_id, ...a })).info)) : null; },
     async versionsOf(a) { await guard(a); const rv = await store.activeVersionId(a); return rv ? [freeze(copy((await version({ ...a, resultsVersion: rv })).info))] : []; },
-    async verifyVersion(a) { const v = await version(a); const manifest = v.files.find((f) => f.path === 'manifest.json'); const ok = !!manifest && await digest(manifest.bytes) === v.info.manifest_sha256; return { ok, ms: 0, ...(ok ? {} : { reason: 'integrity' }) }; },
+    async verifyVersion(a) { const v = await version(a); const manifest = v.files.find((f) => f.path === 'manifest.json'); const ok = !!manifest && await digest(manifest.bytes) === v.info.manifest_sha256; return release(a, { ok, ms: 0, ...(ok ? {} : { reason: 'integrity' }) }); },
     async activeVersionId(a) { await guard(a); const p = ctx.client.cases.find((c) => c.caseId === a.caseId)?.publication; return p?.kind === 'published' ? p.resultsVersion : null; },
     async previousVersion(a) { await guard(a); return null; },
     async trustedFor(a) { await guard(a); return new Set(); },

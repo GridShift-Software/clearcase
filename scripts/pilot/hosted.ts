@@ -139,7 +139,7 @@ function build() {
 	console.log(`build:hosted: PASS ${profile} artifact ${sidecar.artifact} stamped ${sha}${isDirty ? ' (DIRTY: start:hosted will refuse it)' : ''}; artifact scan PASS (${scan.files} emitted modules)`);
 }
 
-type Proc = { pid: number; ppid: number; pgrp: number; exe: string };
+export type Proc = { pid: number; ppid: number; pgrp: number; exe: string };
 function processes(): Map<number, Proc> {
 	const out = new Map<number, Proc>();
 	for (const name of readdirSync('/proc')) {
@@ -205,11 +205,31 @@ async function start() {
 	});
 	const vars = fixture ? ['--var', `CLEARCASE_GATE_RUN:${runId}`, '--var', `CLEARCASE_GATE_FIXTURE:${fixture.sha256}`] : [];
 	const args = ['node_modules/wrangler/bin/wrangler.js', 'dev', '--config', CONFIG, '--local', '--ip', '127.0.0.1', '--port', String(port), '--inspector-ip', '127.0.0.1', '--inspector-port', '0', '--persist-to', persist, '--show-interactive-dev-session=false', ...vars];
-	const child = spawn(node.path, args, { cwd: root, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
-	const log = createWriteStream(path.join(logs, 'wrangler-dev.log'));
+	const check = async (tree: Proc[]) => {
+		if (!tree.some((p) => p.exe === 'workerd')) throw new Error('no native workerd process under Wrangler');
+		const health = await fetch(`${base}/health`, { signal: AbortSignal.timeout(15_000) });
+		const body = (await health.json()) as { ok?: boolean; runtime?: string; build?: { revision?: string; profile?: string } | null };
+		if (health.status !== 200 || body.ok !== true || body.build?.revision !== sha || body.build.profile !== profile || body.runtime !== 'Cloudflare-Workers') throw new Error(`/health did not report this artifact on workerd: ${health.status} ${JSON.stringify(body)}`);
+	};
+	const state = (): ServerState => ({ schema: 'clearcase.hosted-server/1', pid: process.pid, port, base, revision: sha, profile, artifact: sidecar.artifact, runDir: path.relative(root, runDir), persist: path.relative(root, persist), runId, fixtureSha256: fixture?.sha256 ?? null, node: node.version, startedAt: new Date().toISOString() });
+	await serve({ command: node.path, args, env, cwd: root, logFile: path.join(logs, 'wrangler-dev.log') }, check, state);
+	console.log(`start:hosted: serving ${base} on workerd (${profile}, ${sha}); Wrangler on Node ${node.version}; state ${path.relative(root, runDir)}. Stop with bun run --bun start:hosted --stop (PORT=${port}).`);
+}
+
+/** `pidFile` and `stateFile` are this port's, unless a test points them elsewhere. */
+export type Wrangler = { command: string; args: string[]; env: Record<string, string>; cwd: string; logFile: string; readyMs?: number; pidFile?: string; stateFile?: string };
+
+/**
+ * Spawns Wrangler in a process group of its own, waits for "Ready on", runs `check` over its process tree, then records
+ * the server (`state`, the pid file) and returns, the process serving until it is signalled or Wrangler exits.
+ */
+export async function serve(w: Wrangler, check: (tree: Proc[]) => Promise<void>, state: () => ServerState): Promise<void> {
+	const { pidFile: pids = pidFile, stateFile: record = stateFile } = w;
+	const child = spawn(w.command, w.args, { cwd: w.cwd, env: w.env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
+	const log = createWriteStream(w.logFile);
 	let text = '';
 	await new Promise<void>((resolve, reject) => {
-		const timer = setTimeout(() => reject(new Error('no "Ready on" from Wrangler within 60 s')), 60_000);
+		const timer = setTimeout(() => reject(new Error('no "Ready on" from Wrangler within 60 s')), w.readyMs ?? 60_000);
 		const onData = (b: Buffer) => {
 			log.write(b);
 			text += b.toString();
@@ -234,26 +254,21 @@ async function start() {
 			console.error(`start:hosted: ${e instanceof Error ? e.message : String(e)}`);
 			code = 1;
 		}
-		rmSync(stateFile, { force: true });
-		removePidFile(pidFile);
+		rmSync(record, { force: true });
+		removePidFile(pids);
 		process.exit(code);
 	};
 	process.on('SIGTERM', () => void stop('SIGTERM', 0));
 	process.on('SIGINT', () => void stop('SIGINT', 0));
 	child.once('exit', (code) => void stop(`Wrangler exited ${code}`, 1));
 	try {
-		if (!tree.some((p) => p.exe === 'workerd')) throw new Error('no native workerd process under Wrangler');
-		const health = await fetch(`${base}/health`, { signal: AbortSignal.timeout(15_000) });
-		const body = (await health.json()) as { ok?: boolean; runtime?: string; build?: { revision?: string; profile?: string } | null };
-		if (health.status !== 200 || body.ok !== true || body.build?.revision !== sha || body.build.profile !== profile || body.runtime !== 'Cloudflare-Workers') throw new Error(`/health did not report this artifact on workerd: ${health.status} ${JSON.stringify(body)}`);
+		await check(tree);
 	} catch (e) {
 		console.error(`start:hosted: ${e instanceof Error ? e.message : String(e)}`);
 		return stop('failed start-up check', 1);
 	}
-	const state: ServerState = { schema: 'clearcase.hosted-server/1', pid: process.pid, port, base, revision: sha, profile, artifact: sidecar.artifact, runDir: path.relative(root, runDir), persist: path.relative(root, persist), runId, fixtureSha256: fixture?.sha256 ?? null, node: node.version, startedAt: new Date().toISOString() };
-	writePidFile(pidFile);
-	writeFileSync(stateFile, JSON.stringify(state, null, 2) + '\n');
-	console.log(`start:hosted: serving ${base} on workerd (${profile}, ${sha}); Wrangler on Node ${node.version}; state ${path.relative(root, runDir)}. Stop with bun run --bun start:hosted --stop (PORT=${port}).`);
+	writePidFile(pids);
+	writeFileSync(record, JSON.stringify(state(), null, 2) + '\n');
 }
 
 async function test() {
@@ -283,17 +298,19 @@ async function test() {
 	process.exitCode = pass ? 0 : 1;
 }
 
-const command = process.argv[2];
-try {
-	if (command === 'build') build();
-	else if (command === 'start' && process.argv.includes('--stop')) {
-		const { ok, message } = await stopPidFile(pidFile, { graceMs: 30_000 });
-		console.log(`start:hosted --stop: ${message}`);
-		process.exitCode = ok ? 0 : 1;
-	} else if (command === 'start') await start();
-	else if (command === 'test') await test();
-	else throw new Refusal('usage: bun scripts/pilot/hosted.ts build|start [--stop]|test');
-} catch (e) {
-	console.error(`hosted ${command}: ${e instanceof Error ? e.message : String(e)}`);
-	process.exitCode = e instanceof Refusal ? 2 : 1;
+if (import.meta.main) {
+	const command = process.argv[2];
+	try {
+		if (command === 'build') build();
+		else if (command === 'start' && process.argv.includes('--stop')) {
+			const { ok, message } = await stopPidFile(pidFile, { graceMs: 30_000 });
+			console.log(`start:hosted --stop: ${message}`);
+			process.exitCode = ok ? 0 : 1;
+		} else if (command === 'start') await start();
+		else if (command === 'test') await test();
+		else throw new Refusal('usage: bun scripts/pilot/hosted.ts build|start [--stop]|test');
+	} catch (e) {
+		console.error(`hosted ${command}: ${e instanceof Error ? e.message : String(e)}`);
+		process.exitCode = e instanceof Refusal ? 2 : 1;
+	}
 }

@@ -32,7 +32,7 @@ export default async function archive(c, { full, skipLarge }) {
   await rejects(c, F, id, C, [[{ kind: 'archive-entry', path: 'report.txt' }, 'ambiguous-entry']], async () => (await ar(c)).selected);
   await accepts(c, F, id, C, { kind: 'archive-entry', ordinal: 1 }, 'Entry 2');
 
-  for (const [fid, want] of [['archive/traversal.zip', { '../../evil.txt': 'unsafe-path', '/abs/evil.txt': 'unsafe-path', 'C:\\evil.txt': 'unsafe-path', 'link-to-etc': 'symlink', 'safe.txt': 'ok' }], ['archive/corrupt-crc.zip', { 'bad.txt': 'crc-mismatch' }], ['archive/encrypted-flag.zip', { 'secret.txt': 'encrypted' }], ['archive/unsupported-method.zip', { 'lzma.txt': 'unsupported-method-14' }], ['archive/bomb-256mib.zip', { 'zeros.bin': 'declared-size-over-limit' }], ['archive/bomb-lying-size.zip', { 'zeros.bin': 'expansion-limit-exceeded' }]]) {
+  for (const [fid, want] of [['archive/traversal.zip', { '../../evil.txt': 'unsafe-path', '/abs/evil.txt': 'unsafe-path', 'C:\\evil.txt': 'unsafe-path', 'link-to-etc': 'symlink', 'safe.txt': 'ok' }], ['archive/corrupt-crc.zip', { 'bad.txt': 'crc-mismatch' }], ['archive/encrypted-flag.zip', { 'secret.txt': 'encrypted' }], ['archive/unsupported-method.zip', { 'lzma.txt': 'unsupported-method-14' }], ['archive/bomb-256mib.zip', { 'zeros.bin': 'declared-size-over-limit' }], ['archive/bomb-lying-size.zip', { 'zeros.bin': 'expansion-limit-exceeded' }], ['archive/stored-lying-size.zip', { 'zeros.bin': 'expansion-limit-exceeded' }]]) {
     const t0 = Date.now();
     await opens(c, F, fid, C);
     st = await ar(c);

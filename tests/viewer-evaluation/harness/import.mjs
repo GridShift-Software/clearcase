@@ -22,36 +22,37 @@ function familyOf(s, name) {
 
 const DECLARED = { '.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif', '.heic': 'image/heic', '.tif': 'image/tiff' };
 
-export function createStore(fixtureDir) {
+export function createStore(fixtureDir, { limits = ZIP_LIMITS, only = null } = {}) {
   const manifest = JSON.parse(readFileSync(path.join(fixtureDir, 'manifest.json'), 'utf8'));
   const assets = new Map();
+  /** Every asset knows its depth (containers above it) and shares one expansion budget with the whole tree it came from. */
   const add = (id, bytes, name, extra = {}) => {
     const s = sniff(bytes);
-    const a = { id, bytes, name, sha256: sha(bytes), size: bytes.length, mime: s.mime, kind: s.kind, variant: s.variant, format: s.format, pages: s.pages, family: familyOf(s, name), ...extra };
+    const parent = extra.parent ? assets.get(extra.parent.assetId) : null;
+    const a = { id, bytes, name, sha256: sha(bytes), size: bytes.length, mime: s.mime, kind: s.kind, variant: s.variant, format: s.format, pages: s.pages, family: familyOf(s, name), depth: parent ? parent.depth + 1 : 0, budget: parent ? parent.budget : { bytes: 0, nodes: 0 }, ...extra };
     assets.set(id, a);
     return a;
   };
-  for (const f of manifest.fixtures) add(f.id, new Uint8Array(readFileSync(path.join(fixtureDir, f.file))), path.basename(f.file), { fixture: f });
-  return { manifest, assets, add };
+  for (const f of manifest.fixtures.filter((x) => !only || only.has(x.id))) add(f.id, new Uint8Array(readFileSync(path.join(fixtureDir, f.file))), path.basename(f.file), { fixture: f });
+  return { manifest, assets, add, limits };
 }
 
-/** Expand the attachment graph of an EML or MSG into child assets; returns [{key, ...}] and holds. */
-async function emailChildren(store, a, depth = 0) {
-  const children = [], holds = [];
-  if (depth > ZIP_LIMITS.maxDepth) return { children, holds: [{ code: 'nesting-limit', detail: a.id }] };
+const attachment = (key, o) => ({ kind: 'attachment', key, assetId: null, name: null, mime: null, declaredMime: null, sha256: null, contentId: null, inline: false, embeddedMessage: false, ...o });
+const member = (key, o) => ({ kind: 'member', key, path: '', directory: false, assetId: null, mime: null, family: null, sha256: null, size: null, duplicateName: false, problems: [], ...o });
+
+/** The attachments of an EML or MSG as raw items (bytes and the trusted entry), before depth and budget decide what is kept. */
+async function emailItems(a, { hasBodyCompanion }) {
+  const items = [], holds = [];
   if (a.kind === 'ole') {
     const r = new MsgReader(a.bytes);
     const d = r.getFileData();
-    if (d.error) return { children, holds: [{ code: 'email-parse-failed', detail: d.error }] };
-    if (!d.body && !d.bodyHtml && !d.html && d.compressedRtf) holds.push({ code: 'rtf-only-body-needs-companion', detail: a.id });
+    if (d.error) return { items, holds: [{ code: 'email-parse-failed', detail: d.error }] };
+    if (!d.body && !d.bodyHtml && !d.html && d.compressedRtf && !hasBodyCompanion) holds.push({ code: 'rtf-only-body-needs-companion', detail: a.id });
     for (const [i, att] of d.attachments.entries()) {
-      const c = r.getAttachment(att);
       const name = att.innerMsgContent ? `${att.name ?? 'embedded'}.msg` : (att.fileName ?? `attachment-${i}`);
-      const child = store.add(`${a.id}#${i}`, new Uint8Array(c.content), name, { parent: { assetId: a.id, key: String(i) } });
-      children.push({ key: String(i), assetId: child.id, name, mime: child.mime, sha256: child.sha256, contentId: att.pidContentId ?? null, embeddedMessage: !!att.innerMsgContent });
-      if (child.family === 'email') { const n = await emailChildren(store, child, depth + 1); child.children = n.children; holds.push(...n.holds); }
+      items.push({ name, bytes: new Uint8Array(r.getAttachment(att).content), entry: attachment(String(i), { name, declaredMime: att.attachMimeTag ?? null, contentId: att.pidContentId ?? null, embeddedMessage: !!att.innerMsgContent }) });
     }
-    return { children, holds };
+    return { items, holds };
   }
   const raw = new TextDecoder().decode(a.bytes);
   for (const m of raw.matchAll(/Content-Transfer-Encoding:\s*base64\r?\n(?:[^\r\n]+\r?\n)*\r?\n([\s\S]*?)(?=\r?\n--|$)/gi)) {
@@ -59,29 +60,44 @@ async function emailChildren(store, a, depth = 0) {
   }
   const e = await PostalMime.parse(a.bytes, { attachmentEncoding: 'arraybuffer' });
   for (const [i, att] of e.attachments.entries()) {
-    const bytes = new Uint8Array(att.content);
-    const child = store.add(`${a.id}#${i}`, bytes, att.filename ?? `attachment-${i}`, { parent: { assetId: a.id, key: String(i) } });
-    children.push({ key: String(i), assetId: child.id, name: att.filename, mime: child.mime, declaredMime: att.mimeType, sha256: child.sha256, contentId: att.contentId ?? null, inline: att.disposition === 'inline' });
-    if (child.kind === 'tnef') holds.push({ code: 'tnef-needs-companion', detail: `${a.id}#${i}` });
-    if (child.family === 'email') { const n = await emailChildren(store, child, depth + 1); child.children = n.children; holds.push(...n.holds); }
+    items.push({ name: att.filename ?? `attachment-${i}`, bytes: new Uint8Array(att.content), entry: attachment(String(i), { name: att.filename ?? null, declaredMime: att.mimeType ?? null, contentId: att.contentId ?? null, inline: att.disposition === 'inline', embeddedMessage: att.mimeType === 'message/rfc822' }) });
   }
-  return { children, holds };
+  return { items, holds };
 }
 
-function archiveChildren(store, a) {
+/** The members of a ZIP as raw items; a member that cannot be extracted has no bytes and carries its reason. */
+function zipItems(a) {
   const { error, entries } = listZip(a.bytes);
   const holds = error ? [{ code: `archive-${error}`, detail: a.id }] : [];
-  const children = [];
-  let total = 0;
+  const items = [];
   for (const e of entries) {
-    if (e.directory && !e.problems.length) { children.push({ key: String(e.ordinal), path: e.path, directory: true, problems: [] }); continue; }
+    const base = { path: e.path, duplicateName: e.duplicateName };
+    if (e.directory && !e.problems.length) { items.push({ entry: member(String(e.ordinal), { ...base, directory: true }) }); continue; }
     const x = extractEntry(a.bytes, e);
-    if (!x.ok) { holds.push({ code: `archive-${x.reason}`, detail: `${a.id}#${e.ordinal} ${JSON.stringify(e.path)}` }); children.push({ key: String(e.ordinal), path: e.path, problems: [x.reason], duplicateName: e.duplicateName }); continue; }
-    total += x.bytes.length;
-    if (total > ZIP_LIMITS.maxTotalBytes) { holds.push({ code: 'archive-total-expansion-limit', detail: a.id }); break; }
-    const name = e.path.split('/').pop() || `entry-${e.ordinal}`;
-    const child = store.add(`${a.id}#${e.ordinal}`, x.bytes, name, { parent: { assetId: a.id, key: String(e.ordinal) } });
-    children.push({ key: String(e.ordinal), path: e.path, assetId: child.id, mime: child.mime, family: child.family, sha256: child.sha256, size: x.bytes.length, duplicateName: e.duplicateName, problems: [] });
+    if (!x.ok) { holds.push({ code: `archive-${x.reason}`, detail: `${a.id}#${e.ordinal} ${JSON.stringify(e.path)}` }); items.push({ entry: member(String(e.ordinal), { ...base, problems: [x.reason] }) }); continue; }
+    items.push({ name: e.path.split('/').pop() || `entry-${e.ordinal}`, bytes: x.bytes, entry: member(String(e.ordinal), { ...base, size: x.bytes.length }), ordinal: e.ordinal });
+  }
+  return { items, holds };
+}
+
+/**
+ * Expand one container into child assets. Archives and email share one rule set: a container at the depth limit that has
+ * contents is held (nesting-limit) and not expanded, and every extracted byte and node counts against the one budget the
+ * whole tree shares, so no mix of ZIPs and messages can exceed what one archive may.
+ */
+async function expand(store, a, ctx) {
+  const { items, holds } = a.family === 'email' ? await emailItems(a, ctx) : zipItems(a);
+  const limits = store.limits;
+  if (items.length && a.depth >= limits.maxDepth) return { children: [], holds: [...holds, { code: 'nesting-limit', detail: `${a.id} sits at depth ${a.depth} and holds ${items.length} item(s); the limit is ${limits.maxDepth}` }] };
+  const children = [];
+  for (const it of items) {
+    if (!it.bytes) { children.push(it.entry); continue; }
+    if (a.budget.nodes + 1 > limits.maxEntries) { holds.push({ code: 'archive-too-many-entries', detail: `${a.id}: more than ${limits.maxEntries} items in the whole tree` }); break; }
+    if (a.budget.bytes + it.bytes.length > limits.maxTotalBytes) { holds.push({ code: 'archive-total-expansion-limit', detail: `${a.id}: the tree would pass ${limits.maxTotalBytes} bytes` }); break; }
+    a.budget.nodes++; a.budget.bytes += it.bytes.length;
+    const child = store.add(`${a.id}#${it.entry.key}`, it.bytes, it.name, { parent: { assetId: a.id, key: it.entry.key } });
+    if (child.kind === 'tnef') holds.push({ code: 'tnef-needs-companion', detail: child.id });
+    children.push({ ...it.entry, assetId: child.id, mime: child.mime, sha256: child.sha256, ...(it.entry.kind === 'member' ? { family: child.family, size: it.bytes.length } : {}) });
   }
   return { children, holds };
 }
@@ -134,10 +150,9 @@ async function describe(store, a, renditions, descriptors) {
     if (!ok || o !== a.size) holds.push({ code: 'media-damaged', detail: `${a.name}: top-level box at ${o} runs past the end of the file` });
   }
   if (a.variant === 'split') holds.push({ code: 'archive-split-unsupported', detail: a.name });
-  let children = a.children ?? [];
-  if (a.family === 'email' && a.kind !== 'mbox' && !a.children) { const r = await emailChildren(store, a); children = r.children; holds.push(...r.holds); a.children = children; }
-  if (a.family === 'archive' && !a.children) { const r = archiveChildren(store, a); children = r.children; holds.push(...r.holds); a.children = children; }
   const linked = (renditions.get(a.id) ?? []).map((r) => ({ assetId: r.id, kind: r.fixture.page ? 'page-image' : r.name.endsWith('.txt') ? 'ocr-text' : r.name.endsWith('.vtt') ? 'captions' : 'pdf', version: r.fixture.version ?? 1, page: r.fixture.page ?? null, sha256: r.sha256, role: /supplement/.test(r.name) ? 'supplement' : 'rendition' }));
+  let children = [];
+  if ((a.family === 'email' && a.kind !== 'mbox') || a.family === 'archive') { const r = await expand(store, a, { hasBodyCompanion: false }); children = r.children; holds.push(...r.holds); }
   let visualParts = [];
   if (a.family === 'sheet' && a.kind === 'zip') {
     visualParts = listZip(a.bytes).entries.map((e) => e.path).filter((p) => /^xl\/(charts|drawings)\/[^/]+\.xml$/.test(p));

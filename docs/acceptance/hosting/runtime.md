@@ -22,7 +22,7 @@ The summary records the source SHA and pins. It also records the host of each st
 - every leg passes;
 - the served build stamp is HEAD;
 - HEAD and the tree are unchanged at the end;
-- the runner's own checker refuses its summary after any one leaf or container of it is deleted, nulled, retyped, emptied, flipped or zeroed, or after an unknown key is added to any object (`checker.mutationsRefused` counts them). `--check` compares the whole summary with one expected shape: exact key sets, types and values at every level. The standalone `bun run --bun test:check` in the runtime workspace mutates the committed summary the same way and runs the real `--check` on each mutant (550 at the time of writing).
+- the runner's own checker refuses its summary after any one leaf or container of it is deleted, nulled, retyped, emptied, flipped or zeroed, or after an unknown key is added to any object (`checker.mutationsRefused` counts them). `--check` compares the whole summary with one expected shape: exact key sets, types and values at every level. The standalone `bun run --bun test:check` in the runtime workspace mutates the committed summary the same way and runs the real `--check` on each mutant (554 at the time of writing).
 
 Logs and local D1/R2 state stay in the run directory under `.local/hosting-probe/runtime/`. The committed run is [evidence/runtime-summary.json](evidence/runtime-summary.json); it names the SHA it ran at.
 

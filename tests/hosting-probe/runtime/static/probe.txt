@@ -1,0 +1,1 @@
+clearcase runtime probe: static asset served through the ASSETS binding

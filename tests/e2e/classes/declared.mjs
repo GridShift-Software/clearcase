@@ -181,7 +181,10 @@ export const DATA_STATES = {
 		{ name: 'risk-owner', expect: '#risk-table td[data-label=Owner]', why: 'the Owner column appears when a risk carries an owner' },
 		{ name: 'risk-documents', expect: '#risk-table td[data-label=Documents]', why: 'the Documents column appears when a risk cites documents' },
 	],
-	'/import/[id]': [{ name: 'text-coverage', expect: '#text-coverage', why: 'the Source text coverage section appears when the conversion reported text cut short by the source export' }],
+	'/import/[id]': [
+		{ name: 'text-coverage', expect: '#text-coverage', why: 'the Source text coverage section appears when the conversion reported text cut short by the source export' },
+		{ name: 'source-coverage', expect: '#source-coverage', why: 'the Source coverage section appears when the conversion recorded source data it kept but does not present' },
+	],
 };
 
 /** Page states that appear after a choice and that the suite does not open, with why (reported as N/A in the narrow class). */

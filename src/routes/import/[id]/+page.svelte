@@ -75,6 +75,22 @@
 		</section>
 	{/if}
 
+	{#if data.sourceCoverage}
+		<section class="card" id="source-coverage" aria-labelledby="source-coverage-heading">
+			<h2 id="source-coverage-heading">Source coverage</h2>
+			{#if data.sourceCoverage.known}
+				<p>What the converter recorded about source data it kept but does not present, or could not map:</p>
+				{#each data.sourceCoverage.groups as g (g.code)}
+					<h3>{g.code} ({g.total})</h3>
+					<ul>{#each g.items as it, i (i)}<li>{#if it.subject}<code>{it.subject}</code>: {/if}{it.message}.</li>{/each}</ul>
+					{#if g.hint}<p><em>{g.hint}</em></p>{/if}
+				{/each}
+			{:else}
+				<p>This package carries no conversion report, so what the source export holds beyond the views is not known.</p>
+			{/if}
+		</section>
+	{/if}
+
 	{#if r.app.length}
 		<h2>Import checks</h2>
 		<ul id="app-diagnostics">{#each r.app as d (d.code + d.message)}<li><strong>{d.code}</strong> ({d.severity}): {d.message}. <em>{d.hint}</em></li>{/each}</ul>

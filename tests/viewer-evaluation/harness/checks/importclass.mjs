@@ -80,9 +80,30 @@ async function nesting(c) {
   c.record(F, 'archive/budget-mixed.zip', C, 'one expansion budget covers a ZIP and the EML inside it', held.length >= 1, "a descriptor in the tree holds 'archive-total-expansion-limit' although each container alone stays under the cap", { held: held.map((d) => d.assetId), assets: [...ds.keys()] });
 }
 
+// M3: prepared page images are found by rendition.page, never by position, and a gap is a hold and a refusal.
+async function pageImages(c) {
+  const id = 'image/tiff-gappy.tif';
+  const d = c.descriptors.get(id);
+  c.record(F, id, C, 'a TIFF whose page count differs from its prepared page-image set is held', codes(d).includes('rendition-page-count-mismatch') && c.descriptors.get('image/tiff-multipage-g4.tif').holds.length === 0, "holds include 'rendition-page-count-mismatch'; the complete 3-image set has no hold", { pages: d?.pages ?? null, renditions: d?.renditions?.map((r) => r.page), holds: codes(d) });
+  const extras = ['image/tiff-gappy.rendition-p1.png', 'image/tiff-gappy.rendition-p3.png'];
+  await c.open(id, { kind: 'file' }, { extra: extras });
+  const miss = await c.navigate({ kind: 'original-page', page: 2 });
+  const afterMiss = (await c.rstate())?.image;
+  c.record(F, id, 'prepared page images (PNG per page)', 'original page 2 with no page image is refused, and the view does not show page 3 under that label', miss.resolution?.ok === false && miss.resolution?.code === 'unmapped-original-location' && afterMiss?.page !== 3, "resolution.code === 'unmapped-original-location'; the displayed page is not 3", { resolution: miss.resolution, page: afterMiss?.page });
+  const hit = await c.navigate({ kind: 'original-page', page: 3 });
+  const shown = (await c.rstate())?.image;
+  c.record(F, id, 'prepared page images (PNG per page)', 'original page 3 shows the image whose rendition.page is 3', hit.resolution?.ok === true && shown?.shownAsset === 'image/tiff-gappy.rendition-p3.png', "ok; shownAsset is the rendition.page 3 image", { resolution: hit.resolution, shown: shown?.shownAsset });
+  const all = [3, 1, 2].map((n) => `image/tiff-multipage-g4.rendition-p${n}.png`);
+  await c.open('image/tiff-multipage-g4.tif', { kind: 'file' }, { extra: all });
+  const rows = [];
+  for (const n of [1, 2, 3]) { const r = await c.navigate({ kind: 'original-page', page: n }); rows.push({ n, ok: r.resolution?.ok, shown: (await c.rstate())?.image?.shownAsset }); }
+  c.record(F, 'image/tiff-multipage-g4.tif', 'prepared page images (PNG per page)', 'page images supplied out of order are still found by rendition.page', rows.every((r) => r.ok && r.shown === `image/tiff-multipage-g4.rendition-p${r.n}.png`), 'original page n shows the rendition.page n image whatever the order of the extras', rows);
+}
+
 export default async function importclass(c, { full }) {
   if (!full) return;
   unknownBytes(c);
   byBytes(c);
   await nesting(c);
+  await pageImages(c);
 }

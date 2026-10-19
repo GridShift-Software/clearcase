@@ -31,7 +31,28 @@ function unknownBytes(c) {
   }
 }
 
+// M1: the family comes from the bytes (ZIP parts, OLE directory), never from the file name.
+const BY_BYTES = {
+  'rename/full-content-docx.zip': ['word', []],
+  'rename/main-xlsx.zip': ['sheet', []],
+  'rename/basic-zip.docx': ['archive', []],
+  'rename/legacy-doc.dat': ['word', []],
+  'rename/main-xls.dat': ['sheet', []],
+  'rename/outlook-save-as-msg.dat': ['email', []],
+  'rename/outlook-save-as-msg.doc': ['email', []],
+  'rename/text-named.msg': ['text', []],
+  'rename/pptx-shaped.zip': ['unknown', ['unsupported-office-format']],
+};
+
+function byBytes(c) {
+  for (const [id, [family, wantHolds]] of Object.entries(BY_BYTES)) {
+    const d = c.descriptors.get(id);
+    c.record(F, id, C, `family comes from the bytes (${family}), not from the file name`, d?.family === family && wantHolds.every((w) => codes(d).includes(w)), `family '${family}'${wantHolds.length ? `; holds include ${wantHolds.join(', ')}` : ''}`, d ? { family: d.family, mime: d.mime, holds: codes(d) } : 'descriptor missing');
+  }
+}
+
 export default async function importclass(c, { full }) {
   if (!full) return;
   unknownBytes(c);
+  byBytes(c);
 }

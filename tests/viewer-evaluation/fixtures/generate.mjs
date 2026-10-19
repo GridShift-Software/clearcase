@@ -240,6 +240,18 @@ for (const [name, bytes] of Object.entries(blobs)) put('unknown', name, bytes, '
 put('archive', 'unknown-members.zip', buildZip(Object.entries(blobs).map(([name, data]) => ({ name, data, method: 8 }))), 'lib/zip.mjs: the six unknown/unsupported blobs as members');
 put('email', 'unknown-attachments.eml', carrierEml({ subject: 'UNKNOWN-ATTACHMENTS-SUBJECT-TOKEN', attachments: Object.entries(blobs).map(([name, data]) => ({ name, mime: 'application/octet-stream', data })) }), 'lib/mail.mjs: the six unknown/unsupported blobs as attachments');
 
+// ---------- Classification by bytes, not by name (M1) ----------
+const out = (...p) => read(path.join(OUT, ...p));
+put('rename', 'full-content-docx.zip', out('word', 'full-content.docx'), 'a DOCX named .zip: OOXML parts say Word');
+put('rename', 'main-xlsx.zip', out('sheet', 'main.xlsx'), 'an XLSX named .zip: OOXML parts say workbook');
+put('rename', 'basic-zip.docx', out('archive', 'basic.zip'), 'a plain ZIP named .docx: no word/document.xml, so an archive');
+put('rename', 'legacy-doc.dat', out('word', 'legacy.doc'), 'a Word 97 .doc named .dat: the OLE directory has WordDocument');
+put('rename', 'main-xls.dat', out('sheet', 'main.xls'), 'an Excel 97 .xls named .dat: the OLE directory has Workbook');
+put('rename', 'outlook-save-as-msg.dat', out('email', 'outlook-save-as.msg'), 'an Outlook .msg named .dat: the OLE directory has __properties_version1.0');
+put('rename', 'outlook-save-as-msg.doc', out('email', 'outlook-save-as.msg'), 'an Outlook .msg named .doc: the name must not make it Word');
+put('rename', 'text-named.msg', 'RENAME-PLAIN-TEXT-TOKEN: this is text, not an OLE file', 'plain text named .msg');
+put('rename', 'pptx-shaped.zip', buildZip([{ name: '[Content_Types].xml', data: '<Types/>' }, { name: 'ppt/presentation.xml', data: '<p:presentation/>' }]), 'an OOXML package that is neither Word nor Excel (PowerPoint-shaped)');
+
 writeFileSync(path.join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 1));
 rmSync(TMP, { recursive: true, force: true });
 console.log(`fixtures: ${manifest.fixtures.length} files in ${path.relative(process.cwd(), OUT) || OUT}`);

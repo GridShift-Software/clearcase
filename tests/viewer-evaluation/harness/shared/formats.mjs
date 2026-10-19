@@ -36,7 +36,31 @@ export function sniff(b) {
   if (head.startsWith('from ') && /\n(subject|from|message-id|date):/i.test(head)) return { kind: 'mbox', mime: 'application/mbox' };
   if (/^(received|from|to|subject|date|message-id|mime-version|return-path|delivered-to|x-[\w-]+):/i.test(head)) return { kind: 'email', mime: 'message/rfc822' };
   if (startsWith(b, [0x78, 0x9f, 0x3e, 0x22])) return { kind: 'tnef', mime: 'application/ms-tnef' };
-  return { kind: 'text', mime: 'text/plain' };
+  const container = containerOf(b);
+  if (container) return { kind: 'unsupported-container', mime: container.mime, format: container.format };
+  return looksLikeText(b) ? { kind: 'text', mime: 'text/plain' } : { kind: 'unknown', mime: 'application/octet-stream' };
+}
+
+/** Container formats the alpha does not open: a mailbox store, an archive or a compression wrapper (never previewed, always held). */
+function containerOf(b) {
+  if (ascii(b, 0, 4) === '!BDN') return { format: ascii(b, 8, 2) === 'SO' ? 'ost' : 'pst', mime: 'application/vnd.ms-outlook-pst' };
+  if (startsWith(b, [0x37, 0x7a, 0xbc, 0xaf, 0x27, 0x1c])) return { format: '7z', mime: 'application/x-7z-compressed' };
+  if (ascii(b, 0, 4) === 'Rar!' && b[4] === 0x1a && b[5] === 0x07) return { format: 'rar', mime: 'application/vnd.rar' };
+  if (startsWith(b, [0x1f, 0x8b])) return { format: 'gzip', mime: 'application/gzip' };
+  if (ascii(b, 0, 3) === 'BZh') return { format: 'bzip2', mime: 'application/x-bzip2' };
+  if (startsWith(b, [0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00])) return { format: 'xz', mime: 'application/x-xz' };
+  if (startsWith(b, [0x28, 0xb5, 0x2f, 0xfd])) return { format: 'zstd', mime: 'application/zstd' };
+  if (ascii(b, 257, 5) === 'ustar') return { format: 'tar', mime: 'application/x-tar' };
+  return null;
+}
+
+/** Text means valid UTF-8 with no NUL and almost no other control characters. Anything else is not text: the default is to refuse. */
+function looksLikeText(b) {
+  let s;
+  try { s = new TextDecoder('utf-8', { fatal: true }).decode(b); } catch { return false; }
+  let control = 0;
+  for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); if (c === 0) return false; if (c < 32 && c !== 9 && c !== 10 && c !== 13 && c !== 12) control++; }
+  return control <= s.length / 50;
 }
 
 let table;

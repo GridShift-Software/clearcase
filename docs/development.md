@@ -4,7 +4,7 @@ The local pilot (GRS-12, CC-03): an operator imports a results package for a cas
 
 ## Stack decision
 
-SvelteKit 2 with TypeScript, `node:sqlite` storage, run and built with Bun 1.4.2.
+SvelteKit 3 (3.1.0 since GRS-112; the stack judge below ran on Kit 2) with TypeScript, `node:sqlite` storage, run and built with Bun 1.4.2.
 
 Historical stack-judge evidence lives in the workspace's `../spikes/stack-judge/`, outside this repository and Git. Three stacks used the same scenarios. Scores out of 10:
 
@@ -39,17 +39,76 @@ Start the pilot only with `bun run --bun start` (`scripts/pilot/start.ts`). It b
 
 Planning snapshot validation lives in `scripts/planning/check.py`; `scripts/agent-tools/check-plan --linear-relations PATH` compares the supplied readback with `snapshot.readback`, including project totals and status counts. If an issue creation or status change causes "Recorded project issue and status counts differ from the readback", refresh the capture and `snapshot.readback` together.
 
-## Hosted runtime contract spike (GRS-112)
+## Hosted runtime (GRS-112)
 
-The draft seam lives in `src/lib/server/runtime/`: pure `contracts.ts`/`dto.ts`, validated branded ids, typed error codes, and six request handles (`identity`, `store`, `assets`, `userWork`, `audit`, `runtime`). Local hooks construct unavailable handles alongside the existing local app. Local routes still use their existing adapters; caller reconciliation is pending. Production stubs reject, and never select a memory backend. A build stamp validator exists; the embedded Workers stamp, health route and artifact wrapper remain pending.
+One app builds two artifacts, chosen by one build variable. Unset (or `local`), `CLEARCASE_TARGET` builds the local pilot on adapter-node, which `bun run --bun start` serves. `CLEARCASE_TARGET=hosted` builds the Workers artifact on adapter-cloudflare from the route tree and server hooks that `deploy/client/hosted-files.json` selects (`deploy/client/routes/`, `src/lib/server/runtime/hosted/hooks.server.ts`). Set it only through `build:hosted`. The CSP, the Origin check and `handleError` are the app's; in the hosted graph the identity handle's authorization replaces the local loopback boundary. The pins are those of `docs/acceptance/hosting/runtime.md` (Kit 3.1.0, adapter-cloudflare 8.0.1, Wrangler 4.151.1, workerd 1.20261012.1).
 
-`memory.ts` creates an explicitly selected diagnostic backend from a converted synthetic fixture, clock and optional async `before` control. Each client has independent work/snapshot/audit state; each request has its own provider registry. Session handles simulate current sessions and grants, including revocation and expiry. They are not signed JWTs or the shared Clerk verifier. The double hashes complete originals before serving, refuses supported-looking ranges with 416, and returns verified full bytes on an If-Range mismatch. Work mutations compare row tokens or case revisions and commit the memory work generation with its audit event. Snapshot receipts bind the current case/revision and copied work. Defined-table creation is staged with restore; restored rows get fresh tokens. Built-in snapshot payloads are a diagnostic encoding, not a migration contract with local SQLite or D1.
+The second variable, `CLEARCASE_HOSTED_PROFILE`, is a test variable read at build time. `production`, the default, holds no test double. Every protected request is refused with 503 until the identity, storage (GRS-117) and asset (GRS-118) adapters land. `/health` and the 404 for `/api/browse` still answer. `hosted-gate` swaps in `src/lib/server/runtime/hosted/gate/hooks.server.ts` and the named test doubles under that directory. The import guard and the artifact scan refuse those doubles in any production artifact.
 
-`deploy/client/hosted-files.json` is the shared build/guard selection. `CLEARCASE_TARGET=hosted-spike bun run --bun build` selects its hooks and route tree. Its catch-all explicitly answers 503 for unmigrated routes. The default build still selects the local routes. The spike target still uses adapter-node: it is a graph isolation diagnostic, not a deployable Worker or hosted runtime evidence. Replace the adapter only after the accepted software/runtime proof and route handoffs.
+| Command | Host | What it does |
+| --- | --- | --- |
+| `bun run --bun build:hosted` | Bun (the build and the script) | `vite build` with a credential-free environment allowlist into `.svelte-kit/cloudflare` and `.svelte-kit/output/server`. Stamps the artifact with HEAD (Kit `version.name`, and the build stamp `/health` reports), scans the emitted modules (`scripts/ci/hosted-artifact.ts`), records the stamp and artifact digest in `.svelte-kit/clearcase-hosted.json`, then regenerates the local tree's Kit types |
+| `bun run --bun start:hosted` | Node hosts Wrangler only, and Wrangler runs native workerd, which serves the artifact | Refuses a dirty tree, a stamp that is not HEAD, a dirty-built stamp or a changed artifact. Provisions local D1 and R2 under `.local/hosted/run-*/persist` with `wrangler d1 execute --local` and `wrangler r2 object put --local` (the runtime sentinels, plus the synthetic two-client fixture for `hosted-gate`). Then it serves `http://127.0.0.1:$PORT` (41301) through `wrangler dev --local` with GRS-106's environment allowlist (fresh HOME and XDG, no telemetry, error reports, cf.json fetch, dotenv or process env). It checks `/health` reports this artifact on workerd and records `.local/hosted/server-$PORT.json`. `--stop` (same `PORT`) stops that server and its process tree |
+| `bun run --bun test:hosted` | Bun sends every request; workerd answers | Against the running server, at HEAD: the request, render and action smoke legs of `tests/hosted-foundation/runtime/smoke.ts`, then the import-boundary negative test (`guard-mutations.ts`). Writes `.local/hosted/test-<sha>-<profile>.json` and exits 0 only when every leg passes |
 
-`bun run --bun check:hosted-imports` follows the selected source graph before tree shaking. `check` runs it first, and the hosted spike build invokes the same guard. It resolves TypeScript aliases, re-exports, literal dynamic imports, Svelte server output and glob edges; erased type imports and unreachable host fixture/converter tools do not enter the graph. Unknown/computed imports, runtime imports resolving only to declarations, local implementations and filesystem/SQLite/listener/process capabilities fail closed with the import chain. Every selected route is a root. The selected graph excludes memory doubles. `bun run --bun probe:hosted-imports` commits alias/re-export/dynamic-import, capability and hidden-route mutations in disposable worktrees, requires the actual `check` to reject each for the expected guard reason, and retains exact SHAs/log hashes beside the checkout. Final emitted Worker graph/JS/maps/assets exclusion checks remain pending with the Cloudflare adapter and artifact work.
+A Node or Bun server pass is not hosted evidence; only these workerd runs are. No Cloudflare account, token, login or deploy is involved: every binding in `deploy/client/wrangler.toml` is `remote = false`, and its database id is a placeholder. The client a deployment serves comes from its `CLEARCASE_CLIENT_ID` var, never from a request.
 
-`bun run --bun test tests/hosted-foundation/runtime` runs contract diagnostics for both client bindings. The fixture uses the real synthetic converter, PDF helper and projector on host-only disposable files; no case sample is read. The tests do not claim Clerk, D1, R2 or workerd evidence. Keep `bun run --bun test tests/e2e` distinct from the browser runner `test:e2e`.
+### Test doubles and the GRS-138 feature map
+
+- **Doubles.** In the hosted-gate artifact these are doubles:
+  - identity: a test identity, sessions in local D1, with no Clerk;
+  - store: case identity and publication state in local D1 fixture tables (results stay unavailable until GRS-117 and GRS-118 land);
+  - assets: originals in local R2, read whole and checked against the recorded size and SHA-256 before release, with the audit event written first;
+  - audit: events in local D1.
+
+  User work is unavailable. The D1 and R2 bindings and workerd themselves are real local Miniflare/workerd, not Cloudflare's.
+- **Memory doubles.** The memory doubles (`src/lib/server/runtime/memory*.ts`) serve the unit tests in `tests/hosted-foundation/runtime/` only. No artifact contains them.
+- **Fixture.** `tests/hosted-foundation/runtime/gate-fixture.ts` defines it:
+  - two clients, A and B;
+  - cases A1 (no publication), A2 (withdrawn) and B1;
+  - identities `a-viewer` (A1), `a-editor` (A1 and A2), `a-unassigned` and `b-editor` (B1);
+  - four synthetic originals.
+
+  The local deployment serves client A, so to it B's session is wrong-client, and B's case and asset ids do not exist.
+
+The feature map GRS-138 drives (the smoke test walks the same steps):
+
+```sh
+CLEARCASE_HOSTED_PROFILE=hosted-gate bun run --bun build:hosted
+bun run --bun start:hosted &        # http://127.0.0.1:41301
+bun run --bun test:hosted
+bun run --bun start:hosted --stop
+```
+
+1. Sign in as the test identity. On `GET /sign-in` (`[data-auth-provider=double]`), choose `client-a/a-viewer` in `#test-identity` and submit `#sign-in`. The form answers 303 to `/cases` with an HttpOnly `clearcase_session` cookie.
+2. Open the provisioned case. On `/cases` (`[data-auth-state=signed-in]`), follow `a[data-action=open-case][data-case-id=case-a1]`. `/cases/case-a1` shows `[data-results-state=pending]` (`ResultsState`), the originals, and `[data-user-work-state]` apart from results.
+3. Open an original. `a[data-action=open-original][data-asset-id=a1-letter]` serves `/cases/case-a1/originals/a1-letter`: 200, the whole file, `attachment`, audited. A `Range` request gets 416.
+4. Deny a wrong-client request. Sign in as `client-b/b-editor`: `/cases` answers 401 `[data-denial-code=wrong-client]`, and B's original answers 401 with no bytes. As `a-viewer`, `/cases/case-a2`, `/cases/case-b1` and `/cases/case-a1/originals/b1-letter` answer 404.
+
+   Each denial and delivery is a row in local D1's `audit_event`. Read it with `wrangler d1 execute DB --local --persist-to <run>/persist --config deploy/client/wrangler.toml --command "SELECT * FROM audit_event"`.
+
+### Import boundary
+
+`bun run --bun check:hosted-imports`, run by `check` and by every hosted build, walks both profiles' source graphs before tree shaking. Every selected route is a root, and the guard resolves the following:
+
+- TypeScript aliases;
+- re-exports;
+- literal dynamic imports;
+- Svelte components (compiled, script blocks included) by `$lib` or relative path;
+- Vite `import.meta.glob` edges: `*` within a segment and `**` as a whole segment; braces, classes, extglobs and base-moving options fail closed.
+
+It refuses each of the following with the import chain:
+
+- filesystem, SQLite, network, process and `bun:` capabilities, and computed imports or globals;
+- the local implementations, and any module of `src/routes/` (the folder browser among them);
+- the memory doubles, and the gate doubles outside `hosted-gate`;
+- any package outside its allowlist (`svelte`, `@sveltejs/kit`, `typebox`; plus the Kit modules `$app/env|forms|navigation|paths|state` and `cloudflare:workers`).
+
+The allowlisted packages are not walked. `scripts/ci/hosted-artifact.ts` checks what was actually emitted for them: no import of a local-only module, no memory double, and gate doubles only in a gate artifact.
+
+`bun run --bun probe:hosted-imports` commits one mutant per case in a disposable checkout under `.local/hosted/`, with its own generated Kit 3 tsconfig. It requires the real `check` to refuse each for its reason; `test:hosted` runs it.
+
+`bun run --bun test tests/hosted-foundation/runtime` runs the contract diagnostics (memory doubles, both clients), the guard and the artifact scan. It claims nothing about Clerk, D1, R2 or workerd. Keep `bun run --bun test tests/e2e` distinct from the browser runner `test:e2e`.
 
 ## Configuration
 

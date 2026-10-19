@@ -384,9 +384,9 @@ Every changed module outside the protected closure and the runner configuration 
 module under test, and any file in a test-support directory, since application code can load one (`src/support/`,
 `src/fixtures/`, a helper under `tests/`) into the named test's process. Test files (`.test.`/`.spec.` names) are not:
 the runner collects each as an entry of its own and isolates it, and their assertion counts are checked above. That
-holds only while test files are isolated: when a runner file or a test script turns isolation off (`isolate: false`,
-`--no-isolate`, a single fork or thread) or runs `bun test`, or a named test imports `bun:test`, any changed test
-file outside the closure fails closed. Such a changed module (a JS/TS file, or a Svelte component's script) refuses
+holds only while test files are isolated: when a runner file's code (comments aside) or a test script turns isolation
+off (`isolate: false`, `--no-isolate`, a single fork or thread), a test script runs `bun test` as a command, or a
+named test imports `bun:test`, any changed test file outside the closure fails closed. Such a changed module (a JS/TS file, or a Svelte component's script) refuses
 when it:
 
 - imports, re-exports, requires or loads `vitest`, `jest`, `chai`, `bun:test` or a `@vitest`/`@jest` package, or passes

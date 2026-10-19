@@ -792,11 +792,15 @@ function main() {
   const compared = new Set([...oldClosure.found.keys(), ...currentClosure.found.keys()]);
   // Test files are left to their assertion counts only while the runner isolates each: Vitest and Jest do by default,
   // bun's runner does not, nor does a configuration or test script that turns isolation off or shares one worker.
-  const SHARED = /\bisolate\s*:\s*false\b|--no-isolate\b|--isolate[= ]false\b|\bsingle(?:Fork|Thread)\s*:\s*true\b|--(?:[\w.]+\.)?single(?:Fork|Thread)\b|\bbun test\b/;
-  const shares = [oldClosure, currentClosure].flatMap(snapshot => [...snapshot.runner, 'package.json#scripts']
-    .map(file => SHARED.exec(snapshot.found.get(file) ?? '')?.[0])).find(Boolean)
+  // Runner code is read without its comments; a test script counts as running bun test only as a command.
+  const SHARED = /\bisolate\s*:\s*false\b|--no-isolate\b|--isolate[= ]false\b|\bsingle(?:Fork|Thread)\s*:\s*true\b|--(?:[\w.]+\.)?single(?:Fork|Thread)\b/;
+  const code = (file, text) => (supported(file) ? JSON.parse(tokens(text)).join(' ') : text.replace(/#[^\n"']*$/gm, ''));
+  const shares = [oldClosure, currentClosure].flatMap(snapshot => [
+    ...[...snapshot.runner].map(file => SHARED.exec(code(file, snapshot.found.get(file)))?.[0]),
+    ...JSON.parse(snapshot.found.get('package.json#scripts') ?? '[]').map(([, script]) => SHARED.exec(script)?.[0]
+      ?? (/(?:^|[;&|(]\s*)bun\s+test\b/.test(script) ? `bun test in ${script}` : undefined))]).find(Boolean)
     ?? (starts.some(file => importsOf(ts.createSourceFile(file, currentClosure.found.get(file), ts.ScriptTarget.Latest, true), file, false)
-      .includes('bun:test')) ? 'the named tests run under bun:test' : undefined);
+      .some(specifier => /^bun:test$/.test(specifier))) ? 'the named tests run under bun:test' : undefined);
   // the tracked file a specifier names, including one with an extension the resolver does not know (a Svelte
   // component), relative or through $lib
   const link = (snapshot, file, specifier) => {

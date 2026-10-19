@@ -1,6 +1,7 @@
 // Renderer side of the broker protocol, shared by every family: say hello to the parent, claim the port with the nonce
 // from this document's own URL, receive bytes, report ready/error, answer navigate requests, and record every CSP
 // violation (attempted egress by document content) into the published state.
+import { invalidFields } from '../shared/descriptor.mjs';
 export const app = document.getElementById('app');
 export const statusEl = document.getElementById('status');
 export const state = (window.__r = { family: null, ready: false, error: null, blocked: [], resolution: null });
@@ -26,6 +27,7 @@ export const okRes = (label, extra = {}) => ({ ok: true, label, ...extra });
 
 /** Rendition and file-level targets every paginated adapter resolves the same way. Never clamps, never guesses. */
 export function resolvePaged(descriptor, target, numPages) {
+  if (invalidFields(descriptor).length) return fail('invalid-descriptor', 'the descriptor is not exactly the schema', true);
   const inRange = (p) => Number.isInteger(p) && p >= 1 && p <= numPages;
   if (!target || target.kind === 'file') return okRes('File-level reference: no precise location supplied', { page: 1, fileLevel: true });
   if (target.kind === 'rendition-page') {
@@ -63,6 +65,9 @@ export function boot(family, handlers) {
         const t0 = performance.now();
         try {
           const extras = (d.extras ?? []).map((x) => ({ descriptor: x.descriptor, bytes: new Uint8Array(x.bytes) }));
+          // the broker validated these already; a reader trusts nothing it did not check itself
+          const bad = [['descriptor', d.descriptor], ...extras.map((x, i) => [`extras[${i}]`, x.descriptor])].flatMap(([where, v]) => invalidFields(v).map((f) => `${where}.${f}`));
+          if (bad.length) throw new RenderError('invalid-descriptor', `missing, null or retyped: ${bad.slice(0, 8).join(', ')}`);
           adapter = await handlers.open(d.descriptor, new Uint8Array(d.bytes), extras, d.target, d.options ?? {});
           const res = adapter.navigate ? await adapter.navigate(d.target) : okRes('opened');
           state.resolution = res;

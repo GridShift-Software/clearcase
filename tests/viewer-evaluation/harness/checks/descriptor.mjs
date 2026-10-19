@@ -7,7 +7,8 @@ const C = 'descriptor validator (shell and every reader)';
 
 /** Fields that the schema allows to be null whatever the role; any other null is a mutation that must be refused. */
 const NULLABLE = [/^variant$/, /^pages$/, /^rendition\.page$/, /^renditions\[\]\.page$/, /^children\[\]\.(name|declaredMime|contentId)$/];
-const RETYPE = { string: 42, number: 'x', boolean: 'true', array: {}, object: [], null: 'x' };
+// a null becomes an array: no nullable field accepts one, whereas a string or a number would be valid for some of them
+const RETYPE = { string: 42, number: 'x', boolean: 'true', array: {}, object: [], null: [] };
 const kindOf = (v) => (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v);
 
 const BASES = [
@@ -71,7 +72,7 @@ export default async function descriptor(c, { full }) {
       const tag = `${m.norm} ${m.how}`;
       const rs = await c.open(id);
       if (!(rs.ok === false && /^descriptor:/.test(rs.error ?? ''))) shellEscapes.push({ tag, got: rs.type ?? rs.error });
-      const rr = await c.open(id, { kind: 'file' }, { unvalidated: true, timeoutMs: 8000 });
+      const rr = await c.open(id, { kind: 'file' }, { unvalidated: true, family: d.family, timeoutMs: 8000 });
       if (!(rr.type === 'error' && rr.code === 'invalid-descriptor')) readerEscapes.push({ tag, got: rr.code ?? rr.type });
       unserve(c, id);
     }
@@ -89,7 +90,7 @@ export default async function descriptor(c, { full }) {
   const outcomes = [];
   for (const role of [undefined, null, 'Rendition', 'x', '', 42, ['rendition']]) {
     const id = serve(c, base, apply(d, { path: ['role'], value: role }));
-    const r = await c.open(id, { kind: 'original-page', page: 2 }, { unvalidated: true, timeoutMs: 8000 });
+    const r = await c.open(id, { kind: 'original-page', page: 2 }, { unvalidated: true, family: d.family, timeoutMs: 8000 });
     const nav = r.type === 'ready' ? await c.navigate({ kind: 'original-page', page: 2 }) : null;
     outcomes.push({ role: role === undefined ? 'deleted' : role, type: r.type, code: r.code ?? null, resolved: nav?.resolution?.ok ?? null });
     unserve(c, id);

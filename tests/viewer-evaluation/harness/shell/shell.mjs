@@ -2,6 +2,7 @@
 // descriptor's SHA-256, and hands them to one opaque-origin renderer generation over a MessagePort. The port is
 // released only after the renderer proves it is the document this generation loaded (a nonce in its own URL), and a
 // second load of the same frame (a navigation) kills the generation, so a replacement document never gets bytes.
+import { invalidFields } from '../shared/descriptor.mjs';
 const host = document.getElementById('frame-host');
 const statusEl = document.getElementById('shell-status');
 const crumbs = document.getElementById('crumbs');
@@ -14,28 +15,17 @@ const stack = [];
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 const emit = (e) => { events.push({ t: Math.round(performance.now()), gen: current?.gen ?? null, ...e }); };
 
-const FAMILIES = ['pdf', 'image', 'word', 'sheet', 'email', 'media', 'archive', 'text'];
-/** Field names that are missing, null or retyped. Any one refuses the open before a frame exists. */
-function invalidFields(d) {
-  const bad = [];
-  if (d?.schema !== 'clearcase.viewer-descriptor/1') bad.push('schema');
-  if (typeof d?.assetId !== 'string' || !d.assetId) bad.push('assetId');
-  if (typeof d?.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(d.sha256)) bad.push('sha256');
-  if (!FAMILIES.includes(d?.family)) bad.push('family');
-  if (!Array.isArray(d?.children)) bad.push('children');
-  if (!Array.isArray(d?.holds)) bad.push('holds');
-  return bad;
-}
-
-async function fetchAsset(id) {
+async function fetchAsset(id, opts = {}) {
   const [dr, br] = await Promise.all([fetch(`/descriptor/${encodeURIComponent(id)}`, { credentials: 'same-origin', cache: 'no-store' }), fetch(`/asset/${encodeURIComponent(id)}`, { credentials: 'same-origin', cache: 'no-store' })]);
   if (!dr.ok || !br.ok) throw new Error(`asset ${id} unavailable (${dr.status}/${br.status})`);
   const descriptor = await dr.json();
   const bad = invalidFields(descriptor);
-  if (bad.length) throw new Error(`descriptor: ${id} has missing, null or retyped ${bad.join(', ')}`);
+  // opts.unvalidated is test-only: it lets a check prove each reader refuses a bad descriptor on its own
+  if (bad.length && !opts.unvalidated) throw new Error(`descriptor: ${id} has missing, null or retyped ${bad.slice(0, 8).join(', ')}`);
+  if (!bad.length && descriptor.family === 'unknown') throw new Error(`descriptor: ${id} has family 'unknown' (${descriptor.mime}): no reader previews it`);
   const bytes = await br.arrayBuffer();
   const digest = hex(await crypto.subtle.digest('SHA-256', bytes));
-  if (digest !== descriptor.sha256) throw new Error(`integrity: ${id} bytes hash ${digest}, descriptor says ${descriptor.sha256}`);
+  if (digest !== descriptor.sha256 && !(opts.unvalidated && bad.length)) throw new Error(`integrity: ${id} bytes hash ${digest}, descriptor says ${descriptor.sha256}`);
   return { descriptor, bytes };
 }
 
@@ -58,8 +48,8 @@ async function open(id, target = { kind: 'file' }, opts = {}) {
   const t0 = performance.now();
   let main, extras = [];
   try {
-    main = await fetchAsset(id);
-    for (const x of opts.extra ?? []) extras.push({ id: x, ...(await fetchAsset(x)) });
+    main = await fetchAsset(id, opts);
+    for (const x of opts.extra ?? []) extras.push({ id: x, ...(await fetchAsset(x, opts)) });
   } catch (err) {
     emit({ type: 'shell-error', message: String(err.message ?? err) });
     statusEl.textContent = `Cannot open: ${err.message ?? err}`;

@@ -1830,6 +1830,110 @@ class GuardRoutes(GuardCase):
                    base=files, test=reviewed, reasons=self.reason)
 
 
+class GuardEscapes(GuardCase):
+    """GRS-148 escalation (DIAG-148): a value rooted at a builtin, a builtin module or the global object is held wherever
+    it goes, so it cannot leave the module that made it under another name, through an import or as a value the guard
+    did not name, and a write is judged by where the written value came from."""
+    named_api, api, weakened = GuardAllowlist.named_api, GuardAllowlist.api, GuardAllowlist.weakened
+    registry = GuardRoutes.registry
+    fresh, route = GuardRoutes.fresh, GuardRoutes.route
+
+    def through(self, label, exporter, importer, base=None, why='reaches the test framework'):
+        """`exporter` as a fresh module o, and `importer` as a fresh module b that the module under test imports;
+        './o' and './b' name them. `base` puts o in the reviewed state instead of the fix."""
+        o, b = self.fresh('o.ts'), self.fresh('b.ts')
+        name = lambda text: text.replace("'./o'", f"'./{o[:-3]}'").replace("'./b'", f"'./{b[:-3]}'")
+        files = {f'src/{o}': name(exporter)}
+        head = {'src/api.ts': f"import './{b[:-3]}';\n" + self.weakened, f'src/{b}': name(importer) + 'export {};\n'}
+        self.route(label, head if base else {**head, **files}, base=files if base else None, why=why)
+
+    def test_a_capability_leaves_its_module_under_no_name(self):
+        # H-new-1: `export { g as h }` was never one of g's uses, so Object and the global object left the module under a
+        # new name and a second changed module wrote through them (a real Vitest run passed the weakened code)
+        write = "import { P } from './o';\n(P as any).is = () => true;\n"
+        self.through('Object exported as another name, written by a second changed module', 'const O = Object;\nexport { O as P };\n', write)
+        self.through('the global object exported as another name, the registry reached by a second changed module',
+                     'const g = globalThis;\nexport { g as h };\n', "import { h } from './o';\n" + self.registry % ('h', 'h'))
+        self.route('the global object exported as another name and imported back by its own module',
+                   {'src/api.ts': "import { h } from './api';\nconst g = globalThis;\nexport { g as h };\n" + self.registry % ('h', 'h') + self.weakened},
+                   why='exported as h')
+        name = self.fresh('o.ts')
+        self.route('Object exported as another name by the only changed module',
+                   {f'src/{name}': 'const O = Object;\nexport { O as P };\n', 'src/api.ts': f"import './{name[:-3]}';\n" + self.weakened}, why='exported as P')
+        for label, exporter, importer in (
+                ('as default', 'const O = Object;\nexport { O as default };\n', "import P from './o';\n(P as any).is = () => true;\n"),
+                ('as a string name', "const O = Object;\nexport { O as 'P' };\n", write),
+                ('then re-exported by another module', "const O = Object;\nexport { O as P };\n", "export { P as Q } from './o';\nimport { Q } from './b';\n(Q as any).is = () => true;\n"),
+                ('then passed on by export *', "const O = Object;\nexport { O as P };\n", "export * from './o';\nimport { P } from './b';\n(P as any).is = () => true;\n"),
+                ('through a namespace import', "const O = Object;\nexport { O as P };\n", "import * as o from './o';\n(o.P as any).is = () => true;\n"),
+                ('through import()', "const O = Object;\nexport { O as P };\n", "const o: any = await import('./o');\no.P.is = () => true;\n"),
+                ('as a TypeScript import alias', 'const O = Object;\nexport import P = O;\n', write),
+                ('a builtin module exported as another name', "import fs from 'node:fs';\nexport { fs as P };\n", "import { P } from './o';\n(P as any).readFileSync = () => '';\n")):
+            self.through(f'a capability exported {label}', exporter, importer)
+        self.route('a plain const and a function exported as other names, and an importer writing a module\'s own state',
+                   {'src/api.ts': ("import { settings as shared } from './api';\nconst limit = 3;\nfunction twice(n: number) { return n * 2; }\n"
+                                   "export { limit as LIMIT, twice as double };\nexport { readFileSync as read } from 'node:fs';\n"
+                                   "export function reset() { shared.strict = true; }\n") + self.weakened})
+
+    def test_a_write_through_an_import_is_judged_by_the_module_that_made_the_value(self):
+        # the importer side of H-new-1: a write through an import binding was rooted at nothing, so an alias in a module
+        # the fix does not touch was as good as one it adds
+        self.through('a reviewed module exports an Object alias, the fix writes through it', 'const O = Object;\nexport { O as P };\n',
+                     "import { P } from './o';\n(P as any).is = () => true;\n", base=True)
+        self.through('a reviewed module exports the global object, the fix reaches the registry through it', 'const g = globalThis;\nexport { g as h };\n',
+                     "import { h } from './o';\n" + self.registry % ('h', 'h'), base=True)
+        self.through('a reviewed module re-exports a builtin module, the fix writes through it', "export { default as fs } from 'node:fs';\n",
+                     "import { fs } from './o';\n(fs as any).readFileSync = () => '';\n", base=True)
+        self.through('a reviewed module exports its own state, the fix writes it', 'export const state = { strict: true };\n',
+                     "import { state } from './o';\nstate.strict = false;\n", base=True, why=None)
+
+    def test_a_capability_reached_without_its_name_is_held_like_one(self):
+        # a builtin reached through constructor, __proto__ or super was refused only when written in place, so it left
+        # the module, or reached a function, unseen
+        for label, exporter, importer in (
+                ('({}).constructor', 'export const O = ({}).constructor;\n', "import { O } from './o';\n(O as any).is = () => true;\n"),
+                ('[].__proto__', 'export const AP = ([] as any).__proto__;\n', "import { AP } from './o';\n(AP as any).includes = () => true;\n")):
+            self.through(f'{label} exported, written by a second changed module', exporter, importer)
+        for label, line in (
+                ('({}).constructor handed to a function', "function d(o: any) { o.is = () => true; }\nd(({}).constructor);\n"),
+                ('[].constructor returned from a function', "const get = (): any => [].constructor;\nget().isArray = () => true;\n"),
+                ('super.prototype in a class that extends Array', "class A extends Array { static arm() { (super.prototype as any).includes = () => true; } }\nA.arm();\n")):
+            self.route(f'a builtin reached as {label}', {'src/api.ts': line + self.weakened}, why='reaches the test framework')
+        self.route('constructor and super in plain classes, and a record\'s own constructor key',
+                   {'src/api.ts': ("class E extends Error { constructor(m: string) { super(m); this.name = 'E'; } describe() { return super.toString() + this.constructor.name; } }\n"
+                                   "export const same = (a: object, b: object) => a.constructor === b.constructor && new (a.constructor as any)() instanceof E;\n"
+                                   "export const record = (v: any) => { v.constructor = { prototype: {} }; delete v.constructor; return new E('x'); };\n")
+                    + self.weakened})
+
+    def test_a_builtin_module_object_moves_like_a_builtin(self):
+        # a builtin module was rooted only as its own import binding: destructured, required, imported by import() or
+        # handed to a function, its members were written unseen
+        for label, line in (
+                ('a destructured member', "import fs from 'node:fs';\nconst { promises } = fs;\n(promises as any).readFile = () => '';\n"),
+                ('a require', "import { createRequire } from 'node:module';\nconst require = createRequire(import.meta.url);\nrequire('node:fs').readFileSync = () => '';\n"),
+                ('an import()', "const fs: any = await import('node:fs');\nfs.default.readFileSync = () => '';\n"),
+                ('an argument', "import fs from 'node:fs';\nfunction d(m: any) { m.readFileSync = () => ''; }\nd(fs);\n")):
+            self.route(f'a builtin module written through {label}', {'src/api.ts': line + self.weakened}, why='reaches the test framework')
+        self.route('the repository\'s own uses of builtins, builtin modules and the global object',
+                   {'src/api.ts': ("import fs from 'node:fs';\nimport path from 'node:path';\nimport { promisify } from 'node:util';\n"
+                                   "const { performance } = globalThis;\nconst o = { a: 1 };\nconst copy = Object.assign({}, o);\nconst run = (0, eval);\n"
+                                   "const { readFile } = await import('node:fs/promises');\nexport const read = promisify(fs.readFile);\n"
+                                   "export const names = ['a/b'].map(path.basename);\nexport const keys = Object.keys;\n"
+                                   "export const t = performance.now() + Object.keys(copy).length + String(run).length + String(readFile).length;\n")
+                    + self.weakened})
+
+    def test_a_test_file_loaded_through_an_imports_alias_loses_its_exemption(self):
+        # M-new-2: the importers of a test file were found by grepping for .test/.spec, so a package.json imports alias
+        # that names one hid the edge and the test file, patched in place, kept its exemption
+        limits = "import { test, expect } from 'vitest';\nexport const LIMIT = 3;\ntest('limit', () => { expect(LIMIT).toBe(3); });\n"
+        name = self.fresh('limits.test.ts')
+        manifest = json.dumps({'name': 'x', 'imports': {'#limits': f'./src/{name}'}})
+        imp = "import { LIMIT } from '#limits';\nexport const limit = LIMIT;\n"
+        self.route('application code loads a test file through a package.json imports alias, and the test file is patched in place',
+                   {'src/api.ts': imp + self.weakened, f'src/{name}': limits.replace('export const', GuardRoutes.extend + 'export const')},
+                   base={'package.json': manifest, 'src/api.ts': imp + self.api, f'src/{name}': limits}, why='is loaded by')
+
+
 class GuardBinding(ControlCase):
     """H1: once a fix attempt is recorded, approval needs a PASS guard receipt bound to the reviewed commit and findings."""
     unit = 'GRS-104/implementation'

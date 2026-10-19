@@ -1,3 +1,5 @@
+import { createUnavailableServices } from '$lib/server/runtime/unavailable';
+import { id } from '$lib/server/runtime/ids';
 import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit';
 import { building } from '$app/environment';
 import { app, initApp } from '$lib/local-case/app.server';
@@ -25,6 +27,7 @@ const isLoopback = (addr: string) => /^(::ffff:)?127(\.\d{1,3}){3}$/i.test(addr)
 const clientAddress = (event: Parameters<Handle>[0]['event']) => { try { return event.getClientAddress(); } catch { return ''; } };
 
 export const handle: Handle = async ({ event, resolve }) => {
+	Object.assign(event.locals, createUnavailableServices({ clientId: id('client', 'local-pilot'), now: () => new Date() }));
 	if (!building && !event.isSubRequest) {
 		if (!isLoopback(clientAddress(event))) return plain(403, 'ClearCase answers this machine only (loopback clients)');
 		const a = app();

@@ -191,12 +191,15 @@ describe('hooks.server.ts: loopback clients only, and a disk-full diagnostic', (
 	type Hooks = typeof import('../../hooks.server.ts');
 	const event = (addr: string | (() => string)) => {
 		const url = new URL(`${origin}/api/health`);
-		return { url, isSubRequest: false, request: new Request(url, { headers: { host: url.host } }), getClientAddress: typeof addr === 'string' ? () => addr : addr } as never;
+		return { url, locals: {}, isSubRequest: false, request: new Request(url, { headers: { host: url.host } }), getClientAddress: typeof addr === 'string' ? () => addr : addr } as never;
 	};
 	const handle = async (addr: string | (() => string)) => {
 		const { handle } = (await vite.ssrLoadModule('/src/hooks.server.ts')) as Hooks;
 		let resolved = false;
-		const res = await handle({ event: event(addr), resolve: async () => { resolved = true; return new Response('routed'); } });
+		const res = await handle({ event: event(addr), resolve: async (e) => {
+			expect(Object.keys(e.locals).sort()).toEqual(['assets', 'audit', 'identity', 'runtime', 'store', 'userWork']);
+			resolved = true; return new Response('routed');
+		} });
 		return { status: res.status, resolved, text: await res.text() };
 	};
 

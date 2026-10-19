@@ -1,0 +1,4 @@
+{
+  "routes": "src/lib/server/runtime/hosted/routes",
+  "hooks": { "server": "src/lib/server/runtime/hosted/hooks.server" }
+}

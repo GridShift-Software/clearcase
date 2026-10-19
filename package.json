@@ -9,7 +9,7 @@
   },
   "scripts": {
     "gate": "bun scripts/gate.mjs",
-    "check": "svelte-kit sync && tsc --noEmit -p . && bun scripts/case-package/export-schemas.ts --check && bun scripts/case-package/schema-check.ts && bun scripts/pilot/generate-view-registry.ts --check && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings && bun scripts/check-links.mjs && bun scripts/ci/source-check.ts",
+    "check": "svelte-kit sync && bun run --bun check:hosted-imports && tsc --noEmit -p . && bun scripts/case-package/export-schemas.ts --check && bun scripts/case-package/schema-check.ts && bun scripts/pilot/generate-view-registry.ts --check && svelte-check --tsconfig ./tsconfig.json --fail-on-warnings && bun scripts/check-links.mjs && bun scripts/ci/source-check.ts",
     "build": "vite build && bun scripts/pilot/copy-pdfjs.ts",
     "test": "vitest run",
     "fixtures:generate": "bun scripts/fixtures/generate.ts",
@@ -20,7 +20,9 @@
     "start": "bun scripts/pilot/start.ts",
     "convert": "bun scripts/case-package/cli.ts convert",
     "validate": "bun scripts/case-package/cli.ts validate",
-    "verify:package": "bun scripts/case-package/verify-package.ts"
+    "verify:package": "bun scripts/case-package/verify-package.ts",
+    "check:hosted-imports": "bun scripts/ci/hosted-imports.ts",
+    "probe:hosted-imports": "bun tests/hosted-foundation/runtime/guard-mutations.ts"
   },
   "dependencies": {
     "typebox": "1.3.36"

@@ -37,19 +37,21 @@ export function createMemoryBackend(a: { fixture: MemoryFixture; now: () => Date
     if (fault === 'snapshot' && operation === 'snapshot') throw contractError('snapshot-failed', true);
   };
   function request(input: { clientId: C.ClientId; sessionId: C.SessionId | null }): C.RequestServices {
-    const client = fixture.clients.find((c) => c.clientId === input.clientId);
+    // Copied once: the caller keeps its object, and nothing it changes later reaches this request's authority.
+    const { clientId, sessionId } = { clientId: input.clientId, sessionId: input.sessionId };
+    const client = fixture.clients.find((c) => c.clientId === clientId);
     if (!client) throw contractError('wrong-client');
-    let state = states.get(input.clientId);
-    if (!state) { state = { work: new Map(), definitions: new Map(), snapshots: new Map(), events: [] }; states.set(input.clientId, state); }
-    const session = fixture.identities.find((s) => s.sessionId === input.sessionId);
+    let state = states.get(clientId);
+    if (!state) { state = { work: new Map(), definitions: new Map(), snapshots: new Map(), events: [] }; states.set(clientId, state); }
+    const session = fixture.identities.find((s) => s.sessionId === sessionId);
     const principal: C.Principal | null = session ? { issuer: fixture.clients.find((c) => c.clientId === session.clientId)!.issuer, subject: session.subject, kind: session.kind } : null;
     async function checkRevocation() {
       await before('identity');
-      if (input.sessionId === null) throw contractError('unauthenticated');
-      if (!session || revoked.has(input.sessionId) || Date.parse(session.expiresAt) <= a.now().getTime()) throw contractError('invalid-session');
+      if (sessionId === null) throw contractError('unauthenticated');
+      if (!session || revoked.has(sessionId) || Date.parse(session.expiresAt) <= a.now().getTime()) throw contractError('invalid-session');
       if (session.clientId !== client!.clientId) throw contractError('wrong-client');
     }
-    const methods = { clientId: input.clientId, checkRevocation, async authorize(scope: C.Scope & { operation: C.CaseOperation }) {
+    const methods = { clientId: clientId, checkRevocation, async authorize(scope: C.Scope & { operation: C.CaseOperation }) {
       await checkRevocation();
       const grant = session?.grants.find((g) => g.caseId === scope.caseId);
       if (!grant || !client!.cases.some((c) => c.caseId === scope.caseId) || (scope.operation === 'write-user-work' && grant.role !== 'editor')) throw contractError('forbidden');
@@ -66,7 +68,7 @@ export function createMemoryBackend(a: { fixture: MemoryFixture; now: () => Date
       },
     };
     const store = createMemoryReader(ctx);
-    const assets = createMemoryAssets(ctx, (asset) => assetFaults.get(JSON.stringify([input.clientId, asset])) ?? null);
+    const assets = createMemoryAssets(ctx, (asset) => assetFaults.get(JSON.stringify([clientId, asset])) ?? null);
     return { identity, store, assets, userWork: createMemoryWork(ctx, store),
       audit: { async append(event) { await before('audit'); await identity.checkRevocation(); ctx.audit(event); return { eventId: event.eventId }; } },
       runtime: { build: Object.freeze({ revision: fixture.revision, dirty: true, exported: false, builtAt: a.now().toISOString(), bun: '1.4.2', buildId: 'memory-contract-diagnostic', target: 'cloudflare', profile: 'hosted-gate' }), gate: { runId: 'memory-contract-diagnostic', fixtureSha256: fixture.sha256 }, now: ctx.now, async probe() { await before('probe'); throw contractError('missing-binding'); } },

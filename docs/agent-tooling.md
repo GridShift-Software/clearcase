@@ -264,6 +264,14 @@ The suite exits nonzero on any unexpected behavior. `check-plan` can independent
 
 ## Fix-diff test protection
 
+A passing guard is not clearance: it bounds test-code changes and the capability routes in the reviewer-owned list at the end of
+this section (tracked in GRS-150), and nothing else. A fix-round worker should not rely on it for any of these, and the
+re-check reviewer checks each by hand: destructured `constructor`/`__proto__` of `{}` or `[]` then written; a bare
+`export * from` whose target exports a capability; CommonJS `module.exports`/`exports.x`; code generation including
+indirect eval; a capability through a function return or parameter, a getter, an object literal, a class field or
+`this`; a package's exports and Vite aliases; non-literal `import()`/`require` and `import.meta.glob`; `node:process`
+writes; a markup `<script>` under jsdom; and the `viewer.mjs` refusal, which stays fail-closed.
+
 `scripts/agent-tools/test-guard --fix-base REVIEWED_SHA --findings PATH` runs the guard,
 and so does `verify test-guard` with the same arguments. `receipt --name CHECK --fix-base REVIEWED_SHA
 --findings PATH -- COMMAND...` runs the guard before the command inside the same receipt;
@@ -320,16 +328,21 @@ Comments and whitespace may change. The protected closure, resolved from both Gi
 - the runner configuration (`vitest`, `vite`, `jest` and `playwright` config, workspace and setup files, `bunfig.toml`),
   every local module a configuration imports (resolved like any import, so an extensionless `./vitest.shared` or a
   `.js` specifier that lands on a `.ts` file is followed, transitively), every file a configuration names by a path
-  expression (`setupFiles`, `globalSetup`: a literal, a literal without its extension, `join`/`resolve` from
-  `__dirname` or `import.meta.dirname`, `new URL(..., import.meta.url)`), and the `package.json` scripts
-  `test*`/`pretest*`/`posttest*`. All of it is compared as text. An `exclude` edit in the configuration or in a module
+  expression (a literal, a literal without its extension, `join`/`resolve` or a template literal starting from
+  `__dirname`, `import.meta.dirname` or `process.cwd()`, `new URL(..., import.meta.url)`, `fileURLToPath` or
+  `require.resolve` of one), and the `package.json` scripts `test*`/`pretest*`/`posttest*`. All of it is compared as
+  text. Every `setupFiles`, `setupFilesAfterEnv`, `globalSetup` and `globalTeardown` entry, and every `preload` entry
+  in `bunfig.toml`, must bind through those forms to a tracked file, or name a package the root `package.json`
+  declares; any other entry (a variable, a call, a spread, a shorthand property, an ignored or missing file, a
+  `preload` that is not a string or a list of strings) fails closed. An `exclude` edit in the configuration or in a module
   it imports, a new setup file or a changed test script refuses; an unresolved local configuration import fails closed. For a
   `package.json` only the fields that steer module resolution (`name`, `type`, `main`, `module`, `browser`, `imports`,
   `exports`) are compared otherwise, so a dependency or version edit passes.
 - fixtures: every file in a fixture directory (`fixtures`, `__fixtures__`, `__mocks__`, `__snapshots__`) under a
   protected test's top-level directory, and every file a protected test or helper reads by literal path
   (`readFileSync('p')`, `readFile`, `Bun.file`, `join(__dirname, 'p')`, `new URL('p', import.meta.url)`), must keep its
-  Git blob. A new fixture may be added.
+  Git blob. A new fixture may be added. A read by a computed path (a variable, a loop) is not bound and does not fail
+  closed, since real tests read fixtures that way; the fixture directories are protected whole instead.
 - resolver inputs read from Git (tsconfig, tracked extended configurations). Missing or unsupported extended
   configurations fail closed, with one exemption: SvelteKit's generated `.svelte-kit/tsconfig.json`, which Git ignores,
   so neither snapshot has it; the `$lib` alias it carries is built into the guard. Nonliteral or unresolved local imports refuse; symlink and submodule dependencies fail
@@ -360,24 +373,133 @@ collected, so the guard bounds both what a free test may contain and where it ma
   `require`, `Reflect`, `Proxy`, `Function`, any other global, `constructor`/`prototype`/`__proto__`, assignment and
   update, `delete`, dynamic `import()`, `this`, `import.meta`, computed member access, getters, classes, `.only`,
   `.concurrent`, `.each` and computed test names.
-- a new import needs the reason and must bind names (a side-effect import refuses even with one). It may load only a
-  module the reviewed file already imports, a helper already in the protected closure, or a tracked module under test
-  that is unchanged since the fix base and whose local imports, followed transitively, never reach the test framework.
+- a new import needs the reason and must bind names (a side-effect import refuses even with one). Imports evaluate
+  before the named tests, so it may name only a module the reviewed test already loads (one that named test file
+  imports, directly or through support code, or a setup file: the loaded set is that file's own, never the union over
+  every named file), or a tracked module under test that is unchanged since
+  the fix base and that, followed through its imports (type-only ones excepted), does nothing at import time and never
+  reaches the test framework. Doing nothing at import time means every top-level statement is a declaration (import,
+  export, function, class, enum, variable, type, `export default`) and no call, `new`, tagged template, JSX element,
+  `await`, assignment, update, `delete`, decorator or class static block appears outside a function body; a property
+  read is not counted. A package that named test file does not import refuses, since its import-time effects cannot be
+  inspected; Node and Bun builtins pass. A new import of a test file refuses.
 
 A changed free test, a new import or a dropped free test needs a nonempty `assertionCountReasons[file]` entry; the
 reason excuses nothing outside the bounds above. Touched JS/TS test files cannot lose assertion calls
 (`expect`/`assert`) unless the findings include that entry for the file; it never allows changes to a named test.
 
-The module under test may change freely, but a changed non-test module (any changed JS/TS file, or a Svelte
-component's script, outside the test-support directories and the runner configuration) that imports, re-exports,
-requires or loads `vitest`, `jest`, `chai`, `bun:test` or a `@vitest`/`@jest` package, uses an unbound `expect`, `vi`,
-`vitest`, `jest` or `chai`, reads `import.meta.vitest` or names the matcher registry through `Symbol.for` refuses. A
-local function named `expect` is fine. The guard reads application code statically: a change that reaches the runner
-through computed names (`globalThis[name]`) is not detected, and is left to the re-check reviewer, as is any fix that
-special-cases a test's input.
+The module under test may change freely, but code the named tests load must not change what an assertion proves.
+Every changed module outside the protected closure and the runner configuration is checked, wherever it lives: the
+module under test, and any file in a test-support directory, since application code can load one (`src/support/`,
+`src/fixtures/`, a helper under `tests/`) into the named test's process. Test files (`.test.`/`.spec.` names) are not
+checked by content: the runner collects each as an entry of its own and isolates it, and their assertion counts are
+checked above. That holds only while test files are isolated, and only while nothing but the runner loads them:
 
-Unsupported named syntax or changed Python/shell test sources fail closed; this draft does not claim semantic
-understanding of arbitrary test frameworks.
+- when a runner file's code (comments aside) or a test script turns isolation off (`isolate: false`, `--no-isolate`, a
+  single fork or thread), a test script runs `bun test` as a command, or a named test imports `bun:test`, any changed
+  test file outside the closure fails closed;
+- a changed test file that any tracked module that is not a test file loads by a literal specifier, at the fix base or
+  at HEAD, fails closed: that module runs it inside the named test's process, so its content is not isolated. Every
+  tracked script is read, so a `package.json` `imports` alias or a `tsconfig` path that does not spell the test file's
+  name counts too.
+
+Such a changed module (a JS/TS file, or a Svelte component, read by `svelte/compiler`: its scripts, markup expressions
+and handlers, with a component that does not parse or compile failing closed) refuses when:
+
+- it imports, re-exports, requires or loads `vitest`, `jest`, `chai`, `bun:test` or a `@vitest`/`@jest` package, or
+  passes one of those names to any call (a require made by `createRequire`, `import.meta.resolve`);
+- it uses an unbound `expect`, `vi`, `vitest`, `jest` or `chai` (an ambient `declare` does not bind), or reads
+  `import.meta.vitest`;
+- it holds a runtime capability other than as the allowlist allows, wherever the value comes from. The capabilities
+  are the global object (`globalThis`, `global`, `window`, `self`, `frames`, `top`, `parent`), `Symbol`, a builtin
+  (`Object`, `Array`, `Reflect`, `Map`, `JSON`, ...), a Node or Bun builtin module object (`fs`, `path`, ...), and a
+  constructor or prototype (`X.prototype`, `x.constructor`, `x.__proto__`, `Object.getPrototypeOf(x)`, the `super` of
+  a class that extends a builtin). A value is rooted at one when it is one, or is read from one through a `const`,
+  `let` or `var`, a destructuring, `await`, a conditional, logical, comma or assignment expression, a literal `require`
+  or `import()`, or an import binding, which the guard follows into the module that exports it (`export const`,
+  `export { x as y }`, `export default`, a re-export, `export *`), across modules, whether or not that module changed.
+  Destructuring is followed only when its initialiser is itself rooted at a capability: `const { constructor: C } = {}`
+  and a destructuring assignment to a `let` are not (reviewer-owned, below).
+  The global object may appear only as the object of a property read with a literal, non-framework name
+  (`globalThis.performance`, `window['x']`, `Symbol.for('app.cache')` as the key), in `typeof`, `in` or an equality
+  test, as a literal-named destructuring, or as a `const` initialiser. `Symbol.for` may only be called directly with a
+  literal name that contains no `jest`, `vitest` or `chai`. The other capabilities may only be called, constructed,
+  extended, compared, read by name, or (a converter: `String`, `Number`, `Boolean`, `BigInt`) passed to a call. Each
+  use of a `const` that holds one is checked the same way, where it appears. Moving one anywhere else refuses: an
+  export under any name (`export { g as h }`, `export default`, a named or default re-export, `export * as ns`, a
+  TypeScript `export import`; a bare `export * from` is not refused, see below), an
+  argument, a return value, a property, an element, a field, a `let` or an assignment, a spread, a computed key. A
+  TypeScript import alias of a value (`import P = O`) fails closed. A member of a capability (`Object.keys`,
+  `fs.readFile`, `fs.promises`) is a plain value and may move;
+- it writes to a builtin: an assignment (compound, logical or destructuring), update, `delete` or `for-in`/`for-of`
+  target rooted, as above, at an unbound global, a prototype or a builtin module (`Object.is = ...`,
+  `Array.prototype.includes = ...`, `globalThis.Object.is = ...`, `P.is = ...` where `P` is imported from a module that
+  exports `Object` under that name, `fs.readFileSync = ...`, `require('node:fs').readFileSync = ...`); or calls
+  `Object.defineProperty`/`defineProperties`/`assign`/`setPrototypeOf` or `Reflect.set`/`defineProperty`/
+  `setPrototypeOf`/`deleteProperty` (also through `.call`, `.apply` or a variable) with such a root as an argument.
+  A write through `super` (`super.x = v` sets `x` on `this`), a write to a module's own objects, through an import
+  included, and writes to `process.env` and `process.exitCode` are not refused;
+- it imports a literal specifier that does not bind: after stripping a `?query` or `#fragment` and mapping a leading `/`
+  to the repository root, it must name a tracked file, a Node or Bun builtin, a package the root `package.json`
+  declares, or `$app/*`, `$env/*`, `$service-worker` (type-only imports are erased and skipped); anything else fails
+  closed, so a root-relative path, a missing file or an undeclared package cannot hide a load;
+- it newly loads (through an import its fix-base version does not have) a test file, or support code that does any of
+  the above, followed through the support files it imports; an unresolved local import there fails closed.
+
+A new import in a named test file is judged against that file's own loaded set (what it imports, through support code,
+and the setup files), not against the other named files: file A cannot newly import an effectful helper only file B
+loaded.
+
+A local function named `expect`, and literal reads of the global object (`globalThis.performance`, or
+`const g = globalThis as {...}` then `g.__clearcase`), are fine. A changed module may load an unchanged module under
+test freely, since application code is trusted as reviewed.
+
+What the guard bounds at `66f2bb3` (GRS-148, landed as defence in depth, as GRS-104 was): a changed JS/TS/Svelte
+module cannot name a framework, move or write a rooted capability (the global object, `Symbol`, a builtin, a Node or
+Bun builtin module, a constructor or prototype) through the shapes listed above, followed through `const`/`let`/`var`,
+destructuring of a rooted initialiser, `await`, conditionals, a literal `require`/`import()` and import bindings
+across modules. It is a best-effort net, not a sandbox. The routes below stay open. GRS-150 tracks them; until it
+lands, the re-check reviewer owns each one and must check it by hand in every changed module of the fix diff:
+
+- `const { constructor: C } = {} as any; C.is = () => true` (also `{ __proto__: p } = []`, and `({ constructor: C } = {})`
+  assigned to a `let`): a destructured `constructor`/`__proto__` of an unrooted `{}` or `[]` is a capability the guard
+  does not root (`destructured()` in `test_guard.mjs`). Look for destructuring of `constructor`, `prototype` or
+  `__proto__` followed by a member write.
+- a bare `export * from './m'` whose target exports a capability (`Object`, `globalThis`, `node:fs`, a prototype)
+  is not refused; only the importer that writes it is followed, and not when the writing module is unchanged. Open
+  every `export *` a fix adds or changes and read the target's exports.
+- CommonJS `module.exports = Object`, `exports.x = ...` and `export { default as P } from './c.cjs'` are not
+  followed from an unchanged module (`exportRoot`). A changed `.cjs` is checked. The repository has no tracked
+  `.cjs` or `.cts` file today; a new one is the signal.
+- code generation: `eval`, indirect eval (`(0, eval)(...)`), `Function`, a constructor chain. Search the diff for
+  the words.
+- a function's return value (`Object.getOwnPropertyDescriptor(...).get.call([])`) or parameter, a getter, an object or
+  array literal's member, a class field and `this`: a capability reaching a write through one is not followed.
+  Read any new function that returns or receives `Object`, `globalThis`, a prototype or a builtin module.
+- a plain member of a capability (`fs.promises`, `path.posix`) moved into one of those and written there. Check
+  writes whose target comes from a property of an imported builtin.
+- a package's exports (a package that re-exports `fs` is not followed) and a module namespace's computed member
+  (`ns[k]`); an import through an alias the resolver does not know (a Vite `resolve.alias`), which also hides a
+  test-file load in a module the fix does not change. Check `resolve.alias` and any new dependency.
+- a non-literal `import()` or `require`, and `import.meta.glob`: they can load a new test file whose content is never
+  checked (a computed specifier, or a template with a substitution, is skipped). Search for both.
+- `node:process` writes: `import process from 'node:process'; process.emitWarning = ...` is exempt, while the same
+  write to the unbound global `process` refuses; writes to `process.env` and `process.exitCode` are not refused.
+  Read any write to an imported `process`.
+- a markup `<script>` in a Svelte component (inside `{#snippet}` or elsewhere) compiles to an HTML string that runs
+  under jsdom (Vitest's default `runScripts: 'dangerously'`); it is not reach-checked. The repository's tests run in
+  Node; a jsdom test environment makes this live. Check for one.
+- a getter or coercion that runs where a module only reads a property (`export const LIMIT = settings.limit` is not
+  an import-time effect); isolation read from a variable in the runner configuration; test-file names matched
+  textually (`x.test.helper.ts`, or a `.test.ts` outside the runner's `include`); a JSON or other data file a module
+  reads; and a fix that special-cases a test's input. Read the diff for each.
+- `src/lib/local-case/viewer/viewer.mjs`: it imports `./pdf.min.mjs`, a build-copied asset that is not in Git. The
+  guard keeps this refusal fail-closed, so a fix that changes `viewer.mjs` fails until the reviewer clears it by
+  reading the change and confirming the import is the unchanged asset.
+
+Unsupported named syntax or changed Python/shell test sources fail closed, and so does a protected file importing a
+module the resolver cannot bind, a `.svelte` component included; this draft does not claim semantic understanding of
+arbitrary test frameworks.
 
 ## Exact-revision approval ledger
 

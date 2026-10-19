@@ -1752,11 +1752,15 @@ class GuardRoutes(GuardCase):
             'a prototype reached through constructor': '[].constructor.prototype.includes = () => true;\n',
             'a prototype reached through __proto__': '({} as any).__proto__.is = () => true;\n',
             'a prototype kept in a variable': 'const p = Object.getPrototypeOf([]);\np.includes = () => true;\n',
+            'a member of an imported builtin module': "import fs from 'node:fs';\n(fs as any).readFileSync = () => '';\n",
+            'a builtin handed to a function': "function d(o: object) { Object.defineProperty(o, 'is', { value: () => true }); }\nd(Object);\n",
+            'a prototype from getPrototypeOf handed to a function': "function d(o: object) { Object.defineProperty(o, 'includes', { value: () => true }); }\nd(Object.getPrototypeOf([]));\n",
         }.items():
             self.route(f'a changed module mutates a builtin: {label}', {'src/api.ts': line + self.weakened}, why='reaches the test framework')
         self.route('plain mutation of the module\'s own objects and constructors',
                    {'src/api.ts': ("const o: Record<string, number> = { a: 1 };\no.a = 2;\ndelete o.a;\nObject.assign(o, { b: 1 });\n"
                                    "Object.defineProperty(o, 'c', { value: 1 });\nfunction Foo() {}\nFoo.prototype.bar = function () { return 1; };\n"
+                                   "import { readFileSync } from 'node:fs';\nimport * as path from 'node:path';\nexport const here = path.join('a', String(readFileSync.length));\n"
                                    "let count = 0;\ncount++;\nexport const next = () => count++;\nconst copy = Object.assign({}, o);\n"
                                    "export const table = Object.fromEntries(Object.entries(copy).map(([k, v]) => [k, v + 1]));\n") + self.weakened})
 

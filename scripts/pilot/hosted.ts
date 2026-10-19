@@ -130,6 +130,10 @@ function build() {
 	if (!existsSync(path.join(root, '.svelte-kit/cloudflare/_worker.js'))) throw new Error('the build wrote no .svelte-kit/cloudflare/_worker.js');
 	const scan = scanArtifact({ root, profile });
 	if (scan.errors.length) throw new Error(scan.errors.join('\n'));
+	// The hosted build generated Kit's types for the hosted route tree; put back the local tree's, so tsc and
+	// svelte-check in this worktree keep checking the local app. Only .svelte-kit/types and generated change.
+	const sync = run(process.execPath, ['run', '--bun', 'svelte-kit', 'sync'], { PATH: env.PATH, HOME: env.HOME, TMPDIR: env.TMPDIR });
+	if (sync.code !== 0) throw new Error(`svelte-kit sync for the local tree failed: ${sync.out.slice(-400)}`);
 	const sidecar: Sidecar = { schema: 'clearcase.hosted-build/1', stamp, artifact: artifactDigest() };
 	writeFileSync(path.join(root, SIDECAR), JSON.stringify(sidecar, null, 2) + '\n');
 	console.log(`build:hosted: PASS ${profile} artifact ${sidecar.artifact} stamped ${sha}${isDirty ? ' (DIRTY: start:hosted will refuse it)' : ''}; artifact scan PASS (${scan.files} emitted modules)`);

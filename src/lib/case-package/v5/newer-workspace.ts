@@ -9,7 +9,9 @@ const num = (v: JsonValue | undefined): number => (typeof v === 'number' && Numb
 const count = (v: JsonValue | undefined): number => Math.max(0, Math.trunc(num(v)));
 const objs = (v: JsonValue | undefined): JsonObject[] => (Array.isArray(v) ? v.filter(isObject) : []);
 const nonEmpty = (parts: string[]) => parts.filter((s) => s !== '');
-const tally = (keys: Iterable<string>): Record<string, number> => { const c: Record<string, number> = {}; for (const k of keys) c[k] = (c[k] ?? 0) + 1; return c; };
+/** Sets an own property, as the strict parser does: a source key such as "__proto__" never swaps a prototype. */
+const own = <T extends object>(o: T, k: string, v: unknown): T => Object.defineProperty(o, k, { value: v, enumerable: true, writable: true, configurable: true });
+const tally = (keys: Iterable<string>): Record<string, number> => { const c: Record<string, number> = {}; for (const k of keys) own(c, k, (Object.hasOwn(c, k) ? c[k]! : 0) + 1); return c; };
 const mapObjs = (v: JsonValue | undefined, f: (o: JsonObject) => JsonObject): JsonValue | undefined => (Array.isArray(v) ? v.map((x) => (isObject(x) ? f(x) : x)) : v);
 
 /** The builder versions this adapter maps. Another META.version is a generation nobody has inventoried. */
@@ -141,7 +143,7 @@ const nameOfLocator = (u: string): string => { const seg = u.split('/').pop() ??
 export function caselinesIndexOf(idx: JsonObject, caselinesSrc: string, pages: number): JsonObject {
   const index: JsonValue[] = [];
   const rest: JsonObject = {};
-  for (const [k, t] of Object.entries(idx)) if (/^\d+$/.test(k)) index.push([Number(k), str(t)]); else rest[k] = t;
+  for (const [k, t] of Object.entries(idx)) if (/^\d+$/.test(k)) index.push([Number(k), str(t)]); else own(rest, k, t);
   index.sort((a, b) => ((a as number[])[0]! - (b as number[])[0]!));
   return { ...rest, file: nameOfLocator(caselinesSrc), pages: pages || index.length, index };
 }

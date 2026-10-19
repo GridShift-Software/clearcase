@@ -101,7 +101,8 @@ const scriptOf = (file, text) => {
 // The global object, under any of its names, and the names the runner keeps on it.
 const GLOBAL_OBJECTS = new Set(['globalThis', 'global', 'window', 'self']);
 const frameworkName = name => FRAMEWORK_GLOBALS.has(name) || /jest|vitest|chai/i.test(name);
-// How a module reaches the test framework, if it does: a framework import, require or load, an unbound expect, vi,
+// How a module reaches the test framework, if it does: a framework import, require or load (or a framework package
+// passed to any call, such as a require made by createRequire), an unbound expect, vi,
 // vitest, jest or chai, import.meta.vitest, the matcher state's registry symbol or a Symbol.for with a computed name,
 // or the global object (or a variable holding it) indexed by a computed key, read by a framework name, passed on,
 // spread or destructured by a computed or framework name or a rest element.
@@ -144,6 +145,8 @@ const reachesFramework = (file, text) => {
       : ts.isImportEqualsDeclaration(node) ? literal(node.moduleReference.expression)
         : call === 'import' || call === 'require' ? literal(node.arguments[0]) : undefined;
     if (specifier !== undefined && FRAMEWORK.test(specifier)) reach = `loads ${specifier}`;
+    else if ((ts.isCallExpression(node) || ts.isNewExpression(node))
+        && (node.arguments ?? []).some(argument => FRAMEWORK.test(literal(argument) ?? ''))) reach = `names ${literal(node.arguments.find(argument => FRAMEWORK.test(literal(argument) ?? '')))} to ${node.expression.getText(tree)}`;
     else if (ts.isMetaProperty(node) && ts.isPropertyAccessExpression(node.parent) && node.parent.name.text === 'vitest') reach = 'import.meta.vitest';
     else if (call === 'Symbol.for' && /jest|vitest|chai/i.test(literal(node.arguments[0]) ?? '')) reach = `Symbol.for('${literal(node.arguments[0])}')`;
     else if (call === 'Symbol.for' && literal(node.arguments[0]) === undefined) reach = 'Symbol.for with a computed name';
@@ -335,13 +338,17 @@ function main() {
       return [];
     };
     // The tracked files a setup entry names: a path expression above, a path without its extension, a
-    // fileURLToPath(...) or require.resolve(...) of one. A package name binds to nothing; any other entry fails closed.
-    const roots = new Set([...files].map(file => file.split('/')[0]));
+    // fileURLToPath(...) or require.resolve(...) of one. A package the root package.json declares binds to nothing;
+    // any other entry, an ignored or missing file included, fails closed.
+    const manifest = files.has('package.json') ? JSON.parse(source(revision, 'package.json')) : {};
+    const declared = new Set(['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies']
+      .flatMap(key => Object.keys(manifest[key] ?? {})));
     const bindPath = (file, literal) => {
       const bound = [path.posix.normalize(literal), path.posix.normalize(path.posix.join(path.posix.dirname(file), literal))].filter(candidate => files.has(candidate));
       const target = resolve(file, /^\.{0,2}\//.test(literal) ? literal : `./${literal}`);
       if (target) bound.push(target);
-      if (bound.length || (!isLocal(literal) && !roots.has(literal.split('/')[0]))) return bound;
+      const name = literal.split('/').slice(0, literal.startsWith('@') ? 2 : 1).join('/');
+      if (bound.length || (!isLocal(literal) && declared.has(name))) return bound;
       throw Error(`cannot bind setup file entry '${literal}' in ${file} to a tracked file; the guard fails closed`);
     };
     const bindEntry = (tree, file, node) => {
@@ -782,6 +789,15 @@ function main() {
   // framework, and none may newly load a test file or support code that does. Test files are collected as entries of
   // their own, so they are left to the assertion count below.
   const compared = new Set([...oldClosure.found.keys(), ...currentClosure.found.keys()]);
+  // the tracked file a specifier names, including one with an extension the resolver does not know (a Svelte
+  // component), relative or through $lib
+  const link = (snapshot, file, specifier) => {
+    const resolved = snapshot.resolve(file, specifier);
+    if (resolved || !/\.\w+$/.test(specifier)) return resolved;
+    const candidate = specifier.startsWith('$lib/') ? path.posix.join('src/lib', specifier.slice(5))
+      : /^\.{1,2}\//.test(specifier) ? path.posix.normalize(path.posix.join(path.posix.dirname(file), specifier)) : undefined;
+    return candidate && snapshot.ids.has(candidate) ? candidate : undefined;
+  };
   const walked = new Set();
   const loadsSupport = (from, module) => {
     if (walked.has(module) || !isSupport(module)) return; // the module under test is not followed
@@ -792,16 +808,16 @@ function main() {
     const reach = reachesFramework(module, script);
     if (reach) throw Error(`changed module ${from} newly loads ${module}, which reaches the test framework (${reach})`);
     for (const specifier of importsOf(ts.createSourceFile(module, script, ts.ScriptTarget.Latest, true), module)) {
-      const next = currentClosure.resolve(module, specifier);
+      const next = link(currentClosure, module, specifier);
       if (next) loadsSupport(from, next);
       else if (isLocal(specifier)) throw Error(`changed module ${from} newly loads ${module}, whose local import ${specifier} cannot be inspected`);
     }
   };
-  const loads = (revision, resolve, file) => {
+  const loads = (revision, snapshot, file) => {
     const script = exists(revision, file) ? scriptOf(file, source(revision, file)) : undefined;
     if (script === undefined) return new Set();
     const tree = ts.createSourceFile(file, script, ts.ScriptTarget.Latest, true);
-    return new Set(importsOf(tree, file, false).map(specifier => resolve(file, specifier)).filter(Boolean));
+    return new Set(importsOf(tree, file, false).map(specifier => link(snapshot, file, specifier)).filter(Boolean));
   };
   for (const file of changed) {
     if (isEntry(file) || compared.has(file) || CONFIG_FILE.test(file) || oldClosure.runner.has(file)
@@ -809,8 +825,8 @@ function main() {
     const script = scriptOf(file, source(head, file));
     const reach = script === undefined ? undefined : reachesFramework(file, script);
     if (reach) throw Error(`changed module outside the protected closure reaches the test framework (${reach}): ${file}`);
-    const reviewed = loads(base, oldClosure.resolve, file);
-    for (const target of loads(head, currentClosure.resolve, file)) if (!reviewed.has(target)) loadsSupport(file, target);
+    const reviewed = loads(base, oldClosure, file);
+    for (const target of loads(head, currentClosure, file)) if (!reviewed.has(target)) loadsSupport(file, target);
   }
   for (const file of changed) {
     if (!(/(?:^|\/)(?:tests?|__tests__)\/|\.(?:test|spec)\./.test(file))) continue;

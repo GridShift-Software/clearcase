@@ -12,10 +12,12 @@ const count = (v: JsonValue | undefined): number => Math.max(0, Math.trunc(num(v
 const strs = (v: JsonValue | undefined): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []);
 const objs = (v: JsonValue | undefined): JsonObject[] => (Array.isArray(v) ? v.filter(isObject) : []);
 const kebab = (s: string) => s.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'other';
-const tally = (keys: Iterable<string>): Record<string, number> => { const c: Record<string, number> = {}; for (const k of keys) c[k] = (c[k] ?? 0) + 1; return c; };
+/** Sets an own property, as the strict parser does: a source key such as "__proto__" never swaps a prototype. */
+const own = <T extends object>(o: T, k: string, v: unknown): T => Object.defineProperty(o, k, { value: v, enumerable: true, writable: true, configurable: true });
+const tally = (keys: Iterable<string>): Record<string, number> => { const c: Record<string, number> = {}; for (const k of keys) own(c, k, (Object.hasOwn(c, k) ? c[k]! : 0) + 1); return c; };
 const nonEmpty = (parts: string[]) => parts.filter((s) => s !== '');
 /** Every source field the mapping did not read stays on the record under its own name (DS_UNSUPPORTED_FIELD), so nothing is lost silently. */
-const keepRest = <T extends JsonObject>(into: T, from: JsonObject, read: readonly string[]): T => { for (const [k, v] of Object.entries(from)) if (!read.includes(k) && !Object.hasOwn(into, k)) (into as JsonObject)[k] = v; return into; };
+const keepRest = <T extends JsonObject>(into: T, from: JsonObject, read: readonly string[]): T => { for (const [k, v] of Object.entries(from)) if (!read.includes(k) && !Object.hasOwn(into, k)) own(into, k, v); return into; };
 /** A row position as the source wrote it: v5 writes text, the JSON script numbers. */
 const position = (v: JsonValue | undefined): number | string => (typeof v === 'string' ? v : num(v));
 
@@ -125,7 +127,7 @@ export function timelineOf(rows: readonly JsonObject[], rowsByRef: ReadonlyMap<s
   const dated = rows.filter((r) => str(r.date) !== '');
   const yearCounts = tally(dated.map((r) => year(str(r.date))));
   const typeByYear: Record<string, Record<string, number>> = {};
-  for (const r of dated) { const y = typeByYear[year(str(r.date))] ??= {}; y[str(r.doc_type)] = (y[str(r.doc_type)] ?? 0) + 1; }
+  for (const y of Object.keys(yearCounts)) own(typeByYear, y, tally(dated.filter((r) => year(str(r.date)) === y).map((r) => str(r.doc_type))));
   const events = hot
     .map((h) => { const r = rowsByRef.get(str(h.ref)); return { date: str(r?.date), kind: str(r?.doc_type), note: str(h.why), ref: str(h.ref), title: str(r?.subject) || str(r?.filename), url: str(r?.url) }; })
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
@@ -182,7 +184,7 @@ export function toV5Roots(appData: JsonObject, appSeed: JsonObject, sink: DiagSi
   const rowsByRef = new Map(rows.map((r) => [str(r.ref), r]));
   const people = objs(appData.people).map(personOf);
   const DATA: JsonObject = { chronology: rows, people, entities: objs(appData.entities).map(entityOf), timeline: timelineOf(rows, rowsByRef, objs(appData.hot)) };
-  const put = (key: string, v: JsonValue | undefined) => { if (v !== undefined) DATA[key] = v; };
+  const put = (key: string, v: JsonValue | undefined) => { if (v !== undefined) own(DATA, key, v); };
   const list = (key: string, items: JsonObject[]) => put(key, items.length ? items : undefined);
   put('matter', matterOf(appSeed));
   put('contradictions', contradictionsOf(objs(appData.contradictions), rowsByRef));
@@ -197,8 +199,8 @@ export function toV5Roots(appData: JsonObject, appSeed: JsonObject, sink: DiagSi
   if (objs(appSeed.authorities).length) lit.authorities = objs(appSeed.authorities).map(authorityOf);
   if (Object.keys(lit).length) DATA.lit = lit;
   if (isObject(appData.meta)) DATA.meta = appData.meta;
-  for (const [k, v] of Object.entries(appData)) if (!MAPPED_DATA_KEYS.has(k) && !Object.hasOwn(DATA, k)) DATA[k] = v;
-  for (const [k, v] of Object.entries(appSeed)) if (!MAPPED_SEED_KEYS.has(k) && !Object.hasOwn(DATA, k)) DATA[k] = v;
+  for (const [k, v] of Object.entries(appData)) if (!MAPPED_DATA_KEYS.has(k) && !Object.hasOwn(DATA, k)) own(DATA, k, v);
+  for (const [k, v] of Object.entries(appSeed)) if (!MAPPED_SEED_KEYS.has(k) && !Object.hasOwn(DATA, k)) own(DATA, k, v);
   if (appData.ft !== undefined) sink.add('V5_SOURCE_INDEX_DROPPED', "app-data.ft is the viewer's full-text token index; not carried into the package (ClearCase indexes on its own)", { file: 'input', subject: 'app-data.ft' });
   const roots: Partial<Record<V5Root, JsonValue>> = { DATA, META: metaOf(isObject(appData.meta) ? appData.meta : {}, rows, people.length) };
   const sched = schedOf(objs(appSeed.discovery));

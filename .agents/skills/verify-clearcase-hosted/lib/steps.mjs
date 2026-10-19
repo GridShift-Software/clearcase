@@ -100,9 +100,10 @@ export const steps = [
 				must(fetched.status === 401 && !fetched.pdf && !fetched.synthetic, `client B fetching A's original got ${fetched.status}, ${fetched.size} bytes`);
 				const downloads = x.b.events.downloads.length;
 				await other.navigate(`${x.app}${LETTER}`);
-				await other.waitFor(`document.readyState === 'complete' && !!document.querySelector('[data-denial-code]')`, 15000);
-				const nav = await other.evaluate(`({ code: document.querySelector('[data-denial-code]').dataset.denialCode, status: document.querySelector('[data-denial-code]').dataset.status })`);
-				must(nav.code === 'wrong-client' && nav.status === '401' && x.b.events.downloads.length === downloads, `opening A's original as client B showed ${JSON.stringify(nav)}, downloads ${x.b.events.downloads.length - downloads}`);
+				// An endpoint's refusal is Kit's static error page, not +error.svelte: read the status from the navigation itself.
+				await other.waitFor(`document.readyState === 'complete' && location.pathname === ${JSON.stringify(LETTER)}`, 15000);
+				const nav = await other.evaluate(`({ status: performance.getEntriesByType('navigation')[0]?.responseStatus, contentType: document.contentType, title: document.title, leaked: /Synthetic original|%PDF-/.test(document.documentElement.outerHTML) })`);
+				must(nav.status === 401 && nav.contentType === 'text/html' && /another client/.test(nav.title) && !nav.leaked && x.b.events.downloads.length === downloads, `opening A's original as client B showed ${JSON.stringify(nav)}, downloads ${x.b.events.downloads.length - downloads}`);
 				const wrongCase = await x.inPageFetch('/cases/case-a1/originals/b1-letter');
 				must(wrongCase.status === 404 && !wrongCase.pdf, `a-viewer asking for B's original under case A1 got ${wrongCase.status}`);
 				return { form, page: { code: page.code, status: page.status }, fetch: { status: fetched.status, size: fetched.size }, navigation: nav, wrongCase: { status: wrongCase.status, size: wrongCase.size }, shot, shotOriginal: await x.shot('wrong-client-original', other) };

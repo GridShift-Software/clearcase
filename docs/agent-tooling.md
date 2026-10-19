@@ -264,6 +264,14 @@ The suite exits nonzero on any unexpected behavior. `check-plan` can independent
 
 ## Fix-diff test protection
 
+A passing guard is not clearance: it bounds test-code changes and the capability routes in the reviewer-owned list at the end of
+this section (tracked in GRS-150), and nothing else. A fix-round worker should not rely on it for any of these, and the
+re-check reviewer checks each by hand: destructured `constructor`/`__proto__` of `{}` or `[]` then written; a bare
+`export * from` whose target exports a capability; CommonJS `module.exports`/`exports.x`; code generation including
+indirect eval; a capability through a function return or parameter, a getter, an object literal, a class field or
+`this`; a package's exports and Vite aliases; non-literal `import()`/`require` and `import.meta.glob`; `node:process`
+writes; a markup `<script>` under jsdom; and the `viewer.mjs` refusal, which stays fail-closed.
+
 `scripts/agent-tools/test-guard --fix-base REVIEWED_SHA --findings PATH` runs the guard,
 and so does `verify test-guard` with the same arguments. `receipt --name CHECK --fix-base REVIEWED_SHA
 --findings PATH -- COMMAND...` runs the guard before the command inside the same receipt;
@@ -410,13 +418,16 @@ and handlers, with a component that does not parse or compile failing closed) re
   `let` or `var`, a destructuring, `await`, a conditional, logical, comma or assignment expression, a literal `require`
   or `import()`, or an import binding, which the guard follows into the module that exports it (`export const`,
   `export { x as y }`, `export default`, a re-export, `export *`), across modules, whether or not that module changed.
+  Destructuring is followed only when its initialiser is itself rooted at a capability: `const { constructor: C } = {}`
+  and a destructuring assignment to a `let` are not (reviewer-owned, below).
   The global object may appear only as the object of a property read with a literal, non-framework name
   (`globalThis.performance`, `window['x']`, `Symbol.for('app.cache')` as the key), in `typeof`, `in` or an equality
   test, as a literal-named destructuring, or as a `const` initialiser. `Symbol.for` may only be called directly with a
   literal name that contains no `jest`, `vitest` or `chai`. The other capabilities may only be called, constructed,
   extended, compared, read by name, or (a converter: `String`, `Number`, `Boolean`, `BigInt`) passed to a call. Each
   use of a `const` that holds one is checked the same way, where it appears. Moving one anywhere else refuses: an
-  export under any name (`export { g as h }`, `export default`, a re-export, a TypeScript `export import`), an
+  export under any name (`export { g as h }`, `export default`, a named or default re-export, `export * as ns`, a
+  TypeScript `export import`; a bare `export * from` is not refused, see below), an
   argument, a return value, a property, an element, a field, a `let` or an assignment, a spread, a computed key. A
   TypeScript import alias of a value (`import P = O`) fails closed. A member of a capability (`Object.keys`,
   `fs.readFile`, `fs.promises`) is a plain value and may move;
@@ -443,21 +454,48 @@ A local function named `expect`, and literal reads of the global object (`global
 `const g = globalThis as {...}` then `g.__clearcase`), are fine. A changed module may load an unchanged module under
 test freely, since application code is trusted as reviewed.
 
-What the guard does not bound, so the re-check reviewer owns it: code generation (`eval`, `Function`, a constructor
-chain); a capability reached at run time through a value the guard does not follow, which is where the analysis stops:
-a function's return value (`Object.getOwnPropertyDescriptor(...).get.call([])`), a function's parameter, a getter,
-an object or array literal's member, a class field and `this`; a plain member of a capability (`fs.promises`,
-`path.posix`) moved into one of those and written there; a package's exports (a package that re-exports `fs` is not
-followed) and a module namespace's computed member (`ns[k]`); an import through an alias the resolver does not know (a
-Vite `resolve.alias`), which is not followed, and which in a module the fix does not change also hides a test-file
-load; a non-literal `import()` or `require`, and `import.meta.glob`, which can load
-a new test file whose content is never checked (a computed specifier, or a template with a substitution, is skipped);
-a getter or coercion that runs where a module only reads a property (`export const LIMIT = settings.limit` is not an
-import-time effect); isolation read from a variable in the runner configuration; test-file names matched textually
-(`x.test.helper.ts`, or a `.test.ts` outside the runner's `include`); writes to `process.env` or `process.exitCode`; a
-JSON or other data file a module reads; a specifier that stays unbound in application code that cannot be tracked
-(`src/lib/local-case/viewer/viewer.mjs` imports `./pdf.min.mjs`, which is not in Git, so a fix that changes
-`viewer.mjs` fails closed until the reviewer clears it); and a fix that special-cases a test's input.
+What the guard bounds at `66f2bb3` (GRS-148, landed as defence in depth, as GRS-104 was): a changed JS/TS/Svelte
+module cannot name a framework, move or write a rooted capability (the global object, `Symbol`, a builtin, a Node or
+Bun builtin module, a constructor or prototype) through the shapes listed above, followed through `const`/`let`/`var`,
+destructuring of a rooted initialiser, `await`, conditionals, a literal `require`/`import()` and import bindings
+across modules. It is a best-effort net, not a sandbox. The routes below stay open. GRS-150 tracks them; until it
+lands, the re-check reviewer owns each one and must check it by hand in every changed module of the fix diff:
+
+- `const { constructor: C } = {} as any; C.is = () => true` (also `{ __proto__: p } = []`, and `({ constructor: C } = {})`
+  assigned to a `let`): a destructured `constructor`/`__proto__` of an unrooted `{}` or `[]` is a capability the guard
+  does not root (`destructured()` in `test_guard.mjs`). Look for destructuring of `constructor`, `prototype` or
+  `__proto__` followed by a member write.
+- a bare `export * from './m'` whose target exports a capability (`Object`, `globalThis`, `node:fs`, a prototype)
+  is not refused; only the importer that writes it is followed, and not when the writing module is unchanged. Open
+  every `export *` a fix adds or changes and read the target's exports.
+- CommonJS `module.exports = Object`, `exports.x = ...` and `export { default as P } from './c.cjs'` are not
+  followed from an unchanged module (`exportRoot`). A changed `.cjs` is checked. The repository has no tracked
+  `.cjs` or `.cts` file today; a new one is the signal.
+- code generation: `eval`, indirect eval (`(0, eval)(...)`), `Function`, a constructor chain. Search the diff for
+  the words.
+- a function's return value (`Object.getOwnPropertyDescriptor(...).get.call([])`) or parameter, a getter, an object or
+  array literal's member, a class field and `this`: a capability reaching a write through one is not followed.
+  Read any new function that returns or receives `Object`, `globalThis`, a prototype or a builtin module.
+- a plain member of a capability (`fs.promises`, `path.posix`) moved into one of those and written there. Check
+  writes whose target comes from a property of an imported builtin.
+- a package's exports (a package that re-exports `fs` is not followed) and a module namespace's computed member
+  (`ns[k]`); an import through an alias the resolver does not know (a Vite `resolve.alias`), which also hides a
+  test-file load in a module the fix does not change. Check `resolve.alias` and any new dependency.
+- a non-literal `import()` or `require`, and `import.meta.glob`: they can load a new test file whose content is never
+  checked (a computed specifier, or a template with a substitution, is skipped). Search for both.
+- `node:process` writes: `import process from 'node:process'; process.emitWarning = ...` is exempt, while the same
+  write to the unbound global `process` refuses; writes to `process.env` and `process.exitCode` are not refused.
+  Read any write to an imported `process`.
+- a markup `<script>` in a Svelte component (inside `{#snippet}` or elsewhere) compiles to an HTML string that runs
+  under jsdom (Vitest's default `runScripts: 'dangerously'`); it is not reach-checked. The repository's tests run in
+  Node; a jsdom test environment makes this live. Check for one.
+- a getter or coercion that runs where a module only reads a property (`export const LIMIT = settings.limit` is not
+  an import-time effect); isolation read from a variable in the runner configuration; test-file names matched
+  textually (`x.test.helper.ts`, or a `.test.ts` outside the runner's `include`); a JSON or other data file a module
+  reads; and a fix that special-cases a test's input. Read the diff for each.
+- `src/lib/local-case/viewer/viewer.mjs`: it imports `./pdf.min.mjs`, a build-copied asset that is not in Git. The
+  guard keeps this refusal fail-closed, so a fix that changes `viewer.mjs` fails until the reviewer clears it by
+  reading the change and confirming the import is the unchanged asset.
 
 Unsupported named syntax or changed Python/shell test sources fail closed, and so does a protected file importing a
 module the resolver cannot bind, a `.svelte` component included; this draft does not claim semantic understanding of

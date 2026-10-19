@@ -117,3 +117,43 @@ export function carrierEml({ subject, body = 'CARRIER-BODY-TOKEN', attachments, 
   ]);
   return lines('From: Carrier <carrier@example.invalid>', 'To: Synthetic Recipient <recipient@example.invalid>', `Subject: ${subject}`, 'Date: Tue, 2 Jan 2001 12:00:00 +0000', `Message-ID: <${messageId}@example.invalid>`, 'MIME-Version: 1.0', mixed[0], mixed[1]);
 }
+
+/**
+ * Gmail "Forward as attachment" shape: the outer message carries the forwarded one as message/rfc822, which itself carries
+ * a PDF and an earlier message (a thread). The transport headers model what a Gmail "Download message" export keeps
+ * (Delivered-To, a Received chain, X-Google-Smtp-Source, ARC and Authentication-Results); every value is invented.
+ */
+export function gmailForwardedEml({ pdf }) {
+  const earlier = carrierEml({ subject: 'GMAIL-EARLIER-THREAD-SUBJECT-TOKEN', body: 'GMAIL-EARLIER-BODY-TOKEN', attachments: [{ name: 'earlier-notes.txt', mime: 'text/plain', data: Buffer.from('GMAIL-EARLIER-NOTES-TOKEN') }], messageId: 'gmailearlier0001' });
+  const middleBody = multipart('mixed', 'gfwd_middle_mix', [
+    part(['Content-Type: text/plain; charset="UTF-8"'], 'GMAIL-FORWARDED-BODY-TOKEN'),
+    part(['Content-Type: application/pdf; name="statement.pdf"', 'Content-Disposition: attachment; filename="statement.pdf"', 'Content-Transfer-Encoding: base64'], b64(pdf)),
+    part(['Content-Type: message/rfc822', 'Content-Disposition: attachment; filename="Earlier thread message.eml"'], earlier),
+  ]);
+  const middle = lines('From: Original Sender <original@example.invalid>', 'To: Synthetic Sender <sender@example.invalid>', 'Subject: GMAIL-FORWARDED-ORIGINAL-SUBJECT-TOKEN', 'Date: Mon, 1 Jan 2001 07:00:00 +0000', 'Message-ID: <gmailmiddle0001@example.invalid>', 'MIME-Version: 1.0', middleBody[0], middleBody[1]);
+  const outer = multipart('mixed', 'gfwd_outer_mix', [
+    part(['Content-Type: text/plain; charset="UTF-8"'], 'GMAIL-FWD-OUTER-BODY-TOKEN\r\n---------- Forwarded message ---------'),
+    part(['Content-Type: message/rfc822', 'Content-Disposition: attachment; filename="Original message.eml"'], middle),
+  ]);
+  return lines(
+    'Delivered-To: recipient@example.invalid',
+    'Received: by 2002:a05:6a00:0001:b0:0:0:0 with SMTP id synthetic0001csp1;',
+    '        Tue, 2 Jan 2001 01:00:00 -0800 (PST)',
+    'X-Google-Smtp-Source: ASYNTHETICxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx',
+    'X-Received: by 2002:a05:6000:0001::0 with SMTP id synthetic0002mr1;',
+    '        Tue, 02 Jan 2001 01:00:00 -0800 (PST)',
+    'ARC-Seal: i=1; a=rsa-sha256; t=978426000; cv=none; d=google.invalid; s=arc-20160816; b=SYNTHETICSEAL',
+    'ARC-Authentication-Results: i=1; mx.google.invalid; spf=pass smtp.mailfrom=sender@example.invalid',
+    'Return-Path: <sender@example.invalid>',
+    'Received: from mail-synthetic.example.invalid (mail-synthetic.example.invalid. [192.0.2.20])',
+    '        by mx.google.invalid with ESMTPS id synthetic0003',
+    'Authentication-Results: mx.google.invalid; spf=pass (google.invalid: synthetic) smtp.mailfrom=sender@example.invalid',
+    'X-Gm-Message-State: SYNTHETICSTATE0001',
+    'MIME-Version: 1.0',
+    'Date: Tue, 2 Jan 2001 09:00:00 +0000',
+    'Message-ID: <CAsyntheticFwd0001@mail.example.test>',
+    'Subject: Fwd: GMAIL-FWD-OUTER-SUBJECT-TOKEN',
+    'From: Synthetic Sender <sender@example.invalid>',
+    'To: Synthetic Recipient <recipient@example.invalid>',
+    outer[0], outer[1]);
+}

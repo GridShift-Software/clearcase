@@ -9,7 +9,7 @@ import { Pdf, buildPdf, tokenPages } from './lib/pdf.mjs';
 import { buildZip, zeroBomb } from './lib/zip.mjs';
 import { fullDocx, altChunkDocx } from './lib/ooxml.mjs';
 import { mainWorkbook, chartWorkbook, largeWorkbook, CSV } from './lib/sheets.mjs';
-import { gmailEml, outlookEml, hostileEml, takeoutMbox, carrierEml } from './lib/mail.mjs';
+import { gmailEml, outlookEml, hostileEml, takeoutMbox, carrierEml, gmailForwardedEml } from './lib/mail.mjs';
 import { unknownBlobs } from './lib/unknown.mjs';
 import { buildMsg, melaRtf } from './lib/msg.mjs';
 import { ffmpeg, magick, run, soffice, version } from './lib/tools.mjs';
@@ -280,6 +280,10 @@ run('qpdf', ['--password=synthetic-user', '--decrypt', tmp('enc.pdf'), tmp('dec.
 put('pdf', 'encrypted-with-rendition.rendition-v1.pdf', read(tmp('dec.pdf')), 'prepared rendition: qpdf --decrypt with the owner-supplied password, offline', { renditionOf: 'pdf/encrypted-with-rendition.pdf', version: 1 });
 put('email', 'outlook-rtf-only-with-companion.msg', out('email', 'outlook-rtf-only.msg'), 'the RTF-only MSG again, this time with a readable companion linked');
 put('email', 'outlook-rtf-only-with-companion.companion-v1.txt', 'MSG-RTF-COMPANION-TOKEN: reviewed plain-text rendering of the RTF-only body.', 'prepared companion: reviewed text of the RTF body', { renditionOf: 'email/outlook-rtf-only-with-companion.msg', version: 1 });
+
+// ---------- Gmail forwarded as an attachment, with modelled export provenance (M6) ----------
+const MODELLED = (shape, client) => ({ provenance: { shape, client, modelled: true, exportedFrom: null, note: 'structure model written by lib/mail.mjs; not an export from the named client' } });
+put('email', 'gmail-forwarded.eml', gmailForwardedEml({ pdf: textBasic }), 'lib/mail.mjs: Gmail "Forward as attachment" shape: message/rfc822 -> PDF + message/rfc822 -> text; Gmail transport headers (Delivered-To, Received chain, X-Google-Smtp-Source, ARC, Authentication-Results)', MODELLED('gmail-forward-as-attachment', 'Gmail web, Download message'));
 
 writeFileSync(path.join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 1));
 rmSync(TMP, { recursive: true, force: true });

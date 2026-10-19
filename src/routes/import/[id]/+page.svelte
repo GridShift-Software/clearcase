@@ -56,7 +56,7 @@
 			<h2 id="diff-heading">Changes against the active version</h2>
 			<p id="diff-summary">Matched by original fingerprint, never by ref: {data.diff.unchanged} unchanged, {data.diff.changedRows.length} with changed rows, {data.diff.renumbered.length} renumbered, {data.diff.added.length} added, {data.diff.removed.length} removed, {data.diff.ambiguous.length} ambiguous fingerprints; {data.diff.unmatched.candidate} candidate documents without an original cannot be matched.</p>
 			{#if data.diff.renumbered.length}<p>Renumbered: {data.diff.renumbered.slice(0, 30).map((x) => `${x.from} → ${x.to}`).join(', ')}{data.diff.renumbered.length > 30 ? ', …' : ''}</p>{/if}
-			{#if data.diff.ambiguous.length}<p>Ambiguous (several refs share the same bytes; user work is not re-attached automatically): {data.diff.ambiguous.slice(0, 20).map((x) => `${x.base.join('/')} → ${x.candidate.join('/')}`).join('; ')}</p>{/if}
+			{#if data.diff.ambiguous.length}<p>Ambiguous (several refs share the same bytes; user work is not re-attached automatically): {data.diff.ambiguous.slice(0, 20).map((x) => `${x.base.join('/')} → ${x.candidate.join('/')}`).join('; ')}{data.diff.ambiguous.length > 20 ? '; …' : ''}</p>{/if}
 		</section>
 	{/if}
 	{#if data.notes && data.notes.total}

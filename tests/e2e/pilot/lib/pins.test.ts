@@ -1,6 +1,7 @@
 // The v5 stack lane's exact-pin rule and its one narrow exception: SheetJS publishes xlsx only from its own CDN, so
 // `xlsx` alone may be pinned by the official tarball URL for one version, and bun.lock must hold GRS-97's recorded sha512
 // (docs/acceptance/viewers/handoff.md). Every other URL, host, name, version mismatch or range stays refused.
+import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import { XLSX_SHA512, unpinned, xlsxLockProblems } from './pins.mjs';
 
@@ -44,6 +45,12 @@ describe('the xlsx integrity in bun.lock', () => {
 		expect(xlsxLockProblems(pj, '{ "packages": {} }')).toHaveLength(1);
 		expect(xlsxLockProblems(pj, lock(XLSX_SHA512).replace('xlsx-0.20.3.tgz"', 'xlsx-0.20.4.tgz"'))).toHaveLength(1);
 		expect(xlsxLockProblems(pj, null)).toHaveLength(1);
+	});
+	test('the repository\'s own package.json and bun.lock satisfy it', () => {
+		const pj = JSON.parse(readFileSync('package.json', 'utf8'));
+		expect(unpinned({ ...pj.dependencies, ...pj.devDependencies })).toEqual([]);
+		expect(xlsxLockProblems(pj, readFileSync('bun.lock', 'utf8'))).toEqual([]);
+		expect(pj.devDependencies.xlsx).toBe(OFFICIAL);
 	});
 	test('says nothing when xlsx is not a dependency', () => {
 		expect(xlsxLockProblems({ dependencies: {} }, '{}')).toEqual([]);

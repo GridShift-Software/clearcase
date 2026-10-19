@@ -366,13 +366,14 @@ collected, so the guard bounds both what a free test may contain and where it ma
   update, `delete`, dynamic `import()`, `this`, `import.meta`, computed member access, getters, classes, `.only`,
   `.concurrent`, `.each` and computed test names.
 - a new import needs the reason and must bind names (a side-effect import refuses even with one). Imports evaluate
-  before the named tests, so it may name only a module the reviewed test already loads (one the reviewed file
-  imports, or a helper or setup file in the protected closure), or a tracked module under test that is unchanged since
+  before the named tests, so it may name only a module the reviewed test already loads (one that named test file
+  imports, directly or through support code, or a setup file: the loaded set is that file's own, never the union over
+  every named file), or a tracked module under test that is unchanged since
   the fix base and that, followed through its imports (type-only ones excepted), does nothing at import time and never
   reaches the test framework. Doing nothing at import time means every top-level statement is a declaration (import,
   export, function, class, enum, variable, type, `export default`) and no call, `new`, tagged template, JSX element,
   `await`, assignment, update, `delete`, decorator or class static block appears outside a function body; a property
-  read is not counted. A package the reviewed file does not import refuses, since its import-time effects cannot be
+  read is not counted. A package that named test file does not import refuses, since its import-time effects cannot be
   inspected; Node and Bun builtins pass. A new import of a test file refuses.
 
 A changed free test, a new import or a dropped free test needs a nonempty `assertionCountReasons[file]` entry; the
@@ -382,33 +383,65 @@ reason excuses nothing outside the bounds above. Touched JS/TS test files cannot
 The module under test may change freely, but code the named tests load must not change what an assertion proves.
 Every changed module outside the protected closure and the runner configuration is checked, wherever it lives: the
 module under test, and any file in a test-support directory, since application code can load one (`src/support/`,
-`src/fixtures/`, a helper under `tests/`) into the named test's process. Test files (`.test.`/`.spec.` names) are not:
-the runner collects each as an entry of its own and isolates it, and their assertion counts are checked above. That
-holds only while test files are isolated: when a runner file's code (comments aside) or a test script turns isolation
-off (`isolate: false`, `--no-isolate`, a single fork or thread), a test script runs `bun test` as a command, or a
-named test imports `bun:test`, any changed test file outside the closure fails closed. Such a changed module (a JS/TS file, or a Svelte component's script) refuses
-when it:
+`src/fixtures/`, a helper under `tests/`) into the named test's process. Test files (`.test.`/`.spec.` names) are not
+checked by content: the runner collects each as an entry of its own and isolates it, and their assertion counts are
+checked above. That holds only while test files are isolated, and only while nothing but the runner loads them:
 
-- imports, re-exports, requires or loads `vitest`, `jest`, `chai`, `bun:test` or a `@vitest`/`@jest` package, or passes
-  one of those names to any call (a require made by `createRequire`, `import.meta.resolve`);
-- uses an unbound `expect`, `vi`, `vitest`, `jest` or `chai`, or reads `import.meta.vitest`;
-- names the matcher registry through `Symbol.for('...jest...')`, or calls `Symbol.for` with a computed name;
-- uses the global object (`globalThis`, `global`, `window`, `self`, a property chain of them, or a variable
-  initialised to one) with a computed key (anything but a literal or `Symbol.for(literal)`), by a runner name
-  (`expect`, `vi`, `test`, the hooks, or any name containing `vitest`, `jest` or `chai`), as a call argument, in a
-  spread, or in a destructuring by such a key, such a name or a rest element;
-- newly loads (through an import its fix-base version does not have) a test file, or support code that does any of
+- when a runner file's code (comments aside) or a test script turns isolation off (`isolate: false`, `--no-isolate`, a
+  single fork or thread), a test script runs `bun test` as a command, or a named test imports `bun:test`, any changed
+  test file outside the closure fails closed;
+- a changed test file that any tracked module that is not a test file loads by a literal specifier, at the fix base or
+  at HEAD, fails closed: that module runs it inside the named test's process, so its content is not isolated.
+
+Such a changed module (a JS/TS file, or a Svelte component, read by `svelte/compiler`: its scripts, markup expressions
+and handlers, with a component that does not parse or compile failing closed) refuses when:
+
+- it imports, re-exports, requires or loads `vitest`, `jest`, `chai`, `bun:test` or a `@vitest`/`@jest` package, or
+  passes one of those names to any call (a require made by `createRequire`, `import.meta.resolve`);
+- it uses an unbound `expect`, `vi`, `vitest`, `jest` or `chai` (an ambient `declare` does not bind), or reads
+  `import.meta.vitest`;
+- it holds a runtime capability other than as the allowlist allows. The global object (`globalThis`, `global`,
+  `window`, `self`, `frames`, `top`, `parent`) may appear only as the object of a property read with a literal,
+  non-framework name (`globalThis.performance`, `window['x']`, `Symbol.for('app.cache')` as the key), in `typeof`, `in`
+  or an equality test, as a literal-named destructuring, or as a `const` initialiser whose every use is one of those
+  (and which is not exported); an array element, conditional, `let`, assignment, call argument, spread, return,
+  rename, comma expression or computed key refuses. `Symbol.for` may only be called directly with a literal name that
+  contains no `jest`, `vitest` or `chai`; a builtin (`Object`, `Array`, `Reflect`, `Map`, `JSON`, ... and a builtin
+  reached as a member of the global object) may only be called, constructed, extended, compared, read by name, or (a
+  converter: `String`, `Number`, `Boolean`, `BigInt`) passed to a call, or held in a `const` used the same way, and the
+  same holds for `X.prototype`, `X.constructor`, and a prototype from `Object.getPrototypeOf`;
+- it writes to a builtin: an assignment (compound, logical or destructuring), update, `delete` or `for-in`/`for-of`
+  target rooted at an unbound global (`Object.is = ...`, `Array.prototype.includes = ...`, `globalThis.Object.is = ...`,
+  through a `const` alias), at a prototype reached by `constructor`, `__proto__` or `getPrototypeOf`, or at an imported
+  Node or Bun builtin module (`fs.readFileSync = ...`); or calls `Object.defineProperty`/`defineProperties`/`assign`/
+  `setPrototypeOf` or `Reflect.set`/`defineProperty`/`setPrototypeOf`/`deleteProperty` (also through `.call`,
+  `.apply` or a variable) with such a root as an argument. Writes to `process.env` and `process.exitCode` are not
+  refused;
+- it imports a literal specifier that does not bind: after stripping a `?query` or `#fragment` and mapping a leading `/`
+  to the repository root, it must name a tracked file, a Node or Bun builtin, a package the root `package.json`
+  declares, or `$app/*`, `$env/*`, `$service-worker` (type-only imports are erased and skipped); anything else fails
+  closed, so a root-relative path, a missing file or an undeclared package cannot hide a load;
+- it newly loads (through an import its fix-base version does not have) a test file, or support code that does any of
   the above, followed through the support files it imports; an unresolved local import there fails closed.
+
+A new import in a named test file is judged against that file's own loaded set (what it imports, through support code,
+and the setup files), not against the other named files: file A cannot newly import an effectful helper only file B
+loaded.
 
 A local function named `expect`, and literal reads of the global object (`globalThis.performance`, or
 `const g = globalThis as {...}` then `g.__clearcase`), are fine. A changed module may load an unchanged module under
 test freely, since application code is trusted as reviewed.
 
-Computed names (GRS-148 decision): the guard refuses the computed routes listed above rather than leave them to the
-reviewer. It reads code statically, so the re-check reviewer still owns what it cannot see: code generation (`eval`,
-`Function`, a constructor chain), the global object reached at run time without being named in the syntax above (the
-return value of a function, a non-literal dynamic `import()` or `require`, an `import.meta.glob` pattern newly matching
-existing support code), and a fix that special-cases a test's input.
+What the guard does not bound, so the re-check reviewer owns it: code generation (`eval`, `Function`, a constructor
+chain); the global object or a builtin reached at run time without being named in the syntax above (the return value of
+a function, or a prototype read through `constructor` or `__proto__` and handed to a function that writes to it); a non-literal `import()` or `require`, and `import.meta.glob`, which can load
+a new test file whose content is never checked (a computed specifier, or a template with a substitution, is skipped);
+a getter or coercion that runs where a module only reads a property (`export const LIMIT = settings.limit` is not an
+import-time effect); isolation read from a variable in the runner configuration; test-file names matched textually
+(`x.test.helper.ts`, or a `.test.ts` outside the runner's `include`); writes to `process.env` or `process.exitCode`; a
+JSON or other data file a module reads; a specifier that stays unbound in application code that cannot be tracked
+(`src/lib/local-case/viewer/viewer.mjs` imports `./pdf.min.mjs`, which is not in Git, so a fix that changes
+`viewer.mjs` fails closed until the reviewer clears it); and a fix that special-cases a test's input.
 
 Unsupported named syntax or changed Python/shell test sources fail closed, and so does a protected file importing a
 module the resolver cannot bind, a `.svelte` component included; this draft does not claim semantic understanding of

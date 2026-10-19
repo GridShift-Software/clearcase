@@ -1,15 +1,14 @@
 // Readiness and candidate import. Two states from GRS-136/ADR 0011: while processing, acknowledged originals are
-// retrievable and only PDF and natively decoded images open in the app (everything else is "Preview pending
-// processing"); at publication every file, child and supplied location must preview, or the whole update is held.
+// retrievable, and the viewer opens what it can open as it is (PDF, native images, and here also workbooks, email, native
+// media and ZIP); only a format that needs a manually prepared preview shows "Preview pending processing"; at
+// publication every file, child and supplied location must preview, or the whole update is held.
 const F = 'readiness';
 const C = 'readiness contract (import holds + reader smoke + location resolution)';
-const NATIVE_IMAGES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif']);
 
+/** The processing-state list of contract section 1: rejected, viewable (the reader opens the original as it is) or pending. */
 export function processingState(d) {
   if (d.holds.some((h) => ['active-content-not-accepted', 'content-type-mismatch'].includes(h.code))) return 'rejected-at-acknowledgement';
-  if (d.family === 'pdf' && !d.holds.some((h) => h.code.startsWith('pdf-'))) return 'viewable';
-  if (d.family === 'image' && NATIVE_IMAGES.has(d.mime)) return 'viewable';
-  return 'preview-pending-processing';
+  return d.native ? 'viewable' : 'preview-pending-processing';
 }
 
 /** The preview each original publishes with (asset id + reader family + extras), per the frozen matrix. */
@@ -19,7 +18,7 @@ function previewOf(c, id) {
   if (d.family === 'pdf') { const p = r.find((x) => x.kind === 'pdf' && x.role === 'rendition'); return { id: p ? p.assetId : id, family: 'pdf' }; }
   if (d.family === 'email') { const p = r.find((x) => x.kind === 'body-text'); return p ? { id, family: 'email', extra: [p.assetId] } : { id, family: 'email' }; }
   if (d.family === 'word') { const p = r.find((x) => x.kind === 'pdf' && x.role === 'rendition'); return p ? { id: p.assetId, family: 'pdf' } : null; }
-  if (d.family === 'image' && !NATIVE_IMAGES.has(d.mime)) { const pages = r.filter((x) => x.kind === 'page-image').map((x) => x.assetId); return pages.length ? { id, family: 'image', extra: pages } : null; }
+  if (d.family === 'image' && !d.native) { const pages = r.filter((x) => x.kind === 'page-image').map((x) => x.assetId); return pages.length ? { id, family: 'image', extra: pages } : null; }
   if (d.family === 'media' && d.mime === 'video/x-msvideo') { const p = r.find((x) => x.role === 'rendition'); return p ? { id: p.assetId, family: 'media' } : null; }
   return { id, family: d.family };
 }
@@ -56,9 +55,17 @@ async function evaluate(c, name, files) {
 
 export default async function readiness(c, { full }) {
   if (!full) return;
-  const states = Object.fromEntries(['pdf/text-basic.pdf', 'image/png-pattern.png', 'image/jpeg-exif-orientation-6.jpg', 'image/tiff-multipage-g4.tif', 'image/heic-pattern.heic', 'word/full-content.docx', 'sheet/main.xlsx', 'email/gmail-download.eml', 'media/mp4-h264-aac-faststart.mp4', 'archive/basic.zip', 'pdf/encrypted-user-password.pdf', 'image/svg-masquerade.png'].map((id) => [id, processingState(c.descriptors.get(id))]));
-  const want = { 'pdf/text-basic.pdf': 'viewable', 'image/png-pattern.png': 'viewable', 'image/jpeg-exif-orientation-6.jpg': 'viewable', 'image/tiff-multipage-g4.tif': 'preview-pending-processing', 'image/heic-pattern.heic': 'preview-pending-processing', 'word/full-content.docx': 'preview-pending-processing', 'sheet/main.xlsx': 'preview-pending-processing', 'email/gmail-download.eml': 'preview-pending-processing', 'media/mp4-h264-aac-faststart.mp4': 'preview-pending-processing', 'archive/basic.zip': 'preview-pending-processing', 'pdf/encrypted-user-password.pdf': 'preview-pending-processing', 'image/svg-masquerade.png': 'rejected-at-acknowledgement' };
-  c.record(F, '(processing state)', C, 'processing state: PDF/native images viewable, everything else Preview pending processing', JSON.stringify(states) === JSON.stringify(want), 'computed states equal the frozen table', states);
+  const want = {
+    'pdf/text-basic.pdf': 'viewable', 'image/png-pattern.png': 'viewable', 'image/jpeg-exif-orientation-6.jpg': 'viewable',
+    'sheet/main.xlsx': 'viewable', 'sheet/chart.xlsx': 'viewable', 'email/gmail-download.eml': 'viewable', 'email/outlook-save-as.msg': 'viewable',
+    'media/mp4-h264-aac-faststart.mp4': 'viewable', 'archive/basic.zip': 'viewable',
+    'image/tiff-multipage-g4.tif': 'preview-pending-processing', 'image/heic-pattern.heic': 'preview-pending-processing', 'word/full-content.docx': 'preview-pending-processing', 'word/legacy.doc': 'preview-pending-processing',
+    'media/avi-mpeg4-mp3.avi': 'preview-pending-processing', 'pdf/encrypted-user-password.pdf': 'preview-pending-processing', 'pdf/truncated.pdf': 'preview-pending-processing', 'media/mp4-truncated.mp4': 'preview-pending-processing',
+    'email/outlook-rtf-only.msg': 'preview-pending-processing', 'email/gmail-takeout.mbox': 'preview-pending-processing', 'unknown/synthetic-mailbox.pst': 'preview-pending-processing', 'unknown/opaque.bin': 'preview-pending-processing',
+    'image/svg-masquerade.png': 'rejected-at-acknowledgement',
+  };
+  const states = Object.fromEntries(Object.keys(want).map((id) => [id, processingState(c.descriptors.get(id))]));
+  c.record(F, '(processing state)', C, 'processing state: natively readable originals viewable, only formats needing a prepared preview pending', JSON.stringify(states) === JSON.stringify(want), 'computed states equal the table in contract section 1', states);
   const viewable = Object.entries(states).filter(([, s]) => s === 'viewable').map(([id]) => id);
   for (const id of viewable) { const r = await c.open(id); c.record(F, id, C, 'a processing-state "viewable" original really opens', r.type === 'ready', 'ready', { type: r.type }); }
 

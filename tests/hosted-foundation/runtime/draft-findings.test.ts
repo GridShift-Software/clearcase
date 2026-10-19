@@ -86,3 +86,16 @@ describe('finding 4: protected reads persist their audit event before release, a
     expect(event!.object).toEqual({ kind: 'case', id: fx.caseId, caseId: fx.caseId });
   });
 });
+
+describe('finding 5: the hosted hooks refuse protected requests until their services are ready', () => {
+  it('a GET to a selected route is answered 503 without resolving when the request services are unavailable', async () => {
+    const { handle } = await import('../../../src/lib/server/runtime/hosted/hooks.server.ts');
+    let resolved = 0;
+    const url = new URL('https://hosted.example.invalid/cases');
+    const event = { request: new Request(url), url, locals: {}, isSubRequest: false } as unknown as Parameters<typeof handle>[0]['event'];
+    const response = await handle({ event, resolve: async () => { resolved++; return new Response('protected', { status: 200 }); } });
+    expect([response.status, resolved]).toEqual([503, 0]);
+    expect(await response.text()).not.toContain('protected');
+    expect(response.headers.get('cache-control')).toBe('no-store');
+  });
+});

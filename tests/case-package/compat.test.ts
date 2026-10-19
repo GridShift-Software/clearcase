@@ -260,3 +260,63 @@ describe('source keys that name Object.prototype members', () => {
     expect(Object.getOwnPropertyDescriptor(idx, '__proto__')!.value).toBe('not a page');
   });
 });
+
+describe('risks with category, owner and refs (step 5)', () => {
+  it('a JSON-script risk\'s type arrives as its category and its owner is kept; no refs are invented', async () => {
+    const appSeed: J = { risk: [{ id: 'R1', risk: 'Invented.', l: 2, i: 3, mit: 'm', owner: 'Owner One', type: 'Legal' }, { id: 'R2', risk: 'Other.', l: 1, i: 1, mit: '' }] };
+    const dir = await caseFolder('risk-json');
+    const res = await convertV5({ html: jsonHtml({ chronology: [jsonRow({})], meta: { builtAt: '2002-06-07 08:09' } }, appSeed), htmlName: 'workspace.html', caseFolder: dir, caseId: 'synthetic-case' });
+    const [one, two] = dataset(res.files!, 'risk-matrix') as J[];
+    expect(one).toMatchObject({ category: 'Legal', owner: 'Owner One' });
+    expect(one).not.toHaveProperty('type');
+    for (const r of [one, two]) expect(r).not.toHaveProperty('refs');
+    expect(two).not.toHaveProperty('category');
+    expect(two).not.toHaveProperty('owner');
+    const r = await importCandidate({ files: res.files! }, dir);
+    const unsupported = new Set(r.diagnostics.filter((d) => d.file === 'datasets/risk-matrix.json' && d.code === 'DS_UNSUPPORTED_FIELD').map((d) => d.subject));
+    expect([...unsupported].sort()).toEqual(['id']);
+  });
+
+  it('a JSON-script risk that already names a category keeps both fields as written', async () => {
+    const appSeed: J = { risk: [{ risk: 'Invented.', l: 2, i: 3, mit: 'm', type: 'Legal', category: 'Commercial' }] };
+    const res = await convertV5({ html: jsonHtml({ chronology: [jsonRow({})], meta: { builtAt: '2002-06-07 08:09' } }, appSeed), htmlName: 'workspace.html', caseFolder: await caseFolder('risk-json-both'), caseId: 'synthetic-case' });
+    expect((dataset(res.files!, 'risk-matrix') as J[])[0]).toMatchObject({ category: 'Commercial', type: 'Legal' });
+  });
+
+  it('the newer builder\'s category, owner and refs pass the risk schema', async () => {
+    const b = await buildSynth('risk-newer', (r) => { r.META.version = 'V1'; r.DATA.riskMatrix = [{ issue: 'i', category: 'c', likelihood: 'Low', impact: 'High', mitigation: 'm', owner: 'o', refs: ['OD-001'] }]; });
+    roots.push(b.root);
+    const r = await importCandidate({ files: b.files }, b.caseDir);
+    expect(r.diagnostics.filter((d) => d.file === 'datasets/risk-matrix.json')).toEqual([]);
+    expect(dataset(b.files, 'risk-matrix')).toEqual([{ issue: 'i', category: 'c', likelihood: 'Low', impact: 'High', mitigation: 'm', owner: 'o', refs: ['OD-001'] }]);
+  });
+});
+
+describe('text cut short by the source export (step 7)', () => {
+  const capped = (ds: readonly { code: string; severity: string; subject?: string | null; message: string }[]) => ds.filter((d) => d.code === 'V5_TEXT_CAPPED').map((d) => [d.severity, d.subject, d.message]);
+
+  it('the newer generation: DATA.text entries at the 4,000-character cap, and entries that are not text, are counted', async () => {
+    const b = await buildSynth('cap-newer', (r) => { r.META.version = 'V1'; r.DATA.text = { 'OD-001': 'x'.repeat(4000), 'OD-002': 'y'.repeat(3999), 'OD-003': 'z'.repeat(4001), 'OD-004': 7, 'SD-001': null }; });
+    roots.push(b.root);
+    expect(capped(b.result.diagnostics)).toEqual([['info', 'DATA.text', "2 of 5 document texts (DATA.text) stop at the 4,000-character cap, so the export holds only their first 4,000 characters; 2 entries are not text and could not be measured"]]);
+    expect((dataset(b.files, 'conversion-report') as J).diagnostics.filter((d: J) => d.code === 'V5_TEXT_CAPPED')).toHaveLength(1);
+  });
+
+  it('the newer generation with no entry at the cap, and v5, report nothing', async () => {
+    const b = await buildSynth('cap-newer-none', (r) => { r.META.version = 'V1'; r.DATA.text = { 'OD-001': 'short' }; });
+    const v5 = await buildSynth('cap-v5', (r) => { r.DATA.text = { 'OD-001': 'x'.repeat(4000) }; });
+    roots.push(b.root, v5.root);
+    expect(capped(b.result.diagnostics)).toEqual([]);
+    expect(capped(v5.result.diagnostics)).toEqual([]);
+  });
+
+  it('the JSON script: rows marked shortened are counted, and a flag that is neither 1 nor 0 is counted, never read as not shortened', async () => {
+    const rows = [jsonRow({ ref: 'DC-SYN-001', sh: 1 }), jsonRow({ ref: 'DC-SYN-002', n: 2, sh: true }), jsonRow({ ref: 'DC-SYN-003', n: 3 }), jsonRow({ ref: 'DC-SYN-004', n: 4, sh: 0 }), jsonRow({ ref: 'DC-SYN-005', n: 5, sh: 'yes' })];
+    const sink = new DiagSink();
+    expect(extractV5(jsonHtml({ chronology: rows, meta: { builtAt: '2002-06-07 08:09' } }, {}), sink)).not.toBeNull();
+    expect(capped(sink.finish())).toEqual([['info', 'app-data.chronology', '2 of 5 chronology rows are marked shortened (sh) by the export, which holds only part of their text; 1 more carries a sh value that is neither 1 nor 0 and could not be read']]);
+    const none = new DiagSink();
+    extractV5(jsonHtml({ chronology: [jsonRow({}), jsonRow({ ref: 'DC-SYN-002', n: 2, sh: null })], meta: { builtAt: '2002-06-07 08:09' } }, {}), none);
+    expect(capped(none.finish())).toEqual([]);
+  });
+});

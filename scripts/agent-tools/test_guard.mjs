@@ -17,6 +17,8 @@ const isEntry = file => /\.(?:test|spec)\.[^/]*$/.test(file);
 const isSupport = file => isEntry(file) || file.split('/').slice(0, -1).some(part => SUPPORT_DIR.test(part));
 const CONFIG_FILE = /(?:^|\/)(?:(?:vitest|vite|jest|playwright)\.(?:config|workspace|setup)[^/]*|bunfig\.toml)$/;
 const TEST_SCRIPT = /^(?:pre|post)?test(?::|$)/;
+// Runner configuration keys that name files run in the test process or around it (Vitest, Jest, Playwright).
+const SETUP_KEYS = new Set(['setupFiles', 'setupFilesAfterEnv', 'globalSetup', 'globalTeardown']);
 const REGULAR = ['100644', '100755'];
 const isLocal = specifier => /^[./$#]/.test(specifier);
 // The test runner and assertion libraries. A free test reaches them only through test/it/describe and expect
@@ -264,23 +266,63 @@ function main() {
     // the runner configuration and resolver inputs, which run in the runner or not at all.
     const loaded = new Set();
     // The paths a path expression in a file names: a literal, relative to the repository (the runner's directory) and to
-    // the file; the __dirname, import.meta.dirname and new URL(..., import.meta.url) forms, relative to the file.
+    // the file; the __dirname, import.meta.dirname and new URL(..., import.meta.url) forms, relative to the file, and
+    // process.cwd(), the repository. A join, a resolve or a template literal may start from any of those three.
     const where = (tree, file, node) => {
       const folder = path.posix.dirname(file);
       const text = node => node && ts.isStringLiteralLike(node) ? node.text : undefined;
+      const directory = node => (['__dirname', 'import.meta.dirname'].includes(node?.getText(tree)) ? folder
+        : node?.getText(tree).replace(/\s/g, '') === 'process.cwd()' ? '.' : undefined);
       if (!node) return [];
       const literal = text(node);
       if (literal !== undefined) return [path.posix.normalize(literal), path.posix.normalize(path.posix.join(folder, literal))];
       if (ts.isNewExpression(node) && node.expression.getText(tree) === 'URL' && node.arguments?.length === 2
           && text(node.arguments[0]) !== undefined) return [path.posix.normalize(path.posix.join(folder, text(node.arguments[0])))];
+      if (ts.isTemplateExpression(node) && !node.head.text && node.templateSpans.length === 1 && directory(node.templateSpans[0].expression)) {
+        return [path.posix.normalize(path.posix.join(directory(node.templateSpans[0].expression), node.templateSpans[0].literal.text))];
+      }
       if (ts.isCallExpression(node) && /(?:^|\.)(?:join|resolve)$/.test(node.expression.getText(tree))) {
         const [first, ...rest] = node.arguments;
         const parts = rest.map(text);
         if (!parts.length || parts.some(part => part === undefined)) return [];
-        if (['__dirname', 'import.meta.dirname'].includes(first?.getText(tree))) return [path.posix.normalize(path.posix.join(folder, ...parts))];
+        if (directory(first)) return [path.posix.normalize(path.posix.join(directory(first), ...parts))];
         if (text(first) !== undefined) return [path.posix.normalize(path.posix.join(text(first), ...parts))];
       }
       return [];
+    };
+    // The tracked files a setup entry names: a path expression above, a path without its extension, a
+    // fileURLToPath(...) or require.resolve(...) of one. A package name binds to nothing; any other entry fails closed.
+    const roots = new Set([...files].map(file => file.split('/')[0]));
+    const bindPath = (file, literal) => {
+      const bound = [path.posix.normalize(literal), path.posix.normalize(path.posix.join(path.posix.dirname(file), literal))].filter(candidate => files.has(candidate));
+      const target = resolve(file, /^\.{0,2}\//.test(literal) ? literal : `./${literal}`);
+      if (target) bound.push(target);
+      if (bound.length || (!isLocal(literal) && !roots.has(literal.split('/')[0]))) return bound;
+      throw Error(`cannot bind setup file entry '${literal}' in ${file} to a tracked file; the guard fails closed`);
+    };
+    const bindEntry = (tree, file, node) => {
+      let entry = node;
+      while (ts.isParenthesizedExpression(entry) || ts.isAsExpression(entry) || ts.isSatisfiesExpression(entry)) entry = entry.expression;
+      const callee = ts.isCallExpression(entry) && entry.arguments.length === 1 ? entry.expression.getText(tree) : undefined;
+      if (callee && /(?:^|\.)fileURLToPath$/.test(callee)) return bindEntry(tree, file, entry.arguments[0]);
+      if (ts.isStringLiteralLike(entry) || (callee === 'require.resolve' && ts.isStringLiteralLike(entry.arguments[0]))) {
+        return bindPath(file, ts.isStringLiteralLike(entry) ? entry.text : entry.arguments[0].text);
+      }
+      const bound = where(tree, file, entry).filter(candidate => files.has(candidate));
+      if (!bound.length) throw Error(`cannot bind setup file entry ${entry.getText(tree)} in ${file} to a tracked file; the guard fails closed`);
+      return bound;
+    };
+    // bun's preload: a string or a list of strings; any other mention of preload fails closed
+    const preloads = (file, text) => {
+      const code = text.replace(/#[^\n"']*$/gm, '');
+      const values = [...code.matchAll(/^[ \t]*(?:test\.)?["']?preload["']?[ \t]*=[ \t]*(\[[^\]]*\]|"[^"]*"|'[^']*')/gm)].map(match => match[1]);
+      const unbound = () => Error(`cannot bind a preload entry in ${file} to a tracked file; the guard fails closed`);
+      if (values.length !== (code.match(/\bpreload["']?[ \t]*=/g) ?? []).length) throw unbound();
+      return values.flatMap(value => {
+        const strings = /^["']/.test(value) ? [value] : value.slice(1, -1).match(/"[^"]*"|'[^']*'/g) ?? [];
+        if (/^\[/.test(value) && value.slice(1, -1).replace(/"[^"]*"|'[^']*'/g, '').replace(/[\s,]/g, '')) throw unbound();
+        return strings.flatMap(string => bindPath(file, string.slice(1, -1)));
+      });
     };
     // Files a protected file reads by a path expression.
     const literalReads = (tree, file) => {
@@ -321,6 +363,7 @@ function main() {
       runner.add(file);
       if (!REGULAR.includes(modes.get(file))) throw Error(`symlink/submodule protected configuration refuses: ${file}`);
       found.set(file, source(revision, file));
+      if (path.posix.basename(file) === 'bunfig.toml') preloads(file, found.get(file)).forEach(follow);
       if (!supported(file)) return;
       const tree = ts.createSourceFile(file, found.get(file), ts.ScriptTarget.Latest, true);
       if (tree.parseDiagnostics.length) throw Error(`cannot parse protected configuration ${file}`);
@@ -329,8 +372,21 @@ function main() {
         if (target) configure(target);
         else if (isLocal(specifier)) throw Error(`unresolved local runner configuration import ${specifier} in ${file}`);
       }
-      // setup files: any path expression, and a literal path without its extension, that lands on a module
+      // setup files: every setupFiles/globalSetup entry binds to a file or fails closed; beyond them, any path
+      // expression, and a literal path without its extension, that lands on a module
       (function visit(node) {
+        const key = (ts.isPropertyAssignment(node) || ts.isShorthandPropertyAssignment(node))
+          && (ts.isIdentifier(node.name) || ts.isStringLiteralLike(node.name)) ? node.name.text : undefined;
+        if (SETUP_KEYS.has(key)) {
+          if (ts.isShorthandPropertyAssignment(node)) throw Error(`cannot bind setup file entry ${key} in ${file} to a tracked file; the guard fails closed`);
+          let value = node.initializer;
+          while (ts.isParenthesizedExpression(value) || ts.isAsExpression(value) || ts.isSatisfiesExpression(value)) value = value.expression;
+          for (const entry of ts.isArrayLiteralExpression(value) ? value.elements : [value]) {
+            if (ts.isOmittedExpression(entry)) continue;
+            if (ts.isSpreadElement(entry)) throw Error(`cannot bind setup file entry ${entry.getText(tree)} in ${file} to a tracked file; the guard fails closed`);
+            bindEntry(tree, file, entry).forEach(follow);
+          }
+        }
         const candidates = where(tree, file, node);
         if (ts.isStringLiteralLike(node) && !/[*?{}\s]/.test(node.text)) {
           const target = resolve(file, /^\.{0,2}\//.test(node.text) ? node.text : `./${node.text}`);

@@ -71,6 +71,6 @@ export default async function image(c, { full, skipLarge }) {
   if (!skipLarge) for (const [fid, mp] of [['image/large-20mp.png', 20], ['image/large-100mp.png', 100]]) {
     const r = await c.open(fid, { kind: 'file' }, { timeoutMs: 60000 });
     st = (await c.rstate())?.image;
-    c.record(F, fid, C, `${mp} MP image decodes (desktop Chrome; not mobile memory evidence)`, r.type === 'ready' && st.w * st.h === mp * 1e6, `ready and naturalWidth*naturalHeight === ${mp}e6`, { type: r.type, ms: r.ms, decodeMs: st?.decodeMs, w: st?.w, h: st?.h, code: r.code });
+    c.record(F, fid, C, `${mp} MP image decodes (desktop Chrome; not mobile memory evidence)`, r.type === 'ready' && st.w * st.h === mp * 1e6, `ready and naturalWidth*naturalHeight === ${mp}e6`, { type: r.type, ms: r.ms, decodeMs: st?.decodeMs, decodeApi: st?.decodeApi, w: st?.w, h: st?.h, code: r.code });
   }
 }

@@ -1,6 +1,9 @@
 // What the CI workflow (.github/workflows/ci.yml) must keep true, read from the file: GitHub only runs it on a push, so
 // a mistake here would show up as a red job after the fact.
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const text = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
@@ -79,6 +82,43 @@ describe('CI workflow Node for the hosted gate', () => {
 	it('carries no Cloudflare credential, secret or account', () => {
 		expect(text).not.toMatch(/\$\{\{\s*secrets\./);
 		for (const s of steps) for (const k of Object.keys((s.env as Record<string, unknown>) ?? {})) expect(k, `env ${k} of ${String(s.name ?? s.uses)}`).not.toMatch(/CLOUDFLARE|TOKEN|SECRET|ACCOUNT|API_KEY/i);
+	});
+});
+
+describe('CI gate-hosted step state directory', () => {
+	// The step's own setup and EXIT trap, run as GitHub runs a step (bash -e) in a scratch checkout. PC1 run 39298591537
+	// printed GATE PASS and still failed: the test step (hosted-cleanup-ownership.test.ts) leaves a real .local/hosted,
+	// `ln -sfn` then links inside that directory, and the trap's `rm -f` cannot remove a directory.
+	const gate = steps.find((s) => s.name === 'gate-hosted')!;
+	const setup = String(gate.run).split('proof=')[0]!;
+	const runSetup = (before: (checkout: string) => void) => {
+		const checkout = mkdtempSync(path.join(tmpdir(), 'ci-gate-hosted-'));
+		try {
+			before(checkout);
+			const probe = `${setup}\n[ -L .local/hosted ] || { echo "not a link: $(ls -ld .local/hosted)"; exit 7; }\nreadlink .local/hosted > link.txt\n`;
+			const r = spawnSync('bash', ['-e', '-c', probe], { cwd: checkout, encoding: 'utf8' });
+			const link = existsSync(path.join(checkout, 'link.txt')) ? readFileSync(path.join(checkout, 'link.txt'), 'utf8').trim() : '';
+			return { ...r, link, left: readdirSync(path.join(checkout, '.local')) };
+		} finally {
+			rmSync(checkout, { recursive: true, force: true });
+		}
+	};
+	it('links .local/hosted to its tmpfs directory and leaves nothing behind on a fresh checkout', () => {
+		const r = runSetup((c) => mkdirSync(path.join(c, '.local'), { recursive: true }));
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.link).toMatch(/^\/dev\/shm\/clearcase-ci-hosted\./);
+		expect(r.left).toEqual([]);
+		expect(existsSync(r.link), 'the step\'s tmp directory is removed').toBe(false);
+	});
+	it('replaces a real .local/hosted an earlier step left, and exits 0 after the trap', () => {
+		const r = runSetup((c) => {
+			mkdirSync(path.join(c, '.local', 'hosted'), { recursive: true });
+			writeFileSync(path.join(c, '.local', 'hosted', 'start-44000.pid.lock'), '');
+		});
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stderr).not.toMatch(/Is a directory/);
+		expect(r.link).toMatch(/^\/dev\/shm\/clearcase-ci-hosted\./);
+		expect(r.left, 'the trap removed the entry whichever it was').toEqual([]);
 	});
 });
 

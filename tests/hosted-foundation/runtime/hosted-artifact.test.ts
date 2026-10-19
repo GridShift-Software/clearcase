@@ -29,6 +29,19 @@ describe('emitted hosted artifact scan', () => {
     const root = await artifact(source);
     expect(scanArtifact({ root, profile: 'production' }).errors.join('\n')).toContain(`.svelte-kit/output/server/chunks/app.js: ${error}`);
   });
+  it.each([
+    ["process.on('SIGTERM', () => {});", 'uses process.on'],
+    ['const home = process.env.HOME;', 'uses process.env'],
+    ['globalThis.process.exit(1);', 'uses process.exit'],
+    ['const f = Bun.file("x");', 'uses Bun.file'],
+  ])('refuses %s', async (source, error) => {
+    const root = await artifact(source);
+    expect(scanArtifact({ root, profile: 'production' }).errors.join('\n')).toContain(`.svelte-kit/output/server/chunks/app.js: ${error}`);
+  });
+  it('allows the framework\'s guarded process probes and a property named process', async () => {
+    const root = await artifact('const c = globalThis.process?.cwd?.(); const w = typeof process==`object`&&process.versions?.node!==void 0; const o = { process: 1 }; o.process.x; const b = Bun_ok;');
+    expect(scanArtifact({ root, profile: 'production' }).errors).toEqual([]);
+  });
   it('refuses the memory doubles in every profile', async () => {
     const root = await artifact('const m = { buildId: "memory-contract-diagnostic" }; export const TEST_DOUBLE = "clearcase-test-double:hosted-gate";');
     for (const profile of ['production', 'hosted-gate'] as const) expect(scanArtifact({ root, profile }).errors.join('\n')).toContain('contains the memory test double');

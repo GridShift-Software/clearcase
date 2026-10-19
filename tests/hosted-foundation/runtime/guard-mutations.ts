@@ -26,6 +26,10 @@ const variants = [
   { name: 'svelte-script-block', expected: 'forbidden capability node:fs', files: { 'deploy/client/routes/probe/+page.svelte': "<script lang=\"ts\">\n\timport { readFileSync } from 'node:fs';\n\tconst text = readFileSync('/etc/hostname', 'utf8');\n</script>\n\n<p>{text}</p>\n" } },
   { name: 're-export-chain', expected: 'forbidden capability node:sqlite', files: { [hooks]: "export * from '$lib/server/runtime/probe-entry';\n", [prefix + 'probe-entry.ts']: "export * from './probe-middle';\n", [prefix + 'probe-middle.ts']: "export { probe } from './probe-last';\n", [prefix + 'probe-last.ts']: "export * as probe from 'node:sqlite';\n" } },
   { name: 'process-listener', expected: 'forbidden capability process', files: { [hooks]: "import '$lib/server/runtime/probe-entry';\n", [prefix + 'probe-entry.ts']: "process.on('SIGTERM', () => {});\n" } },
+  // layout-reset routes are Kit routes too: a +page@ or +layout@ file is a root of the graph, and an unknown +file is refused
+  { name: 'layout-reset-page', expected: 'forbidden local implementation', files: { 'deploy/client/routes/probe/+page@.svelte': "<script lang=\"ts\">\n\timport '$lib/local-case/db.server';\n</script>\n\n<p>probe</p>\n" } },
+  { name: 'layout-reset-layout', expected: 'forbidden capability process', files: { 'deploy/client/routes/probe/+layout@.svelte': "<script lang=\"ts\">\n\tprocess.on('SIGTERM', () => {});\n</script>\n\n<slot />\n" } },
+  { name: 'reserved-route-file', expected: 'reserved route file', files: { 'deploy/client/routes/probe/+hidden.ts': "import 'node:fs';\n" } },
   { name: 'package-outside-allowlist', expected: 'package outside the hosted allowlist fflate', files: { [hooks]: "import '$lib/server/runtime/probe-entry';\n", [prefix + 'probe-entry.ts']: "export { unzipSync } from 'fflate';\n" } },
   { name: 'local-browse-route', expected: 'forbidden local route module', files: { 'deploy/client/routes/api/browse/+server.ts': "export { GET } from '../../../../../src/routes/api/browse/+server.ts';\n" } },
   // the test doubles: the memory doubles never, and the hosted-gate doubles never in the production profile

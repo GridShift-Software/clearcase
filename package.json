@@ -25,7 +25,14 @@
     "probe:hosted-imports": "bun tests/hosted-foundation/runtime/guard-mutations.ts"
   },
   "dependencies": {
-    "typebox": "1.3.36"
+    "@kenjiuno/msgreader": "1.29.0",
+    "buffer": "6.0.3",
+    "dompurify": "3.4.17",
+    "fflate": "0.8.3",
+    "postal-mime": "4.0.11",
+    "tabulator-tables": "6.6.1",
+    "typebox": "1.3.36",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@cfworker/json-schema": "4.1.1",

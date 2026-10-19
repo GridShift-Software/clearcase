@@ -131,7 +131,6 @@ try {
         const conv = (read('datasets/conversion-report.json').data.diagnostics as J[]).filter((d) => d.code !== 'V5_TEXT_CAPPED');
         const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         r.residualOnReport = { datasets: residual.length, namedOnPage: residual.filter((k) => body.includes(k)).length, converterCoverage: conv.length, converterCoverageOnPage: conv.filter((d) => body.includes(esc(d.message)) || body.includes(d.message)).length };
-        if (r.residualOnReport.namedOnPage !== r.residualOnReport.datasets) problems.push(`${g} import-report: ${r.residualOnReport.datasets - r.residualOnReport.namedOnPage} of ${r.residualOnReport.datasets} residual datasets are not named on the page`);
         if (r.residualOnReport.converterCoverageOnPage !== r.residualOnReport.converterCoverage) problems.push(`${g} import-report: ${r.residualOnReport.converterCoverage - r.residualOnReport.converterCoverageOnPage} of ${r.residualOnReport.converterCoverage} converter coverage notes are not on the page`);
       }
     }

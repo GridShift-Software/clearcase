@@ -98,14 +98,47 @@ const scriptOf = (file, text) => {
   if (file.endsWith('.svelte')) return [...text.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map(match => match[1]).join('\n');
   return undefined;
 };
+// The global object, under any of its names, and the names the runner keeps on it.
+const GLOBAL_OBJECTS = new Set(['globalThis', 'global', 'window', 'self']);
+const frameworkName = name => FRAMEWORK_GLOBALS.has(name) || /jest|vitest|chai/i.test(name);
 // How a module reaches the test framework, if it does: a framework import, require or load, an unbound expect, vi,
-// vitest, jest or chai, import.meta.vitest, or the matcher state's registry symbol.
+// vitest, jest or chai, import.meta.vitest, the matcher state's registry symbol or a Symbol.for with a computed name,
+// or the global object (or a variable holding it) indexed by a computed key, read by a framework name, passed on,
+// spread or destructured by a computed or framework name or a rest element.
 const reachesFramework = (file, text) => {
   const { tree, checker } = bind(file, text);
+  const literal = expression => (expression && ts.isStringLiteralLike(expression) ? expression.text : undefined);
+  const unwrap = node => {
+    while (node && (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isSatisfiesExpression(node)
+      || ts.isNonNullExpression(node) || ts.isTypeAssertionExpression(node))) node = node.expression;
+    return node;
+  };
+  const aliases = new Map();
+  const isGlobal = node => {
+    node = unwrap(node);
+    if (!node) return false;
+    if (ts.isPropertyAccessExpression(node)) return GLOBAL_OBJECTS.has(node.name.text) && isGlobal(node.expression);
+    if (!ts.isIdentifier(node)) return false;
+    const declaration = declarationOf(checker, tree, node);
+    if (!declaration) return GLOBAL_OBJECTS.has(node.text);
+    if (!ts.isVariableDeclaration(declaration) || !ts.isIdentifier(declaration.name) || !declaration.initializer) return false;
+    if (!aliases.has(declaration)) {
+      aliases.set(declaration, false);
+      aliases.set(declaration, isGlobal(declaration.initializer));
+    }
+    return aliases.get(declaration);
+  };
+  // the name a key spells before the module runs: a literal or Symbol.for(literal); undefined when it is computed
+  const keyName = key => {
+    key = unwrap(key);
+    if (ts.isStringLiteralLike(key) || ts.isNumericLiteral(key)) return key.text;
+    if (ts.isCallExpression(key) && key.expression.getText(tree).replace(/\s/g, '') === 'Symbol.for') return literal(key.arguments[0]);
+    return undefined;
+  };
+  const member = name => (name === undefined ? 'a computed member of the global object' : frameworkName(name) ? `the global ${name}` : undefined);
   let reach;
   (function visit(node) {
     if (reach) return;
-    const literal = expression => (expression && ts.isStringLiteralLike(expression) ? expression.text : undefined);
     const call = ts.isCallExpression(node) ? node.expression.getText(tree).replace(/\s/g, '') : undefined;
     const specifier = (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) ? literal(node.moduleSpecifier)
       : ts.isImportEqualsDeclaration(node) ? literal(node.moduleReference.expression)
@@ -113,7 +146,18 @@ const reachesFramework = (file, text) => {
     if (specifier !== undefined && FRAMEWORK.test(specifier)) reach = `loads ${specifier}`;
     else if (ts.isMetaProperty(node) && ts.isPropertyAccessExpression(node.parent) && node.parent.name.text === 'vitest') reach = 'import.meta.vitest';
     else if (call === 'Symbol.for' && /jest|vitest|chai/i.test(literal(node.arguments[0]) ?? '')) reach = `Symbol.for('${literal(node.arguments[0])}')`;
-    else if (ts.isIdentifier(node) && REACH.has(node.text) && isReference(node)) {
+    else if (call === 'Symbol.for' && literal(node.arguments[0]) === undefined) reach = 'Symbol.for with a computed name';
+    else if (ts.isElementAccessExpression(node) && isGlobal(node.expression)) reach = member(keyName(node.argumentExpression));
+    else if (ts.isPropertyAccessExpression(node) && frameworkName(node.name.text) && isGlobal(node.expression)) reach = `the global ${node.name.text}`;
+    else if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && (node.arguments ?? []).some(isGlobal)) reach = 'the global object passed on';
+    else if ((ts.isSpreadElement(node) || ts.isSpreadAssignment(node)) && isGlobal(node.expression)) reach = 'the global object spread';
+    else if (ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name) && node.initializer && isGlobal(node.initializer)) {
+      for (const element of node.name.elements) {
+        const name = element.propertyName ?? element.name;
+        reach ||= element.dotDotDotToken ? 'the rest of the global object'
+          : member(ts.isComputedPropertyName(name) ? keyName(name.expression) : ts.isIdentifier(name) || ts.isStringLiteralLike(name) ? name.text : undefined);
+      }
+    } else if (ts.isIdentifier(node) && REACH.has(node.text) && isReference(node)) {
       const declaration = declarationOf(checker, tree, node);
       if (!declaration || (importedFrom(declaration) !== undefined && FRAMEWORK.test(importedFrom(declaration)))) reach = `uses ${node.text}`;
     }

@@ -10,8 +10,12 @@ import type { WorkState } from './memory-work.ts';
 export interface MemoryVersion { info: C.VersionInfo; files: { path: string; bytes: Uint8Array }[]; rows: C.DocumentRow[]; seeds: C.SeedRow[] }
 export interface MemoryAsset { ref: C.AssetRef; bytes: Uint8Array; metadata: C.AssetMetadata }
 export interface MemoryClient { clientId: C.ClientId; issuer: string; cases: C.CaseInfo[]; versions: MemoryVersion[]; assets: MemoryAsset[] }
-export interface MemorySession { sessionId: C.SessionId; clientId: C.ClientId; subject: string; kind: 'client' | 'staff'; expiresAt: string; grants: { caseId: C.CaseId; role: 'viewer' | 'editor' }[] }
-export interface MemoryFixture { clients: MemoryClient[]; identities: MemorySession[]; revision: string; sha256: C.Sha256 }
+// A session says who signed in; it carries no authority. Membership of a client and each case grant are separate,
+// current state that every protected call reads again, so withdrawing either binds a live session at once.
+export interface MemorySession { sessionId: C.SessionId; clientId: C.ClientId; subject: string; kind: 'client' | 'staff'; expiresAt: string }
+export interface MemoryMembership { clientId: C.ClientId; subject: string }
+export interface MemoryGrant { clientId: C.ClientId; subject: string; caseId: C.CaseId; role: 'viewer' | 'editor' }
+export interface MemoryFixture { clients: MemoryClient[]; identities: MemorySession[]; memberships: MemoryMembership[]; grants: MemoryGrant[]; revision: string; sha256: C.Sha256 }
 export type MemoryFault = 'identity' | 'storage' | 'audit' | 'snapshot' | null;
 export interface MemoryState {
   work: Map<C.CaseId, WorkState>;
@@ -70,10 +74,11 @@ export function createMemoryBackend(a: { fixture: MemoryFixture; now: () => Date
       if (sessionId === null) throw contractError('unauthenticated');
       if (!session || revoked.has(sessionId) || Date.parse(session.expiresAt) <= a.now().getTime()) throw contractError('invalid-session');
       if (session.clientId !== client!.clientId) throw contractError('wrong-client');
+      if (!fixture.memberships.some((m) => m.clientId === clientId && m.subject === session.subject)) throw contractError('forbidden');
     }
-    const methods = { clientId: clientId, checkRevocation, async authorize(scope: C.Scope & { operation: C.CaseOperation }) {
+    const methods = { clientId, checkRevocation, async authorize(scope: C.Scope & { operation: C.CaseOperation }) {
       await checkRevocation();
-      const grant = session?.grants.find((g) => g.caseId === scope.caseId);
+      const grant = fixture.grants.find((g) => g.clientId === clientId && g.subject === session?.subject && g.caseId === scope.caseId);
       if (!grant || !client!.cases.some((c) => c.caseId === scope.caseId) || (scope.operation === 'write-user-work' && grant.role !== 'editor')) throw contractError('forbidden');
     } };
     const identity: C.Identity = principal && session ? { ...methods, kind: 'verified', principal, sessionId: session.sessionId } : { ...methods, kind: 'anonymous', principal: null, sessionId: null };
@@ -106,6 +111,15 @@ export function createMemoryBackend(a: { fixture: MemoryFixture; now: () => Date
     };
   }
   return { request, fail(value: MemoryFault) { fault = value; }, revoke(sessionId: C.SessionId) { revoked.add(sessionId); },
+    /** Sets (role) or withdraws (null) one subject's grant on one case. */
+    grant(input: { clientId: C.ClientId; subject: string; caseId: C.CaseId; role: MemoryGrant['role'] | null }) {
+      fixture.grants = fixture.grants.filter((g) => !(g.clientId === input.clientId && g.subject === input.subject && g.caseId === input.caseId));
+      if (input.role) fixture.grants.push({ clientId: input.clientId, subject: input.subject, caseId: input.caseId, role: input.role });
+    },
+    membership(input: { clientId: C.ClientId; subject: string; member: boolean }) {
+      fixture.memberships = fixture.memberships.filter((m) => !(m.clientId === input.clientId && m.subject === input.subject));
+      if (input.member) fixture.memberships.push({ clientId: input.clientId, subject: input.subject });
+    },
     publish(input: { clientId: C.ClientId; caseId: C.CaseId; publication: C.Publication }) {
       const c = fixture.clients.find((c) => c.clientId === input.clientId)?.cases.find((c) => c.caseId === input.caseId);
       if (!c) throw contractError('not-found'); c.publication = structuredClone(input.publication);

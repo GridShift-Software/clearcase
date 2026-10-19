@@ -144,7 +144,7 @@ export async function hostedRun({ revision, evidence, scratch, port, checks = []
 	writeFileSync(join(evidence, 'offline.log'), Buffer.concat(chunks));
 	const innerFile = join(evidence, 'inner.json');
 	const inner = existsSync(innerFile) ? JSON.parse(readFileSync(innerFile, 'utf8')) : null;
-	steps.push(...(inner?.results ?? []));
+	steps.push(...(Array.isArray(inner?.results) ? inner.results.filter((r) => r !== null && typeof r === 'object') : []));
 	const required = [...LIFECYCLE, ...checks.map((c) => c.id)];
 	const problem = exit.code !== 0 ? `the offline namespace exited ${JSON.stringify(exit)}${timedOut ? ` (killed after ${limit} ms)` : ''}; see offline.log` : innerProblem(inner, revision, required);
 	steps.push({ id: 'offline', title: 'the offline namespace finished and inner.json records every required step as PASS', status: problem ? 'FAIL' : 'PASS', ms: Date.now() - t0, error: problem ?? undefined, evidence: { command: [tools.unshare, ...argv], exit } });

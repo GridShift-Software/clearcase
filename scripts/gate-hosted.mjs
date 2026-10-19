@@ -155,10 +155,10 @@ export function evidenceProblems(evidence, sha) {
 	return out;
 }
 
-export const REFUSAL_NAMES = ['dirty-tree', 'reduced-run', 'missing-binding', 'stale-stamp', 'summary-not-evidence', 'evidence-walk'];
+export const REFUSAL_NAMES = ['dirty-tree', 'reduced-run', 'missing-binding', 'stale-stamp', 'summary-not-evidence', 'failure-tail', 'evidence-walk'];
 
 /** The fewest cases each refusal runs (refusals.mjs): a refusal that ran fewer lost a case. */
-export const REFUSAL_MIN = { 'dirty-tree': 3, 'reduced-run': Object.keys(REDUCED_ENV).length + 1, 'missing-binding': 5, 'stale-stamp': 6, 'summary-not-evidence': 21, 'evidence-walk': 100 };
+export const REFUSAL_MIN = { 'dirty-tree': 3, 'reduced-run': Object.keys(REDUCED_ENV).length + 1, 'missing-binding': 5, 'stale-stamp': 6, 'summary-not-evidence': 21, 'failure-tail': 3, 'evidence-walk': 100 };
 
 /** Why refusals.json (the refusal tests' summary) does not show every refusal PASS for `sha`, or null. */
 export function refusalsProblem(doc, sha) {

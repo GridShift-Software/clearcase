@@ -148,16 +148,17 @@ export async function hostedRun({ revision, evidence, scratch, port, checks = []
 	const required = [...LIFECYCLE, ...checks.map((c) => c.id)];
 	const problem = exit.code !== 0 ? `the offline namespace exited ${JSON.stringify(exit)}${timedOut ? ` (killed after ${limit} ms)` : ''}; see offline.log` : innerProblem(inner, revision, required);
 	steps.push({ id: 'offline', title: 'the offline namespace finished and inner.json records every required step as PASS', status: problem ? 'FAIL' : 'PASS', ms: Date.now() - t0, error: problem ?? undefined, evidence: { command: [tools.unshare, ...argv], exit } });
+	const t1 = Date.now();
 	const c = keepScratch ? { kept: scratch } : cleanupRun(scratch, port.app);
 	const cleaned = keepScratch || (c.removed && !c.survivors.length);
-	steps.push({ id: 'cleanup', title: 'stop the run\'s server port; kill only recorded PIDs still running from this run\'s scratch; remove scratch', status: cleaned ? 'PASS' : 'FAIL', evidence: c });
+	steps.push({ id: 'cleanup', title: 'stop the run\'s server port; kill only recorded PIDs still running from this run\'s scratch; remove scratch', status: cleaned ? 'PASS' : 'FAIL', ms: Date.now() - t1, evidence: c });
 	const ran = (id) => steps.some((s) => s.id === id && s.status !== 'NOT RUN');
 	const passed = (id) => steps.some((s) => s.id === id && s.status === 'PASS');
 	const want = [['offline.log', true], ['inner.json', ran('net-offline')], ['build.json', passed('build')], ['server.log', ran('start')], ['health.json', ran('live-doctor')], ['drive.json', ran('drive')]].filter(([, w]) => w).map(([f]) => f);
 	const shots = steps.filter((s) => s.status === 'PASS').flatMap((s) => Object.values(s.evidence ?? {}).filter((v) => typeof v === 'string' && /^(screens|downloads)\//.test(v)));
 	const lost = [...want, ...shots].filter((f) => !existsSync(join(evidence, f)));
 	const kept = !lost.length && (problem || shots.length >= 5);
-	steps.push({ id: 'evidence-kept', title: 'the evidence exists after cleanup', status: kept ? 'PASS' : 'FAIL', evidence: { dir: evidence, files: want, screens: shots }, error: lost.length ? `missing after cleanup: ${lost.join(', ')}` : kept ? undefined : `only ${shots.length} screenshots` });
+	steps.push({ id: 'evidence-kept', title: 'the evidence exists after cleanup', status: kept ? 'PASS' : 'FAIL', ms: 0, evidence: { dir: evidence, files: want, screens: shots }, error: lost.length ? `missing after cleanup: ${lost.join(', ')}` : kept ? undefined : `only ${shots.length} screenshots` });
 	return { ok: !problem && cleaned && kept, steps, inner };
 }
 

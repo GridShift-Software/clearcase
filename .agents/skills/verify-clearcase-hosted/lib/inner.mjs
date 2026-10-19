@@ -192,6 +192,7 @@ await checks('server');
 
 await step('drive', `drive the feature map in Chromium${cfg.lock ? ` (slot through ${cfg.lock})` : ''}`, async () => {
 	rmSync(join(ev, 'drive.json'), { force: true });
+	const t0 = Date.now();
 	const cmd = [process.execPath, join(import.meta.dirname, 'drive.mjs'), process.argv[2]];
 	try {
 		await run(cfg.lock ? [cfg.lock, ...cmd] : cmd, { log: 'drive.log', ms: cfg.lock ? 0 : 600_000 });
@@ -199,12 +200,14 @@ await step('drive', `drive the feature map in Chromium${cfg.lock ? ` (slot throu
 		const drive = existsSync(join(ev, 'drive.json')) ? readJson(join(ev, 'drive.json')) : null;
 		for (const r of drive?.results ?? []) results.push({ ...r, id: r.id, drive: true });
 	}
-	return { drive: 'drive.json' };
+	const { startedAt } = readJson(join(ev, 'drive.json'));
+	return { drive: 'drive.json', slotWaitMs: startedAt - t0 };
 });
 
+const stopStart = Date.now();
 const stop = await stopServer();
 const stopped = stop.started !== false && /exit 0/.test(stop.stop ?? '') && stop.starterExit !== null && !stop.survivors.length && !stop.portOpen && !stop.stateFile;
-results.push({ id: 'stop', title: 'start:hosted --stop: the server, Wrangler and workerd are gone, the port is closed, the run state is removed', status: stopped ? 'PASS' : failed && stop.started === false ? 'NOT RUN' : 'FAIL', evidence: stop });
+results.push({ id: 'stop', title: 'start:hosted --stop: the server, Wrangler and workerd are gone, the port is closed, the run state is removed', status: stopped ? 'PASS' : failed && stop.started === false ? 'NOT RUN' : 'FAIL', ms: Date.now() - stopStart, evidence: stop });
 const ok = !failed && stopped && results.every((r) => r.status === 'PASS');
 save(ok);
 process.exit(ok ? 0 : 1);

@@ -184,7 +184,8 @@ export async function runHostedGate({ head, argv = [], env = process.env, repo =
 		for (const s of run.steps) if (!['browser', ...DRIVE_STEPS].includes(s.id)) steps.push({ name: s.id, status: s.status, ms: s.ms, error: s.error });
 		const driven = run.steps.filter((s) => [...DRIVE_STEPS].includes(s.id));
 		const drive = steps.find((s) => s.name === 'drive');
-		if (drive) drive.detail = driven.map((s) => `${s.id} ${s.status}`).join(', ');
+		const wait = run.steps.find((s) => s.id === 'drive')?.evidence?.slotWaitMs;
+		if (drive) drive.detail = `${driven.map((s) => `${s.id} ${s.status}`).join(', ')}${wait ? `; browser slot wait ${Math.round(wait / 1000)}s` : ''}`;
 		// The run said what it said; the gate judges the files it wrote.
 		for (const [name, problem] of run.ok ? evidenceProblems(evidence, sha) : []) {
 			const s = steps.find((x) => x.name === name);

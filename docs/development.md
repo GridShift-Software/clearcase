@@ -110,6 +110,41 @@ The allowlisted packages are not walked. `scripts/ci/hosted-artifact.ts` checks 
 
 `bun run --bun test tests/hosted-foundation/runtime` runs the contract diagnostics (memory doubles, both clients), the guard and the artifact scan. It claims nothing about Clerk, D1, R2 or workerd. Keep `bun run --bun test tests/e2e` distinct from the browser runner `test:e2e`.
 
+### Hosted checks (GRS-138)
+
+`bun run --bun gate:hosted` (`scripts/gate-hosted.mjs`) proves one exact revision of the hosted artifact, credential-free, the way `gate` proves the local app. It is the required check for a ticket that touches hosted paths. Before any step runs it refuses each of these, with `GATE FAIL <reason> <sha>`:
+
+- `usage`: any argument (only `--stop` is accepted);
+- `env`: a reduced-run variable of `gate`'s list, even empty;
+- `dirty`: an uncommitted, staged or untracked file;
+- `bindings`: `deploy/client/wrangler.toml` without the `DB`, `BUCKET` or `ASSETS` binding, a binding that is not `remote = false`, or an `account_id`;
+- `preflight`: a missing tool. These are the skill's checks: Bun 1.4.2, the installed packages, a real Node >= 22, `unshare -rn`, `ip`, `mount` and Chromium.
+
+Then it runs these steps, stopping at the first failure:
+
+| Step | What passes it |
+| --- | --- |
+| `refusals` | `tests/hosted-foundation/gate/refusals.mjs`: a throwaway test for each refusal. Dirty tree, reduced-run variable and missing binding run the real gate in a throwaway clone of HEAD. Stale stamp and summary-not-evidence drive `runHostedGate` with its real validators on written evidence, one field changed per case. An unchanged control must pass. It runs alone too, and isn't a Vitest file, because Vitest's globs do not collect `tests/hosted-foundation/gate/` |
+| `net-offline` … `stop` | the [verify-clearcase-hosted](../.agents/skills/verify-clearcase-hosted/SKILL.md) lifecycle in one offline network namespace on port 43800, with the gate's checks inside it, in this order: `build` (`build:hosted`, hosted-gate profile, stamped with HEAD in full); `artifact` (`scripts/ci/hosted-artifact.ts`); `probe-check` (GRS-106's `test:check`); `start` (`start:hosted`); `live-doctor` and `live-doctor-negative`; `test:hosted` (the smoke legs and the import-boundary negative test with its 20 mutants); `drive` (the feature map in Chromium, through `$CLEARCASE_BROWSER_LOCK` when set); `stop` (`start:hosted --stop`) |
+| `offline`, `cleanup`, `evidence-kept` | the namespace finished with every step PASS; the run's processes, scratch and server state are gone; the evidence is still there |
+
+After the run the gate rereads every file the run wrote and judges it itself, so a step that exited 0 without evidence for HEAD fails. The files are the build stamp and `_app/version.json`, `health.json`, the `test:hosted` summary, `drive.json` and `inner.json`; a prefix of the SHA is not the SHA. It then checks that HEAD and the tree did not change, and writes `summary.json` (`clearcase-hosted-gate/1`). The summary names the exact SHA, the fixture (its sha256, the identity `client-a/a-viewer`, the wrong-client identity `client-b/b-editor`, the deployment's client), the tools and each boundary. It says `evidence: true` only when nothing was reduced, skipped, stale or failed. The gate validates that file again before `GATE PASS <sha>`.
+
+| Boundary | In a gate run |
+| --- | --- |
+| identity, store, assets, audit | `double` (the hosted-gate test doubles) |
+| user work, results | `unavailable` |
+| D1, R2 | `real-local`: Miniflare under `wrangler dev --local`, not Cloudflare's |
+| runtime, browser | `real`: native workerd with Wrangler on Node; Chromium on the loopback origin only |
+
+No gate run is evidence for Clerk, Cloudflare D1 or R2, email or a deployment; the summary's `notEvidenceFor` says so. Those stay with the proof tickets and the release gate.
+
+Output: at most 30 lines, with one line per step and its seconds, and the drive's line naming each feature step and the browser-slot wait. Evidence and logs go to `.local/gate-hosted/<sha12>/<run>/`, or `$CLEARCASE_HOSTED_REPORT_DIR/<run>`. Scratch goes under `$CLEARCASE_HOSTED_SCRATCH/gate`, or `.local/gate-hosted/scratch`. One hosted gate per worktree (`.local/gate-hosted/pid`, the same flock admission as `gate`). `bun run --bun gate:hosted --stop` stops that group and cleans its stranded runs. A run took 2 min 33 s on the archlinux host on 19 October 2026: refusals 2 s, build 3 s, start 9 s, test:hosted 44 s, and a drive of 92 s, most of it waiting for a browser slot.
+
+CI runs it as the third receipt step (`gate:hosted`) after `check` and `test`, with Node 26.10.0 from `actions/setup-node`, `CI=1`, Wrangler telemetry off, `.local/hosted` and the scratch on the step's `/dev/shm` directory, and no Cloudflare account, binding or token. Its evidence uploads with the receipts.
+
+To prove one hosted user path in seconds without the gate's checks, run `.agents/skills/verify-clearcase-hosted/bin/verify-clearcase-hosted run`. Owners who replace a double (GRS-113, GRS-115, GRS-120) extend its feature map and change the gate's boundary entry in the same change.
+
 ## Configuration
 
 | Variable | Default | Meaning |

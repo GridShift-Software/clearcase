@@ -63,6 +63,24 @@ jobs:
           trap 'rm -rf "$tmp"' EXIT
           TMPDIR=$tmp CLEARCASE_TEST_TMP=$tmp scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base origin/dev --name test --tool bun -- \
             bun run --bun test --maxWorkers=6 --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/receipts/vitest.json"
+      # The credential-free hosted gate (GRS-138; docs/development.md, "Hosted checks"): the hosted-gate artifact of this
+      # checkout on local workerd, with local D1 and R2 under Miniflare and Chromium over loopback, in an offline network
+      # namespace. Node hosts Wrangler, so this step needs the pinned Node; workerd arrives with bun install. No
+      # Cloudflare account, binding or token reaches it: CI=1 and telemetry off, and the run's D1 and R2 state
+      # (.local/hosted) and scratch live on this step's tmpfs directory. Its evidence uploads with the receipts.
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26.10.0
+      - name: gate:hosted
+        run: |
+          tmp=$(mktemp -d /dev/shm/clearcase-ci-hosted.XXXXXX)
+          trap 'rm -f .local/hosted; rm -rf "$tmp"' EXIT
+          mkdir -p .local "$tmp/hosted" "$tmp/scratch"
+          ln -sfn "$tmp/hosted" .local/hosted
+          CI=1 WRANGLER_SEND_METRICS=false WRANGLER_SEND_ERROR_REPORTS=false TMPDIR=$tmp CLEARCASE_HOSTED_SCRATCH=$tmp/scratch \
+            CLEARCASE_HOSTED_REPORT_DIR="$RUNNER_TEMP/receipts/hosted" \
+            scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base origin/dev --name gate:hosted --tool bun --tool node -- \
+            bun run --bun gate:hosted
       # A fix round commits its review findings and the reviewed SHA under docs/acceptance/fix-rounds/
       # (docs/agent-tooling.md). The guard fails a pull request that deletes, skips, loosens or renames a test those
       # findings name, that changes the test code, runner configuration or fixtures they depend on, or that deletes a
@@ -96,11 +114,12 @@ jobs:
           if [ "$FIX_ROUND_LABEL" = true ]; then require=(--require-manifest); fi
           CLEARCASE_NODE=$(command -v bun) "$runner" --root "$head" --base "origin/$BASE_REF" --branch "$HEAD_REF" \
             --receipts "$RUNNER_TEMP/receipts" "${require[@]}"
-      # Fails the job unless both receipts are PASS for this checkout and every tracked test file ran with no failed or
-      # skipped test; writes the job summary and summary.json, which name each problem and how to reproduce it.
+      # Fails the job unless every receipt (check, test, gate:hosted) is PASS for this checkout and every tracked test
+      # file ran with no failed or skipped test; writes the job summary and summary.json, which name each problem and
+      # how to reproduce it.
       - name: summary
         if: always()
-        run: bun scripts/ci/summary.ts "$RUNNER_TEMP/receipts" check test
+        run: bun scripts/ci/summary.ts "$RUNNER_TEMP/receipts" check test gate:hosted
       - name: store verdict
         if: always()
         env:

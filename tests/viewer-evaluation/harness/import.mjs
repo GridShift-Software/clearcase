@@ -27,7 +27,7 @@ export function createStore(fixtureDir) {
   const assets = new Map();
   const add = (id, bytes, name, extra = {}) => {
     const s = sniff(bytes);
-    const a = { id, bytes, name, sha256: sha(bytes), size: bytes.length, mime: s.mime, kind: s.kind, variant: s.variant, family: familyOf(s.kind, name), ...extra };
+    const a = { id, bytes, name, sha256: sha(bytes), size: bytes.length, mime: s.mime, kind: s.kind, variant: s.variant, format: s.format, pages: s.pages, family: familyOf(s.kind, name), ...extra };
     assets.set(id, a);
     return a;
   };
@@ -110,7 +110,10 @@ async function describe(store, a, renditions, descriptors) {
   const ext = path.extname(a.name).toLowerCase();
   if (DECLARED[ext] && DECLARED[ext] !== a.mime && !(ext === '.tif' && a.mime === 'image/tiff')) holds.push({ code: 'content-type-mismatch', detail: `${a.name} is ${a.mime}` });
   if (a.kind === 'active-text') holds.push({ code: 'active-content-not-accepted', detail: `${a.name} sniffed as ${a.mime}` });
-  if (a.kind === 'mbox') holds.push({ code: 'bulk-mailbox-needs-manual-extraction', detail: a.name });
+  if (a.kind === 'mbox' || (a.kind === 'unsupported-container' && ['pst', 'ost'].includes(a.format))) holds.push({ code: 'bulk-mailbox-needs-manual-extraction', detail: `${a.name} (${a.format ?? 'mbox'})` });
+  else if (a.kind === 'unsupported-container') holds.push({ code: 'unsupported-container-needs-manual-extraction', detail: `${a.name} is ${a.format}` });
+  if (a.kind === 'unknown') holds.push({ code: 'unrecognised-format', detail: `${a.name}: the bytes match no reader and are not text` });
+  if (a.family === 'unknown' && !holds.length) holds.push({ code: 'no-reader', detail: `${a.name} (${a.mime}) has no reader` });
   if (a.kind === 'pdf') {
     const tail = new TextDecoder('latin1').decode(a.bytes.subarray(Math.max(0, a.size - 1024)));
     if (!/%%EOF\s*$/.test(tail) || !tail.includes('startxref')) holds.push({ code: 'pdf-damaged', detail: `${a.name}: no startxref/%%EOF trailer` });

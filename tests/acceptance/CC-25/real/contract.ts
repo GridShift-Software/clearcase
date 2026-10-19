@@ -19,13 +19,13 @@ import { convertV5 } from '../../../../src/lib/case-package/v5/adapter.ts';
 import { DiagSink } from '../../../../src/lib/case-package/diagnostics.ts';
 import { extractV5 } from '../../../../src/lib/case-package/v5/extract.ts';
 import { verifyCandidateBytes } from '../../../../src/lib/case-package/verify-bytes.ts';
+import { mapOriginals, type IndexedAsset } from '../mapping.ts';
 
 type J = Record<string, any>;
 const specs = process.argv.slice(2).map((s) => { const [name, pkg, caseFolder, html] = s.split('='); return { name: name!, pkg: path.resolve(pkg!), caseFolder: caseFolder!, html: html! }; });
 if (!specs.length || specs.some((s) => !s.html)) { console.error('usage: contract.ts NAME=PKG_DIR=CASE_FOLDER=HTML ...'); process.exit(2); }
 const tally = (xs: Iterable<string>) => { const c: Record<string, number> = {}; for (const x of xs) c[x] = (c[x] ?? 0) + 1; return Object.fromEntries(Object.entries(c).sort()); };
 const RESIDUAL_CODES = ['V5_UNMAPPED_KEY', 'V5_DATASET_SHAPE_UNMAPPED', 'V5_OVERLAY_UNMAPPED'];
-const decodeUrl = (u: unknown) => (typeof u === 'string' && u.startsWith('./') ? u.slice(2).split('/').map((s) => { try { return decodeURIComponent(s); } catch { return s; } }).join('/') : null);
 
 const problems: string[] = [];
 const out: J = { generations: {} };
@@ -82,23 +82,13 @@ for (const s of specs) {
   const sourceRefs = rows.map((r) => r.ref), packageRefs = chronology.map((r) => r.ref);
   if (JSON.stringify(sourceRefs) !== JSON.stringify(packageRefs)) fail('the register is not the source rows, in order');
   const assets = assetIndex.assets as Record<string, J>;
-  const mapping = { rows: rows.length, file: 0, fileWithParent: 0, embedded: 0, missing: 0, verified: 0, unavailable: 0, pathFromSourceUrl: 0, pathOther: 0, sizeAgrees: 0, sizeDiffers: 0, realPathDiffers: 0 };
-  for (const r of rows) {
-    const a = assets[r.ref];
-    if (!a) { fail(`row without an asset (${packageRefs.indexOf(r.ref)})`); continue; }
-    if (a.kind === 'file') {
-      mapping.file++;
-      if (a.parentRef) mapping.fileWithParent++;
-      const o = c.original(r.ref);
-      if (o && o.sha256 === a.sha256 && o.size === a.size) mapping.verified++; else mapping.unavailable++;
-      if (o && o.path !== a.path) mapping.realPathDiffers++;
-      if (decodeUrl(r.url) === a.path) mapping.pathFromSourceUrl++; else mapping.pathOther++;
-      const declared = src.generation === 'json-script' ? r.sz : r.size;
-      if (typeof declared === 'number') { if (declared === a.size) mapping.sizeAgrees++; else mapping.sizeDiffers++; }
-    } else if (a.kind === 'missing') mapping.missing++;
-  }
-  mapping.embedded = Object.values(assets).filter((a) => a.kind === 'embedded').length;
-  if (mapping.unavailable) fail(`${mapping.unavailable} indexed originals are not verified in the case folder`);
+  const mapped = mapOriginals(
+    rows.map((r) => ({ ref: r.ref, url: r.url, declaredSize: src.generation === 'json-script' ? r.sz : r.size })),
+    assets as Record<string, IndexedAsset>,
+    (ref) => c.original(ref) ?? undefined,
+  );
+  const mapping = mapped.mapping;
+  for (const p of mapped.problems) fail(p);
 
   // diagnostics: every code registered at its severity; every residual dataset reported by the converter and the validator
   const unregistered = res.diagnostics.filter((d) => CODES[d.code as Code]?.severity !== d.severity).map((d) => d.code);

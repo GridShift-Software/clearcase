@@ -12,12 +12,12 @@ const MsgReader = MsgReaderModule.default ?? MsgReaderModule;
 const sha = (b) => createHash('sha256').update(b).digest('hex');
 export const SCHEMA = 'clearcase.viewer-descriptor/1';
 
-/** Which reader family previews a sniffed kind (declared names never decide this). */
-function familyOf(kind, name) {
-  if (kind === 'zip') return /\.docx$/i.test(name) ? 'word' : /\.xlsx$/i.test(name) ? 'sheet' : 'archive';
-  if (kind === 'ole') return /\.msg$/i.test(name) ? 'email' : /\.xls$/i.test(name) ? 'sheet' : /\.doc$/i.test(name) ? 'word' : 'unknown';
-  if (kind === 'text' && /\.csv$/i.test(name)) return 'sheet';
-  return { pdf: 'pdf', image: 'image', media: 'media', email: 'email', mbox: 'email', text: 'text' }[kind] ?? 'unknown';
+/** Which reader family previews what the bytes are. Only plain text consults the name (a .csv is text shown as a grid). */
+const FAMILY_BY_FORMAT = { zip: { docx: 'word', xlsx: 'sheet', zip: 'archive' }, ole: { msg: 'email', doc: 'word', xls: 'sheet' } };
+function familyOf(s, name) {
+  if (FAMILY_BY_FORMAT[s.kind]) return FAMILY_BY_FORMAT[s.kind][s.format] ?? 'unknown';
+  if (s.kind === 'text' && /\.csv$/i.test(name)) return 'sheet';
+  return { pdf: 'pdf', image: 'image', media: 'media', email: 'email', mbox: 'email', text: 'text' }[s.kind] ?? 'unknown';
 }
 
 const DECLARED = { '.pdf': 'application/pdf', '.png': 'image/png', '.jpg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp', '.avif': 'image/avif', '.heic': 'image/heic', '.tif': 'image/tiff' };
@@ -27,7 +27,7 @@ export function createStore(fixtureDir) {
   const assets = new Map();
   const add = (id, bytes, name, extra = {}) => {
     const s = sniff(bytes);
-    const a = { id, bytes, name, sha256: sha(bytes), size: bytes.length, mime: s.mime, kind: s.kind, variant: s.variant, format: s.format, pages: s.pages, family: familyOf(s.kind, name), ...extra };
+    const a = { id, bytes, name, sha256: sha(bytes), size: bytes.length, mime: s.mime, kind: s.kind, variant: s.variant, format: s.format, pages: s.pages, family: familyOf(s, name), ...extra };
     assets.set(id, a);
     return a;
   };
@@ -113,6 +113,7 @@ async function describe(store, a, renditions, descriptors) {
   if (a.kind === 'mbox' || (a.kind === 'unsupported-container' && ['pst', 'ost'].includes(a.format))) holds.push({ code: 'bulk-mailbox-needs-manual-extraction', detail: `${a.name} (${a.format ?? 'mbox'})` });
   else if (a.kind === 'unsupported-container') holds.push({ code: 'unsupported-container-needs-manual-extraction', detail: `${a.name} is ${a.format}` });
   if (a.kind === 'unknown') holds.push({ code: 'unrecognised-format', detail: `${a.name}: the bytes match no reader and are not text` });
+  if (['zip', 'ole'].includes(a.kind) && a.format === (a.kind === 'zip' ? 'ooxml-other' : 'ole-other')) holds.push({ code: 'unsupported-office-format', detail: `${a.name} is a ${a.kind === 'zip' ? 'ZIP-based package' : 'compound file'} that is not Word, a workbook or an Outlook message` });
   if (a.family === 'unknown' && !holds.length) holds.push({ code: 'no-reader', detail: `${a.name} (${a.mime}) has no reader` });
   if (a.kind === 'pdf') {
     const tail = new TextDecoder('latin1').decode(a.bytes.subarray(Math.max(0, a.size - 1024)));

@@ -4,6 +4,27 @@ import { copy } from './data.ts';
 import { id, sha256 } from './ids.ts';
 import { contractError } from './errors.ts';
 import { viewSeeds } from '../../case-package/user-work.ts';
+import { Type, type TSchema } from 'typebox';
+import { Compile } from 'typebox/compile';
+
+// The double's built-in snapshot rows, parsed whole at the restore boundary: every field present, typed and no other.
+const Text = Type.String({ minLength: 1 }), Iso = Type.String({ pattern: '^\\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\d(?:\\.\\d+)?Z$' });
+const Results = Type.String({ pattern: '^sha256:[0-9a-f]{64}$' }), Digest = Type.String({ pattern: '^[0-9a-f]{64}$' });
+const strict = <T extends Record<string, TSchema>>(fields: T) => Type.Object(fields, { additionalProperties: false });
+const AnchorRow = strict({ caseId: Text, resultsVersion: Results, refAtCreation: Text, sha256: Type.Union([Digest, Type.Null()]) });
+const NoteRow = Compile(strict({
+  id: Text, body: Type.String(), createdAt: Iso, intact: Type.Boolean(), candidates: Type.Array(Type.String()),
+  status: Type.Union(['here', 'exact', 'ambiguous', 'missing', 'unanchored'].map((s) => Type.Literal(s))),
+  target: Type.Union([strict({ kind: Type.Literal('case') }), strict({ kind: Type.Literal('document'), anchor: AnchorRow }), strict({ kind: Type.Literal('analysis'), resultsVersion: Results, section: Text })]),
+}));
+const OverlayRow = Compile(strict({ caseId: Text, datasetKey: Text, seedId: Text, baseSeedSha256: Type.String(), fields: Type.Record(Type.String(), Type.Unknown()) }));
+const RegisterRowPayload = Compile(strict({ rowId: Text, store: Text, anchor: Type.Union([AnchorRow, Type.Null()]), fields: Type.Record(Type.String(), Type.Unknown()), createdAt: Iso, updatedAt: Iso, intact: Type.Boolean() }));
+function parsed<T>(validator: { Check(value: unknown): boolean }, text: unknown): T {
+  let value: unknown;
+  try { value = JSON.parse(String(text)); } catch { invalid(); }
+  if (!validator.Check(value)) invalid();
+  return value as T;
+}
 
 type WorkRow = C.Versioned<C.WorkRegisterRow>;
 type TableRow = { cells: Record<string, C.TableCell>; version: C.WorkVersion };
@@ -204,13 +225,31 @@ export function createMemoryWork(ctx: MemoryContext, store: C.CaseReader): C.Asy
             const normalized = cells(known, row, a.caseId), k = tableKey(known, normalized);
             if (seen.has(k)) throw contractError('restore-key'); seen.add(k);
             if (builtins.includes(table.name)) {
-              if (typeof row.payload !== 'string' || typeof row.id !== 'string') invalid();
-              const payload: unknown = JSON.parse(String(row.payload));
-              if (!payload || typeof payload !== 'object' || Array.isArray(payload)) invalid();
-              // These are the double's own versioned diagnostic DTOs, not a local/hosted migration format.
-              if (table.name === 'note') { const note = payload as C.HostedNote; if (typeof note.id !== 'string' || typeof note.body !== 'string' || !note.target || body(note.body) !== note.body) invalid(); if (note.target.kind === 'document' && note.target.anchor.caseId !== a.caseId) throw contractError('restore-key-collision'); next.notes.set(String(row.id), { ...copy(note), version }); }
-              if (table.name === 'seed_overlay') { const overlay = payload as C.SeedOverlay; if (overlay.caseId !== a.caseId || typeof overlay.seedId !== 'string' || typeof overlay.datasetKey !== 'string') invalid(); next.overlays.set(String(row.id), { ...copy(overlay), fields: fields(overlay.fields), version }); }
-              if (table.name === 'register_row') { const r = payload as C.WorkRegisterRow; storeName(r.store); if (typeof r.rowId !== 'string') invalid(); if (r.anchor && r.anchor.caseId !== a.caseId) throw contractError('restore-key-collision'); next.rows.set(String(row.id), { ...copy(r), fields: fields(r.fields), version }); }
+              if (typeof row.payload !== 'string' || typeof row.id !== 'string') throw contractError('invalid');
+              const rowId = row.id;
+              // The double's own versioned diagnostic DTOs, not a local/hosted migration format. Each row is parsed whole,
+              // and its key must be the one its payload derives, so a row can never be stored under another row's name.
+              const canonical = (expected: string) => { if (rowId !== expected) throw contractError('restore-key'); };
+              if (table.name === 'note') {
+                const note = parsed<C.HostedNote>(NoteRow, row.payload);
+                if (body(note.body) !== note.body) invalid();
+                canonical(note.id);
+                if (note.target.kind === 'document' && note.target.anchor.caseId !== a.caseId) throw contractError('restore-key-collision');
+                next.notes.set(note.id, { ...note, version });
+              }
+              if (table.name === 'seed_overlay') {
+                const overlay = parsed<C.SeedOverlay>(OverlayRow, row.payload);
+                if (overlay.caseId !== a.caseId) throw contractError('restore-key-collision');
+                canonical(key(overlay.datasetKey, overlay.seedId));
+                next.overlays.set(rowId, { ...overlay, fields: fields(overlay.fields), version });
+              }
+              if (table.name === 'register_row') {
+                const r = parsed<C.WorkRegisterRow>(RegisterRowPayload, row.payload);
+                storeName(r.store);
+                canonical(key(r.store, r.rowId));
+                if (r.anchor && r.anchor.caseId !== a.caseId) throw contractError('restore-key-collision');
+                next.rows.set(rowId, { ...r, fields: fields(r.fields), version });
+              }
             } else setTable(next, known, row, a.caseId, version);
           }
           restored.push({ name: table.name, scope: 'case', action: 'replaced-for-cases', rows: rows.length, deleted: 0, cases: [a.caseId] });

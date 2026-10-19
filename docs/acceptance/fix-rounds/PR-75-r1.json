@@ -1,0 +1,109 @@
+{
+  "schema": "clearcase-fix-round/1",
+  "unit": "PRFIX-75/implementation",
+  "fixBase": "e02d925bde9a9ab5f8779d93bd7a2cf03c0af14a",
+  "reviewFindingsSha256": "65520f35839212e429f00ddbe7ebabe4761da865338d4fbfc805c87ba1ee08f1",
+  "review": {
+    "pullRequest": 75,
+    "reviewId": "pullrequestreview-5574532321",
+    "reviewer": "dianbrown",
+    "reviewedHead": "60df08777b2cbf36b918a9408e94a826293f75f4",
+    "waveBase": "4d5f7be7b021e3db85fb5d95a4d9d92ce9cf20ee",
+    "note": "fixBase is the red commit: the guard needs the named tests to exist at the base, and they are new. The reviewed head and the dev base are recorded here."
+  },
+  "findings": [
+    {
+      "file": ".agents/skills/verify-clearcase-hosted/lib/main.mjs",
+      "line": 97,
+      "comment": "https://github.com/GridShift-Software/clearcase/pull/75#discussion_r4316210165",
+      "severity": "P1",
+      "text": "[Medium / P1] Stop only a server owned by this verification run\n\n`cleanupRun` invokes `start:hosted --stop` solely because the port's PID file exists, before examining this run's PID records. Meanwhile `inner.mjs` deliberately refuses a pre-existing `server-PORT.json` before starting a server of its own, and hostedRun still calls cleanup afterward. Starting a hosted server on the standalone verifier's default port 43700, then invoking the verifier in the same worktree, therefore lets the refused run stop the existing server.\n\nAn isolated execution of the production cleanup function with mocked filesystem/process operations confirmed that it calls --stop even with zero PIDs owned by the run. Bind the stop to this run's recorded PID/start identity or runId and validate it against the port state before signaling; preserve unowned state. Add a regression where verification refuses an already-running server and leaves that server alive.",
+      "tests": [
+        {
+          "file": "tests/hosted-foundation/runtime/hosted-cleanup-ownership.test.ts",
+          "name": "a run that refused to start because a server holds the port leaves that server, its pid file and its state alone"
+        },
+        {
+          "file": "tests/hosted-foundation/runtime/hosted-cleanup-ownership.test.ts",
+          "name": "hostedRun, refused by a server already on the port, fails its own run and leaves that server alive"
+        },
+        {
+          "file": "tests/hosted-foundation/runtime/hosted-cleanup-ownership.test.ts",
+          "name": "leaves a server whose state file names another process than its pid file, even when the pid file names a recorded one"
+        }
+      ]
+    },
+    {
+      "file": "scripts/pilot/hosted.ts",
+      "line": 212,
+      "comment": "https://github.com/GridShift-Software/clearcase/pull/75#discussion_r4316210177",
+      "severity": "P1",
+      "text": "[Medium / P1] Register cleanup before the detached readiness wait\n\nWrangler is spawned with `detached: true`, but the SIGTERM/SIGINT handlers are installed only after the readiness promise resolves, and the starter PID file is written later still. If the starter is interrupted during this up-to-60-second wait, it can exit without stopTree running while the detached Wrangler/workerd group survives. A subsequent `start:hosted --stop` has no PID record to find; the verification cleanup also has no owned record for that detached process tree.\n\nInstall signal cleanup and record startup ownership before waiting for Ready, with cleanup covering every exit path from spawn onward. Add an interruption regression that holds Wrangler before its Ready message, terminates the starter, and verifies that its complete process tree exits and no stale state remains. This finding is based on the lifecycle/control flow; Linux signal behavior was not exercised on this review host.",
+      "tests": [
+        {
+          "file": "tests/hosted-foundation/runtime/hosted-start-interrupt.test.ts",
+          "name": "records the starter in the pid file before Ready, so start --stop has a process to signal during the wait"
+        },
+        {
+          "file": "tests/hosted-foundation/runtime/hosted-start-interrupt.test.ts",
+          "name": "%s during the wait for Ready stops the whole tree and leaves no pid file or state"
+        }
+      ]
+    },
+    {
+      "file": "tests/viewer-evaluation/harness/shared/formats.mjs",
+      "line": 184,
+      "comment": "https://github.com/GridShift-Software/clearcase/pull/75#discussion_r4316210188",
+      "severity": "P1",
+      "text": "[Medium / P1] Apply the actual-byte limit to stored ZIP members\n\nThe method-0 branch copies and accepts `comp` after only a CRC check. `listZip` bounds the declared uncompressed size, so a stored member can declare size 1 while setting its compressed-size field to its real, much larger payload and using a correct CRC. This branch then bypasses `limits.maxEntryBytes`; only the deflate branch enforces the actual size. The importer and archive reader both use this reference extractor, so a stored member above the proposed per-member limit can be accepted without the required hold.\n\nA tiny synthetic ZIP reproduces the same shape safely: declared size 1, actual stored bytes 64, maxEntryBytes 8, no listing problems, extraction returns `{ok:true}` with 64 bytes. Check the actual stored length against the cap before copying, validate the relevant size consistency, and add this regression alongside the lying-size deflate fixture. The reference contract promises a hard cap independent of declared size.",
+      "tests": [
+        {
+          "file": "tests/hosted-foundation/runtime/viewer-zip-entry-limits.test.ts",
+          "name": "a stored member declaring size 1 but carrying 64 bytes is refused under an 8-byte cap, as the lying-size deflate member is"
+        },
+        {
+          "file": "tests/hosted-foundation/runtime/viewer-zip-entry-limits.test.ts",
+          "name": "a stored member whose declared size and stored length disagree is refused even when both are under the cap"
+        },
+        {
+          "file": "tests/hosted-foundation/runtime/viewer-zip-entry-limits.test.ts",
+          "name": "a nested stored ZIP is extracted under the same cap as any other member"
+        }
+      ]
+    }
+  ],
+  "tests": [
+    {
+      "file": "tests/hosted-foundation/runtime/hosted-cleanup-ownership.test.ts",
+      "name": "a run that refused to start because a server holds the port leaves that server, its pid file and its state alone"
+    },
+    {
+      "file": "tests/hosted-foundation/runtime/hosted-cleanup-ownership.test.ts",
+      "name": "hostedRun, refused by a server already on the port, fails its own run and leaves that server alive"
+    },
+    {
+      "file": "tests/hosted-foundation/runtime/hosted-cleanup-ownership.test.ts",
+      "name": "leaves a server whose state file names another process than its pid file, even when the pid file names a recorded one"
+    },
+    {
+      "file": "tests/hosted-foundation/runtime/hosted-start-interrupt.test.ts",
+      "name": "records the starter in the pid file before Ready, so start --stop has a process to signal during the wait"
+    },
+    {
+      "file": "tests/hosted-foundation/runtime/hosted-start-interrupt.test.ts",
+      "name": "%s during the wait for Ready stops the whole tree and leaves no pid file or state"
+    },
+    {
+      "file": "tests/hosted-foundation/runtime/viewer-zip-entry-limits.test.ts",
+      "name": "a stored member declaring size 1 but carrying 64 bytes is refused under an 8-byte cap, as the lying-size deflate member is"
+    },
+    {
+      "file": "tests/hosted-foundation/runtime/viewer-zip-entry-limits.test.ts",
+      "name": "a stored member whose declared size and stored length disagree is refused even when both are under the cap"
+    },
+    {
+      "file": "tests/hosted-foundation/runtime/viewer-zip-entry-limits.test.ts",
+      "name": "a nested stored ZIP is extracted under the same cap as any other member"
+    }
+  ]
+}

@@ -8,7 +8,7 @@ From this directory, with Bun 1.4.2:
 
 ```sh
 bun install --frozen-lockfile      # SheetJS CE comes from cdn.sheetjs.com; bun.lock pins its sha512
-bun fixtures/generate.mjs          # 104 synthetic files into <worktree>/.local/viewer-evaluation/fixtures (13 s)
+bun fixtures/generate.mjs          # 105 synthetic files into <worktree>/.local/viewer-evaluation/fixtures (13 s)
 bun harness/build.mjs              # bundle the readers, copy pdf.js assets, measure library gzip sizes
 ../../../../orch-bin/browser-lock unshare -rn env OUTER_UID="$(id -u)" OUTER_GID="$(id -g)" ../e2e/pilot/offline.sh bun harness/run.mjs
 ```

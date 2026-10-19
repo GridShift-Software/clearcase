@@ -80,6 +80,8 @@ bun run --bun test:hosted
 bun run --bun start:hosted --stop
 ```
 
+A verification run stops only a server it started: when a server already holds the port (`server-$PORT.json`), the run refuses to start and leaves that server, its PID file and its state alone.
+
 1. Sign in as the test identity. On `GET /sign-in` (`[data-auth-provider=double]`), choose `client-a/a-viewer` in `#test-identity` and submit `#sign-in`. The form answers 303 to `/cases` with an HttpOnly `clearcase_session` cookie.
 2. Open the provisioned case. On `/cases` (`[data-auth-state=signed-in]`), follow `a[data-action=open-case][data-case-id=case-a1]`. `/cases/case-a1` shows `[data-results-state=pending]` (`ResultsState`), the originals, and `[data-user-work-state]` apart from results.
 3. Open an original. `a[data-action=open-original][data-asset-id=a1-letter]` serves `/cases/case-a1/originals/a1-letter`: 200, the whole file, `attachment`, audited. A `Range` request gets 416.

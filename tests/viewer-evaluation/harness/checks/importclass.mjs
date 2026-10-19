@@ -100,10 +100,41 @@ async function pageImages(c) {
   c.record(F, 'image/tiff-multipage-g4.tif', 'prepared page images (PNG per page)', 'page images supplied out of order are still found by rendition.page', rows.every((r) => r.ok && r.shown === `image/tiff-multipage-g4.rendition-p${r.n}.png`), 'original page n shows the rendition.page n image whatever the order of the extras', rows);
 }
 
+// M6: a Gmail message forwarded as an attachment: nested messages two levels down, and the export provenance it models.
+async function gmailForward(c) {
+  const id = 'email/gmail-forwarded.eml';
+  const fx = c.store.manifest.fixtures.find((f) => f.id === id);
+  c.record(F, id, C, 'the fixture states that it is a structure model and names the client shape it imitates', fx?.provenance?.modelled === true && typeof fx.provenance.shape === 'string' && fx.provenance.exportedFrom === null, 'manifest provenance: modelled true, shape named, exportedFrom null (no real export)', fx?.provenance ?? null);
+  const l1 = kids(c, id);
+  const mid = l1.find((k) => k.d?.mime === 'message/rfc822');
+  const l2 = mid ? kids(c, mid.d.assetId) : [];
+  const earlier = l2.find((k) => k.d?.mime === 'message/rfc822');
+  const l3 = earlier ? kids(c, earlier.d.assetId) : [];
+  c.record(F, id, C, 'a forwarded-as-attachment message expands two levels: message, its PDF and its earlier message, that message\'s notes', l1.length === 1 && mid?.d.family === 'email' && l2.some((k) => k.d?.mime === 'application/pdf') && earlier?.d.family === 'email' && l3.length === 1 && l3[0].d.family === 'text' && [id, mid?.d.assetId, earlier?.d.assetId].every((x) => x && c.descriptors.get(x).holds.length === 0), 'EML -> message/rfc822 (email) -> [pdf, message/rfc822 (email) -> text]; no holds', { l1: l1.map((k) => k.ch.name), l2: l2.map((k) => [k.ch.name, k.d?.mime]), l3: l3.map((k) => k.ch.name) });
+  await c.open(id);
+  const headers = (await c.inFrame(() => document.querySelector('#all-headers pre')?.textContent ?? '')).toLowerCase();
+  const order = ['delivered-to:', 'x-google-smtp-source:', 'arc-seal:', 'authentication-results:', 'x-gm-message-state:'].map((h) => headers.indexOf(h));
+  c.record(F, id, C, 'the Gmail transport headers are kept in original order in the reader', order.every((o, i) => o >= 0 && (i === 0 || order[i - 1] < o)), 'Delivered-To, X-Google-Smtp-Source, ARC-Seal, Authentication-Results and X-Gm-Message-State present, in that order', order);
+  const hops = [];
+  let cur = id;
+  for (let level = 0; level < 2; level++) {
+    const child = c.descriptors.get(cur).children.find((x) => x.mime === 'message/rfc822');
+    await c.inFrame((k) => { setTimeout(() => document.querySelector(`.attachments button[data-key="${k}"]`)?.click(), 0); }, child.key);
+    await sleep(900);
+    const sh = await c.page.evaluate(() => window.__shell.current());
+    hops.push({ level, family: sh?.family, ready: (await c.rstate())?.ready });
+    cur = child.assetId;
+  }
+  c.record(F, id, 'postal-mime 4.0.11 + DOMPurify 3.4.17', 'the forwarded message and the earlier message inside it each open in the email reader', hops.length === 2 && hops.every((h) => h.family === 'email' && h.ready === true), 'two hops, each opened as email and ready', hops);
+}
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 export default async function importclass(c, { full }) {
   if (!full) return;
   unknownBytes(c);
   byBytes(c);
   await nesting(c);
   await pageImages(c);
+  await gmailForward(c);
 }

@@ -252,6 +252,18 @@ put('rename', 'outlook-save-as-msg.doc', out('email', 'outlook-save-as.msg'), 'a
 put('rename', 'text-named.msg', 'RENAME-PLAIN-TEXT-TOKEN: this is text, not an OLE file', 'plain text named .msg');
 put('rename', 'pptx-shaped.zip', buildZip([{ name: '[Content_Types].xml', data: '<Types/>' }, { name: 'ppt/presentation.xml', data: '<p:presentation/>' }]), 'an OOXML package that is neither Word nor Excel (PowerPoint-shaped)');
 
+// ---------- Nesting depth and the shared expansion budget (M2) ----------
+const wrapZip = (name, inner) => buildZip([{ name, data: inner, method: 0 }]);
+const wrapEml = (name, inner, n) => carrierEml({ subject: `NEST-LEVEL-${n}`, attachments: [{ name, mime: 'application/octet-stream', data: inner }], messageId: `nest${n}` });
+let nz = wrapZip('leaf.txt', 'NEST-LEAF-TOKEN');
+for (let n = 5; n >= 1; n--) nz = wrapZip(`level${n + 1}.zip`, nz);
+put('archive', 'nest-zip-6.zip', nz, 'lib/zip.mjs: six ZIPs nested, each holding the next; the innermost holds leaf.txt');
+let chain = Buffer.from('NEST-CHAIN-LEAF-TOKEN');
+const kinds = ['eml', 'zip', 'eml', 'zip', 'eml'];
+kinds.forEach((k, i) => { const n = 5 - i; chain = k === 'eml' ? Buffer.from(wrapEml('leaf.dat', chain, n)) : Buffer.from(wrapZip('leaf.dat', chain)); });
+put('archive', 'nest-eml-zip-chain.zip', wrapZip('chain-1.eml', chain), 'ZIP -> EML -> ZIP -> EML -> ZIP -> EML -> leaf: archive and email recursion share one depth');
+put('archive', 'budget-mixed.zip', buildZip([{ name: 'big.bin', data: new Uint8Array(400000), method: 8 }, { name: 'mail.eml', data: carrierEml({ subject: 'BUDGET-MIXED', attachments: [{ name: 'att.bin', mime: 'application/octet-stream', data: new Uint8Array(400000) }], messageId: 'budget0001' }), method: 8 }]), 'ZIP of 400,000 zero bytes plus an EML attaching 400,000 more: each archive total stays under 1,000,000, the whole tree does not');
+
 writeFileSync(path.join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 1));
 rmSync(TMP, { recursive: true, force: true });
 console.log(`fixtures: ${manifest.fixtures.length} files in ${path.relative(process.cwd(), OUT) || OUT}`);

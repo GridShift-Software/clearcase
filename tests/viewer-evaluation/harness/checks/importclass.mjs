@@ -1,5 +1,9 @@
 // Import-side classes from the GRS-97 review, asserted on the descriptors the candidate import produced. Each block
 // names the finding it closes. No browser is needed except where a block opens a reader.
+import { createStore, importAll } from '../import.mjs';
+import { OUT_ROOT } from '../paths.mjs';
+import path from 'node:path';
+
 const F = 'import';
 const C = 'candidate import (classifier, descriptor, recursion budget)';
 
@@ -51,8 +55,34 @@ function byBytes(c) {
   }
 }
 
+/** Every descriptor reachable from `id` through the trusted child lists, root first. */
+export function subtree(c, id, out = []) {
+  const d = c.descriptors.get(id);
+  if (!d) return out;
+  out.push(d);
+  for (const { d: k } of kids(c, id)) subtree(c, k.assetId, out);
+  return out;
+}
+
+// M2: one depth counter and one expansion budget across archive and email recursion.
+async function nesting(c) {
+  for (const id of ['archive/nest-zip-6.zip', 'archive/nest-eml-zip-chain.zip']) {
+    const tree = subtree(c, id);
+    const limited = tree.filter((d) => codes(d).includes('nesting-limit'));
+    const leaf = tree.some((d) => d.family === 'text');
+    c.record(F, id, C, 'nesting deeper than the limit raises nesting-limit and is not expanded further', limited.length === 1 && !leaf, "exactly one container holds 'nesting-limit'; the innermost leaf is not reachable", { held: limited.map((d) => d.assetId), reachable: tree.length, leaf });
+  }
+  const only = new Set(['archive/budget-mixed.zip']);
+  const limits = { ...c.store.limits, maxTotalBytes: 1000000 };
+  const store = createStore(path.join(OUT_ROOT, 'fixtures'), { limits, only });
+  const ds = await importAll(store);
+  const held = [...ds.values()].filter((d) => codes(d).includes('archive-total-expansion-limit'));
+  c.record(F, 'archive/budget-mixed.zip', C, 'one expansion budget covers a ZIP and the EML inside it', held.length >= 1, "a descriptor in the tree holds 'archive-total-expansion-limit' although each container alone stays under the cap", { held: held.map((d) => d.assetId), assets: [...ds.keys()] });
+}
+
 export default async function importclass(c, { full }) {
   if (!full) return;
   unknownBytes(c);
   byBytes(c);
+  await nesting(c);
 }

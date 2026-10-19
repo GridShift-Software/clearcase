@@ -101,7 +101,7 @@ describe('the JSON-script workspace generation', () => {
     expect(rows[0]).toEqual({
       ref: 'DC-SYN-001', n: 1, seq: 1, date: '2001-02-03', filename: 'OD-001 Supply agreement.pdf', subject: '', sender: '', to: '', cc: '', excerpt: 'Head of text and the rest of it',
       doc_type: 'sale agreement', bundle: 'Original', amount: '1150.5', also_in: ['DC-SYN-002'], text_status: 'extracted', url: url(AGREEMENT), refs: [], invoice_no: '', size: size(AGREEMENT), attachments: [], date_source: 'text',
-      ent: 'Org A Ltd', mt: ['A'], sec: 'Documents', sub: 'DISCOVERY A', fm: 'Firm A',
+      ent: 'Org A Ltd', mt: ['A'], sec: 'Documents', sub: 'DISCOVERY A', fm: 'Firm A', ext: '.pdf', na: 0, tl: 30, pv: 0, pvk: '',
     });
     expect(rows[2]).toMatchObject({ ref: 'DC-SYN-002', date: '', date_source: 'file', excerpt: '', amount: '', text_status: 'ocr', pr: 'CO-SYN-001', up: 'Upload.zip' });
     expect(rows[3]).toMatchObject({ ref: 'DC-CT2-001', amount: '20.1235', text_status: 'none' });

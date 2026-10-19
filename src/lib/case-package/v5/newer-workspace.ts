@@ -12,9 +12,19 @@ const nonEmpty = (parts: string[]) => parts.filter((s) => s !== '');
 const tally = (keys: Iterable<string>): Record<string, number> => { const c: Record<string, number> = {}; for (const k of keys) c[k] = (c[k] ?? 0) + 1; return c; };
 const mapObjs = (v: JsonValue | undefined, f: (o: JsonObject) => JsonObject): JsonValue | undefined => (Array.isArray(v) ? v.map((x) => (isObject(x) ? f(x) : x)) : v);
 
+/** The builder versions this adapter maps. Another META.version is a generation nobody has inventoried. */
+export const NEWER_VERSIONS: readonly string[] = ['V1'];
+
 /** The newer builder stamps META.version and META.fileCount and writes a DATA.profile; v5 has none of them. */
 export function isNewerGeneration(DATA: JsonObject, META: JsonObject): boolean {
-  return typeof META.version === 'string' || typeof META.fileCount === 'number' || isObject(DATA.profile);
+  return META.version !== undefined || typeof META.fileCount === 'number' || isObject(DATA.profile);
+}
+
+/** META.version of an unsupported builder generation as text, or null when the version is absent or supported. */
+export function unsupportedVersion(META: JsonObject): string | null {
+  const v = META.version;
+  if (v === undefined || (typeof v === 'string' && NEWER_VERSIONS.includes(v))) return null;
+  return JSON.stringify(v).slice(0, 40);
 }
 
 export function metaOf(meta: JsonObject, rows: readonly JsonObject[]): JsonObject {

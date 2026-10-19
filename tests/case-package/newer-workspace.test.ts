@@ -28,8 +28,19 @@ describe('the newer generation of the v5 payload lines', () => {
     const generation = (edit: (r: ReturnType<typeof synthRoots>) => void) => { const r = synthRoots(); edit(r); return extractV5(synthHtml(r), new DiagSink())!.generation; };
     expect(generation(() => {})).toBe('v5-js');
     expect(generation((r) => { r.META.version = 'V1'; })).toBe('v5-js-newer');
-    expect(generation((r) => { r.META.fileCount = 7; })).toBe('v5-js-newer');
-    expect(generation((r) => { r.DATA.profile = { short: 'SYN' }; })).toBe('v5-js-newer');
+    expect(generation((r) => { r.META.version = 'V1'; r.META.fileCount = 7; r.DATA.profile = { short: 'SYN' }; })).toBe('v5-js-newer');
+  });
+
+  // GRS-22 fix round, M1 (a deliberate expectation change): the two lines above this test once pinned a newer marker WITHOUT META.version as v5-js-newer.
+  // A missing version is a builder nobody inventoried, so it is refused like any other unsupported META.version.
+  it('refuses a newer marker (META.fileCount or DATA.profile) that comes without META.version', () => {
+    for (const edit of [(r: ReturnType<typeof synthRoots>) => { r.META.fileCount = 7; }, (r: ReturnType<typeof synthRoots>) => { r.DATA.profile = { short: 'SYN' }; }]) {
+      const r = synthRoots();
+      edit(r);
+      const sink = new DiagSink();
+      expect(extractV5(synthHtml(r), sink)).toBeNull();
+      expect(sink.finish().filter((d) => d.severity === 'error').map((d) => [d.code, d.subject])).toEqual([['VER_UNSUPPORTED', 'META.version']]);
+    }
   });
 });
 
@@ -72,7 +83,7 @@ describe('the newer shapes mapped onto v5', () => {
     const profile = {
       matter_full: 'Org A (Pty) Ltd v The Minister', short: 'A v M', we_act_for: 'Org A (Pty) Ltd', our_role: 'plaintiff', opponent: 'The Minister', opponent_type: 'organ of state',
       claim_type: 'Contractual claim for payment.', forum: 'Invented High Court, case 1/2002', headline_note: '', quantum_chain: 'invoice -> statement',
-      discovery_affidavits: [{ file: 'AFFIDAVIT.pdf', ref: 'RT-003', date: '2023-06-13' }], existential_risk: 'Legality review.', interest_basis: { rate: 'prime + 5%', method: 'Simple' },
+      discovery_affidavits: [{ file: 'AFFIDAVIT.pdf', ref: 'RT-003', date: '2043-06-13' }], existential_risk: 'Legality review.', interest_basis: { rate: 'prime + 5%', method: 'Simple' },
       out_of_scope: 'none', case_root: 'C:\\not\\rendered', folder_map: [{ folder: 'X' }],
     };
     expect(matterOf(profile, { matter: 'ignored', short: 'ignored' })).toEqual({
@@ -80,7 +91,7 @@ describe('the newer shapes mapped onto v5', () => {
       storyline: [
         { h: 'Parties', t: 'Org A (Pty) Ltd (plaintiff)\nThe Minister (organ of state)' },
         { h: 'The claim', t: 'Contractual claim for payment.' }, { h: 'Forum', t: 'Invented High Court, case 1/2002' }, { h: 'Quantum chain', t: 'invoice -> statement' },
-        { h: 'Discovery affidavits', t: 'file: AFFIDAVIT.pdf, ref: RT-003, date: 2023-06-13' },
+        { h: 'Discovery affidavits', t: 'file: AFFIDAVIT.pdf, ref: RT-003, date: 2043-06-13' },
       ],
       strategy: [{ h: 'Existential risk', t: 'Legality review.' }, { h: 'Interest basis', t: 'rate: prime + 5%\nmethod: Simple' }, { h: 'Out of scope', t: 'none' }],
     });
@@ -105,9 +116,9 @@ describe('the newer shapes mapped onto v5', () => {
   });
 
   it('filings: a note per group, a role per item, the seed in the v5 field names', () => {
-    const f: J = { count: 1, groups: [{ key: 'Main', items: [{ ref: 'CB-021', title: 'T', cls: 'court' }] }], registerSeed: [{ filing: 'Summons', date: '2021-09-29', party: 'Plaintiff', answer: 'Plea', answerDate: '2023-11-16', note: 'N' }, { fdate: '', filing: 'v5 row', fparty: '', rdate: '', ref: '', response: '', status: 'S' }] };
+    const f: J = { count: 1, groups: [{ key: 'Main', items: [{ ref: 'CB-021', title: 'T', cls: 'court' }] }], registerSeed: [{ filing: 'Summons', date: '2021-09-29', party: 'Plaintiff', answer: 'Plea', answerDate: '2043-11-16', note: 'N' }, { fdate: '', filing: 'v5 row', fparty: '', rdate: '', ref: '', response: '', status: 'S' }] };
     expect(filingsOf(f)).toEqual({ count: 1, groups: [{ key: 'Main', note: '', items: [{ ref: 'CB-021', title: 'T', cls: 'court', role: '' }] }], registerSeed: [
-      { filing: 'Summons', date: '2021-09-29', party: 'Plaintiff', answer: 'Plea', answerDate: '2023-11-16', note: 'N', fdate: '2021-09-29', fparty: 'Plaintiff', rdate: '2023-11-16', ref: '', response: 'Plea', status: '' },
+      { filing: 'Summons', date: '2021-09-29', party: 'Plaintiff', answer: 'Plea', answerDate: '2043-11-16', note: 'N', fdate: '2021-09-29', fparty: 'Plaintiff', rdate: '2043-11-16', ref: '', response: 'Plea', status: '' },
       { fdate: '', filing: 'v5 row', fparty: '', rdate: '', ref: '', response: '', status: 'S' },
     ] });
   });
@@ -131,25 +142,25 @@ describe('the newer shapes mapped onto v5', () => {
   });
 
   it('caselines index: the page map as sorted [page, text] pairs, the file named from the CaseLines locator', () => {
-    expect(caselinesIndexOf({ '2': 'two', '10': 'ten', '1': 'one' }, './PLEADINGS%20%26%20NOTICES/CASELINES%20BUNDLE.pdf', 0)).toEqual({ file: 'CASELINES BUNDLE.pdf', pages: 3, index: [[1, 'one'], [2, 'two'], [10, 'ten']] });
+    expect(caselinesIndexOf({ '2': 'two', '10': 'ten', '1': 'one' }, './PLEADINGS%20%26%20NOTICES/Synthetic%20Bundle.pdf', 0)).toEqual({ file: 'Synthetic Bundle.pdf', pages: 3, index: [[1, 'one'], [2, 'two'], [10, 'ten']] });
     expect(caselinesIndexOf({ '1': 'one' }, '', 1745)).toEqual({ file: '', pages: 1745, index: [[1, 'one']] });
   });
 
   it('discovery schedules: the Original and Supplementary schedules as the two v5 lists, the full list kept', () => {
-    const pl1: J = { key: 'pl1', bundle: 'Original', items: [{ no: 3, desc: 'Letter', date: '2017-02-06', gap: true, files: [{ ref: 'OD-001', name: 'A.pdf', url: './A.pdf', pages: 5 }] }] };
+    const pl1: J = { key: 'pl1', bundle: 'Original', items: [{ no: 3, desc: 'Letter', date: '2037-02-06', gap: true, files: [{ ref: 'OD-001', name: 'A.pdf', url: './A.pdf', pages: 5 }] }] };
     const def: J = { key: 'def', bundle: '', items: [{ no: 1, desc: 'Not held', date: '', files: [] }] };
     const pl2: J = { key: 'pl2', bundle: 'Supplementary', items: [{ no: 7, desc: 'Statement', date: '', files: [{ ref: 'SD-001', name: 'S.pdf', url: './S.pdf', x: 'filed under item 1' }] }] };
     expect(schedOf([pl1, def, pl2])).toEqual({
-      discovery: [{ no: 3, desc: 'Letter', date: '2017-02-06', gap: true, co: '', nfiles: 1, files: [{ ref: 'OD-001', name: 'A.pdf', url: './A.pdf', pages: 5, fn: 'A.pdf', co: '' }] }],
+      discovery: [{ no: 3, desc: 'Letter', date: '2037-02-06', gap: true, co: '', nfiles: 1, files: [{ ref: 'OD-001', name: 'A.pdf', url: './A.pdf', pages: 5, fn: 'A.pdf', co: '' }] }],
       supplementary: [{ no: 7, desc: 'Statement', date: '', co: '', nfiles: 1, files: [{ ref: 'SD-001', name: 'S.pdf', url: './S.pdf', x: 'filed under item 1', fn: 'S.pdf', co: '' }] }],
       schedules: [pl1, def, pl2],
     });
   });
 
   it('interest basis and settlement: the quantum headline, the earliest ledger invoice, the source lines as the note', () => {
-    const q = { headline_due: '284101740.54', headline_date: '2026-05-31', invoiceLedger: [{ date: '2015-01-31' }, { date: '2014-11-30' }, { date: '' }] };
+    const q = { headline_due: '284101740.54', headline_date: '2026-05-31', invoiceLedger: [{ date: '2035-01-31' }, { date: '2034-11-30' }, { date: '' }] };
     const ib = { rate: 'prime + 5%', method: 'Simple', from: '30 days after each invoice', source: 'POC prayers 3 and 7' };
-    expect(interestBasisOf(ib, q)).toEqual({ ...ib, award_date: '', first_invoice_date: '2014-11-30', headline_date: '2026-05-31', headline_due: '284101740.54', note: 'rate: prime + 5%\nmethod: Simple\nfrom: 30 days after each invoice\nsource: POC prayers 3 and 7' });
+    expect(interestBasisOf(ib, q)).toEqual({ ...ib, award_date: '', first_invoice_date: '2034-11-30', headline_date: '2026-05-31', headline_due: '284101740.54', note: 'rate: prime + 5%\nmethod: Simple\nfrom: 30 days after each invoice\nsource: POC prayers 3 and 7' });
     expect(interestBasisOf({ award_date: '2017-11-29', note: 'kept' }, q)).toMatchObject({ award_date: '2017-11-29', note: 'kept' });
     expect(settlementOf({}, q)).toEqual({ claim: '284101740.54', claimDate: '2026-05-31' });
     expect(settlementOf({ claim: '1.00', claimDate: '' }, q)).toEqual({ claim: '1.00', claimDate: '' });

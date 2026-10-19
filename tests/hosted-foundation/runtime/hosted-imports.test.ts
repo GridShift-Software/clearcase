@@ -106,6 +106,41 @@ describe('resolved hosted import boundary', () => {
     }, { packages: true });
     expect(checkHostedGraph({ root }).errors.join('\n')).toContain('src/lib/components/Panel.svelte -> src/lib/components/Inner.svelte: forbidden capability node:fs');
   });
+  // Kit builds every file its own route patterns accept: layout-reset pages and layouts (+page@.svelte, +layout@name.svelte)
+  // and the universal and server modules among them. Each is a root of the hosted graph.
+  it.each([
+    ['+page@.svelte', 'forbidden capability node:fs'],
+    ['+page@root.svelte', 'forbidden capability node:fs'],
+    ['+layout@.svelte', 'forbidden capability node:fs'],
+    ['+layout@root.svelte', 'forbidden capability node:fs'],
+    ['+page.ts', 'forbidden capability node:fs'],
+    ['+page.server.js', 'forbidden capability node:fs'],
+    ['+layout.ts', 'forbidden capability node:fs'],
+    ['+layout.server.ts', 'forbidden capability node:fs'],
+    ['+server.js', 'forbidden capability node:fs'],
+  ])('walks the route file %s as a root', async (name, error) => {
+    const text = name.endsWith('.svelte') ? "<script lang=\"ts\">import { readFileSync } from 'node:fs'; readFileSync('x');</script>" : "import 'node:fs';";
+    const root = await project('export {};', { [`src/hosted/routes/probe/${name}`]: text }, { packages: true });
+    expect(checkHostedGraph({ root }).errors.join('\n')).toContain(error);
+  });
+  it('catches process and a local import from a layout-reset route', async () => {
+    const root = await project('export {};', {
+      'src/hosted/routes/probe/+layout@.svelte': "<script lang=\"ts\">process.on('SIGTERM', () => {});</script>",
+      'src/hosted/routes/other/+page@.svelte': "<script lang=\"ts\">import '$lib/local-case/db.server';</script>",
+      'src/lib/local-case/db.server.ts': 'export {};',
+    }, { packages: true });
+    const errors = checkHostedGraph({ root }).errors.join('\n');
+    expect(errors).toContain('+layout@.svelte: forbidden capability process');
+    expect(errors).toContain('+page@.svelte -> src/lib/local-case/db.server.ts: forbidden local implementation');
+  });
+  it.each(['+foo.ts', '+page@x.ts', '+layout@x.server.ts', '+error.ts', '+page.mjs', '+page.svelte.bak', '+hook.svelte'])('fails closed on the reserved route file %s', async (name) => {
+    const root = await project('export {};', { [`src/hosted/routes/probe/${name}`]: 'export {};' });
+    expect(checkHostedGraph({ root }).errors.join('\n')).toContain(`${name}: reserved route file`);
+  });
+  it('leaves files without a + prefix alone', async () => {
+    const root = await project('export {};', { 'src/hosted/routes/probe/helper.ts': "import 'node:fs';" });
+    expect(checkHostedGraph({ root }).errors).toEqual([]);
+  });
   it('allows safe crypto and fails unresolved imports rather than skipping them', async () => {
     const root = await project("import 'node:crypto'; import './not-there';");
     const result = checkHostedGraph({ root });

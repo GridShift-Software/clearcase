@@ -19,10 +19,11 @@ Preconditions:
 
 - `original-open` passed in the first browser context (signed in as `client-a/a-viewer`).
 
-- **Deny.** In a second, fresh browser context, sign in as `client-b/b-editor` through the same `#test-identity` and `#sign-in` controls. Step `wrong-client`. `/cases` shows `[data-denial-code=wrong-client]` with status 401 and no case; an in-page GET of `/cases/case-a1/originals/a1-letter` answers 401 with no PDF and no synthetic label; navigating to that URL shows the same denial and starts no download; back in the first context, `/cases/case-a1/originals/b1-letter` answers 404.
+- **Deny.** In a second, fresh browser context, sign in as `client-b/b-editor` through the same `#test-identity` and `#sign-in` controls. Step `wrong-client`. `/cases` shows `[data-denial-code=wrong-client]` with status 401 and no case; an in-page GET of `/cases/case-a1/originals/a1-letter` answers 401 with no PDF and no synthetic label; navigating to that URL answers 401 with an HTML page titled "This session belongs to another client…" and starts no download; back in the first context, `/cases/case-a1/originals/b1-letter` answers 404.
 - **Proof.** The screenshots `sign-in-form-b-editor`, `wrong-client-denied` and `wrong-client-original`.
 
 ## Gotchas
 
 - Client B's identities are on client A's sign-in page only because the identity double lists every fixture identity; the deployment still refuses them.
 - Wrong-client is 401 (the session is not valid for this deployment), wrong-case is 404 (nothing to reveal); neither is 403.
+- An endpoint's refusal (the original's URL) renders Kit's static error page, which has no `[data-denial-code]`; the step reads the status from the navigation timing (`responseStatus`) and the page title instead.

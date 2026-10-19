@@ -264,6 +264,10 @@ kinds.forEach((k, i) => { const n = 5 - i; chain = k === 'eml' ? Buffer.from(wra
 put('archive', 'nest-eml-zip-chain.zip', wrapZip('chain-1.eml', chain), 'ZIP -> EML -> ZIP -> EML -> ZIP -> EML -> leaf: archive and email recursion share one depth');
 put('archive', 'budget-mixed.zip', buildZip([{ name: 'big.bin', data: new Uint8Array(400000), method: 8 }, { name: 'mail.eml', data: carrierEml({ subject: 'BUDGET-MIXED', attachments: [{ name: 'att.bin', mime: 'application/octet-stream', data: new Uint8Array(400000) }], messageId: 'budget0001' }), method: 8 }]), 'ZIP of 400,000 zero bytes plus an EML attaching 400,000 more: each archive total stays under 1,000,000, the whole tree does not');
 
+// ---------- Page images keyed on rendition.page (M3) ----------
+put('image', 'tiff-gappy.tif', out('image', 'tiff-multipage-g4.tif'), 'the 3-page G4 TIFF again, with prepared page images for pages 1 and 3 only');
+for (const n of [1, 3]) put('image', `tiff-gappy.rendition-p${n}.png`, out('image', `tiff-multipage-g4.rendition-p${n}.png`), `prepared page image ${n} of tiff-gappy.tif (page 2 deliberately missing)`, { renditionOf: 'image/tiff-gappy.tif', page: n });
+
 writeFileSync(path.join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 1));
 rmSync(TMP, { recursive: true, force: true });
 console.log(`fixtures: ${manifest.fixtures.length} files in ${path.relative(process.cwd(), OUT) || OUT}`);

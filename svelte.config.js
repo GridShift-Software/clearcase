@@ -1,9 +1,12 @@
 import adapter from '@sveltejs/adapter-node';
+import hostedFiles from './deploy/client/hosted-files.json' with { type: 'json' };
+const hosted = process.env.CLEARCASE_TARGET === 'hosted-spike';
 
 /** @type {import('@sveltejs/kit').Config} */
 export default {
 	kit: {
 		adapter: adapter(),
+		...(hosted ? { files: hostedFiles } : {}),
 		// a build of one exported revision gets that revision as its version name, so its client assets are reproducible
 		...(process.env.CLEARCASE_SOURCE_REVISION ? { version: { name: process.env.CLEARCASE_SOURCE_REVISION } } : {}),
 		// Strict CSP on the app origin; SvelteKit adds nonces/hashes for its own bootstrap script.

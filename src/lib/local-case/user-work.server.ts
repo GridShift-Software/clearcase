@@ -1,3 +1,11 @@
+import type { TableRestore, TableRestoreReport, ImportResult } from '../server/runtime/dto.ts';
+export type { TableRestore, TableRestoreReport, ImportResult } from '../server/runtime/dto.ts';
+import type { UserWorkErrorCode } from '../server/runtime/dto.ts';
+export type { UserWorkErrorCode } from '../server/runtime/dto.ts';
+import type { TableKind, TableScope, TableColumn, UserWorkTable, TableDefinition, TableCell, UserWorkExport } from '../server/runtime/dto.ts';
+export type { TableKind, TableScope, TableColumn, UserWorkTable, TableDefinition, TableCell, UserWorkExport } from '../server/runtime/dto.ts';
+import type { AnchorStatus, NoteView, NoteSummary, RegisterRow, RegisterValue } from '../server/runtime/dto.ts';
+export type { AnchorStatus, NoteView, NoteSummary, RegisterRow, RegisterValue } from '../server/runtime/dto.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import { isHttpError } from '@sveltejs/kit';
 import { now } from '../components/clock.ts';
@@ -5,22 +13,7 @@ import { matchAnchor, viewSeeds, type DocumentAnchor, type SeedOverlay, type See
 import type { Storage } from './db.server.ts';
 import type { CaseStore } from './store.server.ts';
 
-export type AnchorStatus = 'here' | 'exact' | 'ambiguous' | 'missing' | 'unanchored';
-export interface NoteView {
-	id: string;
-	body: string;
-	createdAt: string;
-	refAtCreation: string;
-	resultsVersion: string;
-	anchorSha256: string | null;
-	status: AnchorStatus;
-	candidates: string[];
-	intact: boolean;
-}
-export interface NoteSummary { total: number; here: number; exact: number; ambiguous: number; missing: number; unanchored: number; byRef: { ref: string; n: number; status: AnchorStatus }[]; detached: NoteView[] }
-
-export interface RegisterRow { rowId: string; store: string; anchor: DocumentAnchor | null; fields: Record<string, RegisterValue>; createdAt: string; updatedAt: string; intact: boolean }
-export type RegisterValue = string | number | boolean | null;
+type Cell = TableCell;
 
 const STORE = /^[a-z][a-z0-9-]{0,63}$/;
 const TABLE = /^[a-z][a-z0-9_]{0,62}$/;
@@ -35,24 +28,6 @@ const CASE_COLUMN = 'case_id';
 const PROBE = 'userwork_catalog_probe';
 export const USER_WORK_EXPORT = 'clearcase.user-work/1';
 
-export type TableKind = 'user-work' | 'activation' | 'unregistered';
-export type TableScope = 'case' | 'store';
-export interface TableColumn { name: string; type: string; notNull: boolean; pk: number }
-export interface UserWorkTable { name: string; kind: TableKind; scope: TableScope; owner: string; description: string; columns: TableColumn[] }
-export interface TableDefinition {
-	name: string; owner: string; description: string;
-	columns: { name: string; type: 'TEXT' | 'INTEGER' | 'REAL' | 'BLOB'; notNull?: boolean }[];
-	primaryKey: string[];
-	scope: TableScope;
-}
-export type TableCell = string | number | null | { $b64: string } | { $int: string };
-type Cell = TableCell;
-export interface UserWorkExport {
-	format: typeof USER_WORK_EXPORT;
-	exportedAt: string;
-	tables: (UserWorkTable & { rows: Record<string, Cell>[] })[];
-	excluded?: { name: string; kind: TableKind; rows: number; reason: string }[];
-}
 const q = (id: string) => `"${id.replaceAll('"', '""')}"`;
 const MAX_NOTE = 20_000;
 const MAX_FIELDS_JSON = 64 * 1024;
@@ -60,7 +35,6 @@ const sha = (s: string) => createHash('sha256').update(s).digest('hex');
 
 type NoteDb = { id: string; case_id: string; anchor_sha256: string | null; ref_at_creation: string; results_version: string; body: string; body_sha256: string; created_at: string };
 
-export type UserWorkErrorCode = 'invalid' | 'restore-state' | 'restore-key' | 'restore-key-collision' | 'table-conflict' | 'table-built-in';
 export class UserWorkError extends Error {
 	readonly code: UserWorkErrorCode;
 	constructor(message: string, code: UserWorkErrorCode = 'invalid') {
@@ -72,13 +46,6 @@ export interface ImportOptions {
 	replace?: 'cases' | 'tables'; cases?: string[];
 	clearAbsent?: boolean;
 }
-export type TableRestore = 'replaced-for-cases' | 'no-cases' | 'merged' | 'replaced' | 'dropped' | 'cleared-for-cases' | 'kept-excluded';
-export interface TableRestoreReport { name: string; scope: TableScope; action: TableRestore; rows: number; deleted: number; inserted?: number; replaced?: number; cases?: string[] }
-export interface ImportResult {
-	tables: number; rows: number; cases: string[]; restored: TableRestoreReport[];
-	dropped?: { name: string; rows: number; reason: 'a restore never creates trust: accepted warnings are acknowledged again' }[];
-}
-
 export class UserWork {
 	private readonly storage: Storage;
 	private readonly store: CaseStore;

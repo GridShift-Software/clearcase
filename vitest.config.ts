@@ -41,6 +41,7 @@ export default defineConfig({
       'src/routes/**/*.test.ts',
       'tests/e2e/pilot/**/*.test.ts',
       'tests/demo/**/*.test.ts',
+      'tests/hosted-foundation/runtime/**/*.test.ts',
     ],
     pool: 'forks',
     sequence: { sequencer: SlowFirst },

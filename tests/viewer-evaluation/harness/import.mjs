@@ -7,10 +7,11 @@ import path from 'node:path';
 import PostalMime from 'postal-mime';
 import MsgReaderModule from '@kenjiuno/msgreader';
 import { sniff, listZip, extractEntry, ZIP_LIMITS } from './shared/formats.mjs';
+import { SCHEMA } from './shared/descriptor.mjs';
 
 const MsgReader = MsgReaderModule.default ?? MsgReaderModule;
 const sha = (b) => createHash('sha256').update(b).digest('hex');
-export const SCHEMA = 'clearcase.viewer-descriptor/1';
+export { SCHEMA };
 
 /** Which reader family previews what the bytes are. Only plain text consults the name (a .csv is text shown as a grid). */
 const FAMILY_BY_FORMAT = { zip: { docx: 'word', xlsx: 'sheet', zip: 'archive' }, ole: { msg: 'email', doc: 'word', xls: 'sheet' } };
@@ -43,16 +44,18 @@ const member = (key, o) => ({ kind: 'member', key, path: '', directory: false, a
 /** The attachments of an EML or MSG as raw items (bytes and the trusted entry), before depth and budget decide what is kept. */
 async function emailItems(a, { hasBodyCompanion }) {
   const items = [], holds = [];
+  let rtfOnly = false;
   if (a.kind === 'ole') {
     const r = new MsgReader(a.bytes);
     const d = r.getFileData();
-    if (d.error) return { items, holds: [{ code: 'email-parse-failed', detail: d.error }] };
-    if (!d.body && !d.bodyHtml && !d.html && d.compressedRtf && !hasBodyCompanion) holds.push({ code: 'rtf-only-body-needs-companion', detail: a.id });
+    if (d.error) return { items, holds: [{ code: 'email-parse-failed', detail: String(d.error) }], rtfOnly };
+    rtfOnly = !d.body && !d.bodyHtml && !d.html && !!d.compressedRtf;
+    if (rtfOnly && !hasBodyCompanion) holds.push({ code: 'rtf-only-body-needs-companion', detail: a.id });
     for (const [i, att] of d.attachments.entries()) {
       const name = att.innerMsgContent ? `${att.name ?? 'embedded'}.msg` : (att.fileName ?? `attachment-${i}`);
       items.push({ name, bytes: new Uint8Array(r.getAttachment(att).content), entry: attachment(String(i), { name, declaredMime: att.attachMimeTag ?? null, contentId: att.pidContentId ?? null, embeddedMessage: !!att.innerMsgContent }) });
     }
-    return { items, holds };
+    return { items, holds, rtfOnly };
   }
   const raw = new TextDecoder().decode(a.bytes);
   for (const m of raw.matchAll(/Content-Transfer-Encoding:\s*base64\r?\n(?:[^\r\n]+\r?\n)*\r?\n([\s\S]*?)(?=\r?\n--|$)/gi)) {
@@ -62,7 +65,7 @@ async function emailItems(a, { hasBodyCompanion }) {
   for (const [i, att] of e.attachments.entries()) {
     items.push({ name: att.filename ?? `attachment-${i}`, bytes: new Uint8Array(att.content), entry: attachment(String(i), { name: att.filename ?? null, declaredMime: att.mimeType ?? null, contentId: att.contentId ?? null, inline: att.disposition === 'inline', embeddedMessage: att.mimeType === 'message/rfc822' }) });
   }
-  return { items, holds };
+  return { items, holds, rtfOnly };
 }
 
 /** The members of a ZIP as raw items; a member that cannot be extracted has no bytes and carries its reason. */
@@ -86,9 +89,9 @@ function zipItems(a) {
  * whole tree shares, so no mix of ZIPs and messages can exceed what one archive may.
  */
 async function expand(store, a, ctx) {
-  const { items, holds } = a.family === 'email' ? await emailItems(a, ctx) : zipItems(a);
+  const { items, holds, rtfOnly = false } = a.family === 'email' ? await emailItems(a, ctx) : zipItems(a);
   const limits = store.limits;
-  if (items.length && a.depth >= limits.maxDepth) return { children: [], holds: [...holds, { code: 'nesting-limit', detail: `${a.id} sits at depth ${a.depth} and holds ${items.length} item(s); the limit is ${limits.maxDepth}` }] };
+  if (items.length && a.depth >= limits.maxDepth) return { children: [], rtfOnly, holds: [...holds, { code: 'nesting-limit', detail: `${a.id} sits at depth ${a.depth} and holds ${items.length} item(s); the limit is ${limits.maxDepth}` }] };
   const children = [];
   for (const it of items) {
     if (!it.bytes) { children.push(it.entry); continue; }
@@ -99,9 +102,10 @@ async function expand(store, a, ctx) {
     if (child.kind === 'tnef') holds.push({ code: 'tnef-needs-companion', detail: child.id });
     children.push({ ...it.entry, assetId: child.id, mime: child.mime, sha256: child.sha256, ...(it.entry.kind === 'member' ? { family: child.family, size: it.bytes.length } : {}) });
   }
-  return { children, holds };
+  return { children, holds, rtfOnly };
 }
 
+export const NATIVE_IMAGES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/avif']);
 const NEEDS_RENDITION = new Set(['image/tiff', 'image/heic', 'video/x-msvideo']);
 
 /** Build every descriptor. Prepared renditions link back to their originals through the manifest's renditionOf. */
@@ -153,8 +157,8 @@ async function describe(store, a, renditions, descriptors) {
   if (a.variant === 'split') holds.push({ code: 'archive-split-unsupported', detail: a.name });
   const linked = (renditions.get(a.id) ?? []).map((r) => ({ assetId: r.id, kind: r.fixture.page ? 'page-image' : /\.companion(-v\d+)?\.txt$/.test(r.name) ? 'body-text' : r.name.endsWith('.txt') ? 'ocr-text' : r.name.endsWith('.vtt') ? 'captions' : 'pdf', version: r.fixture.version ?? 1, page: r.fixture.page ?? null, sha256: r.sha256, role: /supplement/.test(r.name) ? 'supplement' : 'rendition' }));
   if (encrypted && !linked.some((r) => r.kind === 'pdf' && r.role === 'rendition')) holds.push({ code: 'pdf-encrypted-needs-decrypted-rendition', detail: a.name });
-  let children = [];
-  if ((a.family === 'email' && a.kind !== 'mbox') || a.family === 'archive') { const r = await expand(store, a, { hasBodyCompanion: linked.some((r) => r.kind === 'body-text') }); children = r.children; holds.push(...r.holds); }
+  let children = [], rtfOnly = false;
+  if ((a.family === 'email' && a.kind !== 'mbox') || a.family === 'archive') { const r = await expand(store, a, { hasBodyCompanion: linked.some((r) => r.kind === 'body-text') }); children = r.children; rtfOnly = r.rtfOnly; holds.push(...r.holds); }
   let visualParts = [];
   if (a.family === 'sheet' && a.kind === 'zip') {
     visualParts = listZip(a.bytes).entries.map((e) => e.path).filter((p) => /^xl\/(charts|drawings)\/[^/]+\.xml$/.test(p));
@@ -163,6 +167,9 @@ async function describe(store, a, renditions, descriptors) {
   const pageImages = linked.filter((r) => r.kind === 'page-image').map((r) => r.page).sort((x, y) => x - y);
   if (a.mime === 'image/tiff' && pageImages.length && JSON.stringify(pageImages) !== JSON.stringify(Array.from({ length: a.pages ?? 0 }, (_, i) => i + 1))) holds.push({ code: 'rendition-page-count-mismatch', detail: `${a.name} has ${a.pages ?? 'an unreadable number of'} page(s); the prepared page images are numbered ${JSON.stringify(pageImages)}` });
   if (NEEDS_RENDITION.has(a.mime) && !linked.length && !f.renditionOf) holds.push({ code: 'prepared-rendition-missing', detail: `${a.name} (${a.mime}) has no native in-app reader` });
+  // Whether the family's reader opens this original as it is, with no prepared file (what the processing state may offer).
+  const damaged = holds.some((h) => ['pdf-damaged', 'media-damaged'].includes(h.code));
+  const native = { pdf: !encrypted && !damaged, image: NATIVE_IMAGES.has(a.mime), word: false, sheet: true, email: a.kind !== 'mbox' && !rtfOnly, media: a.mime !== 'video/x-msvideo' && !damaged, archive: true, text: true }[a.family] ?? false;
   const d = {
     schema: SCHEMA,
     assetId: a.id, name: a.name, family: a.family, mime: a.mime, variant: a.variant ?? null, size: a.size, sha256: a.sha256,
@@ -174,7 +181,8 @@ async function describe(store, a, renditions, descriptors) {
     parent: a.parent ?? null,
     visualParts,
     pages: a.pages ?? null,
-    limits: { zip: ZIP_LIMITS },
+    native,
+    limits: { zip: store.limits },
     holds,
   };
   descriptors.set(a.id, d);

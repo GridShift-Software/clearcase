@@ -3,7 +3,8 @@
 // Protected: the named tests; the test code they import (files under test-support directories); the runner
 // configuration, the local modules it imports, its setup files and test scripts; and the fixtures they read or that sit
 // in the test tree. The modules under test (src/, scripts/) are not protected: a fix is expected to change them, but no
-// changed one may reach the test framework.
+// changed module outside that closure, test-support files included, may reach the test framework or newly load test
+// code that does, and a new import into a protected test file may add no import-time effect.
 import ts from 'typescript';
 import { readFileSync, realpathSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';

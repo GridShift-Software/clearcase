@@ -118,3 +118,39 @@ describe('finding 6: memberships and case grants are current state, apart from s
     await expect(viewer.store.getCase({ caseId: fx.pending })).rejects.toMatchObject({ code: 'forbidden' });
   });
 });
+
+describe('finding 7: restore parses complete snapshot rows and requires canonical keys before any commit', () => {
+  async function restoreWith(mutate: (rows: { id: unknown; payload: unknown }[], table: string) => void, table: string) {
+    const backend = createMemoryBackend({ fixture: fx.data, now });
+    const editor = backend.request({ clientId: clientA(), sessionId: id('session', 'a-editor') });
+    const caseId = fx.caseId, anchor = await editor.userWork.anchorFor({ caseId, resultsVersion: fx.rv, ref: 'HOSTED-001' });
+    await editor.userWork.addNote({ caseId, target: { kind: 'document', anchor }, body: 'kept note', expected: { kind: 'absent' }, operationId: 'op-note' });
+    await editor.userWork.putRow({ caseId, store: 'deadlines', rowId: 'row-1', fields: { title: 'kept row' }, anchor: null, expected: { kind: 'absent' }, operationId: 'op-row' });
+    const saved = await editor.userWork.exportAll({ caseId }), before = await editor.userWork.exportAll({ caseId });
+    const snapshot = structuredClone(saved);
+    mutate(snapshot.tables.find((t) => t.name === table)!.rows as { id: unknown; payload: unknown }[], table);
+    const expectedRevision = await editor.store.stateRevision({ caseId });
+    const preRestore = await editor.userWork.snapshots.put({ caseId, snapshot: before, revision: expectedRevision });
+    const result = editor.userWork.importAll({ caseId, snapshot, expectedRevision, preRestore, operationId: 'op-restore' });
+    return { result, after: async () => editor.userWork.exportAll({ caseId }), before };
+  }
+  const payload = (row: { payload: unknown }) => JSON.parse(String(row.payload)) as Record<string, unknown>;
+  it('refuses a note row keyed X whose payload names note Y, and changes nothing', async () => {
+    const { result, after, before } = await restoreWith((rows) => { rows[0]!.id = 'another-note'; }, 'note');
+    await expect(result).rejects.toMatchObject({ code: 'restore-key' });
+    expect({ ...(await after()), exportedAt: null }).toEqual({ ...before, exportedAt: null });
+  });
+  it('refuses a register row whose key is not its store and row id', async () => {
+    const { result } = await restoreWith((rows) => { rows[0]!.id = '["deadlines","other"]'; }, 'register_row');
+    await expect(result).rejects.toMatchObject({ code: 'restore-key' });
+  });
+  it.each([
+    ['an unknown target variant', (p: Record<string, unknown>) => { p.target = { kind: 'bogus' }; }],
+    ['a document anchor without its ref', (p: Record<string, unknown>) => { delete (p.target as { anchor: Record<string, unknown> }).anchor.refAtCreation; }],
+    ['a missing createdAt', (p: Record<string, unknown>) => { delete p.createdAt; }],
+    ['an extra property', (p: Record<string, unknown>) => { p.injected = true; }],
+  ])('refuses a note payload with %s', async (_name, change) => {
+    const { result } = await restoreWith((rows) => { const p = payload(rows[0]!); change(p); rows[0]!.payload = JSON.stringify(p); }, 'note');
+    await expect(result).rejects.toMatchObject({ code: 'invalid' });
+  });
+});

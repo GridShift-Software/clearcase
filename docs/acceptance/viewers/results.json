@@ -1,7 +1,7 @@
 {
  "revision": {
-  "head": "e0f3d7ecd7a60b0820e0437a3edbde1ab7e570e6",
-  "harnessTree": "abcc6166054c7dc25a93f6475251a4dfbd2400b7",
+  "head": "8f3194619db99626f074661bce2e67903477ba89",
+  "harnessTree": "3cbc76c24d8ff604c441350358adcc914e7c2eb8",
   "dirty": false
  },
  "browser": {
@@ -43,7 +43,7 @@
   "real iOS Safari: no device",
   "real Android Chrome: no device"
  ],
- "generatedAt": "2026-10-19T11:14:59.125Z",
+ "generatedAt": "2026-10-19T11:51:06.914Z",
  "results": [
   {
    "family": "pdf",
@@ -55,7 +55,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 129
+    "ms": 103
    }
   },
   {
@@ -273,7 +273,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 105
+    "ms": 92
    }
   },
   {
@@ -381,7 +381,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 107
+    "ms": 93
    }
   },
   {
@@ -404,7 +404,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 106
+    "ms": 91
    }
   },
   {
@@ -427,7 +427,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 102
+    "ms": 91
    }
   },
   {
@@ -561,7 +561,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 94
+    "ms": 89
    }
   },
   {
@@ -611,7 +611,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 100
+    "ms": 89
    }
   },
   {
@@ -659,7 +659,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 113
+    "ms": 108
    }
   },
   {
@@ -671,8 +671,8 @@
    "verdict": "PASS",
    "assertion": "page 1000 text layer contains PDF-LARGE-1000",
    "observed": {
-    "readyMs": 113,
-    "navMs": 87
+    "readyMs": 108,
+    "navMs": 82
    }
   },
   {
@@ -684,7 +684,7 @@
    "verdict": "PASS",
    "assertion": "find(PDF-LARGE-0999) -> [999]",
    "observed": {
-    "findMs": 210
+    "findMs": 191
    }
   },
   {
@@ -700,7 +700,7 @@
     "dialogs": [],
     "popups": [],
     "topNavigations": [],
-    "seconds": 5
+    "seconds": 4
    }
   },
   {
@@ -713,7 +713,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 35
+    "ms": 37
    }
   },
   {
@@ -844,7 +844,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 36
+    "ms": 25
    }
   },
   {
@@ -867,7 +867,7 @@
     "shownAsset": "image/jpeg-exif-orientation-6.jpg",
     "w": 200,
     "h": 400,
-    "decodeMs": 1,
+    "decodeMs": 2,
     "decodeApi": "decode()",
     "samples": {
      "topCenter": [
@@ -907,7 +907,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 27
+    "ms": 22
    }
   },
   {
@@ -955,7 +955,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 26
+    "ms": 27
    }
   },
   {
@@ -978,7 +978,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 28
+    "ms": 23
    }
   },
   {
@@ -1010,7 +1010,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 34
+    "ms": 30
    }
   },
   {
@@ -1044,7 +1044,7 @@
     "code": "prepared-rendition-required",
     "native": {
      "ok": false,
-     "ms": 1,
+     "ms": 2,
      "error": "The source image cannot be decoded."
     }
    }
@@ -1127,7 +1127,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 34
+    "ms": 36
    }
   },
   {
@@ -1191,7 +1191,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 29
+    "ms": 25
    }
   },
   {
@@ -1288,8 +1288,8 @@
    "assertion": "ready and naturalWidth*naturalHeight === 20e6",
    "observed": {
     "type": "ready",
-    "ms": 267,
-    "decodeMs": 120,
+    "ms": 252,
+    "decodeMs": 116,
     "decodeApi": "decode()",
     "w": 5000,
     "h": 4000
@@ -1305,8 +1305,8 @@
    "assertion": "ready and naturalWidth*naturalHeight === 100e6",
    "observed": {
     "type": "ready",
-    "ms": 631,
-    "decodeMs": 2,
+    "ms": 597,
+    "decodeMs": 1,
     "decodeApi": "decode()",
     "w": 10000,
     "h": 10000
@@ -1338,7 +1338,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 105
+    "ms": 97
    }
   },
   {
@@ -1483,7 +1483,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 93
+    "ms": 87
    }
   },
   {
@@ -1545,7 +1545,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 97
+    "ms": 88
    }
   },
   {
@@ -1572,7 +1572,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 90
+    "ms": 85
    }
   },
   {
@@ -1595,7 +1595,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 54
+    "ms": 58
    }
   },
   {
@@ -1683,7 +1683,7 @@
     "blocked": [
      {
       "directive": "img-src",
-      "uri": "http://127.0.0.1:38121/r/null"
+      "uri": "http://127.0.0.1:46455/r/null"
      }
     ]
    }
@@ -1727,7 +1727,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 72
+    "ms": 85
    }
   },
   {
@@ -1753,7 +1753,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 42
+    "ms": 50
    }
   },
   {
@@ -1780,7 +1780,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 47
+    "ms": 41
    }
   },
   {
@@ -1835,7 +1835,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 86
+    "ms": 89
    }
   },
   {
@@ -2387,7 +2387,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 79
+    "ms": 71
    }
   },
   {
@@ -2422,7 +2422,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 81
+    "ms": 62
    }
   },
   {
@@ -2657,7 +2657,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 66
+    "ms": 53
    }
   },
   {
@@ -2802,7 +2802,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 72
+    "ms": 65
    }
   },
   {
@@ -2828,7 +2828,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 99
+    "ms": 85
    }
   },
   {
@@ -2851,7 +2851,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 94
+    "ms": 86
    }
   },
   {
@@ -2911,10 +2911,10 @@
    "verdict": "PASS",
    "assertion": "search finds A10000 and selects it",
    "observed": {
-    "readyMs": 319,
+    "readyMs": 310,
     "parseMs": 195,
-    "gridMs": 60,
-    "searchMs": 92
+    "gridMs": 52,
+    "searchMs": 86
    }
   },
   {
@@ -2926,10 +2926,10 @@
    "verdict": "PASS",
    "assertion": "search finds A100000 and selects it",
    "observed": {
-    "readyMs": 2303,
-    "parseMs": 1800,
+    "readyMs": 2154,
+    "parseMs": 1710,
     "gridMs": 87,
-    "searchMs": 691
+    "searchMs": 652
    }
   },
   {
@@ -2958,7 +2958,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 49
+    "ms": 52
    }
   },
   {
@@ -3258,7 +3258,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 37
+    "ms": 44
    }
   },
   {
@@ -3346,7 +3346,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 37
+    "ms": 35
    }
   },
   {
@@ -3477,7 +3477,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 31
+    "ms": 30
    }
   },
   {
@@ -3502,7 +3502,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 42
+    "ms": 36
    }
   },
   {
@@ -3614,7 +3614,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 40
+    "ms": 42
    }
   },
   {
@@ -3723,7 +3723,7 @@
    "assertion": "currentTime advances > 0.2 s in 600 ms",
    "observed": {
     "ok": true,
-    "advanced": 0.544441
+    "advanced": 0.5355340000000002
    }
   },
   {
@@ -4142,7 +4142,7 @@
     "duration": 6,
     "seek": {
      "t": 4,
-     "ms": 0,
+     "ms": 1,
      "rgb": null,
      "seekable": [
       0,
@@ -4164,7 +4164,7 @@
     "duration": 6.0065,
     "seek": {
      "t": 4,
-     "ms": 2,
+     "ms": 3,
      "rgb": null,
      "seekable": [
       0,
@@ -4204,10 +4204,10 @@
    "verdict": "PASS",
    "assertion": "seek lands within 2 s of 3540 s",
    "observed": {
-    "readyMs": 49,
+    "readyMs": 48,
     "seek": {
      "t": 3540,
-     "ms": 2,
+     "ms": 1,
      "rgb": null,
      "seekable": [
       0,
@@ -4363,7 +4363,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 32
+    "ms": 33
    }
   },
   {
@@ -4591,7 +4591,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 53
+    "ms": 22
    }
   },
   {
@@ -4674,7 +4674,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 28
+    "ms": 21
    }
   },
   {
@@ -4693,7 +4693,7 @@
      "link-to-etc": "symlink",
      "safe.txt": "ok"
     },
-    "ms": 32,
+    "ms": 26,
     "expandedAtStop": []
    }
   },
@@ -4722,7 +4722,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 42
+    "ms": 21
    }
   },
   {
@@ -4737,7 +4737,7 @@
     "got": {
      "bad.txt": "crc-mismatch"
     },
-    "ms": 47,
+    "ms": 23,
     "expandedAtStop": []
    }
   },
@@ -4763,7 +4763,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 26
+    "ms": 21
    }
   },
   {
@@ -4778,7 +4778,7 @@
     "got": {
      "secret.txt": "encrypted"
     },
-    "ms": 30,
+    "ms": 26,
     "expandedAtStop": []
    }
   },
@@ -4804,7 +4804,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 22
+    "ms": 21
    }
   },
   {
@@ -4819,7 +4819,7 @@
     "got": {
      "lzma.txt": "unsupported-method-14"
     },
-    "ms": 26,
+    "ms": 24,
     "expandedAtStop": []
    }
   },
@@ -4845,7 +4845,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 22
+    "ms": 21
    }
   },
   {
@@ -4860,7 +4860,7 @@
     "got": {
      "zeros.bin": "declared-size-over-limit"
     },
-    "ms": 26,
+    "ms": 25,
     "expandedAtStop": []
    }
   },
@@ -4886,7 +4886,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 473
+    "ms": 443
    }
   },
   {
@@ -4901,7 +4901,7 @@
     "got": {
      "zeros.bin": "expansion-limit-exceeded"
     },
-    "ms": 484,
+    "ms": 456,
     "expandedAtStop": [
      133163412
     ]
@@ -4929,7 +4929,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 71
+    "ms": 69
    }
   },
   {
@@ -4941,8 +4941,8 @@
    "verdict": "PASS",
    "assertion": "1000 rows, 0 problems, ordinal 999 reachable",
    "observed": {
-    "readyMs": 71,
-    "listMs": 29
+    "readyMs": 69,
+    "listMs": 27
    }
   },
   {
@@ -4971,7 +4971,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 107
+    "ms": 101
    }
   },
   {
@@ -5056,19 +5056,19 @@
    "assertion": "events claim-rejected + killed(bad-claim); open() never ready",
    "observed": [
     {
-     "t": 675,
+     "t": 650,
      "gen": 1,
      "type": "killed",
      "reason": "replaced"
     },
     {
-     "t": 695,
+     "t": 669,
      "gen": 2,
      "type": "claim-rejected",
      "got": "claim"
     },
     {
-     "t": 695,
+     "t": 669,
      "gen": 2,
      "type": "killed",
      "reason": "bad-claim"
@@ -5086,25 +5086,25 @@
    "observed": {
     "events": [
      {
-      "t": 675,
+      "t": 650,
       "gen": 1,
       "type": "killed",
       "reason": "replaced"
      },
      {
-      "t": 695,
+      "t": 669,
       "gen": 2,
       "type": "claim-rejected",
       "got": "claim"
      },
      {
-      "t": 695,
+      "t": 669,
       "gen": 2,
       "type": "killed",
       "reason": "bad-claim"
      },
      {
-      "t": 4022,
+      "t": 3984,
       "gen": 3,
       "type": "killed",
       "reason": "renderer-navigated"
@@ -5234,7 +5234,7 @@
     "dialogs": [],
     "popups": [],
     "topNavigations": [],
-    "seconds": 8
+    "seconds": 7
    }
   },
   {
@@ -5628,7 +5628,7 @@
     "dialogs": [],
     "popups": [],
     "topNavigations": [],
-    "seconds": 33
+    "seconds": 34
    }
   },
   {
@@ -6746,7 +6746,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 102
+    "ms": 105
    }
   },
   {
@@ -6814,7 +6814,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 30
+    "ms": 34
    }
   },
   {
@@ -6865,7 +6865,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 100
+    "ms": 103
    }
   },
   {
@@ -6933,7 +6933,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 89
+    "ms": 79
    }
   },
   {
@@ -7000,7 +7000,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 54
+    "ms": 56
    }
   },
   {
@@ -7067,7 +7067,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 43
+    "ms": 37
    }
   },
   {
@@ -7106,7 +7106,7 @@
      "label": "3.00 s of 6.00 s",
      "seek": {
       "t": 3,
-      "ms": 406,
+      "ms": 408,
       "rgb": [
        0,
        255,
@@ -7134,7 +7134,7 @@
     "dialogs": [],
     "popups": [],
     "topNavigations": [],
-    "seconds": 0
+    "seconds": 1
    }
   },
   {
@@ -7147,7 +7147,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 31
+    "ms": 25
    }
   },
   {
@@ -7278,7 +7278,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 108
+    "ms": 102
    }
   },
   {
@@ -7421,7 +7421,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 96
+    "ms": 99
    }
   },
   {
@@ -7501,7 +7501,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 79
+    "ms": 93
    }
   },
   {
@@ -7580,7 +7580,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 41
+    "ms": 61
    }
   },
   {
@@ -7659,7 +7659,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 32
+    "ms": 37
    }
   },
   {
@@ -7710,7 +7710,7 @@
      "label": "3.00 s of 6.00 s",
      "seek": {
       "t": 3,
-      "ms": 406,
+      "ms": 404,
       "rgb": [
        0,
        255,
@@ -7751,7 +7751,7 @@
    "assertion": "shell receives 'ready' from the renderer generation it created",
    "observed": {
     "type": "ready",
-    "ms": 26
+    "ms": 29
    }
   },
   {

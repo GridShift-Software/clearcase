@@ -4,13 +4,13 @@ The frozen alpha file coverage, with the fixture evidence behind each cell. The 
 
 | Evaluation | Value |
 | --- | --- |
-| Revision | `e0f3d7ecd7a60b0820e0437a3edbde1ab7e570e6`, harness tree `abcc6166054c7dc25a93f6475251a4dfbd2400b7`, clean (the tree is identical at every later commit of this branch, which change documents only). Re-run after the review of 3fc4b68; the first run was at `e083325` |
+| Revision | `8f3194619db99626f074661bce2e67903477ba89`, harness tree `3cbc76c24d8ff604c441350358adcc914e7c2eb8`, clean (the tree is unchanged by the commit that adds `results.json`). Re-run after the review of 3fc4b68; the first run was at `e083325` |
 | Harness | `tests/viewer-evaluation/` (run instructions in its README), 104 synthetic fixtures generated in code (75 at `e083325`; 29 added for the review's classes) |
 | Browser | Chrome for Testing 148.0.7778.96, headless, driven by `playwright-core` 1.64.1 |
 | Network | `tests/e2e/pilot/offline.sh` (loopback only); the browser context also aborts and records any request leaving the harness origin |
 | Viewports | 1440×900 and 1024×768 desktop; 390×844 Chromium mobile emulation (DPR 3, touch) |
 | **HOLD** | Firefox, WebKit, real iOS Safari, real Android Chrome: not installed, no devices |
-| Result | **418 PASS, 11 FAIL, 0 HOLD** in 429 checks (339 PASS, 11 FAIL in 350 before the fix round). The 11 FAILs are the same component findings as before, asserted on purpose (listed under [Findings](#findings)); none is new and none is a harness fault |
+| Result | **418 PASS, 11 FAIL, 0 HOLD** in 429 checks (339 PASS, 11 FAIL in 350 before the fix round; the same counts at `e0f3d7e`, before the documents were folded in). The 11 FAILs are the same component findings as before, asserted on purpose (listed under [Findings](#findings)); none is new and none is a harness fault |
 
 Raw results are in [results.json](results.json), a copy of the run's own `.local/viewer-evaluation/results.json` (per check: verdict, the assertion that decided it, and the observation; the Git revision and harness tree are inside it). Screenshots are under `.local/viewer-evaluation/screenshots/` (ignored, not committed).
 

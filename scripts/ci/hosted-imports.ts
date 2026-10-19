@@ -56,8 +56,8 @@ export function checkHostedGraph(a: { root: string }): { errors: string[]; files
   }
   // Vite's glob semantics, narrowed to what the guard can match exactly: `*` within a segment and `**` as a whole segment
   // (zero or more directories). Braces, classes, `?` and extglobs fail closed instead of being approximated.
-  function expression(absolute: string) {
-    const parts = slash(absolute).split('/');
+  function expression(pattern: string) {
+    const parts = pattern.split('/');
     return new RegExp('^' + parts.map((part, i) => {
       const last = i === parts.length - 1;
       if (part === '**') return last ? '.*' : '(?:[^/]*/)*';
@@ -75,9 +75,12 @@ export function checkHostedGraph(a: { root: string }): { errors: string[]; files
       else if (p.startsWith('/')) absolute = path.join(root, p);
       else { fail(chain, `unresolved glob ${original}`); continue; }
       try {
-        const pattern = expression(absolute), parts = slash(absolute).split('/'), wildcard = parts.findIndex((part) => part.includes('*'));
-        const prefix = wildcard < 0 ? path.dirname(absolute) : parts.slice(0, wildcard).join('/');
-        for (const file of walk(prefix)) if (pattern.test(slash(file))) { if (negative) matches.delete(file); else matches.add(file); }
+        // match root-relative paths, so characters in the checkout's own location are never read as glob syntax
+        const within = relative(absolute);
+        if (within.startsWith('../') || path.isAbsolute(within)) throw new Error('outside hosted source boundary');
+        const pattern = expression(within), parts = within.split('/'), wildcard = parts.findIndex((part) => part.includes('*'));
+        const prefix = path.join(root, wildcard < 0 ? path.dirname(within) : parts.slice(0, wildcard).join('/'));
+        for (const file of walk(prefix)) if (pattern.test(relative(file))) { if (negative) matches.delete(file); else matches.add(file); }
       } catch (e) { fail(chain, `unsupported glob ${original}: ${e instanceof Error ? e.message : 'unreadable directory'}`); }
     }
     for (const file of [...matches].sort()) visit(file, chain);

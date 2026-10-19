@@ -1612,15 +1612,16 @@ class GuardReach(GuardCase):
         # class sweep: test files are left out of the reach check because the runner isolates each; a configuration
         # that shares one process between them, or bun's runner, which does, voids that
         other = "import { test, expect } from 'vitest';\n" + self.patch + "test('other', () => { expect(1).toBe(1); });\n"
-        for label, files, test in (
+        for n, (label, files, test) in enumerate((
                 ('isolate: false', {'vitest.config.ts': "export default { test: { isolate: false } };\n"}, self.named_api),
                 ('a single fork', {'vitest.config.ts': "export default { test: { poolOptions: { forks: { singleFork: true } } } };\n"}, self.named_api),
                 ('--no-isolate in the test script', {'package.json': json.dumps({'name': 'x', 'scripts': {'test': 'vitest run --no-isolate'}})}, self.named_api),
-                ('bun:test', {}, self.named_api.replace("from 'vitest'", "from 'bun:test'"))):
+                ('bun:test', {}, self.named_api.replace("from 'vitest'", "from 'bun:test'")))):
             with self.subTest(bypass=label):
                 self.protect({'src/api.ts': self.api, **files}, test)
                 self.write('src/api.ts', self.weakened)
-                self.write('tests/other.test.ts', other.replace("from 'vitest'", "from 'bun:test'") if label == 'bun:test' else other)
+                # a new file each time: one left by an earlier subtest is unchanged in this diff
+                self.write(f'tests/other-{n}.test.ts', other.replace("from 'vitest'", "from 'bun:test'") if label == 'bun:test' else other)
                 self.commit('patch the framework from another test file')
                 self.assertIn('isolat', self.guard(code=1))
 

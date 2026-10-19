@@ -789,6 +789,13 @@ function main() {
   // framework, and none may newly load a test file or support code that does. Test files are collected as entries of
   // their own, so they are left to the assertion count below.
   const compared = new Set([...oldClosure.found.keys(), ...currentClosure.found.keys()]);
+  // Test files are left to their assertion counts only while the runner isolates each: Vitest and Jest do by default,
+  // bun's runner does not, nor does a configuration or test script that turns isolation off or shares one worker.
+  const SHARED = /\bisolate\s*:\s*false\b|--no-isolate\b|--isolate[= ]false\b|\bsingle(?:Fork|Thread)\s*:\s*true\b|--(?:[\w.]+\.)?single(?:Fork|Thread)\b|\bbun test\b/;
+  const shares = [oldClosure, currentClosure].flatMap(snapshot => [...snapshot.runner, 'package.json#scripts']
+    .map(file => SHARED.exec(snapshot.found.get(file) ?? '')?.[0])).find(Boolean)
+    ?? (starts.some(file => importsOf(ts.createSourceFile(file, currentClosure.found.get(file), ts.ScriptTarget.Latest, true), file, false)
+      .includes('bun:test')) ? 'the named tests run under bun:test' : undefined);
   // the tracked file a specifier names, including one with an extension the resolver does not know (a Svelte
   // component), relative or through $lib
   const link = (snapshot, file, specifier) => {
@@ -820,8 +827,10 @@ function main() {
     return new Set(importsOf(tree, file, false).map(specifier => link(snapshot, file, specifier)).filter(Boolean));
   };
   for (const file of changed) {
-    if (isEntry(file) || compared.has(file) || CONFIG_FILE.test(file) || oldClosure.runner.has(file)
-        || currentClosure.runner.has(file) || !exists(head, file)) continue;
+    if (compared.has(file) || CONFIG_FILE.test(file) || oldClosure.runner.has(file) || currentClosure.runner.has(file)
+        || !exists(head, file)) continue;
+    if (isEntry(file) && shares) throw Error(`changed test file ${file} runs in the named tests' process, because test files are not isolated (${shares}); the guard cannot bound it`);
+    if (isEntry(file)) continue;
     const script = scriptOf(file, source(head, file));
     const reach = script === undefined ? undefined : reachesFramework(file, script);
     if (reach) throw Error(`changed module outside the protected closure reaches the test framework (${reach}): ${file}`);

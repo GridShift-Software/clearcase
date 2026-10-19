@@ -391,7 +391,9 @@ checked above. That holds only while test files are isolated, and only while not
   single fork or thread), a test script runs `bun test` as a command, or a named test imports `bun:test`, any changed
   test file outside the closure fails closed;
 - a changed test file that any tracked module that is not a test file loads by a literal specifier, at the fix base or
-  at HEAD, fails closed: that module runs it inside the named test's process, so its content is not isolated.
+  at HEAD, fails closed: that module runs it inside the named test's process, so its content is not isolated. Every
+  tracked script is read, so a `package.json` `imports` alias or a `tsconfig` path that does not spell the test file's
+  name counts too.
 
 Such a changed module (a JS/TS file, or a Svelte component, read by `svelte/compiler`: its scripts, markup expressions
 and handlers, with a component that does not parse or compile failing closed) refuses when:
@@ -400,23 +402,32 @@ and handlers, with a component that does not parse or compile failing closed) re
   passes one of those names to any call (a require made by `createRequire`, `import.meta.resolve`);
 - it uses an unbound `expect`, `vi`, `vitest`, `jest` or `chai` (an ambient `declare` does not bind), or reads
   `import.meta.vitest`;
-- it holds a runtime capability other than as the allowlist allows. The global object (`globalThis`, `global`,
-  `window`, `self`, `frames`, `top`, `parent`) may appear only as the object of a property read with a literal,
-  non-framework name (`globalThis.performance`, `window['x']`, `Symbol.for('app.cache')` as the key), in `typeof`, `in`
-  or an equality test, as a literal-named destructuring, or as a `const` initialiser whose every use is one of those
-  (and which is not exported); an array element, conditional, `let`, assignment, call argument, spread, return,
-  rename, comma expression or computed key refuses. `Symbol.for` may only be called directly with a literal name that
-  contains no `jest`, `vitest` or `chai`; a builtin (`Object`, `Array`, `Reflect`, `Map`, `JSON`, ... and a builtin
-  reached as a member of the global object) may only be called, constructed, extended, compared, read by name, or (a
-  converter: `String`, `Number`, `Boolean`, `BigInt`) passed to a call, or held in a `const` used the same way, and the
-  same holds for `X.prototype`, `X.constructor`, and a prototype from `Object.getPrototypeOf`;
+- it holds a runtime capability other than as the allowlist allows, wherever the value comes from. The capabilities
+  are the global object (`globalThis`, `global`, `window`, `self`, `frames`, `top`, `parent`), `Symbol`, a builtin
+  (`Object`, `Array`, `Reflect`, `Map`, `JSON`, ...), a Node or Bun builtin module object (`fs`, `path`, ...), and a
+  constructor or prototype (`X.prototype`, `x.constructor`, `x.__proto__`, `Object.getPrototypeOf(x)`, the `super` of
+  a class that extends a builtin). A value is rooted at one when it is one, or is read from one through a `const`,
+  `let` or `var`, a destructuring, `await`, a conditional, logical, comma or assignment expression, a literal `require`
+  or `import()`, or an import binding, which the guard follows into the module that exports it (`export const`,
+  `export { x as y }`, `export default`, a re-export, `export *`), across modules, whether or not that module changed.
+  The global object may appear only as the object of a property read with a literal, non-framework name
+  (`globalThis.performance`, `window['x']`, `Symbol.for('app.cache')` as the key), in `typeof`, `in` or an equality
+  test, as a literal-named destructuring, or as a `const` initialiser. `Symbol.for` may only be called directly with a
+  literal name that contains no `jest`, `vitest` or `chai`. The other capabilities may only be called, constructed,
+  extended, compared, read by name, or (a converter: `String`, `Number`, `Boolean`, `BigInt`) passed to a call. Each
+  use of a `const` that holds one is checked the same way, where it appears. Moving one anywhere else refuses: an
+  export under any name (`export { g as h }`, `export default`, a re-export, a TypeScript `export import`), an
+  argument, a return value, a property, an element, a field, a `let` or an assignment, a spread, a computed key. A
+  TypeScript import alias of a value (`import P = O`) fails closed. A member of a capability (`Object.keys`,
+  `fs.readFile`, `fs.promises`) is a plain value and may move;
 - it writes to a builtin: an assignment (compound, logical or destructuring), update, `delete` or `for-in`/`for-of`
-  target rooted at an unbound global (`Object.is = ...`, `Array.prototype.includes = ...`, `globalThis.Object.is = ...`,
-  through a `const` alias), at a prototype reached by `constructor`, `__proto__` or `getPrototypeOf`, or at an imported
-  Node or Bun builtin module (`fs.readFileSync = ...`); or calls `Object.defineProperty`/`defineProperties`/`assign`/
-  `setPrototypeOf` or `Reflect.set`/`defineProperty`/`setPrototypeOf`/`deleteProperty` (also through `.call`,
-  `.apply` or a variable) with such a root as an argument. Writes to `process.env` and `process.exitCode` are not
-  refused;
+  target rooted, as above, at an unbound global, a prototype or a builtin module (`Object.is = ...`,
+  `Array.prototype.includes = ...`, `globalThis.Object.is = ...`, `P.is = ...` where `P` is imported from a module that
+  exports `Object` under that name, `fs.readFileSync = ...`, `require('node:fs').readFileSync = ...`); or calls
+  `Object.defineProperty`/`defineProperties`/`assign`/`setPrototypeOf` or `Reflect.set`/`defineProperty`/
+  `setPrototypeOf`/`deleteProperty` (also through `.call`, `.apply` or a variable) with such a root as an argument.
+  A write through `super` (`super.x = v` sets `x` on `this`), a write to a module's own objects, through an import
+  included, and writes to `process.env` and `process.exitCode` are not refused;
 - it imports a literal specifier that does not bind: after stripping a `?query` or `#fragment` and mapping a leading `/`
   to the repository root, it must name a tracked file, a Node or Bun builtin, a package the root `package.json`
   declares, or `$app/*`, `$env/*`, `$service-worker` (type-only imports are erased and skipped); anything else fails
@@ -433,8 +444,13 @@ A local function named `expect`, and literal reads of the global object (`global
 test freely, since application code is trusted as reviewed.
 
 What the guard does not bound, so the re-check reviewer owns it: code generation (`eval`, `Function`, a constructor
-chain); the global object or a builtin reached at run time without being named in the syntax above (the return value of
-a function, or a prototype read through `constructor` or `__proto__` and handed to a function that writes to it); a non-literal `import()` or `require`, and `import.meta.glob`, which can load
+chain); a capability reached at run time through a value the guard does not follow, which is where the analysis stops:
+a function's return value (`Object.getOwnPropertyDescriptor(...).get.call([])`), a function's parameter, a getter,
+an object or array literal's member, a class field and `this`; a plain member of a capability (`fs.promises`,
+`path.posix`) moved into one of those and written there; a package's exports (a package that re-exports `fs` is not
+followed) and a module namespace's computed member (`ns[k]`); an import through an alias the resolver does not know (a
+Vite `resolve.alias`), which is not followed, and which in a module the fix does not change also hides a test-file
+load; a non-literal `import()` or `require`, and `import.meta.glob`, which can load
 a new test file whose content is never checked (a computed specifier, or a template with a substitution, is skipped);
 a getter or coercion that runs where a module only reads a property (`export const LIMIT = settings.limit` is not an
 import-time effect); isolation read from a variable in the runner configuration; test-file names matched textually

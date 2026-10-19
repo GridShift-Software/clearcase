@@ -8,7 +8,7 @@ From this directory, with Bun 1.4.2:
 
 ```sh
 bun install --frozen-lockfile      # SheetJS CE comes from cdn.sheetjs.com; bun.lock pins its sha512
-bun fixtures/generate.mjs          # 75 synthetic files into <worktree>/.local/viewer-evaluation/fixtures (13 s)
+bun fixtures/generate.mjs          # 104 synthetic files into <worktree>/.local/viewer-evaluation/fixtures (13 s)
 bun harness/build.mjs              # bundle the readers, copy pdf.js assets, measure library gzip sizes
 ../../../../orch-bin/browser-lock unshare -rn env OUTER_UID="$(id -u)" OUTER_GID="$(id -g)" ../e2e/pilot/offline.sh bun harness/run.mjs
 ```
@@ -22,11 +22,12 @@ The generators call ImageMagick 7, FFmpeg, LibreOffice and qpdf. Conversions run
 | Path | What it is |
 | --- | --- |
 | `fixtures/generate.mjs`, `fixtures/lib/` | Generators: a PDF writer, a raw ZIP writer (hostile variants), a DOCX writer, SheetJS workbooks patched at ZIP level, Gmail- and Outlook-shaped EML, an Outlook-shaped MSG writer over `cfb`, and media/image/office conversions |
-| `harness/import.mjs` | Candidate import: content sniffing, hashes, child graphs (attachments, nested messages, archive members) and holds |
+| `harness/import.mjs` | Candidate import: content sniffing, hashes, child graphs (attachments, nested messages, archive members) under one depth counter and one expansion budget, and holds |
 | `harness/server.mjs`, `harness/shell/` | The trusted origin and the broker shell (session cookie, hash check, nonce-bound port hand-off) |
 | `harness/renderers/` | One opaque-origin reader per family, plus three test-only containment probes (`probenav`, `probeclaim`, `attacker`) |
-| `harness/shared/formats.mjs` | Sniffing, ZIP listing with bounded extraction, CRC-32, A1 parsing (used by import and readers) |
-| `harness/checks/` | The per-family checks, containment probes and readiness candidates |
+| `harness/shared/formats.mjs` | The one classifier over bytes (magic, OOXML parts, OLE directory, TIFF image count, fail-closed `unknown`), ZIP listing with bounded extraction, CRC-32, A1 parsing (used by import and readers) |
+| `harness/shared/descriptor.mjs` | The one descriptor validator, called by the shell and again by every reader |
+| `harness/checks/` | The per-family checks, containment probes, descriptor mutations (`descriptor.mjs`), import classes (`importclass.mjs`) and readiness candidates A to I |
 
 ## Rules
 

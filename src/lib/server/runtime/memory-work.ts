@@ -17,6 +17,8 @@ const NoteRow = Compile(strict({
   status: Type.Union(['here', 'exact', 'ambiguous', 'missing', 'unanchored'].map((s) => Type.Literal(s))),
   target: Type.Union([strict({ kind: Type.Literal('case') }), strict({ kind: Type.Literal('document'), anchor: AnchorRow }), strict({ kind: Type.Literal('analysis'), resultsVersion: Results, section: Text })]),
 }));
+const TargetRow = Compile(Type.Union([strict({ kind: Type.Literal('case') }), strict({ kind: Type.Literal('document'), anchor: AnchorRow }), strict({ kind: Type.Literal('analysis'), resultsVersion: Results, section: Text })]));
+const AnchorCheck = Compile(AnchorRow);
 const OverlayRow = Compile(strict({ caseId: Text, datasetKey: Text, seedId: Text, baseSeedSha256: Type.String(), fields: Type.Record(Type.String(), Type.Unknown()) }));
 const RegisterRowPayload = Compile(strict({ rowId: Text, store: Text, anchor: Type.Union([AnchorRow, Type.Null()]), fields: Type.Record(Type.String(), Type.Unknown()), createdAt: Iso, updatedAt: Iso, intact: Type.Boolean() }));
 function parsed<T>(validator: { Check(value: unknown): boolean }, text: unknown): T {
@@ -153,6 +155,7 @@ export function createMemoryWork(ctx: MemoryContext, store: C.CaseReader): C.Asy
       return result;
     },
     async addNote(a) {
+      if (!TargetRow.Check(a.target)) invalid();
       if (a.target.kind === 'document') { if (a.target.anchor.caseId !== a.caseId) throw contractError('forbidden'); await store.documentRows({ caseId: a.caseId, resultsVersion: a.target.anchor.resultsVersion }); }
       if (a.target.kind === 'analysis') await store.documentRows({ caseId: a.caseId, resultsVersion: a.target.resultsVersion });
       return change(a, ['note-add', a], (next, version) => { const note: C.HostedNote = { id: crypto.randomUUID(), body: body(a.body), createdAt: ctx.now().toISOString(), target: copy(a.target), status: 'here', candidates: [], intact: true }; next.notes.set(note.id, { ...note, version }); return { kind: 'written', value: note }; });
@@ -168,11 +171,12 @@ export function createMemoryWork(ctx: MemoryContext, store: C.CaseReader): C.Asy
       });
     },
     async putSeedOverlay(a) {
+      if (!OverlayRow.Check(a.overlay)) invalid();
       if (a.overlay.caseId !== a.caseId) throw contractError('forbidden');
       return change(a, ['overlay', a], (next, version) => { const k = key(a.overlay.datasetKey, a.overlay.seedId), conflict = compare(a.expected, next.overlays.get(k)); if (conflict) return { kind: conflict }; next.overlays.set(k, { ...copy(a.overlay), fields: fields(a.overlay.fields), version }); return { kind: 'written', value: undefined }; });
     },
     async listRows(a) { await authorize(a); storeName(a.store); return copy([...ctx.work(a.caseId).rows.values()].filter((r) => r.store === a.store)); },
-    async putRow(a) { storeName(a.store); if (a.anchor && a.anchor.caseId !== a.caseId) throw contractError('forbidden'); return change<C.AddResult>(a, ['row-put', a], (next, version) => {
+    async putRow(a) { storeName(a.store); if (a.anchor !== null && !AnchorCheck.Check(a.anchor)) invalid(); if (a.anchor && a.anchor.caseId !== a.caseId) throw contractError('forbidden'); return change<C.AddResult>(a, ['row-put', a], (next, version) => {
       const rowId = a.rowId ?? crypto.randomUUID(), k = key(a.store, rowId), old = next.rows.get(k), conflict = compare(a.expected, old);
       if (conflict) return { kind: conflict }; const at = ctx.now().toISOString();
       next.rows.set(k, { rowId, store: a.store, fields: fields(a.fields), anchor: copy(a.anchor), createdAt: old?.createdAt ?? at, updatedAt: at, intact: true, version });

@@ -4,9 +4,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { CHECKS, runHostedGate } from '../../../scripts/gate-hosted.mjs';
-import { LIFECYCLE } from '../../../.agents/skills/verify-clearcase-hosted/lib/main.mjs';
-import { DRIVE_STEPS, TEST_LEGS } from '../../../.agents/skills/verify-clearcase-hosted/lib/evidence.mjs';
+import { REQUIRED, runHostedGate } from '../../../scripts/gate-hosted.mjs';
+import { DRIVE_STEPS, featureOf, TEST_LEGS } from '../../../.agents/skills/verify-clearcase-hosted/lib/evidence.mjs';
 import { gateFixture } from '../runtime/gate-fixture.ts';
 
 export const REPO = resolve(import.meta.dirname, '..', '..', '..');
@@ -17,7 +16,9 @@ const ARTIFACT = `sha256:${'a'.repeat(64)}`;
 const RUN = 'run-2026-01-01T00-00-00-000Z';
 const stamp = { revision: SHA, dirty: false, exported: false, builtAt: '2026-01-01T00:00:00.000Z', bun: '1.4.2', buildId: `${SHA.slice(0, 12)}-hosted-gate-1767225600000`, target: 'cloudflare', profile: 'hosted-gate' };
 const state = { schema: 'clearcase.hosted-server/1', pid: 4242, port: 43800, base: 'http://127.0.0.1:43800', revision: SHA, profile: 'hosted-gate', artifact: ARTIFACT, runDir: `.local/hosted/${RUN}`, persist: `.local/hosted/${RUN}/persist`, runId: RUN, fixtureSha256: gateFixture().sha256, node: '24.0.0', startedAt: '2026-01-01T00:00:05.000Z' };
-const driveResult = (id, i) => ({ id, feature: id === 'browser' || id === 'no-egress' ? null : `feature-${id}`, title: `${id} (synthetic)`, status: 'PASS', ms: 10 + i, evidence: id === 'no-egress' ? { canaryHits: 0, backgroundHits: [], requests: 3, origins: ['http://127.0.0.1:43800'], consoleErrors: [] } : { shot: `screens/${i}.png` } });
+/** The inner run's steps in the order a real run records them: REQUIRED without the gate's own steps, the drive's steps before `drive`. */
+const INNER_ORDER = REQUIRED.filter((id) => !['refusals', 'offline', 'cleanup', 'evidence-kept'].includes(id)).flatMap((id) => (id === 'drive' ? ['browser', ...DRIVE_STEPS, id] : [id]));
+const driveResult = (id, i) => ({ id, feature: featureOf(id), title: `${id} (synthetic)`, status: 'PASS', ms: 10 + i, evidence: id === 'no-egress' ? { canaryHits: 0, backgroundHits: [], requests: 3, origins: ['http://127.0.0.1:43800'], consoleErrors: [] } : { shot: `screens/${i}.png` } });
 
 /** The files a passing run writes into its evidence directory. */
 export const validEvidence = () => ({
@@ -27,7 +28,7 @@ export const validEvidence = () => ({
 	'drive.json': { ok: true, partial: false, startedAt: 1767225640000, results: ['browser', ...DRIVE_STEPS].map(driveResult) },
 	'inner.json': {
 		ok: true, partial: false, revision: SHA, ports: { app: 43800, canary: 43899 }, stamp: { ...stamp }, state: { ...state },
-		results: [...new Set([...LIFECYCLE, ...CHECKS.map((c) => c.id)])].map((id, i) => (['browser', ...DRIVE_STEPS].includes(id) ? { ...driveResult(id, i), drive: true } : { id, title: `${id} (synthetic)`, status: 'PASS', ms: 1, evidence: {} })),
+		results: INNER_ORDER.map((id, i) => (['browser', ...DRIVE_STEPS].includes(id) ? { ...driveResult(id, i), drive: true } : { id, title: `${id} (synthetic)`, status: 'PASS', ms: 1, evidence: {} })),
 	},
 });
 
@@ -45,7 +46,8 @@ export async function gateWith(edit = () => {}, scratch = tmpdir()) {
 		refusals: async () => ({ ok: true }),
 		async hosted({ evidence }) {
 			for (const [f, doc] of Object.entries(files)) if (doc !== undefined) { mkdirSync(dirname(join(evidence, f)), { recursive: true }); writeFileSync(join(evidence, f), JSON.stringify(doc)); }
-			const steps = [...files['inner.json']?.results ?? [], ...['offline', 'cleanup', 'evidence-kept'].map((id) => ({ id, status: 'PASS', ms: 1 }))];
+			const results = files['inner.json']?.results;
+			const steps = [...(Array.isArray(results) ? results.filter((r) => r !== null && typeof r === 'object') : []), ...['offline', 'cleanup', 'evidence-kept'].map((id) => ({ id, status: 'PASS', ms: 1 }))];
 			return { ok: true, steps, inner: files['inner.json'] };
 		},
 		reread: () => ({ head: { sha: SHA, dirty: false } }),

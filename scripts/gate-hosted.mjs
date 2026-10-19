@@ -21,10 +21,11 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { REDUCED_ENV } from './gate.mjs';
 import { claimPidFile, releasePidFile, stopPidFile } from './pidfile.ts';
 import { cleanupRun, FIXTURE_MODULE, hostedRun, LIFECYCLE, preflight, runId } from '../.agents/skills/verify-clearcase-hosted/lib/main.mjs';
-import { buildProblem, DRIVE_STEPS, innerProblem, PROFILE, testSummaryProblem } from '../.agents/skills/verify-clearcase-hosted/lib/evidence.mjs';
+import { BUN_PIN, buildFileProblem, driveProblem, healthProblem, innerProblem, keysProblem, PROFILE, stampProblem, testSummaryProblem, DRIVE_STEPS } from '../.agents/skills/verify-clearcase-hosted/lib/evidence.mjs';
 import { IDENTITY, WRONG_CLIENT_IDENTITY } from '../.agents/skills/verify-clearcase-hosted/lib/steps.mjs';
 import { gateFixture } from '../tests/hosted-foundation/runtime/gate-fixture.ts';
 
@@ -85,20 +86,40 @@ export function bindingProblems(text) {
 	return problems;
 }
 
-/** Why the gate's own summary is not evidence for `sha`, or null. */
+export const SCOPE = 'credential-free local hosted regression: the hosted-gate artifact on local workerd with local D1 and R2 and named test doubles';
+const FIXTURE_REL = relative(REPO, FIXTURE_MODULE);
+const ARTIFACTS = { refusals: 'refusals.json', testHosted: 'test-hosted.json', drive: 'drive.json', health: 'health.json', screens: 'screens/' };
+const text = (v) => typeof v === 'string' && v !== '';
+const time = (v) => text(v) && !Number.isNaN(Date.parse(v));
+
+/** Why the gate's own summary is not evidence for `sha`, or null. One expected shape: exact keys, types and values. */
 export function gateSummaryProblem(doc, sha) {
 	if (doc?.schema !== 'clearcase-hosted-gate/1') return `summary: not a clearcase-hosted-gate/1 summary`;
 	if (doc.evidence !== true) return `summary: evidence is ${JSON.stringify(doc.evidence)}, not true`;
 	if (doc.ok !== true) return `summary: ok is ${JSON.stringify(doc.ok)}`;
 	if (!/^[0-9a-f]{40}$/.test(sha) || doc.sha !== sha) return `summary: for revision ${JSON.stringify(doc.sha)}, not HEAD ${sha}`;
-	if (doc.build?.revision !== sha) return `summary: the build stamp names ${JSON.stringify(doc.build?.revision)}, not HEAD ${sha}`;
+	const shaped = keysProblem('summary', doc, ['schema', 'ok', 'evidence', 'scope', 'sha', 'runId', 'startedAt', 'finishedAt', 'fixture', 'boundaries', 'notEvidenceFor', 'build', 'tools', 'ports', 'reduced', 'skipped', 'steps', 'artifacts'])
+		?? stampProblem('summary: the build stamp', doc.build, sha)
+		?? keysProblem('summary: fixture', doc.fixture, ['module', 'sha256', 'identity', 'wrongClientIdentity', 'deploymentClient'])
+		?? keysProblem('summary: tools', doc.tools, ['bun', 'node', 'wrangler', 'workerd', 'chromium'])
+		?? keysProblem('summary: artifacts', doc.artifacts, ['evidence', ...Object.keys(ARTIFACTS)]);
+	if (shaped) return shaped;
 	if (!Array.isArray(doc.reduced) || doc.reduced.length || !Array.isArray(doc.skipped) || doc.skipped.length) return `summary: reduced ${JSON.stringify(doc.reduced)}, skipped ${JSON.stringify(doc.skipped)}`;
+	if (doc.scope !== SCOPE) return `summary: scope is ${JSON.stringify(doc.scope)}, not the local gate's`;
+	if (!text(doc.runId) || !time(doc.startedAt) || !time(doc.finishedAt) || Date.parse(doc.finishedAt) < Date.parse(doc.startedAt)) return `summary: runId ${JSON.stringify(doc.runId)}, startedAt or finishedAt is not a run's`;
 	const steps = Array.isArray(doc.steps) ? doc.steps : [];
-	const missing = REQUIRED.filter((n) => !steps.some((s) => s.name === n && s.status === 'PASS'));
+	const stepShape = steps.map((st, i) => keysProblem(`summary: step ${i}`, st, ['name', 'status', 'ms'])).find(Boolean);
+	if (stepShape) return stepShape;
+	const missing = REQUIRED.filter((n) => !steps.some((st) => st.name === n && st.status === 'PASS'));
 	if (missing.length) return `summary: no PASS for ${missing.join(', ')}`;
-	if (steps.some((s) => s.status !== 'PASS')) return `summary: steps not PASS: ${steps.filter((s) => s.status !== 'PASS').map((s) => s.name).join(', ')}`;
-	if (doc.boundaries?.identity?.kind !== 'double' || !NOT_EVIDENCE_FOR.every((n) => doc.notEvidenceFor?.includes(n))) return 'summary: a local gate run must name identity a double and disclaim Clerk, Cloudflare D1 and R2, email and deployment';
-	if (doc.fixture?.sha256 !== gateFixture().sha256) return `summary: fixture ${JSON.stringify(doc.fixture?.sha256)} is not the committed gate fixture`;
+	if (steps.some((st) => st.status !== 'PASS')) return `summary: steps not PASS: ${steps.filter((st) => st.status !== 'PASS').map((st) => st.name).join(', ')}`;
+	if (!isDeepStrictEqual(steps.map((st) => st.name), REQUIRED) || steps.some((st) => typeof st.ms !== 'number')) return `summary: the steps are ${steps.map((st) => st.name).join(', ')}, not ${REQUIRED.join(', ')}`;
+	if (!isDeepStrictEqual(doc.boundaries, BOUNDARIES)) return 'summary: boundaries differ from the gate\'s: a local gate run names identity, store, assets and audit doubles, user work and results unavailable, local D1 and R2, and says nothing is real that is not';
+	if (!isDeepStrictEqual(doc.notEvidenceFor, NOT_EVIDENCE_FOR)) return `summary: notEvidenceFor must be exactly ${JSON.stringify(NOT_EVIDENCE_FOR)}: a local gate run disclaims Clerk, Cloudflare D1 and R2, email and deployment`;
+	if (!isDeepStrictEqual(doc.fixture, { module: FIXTURE_REL, sha256: gateFixture().sha256, identity: IDENTITY, wrongClientIdentity: WRONG_CLIENT_IDENTITY, deploymentClient: 'client-a' })) return `summary: fixture ${JSON.stringify(doc.fixture?.sha256)} is not the committed gate fixture`;
+	if (!isDeepStrictEqual(doc.ports, PORTS)) return `summary: ports ${JSON.stringify(doc.ports)}, not ${JSON.stringify(PORTS)}`;
+	if (!Object.values(doc.tools).every(text) || doc.tools.bun !== BUN_PIN) return `summary: tools ${JSON.stringify(doc.tools)} name no version or not Bun ${BUN_PIN}`;
+	if (!text(doc.artifacts.evidence) || Object.entries(ARTIFACTS).some(([k, v]) => doc.artifacts[k] !== v)) return `summary: artifacts ${JSON.stringify(doc.artifacts)}`;
 	return null;
 }
 
@@ -106,23 +127,31 @@ const readJson = (file) => { try { return JSON.parse(readFileSync(file, 'utf8'))
 
 /**
  * After the run: the gate re-reads what the run wrote and judges it itself, so a run that says PASS without evidence
- * for HEAD fails here. Returns [step, problem] pairs.
+ * for HEAD fails here. Each file is judged against its own expected shape (lib/evidence.mjs), then the files are tied to
+ * one another: one build stamp and artifact across build, health, test and inner; one server state and fixture.
+ * Returns [step, problem] pairs.
  */
 export function evidenceProblems(evidence, sha) {
 	const out = [];
-	const build = readJson(join(evidence, 'build.json'));
-	const b = buildProblem(build?.sidecar, build?.version, sha);
+	const build = readJson(join(evidence, 'build.json')), health = readJson(join(evidence, 'health.json')), test = readJson(join(evidence, 'test-hosted.json')), inner = readJson(join(evidence, 'inner.json'));
+	const b = buildFileProblem(build, sha), h = healthProblem(health, sha, gateFixture().sha256), t = testSummaryProblem(test, sha);
+	const i = innerProblem(inner, sha, [...LIFECYCLE, ...CHECKS.map((c) => c.id)]);
 	if (b) out.push(['build', b]);
-	const health = readJson(join(evidence, 'health.json'));
-	if (health?.build?.revision !== sha || health?.build?.profile !== PROFILE || health?.gate?.fixtureSha256 !== gateFixture().sha256 || health?.identityProvider !== 'test-identity-double' || health?.ok !== true || health?.runtime !== 'Cloudflare-Workers' || health?.probe?.ok !== true)
-		out.push(['live-doctor', `health.json is not this run's server for HEAD ${sha}: ${JSON.stringify({ build: health?.build?.revision, profile: health?.build?.profile, ok: health?.ok })}`]);
-	const t = testSummaryProblem(readJson(join(evidence, 'test-hosted.json')), sha);
+	if (h) out.push(['live-doctor', h]);
 	if (t) out.push(['test:hosted', t]);
-	const drive = readJson(join(evidence, 'drive.json'));
-	const notDriven = DRIVE_STEPS.filter((id) => !drive?.results?.some((r) => r.id === id && r.status === 'PASS'));
-	if (drive?.ok !== true || notDriven.length) out.push(['drive', `drive.json: ok ${JSON.stringify(drive?.ok)}; not passed: ${notDriven.join(', ') || 'none'}`]);
-	const i = innerProblem(readJson(join(evidence, 'inner.json')), sha, [...LIFECYCLE, ...CHECKS.map((c) => c.id)]);
+	const d = driveProblem(readJson(join(evidence, 'drive.json')));
+	if (d) out.push(['drive', d]);
 	if (i) out.push(['offline', i]);
+	const stamp = build?.sidecar?.stamp, artifact = build?.sidecar?.artifact;
+	if (!b && !h && !isDeepStrictEqual(health.build, stamp)) out.push(['live-doctor', `health.json: the served build ${health.build.buildId} is not the artifact build.json records (${stamp.buildId})`]);
+	if (!b && !t && test.artifact !== artifact) out.push(['test:hosted', `test:hosted: the summary's artifact ${test.artifact} is not the built ${artifact}`]);
+	if (!b && !i) {
+		const st = inner.state;
+		if (!isDeepStrictEqual(inner.stamp, stamp) || st.artifact !== artifact) out.push(['offline', `inner: the run's stamp or served artifact is not build.json's (${artifact})`]);
+		if (st.fixtureSha256 !== gateFixture().sha256 || !isDeepStrictEqual(inner.ports, PORTS)) out.push(['offline', `inner: the server ran fixture ${st.fixtureSha256} on ports ${JSON.stringify(inner.ports)}, not the committed gate fixture on ${JSON.stringify(PORTS)}`]);
+		if (!h && health.gate.runId !== `clearcase-test-double:hosted-gate/${st.runId}`) out.push(['live-doctor', `health.json answers for run ${health.gate.runId}, not this run's server ${st.runId}`]);
+		if (!t && test.base !== st.base) out.push(['test:hosted', `test:hosted ran against ${test.base}, not this run's server ${st.base}`]);
+	}
 	return out;
 }
 
@@ -132,7 +161,7 @@ export function runRefusals(evidence) {
 	const r = spawnSync(process.execPath, ['tests/hosted-foundation/gate/refusals.mjs', '--out', out], { cwd: REPO, encoding: 'utf8', timeout: 300_000 });
 	writeFileSync(log, `${r.stdout ?? ''}${r.stderr ?? ''}${r.error ? `\n${r.error}` : ''}`);
 	const doc = readJson(out);
-	const names = ['dirty-tree', 'reduced-run', 'missing-binding', 'stale-stamp', 'summary-not-evidence'];
+	const names = ['dirty-tree', 'reduced-run', 'missing-binding', 'stale-stamp', 'summary-not-evidence', 'evidence-walk'];
 	const bad = names.filter((n) => !doc?.refusals?.some((x) => x.name === n && x.status === 'PASS'));
 	if (r.status !== 0 || bad.length || doc?.control?.status !== 'PASS') return { ok: false, error: `refusal tests exited ${r.status ?? r.signal}; not PASS: ${bad.join(', ') || 'control'}; see ${relative(REPO, log)}` };
 	return { ok: true, evidence: { refusals: doc.refusals.map((x) => `${x.name}: ${x.cases.length} cases`), log: relative(REPO, log) } };
@@ -200,14 +229,14 @@ export async function runHostedGate({ head, argv = [], env = process.env, repo =
 	const build = readJson(join(evidence, 'build.json'))?.sidecar?.stamp ?? null;
 	const summary = {
 		schema: 'clearcase-hosted-gate/1', ok: !failedStep, evidence: !failedStep,
-		scope: 'credential-free local hosted regression: the hosted-gate artifact on local workerd with local D1 and R2 and named test doubles',
+		scope: SCOPE,
 		sha, runId: id, startedAt: started, finishedAt: new Date(now()).toISOString(),
-		fixture: { module: relative(repo, FIXTURE_MODULE), sha256: gateFixture().sha256, identity: IDENTITY, wrongClientIdentity: WRONG_CLIENT_IDENTITY, deploymentClient: 'client-a' },
+		fixture: { module: FIXTURE_REL, sha256: gateFixture().sha256, identity: IDENTITY, wrongClientIdentity: WRONG_CLIENT_IDENTITY, deploymentClient: 'client-a' },
 		boundaries: BOUNDARIES, notEvidenceFor: NOT_EVIDENCE_FOR,
 		build, tools: toolVersions(p), ports: PORTS,
 		reduced: [], skipped: steps.filter((s) => s.status === 'NOT RUN').map((s) => s.name),
 		steps: steps.map(({ name, status, ms, error }) => ({ name, status, ms: ms ?? null, ...(error ? { error: String(error).slice(0, 2000) } : {}) })),
-		artifacts: { evidence: relative(repo, evidence) || evidence, refusals: 'refusals.json', testHosted: 'test-hosted.json', drive: 'drive.json', health: 'health.json', screens: 'screens/' },
+		artifacts: { evidence: relative(repo, evidence) || evidence, ...ARTIFACTS },
 	};
 	const file = join(evidence, 'summary.json');
 	writeFileSync(`${file}.tmp`, JSON.stringify(summary, null, 1) + '\n');

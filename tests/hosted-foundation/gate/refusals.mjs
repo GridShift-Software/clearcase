@@ -13,10 +13,9 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { REDUCED_ENV } from '../../../scripts/gate.mjs';
-import { CHECKS, gateSummaryProblem, runHostedGate } from '../../../scripts/gate-hosted.mjs';
-import { LIFECYCLE } from '../../../.agents/skills/verify-clearcase-hosted/lib/main.mjs';
-import { DRIVE_STEPS, TEST_LEGS } from '../../../.agents/skills/verify-clearcase-hosted/lib/evidence.mjs';
-import { gateFixture } from '../runtime/gate-fixture.ts';
+import { gateSummaryProblem } from '../../../scripts/gate-hosted.mjs';
+import { evidenceWalk } from './mutations.mjs';
+import { gateWith as gateWithFixture } from './fixtures.mjs';
 
 const REPO = resolve(import.meta.dirname, '..', '..', '..');
 const LEADER_ENV = 'CLEARCASE_HOSTED_GATE_LEADER';
@@ -100,33 +99,7 @@ try {
 
 // --- runHostedGate with the real validators and written evidence ---------------------------------------------------
 
-const stamp = { revision: SHA, dirty: false, exported: false, builtAt: '2026-01-01T00:00:00.000Z', bun: '1.4.2', buildId: `${SHA.slice(0, 12)}-hosted-gate-1`, target: 'cloudflare', profile: 'hosted-gate' };
-/** The files a passing run writes into its evidence directory, as a real run shapes them. */
-const validEvidence = () => ({
-	'build.json': { sidecar: { schema: 'clearcase.hosted-build/1', stamp: { ...stamp }, artifact: `sha256:${'a'.repeat(64)}` }, version: { version: SHA } },
-	'health.json': { ok: true, runtime: 'Cloudflare-Workers', build: { ...stamp }, gate: { runId: 'clearcase-test-double:hosted-gate/run', fixtureSha256: gateFixture().sha256 }, identityProvider: 'test-identity-double', probe: { ok: true, bindings: { DB: true, BUCKET: true, ASSETS: true }, probes: { d1: true, r2: true } } },
-	'test-hosted.json': { schema: 'clearcase.hosted-test/1', revision: SHA, profile: 'hosted-gate', pass: true, legs: TEST_LEGS.map((name) => ({ name, status: 'PASS', asserted: [`${name} asserted`] })) },
-	'drive.json': { ok: true, partial: false, results: ['browser', ...DRIVE_STEPS].map((id) => ({ id, status: 'PASS' })) },
-	'inner.json': { ok: true, partial: false, revision: SHA, results: [...new Set([...LIFECYCLE, ...CHECKS.map((c) => c.id)])].map((id) => ({ id, status: 'PASS', ms: 1 })) },
-});
-async function gateWith(edit) {
-	const root = mkdtempSync(join(scratch, 'run-'));
-	const files = validEvidence();
-	edit(files);
-	const r = await runHostedGate({
-		head: { sha: SHA, dirty: false }, env: {}, repo: REPO,
-		pre: () => ({ ok: true, problems: [], facts: { node: { version: 'refusal-test' }, tools: { chromium: 'refusal-test' }, lock: null } }),
-		refusals: async () => ({ ok: true }),
-		async hosted({ evidence }) {
-			for (const [f, doc] of Object.entries(files)) if (doc !== undefined) { mkdirSync(dirname(join(evidence, f)), { recursive: true }); writeFileSync(join(evidence, f), JSON.stringify(doc)); }
-			const steps = [...files['inner.json']?.results ?? [], ...['offline', 'cleanup', 'evidence-kept'].map((id) => ({ id, status: 'PASS', ms: 1 }))];
-			return { ok: true, steps, inner: files['inner.json'] };
-		},
-		reread: () => ({ head: { sha: SHA, dirty: false } }),
-		evidenceRoot: join(root, 'evidence'), scratchRoot: join(root, 'scratch'),
-	});
-	return r;
-}
+const gateWith = (edit) => gateWithFixture(edit, scratch);
 const expectFail = async (name, step, edit) => {
 	const r = await gateWith(edit);
 	const ok = !r.pass && r.failed === step && r.lines.at(-1) === `GATE FAIL ${step} ${SHA}` && r.summary === null;
@@ -165,6 +138,13 @@ for (const [name, edit] of Object.entries({
 	'gate summary with a skipped step': (s) => { s.skipped = ['drive']; },
 	'gate summary missing a required step': (s) => { s.steps = s.steps.filter((x) => x.name !== 'test:hosted'); },
 	'gate summary claiming a real identity provider': (s) => { s.boundaries = { ...s.boundaries, identity: { kind: 'real', what: 'Clerk' } }; },
+	// the review's six retypes that the substring and short-list checks accepted (GRS-138, M1)
+	'gate summary with notEvidenceFor as one string': (s) => { s.notEvidenceFor = s.notEvidenceFor.join(' '); },
+	'gate summary claiming Cloudflare D1 is real': (s) => { s.boundaries = { ...s.boundaries, d1: { kind: 'real', what: 'Cloudflare D1' } }; },
+	'gate summary with every boundary but identity deleted': (s) => { s.boundaries = { identity: s.boundaries.identity }; },
+	'gate summary without a scope': (s) => { delete s.scope; },
+	'gate summary built from a dirty tree': (s) => { s.build.dirty = true; },
+	'gate summary built for the production profile': (s) => { s.build.profile = 'production'; },
 })) {
 	if (!valid) { summaryCases.push({ case: name, status: 'FAIL', got: 'no control summary' }); continue; }
 	const doc = structuredClone(valid);
@@ -174,9 +154,14 @@ for (const [name, edit] of Object.entries({
 }
 refusal('summary-not-evidence', summaryCases);
 
+// Every field of every evidence file and of the summary, one mutation at a time (mutations.mjs).
+const walk = await evidenceWalk(scratch);
+console.log(`not judged (free-form): ${Object.entries(walk.skips).map(([k, n]) => `${k} ${n}`).join(', ')}`);
+refusal('evidence-walk', walk.cases);
+
 rmSync(scratch, { recursive: true, force: true });
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, JSON.stringify(report, null, 1) + '\n');
-const ok = report.control.status === 'PASS' && report.refusals.length === 5 && report.refusals.every((r) => r.status === 'PASS');
+const ok = report.control.status === 'PASS' && report.refusals.length === 6 && report.refusals.every((r) => r.status === 'PASS');
 console.log(`refusals: ${ok ? 'PASS' : 'FAIL'} at ${SHA}; ${OUT}`);
 process.exit(ok ? 0 : 1);

@@ -11,7 +11,7 @@ import type { Asset, Manifest } from '../schema.ts';
 import { decodeUtf8Strict, isObject, type JsonObject, type JsonValue } from '../strict-json.ts';
 import { buildPackage, type DatasetSpec } from '../writer.ts';
 import { extractV5, V5_ROOTS, type V5Root, type V5Source } from './extract.ts';
-import { mapNewerRoots } from './newer-workspace.ts';
+import { mapNewerRoots, reportTextCap } from './newer-workspace.ts';
 import { extractViewContent, type FieldStatus, type ViewContentResult } from './view-content.ts';
 import { VIEW_CONTENT_AUDIT, VIEW_CONTENT_MAP, VIEW_CONTENT_OMISSIONS } from './view-content-map.ts';
 import type { Diagnostic } from '../codes.ts';
@@ -101,6 +101,7 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   if (!src) return fail();
   const roots = src.generation === 'v5-js-newer' ? mapNewerRoots(src.roots) : src.roots;
   const DATA = roots.DATA as JsonObject;
+  if (src.generation === 'v5-js-newer') reportTextCap(DATA, sink);
   const META = (roots.META ?? {}) as JsonObject;
   const prov = (sourcePath: string) => ({ source: V5_SOURCE, sourcePath, adapter: ADAPTER.mapping });
 

@@ -106,7 +106,9 @@ const personOf = (p: JsonObject): JsonObject => keepRest({ name: str(p.name), em
 const entityOf = (e: JsonObject): JsonObject => keepRest({ name: str(e.name), note: '', role: str(e.role) }, e, ['name', 'role']);
 export const riskLevel = (v: JsonValue | undefined): string => (typeof v !== 'number' ? str(v) : v >= 4 ? 'High' : v >= 3 ? 'Medium' : v >= 1 ? 'Low' : str(v));
 const riskOf = (r: JsonObject): JsonObject => {
-  const out: JsonObject = keepRest({ issue: str(r.risk), likelihood: riskLevel(r.l), impact: riskLevel(r.i), mitigation: str(r.mit) }, r, ['risk', 'l', 'i', 'mit']);
+  // `type` is the newer builder's `category`; a risk that names both keeps them as written
+  const category = typeof r.type === 'string' && !Object.hasOwn(r, 'category');
+  const out: JsonObject = keepRest({ issue: str(r.risk), likelihood: riskLevel(r.l), impact: riskLevel(r.i), mitigation: str(r.mit), ...(category && { category: r.type as string }) }, r, ['risk', 'l', 'i', 'mit', ...(category ? ['type'] : [])]);
   if (typeof r.l === 'number') out.likelihood_score = r.l;
   if (typeof r.i === 'number') out.impact_score = r.i;
   return out;
@@ -176,11 +178,23 @@ export function bundlesOf(b: JsonObject): JsonObject {
   return keepRest(out, b, ['source', 'indexSource', 'folder', 'caselinesSrc', 'headerDefaults', 'list']);
 }
 
+const en = (n: number) => n.toLocaleString('en-US');
+
+/** Reports the rows the export marks shortened (`sh` 1 or true); a flag that is neither 1 nor 0 is counted, never read as complete. */
+function reportShortened(rows: readonly JsonObject[], sink: DiagSink): void {
+  const shortened = rows.filter((r) => r.sh === 1 || r.sh === true).length;
+  const unclear = rows.filter((r) => r.sh !== undefined && r.sh !== null && r.sh !== 0 && r.sh !== false && r.sh !== 1 && r.sh !== true).length;
+  if (shortened === 0 && unclear === 0) return;
+  sink.add('V5_TEXT_CAPPED', `${en(shortened)} of ${en(rows.length)} chronology rows are marked shortened (sh) by the export, which holds only part of their text`
+    + (unclear ? `; ${en(unclear)} more ${unclear === 1 ? 'carries' : 'carry'} a sh value that is neither 1 nor 0 and could not be read` : ''), { file: 'input', subject: 'app-data.chronology' });
+}
+
 const MAPPED_DATA_KEYS = new Set(['chronology', 'people', 'entities', 'contradictions', 'agreements', 'bundles', 'meta', 'ft']);
 const MAPPED_SEED_KEYS = new Set(['client', 'matters', 'risk', 'vdm', 'inforeq', 'witnesses', 'elements', 'authorities', 'discovery']);
 
 export function toV5Roots(appData: JsonObject, appSeed: JsonObject, sink: DiagSink): Partial<Record<V5Root, JsonValue>> {
   const rows = objs(appData.chronology).map(chronologyRow);
+  reportShortened(objs(appData.chronology), sink);
   const rowsByRef = new Map(rows.map((r) => [str(r.ref), r]));
   const people = objs(appData.people).map(personOf);
   const DATA: JsonObject = { chronology: rows, people, entities: objs(appData.entities).map(entityOf), timeline: timelineOf(rows, rowsByRef, objs(appData.hot)) };

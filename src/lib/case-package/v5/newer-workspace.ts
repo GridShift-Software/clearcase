@@ -1,3 +1,4 @@
+import type { DiagSink } from '../diagnostics.ts';
 import { isObject, type JsonObject, type JsonValue } from '../strict-json.ts';
 import type { V5Root } from './extract.ts';
 
@@ -180,6 +181,21 @@ export const linkSampleOf = (list: JsonValue, rowsByRef: RowsByRef): JsonValue =
 export function buildReportOf(br: JsonObject, rowsByRef: RowsByRef): JsonObject {
   const fill = withFilename(rowsByRef);
   return { ...br, pending: mapObjs(br.pending, fill) ?? [], textNone: mapObjs(br.textNone, fill) ?? [] };
+}
+
+/** The V1 builder stores each document's extracted text in DATA.text and stops it at this many characters. */
+export const TEXT_CAP = 4000;
+const en = (n: number) => n.toLocaleString('en-US');
+
+/** Reports how many DATA.text entries reach the cap; a value that is not text is counted as unmeasured, never as complete. */
+export function reportTextCap(DATA: JsonObject, sink: DiagSink): void {
+  const t = DATA.text;
+  const entries = isObject(t) ? Object.values(t) : Array.isArray(t) ? t : t === undefined ? [] : [t];
+  const atCap = entries.filter((x) => typeof x === 'string' && x.length >= TEXT_CAP).length;
+  const unmeasured = entries.filter((x) => typeof x !== 'string').length;
+  if (atCap === 0 && unmeasured === 0) return;
+  sink.add('V5_TEXT_CAPPED', `${en(atCap)} of ${en(entries.length)} document texts (DATA.text) stop at the ${en(TEXT_CAP)}-character cap, so the export holds only their first ${en(TEXT_CAP)} characters`
+    + (unmeasured ? `; ${en(unmeasured)} ${unmeasured === 1 ? 'entry is' : 'entries are'} not text and could not be measured` : ''), { file: 'input', subject: 'DATA.text' });
 }
 
 const hasMatter = (v: JsonValue | undefined): boolean => isObject(v) && typeof v.title === 'string';

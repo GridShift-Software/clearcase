@@ -1,4 +1,4 @@
-import { chmod, mkdir, readdir, readFile, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readdir, readFile, stat, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { synthHtml, synthOriginals, synthRoots } from '../../../tests/case-package/fixtures/synth.ts';
@@ -279,5 +279,37 @@ describe('the whole pipeline', () => {
 		expect(failed(await lc.importCasePack(caseDir, dest))).toMatch(/More than one workspace HTML.*Second\.html, Workspace\.html/);
 		expect(await readdir(dest)).toEqual([]);
 		expect(lc.store.listImports()).toEqual([]);
+	});
+
+	// GRS-22 fix round, M4: a conversion the adapter refuses is a rejected import with its diagnostics, like a rejected package
+	it('records a refused conversion as a rejected import, keeps the received HTML privately, and leaves nothing beside the case', async () => {
+		const { root, lc, dest } = await setup('refused');
+		const roots = synthRoots();
+		roots.META.version = 'V9';
+		const html = synthHtml(roots);
+		const zip = path.join(root, 'Refused_Pack.zip');
+		await writeFile(zip, zipOf({ 'Workspace.html': html, 'Workspace (bundles update only).html': html, ...synthOriginals() }, 8));
+		const r = await lc.importCasePack(zip, dest);
+		expect(r.kind).toBe('rejected');
+		if (r.kind === 'failed') return;
+		const imp = lc.store.getImport(r.importId)!;
+		expect([imp.outcome, imp.verdict, imp.package_source]).toEqual(['rejected', 'reject', zip]);
+		const report = JSON.parse(imp.report) as { verdict: string; caseLabel: string | null; diagnostics: { code: string; severity: string }[]; app: { code: string; severity: string; message: string }[]; counts: Record<string, number>; errorFingerprints: string[] };
+		expect(report.verdict).toBe('reject');
+		expect(report.diagnostics.filter((d) => d.severity === 'error').map((d) => d.code)).toEqual(['VER_UNSUPPORTED']);
+		expect(report.counts).toEqual({ VER_UNSUPPORTED: 1 });
+		expect(report.errorFingerprints).toHaveLength(1);
+		expect(report.app.map((a) => [a.code, a.severity])).toEqual([['APP_CONVERSION_REFUSED', 'error']]);
+		const kept = path.join(root, 'data', 'refused-inputs');
+		const files = await readdir(kept);
+		expect(files).toHaveLength(1);
+		expect(report.app[0]!.message).toContain(path.join(kept, files[0]!));
+		expect(new Uint8Array(await readFile(path.join(kept, files[0]!)))).toEqual(html);
+		expect([(await stat(kept)).mode & 0o077, (await stat(path.join(kept, files[0]!))).mode & 0o077]).toEqual([0, 0]);
+		expect(await readdir(dest)).toEqual([]);
+		expect(lc.store.listImports().map((i) => i.outcome)).toEqual(['rejected']);
+		const again = await lc.importCasePack(zip, dest);
+		expect(again.kind).toBe('rejected');
+		expect(await readdir(kept)).toEqual(files);
 	});
 });

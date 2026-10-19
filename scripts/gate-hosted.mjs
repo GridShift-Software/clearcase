@@ -114,7 +114,7 @@ export function evidenceProblems(evidence, sha) {
 	const b = buildProblem(build?.sidecar, build?.version, sha);
 	if (b) out.push(['build', b]);
 	const health = readJson(join(evidence, 'health.json'));
-	if (health?.build?.revision !== sha || health?.build?.profile !== PROFILE || health?.gate?.fixtureSha256 !== gateFixture().sha256 || health?.identityProvider !== 'test-identity-double' || health?.ok !== true)
+	if (health?.build?.revision !== sha || health?.build?.profile !== PROFILE || health?.gate?.fixtureSha256 !== gateFixture().sha256 || health?.identityProvider !== 'test-identity-double' || health?.ok !== true || health?.runtime !== 'Cloudflare-Workers' || health?.probe?.ok !== true)
 		out.push(['live-doctor', `health.json is not this run's server for HEAD ${sha}: ${JSON.stringify({ build: health?.build?.revision, profile: health?.build?.profile, ok: health?.ok })}`]);
 	const t = testSummaryProblem(readJson(join(evidence, 'test-hosted.json')), sha);
 	if (t) out.push(['test:hosted', t]);

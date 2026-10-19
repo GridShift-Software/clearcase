@@ -42,7 +42,8 @@ export const validRefusals = () => ({
 export const FILE_STEP = { 'build.json': 'build', 'health.json': 'live-doctor', 'test-hosted.json': 'test:hosted', 'drive.json': 'drive', 'inner.json': 'offline' };
 
 /** Runs the gate's own runHostedGate with the real validators and a run that writes `validEvidence()` after `edit`. */
-export async function gateWith(edit = () => {}, scratch = tmpdir()) {
+/** `tweak({ evidence, steps })` may rewrite the run's steps and write logs into the evidence directory; it returns false for a run that is not ok. */
+export async function gateWith(edit = () => {}, scratch = tmpdir(), tweak = () => true) {
 	const root = mkdtempSync(join(scratch, 'run-'));
 	const files = validEvidence();
 	edit(files);
@@ -54,7 +55,8 @@ export async function gateWith(edit = () => {}, scratch = tmpdir()) {
 			for (const [f, doc] of Object.entries(files)) if (doc !== undefined) { mkdirSync(dirname(join(evidence, f)), { recursive: true }); writeFileSync(join(evidence, f), JSON.stringify(doc)); }
 			const results = files['inner.json']?.results;
 			const steps = [...(Array.isArray(results) ? results.filter((r) => r !== null && typeof r === 'object') : []), ...['offline', 'cleanup', 'evidence-kept'].map((id) => ({ id, status: 'PASS', ms: 1 }))];
-			return { ok: true, steps, inner: files['inner.json'] };
+			const ok = tweak({ evidence, steps }) !== false;
+			return { ok, steps, inner: files['inner.json'] };
 		},
 		reread: () => ({ head: { sha: SHA, dirty: false } }),
 		evidenceRoot: join(root, 'evidence'), scratchRoot: join(root, 'scratch'),

@@ -71,11 +71,21 @@ describe('CI workflow Node for the hosted gate', () => {
 		const run = String(gate.run);
 		expect(run).toContain('process.versions.bun');
 		expect(run).toContain('process.execPath');
-		expect(run.indexOf('process.versions.bun')).toBeGreaterThan(run.indexOf('--name gate-hosted'));
+		expect(run.indexOf('"$proof"'), 'the proof is an argument of the receipted command').toBeGreaterThan(run.indexOf('--name gate-hosted'));
+		expect(run.indexOf('node -e "$1" && exec bun run --bun gate:hosted'), 'the proof runs before the gate, in the same command').toBeGreaterThan(run.indexOf('--name gate-hosted'));
 		expect(run).toContain('--tool node');
 	});
 	it('carries no Cloudflare credential, secret or account', () => {
 		expect(text).not.toMatch(/\$\{\{\s*secrets\./);
 		for (const s of steps) for (const k of Object.keys((s.env as Record<string, unknown>) ?? {})) expect(k, `env ${k} of ${String(s.name ?? s.uses)}`).not.toMatch(/CLOUDFLARE|TOKEN|SECRET|ACCOUNT|API_KEY/i);
+	});
+});
+
+describe('hosted run limits', () => {
+	it('stops the offline namespace before the job\'s own limit, so a hang still leaves a gate-hosted receipt', () => {
+		const limit = Number(/VERIFY_CLEARCASE_HOSTED_TIMEOUT_MS \?\? ([\d_]+)/.exec(readFileSync(new URL('../../.agents/skills/verify-clearcase-hosted/lib/main.mjs', import.meta.url), 'utf8'))![1]!.replaceAll('_', ''));
+		const job = Number(/timeout-minutes: (\d+)/.exec(text)![1]) * 60_000;
+		expect(limit).toBeLessThanOrEqual(25 * 60_000);
+		expect(limit).toBeLessThan(job);
 	});
 });

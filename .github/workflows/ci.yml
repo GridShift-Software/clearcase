@@ -65,22 +65,68 @@ jobs:
             bun run --bun test --maxWorkers=6 --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/receipts/vitest.json"
       # The credential-free hosted gate (GRS-138; docs/development.md, "Hosted checks"): the hosted-gate artifact of this
       # checkout on local workerd, with local D1 and R2 under Miniflare and Chromium over loopback, in an offline network
-      # namespace. Node hosts Wrangler, so this step needs the pinned Node; workerd arrives with bun install. No
-      # Cloudflare account, binding or token reaches it: CI=1 and telemetry off, and the run's D1 and R2 state
-      # (.local/hosted) and scratch live on this step's tmpfs directory. Its evidence uploads with the receipts.
+      # namespace. Node hosts Wrangler, so this step needs a real Node (24 LTS, ADR 0008's line; Wrangler needs 22 or
+      # later); workerd arrives with bun install. No Cloudflare account, binding or token reaches it: CI=1 and telemetry
+      # off, and the run's D1 and R2 state (.local/hosted) and scratch live on this step's tmpfs directory. Its evidence
+      # uploads with the receipts.
+      #
+      # PC1 run 39260890102 downloaded Node 26.10.0 into the tool cache and then failed with exit code 127 on its binary,
+      # before the gate ran. The Node step may now fail without ending the job; when it does, the next step prints what
+      # the guest says about the binary (kernel, mounts, the loader and libraries) and the one after puts nodejs.org's own
+      # tarball of the same version first on PATH, after checking its SHA-256 against both a pinned value and nodejs.org's
+      # published SHASUMS256.txt. The gate step then proves the node it will use is a real Node, not Bun's stand-in.
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        id: setup-node
+        continue-on-error: true
         with:
-          node-version: 26.10.0
+          node-version: 24.22.0
+      - name: node diagnostics
+        if: steps.setup-node.outcome == 'failure'
+        run: |
+          set +e
+          bin="$RUNNER_TOOL_CACHE/node/24.22.0/x64/bin"
+          uname -a
+          grep -E '^(PRETTY_NAME|VERSION_ID)=' /etc/os-release
+          echo '-- mounts of /home/runner and /tmp'
+          mount | grep -E ' on (/|/home|/home/runner|/tmp)[ /]' | cut -c1-160
+          echo '-- tool cache'
+          df -h "$RUNNER_TOOL_CACHE" | tail -1
+          ls -la "$bin"
+          file "$bin/node"
+          "$bin/node" --version; echo "node --version exit $?"
+          ldd "$bin/node"
+          ldconfig -p | grep -E 'libstdc\+\+|libatomic|libgcc' | head -8
+          exit 0
+      - name: node fallback
+        id: node-fallback
+        if: steps.setup-node.outcome == 'failure'
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/node-fallback"
+          mkdir -p "$dir"
+          cd "$dir"
+          curl -fsSLO https://nodejs.org/dist/v24.22.0/node-v24.22.0-linux-x64.tar.gz
+          curl -fsSLO https://nodejs.org/dist/v24.22.0/SHASUMS256.txt
+          want=28ea0a438de9a13bd7891fd758eee6c7819ee8af5442dfd8d45bd65e56d4228c
+          published=$(grep ' node-v24.22.0-linux-x64.tar.gz$' SHASUMS256.txt | cut -d' ' -f1)
+          [ "$published" = "$want" ] || { echo "nodejs.org publishes $published for the tarball, not the pinned $want" >&2; exit 1; }
+          echo "$want  node-v24.22.0-linux-x64.tar.gz" | sha256sum -c -
+          tar -xzf node-v24.22.0-linux-x64.tar.gz
+          bin="$dir/node-v24.22.0-linux-x64/bin"
+          ldd "$bin/node"
+          "$bin/node" --version
+          echo "$bin" >> "$GITHUB_PATH"
       - name: gate-hosted
         run: |
           tmp=$(mktemp -d /dev/shm/clearcase-ci-hosted.XXXXXX)
           trap 'rm -f .local/hosted; rm -rf "$tmp"' EXIT
           mkdir -p .local "$tmp/hosted" "$tmp/scratch"
           ln -sfn "$tmp/hosted" .local/hosted
+          proof='if (process.versions.bun) { console.error("node is Bun"); process.exit(3); } console.log("node " + process.execPath + " " + process.version + " (not Bun)");'
           CI=1 WRANGLER_SEND_METRICS=false WRANGLER_SEND_ERROR_REPORTS=false TMPDIR=$tmp CLEARCASE_HOSTED_SCRATCH=$tmp/scratch \
             CLEARCASE_HOSTED_REPORT_DIR="$RUNNER_TEMP/receipts/hosted" \
             scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base origin/dev --name gate-hosted --tool bun --tool node -- \
-            bun run --bun gate:hosted
+            bash -c 'node -e "$1" && exec bun run --bun gate:hosted' bash "$proof"
       # A fix round commits its review findings and the reviewed SHA under docs/acceptance/fix-rounds/
       # (docs/agent-tooling.md). The guard fails a pull request that deletes, skips, loosens or renames a test those
       # findings name, that changes the test code, runner configuration or fixtures they depend on, or that deletes a

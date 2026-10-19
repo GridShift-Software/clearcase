@@ -154,6 +154,30 @@ for (const [name, edit] of Object.entries({
 }
 refusal('summary-not-evidence', summaryCases);
 
+// What a failed run prints: the cause from the step's log, not stack frames, and at most 30 lines whatever failed.
+const frames = (n) => Array.from({ length: n }, (_, i) => `    at #maybeClose (node:internal/child_process:${i + 1}:1)`).join('\n');
+const failing = async (name, tweak, check) => {
+	const r = await gateWithFixture(() => {}, scratch, tweak);
+	const why = check(r.lines);
+	return { case: name, status: r.failed && !why ? 'PASS' : 'FAIL', got: why ?? r.lines.at(-1) };
+};
+const noFrames = (lines) => lines.find((l) => /^\s*at /.test(l));
+refusal('failure-tail', [
+	await failing('the cause comes from the failing step\'s log', ({ evidence, steps }) => {
+		writeFileSync(join(evidence, 'build.log'), 'vite build\nhosted-import: src/lib/server/runtime/hosted/gate/hooks.server.ts: forbidden capability node:fs\n    at scan (guard.ts:9:1)\n');
+		Object.assign(steps.find((x) => x.id === 'build'), { status: 'FAIL', error: `Error: build:hosted exited 1; see build.log: vite build | at scan\n${frames(8)}` });
+		return false;
+	}, (lines) => (lines.some((l) => /^cause: .*forbidden capability node:fs/.test(l)) ? noFrames(lines) && `a stack frame is printed: ${noFrames(lines)}` : `no cause line in ${lines.join(' | ').slice(0, 300)}`)),
+	await failing('a long error with no log still names its first line and no frames', ({ steps }) => {
+		Object.assign(steps.find((x) => x.id === 'start'), { status: 'FAIL', error: `Error: start:hosted exited 1 before serving\n${frames(30)}` });
+		return false;
+	}, (lines) => (lines.some((l) => /^cause: Error: start:hosted exited 1 before serving/.test(l)) ? noFrames(lines) && `a stack frame is printed: ${noFrames(lines)}` : `no cause line in ${lines.join(' | ').slice(0, 300)}`)),
+	await failing('every step failing with a 40-line error prints at most 30 lines', ({ steps }) => {
+		for (const x of steps) Object.assign(x, { status: 'FAIL', error: Array.from({ length: 40 }, (_, i) => `problem line ${i}`).join('\n') });
+		return false;
+	}, (lines) => (lines.length <= 30 ? null : `${lines.length} lines`)),
+]);
+
 // Every field of every evidence file and of the summary, one mutation at a time (mutations.mjs).
 const walk = await evidenceWalk(scratch);
 console.log(`not judged (free-form): ${Object.entries(walk.skips).map(([k, n]) => `${k} ${n}`).join(', ')}`);
@@ -162,6 +186,6 @@ refusal('evidence-walk', walk.cases);
 rmSync(scratch, { recursive: true, force: true });
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, JSON.stringify(report, null, 1) + '\n');
-const ok = report.control.status === 'PASS' && report.refusals.length === 6 && report.refusals.every((r) => r.status === 'PASS');
+const ok = report.control.status === 'PASS' && report.refusals.length === 7 && report.refusals.every((r) => r.status === 'PASS');
 console.log(`refusals: ${ok ? 'PASS' : 'FAIL'} at ${SHA}; ${OUT}`);
 process.exit(ok ? 0 : 1);

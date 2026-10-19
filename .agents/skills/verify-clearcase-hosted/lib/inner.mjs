@@ -154,6 +154,7 @@ await step('start', `bun run --bun start:hosted on ${app}: provision local D1 an
 		await new Promise((r) => setTimeout(r, 100));
 	}
 	if (state.revision !== cfg.revision || state.profile !== PROFILE || state.port !== cfg.ports.app) throw new Error(`the recorded server is ${JSON.stringify(state)}`);
+	pid('hosted-server', state.pid); // the server's own process: cleanup stops a server on the port only if the run recorded it
 	serverTree = tree(state.pid);
 	return { readyMs: Date.now() - t0, state, processes: serverTree.map((p) => `${p.pid} ${p.exe}`) };
 });

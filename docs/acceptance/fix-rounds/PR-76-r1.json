@@ -97,22 +97,20 @@
       "comment": "https://github.com/GridShift-Software/clearcase/pull/76#discussion_r4316586025",
       "severity": "P2",
       "text": "[Low / P2] Keep coverage notes beyond the first 100 accessible.\n\nA valid conversion report can contain more than 100 notes for one code. `sourceCoverage` returns `total:101` but only 100 items, and its Svelte section provides no pagination or way to inspect the omitted subjects/messages. That contradicts the CC-25 F1 fix's promise to show every converter coverage note and leaves later unsupported data without its repair detail. Render every note or provide bounded paging/expansion with explicit truncation information; cover 101 notes in the regression. This is the unchanged low follow-up from PR #74; the documented sample counts remain below this limit.",
-      "tests": [
+      "tests": [],
+      "unprotectedTests": [
         {
           "file": "tests/case-package/source-coverage-all-notes.test.ts",
           "name": "lists all 101 unmapped-key notes, so the 101st is reachable, and states the converter's total"
         }
-      ]
+      ],
+      "unprotectedReason": "The regression renders the import page, so tests/case-package/source-coverage-all-notes.test.ts imports src/routes/import/[id]/+page.svelte, which the guard's import resolver cannot follow (it resolves JS and TS modules only) and refuses; the test is committed unchanged from the red base 27232fc and is not guard-protected."
     }
   ],
   "tests": [
     {
       "file": "src/lib/local-case/refused-import-lock.test.ts",
       "name": "answers a second import of the same HTML with the busy message until the first has written its attempt row"
-    },
-    {
-      "file": "tests/case-package/source-coverage-all-notes.test.ts",
-      "name": "lists all 101 unmapped-key notes, so the 101st is reachable, and states the converter's total"
     }
   ]
 }

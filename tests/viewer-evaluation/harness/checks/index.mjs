@@ -7,6 +7,7 @@ import email from './email.mjs';
 import media from './media.mjs';
 import archive from './archive.mjs';
 import containment from './containment.mjs';
+import importclass from './importclass.mjs';
 import readiness from './readiness.mjs';
 
-export const CHECKS = { pdf, image, word, sheet, email, media, archive, containment, readiness };
+export const CHECKS = { pdf, image, word, sheet, email, media, archive, containment, importclass, readiness };

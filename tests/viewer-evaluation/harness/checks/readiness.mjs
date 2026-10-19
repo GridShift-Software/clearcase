@@ -80,4 +80,7 @@ export default async function readiness(c, { full }) {
   c.record(F, 'candidate D', C, 'a reference to a different rendition version holds the update', !D.ready && D.reasons.some((r) => r.code === 'stale-rendition'), "reason 'stale-rendition'", D.reasons);
   const E = await evaluate(c, 'E missing rendition', [{ id: 'image/tiff-lzw.tif' }]);
   c.record(F, 'candidate E', C, 'a format that needs a prepared rendition holds the update until it exists', !E.ready && E.reasons.some((r) => r.code === 'prepared-rendition-missing'), "reason 'prepared-rendition-missing'", E.reasons);
+  const G = await evaluate(c, 'G unknown bytes', [{ id: 'archive/unknown-members.zip' }, { id: 'email/unknown-attachments.eml' }]);
+  const gKids = G.reasons.filter((r) => r.file.includes('#'));
+  c.record(F, 'candidate G', C, 'unrecognised or unsupported bytes inside a ZIP and on an EML hold the whole update', !G.ready && ['archive/unknown-members.zip#', 'email/unknown-attachments.eml#'].every((p) => new Set(gKids.filter((r) => r.file.startsWith(p)).map((r) => r.file)).size === 6), 'not ready; each of the six blobs in each container carries a hold', G.reasons);
 }

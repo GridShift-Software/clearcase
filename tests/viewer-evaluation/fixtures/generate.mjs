@@ -9,7 +9,8 @@ import { Pdf, buildPdf, tokenPages } from './lib/pdf.mjs';
 import { buildZip, zeroBomb } from './lib/zip.mjs';
 import { fullDocx, altChunkDocx } from './lib/ooxml.mjs';
 import { mainWorkbook, chartWorkbook, largeWorkbook, CSV } from './lib/sheets.mjs';
-import { gmailEml, outlookEml, hostileEml, takeoutMbox } from './lib/mail.mjs';
+import { gmailEml, outlookEml, hostileEml, takeoutMbox, carrierEml } from './lib/mail.mjs';
+import { unknownBlobs } from './lib/unknown.mjs';
 import { buildMsg, melaRtf } from './lib/msg.mjs';
 import { ffmpeg, magick, run, soffice, version } from './lib/tools.mjs';
 import { OUT_ROOT } from '../harness/paths.mjs';
@@ -232,6 +233,12 @@ put('archive', 'unsupported-method.zip', buildZip([{ name: 'lzma.txt', data: 'no
 put('archive', 'bomb-256mib.zip', buildZip([{ name: 'zeros.bin', raw: zeroBomb(256 << 20), method: 8, crc: 0, size: 256 << 20 }]), 'lib/zip.mjs: one entry deflating to 256 MiB of zeros (bounded bomb; CRC deliberately 0)');
 put('archive', 'bomb-lying-size.zip', buildZip([{ name: 'zeros.bin', raw: zeroBomb(256 << 20), method: 8, crc: 0, size: 1000 }]), 'lib/zip.mjs: the same 256 MiB expansion with a declared size of 1,000 bytes');
 put('archive', 'many-1000.zip', buildZip(Array.from({ length: 1000 }, (_, i) => ({ name: `entries/item-${String(i + 1).padStart(4, '0')}.txt`, data: `ZIP-MANY-${i + 1}` }))), 'lib/zip.mjs: 1,000 entries (stress tier)', { stress: '1,000 members' });
+
+// ---------- Unrecognised and unsupported bytes (H1): top level, inside a ZIP, attached to an EML ----------
+const blobs = unknownBlobs();
+for (const [name, bytes] of Object.entries(blobs)) put('unknown', name, bytes, 'lib/unknown.mjs: signature bytes only (PST/OST header, 7z, RAR, gzip) or unsignatured filler');
+put('archive', 'unknown-members.zip', buildZip(Object.entries(blobs).map(([name, data]) => ({ name, data, method: 8 }))), 'lib/zip.mjs: the six unknown/unsupported blobs as members');
+put('email', 'unknown-attachments.eml', carrierEml({ subject: 'UNKNOWN-ATTACHMENTS-SUBJECT-TOKEN', attachments: Object.entries(blobs).map(([name, data]) => ({ name, mime: 'application/octet-stream', data })) }), 'lib/mail.mjs: the six unknown/unsupported blobs as attachments');
 
 writeFileSync(path.join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 1));
 rmSync(TMP, { recursive: true, force: true });

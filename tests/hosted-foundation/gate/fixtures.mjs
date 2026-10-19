@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { REQUIRED, runHostedGate } from '../../../scripts/gate-hosted.mjs';
+import { REFUSAL_NAMES, REQUIRED, runHostedGate } from '../../../scripts/gate-hosted.mjs';
 import { DRIVE_STEPS, featureOf, TEST_LEGS } from '../../../.agents/skills/verify-clearcase-hosted/lib/evidence.mjs';
 import { gateFixture } from '../runtime/gate-fixture.ts';
 
@@ -30,6 +30,12 @@ export const validEvidence = () => ({
 		ok: true, partial: false, revision: SHA, ports: { app: 43800, canary: 43899 }, stamp: { ...stamp }, state: { ...state },
 		results: INNER_ORDER.map((id, i) => (['browser', ...DRIVE_STEPS].includes(id) ? { ...driveResult(id, i), drive: true } : { id, title: `${id} (synthetic)`, status: 'PASS', ms: 1, evidence: {} })),
 	},
+});
+
+/** refusals.json as refusals.mjs writes it, with a few cases per refusal. */
+export const validRefusals = () => ({
+	schema: 'clearcase-hosted-gate-refusals/1', sha: SHA, control: { status: 'PASS', got: `GATE PASS ${SHA}` },
+	refusals: REFUSAL_NAMES.map((name) => ({ name, status: 'PASS', cases: [`${name} one`, `${name} two`].map((c) => ({ case: c, status: 'PASS', got: `GATE FAIL ${c}` })) })),
 });
 
 /** Which step of the gate each evidence file is judged under. */

@@ -155,15 +155,23 @@ export function evidenceProblems(evidence, sha) {
 	return out;
 }
 
+export const REFUSAL_NAMES = ['dirty-tree', 'reduced-run', 'missing-binding', 'stale-stamp', 'summary-not-evidence', 'evidence-walk'];
+
+/** Why refusals.json (the refusal tests' summary) does not show every refusal PASS for `sha`, or null. */
+export function refusalsProblem(doc, sha) {
+	const bad = REFUSAL_NAMES.filter((n) => !doc?.refusals?.some((x) => x.name === n && x.status === 'PASS'));
+	if (bad.length || doc?.control?.status !== 'PASS') return `not PASS: ${bad.join(', ') || 'control'}`;
+	return null;
+}
+
 /** The refusal tests (tests/hosted-foundation/gate/refusals.mjs) in a child; their JSON summary must name every refusal PASS. */
-export function runRefusals(evidence) {
+export function runRefusals(evidence, sha) {
 	const out = join(evidence, 'refusals.json'), log = join(evidence, 'refusals.log');
 	const r = spawnSync(process.execPath, ['tests/hosted-foundation/gate/refusals.mjs', '--out', out], { cwd: REPO, encoding: 'utf8', timeout: 300_000 });
 	writeFileSync(log, `${r.stdout ?? ''}${r.stderr ?? ''}${r.error ? `\n${r.error}` : ''}`);
 	const doc = readJson(out);
-	const names = ['dirty-tree', 'reduced-run', 'missing-binding', 'stale-stamp', 'summary-not-evidence', 'evidence-walk'];
-	const bad = names.filter((n) => !doc?.refusals?.some((x) => x.name === n && x.status === 'PASS'));
-	if (r.status !== 0 || bad.length || doc?.control?.status !== 'PASS') return { ok: false, error: `refusal tests exited ${r.status ?? r.signal}; not PASS: ${bad.join(', ') || 'control'}; see ${relative(REPO, log)}` };
+	const bad = refusalsProblem(doc, sha);
+	if (r.status !== 0 || bad) return { ok: false, error: `refusal tests exited ${r.status ?? r.signal}; ${bad ?? 'refusals.json is fine'}; see ${relative(REPO, log)}` };
 	return { ok: true, evidence: { refusals: doc.refusals.map((x) => `${x.name}: ${x.cases.length} cases`), log: relative(REPO, log) } };
 }
 
@@ -204,7 +212,7 @@ export async function runHostedGate({ head, argv = [], env = process.env, repo =
 	mkdirSync(evidence, { recursive: true });
 	const steps = [];
 	const t0 = now();
-	const ref = await refusals(evidence);
+	const ref = await refusals(evidence, sha);
 	steps.push({ name: 'refusals', status: ref.ok ? 'PASS' : 'FAIL', ms: now() - t0, error: ref.error });
 	let run = null;
 	if (ref.ok) {

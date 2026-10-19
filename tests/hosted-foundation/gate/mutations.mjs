@@ -14,9 +14,9 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { gateSummaryProblem } from '../../../scripts/gate-hosted.mjs';
+import { gateSummaryProblem, refusalsProblem } from '../../../scripts/gate-hosted.mjs';
 import { DRIVE_STEPS } from '../../../.agents/skills/verify-clearcase-hosted/lib/evidence.mjs';
-import { FILE_STEP, gateWith, SHA, validEvidence } from './fixtures.mjs';
+import { FILE_STEP, gateWith, SHA, validEvidence, validRefusals } from './fixtures.mjs';
 
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const at = (doc, path) => path.reduce((o, k) => o[k], doc);
@@ -56,6 +56,7 @@ const SKIPPED = {
 		if (file === 'drive.json' && doc.results[m[1]]?.id === 'no-egress' && path === `results.${m[1]}.evidence.canaryHits`) return false;
 		return path !== `results.${m[1]}.evidence` || kind === 'unknown-key';
 	},
+	'one-case': (path, kind) => kind === 'deleted' && /^refusals\.\d+\.cases\.\d+$/.test(path),
 	'one-assertion': (path, kind) => kind === 'deleted' && /^legs\.\d+\.asserted\.\d+$/.test(path),
 };
 const skipped = (file, path, kind, doc) => Object.entries(SKIPPED).find(([, f]) => f(path, kind, file, doc))?.[0] ?? null;
@@ -67,7 +68,7 @@ export async function evidenceWalk(scratch = tmpdir()) {
 	try {
 		const control = await gateWith(() => {}, root);
 		const summary = control.summary;
-		const targets = [...Object.keys(FILE_STEP).map((file) => ({ file, doc: validEvidence()[file] })), { file: 'summary.json', doc: summary }];
+		const targets = [...Object.keys(FILE_STEP).map((file) => ({ file, doc: validEvidence()[file] })), { file: 'summary.json', doc: summary }, { file: 'refusals.json', doc: validRefusals() }];
 		for (const { file, doc } of targets) {
 			if (!doc) { cases.push({ case: `${file}: control`, status: 'FAIL', got: `no control ${file}: ${control.lines.at(-1)}` }); continue; }
 			for (const [path, kind, apply] of mutants(doc)) {
@@ -77,8 +78,8 @@ export async function evidenceWalk(scratch = tmpdir()) {
 				apply(copy);
 				if (JSON.stringify(copy) === JSON.stringify(doc)) continue;
 				let refused, got;
-				if (file === 'summary.json') {
-					try { got = gateSummaryProblem(copy, SHA); } catch (e) { got = null; refused = false; }
+				if (file === 'summary.json' || file === 'refusals.json') {
+					try { got = (file === 'summary.json' ? gateSummaryProblem : refusalsProblem)(copy, SHA); } catch (e) { got = null; }
 					refused = !!got;
 				} else {
 					// a gate that throws on a malformed file did not name the problem: that is a defect too

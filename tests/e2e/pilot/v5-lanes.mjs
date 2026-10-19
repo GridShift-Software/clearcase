@@ -175,7 +175,7 @@ async function checkStack(C, Ln) {
 	Ln.check('packageManager pinned to bun@1.4.2 and the server runs that Bun', { pin: 'bun@1.4.2', server: '1.4.2', stamp: '1.4.2' }, { pin: pj.packageManager, server: h.instance.bun, stamp: build.stamp?.bun ?? null });
 	const ranges = Object.entries({ ...pj.dependencies, ...pj.devDependencies }).filter(([, v]) => !/^\d+\.\d+\.\d+$/.test(v));
 	Ln.check('every dependency is an exact pin (no ranges or tags)', [], ranges);
-	Ln.check('SvelteKit app with the pinned framework versions', { kit: '2.70.3', svelte: '5.57.2', vite: '8.3.4', adapter: '5.5.7', pdfjs: '6.4.299' }, { kit: pj.devDependencies['@sveltejs/kit'], svelte: pj.devDependencies.svelte, vite: pj.devDependencies.vite, adapter: pj.devDependencies['@sveltejs/adapter-node'], pdfjs: pj.devDependencies['pdfjs-dist'] });
+	Ln.check('SvelteKit app with the pinned framework versions', { kit: '3.1.0', svelte: '5.57.2', vite: '8.3.4', adapter: '6.0.0', pdfjs: '6.4.299' }, { kit: pj.devDependencies['@sveltejs/kit'], svelte: pj.devDependencies.svelte, vite: pj.devDependencies.vite, adapter: pj.devDependencies['@sveltejs/adapter-node'], pdfjs: pj.devDependencies['pdfjs-dist'] });
 	Ln.check('SQLite under Bun: results WAL, work DELETE, synchronous FULL (health pragmas)', { main: { journal_mode: 'wal', synchronous: 2 }, work: { journal_mode: 'delete', synchronous: 2 } }, { main: h.pragmas?.main, work: h.pragmas?.work });
 	Ln.check('GRS-10 scripts preserved (convert, validate, verify:package)', [true, true, true], ['convert', 'validate', 'verify:package'].map((s) => typeof pj.scripts?.[s] === 'string'));
 	Ln.note('the stack comparison itself is documentary (spike judge evidence, docs/development.md); GRS-10\'s own suites are not re-run here');

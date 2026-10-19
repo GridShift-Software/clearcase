@@ -67,7 +67,9 @@ export function createMemoryBackend(a: { fixture: MemoryFixture; now: () => Date
     let state = states.get(clientId);
     if (!state) { state = { work: new Map(), definitions: new Map(), snapshots: new Map(), events: [] }; states.set(clientId, state); }
     const session = fixture.identities.find((s) => s.sessionId === sessionId);
-    const principal: C.Principal | null = session ? { issuer: fixture.clients.find((c) => c.clientId === session.clientId)!.issuer, subject: session.subject, kind: session.kind } : null;
+    // Verified only while the session stands: a revoked, expired or other-client session is not who it names.
+    const standing = !!session && !revoked.has(session.sessionId) && Date.parse(session.expiresAt) > a.now().getTime() && session.clientId === clientId;
+    const principal: C.Principal | null = session && standing ? { issuer: fixture.clients.find((c) => c.clientId === session.clientId)!.issuer, subject: session.subject, kind: session.kind } : null;
     async function checkRevocation() {
       await before('identity');
       if (sessionId === null) throw contractError('unauthenticated');

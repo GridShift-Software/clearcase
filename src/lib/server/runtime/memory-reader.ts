@@ -11,11 +11,21 @@ import { providerProblem, validOriginal } from './provider-row.ts';
 export function createMemoryReader(ctx: MemoryContext): C.CaseReader {
   const providers = new Map<string, C.DocumentProvider>();
   const guard = async (scope: C.Scope) => { await ctx.before('read'); await ctx.identity.authorize({ ...scope, operation: 'read' }); };
-  async function version(scope: C.VersionScope): Promise<MemoryVersion> {
-    await guard(scope);
+  // The exact publication, read now: a caller checks it after every await, since a provider or a slow read can outlast it.
+  function published(scope: C.VersionScope): MemoryVersion {
     const c = ctx.client.cases.find((c) => c.caseId === scope.caseId), v = ctx.client.versions.find((v) => v.info.id === scope.resultsVersion);
     if (!v || v.info.case_id !== scope.caseId || c?.publication.kind !== 'published' || c.publication.resultsVersion !== scope.resultsVersion) throw contractError('forbidden');
     return v;
+  }
+  async function version(scope: C.VersionScope): Promise<MemoryVersion> {
+    await guard(scope);
+    return published(scope);
+  }
+  /** Re-authorizes the session and grant and rechecks exact publication, then hands back what an awaited read produced. */
+  async function release<T>(scope: C.VersionScope, value: T): Promise<T> {
+    await ctx.identity.authorize({ ...scope, operation: 'read' });
+    published(scope);
+    return value;
   }
   async function collect(scope: C.VersionScope) {
     const v = await version(scope), rows = copy(v.rows), failed: C.DocumentRowsResult['failed'] = [], dropped: C.DocumentRowsResult['dropped'] = [], revisions: string[] = [];
@@ -49,8 +59,7 @@ export function createMemoryReader(ctx: MemoryContext): C.CaseReader {
         rows.push(...added); dropped.push(...drops); revisions.push(`${p.id}=${revision}`);
       } catch { failed.push({ source, owner: p.owner, reason: 'provider-unavailable' }); revisions.push(`${p.id}=!`); }
     }
-    await ctx.identity.authorize({ ...scope, operation: 'read' });
-    return { rows: freeze(rows), failed, dropped, revisions };
+    return release(scope, { rows: freeze(rows), failed, dropped, revisions });
   }
   const store: C.CaseReader = {
     async listCases() {

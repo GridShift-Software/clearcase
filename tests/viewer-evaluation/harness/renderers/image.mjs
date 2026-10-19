@@ -10,16 +10,29 @@ async function decode(bytes, mime) {
   const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
   const img = el('img', { alt: '', src: url });
   const t0 = performance.now();
-  try { await img.decode(); } catch (e) { return { ok: false, ms: Math.round(performance.now() - t0), error: String(e.message ?? e) }; }
-  return { ok: true, img, ms: Math.round(performance.now() - t0), w: img.naturalWidth, h: img.naturalHeight };
+  let api = 'decode()';
+  try { await img.decode(); } catch (e) {
+    // Chrome's decode() rejects a 100 MP PNG that still loads, paints and decodes to a bitmap; a broken image fails both
+    try {
+      if (!img.complete) await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
+      if (!img.naturalWidth) throw e;
+      (await createImageBitmap(new Blob([bytes], { type: mime }))).close();
+      api = 'load + createImageBitmap (decode() rejected)';
+    } catch { return { ok: false, ms: Math.round(performance.now() - t0), error: String(e.message ?? e) }; }
+  }
+  return { ok: true, img, api, ms: Math.round(performance.now() - t0), w: img.naturalWidth, h: img.naturalHeight };
 }
 
 function sample(img, points) {
+  // one source pixel per point into a 1x1 canvas, so a 100 MP image never needs a full-size canvas
   const cv = document.createElement('canvas');
-  cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+  cv.width = 1; cv.height = 1;
   const g = cv.getContext('2d', { willReadFrequently: true });
-  g.drawImage(img, 0, 0);
-  return Object.fromEntries(points.map(([name, x, y]) => [name, [...g.getImageData(Math.floor(x * (cv.width - 1)), Math.floor(y * (cv.height - 1)), 1, 1).data]]));
+  return Object.fromEntries(points.map(([name, x, y]) => {
+    g.clearRect(0, 0, 1, 1);
+    g.drawImage(img, Math.floor(x * (img.naturalWidth - 1)), Math.floor(y * (img.naturalHeight - 1)), 1, 1, 0, 0, 1, 1);
+    return [name, [...g.getImageData(0, 0, 1, 1).data]];
+  }));
 }
 
 async function open(descriptor, bytes, extras, target) {
@@ -58,7 +71,7 @@ async function open(descriptor, bytes, extras, target) {
     if (!d.ok) throw new RenderError('decode-failed', `${src.mime} did not decode: ${d.error}`);
     img = d.img;
     img.alt = src.label;
-    I.page = n; I.w = d.w; I.h = d.h; I.decodeMs = d.ms;
+    I.page = n; I.w = d.w; I.h = d.h; I.decodeMs = d.ms; I.decodeApi = d.api;
     I.samples = sample(img, [['topCenter', 0.5, 0.02], ['bottomCenter', 0.5, 0.98], ['leftCenter', 0.02, 0.5], ['rightCenter', 0.98, 0.5]]);
     wrap.replaceChildren(img);
     pageStatus.textContent = sources.length > 1 ? `Page ${n} of ${sources.length}` : `${d.w} × ${d.h} px`;

@@ -33,6 +33,12 @@ export function createMemoryAssets(ctx: MemoryContext, fault: (asset: C.AssetRef
   }
   const headers = { 'cache-control': 'no-store', 'x-content-type-options': 'nosniff', 'referrer-policy': 'no-referrer', 'cross-origin-resource-policy': 'same-origin' };
   return {
+    async originals(scope) {
+      await ctx.before('asset');
+      await ctx.authorized(scope, 'read-original', 'asset.list');
+      return ctx.client.assets.filter((a) => a.ref.kind === 'original' && a.ref.caseId === scope.caseId)
+        .map((a) => ({ assetId: a.ref.assetId, filename: a.metadata.filename, mediaType: a.metadata.mediaType, size: a.metadata.size }));
+    },
     availability: ({ asset }) => described(asset, async () => {
       try { return { kind: 'available', metadata: (await read(asset)).metadata }; }
       catch (e) { if (e instanceof Error && 'code' in e && (e.code === 'missing-original' || e.code === 'changed-original')) return { kind: 'unavailable', reason: e.code === 'missing-original' ? 'missing' : 'changed', parent: null }; throw e; }

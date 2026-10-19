@@ -8,17 +8,32 @@ import { compile } from 'svelte/compiler';
 const local = /^(?:src\/lib\/(?:local-case\/(?:app|db|store|service|config|case-pack|fsafe|originals)\.server\.ts|local-case\/rescan\/rescan\.server\.ts|user-work\/backup\/(?:backup|legacy|v5-importers)\.server\.ts|views\/system\/(?:manual|rescan|backup)\.server\.ts|views\/bundles\/(?:links|store)\.server\.ts|case-package\/(?:index|source|zip|originals|writer|import)\.ts|case-package\/v5\/))/;
 const nodeModules = new Set(builtinModules.map((m) => m.replace(/^node:/, '')));
 const safeBuiltins = new Set(['crypto']);
+// Packages a hosted module may import. Their internals are the framework's, proven on workerd by the hosted smoke run and
+// checked again in the emitted artifact (scripts/ci/hosted-artifact.ts); they are not walked here. Any other package fails.
+const hostedPackages = new Set(['svelte', '@sveltejs/kit', 'typebox']);
+// SvelteKit's virtual app modules and the one Workers runtime module a hosted module may name.
+const virtualModules = /^(?:\$app\/(?:env|forms|navigation|paths|state)|cloudflare:workers)$/;
+// Test doubles: the memory doubles serve unit tests only; the gate doubles exist only in the hosted-gate profile.
+const memoryDouble = /^src\/lib\/server\/runtime\/memory[^/]*\.ts$/;
+const gateDouble = /^src\/lib\/server\/runtime\/hosted\/gate\//;
+export type HostedProfile = 'production' | 'hosted-gate';
+const packageOf = (specifier: string) => /^(?:@[^/]+\/)?[^/.$][^/]*/.exec(specifier)?.[0] ?? null;
 const extensions = ['.ts', '.js', '.mjs', '.svelte'];
 function record(value: unknown): value is Record<string, unknown> { return value !== null && typeof value === 'object' && !Array.isArray(value); }
-function selected(root: string) {
+/** The routes and server hooks one hosted profile builds; a profile entry may replace the hooks and nothing else. */
+export function selected(root: string, profile: HostedProfile = 'production') {
   const files: unknown = JSON.parse(readFileSync(path.join(root, 'deploy/client/hosted-files.json'), 'utf8'));
   if (!record(files) || typeof files.routes !== 'string' || !record(files.hooks) || typeof files.hooks.server !== 'string') throw new Error('invalid hosted file selection');
-  return { routes: files.routes, hooks: { server: files.hooks.server } };
+  if (profile === 'production') return { routes: files.routes, hooks: { server: files.hooks.server } };
+  const entry = record(files.profiles) ? files.profiles[profile] : undefined;
+  if (!record(entry) || Object.keys(entry).join() !== 'hooks' || !record(entry.hooks) || typeof entry.hooks.server !== 'string') throw new Error(`invalid hosted file selection for ${profile}`);
+  return { routes: files.routes, hooks: { server: entry.hooks.server } };
 }
 const slash = (s: string) => s.replaceAll(path.sep, '/');
 const literal = (n: ts.Node | undefined) => n && (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) ? n.text : null;
 
-export function checkHostedGraph(a: { root: string }): { errors: string[]; files: string[] } {
+export function checkHostedGraph(a: { root: string; profile?: HostedProfile }): { errors: string[]; files: string[] } {
+  const profile = a.profile ?? 'production';
   const root = realpathSync(a.root), errors: string[] = [], visited = new Set<string>();
   const relative = (file: string) => slash(path.relative(root, file));
   function fail(chain: string[], reason: string) { errors.push(`hosted-import: ${chain.join(' -> ')}: ${reason}`); }
@@ -36,7 +51,7 @@ export function checkHostedGraph(a: { root: string }): { errors: string[]; files
   }
   let config: ReturnType<typeof selected>, options: ts.CompilerOptions;
   try {
-    config = selected(root);
+    config = selected(root, profile);
     const raw = ts.readConfigFile(path.join(root, 'tsconfig.json'), ts.sys.readFile);
     if (raw.error) throw new Error(ts.flattenDiagnosticMessageText(raw.error.messageText, ' '));
     const parsed = ts.parseJsonConfigFileContent(raw.config, ts.sys, root);
@@ -46,11 +61,23 @@ export function checkHostedGraph(a: { root: string }): { errors: string[]; files
   } catch (e) { fail(['configuration'], e instanceof Error ? e.message : 'unreadable configuration'); return { errors, files: [] }; }
   function resolve(specifier: string, importer: string, chain: string[]) {
     const bare = specifier.replace(/^node:/, '');
-    if (specifier.startsWith('bun:') || nodeModules.has(bare) || specifier.startsWith('node:')) {
+    if (virtualModules.test(specifier)) return;
+    if (specifier.startsWith('bun:') || specifier.startsWith('cloudflare:') || nodeModules.has(bare) || specifier.startsWith('node:')) {
       if (!safeBuiltins.has(bare)) fail(chain, `forbidden capability ${specifier}`);
       return;
     }
-    const resolved = ts.resolveModuleName(specifier, importer, options, ts.sys).resolvedModule?.resolvedFileName;
+    // TypeScript does not resolve Svelte components; a component is named by a relative or $lib path, nothing else.
+    if (specifier.endsWith('.svelte')) {
+      const file = specifier.startsWith('./') || specifier.startsWith('../') ? path.resolve(path.dirname(importer), specifier) : specifier.startsWith('$lib/') ? path.join(root, 'src/lib', specifier.slice(5)) : null;
+      if (file === null || !existsSync(file)) fail(chain, `unresolved ${specifier}`); else visit(file, chain);
+      return;
+    }
+    const module = ts.resolveModuleName(specifier, importer, options, ts.sys).resolvedModule, resolved = module?.resolvedFileName;
+    if (module?.isExternalLibraryImport) {
+      const name = packageOf(specifier);
+      if (!name || !hostedPackages.has(name)) fail(chain, `package outside the hosted allowlist ${specifier}`);
+      return;
+    }
     if (!resolved || resolved.endsWith('.d.ts') || resolved.endsWith('.d.mts') || resolved.endsWith('.d.cts')) { fail(chain, `unresolved ${specifier}`); return; }
     visit(resolved, chain);
   }
@@ -90,6 +117,7 @@ export function checkHostedGraph(a: { root: string }): { errors: string[]; files
     try { file = realpathSync(input); inside(file); } catch { fail([...prior, relative(input)], 'unresolved or outside hosted source boundary'); return; }
     const name = relative(file), chain = [...prior, name];
     if (local.test(name)) { visited.add(file); fail(chain, 'forbidden local implementation'); return; }
+    if (memoryDouble.test(name) || gateDouble.test(name) && profile !== 'hosted-gate') { visited.add(file); fail(chain, `forbidden test double in the ${profile} graph`); return; }
     if (visited.has(file)) return;
     visited.add(file);
     let text: string;
@@ -141,8 +169,8 @@ export function checkHostedGraph(a: { root: string }): { errors: string[]; files
   } catch (e) { fail(['roots'], e instanceof Error ? e.message : 'unreadable roots'); }
   return { errors: [...new Set(errors)], files: [...visited].map(relative).sort() };
 }
-export function assertHostedGraph(root: string) {
-  const result = checkHostedGraph({ root });
+export function assertHostedGraph(root: string, profile: HostedProfile = 'production') {
+  const result = checkHostedGraph({ root, profile });
   if (result.errors.length) throw new Error(result.errors.join('\n'));
   return result;
 }
@@ -150,7 +178,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   try {
     const rootIndex = process.argv.indexOf('--root'), root = rootIndex < 0 ? process.cwd() : process.argv[rootIndex + 1];
     if (!root) throw new Error('missing --root value');
-    const result = assertHostedGraph(root);
-    console.log(`hosted-import: PASS (${result.files.length} selected source modules; Workers artifact proof pending)`);
+    // Both profiles: the production graph without any test double, and the hosted-gate graph with only its own.
+    for (const profile of ['production', 'hosted-gate'] as const) {
+      const result = assertHostedGraph(root, profile);
+      console.log(`hosted-import: PASS ${profile} (${result.files.length} selected source modules)`);
+    }
   } catch (e) { console.error(e instanceof Error ? e.message : String(e)); process.exitCode = 1; }
 }

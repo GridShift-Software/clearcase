@@ -1,8 +1,7 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import type { Config } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vite';
-import hostedFiles from './deploy/client/hosted-files.json' with { type: 'json' };
-import { assertHostedGraph } from './scripts/ci/hosted-imports.ts';
+import { assertHostedGraph, selected, type HostedProfile } from './scripts/ci/hosted-imports.ts';
 
 // One app, two artifacts, chosen by one build variable. Unset (or `local`), the build is the local pilot on adapter-node
 // that `bun run --bun start` serves. `CLEARCASE_TARGET=hosted` (only through `bun run --bun build:hosted`) is the
@@ -11,13 +10,18 @@ import { assertHostedGraph } from './scripts/ci/hosted-imports.ts';
 const target = process.env.CLEARCASE_TARGET ?? 'local';
 if (target !== 'local' && target !== 'hosted') throw new Error(`CLEARCASE_TARGET must be local or hosted, not ${target}`);
 const hosted = target === 'hosted';
+// The hosted profile is a test variable: `production` (the default) holds no test double; `hosted-gate` swaps in the
+// gate's hooks and their named doubles (src/lib/server/runtime/hosted/gate/), for GRS-138's hosted gate only.
+const profile = (process.env.CLEARCASE_HOSTED_PROFILE ?? 'production') as HostedProfile;
+if (profile !== 'production' && profile !== 'hosted-gate') throw new Error(`CLEARCASE_HOSTED_PROFILE must be production or hosted-gate, not ${profile}`);
+if (!hosted && process.env.CLEARCASE_HOSTED_PROFILE) throw new Error('CLEARCASE_HOSTED_PROFILE applies to CLEARCASE_TARGET=hosted only');
 const adapter = hosted
 	? (await import('@sveltejs/adapter-cloudflare')).default({ config: 'deploy/client/wrangler.toml' })
 	: (await import('@sveltejs/adapter-node')).default();
 
 const config: Config = {
 	adapter,
-	...(hosted ? { files: hostedFiles } : {}),
+	...(hosted ? { files: selected(process.cwd(), profile) } : {}),
 	// Kit 3 removed $lib; the app's 541 imports keep it through this alias rather than a 135-file rename to #lib
 	alias: { $lib: 'src/lib', '$lib/*': 'src/lib/*' },
 	// a build of one exported revision gets that revision as its version name, so its client assets are reproducible
@@ -43,5 +47,7 @@ const config: Config = {
 };
 
 export default defineConfig({
-	plugins: [{ name: 'clearcase-hosted-boundary', buildStart() { if (hosted) assertHostedGraph(process.cwd()); } }, sveltekit(config)]
+	// The build stamp `build:hosted` passes in (scripts/pilot/hosted.ts); the hosted runtime refuses an artifact without one.
+	define: hosted ? { __CLEARCASE_BUILD__: JSON.stringify(process.env.CLEARCASE_BUILD_STAMP ?? null) } : {},
+	plugins: [{ name: 'clearcase-hosted-boundary', buildStart() { if (hosted) assertHostedGraph(process.cwd(), profile); } }, sveltekit(config)]
 });

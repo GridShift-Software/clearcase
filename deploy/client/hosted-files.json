@@ -1,4 +1,7 @@
 {
-  "routes": "src/lib/server/runtime/hosted/routes",
-  "hooks": { "server": "src/lib/server/runtime/hosted/hooks.server" }
+  "routes": "deploy/client/routes",
+  "hooks": { "server": "src/lib/server/runtime/hosted/hooks.server" },
+  "profiles": {
+    "hosted-gate": { "hooks": { "server": "src/lib/server/runtime/hosted/gate/hooks.server" } }
+  }
 }

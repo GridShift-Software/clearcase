@@ -10,8 +10,9 @@ import { CONVERSION_REPORT, LAYOUT, OPAQUE_SCHEMA, REQUIRED_DATASETS, V5_DATASET
 import type { Asset, Manifest } from '../schema.ts';
 import { decodeUtf8Strict, isObject, type JsonObject, type JsonValue } from '../strict-json.ts';
 import { buildPackage, type DatasetSpec } from '../writer.ts';
+import { countOf, OVERLAY_MODULE, OVERLAY_SOURCE_PATH, readAnalysisOverlay } from './analysis-overlay.ts';
 import { extractV5, V5_ROOTS, type V5Root, type V5Source } from './extract.ts';
-import { mapNewerRoots } from './newer-workspace.ts';
+import { mapNewerRoots, reportTextCap } from './newer-workspace.ts';
 import { extractViewContent, type FieldStatus, type ViewContentResult } from './view-content.ts';
 import { VIEW_CONTENT_AUDIT, VIEW_CONTENT_MAP, VIEW_CONTENT_OMISSIONS } from './view-content-map.ts';
 import type { Diagnostic } from '../codes.ts';
@@ -101,6 +102,7 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   if (!src) return fail();
   const roots = src.generation === 'v5-js-newer' ? mapNewerRoots(src.roots) : src.roots;
   const DATA = roots.DATA as JsonObject;
+  if (src.generation === 'v5-js-newer') reportTextCap(DATA, sink);
   const META = (roots.META ?? {}) as JsonObject;
   const prov = (sourcePath: string) => ({ source: V5_SOURCE, sourcePath, adapter: ADAPTER.mapping });
 
@@ -144,6 +146,16 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   const layout: Record<string, string[]> = { roots: V5_ROOTS.filter((r) => roots[r] !== undefined), DATA: Object.keys(DATA) };
   for (const sp of V5_SPLIT_PARENTS) { const v = getAt(roots, sp); if (isObject(v)) layout[sp] = Object.keys(v); }
   datasets.push({ key: LAYOUT.key, kind: LAYOUT.kind, schema: LAYOUT.schema, required: LAYOUT.required, provenance: prov(LAYOUT.sourcePath), data: layout });
+
+  // the newer viewer's hand-authored analysis is code, not a payload line: read as strict JSON, never evaluated, kept opaque
+  const overlay = src.generation === 'v5-js-newer' ? readAnalysisOverlay(decodeUtf8Strict(src.html.bom ? opts.html.subarray(3) : opts.html), sink) : null;
+  if (overlay) {
+    const key = residualKey('v5-residual-analysis-overlay', OVERLAY_SOURCE_PATH);
+    const counts = Object.entries(overlay).map(([k, v]) => `${k} ${countOf(v)}`).join(', ');
+    sink.add('V5_OVERLAY_UNMAPPED', `${OVERLAY_MODULE} holds the newer viewer's hand-authored analysis (${Object.keys(overlay).length} keys: ${counts}); its views are not mapped yet, so it is kept as the opaque dataset ${key}`, { file: 'input', subject: OVERLAY_SOURCE_PATH });
+    datasets.push({ key, kind: 'generated', schema: OPAQUE_SCHEMA, required: false, provenance: prov(OVERLAY_SOURCE_PATH), data: overlay });
+    stats.residual++;
+  }
 
   const vc: ViewContentResult = src.generation === 'v5-js'
     ? extractViewContent(decodeUtf8Strict(src.html.bom ? opts.html.subarray(3) : opts.html), VIEW_CONTENT_MAP, VIEW_CONTENT_OMISSIONS, { skipLines: Object.values(src.lines).filter((n): n is number => n !== undefined), audit: VIEW_CONTENT_AUDIT, sink })

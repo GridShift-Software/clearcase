@@ -63,6 +63,18 @@
 		<p class="card" id="notes-impact">User work for this case: {plural(data.notes.total, 'note')}; in this candidate {data.notes.here + data.notes.exact} attach to a document, {data.notes.ambiguous} are ambiguous and {data.notes.missing + data.notes.unanchored} would be shown as detached. Activation never changes user work.</p>
 	{/if}
 
+	{#if data.textCoverage}
+		<section class="card" id="text-coverage" aria-labelledby="text-coverage-heading">
+			<h2 id="text-coverage-heading">Source text coverage</h2>
+			{#if data.textCoverage.known}
+				{#each data.textCoverage.notes as note, i (i)}<p>{note}.</p>{/each}
+				<p><em>{data.textCoverage.hint}</em></p>
+			{:else}
+				<p>This package carries no conversion report, so whether its source export cut document text short is not known.</p>
+			{/if}
+		</section>
+	{/if}
+
 	{#if r.app.length}
 		<h2>Import checks</h2>
 		<ul id="app-diagnostics">{#each r.app as d (d.code + d.message)}<li><strong>{d.code}</strong> ({d.severity}): {d.message}. <em>{d.hint}</em></li>{/each}</ul>

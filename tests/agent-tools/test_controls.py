@@ -1573,6 +1573,41 @@ class GuardReach(GuardCase):
             self.commit('legitimate')
             self.guard()
 
+    def test_the_same_shapes_elsewhere_refuse(self):
+        # class sweep: the framework loaded through a renamed require, a support component a change newly loads, and a
+        # bare setup entry that names neither a tracked file nor a declared package
+        for label, text in {
+            'createRequire': "import { createRequire } from 'node:module';\nconst load = createRequire(import.meta.url);\n"
+                             "load('vitest').expect.extend({ toEqual: () => ({ pass: true, message: () => '' }) });\n",
+            'a scoped framework package by name': "const load = (globalThis as any).require ?? (() => ({}));\nexport const m = [load][0]('@vitest/expect');\n",
+        }.items():
+            with self.subTest(bypass=label):
+                self.protect({'src/api.ts': self.api}, self.named_api)
+                self.write('src/api.ts', text + self.weakened)
+                self.commit('load the framework under another name')
+                self.assertIn('reaches the test framework', self.guard(code=1))
+        with self.subTest(bypass='application code newly loads an unchanged support component'):
+            component = "<script lang=\"ts\">\n" + self.patch + "</script>\n<p>x</p>\n"
+            self.protect({'src/api.ts': self.api, 'tests/support/Patch.svelte': component}, self.named_api)
+            self.write('src/api.ts', "import '../tests/support/Patch.svelte';\n" + self.weakened)
+            self.commit('load a support component from the module under test')
+            self.assertIn('newly loads', self.guard(code=1))
+        test = "import { test, expect } from 'vitest';\n" + self.original
+        package = json.dumps({'name': 'x', 'devDependencies': {'@testing-library/jest-dom': '6.0.0'}})
+        with self.subTest(bypass='a bare setup entry naming an ignored file'):
+            self.protect({'.gitignore': 'setup.ts\n', 'package.json': package,
+                          'vitest.config.ts': "export default { test: { setupFiles: ['setup.ts'] } };\n"}, test)
+            self.write('setup.ts', "(globalThis as any).validate = () => false;\n")
+            self.write('app.txt', 'fixed\n')
+            self.commit('fix')
+            self.assertIn('cannot bind', self.guard(code=1))
+        with self.subTest(control='a setup entry naming a declared package'):
+            self.protect({'package.json': package,
+                          'vitest.config.ts': "export default { test: { setupFiles: ['@testing-library/jest-dom/vitest'] } };\n"}, test)
+            self.write('app.txt', 'fixed\n')
+            self.commit('fix')
+            self.guard()
+
 
 class GuardBinding(ControlCase):
     """H1: once a fix attempt is recorded, approval needs a PASS guard receipt bound to the reviewed commit and findings."""

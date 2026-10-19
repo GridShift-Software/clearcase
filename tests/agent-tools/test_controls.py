@@ -1427,6 +1427,7 @@ class GuardReach(GuardCase):
     both the protected closure and the framework-reach check."""
     named_api, api, weakened = GuardAllowlist.named_api, GuardAllowlist.api, GuardAllowlist.weakened
     patch, reason = GuardAllowlist.patch, GuardAllowlist.reason
+    weaken = GuardAllowlist.weaken
     # the matcher state's registry, reached without importing vitest
     symbol_patch = "(globalThis as any)[Symbol.for('$$jest-matchers-object')].customEqualityTesters.push(() => true);\nexport {};\n"
 
@@ -1467,6 +1468,44 @@ class GuardReach(GuardCase):
             self.write('scripts/measure.ts', "import { PORT } from '../tests/e2e/lib/env';\nexport const port = PORT;\n")
             self.commit('fix with a regression test in another file')
             self.guard()
+
+    def test_a_new_import_cannot_run_import_time_code_before_the_named_test(self):
+        # finding 2 (medium): imports evaluate before the named test, so a new import of an unchanged module whose top
+        # level sets state changes what the named test proves
+        strict = "import { configure } from './api';\nconfigure(true);\nexport const strict = true;\n"
+        for label, files, line in (
+                ('a top-level call', {'src/strict.ts': strict}, "import { strict } from '../src/strict';\n"),
+                ('a re-export of a module with one', {'src/strict.ts': strict, 'src/flags.ts': "export { strict } from './strict';\n"},
+                 "import { strict } from '../src/flags';\n"),
+                ('a class static block', {'src/boot.ts': "import { configure } from './api';\nexport class Boot { static { configure(true); } }\n"},
+                 "import { Boot } from '../src/boot';\n"),
+                ('a top-level assignment', {'src/flip.ts': "import { settings } from './api';\nsettings.strict = true;\nexport const flipped = true;\n"},
+                 "import { flipped } from '../src/flip';\n"),
+                ('a package the reviewed test does not load', {'src/pkg.ts': "export { pad } from 'left-pad';\n"},
+                 "import { pad } from '../src/pkg';\n")):
+            with self.subTest(bypass=f'new import of {label}'):
+                self.assertIn('import time', self.weaken(line + self.named_api, files, reasons=self.reason))
+        with self.subTest(control='a new import of modules with no top-level effects'):
+            consts = ("import type { Kind } from './types';\nimport { join } from 'node:path';\nimport { base } from './base';\n"
+                      "import { configure } from './api';\nexport const LIMIT = base + 1;\nexport const kinds: Kind[] = ['a'];\n"
+                      "export function setup() { configure(true); return join('a', 'b'); }\n"
+                      "export class Box { static size = LIMIT * 2; open() { configure(false); } }\nexport default { LIMIT };\n")
+            self.protect({'src/api.ts': self.api, 'src/consts.ts': consts, 'src/base.ts': 'export const base = 1;\n',
+                          'src/types.ts': "export type Kind = 'a';\n"}, self.named_api)
+            self.write('src/api.ts', self.api.replace("v === 'new'", "v === 'new' && v.length === 3"))
+            self.write('tests/protected.test.ts', "import { LIMIT } from '../src/consts';\n" + self.named_api
+                       + "test('limit', () => { expect(LIMIT).toBe(2); });\n")
+            self.commit('fix with a test of a constant')
+            self.guard(reasons=self.reason)
+        with self.subTest(control='a new import of a helper the reviewed test already loads'):
+            helpers = {'support/a.ts': "export * from './b';\n",
+                       'support/b.ts': "import { configure } from '../src/api';\nconfigure(true);\nexport const ready = true;\n"}
+            test = "import { ready } from '../support/a';\n" + self.named_api
+            self.protect({'src/api.ts': self.api, **helpers}, test)
+            self.write('tests/protected.test.ts', "import { ready as loaded } from '../support/b';\n" + test
+                       + "test('ready', () => { expect(loaded).toBe(true); });\n")
+            self.commit('import a loaded helper directly')
+            self.guard(reasons=self.reason)
 
 
 class GuardBinding(ControlCase):

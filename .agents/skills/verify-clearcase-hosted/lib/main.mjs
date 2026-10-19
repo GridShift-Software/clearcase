@@ -26,7 +26,7 @@ export const CHROME = env.CLEARCASE_CHROMIUM ?? `${env.HOME}/.cache/ms-playwrigh
 export const LIFECYCLE = ['net-offline', 'build', 'start', 'live-doctor', 'live-doctor-negative', 'browser', ...DRIVE_STEPS, 'drive', 'stop'];
 
 export const reportRoot = () => (env.CLEARCASE_REPORT_DIR ? join(resolve(env.CLEARCASE_REPORT_DIR), 'hosted') : join(REPO, '.local', 'verify-clearcase-hosted'));
-export const scratchRoot = () => resolve(env.CLEARCASE_HOSTED_SCRATCH ?? join(REPO, '.local', 'verify-clearcase-hosted-scratch'));
+export const scratchRoot = () => (env.CLEARCASE_HOSTED_SCRATCH ? join(resolve(env.CLEARCASE_HOSTED_SCRATCH), 'skill') : join(REPO, '.local', 'verify-clearcase-hosted-scratch'));
 export function ports(base = Number(env.VERIFY_CLEARCASE_HOSTED_PORT ?? 43700)) {
 	return { app: base, canary: Number(env.CANARY_PORT ?? base + 99) };
 }
@@ -153,7 +153,7 @@ export async function hostedRun({ revision, evidence, scratch, port, checks = []
 	steps.push({ id: 'cleanup', title: 'stop the run\'s server port; kill only recorded PIDs still running from this run\'s scratch; remove scratch', status: cleaned ? 'PASS' : 'FAIL', evidence: c });
 	const ran = (id) => steps.some((s) => s.id === id && s.status !== 'NOT RUN');
 	const passed = (id) => steps.some((s) => s.id === id && s.status === 'PASS');
-	const want = [['offline.log', true], ['inner.json', ran('net-offline')], ['clearcase-hosted.json', passed('build')], ['server.log', ran('start')], ['health.json', ran('live-doctor')], ['drive.json', ran('drive')]].filter(([, w]) => w).map(([f]) => f);
+	const want = [['offline.log', true], ['inner.json', ran('net-offline')], ['build.json', passed('build')], ['server.log', ran('start')], ['health.json', ran('live-doctor')], ['drive.json', ran('drive')]].filter(([, w]) => w).map(([f]) => f);
 	const shots = steps.filter((s) => s.status === 'PASS').flatMap((s) => Object.values(s.evidence ?? {}).filter((v) => typeof v === 'string' && /^(screens|downloads)\//.test(v)));
 	const lost = [...want, ...shots].filter((f) => !existsSync(join(evidence, f)));
 	const kept = !lost.length && (problem || shots.length >= 5);

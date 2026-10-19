@@ -358,7 +358,7 @@ async function main(out: string): Promise<number> {
 			const b = JSON.parse(res.body) as Record<string, unknown>;
 			check(res.status === 200 && res.type.startsWith('application/json'), 'GET /bindings answers 200 JSON');
 			check(b.DB === true && b.BUCKET === true && b.ASSETS === true, 'the Worker sees DB (D1 prepare), BUCKET (R2 put) and ASSETS (fetch)');
-			check(typeof b.sqlite === 'string' && /^\d+\.\d+\.\d+$/.test(b.sqlite), `D1 answers SELECT sqlite_version() (${String(b.sqlite)})`);
+			check(b.notes === 1, 'D1 answers SELECT COUNT(*) FROM notes through the binding: 1');
 		});
 
 		const A = 'synthetic probe body A';
@@ -398,7 +398,9 @@ async function main(out: string): Promise<number> {
 		});
 
 		const missing = path.join(runDir, 'persist/missing');
-		await leg('failure-binding-missing', [serveCmd(missing, ['--env', 'missing-binding']), 'GET /', 'POST /?/save', 'GET /bindings'], async (check) => {
+		await leg('failure-binding-missing', [`node node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env missing-binding --persist-to ${rel(missing)} --file schema.sql`, serveCmd(missing, ['--env', 'missing-binding']), 'GET /', 'POST /?/save', 'GET /bindings'], async (check) => {
+			const schema = wrangler('d1', 'execute', 'DB', '--local', '--env', 'missing-binding', '--persist-to', missing, '--file', 'schema.sql');
+			check(schema.code === 0, 'the same Worker without its R2 binding (--env missing-binding) gets D1 and its schema');
 			server = await serve('missing-binding', missing, ['--env', 'missing-binding']);
 			const page = await http('/', { headers: { accept: 'text/html' } });
 			check(page.status === 503 && page.body.includes('BUCKET binding is not configured'), 'GET / answers 503 naming the missing BUCKET binding');
@@ -406,7 +408,7 @@ async function main(out: string): Promise<number> {
 			const res = await post({ id: 'probe-3', body: 'synthetic probe body D' });
 			check(res.status === 503 && res.body.includes('BUCKET binding is not configured'), 'the form action answers 503 naming the missing binding');
 			const b = JSON.parse((await http('/bindings')).body) as Record<string, unknown>;
-			check(b.DB === true && b.BUCKET === false && b.ASSETS === true, 'GET /bindings: DB and ASSETS present, BUCKET absent');
+			check(b.DB === true && b.BUCKET === false && b.ASSETS === true && b.notes === 1, 'GET /bindings: DB (answering) and ASSETS present, BUCKET absent');
 			await stopServer(server);
 			server = null;
 		});

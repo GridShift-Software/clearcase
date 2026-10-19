@@ -14,8 +14,8 @@ export function sniff(b) {
   if (ascii(b, 0, 4) === 'RIFF' && ascii(b, 8, 4) === 'WEBP') return { kind: 'image', mime: 'image/webp' };
   if (ascii(b, 0, 4) === 'RIFF' && ascii(b, 8, 4) === 'WAVE') return { kind: 'media', mime: 'audio/wav' };
   if (ascii(b, 0, 4) === 'RIFF' && ascii(b, 8, 4) === 'AVI ') return { kind: 'media', mime: 'video/x-msvideo' };
-  if (startsWith(b, [0x49, 0x49, 0x2a, 0x00]) || startsWith(b, [0x4d, 0x4d, 0x00, 0x2a])) return { kind: 'image', mime: 'image/tiff' };
-  if (startsWith(b, [0x49, 0x49, 0x2b, 0x00]) || startsWith(b, [0x4d, 0x4d, 0x00, 0x2b])) return { kind: 'image', mime: 'image/tiff', variant: 'bigtiff' };
+  if (startsWith(b, [0x49, 0x49, 0x2a, 0x00]) || startsWith(b, [0x4d, 0x4d, 0x00, 0x2a])) return { kind: 'image', mime: 'image/tiff', pages: tiffPages(b) };
+  if (startsWith(b, [0x49, 0x49, 0x2b, 0x00]) || startsWith(b, [0x4d, 0x4d, 0x00, 0x2b])) return { kind: 'image', mime: 'image/tiff', variant: 'bigtiff', pages: tiffPages(b) };
   if (ascii(b, 4, 4) === 'ftyp') {
     const brand = ascii(b, 8, 4);
     if (['avif', 'avis'].includes(brand)) return { kind: 'image', mime: 'image/avif' };
@@ -61,6 +61,23 @@ function looksLikeText(b) {
   let control = 0;
   for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); if (c === 0) return false; if (c < 32 && c !== 9 && c !== 10 && c !== 13 && c !== 12) control++; }
   return control <= s.length / 50;
+}
+
+/** The number of images (IFDs) in a classic or Big TIFF, or null when the chain cannot be walked. */
+export function tiffPages(b) {
+  try {
+    const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    const le = b[0] === 0x49, big = v.getUint16(2, le) === 43;
+    let off = big ? Number(v.getBigUint64(8, le)) : v.getUint32(4, le);
+    const seen = new Set();
+    while (off) {
+      if (seen.has(off) || seen.size >= 100000) return null;
+      seen.add(off);
+      if (big) off = Number(v.getBigUint64(off + 8 + Number(v.getBigUint64(off, le)) * 20, le));
+      else off = v.getUint32(off + 2 + v.getUint16(off, le) * 12, le);
+    }
+    return seen.size || null;
+  } catch { return null; }
 }
 
 const ZIP_MIME = { docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'ooxml-other': 'application/zip', zip: 'application/zip' };

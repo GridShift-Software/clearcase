@@ -6,7 +6,7 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { Pdf, buildPdf, tokenPages } from './lib/pdf.mjs';
-import { buildZip, zeroBomb } from './lib/zip.mjs';
+import { buildZip, crc32, zeroBomb } from './lib/zip.mjs';
 import { fullDocx, altChunkDocx } from './lib/ooxml.mjs';
 import { mainWorkbook, chartWorkbook, largeWorkbook, CSV } from './lib/sheets.mjs';
 import { gmailEml, outlookEml, hostileEml, takeoutMbox, carrierEml, gmailForwardedEml } from './lib/mail.mjs';
@@ -232,6 +232,8 @@ put('archive', 'encrypted-flag.zip', buildZip([{ name: 'secret.txt', data: 'ciph
 put('archive', 'unsupported-method.zip', buildZip([{ name: 'lzma.txt', data: 'not really lzma', method: 14 }]), 'lib/zip.mjs: compression method 14 (LZMA)');
 put('archive', 'bomb-256mib.zip', buildZip([{ name: 'zeros.bin', raw: zeroBomb(256 << 20), method: 8, crc: 0, size: 256 << 20 }]), 'lib/zip.mjs: one entry deflating to 256 MiB of zeros (bounded bomb; CRC deliberately 0)');
 put('archive', 'bomb-lying-size.zip', buildZip([{ name: 'zeros.bin', raw: zeroBomb(256 << 20), method: 8, crc: 0, size: 1000 }]), 'lib/zip.mjs: the same 256 MiB expansion with a declared size of 1,000 bytes');
+const storedZeros = new Uint8Array((64 << 20) + 1);
+put('archive', 'stored-lying-size.zip', buildZip([{ name: 'zeros.bin', raw: storedZeros, method: 0, crc: crc32(storedZeros), size: 1 }]), 'lib/zip.mjs: a stored member of 64 MiB + 1 byte of zeros, correct CRC, declared size 1 (the stored twin of bomb-lying-size.zip)');
 put('archive', 'many-1000.zip', buildZip(Array.from({ length: 1000 }, (_, i) => ({ name: `entries/item-${String(i + 1).padStart(4, '0')}.txt`, data: `ZIP-MANY-${i + 1}` }))), 'lib/zip.mjs: 1,000 entries (stress tier)', { stress: '1,000 members' });
 
 // ---------- Unrecognised and unsupported bytes (H1): top level, inside a ZIP, attached to an EML ----------

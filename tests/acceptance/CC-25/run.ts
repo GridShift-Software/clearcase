@@ -24,6 +24,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import { gateEvidenceProblems } from './gate-evidence.ts';
 
 const REPO = path.resolve(import.meta.dirname, '../../..');
 const SUITE = ['tests/acceptance/CC-25', 'docs/acceptance/CC-25', 'vitest.config.ts'];
@@ -91,9 +92,7 @@ function run(name: string, cmd: string[], env: Record<string, string> = {}) {
     const p = path.join(REPO, file);
     if (!existsSync(p)) { problems.push(`${name}: no gate summary at ${file}; run bun run --bun gate at this HEAD first`); continue; }
     const doc = JSON.parse(readFileSync(p, 'utf8'));
-    if (doc.evidence !== true) problems.push(`${name}: evidence is not true`);
-    if (doc.ok === false) problems.push(`${name}: ok is false`);
-    if (doc.freshBuild?.head !== head) problems.push(`${name}: summary is for ${String(doc.freshBuild?.head).slice(0, 12)}, not HEAD`);
+    problems.push(...gateEvidenceProblems(name, doc, head));
     facts[name] = { file, evidence: doc.evidence, ok: doc.ok ?? null, head: doc.freshBuild?.head ?? null };
   }
   record('gate-v5', [1], t0, problems, null, facts);

@@ -1547,6 +1547,32 @@ class GuardReach(GuardCase):
             self.commit('fix')
             self.guard()
 
+    def test_a_changed_module_cannot_reach_the_runner_through_computed_names(self):
+        # finding 4 (medium): a computed Symbol.for name and a computed key on globalThis reached the matcher state;
+        # decision: refuse the global object's computed members, framework-named members, aliases and hand-offs
+        for label, text in {
+            'computed Symbol.for and globalThis key': "const key = Symbol.for(['$$jest', 'matchers', 'object'].join('-'));\n(globalThis as any)[key].customEqualityTesters.push(() => true);\n",
+            'a computed global name': "const name = ['__vitest', 'worker__'].join('_');\n(globalThis as any)[name].config.sequence = {};\n",
+            'an alias of the global object': "const g: any = globalThis;\nconst k = 'cus' + 'tomEqualityTesters';\ng[Object.getOwnPropertySymbols(g)[0]][k].push(() => true);\n",
+            'the global object passed on': "const k = Reflect.ownKeys(globalThis).find((s) => String(s).includes('matchers'));\n",
+            'a framework global by its literal name': "(globalThis as any).__vitest_worker__.config.sequence = {};\n",
+            'globals-mode expect on the global object': "(window as any)['expect'].extend({ toEqual: () => ({ pass: true, message: () => '' }) });\n",
+            'computed destructuring of the global object': "const { [String(1)]: state } = globalThis as any;\n",
+        }.items():
+            with self.subTest(bypass=label):
+                self.protect({'src/api.ts': self.api}, self.named_api)
+                self.write('src/api.ts', text + self.weakened)
+                self.commit('reach the runner through a computed name')
+                self.assertIn('reaches the test framework', self.guard(code=1))
+        with self.subTest(control='literal globals and a non-framework symbol, as application code uses them'):
+            app = ("const g = globalThis as { __clearcase?: { n: number } };\ng.__clearcase ??= { n: 1 };\n"
+                   "const cache = (globalThis as any)[Symbol.for('app.cache')] ?? new Map();\n"
+                   "export const ready = Boolean(globalThis.performance) && g.__clearcase.n === 1 && cache instanceof Map;\n")
+            self.protect({'src/api.ts': self.api}, self.named_api)
+            self.write('src/api.ts', app + self.api)
+            self.commit('legitimate')
+            self.guard()
+
 
 class GuardBinding(ControlCase):
     """H1: once a fix attempt is recorded, approval needs a PASS guard receipt bound to the reviewed commit and findings."""

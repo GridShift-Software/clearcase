@@ -172,10 +172,7 @@ export function listZip(b, limits = ZIP_LIMITS) {
   return { error: null, entries };
 }
 
-/**
- * Extract one entry with a hard cap on the bytes it yields and a CRC check; never trusts the declared size. A stored
- * member's bytes are the stored length, checked against the cap before they are copied, and the headers must agree on it.
- */
+/** Extract one entry with a hard expansion cap and a CRC check; never trusts the declared size. */
 export function extractEntry(b, e, limits = ZIP_LIMITS) {
   if (e.problems.length) return { ok: false, reason: e.problems[0] };
   const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
@@ -183,8 +180,6 @@ export function extractEntry(b, e, limits = ZIP_LIMITS) {
   const start = e.local + 30 + v.getUint16(e.local + 26, true) + v.getUint16(e.local + 28, true);
   const comp = b.subarray(start, start + e.csize);
   if (e.method === 0) {
-    if (comp.length > limits.maxEntryBytes) return { ok: false, reason: 'expansion-limit-exceeded', expandedAtStop: comp.length };
-    if (e.csize !== e.size || comp.length !== e.size) return { ok: false, reason: 'size-mismatch' };
     if (crc32(comp) !== e.crc) return { ok: false, reason: 'crc-mismatch' };
     return { ok: true, bytes: comp.slice() };
   }

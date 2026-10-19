@@ -4,7 +4,7 @@
 //   run [--keep-scratch]  preflight, then in one offline namespace: build:hosted, start:hosted, live doctor, drive, stop; cleanup
 //   preflight             the local checks only; never builds, starts or connects to anything
 //   live-doctor --port N  check the hosted-gate server this worktree's start:hosted runs on port N (its state file)
-//   cleanup [--run-id ID] stop the server a run recorded starting (never another's), kill the PIDs a run recorded (only while they run from its scratch), remove scratch
+//   cleanup [--run-id ID] stop this skill's server port, kill the PIDs a run recorded (only while they run from its scratch), remove scratch
 //   features              print the feature index found by discovery (features/*.md, lib/steps.mjs); exit 1 on a breach
 // Exit: 0 PASS; 1 a step failed; 2 usage; 3 SKIPPED, a prerequisite is missing (nothing was built or started).
 import { spawn, spawnSync } from 'node:child_process';
@@ -83,50 +83,27 @@ export function preflight({ port = ports() } = {}) {
 }
 
 const alive = (pid) => { try { return !readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].startsWith('Z'); } catch { return false; } };
-/** `pid` and the processes above it, nearest first (a start:hosted server runs under the `bun run` the run started). */
-function lineage(pid) {
-	const chain = [];
-	for (let p = pid; Number.isInteger(p) && p > 1 && !chain.includes(p); ) {
-		chain.push(p);
-		try { p = Number(readFileSync(`/proc/${p}/stat`, 'utf8').split(') ')[1].split(' ')[1]); } catch { break; }
-	}
-	return chain;
-}
-const readPidFile = (file) => { try { const [pid, start] = readFileSync(file, 'utf8').trim().split(' '); return /^\d+$/.test(pid) && /^\d+$/.test(start ?? '') ? { pid: Number(pid), start } : null; } catch { return null; } };
-const readState = (file) => { try { return JSON.parse(readFileSync(file, 'utf8')); } catch { return null; } };
 
 /**
- * Stops the server this run started through its own pid file (`start:hosted --stop`, same PORT), kills only recorded
- * PIDs that still run from this run's scratch, drops the port's state file when the process it names is gone, and
- * removes the scratch. Evidence is never touched.
- *
- * A server on the port is this run's only if the run recorded starting one (a `start-hosted` or `hosted-server` row in
- * its pids.jsonl: inner.mjs records one only after its own refusal of an existing state file) and the pid file's process
- * is that recorded process or runs under it, and the state file, when there is one, names the same process. Anything
- * else (a run that refused because a server already held the port, a record that names another process) is another
- * run's or user's server: it is left running with its files, and reported as `preserved`.
+ * Stops the run's server through its own pid file (`start:hosted --stop`, same PORT), kills only recorded PIDs that
+ * still run from this run's scratch, drops the port's state file when the process it names is gone, and removes the
+ * scratch. Evidence is never touched.
  */
 export function cleanupRun(scratch, port) {
-	const out = { scratch, port, killed: [], survivors: [], preserved: [], removed: false };
+	const out = { scratch, port, killed: [], survivors: [], removed: false };
 	const pidFile = join(REPO, '.local', 'hosted', `start-${port}.pid`), stateFile = join(REPO, '.local', 'hosted', `server-${port}.json`);
-	const file = join(scratch, 'pids.jsonl');
-	const recorded = existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
-	const started = recorded.filter((r) => r.role === 'start-hosted' || r.role === 'hosted-server').map((r) => r.pid);
-	const ownedBy = (pid) => started.includes(pid) || lineage(pid).some((p) => started.includes(p));
-	const record = existsSync(pidFile) ? readPidFile(pidFile) : null, state = existsSync(stateFile) ? readState(stateFile) : null;
-	const agree = !state || !record || state.pid === record.pid;
-	if (record && alive(record.pid)) {
-		if (ownedBy(record.pid) && agree) {
-			const r = spawnSync(process.execPath, ['run', '--bun', 'start:hosted', '--stop'], { cwd: REPO, encoding: 'utf8', env: { ...env, PORT: String(port) } });
-			out.stop = `${r.status}: ${`${r.stdout}${r.stderr}`.trim().split('\n').at(-1)}`;
-		} else out.preserved.push({ role: 'unowned-server', pid: record.pid, files: [pidFile, existsSync(stateFile) ? stateFile : null].filter(Boolean) });
+	if (existsSync(pidFile)) {
+		const r = spawnSync(process.execPath, ['run', '--bun', 'start:hosted', '--stop'], { cwd: REPO, encoding: 'utf8', env: { ...env, PORT: String(port) } });
+		out.stop = `${r.status}: ${`${r.stdout}${r.stderr}`.trim().split('\n').at(-1)}`;
 	}
 	if (existsSync(stateFile)) {
-		const pid = state?.pid ?? null;
-		if (pid && alive(pid)) { if (ownedBy(pid) && agree) out.survivors.push({ role: 'start-hosted', pid }); else if (!out.preserved.some((p) => p.pid === pid)) out.preserved.push({ role: 'unowned-server', pid, files: [stateFile] }); }
-		else if (started.length) { rmSync(stateFile, { force: true }); out.staleState = 'removed'; }
-		else out.preserved.push({ role: 'unowned-state', pid, files: [stateFile] });
+		let pid = null;
+		try { pid = JSON.parse(readFileSync(stateFile, 'utf8')).pid; } catch {}
+		if (pid && alive(pid)) out.survivors.push({ role: 'start-hosted', pid });
+		else { rmSync(stateFile, { force: true }); out.staleState = 'removed'; }
 	}
+	const file = join(scratch, 'pids.jsonl');
+	const recorded = existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
 	const ours = (pid) => { try { return readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes(scratch); } catch { return false; } };
 	for (const sig of ['SIGTERM', 'SIGKILL']) {
 		for (const r of recorded) if (ours(r.pid)) { try { process.kill(r.pid, sig); out.killed.push({ ...r, sig }); } catch {} }
@@ -230,7 +207,7 @@ function cmdCleanup(o) {
 	for (const id of ids) {
 		const r = cleanupRun(join(root, id), ports().app);
 		if (r.survivors.length || !r.removed) bad++;
-		console.log(`${r.removed ? 'removed ' : 'KEPT    '} ${r.scratch}: killed ${r.killed.length}, survivors ${r.survivors.map((s) => s.pid).join(' ') || 'none'}${r.preserved.length ? `, left running (not this run's) ${r.preserved.map((s) => s.pid).join(' ')}` : ''}`);
+		console.log(`${r.removed ? 'removed ' : 'KEPT    '} ${r.scratch}: killed ${r.killed.length}, survivors ${r.survivors.map((s) => s.pid).join(' ') || 'none'}`);
 	}
 	console.log(`cleanup: ${ids.length} run(s) under ${root}; evidence under ${reportRoot()} untouched.`);
 	return bad ? 1 : 0;

@@ -42,7 +42,8 @@ export async function testIdentity(a: { db: D1; clientId: ClientId; presented: s
 	const found = await session().catch(unavailable);
 	const methods = { clientId, checkRevocation: async () => void (await current()), authorize };
 	const identity: Identity =
-		found && presented !== null
+		// Verified only while the session stands: a revoked, expired or other-client session is not who it names.
+		found && presented !== null && !found.revoked && Date.parse(found.expires_at) > a.now().getTime() && found.client_id === clientId
 			? { ...methods, kind: 'verified', principal: { issuer: found.issuer, subject: found.subject, kind: found.kind } satisfies Principal, sessionId: id('session', presented) }
 			: { ...methods, kind: 'anonymous', principal: null, sessionId: null };
 	const double: TestIdentityDouble = {

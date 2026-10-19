@@ -61,7 +61,7 @@ CREATE TABLE gate_case (client_id TEXT NOT NULL REFERENCES gate_client, case_id 
 CREATE TABLE gate_grant (client_id TEXT NOT NULL, subject TEXT NOT NULL, case_id TEXT NOT NULL, role TEXT NOT NULL CHECK (role IN ('viewer', 'editor')), PRIMARY KEY (client_id, subject, case_id));
 CREATE TABLE gate_original (client_id TEXT NOT NULL, case_id TEXT NOT NULL, asset_id TEXT NOT NULL, object_key TEXT NOT NULL UNIQUE, size INTEGER NOT NULL, sha256 TEXT NOT NULL, media_type TEXT NOT NULL, filename TEXT NOT NULL, PRIMARY KEY (client_id, case_id, asset_id));
 CREATE TABLE gate_session (session_id TEXT PRIMARY KEY, client_id TEXT NOT NULL, subject TEXT NOT NULL, kind TEXT NOT NULL, expires_at TEXT NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE audit_event (event_id TEXT PRIMARY KEY, client_id TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, object_kind TEXT NOT NULL, object_id TEXT NOT NULL, case_id TEXT, version TEXT, outcome TEXT NOT NULL CHECK (outcome IN ('succeeded', 'denied', 'failed')), at TEXT NOT NULL);
+CREATE TABLE audit_event (event_id TEXT PRIMARY KEY, client_id TEXT NOT NULL, actor TEXT NOT NULL, action TEXT NOT NULL, object_kind TEXT NOT NULL, object_id TEXT NOT NULL, case_id TEXT, version TEXT, outcome TEXT NOT NULL CHECK (outcome IN ('succeeded', 'denied', 'failed', 'refused')), at TEXT NOT NULL);
 `;
 
 /** The fixture as SQL and R2 objects, with its digest (the hosted-gate artifact reports it on /health). */

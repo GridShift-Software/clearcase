@@ -50,17 +50,24 @@ export function createMemoryAssets(ctx: MemoryContext, fault: (asset: C.AssetRef
       const object = { kind: 'asset', id: asset.assetId, caseId: asset.caseId }, version = asset.kind === 'preview' ? asset.resultsVersion : null;
       try {
         const { bytes, metadata: m } = await read(asset);
-        // The delivery is recorded before any byte leaves; an unrecorded delivery is no delivery.
+        // A range is refused, not served; nothing is released, so the refusal is its own outcome and never a delivery.
+        if (request.range && (request.ifRange === null || request.ifRange === m.etag)) {
+          try { ctx.record({ action, object, version, outcome: 'refused' }); } catch { /* the refusal stands */ }
+          return new Response(null, { status: 416, headers: { ...headers, 'content-range': `bytes */${bytes.length}` } });
+        }
+        // The delivery is recorded only when bytes are about to be released, and before any byte leaves; an unrecorded delivery is no delivery.
         try { ctx.record({ action, object, version, outcome: 'succeeded' }); } catch { return new Response(null, { status: 503, headers: { ...headers, 'retry-after': '2' } }); }
         const safe = new Headers(servePolicy(m.mediaType, m.filename).headers);
         for (const [name, value] of Object.entries(headers)) safe.set(name, value);
         safe.set('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(m.filename)}`);
         safe.set('content-length', String(bytes.length)); safe.set('etag', m.etag);
-        if (request.range && (request.ifRange === null || request.ifRange === m.etag)) return new Response(null, { status: 416, headers: { ...headers, 'content-range': `bytes */${bytes.length}` } });
         return new Response(request.method === 'HEAD' ? null : bytes, { headers: safe });
       } catch (e) {
         if (isDenial(e)) try { ctx.record({ action, object, version, outcome: 'denied' }); } catch { /* the refusal stands */ }
-        if (e instanceof Error && 'code' in e && (e.code === 'missing-original' || e.code === 'changed-original')) return new Response(null, { status: 410, headers });
+        if (e instanceof Error && 'code' in e && (e.code === 'missing-original' || e.code === 'changed-original')) {
+          try { ctx.record({ action, object, version, outcome: 'failed' }); } catch { /* the failure stands */ }
+          return new Response(null, { status: 410, headers });
+        }
         throw e;
       }
     },

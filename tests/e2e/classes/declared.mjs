@@ -200,3 +200,15 @@ export const NON_CSV_PAGES = {
 	'/v/[vid]/registers/deadlines_tab': 'Export calendar produces only an ICS file; the registers suite checks its TEXT escaping.',
 	'/v/[vid]/litigation/heads_tab': 'Export outline produces only a plain-text outline; the litigation suite checks it.',
 };
+
+/**
+ * Hosted pages with a form, by route id under deploy/client/routes, with why the class suite does not drive them. The suite
+ * drives the local pilot (src/routes) over its work store; the hosted tree has no user work yet (GRS-117) and its forms are
+ * test-identity sign-in and sign-out. Checked (classes-targets.test.ts): discovery finds exactly these routes, and the hosted
+ * smoke run (tests/hosted-foundation/runtime/smoke.ts) names each, so a reason cannot outlive the evidence it cites.
+ */
+export const HOSTED_FORMS = {
+	'/sign-in': 'the test-identity sign-in form saves no user work and has no typed field (one select); test:hosted posts it on workerd (origin check, unknown identity, redirect, cookie)',
+	'/sign-out': 'the sign-out action revokes the session and saves no user work; test:hosted posts it on workerd and checks the revoked session is refused at once',
+	'/cases': 'the case list is a read page whose only form is the sign-out POST; there is no typed field or user work, and test:hosted reads it for the signed-in, anonymous and wrong-client sessions',
+};

@@ -77,6 +77,32 @@ describe('finding 4: protected reads persist their audit event before release, a
     const events = backend.events(clientA()).map((e) => [e.action, e.outcome, e.object.kind, e.object.caseId, e.actor.kind === 'verified' ? e.actor.principal.subject : null]);
     expect(events).toEqual([['asset.read-original', 'succeeded', 'asset', fx.caseId, 'viewer'], ['asset.read-original', 'denied', 'asset', fx.caseId, 'unassigned']]);
   });
+  it('a refused Range is audited as refused and a missing or changed original as failed, never as a delivery', async () => {
+    const backend = createMemoryBackend({ fixture: fx.data, now });
+    const viewer = backend.request({ clientId: clientA(), sessionId: id('session', 'a-viewer') });
+    const ranged = await viewer.assets.get({ asset: asset(), request: { ...get, range: 'bytes=0-3' } });
+    expect([ranged.status, (await ranged.arrayBuffer()).byteLength]).toEqual([416, 0]);
+    for (const kind of ['changed', 'missing'] as const) {
+      backend.assetFault({ clientId: clientA(), asset: asset(), kind });
+      expect((await viewer.assets.get({ asset: asset(), request: get })).status).toBe(410);
+    }
+    expect(backend.events(clientA()).map((e) => [e.action, e.outcome])).toEqual([['asset.read-original', 'refused'], ['asset.read-original', 'failed'], ['asset.read-original', 'failed']]);
+  });
+  it('a revoked, expired or wrong-client session is not a verified actor; a live one is', async () => {
+    const backend = createMemoryBackend({ fixture: fx.data, now }), later = createMemoryBackend({ fixture: fx.data, now: () => new Date('2026-10-19T00:00:00Z') });
+    backend.revoke(id('session', 'a-viewer'));
+    const cases = [
+      [backend, clientA(), 'a-viewer', 'anonymous'], [later, clientA(), 'a-editor', 'anonymous'], [backend, clientA(), 'b-editor', 'anonymous'], [backend, clientA(), 'a-editor', 'verified'],
+    ] as const;
+    const kinds: string[] = [];
+    for (const [b, client, session, kind] of cases) {
+      const request = b.request({ clientId: client, sessionId: id('session', session) });
+      expect(request.identity.kind).toBe(kind);
+      await request.assets.get({ asset: asset(), request: get }).catch(() => undefined);
+      kinds.push(b.events(client).at(-1)!.actor.kind);
+    }
+    expect(kinds).toEqual(['anonymous', 'anonymous', 'anonymous', 'verified']);
+  });
   it('a denied case read appends a scoped denial without case text', async () => {
     const backend = createMemoryBackend({ fixture: fx.data, now });
     const unassigned = backend.request({ clientId: clientA(), sessionId: id('session', 'a-unassigned') });

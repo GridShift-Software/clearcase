@@ -27,7 +27,7 @@ import { parseArgs } from 'node:util';
 import { gateEvidenceProblems } from './gate-evidence.ts';
 
 const REPO = path.resolve(import.meta.dirname, '../../..');
-const SUITE = ['tests/acceptance/CC-25', 'docs/acceptance/CC-25', 'vitest.config.ts'];
+const SUITE = ['tests/acceptance/CC-25', 'docs/acceptance/CC-25', 'docs/acceptance/fix-rounds', 'vitest.config.ts'];
 const { values: a } = parseArgs({ options: {
   out: { type: 'string' }, 'newer-case': { type: 'string' }, 'json-case': { type: 'string' },
   base: { type: 'string', default: 'c6296f7a0de2ba3d7c6a832846ff6208436ee633' }, keep: { type: 'boolean', default: false },

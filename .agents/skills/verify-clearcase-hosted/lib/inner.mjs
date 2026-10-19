@@ -126,11 +126,11 @@ await step('net-offline', 'only lo exists; outbound TCP and DNS fail; loopback a
 
 await step('build', `bun run --bun build:hosted (${PROFILE}) inside the namespace: the artifact is stamped with HEAD ${cfg.revision.slice(0, 12)}`, async () => {
 	await run(bun('build:hosted'), { log: 'build.log', env: { CLEARCASE_HOSTED_PROFILE: PROFILE }, ms: 300_000 });
-	const sidecar = readJson(join(repo, '.svelte-kit', 'clearcase-hosted.json'));
-	const bad = buildProblem(sidecar, readJson(join(repo, '.svelte-kit', 'cloudflare', '_app', 'version.json')), cfg.revision);
+	const sidecar = readJson(join(repo, '.svelte-kit', 'clearcase-hosted.json')), version = readJson(join(repo, '.svelte-kit', 'cloudflare', '_app', 'version.json'));
+	const bad = buildProblem(sidecar, version, cfg.revision);
 	if (bad) throw new Error(bad);
 	stamp = sidecar.stamp;
-	writeFileSync(join(ev, 'clearcase-hosted.json'), JSON.stringify(sidecar, null, 1) + '\n');
+	writeFileSync(join(ev, 'build.json'), JSON.stringify({ sidecar, version }, null, 1) + '\n');
 	return { stamp, artifact: sidecar.artifact };
 });
 

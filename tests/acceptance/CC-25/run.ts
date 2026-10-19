@@ -75,7 +75,9 @@ function run(name: string, cmd: string[], env: Record<string, string> = {}) {
   if (process.versions.bun !== '1.4.2') problems.push(`Bun ${process.versions.bun}, not 1.4.2`);
   const dirty = git('status', '--porcelain', '--untracked-files=all').stdout.trim();
   if (dirty) problems.push(`the tree is not clean (${dirty.split('\n').length} paths)`);
-  const changed = git('diff', '--name-only', a.base!, head).stdout.trim().split('\n').filter(Boolean);
+  const diff = git('diff', '--name-only', a.base!, head);
+  if (diff.status !== 0) problems.push(`git diff ${a.base} ${head.slice(0, 12)} failed (${diff.status}): the base is not a revision of this checkout`);
+  const changed = diff.stdout.trim().split('\n').filter(Boolean);
   const product = changed.filter((f) => !SUITE.some((s) => f === s || f.startsWith(s + '/')));
   if (product.length) problems.push(`product files differ from the base: ${product.join(', ')}`);
   const cfg = git('diff', '-U0', a.base!, head, '--', 'vitest.config.ts').stdout.split('\n').filter((l) => /^[+-][^+-]/.test(l));

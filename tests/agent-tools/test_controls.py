@@ -1201,7 +1201,8 @@ class GuardClosure(GuardCase):
 
     def test_sveltekit_generated_tsconfig_is_not_a_resolver_input_but_other_missing_extends_still_fail_closed(self):
         test = "import { clamp } from '../src/clamp';\n" + self.original
-        for extended, code in (('./.svelte-kit/tsconfig.json', 0), ('./tsconfig.missing.json', 1)):
+        for extended, code in (('./.svelte-kit/tsconfig.json', 0), ('$app/tsconfig', 0), ('./missing/tsconfig', 1),
+                               ('./tsconfig.missing.json', 1)):
             with self.subTest(extends=extended):
                 self.protect({'src/clamp.ts': 'export function clamp(x: number) { return x; }\n',
                               'tsconfig.json': json.dumps({'extends': extended})}, test)

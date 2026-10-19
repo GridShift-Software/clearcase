@@ -189,7 +189,7 @@ for fixture in "$FIXTURES"/graph/*.json; do
 	while IFS= read -r message; do lacks "graph $name omits: $message" "$message"; done < <(fixture_list "$fixture" absent)
 	[[ $expected == 0 ]] || lacks "graph $name does not print PASS" "PASS"
 	# a negative fixture must fail for its own cause: every finding line is one the fixture names
-	unexpected=$(grep -vF -e "receipt: " -e "Compared the Linear readback" -e "HOLD: " "$OUT" | grep -v '^$' | grep -vFf <(fixture_list "$fixture" output))
+	unexpected=$(grep -vF -e "receipt: " -e "spend: " -e "Compared the Linear readback" -e "HOLD: " "$OUT" | grep -v '^$' | grep -vFf <(fixture_list "$fixture" output))
 	if [[ -z $unexpected ]]; then ok "graph $name reports only the expected findings"; else bad "graph $name reports a finding the fixture does not name" "$unexpected"; fi
 	receipt_is "graph $name receipt" "$([[ $expected == 0 ]] && echo PASS || echo FAIL)" "$expected"
 done
@@ -240,8 +240,8 @@ has "the self-test covers the clean checkout" "PASS     clean checkout: prefligh
 has "the self-test covers a wrong-build instance" "PASS     live doctor, another build (buildId): FAIL on build.buildId"
 has "the self-test covers another data directory" "PASS     live doctor, another data directory: FAIL on dataDir"
 
-echo "# skipped checks are never PASS"
-run "required Linear comparison without a readback fails" 3 "$TOOLS/check-plan" --require-linear-relations
+echo "# required failures are never suppressed"
+run "required Linear comparison without a readback fails" 1 "$TOOLS/check-plan" --require-linear-relations
 has "check-plan reports the skipped comparison" "linear-relations=SKIPPED"
 has "check-plan overall verdict is FAIL" "check-plan: FAIL"
 run "missing command is SKIPPED, not PASS" 3 "$TOOLS/receipt" --name missing -- definitely-not-a-command-cc27
@@ -251,18 +251,18 @@ echo "# receipts record the exact revision and never PASS without it"
 NOGIT="$WORK/bin-without-git"
 mkdir -p "$NOGIT"
 for tool in python3 node; do ln -s "$(command -v "$tool")" "$NOGIT/$tool"; done
-run "plan-format without git is SKIPPED" 3 env PATH="$NOGIT" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md" --base "$repo_base"
+run "plan-format without git is FAIL" 1 env PATH="$NOGIT" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md" --base "$repo_base"
 has "missing git is named with the fix" "required tool not found: git; install it or put it on PATH"
-receipt_is "no-git plan-format receipt is SKIPPED" SKIPPED 3
+receipt_is "no-git plan-format receipt is FAIL" FAIL 1
 valid_tree="$WORK/tree-readback-valid"
-run "check-plan without git fails with every step SKIPPED" 3 env PATH="$NOGIT" "$TOOLS/check-plan" --root "$valid_tree" --require-linear-relations --linear-relations "$valid_tree/readback.json"
-has "no-git check-plan names each skipped step" "check-plan: FAIL. plan-graph=SKIPPED, plan-format=SKIPPED, linear-relations=SKIPPED."
-receipt_is "no-git check-plan receipts are SKIPPED" SKIPPED 3
+run "check-plan without git fails with no PASS" 3 env PATH="$NOGIT" "$TOOLS/check-plan" --root "$valid_tree" --require-linear-relations --linear-relations "$valid_tree/readback.json"
+has "no-git check-plan names each unavailable or failed step" "check-plan: FAIL. plan-graph=SKIPPED, plan-format=FAIL, linear-relations=SKIPPED."
+receipt_check "no-git required format fails; other unavailable checks remain SKIPPED" 'r["result"] == ("FAIL" if r["name"] == "plan-format" else "SKIPPED") and r["exitCode"] == (1 if r["name"] == "plan-format" else 3)'
 run "receipt without git does not run the command" 3 env PATH="$NOGIT" "$TOOLS/receipt" --name no-git -- python3 -c "open('$MARKER', 'w')"
 not_run "the command did not run without git"
-run "an unresolvable --base is SKIPPED" 3 "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md" --base no-such-base-cc27
+run "an unresolvable --base is FAIL" 1 "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md" --base no-such-base-cc27
 has "the bad base is named with the fix" "base 'no-such-base-cc27' does not resolve to a commit"
-receipt_is "bad-base receipt is SKIPPED" SKIPPED 3
+receipt_is "bad-base receipt is FAIL" FAIL 1
 run "an unresolvable CLEARCASE_BASE_REF is not replaced by a default" 3 env CLEARCASE_BASE_REF=no-such-base-cc27 "$TOOLS/receipt" --name bad-env-base -- touch "$MARKER"
 not_run "the command did not run with a bad base"
 run "an empty --base is SKIPPED, not replaced by a default" 3 "$TOOLS/receipt" --name empty-base --base "" -- touch "$MARKER"
@@ -348,15 +348,18 @@ EVPLAN="$EV/tests/agent-tools/fixtures/plans/valid.md"
 READBACK="$WORK/tree-readback-valid/readback.json"
 loose() { local id; id=$(git -C "$EV" rev-parse "$1") && echo "$EV/.git/objects/${id:0:2}/${id:2}"; }
 run "the doctor passes in the copy" 0 "$EVTOOLS/doctor"
-run "check-plan passes in the copy" 0 "$EVTOOLS/check-plan" --require-linear-relations --linear-relations "$READBACK"
+run "check-plan honestly fails the current delivery format in the copy" 1 "$EVTOOLS/check-plan" --require-linear-relations --linear-relations "$READBACK"
+# The positive control needs no backlog: the synthetic valid plan stands in for docs/delivery-plan.md.
+run "check-plan passes on the synthetic valid plan in the copy" 0 "$EVTOOLS/check-plan" --plan "$EVTOOLS/../../tests/agent-tools/fixtures/plans/valid.md" --require-linear-relations --linear-relations "$READBACK"
+has "the composite verdict is PASS with every step PASS" "check-plan: PASS. plan-graph=PASS, plan-format=PASS, linear-relations=PASS."
 echo "untracked synthetic input" >"$EV/untracked.txt"
 run "an intact index records the untracked file" 0 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
 receipt_check "the intact-index receipt is dirty with a fingerprint" 'r["revision"]["dirty"] is True and re.fullmatch("[0-9a-f]{64}", r["revision"]["diffSha256"] or "")'
 cp "$EV/.git/index" "$WORK/index.saved"
 printf 'broken index\n' >"$EV/.git/index"
 status_failed='`git status --porcelain` exited 128: fatal: .git/index: index file smaller than expected'
-run "a corrupt index is SKIPPED by verify" 3 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
-receipt_is "corrupt-index verify receipt is SKIPPED" SKIPPED 3
+run "a corrupt index is FAIL by verify" 1 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+receipt_is "corrupt-index verify receipt is FAIL" FAIL 1
 reason_has "the verify receipt names the failed git status and its error" "working tree state unknown: $status_failed"
 receipt_check "the corrupt-index receipt records no working-tree state" 'r["revision"]["dirty"] is None and r["revision"]["diffSha256"] is None'
 run "a corrupt index fails the doctor" 1 "$EVTOOLS/doctor"
@@ -366,13 +369,13 @@ reason_has "the doctor receipt names the failed git status" "$status_failed"
 run "a corrupt index is SKIPPED by receipt" 3 env -C "$EV" scripts/agent-tools/receipt --name corrupt-index -- touch "$MARKER"
 reason_has "the receipt names the failed git status" "$status_failed"
 not_run "the command did not run with a corrupt index"
-run "a corrupt index fails check-plan with every step SKIPPED" 3 "$EVTOOLS/check-plan" --require-linear-relations --linear-relations "$READBACK"
-has "check-plan names each skipped step" "check-plan: FAIL. plan-graph=SKIPPED, plan-format=SKIPPED, linear-relations=SKIPPED."
-receipt_is "corrupt-index check-plan receipts are SKIPPED" SKIPPED 3
+run "a corrupt index fails check-plan with no PASS" 3 "$EVTOOLS/check-plan" --require-linear-relations --linear-relations "$READBACK"
+has "check-plan names each unavailable or failed step" "check-plan: FAIL. plan-graph=SKIPPED, plan-format=FAIL, linear-relations=SKIPPED."
+receipt_check "corrupt-index required format fails; no receipt is PASS" 'r["result"] == ("FAIL" if r["name"] == "plan-format" else "SKIPPED") and r["exitCode"] == (1 if r["name"] == "plan-format" else 3)'
 reason_has "every check-plan receipt names the failed git status" "$status_failed"
 cp "$WORK/index.saved" "$EV/.git/index"
 tree=$(loose "HEAD^{tree}") && mv "$tree" "$WORK/tree.saved"
-run "an unreadable HEAD tree object is SKIPPED" 3 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "an unreadable HEAD tree object is FAIL" 1 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
 reason_has "names the failed git status and the bad tree" '`git status --porcelain` exited 128: error: bad tree object HEAD'
 mv "$WORK/tree.saved" "$tree"
 changed_file=tests/agent-tools/fixtures/plans/invalid.md
@@ -383,11 +386,11 @@ reason_has "names the failed git diff" '`git diff --binary --no-ext-diff --no-te
 not_run "the command did not run without the changed file's object"
 mv "$WORK/blob.saved" "$blob" && git -C "$EV" checkout -q -- "$changed_file"
 chmod 000 "$EV/$changed_file"
-run "an unreadable tracked file is SKIPPED" 3 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "an unreadable tracked file is FAIL" 1 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
 reason_has "names the file git diff cannot hash" "cannot hash $changed_file"
 chmod 644 "$EV/$changed_file"
 head_object=$(loose HEAD) && mv "$head_object" "$WORK/commit.saved"
-run "a HEAD whose commit object is unreadable is SKIPPED" 3 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "a HEAD whose commit object is unreadable is FAIL" 1 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
 reason_has "names the commit HEAD names" "no head revision: HEAD names $(git -C "$EV" rev-parse HEAD), which is not a commit Git can read"
 mv "$WORK/commit.saved" "$head_object"
 dangling=$(git -C "$EV" -c user.name=t -c user.email=t@example.invalid commit-tree "HEAD^{tree}" -m dangling)
@@ -422,7 +425,7 @@ reason_has "names the file git does not check" "git does not check 1 tracked fil
 not_run "the command did not run with a file git does not check"
 git -C "$EV" update-index --no-assume-unchanged "$changed_file" && git -C "$EV" checkout -q -- "$changed_file"
 git -C "$EV" update-index --skip-worktree "$changed_file" && echo hidden >>"$EV/$changed_file"
-run "a changed file marked skip-worktree is SKIPPED" 3 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "a changed file marked skip-worktree is FAIL" 1 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
 reason_has "names the skip-worktree file" "for example $changed_file"
 git -C "$EV" update-index --no-skip-worktree "$changed_file" && git -C "$EV" checkout -q -- "$changed_file"
 git -C "$EV" config status.showUntrackedFiles no
@@ -450,7 +453,7 @@ fi
 exec @GIT@ "$@"
 EOF
 chmod +x "$FAKEGIT/git"
-run "a git status that fails is SKIPPED" 3 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL=status "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "a git status that fails is FAIL" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL=status "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
 reason_has "names the failed git status" '`git status --porcelain` exited 2: synthetic failure of status'
 run "a git status that fails fails the doctor" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL=status "$EVTOOLS/doctor"
 has "the doctor names the failed git status" 'FAIL     revision       working tree state unknown: `git status'
@@ -458,17 +461,17 @@ run "a git diff that fails is SKIPPED" 3 env -C "$EV" PATH="$FAKEGIT:$PATH" CC27
 reason_has "names the failed git diff" '`git diff --binary --no-ext-diff --no-textconv --no-color HEAD` exited 2: synthetic failure of diff'
 not_run "the command did not run when git diff failed"
 run "a git ls-files that fails fails check-plan" 3 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL=ls-files "$EVTOOLS/check-plan" --require-linear-relations --linear-relations "$READBACK"
-receipt_is "failing ls-files check-plan receipts are SKIPPED" SKIPPED 3
+receipt_check "failing ls-files required format fails; other steps are unavailable" 'r["result"] == ("FAIL" if r["name"] == "plan-format" else "SKIPPED") and r["exitCode"] == (1 if r["name"] == "plan-format" else 3)'
 reason_has "every step names the failed git ls-files" '`git ls-files -z --others --exclude-standard` exited 2: synthetic failure of ls-files'
-run "a branch that cannot be read is SKIPPED" 3 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL=--abbrev-ref "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "a branch that cannot be read is FAIL" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL=--abbrev-ref "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
 reason_has "names the failed branch query" 'branch unknown: `git rev-parse --abbrev-ref HEAD` exited 2'
-run "a head query that fails keeps git's error" 3 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL='HEAD^{commit}' "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "a head query that fails keeps git's error" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL='HEAD^{commit}' "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
 reason_has "names the failed head query" 'no head revision: `git rev-parse --verify -q HEAD^{commit}` exited 2: synthetic failure of HEAD^{commit}'
-run "a head that is not a commit ID is SKIPPED" 3 env PATH="$FAKEGIT:$PATH" CC27_GIT_LIE='HEAD^{commit}' "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "a head that is not a commit ID is FAIL" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_LIE='HEAD^{commit}' "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
 reason_has "names what git printed for HEAD" "git printed 'lie' for HEAD, not a commit ID"
-run "a merge base that is not a commit ID is SKIPPED" 3 env PATH="$FAKEGIT:$PATH" CC27_GIT_LIE=merge-base "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "a merge base that is not a commit ID is FAIL" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_LIE=merge-base "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
 reason_has "names what git printed for the merge base" "no merge base: git printed 'lie', not a commit ID"
-run "a git whose --version fails is SKIPPED" 3 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL=--version "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "a git whose --version fails is FAIL" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL=--version "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
 reason_has "names the failed version probe" 'tool version unknown: `'"$FAKEGIT"'/git --version` exited 2: synthetic failure of --version'
 run "a git whose --version fails fails the doctor" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL=--version "$EVTOOLS/doctor"
 has "the doctor names the git version probe" "git --version\` exited 2"
@@ -476,17 +479,17 @@ run "an untracked file that disappears after listing is SKIPPED" 3 env -C "$EV" 
 reason_has "names the file that disappeared" "untracked $EV/untracked.txt: No such file or directory (listed by \`git ls-files --others\`, then not read)"
 not_run "the command did not run without the untracked file's content"
 echo "untracked synthetic input" >"$EV/untracked.txt" && chmod 000 "$EV/untracked.txt"
-run "an unreadable untracked file is SKIPPED" 3 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "an unreadable untracked file is FAIL" 1 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
 reason_has "names the unreadable untracked file" "untracked $EV/untracked.txt: Permission denied"
 chmod 644 "$EV/untracked.txt"
 mkdir "$EV/locked" && echo hidden >"$EV/locked/file.txt" && chmod 000 "$EV/locked"
-run "an untracked directory git cannot open is SKIPPED, though git exits 0" 3 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "an untracked directory git cannot open is FAIL, though git exits 0" 1 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
 reason_has "names git's warning" "\`git status --porcelain\` exited 0: warning: could not open directory 'locked/': Permission denied"
 chmod 755 "$EV/locked" && rm -r "$EV/locked"
 BADNODE="$WORK/node-without-version"
 printf '#!/bin/bash\n[[ $1 == --version ]] && { echo "synthetic failure of node --version" >&2; exit 1; }\nexec %q "$@"\n' "$(command -v node)" >"$BADNODE"
 chmod +x "$BADNODE"
-run "a node whose --version fails is SKIPPED" 3 env CLEARCASE_NODE="$BADNODE" "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "a node whose --version fails is FAIL" 1 env CLEARCASE_NODE="$BADNODE" "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
 reason_has "names the failed node probe" 'node-without-version --version` exited 1: synthetic failure of node --version'
 run "a node whose --version fails fails the doctor" 1 env CLEARCASE_NODE="$BADNODE" "$EVTOOLS/doctor"
 has "the doctor names the failed node probe" "FAIL     node           \`$BADNODE --version\` exited 1"
@@ -527,7 +530,7 @@ run "an unreadable --input is SKIPPED" 3 env -C "$EV" scripts/agent-tools/receip
 reason_has "names the unreadable input" "input not fingerprinted: $WORK/unreadable-input.txt: Permission denied"
 not_run "the command did not run without its input's fingerprint"
 cp "$EVPLAN" "$WORK/unreadable-plan.md" && chmod 000 "$WORK/unreadable-plan.md"
-run "an unreadable plan is SKIPPED before the checker runs" 3 "$EVTOOLS/verify" plan-format --plan "$WORK/unreadable-plan.md"
+run "an unreadable plan is FAIL before the checker runs" 1 "$EVTOOLS/verify" plan-format --plan "$WORK/unreadable-plan.md"
 reason_has "names the unreadable plan" "input not fingerprinted: $WORK/unreadable-plan.md: Permission denied"
 run "an input that changes while it is read is SKIPPED" 3 env -C "$EV" scripts/agent-tools/receipt --name changing-input --input /proc/self/status -- touch "$MARKER"
 reason_has "names the changed input" "input not fingerprinted: /proc/self/status: changed while it was read"
@@ -539,9 +542,9 @@ SWAPNODE="$WORK/node-replacing-the-plan"
 printf '#!/bin/bash\n[[ $1 == --version ]] || mv %q "$2"\nexec %q "$@"\n' "$WORK/replacement-plan.md" "$(command -v node)" >"$SWAPNODE"
 chmod +x "$SWAPNODE"
 invalid_sha=$(sha256sum <"$WORK/replaced-plan.md") && invalid_sha=${invalid_sha%% *}
-run "a plan replaced while the checker runs is not PASS" 3 env CLEARCASE_NODE="$SWAPNODE" "$EVTOOLS/verify" plan-format --plan "$WORK/replaced-plan.md"
+run "a plan replaced while the checker runs is not PASS" 1 env CLEARCASE_NODE="$SWAPNODE" "$EVTOOLS/verify" plan-format --plan "$WORK/replaced-plan.md"
 has "the checker passed the replacement" "1 PR sections, 0 problems"
-receipt_is "the replaced-plan receipt is SKIPPED" SKIPPED 3
+receipt_is "the replaced-plan receipt is FAIL" FAIL 1
 reason_has "names the replaced plan and how it changed" "input changed during the run: $WORK/replaced-plan.md: sha256 ${invalid_sha:0:12} -> "
 receipt_check "the receipt keeps the plan's identity from before the run" "any(i['path'].endswith('/replaced-plan.md') and i['sha256'] == '$invalid_sha' for i in r['inputs'])"
 echo input >"$WORK/changed-input.txt"
@@ -549,19 +552,19 @@ run "an input changed in place during the run is not PASS" 5 env -C "$EV" script
 receipt_is "a failing command whose input changed keeps its FAIL and exit code" FAIL 5
 reason_has "names the changed input" "input changed during the run: $WORK/changed-input.txt: sha256 "
 echo input >"$WORK/relinked-input.txt"
-run "an input replaced by a copy of its bytes during the run is not PASS" 3 env -C "$EV" scripts/agent-tools/receipt --name relinked-input --input "$WORK/relinked-input.txt" -- bash -c 'cp -p "$1" "$1.new" && mv "$1.new" "$1"' _ "$WORK/relinked-input.txt"
+run "an input replaced by a copy of its bytes during the run is not PASS" 1 env -C "$EV" scripts/agent-tools/receipt --name relinked-input --input "$WORK/relinked-input.txt" -- bash -c 'cp -p "$1" "$1.new" && mv "$1.new" "$1"' _ "$WORK/relinked-input.txt"
 receipt_check "names the new inode of the same bytes" '"relinked-input.txt: " in r["reason"] and "inode " in r["reason"] and "sha256 " not in r["reason"]'
 echo input >"$WORK/removed-input.txt"
-run "an input removed during the run is not PASS" 3 env -C "$EV" scripts/agent-tools/receipt --name removed-input --input "$WORK/removed-input.txt" -- rm "$WORK/removed-input.txt"
+run "an input removed during the run is not PASS" 1 env -C "$EV" scripts/agent-tools/receipt --name removed-input --input "$WORK/removed-input.txt" -- rm "$WORK/removed-input.txt"
 reason_has "names the removed input" "input changed during the run: $WORK/removed-input.txt: No such file or directory"
-run "a tracked file changed during the run is not PASS" 3 env -C "$EV" scripts/agent-tools/receipt --name edits-checkout -- bash -c 'echo changed >>docs/delivery-plan.md'
+run "a tracked file changed during the run is not PASS" 1 env -C "$EV" scripts/agent-tools/receipt --name edits-checkout -- bash -c 'echo changed >>docs/delivery-plan.md'
 reason_has "names the working tree that changed" "the checkout changed during the run: diffSha256 "
 git -C "$EV" checkout -q -- docs/delivery-plan.md
-run "a commit during the run is not PASS" 3 env -C "$EV" scripts/agent-tools/receipt --name commits -- git -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m during
+run "a commit during the run is not PASS" 1 env -C "$EV" scripts/agent-tools/receipt --name commits -- git -c user.name=t -c user.email=t@example.invalid commit -q --allow-empty -m during
 reason_has "names the head that moved" "the checkout changed during the run: head $(git -C "$EV" rev-parse HEAD~1) -> $(git -C "$EV" rev-parse HEAD)"
 git -C "$EV" reset -q --soft HEAD~1
 cp "$EV/.git/index" "$WORK/index.saved"
-run "a revision that cannot be read after the run is not PASS" 3 env -C "$EV" scripts/agent-tools/receipt --name breaks-index -- bash -c 'printf "broken index\n" >.git/index'
+run "a revision that cannot be read after the run is not PASS" 1 env -C "$EV" scripts/agent-tools/receipt --name breaks-index -- bash -c 'printf "broken index\n" >.git/index'
 reason_has "names the git status that failed after the run" "the revision cannot be read after the run: working tree state unknown: $status_failed"
 cp "$WORK/index.saved" "$EV/.git/index"
 # The test tmux runs the shell command CC27_TMUX_DOES. The doctor probes tmux after its first look at the revision and
@@ -591,15 +594,15 @@ mkdir -p "$WORK/read-only" && chmod a-w "$WORK/read-only"
 run "an unwritable receipt directory is SKIPPED" 3 env -C "$EV" scripts/agent-tools/receipt --receipts "$WORK/read-only/receipts" --name unwritable -- touch "$MARKER"
 has "names the receipt directory" "cannot create its receipt directory: $WORK/read-only/receipts: Permission denied"
 not_run "the command did not run without a receipt directory"
-run "verify with an unwritable receipt directory is SKIPPED" 3 "$EVTOOLS/verify" plan-format --plan "$EVPLAN" --receipts "$WORK/read-only/receipts"
+run "verify with an unwritable receipt directory is FAIL" 1 "$EVTOOLS/verify" plan-format --plan "$EVPLAN" --receipts "$WORK/read-only/receipts"
 run "the doctor with an unwritable receipt directory fails" 1 "$EVTOOLS/doctor" --receipts "$WORK/read-only/receipts"
 has "the doctor says its receipt was not written" "doctor: FAIL. Receipt not written"
 run "a receipt directory that becomes unwritable during the run gives no PASS" 3 env -C "$EV" scripts/agent-tools/receipt --name locked-out -- bash -c 'chmod a-w "$CLEARCASE_RECEIPTS_DIR"/*'
 has "names the receipt that was not written" "locked-out has no receipt:"
 no_receipt "no receipt was written for the locked-out run"
 chmod -R u+w "$RECEIPTS"
-run "output that cannot be captured whole is not PASS" 3 env -C "$EV" bash -c 'ulimit -f 16 && exec scripts/agent-tools/receipt --name capture -- python3 -c "print(\"x\" * 100000)" >/dev/null'
-receipt_is "the capture receipt is SKIPPED" SKIPPED 3
+run "output that cannot be captured whole is not PASS" 1 env -C "$EV" bash -c 'ulimit -f 16 && exec scripts/agent-tools/receipt --name capture -- python3 -c "print(\"x\" * 100000)" >/dev/null'
+receipt_is "the capture receipt is FAIL" FAIL 1
 reason_has "names the capture file and the error" "stdout.txt: File too large; the command exited 0"
 # Python exits 120 when it cannot flush stdout, so this case checks the receipt and the timeout instead of the exit.
 n=$((n + 1)) RECEIPTS="$WORK/receipts-$n"
@@ -611,16 +614,16 @@ if [[ $(cat "$RECEIPTS"/*/stdout.txt 2>/dev/null | wc -c) == 200001 ]]; then ok 
 capture_case() {
 	run "$1" "$2" env -C "$EV" scripts/agent-tools/receipt --name capture -- python3 -c "import glob, os; [f] = glob.glob(os.environ['CLEARCASE_RECEIPTS_DIR'] + '/*/stdout.txt'); $3"
 }
-capture_case "a capture removed during the run is not PASS" 3 'os.unlink(f); print("output whose capture is gone")'
+capture_case "a capture removed during the run is not PASS" 1 'os.unlink(f); print("output whose capture is gone")'
 reason_has "names the removed capture" "stdout.txt: removed during the run; the command exited 0"
-capture_case "a capture moved during the run is not PASS" 3 'os.rename(f, f + ".moved"); print("output")'
+capture_case "a capture moved during the run is not PASS" 1 'os.rename(f, f + ".moved"); print("output")'
 reason_has "names the moved capture" "stdout.txt: No such file or directory; it was moved during the run"
-capture_case "a capture replaced during the run is not PASS" 3 'os.link(f, f + ".kept"); open(f + ".new", "w").close(); os.rename(f + ".new", f); print("output")'
+capture_case "a capture replaced during the run is not PASS" 1 'os.link(f, f + ".kept"); open(f + ".new", "w").close(); os.rename(f + ".new", f); print("output")'
 reason_has "names the replaced capture" "stdout.txt: replaced during the run"
-capture_case "a capture another process writes to is not PASS" 3 'open(f, "a").write("planted\n")'
+capture_case "a capture another process writes to is not PASS" 1 'open(f, "a").write("planted\n")'
 reason_has "names the bytes the capture holds and those written" "stdout.txt: holds 8 bytes, 0 were written"
 # The review's rewrite: the command waits until its line is captured, then overwrites it in place, same size and inode.
-capture_case "a capture rewritten with other bytes of the same size is not PASS" 3 'import time; print("honest synthetic output", flush=True)
+capture_case "a capture rewritten with other bytes of the same size is not PASS" 1 'import time; print("honest synthetic output", flush=True)
 for _ in range(10000):
     if os.path.getsize(f) >= 24: break
     time.sleep(0.001)
@@ -666,8 +669,8 @@ for tool in python3 git; do ln -s "$(command -v "$tool")" "$NONODE/$tool"; done
 run "doctor fails without node" 1 env PATH="$NONODE" "$TOOLS/doctor"
 has "doctor names node and the fix" "fix: install Node.js >= 18"
 receipt_is "no-node doctor receipt is FAIL" FAIL 1
-run "plan-format without node is SKIPPED" 3 env PATH="$NONODE" "$TOOLS/verify" plan-format
-receipt_is "no-node receipt is SKIPPED" SKIPPED 3
+run "plan-format without node is FAIL" 1 env PATH="$NONODE" "$TOOLS/verify" plan-format
+receipt_is "no-node receipt is FAIL" FAIL 1
 run "doctor without python3 explains the PATH" 2 env PATH=/nonexistent "$TOOLS/doctor"
 has "no-python message is actionable" "fix: install Python >= 3.10"
 no_receipt "doctor without python3 writes no receipt"
@@ -768,6 +771,7 @@ PLANTED="$WORK/planted-skills"
 mapfile -t pinned < <(python3 -c 'import json,sys; print("\n".join(sorted(json.load(open(sys.argv[1]))["skills"])))' "$TOOLS/skills.lock.json")
 for name in "${pinned[@]}"; do mkdir -p "$PLANTED/$name" && cp -a "$SKILLS/$name/." "$PLANTED/$name/"; done
 run "doctor passes on a copy of the pinned skills" 0 "$TOOLS/doctor" --skills-dir "$PLANTED"
+receipt_check "doctor names the install version and SHA" 'r["pstack"]["kind"] == "plugin" and r["pstack"]["version"] and re.fullmatch("[0-9a-f]{40}|[0-9a-f]{64}", r["pstack"]["gitCommitSha"])'
 changed=${pinned[0]} missing=${pinned[-1]}
 mkdir "$PLANTED/$changed/unreadable" && chmod 000 "$PLANTED/$changed/unreadable"
 run "doctor fails on a pinned skill with a directory it cannot read" 1 "$TOOLS/doctor" --skills-dir "$PLANTED"
@@ -789,126 +793,226 @@ run "doctor fails on a changed pinned skill" 1 "$TOOLS/doctor" --skills-dir "$PL
 has "doctor names the changed skill" "$changed differs from the pin"
 has "doctor gives the relock fix" "bootstrap --relock"
 lacks "doctor reports no matching pin when a skill changed" "skills match skills.lock.json"
+rm "$PLANTED/$changed/PLANTED.md"
 
-echo "# pstack-upstream compares the pin with the pinned revision's Git objects"
-UP="$WORK/pstack-checkout"
-INSTALLED="$WORK/pstack-installed"
-PIN="$WORK/pin-copy/scripts/agent-tools"
-mkdir -p "$UP/skills/alpha" "$UP/skills/beta/references" "$UP/skills/gamma" "$UP/.cursor-plugin" "$INSTALLED/local-skill" "${PIN%/*}"
-for skill in alpha beta gamma; do echo "# $skill" >"$UP/skills/$skill/SKILL.md"; done
-echo "reference" >"$UP/skills/beta/references/notes.md"
-echo '{"name": "pstack", "version": "9.9.9", "license": "MIT"}' >"$UP/.cursor-plugin/plugin.json"
-echo "*.log" >"$UP/.gitignore"
-upstream_commit() { commit_all "$UP" "$1"; }
-git -C "$UP" init -q && upstream_commit synthetic
-cp -a "$UP/skills/alpha" "$UP/skills/beta" "$INSTALLED/"
-echo "# local" >"$INSTALLED/local-skill/SKILL.md"
-cp -r "$TOOLS" "${PIN%/*}/"
-git_fixture "$WORK/pin-copy"
-# pin_edit CODE : run python CODE with lock and pin (its provenance.pstack) bound, then save the copied lock
-pin_edit() {
-	python3 - "$PIN/skills.lock.json" "$1" <<'EOF'
+echo "# canonical plugin discovery, identity and fail-closed fallback"
+# Self-contained: a synthetic plugin under a throwaway HOME, generated skill text, the unchanged canonical checker
+# from fixtures/pstack/, and no inherited T3_PSTACK_ROOT or CLEARCASE_SKILLS_DIR. Nothing in this section discovers
+# or copies from the real HOME; PSTACK_ENV strips the two variables that would redirect discovery.
+PSTACK_ENV=(env -u T3_PSTACK_ROOT -u CLEARCASE_SKILLS_DIR -u CLEARCASE_CHROMIUM)
+CHECKER_FIXTURE="$FIXTURES/pstack/check-plan.mjs"
+CHECKER_SHA=f4bb71a390d7a49fc7d6e7dd178d2c2c0d9575c13194dc94a7df324107b87882
+if [[ $(python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$CHECKER_FIXTURE") == "$CHECKER_SHA" ]] \
+	&& grep -qF "$CHECKER_SHA" "$FIXTURES/pstack/README.md" && [[ -s $FIXTURES/pstack/LICENSE ]]; then
+	ok "the committed checker is the unchanged canonical copy, with its license and provenance"
+else
+	bad "the committed checker is the unchanged canonical copy, with its license and provenance" "$CHECKER_FIXTURE differs from sha256 $CHECKER_SHA or lacks its LICENSE or README"
+fi
+PLUGIN_HOME="$WORK/plugin-home"
+python3 "$HERE/make_plugin.py" "$PLUGIN_HOME" 2.0.0-rc.5 2.0.0-rc.9 2.0.0-rc.10
+PLUGIN_LATEST="$PLUGIN_HOME/.claude/plugins/cache/t3-pstack/t3-pstack/2.0.0-rc.10"
+PLUGIN_REGISTRY="$PLUGIN_HOME/.claude/plugins/installed_plugins.json"
+PLUGIN_OLD="$PLUGIN_HOME/.claude/plugins/cache/t3-pstack/t3-pstack/2.0.0-rc.5"
+cp "$PLUGIN_REGISTRY" "$WORK/plugin-registry.saved"
+run "newest plugin uses semantic version order" 0 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" "$TOOLS/verify" pstack
+has "rc.10 sorts after rc.9" "version 2.0.0-rc.10"
+receipt_check "plugin receipt records install identity and file fingerprints" 'r["pstack"]["version"] == "2.0.0-rc.10" and r["pstack"]["gitCommitSha"] == "a" * 40 and any(i["path"].endswith("installed_plugins.json") and i["sha256"] for i in r["inputs"])'
+run "an inherited T3_PSTACK_ROOT would redirect discovery" 1 env T3_PSTACK_ROOT="$WORK/hostile-root" HOME="$PLUGIN_HOME" "$TOOLS/verify" pstack
+run "the fixture environment ignores an inherited T3_PSTACK_ROOT and skills dir" 0 env T3_PSTACK_ROOT="$WORK/hostile-root" CLEARCASE_SKILLS_DIR="$WORK/hostile-skills" "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" "$TOOLS/verify" pstack
+run "explicit plugin root wins over the newest version" 0 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" T3_PSTACK_ROOT="$PLUGIN_OLD" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md"
+receipt_check "explicit root is recorded" 'r["pstack"]["selection"] == "T3_PSTACK_ROOT" and r["pstack"]["version"] == "2.0.0-rc.5"'
+run "the canonical checker rejects the invalid plan through the fixture plugin" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/invalid.md"
+has "the checker's own verdict is shown" "long dash"
+# A HOME written with a trailing slash still locates the plugin, and receipts show ~ in place of it.
+run "a HOME with a trailing slash locates the plugin and checker" 0 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME/" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md"
+lacks_in_receipt "receipts redact a HOME with a trailing slash" "$PLUGIN_HOME"
+receipt_check "internal paths stay raw while the receipt shows ~" 'r["pstack"]["root"].startswith("~/.claude/plugins/cache/")'
+run "doctor rows locate the plugin files under a HOME with a trailing slash" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME/" "$TOOLS/doctor"
+has "doctor passes the pstack source row" "PASS     pstack-source"
+has "doctor finds the required plugin files" "PASS     skill-file"
+lacks "doctor finds no required plugin file missing" "FAIL     skill-file"
+receipt_check "doctor receipt names the fixture plugin" 'r["pstack"]["kind"] == "plugin" and r["pstack"]["version"] == "2.0.0-rc.10" and r["pstack"]["gitCommitSha"] == "a" * 40'
+# The retired upstream comparison must not PASS under its old name, whatever the registry or checkout says.
+run "retired pstack-upstream FAILs instead of passing as an alias" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" "$TOOLS/verify" pstack-upstream --checkout "$WORK/no-checkout"
+has "the retired capability names its replacement" "use scripts/agent-tools/verify pstack"
+lacks "the retired capability never prints a PASS" "PASS"
+receipt_is "retired pstack-upstream has a FAIL receipt" FAIL 1
+receipt_check "the FAIL receipt keeps the retired capability's name" 'r["name"] == "pstack-upstream"'
+reason_has "the retired receipt carries the migration message" "retired"
+run "retired pstack-upstream without --checkout FAILs too" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" "$TOOLS/verify" pstack-upstream
+receipt_is "retired pstack-upstream without --checkout has a FAIL receipt" FAIL 1
+run "the internal compare-upstream entry point FAILs" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" python3 -I -B "$TOOLS/agent_tools.py" compare-upstream --checkout "$WORK/no-checkout"
+has "compare-upstream names its replacement" "use scripts/agent-tools/verify pstack"
+lacks "compare-upstream never prints a PASS" "PASS"
+run "missing explicit plugin fails without a legacy fallback" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" T3_PSTACK_ROOT="$WORK/no-plugin" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md"
+receipt_is "missing explicit plugin has a FAIL receipt" FAIL 1
+reason_has "missing plugin reason names discovery" "pstack discovery failed"
+run "empty plugin override fails instead of falling back" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" T3_PSTACK_ROOT= "$TOOLS/verify" pstack
+reason_has "empty override is actionable" "T3_PSTACK_ROOT is empty"
+# A wrong version cannot use an older valid plugin or the legacy directory.
+python3 - "$PLUGIN_REGISTRY" <<'EOF'
 import json, sys
-lock = json.load(open(sys.argv[1]))
-pin = lock["provenance"]["pstack"]
-exec(sys.argv[2])
-open(sys.argv[1], "w").write(json.dumps(lock, indent=2) + "\n")
+p=sys.argv[1]; data=json.load(open(p)); data['plugins']['t3-pstack@t3-pstack'][-1]['version']='1.0.0'
+open(p,'w').write(json.dumps(data))
 EOF
+run "registry version mismatch fails without falling back" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" "$TOOLS/verify" pstack
+receipt_is "wrong plugin version has a FAIL receipt" FAIL 1
+reason_has "version mismatch names both records" "installed_plugins.json version '1.0.0' differs from manifest version '2.0.0-rc.10'"
+cp "$WORK/plugin-registry.saved" "$PLUGIN_REGISTRY"
+python3 - "$PLUGIN_LATEST/.claude-plugin/plugin.json" <<'EOF'
+import json, sys
+p=sys.argv[1]; data=json.load(open(p)); data['version']='1.0.0'; open(p,'w').write(json.dumps(data))
+EOF
+run "unsupported plugin major version fails" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" "$TOOLS/verify" pstack
+reason_has "unsupported version is explicit" "unsupported t3-pstack version '1.0.0'"
+printf '{"name":"t3-pstack","version":"2.0.0-rc.10"}\n' >"$PLUGIN_LATEST/.claude-plugin/plugin.json"
+python3 - "$PLUGIN_REGISTRY" <<'EOF'
+import json, sys
+p=sys.argv[1]; data=json.load(open(p)); data['plugins']['t3-pstack@t3-pstack'][-1]['gitCommitSha']='HEAD'
+open(p,'w').write(json.dumps(data))
+EOF
+run "nonexact plugin install SHA fails" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" "$TOOLS/verify" pstack
+reason_has "bad install SHA is explicit" "gitCommitSha must be an exact Git SHA"
+cp "$WORK/plugin-registry.saved" "$PLUGIN_REGISTRY"
+mv "$PLUGIN_LATEST/skills/poteto-mode/scripts/check-plan.mjs" "$WORK/check-plan.saved"
+run "missing canonical checker fails before running" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md"
+receipt_is "missing checker is FAIL, never SKIPPED" FAIL 1
+reason_has "missing checker is named" "required pstack file missing or unreadable"
+mv "$WORK/check-plan.saved" "$PLUGIN_LATEST/skills/poteto-mode/scripts/check-plan.mjs"
+LEGACY_HOME="$WORK/legacy-home"
+mkdir -p "$LEGACY_HOME/.agents/skills"
+cp -a "$PLUGIN_LATEST/skills/." "$LEGACY_HOME/.agents/skills/"
+run "legacy bundle is accepted only when the plugin is absent" 0 "${PSTACK_ENV[@]}" HOME="$LEGACY_HOME" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md"
+receipt_check "fallback identity is honest about unavailable provenance" 'r["pstack"]["kind"] == "legacy" and r["pstack"]["version"] is None and r["pstack"]["gitCommitSha"] is None'
+mkdir -p "$LEGACY_HOME/.claude/plugins"
+printf '{"version":2,"plugins":{"other-plugin@market":[{"installPath":"/x","version":"1.0.0"}],"t3-pstack@t3-pstack":[]}}\n' >"$LEGACY_HOME/.claude/plugins/installed_plugins.json"
+run "a registry without a t3-pstack record still allows the legacy bundle" 0 "${PSTACK_ENV[@]}" HOME="$LEGACY_HOME" "$TOOLS/verify" pstack
+receipt_check "that fallback is recorded as legacy" 'r["pstack"]["kind"] == "legacy"'
+rm "$LEGACY_HOME/.claude/plugins/installed_plugins.json"
+run "an explicit broken plugin cannot fall back to working legacy skills" 1 "${PSTACK_ENV[@]}" HOME="$LEGACY_HOME" T3_PSTACK_ROOT="$WORK/no-plugin" "$TOOLS/verify" pstack
+receipt_is "broken plugin cannot be hidden by legacy skills" FAIL 1
+run "no plugin or legacy bundle fails clearly" 1 "${PSTACK_ENV[@]}" HOME="$WORK/no-plugin-home" "$TOOLS/verify" pstack
+receipt_is "missing all sources writes a FAIL receipt" FAIL 1
+reason_has "fix names canonical installation" "canonical t3-pstack plugin and legacy pstack bundle not found"
+# A registered plugin is present, whatever the cache holds: working legacy skills must never stand in for it.
+registered_home() {
+	local home="$WORK/registered-$1"
+	python3 "$HERE/make_plugin.py" "$home" 2.0.0-rc.5 &&
+		mkdir -p "$home/.agents/skills" && cp -a "$PLUGIN_LATEST/skills/." "$home/.agents/skills/" &&
+		echo "$home"
 }
-pin_edit "pin.update(revision='$(git -C "$UP" rev-parse HEAD)', version='9.9.9', license='MIT', notInstalled=[]); lock['skills'] = {'alpha': {'group': 'other'}, 'local-skill': {'group': 'other'}}"
-run "pstack-upstream without a checkout is SKIPPED" 3 "$PIN/verify" pstack-upstream --skills-dir "$INSTALLED"
-receipt_is "no-checkout receipt is SKIPPED" SKIPPED 3
-run "pstack-upstream with a missing checkout is SKIPPED" 3 "$PIN/verify" pstack-upstream --checkout "$WORK/no-such-checkout" --skills-dir "$INSTALLED"
-has "names the missing checkout" "pstack checkout not found"
-run "mislabelled, unpinned and unlisted upstream skills fail" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
-has "names the mislabelled skill" "alpha is an installed upstream skill but is pinned as other"
-has "names the unpinned skill" "beta is an installed upstream skill but is not pinned"
-has "names the unlisted upstream skill" "upstream skills not installed are ['gamma']"
-receipt_is "mismatch receipt is FAIL" FAIL 1
-run "relock from the checkout pins the installed upstream skills" 0 "$PIN/bootstrap" --relock --checkout "$UP" --skills-dir "$INSTALLED"
-has "relock reports what is not installed" "Upstream skills not installed: gamma"
-has "relock reports the moved skill" "Moved to pstack: alpha (was other)"
-has "relock reports the added skill" "Added: beta"
-no_receipt "relock writes no receipt"
-pin_edit "pin['notInstalled'] = ['gamma']"
-run "pstack-upstream passes on a matching pin and install" 0 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
-has "pass counts the pinned skills" "2 pinned pstack skills match"
-receipt_is "matching receipt is PASS" PASS 0
-cp "$PIN/skills.lock.json" "$WORK/pin.saved"
-pin_edit "pin['version'] = '9.9.8'"
-run "a recorded version that differs from the revision fails" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
-has "names the version mismatch" "plugin.json version is '9.9.9', provenance.pstack records '9.9.8'"
-cp "$WORK/pin.saved" "$PIN/skills.lock.json"
-pin_edit "lock['skills']['local-skill']['group'] = 'pstack'"
-run "a skill pinned as pstack that the revision lacks fails" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
-has "names the skill the revision lacks" "local-skill is pinned as pstack but is not in the pinned revision"
-cp "$WORK/pin.saved" "$PIN/skills.lock.json"
-pin_edit "lock['skills']['alpha']['sha256'] = '0' * 64"
-run "a stale pinned hash fails" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
-has "names the stale hash" "alpha: installed files match the revision but not the pinned sha256"
-cp "$WORK/pin.saved" "$PIN/skills.lock.json"
-echo "planted" >>"$INSTALLED/beta/references/notes.md"
-run "a changed installed file fails" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
-has "names the changed file" "beta/references/notes.md differs"
-run "relock refuses an install that differs from the checkout" 1 "$PIN/bootstrap" --relock --checkout "$UP" --skills-dir "$INSTALLED"
-has "refusal names the changed file" "beta/references/notes.md differs"
-cp "$UP/skills/beta/references/notes.md" "$INSTALLED/beta/references/notes.md"
-echo "payload" | tee "$UP/skills/alpha/payload.log" >"$INSTALLED/alpha/payload.log"
-run "an ignored file in the checkout's working tree is not upstream content" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
-has "names the installed-only file" "alpha/payload.log only installed"
-rm "$INSTALLED/alpha/payload.log"
-mkdir -p "$WORK/not-git/skills" && cp -a "$UP/skills/alpha" "$WORK/not-git/skills/"
-run "relock refuses a directory that is not a Git checkout" 1 "$PIN/bootstrap" --relock --checkout "$WORK/not-git" --skills-dir "$INSTALLED"
-has "refusal asks for a pstack checkout" "is not a pstack checkout"
-run "relock refuses a missing path" 1 "$PIN/bootstrap" --relock --checkout "$WORK/no-such-checkout" --skills-dir "$INSTALLED"
-mkdir -p "$WORK/empty-skills"
-run "relock refuses a skills dir without the checkout's skills" 1 "$PIN/bootstrap" --relock --checkout "$UP" --skills-dir "$WORK/empty-skills"
-has "refusal names the skills dir" "is installed in"
-run "the pin survives the refused relocks" 0 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
-cp "$PIN/skills.lock.json" "$WORK/pin.saved"
-pin_edit "pin['revision'] = '$(git -C "$UP" rev-parse "HEAD^{tree}")'"
-run "a recorded tree ID is not a commit" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
-has "names the revision that is not a commit" "has no .cursor-plugin/plugin.json at"
-cp "$WORK/pin.saved" "$PIN/skills.lock.json"
-echo "# alpha 2" >"$UP/skills/alpha/SKILL.md"
-upstream_commit "upstream moves on"
-run "a later upstream HEAD still compares the pinned revision" 0 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
-pinned_rev=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["provenance"]["pstack"]["revision"])' "$PIN/skills.lock.json")
-alpha_blob=$(git -C "$UP" rev-parse "$pinned_rev:skills/alpha/SKILL.md")
-mv "$UP/.git/objects/${alpha_blob:0:2}/${alpha_blob:2}" "$WORK/alpha-blob.saved"
-run "an unreadable object of the pinned revision fails" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
-has "names the file whose object is missing" "cannot read skills/alpha/SKILL.md ($alpha_blob) from its Git objects: $alpha_blob missing"
-mv "$WORK/alpha-blob.saved" "$UP/.git/objects/${alpha_blob:0:2}/${alpha_blob:2}"
-git -C "$UP" replace "$pinned_rev" HEAD
-cp "$UP/skills/alpha/SKILL.md" "$INSTALLED/alpha/SKILL.md"
-run "plain relock pins the changed install" 0 "$PIN/bootstrap" --relock --skills-dir "$INSTALLED"
-cp "$PIN/skills.lock.json" "$WORK/pin.saved"
-chmod 000 "$INSTALLED/alpha/SKILL.md"
-run "relock refuses an installed file it cannot read" 1 "$PIN/bootstrap" --relock --skills-dir "$INSTALLED"
-has "refusal names the unreadable file" "bootstrap: FAIL. $INSTALLED/alpha/SKILL.md: Permission denied"
-if cmp -s "$PIN/skills.lock.json" "$WORK/pin.saved"; then ok "a refused relock leaves the lock unchanged"; else bad "a refused relock leaves the lock unchanged"; fi
-run "pstack-upstream fails on an installed file it cannot read" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
-has "names the unreadable installed file" "alpha: installed files cannot be read: $INSTALLED/alpha/SKILL.md: Permission denied"
-chmod 644 "$INSTALLED/alpha/SKILL.md"
-run "a replace ref cannot stand in for the pinned revision" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
-has "names the file the replace ref changed" "alpha/SKILL.md differs"
-git -C "$UP" replace -d "$pinned_rev" >/dev/null
-cp "$PIN/skills.lock.json" "$WORK/pin.saved"
-pin_edit "pin['revision'] = 'HEAD'"
-run "a recorded revision that is not a commit ID fails" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
-has "names the bad revision" "is not a full commit ID"
-cp "$WORK/pin.saved" "$PIN/skills.lock.json"
-pin_edit "pin['revision'] = '0' * 40"
-run "a clone without the pinned revision fails" 1 "$PIN/verify" pstack-upstream --checkout "$UP" --skills-dir "$INSTALLED"
-has "names the missing revision" "has no .cursor-plugin/plugin.json at 0000000000000000000000000000000000000000"
-has "keeps Git's error about the missing revision" "exited 128: fatal: Not a valid object name 0000000000000000000000000000000000000000^{commit}"
-git -C "$UP" rm -rq skills/beta && upstream_commit "upstream drops beta"
-cp "$UP/skills/alpha/SKILL.md" "$INSTALLED/alpha/SKILL.md"
-run "relock refuses to drop a pin without --allow-drop" 1 "$PIN/bootstrap" --relock --checkout "$UP" --skills-dir "$INSTALLED"
-has "refusal names the pin and the flag" "beta pinned as pstack but not installed skills of"
-run "relock follows the checkout's HEAD with --allow-drop" 0 "$PIN/bootstrap" --relock --allow-drop --checkout "$UP" --skills-dir "$INSTALLED"
-has "relock names the pins it removes" "Removed: beta"
-has "relock notes the revision change" "HEAD differs from provenance.pstack.revision"
+GONE_HOME=$(registered_home gone) && rm -rf "$GONE_HOME/.claude/plugins/cache"
+run "a registered plugin whose cache directory is gone fails despite working legacy skills" 1 "${PSTACK_ENV[@]}" HOME="$GONE_HOME" "$TOOLS/verify" pstack
+lacks "the missing cache is never a legacy PASS" "legacy fallback"
+receipt_is "missing registered cache has a FAIL receipt" FAIL 1
+reason_has "the receipt says the registered plugin is missing" "registered in installed_plugins.json"
+run "plan-format also FAILs for a registered plugin with no cache" 1 "${PSTACK_ENV[@]}" HOME="$GONE_HOME" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md"
+receipt_is "plan-format with no registered cache has a FAIL receipt" FAIL 1
+EMPTY_HOME=$(registered_home empty) && rm -rf "$EMPTY_HOME/.claude/plugins/cache" && mkdir -p "$EMPTY_HOME/.claude/plugins/cache/t3-pstack/t3-pstack"
+run "a registered plugin with an empty cache fails despite working legacy skills" 1 "${PSTACK_ENV[@]}" HOME="$EMPTY_HOME" "$TOOLS/verify" pstack
+receipt_is "empty registered cache has a FAIL receipt" FAIL 1
+reason_has "the empty cache is named" "registered in installed_plugins.json"
+BADREG_HOME=$(registered_home badreg) && rm -rf "$BADREG_HOME/.claude/plugins/cache"
+printf '{ not json' >"$BADREG_HOME/.claude/plugins/installed_plugins.json"
+run "a malformed registry without a cache fails; absence cannot be proved" 1 "${PSTACK_ENV[@]}" HOME="$BADREG_HOME" "$TOOLS/verify" pstack
+receipt_is "malformed registry has a FAIL receipt" FAIL 1
+reason_has "malformed registry is named" "installed_plugins.json"
+printf '{"version":2,"plugins":[]}\n' >"$BADREG_HOME/.claude/plugins/installed_plugins.json"
+run "a registry of the wrong shape without a cache fails" 1 "${PSTACK_ENV[@]}" HOME="$BADREG_HOME" "$TOOLS/verify" pstack
+receipt_is "wrong-shape registry has a FAIL receipt" FAIL 1
+printf '{"version":2,"plugins":{}}\n' >"$BADREG_HOME/.claude/plugins/installed_plugins.json"
+chmod 000 "$BADREG_HOME/.claude/plugins/installed_plugins.json"
+run "an unreadable registry without a cache fails; absence cannot be proved" 1 "${PSTACK_ENV[@]}" HOME="$BADREG_HOME" "$TOOLS/verify" pstack
+receipt_is "unreadable registry has a FAIL receipt" FAIL 1
+reason_has "unreadable registry is named" "cannot read"
+chmod 644 "$BADREG_HOME/.claude/plugins/installed_plugins.json"
+run "a readable registry with no t3-pstack key still allows legacy" 0 "${PSTACK_ENV[@]}" HOME="$BADREG_HOME" "$TOOLS/verify" pstack
+# Without a usable HOME the tools fail clearly; they never resolve global paths against the working directory.
+for bad_home in "" "relative/home"; do
+	run "HOME='$bad_home' fails verify pstack naming HOME" 1 "${PSTACK_ENV[@]}" HOME="$bad_home" "$TOOLS/verify" pstack
+	reason_has "HOME='$bad_home' is named in the receipt" "HOME"
+	run "HOME='$bad_home' fails the doctor without a traceback" 1 "${PSTACK_ENV[@]}" HOME="$bad_home" "$TOOLS/doctor"
+	lacks "doctor with HOME='$bad_home' prints no traceback" "Traceback"
+	has "doctor with HOME='$bad_home' names HOME" "HOME"
+	run "HOME='$bad_home' fails bootstrap --relock naming HOME" 1 "${PSTACK_ENV[@]}" HOME="$bad_home" "$TOOLS/bootstrap" --relock
+	has "relock with HOME='$bad_home' names HOME" "HOME"
+done
+run "retired upstream relock is refused" 1 "$TOOLS/bootstrap" --relock --checkout "$WORK/no-checkout"
+has "relock explains retained leaf-only workflow" "independent leaf skills only"
+run "leaf-only relock still works" 0 "${PSTACK_ENV[@]}" "$EVTOOLS/bootstrap" --relock --skills-dir "$PLANTED"
+no_receipt "leaf relock writes no receipt unless wrapped"
+# The leaf relock's refusals stay tested (they went with the retired upstream section in a47c288).
+cp "$EVTOOLS/skills.lock.json" "$WORK/relock.saved"
+chmod 000 "$PLANTED/${pinned[0]}/SKILL.md"
+run "relock refuses an installed file it cannot read" 1 "${PSTACK_ENV[@]}" "$EVTOOLS/bootstrap" --relock --skills-dir "$PLANTED"
+has "refusal names the unreadable file" "bootstrap: FAIL. $PLANTED/${pinned[0]}/SKILL.md: Permission denied"
+if cmp -s "$EVTOOLS/skills.lock.json" "$WORK/relock.saved"; then ok "a refused relock leaves the lock unchanged"; else bad "a refused relock leaves the lock unchanged"; fi
+chmod 644 "$PLANTED/${pinned[0]}/SKILL.md"
+# A plugin identity edited during a successful checker run is stale evidence, not PASS.
+MUTATING_NODE="$WORK/node-mutates-plugin"
+printf '#!/bin/bash\n[[ $1 == --version ]] || echo " " >>%q\nexec %q "$@"\n' "$PLUGIN_REGISTRY" "$(command -v node)" >"$MUTATING_NODE"
+chmod +x "$MUTATING_NODE"
+run "plugin registry changed during the run is FAIL" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" CLEARCASE_NODE="$MUTATING_NODE" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md"
+receipt_is "stale plugin provenance has a FAIL receipt" FAIL 1
+reason_has "changed provenance is named" "input changed during the run:"
+cp "$WORK/plugin-registry.saved" "$PLUGIN_REGISTRY"
+# The receipt's pstack identity is the discovery that was fingerprinted, not a second look after the run: a newer
+# cache version that appears while the checker runs changes neither the inputs nor the recorded identity.
+NEWER="$PLUGIN_HOME/.claude/plugins/cache/t3-pstack/t3-pstack/2.0.0-rc.11"
+NEWER_NODE="$WORK/node-adds-newer-plugin"
+printf '#!/bin/bash\nif [[ $1 != --version && ! -e %q ]]; then cp -a %q %q && printf %s %q >%q; fi\nexec %q "$@"\n' \
+	"$NEWER" "$PLUGIN_LATEST" "$NEWER" '%s' '{"name":"t3-pstack","version":"2.0.0-rc.11"}' "$NEWER/.claude-plugin/plugin.json" "$(command -v node)" >"$NEWER_NODE"
+chmod +x "$NEWER_NODE"
+run "a newer plugin appearing during the run does not change the checked identity" 0 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" CLEARCASE_NODE="$NEWER_NODE" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md"
+receipt_check "the receipt records the fingerprinted install, not a later rediscovery" 'r["pstack"]["version"] == "2.0.0-rc.10" and r["pstack"]["root"].endswith("/2.0.0-rc.10")'
+rm -rf "$NEWER"
+# One discovery per capability run: the fingerprinted paths and the receipt's identity come from the same call.
+if verdict=$("${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" python3 -I -B "$HERE/count_discovery.py" "$WORK/receipts-discovery" 2>&1 >/dev/null | grep -v '^receipt:\|^spend:'); [[ -z $verdict ]]; then
+	ok "a capability run discovers the plugin once and reuses it for its receipt"
+else
+	bad "a capability run discovers the plugin once and reuses it for its receipt" "$verdict"
+fi
+
+echo "# local bounded escalation records and spend reporting"
+ESC="$WORK/escalation"
+mkdir -p "$ESC" && echo synthetic >"$ESC/input.txt" && git_fixture "$ESC"
+esc_sha=$(git -C "$ESC" rev-parse HEAD)
+ESC_ARGS=(--root "$ESC" --issue GRS-999 --issue-url https://linear.app/vaper/issue/GRS-999/synthetic --source-issue GRS-104 --sha "$esc_sha" --question "Which boundary rejects a stale receipt?" --model gpt-6-astra)
+run "escalation records a bounded single-model request locally" 0 "$TOOLS/escalate" "${ESC_ARGS[@]}"
+receipt_is "escalation request receipt is PASS for recording only" PASS 0
+receipt_check "request records linkage, exact SHA and no dispatch" 'r["escalation"]["sourceIssue"] == "GRS-104" and r["escalation"]["sha"] == r["revision"]["head"] and r["escalation"]["attemptLimit"] == 1 and r["escalation"]["dispatchPerformed"] is False'
+run "escalation without required fields refuses to write" 2 "$TOOLS/escalate" --issue GRS-999
+no_receipt "incomplete escalation writes no record"
+run "an unlinked escalation refuses to write" 1 "$TOOLS/escalate" "${ESC_ARGS[@]}" --issue-url https://linear.app/vaper/issue/GRS-998/wrong
+no_receipt "mismatched escalation link writes no record"
+run "source issue must be distinct from escalation" 1 "$TOOLS/escalate" "${ESC_ARGS[@]}" --source-issue GRS-999
+no_receipt "self-linked escalation writes no record"
+run "a symbolic SHA is refused" 1 "$TOOLS/escalate" "${ESC_ARGS[@]}" --sha HEAD
+no_receipt "symbolic SHA writes no record"
+run "an exact stale SHA is refused" 1 "$TOOLS/escalate" "${ESC_ARGS[@]}" --sha "$(printf '%040d' 0)"
+no_receipt "stale escalation SHA writes no record"
+run "empty escalation question is refused" 1 "$TOOLS/escalate" "${ESC_ARGS[@]}" --question '   '
+run "unbounded escalation question is refused" 1 "$TOOLS/escalate" "${ESC_ARGS[@]}" --question "$(python3 -c 'print("q" * 1001)')"
+no_receipt "unbounded question writes no record"
+run "outcome needs task ID, findings, outcome and checks" 1 "$TOOLS/escalate" "${ESC_ARGS[@]}" --phase outcome
+no_receipt "incomplete outcome writes no record"
+run "outcome records task and findings without launching" 0 "$TOOLS/escalate" "${ESC_ARGS[@]}" --phase outcome --task-id synthetic-task --findings 'No finding' --outcome 'Question answered' --checks 'synthetic receipt self-test'
+receipt_check "outcome retains all follow-up fields" 'r["escalation"]["taskId"] == "synthetic-task" and r["escalation"]["phase"] == "outcome" and r["escalation"]["checks"] and r["escalation"]["dispatchPerformed"] is False'
+echo changed >>"$ESC/input.txt"
+run "dirty escalation source is refused" 1 "$TOOLS/escalate" "${ESC_ARGS[@]}"
+no_receipt "dirty source writes no escalation record"
+run "unavailable spend is distinct from zero" 0 "$TOOLS/receipt" --name spend-unavailable -- true
+receipt_check "no provider cost means null actual and null cap" 'r["spend"] == {"actualUsd": None, "actualSource": None, "targetUsd": None, "capUsd": None, "capEnforced": False}'
+has "spend readout says actual unavailable" "actual=unavailable"
+run "reported zero spend retains source and target" 0 "$TOOLS/receipt" --name spend-zero --actual-usd 0 --actual-source synthetic-provider-export --target-usd 12 -- true
+receipt_check "actual, target and cap have distinct fields" 'r["spend"]["actualUsd"] == 0 and r["spend"]["actualSource"] == "synthetic-provider-export" and r["spend"]["targetUsd"] == 12 and r["spend"]["capUsd"] is None and not r["spend"]["capEnforced"]'
+has "target is explicitly reporting only" "target=USD 12 (reporting only)"
+run "exceeding a target does not pause the command" 0 "$TOOLS/receipt" --name spend-target --actual-usd 21 --actual-source synthetic-provider-export --target-usd 12 -- true
+receipt_is "overspend target is not an enforcement cap" PASS 0
+run "actual spend without a source is refused" 2 "$TOOLS/receipt" --name no-cost-source --actual-usd 1 -- true
+no_receipt "unsourced spend is not recorded as actual"
+run "nonfinite spend is refused" 2 "$TOOLS/receipt" --name invalid-cost --actual-usd nan --actual-source synthetic -- true
+run "negative spend target is refused" 2 "$TOOLS/receipt" --name invalid-target --target-usd -1 -- true
 
 echo "# bootstrap is idempotent and removable in a fresh checkout"
 FRESH="$WORK/fresh"
@@ -925,12 +1029,14 @@ receipt_is "bootstrap writes the receipt of its doctor run" PASS 0
 run "verify list prints the capabilities" 0 "$FRESH/scripts/agent-tools/verify" list
 has "verify list shows app as available" "app               available verify-clearcase run"
 lacks "verify list defers nothing" "deferred"
+has "verify list marks the upstream alias retired" "retired; FAILs with a migration message to verify pstack"
 no_receipt "verify list writes no receipt"
 run "second bootstrap is a no-op" 0 "$FRESH/scripts/agent-tools/bootstrap"
 has "second bootstrap reports unchanged" "unchanged ->"
 mkdir -p "$WORK/other-skills"
 ln -s "$(readlink "$FRESH/.local/agent-tools/skills")/poteto-mode" "$WORK/other-skills/poteto-mode"
-run "conflicting bootstrap is refused" 1 "$FRESH/scripts/agent-tools/bootstrap" --skills-dir "$WORK/other-skills"
+rm "$FRESH/.local/agent-tools/skills" && ln -s "$WORK/other-skills" "$FRESH/.local/agent-tools/skills"
+run "conflicting bootstrap is refused" 1 "$FRESH/scripts/agent-tools/bootstrap"
 has "conflict explains the fix" "bootstrap --remove first"
 no_receipt "a refused bootstrap writes no receipt"
 if [[ -z $(git -C "$FRESH" status --porcelain) ]]; then ok "bootstrap leaves tracked files untouched"; else bad "bootstrap leaves tracked files untouched" "$(git -C "$FRESH" status --porcelain)"; fi
@@ -942,9 +1048,12 @@ echo "# rerun.sh stops or fails when a step's evidence is not recorded whole"
 # The real rerun.sh runs in a copy of this checkout whose suite is a stub, so each run takes seconds and cannot rerun
 # these cases. Faults are planted from the background once the run has written the line they wait for.
 RR="$WORK/rerun-copy"
-# Without node_modules, its v5-app-deferred step (verify app) exits 3 at the runner's preflight instead of a full run.
+# rerun.sh requires installed dependencies, so the copy links this checkout's node_modules (ignored by Git); its
+# v5-app-deferred step names a missing Chromium and exits 3 at the runner's preflight instead of a full run.
 mkdir -p "$RR" && tar -C "$REPO" --exclude=./.git --exclude=./.local --exclude=./node_modules -cf - . | tar -C "$RR" -xf -
+ln -s "$REPO/node_modules" "$RR/node_modules"
 printf '#!/bin/bash\necho "stub suite of a rerun.sh test: 0 failed"\n' >"$RR/tests/agent-tools/run.sh"
+# The committed script runs unchanged: its inventory already expects the current exit codes.
 git_fixture "$RR"
 rr_head=$(git -C "$RR" rev-parse HEAD)
 RERUN=(env CC27_BUN="${CLEARCASE_BUN:-$(command -v bun)}" bash "$RR/docs/acceptance/CC-27/rerun.sh")
@@ -1007,6 +1116,8 @@ for fault in "v1-doctor: summary.tsv does not hold exactly one MATCH row with ex
 	"receipts/stray/planted/receipt.json: receipt outside the inventoried steps"; do
 	OUT="$out/identity-audit.txt" has "the audit names: $fault" "$fault"
 done
+
+run "unattended controls synthetic CLI suite" 0 python3 -I "$HERE/test_controls.py"
 
 echo "# summary"
 echo "$passed passed, $failed failed"

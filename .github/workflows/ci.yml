@@ -63,11 +63,117 @@ jobs:
           trap 'rm -rf "$tmp"' EXIT
           TMPDIR=$tmp CLEARCASE_TEST_TMP=$tmp scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base origin/dev --name test --tool bun -- \
             bun run --bun test --maxWorkers=6 --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/receipts/vitest.json"
+      # A fix round commits its review findings and the reviewed SHA under docs/acceptance/fix-rounds/
+      # (docs/agent-tooling.md). The guard fails a pull request that deletes, skips, loosens or renames a test those
+      # findings name, that changes the test code, runner configuration or fixtures they depend on, or that deletes a
+      # manifest. It checks the pull request's own head, not the merge commit, and runs under Bun because the runner has
+      # no Node. The guard itself is the base branch's copy, checked out beside the head with the installed
+      # node_modules: a pull request cannot weaken the check that judges it. A pull request labelled fix-round must
+      # carry a manifest; the coordinator's ledger has no copy here, so the label is how CI learns of a fix round. A
+      # push to dev ran it in its pull request.
+      - name: test guard
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          FIX_ROUND_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'fix-round') }}
+        run: |
+          head=$RUNNER_TEMP/pr-head
+          base_tools=$RUNNER_TEMP/base-tools
+          git worktree prune
+          git worktree add -q --detach "$head" "$PR_HEAD_SHA"
+          trap 'git worktree remove --force "$head"; git worktree remove --force "$base_tools" 2>/dev/null || true' EXIT
+          runner=scripts/agent-tools/fix-round-guard
+          if git cat-file -e "origin/$BASE_REF:scripts/agent-tools/fix-round-guard" 2>/dev/null; then
+            git worktree add -q --detach "$base_tools" "origin/$BASE_REF"
+            ln -s "$PWD/node_modules" "$base_tools/node_modules"
+            runner="$base_tools/scripts/agent-tools/fix-round-guard"
+          else
+            echo "the base branch has no fix-round guard yet (this pull request adds it): running the pull request's own copy" >&2
+          fi
+          require=()
+          if [ "$FIX_ROUND_LABEL" = true ]; then require=(--require-manifest); fi
+          CLEARCASE_NODE=$(command -v bun) "$runner" --root "$head" --base "origin/$BASE_REF" --branch "$HEAD_REF" \
+            --receipts "$RUNNER_TEMP/receipts" "${require[@]}"
       # Fails the job unless both receipts are PASS for this checkout and every tracked test file ran with no failed or
       # skipped test; writes the job summary and summary.json, which name each problem and how to reproduce it.
       - name: summary
         if: always()
         run: bun scripts/ci/summary.ts "$RUNNER_TEMP/receipts" check test
+      - name: store verdict
+        if: always()
+        env:
+          JOB_STATUS: ${{ job.status }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          python3 - "$RUNNER_TEMP/receipts" <<'PY'
+          import json, os, pathlib, re, shutil, stat, subprocess, sys, tempfile
+          sha, run, attempt = (os.environ[k] for k in ("GITHUB_SHA", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT"))
+          if not re.fullmatch(r"[0-9a-f]{40}", sha) or not all(re.fullmatch(r"[0-9]+", x) for x in (run, attempt)):
+              raise SystemExit("invalid CI store key")
+          store = pathlib.Path.home() / "ci-results"
+          store.mkdir(mode=0o700, exist_ok=True)
+          if not stat.S_ISDIR(store.lstat().st_mode) or store.resolve() != store:
+              raise SystemExit("unsafe CI store root")
+          target = store / f"{sha}-{run}-{attempt}"
+          staging = pathlib.Path(tempfile.mkdtemp(prefix=f".{target.name}-", dir=store))
+          try:
+              source = pathlib.Path(sys.argv[1]).absolute()
+              def confined(fd):
+                  if not pathlib.Path(os.readlink(f"/proc/self/fd/{fd}")).is_relative_to(source):
+                      raise SystemExit("receipt path resolves outside source")
+              try:
+                  info = source.lstat()
+              except FileNotFoundError:
+                  info = None
+              if info is not None:
+                  if not stat.S_ISDIR(info.st_mode) or source.resolve() != source:
+                      raise SystemExit("unsafe or symlinked receipt root")
+                  source_fd = os.open(source, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+                  try:
+                      confined(source_fd)
+                      for directory, dirs, files, directory_fd in os.fwalk(".", dir_fd=source_fd, follow_symlinks=False):
+                          confined(directory_fd)
+                          for name in dirs + files:
+                              info = os.stat(name, dir_fd=directory_fd, follow_symlinks=False)
+                              expected = stat.S_ISDIR if name in dirs else stat.S_ISREG
+                              if not expected(info.st_mode):
+                                  raise SystemExit("unsafe or symlinked receipt entry")
+                          for name in files:
+                              # Persist structured receipts and summaries only; raw output may contain secrets.
+                              if name != "receipt.json" and not (directory == "." and name in ("summary.json", "summary.md")):
+                                  continue
+                              fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory_fd)
+                              with os.fdopen(fd, "rb") as incoming:
+                                  confined(incoming.fileno())
+                                  if not stat.S_ISREG(os.fstat(incoming.fileno()).st_mode):
+                                      raise SystemExit("unsafe receipt file")
+                                  destination = staging / directory / name
+                                  destination.parent.mkdir(parents=True, exist_ok=True)
+                                  with destination.open("wb") as outgoing:
+                                      shutil.copyfileobj(incoming, outgoing)
+                  finally:
+                      os.close(source_fd)
+              keys = ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "GITHUB_SHA", "GITHUB_EVENT_NAME", "GITHUB_REF", "RUNNER_NAME", "PR_HEAD_SHA")
+              meta = {k: os.environ.get(k, "") for k in keys}
+              head = subprocess.run(["git", "rev-parse", "HEAD"], text=True, capture_output=True)
+              meta["checkout_head"] = head.stdout.strip() if head.returncode == 0 else ""
+              (staging / "run-metadata.json").write_text(json.dumps(meta, indent=2) + "\n")
+              try:
+                  summary = json.loads((staging / "summary.json").read_text())
+              except (OSError, ValueError):
+                  summary = {}
+              passed = (isinstance(summary, dict) and os.environ["JOB_STATUS"] == "success" and meta["checkout_head"] == sha
+                        and summary.get("head") == sha and summary.get("verdict") == "PASS")
+              verdict = "PASS" if passed else "FAIL"
+              (staging / "verdict.txt").write_text(f"{verdict} {sha}\n")
+              staging.rename(target)
+              print(f"{verdict} {sha}\nreceipts {target}")
+          finally:
+              if staging.exists():
+                  shutil.rmtree(staging)
+          PY
       - if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

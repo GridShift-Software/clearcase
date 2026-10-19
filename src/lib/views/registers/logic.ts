@@ -1,6 +1,7 @@
+import { centsText } from '../../calculations/money.ts';
 import { fmtR } from '../../components/format.ts';
 import { toCSV, userCell } from '../../components/csv.ts';
-import { parseAmount, twoDp, valueCents, hoursTile } from './amounts.ts';
+import { parseAmount, valueCents, hoursTile } from './amounts.ts';
 import type { RegisterDef } from './defs.ts';
 
 export type Entry = Record<string, string>;
@@ -65,7 +66,7 @@ const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0);
 export const openDeadlines = (rows: readonly Row[], now: Date): number => rows.filter((r) => { const du = daysUntil(r.values.date ?? '', now); return du !== null && du >= 0; }).length;
 
 
-export const timesheetValue = (e: Entry): string => { const c = valueCents(e.hours ?? '', e.rate ?? ''); return c === null ? '' : fmtR(twoDp(c)); };
+export const timesheetValue = (e: Entry): string => { const c = valueCents(e.hours ?? '', e.rate ?? ''); return c === null ? '' : fmtR(centsText(c)); };
 
 export const isBilled = (v: string | undefined): boolean => (v ?? '').trim().toLowerCase() === 'yes';
 
@@ -84,7 +85,7 @@ export const unbilledHours = (rows: readonly Row[]): string => unbilledTime(rows
 
 export function cellText(kind: string, e: Entry, field: string | undefined): string {
 	const v = field ? (e[field] ?? '') : '';
-	if (kind === 'money') { const p = parseAmount(v, 'signed-money'); return p.kind === 'ok' ? fmtR(twoDp(p.units)) : v; }
+	if (kind === 'money') { const p = parseAmount(v, 'signed-money'); return p.kind === 'ok' ? fmtR(centsText(p.units)) : v; }
 	if (kind === 'value') return timesheetValue(e);
 	if (kind === 'date-or-dash') return v || '—';
 	if (kind === 'category') return v || 'Other';

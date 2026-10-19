@@ -5,7 +5,7 @@
 	let { status }: { status: ResultsStatus } = $props();
 	const text = $derived(
 		status.kind === 'pending'
-			? { title: 'Results are not published yet', reason: 'This case has no published results version. Processing may still be under way.', next: 'You can open the case originals and keep your own notes now. Results appear here once they are published.' }
+			? { title: 'Results are not published yet', reason: 'This case has no published results version. Processing may still be under way.', next: 'You can open the case originals now. Your own work does not depend on results. Results appear here once they are published.' }
 			: status.kind === 'withdrawn'
 				? { title: 'Results were withdrawn', reason: 'The results version published for this case has been withdrawn.', next: 'The case originals and your own work are unaffected. Results appear here when a new version is published.' }
 				: { title: 'Results are unavailable', reason: status.reason, next: 'Try again shortly. The case originals and your own work do not depend on results.' },

@@ -124,13 +124,14 @@ try {
       }
       if (!id.startsWith('doc#')) (scripts[id] ??= {})[g] = nScripts;
       if (id === 'import-report') {
-        // what the validation report tells the operator about data kept but not presented (a fact, not a pass condition)
+        // what the validation report tells the operator about data kept but not presented: every converter note outside the text-cap section must be on the page (GRS-24 F1)
         const files: Map<string, Uint8Array> = lc.store.packageFiles(x.vid);
         const read = (f: string) => JSON.parse(new TextDecoder().decode(files.get(f)!));
         const residual = (read('manifest.json').files as J[]).filter((f) => f.schema === 'opaque@1').map((f) => f.key as string);
-        const conv = (read('datasets/conversion-report.json').data.diagnostics as J[]).filter((d) => ['V5_UNMAPPED_KEY', 'V5_DATASET_SHAPE_UNMAPPED', 'V5_OVERLAY_UNMAPPED'].includes(d.code));
+        const conv = (read('datasets/conversion-report.json').data.diagnostics as J[]).filter((d) => d.code !== 'V5_TEXT_CAPPED');
         const esc = (t: string) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         r.residualOnReport = { datasets: residual.length, namedOnPage: residual.filter((k) => body.includes(k)).length, converterCoverage: conv.length, converterCoverageOnPage: conv.filter((d) => body.includes(esc(d.message)) || body.includes(d.message)).length };
+        if (r.residualOnReport.converterCoverageOnPage !== r.residualOnReport.converterCoverage) problems.push(`${g} import-report: ${r.residualOnReport.converterCoverage - r.residualOnReport.converterCoverageOnPage} of ${r.residualOnReport.converterCoverage} converter coverage notes are not on the page`);
       }
     }
     r.ms = Math.round(performance.now() - t0);

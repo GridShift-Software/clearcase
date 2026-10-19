@@ -52,7 +52,7 @@ for (const variant of variants) {
       writeFileSync(filename, text + (name === hooks ? readFileSync(filename, 'utf8') : ''));
     }
     git(['add', '.'], checkout);
-    git(['commit', '--quiet', '-m', `probe: ${variant.name}`, '-m', 'Co-Authored-By: gpt-6.1-sol <noreply@openai.com>'], checkout);
+    git(['commit', '--quiet', '-m', `probe: ${variant.name}`], checkout); // disposable and never pushed: no co-author trailer
     const sha = git(['rev-parse', 'HEAD'], checkout);
     if (git(['status', '--porcelain'], checkout)) throw new Error('Mutation is dirty before check');
     const sync = spawnSync('bun', ['run', '--bun', 'svelte-kit', 'sync'], { cwd: checkout, encoding: 'utf8', timeout: 60_000 });

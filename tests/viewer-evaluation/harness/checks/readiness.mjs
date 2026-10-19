@@ -83,4 +83,6 @@ export default async function readiness(c, { full }) {
   const G = await evaluate(c, 'G unknown bytes', [{ id: 'archive/unknown-members.zip' }, { id: 'email/unknown-attachments.eml' }]);
   const gKids = G.reasons.filter((r) => r.file.includes('#'));
   c.record(F, 'candidate G', C, 'unrecognised or unsupported bytes inside a ZIP and on an EML hold the whole update', !G.ready && ['archive/unknown-members.zip#', 'email/unknown-attachments.eml#'].every((p) => new Set(gKids.filter((r) => r.file.startsWith(p)).map((r) => r.file)).size === 6), 'not ready; each of the six blobs in each container carries a hold', G.reasons);
+  const Fc = await evaluate(c, 'F reader fails at run time', [{ id: 'image/png-corrupt-body.png' }]);
+  c.record(F, 'candidate F', C, 'a file that passes import but whose reader fails holds the update with preview-failed', !Fc.ready && c.descriptors.get('image/png-corrupt-body.png').holds.length === 0 && Fc.reasons.some((r) => r.code.startsWith('preview-failed:')), "no import hold on the file; not ready; reason 'preview-failed:<reader code>'", { holds: c.descriptors.get('image/png-corrupt-body.png').holds, reasons: Fc.reasons });
 }

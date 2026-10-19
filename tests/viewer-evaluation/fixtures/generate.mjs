@@ -268,6 +268,12 @@ put('archive', 'budget-mixed.zip', buildZip([{ name: 'big.bin', data: new Uint8A
 put('image', 'tiff-gappy.tif', out('image', 'tiff-multipage-g4.tif'), 'the 3-page G4 TIFF again, with prepared page images for pages 1 and 3 only');
 for (const n of [1, 3]) put('image', `tiff-gappy.rendition-p${n}.png`, out('image', `tiff-multipage-g4.rendition-p${n}.png`), `prepared page image ${n} of tiff-gappy.tif (page 2 deliberately missing)`, { renditionOf: 'image/tiff-gappy.tif', page: n });
 
+// ---------- A reader that fails at run time with no import hold (M4) ----------
+const png = Buffer.from(out('image', 'png-pattern.png'));
+const corrupt = Buffer.from(png);
+for (let i = 80; i < corrupt.length - 40; i += 7) corrupt[i] ^= 0xa5;
+put('image', 'png-corrupt-body.png', corrupt, 'png-pattern.png with its compressed data scrambled: valid signature and IHDR, so import raises no hold, but no decoder can read it');
+
 writeFileSync(path.join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 1));
 rmSync(TMP, { recursive: true, force: true });
 console.log(`fixtures: ${manifest.fixtures.length} files in ${path.relative(process.cwd(), OUT) || OUT}`);

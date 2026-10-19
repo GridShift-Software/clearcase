@@ -1,0 +1,32 @@
+# Local workerd only (GRS-106): no account, no deploy. Every binding is local (remote = false); the database id is a
+# placeholder that no Cloudflare account holds.
+name = "clearcase-runtime-probe"
+main = ".svelte-kit/cloudflare/_worker.js"
+compatibility_date = "2026-10-12"
+compatibility_flags = ["nodejs_als"]
+send_metrics = false
+
+[assets]
+directory = ".svelte-kit/cloudflare"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "probe-local-only"
+database_id = "00000000-0000-4000-8000-000000000001"
+remote = false
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "probe-local-only"
+remote = false
+
+# The same Worker deployed without its R2 binding. Bindings are not inherited by an environment, so this one has DB and
+# ASSETS only: the binding-missing failure path.
+[env.missing-binding]
+
+[[env.missing-binding.d1_databases]]
+binding = "DB"
+database_name = "probe-local-only"
+database_id = "00000000-0000-4000-8000-000000000001"
+remote = false

@@ -1,5 +1,5 @@
 import type * as C from './contracts.ts';
-import type { MemoryContext } from './memory.ts';
+import { isDenial, type MemoryContext } from './memory.ts';
 import { copy, digest } from './data.ts';
 import { contractError } from './errors.ts';
 import { servePolicy } from '../../case-package/media.ts';
@@ -32,8 +32,12 @@ export function createMemoryAssets(ctx: MemoryContext, fault: (asset: C.AssetRef
     async metadata({ asset }) { return (await read(asset)).metadata; },
     async links({ asset }) { await read(asset); const href = `/cases/${encodeURIComponent(asset.caseId)}/assets/${encodeURIComponent(asset.assetId)}`; return { originalHref: href, downloadHref: `${href}?download=1`, viewerHref: null }; },
     async get({ asset, request }) {
+      const action = `asset.${asset.kind === 'original' ? 'read-original' : 'read-preview'}`;
+      const object = { kind: 'asset', id: asset.assetId, caseId: asset.caseId }, version = asset.kind === 'preview' ? asset.resultsVersion : null;
       try {
         const { bytes, metadata: m } = await read(asset);
+        // The delivery is recorded before any byte leaves; an unrecorded delivery is no delivery.
+        try { ctx.record({ action, object, version, outcome: 'succeeded' }); } catch { return new Response(null, { status: 503, headers: { ...headers, 'retry-after': '2' } }); }
         const safe = new Headers(servePolicy(m.mediaType, m.filename).headers);
         for (const [name, value] of Object.entries(headers)) safe.set(name, value);
         safe.set('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(m.filename)}`);
@@ -41,6 +45,7 @@ export function createMemoryAssets(ctx: MemoryContext, fault: (asset: C.AssetRef
         if (request.range && (request.ifRange === null || request.ifRange === m.etag)) return new Response(null, { status: 416, headers: { ...headers, 'content-range': `bytes */${bytes.length}` } });
         return new Response(request.method === 'HEAD' ? null : bytes, { headers: safe });
       } catch (e) {
+        if (isDenial(e)) try { ctx.record({ action, object, version, outcome: 'denied' }); } catch { /* the refusal stands */ }
         if (e instanceof Error && 'code' in e && (e.code === 'missing-original' || e.code === 'changed-original')) return new Response(null, { status: 410, headers });
         throw e;
       }

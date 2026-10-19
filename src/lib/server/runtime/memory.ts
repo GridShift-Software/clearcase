@@ -23,8 +23,14 @@ export interface MemoryContext {
   client: MemoryClient; identity: C.Identity; state: MemoryState; now(): Date;
   before(operation: string): Promise<void>;
   audit(event: C.AuditEvent): void;
+  /** Appends a server-built event for this request's actor; throws audit-unavailable when it cannot be persisted. */
+  record(a: Pick<C.AuditEvent, 'action' | 'object' | 'version' | 'outcome'>): void;
+  /** authorize(), appending a scoped denial event when it refuses; the refusal stands whether or not the append works. */
+  authorized(scope: C.Scope, operation: C.CaseOperation, action: string, version?: C.ResultsVersion | null): Promise<void>;
   work(caseId: C.CaseId): WorkState;
 }
+const DENIALS = new Set(['unauthenticated', 'invalid-session', 'wrong-client', 'forbidden']);
+export const isDenial = (e: unknown) => e instanceof Error && 'code' in e && typeof e.code === 'string' && DENIALS.has(e.code);
 // Each handle method works on its own copy of its arguments, so a caller that changes an argument while the call awaits
 // changes nothing the call authorized, read or wrote. Provider registrations keep their own functions.
 function detached<T extends object>(handle: T): T {
@@ -79,6 +85,17 @@ export function createMemoryBackend(a: { fixture: MemoryFixture; now: () => Date
         const previous = this.state.events.find((e) => e.eventId === event.eventId);
         if (previous) { if (JSON.stringify(previous) !== JSON.stringify(event)) throw contractError('invalid-event'); return; }
         this.state.events.push(structuredClone(event));
+      },
+      record(a) {
+        const actor: C.IdentityState = identity.kind === 'verified' ? { kind: 'verified', principal: identity.principal, sessionId: identity.sessionId } : { kind: 'anonymous', principal: null, sessionId: null };
+        this.audit({ eventId: crypto.randomUUID(), actor, ...a, at: this.now().toISOString() });
+      },
+      async authorized(scope, operation, action, version = null) {
+        try { await identity.authorize({ caseId: scope.caseId, operation }); }
+        catch (e) {
+          if (isDenial(e)) try { this.record({ action, object: { kind: 'case', id: scope.caseId, caseId: scope.caseId }, version, outcome: 'denied' }); } catch { /* the refusal stands */ }
+          throw e;
+        }
       },
     };
     const store = createMemoryReader(ctx);

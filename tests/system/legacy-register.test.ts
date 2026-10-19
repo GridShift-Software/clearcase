@@ -8,7 +8,7 @@ import type { LocalCase } from '../../src/lib/local-case/service.server.ts';
 import { ackFor, cleanup, service, tempRoot } from '../../src/lib/local-case/test-support.ts';
 
 // hooks.server.ts runs outside SvelteKit here: no build flag, and initApp (instance lock, listeners) is not under test
-vi.mock('$app/environment', () => ({ building: false }));
+vi.mock('$app/env', () => ({ building: false }));
 vi.mock('$lib/local-case/app.server', async (orig) => ({ ...(await orig<typeof import('$lib/local-case/app.server')>()), initApp: async () => {} }));
 
 const g = globalThis as { __clearcase?: unknown };

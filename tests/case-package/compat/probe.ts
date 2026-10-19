@@ -52,6 +52,9 @@ if (src.generation === 'json-script') {
   const DATA = src.roots.DATA as JsonObject, META = (src.roots.META ?? {}) as JsonObject;
   const rows = objs(DATA.chronology);
   const text = isObject(DATA.text) ? Object.values(DATA.text).filter((t): t is string => typeof t === 'string') : [];
+  // the newer viewer's hand-authored analysis module merges this object into DATA at run time; the converter does not read it
+  const overlay = /^\(function\(\)\{ const X = (\{.*\});$/m.exec(new TextDecoder().decode(html));
+  const X = overlay ? parseStrictJson(overlay[1]!) : null;
   keys = sourceKeys(src.generation, { DATA, META, sched: src.roots['window.__SCHED__'], caselines: src.roots['window.__CASELINES_IDX__'] });
   Object.assign(inventory, {
     chronologyRows: rows.length, dataKeys: Object.keys(DATA).length, auxiliaryRoots: ['window.__SCHED__', 'window.__CASELINES_IDX__'].filter((r) => src.roots[r as 'window.__SCHED__'] !== undefined).length,
@@ -60,6 +63,7 @@ if (src.generation === 'json-script') {
     textEntries: text.length, textAtCap: text.filter((t) => t.length >= TEXT_CAP).length, rowsWithoutText: isObject(DATA.text) ? rows.filter((r) => !Object.hasOwn(DATA.text as JsonObject, String(r.ref))).length : null,
     rowsWithParent: rows.filter((r) => typeof r.pr === 'string' && r.pr !== '').length, positionTypes: tally(rows.map((r) => typeof r.n)),
     emails: isObject(DATA.emails) ? { rows: size(DATA.emails.rows), threads: size(DATA.emails.threads), gaps: size(DATA.emails.gaps) } : null,
+    analysisOverlay: isObject(X) ? Object.fromEntries(Object.entries(X).map(([k, v]) => [k, size(v)])) : null,
   });
 }
 
@@ -79,6 +83,8 @@ const assets = (json(conv.files, 'assets.json') as { assets: Record<string, Json
 const chronology = (json(conv.files, 'datasets/chronology.json') as { data: JsonObject[] }).data;
 const people = (json(conv.files, 'datasets/people.json') as { data: JsonObject[] }).data;
 const matter = conv.files.has('datasets/matter.json') ? (json(conv.files, 'datasets/matter.json') as { data: JsonObject }).data : {};
+const risks = conv.files.has('datasets/risk-matrix.json') ? (json(conv.files, 'datasets/risk-matrix.json') as { data: JsonObject[] }).data : [];
+const carry = (k: string) => risks.filter((r) => { const v = r[k]; return typeof v === 'string' ? v !== '' : Array.isArray(v) && v.length > 0; }).length;
 const result: JsonObject = {
   verdict: imported.verdict, resultsVersion: conv.manifest!.resultsVersion, documents: chronology.length,
   datasets: datasets.length, residual: datasets.filter((d) => d.schema === 'opaque@1').length,
@@ -90,6 +96,8 @@ const result: JsonObject = {
   rowsDated: chronology.filter((r) => typeof r.date === 'string' && r.date !== '').length, rowsWithDateSource: chronology.filter((r) => typeof r.date_source === 'string').length,
   matterHeadings: { storyline: size(matter.storyline), strategy: size(matter.strategy) },
   peopleWithRole: people.filter((p) => typeof p.role === 'string' && p.role !== '').length,
+  riskFields: { risks: risks.length, category: carry('category'), owner: carry('owner'), refs: carry('refs') },
+  textCapNotice: conv.diagnostics.find((d) => d.code === 'V5_TEXT_CAPPED')?.message ?? null,
   conversionWarnings: tally(conv.diagnostics.filter((d) => d.severity !== 'info').map((d) => d.code)), validation: tally(imported.diagnostics.map((d) => d.code)),
   ms: { convert: convertMs, validate: validateMs }, rssMiB: Math.round(process.memoryUsage().rss / 2 ** 20),
 };
@@ -115,7 +123,7 @@ if (a.expect) {
   if (!block) { console.error('docs/compatibility.md has no compat-inventory block'); process.exit(2); }
   const want = (JSON.parse(block[1]!) as Record<string, JsonObject>)[a.expect];
   if (!want) { console.error(`no inventory named ${a.expect}`); process.exit(2); }
-  const got: Record<string, JsonValue | undefined> = { ...inventory, verdict: result.verdict, documents: result.documents, unaccounted: result.unaccounted, demoted: result.demoted, refReuse: out.refReuse };
+  const got: Record<string, JsonValue | undefined> = { ...inventory, verdict: result.verdict, documents: result.documents, unaccounted: result.unaccounted, demoted: result.demoted, refReuse: out.refReuse, riskFields: result.riskFields, textCapNotice: result.textCapNotice };
   for (const [k, v] of Object.entries(want)) if (JSON.stringify(got[k]) !== JSON.stringify(v)) failures.push(`${k}: expected ${JSON.stringify(v)}, got ${JSON.stringify(got[k])}`);
   out.expect = { name: a.expect, checked: Object.keys(want).length, failures };
 }

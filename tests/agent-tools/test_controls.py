@@ -1529,7 +1529,8 @@ class GuardReach(GuardCase):
                 ('a spread', {'vitest.config.ts': "const shared = ['tests/setup.ts'];\nexport default { test: { setupFiles: [...shared] } };\n"}),
                 ('a shorthand property', {'vitest.config.ts': "const setupFiles = ['tests/setup.ts'];\nexport default { test: { setupFiles } };\n"}),
                 ('a missing file', {'vitest.config.ts': "export default { test: { setupFiles: ['./tests/missing.ts'] } };\n"}),
-                ('a bunfig preload that is not a string list', {'bunfig.toml': '[test]\npreload = { file = "./tests/setup.ts" }\n'})):
+                ('a bunfig preload that is not a string list', {'bunfig.toml': '[test]\npreload = { file = "./tests/setup.ts" }\n'}),
+                ('a bunfig preload in an inline table', {'bunfig.toml': 'test = { preload = "./tests/setup.ts" }\n'})):
             with self.subTest(bypass=f'an unbound entry: {label}'):
                 self.protect({**files, 'tests/setup.ts': 'export {};\n'}, test)
                 self.write('tests/setup.ts', stub)
@@ -1539,7 +1540,8 @@ class GuardReach(GuardCase):
             config = head + ("export default { test: { setupFiles: [`${__dirname}/tests/setup.ts`, join(process.cwd(), 'tests/more.ts')],"
                              " globalSetup: './tests/global.ts' } };\n")
             self.protect({'vitest.config.ts': config, 'tests/setup.ts': 'export {};\n', 'tests/more.ts': 'export {};\n',
-                          'tests/global.ts': 'export default () => {};\n', 'bunfig.toml': '[test]\npreload = ["./tests/setup.ts"]\n',
+                          'tests/global.ts': 'export default () => {};\n', 'tests/preload.ts': 'export {};\n',
+                          'bunfig.toml': '[test]\npreload = ["./tests/setup.ts", "./tests/preload.ts"] # two files\n',
                           'src/clamp.ts': 'export function clamp(x: number) { return x; }\n'}, test)
             self.write('src/clamp.ts', 'export function clamp(x: number) { if (x < 0) return 0; return x; }\n')
             self.commit('fix')

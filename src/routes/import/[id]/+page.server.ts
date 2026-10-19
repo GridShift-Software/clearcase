@@ -30,7 +30,8 @@ function textCoverage(notes: ConversionNote[] | null): { known: boolean; notes: 
  * Every other note the converter recorded about the source (data kept as an opaque dataset and not shown, an analysis
  * overlay it does not map, a dropped index, ...), grouped by code with its subject and the converter's own counts: null
  * when it recorded none, `known: false` when the package has no readable conversion report. No code list: a note the
- * converter gains later shows up here without a change to this route.
+ * converter gains later shows up here without a change to this route. Every note is listed: this section is the only place
+ * the repair detail of unsupported source data is shown, so no count caps it.
  */
 function sourceCoverage(notes: ConversionNote[] | null) {
 	if (!notes) return { known: false, groups: [] };
@@ -39,7 +40,7 @@ function sourceCoverage(notes: ConversionNote[] | null) {
 	if (!byCode.size) return null;
 	const groups = [...byCode].sort(([x], [y]) => (x < y ? -1 : 1)).map(([code, ds]) => ({
 		code, hint: (CODES as Record<string, { hint: string }>)[code]?.hint ?? '', total: ds.length,
-		items: ds.slice(0, LISTED_PER_CODE).map((d) => ({ subject: d.subject, message: d.message })),
+		items: ds.map((d) => ({ subject: d.subject, message: d.message })),
 	}));
 	return { known: true, groups };
 }

@@ -51,11 +51,12 @@ const wanted = (s) => !TARGET || TARGET.test(s);
 const PAYLOAD = ' Syn;=CCX(1)\t+CCX(2)\r-CCX(3)\n@CCX(4)';
 /** A URL in two documents' excerpts: the unbroken text a diff of them shows (hoa_diff, class narrow). */
 const LONG_URL = 'https://synthetic.invalid/' + 'a1b2c3d4e5'.repeat(12);
-/** A newer-generation export: risks that carry category, owner and documents, and one document text at the builder's cap (V5_TEXT_CAPPED). */
+/** A newer-generation export: risks that carry category, owner and documents, and one document text at the builder's cap (V5_TEXT_CAPPED) and one source key with no mapping (V5_UNMAPPED_KEY). */
 const withNewer = (r) => {
 	r.META.version = 'V1';
 	r.DATA.riskMatrix = [{ issue: 'Invented issue', likelihood: 'Low', impact: 'High', mitigation: 'Invented mitigation', category: 'Legal', owner: 'Counsel', refs: ['OD-001'] }];
 	r.DATA.text = { 'OD-001': 'x'.repeat(4000) };
+	r.DATA.inventedExtra = { a: 1 };
 };
 const withLongUrl = (r) => { for (const row of r.DATA.chronology) if (row.ref === 'OD-001' || row.ref === 'OD-002') row.excerpt = `Terms of ${row.ref} are at ${LONG_URL}${row.ref.slice(-1)} and nowhere else.`; };
 const UNBROKEN = 'syn_unbroken_case_id_'.padEnd(64, '0123456789abcdefghijklmnopqrstuvwxyz');

@@ -8,6 +8,7 @@ import type { D1, R2 } from '../bindings.ts';
 import type { d1Audit } from './audit.ts';
 
 type OriginalRow = { asset_id: string; object_key: string; size: number; sha256: string; media_type: string; filename: string };
+const isUnavailable = (e: unknown) => codeOf(e) === 'missing-original' || codeOf(e) === 'changed-original';
 const failed = (): never => {
 	throw contractError('asset-unavailable', true);
 };
@@ -75,14 +76,18 @@ export function fixtureAssets(a: { db: D1; bucket: R2; clientId: ClientId; ident
 			const object = { kind: 'asset', id: asset.assetId, caseId: asset.caseId };
 			try {
 				const { bytes, metadata: m } = await read(asset);
-				// The delivery is recorded before any byte leaves; an unrecorded delivery is no delivery.
+				// The bootstrap serves whole originals only; a range is refused rather than served from unchecked bytes. Nothing is
+				// released, so the refusal is its own outcome and never a delivery.
+				if (request.range && (request.ifRange === null || request.ifRange === m.etag)) {
+					await audit.record({ action: 'asset.read-original', object, version: null, outcome: 'refused' }).catch(() => undefined);
+					return new Response(null, { status: 416, headers: { ...HEADERS, 'content-range': `bytes */${bytes.length}` } });
+				}
+				// The delivery is recorded only when bytes are about to be released, and before any byte leaves; an unrecorded delivery is no delivery.
 				try {
 					await audit.record({ action: 'asset.read-original', object, version: null, outcome: 'succeeded' });
 				} catch {
 					return new Response(null, { status: 503, headers: { ...HEADERS, 'retry-after': '2' } });
 				}
-				// The bootstrap serves whole originals only; a range is refused rather than served from unchecked bytes.
-				if (request.range && (request.ifRange === null || request.ifRange === m.etag)) return new Response(null, { status: 416, headers: { ...HEADERS, 'content-range': `bytes */${bytes.length}` } });
 				const safe = new Headers(servePolicy(m.mediaType, m.filename).headers);
 				for (const [name, value] of Object.entries(HEADERS)) safe.set(name, value);
 				safe.set('content-disposition', `attachment; filename*=UTF-8''${encodeURIComponent(m.filename)}`);
@@ -91,6 +96,8 @@ export function fixtureAssets(a: { db: D1; bucket: R2; clientId: ClientId; ident
 				return new Response(request.method === 'HEAD' ? null : bytes, { headers: safe });
 			} catch (e) {
 				if (isDenial(e)) await audit.record({ action: 'asset.read-original', object, version: null, outcome: 'denied' }).catch(() => undefined);
+				// A missing or changed original is a failed read (the route answers it 410); the failure stands whether or not it is recorded.
+				else if (isUnavailable(e)) await audit.record({ action: 'asset.read-original', object, version: null, outcome: 'failed' }).catch(() => undefined);
 				throw e;
 			}
 		},

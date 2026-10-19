@@ -99,7 +99,7 @@ export interface AsyncUserWork {
   readonly snapshots: SnapshotStore; readonly registers: AsyncRegisters;
 }
 
-export interface AuditEvent { eventId: string; actor: IdentityState; action: string; object: { kind: string; id: string; caseId: CaseId | null }; version: ResultsVersion | WorkVersion | null; outcome: 'succeeded' | 'denied' | 'failed'; at: string }
+export interface AuditEvent { eventId: string; actor: IdentityState; action: string; object: { kind: string; id: string; caseId: CaseId | null }; version: ResultsVersion | WorkVersion | null; outcome: 'succeeded' | 'denied' | 'failed' | 'refused'; at: string }
 export interface AuditSink { append(a: AuditEvent): Promise<{ eventId: string }> }
 export type Profile = 'production' | 'hosted-gate';
 export interface BuildStamp<P extends Profile> { revision: string; dirty: boolean; exported: boolean; builtAt: string; bun: string; buildId: string; target: 'cloudflare'; profile: P }

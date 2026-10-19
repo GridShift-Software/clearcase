@@ -41,7 +41,7 @@ Planning snapshot validation lives in `scripts/planning/check.py`; `scripts/agen
 
 ## Hosted runtime (GRS-112)
 
-One app builds two artifacts, chosen by one build variable. Unset (or `local`), `CLEARCASE_TARGET` builds the local pilot on adapter-node, which `bun run --bun start` serves. `CLEARCASE_TARGET=hosted` builds the Workers artifact on adapter-cloudflare from the route tree and server hooks that `deploy/client/hosted-files.json` selects (`deploy/client/routes/`, `src/lib/server/runtime/hosted/hooks.server.ts`). Set it only through `build:hosted`. The CSP, the Origin check and `handleError` are the app's; in the hosted graph the identity handle's authorization replaces the local loopback boundary. The pins are those of `docs/acceptance/hosting/runtime.md` (Kit 3.1.0, adapter-cloudflare 8.0.1, Wrangler 4.151.1, workerd 1.20261012.1).
+One app builds two artifacts, chosen by one build variable. Unset (or `local`), `CLEARCASE_TARGET` builds the local pilot on adapter-node, which `bun run --bun start` serves. `CLEARCASE_TARGET=hosted` builds the Workers artifact on adapter-cloudflare from the route tree and server hooks that `deploy/client/hosted-files.json` selects (`deploy/client/routes/`, `src/lib/server/runtime/hosted/hooks.server.ts`). Set it only through `build:hosted`. The CSP and the Origin check are the app's, and the hosted graph has its own `handleError` (`src/lib/server/runtime/hosted/handle.ts`) in place of the local one; in the hosted graph the identity handle's authorization replaces the local loopback boundary. The pins are those of `docs/acceptance/hosting/runtime.md` (Kit 3.1.0, adapter-cloudflare 8.0.1, Wrangler 4.151.1, workerd 1.20261012.1).
 
 The second variable, `CLEARCASE_HOSTED_PROFILE`, is a test variable read at build time. `production`, the default, holds no test double. Every protected request is refused with 503 until the identity, storage (GRS-117) and asset (GRS-118) adapters land. `/health` and the 404 for `/api/browse` still answer. `hosted-gate` swaps in `src/lib/server/runtime/hosted/gate/hooks.server.ts` and the named test doubles under that directory. The import guard and the artifact scan refuse those doubles in any production artifact.
 
@@ -89,7 +89,7 @@ bun run --bun start:hosted --stop
 
 ### Import boundary
 
-`bun run --bun check:hosted-imports`, run by `check` and by every hosted build, walks both profiles' source graphs before tree shaking. Every selected route is a root, and the guard resolves the following:
+`bun run --bun check:hosted-imports`, run by `check`, walks both profiles' source graphs before tree shaking; each hosted build (`vite.config.ts`, at `buildStart`) walks only its own profile's graph. Every route file Kit builds is a root (`+page`, `+layout`, `+server`, `+error`, their `@` layout-reset and `.server` forms), any other `+`-prefixed file under the routes fails closed, and the guard resolves the following:
 
 - TypeScript aliases;
 - re-exports;

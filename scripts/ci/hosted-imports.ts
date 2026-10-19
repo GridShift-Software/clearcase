@@ -29,6 +29,16 @@ export function selected(root: string, profile: HostedProfile = 'production') {
   if (!record(entry) || Object.keys(entry).join() !== 'hooks' || !record(entry.hooks) || typeof entry.hooks.server !== 'string') throw new Error(`invalid hosted file selection for ${profile}`);
   return { routes: files.routes, hooks: { server: entry.hooks.server } };
 }
+// Kit's own route-file patterns (core/sync/create_manifest_data): a `+` file Kit builds is a root of the graph, any other
+// `+` file is one Kit refuses and the guard does not guess about. Module files may not name a layout (`+page@x.ts`).
+const componentName = /^\+(?:(?:page|layout)(?:@.*)?|error)$/;
+const moduleName = /^\+(?:server|page(?:\.server)?|layout(?:\.server)?)$/;
+function routeFile(base: string) {
+  const component = base.endsWith('.svelte') ? base.slice(0, -'.svelte'.length) : null;
+  if (component !== null) return componentName.test(component);
+  const extension = ['.ts', '.js'].find((e) => base.endsWith(e));
+  return extension !== undefined && moduleName.test(base.slice(0, -extension.length));
+}
 const slash = (s: string) => s.replaceAll(path.sep, '/');
 const literal = (n: ts.Node | undefined) => n && (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) ? n.text : null;
 
@@ -165,7 +175,12 @@ export function checkHostedGraph(a: { root: string; profile?: HostedProfile }): 
     const hooksBase = path.resolve(root, config.hooks.server);
     const hooks = extensions.map((e) => hooksBase + e).find(existsSync);
     if (!hooks) fail(['hooks'], 'unresolved hosted hooks'); else visit(hooks, []);
-    const routes = walk(path.resolve(root, config.routes)).filter((file) => /\/(?:\+(?:page|layout)(?:\.server)?|\+server|\+error)\.(?:ts|js|svelte)$/.test(slash(file)));
+    const routes: string[] = [];
+    for (const file of walk(path.resolve(root, config.routes))) {
+      const base = path.basename(file);
+      if (!base.startsWith('+')) continue;
+      if (routeFile(base)) routes.push(file); else fail([relative(file)], 'reserved route file');
+    }
     if (!routes.length) fail(['routes'], 'empty hosted route selection');
     for (const route of routes.sort()) visit(route, []);
   } catch (e) { fail(['roots'], e instanceof Error ? e.message : 'unreadable roots'); }

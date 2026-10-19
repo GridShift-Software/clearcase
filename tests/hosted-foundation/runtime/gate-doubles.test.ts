@@ -55,6 +55,27 @@ describe('hosted-gate doubles (denial without an audit event, range or release b
 		await expect(s.assets.get({ asset: original, request: { ...get, range: 'bytes=0-63' } })).rejects.toMatchObject({ code: 'changed-original' });
 		expect(w.events().filter((e) => e.outcome === 'succeeded')).toEqual([]);
 	});
+	it('audits a refused Range as refused, never as a delivery, and still serves a whole read when If-Range does not match', async () => {
+		const w = world(), s = await w.services(w.session('client-a', 'a-viewer'));
+		const refused = await s.assets.get({ asset: original, request: { ...get, range: 'bytes=0-3' } });
+		expect([refused.status, refused.body]).toEqual([416, null]);
+		expect(w.events()).toEqual([{ action: 'asset.read-original', outcome: 'refused', object_id: 'a1-letter' }]);
+		const whole = await s.assets.get({ asset: original, request: { ...get, range: 'bytes=0-3', ifRange: '"old"' } });
+		expect(whole.status).toBe(200);
+		expect(w.events().map((e) => e.outcome)).toEqual(['refused', 'succeeded']);
+	});
+	it('appends a failed event when an original is missing or changed, and none as a success', async () => {
+		const w = world(), s = await w.services(w.session('client-a', 'a-viewer')), key = 'originals/client-a/case-a1/a1-letter';
+		const bytes = w.objects.get(key)!;
+		bytes[0] ^= 1;
+		await expect(s.assets.get({ asset: original, request: get })).rejects.toMatchObject({ code: 'changed-original' });
+		w.objects.delete(key);
+		await expect(s.assets.get({ asset: original, request: get })).rejects.toMatchObject({ code: 'missing-original' });
+		expect(w.events()).toEqual([
+			{ action: 'asset.read-original', outcome: 'failed', object_id: 'a1-letter' },
+			{ action: 'asset.read-original', outcome: 'failed', object_id: 'a1-letter' },
+		]);
+	});
 	it('records a scoped denial for a wrong-client session, an anonymous request and a wrong-case read', async () => {
 		const w = world();
 		await expect((await w.services(w.session('client-b', 'b-editor'))).assets.get({ asset: original, request: get })).rejects.toMatchObject({ code: 'wrong-client' });
@@ -65,6 +86,20 @@ describe('hosted-gate doubles (denial without an audit event, range or release b
 			{ action: 'case.read', outcome: 'denied', object_id: 'case-a1' },
 			{ action: 'asset.list', outcome: 'denied', object_id: 'case-a2' },
 		]);
+	});
+	it('reads a revoked, expired or wrong-client session as anonymous, and a live one as verified, in the identity and its audit actor', async () => {
+		const w = world(), actors = () => (w.db.prepare('SELECT actor FROM audit_event ORDER BY rowid').all() as { actor: string }[]).map((r) => JSON.parse(r.actor).kind);
+		const revoked = w.session('client-a', 'a-viewer'), expired = w.session('client-a', 'a-viewer'), other = w.session('client-b', 'b-editor'), live = w.session('client-a', 'a-viewer');
+		w.db.prepare('UPDATE gate_session SET revoked = 1 WHERE session_id = ?').run(revoked);
+		w.db.prepare("UPDATE gate_session SET expires_at = '2000-01-01T00:00:00.000Z' WHERE session_id = ?").run(expired);
+		for (const [session, kind] of [[revoked, 'anonymous'], [expired, 'anonymous'], [other, 'anonymous'], [live, 'verified']] as const) {
+			const s = await w.services(session);
+			expect(s.identity.kind).toBe(kind);
+			if (kind === 'anonymous') await expect(s.assets.get({ asset: original, request: get })).rejects.toMatchObject({ code: expect.stringMatching(/^(invalid-session|wrong-client)$/) });
+		}
+		expect(actors()).toEqual(['anonymous', 'anonymous', 'anonymous']);
+		await (await w.services(live)).assets.get({ asset: original, request: get });
+		expect(actors()).toEqual(['anonymous', 'anonymous', 'anonymous', 'verified']);
 	});
 	it('reads the grant again before release: a grant withdrawn during the read releases nothing', async () => {
 		const w = world(), s = await w.services(w.session('client-a', 'a-viewer'));

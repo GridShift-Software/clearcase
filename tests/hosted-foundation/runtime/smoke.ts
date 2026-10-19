@@ -119,6 +119,7 @@ export async function smoke(a: { base: string; profile: HostedProfile; revision:
 		const events = a.query("SELECT action, outcome, object_id, case_id FROM audit_event ORDER BY at");
 		const has = (action: string, outcome: string, objectId: string) => events.some((e) => e.action === action && e.outcome === outcome && e.object_id === objectId);
 		check(has('asset.read-original', 'succeeded', 'a1-letter'), 'the delivered original has a succeeded audit event in D1');
+		check(has('asset.read-original', 'refused', 'a1-letter'), 'the refused Range has a refused audit event in D1, not a delivery');
 		check(has('case.read', 'denied', 'case-a2') && has('asset.read-original', 'denied', 'a2-statement'), 'the wrong-case reads have denied audit events in D1');
 		check(has('case.list', 'denied', 'client-a') && has('asset.read-original', 'denied', 'b1-letter'), 'the wrong-client requests have denied audit events in D1');
 		check(events.every((e) => e.case_id === null || ['case-a1', 'case-a2', 'case-b1'].includes(String(e.case_id))), 'every audit event is scoped to a fixture case or none');

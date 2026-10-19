@@ -52,6 +52,19 @@ describe('resolved hosted import boundary', () => {
     expect(result.errors.join('\n')).toContain('src/hosted/widgets/b.ts');
     expect(result.errors.join('\n')).toContain('src/hosted/routes/hidden/+page.server.ts');
   });
+  // Draft review finding 1: the homemade glob missed Vite's zero-directory `**/` and brace alternatives.
+  it.each([
+    ["import.meta.glob('./widgets/**/*.ts', {eager:true});", 'src/hosted/widgets/unsafe.ts'],
+    ["import.meta.glob('./widgets/*.{ts,js}', {eager:true});", 'src/hosted/widgets/unsafe.ts'],
+    ["import.meta.glob(['./widgets/**/*.ts', '!./widgets/safe.ts']);", 'src/hosted/widgets/unsafe.ts'],
+  ])('fails closed on every Vite glob form: %s', async (hooks, unsafe) => {
+    const root = await project(hooks, { 'src/hosted/widgets/safe.ts': 'export const x = 1;', 'src/hosted/widgets/unsafe.ts': "import 'node:fs';" });
+    expect(checkHostedGraph({ root }).errors.join('\n')).toMatch(new RegExp(`${unsafe.replaceAll('/', '\\/').replaceAll('.', '\\.')}|unsupported glob`));
+  });
+  it('fails closed on glob options that move its base', async () => {
+    const root = await project("import.meta.glob('./*.ts', { base: '../lib' });", { 'src/lib/unsafe.ts': "import 'node:fs';" });
+    expect(checkHostedGraph({ root }).errors.join('\n')).toMatch(/unsafe\.ts|unsupported glob/);
+  });
   it('allows safe crypto and fails unresolved imports rather than skipping them', async () => {
     const root = await project("import 'node:crypto'; import './not-there';");
     const result = checkHostedGraph({ root });

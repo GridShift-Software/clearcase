@@ -251,7 +251,6 @@ const post = (form: Record<string, string>, origin = BASE) =>
 	http('/?/save', { method: 'POST', headers: { accept: 'text/html', origin, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(form).toString() });
 
 async function main(out: string): Promise<number> {
-	if (process.versions.bun !== BUN) throw new Refusal(`runs under Bun ${BUN} only (packageManager); this is ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node ${process.versions.node}`}`);
 	const root = repo();
 	rmSync(out, { force: true }); // a stale summary must never stand in for this run's
 	const sha = head();
@@ -466,6 +465,7 @@ function enterOffline(args: string[]): number {
 
 const { values } = parseArgs({ options: { out: { type: 'string' }, check: { type: 'string' }, inside: { type: 'boolean' } } });
 try {
+	if (process.versions.bun !== BUN) throw new Refusal(`runs under Bun ${BUN} only (packageManager); this is ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node ${process.versions.node}`}`);
 	if (values.check) {
 		const problems = checkSummary(JSON.parse(readFileSync(values.check, 'utf8')), head());
 		for (const p of problems) console.log(`refused: ${p}`);

@@ -136,7 +136,7 @@ export async function hostedRun({ revision, evidence, scratch, port, checks = []
 	writeFileSync(cfg.pidFile, JSON.stringify({ role: 'offline-namespace', pid: child.pid, at: new Date().toISOString() }) + '\n', { flag: 'a' });
 	const chunks = [];
 	for (const s of [child.stdout, child.stderr]) s.on('data', (d) => { log(d.toString()); chunks.push(d); });
-	const limit = Number(env.VERIFY_CLEARCASE_HOSTED_TIMEOUT_MS ?? 5_400_000);
+	const limit = Number(env.VERIFY_CLEARCASE_HOSTED_TIMEOUT_MS ?? 1_500_000);
 	let timedOut = false;
 	const timer = setTimeout(() => { timedOut = true; chunks.push(Buffer.from(`\nverify-clearcase-hosted: the offline run exceeded ${limit} ms; killing pid ${child.pid}\n`)); child.kill('SIGKILL'); }, limit);
 	const exit = await new Promise((r) => child.on('exit', (code, signal) => r({ code, signal })));

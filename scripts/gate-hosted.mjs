@@ -35,8 +35,25 @@ const PID_FILE = join(OUT, 'pid');
 const LEADER_ENV = 'CLEARCASE_HOSTED_GATE_LEADER';
 export const PORTS = { app: 43800, canary: 43899 };
 const CONFIG = join('deploy', 'client', 'wrangler.toml');
-const TAIL_LINES = 12;
+const MAX_LINES = 30, TAIL_LINES = 12;
 const clip = (s) => (s.length > 160 ? `${s.slice(0, 159)}…` : s);
+
+/** Steps whose log is not named after them. */
+const LOG_OF = { start: 'server' };
+
+/**
+ * What a failed step prints: its cause, then the rest of its error without stack frames, within `room` lines. The cause
+ * is the first GATE FAIL, forbidden or problem line of the step's log (build.log, test-hosted.log, ...), else the first
+ * line of its error: for a failed build the error ends in Node's frames and the cause is only in the log.
+ */
+export function failureTail(step, evidence, room) {
+	if (room < 1) return [];
+	const error = String(step?.error ?? '').split('\n').filter((l) => l.trim() && !/^\s*at /.test(l));
+	let log = [];
+	try { log = readFileSync(join(evidence, `${LOG_OF[step.name] ?? step.name.replace(/[^\w.-]/g, '-')}.log`), 'utf8').split('\n'); } catch {}
+	const cause = log.find((l) => /GATE FAIL|forbidden|problem/i.test(l)) ?? error[0];
+	return [...(cause ? [`cause: ${cause.trim()}`] : []), ...error.filter((l) => l !== cause).slice(-TAIL_LINES)].slice(0, room).map(clip);
+}
 
 /** The gate's checks inside the lifecycle: after the build, and against the running server. */
 export const CHECKS = [
@@ -269,10 +286,7 @@ export async function runHostedGate({ head, argv = [], env = process.env, repo =
 	if (bad) steps.push({ name: 'summary', status: 'FAIL', error: bad });
 	const failed = failedStep?.name ?? (bad ? 'summary' : null);
 	for (const s of steps) lines.push(`${s.status === 'NOT RUN' ? 'SKIP' : s.status} ${s.name}${s.ms === undefined || s.ms === null ? '' : ` ${Math.round(s.ms / 1000)}s`}${s.detail ? ` (${s.detail})` : ''}`);
-	if (failed) {
-		const s = steps.find((x) => x.name === failed);
-		lines.push(...String(s.error ?? '').split('\n').filter((l) => l.trim()).slice(-TAIL_LINES).map(clip));
-	}
+	if (failed) lines.push(...failureTail(steps.find((x) => x.name === failed), evidence, MAX_LINES - lines.length - 4));
 	lines.push(`boundaries: ${Object.entries(BOUNDARIES).map(([k, v]) => `${k} ${v.kind}`).join(', ')}`);
 	lines.push(`not evidence for: ${NOT_EVIDENCE_FOR.join(', ')}; fixture ${IDENTITY} (sha256 ${gateFixture().sha256.slice(0, 12)})`);
 	lines.push(`summary ${relative(repo, file) || file} (evidence: ${!failed})`);

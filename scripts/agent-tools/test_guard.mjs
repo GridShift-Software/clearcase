@@ -7,6 +7,7 @@
 import ts from 'typescript';
 import { readFileSync, realpathSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
+import { builtinModules } from 'node:module';
 import path from 'node:path';
 
 const SUPPORT_DIR = /^(?:tests?|__tests__|e2e|support|test-?utils?|test-?helpers?|fixtures?|__fixtures__|__mocks__|__snapshots__)$/;
@@ -118,6 +119,44 @@ const reachesFramework = (file, text) => {
   })(tree);
   return reach;
 };
+// What a module does while it is imported, if anything: a top-level statement other than a declaration, or a call,
+// construction, tagged template, JSX element, await, assignment, update, delete, decorator or class static block
+// outside a function body. Function bodies, constructors and instance fields run later; a property read is not counted.
+const importTimeEffect = (file, text) => {
+  const tree = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  const at = node => `${ts.SyntaxKind[node.kind]} at ${file}:${tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1}`;
+  const assigns = node => ts.isBinaryExpression(node) && node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment
+    && node.operatorToken.kind <= ts.SyntaxKind.LastAssignment;
+  const updates = node => (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node))
+    && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator);
+  const isStatic = node => node.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.StaticKeyword);
+  const effect = node => {
+    if (ts.isTypeNode(node)) return undefined;
+    if (ts.isCallExpression(node) || ts.isNewExpression(node) || ts.isTaggedTemplateExpression(node) || ts.isAwaitExpression(node)
+        || ts.isYieldExpression(node) || ts.isDeleteExpression(node) || ts.isDecorator(node) || ts.isClassStaticBlockDeclaration(node)
+        || ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node) || ts.isJsxFragment(node) || assigns(node) || updates(node)) return at(node);
+    // decorators and a computed name are evaluated where the function or field is defined; the body or initializer
+    // runs later
+    if (ts.isFunctionLike(node) || (ts.isPropertyDeclaration(node) && !isStatic(node))) {
+      const decorator = [node, ...(node.parameters ?? [])].flatMap(part => part.modifiers ?? []).find(ts.isDecorator);
+      if (decorator) return at(decorator);
+      return node.name && ts.isComputedPropertyName(node.name) ? effect(node.name) : undefined;
+    }
+    return ts.forEachChild(node, effect);
+  };
+  for (const statement of tree.statements) {
+    if (statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.DeclareKeyword)) continue;
+    if (ts.isExpressionStatement(statement) && ts.isStringLiteral(statement.expression)) continue; // a directive
+    if (ts.isImportDeclaration(statement) || ts.isExportDeclaration(statement) || ts.isImportEqualsDeclaration(statement)
+        || ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement) || ts.isEmptyStatement(statement)) continue;
+    if (!(ts.isFunctionDeclaration(statement) || ts.isClassDeclaration(statement) || ts.isEnumDeclaration(statement)
+        || ts.isVariableStatement(statement) || ts.isExportAssignment(statement))) return `top-level ${at(statement)}`;
+    const found = effect(statement);
+    if (found) return found;
+  }
+  return undefined;
+};
+const isBuiltin = specifier => /^(?:node|bun):/.test(specifier) || builtinModules.includes(specifier);
 
 function main() {
   const args = process.argv.slice(2);
@@ -221,6 +260,9 @@ function main() {
       return resolved && files.has(relative(resolved.resolvedFileName)) ? relative(resolved.resolvedFileName) : undefined;
     };
     const found = new Map();
+    // The modules the named tests load (the test files, the support code they import, the setup files), as opposed to
+    // the runner configuration and resolver inputs, which run in the runner or not at all.
+    const loaded = new Set();
     // The paths a path expression in a file names: a literal, relative to the repository (the runner's directory) and to
     // the file; the __dirname, import.meta.dirname and new URL(..., import.meta.url) forms, relative to the file.
     const where = (tree, file, node) => {
@@ -256,6 +298,7 @@ function main() {
       if (file.split('/').some(part => part === 'RAWS' || part === '.local')) throw Error('private dependency cannot be inspected');
       const text = source(revision, file);
       found.set(file, text);
+      loaded.add(file);
       if (!supported(file)) return;
       const tree = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
       if (tree.parseDiagnostics.length) throw Error(`cannot parse protected dependency ${file}`);
@@ -318,7 +361,7 @@ function main() {
       const parts = file.split('/');
       if (tops.has(parts[0]) && parts.slice(1, -1).some(part => FIXTURE_DIR.test(part))) data.add(file);
     }
-    return { found, ids, data, runner, resolve };
+    return { found, ids, data, runner, resolve, loaded };
   };
   const controlFlow = (file, text) => {
     if (!supported(file)) return [];
@@ -562,8 +605,9 @@ function main() {
     const free = list => JSON.stringify(list.filter(statement => statement.free).map(statement => statement.text));
     if (free(reviewed) === free(current) && !added.some(statement => statement.isImport)) continue;
     if (!reasonFor(file)) throw Error(`protected dependency changed: ${file}; a free test change or a new import needs explicit assertion count reasons in assertionCountReasons[file]`);
-    // A new import loads nothing the reviewed file did not: it names a module the file already imports, a protected
-    // helper, or an unchanged module under test that never reaches the test framework. A side-effect import refuses.
+    // A new import runs its module, and every module that one loads, before the named tests. It may name a module the
+    // reviewed test already loads, or an unchanged module under test that, followed through its imports, does nothing
+    // while it is imported and never reaches the test framework. A side-effect import refuses.
     const target = (resolved, file, specifier) => {
       const found = resolved(file, specifier);
       if (!found && isLocal(specifier)) throw Error(`unresolved local protected import ${specifier} in ${file}`);
@@ -571,17 +615,29 @@ function main() {
     };
     const imported = new Set(reviewed.filter(statement => statement.isImport)
       .map(statement => target(oldClosure.resolve, file, statement.node.moduleSpecifier.text)));
-    const clean = (module, visited) => {
-      if (visited.has(module)) return;
+    const evaluated = new Set([...imported, ...oldClosure.loaded]);
+    const quiet = (specifier, module, visited) => {
+      if (visited.has(module) || evaluated.has(module)) return;
       visited.add(module);
+      const refuse = why => {
+        throw Error(`new import ${specifier} in ${file} runs code at import time before the named tests (${why}); only a module the reviewed test already loads, or modules with no top-level effects, may be added`);
+      };
+      if (module.startsWith('package:')) {
+        if (!isBuiltin(module.slice('package:'.length))) refuse(`${module.slice('package:'.length)} is a package the reviewed test does not load, whose import-time effects cannot be inspected`);
+        return;
+      }
       const script = scriptOf(module, source(head, module));
       if (script === undefined) return;
       const reach = reachesFramework(module, script);
       if (reach) throw Error(`new import in ${file} loads ${module}, which reaches the test framework (${reach})`);
-      for (const specifier of importsOf(ts.createSourceFile(module, script, ts.ScriptTarget.Latest, true), module)) {
-        const next = currentClosure.resolve(module, specifier);
-        if (next) clean(next, visited);
-        else if (isLocal(specifier)) throw Error(`new import in ${file} loads ${module}, whose local import ${specifier} cannot be inspected`);
+      const effect = importTimeEffect(module, script);
+      if (effect) refuse(effect);
+      const tree = ts.createSourceFile(module, script, ts.ScriptTarget.Latest, true);
+      const typeOnly = tree.statements.filter(node => (ts.isImportDeclaration(node) && node.importClause?.isTypeOnly)
+        || (ts.isExportDeclaration(node) && node.isTypeOnly)).map(node => node.moduleSpecifier?.text);
+      for (const next of importsOf(tree, module)) {
+        if (typeOnly.includes(next)) typeOnly.splice(typeOnly.indexOf(next), 1); // erased: loads nothing
+        else quiet(specifier, target(currentClosure.resolve, module, next), visited);
       }
     };
     for (const statement of added) {
@@ -593,12 +649,14 @@ function main() {
       if (!statement.node.importClause) throw Error(`new side-effect import ${specifier} in ${file}; a recorded reason cannot excuse it`);
       if (statement.node.importClause.isTypeOnly) continue;
       const module = target(currentClosure.resolve, file, specifier);
-      if (imported.has(module) || oldClosure.found.has(module)) continue;
+      if (imported.has(module)) continue;
+      if (isEntry(module)) throw Error(`new import ${specifier} in ${file} loads the test file ${module}`);
+      if (oldClosure.loaded.has(module)) continue;
       if (module.startsWith('package:') || isSupport(module) || !exists(base, module)
           || oldClosure.ids.get(module) !== currentClosure.ids.get(module)) {
         throw Error(`new import ${specifier} in ${file} must name a module the reviewed file imports, a protected helper or an unchanged module under test`);
       }
-      clean(module, new Set());
+      quiet(specifier, module, new Set());
     }
   }
   // Everything else in the closure (helpers, fixtures, resolver and runner configuration, setup files, test scripts)

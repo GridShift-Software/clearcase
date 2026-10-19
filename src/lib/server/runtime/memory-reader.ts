@@ -10,7 +10,7 @@ import { providerProblem, validOriginal } from './provider-row.ts';
 
 export function createMemoryReader(ctx: MemoryContext): C.CaseReader {
   const providers = new Map<string, C.DocumentProvider>();
-  const guard = async (scope: C.Scope) => { await ctx.before('read'); await ctx.identity.authorize({ ...scope, operation: 'read' }); };
+  const guard = async (scope: C.Scope) => { await ctx.before('read'); await ctx.authorized(scope, 'read', 'case.read'); };
   // The exact publication, read now: a caller checks it after every await, since a provider or a slow read can outlast it.
   function published(scope: C.VersionScope): MemoryVersion {
     const c = ctx.client.cases.find((c) => c.caseId === scope.caseId), v = ctx.client.versions.find((v) => v.info.id === scope.resultsVersion);

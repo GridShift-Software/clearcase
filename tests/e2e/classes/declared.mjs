@@ -100,6 +100,7 @@ export const NOT_PRODUCERS = {
 	'src/lib/components/OriginalOpen.svelte': 'links to an original (bytes of the case file)',
 	'src/lib/local-case/originals.server.ts': 'serves original bytes with Content-Disposition',
 	'src/lib/server/runtime/memory-assets.ts': 'the contract test double serves original bytes with Content-Disposition',
+	'src/lib/server/runtime/hosted/gate/assets.ts': 'the hosted-gate test double serves original bytes with Content-Disposition',
 	'src/lib/views/bundles/Builder.svelte': 'bundle index as PDF and DOCX',
 	'src/lib/views/bundles/caselines.ts': 'a link to a bundle file',
 	'src/lib/views/bundles/links.server.ts': 'download links to bundle files',

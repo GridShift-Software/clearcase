@@ -2,7 +2,7 @@ import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer as httpServer, type Server } from 'node:http';
 import { createServer as netServer } from 'node:net';
 import path from 'node:path';
-import { createServer, type ViteDevServer } from 'vite';
+import { createServer, type RunnableDevEnvironment, type ViteDevServer } from 'vite';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { buildCase } from '../../../tests/e2e/pilot/lib/fixtures.ts';
 import type * as Documents from './documents.server.ts';
@@ -28,7 +28,7 @@ beforeAll(async () => {
 	await new Promise<void>((r) => http.listen(port, '127.0.0.1', r));
 	origin = `http://127.0.0.1:${port}`;
 	expect((await fetch(`${origin}/api/health`)).status).toBe(200); // runs the server init (initApp)
-	const { app } = (await vite.ssrLoadModule('/src/lib/local-case/app.server.ts')) as { app: () => LocalCase };
+	const { app } = (await (vite.environments.ssr as RunnableDevEnvironment).runner.import('/src/lib/local-case/app.server.ts')) as { app: () => LocalCase };
 	lc = app();
 	const c = await buildCase(path.join(root, 'c'));
 	const imp = await lc.importPackage(c.caseDir, c.pkgDir);
@@ -56,7 +56,7 @@ const get = async (p: string) => { const r = await fetch(`${origin}${p}`); retur
 
 async function withProvider(p: Omit<Documents.DocumentRowProvider, 'id' | 'owner'>, fn: () => Promise<void>) {
 	// Dependency re-optimisation can replace the module-scoped registry after setup.
-	docs = (await vite.ssrLoadModule('/src/lib/local-case/documents.server.ts')) as typeof Documents;
+	docs = (await (vite.environments.ssr as RunnableDevEnvironment).runner.import('/src/lib/local-case/documents.server.ts')) as typeof Documents;
 	const undo = docs.registerDocumentRowProvider({ id: 'rescan', owner: 'GRS-20', ...p });
 	try { await fn(); } finally { undo(); }
 }
@@ -191,12 +191,15 @@ describe('hooks.server.ts: loopback clients only, and a disk-full diagnostic', (
 	type Hooks = typeof import('../../hooks.server.ts');
 	const event = (addr: string | (() => string)) => {
 		const url = new URL(`${origin}/api/health`);
-		return { url, isSubRequest: false, request: new Request(url, { headers: { host: url.host } }), getClientAddress: typeof addr === 'string' ? () => addr : addr } as never;
+		return { url, locals: {}, isSubRequest: false, request: new Request(url, { headers: { host: url.host } }), getClientAddress: typeof addr === 'string' ? () => addr : addr } as never;
 	};
 	const handle = async (addr: string | (() => string)) => {
-		const { handle } = (await vite.ssrLoadModule('/src/hooks.server.ts')) as Hooks;
+		const { handle } = (await (vite.environments.ssr as RunnableDevEnvironment).runner.import('/src/hooks.server.ts')) as Hooks;
 		let resolved = false;
-		const res = await handle({ event: event(addr), resolve: async () => { resolved = true; return new Response('routed'); } });
+		const res = await handle({ event: event(addr), resolve: async (e) => {
+			expect(Object.keys(e.locals).sort()).toEqual(['assets', 'audit', 'identity', 'runtime', 'store', 'userWork']);
+			resolved = true; return new Response('routed');
+		} });
 		return { status: res.status, resolved, text: await res.text() };
 	};
 
@@ -218,9 +221,9 @@ describe('hooks.server.ts: loopback clients only, and a disk-full diagnostic', (
 	});
 
 	it('names a full disk instead of a generic internal error', async () => {
-		const { handleError } = (await vite.ssrLoadModule('/src/hooks.server.ts')) as Hooks;
+		const { handleError } = (await (vite.environments.ssr as RunnableDevEnvironment).runner.import('/src/hooks.server.ts')) as Hooks;
 		const err = vi.spyOn(console, 'error').mockImplementation(() => {});
-		const msg = (error: unknown) => (handleError({ error, event: event('127.0.0.1'), status: 500, message: 'Internal Error' }) as { message: string }).message;
+		const msg = (error: unknown) => (handleError({ kind: 'unknown', error, event: event('127.0.0.1') }) as { message: string }).message;
 		try {
 			expect(msg(Object.assign(new Error('database or disk is full'), { errcode: 13 }))).toMatch(/disk holding the ClearCase data directory is full/);
 			expect(msg(Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' }))).toMatch(/is full/);
@@ -236,7 +239,7 @@ describe('server init is idempotent: a re-run reuses the running app and its ori
 	it('repeated and concurrent initApp calls share one start-up: same instance, the listener keeps answering', async () => {
 		const before = (globalThis as { __clearcase?: { id: string } }).__clearcase?.id;
 		expect(before).toBeDefined();
-		const mod = (await vite.ssrLoadModule('/src/lib/local-case/app.server.ts')) as Startable;
+		const mod = (await (vite.environments.ssr as RunnableDevEnvironment).runner.import('/src/lib/local-case/app.server.ts')) as Startable;
 		await Promise.all([mod.initApp(), mod.initApp()]);
 		await mod.initApp();
 		expect(mod.instance().id).toBe(before);

@@ -76,6 +76,7 @@ Exact installed versions. The runner refuses any other. Publication times come f
 | Bun | 1.4.2 | 5 Sep 2026 | MIT (bundles LGPL-2 JavaScriptCore) | [release](https://bun.com/blog/bun-v1.4.2) |
 | `@sveltejs/kit` | 3.1.0 | 14 Oct 2026 | MIT | [registry](https://registry.npmjs.org/@sveltejs/kit/3.1.0), [changelog](https://github.com/sveltejs/kit/blob/%40sveltejs/kit%403.1.0/packages/kit/CHANGELOG.md) |
 | `@sveltejs/adapter-cloudflare` | 8.0.1 | 14 Oct 2026 | MIT | [registry](https://registry.npmjs.org/@sveltejs/adapter-cloudflare/8.0.1), [README](https://github.com/sveltejs/kit/blob/%40sveltejs/adapter-cloudflare%408.0.1/packages/adapter-cloudflare/README.md) |
+| `@sveltejs/adapter-node` | 6.0.0 | 1 Oct 2026 | MIT | [registry](https://registry.npmjs.org/@sveltejs/adapter-node/6.0.0) (the local product's adapter, forced by Kit 3's peer range) |
 | `svelte` | 5.57.2 | 6 Oct 2026 | MIT | [registry](https://registry.npmjs.org/svelte/5.57.2) |
 | `@sveltejs/vite-plugin-svelte` | 7.3.1 | 23 Sep 2026 | MIT | [registry](https://registry.npmjs.org/@sveltejs/vite-plugin-svelte/7.3.1) |
 | `vite` | 8.3.4 | 8 Oct 2026 | MIT | [registry](https://registry.npmjs.org/vite/8.3.4) |

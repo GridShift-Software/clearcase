@@ -204,3 +204,20 @@ export function pageTargets(root, { vpath, rv, ref, importId, views }) {
 	}
 	return out;
 }
+
+/**
+ * The hosted route ids (`/sign-in`) under deploy/client/routes whose +page.svelte renders a form or whose +page.server.ts
+ * exports actions, sorted. The hosted tree is not src/routes, so pageRoutes and the form discovery never see these.
+ */
+export function hostedForms(root) {
+	const routes = join(root, 'deploy', 'client', 'routes');
+	if (!existsSync(routes)) return [];
+	return walk(routes)
+		.filter((f) => f.endsWith(`${sep}+page.svelte`))
+		.filter((f) => {
+			const server = join(f, '..', '+page.server.ts');
+			return /<form\b/.test(readFileSync(f, 'utf8')) || (existsSync(server) && /export\s+(?:const|let|var)\s+actions\b|export\s*\{[^}]*\bactions\b/.test(readFileSync(server, 'utf8')));
+		})
+		.map((f) => '/' + relative(routes, f).split(sep).slice(0, -1).join('/'))
+		.sort();
+}

@@ -3,7 +3,7 @@
 	import { applyAction, enhance } from '$app/forms';
 	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import type { SubmitFunction } from '$app/forms';
 	import CitationLink from '$lib/components/CitationLink.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import TableScroll from '$lib/components/TableScroll.svelte';

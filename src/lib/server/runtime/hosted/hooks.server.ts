@@ -1,4 +1,4 @@
-import type { Handle, HandleServerError } from '@sveltejs/kit';
+import type { Handle, HandleServerError } from '@sveltejs/kit/hooks';
 import { createUnavailableServices } from '../unavailable.ts';
 import { id } from '../ids.ts';
 

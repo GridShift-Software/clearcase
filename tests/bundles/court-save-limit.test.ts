@@ -4,7 +4,7 @@
 import { createServer as httpServer, type Server } from 'node:http';
 import { createServer as netServer } from 'node:net';
 import path from 'node:path';
-import { createServer, type ViteDevServer } from 'vite';
+import { createServer, type RunnableDevEnvironment, type ViteDevServer } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildCase } from '../e2e/pilot/lib/fixtures.ts';
 import type { LocalCase } from '../../src/lib/local-case/service.server.ts';
@@ -27,7 +27,7 @@ beforeAll(async () => {
 	await new Promise<void>((r) => http.listen(port, '127.0.0.1', r));
 	origin = `http://127.0.0.1:${port}`;
 	expect((await fetch(`${origin}/api/health`)).status).toBe(200); // runs the server init (initApp)
-	const { app } = (await vite.ssrLoadModule('/src/lib/local-case/app.server.ts')) as { app: () => LocalCase };
+	const { app } = (await (vite.environments.ssr as RunnableDevEnvironment).runner.import('/src/lib/local-case/app.server.ts')) as { app: () => LocalCase };
 	lc = app();
 	const c = await buildCase(path.join(root, 'c'));
 	const imp = await lc.importPackage(c.caseDir, c.pkgDir);
@@ -63,7 +63,7 @@ describe('court bundle save limit', () => {
 		const res = await save('out-1mb', json);
 		const body = await res.json() as { type: string; data?: string };
 		expect([res.status, body.type]).toEqual([200, 'success']);
-		const { readCustom } = (await vite.ssrLoadModule('/src/lib/views/bundles/store.server.ts')) as typeof import('../../src/lib/views/bundles/store.server.ts');
+		const { readCustom } = (await (vite.environments.ssr as RunnableDevEnvironment).runner.import('/src/lib/views/bundles/store.server.ts')) as typeof import('../../src/lib/views/bundles/store.server.ts');
 		const list = await readCustom(caseId);
 		expect(list.map((c) => [c.id, c.name, c.rows.length])).toEqual([['out-1mb', 'One megabyte', 1000]]);
 	}, 60_000);
@@ -72,7 +72,7 @@ describe('court bundle save limit', () => {
 		const res = await save('out-big', bundle('Too big', 2_300_000));
 		expect(res.status).toBe(413);
 		expect(await res.json()).toEqual({ type: 'error', error: { message: 'request too large: this page accepts at most 2 MiB in one request' } });
-		const { readCustom } = (await vite.ssrLoadModule('/src/lib/views/bundles/store.server.ts')) as typeof import('../../src/lib/views/bundles/store.server.ts');
+		const { readCustom } = (await (vite.environments.ssr as RunnableDevEnvironment).runner.import('/src/lib/views/bundles/store.server.ts')) as typeof import('../../src/lib/views/bundles/store.server.ts');
 		expect((await readCustom(caseId)).map((c) => c.id)).toEqual(['out-1mb']);
 	}, 60_000);
 });

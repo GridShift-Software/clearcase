@@ -1,6 +1,6 @@
 import { applyAction } from '$app/forms';
 import { invalidateAll } from '$app/navigation';
-import type { SubmitFunction } from '@sveltejs/kit';
+import type { SubmitFunction } from '$app/forms';
 import { lostMessage, refused, type Failure } from './submit.ts';
 
 export const UNSAVED = 'Not saved yet: this entry is still only in the form. Press Add to save it, or Discard it.';
@@ -72,7 +72,7 @@ export class EntryForm {
 		this.deleting[id] = true;
 		delete this.deleteErrors[id];
 		this.notice = null;
-		return async ({ result }: { result: import('@sveltejs/kit').ActionResult }) => {
+		return async ({ result }: { result: import('$app/forms').ActionResult }) => {
 			try {
 				if (result.type === 'success') {
 					if (result.data?.gone && typeof result.data.message === 'string') this.notice = result.data.message;

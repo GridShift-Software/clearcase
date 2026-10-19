@@ -21,7 +21,7 @@ export default defineConfig({
   // the Svelte transform and SvelteKit's $lib alias, so a test that reaches a component (an owner's overview widget
   // through the slot registry's import.meta.glob, say) compiles it instead of failing import analysis on the .svelte
   // source or on a $lib import
-  plugins: [svelte()],
+  plugins: [svelte({ configFile: false })],
   resolve: { alias: { $lib: fileURLToPath(new URL('./src/lib', import.meta.url)) } },
   test: {
     // GRS-10's package suite, then the pilot's unit tests (storage, import, activation, originals, contracts), the

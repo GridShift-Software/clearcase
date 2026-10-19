@@ -13,7 +13,7 @@
 	const bundleHref = (p: number | null = null) => hrefOf(vid, data.files, data.bundle, p);
 
 	let q = $state(page.url.searchParams.get('q') ?? '');
-	const search = () => goto(`?${new URLSearchParams(q.trim() ? { q: q.trim() } : {})}`, { keepFocus: true, noScroll: true, replaceState: true });
+	const search = () => goto(`?${new URLSearchParams(q.trim() ? { q: q.trim() } : {})}`, { reset: false, replaceState: true });
 	let pg = $state('');
 	const goPage = () => { const n = parseInt(pg || '0', 10); const h = n >= 1 ? bundleHref(n) : null; if (h) goto(h); };
 

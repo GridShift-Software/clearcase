@@ -25,6 +25,20 @@ export interface MemoryContext {
   audit(event: C.AuditEvent): void;
   work(caseId: C.CaseId): WorkState;
 }
+// Each handle method works on its own copy of its arguments, so a caller that changes an argument while the call awaits
+// changes nothing the call authorized, read or wrote. Provider registrations keep their own functions.
+function detached<T extends object>(handle: T): T {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(handle)) {
+    if (key === 'providers' || value === null || typeof value !== 'object' && typeof value !== 'function') out[key] = value;
+    else if (typeof value === 'function') out[key] = (...args: unknown[]) => {
+      const result: unknown = value.apply(handle, structuredClone(args));
+      return result !== null && typeof result === 'object' && !(result instanceof Promise) ? detached(result) : result;
+    };
+    else out[key] = detached(value);
+  }
+  return out as T;
+}
 export function createMemoryBackend(a: { fixture: MemoryFixture; now: () => Date; before?: (operation: string) => Promise<void> }) {
   const fixture = structuredClone(a.fixture), revoked = new Set<C.SessionId>();
   const states = new Map<C.ClientId, MemoryState>();
@@ -69,8 +83,8 @@ export function createMemoryBackend(a: { fixture: MemoryFixture; now: () => Date
     };
     const store = createMemoryReader(ctx);
     const assets = createMemoryAssets(ctx, (asset) => assetFaults.get(JSON.stringify([clientId, asset])) ?? null);
-    return { identity, store, assets, userWork: createMemoryWork(ctx, store),
-      audit: { async append(event) { await before('audit'); await identity.checkRevocation(); ctx.audit(event); return { eventId: event.eventId }; } },
+    return { identity, store: detached(store), assets: detached(assets), userWork: detached(createMemoryWork(ctx, store)),
+      audit: { async append(event) { event = structuredClone(event); await before('audit'); await identity.checkRevocation(); ctx.audit(event); return { eventId: event.eventId }; } },
       runtime: { build: Object.freeze({ revision: fixture.revision, dirty: true, exported: false, builtAt: a.now().toISOString(), bun: '1.4.2', buildId: 'memory-contract-diagnostic', target: 'cloudflare', profile: 'hosted-gate' }), gate: { runId: 'memory-contract-diagnostic', fixtureSha256: fixture.sha256 }, now: ctx.now, async probe() { await before('probe'); throw contractError('missing-binding'); } },
     };
   }

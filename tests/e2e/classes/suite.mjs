@@ -51,6 +51,13 @@ const wanted = (s) => !TARGET || TARGET.test(s);
 const PAYLOAD = ' Syn;=CCX(1)\t+CCX(2)\r-CCX(3)\n@CCX(4)';
 /** A URL in two documents' excerpts: the unbroken text a diff of them shows (hoa_diff, class narrow). */
 const LONG_URL = 'https://synthetic.invalid/' + 'a1b2c3d4e5'.repeat(12);
+/** A newer-generation export: risks that carry category, owner and documents, and one document text at the builder's cap (V5_TEXT_CAPPED) and one source key with no mapping (V5_UNMAPPED_KEY). */
+const withNewer = (r) => {
+	r.META.version = 'V1';
+	r.DATA.riskMatrix = [{ issue: 'Invented issue', likelihood: 'Low', impact: 'High', mitigation: 'Invented mitigation', category: 'Legal', owner: 'Counsel', refs: ['OD-001'] }];
+	r.DATA.text = { 'OD-001': 'x'.repeat(4000) };
+	r.DATA.inventedExtra = { a: 1 };
+};
 const withLongUrl = (r) => { for (const row of r.DATA.chronology) if (row.ref === 'OD-001' || row.ref === 'OD-002') row.excerpt = `Terms of ${row.ref} are at ${LONG_URL}${row.ref.slice(-1)} and nowhere else.`; };
 const UNBROKEN = 'syn_unbroken_case_id_'.padEnd(64, '0123456789abcdefghijklmnopqrstuvwxyz');
 
@@ -572,7 +579,7 @@ const TABLE_SOURCE = /<table\b|role="(table|grid)"/;
  * through declared.mjs CHOICE_STATES (a state that did not come up fails); every <details> is opened first.
  */
 async function narrow(t, idKind, state = null) {
-	return scenario(`narrow:${t.route}${t.route.endsWith('[view]') ? ':' + t.view : ''}${state ? '#' + state.name : ''}@${idKind}`, t.view, `with ${idKind === 'long' ? 'a 64-character case id without break opportunity' : 'an ordinary case id'} the page${state ? ` in its ${state.name} state` : ''} does not scroll sideways at 320 or 390 px; wide tables scroll in a labelled, focusable box; headings and export controls do not overlap`, async () => {
+	return scenario(`narrow:${t.route}${t.route.endsWith('[view]') ? ':' + t.view : ''}${state ? '#' + state.name : ''}@${idKind}`, t.view, `with ${idKind === 'long' ? 'a 64-character case id without break opportunity' : idKind === 'newer' ? 'a newer-generation export' : 'an ordinary case id'} the page${state ? ` in its ${state.name} state` : ''} does not scroll sideways at 320 or 390 px; wide tables scroll in a labelled, focusable box; headings and export controls do not overlap`, async () => {
 		const url = t.url + (state ? state.query : D.TABLE_QUERY[t.route]?.query ?? '');
 		const noReady = D.NO_READY[t.route] ?? null;
 		const layouts = await measure(url, state?.expect ?? null, !noReady);
@@ -672,6 +679,7 @@ try {
 	const pages = pagesOf(rv, imp.importId);
 	if (runs('narrow')) {
 		for (const route of Object.keys(D.CHOICE_STATES)) if (!pages.some((x) => x.route === route && x.url)) await undriven('narrow', route, route, 'a declared choice state of a page the suite opens', 'declared in CHOICE_STATES but the route is not a page the suite opens: remove or fix the declaration');
+		for (const route of Object.keys(D.DATA_STATES)) if (!pages.some((x) => x.route === route && x.url)) await undriven('narrow', route, route, 'a declared data state of a page the suite opens', 'declared in DATA_STATES but the route is not a page the suite opens: remove or fix the declaration');
 		for (const route of Object.keys(D.NO_READY)) if (!pages.some((x) => x.route === route && x.url)) await undriven('narrow', `no-ready:${route}`, route, 'a page declared without a ready marker that the suite opens', 'declared in NO_READY but the route is not a page the suite opens: remove or fix the declaration');
 		for (const [state, why] of Object.entries(D.NO_CHOICE_STATE)) notApplicable('narrow', state, why);
 	}
@@ -681,6 +689,10 @@ try {
 	const long = await buildCase(join(tmp, 'long'), { caseId: UNBROKEN, edit: withLongUrl });
 	const limp = await A.c.importPkg(long.caseDir, long.pkgDir);
 	if (!limp.importId) throw new Error(`64-character id import failed: ${limp.status} ${limp.location}`);
+	// the newer-generation case: the page states that exist only when the data carries newer fields (declared.mjs DATA_STATES)
+	const newer = await buildCase(join(tmp, 'newer'), { caseId: 'e2e-classes-newer', edit: (r) => { withLongUrl(r); withNewer(r); } });
+	const nimp = await A.c.importPkg(newer.caseDir, newer.pkgDir);
+	if (!nimp.importId) throw new Error(`newer-generation import failed: ${nimp.status} ${nimp.location}`);
 	// the hostile case: every free-text field of the workspace data carries the formula payload (a candidate)
 	let hostileFields = 0;
 	// (free text: letters and a space, not a path, URL or date; and the invoice numbers and bundle names, which the
@@ -739,6 +751,7 @@ try {
 		}
 	}
 	if (runs('narrow')) for (const t of pagesOf(long.resultsVersion, limp.importId).filter((x) => x.url && wanted(x.route))) await narrowAll(t, 'long');
+	if (runs('narrow')) for (const t of pagesOf(newer.resultsVersion, nimp.importId).filter((x) => x.url && D.DATA_STATES[x.route] && wanted(x.route))) for (const state of D.DATA_STATES[t.route]) await narrow(t, 'newer', { ...state, query: '' });
 	if (runs('back')) for (const t of pages.filter((x) => x.url && wanted(x.route))) {
 		if (!t.url.startsWith('/v/')) {
 			if (D.NO_BACK[t.route]) notApplicable('back', t.route, D.NO_BACK[t.route]);

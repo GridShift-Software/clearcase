@@ -1,4 +1,6 @@
+import type { DiagSink } from '../diagnostics.ts';
 import { isObject, type JsonObject, type JsonValue } from '../strict-json.ts';
+import { carryTyped, own } from './carry.ts';
 import type { V5Root } from './extract.ts';
 
 type Roots = Partial<Record<V5Root, JsonValue>>;
@@ -9,12 +11,23 @@ const num = (v: JsonValue | undefined): number => (typeof v === 'number' && Numb
 const count = (v: JsonValue | undefined): number => Math.max(0, Math.trunc(num(v)));
 const objs = (v: JsonValue | undefined): JsonObject[] => (Array.isArray(v) ? v.filter(isObject) : []);
 const nonEmpty = (parts: string[]) => parts.filter((s) => s !== '');
-const tally = (keys: Iterable<string>): Record<string, number> => { const c: Record<string, number> = {}; for (const k of keys) c[k] = (c[k] ?? 0) + 1; return c; };
+const tally = (keys: Iterable<string>): Record<string, number> => { const c: Record<string, number> = {}; for (const k of keys) own(c, k, (Object.hasOwn(c, k) ? c[k]! : 0) + 1); return c; };
 const mapObjs = (v: JsonValue | undefined, f: (o: JsonObject) => JsonObject): JsonValue | undefined => (Array.isArray(v) ? v.map((x) => (isObject(x) ? f(x) : x)) : v);
+
+/** The builder versions this adapter maps. Another META.version is a generation nobody has inventoried. */
+export const NEWER_VERSIONS: readonly string[] = ['V1'];
 
 /** The newer builder stamps META.version and META.fileCount and writes a DATA.profile; v5 has none of them. */
 export function isNewerGeneration(DATA: JsonObject, META: JsonObject): boolean {
-  return typeof META.version === 'string' || typeof META.fileCount === 'number' || isObject(DATA.profile);
+  return META.version !== undefined || typeof META.fileCount === 'number' || isObject(DATA.profile);
+}
+
+/** META.version of an unsupported builder generation as text ("absent" when a newer marker comes without one), or null when it is supported. */
+export function unsupportedVersion(META: JsonObject): string | null {
+  const v = META.version;
+  if (v === undefined) return 'absent';
+  if (typeof v === 'string' && NEWER_VERSIONS.includes(v)) return null;
+  return JSON.stringify(v).slice(0, 40);
 }
 
 export function metaOf(meta: JsonObject, rows: readonly JsonObject[]): JsonObject {
@@ -131,7 +144,7 @@ const nameOfLocator = (u: string): string => { const seg = u.split('/').pop() ??
 export function caselinesIndexOf(idx: JsonObject, caselinesSrc: string, pages: number): JsonObject {
   const index: JsonValue[] = [];
   const rest: JsonObject = {};
-  for (const [k, t] of Object.entries(idx)) if (/^\d+$/.test(k)) index.push([Number(k), str(t)]); else rest[k] = t;
+  for (const [k, t] of Object.entries(idx)) if (/^\d+$/.test(k)) index.push([Number(k), str(t)]); else own(rest, k, t);
   index.sort((a, b) => ((a as number[])[0]! - (b as number[])[0]!));
   return { ...rest, file: nameOfLocator(caselinesSrc), pages: pages || index.length, index };
 }
@@ -170,6 +183,31 @@ export function buildReportOf(br: JsonObject, rowsByRef: RowsByRef): JsonObject 
   return { ...br, pending: mapObjs(br.pending, fill) ?? [], textNone: mapObjs(br.textNone, fill) ?? [] };
 }
 
+/** The V1 builder stores each document's extracted text in DATA.text and stops it at this many characters. */
+export const TEXT_CAP = 4000;
+const en = (n: number) => n.toLocaleString('en-US');
+
+/** Reports how many DATA.text entries reach the cap; a value that is not text is counted as unmeasured, never as complete. */
+export function reportTextCap(DATA: JsonObject, sink: DiagSink): void {
+  const t = DATA.text;
+  const entries = isObject(t) ? Object.values(t) : Array.isArray(t) ? t : t === undefined ? [] : [t];
+  const atCap = entries.filter((x) => typeof x === 'string' && x.length >= TEXT_CAP).length;
+  const unmeasured = entries.filter((x) => typeof x !== 'string').length;
+  if (atCap === 0 && unmeasured === 0) return;
+  sink.add('V5_TEXT_CAPPED', `${en(atCap)} of ${en(entries.length)} document texts (DATA.text) stop at the ${en(TEXT_CAP)}-character cap, so the export holds only their first ${en(TEXT_CAP)} characters`
+    + (unmeasured ? `; ${en(unmeasured)} ${unmeasured === 1 ? 'entry is' : 'entries are'} not text and could not be measured` : ''), { file: 'input', subject: 'DATA.text' });
+}
+
+/** The risk fields the Risk Matrix types as optional text or text lists; a value of another type stays on the risk as `source_<name>` so it cannot demote the matrix. */
+export function riskMatrixOf(list: JsonValue | undefined): JsonValue | undefined {
+  return mapObjs(list, (r) => {
+    const out: JsonObject = {};
+    for (const [k, v] of Object.entries(r)) if (!(k === 'category' || k === 'owner' || k === 'refs')) own(out, k, v);
+    for (const [k, kind] of [['category', 'text'], ['owner', 'text'], ['refs', 'strs']] as const) carryTyped(out, r, k, kind);
+    return out;
+  });
+}
+
 const hasMatter = (v: JsonValue | undefined): boolean => isObject(v) && typeof v.title === 'string';
 
 export function mapNewerRoots(roots: Roots): Roots {
@@ -183,6 +221,7 @@ export function mapNewerRoots(roots: Roots): Roots {
   if (isObject(DATA.contracts)) out.contracts = contractsOf(DATA.contracts, rowsByRef);
   if (isObject(DATA.filings)) out.filings = filingsOf(DATA.filings);
   if (isObject(DATA.bundles)) out.bundles = bundlesOf(DATA.bundles);
+  if (DATA.riskMatrix !== undefined) out.riskMatrix = riskMatrixOf(DATA.riskMatrix)!;
   if (DATA.linkSample !== undefined) out.linkSample = linkSampleOf(DATA.linkSample, rowsByRef);
   if (isObject(DATA.buildReport)) out.buildReport = buildReportOf(DATA.buildReport, rowsByRef);
   if (isObject(DATA.lit)) {

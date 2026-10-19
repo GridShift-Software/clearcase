@@ -256,7 +256,7 @@
       "type": "known-gap",
       "source": "S-risk_matrix_tab-1",
       "owner": "GRS-15",
-      "reason": "v5 has no export or edit for this register-like view and maps colour by exact, case-sensitive High or Medium. ClearCase reproduces both: the page is a read-only table with no export button and the tone mapping is case-sensitive. Adding export or edit needs an app change. Evidence: src/routes/v/[vid]/analysis/risk_matrix_tab/+page.svelte:17.",
+      "reason": "v5 has no export or edit for this register-like view and maps colour by exact, case-sensitive High or Medium. ClearCase reproduces both: the page is a read-only table with no export button and the tone mapping is case-sensitive. Adding export or edit needs an app change. Evidence: src/routes/v/[vid]/analysis/risk_matrix_tab/+page.svelte:23.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,

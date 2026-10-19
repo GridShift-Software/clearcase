@@ -1,22 +1,23 @@
 import { createHash } from 'node:crypto';
-import { realpath, rm, stat } from 'node:fs/promises';
+import { mkdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { mkdirSync, readdirSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import {
-	acceptedWarnings, canActivate, importCandidate, newWarningFingerprints, verifyCandidateBytes,
+	acceptedWarnings, canActivate, importCandidate, newWarningFingerprints, VALIDATOR_VERSION, verifyCandidateBytes,
 	type Acknowledgement, type ActivationReason, type Diagnostic, type ImportResult, type Progress,
 } from '../case-package/index.ts';
+import { diagnosticsDigest } from '../case-package/diagnostics.ts';
 import { now as clock } from '../components/clock.ts';
 import type { LocalCaseConfig } from './config.server.ts';
 import { isBusy, Storage } from './db.server.ts';
 import { procFdAvailable, within } from './fsafe.server.ts';
 import { project, readModelDigest } from './project.server.ts';
-import { CasePackError, prepareCasePack, type PackProgress } from './case-pack.server.ts';
+import { CasePackError, ConversionRefused, prepareCasePack, type PackProgress } from './case-pack.server.ts';
 import { versionPath, type CaseSummary } from './model.ts';
 import { CaseStore, type CaseVersionRow, type Verification } from './store.server.ts';
 import { UserWork } from './user-work.server.ts';
 
-export type AppCode = 'APP_INPUT_INVALID' | 'APP_CASE_FOLDER_OVERLAPS_DATA' | 'APP_VERSION_CONFLICT' | 'APP_VERSION_RETIRED' | 'APP_CASE_FOLDER_DIFFERS' | 'APP_ORIGINALS_CHANGED' | 'APP_UNLISTED_IGNORED';
+export type AppCode = 'APP_INPUT_INVALID' | 'APP_CONVERSION_REFUSED' | 'APP_CASE_FOLDER_OVERLAPS_DATA' | 'APP_VERSION_CONFLICT' | 'APP_VERSION_RETIRED' | 'APP_CASE_FOLDER_DIFFERS' | 'APP_ORIGINALS_CHANGED' | 'APP_UNLISTED_IGNORED';
 export interface AppDiagnostic { code: AppCode; severity: 'error' | 'info'; message: string; hint: string }
 
 export const IMPORT_REPORT = 'clearcase.pilot.import-report/1';
@@ -211,6 +212,7 @@ export class LocalCase {
 		const abort = new AbortController();
 		this.#current = { packageSource: source, startedAt: now(), progress: null, abort };
 		const created: string[] = [];
+		const t0 = performance.now();
 		let keep = false;
 		try {
 			const onProgress = (p: PackProgress) => { if (this.#current?.abort === abort) this.#current.progress = p; };
@@ -220,6 +222,7 @@ export class LocalCase {
 			return r;
 		} catch (e) {
 			if (abort.signal.aborted) return { kind: 'failed', message: 'The import was cancelled. Nothing was imported, and the active case is unchanged.' };
+			if (e instanceof ConversionRefused) return await this.#recordRefusedConversion(source, e, performance.now() - t0).catch((err) => ({ kind: 'failed' as const, message: `${e.message} The refusal could not be recorded: ${(err as Error).message}` }));
 			if (e instanceof CasePackError) return { kind: 'failed', message: e.message };
 			console.error('case pack import failed', e);
 			return { kind: 'failed', message: `The import failed: ${(e as Error).message}. Nothing was imported, and the active case is unchanged.` };
@@ -227,6 +230,33 @@ export class LocalCase {
 			if (!keep) for (const p of created.reverse()) await rm(p, { recursive: true, force: true }).catch(() => {});
 			if (this.#current?.abort === abort) this.#current = null;
 		}
+	}
+
+	/**
+	 * A workspace HTML the converter refuses is a rejected import with the converter's diagnostics, as a rejected package is,
+	 * and the HTML as received is kept under the data directory (owner only, never in Git) for the user to review.
+	 */
+	async #recordRefusedConversion(source: string, e: ConversionRefused, ms: number): Promise<ImportOutcome> {
+		const at = now();
+		const dir = path.join(this.config.dataDir, 'refused-inputs');
+		await mkdir(dir, { recursive: true, mode: 0o700 });
+		const kept = path.join(dir, `${sha256Hex(e.received)}.html`);
+		const partial = `${kept}.partial`;
+		await writeFile(partial, e.received, { mode: 0o600 });
+		await rename(partial, kept);
+		const counts: Record<string, number> = {};
+		for (const d of e.diagnostics) counts[d.code] = (counts[d.code] ?? 0) + 1;
+		const fingerprints = (severity: Diagnostic['severity']) => [...new Set(e.diagnostics.filter((d) => d.severity === severity).map((d) => d.fingerprint))].sort();
+		const warningFingerprints = fingerprints('warning');
+		const report: ImportReport = {
+			report: IMPORT_REPORT, verdict: 'reject', caseId: e.caseId, caseLabel: e.caseLabel, resultsVersion: null, manifestSha256: null,
+			diagnosticsSha256: diagnosticsDigest(VALIDATOR_VERSION, e.diagnostics, counts, warningFingerprints), validatorVersion: VALIDATOR_VERSION, counts,
+			warningFingerprints, errorFingerprints: fingerprints('error'), newWarnings: [], diagnostics: e.diagnostics,
+			app: [{ code: 'APP_CONVERSION_REFUSED', severity: 'error', message: `${e.htmlName} could not be converted, so no results package was made and nothing was imported. The HTML as received is kept privately at ${kept}.`, hint: 'Fix what the diagnostics name, or convert the case another way, then import again. The kept copy stays on this computer.' }],
+			ms: Math.round(ms),
+		};
+		const importId = await this.store.recordRejected({ at, case_folder: e.caseFolder, package_source: source, case_id: e.caseId, results_version: null, manifest_sha256: null, verdict: 'reject', report: JSON.stringify(report) });
+		return { kind: 'rejected', importId };
 	}
 
 	async importPackage(caseFolder: string, packageSource: string, own?: AbortController): Promise<ImportOutcome> {
@@ -250,18 +280,18 @@ export class LocalCase {
 				result = await importCandidate({ files: snap }, inputs.caseRoot.path, progress);
 			}
 			const report = toReport(result, app, result.candidate ? this.trustedFor(result.candidate.caseId) : new Set(), performance.now() - t0);
-			if (result.verdict === 'reject') return reject(report);
+			if (result.verdict === 'reject') return await reject(report);
 			const c = result.candidate;
 			const existing = this.store.getVersion(c.resultsVersion);
 			const conflict = (code: AppCode, message: string, hint: string) => reject({ ...report, verdict: 'reject', app: [...report.app, { code, severity: 'error', message, hint }] });
 			if (existing && existing.manifest_sha256 !== c.manifestSha256)
-				return conflict('APP_VERSION_CONFLICT', `${c.resultsVersion} is already stored (import #${existing.import_id}) with a different manifest`, 'Results versions are immutable. Export the changed package as a new results version.');
+				return await conflict('APP_VERSION_CONFLICT', `${c.resultsVersion} is already stored (import #${existing.import_id}) with a different manifest`, 'Results versions are immutable. Export the changed package as a new results version.');
 			if (existing && existing.case_root !== inputs.caseRoot.path)
-				return conflict('APP_CASE_FOLDER_DIFFERS', `${c.resultsVersion} was imported against the case folder ${existing.case_root}; this import names ${inputs.caseRoot.path}`, 'Import it against the same case folder, or export a new results version for the other folder.');
+				return await conflict('APP_CASE_FOLDER_DIFFERS', `${c.resultsVersion} was imported against the case folder ${existing.case_root}; this import names ${inputs.caseRoot.path}`, 'Import it against the same case folder, or export a new results version for the other folder.');
 			if (existing && this.verify(existing.id, true).ok) {
 				const proj = project(c, result.counts);
 				if (result.diagnosticsSha256 !== existing.diagnostics_sha256 || readModelDigest({ ...proj, expect: JSON.stringify(proj.expect) }) !== existing.read_model_sha256)
-					return conflict('APP_ORIGINALS_CHANGED', `the case folder no longer matches what was validated when ${c.resultsVersion} was stored (import #${existing.import_id}); the diagnostics below are the current ones`, `A stored results version never changes, so importing this package again cannot update it. Restore the changed or missing originals byte for byte and activate import #${existing.import_id} again, or convert the case folder and import the package as a new results version.`);
+					return await conflict('APP_ORIGINALS_CHANGED', `the case folder no longer matches what was validated when ${c.resultsVersion} was stored (import #${existing.import_id}); the diagnostics below are the current ones`, `A stored results version never changes, so importing this package again cannot update it. Restore the changed or missing originals byte for byte and activate import #${existing.import_id} again, or convert the case folder and import the package as a new results version.`);
 				if (existing.case_dev !== inputs.caseRoot.dev || existing.case_ino !== inputs.caseRoot.ino) await this.store.rebindCaseRoot(existing.id, inputs.caseRoot.dev, inputs.caseRoot.ino);
 				return { kind: 'identical', importId: existing.import_id };
 			}
@@ -279,7 +309,7 @@ export class LocalCase {
 			};
 			if (existing) {
 				const res = await this.store.repairVersion(write);
-				if (res.kind !== 'repaired') return conflict('APP_VERSION_CONFLICT', `${c.resultsVersion} changed while it was being repaired`, 'Import it again.');
+				if (res.kind !== 'repaired') return await conflict('APP_VERSION_CONFLICT', `${c.resultsVersion} changed while it was being repaired`, 'Import it again.');
 				this.storage.checkpointResults();
 				const check = this.verify(c.resultsVersion, true);
 				const rec = this.cases.get(c.caseId);
@@ -288,8 +318,8 @@ export class LocalCase {
 			}
 			const res = await this.store.storeVersion(write);
 			if (res.kind === 'identical') return { kind: 'identical', importId: res.existing.import_id };
-			if (res.kind === 'conflict') return conflict('APP_VERSION_CONFLICT', `${c.resultsVersion} was stored concurrently with a different manifest`, 'Results versions are immutable. Export a new results version.');
-			if (res.kind === 'retired') return conflict('APP_VERSION_RETIRED', `${c.resultsVersion} was imported before with a different manifest and removed by the retention policy on ${res.retiredAt}`, 'A results version id is never reused for different content. Export a new results version.');
+			if (res.kind === 'conflict') return await conflict('APP_VERSION_CONFLICT', `${c.resultsVersion} was stored concurrently with a different manifest`, 'Results versions are immutable. Export a new results version.');
+			if (res.kind === 'retired') return await conflict('APP_VERSION_RETIRED', `${c.resultsVersion} was imported before with a different manifest and removed by the retention policy on ${res.retiredAt}`, 'A results version id is never reused for different content. Export a new results version.');
 			this.storage.checkpointResults();
 			await this.store.pruneCandidates(this.config.keepCandidates, c.resultsVersion).catch((e) => console.error('retention failed', e));
 			return { kind: 'stored', importId: res.kind === 'stored' || res.kind === 'repaired' ? res.importId : 0 };

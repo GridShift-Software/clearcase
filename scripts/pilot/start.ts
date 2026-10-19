@@ -39,7 +39,10 @@ const port = Number(process.env.PORT ?? 41101);
 if (!Number.isInteger(port) || port < 1 || port > 65535) die(`invalid PORT ${process.env.PORT}`);
 process.env.HOST = '127.0.0.1';
 process.env.PORT = String(port);
-process.env.ORIGIN = `http://127.0.0.1:${port}`;
+// adapter-node 6 has no ORIGIN variable: it builds each request's origin from the Host (checked exactly below) and a
+// protocol header, defaulting to https. This listener is plain http on loopback, so it names its protocol in a header
+// it always overwrites; without it SvelteKit's Origin check refuses every same-origin form post as cross-site.
+process.env.PROTOCOL_HEADER = 'x-clearcase-protocol';
 process.env.ORIGINALS_PORT ??= String(port + 1);
 // adapter-node refuses a request body over 512 KB by default; a backup upload is up to 64 MiB (plus the form's overhead)
 process.env.BODY_SIZE_LIMIT ??= '65M';
@@ -58,6 +61,7 @@ const server = createServer((req, res) => {
 		res.writeHead(421, { 'content-type': 'text/plain; charset=utf-8', 'x-content-type-options': 'nosniff', 'cache-control': 'no-store', 'referrer-policy': 'same-origin' });
 		return void res.end('misdirected request: unknown Host');
 	}
+	req.headers['x-clearcase-protocol'] = 'http';
 	handler(req, res);
 });
 server.on('error', (e: NodeJS.ErrnoException) => { console.error(`FATAL: the app listener cannot bind ${appHost} (${e.code ?? e.message}). Exiting.`); process.emit('sveltekit:shutdown' as never, 'bind-error' as never); process.exit(1); });

@@ -1,0 +1,27 @@
+# The hosted ClearCase Worker, local workerd only (GRS-112). No account, no deploy: every binding is local
+# (remote = false) and the database id is a placeholder no Cloudflare account holds. Paths are relative to this file.
+# `bun run --bun build:hosted` writes the artifact; `bun run --bun start:hosted` serves it with `wrangler dev --local`.
+name = "clearcase-hosted"
+main = "../../.svelte-kit/cloudflare/_worker.js"
+compatibility_date = "2026-10-12"
+compatibility_flags = ["nodejs_als"]
+send_metrics = false
+
+[assets]
+directory = "../../.svelte-kit/cloudflare"
+binding = "ASSETS"
+
+# The one client this deployment serves. The client comes from the deployment, never from a request.
+[vars]
+CLEARCASE_CLIENT_ID = "client-a"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "clearcase-local-only"
+database_id = "00000000-0000-4000-8000-000000000112"
+remote = false
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "clearcase-local-only"
+remote = false

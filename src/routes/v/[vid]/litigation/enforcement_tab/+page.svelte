@@ -2,7 +2,7 @@
 	import { onMount, untrack } from 'svelte';
 	import { applyAction, enhance } from '$app/forms';
 	import { invalidateAll } from '$app/navigation';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import type { SubmitFunction } from '$app/forms';
 	import Narrative from '$lib/components/Narrative.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import LeaveGuard from '$lib/views/litigation/LeaveGuard.svelte';

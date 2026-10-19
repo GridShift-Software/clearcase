@@ -12,6 +12,9 @@ __pycache__/
 .svelte-kit/
 build/
 
+# Wrangler's local build and dev state beside deploy/client/wrangler.toml (start:hosted)
+.wrangler/
+
 # Privacy rules (history remediation, 21 October 2026): case material, prompts and credentials never enter Git.
 # Synthetic fixtures stay tracked; add a file of one of these formats only with a reviewed `git add -f`.
 RAWS/

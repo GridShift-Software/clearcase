@@ -99,3 +99,22 @@ describe('finding 5: the hosted hooks refuse protected requests until their serv
     expect(response.headers.get('cache-control')).toBe('no-store');
   });
 });
+
+describe('finding 6: memberships and case grants are current state, apart from sessions', () => {
+  it('withdrawing a grant, a role or a membership binds a live session on its next protected call', async () => {
+    const backend = createMemoryBackend({ fixture: fx.data, now });
+    const viewer = backend.request({ clientId: clientA(), sessionId: id('session', 'a-viewer') });
+    const editor = backend.request({ clientId: clientA(), sessionId: id('session', 'a-editor') });
+    expect((await viewer.store.getCase({ caseId: fx.caseId }))?.caseId).toBe(fx.caseId);
+    backend.grant({ clientId: clientA(), subject: 'viewer', caseId: fx.caseId, role: null });
+    await expect(viewer.store.getCase({ caseId: fx.caseId })).rejects.toMatchObject({ code: 'forbidden' });
+    expect((await viewer.store.listCases()).map((c) => c.caseId)).toEqual([fx.pending]);
+    backend.grant({ clientId: clientA(), subject: 'editor', caseId: fx.pending, role: 'viewer' });
+    const note = { caseId: fx.pending, target: { kind: 'case' as const }, body: 'case note', expected: { kind: 'absent' as const }, operationId: 'op-grant' };
+    await expect(editor.userWork.addNote(note)).rejects.toMatchObject({ code: 'forbidden' });
+    expect(await editor.userWork.notesFor({ caseId: fx.pending, target: null })).toEqual([]);
+    backend.membership({ clientId: clientA(), subject: 'viewer', member: false });
+    await expect(viewer.store.listCases()).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(viewer.store.getCase({ caseId: fx.pending })).rejects.toMatchObject({ code: 'forbidden' });
+  });
+});

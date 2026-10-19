@@ -22,7 +22,7 @@ The summary records the source SHA and pins. It also records the host of each st
 - every leg passes;
 - the served build stamp is HEAD;
 - HEAD and the tree are unchanged at the end;
-- the runner's own checker refuses its summary with any required field deleted, nulled or retyped (134 mutations at the time of writing).
+- the runner's own checker refuses its summary after any one leaf or container of it is deleted, nulled, retyped, emptied, flipped or zeroed, or after an unknown key is added to any object (`checker.mutationsRefused` counts them). `--check` compares the whole summary with one expected shape: exact key sets, types and values at every level. The standalone `bun run --bun test:check` in the runtime workspace mutates the committed summary the same way and runs the real `--check` on each mutant (554 at the time of writing).
 
 Logs and local D1/R2 state stay in the run directory under `.local/hosting-probe/runtime/`. The committed run is [evidence/runtime-summary.json](evidence/runtime-summary.json); it names the SHA it ran at.
 
@@ -47,8 +47,8 @@ Bun evidence covers the build. Only workerd evidence covers the running app.
 | binding-access | `GET /bindings` sees `DB.prepare`, `BUCKET.put` and `ASSETS.fetch` as functions, and D1 answers a count through the binding |
 | action | a same-origin `POST /?/save` writes D1, then puts the R2 object and reads it back (200). A fresh GET reads both |
 | failure-action | an empty form returns 400 with its message. A duplicate id returns 409, because D1's UNIQUE refused the INSERT. A foreign Origin returns 403 from SvelteKit's Origin check and runs no action. After all three, D1 has no new row and R2 still holds the last good write |
-| persistence | the server stops on SIGINT with no process of its tree left. A separate `wrangler d1 execute` reads both rows from the stopped server's state. After a restart, and before any write, SSR renders the rows and the R2 object |
-| failure-binding-missing | the same build runs under `--env missing-binding`, with D1 and ASSETS but no R2 (Wrangler environments do not inherit bindings). `GET /` and the action return 503 naming `BUCKET`, with no partial page, and `/bindings` reports BUCKET absent |
+| persistence | the server's process group gets SIGINT, then SIGTERM and SIGKILL if it must; the leg asserts that the tree ended without SIGKILL and with no process left, and records the signal that ended it. A separate `wrangler d1 execute` reads both rows from the stopped server's state. After a restart, and before any write, SSR renders the rows and the R2 object |
+| failure-binding-missing | the same build runs under `--env missing-binding`, with D1 and ASSETS but no R2 (this Wrangler environment inherited ASSETS but dropped D1 and R2, so `wrangler.toml` redeclares D1 and leaves R2 out). `GET /` and the action return 503 naming `BUCKET`, with no partial page, and `/bindings` reports BUCKET absent |
 
 The probe app ([`src/routes/`](../../../tests/hosting-probe/runtime/src/routes/+page.server.js)) reads bindings with `import { env } from 'cloudflare:workers'`, because adapter 8 drops `platform.env`. Its `binding(name)` helper turns a missing binding into `error(503)` before any I/O. GRS-112 can adopt the same shape.
 
@@ -86,12 +86,13 @@ Exact installed versions. The runner refuses any other. Publication times come f
 
 Compatibility date `2026-10-12` with the `nodejs_als` flag, as in the spike ([adapter guide](https://svelte.dev/docs/kit/adapter-cloudflare)). TypeScript and `@opentelemetry/api` are optional peers of Kit 3 and the probe needs neither, so it drops them.
 
-**Advisories.** `bun audit` on 19 October 2026 found no vulnerabilities in the 157 packages of this lockfile, so no advisory is open.
+**Advisories.** `bun audit` on 19 October 2026 found no vulnerabilities in the 157 packages of this lockfile, so no advisory is open. `bun audit` covers the npm packages in the lockfile only. It does not cover the Bun or Node binaries.
 
 **Upgrade decision per pin.**
 
 - Kit, the adapter, Svelte, the Svelte plugin, Vite and Wrangler: each pin is its `latest` tag on 19 October 2026. Retain them.
 - `workerd`: 1.20261019.1 was published on 19 October 2026, but Wrangler 4.151.1 depends on exactly `workerd` 1.20261012.1 and `miniflare` 5.20261012.1-beta. Retain the pair. Upgrade Wrangler, Miniflare and workerd together, never workerd alone.
+- Bun: retain 1.4.2. It is a user requirement (8 October) and `packageManager`'s pin. Bun moves only through `bun upgrade --stable` followed by a reviewed `packageManager` commit, and this unit did not look for a newer release.
 - `miniflare`: this version comes from the `beta` dist-tag and is Wrangler's exact dependency. Retain it for local development and tests only; it never ships, since Cloudflare runs the Worker on its own workerd. Revisit it with the next Wrangler.
 - Node: ADR 0008 names a Node 24 LTS helper. Node 24 enters maintenance on 20 October 2026 and Node 26 becomes LTS on 28 October 2026. This host has only Node 26.10.0, which satisfies Wrangler's `engines` (>= 22). **Open:** which Node line hosts Wrangler in CI ([follow-ups](#what-stays-hold)).
 

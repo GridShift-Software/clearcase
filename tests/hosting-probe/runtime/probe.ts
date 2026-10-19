@@ -14,8 +14,10 @@
 // stamped with HEAD, and HEAD and the tree unchanged at the end. Logs and local D1/R2 state stay in the run directory
 // under .local/hosting-probe/runtime/.
 //
-// `--check FILE` refuses (exit 1) a summary that is not this runner's PASS for HEAD: a missing, null or retyped field
-// fails, as does any leg that is not PASS.
+// `--check FILE` refuses (exit 1) a summary that is not this runner's PASS for HEAD. It compares the whole summary with one
+// expected shape (expectedShape): exact key sets at every level, types and values, so a missing, null, retyped, extra or
+// changed field fails, as does any leg that is not PASS or has a `failure`. check-mutations.ts in this directory mutates
+// every leaf of a real PASS summary and runs this check on each (bun run --bun test:check).
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
@@ -55,64 +57,107 @@ const repo = () => git('rev-parse', '--show-toplevel');
 const head = () => git('rev-parse', 'HEAD');
 const dirty = () => git('status', '--porcelain', '--untracked-files=all');
 
+/** [commands, asserted] each leg writes; a leg that gains or loses one changes this table, or `evidence` stays false. */
+const LEG_SHAPE: Record<LegName, [number, number]> = {
+	build: [1, 4],
+	request: [2, 10],
+	render: [1, 3],
+	'binding-access': [1, 3],
+	action: [2, 4],
+	'failure-action': [4, 5],
+	persistence: [3, 4],
+	'failure-binding-missing': [5, 6],
+};
+/** The keys of the environment every child gets (the spike's allowlist), sorted. */
+const ENV_KEYS = ['CI', 'CLOUDFLARE_CF_FETCH_ENABLED', 'CLOUDFLARE_INCLUDE_PROCESS_ENV', 'CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV', 'HOME', 'PATH', 'WRANGLER_HIDE_BANNER', 'WRANGLER_LOG_PATH', 'WRANGLER_SEND_ERROR_REPORTS', 'WRANGLER_SEND_METRICS', 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME'];
+
+/** A literal is deep-equal; a RegExp matches a string; a function is a predicate; an array has exactly its length; an object exactly its keys. */
+type Spec = null | boolean | string | RegExp | ((v: unknown) => boolean) | Spec[] | { [key: string]: Spec };
+const NONEMPTY = (v: unknown) => typeof v === 'string' && v.length > 0;
+const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** The one expected shape of a PASS summary for `sha`: every field, its type and its value. */
+function expectedShape(sha: string, summary: Record<string, unknown>): Spec {
+	const node = isObject(summary.hosts) && typeof summary.hosts.node === 'string' ? summary.hosts.node : '';
+	const workerd = pkg.devDependencies.workerd!;
+	return {
+		schema: SCHEMA,
+		sourceSha: sha,
+		treeClean: true,
+		servedStamp: sha,
+		startedAt: ISO,
+		finishedAt: ISO,
+		runDir: /^\.local\/hosting-probe\/runtime\/[0-9A-Za-z-]+$/,
+		hosts: { bun: BUN, node: /^\d+\.\d+\.\d+$/, workerd, build: `Bun ${BUN}`, runner: `Bun ${BUN}`, wrangler: `Node ${node}`, app: `workerd ${workerd} (native)` },
+		pins: { ...pkg.devDependencies },
+		artifact: /^sha256:[0-9a-f]{64}$/,
+		isolation: { network: /^own network namespace: interfaces \[lo\], 0 IPv4 routes, 0 IPv6 routes; /, env: ENV_KEYS },
+		legs: Object.fromEntries(LEGS.map((name) => [name, { status: 'PASS', commands: Array.from({ length: LEG_SHAPE[name][0] }, () => NONEMPTY), asserted: Array.from({ length: LEG_SHAPE[name][1] }, () => NONEMPTY) }])),
+		hold: HOLD,
+		failure: null,
+		evidence: true,
+		checker: { mutationsRefused: (v) => Number.isInteger(v) && (v as number) > 0, accepted: null },
+	};
+}
+
+function conform(value: unknown, spec: Spec, at: string, problems: string[]): void {
+	const seen = JSON.stringify(value) ?? 'missing';
+	const got = seen.length > 60 ? `${seen.slice(0, 60)}…` : seen;
+	if (spec instanceof RegExp) {
+		if (typeof value !== 'string' || !spec.test(value)) problems.push(`${at} is ${got}, not ${spec}`);
+	} else if (typeof spec === 'function') {
+		if (!spec(value)) problems.push(`${at} is ${got}, which the runner never writes`);
+	} else if (Array.isArray(spec)) {
+		if (!Array.isArray(value) || value.length !== spec.length) problems.push(`${at} is ${got}, not an array of ${spec.length}`);
+		else spec.forEach((s, i) => conform(value[i], s, `${at}[${i}]`, problems));
+	} else if (isObject(spec)) {
+		if (!isObject(value)) return void problems.push(`${at} is ${got}, not an object`);
+		for (const k of Object.keys(value)) if (!(k in spec)) problems.push(`${at}.${k} is not a field of the summary`);
+		for (const [k, s] of Object.entries(spec)) if (k in value) conform(value[k], s, `${at}.${k}`, problems);
+		else problems.push(`${at}.${k} is missing`);
+	} else if (value !== spec) problems.push(`${at} is ${got}, not ${JSON.stringify(spec)}`);
+}
+
 /** Every problem that keeps `summary` from being this runner's evidence for `sha`; empty means it is. */
 function checkSummary(summary: unknown, sha: string): string[] {
-	const s = summary as Record<string, unknown> | null;
-	if (typeof s !== 'object' || s === null || Array.isArray(s)) return ['summary is not an object'];
+	if (!isObject(summary)) return ['summary is not an object'];
 	const problems: string[] = [];
-	const str = (v: unknown) => typeof v === 'string' && v.length > 0;
-	if (s.schema !== SCHEMA) problems.push(`schema is not ${SCHEMA}`);
-	if (s.sourceSha !== sha) problems.push(`sourceSha ${JSON.stringify(s.sourceSha)} is not HEAD ${sha}`);
-	if (s.treeClean !== true) problems.push('treeClean is not true');
-	if (s.servedStamp !== sha) problems.push(`servedStamp ${JSON.stringify(s.servedStamp)} is not HEAD ${sha}`);
-	if (s.evidence !== true) problems.push('evidence is not true');
-	if (s.failure !== null) problems.push('failure is not null');
-	if (typeof s.artifact !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(s.artifact)) problems.push('artifact is not a sha256 digest');
-	const hosts = s.hosts as Record<string, unknown> | null;
-	if (typeof hosts !== 'object' || hosts === null) problems.push('hosts is not an object');
-	else {
-		if (hosts.bun !== BUN) problems.push(`hosts.bun is not ${BUN}`);
-		for (const k of ['node', 'workerd'] as const) if (!str(hosts[k])) problems.push(`hosts.${k} is not a version`);
-	}
-	const pins = s.pins as Record<string, unknown> | null;
-	if (typeof pins !== 'object' || pins === null) problems.push('pins is not an object');
-	else for (const [name, version] of Object.entries(pkg.devDependencies)) if (pins[name] !== version) problems.push(`pins.${name} is not ${version}`);
-	const legs = s.legs as Record<string, unknown> | null;
-	if (typeof legs !== 'object' || legs === null) problems.push('legs is not an object');
-	else {
-		const extra = Object.keys(legs).filter((k) => !(LEGS as readonly string[]).includes(k));
-		if (extra.length) problems.push(`unknown legs ${extra.join(', ')}`);
-		for (const name of LEGS) {
-			const leg = legs[name] as Record<string, unknown> | null;
-			if (typeof leg !== 'object' || leg === null) problems.push(`leg ${name} is missing`);
-			else if (leg.status !== 'PASS') problems.push(`leg ${name} is ${JSON.stringify(leg.status)}, not PASS`);
-			else if (!Array.isArray(leg.asserted) || leg.asserted.length === 0 || !leg.asserted.every(str)) problems.push(`leg ${name} asserted nothing`);
-		}
-	}
+	conform(summary, expectedShape(sha, summary), 'summary', problems);
 	return problems;
 }
 
-/** Fields whose deletion, null or retyping must each make `checkSummary` refuse; the count of mutations refused, or the first one accepted. */
+/** Every leaf and container of the real summary, deleted, nulled, retyped, emptied, flipped or zeroed, and an unknown key added to each object; the count refused, or the first accepted. */
 function mutationsRefused(summary: Record<string, unknown>, sha: string): { refused: number; accepted: string | null } {
-	const paths: string[][] = [['schema'], ['sourceSha'], ['treeClean'], ['servedStamp'], ['evidence'], ['failure'], ['artifact'], ['hosts'], ['hosts', 'bun'], ['hosts', 'node'], ['hosts', 'workerd'], ['pins'], ['legs']];
-	for (const name of Object.keys(pkg.devDependencies)) paths.push(['pins', name]);
-	for (const name of LEGS) paths.push(['legs', name], ['legs', name, 'status'], ['legs', name, 'asserted']);
 	let refused = 0;
-	for (const p of paths) {
-		for (const [label, mutate] of [
-			['deleted', (o: Record<string, unknown>, k: string) => delete o[k]],
-			['null', (o: Record<string, unknown>, k: string) => (o[k] = null)],
-			['retyped', (o: Record<string, unknown>, k: string) => (o[k] = typeof o[k] === 'string' ? 1 : String(o[k]))],
-		] as const) {
-			const copy = structuredClone(summary);
-			const parent = p.slice(0, -1).reduce((o, k) => o[k] as Record<string, unknown>, copy);
-			if (label === 'null' && parent[p.at(-1)!] === null) continue; // already null: not a mutation
-			mutate(parent, p.at(-1)!);
-			if (checkSummary(copy, sha).length === 0) return { refused, accepted: `${p.join('.')} ${label}` };
-			refused++;
+	let accepted: string | null = null;
+	const attempt = (label: string, edit: (copy: Record<string, unknown>) => void) => {
+		const copy = structuredClone(summary);
+		edit(copy);
+		if (accepted !== null || JSON.stringify(copy) === JSON.stringify(summary)) return; // not a mutation
+		if (checkSummary(copy, sha).length === 0) accepted = label;
+		else refused++;
+	};
+	const walk = (value: unknown, p: (string | number)[]) => {
+		const label = p.join('.');
+		const holder = (copy: Record<string, unknown>) => p.slice(0, -1).reduce<any>((o, k) => o[k], copy);
+		if (p.length) {
+			const key = p.at(-1)!;
+			attempt(`${label} deleted`, (c) => (Array.isArray(holder(c)) ? holder(c).splice(key as number, 1) : delete holder(c)[key]));
+			attempt(`${label} null`, (c) => (holder(c)[key] = null));
+			attempt(`${label} retyped`, (c) => (holder(c)[key] = typeof value === 'string' ? 1 : typeof value === 'object' && value !== null ? 'x' : String(value)));
+			if (typeof value === 'string') attempt(`${label} emptied`, (c) => (holder(c)[key] = ''));
+			if (typeof value === 'boolean') attempt(`${label} flipped`, (c) => (holder(c)[key] = !value));
+			if (typeof value === 'number') attempt(`${label} zeroed`, (c) => (holder(c)[key] = 0));
 		}
-	}
-	return { refused, accepted: null };
+		if (Array.isArray(value)) value.forEach((v, i) => walk(v, [...p, i]));
+		else if (isObject(value)) {
+			attempt(`${label || '<root>'} + unknown key`, (c) => (p.reduce<any>((o, k) => o[k], c).__unknown = 1));
+			for (const [k, v] of Object.entries(value)) walk(v, [...p, k]);
+		}
+	};
+	walk(summary, []);
+	return { refused, accepted };
 }
 
 /** The first `node` on PATH that is really Node, not Bun's `bun run --bun` stand-in; Wrangler hangs under Bun. */
@@ -220,15 +265,17 @@ async function startServer(node: string, env: Record<string, string>, persist: s
 	return server;
 }
 
-/** SIGINT to the server's process group, then SIGTERM and SIGKILL; refuses if any process of its tree survives. */
-async function stopServer(server: Server): Promise<void> {
+/** SIGINT to the server's process group, then SIGTERM and SIGKILL; refuses if any process of its tree survives. Returns the last signal sent, the one that ended the tree (null if it was already gone). */
+async function stopServer(server: Server): Promise<'SIGINT' | 'SIGTERM' | 'SIGKILL' | null> {
 	const { child } = server;
 	const pgid = child.pid!;
 	// workerd can outlive Wrangler by a moment, so wait for the whole tree, not only Wrangler, before escalating
 	const left = () => [...processes().values()].filter((p) => p.pgrp === pgid || server.tree.some((t) => t.pid === p.pid && t.exe === p.exe));
 	const gone = () => (child.exitCode !== null || child.signalCode !== null) && left().length === 0;
+	let ended: 'SIGINT' | 'SIGTERM' | 'SIGKILL' | null = null;
 	for (const [signal, ms] of [['SIGINT', 12_000], ['SIGTERM', 5_000], ['SIGKILL', 5_000]] as const) {
 		if (gone()) break;
+		ended = signal;
 		try {
 			process.kill(-pgid, signal);
 		} catch {}
@@ -237,6 +284,7 @@ async function stopServer(server: Server): Promise<void> {
 	live.delete(server);
 	const survivors = left();
 	if (survivors.length) throw new Error(`${server.label}: processes survived the stop: ${survivors.map((p) => `${p.pid} ${p.exe}`).join(', ')}`);
+	return ended;
 }
 
 async function http(pathname: string, init: RequestInit = {}) {
@@ -249,12 +297,12 @@ const post = (form: Record<string, string>, origin = BASE) =>
 
 async function main(out: string): Promise<number> {
 	const root = repo();
-	rmSync(out, { force: true }); // a stale summary must never stand in for this run's
 	const sha = head();
 	if (dirty()) throw new Refusal('the tree is dirty: commit or stash first, so the summary describes HEAD');
 	const isolation = checkOffline();
 	const node = realNode();
 	const pins = checkInstalled();
+	rmSync(out, { force: true }); // after every refusal, so a refused run deletes nothing; a stale summary must never stand in for this run's
 	const runDir = path.join(root, '.local', 'hosting-probe', 'runtime', new Date().toISOString().replace(/[:.]/g, '-'));
 	const rel = (p: string) => p.replace(runDir, '<run>');
 	const logs = path.join(runDir, 'logs');
@@ -339,7 +387,7 @@ async function main(out: string): Promise<number> {
 			servedStamp = (JSON.parse(version.body) as { version?: string }).version ?? null;
 			check(version.status === 200 && servedStamp === sha, 'GET /_app/version.json serves the HEAD stamp');
 			const missing = await http('/no-such-page', { headers: { accept: 'text/html' } });
-			check(missing.status === 404, 'GET /no-such-page answers 404');
+			check(missing.status === 404 && missing.type.startsWith('text/html') && missing.body.includes('Not Found'), 'GET /no-such-page answers 404 text/html with the "Not Found" error page');
 		});
 
 		await leg('render', ['GET / (Accept: text/html)'], async (check) => {
@@ -373,15 +421,15 @@ async function main(out: string): Promise<number> {
 			const dup = await post({ id: 'probe-1', body: 'synthetic probe body B' });
 			check(dup.status === 409 && dup.body.includes('note probe-1 already exists'), 'a duplicate id answers 409: D1 refused the INSERT (UNIQUE)');
 			const cross = await post({ id: 'probe-2', body: 'synthetic probe body C' }, 'http://foreign.invalid');
-			check(cross.status === 403 && !cross.body.includes('Saved'), 'a cross-site form POST answers 403 (SvelteKit Origin check) and runs no action');
+			check(cross.status === 403 && cross.body.includes('Cross-site POST form submissions are forbidden') && !cross.body.includes('Saved'), "a cross-site form POST answers 403 with SvelteKit's Origin-check message and runs no action");
 			const page = await http('/', { headers: { accept: 'text/html' } });
 			check(page.body.includes('D1 notes: 2') && !page.body.includes('probe-2'), 'D1 holds no row from the refused actions');
 			check(page.body.includes(`R2 latest: ${A}`) && !page.body.includes('body B') && !page.body.includes('body C'), 'R2 still holds the last good write');
 		});
 
 		await leg('persistence', [`node node_modules/wrangler/bin/wrangler.js d1 execute DB --local --persist-to ${rel(mainState)} --json --command "SELECT id, body FROM notes ORDER BY id"`, serveCmd(mainState), 'GET /'], async (check) => {
-			await stopServer(server!);
-			check(true, 'the server stopped on SIGINT and no process of its tree survived');
+			const ended = await stopServer(server!);
+			check(ended === 'SIGINT' || ended === 'SIGTERM', `the server's process tree ended on ${ended} without SIGKILL, and no process of it survived`);
 			const read = wrangler('d1', 'execute', 'DB', '--local', '--persist-to', mainState, '--json', '--command', 'SELECT id, body FROM notes ORDER BY id');
 			const rows = read.code === 0 ? ((JSON.parse(read.out.slice(read.out.indexOf('['))) as { results: { id: string; body: string }[] }[])[0]?.results ?? []) : [];
 			check(JSON.stringify(rows) === JSON.stringify([{ id: 'probe-1', body: A }, { id: 'seed-1', body: 'synthetic seed note' }]), 'a separate wrangler d1 execute reads both rows from the stopped server\'s state');
@@ -403,7 +451,9 @@ async function main(out: string): Promise<number> {
 			check(!page.body.includes('R2 latest') && !page.body.includes('D1 notes'), 'no partial page is rendered');
 			const res = await post({ id: 'probe-3', body: 'synthetic probe body D' });
 			check(res.status === 503 && res.body.includes('BUCKET binding is not configured'), 'the form action answers 503 naming the missing binding');
-			const b = JSON.parse((await http('/bindings')).body) as Record<string, unknown>;
+			const bindings = await http('/bindings');
+			check(bindings.status === 200 && bindings.type.startsWith('application/json'), 'GET /bindings answers 200 JSON');
+			const b = JSON.parse(bindings.body) as Record<string, unknown>;
 			check(b.DB === true && b.BUCKET === false && b.ASSETS === true && b.notes === 1, 'GET /bindings: DB (answering) and ASSETS present, BUCKET absent');
 			await stopServer(server);
 			server = null;
@@ -433,11 +483,11 @@ async function main(out: string): Promise<number> {
 		failure,
 		evidence: false,
 	};
-	summary.evidence = failure === null && clean && endSha === sha && checkSummary({ ...summary, evidence: true }, sha).length === 0;
-	if (summary.evidence) {
-		const m = mutationsRefused(summary, sha);
+	const draft = { ...summary, evidence: true, checker: { mutationsRefused: 1, accepted: null } };
+	if (failure === null && clean && endSha === sha && checkSummary(draft, sha).length === 0) {
+		const m = mutationsRefused(draft, sha);
 		summary.checker = { mutationsRefused: m.refused, accepted: m.accepted };
-		if (m.accepted) summary.evidence = false;
+		summary.evidence = m.accepted === null && checkSummary({ ...summary, evidence: true }, sha).length === 0;
 	}
 	mkdirSync(path.dirname(out), { recursive: true });
 	writeFileSync(out, `${JSON.stringify(summary, null, 2)}\n`);

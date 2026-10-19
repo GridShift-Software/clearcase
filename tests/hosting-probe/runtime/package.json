@@ -6,6 +6,7 @@
   "scripts": {
     "probe": "bun probe.ts",
     "surface": "bun surface.ts",
+    "test:check": "bun check-mutations.ts",
     "build": "vite build --config vite.probe.config.js"
   },
   "devDependencies": {

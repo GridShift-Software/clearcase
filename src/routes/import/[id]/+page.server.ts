@@ -10,17 +10,38 @@ import type { Actions, PageServerLoad } from './$types';
 
 const LISTED_PER_CODE = 100;
 
+type ConversionNote = { code: string; subject: string | null; message: string };
+
+const conversionNotes = (vid: string) => datasetOf<{ diagnostics: ConversionNote[] }>(app().store, vid, CONVERSION_REPORT.key)?.diagnostics ?? null;
+
 /**
  * How much document text the source export cut short, from the converter's V5_TEXT_CAPPED diagnostics: null when it
  * reports none, and `known: false` when the package has no readable conversion report, so a missing report never reads
  * as complete text.
  */
-function textCoverage(vid: string): { known: boolean; notes: string[]; hint: string } | null {
-	const report = datasetOf<{ diagnostics: { code: string; message: string }[] }>(app().store, vid, CONVERSION_REPORT.key);
+function textCoverage(notes: ConversionNote[] | null): { known: boolean; notes: string[]; hint: string } | null {
 	const hint = CODES.V5_TEXT_CAPPED.hint;
-	if (!report) return { known: false, notes: [], hint };
-	const notes = report.diagnostics.filter((d) => d.code === 'V5_TEXT_CAPPED').map((d) => d.message);
-	return notes.length ? { known: true, notes, hint } : null;
+	if (!notes) return { known: false, notes: [], hint };
+	const capped = notes.filter((d) => d.code === 'V5_TEXT_CAPPED').map((d) => d.message);
+	return capped.length ? { known: true, notes: capped, hint } : null;
+}
+
+/**
+ * Every other note the converter recorded about the source (data kept as an opaque dataset and not shown, an analysis
+ * overlay it does not map, a dropped index, ...), grouped by code with its subject and the converter's own counts: null
+ * when it recorded none, `known: false` when the package has no readable conversion report. No code list: a note the
+ * converter gains later shows up here without a change to this route.
+ */
+function sourceCoverage(notes: ConversionNote[] | null) {
+	if (!notes) return { known: false, groups: [] };
+	const byCode = new Map<string, ConversionNote[]>();
+	for (const d of notes) if (d.code !== 'V5_TEXT_CAPPED') byCode.set(d.code, [...(byCode.get(d.code) ?? []), d]);
+	if (!byCode.size) return null;
+	const groups = [...byCode].sort(([x], [y]) => (x < y ? -1 : 1)).map(([code, ds]) => ({
+		code, hint: (CODES as Record<string, { hint: string }>)[code]?.hint ?? '', total: ds.length,
+		items: ds.slice(0, LISTED_PER_CODE).map((d) => ({ subject: d.subject, message: d.message })),
+	}));
+	return { known: true, groups };
 }
 
 export const load: PageServerLoad = ({ params, url }) => {
@@ -51,7 +72,8 @@ export const load: PageServerLoad = ({ params, url }) => {
 		vid, active,
 		pruned: imp.outcome === 'stored' && !v, supersededBy: imp.outcome === 'stored' && v && v.import_id !== imp.id ? v.import_id : null,
 		check: vid ? a.verify(vid) : null,
-		textCoverage: vid ? textCoverage(vid) : null,
+		textCoverage: vid ? textCoverage(conversionNotes(vid)) : null,
+		sourceCoverage: vid ? sourceCoverage(conversionNotes(vid)) : null,
 		diff: vid && active && active !== vid ? diffVersions(a.store, vid, active) : null,
 		notes: vid && caseId ? a.userWork.summary(caseId, vid) : null,
 		noop: url.searchParams.has('noop'), repaired: url.searchParams.has('repaired'),

@@ -52,6 +52,20 @@
       },
       "type": "array"
     },
+    "source": {
+      "properties": {
+        "builderVersion": {
+          "type": "string"
+        },
+        "generation": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "generation"
+      ],
+      "type": "object"
+    },
     "sourceLines": {
       "patternProperties": {
         "^.*$": {

@@ -179,6 +179,8 @@ export const V5ConversionReport = Obj({
   adapter: Obj({ name: Str, version: Str }),
   sourceLines: Rec(Count),
   ignoredCodeLiterals: StrArr,
+  /** The detected workspace generation, written only for a generation other than v5 (v5's package bytes stay as they were). */
+  source: Type.Optional(Obj({ generation: Str, builderVersion: Type.Optional(Str) })),
   diagnostics: Type.Array(Obj({ code: Str, subject: Type.Union([Str, Type.Null()]), message: Str })),
 });
 export const VIEW_ID = '^_?[a-z][a-z0-9_]{0,63}$';

@@ -250,7 +250,7 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   const conv = sink.finish().map(({ code, subject, message }) => ({ code, subject: subject ?? null, message }));
   datasets.push({
     key: CONVERSION_REPORT.key, kind: CONVERSION_REPORT.kind, schema: CONVERSION_REPORT.schema, required: CONVERSION_REPORT.required, provenance: prov(CONVERSION_REPORT.sourcePath),
-    data: { adapter: { name: ADAPTER.name, version: ADAPTER.mapping }, sourceLines: Object.fromEntries(Object.entries(src.lines).sort()), ignoredCodeLiterals: [...new Set(src.codeLiteralsSeen)].sort(), diagnostics: conv },
+    data: { adapter: { name: ADAPTER.name, version: ADAPTER.mapping }, sourceLines: Object.fromEntries(Object.entries(src.lines).sort()), ignoredCodeLiterals: [...new Set(src.codeLiteralsSeen)].sort(), ...(src.generation !== 'v5-js' && { source: { generation: src.generation, ...(typeof META.version === 'string' && { builderVersion: META.version }) } }), diagnostics: conv },
   });
 
   const builtAt = typeof META.builtAt === 'string' ? META.builtAt : null;

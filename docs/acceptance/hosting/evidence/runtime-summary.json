@@ -1,11 +1,11 @@
 {
   "schema": "clearcase.runtime-probe/1",
-  "sourceSha": "8b840cf4dfe1d07481ec6b8b12557892d632f810",
+  "sourceSha": "ae43730f30ff00b34f4e087d0f5863d1d3778091",
   "treeClean": true,
-  "servedStamp": "8b840cf4dfe1d07481ec6b8b12557892d632f810",
-  "startedAt": "2026-10-19T08:26:44.968Z",
-  "finishedAt": "2026-10-19T08:26:51.431Z",
-  "runDir": ".local/hosting-probe/runtime/2026-10-19T08-26-44-968Z",
+  "servedStamp": "ae43730f30ff00b34f4e087d0f5863d1d3778091",
+  "startedAt": "2026-10-19T08:28:24.418Z",
+  "finishedAt": "2026-10-19T08:28:30.902Z",
+  "runDir": ".local/hosting-probe/runtime/2026-10-19T08-28-24-418Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -25,7 +25,7 @@
     "workerd": "1.20261012.1",
     "wrangler": "4.151.1"
   },
-  "artifact": "sha256:f0daafd9201cf19af2274c0b7065d440e7246753618c8f8e0169052c194637e8",
+  "artifact": "sha256:27d16033639c3643ff719eeb1021ef6e518e661e2f5a0834bcf2a69c92726c4b",
   "isolation": {
     "network": "own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden",
     "env": [

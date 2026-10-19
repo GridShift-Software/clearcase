@@ -141,7 +141,7 @@ No gate run is evidence for Clerk, Cloudflare D1 or R2, email or a deployment; t
 
 Output: at most 30 lines, with one line per step and its seconds, and the drive's line naming each feature step and the browser-slot wait. Evidence and logs go to `.local/gate-hosted/<sha12>/<run>/`, or `$CLEARCASE_HOSTED_REPORT_DIR/<run>`. Scratch goes under `$CLEARCASE_HOSTED_SCRATCH/gate`, or `.local/gate-hosted/scratch`. One hosted gate per worktree (`.local/gate-hosted/pid`, the same flock admission as `gate`). `bun run --bun gate:hosted --stop` stops that group and cleans its stranded runs. A run took 2 min 33 s on the archlinux host on 19 October 2026: refusals 2 s, build 3 s, start 9 s, test:hosted 44 s, and a drive of 92 s, most of it waiting for a browser slot.
 
-CI runs it as the third receipt step (`gate:hosted`) after `check` and `test`, with Node 26.10.0 from `actions/setup-node`, `CI=1`, Wrangler telemetry off, `.local/hosted` and the scratch on the step's `/dev/shm` directory, and no Cloudflare account, binding or token. Its evidence uploads with the receipts.
+CI runs it as the third receipt step (`gate-hosted`) after `check` and `test`, with Node 26.10.0 from `actions/setup-node`, `CI=1`, Wrangler telemetry off, `.local/hosted` and the scratch on the step's `/dev/shm` directory, and no Cloudflare account, binding or token. Its evidence uploads with the receipts.
 
 To prove one hosted user path in seconds without the gate's checks, run `.agents/skills/verify-clearcase-hosted/bin/verify-clearcase-hosted run`. Owners who replace a double (GRS-113, GRS-115, GRS-120) extend its feature map and change the gate's boundary entry in the same change.
 

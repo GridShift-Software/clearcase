@@ -108,3 +108,12 @@ export function takeoutMbox() {
   const m = (n) => lines(`From 100000000000000${n}@xxx Tue Jan 02 09:0${n}:00 +0000 2001`, 'X-GM-THRID: 100000000000000' + n, 'X-Gmail-Labels: Inbox', `Message-ID: <mbox000${n}@mail.example.test>`, `Subject: MBOX-MESSAGE-${n}-TOKEN`, 'From: Synthetic Sender <sender@example.invalid>', 'To: Synthetic Recipient <recipient@example.invalid>', 'Date: Tue, 2 Jan 2001 09:00:00 +0000', 'Content-Type: text/plain; charset="UTF-8"', '', `MBOX-BODY-${n}-TOKEN`, '>From a quoted line in the body', '');
   return m(1) + '\r\n' + m(2) + '\r\n';
 }
+
+/** A plain multipart/mixed message whose only job is to carry attachments (each {name, mime, data}). */
+export function carrierEml({ subject, body = 'CARRIER-BODY-TOKEN', attachments, messageId = 'carrier0001' }) {
+  const mixed = multipart('mixed', `carrier_${messageId}`, [
+    part(['Content-Type: text/plain; charset="utf-8"'], body),
+    ...attachments.map((a) => part([`Content-Type: ${a.mime}; name="${a.name}"`, `Content-Disposition: attachment; filename="${a.name}"`, 'Content-Transfer-Encoding: base64'], b64(a.data))),
+  ]);
+  return lines('From: Carrier <carrier@example.invalid>', 'To: Synthetic Recipient <recipient@example.invalid>', `Subject: ${subject}`, 'Date: Tue, 2 Jan 2001 12:00:00 +0000', `Message-ID: <${messageId}@example.invalid>`, 'MIME-Version: 1.0', mixed[0], mixed[1]);
+}

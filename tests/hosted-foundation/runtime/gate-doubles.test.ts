@@ -87,6 +87,20 @@ describe('hosted-gate doubles (denial without an audit event, range or release b
 			{ action: 'asset.list', outcome: 'denied', object_id: 'case-a2' },
 		]);
 	});
+	it('reads a revoked, expired or wrong-client session as anonymous, and a live one as verified, in the identity and its audit actor', async () => {
+		const w = world(), actors = () => (w.db.prepare('SELECT actor FROM audit_event ORDER BY rowid').all() as { actor: string }[]).map((r) => JSON.parse(r.actor).kind);
+		const revoked = w.session('client-a', 'a-viewer'), expired = w.session('client-a', 'a-viewer'), other = w.session('client-b', 'b-editor'), live = w.session('client-a', 'a-viewer');
+		w.db.prepare('UPDATE gate_session SET revoked = 1 WHERE session_id = ?').run(revoked);
+		w.db.prepare("UPDATE gate_session SET expires_at = '2000-01-01T00:00:00.000Z' WHERE session_id = ?").run(expired);
+		for (const [session, kind] of [[revoked, 'anonymous'], [expired, 'anonymous'], [other, 'anonymous'], [live, 'verified']] as const) {
+			const s = await w.services(session);
+			expect(s.identity.kind).toBe(kind);
+			if (kind === 'anonymous') await expect(s.assets.get({ asset: original, request: get })).rejects.toMatchObject({ code: expect.stringMatching(/^(invalid-session|wrong-client)$/) });
+		}
+		expect(actors()).toEqual(['anonymous', 'anonymous', 'anonymous']);
+		await (await w.services(live)).assets.get({ asset: original, request: get });
+		expect(actors()).toEqual(['anonymous', 'anonymous', 'anonymous', 'verified']);
+	});
 	it('reads the grant again before release: a grant withdrawn during the read releases nothing', async () => {
 		const w = world(), s = await w.services(w.session('client-a', 'a-viewer'));
 		const key = 'originals/client-a/case-a1/a1-letter', real = w.objects.get.bind(w.objects);

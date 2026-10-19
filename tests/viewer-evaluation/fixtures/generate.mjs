@@ -274,6 +274,13 @@ const corrupt = Buffer.from(png);
 for (let i = 80; i < corrupt.length - 40; i += 7) corrupt[i] ^= 0xa5;
 put('image', 'png-corrupt-body.png', corrupt, 'png-pattern.png with its compressed data scrambled: valid signature and IHDR, so import raises no hold, but no decoder can read it');
 
+// ---------- Prepared companions that clear a hold (M5) ----------
+put('pdf', 'encrypted-with-rendition.pdf', out('pdf', 'encrypted-user-password.pdf'), 'qpdf AES-256 PDF again, this time with a decrypted rendition linked');
+run('qpdf', ['--password=synthetic-user', '--decrypt', tmp('enc.pdf'), tmp('dec.pdf')]);
+put('pdf', 'encrypted-with-rendition.rendition-v1.pdf', read(tmp('dec.pdf')), 'prepared rendition: qpdf --decrypt with the owner-supplied password, offline', { renditionOf: 'pdf/encrypted-with-rendition.pdf', version: 1 });
+put('email', 'outlook-rtf-only-with-companion.msg', out('email', 'outlook-rtf-only.msg'), 'the RTF-only MSG again, this time with a readable companion linked');
+put('email', 'outlook-rtf-only-with-companion.companion-v1.txt', 'MSG-RTF-COMPANION-TOKEN: reviewed plain-text rendering of the RTF-only body.', 'prepared companion: reviewed text of the RTF body', { renditionOf: 'email/outlook-rtf-only-with-companion.msg', version: 1 });
+
 writeFileSync(path.join(OUT, 'manifest.json'), JSON.stringify(manifest, null, 1));
 rmSync(TMP, { recursive: true, force: true });
 console.log(`fixtures: ${manifest.fixtures.length} files in ${path.relative(process.cwd(), OUT) || OUT}`);

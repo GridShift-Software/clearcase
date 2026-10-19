@@ -85,4 +85,10 @@ export default async function readiness(c, { full }) {
   c.record(F, 'candidate G', C, 'unrecognised or unsupported bytes inside a ZIP and on an EML hold the whole update', !G.ready && ['archive/unknown-members.zip#', 'email/unknown-attachments.eml#'].every((p) => new Set(gKids.filter((r) => r.file.startsWith(p)).map((r) => r.file)).size === 6), 'not ready; each of the six blobs in each container carries a hold', G.reasons);
   const Fc = await evaluate(c, 'F reader fails at run time', [{ id: 'image/png-corrupt-body.png' }]);
   c.record(F, 'candidate F', C, 'a file that passes import but whose reader fails holds the update with preview-failed', !Fc.ready && c.descriptors.get('image/png-corrupt-body.png').holds.length === 0 && Fc.reasons.some((r) => r.code.startsWith('preview-failed:')), "no import hold on the file; not ready; reason 'preview-failed:<reader code>'", { holds: c.descriptors.get('image/png-corrupt-body.png').holds, reasons: Fc.reasons });
+  const H = await evaluate(c, 'H encrypted PDF with a decrypted rendition', [{ id: 'pdf/encrypted-with-rendition.pdf' }]);
+  const H0 = await evaluate(c, 'H0 encrypted PDF alone', [{ id: 'pdf/encrypted-user-password.pdf' }]);
+  c.record(F, 'candidate H', C, 'an encrypted PDF publishes once its decrypted rendition is linked, and is held without one', H.ready && !H0.ready && H0.reasons.some((r) => r.code === 'pdf-encrypted-needs-decrypted-rendition'), 'with the rendition: ready; the unlinked twin: held pdf-encrypted-needs-decrypted-rendition', { linked: H.reasons, alone: H0.reasons });
+  const I = await evaluate(c, 'I RTF-only MSG with a companion', [{ id: 'email/outlook-rtf-only-with-companion.msg' }]);
+  const I0 = await evaluate(c, 'I0 RTF-only MSG alone', [{ id: 'email/outlook-rtf-only.msg' }]);
+  c.record(F, 'candidate I', C, 'an RTF-only MSG publishes once its readable companion is linked, and is held without one', I.ready && !I0.ready && I0.reasons.some((r) => r.code === 'rtf-only-body-needs-companion'), 'with the companion: ready; the unlinked twin: held rtf-only-body-needs-companion', { linked: I.reasons, alone: I0.reasons });
 }

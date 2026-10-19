@@ -223,23 +223,20 @@ async function startServer(node: string, env: Record<string, string>, persist: s
 /** SIGINT to the server's process group, then SIGTERM and SIGKILL; refuses if any process of its tree survives. */
 async function stopServer(server: Server): Promise<void> {
 	const { child } = server;
-	const exited = () => child.exitCode !== null || child.signalCode !== null;
-	const wait = (ms: number) => new Promise<boolean>((resolve) => {
-		if (exited()) return resolve(true);
-		const t = setTimeout(() => resolve(exited()), ms);
-		child.once('exit', () => (clearTimeout(t), resolve(true)));
-	});
+	const pgid = child.pid!;
+	// workerd can outlive Wrangler by a moment, so wait for the whole tree, not only Wrangler, before escalating
+	const left = () => [...processes().values()].filter((p) => p.pgrp === pgid || server.tree.some((t) => t.pid === p.pid && t.exe === p.exe));
+	const gone = () => (child.exitCode !== null || child.signalCode !== null) && left().length === 0;
 	for (const [signal, ms] of [['SIGINT', 12_000], ['SIGTERM', 5_000], ['SIGKILL', 5_000]] as const) {
-		if (exited()) break;
+		if (gone()) break;
 		try {
-			process.kill(-child.pid!, signal);
+			process.kill(-pgid, signal);
 		} catch {}
-		await wait(ms);
+		for (const until = Date.now() + ms; Date.now() < until && !gone(); ) await new Promise((r) => setTimeout(r, 100));
 	}
 	live.delete(server);
-	const pgid = child.pid!;
-	const left = [...processes().values()].filter((p) => p.pgrp === pgid || server.tree.some((t) => t.pid === p.pid && t.exe === p.exe));
-	if (left.length) throw new Error(`${server.label}: processes survived the stop: ${left.map((p) => `${p.pid} ${p.exe}`).join(', ')}`);
+	const survivors = left();
+	if (survivors.length) throw new Error(`${server.label}: processes survived the stop: ${survivors.map((p) => `${p.pid} ${p.exe}`).join(', ')}`);
 }
 
 async function http(pathname: string, init: RequestInit = {}) {

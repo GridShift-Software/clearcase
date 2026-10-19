@@ -35,3 +35,24 @@ describe('finding 2: exact publication is rechecked after every awaited provider
     for (const read of reads) { publish(); await expect(read()).rejects.toMatchObject({ code: 'forbidden' }); }
   });
 });
+
+describe('finding 3: request handles capture immutable client and session values', () => {
+  it('replacing the caller-owned input after construction does not revive a revoked session', async () => {
+    const backend = createMemoryBackend({ fixture: fx.data, now });
+    const input = { clientId: clientA(), sessionId: id('session', 'a-viewer') };
+    const viewer = backend.request(input);
+    backend.revoke(id('session', 'a-viewer'));
+    input.sessionId = id('session', 'a-editor');
+    await expect(viewer.store.getCase({ caseId: fx.caseId })).rejects.toMatchObject({ code: 'invalid-session' });
+  });
+  it('a write acts on the scope it was called with, not on a scope the caller mutates while it is in flight', async () => {
+    const backend = createMemoryBackend({ fixture: fx.data, now });
+    const editor = backend.request({ clientId: clientA(), sessionId: id('session', 'a-editor') });
+    const call = { caseId: fx.caseId, store: 'deadlines', rowId: null, fields: { title: 'kept' }, anchor: null, expected: { kind: 'absent' as const }, operationId: 'op-scope' };
+    const pending = editor.userWork.putRow(call);
+    call.caseId = fx.pending; call.fields.title = 'swapped';
+    expect((await pending).kind).toBe('written');
+    expect((await editor.userWork.listRows({ caseId: fx.caseId, store: 'deadlines' })).map((r) => r.fields.title)).toEqual(['kept']);
+    expect(await editor.userWork.listRows({ caseId: fx.pending, store: 'deadlines' })).toEqual([]);
+  });
+});

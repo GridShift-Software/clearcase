@@ -158,6 +158,8 @@ async function describe(store, a, renditions, descriptors) {
     visualParts = listZip(a.bytes).entries.map((e) => e.path).filter((p) => /^xl\/(charts|drawings)\/[^/]+\.xml$/.test(p));
     if (visualParts.length && !linked.some((r) => r.role === 'supplement')) holds.push({ code: 'sheet-visual-content-needs-supplement', detail: `${a.name}: ${visualParts.join(', ')}` });
   }
+  const pageImages = linked.filter((r) => r.kind === 'page-image').map((r) => r.page).sort((x, y) => x - y);
+  if (a.mime === 'image/tiff' && pageImages.length && JSON.stringify(pageImages) !== JSON.stringify(Array.from({ length: a.pages ?? 0 }, (_, i) => i + 1))) holds.push({ code: 'rendition-page-count-mismatch', detail: `${a.name} has ${a.pages ?? 'an unreadable number of'} page(s); the prepared page images are numbered ${JSON.stringify(pageImages)}` });
   if (NEEDS_RENDITION.has(a.mime) && !linked.length && !f.renditionOf) holds.push({ code: 'prepared-rendition-missing', detail: `${a.name} (${a.mime}) has no native in-app reader` });
   const d = {
     schema: SCHEMA,
@@ -169,6 +171,7 @@ async function describe(store, a, renditions, descriptors) {
     children,
     parent: a.parent ?? null,
     visualParts,
+    pages: a.pages ?? null,
     limits: { zip: ZIP_LIMITS },
     holds,
   };

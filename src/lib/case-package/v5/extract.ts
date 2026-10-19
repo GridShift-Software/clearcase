@@ -99,7 +99,7 @@ export function extractV5(bytes: Uint8Array, sink: DiagSink): V5Source | null {
   if (out.generation === 'v5-js' && isObject(out.roots.DATA) && isObject(out.roots.META) && isNewerGeneration(out.roots.DATA, out.roots.META)) {
     out.generation = 'v5-js-newer';
     const v = unsupportedVersion(out.roots.META);
-    if (v !== null) sink.add('VER_UNSUPPORTED', `META.version ${v} is not a workspace generation this converter supports (v5, the newer builder's ${NEWER_VERSIONS.join(', ')}, or the app-data JSON script); refused, nothing converted`, { file: 'input', pointer: '/META/version', subject: 'META.version' });
+    if (v !== null) sink.add('VER_UNSUPPORTED', `META.version ${v === 'absent' ? '(absent, though the newer builder\'s markers are present)' : v} is not a workspace generation this converter supports (v5, the newer builder's ${NEWER_VERSIONS.join(', ')}, or the app-data JSON script); refused, nothing converted`, { file: 'input', pointer: '/META/version', subject: 'META.version' });
   }
   return sink.errors === 0 ? out : null;
 }

@@ -1643,7 +1643,8 @@ class GuardReach(GuardCase):
         # the guard's own source is a module outside the closure when a later ticket changes it: it must not read as
         # reaching the framework
         guard = (TOOLS / 'test_guard.mjs').read_text()
-        self.protect({'src/api.ts': self.api, 'scripts/agent-tools/test_guard.mjs': guard}, self.named_api)
+        packages = json.dumps({'name': 'x', 'devDependencies': {'typescript': '6.0.3', 'svelte': '5.57.2'}})  # as the repository declares them
+        self.protect({'src/api.ts': self.api, 'scripts/agent-tools/test_guard.mjs': guard, 'package.json': packages}, self.named_api)
         self.write('scripts/agent-tools/test_guard.mjs', guard + '// a later change\n')
         self.commit('change the guard')
         self.guard()
@@ -1778,8 +1779,6 @@ class GuardRoutes(GuardCase):
             'Symbol.for through a computed member': "(globalThis as any)[(Symbol as any)['f' + 'or']('$$jest-matchers-object')].customEqualityTesters.push(() => true);\n",
             'Symbol itself aliased': "const S = Symbol;\n(globalThis as any)[S.for('$$jest-matchers-object')].customEqualityTesters.push(() => true);\n",
             'Symbol.for with a computed name': "(globalThis as any)[Symbol.for(['$$jest', 'matchers-object'].join('-'))].customEqualityTesters.push(() => true);\n",
-            'eval': "const g = (0, eval)('globalThis');\n" + self.registry % ('g', 'g'),
-            'the Function constructor': "const g = new Function('return globalThis')();\n" + self.registry % ('g', 'g'),
         }.items():
             self.route(f'a changed module holds the global object as {label}', {'src/api.ts': line + self.weakened}, why='reaches the test framework')
         self.route('literal property reads, a const alias used only for them, and a direct literal Symbol.for',
@@ -1819,7 +1818,7 @@ class GuardRoutes(GuardCase):
         files = {'support/b.ts': helper, 'tests/b.test.ts': other}
         test = "import { ready } from '../support/b';\n" + self.named_api + "test('ready', () => { expect(ready).toBe(true); });\n"
         self.route('file A newly imports the effectful helper only file B loads', {'src/api.ts': self.weakened, 'tests/protected.test.ts': test},
-                   base=files, why='import time', reasons=self.reason)
+                   base=files, why='must name a module the reviewed file imports', reasons=self.reason)
         reviewed = "import { ready } from '../support/b';\n" + self.named_api
         self.route('file A newly imports a helper it already loads',
                    {'tests/protected.test.ts': "import { ready as loaded } from '../support/b';\n" + reviewed

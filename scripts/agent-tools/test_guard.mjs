@@ -6,6 +6,7 @@
 // changed module outside that closure, test-support files included, may reach the test framework or newly load test
 // code that does, and a new import into a protected test file may add no import-time effect.
 import ts from 'typescript';
+import { compile, parse } from 'svelte/compiler';
 import { readFileSync, realpathSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { builtinModules } from 'node:module';
@@ -59,7 +60,8 @@ const bind = (file, text) => {
 const declarationOf = (checker, tree, id) => {
   const symbol = ts.isShorthandPropertyAssignment(id.parent) && id.parent.name === id
     ? checker.getShorthandAssignmentValueSymbol(id.parent) : checker.getSymbolAtLocation(id);
-  return symbol?.declarations?.find(declaration => declaration.getSourceFile() === tree);
+  // an ambient declaration (declare const expect: any) names nothing the module defines, so it does not bind
+  return symbol?.declarations?.find(declaration => declaration.getSourceFile() === tree && !(declaration.flags & ts.NodeFlags.Ambient));
 };
 // The module an import binding comes from, or undefined for any other declaration.
 const importedFrom = declaration => {
@@ -72,16 +74,19 @@ const importedFrom = declaration => {
 // An identifier that names a value, not a property, a declaration or a label.
 const isReference = id => !((id.parent.name === id && !ts.isShorthandPropertyAssignment(id.parent)) || id.parent.propertyName === id
   || id.parent.label === id || (ts.isQualifiedName(id.parent) && id.parent.right === id));
-// Literal module specifiers a file imports, re-exports, requires or loads; a nonliteral one refuses, or is skipped
-// when `strict` is false (the module under test, which may load what it likes).
-const importsOf = (tree, file, strict = true) => {
+// Literal module specifiers a file imports, re-exports, requires or loads (type-only ones too, unless `types` is
+// false); a nonliteral one refuses, or is skipped when `strict` is false (the module under test, which may load what it
+// likes).
+const importsOf = (tree, file, strict = true, types = true) => {
   const imports = tree.referencedFiles.map(ref => './' + ref.fileName);
   const nonliteral = () => {
     if (strict) throw Error(`nonliteral protected import: ${file}`);
   };
   (function visit(node) {
-    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) imports.push(node.moduleSpecifier.text);
-    if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+    const erased = !types && ((ts.isImportDeclaration(node) && node.importClause?.isTypeOnly) || (ts.isExportDeclaration(node) && node.isTypeOnly)
+      || (ts.isImportEqualsDeclaration(node) && node.isTypeOnly));
+    if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && !erased) imports.push(node.moduleSpecifier.text);
+    if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference) && !erased) {
       if (!node.moduleReference.expression || !ts.isStringLiteralLike(node.moduleReference.expression)) nonliteral();
       else imports.push(node.moduleReference.expression.text);
     }
@@ -93,51 +98,217 @@ const importsOf = (tree, file, strict = true) => {
   })(tree);
   return imports;
 };
-// The script of a JS/TS module or of a Svelte component's <script> blocks; undefined for other files.
+// The script of a JS/TS module or of a Svelte component's <script> blocks, read by the Svelte parser; undefined for other
+// files. A component that does not parse fails closed.
 const scriptOf = (file, text) => {
   if (/\.(?:[cm]?[jt]sx?)$/.test(file)) return text;
-  if (file.endsWith('.svelte')) return [...text.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map(match => match[1]).join('\n');
-  return undefined;
+  if (!file.endsWith('.svelte')) return undefined;
+  try {
+    const { module, instance } = parse(text, { modern: true, filename: file });
+    return [module, instance].filter(Boolean).map(script => text.slice(script.content.start, script.content.end)).join('\n');
+  } catch (error) {
+    throw Error(`cannot parse Svelte component ${file}: ${String(error.message).split('\n')[0]}`);
+  }
 };
-// The global object, under any of its names, and the names the runner keeps on it.
-const GLOBAL_OBJECTS = new Set(['globalThis', 'global', 'window', 'self']);
+// What a module runs when it is used: its script, or for a Svelte component the compiled output, which also holds the
+// markup's expressions and event handlers. Undefined for other files.
+const runnableOf = (file, text) => {
+  const script = scriptOf(file, text);
+  if (script === undefined || !file.endsWith('.svelte')) return script;
+  try {
+    return compile(text, { generate: 'client', filename: file }).js.code;
+  } catch (error) {
+    throw Error(`cannot compile Svelte component ${file}: ${String(error.message).split('\n')[0]}`);
+  }
+};
+// The global object, under any of its names, and what a module may hold of it. Beyond the global object three more
+// names are capabilities a changed module can use to rewrite what the runner and its matchers do: Symbol (Symbol.for
+// reaches the matcher registry), the builtins every matcher calls (Object, Array, Reflect, ...) and code generation.
+const GLOBAL_OBJECTS = new Set(['globalThis', 'global', 'window', 'self', 'frames', 'top', 'parent']);
 const frameworkName = name => FRAMEWORK_GLOBALS.has(name) || /jest|vitest|chai/i.test(name);
-// How a module reaches the test framework, if it does: a framework import, require or load (or a framework package
-// passed to any call, such as a require made by createRequire), an unbound expect, vi,
-// vitest, jest or chai, import.meta.vitest, the matcher state's registry symbol or a Symbol.for with a computed name,
-// or the global object (or a variable holding it) indexed by a computed key, read by a framework name, passed on,
-// spread or destructured by a computed or framework name or a rest element.
+// The standard builtins (and the few host classes) the matchers and the runner call: rewritten once, rewritten for all.
+const BUILTINS = new Set(['Object', 'Function', 'Array', 'Number', 'Boolean', 'String', 'Symbol', 'BigInt', 'Date', 'Promise',
+  'RegExp', 'Error', 'AggregateError', 'EvalError', 'RangeError', 'ReferenceError', 'SyntaxError', 'TypeError', 'URIError', 'Map',
+  'Set', 'WeakMap', 'WeakSet', 'WeakRef', 'FinalizationRegistry', 'ArrayBuffer', 'SharedArrayBuffer', 'DataView', 'Int8Array',
+  'Uint8Array', 'Uint8ClampedArray', 'Int16Array', 'Uint16Array', 'Int32Array', 'Uint32Array', 'Float32Array', 'Float64Array',
+  'BigInt64Array', 'BigUint64Array', 'Atomics', 'JSON', 'Math', 'Reflect', 'Proxy', 'Intl', 'Iterator', 'Buffer', 'URL',
+  'URLSearchParams', 'TextEncoder', 'TextDecoder']);
+const CONVERTERS = new Set(['String', 'Number', 'Boolean', 'BigInt']);
+const MUTATORS = new Set(['Object.defineProperty', 'Object.defineProperties', 'Object.assign', 'Object.setPrototypeOf',
+  'Reflect.set', 'Reflect.defineProperty', 'Reflect.setPrototypeOf', 'Reflect.deleteProperty']);
+const kindOf = name => (GLOBAL_OBJECTS.has(name) ? 'global' : name === 'Symbol' ? 'symbol' : BUILTINS.has(name) ? 'builtin' : undefined);
+// Writes the guard leaves to the reviewer: they cannot change what a matcher or the runner does.
+const PROCESS_STATE = /^process\.(?:env|exitCode)(?:\.|$)/;
+// How a module reaches the test framework or rewrites what the named tests rely on, if it does: a framework import,
+// require or load (or a framework package passed to any call, such as a require made by createRequire), an unbound
+// expect, vi, vitest, jest or chai, import.meta.vitest; and, by an allowlist rather than by the shapes known to
+// misbehave, what it may do with a capability:
+//  - the global object (globalThis, window, ...) may appear only as the object of a property read with a literal,
+//    non-framework name, or as a const initialiser whose every use is one;
+//  - Symbol.for only as a direct call with a literal, non-framework name;
+//  - a builtin (Object, Array, Reflect, ...) only called, constructed, extended, compared, read by name, or (a
+//    converter such as String or Number) passed to a call, never held in a variable that is not a const used the same way;
+//  - no assignment, update, delete, defineProperty-style call or for-in/of target rooted at an unbound global, its
+//    prototype or a prototype reached by getPrototypeOf, constructor or __proto__.
 const reachesFramework = (file, text) => {
   const { tree, checker } = bind(file, text);
   const literal = expression => (expression && ts.isStringLiteralLike(expression) ? expression.text : undefined);
+  const wrapper = node => ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isSatisfiesExpression(node)
+    || ts.isNonNullExpression(node) || ts.isTypeAssertionExpression(node);
   const unwrap = node => {
-    while (node && (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isSatisfiesExpression(node)
-      || ts.isNonNullExpression(node) || ts.isTypeAssertionExpression(node))) node = node.expression;
+    while (node && wrapper(node)) node = node.expression;
     return node;
   };
-  const aliases = new Map();
-  const isGlobal = node => {
-    node = unwrap(node);
-    if (!node) return false;
-    if (ts.isPropertyAccessExpression(node)) return GLOBAL_OBJECTS.has(node.name.text) && isGlobal(node.expression);
-    if (!ts.isIdentifier(node)) return false;
-    const declaration = declarationOf(checker, tree, node);
-    if (!declaration) return GLOBAL_OBJECTS.has(node.text);
-    if (!ts.isVariableDeclaration(declaration) || !ts.isIdentifier(declaration.name) || !declaration.initializer) return false;
-    if (!aliases.has(declaration)) {
-      aliases.set(declaration, false);
-      aliases.set(declaration, isGlobal(declaration.initializer));
-    }
-    return aliases.get(declaration);
+  // the outermost wrapper (parentheses, a cast) around an expression
+  const up = node => {
+    while (node.parent && wrapper(node.parent) && node.parent.expression === node) node = node.parent;
+    return node;
   };
-  // the name a key spells before the module runs: a literal or Symbol.for(literal); undefined when it is computed
+  const unbound = id => !declarationOf(checker, tree, id);
+  // types have no runtime effect, but the expression a class extends does run
+  const inType = node => Boolean(ts.findAncestor(node, ancestor => ts.isTypeNode(ancestor)
+    && !(ts.isExpressionWithTypeArguments(ancestor) && ts.isHeritageClause(ancestor.parent) && ancestor.parent.token === ts.SyntaxKind.ExtendsKeyword
+      && ts.isClassLike(ancestor.parent.parent))));
+  // the name a key spells before the module runs: a literal, or Symbol.for(literal) called directly; undefined otherwise
   const keyName = key => {
     key = unwrap(key);
     if (ts.isStringLiteralLike(key) || ts.isNumericLiteral(key)) return key.text;
     if (ts.isCallExpression(key) && key.expression.getText(tree).replace(/\s/g, '') === 'Symbol.for') return literal(key.arguments[0]);
     return undefined;
   };
-  const member = name => (name === undefined ? 'a computed member of the global object' : frameworkName(name) ? `the global ${name}` : undefined);
+  // every reference to a variable, the export specifiers that name it included
+  const references = new Map();
+  (function collect(node) {
+    if (ts.isIdentifier(node) && !inType(node)) {
+      const declaration = ts.isExportSpecifier(node.parent) && node.parent.name === node && !node.parent.propertyName
+        ? checker.getExportSpecifierLocalTargetSymbol(node.parent)?.declarations?.find(found => found.getSourceFile() === tree)
+        : isReference(node) ? declarationOf(checker, tree, node) : undefined;
+      if (declaration && ts.isVariableDeclaration(declaration)) references.set(declaration, [...(references.get(declaration) ?? []), node]);
+    }
+    ts.forEachChild(node, collect);
+  })(tree);
+  const exported = statement => ts.isVariableStatement(statement) && statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword);
+  // Why `node`, an expression that evaluates to a capability of `kind` (named `name`), is held beyond a plain use;
+  // undefined when every use is allowed.
+  const held = (node, kind, name) => {
+    const top = up(node);
+    const parent = top.parent;
+    const operator = ts.isBinaryExpression(parent) ? parent.operatorToken.kind : undefined;
+    if (ts.isTypeOfExpression(parent) || (ts.isPrefixUnaryExpression(parent) && parent.operator === ts.SyntaxKind.ExclamationToken)
+        || ((ts.isIfStatement(parent) || ts.isWhileStatement(parent) || ts.isConditionalExpression(parent)) && (parent.expression ?? parent.condition) === top)
+        || operator === ts.SyntaxKind.AmpersandAmpersandToken && parent.left === top || [ts.SyntaxKind.EqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsToken,
+      ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken].includes(operator)
+        || ([ts.SyntaxKind.InKeyword, ts.SyntaxKind.InstanceOfKeyword].includes(operator) && parent.right === top)) return undefined;
+    const reachedBy = (access, key) => {
+      if (BANNED_PROPERTY.test(key) && (kind !== 'builtin' || key !== 'prototype')) return `${name}.${key}`;
+      if (kind === 'global') {
+        if (frameworkName(key)) return `the global ${key}`;
+        return kindOf(key) ? held(access, kindOf(key), key) : undefined;
+      }
+      if (kind === 'symbol') {
+        if (key !== 'for') return undefined;
+        const outer = up(access);
+        return ts.isCallExpression(outer.parent) && outer.parent.expression === outer && outer.parent.arguments.length === 1
+          && literal(outer.parent.arguments[0]) !== undefined && !frameworkName(literal(outer.parent.arguments[0])) ? undefined
+          : 'Symbol.for other than a direct call with a literal name';
+      }
+      return key === 'prototype' ? held(access, 'builtin', `${name}.prototype`) : undefined;
+    };
+    if (ts.isPropertyAccessExpression(parent) && parent.expression === top) return reachedBy(parent, parent.name.text);
+    if (ts.isElementAccessExpression(parent) && parent.expression === top) {
+      const key = keyName(parent.argumentExpression);
+      return key === undefined ? `a computed member of ${kind === 'global' ? 'the global object' : name}` : reachedBy(parent, key);
+    }
+    if (ts.isVariableDeclaration(parent) && parent.initializer === top) {
+      if (ts.isIdentifier(parent.name)) {
+        if (!(parent.parent.flags & ts.NodeFlags.Const)) return `${name} held in a variable that is not const`;
+        if (exported(parent.parent.parent)) return `${name} exported`;
+        for (const reference of references.get(parent) ?? []) {
+          const reason = held(reference, kind, name);
+          if (reason) return reason;
+        }
+        return undefined;
+      }
+      if (ts.isObjectBindingPattern(parent.name)) {
+        for (const element of parent.name.elements) {
+          if (element.dotDotDotToken) return `the rest of ${name}`;
+          const key = element.propertyName ?? element.name;
+          if (ts.isComputedPropertyName(key) && keyName(key.expression) === undefined) return `a computed member of ${name}`;
+          const reason = reachedBy(element, ts.isComputedPropertyName(key) ? keyName(key.expression) : key.text);
+          if (reason) return reason;
+        }
+        return undefined;
+      }
+    }
+    if (kind !== 'global') {
+      if ((ts.isCallExpression(parent) || ts.isNewExpression(parent)) && parent.expression === top) return undefined;
+      if (ts.isTaggedTemplateExpression(parent) && parent.tag === top) return undefined;
+      if (ts.isExpressionWithTypeArguments(parent) && ts.isHeritageClause(parent.parent) && parent.parent.token === ts.SyntaxKind.ExtendsKeyword) return undefined;
+      if (kind === 'builtin' && CONVERTERS.has(name) && (ts.isCallExpression(parent) || ts.isNewExpression(parent))) return undefined;
+    }
+    return kind === 'global' ? 'the global object held other than as a literal property read'
+      : kind === 'symbol' ? 'Symbol held other than called or read by name' : `${name} held or passed as a value`;
+  };
+  // Whether an expression is, or reaches, an unbound global or a prototype; { path } names it. The global object
+  // itself gives { global } until a member names a builtin.
+  const rootOf = (node, seen = new Set()) => {
+    node = unwrap(node);
+    if (ts.isIdentifier(node)) {
+      const declaration = declarationOf(checker, tree, node);
+      if (!declaration) return GLOBAL_OBJECTS.has(node.text) ? { global: true } : node.text in globalThis ? { path: node.text } : undefined;
+      if (!ts.isVariableDeclaration(declaration) || !ts.isIdentifier(declaration.name) || !declaration.initializer || seen.has(declaration)) return undefined;
+      return rootOf(declaration.initializer, seen.add(declaration));
+    }
+    if (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) {
+      const key = ts.isPropertyAccessExpression(node) ? node.name.text : keyName(node.argumentExpression);
+      const inner = rootOf(node.expression, seen);
+      if (inner?.global) {
+        if (key === undefined) return { path: 'a computed member of the global object' };
+        return GLOBAL_OBJECTS.has(key) ? inner : key in globalThis ? { path: key } : undefined;
+      }
+      if (inner) return { path: `${inner.path}.${key}` };
+      return key !== undefined && /^(?:constructor|__\w+__)$/.test(key) ? { path: key } : undefined;
+    }
+    if (ts.isCallExpression(node)) {
+      const callee = rootOf(node.expression, seen);
+      return callee?.path && /(?:^|\.)getPrototypeOf$/.test(callee.path) ? { path: `${callee.path}()` } : undefined;
+    }
+    return undefined;
+  };
+  // the places an assignment, update, delete or loop writes: the targets inside a destructuring pattern included
+  const written = node => {
+    node = unwrap(node);
+    if (ts.isObjectLiteralExpression(node)) {
+      return node.properties.flatMap(property => ts.isPropertyAssignment(property) ? written(property.initializer)
+        : ts.isShorthandPropertyAssignment(property) ? [property.name] : ts.isSpreadAssignment(property) ? written(property.expression) : []);
+    }
+    if (ts.isArrayLiteralExpression(node)) return node.elements.flatMap(element => (ts.isSpreadElement(element) ? written(element.expression) : written(element)));
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) return written(node.left);
+    return [node];
+  };
+  const mutation = node => {
+    const targets = ts.isBinaryExpression(node) && node.operatorToken.kind >= ts.SyntaxKind.FirstAssignment
+        && node.operatorToken.kind <= ts.SyntaxKind.LastAssignment ? written(node.left)
+      : (ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node))
+        && [ts.SyntaxKind.PlusPlusToken, ts.SyntaxKind.MinusMinusToken].includes(node.operator) ? written(node.operand)
+        : ts.isDeleteExpression(node) ? written(node.expression)
+          : (ts.isForInStatement(node) || ts.isForOfStatement(node)) && !ts.isVariableDeclarationList(node.initializer) ? written(node.initializer) : [];
+    for (const target of targets.map(unwrap)) {
+      if (ts.isIdentifier(target) && !unbound(target)) continue; // rebinding a local variable changes nothing shared
+      // writing a member changes the object it is read from; writing a global name changes that name
+      const member = ts.isPropertyAccessExpression(target) || ts.isElementAccessExpression(target);
+      const inner = member ? rootOf(target.expression) : undefined;
+      const root = member && !inner?.global ? inner : rootOf(target);
+      if (root?.path && !PROCESS_STATE.test(rootOf(target)?.path ?? root.path)) return `writes to ${root.path}`;
+    }
+    if (ts.isCallExpression(node)) {
+      const callee = rootOf(node.expression);
+      const name = callee?.path?.replace(/\.(?:call|apply|bind)$/, '');
+      if (name && MUTATORS.has(name) && node.arguments.some(argument => rootOf(argument)?.path)) return `${name} on a builtin`;
+      if (/\.__define[GS]etter__$/.test(callee?.path ?? '')) return `${callee.path} on a builtin`;
+    }
+    return undefined;
+  };
   let reach;
   (function visit(node) {
     if (reach) return;
@@ -149,22 +320,12 @@ const reachesFramework = (file, text) => {
     else if ((ts.isCallExpression(node) || ts.isNewExpression(node))
         && (node.arguments ?? []).some(argument => FRAMEWORK.test(literal(argument) ?? ''))) reach = `names ${literal(node.arguments.find(argument => FRAMEWORK.test(literal(argument) ?? '')))} to ${node.expression.getText(tree)}`;
     else if (ts.isMetaProperty(node) && ts.isPropertyAccessExpression(node.parent) && node.parent.name.text === 'vitest') reach = 'import.meta.vitest';
-    else if (call === 'Symbol.for' && /jest|vitest|chai/i.test(literal(node.arguments[0]) ?? '')) reach = `Symbol.for('${literal(node.arguments[0])}')`;
-    else if (call === 'Symbol.for' && literal(node.arguments[0]) === undefined) reach = 'Symbol.for with a computed name';
-    else if (ts.isElementAccessExpression(node) && isGlobal(node.expression)) reach = member(keyName(node.argumentExpression));
-    else if (ts.isPropertyAccessExpression(node) && frameworkName(node.name.text) && isGlobal(node.expression)) reach = `the global ${node.name.text}`;
-    else if ((ts.isCallExpression(node) || ts.isNewExpression(node)) && (node.arguments ?? []).some(isGlobal)) reach = 'the global object passed on';
-    else if ((ts.isSpreadElement(node) || ts.isSpreadAssignment(node)) && isGlobal(node.expression)) reach = 'the global object spread';
-    else if (ts.isVariableDeclaration(node) && ts.isObjectBindingPattern(node.name) && node.initializer && isGlobal(node.initializer)) {
-      for (const element of node.name.elements) {
-        const name = element.propertyName ?? element.name;
-        reach ||= element.dotDotDotToken ? 'the rest of the global object'
-          : member(ts.isComputedPropertyName(name) ? keyName(name.expression) : ts.isIdentifier(name) || ts.isStringLiteralLike(name) ? name.text : undefined);
-      }
-    } else if (ts.isIdentifier(node) && REACH.has(node.text) && isReference(node)) {
+    else if (ts.isIdentifier(node) && isReference(node) && !inType(node) && unbound(node) && kindOf(node.text)) reach = held(node, kindOf(node.text), node.text);
+    if (!reach && ts.isIdentifier(node) && REACH.has(node.text) && isReference(node)) {
       const declaration = declarationOf(checker, tree, node);
       if (!declaration || (importedFrom(declaration) !== undefined && FRAMEWORK.test(importedFrom(declaration)))) reach = `uses ${node.text}`;
     }
+    reach ||= mutation(node);
     ts.forEachChild(node, visit);
   })(tree);
   return reach;
@@ -311,8 +472,10 @@ function main() {
     };
     const found = new Map();
     // The modules the named tests load (the test files, the support code they import, the setup files), as opposed to
-    // the runner configuration and resolver inputs, which run in the runner or not at all.
-    const loaded = new Set();
+    // the runner configuration and resolver inputs, which run in the runner or not at all. A test file loads what it
+    // imports, through support code, and every setup file; it does not load what another named file imports.
+    const edges = new Map();
+    const shared = new Set();
     // The paths a path expression in a file names: a literal, relative to the repository (the runner's directory) and to
     // the file; the __dirname, import.meta.dirname and new URL(..., import.meta.url) forms, relative to the file, and
     // process.cwd(), the repository. A join, a resolve or a template literal may start from any of those three.
@@ -392,7 +555,7 @@ function main() {
       if (file.split('/').some(part => part === 'RAWS' || part === '.local')) throw Error('private dependency cannot be inspected');
       const text = source(revision, file);
       found.set(file, text);
-      loaded.add(file);
+      edges.set(file, new Set());
       if (!supported(file)) return;
       const tree = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
       if (tree.parseDiagnostics.length) throw Error(`cannot parse protected dependency ${file}`);
@@ -400,13 +563,20 @@ function main() {
       for (const specifier of importsOf(tree, file)) {
         const target = resolve(file, specifier);
         if (target) {
-          if (isSupport(target)) follow(target); // the module under test is not followed
+          if (isSupport(target)) { // the module under test is not followed
+            edges.get(file).add(target);
+            follow(target);
+          }
         } else if (isLocal(specifier)) {
           throw Error(`unresolved local protected import ${specifier} in ${file}`);
         }
       }
     }
     starts.forEach(follow);
+    const setup = file => {
+      shared.add(file);
+      follow(file);
+    };
     // The runner configuration, every local module it imports (extensionless, .ts, .js or .mjs, through the resolver)
     // and the setup files it names decide whether and how the named tests run. All of it is compared as text.
     const runner = new Set();
@@ -415,7 +585,7 @@ function main() {
       runner.add(file);
       if (!REGULAR.includes(modes.get(file))) throw Error(`symlink/submodule protected configuration refuses: ${file}`);
       found.set(file, source(revision, file));
-      if (path.posix.basename(file) === 'bunfig.toml') preloads(file, found.get(file)).forEach(follow);
+      if (path.posix.basename(file) === 'bunfig.toml') preloads(file, found.get(file)).forEach(setup);
       if (!supported(file)) return;
       const tree = ts.createSourceFile(file, found.get(file), ts.ScriptTarget.Latest, true);
       if (tree.parseDiagnostics.length) throw Error(`cannot parse protected configuration ${file}`);
@@ -436,7 +606,7 @@ function main() {
           for (const entry of ts.isArrayLiteralExpression(value) ? value.elements : [value]) {
             if (ts.isOmittedExpression(entry)) continue;
             if (ts.isSpreadElement(entry)) throw Error(`cannot bind setup file entry ${entry.getText(tree)} in ${file} to a tracked file; the guard fails closed`);
-            bindEntry(tree, file, entry).forEach(follow);
+            bindEntry(tree, file, entry).forEach(setup);
           }
         }
         const candidates = where(tree, file, node);
@@ -444,7 +614,7 @@ function main() {
           const target = resolve(file, /^\.{0,2}\//.test(node.text) ? node.text : `./${node.text}`);
           if (target) candidates.push(target);
         }
-        for (const candidate of candidates) if (files.has(candidate) && supported(candidate)) follow(candidate);
+        for (const candidate of candidates) if (files.has(candidate) && supported(candidate)) setup(candidate);
         ts.forEachChild(node, visit);
       })(tree);
     };
@@ -469,7 +639,17 @@ function main() {
       const parts = file.split('/');
       if (tops.has(parts[0]) && parts.slice(1, -1).some(part => FIXTURE_DIR.test(part))) data.add(file);
     }
-    return { found, ids, data, runner, resolve, loaded };
+    const loadedBy = start => {
+      const seen = new Set();
+      const walk = file => {
+        if (seen.has(file)) return;
+        seen.add(file);
+        edges.get(file)?.forEach(walk);
+      };
+      [start, ...shared].forEach(walk);
+      return seen;
+    };
+    return { found, ids, data, runner, resolve, loadedBy, declared };
   };
   const controlFlow = (file, text) => {
     if (!supported(file)) return [];
@@ -723,7 +903,8 @@ function main() {
     };
     const imported = new Set(reviewed.filter(statement => statement.isImport)
       .map(statement => target(oldClosure.resolve, file, statement.node.moduleSpecifier.text)));
-    const evaluated = new Set([...imported, ...oldClosure.loaded]);
+    const loadedHere = oldClosure.loadedBy(file);
+    const evaluated = new Set([...imported, ...loadedHere]);
     const quiet = (specifier, module, visited) => {
       if (visited.has(module) || evaluated.has(module)) return;
       visited.add(module);
@@ -736,7 +917,7 @@ function main() {
       }
       const script = scriptOf(module, source(head, module));
       if (script === undefined) return;
-      const reach = reachesFramework(module, script);
+      const reach = reachesFramework(module, runnableOf(module, source(head, module)));
       if (reach) throw Error(`new import in ${file} loads ${module}, which reaches the test framework (${reach})`);
       const effect = importTimeEffect(module, script);
       if (effect) refuse(effect);
@@ -759,7 +940,7 @@ function main() {
       const module = target(currentClosure.resolve, file, specifier);
       if (imported.has(module)) continue;
       if (isEntry(module)) throw Error(`new import ${specifier} in ${file} loads the test file ${module}`);
-      if (oldClosure.loaded.has(module)) continue;
+      if (loadedHere.has(module)) continue;
       if (module.startsWith('package:') || isSupport(module) || !exists(base, module)
           || oldClosure.ids.get(module) !== currentClosure.ids.get(module)) {
         throw Error(`new import ${specifier} in ${file} must name a module the reviewed file imports, a protected helper or an unchanged module under test`);
@@ -802,13 +983,46 @@ function main() {
     ?? (starts.some(file => importsOf(ts.createSourceFile(file, currentClosure.found.get(file), ts.ScriptTarget.Latest, true), file, false)
       .some(specifier => /^bun:test$/.test(specifier))) ? 'the named tests run under bun:test' : undefined);
   // the tracked file a specifier names, including one with an extension the resolver does not know (a Svelte
-  // component), relative or through $lib
-  const link = (snapshot, file, specifier) => {
-    const resolved = snapshot.resolve(file, specifier);
+  // component), relative, through $lib or from the repository root (a leading /), without a ?query or #fragment
+  const unquery = specifier => {
+    const cut = specifier.search(/[?#]/);
+    return cut > 0 ? specifier.slice(0, cut) : specifier;
+  };
+  const link = (snapshot, file, raw) => {
+    const specifier = unquery(raw);
+    const rooted = specifier.startsWith('/');
+    const resolved = snapshot.resolve(file, rooted ? path.join(root, specifier) : specifier);
     if (resolved || !/\.\w+$/.test(specifier)) return resolved;
-    const candidate = specifier.startsWith('$lib/') ? path.posix.join('src/lib', specifier.slice(5))
+    const candidate = rooted ? path.posix.normalize(specifier.slice(1)) : specifier.startsWith('$lib/') ? path.posix.join('src/lib', specifier.slice(5))
       : /^\.{1,2}\//.test(specifier) ? path.posix.normalize(path.posix.join(path.posix.dirname(file), specifier)) : undefined;
     return candidate && snapshot.ids.has(candidate) ? candidate : undefined;
+  };
+  // a specifier the guard need not follow: a builtin, a SvelteKit virtual module or a package the manifest declares
+  const external = (snapshot, raw) => {
+    const specifier = unquery(raw);
+    return isBuiltin(specifier) || /^\$(?:app|env)\//.test(specifier) || specifier === '$service-worker'
+      || (!/^[./$#]/.test(specifier) && snapshot.declared.has(specifier.split('/').slice(0, specifier.startsWith('@') ? 2 : 1).join('/')));
+  };
+  // The test files a module that is not itself a test file loads by a literal specifier, with that module.
+  const importers = new Map();
+  const entryImporters = (revision, snapshot) => {
+    if (!importers.has(revision)) {
+      const found = new Map();
+      const hits = spawnSync('git', ['-C', root, 'grep', '-l', '-z', '-I', '-E', '\\.(test|spec)', revision], { env, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+      for (const hit of (hits.stdout ?? '').split('\0').filter(Boolean)) {
+        const file = hit.slice(revision.length + 1);
+        if (isEntry(file) || file.split('/').some(part => part === 'RAWS' || part === '.local')) continue;
+        let script;
+        try { script = scriptOf(file, source(revision, file)); } catch { continue; } // a component that does not parse loads nothing
+        if (script === undefined) continue;
+        for (const specifier of importsOf(ts.createSourceFile(file, script, ts.ScriptTarget.Latest, true), file, false)) {
+          const target = link(snapshot, file, specifier);
+          if (target && isEntry(target) && !found.has(target)) found.set(target, file);
+        }
+      }
+      importers.set(revision, found);
+    }
+    return importers.get(revision);
   };
   const walked = new Set();
   const loadsSupport = (from, module) => {
@@ -817,12 +1031,12 @@ function main() {
     walked.add(module);
     const script = scriptOf(module, source(head, module));
     if (script === undefined) return;
-    const reach = reachesFramework(module, script);
+    const reach = reachesFramework(module, runnableOf(module, source(head, module)));
     if (reach) throw Error(`changed module ${from} newly loads ${module}, which reaches the test framework (${reach})`);
     for (const specifier of importsOf(ts.createSourceFile(module, script, ts.ScriptTarget.Latest, true), module)) {
       const next = link(currentClosure, module, specifier);
       if (next) loadsSupport(from, next);
-      else if (isLocal(specifier)) throw Error(`changed module ${from} newly loads ${module}, whose local import ${specifier} cannot be inspected`);
+      else if (isLocal(specifier) && !external(currentClosure, specifier)) throw Error(`changed module ${from} newly loads ${module}, whose local import ${specifier} cannot be inspected`);
     }
   };
   const loads = (revision, snapshot, file) => {
@@ -835,10 +1049,23 @@ function main() {
     if (compared.has(file) || CONFIG_FILE.test(file) || oldClosure.runner.has(file) || currentClosure.runner.has(file)
         || !exists(head, file)) continue;
     if (isEntry(file) && shares) throw Error(`changed test file ${file} runs in the named tests' process, because test files are not isolated (${shares}); the guard cannot bound it`);
-    if (isEntry(file)) continue;
+    if (isEntry(file)) {
+      // a test file the runner collects as an entry of its own, unless a module that is not a test file loads it too
+      const importer = entryImporters(base, oldClosure).get(file) ?? entryImporters(head, currentClosure).get(file);
+      if (importer) throw Error(`changed test file ${file} is loaded by ${importer}, which is not a test file, so the runner does not isolate it from that module; the guard cannot bound it`);
+      continue;
+    }
     const script = scriptOf(file, source(head, file));
-    const reach = script === undefined ? undefined : reachesFramework(file, script);
+    const reach = script === undefined ? undefined : reachesFramework(file, runnableOf(file, source(head, file)));
     if (reach) throw Error(`changed module outside the protected closure reaches the test framework (${reach}): ${file}`);
+    // every literal specifier it loads binds to a tracked file, a builtin or a declared package; none is skipped
+    if (script !== undefined) {
+      for (const specifier of importsOf(ts.createSourceFile(file, script, ts.ScriptTarget.Latest, true), file, false, false)) {
+        if (!link(currentClosure, file, specifier) && !external(currentClosure, specifier)) {
+          throw Error(`changed module ${file} imports ${specifier}, which binds to no tracked file, declared package or builtin; the guard fails closed`);
+        }
+      }
+    }
     const reviewed = loads(base, oldClosure, file);
     for (const target of loads(head, currentClosure, file)) if (!reviewed.has(target)) loadsSupport(file, target);
   }

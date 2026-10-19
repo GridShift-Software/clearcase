@@ -42,10 +42,14 @@ export async function fixture() {
       { sessionId: id('session', 'a-admin'), clientId: clients[0]!.clientId, subject: 'admin', role: null },
       { sessionId: id('session', 'a-staff'), clientId: clients[0]!.clientId, subject: 'staff', role: null },
       { sessionId: id('session', 'b-editor'), clientId: clients[1]!.clientId, subject: 'editor', role: 'editor' as const },
-    ].map((u) => ({ ...u, kind: u.subject === 'staff' ? 'staff' as const : 'client' as const, expiresAt: '2026-10-18T00:00:00Z', grants: u.role ? [{ caseId, role: u.role }, { caseId: pending, role: u.role }] : [] }));
+    ].map((u) => ({ ...u, kind: u.subject === 'staff' ? 'staff' as const : 'client' as const, expiresAt: '2026-10-18T00:00:00Z' }));
+    // Every listed identity is a member of its client; only the viewer and editors hold case grants.
+    const memberships = identities.map(({ clientId, subject }) => ({ clientId, subject }));
+    const grants = identities.flatMap(({ clientId, subject, role }) => role ? [caseId, pending].map((c) => ({ clientId, subject, caseId: c, role })) : []);
     const revision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-    const hash = createHash('sha256').update(JSON.stringify({ profile: 'runtime-contract/1', revision, clients: clients.map((c) => ({ ...c, versions: c.versions.map((v) => ({ ...v, files: v.files.map((f) => ({ path: f.path, sha256: createHash('sha256').update(f.bytes).digest('hex') })) })), assets: c.assets.map(({ ref, metadata }) => ({ ref, metadata })) })), identities })).digest('hex');
-    const data = { clients, identities, revision, sha256: sha256(hash) } satisfies MemoryFixture;
+    const sessions = identities.map(({ role: _, ...session }) => session);
+    const hash = createHash('sha256').update(JSON.stringify({ profile: 'runtime-contract/1', revision, clients: clients.map((c) => ({ ...c, versions: c.versions.map((v) => ({ ...v, files: v.files.map((f) => ({ path: f.path, sha256: createHash('sha256').update(f.bytes).digest('hex') })) })), assets: c.assets.map(({ ref, metadata }) => ({ ref, metadata })) })), identities: sessions, memberships, grants })).digest('hex');
+    const data = { clients, identities: sessions, memberships, grants, revision, sha256: sha256(hash) } satisfies MemoryFixture;
     return { data, caseId, pending, rv, bytes, cleanup: () => rm(root, { recursive: true, force: true }) };
   } catch (e) { await rm(root, { recursive: true, force: true }); throw e; }
 }

@@ -219,3 +219,44 @@ describe('the storyline shapes of each generation', () => {
     expect(dataset(b.files, 'matter')).toMatchObject({ title: 'Synthetic matter', storyline: [{ h: 'The claim', t: 'A claim.' }], strategy: [{ h: 'Existential risk', t: 'A risk.' }] });
   });
 });
+
+describe('source keys that name Object.prototype members', () => {
+  // The strict parser keeps "__proto__" as an own data property; the adapter must too, and must count such names right.
+  const odd = (s: string) => JSON.parse(s) as J;
+
+  it('JSON script: kept on the record, counted in the tallies, and kept as residual datasets', async () => {
+    const appData = odd(`{"chronology": [${JSON.stringify(jsonRow({ dt: 'constructor' })).slice(0, -1)}, "__proto__": {"x": 1}, "constructor": "kept"}, ${JSON.stringify(jsonRow({ ref: 'DC-SYN-002', dt: '__proto__', fn: 'OD-002 Invoice 1001.pdf', url: url(INVOICE), sz: size(INVOICE) }))}],
+      "meta": {"builtAt": "2002-06-07 08:09"}, "__proto__": {"y": 2}}`);
+    const appSeed = odd('{"constructor": "seed value"}');
+    const dir = await caseFolder('json-proto');
+    const res = await convertV5({ html: jsonHtml(appData, appSeed), htmlName: 'workspace.html', caseFolder: dir, caseId: 'synthetic-case' });
+    expect(res.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+    const f = res.files!;
+    const row = dataset(f, 'chronology')[0] as J;
+    expect(Object.hasOwn(row, '__proto__')).toBe(true);
+    expect(Object.getOwnPropertyDescriptor(row, '__proto__')!.value).toEqual({ x: 1 });
+    expect(row.constructor).toBe('kept');
+    expect(JSON.stringify(dataset(f, 'meta').docTypes)).toBe('{"__proto__":1,"constructor":1}');
+    expect(JSON.stringify(dataset(f, 'timeline-type-by-year'))).toBe('{"2001":{"__proto__":1,"constructor":1}}');
+    expect(Object.getOwnPropertyDescriptor(dataset(f, 'v5-residual-proto'), 'y')!.value).toBe(2);
+    expect(dataset(f, 'v5-residual-constructor')).toBe('seed value');
+    expect((await importCandidate({ files: f }, dir)).verdict).not.toBe('reject');
+  });
+
+  it('newer generation: the META tallies and the CaseLines index keep such names', async () => {
+    const b = await buildSynth('newer-proto', (r) => {
+      r.META.version = 'V1';
+      delete (r.META as J).docTypes;
+      (r.DATA.chronology as J[])[0]!.doc_type = 'constructor';
+      (r.DATA.chronology as J[])[1]!.doc_type = '__proto__';
+      r.CASELINES = odd('{"1": "Page one", "__proto__": "not a page"}');
+    });
+    roots.push(b.root);
+    const docTypes = dataset(b.files, 'meta').docTypes as J;
+    expect(Object.getOwnPropertyDescriptor(docTypes, '__proto__')!.value).toBe(1);
+    expect(Object.getOwnPropertyDescriptor(docTypes, 'constructor')!.value).toBe(1);
+    const idx = dataset(b.files, 'caselines-index') as J;
+    expect(idx.index).toEqual([[1, 'Page one']]);
+    expect(Object.getOwnPropertyDescriptor(idx, '__proto__')!.value).toBe('not a page');
+  });
+});

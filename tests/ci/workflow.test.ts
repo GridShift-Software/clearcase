@@ -4,7 +4,8 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
 const text = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
-const doc = (Bun as unknown as { YAML: { parse(s: string): { jobs: Record<string, { steps: Record<string, unknown>[] }> } } }).YAML.parse(text);
+const { Bun: bun } = globalThis as unknown as { Bun: { YAML: { parse(s: string): { jobs: Record<string, { steps: Record<string, unknown>[] }> } } } };
+const doc = bun.YAML.parse(text);
 const steps = doc.jobs.check!.steps;
 const runs = steps.map((s) => (typeof s.run === 'string' ? s.run : '')).filter(Boolean);
 

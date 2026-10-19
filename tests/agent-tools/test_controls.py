@@ -1608,6 +1608,22 @@ class GuardReach(GuardCase):
             self.commit('fix')
             self.guard()
 
+    def test_a_changed_test_file_is_exempt_only_while_test_files_are_isolated(self):
+        # class sweep: test files are left out of the reach check because the runner isolates each; a configuration
+        # that shares one process between them, or bun's runner, which does, voids that
+        other = "import { test, expect } from 'vitest';\n" + self.patch + "test('other', () => { expect(1).toBe(1); });\n"
+        for label, files, test in (
+                ('isolate: false', {'vitest.config.ts': "export default { test: { isolate: false } };\n"}, self.named_api),
+                ('a single fork', {'vitest.config.ts': "export default { test: { poolOptions: { forks: { singleFork: true } } } };\n"}, self.named_api),
+                ('--no-isolate in the test script', {'package.json': json.dumps({'name': 'x', 'scripts': {'test': 'vitest run --no-isolate'}})}, self.named_api),
+                ('bun:test', {}, self.named_api.replace("from 'vitest'", "from 'bun:test'"))):
+            with self.subTest(bypass=label):
+                self.protect({'src/api.ts': self.api, **files}, test)
+                self.write('src/api.ts', self.weakened)
+                self.write('tests/other.test.ts', other.replace("from 'vitest'", "from 'bun:test'") if label == 'bun:test' else other)
+                self.commit('patch the framework from another test file')
+                self.assertIn('isolat', self.guard(code=1))
+
 
 class GuardBinding(ControlCase):
     """H1: once a fix attempt is recorded, approval needs a PASS guard receipt bound to the reviewed commit and findings."""

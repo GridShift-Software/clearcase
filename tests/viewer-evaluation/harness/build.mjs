@@ -1,6 +1,6 @@
 // Bundle the renderers with Bun (browser target, ESM, minified) into .local/viewer-evaluation/www, copy the pdf.js
 // runtime assets, and measure each library's gzip transfer bytes from a one-import bundle of the pinned package.
-import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import path from 'node:path';
 import { HERE, OUT_ROOT } from './paths.mjs';
@@ -27,6 +27,7 @@ const dirBytes = (d) => readdirSync(d, { recursive: true }).map((f) => path.join
 const probe = path.join(OUT_ROOT, 'size-probe');
 rmSync(probe, { recursive: true, force: true });
 mkdirSync(probe, { recursive: true });
+symlinkSync(NM, path.join(probe, 'node_modules'), 'dir'); // the one-import entries live in the ignored probe dir and resolve packages through this link
 const LIBS = {
   'docx-preview': "import * as m from 'docx-preview'; globalThis.m = m;",
   xlsx: "import * as m from 'xlsx'; globalThis.m = m;",
@@ -38,7 +39,7 @@ const LIBS = {
 };
 const sizes = {};
 for (const [name, src] of Object.entries(LIBS)) {
-  const entry = path.join(HERE, `.size-${name.replace(/\W/g, '_')}.mjs`);
+  const entry = path.join(probe, `size-${name.replace(/\W/g, '_')}.mjs`);
   writeFileSync(entry, src);
   try {
     const r = await Bun.build({ entrypoints: [entry], target: 'browser', format: 'esm', minify: true, define: { 'process.env.NODE_ENV': '"production"' } });

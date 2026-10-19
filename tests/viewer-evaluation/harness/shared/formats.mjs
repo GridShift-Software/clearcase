@@ -27,9 +27,9 @@ export function sniff(b) {
   if (startsWith(b, [0x1a, 0x45, 0xdf, 0xa3])) return { kind: 'media', mime: ascii(b, 0, 64).includes('webm') ? 'video/webm' : 'video/x-matroska' };
   if (ascii(b, 0, 4) === 'OggS') return { kind: 'media', mime: 'audio/ogg' };
   if (ascii(b, 0, 3) === 'ID3' || (b[0] === 0xff && (b[1] & 0xe0) === 0xe0)) return { kind: 'media', mime: 'audio/mpeg' };
-  if (startsWith(b, [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])) return { kind: 'ole', mime: 'application/x-ole-storage' };
-  if (startsWith(b, [0x50, 0x4b, 0x03, 0x04]) || startsWith(b, [0x50, 0x4b, 0x05, 0x06])) return { kind: 'zip', mime: 'application/zip' };
-  if (startsWith(b, [0x50, 0x4b, 0x07, 0x08])) return { kind: 'zip', mime: 'application/zip', variant: 'split' };
+  if (startsWith(b, [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1])) { const format = oleFormat(b); return { kind: 'ole', format, mime: OLE_MIME[format] }; }
+  if (startsWith(b, [0x50, 0x4b, 0x03, 0x04]) || startsWith(b, [0x50, 0x4b, 0x05, 0x06])) { const format = zipFormat(b); return { kind: 'zip', format, mime: ZIP_MIME[format] }; }
+  if (startsWith(b, [0x50, 0x4b, 0x07, 0x08])) return { kind: 'zip', format: 'zip', mime: 'application/zip', variant: 'split' };
   const head = new TextDecoder('utf-8', { fatal: false }).decode(b.subarray(0, 512)).replace(/^﻿/, '').trimStart().toLowerCase();
   if (head.startsWith('<svg') || (head.startsWith('<?xml') && head.includes('<svg'))) return { kind: 'active-text', mime: 'image/svg+xml' };
   if (head.startsWith('<html') || head.startsWith('<!doctype html') || head.startsWith('<script')) return { kind: 'active-text', mime: 'text/html' };
@@ -61,6 +61,52 @@ function looksLikeText(b) {
   let control = 0;
   for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); if (c === 0) return false; if (c < 32 && c !== 9 && c !== 10 && c !== 13 && c !== 12) control++; }
   return control <= s.length / 50;
+}
+
+const ZIP_MIME = { docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'ooxml-other': 'application/zip', zip: 'application/zip' };
+const OLE_MIME = { msg: 'application/vnd.ms-outlook', doc: 'application/msword', xls: 'application/vnd.ms-excel', 'ole-other': 'application/x-ole-storage' };
+
+/** A ZIP is Word or a workbook by the OOXML parts it holds (a package needs [Content_Types].xml), never by its name. */
+function zipFormat(b) {
+  const names = new Set(listZip(b).entries.map((e) => e.path));
+  if (!names.has('[Content_Types].xml')) return 'zip';
+  if (names.has('word/document.xml')) return 'docx';
+  if (names.has('xl/workbook.xml')) return 'xlsx';
+  return 'ooxml-other';
+}
+
+/** The stream and storage names in an OLE compound file's directory (MS-CFB), or null when the structure cannot be walked. */
+export function oleNames(b) {
+  try {
+    const v = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    const shift = v.getUint16(30, true);
+    if (shift !== 9 && shift !== 12) return null;
+    const ss = 1 << shift, per = ss / 4, end = 0xfffffffa;
+    const at = (sector) => (sector + 1) * ss;
+    const fatSectors = [];
+    for (let i = 0; i < 109 && fatSectors.length < v.getUint32(44, true); i++) fatSectors.push(v.getUint32(76 + i * 4, true));
+    for (let d = v.getUint32(68, true), guard = 0; d < end && guard < 4096; guard++) {
+      for (let i = 0; i < per - 1 && fatSectors.length < v.getUint32(44, true); i++) fatSectors.push(v.getUint32(at(d) + i * 4, true));
+      d = v.getUint32(at(d) + (per - 1) * 4, true);
+    }
+    const next = (n) => v.getUint32(at(fatSectors[Math.floor(n / per)]) + (n % per) * 4, true);
+    const names = [];
+    for (let n = v.getUint32(48, true), guard = 0; n < end && guard < 65536; n = next(n), guard++) {
+      for (let o = at(n); o < at(n) + ss; o += 128) {
+        const len = v.getUint16(o + 64, true);
+        if (v.getUint8(o + 66) !== 0 && len >= 2 && len <= 64) names.push(new TextDecoder('utf-16le').decode(b.subarray(o, o + len - 2)));
+      }
+    }
+    return names;
+  } catch { return null; }
+}
+
+function oleFormat(b) {
+  const names = new Set(oleNames(b) ?? []);
+  if (names.has('__properties_version1.0')) return 'msg';
+  if (names.has('WordDocument')) return 'doc';
+  if (names.has('Workbook') || names.has('Book')) return 'xls';
+  return 'ole-other';
 }
 
 let table;

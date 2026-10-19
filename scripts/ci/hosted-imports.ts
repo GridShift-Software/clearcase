@@ -54,19 +54,31 @@ export function checkHostedGraph(a: { root: string }): { errors: string[]; files
     if (!resolved || resolved.endsWith('.d.ts') || resolved.endsWith('.d.mts') || resolved.endsWith('.d.cts')) { fail(chain, `unresolved ${specifier}`); return; }
     visit(resolved, chain);
   }
+  // Vite's glob semantics, narrowed to what the guard can match exactly: `*` within a segment and `**` as a whole segment
+  // (zero or more directories). Braces, classes, `?` and extglobs fail closed instead of being approximated.
+  function expression(absolute: string) {
+    const parts = slash(absolute).split('/');
+    return new RegExp('^' + parts.map((part, i) => {
+      const last = i === parts.length - 1;
+      if (part === '**') return last ? '.*' : '(?:[^/]*/)*';
+      if (part.includes('**') || /[{}[\]?()+@!]/.test(part)) throw new Error('unsupported glob syntax');
+      return part.split('*').map((text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[^/]*') + (last ? '' : '/');
+    }).join('') + '$');
+  }
   function glob(patterns: string[], importer: string, chain: string[]) {
     const matches = new Set<string>();
     for (const original of patterns) {
       const negative = original.startsWith('!'), p = negative ? original.slice(1) : original;
       let absolute: string;
-      if (p.startsWith('.')) absolute = path.resolve(path.dirname(importer), p);
+      if (p.startsWith('./') || p.startsWith('../')) absolute = path.resolve(path.dirname(importer), p);
       else if (p.startsWith('$lib/')) absolute = path.join(root, 'src/lib', p.slice(5));
+      else if (p.startsWith('/')) absolute = path.join(root, p);
       else { fail(chain, `unresolved glob ${original}`); continue; }
-      const wildcard = absolute.indexOf('*'), prefix = wildcard < 0 ? path.dirname(absolute) : path.dirname(absolute.slice(0, wildcard));
-      const expression = '^' + slash(absolute).split('**').map((part) => part.split('*').map((text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[^/]*')).join('.*') + '$';
       try {
-        for (const file of walk(prefix)) if (new RegExp(expression).test(slash(file))) { if (negative) matches.delete(file); else matches.add(file); }
-      } catch (e) { fail(chain, `unresolved glob ${original}: ${e instanceof Error ? e.message : 'unreadable directory'}`); }
+        const pattern = expression(absolute), parts = slash(absolute).split('/'), wildcard = parts.findIndex((part) => part.includes('*'));
+        const prefix = wildcard < 0 ? path.dirname(absolute) : parts.slice(0, wildcard).join('/');
+        for (const file of walk(prefix)) if (pattern.test(slash(file))) { if (negative) matches.delete(file); else matches.add(file); }
+      } catch (e) { fail(chain, `unsupported glob ${original}: ${e instanceof Error ? e.message : 'unreadable directory'}`); }
     }
     for (const file of [...matches].sort()) visit(file, chain);
   }
@@ -97,8 +109,12 @@ export function checkHostedGraph(a: { root: string }): { errors: string[]; files
           if (specifier === null) fail(chain, 'computed runtime import'); else resolve(specifier, file, chain);
         }
         if (ts.isPropertyAccessExpression(node.expression) && node.expression.expression.getText(source) === 'import.meta' && node.expression.name.text === 'glob') {
-          const first = node.arguments[0], values = first && ts.isArrayLiteralExpression(first) ? first.elements.map(literal) : [literal(first)];
-          if (values.some((v) => v === null)) fail(chain, 'computed runtime glob'); else glob(values.filter((v): v is string => v !== null), file, chain);
+          const [first, options] = node.arguments, values = first && ts.isArrayLiteralExpression(first) ? first.elements.map(literal) : [literal(first)];
+          // `base` moves resolution and `exhaustive` widens it; only options that leave the matched files alone are accepted
+          const keys = options === undefined ? [] : ts.isObjectLiteralExpression(options) ? options.properties.map((p) => p.name && (ts.isIdentifier(p.name) || ts.isStringLiteral(p.name)) && ts.isPropertyAssignment(p) ? p.name.text : null) : [null];
+          if (values.some((v) => v === null)) fail(chain, 'computed runtime glob');
+          else if (keys.some((k) => k === null || !['eager', 'import', 'query'].includes(k))) fail(chain, `unsupported glob options in ${values.join(', ')}`);
+          else glob(values.filter((v): v is string => v !== null), file, chain);
         }
       }
       if (ts.isIdentifier(node) && ['process', 'Bun', 'eval', 'Function', '__non_webpack_require__'].includes(node.text)) fail(chain, `forbidden capability ${node.text}`);

@@ -200,7 +200,7 @@ const reachesFramework = (file, text) => {
       ts.SyntaxKind.EqualsEqualsEqualsToken, ts.SyntaxKind.ExclamationEqualsEqualsToken].includes(operator)
         || ([ts.SyntaxKind.InKeyword, ts.SyntaxKind.InstanceOfKeyword].includes(operator) && parent.right === top)) return undefined;
     const reachedBy = (access, key) => {
-      if (BANNED_PROPERTY.test(key) && (kind !== 'builtin' || key !== 'prototype')) return `${name}.${key}`;
+      if (BANNED_PROPERTY.test(key) && kind !== 'builtin') return `${name}.${key}`;
       if (kind === 'global') {
         if (frameworkName(key)) return `the global ${key}`;
         return kindOf(key) ? held(access, kindOf(key), key) : undefined;
@@ -212,7 +212,7 @@ const reachesFramework = (file, text) => {
           && literal(outer.parent.arguments[0]) !== undefined && !frameworkName(literal(outer.parent.arguments[0])) ? undefined
           : 'Symbol.for other than a direct call with a literal name';
       }
-      return key === 'prototype' ? held(access, 'builtin', `${name}.prototype`) : undefined;
+      return BANNED_PROPERTY.test(key) ? held(access, 'builtin', `${name}.${key}`) : undefined;
     };
     if (ts.isPropertyAccessExpression(parent) && parent.expression === top) return reachedBy(parent, parent.name.text);
     if (ts.isElementAccessExpression(parent) && parent.expression === top) {
@@ -256,6 +256,9 @@ const reachesFramework = (file, text) => {
     if (ts.isIdentifier(node)) {
       const declaration = declarationOf(checker, tree, node);
       if (!declaration) return GLOBAL_OBJECTS.has(node.text) ? { global: true } : node.text in globalThis ? { path: node.text } : undefined;
+      // a builtin module (node:fs, node:path, ...) is one object every importer shares; node:process is left to the reviewer
+      const from = importedFrom(declaration);
+      if (from !== undefined && isBuiltin(from) && !/^(?:node:)?process$/.test(from)) return { path: from };
       if (!ts.isVariableDeclaration(declaration) || !ts.isIdentifier(declaration.name) || !declaration.initializer || seen.has(declaration)) return undefined;
       return rootOf(declaration.initializer, seen.add(declaration));
     }
@@ -325,6 +328,8 @@ const reachesFramework = (file, text) => {
       const declaration = declarationOf(checker, tree, node);
       if (!declaration || (importedFrom(declaration) !== undefined && FRAMEWORK.test(importedFrom(declaration)))) reach = `uses ${node.text}`;
     }
+    // a prototype reached by getPrototypeOf is held like a builtin
+    if (!reach && ts.isCallExpression(node) && rootOf(node)?.path?.endsWith('()')) reach = held(node, 'builtin', rootOf(node).path);
     reach ||= mutation(node);
     ts.forEachChild(node, visit);
   })(tree);

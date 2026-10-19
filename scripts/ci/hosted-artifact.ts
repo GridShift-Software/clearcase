@@ -12,6 +12,9 @@ import type { HostedProfile } from './hosted-imports.ts';
 const LOCAL_MODULES = '(?:node:)?(?:fs|fs/promises|sqlite|child_process|net|http|https|http2|cluster|worker_threads|dgram|tls|readline|repl|v8|vm)';
 // import/export ... from, import(), require() and Node's getBuiltinModule naming a local-only module, or any bun: module
 const IMPORT = new RegExp(`(?:\\bfrom\\s*|\\bimport\\s*\\(\\s*|\\brequire\\s*\\(\\s*|^\\s*import\\s*)["'\`](${LOCAL_MODULES}|bun:[a-z]+|better-sqlite3)["'\`]`, 'gm');
+// A process or Bun capability used outright. Workerd defines neither without nodejs_compat, so first-party code that reaches
+// one fails there; the framework's own probes are all optional-chained (`globalThis.process?.cwd?.()`) or read `.versions`.
+const CAPABILITY = /(?<![\w$.])(?:globalThis\.)?(?:(process)\.(?!versions\b)[A-Za-z_$]|(Bun)\.[A-Za-z_$])[\w$]*/g;
 // Kit's own server runtime asks for node:fs through process.getBuiltinModule, guarded by globalThis.process, which
 // workerd does not define without nodejs_compat (the Worker sets nodejs_als only); that one line is the framework's.
 const FRAMEWORK = /globalThis\.process\?\.getBuiltinModule\?\.\("node:fs"\)/g;
@@ -34,6 +37,7 @@ export function scanArtifact(a: { root: string; profile: HostedProfile }): { err
 			const file = path.join(entry.parentPath, entry.name), name = path.relative(a.root, file).replaceAll(path.sep, '/');
 			const text = readFileSync(file, 'utf8').replace(FRAMEWORK, '');
 			files++;
+			for (const m of text.matchAll(CAPABILITY)) errors.push(`hosted-artifact: ${name}: uses ${m[0].replace(/^globalThis\./, '')}`);
 			for (const m of text.matchAll(IMPORT)) errors.push(`hosted-artifact: ${name}: imports ${m[1]}`);
 			for (const marker of MEMORY) if (text.includes(marker)) errors.push(`hosted-artifact: ${name}: contains the memory test double (${marker})`);
 			if (text.includes(GATE)) {

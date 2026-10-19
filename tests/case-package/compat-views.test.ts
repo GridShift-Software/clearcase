@@ -16,6 +16,7 @@ import { cleanup, tempRoot } from '../../src/lib/local-case/test-support';
 import ImportPage from '../../src/routes/import/[id]/+page.svelte';
 import RiskPage from '../../src/routes/v/[vid]/analysis/risk_matrix_tab/+page.svelte';
 import { resealFiles } from './fixtures/build.ts';
+import { SYNTH_VIEW_CODE } from './fixtures/synth.ts';
 
 vi.mock('$app/navigation', () => ({ goto: () => Promise.resolve() }));
 vi.mock('$app/forms', () => ({ enhance: () => ({ destroy() {} }) }));
@@ -41,9 +42,13 @@ beforeAll(async () => {
 	if (!lock.ok) throw new Error(lock.reason);
 	await lc.startup();
 	// the newer builder's risk shape (category, owner, refs) and its DATA.text, one entry at the 4,000-character cap
+	const overlay = { matter: { title: 'Invented matter' }, riskMatrix: [{ issue: 'i' }, { issue: 'j' }], timeline: [1, 2, 3] };
 	const newer = await buildCase(path.join(root, 'newer'), {
 		caseId: 'compat-newer',
+		// the newer viewer's hand-authored analysis module, which the converter keeps as one opaque dataset
+		viewCode: `${SYNTH_VIEW_CODE}\n/* ===== module mod_00_analysis.js ===== */\n(function(){ const X = ${JSON.stringify(overlay)};`,
 		edit: (r) => {
+			(r.DATA as J).inventedExtra = { a: 1 };
 			(r.META as J).version = 'V1';
 			r.DATA.riskMatrix = [
 				{ issue: 'Invented issue', category: 'invented category', likelihood: 'Medium', impact: 'High', mitigation: 'Invented mitigation', owner: 'Invented owner', refs: ['OD-001', 'ZZ-999'] },
@@ -127,5 +132,34 @@ describe('step 7: the validation report discloses the source export\'s text cap 
 		const s = section(await importPage(cases.bare), 'text-coverage');
 		expect(s).not.toBeNull();
 		expect(s).toContain('carries no conversion report');
+	});
+});
+
+describe('GRS-24 item 4: the validation report shows every coverage note the converter recorded, with subject and counts', () => {
+	it('lists the analysis overlay and the unmapped key of a newer export, by subject, with the converter\'s counts', async () => {
+		const d = await importLoad(cases.newer);
+		const s = section(await importPage(cases.newer), 'source-coverage');
+		expect(s).not.toBeNull();
+		expect(s).toContain('Source coverage');
+		expect(s).toContain('V5_OVERLAY_UNMAPPED');
+		expect(s).toContain('mod_00_analysis.js:X');
+		expect(s).toContain('3 keys: matter 1, riskMatrix 2, timeline 3');
+		expect(s).toContain('V5_UNMAPPED_KEY');
+		expect(s).toContain('DATA.inventedExtra');
+		expect(s).not.toContain('V5_TEXT_CAPPED');
+		expect(d.sourceCoverage.known).toBe(true);
+	});
+
+	it('shows nothing for a package whose conversion recorded no such note, and invents nothing', async () => {
+		const d = await importLoad(cases.v5);
+		expect(d.sourceCoverage).toBeNull();
+		expect(section(await importPage(cases.v5), 'source-coverage')).toBeNull();
+	});
+
+	it('says what is not known, rather than nothing, when the package carries no conversion report', async () => {
+		const s = section(await importPage(cases.bare), 'source-coverage');
+		expect(s).not.toBeNull();
+		expect(s).toContain('no conversion report');
+		expect(s).toContain('not known');
 	});
 });

@@ -19,7 +19,7 @@ import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { accessSync, constants, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { removePidFile, stopPidFile, writePidFile } from '../pidfile.ts';
+import { claimPidFile, releasePidFile, stopPidFile } from '../pidfile.ts';
 import { scanArtifact } from '../ci/hosted-artifact.ts';
 import type { HostedProfile } from '../ci/hosted-imports.ts';
 import { gateFixture, sentinel } from '../../tests/hosted-foundation/runtime/gate-fixture.ts';
@@ -220,54 +220,61 @@ async function start() {
 export type Wrangler = { command: string; args: string[]; env: Record<string, string>; cwd: string; logFile: string; readyMs?: number; pidFile?: string; stateFile?: string };
 
 /**
- * Spawns Wrangler in a process group of its own, waits for "Ready on", runs `check` over its process tree, then records
- * the server (`state`, the pid file) and returns, the process serving until it is signalled or Wrangler exits.
+ * Spawns Wrangler in a process group of its own and serves until it is signalled or Wrangler exits. This process owns
+ * that group from the spawn onward: the pid file claims the starter first (so `start --stop` has a process to signal
+ * during the wait, and a second starter is refused), the signal handlers are installed before the wait for "Ready on",
+ * and every way out (a signal, a Wrangler exit, a timeout, a failed `check`, an uncaught error) stops the whole tree and
+ * drops the records. Returns once `check` has passed over the process tree and the server is recorded.
  */
 export async function serve(w: Wrangler, check: (tree: Proc[]) => Promise<void>, state: () => ServerState): Promise<void> {
 	const { pidFile: pids = pidFile, stateFile: record = stateFile } = w;
+	const claim = claimPidFile(pids);
+	if (!claim.claimed) throw new Refusal(`${path.relative(root, pids)} names a live starter${claim.owner ? ` (pid ${claim.owner.pid})` : ''}: a server may already be starting on this port; run start:hosted --stop first`);
 	const child = spawn(w.command, w.args, { cwd: w.cwd, env: w.env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
-	const log = createWriteStream(w.logFile);
-	let text = '';
-	await new Promise<void>((resolve, reject) => {
-		const timer = setTimeout(() => reject(new Error('no "Ready on" from Wrangler within 60 s')), w.readyMs ?? 60_000);
-		const onData = (b: Buffer) => {
-			log.write(b);
-			text += b.toString();
-			if (text.includes('Ready on')) (clearTimeout(timer), resolve());
-		};
-		child.stdout!.on('data', onData);
-		child.stderr!.on('data', onData);
-		child.once('exit', (code) => (clearTimeout(timer), reject(new Error(`Wrangler exited ${code} before Ready: ${text.slice(-1500)}`))));
-	}).catch(async (e) => {
-		await stopTree(child, descendants(child.pid!)).catch(() => undefined);
-		throw e;
+	const group = child.pid!;
+	let tree: Proc[] = [], stopping = false, cleaned = false, down: Promise<Error | null> | undefined;
+	// Stops the tree once, however many exits ask: the signal handler, a Wrangler exit and a failed wait can meet.
+	const teardown = () => (down ??= stopTree(child, descendants(group).concat(tree)).then(() => null, (e: Error) => e).then((e) => (rmSync(record, { force: true }), releasePidFile(pids), (cleaned = true), e)));
+	// The last resort when this process dies some way no handler covers (an uncaught error, process.exit elsewhere).
+	process.on('exit', () => {
+		if (cleaned) return;
+		try {
+			process.kill(-group, 'SIGKILL');
+		} catch {}
+		rmSync(record, { force: true });
+		releasePidFile(pids);
 	});
-	const tree = descendants(child.pid!);
-	let stopping = false;
 	const stop = async (reason: string, code: number) => {
-		if (stopping) return;
 		stopping = true;
 		console.error(`start:hosted: stopping (${reason})`);
-		try {
-			await stopTree(child, descendants(child.pid!).concat(tree));
-		} catch (e) {
-			console.error(`start:hosted: ${e instanceof Error ? e.message : String(e)}`);
-			code = 1;
-		}
-		rmSync(record, { force: true });
-		removePidFile(pids);
+		const failure = await teardown();
+		if (failure) (console.error(`start:hosted: ${failure.message}`), (code = 1));
 		process.exit(code);
 	};
-	process.on('SIGTERM', () => void stop('SIGTERM', 0));
-	process.on('SIGINT', () => void stop('SIGINT', 0));
-	child.once('exit', (code) => void stop(`Wrangler exited ${code}`, 1));
+	for (const signal of ['SIGTERM', 'SIGINT', 'SIGHUP'] as const) process.on(signal, () => void stop(signal, 0));
+	const log = createWriteStream(w.logFile);
+	let text = '';
 	try {
+		await new Promise<void>((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error('no "Ready on" from Wrangler within 60 s')), w.readyMs ?? 60_000);
+			const onData = (b: Buffer) => {
+				log.write(b);
+				text += b.toString();
+				if (text.includes('Ready on')) (clearTimeout(timer), resolve());
+			};
+			child.stdout!.on('data', onData);
+			child.stderr!.on('data', onData);
+			child.once('exit', (code) => (clearTimeout(timer), reject(new Error(`Wrangler exited ${code} before Ready: ${text.slice(-1500)}`))));
+		});
+		tree = descendants(group);
+		child.once('exit', (code) => void stop(`Wrangler exited ${code}`, 1));
 		await check(tree);
 	} catch (e) {
-		console.error(`start:hosted: ${e instanceof Error ? e.message : String(e)}`);
-		return stop('failed start-up check', 1);
+		// a signal that is already stopping the tree ends this process itself
+		if (stopping) await new Promise(() => {});
+		await teardown();
+		throw e;
 	}
-	writePidFile(pids);
 	writeFileSync(record, JSON.stringify(state(), null, 2) + '\n');
 }
 

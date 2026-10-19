@@ -76,7 +76,12 @@ async function open(descriptor, bytes, extras, target) {
   for (const [k, v] of [['From', m.from], ['To', m.to], ['Cc', m.cc], ['Date', m.date], ['Subject', m.subject], ['Message-ID', m.messageId]]) if (v) dl.append(el('dt', {}, k), el('dd', { 'data-h': k.toLowerCase() }, String(v)));
   const raw = el('details', { id: 'all-headers' }, el('summary', {}, `All headers in original order (${m.headers.length})`), el('pre', { class: 'raw-headers' }, m.headers.map((h) => `${h.key}: ${h.value}`).join('\n')));
   app.append(dl, raw);
-  if (m.rtfOnly) app.append(el('p', { class: 'notice', id: 'rtf-only' }, 'The body is stored only as RTF. A prepared readable companion is required before publication.'));
+  const companion = extras.find((x) => x.descriptor.original?.assetId === descriptor.assetId && x.descriptor.role === 'rendition');
+  if (m.rtfOnly && companion) {
+    const text = new TextDecoder().decode(companion.bytes);
+    E.companion = { assetId: companion.descriptor.assetId, version: companion.descriptor.rendition?.version ?? null, chars: text.length };
+    app.append(el('p', { class: 'notice', id: 'rtf-companion-notice' }, `The body is stored only as RTF. This is the reviewed readable companion, version ${E.companion.version}.`), el('pre', { class: 'plain-body', id: 'rtf-companion' }, text));
+  } else if (m.rtfOnly) app.append(el('p', { class: 'notice', id: 'rtf-only' }, 'The body is stored only as RTF. A prepared readable companion is required before publication.'));
   if (m.html) {
     const { clean, removed } = sanitize(m.html, m.attachments);
     E.removed = removed;

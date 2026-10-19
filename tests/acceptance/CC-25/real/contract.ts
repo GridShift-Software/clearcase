@@ -1,8 +1,9 @@
 // CC-25 (GRS-24) acceptance item 3 on the real exports: every supported generation yields the same versioned
 // results-package contract. For each package the GRS-22 probe wrote, it validates the written directory against the
 // case folder, recomputes its identities, reconverts the source and compares every byte, maps each source row to its
-// indexed and verified original, and checks the diagnostics against the code registry and every residual dataset
-// against the coverage the converter and the validator report. Then it compares the generations' contracts.
+// indexed and verified original (its locator and declared size must agree with the index, see ../mapping.ts), and
+// checks the diagnostics against the code registry and every residual dataset against the coverage the converter and
+// the validator report. Then it compares the generations' contracts.
 // Prints and writes counts, codes, key names and states only, never a document value.
 //
 //   bun tests/acceptance/CC-25/real/contract.ts NAME=PKG_DIR=CASE_FOLDER=HTML ... (writes <dir of the first PKG_DIR>/contract.json)

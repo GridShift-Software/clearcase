@@ -70,7 +70,7 @@ Proof standards: the steps act on user controls and real form posts, never on in
 
 ## Cleanup
 
-Each run cleans up after itself, pass or fail: `start:hosted --stop` on the run's port through start:hosted's own pid file, then SIGTERM and SIGKILL only to PIDs recorded in `<scratch>/pids.jsonl` whose command line still names the run's scratch (the namespace, the inner runner, the drive and Chromium), then the scratch (config, browser profile, downloads) is removed. The run's `.local/hosted/run-*` state is removed after its logs are copied. A port state file whose process is gone is dropped. Evidence is never touched; it never kills by name.
+Each run cleans up after itself, pass or fail: `start:hosted --stop` on the run's port through start:hosted's own pid file, only when the run recorded starting that server (`start-hosted` or `hosted-server` in `<scratch>/pids.jsonl`, the pid file's process being that one or running under it, and the state file naming the same process); a run that refused because a server already held the port leaves that server, its pid file and its state file alone and lists it as `preserved`. Then SIGTERM and SIGKILL only to PIDs recorded in `<scratch>/pids.jsonl` whose command line still names the run's scratch (the namespace, the inner runner, the drive and Chromium), then the scratch (config, browser profile, downloads) is removed. The run's `.local/hosted/run-*` state is removed after its logs are copied. A port state file whose process is gone is dropped. Evidence is never touched; it never kills by name.
 
 After a crash or `--keep-scratch`:
 

@@ -11,7 +11,7 @@
 // every step prints counts, key names, codes and states, never a document value. Steps and their items:
 //
 //   revision       HEAD, a clean tree, Bun 1.4.2, and no product file changed against --base (only this suite)
-//   gate-v5        item 1: the gate's verify:pilot:v5 and strict parity summaries are evidence for HEAD (cited, not re-run)
+//   gate-v5        item 1: the gate's verify:pilot:v5 and strict parity summaries are passing evidence for HEAD: outcome, 42 views, strict register (cited, not re-run)
 //   probe-v5       item 1: the v5 inventory in docs/compatibility.md, re-counted from the source and the package
 //   probe-newer    item 2: 2,131 rows, every dataset accounted for, the storyline shape, refs reused against v5
 //   probe-json     item 2: the JSON-style generation against its own inventory (4,466 rows, its own keys)
@@ -93,7 +93,7 @@ function run(name: string, cmd: string[], env: Record<string, string> = {}) {
     if (!existsSync(p)) { problems.push(`${name}: no gate summary at ${file}; run bun run --bun gate at this HEAD first`); continue; }
     const doc = JSON.parse(readFileSync(p, 'utf8'));
     problems.push(...gateEvidenceProblems(name, doc, head));
-    facts[name] = { file, evidence: doc.evidence, ok: doc.ok ?? null, head: doc.freshBuild?.head ?? null };
+    facts[name] = { file, evidence: doc.evidence, ok: doc.ok ?? null, result: doc.result ?? null, exit: doc.exit ?? null, views: doc.total?.views ?? null, strictRegister: doc.register?.strict ?? null, head: doc.freshBuild?.head ?? null };
   }
   record('gate-v5', [1], t0, problems, null, facts);
 }

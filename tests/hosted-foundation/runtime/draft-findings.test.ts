@@ -56,3 +56,33 @@ describe('finding 3: request handles capture immutable client and session values
     expect(await editor.userWork.listRows({ caseId: fx.pending, store: 'deadlines' })).toEqual([]);
   });
 });
+
+describe('finding 4: protected reads persist their audit event before release, and denials append one', () => {
+  const asset = () => ({ kind: 'original' as const, caseId: fx.caseId, assetId: 'HOSTED-001' });
+  const get = { method: 'GET' as const, range: null, ifRange: null };
+  it('an authorized original is withheld (503, no bytes) when audit persistence fails', async () => {
+    const backend = createMemoryBackend({ fixture: fx.data, now });
+    const viewer = backend.request({ clientId: clientA(), sessionId: id('session', 'a-viewer') });
+    backend.fail('audit');
+    const response = await viewer.assets.get({ asset: asset(), request: get });
+    expect(response.status).toBe(503);
+    expect((await response.arrayBuffer()).byteLength).toBe(0);
+  });
+  it('a delivered original appends a succeeded event first, and a denied one appends a scoped denial', async () => {
+    const backend = createMemoryBackend({ fixture: fx.data, now });
+    const viewer = backend.request({ clientId: clientA(), sessionId: id('session', 'a-viewer') });
+    const unassigned = backend.request({ clientId: clientA(), sessionId: id('session', 'a-unassigned') });
+    expect((await viewer.assets.get({ asset: asset(), request: get })).status).toBe(200);
+    await expect(unassigned.assets.get({ asset: asset(), request: get })).rejects.toMatchObject({ code: 'forbidden' });
+    const events = backend.events(clientA()).map((e) => [e.action, e.outcome, e.object.kind, e.object.caseId, e.actor.kind === 'verified' ? e.actor.principal.subject : null]);
+    expect(events).toEqual([['asset.read-original', 'succeeded', 'asset', fx.caseId, 'viewer'], ['asset.read-original', 'denied', 'asset', fx.caseId, 'unassigned']]);
+  });
+  it('a denied case read appends a scoped denial without case text', async () => {
+    const backend = createMemoryBackend({ fixture: fx.data, now });
+    const unassigned = backend.request({ clientId: clientA(), sessionId: id('session', 'a-unassigned') });
+    await expect(unassigned.store.getCase({ caseId: fx.caseId })).rejects.toMatchObject({ code: 'forbidden' });
+    const [event] = backend.events(clientA());
+    expect(event).toMatchObject({ action: 'case.read', outcome: 'denied', version: null });
+    expect(event!.object).toEqual({ kind: 'case', id: fx.caseId, caseId: fx.caseId });
+  });
+});

@@ -56,7 +56,6 @@ const SKIPPED = {
 		if (file === 'drive.json' && doc.results[m[1]]?.id === 'no-egress' && path === `results.${m[1]}.evidence.canaryHits`) return false;
 		return path !== `results.${m[1]}.evidence` || kind === 'unknown-key';
 	},
-	'one-case': (path, kind) => kind === 'deleted' && /^refusals\.\d+\.cases\.\d+$/.test(path),
 	'one-assertion': (path, kind) => kind === 'deleted' && /^legs\.\d+\.asserted\.\d+$/.test(path),
 };
 const skipped = (file, path, kind, doc) => Object.entries(SKIPPED).find(([, f]) => f(path, kind, file, doc))?.[0] ?? null;

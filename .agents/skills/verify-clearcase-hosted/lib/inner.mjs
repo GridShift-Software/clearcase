@@ -10,7 +10,7 @@ import { connect } from 'node:net';
 import { appendFileSync, cpSync, createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { formatDoctor, liveDoctor, tree } from './doctor.mjs';
-import { buildProblem, PROFILE, testSummaryProblem } from './evidence.mjs';
+import { buildProblem, driveProblem, healthProblem, PROFILE, testSummaryProblem } from './evidence.mjs';
 
 const cfg = JSON.parse(readFileSync(process.argv[2], 'utf8'));
 const { proveOffline } = await import(join(cfg.harness, 'netproof.mjs'));
@@ -165,6 +165,8 @@ await step('live-doctor', 'the server on the port is this run\'s: start:hosted\'
 	writeFileSync(join(ev, 'health.json'), JSON.stringify(r.health, null, 1) + '\n');
 	console.log(formatDoctor(r));
 	if (!r.pass) throw new Error(`live doctor failed: ${r.checks.filter((c) => !c.pass).map((c) => `${c.name} (got ${JSON.stringify(c.got)})`).join(', ')}`);
+	const bad = healthProblem(r.health, cfg.revision, gateFixture().sha256);
+	if (bad) throw new Error(bad);
 	return { checks: r.checks.map((c) => c.name), health: 'health.json' };
 });
 
@@ -200,7 +202,9 @@ await step('drive', `drive the feature map in Chromium${cfg.lock ? ` (slot throu
 		const drive = existsSync(join(ev, 'drive.json')) ? readJson(join(ev, 'drive.json')) : null;
 		for (const r of drive?.results ?? []) results.push({ ...r, id: r.id, drive: true });
 	}
-	const { startedAt } = readJson(join(ev, 'drive.json'));
+	const doc = readJson(join(ev, 'drive.json')), bad = driveProblem(doc);
+	if (bad) throw new Error(bad);
+	const { startedAt } = doc;
 	return { drive: 'drive.json', slotWaitMs: startedAt - t0 };
 });
 

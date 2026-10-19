@@ -157,10 +157,26 @@ export function evidenceProblems(evidence, sha) {
 
 export const REFUSAL_NAMES = ['dirty-tree', 'reduced-run', 'missing-binding', 'stale-stamp', 'summary-not-evidence', 'evidence-walk'];
 
+/** The fewest cases each refusal runs (refusals.mjs): a refusal that ran fewer lost a case. */
+export const REFUSAL_MIN = { 'dirty-tree': 3, 'reduced-run': Object.keys(REDUCED_ENV).length + 1, 'missing-binding': 5, 'stale-stamp': 6, 'summary-not-evidence': 21, 'evidence-walk': 100 };
+
 /** Why refusals.json (the refusal tests' summary) does not show every refusal PASS for `sha`, or null. */
 export function refusalsProblem(doc, sha) {
-	const bad = REFUSAL_NAMES.filter((n) => !doc?.refusals?.some((x) => x.name === n && x.status === 'PASS'));
-	if (bad.length || doc?.control?.status !== 'PASS') return `not PASS: ${bad.join(', ') || 'control'}`;
+	const shaped = keysProblem('refusals.json', doc, ['schema', 'sha', 'control', 'refusals']) ?? keysProblem('refusals.json: control', doc.control, ['status', 'got']);
+	if (shaped) return shaped;
+	if (doc.schema !== 'clearcase-hosted-gate-refusals/1') return `refusals.json: schema ${JSON.stringify(doc.schema)}`;
+	if (doc.sha !== sha) return `refusals.json: for revision ${JSON.stringify(doc.sha)}, not HEAD ${sha}`;
+	if (doc.control.status !== 'PASS' || !text(doc.control.got)) return 'refusals.json: the unchanged control did not give GATE PASS';
+	const list = Array.isArray(doc.refusals) ? doc.refusals : [];
+	const refusals = list.map((x, i) => keysProblem(`refusals.json: refusal ${i}`, x, ['name', 'status', 'cases'])).find(Boolean);
+	if (refusals) return refusals;
+	if (list.map((x) => x.name).join() !== REFUSAL_NAMES.join()) return `refusals.json: the refusals are ${list.map((x) => JSON.stringify(x.name)).join(', ')}, not ${REFUSAL_NAMES.join(', ')}`;
+	for (const x of list) {
+		const cases = Array.isArray(x.cases) ? x.cases : [];
+		const shape = cases.map((c, i) => keysProblem(`refusals.json: ${x.name} case ${i}`, c, ['case', 'status', 'got'])).find(Boolean);
+		if (shape) return shape;
+		if (x.status !== 'PASS' || cases.length < REFUSAL_MIN[x.name] || cases.some((c) => c.status !== 'PASS' || !text(c.case) || !text(c.got))) return `refusals.json: ${x.name} is not PASS in all of at least ${REFUSAL_MIN[x.name]} cases (${cases.length} ran)`;
+	}
 	return null;
 }
 

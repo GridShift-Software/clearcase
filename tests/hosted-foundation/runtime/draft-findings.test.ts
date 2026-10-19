@@ -169,3 +169,14 @@ describe('finding 7 sweep: write boundaries parse their DTOs like restore does',
     expect(backend.events(clientA()).filter((e) => e.outcome === 'succeeded')).toEqual([]);
   });
 });
+
+describe('draft review: the generic id() cannot mint a digest brand', () => {
+  it('refuses the results and sha256 kinds at runtime and in the type system', () => {
+    const digest = 'a'.repeat(64);
+    // @ts-expect-error resultsVersion() is the only way to brand a results version
+    expect(() => id('results', `sha256:${digest}`)).toThrow(TypeError);
+    // @ts-expect-error sha256() is the only way to brand a digest
+    expect(() => id('sha256', digest)).toThrow(TypeError);
+    expect(id('case', 'case-a')).toBe('case-a');
+  });
+});

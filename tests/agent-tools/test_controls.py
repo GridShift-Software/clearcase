@@ -1422,6 +1422,53 @@ test('rejects stale evidence', () => {
                 self.assertIn('protected', self.guard(code=1))
 
 
+class GuardReach(GuardCase):
+    """GRS-148, the GRS-104 re-check's residual findings: code that runs in the named test's process but sat outside
+    both the protected closure and the framework-reach check."""
+    named_api, api, weakened = GuardAllowlist.named_api, GuardAllowlist.api, GuardAllowlist.weakened
+    patch, reason = GuardAllowlist.patch, GuardAllowlist.reason
+    # the matcher state's registry, reached without importing vitest
+    symbol_patch = "(globalThis as any)[Symbol.for('$$jest-matchers-object')].customEqualityTesters.push(() => true);\nexport {};\n"
+
+    def test_a_support_file_loaded_from_application_code_cannot_reach_the_framework(self):
+        # finding 1 (high): a support-named file reached only from the module under test was skipped by the reach check
+        for folder in ('support', 'fixtures', 'test-utils'):
+            for label, patch in (('vitest import', self.patch), ('matcher symbol, no vitest import', self.symbol_patch)):
+                with self.subTest(bypass=f'src/{folder}/patch.ts, {label}'):
+                    self.protect({'src/api.ts': self.api}, self.named_api)
+                    self.write('src/api.ts', f"import './{folder}/patch';\n" + self.weakened)
+                    self.write(f'src/{folder}/patch.ts', patch)
+                    self.commit('load a framework patch from the module under test')
+                    self.assertIn('reaches the test framework', self.guard(code=1))
+        with self.subTest(bypass='a changed support file that unchanged application code already loads'):
+            api = "import { data } from './fixtures/data';\n" + self.api
+            self.protect({'src/api.ts': api, 'src/fixtures/data.ts': 'export const data = 1;\n'}, self.named_api)
+            self.write('src/api.ts', "import { data } from './fixtures/data';\n" + self.weakened)
+            self.write('src/fixtures/data.ts', self.patch + 'export const data = 1;\n')
+            self.commit('patch the framework from a loaded fixture')
+            self.assertIn('reaches the test framework', self.guard(code=1))
+        for label, files, line in (
+                ('an unchanged support helper', {'tests/support/matchers.ts': self.patch}, "import '../tests/support/matchers';\n"),
+                ('an unchanged support index re-exporting a patch', {'tests/support/matchers.ts': self.patch,
+                 'tests/support/index.ts': "export * from './matchers';\n"}, "import { patched } from '../tests/support/index';\n"),
+                ('an unchanged test file', {'tests/patch.test.ts': self.patch + "test('x', () => { expect(1).toBe(1); });\n"},
+                 "import '../tests/patch.test';\n")):
+            with self.subTest(bypass=f'application code newly loads {label}'):
+                self.protect({'src/api.ts': self.api, **files}, self.named_api)
+                self.write('src/api.ts', line + self.weakened)
+                self.commit('load reviewed test code from the module under test')
+                self.guard(code=1)
+        with self.subTest(control='a new test file with its plain helper, and a script loading a plain test helper'):
+            self.protect({'src/api.ts': self.api, 'tests/e2e/lib/env.ts': 'export const PORT = 1;\n'}, self.named_api)
+            self.write('src/api.ts', self.api.replace("v === 'new'", "v === 'new' && v.length === 3"))
+            self.write('tests/other.test.ts', "import { test, expect } from 'vitest';\nimport { one } from './support/plain';\n"
+                       "test('other', () => { expect(one()).toBe(1); });\n")
+            self.write('tests/support/plain.ts', 'export const one = () => 1;\n')
+            self.write('scripts/measure.ts', "import { PORT } from '../tests/e2e/lib/env';\nexport const port = PORT;\n")
+            self.commit('fix with a regression test in another file')
+            self.guard()
+
+
 class GuardBinding(ControlCase):
     """H1: once a fix attempt is recorded, approval needs a PASS guard receipt bound to the reviewed commit and findings."""
     unit = 'GRS-104/implementation'

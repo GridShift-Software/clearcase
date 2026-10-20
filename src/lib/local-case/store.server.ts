@@ -1,3 +1,7 @@
+import type { Verification } from '../server/runtime/dto.ts';
+export type { Verification } from '../server/runtime/dto.ts';
+import type { Version } from '../server/runtime/dto.ts';
+export type { Version } from '../server/runtime/dto.ts';
 import { closeSync, fsyncSync, mkdirSync, openSync, readdirSync, renameSync, rmSync } from 'node:fs';
 import path from 'node:path';
 import { verifyCandidateBytes, type Acknowledgement } from '../case-package/index.ts';
@@ -5,18 +9,11 @@ import { now } from '../components/clock.ts';
 import type { Db, Storage } from './db.server.ts';
 import { readModelDigest, type AssetRowW, type DocumentRowW, type Expect, type Projection, type SeedRowW } from './project.server.ts';
 
-export interface Version {
-	id: string; case_id: string; case_label: string | null; input_revision_id: string; created: string; import_id: number;
-	case_folder: string; case_root: string; case_dev: string; case_ino: string; verdict: string; stored_at: string;
-	manifest_sha256: string; diagnostics_sha256: string; validator_version: string; warning_fingerprints: string;
-	expect: string; read_model_sha256: string; overview: string;
-}
 export interface ImportRow {
 	id: number; at: string; case_folder: string; package_source: string; case_id: string | null; results_version: string | null;
 	manifest_sha256: string | null; verdict: string; outcome: string; report: string;
 }
 export type CaseVersionRow = Pick<Version, 'id' | 'case_id' | 'import_id' | 'created' | 'stored_at' | 'case_label'> & { documents: number | null };
-export type Verification = { ok: boolean; reason?: string; ms: number; checked?: Record<string, number> };
 export interface ActivationEntry {
 	id: number; case_id: string; version_id: string; at: string; kind: string; manifest_sha256: string; read_model_sha256: string;
 	diagnostics_sha256: string; validator_version: string; acknowledgement: string | null; accepted_warnings: string;

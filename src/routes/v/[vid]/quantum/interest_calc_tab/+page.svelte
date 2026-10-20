@@ -10,7 +10,7 @@
 	import { defaultInputs, INTEREST_FIELDS, interestOutcome, MAX_RATE, queryInputs, type InterestInputs } from '$lib/views/quantum/interest';
 	import '$lib/views/quantum/quantum.css';
 	let { data } = $props();
-	const submitted = $derived(queryInputs(page.url.searchParams, data.defaults));
+	const submitted = $derived(queryInputs(new URLSearchParams(page.url.search), data.defaults));
 	const inputs = $derived(submitted ?? defaultInputs(data.defaults));
 	const out = $derived(submitted ? interestOutcome(submitted, importedUnits(data.headlineDue)) : null);
 	const errs = $derived(out?.errors ?? {});

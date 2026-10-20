@@ -3,7 +3,7 @@
 	import { enhance } from '$app/forms';
 	import { afterNavigate, beforeNavigate, goto, invalidateAll } from '$app/navigation';
 	import { page } from '$app/state';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import type { SubmitFunction } from '$app/forms';
 	import { askFocus } from '$lib/components/ask-focus.svelte';
 	import CitationLink from '$lib/components/CitationLink.svelte';
 	import Narrative from '$lib/components/Narrative.svelte';
@@ -71,9 +71,9 @@
 	const stayed = (at: { navs: number; href: string }) => alive && navs === at.navs && page.url.href === at.href;
 	let leaving: string | null = null;
 	const go = (url: URL | string) => {
-		const href = new URL(url, page.url).href;
+		const href = new URL(url, page.url.href).href;
 		leaving = href;
-		void goto(href, { noScroll: true, keepFocus: true }).finally(() => { if (leaving === href) leaving = null; });
+		void goto(href, { reset: false }).finally(() => { if (leaving === href) leaving = null; });
 	};
 	const question = () => `${saveError ? 'The entry in the form was not saved.' : 'The entry in the form has changes that are not saved.'} Discard it?`;
 	beforeNavigate((nav) => {

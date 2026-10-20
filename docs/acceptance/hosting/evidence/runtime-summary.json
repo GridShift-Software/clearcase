@@ -1,0 +1,173 @@
+{
+  "schema": "clearcase.runtime-probe/1",
+  "sourceSha": "098f2ad48363a500e103c9ff0483de5b4b8e4816",
+  "treeClean": true,
+  "servedStamp": "098f2ad48363a500e103c9ff0483de5b4b8e4816",
+  "startedAt": "2026-10-19T09:07:20.769Z",
+  "finishedAt": "2026-10-19T09:07:28.233Z",
+  "runDir": ".local/hosting-probe/runtime/2026-10-19T09-07-20-769Z",
+  "hosts": {
+    "bun": "1.4.2",
+    "node": "26.10.0",
+    "workerd": "1.20261012.1",
+    "build": "Bun 1.4.2",
+    "runner": "Bun 1.4.2",
+    "wrangler": "Node 26.10.0",
+    "app": "workerd 1.20261012.1 (native)"
+  },
+  "pins": {
+    "@sveltejs/adapter-cloudflare": "8.0.1",
+    "@sveltejs/kit": "3.1.0",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "miniflare": "5.20261012.1-beta",
+    "svelte": "5.57.2",
+    "vite": "8.3.4",
+    "workerd": "1.20261012.1",
+    "wrangler": "4.151.1"
+  },
+  "artifact": "sha256:8d3e564a70c505d9e8678183a6dbc3793c0f8fa1b6d86f169e549388626dc5ce",
+  "isolation": {
+    "network": "own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden",
+    "env": [
+      "CI",
+      "CLOUDFLARE_CF_FETCH_ENABLED",
+      "CLOUDFLARE_INCLUDE_PROCESS_ENV",
+      "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV",
+      "HOME",
+      "PATH",
+      "WRANGLER_HIDE_BANNER",
+      "WRANGLER_LOG_PATH",
+      "WRANGLER_SEND_ERROR_REPORTS",
+      "WRANGLER_SEND_METRICS",
+      "XDG_CACHE_HOME",
+      "XDG_CONFIG_HOME"
+    ]
+  },
+  "legs": {
+    "build": {
+      "status": "PASS",
+      "commands": [
+        "bun run --bun build (PROBE_SOURCE_REVISION=HEAD)"
+      ],
+      "asserted": [
+        "vite build with adapter-cloudflare exits 0, offline",
+        "the build ran under Bun 1.4.2",
+        "the Worker entry .svelte-kit/cloudflare/_worker.js exists",
+        "the build is stamped with HEAD (_app/version.json)"
+      ]
+    },
+    "request": {
+      "status": "PASS",
+      "commands": [
+        "node node_modules/wrangler/bin/wrangler.js d1 execute DB --local --persist-to <run>/persist/main --file schema.sql",
+        "node node_modules/wrangler/bin/wrangler.js dev --local --ip 127.0.0.1 --port 18787 --inspector-ip 127.0.0.1 --inspector-port 0 --persist-to <run>/persist/main --show-interactive-dev-session=false"
+      ],
+      "asserted": [
+        "wrangler d1 execute --local applies schema.sql in its own process, exit 0",
+        "Wrangler (hosted by Node) prints Ready within 45 s",
+        "Wrangler's process is Node (node)",
+        "a native workerd process serves the app, a descendant of Wrangler",
+        "the installed workerd binary runs and reports \"workerd 2026-10-12\"",
+        "GET / answers 200 text/html",
+        "GET / is the SSR page",
+        "GET /probe.txt serves the static asset byte for byte through ASSETS",
+        "GET /_app/version.json serves the HEAD stamp",
+        "GET /no-such-page answers 404 text/html with the \"Not Found\" error page"
+      ]
+    },
+    "render": {
+      "status": "PASS",
+      "commands": [
+        "GET / (Accept: text/html)"
+      ],
+      "asserted": [
+        "GET / answers 200",
+        "SSR renders the D1 row the CLI inserted",
+        "SSR reads R2: no object yet"
+      ]
+    },
+    "binding-access": {
+      "status": "PASS",
+      "commands": [
+        "GET /bindings"
+      ],
+      "asserted": [
+        "GET /bindings answers 200 JSON",
+        "the Worker sees DB (D1 prepare), BUCKET (R2 put) and ASSETS (fetch)",
+        "D1 answers SELECT COUNT(*) FROM notes through the binding: 1"
+      ]
+    },
+    "action": {
+      "status": "PASS",
+      "commands": [
+        "POST /?/save id=probe-1 (Accept: text/html, same Origin)",
+        "GET /"
+      ],
+      "asserted": [
+        "the form action answers 200",
+        "the action wrote D1, then put the R2 object and read it back",
+        "the page after the action shows the new D1 row and R2 object",
+        "a fresh GET / reads both writes back"
+      ]
+    },
+    "failure-action": {
+      "status": "PASS",
+      "commands": [
+        "POST /?/save id= body=",
+        "POST /?/save id=probe-1 (again)",
+        "POST /?/save with a foreign Origin",
+        "GET /"
+      ],
+      "asserted": [
+        "an empty form answers 400 with the validation message",
+        "a duplicate id answers 409: D1 refused the INSERT (UNIQUE)",
+        "a cross-site form POST answers 403 with SvelteKit's Origin-check message and runs no action",
+        "D1 holds no row from the refused actions",
+        "R2 still holds the last good write"
+      ]
+    },
+    "persistence": {
+      "status": "PASS",
+      "commands": [
+        "node node_modules/wrangler/bin/wrangler.js d1 execute DB --local --persist-to <run>/persist/main --json --command \"SELECT id, body FROM notes ORDER BY id\"",
+        "node node_modules/wrangler/bin/wrangler.js dev --local --ip 127.0.0.1 --port 18787 --inspector-ip 127.0.0.1 --inspector-port 0 --persist-to <run>/persist/main --show-interactive-dev-session=false",
+        "GET /"
+      ],
+      "asserted": [
+        "the server's process tree ended on SIGINT without SIGKILL, and no process of it survived",
+        "a separate wrangler d1 execute reads both rows from the stopped server's state",
+        "after a restart SSR renders the persisted D1 rows",
+        "after a restart, before any write, R2 returns the persisted object"
+      ]
+    },
+    "failure-binding-missing": {
+      "status": "PASS",
+      "commands": [
+        "node node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env missing-binding --persist-to <run>/persist/missing --file schema.sql",
+        "node node_modules/wrangler/bin/wrangler.js dev --local --ip 127.0.0.1 --port 18787 --inspector-ip 127.0.0.1 --inspector-port 0 --persist-to <run>/persist/missing --show-interactive-dev-session=false --env missing-binding",
+        "GET /",
+        "POST /?/save",
+        "GET /bindings"
+      ],
+      "asserted": [
+        "the same Worker without its R2 binding (--env missing-binding) gets D1 and its schema",
+        "GET / answers 503 naming the missing BUCKET binding",
+        "no partial page is rendered",
+        "the form action answers 503 naming the missing binding",
+        "GET /bindings answers 200 JSON",
+        "GET /bindings: DB (answering) and ASSETS present, BUCKET absent"
+      ]
+    }
+  },
+  "hold": [
+    "workers.dev smoke deploy on Workers Free: Cloudflare stays pinned (no account, no deploy)",
+    "numeric cold and warm staging budgets: need real Workers on Workers Paid",
+    "remote D1 and R2: only local Miniflare-backed bindings ran"
+  ],
+  "failure": null,
+  "evidence": true,
+  "checker": {
+    "mutationsRefused": 539,
+    "accepted": null
+  }
+}

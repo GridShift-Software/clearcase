@@ -1,5 +1,7 @@
-import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit';
-import { building } from '$app/environment';
+import { createUnavailableServices } from '$lib/server/runtime/unavailable';
+import { id } from '$lib/server/runtime/ids';
+import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit/hooks';
+import { building } from '$app/env';
 import { app, initApp } from '$lib/local-case/app.server';
 import { discardBody, oversize } from '$lib/local-case/request-limit.server';
 import { ensureRescanProvider } from '$lib/local-case/rescan/rescan.server';
@@ -25,6 +27,7 @@ const isLoopback = (addr: string) => /^(::ffff:)?127(\.\d{1,3}){3}$/i.test(addr)
 const clientAddress = (event: Parameters<Handle>[0]['event']) => { try { return event.getClientAddress(); } catch { return ''; } };
 
 export const handle: Handle = async ({ event, resolve }) => {
+	Object.assign(event.locals, createUnavailableServices({ clientId: id('client', 'local-pilot'), now: () => new Date() }));
 	if (!building && !event.isSubRequest) {
 		if (!isLoopback(clientAddress(event))) return plain(403, 'ClearCase answers this machine only (loopback clients)');
 		const a = app();
@@ -69,7 +72,11 @@ export const handle: Handle = async ({ event, resolve }) => {
 const diskFull = (e: unknown) => { const x = e as { errcode?: number; code?: string; message?: string }; return (x?.errcode !== undefined && (x.errcode & 0xff) === 13) || x?.code === 'ENOSPC' || /database or disk is full|ENOSPC|no space left on device/i.test(String(x?.message ?? '')); };
 const DISK_FULL = 'The disk holding the ClearCase data directory is full, so nothing was written. Free some space and try again.';
 
-export const handleError: HandleServerError = ({ error, status }) => {
-	if (status !== 404) console.error(error);
-	return { message: status === 404 ? 'Not found' : diskFull(error) ? DISK_FULL : 'Internal error' };
+// Kit 3 passes every error through here. An app error (`error(...)`) keeps the status and message it was given, as it
+// did when Kit 2 never called this hook for one; a framework 404 and anything unexpected get the same answers as before.
+export const handleError: HandleServerError = ({ kind, error }) => {
+	if (kind === 'app' || kind === 'validation') return;
+	if (kind === 'framework' && error.status === 404) return { message: 'Not found' };
+	console.error(error);
+	return { message: diskFull(error) ? DISK_FULL : 'Internal error' };
 };

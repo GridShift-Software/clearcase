@@ -22,11 +22,12 @@
 	});
 	// Back (or Forward) between entries of the SAME page, e.g. from an in-page #code-<CODE> link on the validation report
 	// to the page's own entry, is a "shallow" popstate in SvelteKit: no navigation, so afterNavigate does not run. On
-	// reaching the page's base entry (no fragment) the heading takes focus, as after any other Back.
+	// reaching the page's base entry (no fragment) the heading takes focus, as after any other Back. In the next task:
+	// SvelteKit's own popstate listener blurs the active element after an await (blur_active_element, Kit 3).
 	let shown = '';
 	afterNavigate(() => { shown = location.pathname + location.search; });
 	onMount(() => {
-		const h = () => { if (!location.hash && location.pathname + location.search === shown) heading(true); };
+		const h = () => { if (!location.hash && location.pathname + location.search === shown) setTimeout(() => heading(true)); };
 		addEventListener('popstate', h);
 		return () => removeEventListener('popstate', h);
 	});

@@ -581,7 +581,7 @@
       "field": [],
       "type": "defect-fix",
       "source": "S-chronology-2",
-      "reason": "v5 joins filename and ref without null guards, so a row lacking a filename would match the text undefined. ClearCase rejects any row whose text fields are not strings, so the filter never sees a missing filename; that row goes to the degraded-rows notice instead. Evidence: src/lib/local-case/documents.server.ts:66.",
+      "reason": "v5 joins filename and ref without null guards, so a row lacking a filename would match the text undefined. ClearCase rejects any row whose text fields are not strings, so the filter never sees a missing filename; that row goes to the degraded-rows notice instead. Evidence: src/lib/local-case/documents.server.ts:49.",
       "productVisible": false,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": null,

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onDestroy, onMount } from 'svelte';
 	import { enhance } from '$app/forms';
-	import type { SubmitFunction } from '@sveltejs/kit';
+	import type { SubmitFunction } from '$app/forms';
 	import type { ActionData, PageData } from './$types';
 	import PageHeader from '$lib/components/PageHeader.svelte';
 	import { infoTone } from '$lib/views/analysis/tone';

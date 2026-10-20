@@ -1,6 +1,12 @@
 # CI verdict without GitHub: pc1-vm verify and verdict answer PASS or FAIL from the CI VM alone
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-139/ci-verdict-without-github-pc1-vm-verify-and-verdict-answer-pass-or) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-139/ci-verdict-without-github-pc1-vm-verify-and-verdict-answer-pass-or) is the execution authority.
+
+## User decision — 19 October 2026
+
+The user authorizes maintenance while CI is free. Let active jobs finish before stopping/restarting the runner for the outstanding real-runner acceptance scenarios. New CI jobs may queue until maintenance finishes. If maintenance will take a while, a separate runner may be brought up after the existing sizing/isolation prerequisites are satisfied. Restore and verify service on exit and report exact-SHA evidence for the previously unproven scenarios. This adds no cloud unpin, production change or permission to interrupt active CI.
+
+---
 
 Planning key `HA-ci-verdict`. From the read-only CI review of 17 October 2026 (`clearcase/.orchestration/reports/CI-REVIEW-20261017/report.md`). Infrastructure work on the CI runner, not hosted-app work; it may run before the hosted plan gate.
 

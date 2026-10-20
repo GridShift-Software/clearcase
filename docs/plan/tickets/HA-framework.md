@@ -1,6 +1,14 @@
 # Migrate the app build and shared server entry points to Workers
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-112/migrate-the-app-build-and-shared-server-entry-points-to-workers) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-112/migrate-the-app-build-and-shared-server-entry-points-to-workers) is the execution authority.
+
+## User decision — 19 October 2026
+
+The user approved local Workers build/scaffolding and hosted-gate bootstrap (<issue id="f67f5b3e-15b5-4e48-9b82-a1a1d78cd700" href="https://linear.app/vaper/issue/GRS-112/migrate-the-app-build-and-shared-server-entry-points-to-workers">GRS-112</issue> → <issue id="ab5e730e-f8a2-48d3-9b1c-ff54c6fd8498" href="https://linear.app/vaper/issue/GRS-138/build-the-hosted-gate-and-the-verify-clearcase-hosted-skill-before">GRS-138</issue>) before <issue id="c99e1ba3-dc84-4bbc-aee5-f8c3c34692f2" href="https://linear.app/vaper/issue/GRS-27/gate-the-hosted-design-before-client-intake-implementation">GRS-27</issue>, once their local runtime and viewer inputs pass. Cloudflare remains pinned. This authorization covers credential-free local work with synthetic fixtures and explicitly named doubles. Real-provider acceptance and all remaining foundation work still wait for <issue id="c99e1ba3-dc84-4bbc-aee5-f8c3c34692f2" href="https://linear.app/vaper/issue/GRS-27/gate-the-hosted-design-before-client-intake-implementation">GRS-27</issue>. Every original acceptance obligation remains; do not mark incomplete or real-provider work Done from a local slice.
+
+Local runtime prerequisite: an independently reviewed exact-SHA PASS for <issue id="3e18e69c-1912-45e4-aa6a-5e4d6ceac22c" href="https://linear.app/vaper/issue/GRS-106/prove-sveltekit-3-and-bun-builds-on-the-cloudflare-workers-runtime">GRS-106</issue>'s local workerd/software leg, not completion of its still-held provider legs. Viewer prerequisite: accepted <issue id="ea230ba7-d71a-41fa-8916-530a865a1392" href="https://linear.app/vaper/issue/GRS-97/evaluate-viewer-components-and-freeze-alpha-file-coverage">GRS-97</issue> coverage and dependency handoff. <issue id="f67f5b3e-15b5-4e48-9b82-a1a1d78cd700" href="https://linear.app/vaper/issue/GRS-112/migrate-the-app-build-and-shared-server-entry-points-to-workers">GRS-112</issue> hands <issue id="ab5e730e-f8a2-48d3-9b1c-ff54c6fd8498" href="https://linear.app/vaper/issue/GRS-138/build-the-hosted-gate-and-the-verify-clearcase-hosted-skill-before">GRS-138</issue> the independently accepted local build, stubs, fixture, boot command and feature map. Preserve the known draft defect list and rerun at the new integrated SHA.
+
+---
 
 Planning key `HA-framework`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 
@@ -54,9 +62,11 @@ Planning creates this issue; it does not dispatch it. RAWS/current production ar
 
 ## Native prerequisites
 
-* [Chart the route from the ClearCase POC to hosted alpha](<https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha>)
-* [Gate the hosted design before client intake implementation](<https://linear.app/vaper/issue/GRS-27/gate-the-hosted-design-before-client-intake-implementation>)
-* [Align agent tooling with the canonical pstack plugin and delivery controls](<https://linear.app/vaper/issue/GRS-104/align-agent-tooling-with-the-canonical-pstack-plugin-and-delivery>)
+* <issue id="7e83827a-23fd-431a-96c5-3d2471790e1c" href="https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha">GRS-69</issue>: approved hosted-alpha plan.
+* <issue id="75c4dcbc-09d3-4db9-b156-0c1fb1ea6aa7" href="https://linear.app/vaper/issue/GRS-104/align-agent-tooling-with-the-canonical-pstack-plugin-and-delivery">GRS-104</issue> and <issue id="617fe50a-a4ea-45e2-8834-659b007ffdf6" href="https://linear.app/vaper/issue/GRS-139/ci-verdict-without-github-pc1-vm-verify-and-verdict-answer-pass-or">GRS-139</issue>: accepted tooling and CI inputs.
+* <issue id="ea230ba7-d71a-41fa-8916-530a865a1392" href="https://linear.app/vaper/issue/GRS-97/evaluate-viewer-components-and-freeze-alpha-file-coverage">GRS-97</issue>: independently accepted local viewer evaluation and dependency handoff.
+
+<issue id="3e18e69c-1912-45e4-aa6a-5e4d6ceac22c" href="https://linear.app/vaper/issue/GRS-106/prove-sveltekit-3-and-bun-builds-on-the-cloudflare-workers-runtime">GRS-106</issue>'s independently reviewed local runtime leg must PASS before bootstrap dispatch. Its full issue includes pinned provider work, so it is an artifact prerequisite rather than a whole-issue Done dependency. <issue id="c99e1ba3-dc84-4bbc-aee5-f8c3c34692f2" href="https://linear.app/vaper/issue/GRS-27/gate-the-hosted-design-before-client-intake-implementation">GRS-27</issue> gates the real-provider and later foundation boundary; it does not block this authorized local bootstrap.
 
 Concrete verification reservation: tests/hosted-foundation/runtime/\*\* owns the workerd request/render/action smoke tests and the negative hosted-import-boundary test. Use this path in the dispatch brief; no other foundation owner writes it.
 

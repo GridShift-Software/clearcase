@@ -1,6 +1,12 @@
 # Implement complete case export, backup recovery and approved deletion
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-118/implement-complete-case-export-backup-recovery-and-approved-deletion) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-118/implement-complete-case-export-backup-recovery-and-approved-deletion) is the execution authority.
+
+## User decision — 19 October 2026
+
+The user confirmed that withdrawal removes application access to result-derived previews, exports/packages and generated bundles, including Keep-marked bundles. Keep only protects against pruning. Recovery, retained export and restore paths must not expose or revive withdrawn results; originals and independent user work remain available under normal grants. This does not change approved deletion or 30-day rolling recovery policy and cannot recall delivered downloads. Coordinate with <issue id="07b2f5cd-c6a9-432a-88e0-0c0ff13e69c5" href="https://linear.app/vaper/issue/GRS-31/sign-off-and-publish-an-exact-results-version">GRS-31</issue>/115/128 and verify at <issue id="51458563-33f0-4e38-bbfb-8eef5834a872" href="https://linear.app/vaper/issue/GRS-32/verify-hosted-isolation-recovery-and-release-readiness">GRS-32</issue>.
+
+---
 
 Planning key `HA-recovery`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

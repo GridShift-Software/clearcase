@@ -1,6 +1,6 @@
 # Implement the protected in-app viewer shell and PDF/image readers
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-120/implement-the-protected-in-app-viewer-shell-and-pdfimage-readers) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-120/implement-the-protected-in-app-viewer-shell-and-pdfimage-readers) is the execution authority.
 
 Planning key `HA-viewer-core`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

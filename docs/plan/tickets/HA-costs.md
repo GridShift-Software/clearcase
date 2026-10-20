@@ -1,6 +1,6 @@
 # Carry case costs, timesheets and disbursements into the hosted app
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-125/carry-case-costs-timesheets-and-disbursements-into-the-hosted-app) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-125/carry-case-costs-timesheets-and-disbursements-into-the-hosted-app) is the execution authority.
 
 Planning key `HA-costs`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

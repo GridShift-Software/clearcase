@@ -1,6 +1,12 @@
 # Persist PDF bundles with pinned inputs and protected version history
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-128/persist-pdf-bundles-with-pinned-inputs-and-protected-version-history) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-128/persist-pdf-bundles-with-pinned-inputs-and-protected-version-history) is the execution authority.
+
+## User decision — 19 October 2026
+
+The user confirmed that Keep protects a generated bundle version against pruning but does not override withdrawal of unsafe results. App-managed downloads/views/exports derived from withdrawn results must refuse, including Keep-marked bundles. Preserve protected originals and independent user work under normal grants. This is access withdrawal, not blanket deletion of retained versions; already downloaded copies cannot be recalled. Coordinate with <issue id="07b2f5cd-c6a9-432a-88e0-0c0ff13e69c5" href="https://linear.app/vaper/issue/GRS-31/sign-off-and-publish-an-exact-results-version">GRS-31</issue>/115/118 and prove at <issue id="51458563-33f0-4e38-bbfb-8eef5834a872" href="https://linear.app/vaper/issue/GRS-32/verify-hosted-isolation-recovery-and-release-readiness">GRS-32</issue>.
+
+---
 
 Planning key `HA-bundles`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

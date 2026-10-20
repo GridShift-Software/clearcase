@@ -1,6 +1,6 @@
 # Unify document notes and annotations into contextual case Notes
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-119/unify-document-notes-and-annotations-into-contextual-case-notes) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-119/unify-document-notes-and-annotations-into-contextual-case-notes) is the execution authority.
 
 Planning key `HA-notes`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

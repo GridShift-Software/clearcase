@@ -1,6 +1,6 @@
 # Migrate quantum and case registers to hosted contracts
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-132/migrate-quantum-and-case-registers-to-hosted-contracts) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-132/migrate-quantum-and-case-registers-to-hosted-contracts) is the execution authority.
 
 Planning key `HA-views-quantum-registers`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

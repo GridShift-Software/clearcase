@@ -308,12 +308,22 @@ that judges it; its own guard and `node_modules` are never used. The guard's chi
 would read the pull request's `bunfig.toml` and `.env` (a preload, or a `.env` pointing Git at a candidate fsmonitor,
 ran inside the old step), so `CLEARCASE_NODE` is a wrapper that runs Bun with an empty config, `--no-install` and
 `--no-env-file`, and the receipt's `node` row records Bun's version. A base without the guard or `bun.lock`, or a failed
-install (an unreachable registry included), prints `HOLD`: nothing was judged. The step itself does not end the job;
-`test guard verdict`, after the other checks, fails it unless the guard succeeded, so `check` and `test` still report.
-`tests/ci-guard/run.sh` replays the step from the workflow in synthetic repositories against each of these routes
-(Bun, Git, Python, `unshare -rn` and the npm registry; it runs outside Vitest and CI). Two things stay trusted: the
-workflow, which comes from the merge commit, so a pull request that changes it needs review, and the runner, whose Bun
-install and transpiler caches an earlier job can alter (`docs/ci-runner.md`). A manifest stays in the tree, so a wave PR into `dev` runs every manifest its tickets added, at the wave head:
+install (an unreachable registry included), prints `HOLD`: nothing was judged. A FAIL and a HOLD both fail the job at that
+step, which has no `continue-on-error`, and no later step reads its outcome. The step runs before the pull request's code
+and settles the job on its own, because a step after that code is a shell the code can steer: an install script that adds
+`BASH_ENV=<a file that exits 0>` to `GITHUB_ENV`, or puts a `bash` that exits 0 first on `GITHUB_PATH`, turned the
+reviewed workflow's later `test guard verdict` step into a pass (review-r1, H1). The steps after a failed guard are
+skipped, so a refused pull request gets no `check`, `test` or `gate-hosted` result; `summary` lists their receipts as
+missing, and the guard step's log says why. `tests/ci-guard/run.sh` replays the step from the workflow in synthetic
+repositories against each of these routes (Bun, Git, Python, `unshare -rn` and the npm registry; it runs outside Vitest
+and CI), and `tests/ci/guard-enforcement.test.ts`, which Vitest collects, replays the job's conclusion with the runner's
+`if`, `continue-on-error`, `GITHUB_ENV` and `GITHUB_PATH` rules against those two install routes. Both are emulations of
+the runner; the first pull request through the workflow on GitHub is the real check. Still trusted, and not defended
+here: this workflow, which comes from the merge commit, so a pull request that changes it needs review, and the whole
+persistent runner, whose binaries, `_work` checkout (its Git configuration and hooks), tool and Bun caches and `$HOME` an
+earlier job can alter (`docs/ci-runner.md`). The steps after the guard run the pull request's code, and a pull request can
+make its own `check`, `test` and `summary` steps pass; the guard is the one verdict settled before that code runs.
+A manifest stays in the tree, so a wave PR into `dev` runs every manifest its tickets added, at the wave head:
 a later ticket in the same wave that changes a protected file needs a reviewed `assertionCountReasons` entry in that
 manifest, for a free test only. CI has no copy of the ledger, so it cannot tell on its own that a pull request is a
 fix round; the `fix-round` label, and the binding at `approve` below, are the two controls.

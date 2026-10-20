@@ -1,6 +1,6 @@
 # Persist hosted case user work with stable identities and conflict handling
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-117/persist-hosted-case-user-work-with-stable-identities-and-conflict) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-117/persist-hosted-case-user-work-with-stable-identities-and-conflict) is the execution authority.
 
 Planning key `HA-user-work`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

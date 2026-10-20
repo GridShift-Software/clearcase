@@ -51,6 +51,8 @@ Browser jobs share the host's two browser slots through the workspace's `orch-bi
 
 A refusal stops the entry point before it runs anything: `gate` prints `GATE FAIL env`, `evidence.sh` exits 2, the skill's preflight exits 3 and `gate:hosted` prints `GATE FAIL preflight`. `bun scripts/browser-lock.mjs` prints the lock this checkout resolves (an empty line for none) and what admitted it.
 
+The resolver exists only on branches that carry GRS-154 (`wave/delivery-controls`, and `dev` once that wave merges). A checkout without `scripts/browser-lock.mjs` takes a slot only when `CLEARCASE_BROWSER_LOCK` is exported as the absolute path of the workspace's `orch-bin/browser-lock`, and a gate run without a slot does not count as evidence. `scripts/agent-tools/doctor` prints a `browser-lock` row that says which of these applies to the checkout (see `docs/agent-tooling.md`).
+
 ## Hosted runtime (GRS-112)
 
 One app builds two artifacts, chosen by one build variable. Unset (or `local`), `CLEARCASE_TARGET` builds the local pilot on adapter-node, which `bun run --bun start` serves. `CLEARCASE_TARGET=hosted` builds the Workers artifact on adapter-cloudflare from the route tree and server hooks that `deploy/client/hosted-files.json` selects (`deploy/client/routes/`, `src/lib/server/runtime/hosted/hooks.server.ts`). Set it only through `build:hosted`. The CSP and the Origin check are the app's, and the hosted graph has its own `handleError` (`src/lib/server/runtime/hosted/handle.ts`) in place of the local one; in the hosted graph the identity handle's authorization replaces the local loopback boundary. The pins are those of `docs/acceptance/hosting/runtime.md` (Kit 3.1.0, adapter-cloudflare 8.0.1, Wrangler 4.151.1, workerd 1.20261012.1).

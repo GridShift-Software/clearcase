@@ -1,4 +1,5 @@
-"""Run every planning graph fixture through scripts/planning/check.py, without the agent-tools receipt layer.
+"""Run every planning fixture through scripts/planning/check.py or, for plan-format, plan_format.py, without the
+agent-tools receipt layer.
 
 Usage: python3 tests/planning/graph_fixtures.py
 Each fixture in tests/agent-tools/fixtures/graph/ edits a disposable copy of the committed plan (make_tree.py)
@@ -9,6 +10,7 @@ through scripts/agent-tools/verify and applies the same rules.
 """
 
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -17,6 +19,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 FIXTURES = REPO / "tests/agent-tools/fixtures/graph"
 STATUS_LINES = ("Compared the Linear readback", "HOLD: ")
+SUMMARY = re.compile(r"plan-format: FAIL\. \d+ findings? in ")
 failures = 0
 with tempfile.TemporaryDirectory(prefix="planning-graph-") as work:
     for fixture_path in sorted(FIXTURES.glob("*.json")):
@@ -28,6 +31,8 @@ with tempfile.TemporaryDirectory(prefix="planning-graph-") as work:
             print(f"FAIL {fixture_path.stem}: the fixture tree did not build\n    {built.stderr.splitlines()[-1:]}")
             continue
         command = [sys.executable, str(tree / "scripts/planning/check.py"), "--require-linear-ids"]
+        if fixture["capability"] == "plan-format":
+            command = [sys.executable, str(tree / "scripts/planning/plan_format.py")]
         if fixture["capability"] == "linear-relations":
             command += ["--linear-relations", str(tree / "readback.json")]
         result = subprocess.run(command, capture_output=True, text=True)
@@ -37,7 +42,7 @@ with tempfile.TemporaryDirectory(prefix="planning-graph-") as work:
         present = [text for text in expect.get("absent", []) + ([] if expect["exit"] == 0 else ["PASS"]) if text in output]
         # The checker's own status lines are not findings; everything else must be one the fixture expects.
         unexpected = [line for line in output.splitlines() if line.strip() and not line.startswith(STATUS_LINES)
-                      and not any(message in line for message in expect["output"])]
+                      and not SUMMARY.match(line) and not any(message in line for message in expect["output"])]
         if result.returncode != expect["exit"] or missing or present or unexpected:
             failures += 1
             print(f"FAIL {fixture_path.stem}: exit {result.returncode}, expected {expect['exit']}; missing {missing}; "

@@ -1,6 +1,6 @@
 # Build the V2 prompt-pack eval harness
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-63/build-the-v2-prompt-pack-eval-harness) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-63/build-the-v2-prompt-pack-eval-harness) is the execution authority.
 
 ## Outcome
 

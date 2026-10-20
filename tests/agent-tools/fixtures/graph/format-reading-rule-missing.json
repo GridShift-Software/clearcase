@@ -1,0 +1,21 @@
+{
+  "description": "An intro whose reading guide drops the evidence rule fails, though the plan is current",
+  "capability": "plan-format",
+  "editsBefore": {
+    "docs/plan/program-intro.md": [
+      [
+        "Check a box only when its evidence exists. ",
+        ""
+      ]
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "How to read this lacks \"Check a box only when its evidence exists.\""
+    ],
+    "absent": [
+      "Traceback"
+    ]
+  }
+}

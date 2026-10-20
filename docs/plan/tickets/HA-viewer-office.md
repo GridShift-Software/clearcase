@@ -1,6 +1,6 @@
 # Implement faithful Word and Excel viewing and prepared renditions
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-121/implement-faithful-word-and-excel-viewing-and-prepared-renditions) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-121/implement-faithful-word-and-excel-viewing-and-prepared-renditions) is the execution authority.
 
 Planning key `HA-viewer-office`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

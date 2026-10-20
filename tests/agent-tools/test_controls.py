@@ -31,7 +31,9 @@ class ControlCase(unittest.TestCase):
         self.repo = self.work / 'repo'
         self.repo.mkdir()
         self.receipts = self.work / 'receipts'
-        self.env = {k: v for k, v in os.environ.items() if k not in ('CLEARCASE_BASE_REF', 'GIT_DIR', 'GIT_WORK_TREE')}
+        # The harness variables would choose a pstack install outside the fixture HOME.
+        self.env = {k: v for k, v in os.environ.items() if k not in ('CLEARCASE_BASE_REF', 'GIT_DIR', 'GIT_WORK_TREE',
+                    'T3_PSTACK_HARNESS', 'CLAUDECODE', 'CODEX_THREAD_ID', 'CODEX_HOME')}
         self.env['CLEARCASE_RECEIPTS_DIR'] = str(self.receipts)
         self.git('init', '-q', '-b', 'dev')
         self.write('app.txt', 'before\n')
@@ -891,7 +893,7 @@ class LegacyRegistry(ControlCase):
         self.env['CLEARCASE_NODE'] = str(wrapper)
         self.env['LEGACY_REGISTRY'] = str(self.registry)
         plan = TOOLS.parents[1] / 'tests/agent-tools/fixtures/plans/valid.md'
-        self.assertIn('input changed during the run', self.cli('verify', 'plan-format', '--skills-dir', self.skills,
+        self.assertIn('input changed during the run', self.cli('verify', 'pstack-plan-format', '--skills-dir', self.skills,
                       '--plan', plan, code=1))
         self.assertEqual(self.last_receipt()['result'], 'FAIL')
 

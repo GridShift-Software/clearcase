@@ -2,14 +2,23 @@
   "description": "The planning gate is Canceled, not approved",
   "capability": "plan-graph",
   "set": {
-    "HA-grs-69.status": "Canceled"
+    "HA-grs-69.status": "Canceled",
+    "HA-costs.depends": [
+      "CC-28",
+      "HA-views-quantum-registers"
+    ],
+    "HA-costs.nativeBlockedBy": [
+      "GRS-36",
+      "GRS-132"
+    ]
   },
   "expect": {
     "exit": 1,
     "output": [
       "HA-grs-69: a map record is open or Done and writes nothing",
       "Planning gate GRS-69 must be an open or Done map item",
-      "HA-plan-resync-20261017: hosted work is not natively blocked by the planning gate",
+      "HA-costs: hosted work is not natively blocked by the planning gate",
+      "hosted delivery owner must be a gated Backlog writer with verification",
       "Plan has 2 Canceled items; the readback has 1"
     ]
   }

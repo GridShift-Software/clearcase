@@ -1,0 +1,21 @@
+{
+  "description": "An open-issue row that differs from work-items.json fails even when the row count agrees",
+  "capability": "plan-format",
+  "editsAfter": {
+    "docs/delivery-plan.md": [
+      [
+        "- GRS-99. Plan live Outlook and Gmail integrations after alpha. Backlog.",
+        "- GRS-99. Plan live Outlook and Gmail integrations after alpha. Done."
+      ]
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "open-issue line differs from work-items.json"
+    ],
+    "absent": [
+      "Traceback"
+    ]
+  }
+}

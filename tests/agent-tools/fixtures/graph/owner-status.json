@@ -3,15 +3,31 @@
   "capability": "plan-graph",
   "set": {
     "HA-grs-69.status": "Backlog",
-    "HA-kyc.status": "In Progress"
+    "HA-kyc.status": "In Progress",
+    "HA-costs.depends": [
+      "CC-28",
+      "HA-views-quantum-registers"
+    ],
+    "HA-costs.nativeBlockedBy": [
+      "GRS-36",
+      "GRS-132"
+    ],
+    "CC-15.status": "In Progress",
+    "CC-16.status": "In Progress",
+    "CC-17.status": "In Progress",
+    "CC-19.status": "In Progress",
+    "CC-20.status": "In Progress",
+    "CC-26.status": "In Progress"
   },
   "expect": {
     "exit": 1,
     "output": [
-      "HA-plan-resync-20261017: hosted work is not natively blocked by the planning gate",
+      "closed but its dependency HA-grs-69 is open",
+      "HA-costs: hosted work is not natively blocked by the planning gate",
       "HA-kyc: hosted delivery owner must be a gated Backlog writer with verification",
-      "Plan has 3 In Progress items; the readback has 2",
-      "59 open plan items and 4 open outside the plan do not make 62 open issues"
+      "hosted delivery owner must be a gated Backlog writer with verification",
+      "46 open plan items and 14 open outside the plan do not make 59 open issues",
+      "Plan has 8 In Progress items; the readback has 6"
     ]
   }
 }

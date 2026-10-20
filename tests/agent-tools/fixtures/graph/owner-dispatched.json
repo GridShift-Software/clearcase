@@ -2,20 +2,80 @@
   "description": "The planning gate is Done and a hosted delivery owner is dispatched, so it is In Progress with the readback counts to match",
   "capability": "linear-relations",
   "set": {
-    "HA-tooling.status": "In Progress"
+    "HA-storage-proof.status": "In Progress"
   },
   "snapshot": {
     "readback": {
-      "source": "Coordinator incremental readback .orchestration/live-linear-readback-20261017T1427.json (ignored): the 14:11Z full capture plus live re-reads of every issue Linear reported updated since 14:10Z; all project issue metadata and the blockedBy relations of every open issue, read at 2026-10-17T14:27Z.",
-      "projectIssues": 115,
-      "openIssues": 62,
+      "source": "Coordinator capture linear-readback-fix-r1.json (ignored, .orchestration/reports/GRS-159/), taken 2026-10-20T19:21:49.118518+00:00: Full 20 October project capture with every issue updated since prior capture reread, including GRS-159 bounded fix-round state. Project f473fd2d-c994-4dc6-84e2-b90a68848e48.",
+      "projectIssues": 132,
+      "openIssues": 59,
       "statusCounts": {
-        "In Progress": 3,
-        "Backlog": 59,
-        "Done": 52,
+        "Done": 72,
+        "In Progress": 7,
+        "Backlog": 52,
         "Canceled": 1
       },
       "openOutsidePlan": [
+        {
+          "identifier": "GRS-159",
+          "status": "In Progress",
+          "milestone": null,
+          "title": "Repair planning checks and cross-harness plugin discovery; reconcile agent guidance"
+        },
+        {
+          "identifier": "GRS-157",
+          "status": "In Progress",
+          "milestone": null,
+          "title": "Accept the delivery-controls adoption wave"
+        },
+        {
+          "identifier": "GRS-156",
+          "status": "Backlog",
+          "milestone": null,
+          "title": "Represent docs-only fix rounds consistently in review approval and the trusted guard"
+        },
+        {
+          "identifier": "GRS-155",
+          "status": "In Progress",
+          "milestone": null,
+          "title": "Isolate trusted CI guard from candidate Bun configuration and dependencies"
+        },
+        {
+          "identifier": "GRS-154",
+          "status": "In Progress",
+          "milestone": null,
+          "title": "Enforce browser admission and unchanged checkout identity across verification entry points"
+        },
+        {
+          "identifier": "GRS-153",
+          "status": "Backlog",
+          "milestone": null,
+          "title": "Fix-round guard: a manifest's range spans every later merge from dev, so a protected-dependency change on dev fails older manifests"
+        },
+        {
+          "identifier": "GRS-152",
+          "status": "In Progress",
+          "milestone": null,
+          "title": "Bundles e2e suite: the 13 scenarios after CB-RESTART intermittently time out on hydration, even on an idle host with the browser lock"
+        },
+        {
+          "identifier": "GRS-150",
+          "status": "Backlog",
+          "milestone": null,
+          "title": "Test-weakening guard: residual reviewer-owned routes after GRS-148 (constructor from a literal, bare export *, module.exports, build-copied assets)"
+        },
+        {
+          "identifier": "GRS-149",
+          "status": "Backlog",
+          "milestone": null,
+          "title": "Read the newer export's code-embedded analysis (mod_00_analysis.js): risks, matter headings, timeline, defence and witnesses are silently dropped"
+        },
+        {
+          "identifier": "GRS-147",
+          "status": "Backlog",
+          "milestone": "M5 - Hosted alpha delivery and acceptance",
+          "title": "Implement alpha operational signals, per-client health and operator incident alerts"
+        },
         {
           "identifier": "GRS-99",
           "status": "Backlog",

@@ -1,13 +1,13 @@
 {
-  "description": "Live GRS-104 lost its GRS-69 blocker",
+  "description": "Live GRS-109 lost its GRS-69 blocker",
   "capability": "linear-relations",
   "readback": {
-    "HA-tooling.blockedBy": []
+    "HA-storage-proof.blockedBy": []
   },
   "expect": {
     "exit": 1,
     "output": [
-      "HA-tooling: live blocking relations differ"
+      "HA-storage-proof: live blocking relations differ"
     ]
   }
 }

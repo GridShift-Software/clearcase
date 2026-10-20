@@ -105,9 +105,10 @@ printf '#!/bin/sh\necho 1.3.9\n' >"$oldbun/bun" && chmod +x "$oldbun/bun" || die
 # Expected exits at the GRS-104 tooling change (the old lines expected 0 or 3): the retired pstack-upstream steps and
 # the required plan-format and linear-relations steps FAIL (1) where they were SKIPPED (3), and check-plan fails (1)
 # on the delivery plan's format backlog. At GRS-159 plan-format became the project's own delivery-plan contract, so
-# v2-check-plan returns to 0, and the pstack check-plan.mjs steps call it by its new name, pstack-plan-format.
+# v2-check-plan returns to 0, a missing required readback is the only failure and exits 3, and the pstack
+# check-plan.mjs steps call that checker by its new name, pstack-plan-format.
 readback_args=${READBACK:+--linear-relations "'$READBACK'"}
-readback_expect=$([[ -n $READBACK ]] && echo 0 || echo 1)
+readback_expect=$([[ -n $READBACK ]] && echo 0 || echo 3)
 checkout_args=${CHECKOUT:+--checkout "'$CHECKOUT'"}
 checkout_expect=1
 
@@ -124,7 +125,7 @@ need v1-pstack-upstream "$checkout_expect" head "$WT" pstack-upstream "scripts/a
 need v1-bootstrap-remove 0 head "$WT" bootstrap-remove "scripts/agent-tools/receipt --name bootstrap-remove -- scripts/agent-tools/bootstrap --remove"
 # 2. planning checker and the delivery-plan format
 need v2-check-plan 0 head "$WT" "plan-graph plan-format" "scripts/agent-tools/check-plan"
-# 3. Linear readback comparison (0 with a CC27_READBACK that matches the plan; without one, 1 for the missing required
+# 3. Linear readback comparison (0 with a CC27_READBACK that matches the plan; without one, 3 for the missing required
 #    readback, which also ends the run INCOMPLETE)
 need v3-linear-relations "$readback_expect" head "$WT" "plan-graph plan-format linear-relations" \
 	"scripts/agent-tools/check-plan --require-linear-relations $readback_args"
@@ -148,7 +149,7 @@ need v6-fixture-tests 0 head "$fresh" fixture-tests "PATH=\"\$PATH:${BUN%/*}\" s
 need v6-pstack-upstream "$checkout_expect" head "$fresh" pstack-upstream "scripts/agent-tools/verify pstack-upstream $checkout_args"
 need v6-doctor-without-node 1 head "$fresh" doctor "PATH='$nonode' scripts/agent-tools/doctor"
 need v6-pstack-plan-format-without-node 1 head "$fresh" pstack-plan-format "PATH='$nonode' scripts/agent-tools/verify pstack-plan-format --plan tests/agent-tools/fixtures/plans/valid.md"
-need v6-required-readback-missing 1 head "$fresh" "plan-graph plan-format linear-relations" \
+need v6-required-readback-missing 3 head "$fresh" "plan-graph plan-format linear-relations" \
 	"scripts/agent-tools/check-plan --require-linear-relations"
 need v6-doctor-empty-path 2 none "$fresh" "" "PATH=/nonexistent scripts/agent-tools/doctor"
 need v6-doctor-without-git 1 none "$fresh" doctor "PATH='$nogit' scripts/agent-tools/doctor"

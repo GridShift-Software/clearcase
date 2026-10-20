@@ -172,9 +172,9 @@ for message in "long dash" 'How to read this lacks "One box is one unit of work"
 	has "invalid plan diagnoses: $message" "$message"
 done
 receipt_is "invalid plan receipt is FAIL" FAIL 1
+if grep -qF "long dash" "$(compgen -G "$RECEIPTS/*/stderr.txt")"; then ok "checker stderr preserved in receipt"; else bad "checker stderr preserved in receipt"; fi
 run "pstack-plan-format without --plan fails instead of judging the delivery plan" 1 "$TOOLS/verify" pstack-plan-format
 reason_has "the missing plan names the option and the project check" "--plan PATH (docs/delivery-plan.md is checked by plan-format)"
-if grep -qF "long dash" "$(compgen -G "$RECEIPTS/*/stderr.txt")"; then ok "checker stderr preserved in receipt"; else bad "checker stderr preserved in receipt"; fi
 
 echo "# planning fixtures through verify plan-graph / plan-format / linear-relations"
 # fixture_list FIXTURE KEY : the strings in the fixture's expect.KEY, one per line
@@ -243,7 +243,7 @@ has "the self-test covers a wrong-build instance" "PASS     live doctor, another
 has "the self-test covers another data directory" "PASS     live doctor, another data directory: FAIL on dataDir"
 
 echo "# required failures are never suppressed"
-run "required Linear comparison without a readback fails" 1 "$TOOLS/check-plan" --require-linear-relations
+run "required Linear comparison without a readback fails" 3 "$TOOLS/check-plan" --require-linear-relations
 has "check-plan reports the skipped comparison" "linear-relations=SKIPPED"
 has "check-plan overall verdict is FAIL" "check-plan: FAIL"
 run "missing command is SKIPPED, not PASS" 3 "$TOOLS/receipt" --name missing -- definitely-not-a-command-cc27
@@ -996,7 +996,7 @@ restore_codex() { for file in "$XHOME/.codex/config.toml" "$CODEX_CLONE/.codex-m
 set_json() { python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); exec(sys.argv[2]); json.dump(d, open(p, "w"))' "$1" "$2"; }
 run "an explicit Codex root validates against Codex's own install records" 0 "${HENV[@]}" T3_PSTACK_ROOT="$CODEX_ROOT" "$TOOLS/verify" pstack
 receipt_check "the explicit Codex root records Codex provenance" 'r["pstack"]["harness"] == "codex" and r["pstack"]["selection"] == "T3_PSTACK_ROOT" and r["pstack"]["version"] == "2.0.0-rc.15" and r["pstack"]["gitCommitSha"] == "b" * 40'
-receipt_check "the Codex receipt fingerprints its config, install record, listing and manifest" 'all(any(i["path"].endswith(n) and i["sha256"] for i in r["inputs"]) for n in ("config.toml", ".codex-marketplace-install.json", "marketplace.json", ".codex-plugin/plugin.json"))'
+receipt_check "the Codex receipt fingerprints its config, install record, listing and manifest" 'len([i for i in r["inputs"] if i["sha256"] and i["path"].endswith(("/config.toml", "/.codex-marketplace-install.json", "/marketplace.json", "/.codex-plugin/plugin.json"))]) == 4'
 run "an active Codex session selects the Codex install" 0 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
 has "the summary names the Codex harness" "harness codex"
 receipt_check "the Codex session's receipt records the harness and why" 'r["pstack"]["harness"] == "codex" and "CODEX_THREAD_ID" in r["pstack"]["harnessSelection"] and r["pstack"]["version"] == "2.0.0-rc.15"'

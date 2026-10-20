@@ -41,6 +41,9 @@ const ADMITTED: Case[] = [
 ];
 
 const FORK = 'someone/clearcase';
+// Who opened or updated a pull request does not decide whether its job runs: a writer can open a pull request from a fork
+// (SP2 of GRS-158's first review), and the outsider who owns that fork can push to it afterwards.
+const by = (actor: string, c: Case): Case => ({ name: c.name, github: { ...c.github, actor, triggering_actor: actor, event: { ...(c.github.event as Record<string, Value>), sender: { login: actor, type: 'User' } } } });
 // Events the workflow does not support, beyond the ones with a row of their own below. The public can cause several of
 // them (issues, comments, discussions, forks, stars).
 const OTHER_EVENTS = [
@@ -51,6 +54,9 @@ const OTHER_EVENTS = [
 const REJECTED: Case[] = [
 	on('a pull request from a fork', 'pull_request', 'refs/pull/7/merge', pullRequest(FORK)),
 	on('a pull request from a fork a collaborator owns', 'pull_request', 'refs/pull/7/merge', pullRequest('collaborator/clearcase', { user: { login: 'collaborator', type: 'User' }, author_association: 'MEMBER' })),
+	by('gridshift-admin', on('a pull request an organization admin opened from an outsider\'s fork', 'pull_request', 'refs/pull/7/merge', pullRequest('outsider/clearcase', { author_association: 'MEMBER', user: { login: 'outsider', type: 'User' } }))),
+	by('gridshift-admin', on('a pull request an organization member opened from their own fork', 'pull_request', 'refs/pull/7/merge', { ...pullRequest('gridshift-admin/clearcase', { author_association: 'MEMBER' }), action: 'opened' })),
+	by('outsider', on('a push by an outsider to the fork branch of a pull request a member opened', 'pull_request', 'refs/pull/7/merge', { ...pullRequest('outsider/clearcase', { author_association: 'MEMBER' }), action: 'synchronize' })),
 	on('a pull request whose fork was deleted', 'pull_request', 'refs/pull/7/merge', pullRequest(null)),
 	on('a pull_request_target run for a fork', 'pull_request_target', 'refs/heads/dev', pullRequest(FORK)),
 	on('a pull_request_target run for a branch of this repository', 'pull_request_target', 'refs/heads/dev', pullRequest(REPO)),
@@ -150,6 +156,9 @@ describe('public repository workflow policy', () => {
 				expect(inputs['persist-credentials']).toBe(false);
 				for (const key of ['repository', 'token', 'ssh-key']) expect(inputs[key], key).toBeUndefined();
 			}
+		});
+		it('names no person, role or sender in its guard, so being a member does not admit a fork\'s code', () => {
+			expect(String(job.if ?? '')).not.toMatch(/\b(actor|triggering_actor|sender|author_association|login)\b/i);
 		});
 		it('puts no ${{ }} expression inside a script, where a branch name or title would become code', () => {
 			for (const step of steps(job)) expect(String(step.run ?? ''), String(step.name ?? step.run)).not.toContain('${{');

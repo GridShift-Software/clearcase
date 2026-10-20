@@ -4,14 +4,19 @@ Usage: python3 scripts/planning/plan_format.py [--root ROOT] [PLAN]   (PLAN defa
 The plan begins with docs/plan/program-intro.md, whose reading guide states the project's box and evidence rules and
 whose checklist holds only boxes. The generated sections follow in order. Every planning item has one graph line under
 its milestone, with its Linear link, status, role, in-plan blockers and an existing brief; every v5 view has one hosted
-owner; and the snapshot, statuses, controls and pending rows agree with docs/plan/work-items.json, so a plan rendered
-from older inputs fails. check.py separately proves every generated file byte-for-byte current.
+owner. The controls, the snapshot line, the open-issue rows and the pending coordinator rows are compared line for line
+with the lines generate.py writes from docs/plan/work-items.json (it supplies them), so a plan rendered from older
+inputs fails. What it does not compare is the rest of each graph line (the blocker and child links), the summary
+paragraph under the snapshot line, and the view-ownership and audit appendix prose: only check.py's byte-for-byte
+generated-file check covers those, and it covers the default plan only, not a --plan PATH.
 """
 import argparse
 import json
 import re
 import sys
 from pathlib import Path
+
+import generate
 
 REPO = Path(__file__).resolve().parents[2]
 SECTIONS = ["Delivery controls", "Current issue graph", "Open issues outside the plan", "Hosted view ownership",
@@ -49,6 +54,9 @@ def check(root, plan_path):
     coverage = json.loads((root / "docs/plan/view-coverage.json").read_text())
     intro = (root / "docs/plan/program-intro.md").read_text()
     text = plan_path.read_text()
+    for item in work["items"]:
+        if not isinstance(item.get("linear"), dict):
+            raise ValueError(f"work-items.json item {item.get('key')!r} has a linear field that is not an object with an identifier")
     items, snapshot = {item["key"]: item for item in work["items"]}, work["snapshot"]
     findings = []
 
@@ -94,9 +102,9 @@ def check(root, plan_path):
         find(number, f"Delivery controls lists {len(present)} controls, work-items.json {len(work['controls'])}")
 
     number, graph = body.get("Current issue graph", empty)
-    stamp = f"Snapshot of {snapshot['date']} at `{snapshot['sourceRevision'][:12]}`."
-    if not any(line.startswith(stamp) for _, line in graph):
-        find(number, f'Current issue graph lacks "{stamp}" from work-items.json; the plan is stale')
+    stamp = generate.snapshot_line(snapshot)
+    if stamp not in [line for _, line in graph]:
+        find(number, f'Current issue graph lacks "{stamp}" from work-items.json (snapshot line differs from work-items.json); the plan is stale')
     milestones = split(graph, "### ")
     names = [milestone["name"] for milestone in work["milestones"]]
     if [title for title, _, _ in milestones] != names:
@@ -146,12 +154,15 @@ def check(root, plan_path):
 
     number, lines = body.get("Open issues outside the plan", empty)
     outside = bullets(lines)
+    wanted = generate.outside_lines(snapshot["readback"])
     for n, line in outside:
         if not OUTSIDE_LINE.fullmatch(line):
             find(n, "open-issue line is not `- GRS-n. Title. Status. Milestone M.`")
-    if len(outside) != len(snapshot["readback"]["openOutsidePlan"]):
-        find(number, f"{len(outside)} open issues outside the plan, work-items.json records "
-                     f"{len(snapshot['readback']['openOutsidePlan'])}; the plan is stale")
+    for (n, line), want in zip(outside, wanted):
+        if line != want:
+            find(n, f"open-issue line differs from work-items.json; the plan is stale. Expected: {want}")
+    if len(outside) != len(wanted):
+        find(number, f"{len(outside)} open issues outside the plan, work-items.json records {len(wanted)}; the plan is stale")
 
     number, lines = body.get("Hosted view ownership", empty)
     owner_of = {}
@@ -176,12 +187,15 @@ def check(root, plan_path):
         find(owner_of[view], f"view {view} is not in view-coverage.json")
 
     number, lines = body.get("Pending coordinator changes", empty)
-    pending = snapshot.get("pendingCoordinatorChanges", [])
+    wanted = generate.pending_lines(snapshot)
     rows = bullets(lines)
-    if len(rows) != len(pending):
-        find(number, f"Pending coordinator changes lists {len(rows)} rows, work-items.json {len(pending)}; the plan is stale")
-    elif not pending and [line for _, line in lines if line.strip()] != ["None."]:
+    if len(rows) != len(wanted):
+        find(number, f"Pending coordinator changes lists {len(rows)} rows, work-items.json {len(wanted)}; the plan is stale")
+    elif not wanted and [line for _, line in lines if line.strip()] != ["None."]:
         find(number, 'Pending coordinator changes must read "None." while work-items.json lists none')
+    for (n, line), want in zip(rows, wanted):
+        if line != want:
+            find(n, f"pending coordinator line differs from work-items.json; the plan is stale. Expected: {want}")
 
     number, lines = body.get("Appendix A. Audit dispositions by issue", empty)
     if [line[2:8] for _, line in bullets(lines)] != [f"BA-{n:02}." for n in range(1, 22)]:
@@ -201,7 +215,7 @@ def main():
     plan = (args.plan or root / "docs/delivery-plan.md").resolve()
     try:
         findings, summary = check(root, plan)
-    except (OSError, ValueError, KeyError, TypeError) as error:
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
         print(f"plan-format: FAIL. cannot read the plan or its inputs under {root}: {type(error).__name__}: {error}", file=sys.stderr)
         return 1
     if findings:

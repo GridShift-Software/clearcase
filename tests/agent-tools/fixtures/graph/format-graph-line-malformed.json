@@ -1,0 +1,22 @@
+{
+  "description": "A graph line without its key in backticks is malformed and its item goes missing",
+  "capability": "plan-format",
+  "editsAfter": {
+    "docs/delivery-plan.md": [
+      [
+        " `HA-notes`. Unify",
+        " HA-notes. Unify"
+      ]
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "graph line is not",
+      "HA-notes from work-items.json has no graph line"
+    ],
+    "absent": [
+      "Traceback"
+    ]
+  }
+}

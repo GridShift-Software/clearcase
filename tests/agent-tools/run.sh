@@ -174,7 +174,7 @@ done
 receipt_is "invalid plan receipt is FAIL" FAIL 1
 if grep -qF "long dash" "$(compgen -G "$RECEIPTS/*/stderr.txt")"; then ok "checker stderr preserved in receipt"; else bad "checker stderr preserved in receipt"; fi
 
-echo "# planning graph fixtures through verify plan-graph / linear-relations"
+echo "# planning fixtures through verify plan-graph / plan-format / linear-relations"
 # fixture_list FIXTURE KEY : the strings in the fixture's expect.KEY, one per line
 fixture_list() { python3 -c 'import json,sys; [print(m) for m in json.load(open(sys.argv[1]))["expect"].get(sys.argv[2], [])]' "$1" "$2"; }
 for fixture in "$FIXTURES"/graph/*.json; do
@@ -189,7 +189,7 @@ for fixture in "$FIXTURES"/graph/*.json; do
 	while IFS= read -r message; do lacks "graph $name omits: $message" "$message"; done < <(fixture_list "$fixture" absent)
 	[[ $expected == 0 ]] || lacks "graph $name does not print PASS" "PASS"
 	# a negative fixture must fail for its own cause: every finding line is one the fixture names
-	unexpected=$(grep -vF -e "receipt: " -e "spend: " -e "Compared the Linear readback" -e "HOLD: " "$OUT" | grep -v '^$' | grep -vFf <(fixture_list "$fixture" output))
+	unexpected=$(grep -vF -e "receipt: " -e "spend: " -e "Compared the Linear readback" -e "HOLD: " "$OUT" | grep -vE '^$|^plan-format: FAIL\. [0-9]+ findings? in ' | grep -vFf <(fixture_list "$fixture" output))
 	if [[ -z $unexpected ]]; then ok "graph $name reports only the expected findings"; else bad "graph $name reports a finding the fixture does not name" "$unexpected"; fi
 	receipt_is "graph $name receipt" "$([[ $expected == 0 ]] && echo PASS || echo FAIL)" "$expected"
 done
@@ -348,10 +348,14 @@ EVPLAN="$EV/tests/agent-tools/fixtures/plans/valid.md"
 READBACK="$WORK/tree-readback-valid/readback.json"
 loose() { local id; id=$(git -C "$EV" rev-parse "$1") && echo "$EV/.git/objects/${id:0:2}/${id:2}"; }
 run "the doctor passes in the copy" 0 "$EVTOOLS/doctor"
-run "check-plan honestly fails the current delivery format in the copy" 1 "$EVTOOLS/check-plan" --require-linear-relations --linear-relations "$READBACK"
-# The positive control needs no backlog: the synthetic valid plan stands in for docs/delivery-plan.md.
-run "check-plan passes on the synthetic valid plan in the copy" 0 "$EVTOOLS/check-plan" --plan "$EVTOOLS/../../tests/agent-tools/fixtures/plans/valid.md" --require-linear-relations --linear-relations "$READBACK"
+run "check-plan passes the real generated delivery plan in the copy" 0 "$EVTOOLS/check-plan" --require-linear-relations --linear-relations "$READBACK"
 has "the composite verdict is PASS with every step PASS" "check-plan: PASS. plan-graph=PASS, plan-format=PASS, linear-relations=PASS."
+has "the format step names the project contract it checked" "follows the generated delivery-plan contract"
+lacks "check-plan does not run pstack's generic plan format" "verify-perf="
+# A plan in pstack's generic multi-phase format is not this project's plan, however valid it is there.
+run "check-plan rejects a plan in pstack's generic format" 1 "$EVTOOLS/check-plan" --plan "$EVTOOLS/../../tests/agent-tools/fixtures/plans/valid.md" --require-linear-relations --linear-relations "$READBACK"
+has "the generic plan fails only the format step" "check-plan: FAIL. plan-graph=PASS, plan-format=FAIL, linear-relations=PASS."
+has "the generic plan is named for its missing sections" "sections after the intro are"
 echo "untracked synthetic input" >"$EV/untracked.txt"
 run "an intact index records the untracked file" 0 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
 receipt_check "the intact-index receipt is dirty with a fingerprint" 'r["revision"]["dirty"] is True and re.fullmatch("[0-9a-f]{64}", r["revision"]["diffSha256"] or "")'
@@ -798,8 +802,8 @@ rm "$PLANTED/$changed/PLANTED.md"
 echo "# canonical plugin discovery, identity and fail-closed fallback"
 # Self-contained: a synthetic plugin under a throwaway HOME, generated skill text, the unchanged canonical checker
 # from fixtures/pstack/, and no inherited T3_PSTACK_ROOT or CLEARCASE_SKILLS_DIR. Nothing in this section discovers
-# or copies from the real HOME; PSTACK_ENV strips the two variables that would redirect discovery.
-PSTACK_ENV=(env -u T3_PSTACK_ROOT -u CLEARCASE_SKILLS_DIR -u CLEARCASE_CHROMIUM)
+# or copies from the real HOME; PSTACK_ENV strips the variables that would redirect discovery or name a harness.
+PSTACK_ENV=(env -u T3_PSTACK_ROOT -u T3_PSTACK_HARNESS -u CLAUDECODE -u CODEX_THREAD_ID -u CODEX_HOME -u CLEARCASE_SKILLS_DIR -u CLEARCASE_CHROMIUM)
 CHECKER_FIXTURE="$FIXTURES/pstack/check-plan.mjs"
 CHECKER_SHA=f4bb71a390d7a49fc7d6e7dd178d2c2c0d9575c13194dc94a7df324107b87882
 if [[ $(python3 -c 'import hashlib, sys; print(hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest())' "$CHECKER_FIXTURE") == "$CHECKER_SHA" ]] \
@@ -972,6 +976,93 @@ if verdict=$("${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" python3 -I -B "$HERE/count_d
 else
 	bad "a capability run discovers the plugin once and reuses it for its receipt" "$verdict"
 fi
+
+echo "# cross-harness discovery: Claude and Codex installs, each judged by its own provenance"
+# One throwaway HOME holds a Claude install (rc.5) and a Codex install (rc.15) laid out as Codex 0.163 records it.
+XHOME="$WORK/harness-home"
+python3 "$HERE/make_plugin.py" "$XHOME" 2.0.0-rc.5 && python3 "$HERE/make_plugin.py" "$XHOME" --codex 2.0.0-rc.15
+HENV=("${PSTACK_ENV[@]}" HOME="$XHOME")
+CODEX_ROOT="$XHOME/.codex/plugins/cache/t3-pstack/t3-pstack/2.0.0-rc.15"
+CLAUDE_ROOT="$XHOME/.claude/plugins/cache/t3-pstack/t3-pstack/2.0.0-rc.5"
+CODEX_CLONE="$XHOME/.codex/.tmp/marketplaces/t3-pstack"
+for file in "$XHOME/.codex/config.toml" "$CODEX_CLONE/.codex-marketplace-install.json" "$CODEX_CLONE/.claude-plugin/marketplace.json"; do
+	cp "$file" "$file.saved"
+done
+restore_codex() { for file in "$XHOME/.codex/config.toml" "$CODEX_CLONE/.codex-marketplace-install.json" "$CODEX_CLONE/.claude-plugin/marketplace.json"; do cp "$file.saved" "$file"; done; }
+# set_json FILE EXPR : apply a Python expression to the JSON object d in FILE
+set_json() { python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p)); exec(sys.argv[2]); json.dump(d, open(p, "w"))' "$1" "$2"; }
+run "an explicit Codex root validates against Codex's own install records" 0 "${HENV[@]}" T3_PSTACK_ROOT="$CODEX_ROOT" "$TOOLS/verify" pstack
+receipt_check "the explicit Codex root records Codex provenance" 'r["pstack"]["harness"] == "codex" and r["pstack"]["selection"] == "T3_PSTACK_ROOT" and r["pstack"]["version"] == "2.0.0-rc.15" and r["pstack"]["gitCommitSha"] == "b" * 40'
+receipt_check "the Codex receipt fingerprints its config, install record, listing and manifest" 'all(any(i["path"].endswith(n) and i["sha256"] for i in r["inputs"]) for n in ("config.toml", ".codex-marketplace-install.json", "marketplace.json", ".codex-plugin/plugin.json"))'
+run "an active Codex session selects the Codex install" 0 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
+has "the summary names the Codex harness" "harness codex"
+receipt_check "the Codex session's receipt records the harness and why" 'r["pstack"]["harness"] == "codex" and "CODEX_THREAD_ID" in r["pstack"]["harnessSelection"] and r["pstack"]["version"] == "2.0.0-rc.15"'
+run "an active Claude session selects the Claude install" 0 "${HENV[@]}" CLAUDECODE=1 "$TOOLS/verify" pstack
+receipt_check "the Claude session's receipt records the harness and why" 'r["pstack"]["harness"] == "claude" and "CLAUDECODE" in r["pstack"]["harnessSelection"] and r["pstack"]["version"] == "2.0.0-rc.5"'
+run "with no active harness the Claude install is the default" 0 "${HENV[@]}" "$TOOLS/verify" pstack
+receipt_check "the default is recorded as a default" 'r["pstack"]["harness"] == "claude" and r["pstack"]["harnessSelection"].startswith("default")'
+run "T3_PSTACK_HARNESS overrides the active harness" 0 "${HENV[@]}" CLAUDECODE=1 T3_PSTACK_HARNESS=codex "$TOOLS/verify" pstack
+receipt_check "the explicit harness is recorded" 'r["pstack"]["harness"] == "codex" and r["pstack"]["harnessSelection"] == "T3_PSTACK_HARNESS"'
+run "an explicit Claude root wins over an active Codex session" 0 "${HENV[@]}" CODEX_THREAD_ID=synthetic T3_PSTACK_ROOT="$CLAUDE_ROOT" "$TOOLS/verify" pstack
+receipt_check "the explicit Claude root keeps Claude provenance" 'r["pstack"]["harness"] == "claude" and r["pstack"]["version"] == "2.0.0-rc.5" and r["pstack"]["gitCommitSha"] == "a" * 40'
+run "doctor in a Codex session checks the Codex install" 1 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/doctor"
+has "doctor passes the Codex source row" "PASS     pstack-source"
+has "doctor names the Codex harness" "harness codex"
+receipt_check "the doctor receipt names the Codex install" 'r["pstack"]["harness"] == "codex" and r["pstack"]["version"] == "2.0.0-rc.15"'
+run "an unknown T3_PSTACK_HARNESS fails" 1 "${HENV[@]}" T3_PSTACK_HARNESS=cursor "$TOOLS/verify" pstack
+reason_has "the unknown harness is named" "T3_PSTACK_HARNESS"
+run "two active harnesses are ambiguous and fail" 1 "${HENV[@]}" CLAUDECODE=1 CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
+reason_has "the ambiguity is named" "ambiguous"
+run "a relative CODEX_HOME fails" 1 "${HENV[@]}" CODEX_THREAD_ID=synthetic CODEX_HOME=relative/codex "$TOOLS/verify" pstack
+reason_has "the relative CODEX_HOME is named" "CODEX_HOME"
+set_json "$CODEX_CLONE/.claude-plugin/marketplace.json" 'd["plugins"][0]["version"] = "2.0.0-rc.16"'
+run "a stale active Codex install fails instead of validating Claude" 1 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
+reason_has "the stale Codex record is named" "2.0.0-rc.16"
+lacks_in_receipt "the stale Codex session never records the Claude install" "2.0.0-rc.5"
+run "the stale Codex install leaves a Claude session valid" 0 "${HENV[@]}" CLAUDECODE=1 "$TOOLS/verify" pstack
+restore_codex
+cp -a "$CODEX_ROOT" "${CODEX_ROOT%/*}/2.0.0-rc.16" && printf '{"name":"t3-pstack","version":"2.0.0-rc.16"}' >"${CODEX_ROOT%/*}/2.0.0-rc.16/.codex-plugin/plugin.json"
+run "a newer Codex cache version with no marketplace record fails" 1 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
+reason_has "the orphan Codex version is named" "2.0.0-rc.16"
+rm -rf "${CODEX_ROOT%/*}/2.0.0-rc.16"
+cp -a "$CODEX_ROOT" "${CODEX_ROOT%/*}/2.0.0-rc.9" && printf '{"name":"t3-pstack","version":"2.0.0-rc.9"}' >"${CODEX_ROOT%/*}/2.0.0-rc.9/.codex-plugin/plugin.json"
+run "an explicit Codex root other than the recorded version fails" 1 "${HENV[@]}" T3_PSTACK_ROOT="${CODEX_ROOT%/*}/2.0.0-rc.9" "$TOOLS/verify" pstack
+reason_has "the recorded version is named" "2.0.0-rc.15"
+rm -rf "${CODEX_ROOT%/*}/2.0.0-rc.9"
+sed -i 's/^enabled = true$/enabled = false/' "$XHOME/.codex/config.toml"
+run "a disabled Codex plugin fails when Codex is active" 1 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
+reason_has "the disabled plugin is named" "not enabled"
+printf 'not [valid toml\n' >"$XHOME/.codex/config.toml"
+run "a malformed Codex config.toml fails" 1 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
+reason_has "the malformed config is named" "config.toml"
+lacks "the malformed config fails without a traceback" "Traceback"
+restore_codex
+set_json "$CODEX_CLONE/.codex-marketplace-install.json" 'd["revision"] = "HEAD"'
+run "a Codex install record without an exact revision fails" 1 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
+reason_has "the inexact revision is named" "revision"
+restore_codex
+set_json "$CODEX_CLONE/.codex-marketplace-install.json" 'd["source"] = "https://example.invalid/other.git"'
+run "a Codex install record from another source fails" 1 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
+reason_has "the other source is named" "example.invalid"
+restore_codex
+rm "$CODEX_CLONE/.codex-marketplace-install.json"
+run "a Codex install with no marketplace install record fails" 1 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
+reason_has "the missing record is named" ".codex-marketplace-install.json"
+restore_codex
+mv "$CODEX_ROOT" "${CODEX_ROOT%/*}/3.0.0" && printf '{"name":"t3-pstack","version":"3.0.0"}' >"${CODEX_ROOT%/*}/3.0.0/.codex-plugin/plugin.json"
+set_json "$CODEX_CLONE/.claude-plugin/marketplace.json" 'd["plugins"][0]["version"] = "3.0.0"'
+run "an unsupported Codex major version fails" 1 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
+reason_has "the unsupported version is named" "unsupported t3-pstack version '3.0.0'"
+rm -rf "${CODEX_ROOT%/*}/3.0.0" && restore_codex && python3 "$HERE/make_plugin.py" "$WORK/codex-rebuild" --codex 2.0.0-rc.15 && mv "$WORK/codex-rebuild/.codex/plugins/cache/t3-pstack/t3-pstack/2.0.0-rc.15" "$CODEX_ROOT"
+run "the restored Codex install validates again" 0 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
+run "an active Codex session with no Codex install fails rather than validating Claude" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
+reason_has "the other harness is never validated in its place" "never validated in its place"
+CODEX_ONLY="$WORK/codex-only-home"
+python3 "$HERE/make_plugin.py" "$CODEX_ONLY" --codex 2.0.0-rc.15
+run "an active Claude session with only a Codex install fails" 1 "${PSTACK_ENV[@]}" HOME="$CODEX_ONLY" CLAUDECODE=1 "$TOOLS/verify" pstack
+reason_has "the Claude session names its missing install" "never validated in its place"
+run "with no active harness and only a Codex install, Codex is used" 0 "${PSTACK_ENV[@]}" HOME="$CODEX_ONLY" "$TOOLS/verify" pstack
+receipt_check "the Codex-only default is recorded" 'r["pstack"]["harness"] == "codex" and r["pstack"]["harnessSelection"].startswith("default")'
 
 echo "# local bounded escalation records and spend reporting"
 ESC="$WORK/escalation"

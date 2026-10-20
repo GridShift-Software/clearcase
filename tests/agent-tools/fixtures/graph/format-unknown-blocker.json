@@ -1,0 +1,21 @@
+{
+  "description": "A blocker with no graph line in the plan fails",
+  "capability": "plan-format",
+  "editsAfter": {
+    "docs/delivery-plan.md": [
+      [
+        "`HA-notes`. Unify document notes and annotations into contextual case Notes. Backlog. Writer, delivery. Blocked by [GRS-36](https://linear.app/vaper/issue/GRS-36/",
+        "`HA-notes`. Unify document notes and annotations into contextual case Notes. Backlog. Writer, delivery. Blocked by [GRS-9036](https://linear.app/vaper/issue/GRS-9036/"
+      ]
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "HA-notes names GRS-9036, which has no graph line in the plan"
+    ],
+    "absent": [
+      "Traceback"
+    ]
+  }
+}

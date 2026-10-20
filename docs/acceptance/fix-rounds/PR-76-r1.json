@@ -1,0 +1,116 @@
+{
+  "schema": "clearcase-fix-round/1",
+  "unit": "PRFIX-76/implementation",
+  "fixBase": "27232fc344f09651e38dc2cd3ec0358d8881afbe",
+  "reviewFindingsSha256": "9baf985a9644cdd5456990bce820cee69914b8137be6b9494e8c8417df557a62",
+  "review": {
+    "pullRequest": 76,
+    "reviewId": "pullrequestreview-5574995458",
+    "reviewer": "dianbrown",
+    "reviewedHead": "89a0217dbe93ebb0301207ad0769339670683706",
+    "waveBase": "4d5f7be7b021e3db85fb5d95a4d9d92ce9cf20ee",
+    "note": "fixBase is the red commit: the guard needs each named test to exist, and be readable, at the base, and these regressions are new. The reviewed head and the dev base are recorded here. reviewFindingsSha256 is the sha256 of the 'wave PR #76' section (line 50 to the end) of .orchestration/reports/PR-REVIEW-20261019/raw.md; the coordinator re-binds it at approve if the review record hashes other bytes."
+  },
+  "findings": [
+    {
+      "file": "src/lib/local-case/service.server.ts",
+      "line": 225,
+      "comment": "https://github.com/GridShift-Software/clearcase/pull/76#discussion_r4316585994",
+      "severity": "P1",
+      "text": "[Medium / P1] Await refusal persistence before releasing the import lock.\n\nReturning this promise without `await` enters `finally` immediately. For a folder import, `created` is empty, so `#current` is cleared while `#recordRefusedConversion` is still awaiting `mkdir`/write/rename. A second import of the same HTML can enter; both use the same `<sha256>.html.partial`, and competing renames can make one attempt return `failed` without its rejected-import row. This violates `docs/development.md:112` (one diagnostic attempt row per rejection). A diagnostic extracting both production methods, with preparation/filesystem operations mocked in memory, admitted two concurrent refusals and reproduced the second rename failing with ENOENT and only one attempt row. Use `return await` (or otherwise retain ownership until persistence settles), and add a regression that delays refusal persistence and requires a second import to receive the busy response until it finishes.",
+      "tests": [
+        {
+          "file": "src/lib/local-case/refused-import-lock.test.ts",
+          "name": "answers a second import of the same HTML with the busy message until the first has written its attempt row"
+        }
+      ]
+    },
+    {
+      "file": "tests/acceptance/CC-25/run.ts",
+      "line": 97,
+      "comment": "https://github.com/GridShift-Software/clearcase/pull/76#discussion_r4316586006",
+      "severity": "P1",
+      "text": "[Medium / P1] Require a successful parity outcome, not only eligible evidence.\n\nThe parity scorecard writes `result` and `exit`, not `ok` (`scripts/parity/run.mjs:229–232`). Thus a current-head `{evidence:true,result:'FAIL',exit:1,freshBuild:{head}}` passes all these predicates and gives `gate-v5` PASS; a missing outcome passes too. `evidence:true` describes run eligibility, not success, and this runner does not execute/check the preceding gate's exit itself. Require the suite-specific success fields, full 42-view coverage and strict-register mode, and reject absent outcomes. Add negative scorecard fixtures for failed, incomplete and missing outcomes. This is unchanged from PR #74 and contradicts GRS-24 acceptance item 1.",
+      "tests": [],
+      "unprotectedTests": [
+        {
+          "file": "tests/acceptance/CC-25/gate-evidence.test.ts",
+          "name": "rejects a current-head scorecard that records result FAIL and exit 1"
+        },
+        {
+          "file": "tests/acceptance/CC-25/gate-evidence.test.ts",
+          "name": "rejects a scorecard with no recorded outcome (neither result nor exit)"
+        },
+        {
+          "file": "tests/acceptance/CC-25/gate-evidence.test.ts",
+          "name": "rejects an incomplete scorecard: fewer than 42 views, extracted or compared; any not implemented, failed or unregistered"
+        },
+        {
+          "file": "tests/acceptance/CC-25/gate-evidence.test.ts",
+          "name": "rejects a scorecard from a run that was not strict about the register, or was aborted"
+        },
+        {
+          "file": "tests/acceptance/CC-25/gate-evidence.test.ts",
+          "name": "rejects a lanes summary with no ok, ok false, a failed lane, no lanes, or an abort"
+        }
+      ],
+      "unprotectedReason": "The checkers this finding fixes, tests/acceptance/CC-25/gate-evidence.ts and mapping.ts (extracted from run.ts and real/contract.ts in the red commit), sit under tests/, so the guard counts any edit to them as a change to protected test support and refuses the round; these regression tests are committed unchanged from the red base and are not guard-protected."
+    },
+    {
+      "file": "tests/acceptance/CC-25/real/contract.ts",
+      "line": 101,
+      "comment": "https://github.com/GridShift-Software/clearcase/pull/76#discussion_r4316586015",
+      "severity": "P1",
+      "text": "[Medium / P1] Make source-to-original discrepancies affect the contract verdict.\n\n`pathOther`, `sizeDiffers` and `realPathDiffers` only enter the output tally; only `unavailable` fails. If a converter deterministically maps a row to another valid original, reconversion and byte verification still agree with that wrong mapping, and this step can report PASS. A focused run of this block with source `expected.txt`/10 bytes and a verified indexed `wrong.txt`/20 bytes reports both mismatches with no problems. Require independent source locator/size agreement, with any legitimate normalization or declared-size exception explicitly accounted for, and add wrong-but-existing-original and size-mismatch negative cases. This carries forward the PR #74 finding against GRS-24 item 3's correct-original-mappings requirement; it does not claim the current private sample is mis-mapped.",
+      "tests": [],
+      "unprotectedTests": [
+        {
+          "file": "tests/acceptance/CC-25/mapping.test.ts",
+          "name": "fails a row mapped to another existing, verified original of the right size"
+        },
+        {
+          "file": "tests/acceptance/CC-25/mapping.test.ts",
+          "name": "fails a row mapped to another existing, verified original of another size, naming both mismatches"
+        },
+        {
+          "file": "tests/acceptance/CC-25/mapping.test.ts",
+          "name": "fails a row whose declared size differs from the indexed original at the same path"
+        },
+        {
+          "file": "tests/acceptance/CC-25/mapping.test.ts",
+          "name": "fails a row whose source locator is missing or is not a \"./\" locator"
+        },
+        {
+          "file": "tests/acceptance/CC-25/mapping.test.ts",
+          "name": "fails when the reader holds the original at another path than the index names"
+        },
+        {
+          "file": "tests/acceptance/CC-25/mapping.test.ts",
+          "name": "fails a declared size that is not a number"
+        }
+      ],
+      "unprotectedReason": "The checkers this finding fixes, tests/acceptance/CC-25/gate-evidence.ts and mapping.ts (extracted from run.ts and real/contract.ts in the red commit), sit under tests/, so the guard counts any edit to them as a change to protected test support and refuses the round; these regression tests are committed unchanged from the red base and are not guard-protected."
+    },
+    {
+      "file": "src/routes/import/[id]/+page.server.ts",
+      "line": 42,
+      "comment": "https://github.com/GridShift-Software/clearcase/pull/76#discussion_r4316586025",
+      "severity": "P2",
+      "text": "[Low / P2] Keep coverage notes beyond the first 100 accessible.\n\nA valid conversion report can contain more than 100 notes for one code. `sourceCoverage` returns `total:101` but only 100 items, and its Svelte section provides no pagination or way to inspect the omitted subjects/messages. That contradicts the CC-25 F1 fix's promise to show every converter coverage note and leaves later unsupported data without its repair detail. Render every note or provide bounded paging/expansion with explicit truncation information; cover 101 notes in the regression. This is the unchanged low follow-up from PR #74; the documented sample counts remain below this limit.",
+      "tests": [],
+      "unprotectedTests": [
+        {
+          "file": "tests/case-package/source-coverage-all-notes.test.ts",
+          "name": "lists all 101 unmapped-key notes, so the 101st is reachable, and states the converter's total"
+        }
+      ],
+      "unprotectedReason": "The regression renders the import page, so tests/case-package/source-coverage-all-notes.test.ts imports src/routes/import/[id]/+page.svelte, which the guard's import resolver cannot follow (it resolves JS and TS modules only) and refuses; the test is committed unchanged from the red base 27232fc and is not guard-protected."
+    }
+  ],
+  "tests": [
+    {
+      "file": "src/lib/local-case/refused-import-lock.test.ts",
+      "name": "answers a second import of the same HTML with the busy message until the first has written its attempt row"
+    }
+  ]
+}

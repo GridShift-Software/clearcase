@@ -171,6 +171,24 @@ export const CHOICE_STATES = {
 	'/import/[id]': [{ name: 'noop-repaired', query: '?noop=1&repaired=1', expect: '#noop-msg', why: 'the notices an import shows after a repeat or a repair' }],
 };
 
+/**
+ * Page states that exist only when a generation's data carries a field (class narrow), not after a choice: the suite imports
+ * a newer-generation case (suite.mjs withNewer: risks with category, owner and documents, and document text cut at the
+ * builder's cap) and opens each page in it, measured at 320 and 390 px like the page's default state. `expect` is a selector
+ * that must then be on the page, so a state the data did not bring up fails.
+ */
+export const DATA_STATES = {
+	'/v/[vid]/analysis/risk_matrix_tab': [
+		{ name: 'risk-category', expect: '#risk-table td[data-label=Category]', why: 'the Category column appears when a risk carries a category' },
+		{ name: 'risk-owner', expect: '#risk-table td[data-label=Owner]', why: 'the Owner column appears when a risk carries an owner' },
+		{ name: 'risk-documents', expect: '#risk-table td[data-label=Documents]', why: 'the Documents column appears when a risk cites documents' },
+	],
+	'/import/[id]': [
+		{ name: 'text-coverage', expect: '#text-coverage', why: 'the Source text coverage section appears when the conversion reported text cut short by the source export' },
+		{ name: 'source-coverage', expect: '#source-coverage', why: 'the Source coverage section appears when the conversion recorded source data it kept but does not present' },
+	],
+};
+
 /** Page states that appear after a choice and that the suite does not open, with why (reported as N/A in the narrow class). */
 export const NO_CHOICE_STATE = {
 	'/v/[vid]/bundles/discovery_tab: supplementary': 'a client-side switch that saves the mode to the case; it shows the same items table in the same TableScroll box as the default mode (discovery_tab: one {#each items} block), and driving it would change the case for the later scenarios',

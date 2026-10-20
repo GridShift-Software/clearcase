@@ -43,6 +43,7 @@ export default defineConfig({
       'tests/e2e/pilot/**/*.test.ts',
       'tests/demo/**/*.test.ts',
       'tests/hosted-foundation/runtime/**/*.test.ts',
+      'tests/acceptance/CC-25/*.test.ts',
     ],
     pool: 'forks',
     sequence: { sequencer: SlowFirst },

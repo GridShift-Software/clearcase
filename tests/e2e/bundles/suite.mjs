@@ -305,11 +305,15 @@ try {
 		const t = await p.evaluate(`document.querySelector('#cb-items tbody tr td:nth-child(4)').textContent.replace(/\\s+/g, ' ').trim() + '|' + document.querySelector('#cb-items tbody tr td:last-child').textContent.replace(/\\s+/g, ' ').trim()`);
 		return { pass: a.length === 1 && a[0].startsWith(`${V}/doc/`) && t === 'Part (not in the verified index; not served) pp 2–4 of source|Open item (not in the verified index; not served)', evidence: { a, t } };
 	});
-	await S('CB-RESTART', 'court_bundle_tab', 'restarts: after a SIGKILL restart and a graceful restart every saved bundle-view row is unchanged (by id and fields)', async () => {
-		await p.go(B, 'court_bundle_tab');
-		await p.evaluate(`(() => { const e = document.getElementById('cbh_caseNo'); e.value = '9/2001'; e.dispatchEvent(new Event('input', { bubbles: true })); })()`);
-		await p.click('#cb-save');
-		for (let i = 0; i < 100 && !A.work("SELECT fields FROM register_row WHERE store = 'bundle-header'").some((r) => JSON.parse(r.fields).caseNo === '9/2001'); i++) await sleep(50);
+	// CB-RESTART's header save and two restarts on page pp; CB-RESTART-SLOW runs it on a page whose save finishes late (GRS-152)
+	const restartKeepsRows = async (pp, caseNo) => {
+		await pp.go(B, 'court_bundle_tab');
+		await pp.evaluate(`(() => { const e = document.getElementById('cbh_caseNo'); e.value = '${caseNo}'; e.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+		await pp.click('#cb-save');
+		for (let i = 0; i < 100 && !A.work("SELECT fields FROM register_row WHERE store = 'bundle-header'").some((r) => JSON.parse(r.fields).caseNo === caseNo); i++) await sleep(50);
+		// the row is stored before the page has the answer and has reloaded its data; a SIGKILL earlier leaves the header unsaved in the page (GRS-152)
+		await pp.waitFor(`document.querySelector('#main')?.dataset.busy === '0'`, 30000);
+		const saveError = await pp.text('#cb-error');
 		const snap = () => ({ marks: A.work('SELECT * FROM bundles_schedule_mark ORDER BY case_id, locator'), regs: A.work("SELECT row_id, store, fields FROM register_row WHERE store IN ('bundle-header', 'caselines-links', 'discovery-mode') ORDER BY row_id") });
 		const s0 = JSON.stringify(snap());
 		await A.srv.stop('SIGKILL');
@@ -319,10 +323,22 @@ try {
 		await A.stop();
 		await startA();
 		const s2 = JSON.stringify(snap());
-		await p.go(B, 'court_bundle_tab');
-		const shown = await p.evaluate(`document.getElementById('cbh_caseNo').value`);
-		return { pass: s0 === s1 && s1 === s2 && JSON.parse(s0).regs.length >= 3 && JSON.parse(s0).marks.length >= 1 && shown === '9/2001', evidence: { rows: JSON.parse(s0).regs.length + JSON.parse(s0).marks.length, shown } };
+		await pp.go(B, 'court_bundle_tab');
+		const shown = await pp.evaluate(`document.getElementById('cbh_caseNo').value`);
+		return { pass: s0 === s1 && s1 === s2 && JSON.parse(s0).regs.length >= 3 && JSON.parse(s0).marks.length >= 1 && shown === caseNo && saveError === '', evidence: { rows: JSON.parse(s0).regs.length + JSON.parse(s0).marks.length, shown, saveError } };
+	};
+	await S('CB-RESTART-SLOW', 'court_bundle_tab', 'GRS-152: a header save whose reload of the saved data the browser holds for 5 s finishes before the SIGKILL restart, so the page opens another view afterwards', async () => {
+		const q = await page(b, A.origin);
+		const held = [];
+		const off = b.on((m) => { if (m.sessionId === q.sessionId && m.method === 'Fetch.requestPaused') { held.push(m.params.request.url); setTimeout(() => q.s('Fetch.continueRequest', { requestId: m.params.requestId }).catch(() => {}), 5000); } });
+		try {
+			await q.s('Fetch.enable', { patterns: [{ urlPattern: '*__data.json?x-sveltekit-invalidated=*', requestStage: 'Request' }] });
+			const r = await restartKeepsRows(q, '9/2002');
+			await q.go(C, 'caselines_tab');
+			return { pass: r.pass && held.length > 0, evidence: { ...r.evidence, held: held.length } };
+		} finally { off(); await q.close(); }
 	});
+	await S('CB-RESTART', 'court_bundle_tab', 'restarts: after a SIGKILL restart and a graceful restart every saved bundle-view row is unchanged (by id and fields)', () => restartKeepsRows(p, '9/2001'));
 
 	// ---- CC-09-r2 regressions ---------------------------------------------------------------------------------
 	const J = JSON.stringify;

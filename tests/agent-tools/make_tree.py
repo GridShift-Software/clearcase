@@ -99,8 +99,8 @@ if "readback" in fixture:
     filler = [{"id": f"SYN-{status[:2].upper()}-{n}", "status": status, "parentId": None, "projectMilestone": None}
               for status, missing in counts.items() if status in {"Done", "Canceled", "Duplicate"} for n in range(max(missing, 0))]
     live = list(rows.values()) + filler
-    graph = {row["id"]: {"description": row["description"], "status": row["status"],
-                         "relations": {"blockedBy": [{"id": b} for b in row["blockedBy"]]}}
+    graph = {row["id"]: {"description": row.get("description", ""), "status": row["status"],
+                         "relations": {"blockedBy": [{"id": b} for b in row.get("blockedBy", [])]}}
              for row in live if row["status"] not in {"Done", "Canceled", "Duplicate"}}
     issues = [{"linear": {"id": items[key]["linear"]["identifier"]}} for key in snapshot["hostedDeliveryOwners"]
               if key not in fixture.get("readbackDropOwners", [])]

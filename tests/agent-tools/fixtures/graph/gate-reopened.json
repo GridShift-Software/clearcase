@@ -2,13 +2,23 @@
   "description": "The planning gate is open again while a hosted writer carries no gate blocker",
   "capability": "plan-graph",
   "set": {
-    "HA-grs-69.status": "Backlog"
+    "HA-grs-69.status": "Backlog",
+    "HA-costs.depends": [
+      "CC-28",
+      "HA-views-quantum-registers"
+    ],
+    "HA-costs.nativeBlockedBy": [
+      "GRS-36",
+      "GRS-132"
+    ]
   },
   "expect": {
     "exit": 1,
     "output": [
-      "HA-plan-resync-20261017: hosted work is not natively blocked by the planning gate",
-      "59 open plan items and 4 open outside the plan do not make 62 open issues"
+      "closed but its dependency HA-grs-69 is open",
+      "HA-costs: hosted work is not natively blocked by the planning gate",
+      "hosted delivery owner must be a gated Backlog writer with verification",
+      "46 open plan items and 14 open outside the plan do not make 59 open issues"
     ]
   }
 }

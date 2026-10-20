@@ -3,18 +3,20 @@
   "capability": "plan-graph",
   "snapshot": {
     "externalSources": {
-      "GRS-86": "Backlog",
+      "GRS-86": "Done",
       "GRS-90": "Done",
       "GRS-93": "Done",
       "GRS-96": "Done",
       "GRS-101": "Done",
-      "GRS-136": "Done"
+      "GRS-136": "Done",
+      "GRS-144": "Backlog",
+      "GRS-147": "Backlog"
     }
   },
   "expect": {
     "exit": 1,
     "output": [
-      "HA-grs-97: open external prerequisite GRS-86 is not listed as open outside the plan"
+      "HA-storage-proof: open external prerequisite GRS-144 is not listed as open outside the plan"
     ]
   }
 }

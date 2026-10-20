@@ -613,6 +613,9 @@ run "a receipt directory that becomes unwritable during the run gives no PASS" 3
 has "names the receipt that was not written" "locked-out has no receipt:"
 no_receipt "no receipt was written for the locked-out run"
 chmod -R u+w "$RECEIPTS"
+# Refresh the copy's index first: a racily clean entry makes the first git status rewrite it, and under a 16-block limit that
+# write is killed (SIGXFSZ) before the capture is ever tested, which gave SKIPPED instead of the FAIL asserted here.
+git -C "$EV" status --porcelain >/dev/null 2>&1
 run "output that cannot be captured whole is not PASS" 1 env -C "$EV" bash -c 'ulimit -f 16 && exec scripts/agent-tools/receipt --name capture -- python3 -c "print(\"x\" * 100000)" >/dev/null'
 receipt_is "the capture receipt is FAIL" FAIL 1
 reason_has "names the capture file and the error" "stdout.txt: File too large; the command exited 0"
@@ -685,7 +688,7 @@ run "pstack-plan-format without node is FAIL" 1 env PATH="$NONODE" "$TOOLS/verif
 receipt_is "no-node receipt is FAIL" FAIL 1
 run "the project plan-format needs no node" 0 env PATH="$NONODE" "$TOOLS/verify" plan-format
 run "doctor without python3 explains the PATH" 2 env PATH=/nonexistent "$TOOLS/doctor"
-has "no-python message is actionable" "fix: install Python >= 3.10"
+has "no-python message is actionable" "fix: install Python >= 3.12"
 no_receipt "doctor without python3 writes no receipt"
 run "doctor fails on a missing skills dir" 1 env CLEARCASE_SKILLS_DIR="$WORK/no-skills" HOME="$WORK/no-home" "$TOOLS/doctor"
 has "missing skills dir is diagnosed" "pstack bundle not found"

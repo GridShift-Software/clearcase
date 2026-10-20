@@ -13,6 +13,12 @@ WORK=$(mktemp -d "${TMPDIR:-/tmp}/cc27-agent-tools.XXXXXX")
 trap 'chmod -R u+rwx "$WORK"; rm -rf "$WORK"' EXIT
 MARKER="$WORK/command-ran"
 unset CLEARCASE_BASE_REF
+# The doctor reports browser admission. An executable stub keeps every other case independent of the host's workspace;
+# the cases that test admission unset or replace it.
+BROWSER_LOCK_STUB="$WORK/browser-lock-stub"
+printf '#!/bin/sh\nexec "$@"\n' >"$BROWSER_LOCK_STUB" && chmod +x "$BROWSER_LOCK_STUB"
+export CLEARCASE_BROWSER_LOCK="$BROWSER_LOCK_STUB"
+unset BROWSER_LOCK
 passed=0
 failed=0
 n=0
@@ -1037,12 +1043,12 @@ run "a disabled Codex plugin fails when Codex is active" 1 "${HENV[@]}" CODEX_TH
 reason_has "the disabled plugin is named" "not enabled"
 printf 'not [valid toml\n' >"$XHOME/.codex/config.toml"
 run "a malformed Codex config.toml fails" 1 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
-reason_has "the malformed config is named" "config.toml"
+reason_has "the malformed config is named" "/.codex/config.toml is not valid TOML"
 lacks "the malformed config fails without a traceback" "Traceback"
 restore_codex
 set_json "$CODEX_CLONE/.codex-marketplace-install.json" 'd["revision"] = "HEAD"'
 run "a Codex install record without an exact revision fails" 1 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
-reason_has "the inexact revision is named" "revision"
+reason_has "the inexact revision is named" "/.codex-marketplace-install.json revision must be an exact Git SHA"
 restore_codex
 set_json "$CODEX_CLONE/.codex-marketplace-install.json" 'd["source"] = "https://agent:source-canary-159@example.invalid/other.git"'
 run "a Codex install record from another source fails" 1 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
@@ -1052,7 +1058,7 @@ lacks_in_receipt "the receipt never records a source URL" "source-canary-159"
 restore_codex
 rm "$CODEX_CLONE/.codex-marketplace-install.json"
 run "a Codex install with no marketplace install record fails" 1 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
-reason_has "the missing record is named" ".codex-marketplace-install.json"
+reason_has "the missing record is named" "cannot read ~/.codex/.tmp/marketplaces/t3-pstack/.codex-marketplace-install.json: No such file or directory"
 restore_codex
 mv "$CODEX_ROOT" "${CODEX_ROOT%/*}/3.0.0" && printf '{"name":"t3-pstack","version":"3.0.0"}' >"${CODEX_ROOT%/*}/3.0.0/.codex-plugin/plugin.json"
 set_json "$CODEX_CLONE/.claude-plugin/marketplace.json" 'd["plugins"][0]["version"] = "3.0.0"'
@@ -1068,6 +1074,178 @@ run "an active Claude session with only a Codex install fails" 1 "${PSTACK_ENV[@
 reason_has "the Claude session names its missing install" "never validated in its place"
 run "with no active harness and only a Codex install, Codex is used" 0 "${PSTACK_ENV[@]}" HOME="$CODEX_ONLY" "$TOOLS/verify" pstack
 receipt_check "the Codex-only default is recorded" 'r["pstack"]["harness"] == "codex" and r["pstack"]["harnessSelection"].startswith("default")'
+
+echo "# GRS-159 fix round 1: Claude enablement, error style, root precedence, both source canaries"
+# Claude loads an installed plugin unless enabledPlugins turns it off (defaultEnabled is true), so an explicit false in
+# the settings that govern the install means the plugin is not loaded. A field that cannot be read as a boolean, or a
+# settings file that cannot be read, proves nothing and fails. An absent file or key keeps Claude's default (enabled).
+CL_HOME="$WORK/claude-settings-home"
+python3 "$HERE/make_plugin.py" "$CL_HOME" 2.0.0-rc.5
+CL_SETTINGS="$CL_HOME/.claude/settings.json"
+CLENV=("${PSTACK_ENV[@]}" HOME="$CL_HOME")
+printf '{"enabledPlugins":{"t3-pstack@t3-pstack":true},"model":"synthetic-canary-model"}\n' >"$CL_SETTINGS"
+run "a Claude install enabled in settings.json passes" 0 "${CLENV[@]}" "$TOOLS/verify" pstack
+receipt_check "the receipt fingerprints the settings that govern the install" 'any(i["path"].endswith("/.claude/settings.json") and i["sha256"] for i in r["inputs"])'
+printf '{"enabledPlugins":{"t3-pstack@t3-pstack":false}}\n' >"$CL_SETTINGS"
+run "a Claude install disabled in settings.json fails" 1 "${CLENV[@]}" "$TOOLS/verify" pstack
+receipt_is "the disabled Claude install has a FAIL receipt" FAIL 1
+reason_has "the disabled Claude plugin is named with its setting" "t3-pstack@t3-pstack is disabled by enabledPlugins in ~/.claude/settings.json"
+lacks "the disabled install is not reported as a pass" "pstack: PASS"
+run "doctor fails on a disabled Claude install" 1 "${CLENV[@]}" "$TOOLS/doctor"
+has "doctor names the failing pstack source" "FAIL     pstack-source"
+printf '{"enabledPlugins":{"other@market":false}}\n' >"$CL_SETTINGS"
+run "another plugin's disabled entry leaves t3-pstack enabled by default" 0 "${CLENV[@]}" "$TOOLS/verify" pstack
+printf '{}\n' >"$CL_SETTINGS"
+run "settings with no enabledPlugins keep Claude's default" 0 "${CLENV[@]}" "$TOOLS/verify" pstack
+for body in '{"enabledPlugins":{"t3-pstack@t3-pstack":"false"}}' '{"enabledPlugins":{"t3-pstack@t3-pstack":null}}' '{"enabledPlugins":{"t3-pstack@t3-pstack":0}}' \
+	'{"enabledPlugins":[]}' '{"enabledPlugins":"t3-pstack@t3-pstack"}' '[]' '{ not json'; do
+	printf '%s\n' "$body" >"$CL_SETTINGS"
+	run "Claude settings that cannot be read as an enablement fail: $body" 1 "${CLENV[@]}" "$TOOLS/verify" pstack
+	reason_has "the unreadable settings are named: $body" "~/.claude/settings.json"
+	lacks "the unreadable settings fail without a traceback: $body" "Traceback"
+done
+printf '{"enabledPlugins":{"t3-pstack@t3-pstack":false}}\n' >"$CL_SETTINGS"
+mkdir -p "$XHOME/.claude" && cp "$CL_SETTINGS" "$XHOME/.claude/settings.json"
+run "a disabled Claude install is not replaced by the valid Codex install" 1 "${HENV[@]}" "$TOOLS/verify" pstack
+reason_has "the Claude install is the one named" "disabled by enabledPlugins"
+lacks_in_receipt "the Codex install is never recorded in its place" "2.0.0-rc.15"
+run "a disabled Claude install leaves an active Codex session valid" 0 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
+rm "$XHOME/.claude/settings.json"
+# An install with scope local or project is governed by that project's settings, with local over project over user.
+python3 - "$CL_HOME/.claude/plugins/installed_plugins.json" "$CL_HOME/project" <<'PY'
+import json, sys
+path, project = sys.argv[1:]
+data = json.load(open(path))
+data["plugins"]["t3-pstack@t3-pstack"][0].update(scope="local", projectPath=project)
+json.dump(data, open(path, "w"))
+PY
+mkdir -p "$CL_HOME/project/.claude"
+printf '{"enabledPlugins":{"t3-pstack@t3-pstack":true}}\n' >"$CL_SETTINGS"
+printf '{"enabledPlugins":{"t3-pstack@t3-pstack":false}}\n' >"$CL_HOME/project/.claude/settings.local.json"
+run "a local-scope install disabled in the project's local settings fails" 1 "${CLENV[@]}" "$TOOLS/verify" pstack
+reason_has "the project's local settings are named" "settings.local.json"
+printf '{"enabledPlugins":{"t3-pstack@t3-pstack":true}}\n' >"$CL_HOME/project/.claude/settings.local.json"
+printf '{"enabledPlugins":{"t3-pstack@t3-pstack":false}}\n' >"$CL_HOME/project/.claude/settings.json"
+run "the project's local settings win over its shared settings" 0 "${CLENV[@]}" "$TOOLS/verify" pstack
+receipt_check "both project files and the user file are fingerprinted" 'len([i for i in r["inputs"] if i["sha256"] and i["path"].endswith(("/settings.json", "/settings.local.json"))]) == 3'
+python3 - "$CL_HOME/.claude/plugins/installed_plugins.json" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+data["plugins"]["t3-pstack@t3-pstack"][0].update(scope="local", projectPath="relative/project")
+json.dump(data, open(sys.argv[1], "w"))
+PY
+run "a project-scoped install with a relative projectPath fails" 1 "${CLENV[@]}" "$TOOLS/verify" pstack
+reason_has "the relative projectPath is named" "projectPath"
+python3 "$HERE/make_plugin.py" "$WORK/claude-errors-home" 2.0.0-rc.5
+ERR_HOME="$WORK/claude-errors-home"
+ERR_REGISTRY="$ERR_HOME/.claude/plugins/installed_plugins.json"
+cp "$ERR_REGISTRY" "$WORK/claude-errors-registry.saved"
+# Claude failures read like the Codex ones: they name the file, say what is wrong and show ~ for HOME.
+ERRENV=("${PSTACK_ENV[@]}" HOME="$ERR_HOME")
+python3 - "$ERR_REGISTRY" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+data["plugins"]["t3-pstack@t3-pstack"][0]["installPath"] = "/elsewhere/not-this-root"
+json.dump(data, open(sys.argv[1], "w"))
+PY
+run "a Claude record for another root fails" 1 "${ERRENV[@]}" "$TOOLS/verify" pstack
+reason_has "the orphan error names the registry and the root with ~ for HOME" "~/.claude/plugins/installed_plugins.json must contain exactly one t3-pstack install record for ~/.claude/plugins/cache/t3-pstack/t3-pstack/2.0.0-rc.5"
+lacks "the orphan error never prints the raw HOME" "$ERR_HOME"
+printf '{"version":2,"plugins":{"t3-pstack@t3-pstack":["not-a-record"]}}\n' >"$ERR_REGISTRY"
+run "a Claude record that is not an object fails" 1 "${ERRENV[@]}" "$TOOLS/verify" pstack
+reason_has "the non-object record names the registry" "~/.claude/plugins/installed_plugins.json"
+lacks "the non-object record fails without a traceback" "Traceback"
+printf '{"version":2,"plugins":{"t3-pstack@t3-pstack":[{"version":"2.0.0-rc.5","gitCommitSha":"%s"}]}}\n' "$(printf 'a%.0s' {1..40})" >"$ERR_REGISTRY"
+run "a Claude record without installPath fails" 1 "${ERRENV[@]}" "$TOOLS/verify" pstack
+reason_has "the missing installPath is named" "installPath"
+reason_has "and so is the registry" "~/.claude/plugins/installed_plugins.json"
+cp "$WORK/claude-errors-registry.saved" "$ERR_REGISTRY"
+python3 - "$ERR_REGISTRY" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+data["plugins"]["t3-pstack@t3-pstack"][0]["version"] = 5
+json.dump(data, open(sys.argv[1], "w"))
+PY
+run "a Claude record with a retyped version fails" 1 "${ERRENV[@]}" "$TOOLS/verify" pstack
+reason_has "the retyped version names the registry" "~/.claude/plugins/installed_plugins.json version"
+printf '{ "version": 2, "plugins": { "t3-pstack@t3-pstack": [ ' >"$ERR_REGISTRY"
+run "a Claude registry that is not JSON fails" 1 "${ERRENV[@]}" "$TOOLS/verify" pstack
+reason_has "the truncated registry is named" "~/.claude/plugins/installed_plugins.json"
+lacks "the truncated registry never prints the parser's bare message" "Expecting"
+cp "$WORK/claude-errors-registry.saved" "$ERR_REGISTRY"
+# An explicit root names the harness, so a second session variable cannot make it ambiguous.
+run "an explicit Codex root wins when both session variables are set" 0 "${HENV[@]}" CLAUDECODE=1 CODEX_THREAD_ID=synthetic T3_PSTACK_ROOT="$CODEX_ROOT" "$TOOLS/verify" pstack
+receipt_check "the explicit Codex root keeps Codex provenance" 'r["pstack"]["harness"] == "codex" and r["pstack"]["harnessSelection"] == "T3_PSTACK_ROOT in the Codex cache"'
+run "an explicit Claude root wins when both session variables are set" 0 "${HENV[@]}" CLAUDECODE=1 CODEX_THREAD_ID=synthetic T3_PSTACK_ROOT="$CLAUDE_ROOT" "$TOOLS/verify" pstack
+receipt_check "the explicit Claude root keeps Claude provenance" 'r["pstack"]["harness"] == "claude" and r["pstack"]["harnessSelection"] == "T3_PSTACK_ROOT outside the Codex cache"'
+run "both session variables with no root stay ambiguous" 1 "${HENV[@]}" CLAUDECODE=1 CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
+reason_has "the ambiguity still names both variables" "CLAUDECODE and CODEX_THREAD_ID are both set"
+run "T3_PSTACK_HARNESS beats both session variables, as before" 0 "${HENV[@]}" CLAUDECODE=1 CODEX_THREAD_ID=synthetic T3_PSTACK_HARNESS=claude "$TOOLS/verify" pstack
+# A source URL can carry credentials in either record, so neither record's URL is ever printed or stored.
+set_json "$CODEX_CLONE/.codex-marketplace-install.json" 'd["source"] = "https://agent:install-canary-159@example.invalid/other.git"'
+run "an install record from another source fails" 1 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
+lacks "the install record's source URL is never printed" "install-canary-159"
+lacks_in_receipt "the install record's source URL is never stored" "install-canary-159"
+restore_codex
+python3 - "$XHOME/.codex/config.toml" <<'PY'
+import sys
+path = sys.argv[1]
+text = open(path).read()
+open(path, "w").write(text.replace("https://github.com/chhoumann/t3-pstack.git", "https://agent:config-canary-159@example.invalid/other.git"))
+PY
+run "a config.toml marketplace from another source fails" 1 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
+reason_has "the config.toml source mismatch is named" "records another source than the t3-pstack marketplace in config.toml"
+lacks "the config.toml source URL is never printed" "config-canary-159"
+lacks_in_receipt "the config.toml source URL is never stored" "config-canary-159"
+restore_codex
+
+echo "# GRS-159 fix round 1: the Python floor and the browser-lock row"
+# agent_tools.py needs Python 3.12 (nested quotes inside an f-string expression), so the wrapper refuses an older python3
+# with its own message, before any receipt, instead of a SyntaxError.
+OLDPY="$WORK/python-3-10"
+printf '#!/bin/bash\n[[ $1 == -c ]] && exit 1\nexec %q "$@"\n' "$(command -v python3)" >"$OLDPY"
+chmod +x "$OLDPY"
+run "an older python3 is refused by the wrapper" 2 env CLEARCASE_PYTHON="$OLDPY" "$TOOLS/doctor"
+has "the refusal names the real floor" "Python >= 3.12"
+lacks "the refusal is not a SyntaxError" "SyntaxError"
+no_receipt "an older python3 writes no receipt"
+run "the verify entry point refuses an older python3 too" 2 env CLEARCASE_PYTHON="$OLDPY" "$TOOLS/verify" plan-graph
+has "verify names the real floor" "Python >= 3.12"
+
+# Browser admission, as the doctor reports it. A checkout with the resolver (GRS-154) judges CLEARCASE_BROWSER_LOCK the
+# way scripts/browser-lock.mjs does; one without it has no discovery, so only an explicit executable admits a gate.
+BL_DOCTOR="$APPC/scripts/agent-tools/doctor"
+BL_RESOLVER="$APPC/scripts/browser-lock.mjs"
+BL_ENV=(env -u CLEARCASE_BROWSER_LOCK -u BROWSER_LOCK)
+rm -rf "$WORK/orch-bin"
+run "with the resolver and no lock to discover, the doctor fails" 1 "${BL_ENV[@]}" "$BL_DOCTOR"
+has "the row fails and names the missing workspace lock" "FAIL     browser-lock"
+has "it says what to export" "set CLEARCASE_BROWSER_LOCK to the absolute path of the workspace's orch-bin/browser-lock"
+mkdir -p "$WORK/orch-bin" && cp "$BROWSER_LOCK_STUB" "$WORK/orch-bin/browser-lock"
+run "with the resolver and a discoverable lock, no export is needed" 0 "${BL_ENV[@]}" "$BL_DOCTOR"
+has "the row names the discovered lock" "PASS     browser-lock   $WORK/orch-bin/browser-lock (discovered from git-common-dir)"
+run "an explicit absolute executable is reported as explicit" 0 env CLEARCASE_BROWSER_LOCK="$BROWSER_LOCK_STUB" "$BL_DOCTOR"
+has "the row names the explicit lock" "PASS     browser-lock   $BROWSER_LOCK_STUB (CLEARCASE_BROWSER_LOCK)"
+# The doctor's verdict on each environment is the resolver's own: exit 0 admits, exit 2 refuses; none is the one case
+# the resolver admits and a local preflight does not, because a gate run without a slot is not local evidence.
+for setting in "relative/path" "" "$WORK/not-executable" "/etc/hostname"; do
+	if (cd "$APPC" && env CLEARCASE_BROWSER_LOCK="$setting" bun "$BL_RESOLVER" >/dev/null 2>&1); then resolver=0; else resolver=$?; fi
+	run "the doctor refuses CLEARCASE_BROWSER_LOCK='$setting' as the resolver does (resolver exit $resolver)" "$([[ $resolver == 0 ]] && echo 0 || echo 1)" env CLEARCASE_BROWSER_LOCK="$setting" "$BL_DOCTOR"
+	[[ $resolver == 2 ]] && has "the refusal for '$setting' reaches the doctor row" "FAIL     browser-lock"
+done
+run "the retired BROWSER_LOCK fails the doctor" 1 env BROWSER_LOCK=anything "$BL_DOCTOR"
+has "the retired spelling is named" "BROWSER_LOCK is the retired spelling"
+run "CLEARCASE_BROWSER_LOCK=none fails the local preflight" 1 env CLEARCASE_BROWSER_LOCK=none "$BL_DOCTOR"
+has "none is explained as not local evidence" "none runs browser jobs without a slot; a local gate run without one does not count"
+mv "$BL_RESOLVER" "$WORK/browser-lock.mjs.aside"
+run "a checkout without the resolver and without an export fails the doctor" 1 "${BL_ENV[@]}" "$BL_DOCTOR"
+has "the row says this checkout does not discover a lock" "FAIL     browser-lock   this checkout has no scripts/browser-lock.mjs"
+has "the row tells the worker to export the workspace lock" "export CLEARCASE_BROWSER_LOCK=<absolute path to the workspace's orch-bin/browser-lock>"
+has "the row says a gate run without it does not count" "a gate run without it takes no slot and does not count as evidence"
+run "a checkout without the resolver passes with an explicit executable" 0 env CLEARCASE_BROWSER_LOCK="$BROWSER_LOCK_STUB" "$BL_DOCTOR"
+has "the row reports the explicit lock" "PASS     browser-lock   $BROWSER_LOCK_STUB (CLEARCASE_BROWSER_LOCK; this checkout has no resolver)"
+run "a checkout without the resolver fails on a relative export" 1 env CLEARCASE_BROWSER_LOCK="relative/path" "$BL_DOCTOR"
+mv "$WORK/browser-lock.mjs.aside" "$BL_RESOLVER"
 
 echo "# local bounded escalation records and spend reporting"
 ESC="$WORK/escalation"

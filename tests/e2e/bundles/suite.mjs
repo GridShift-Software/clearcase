@@ -311,6 +311,9 @@ try {
 		await pp.evaluate(`(() => { const e = document.getElementById('cbh_caseNo'); e.value = '${caseNo}'; e.dispatchEvent(new Event('input', { bubbles: true })); })()`);
 		await pp.click('#cb-save');
 		for (let i = 0; i < 100 && !A.work("SELECT fields FROM register_row WHERE store = 'bundle-header'").some((r) => JSON.parse(r.fields).caseNo === caseNo); i++) await sleep(50);
+		// the row is stored before the page has the answer and has reloaded its data; a SIGKILL earlier leaves the header unsaved in the page (GRS-152)
+		await pp.waitFor(`document.querySelector('#main')?.dataset.busy === '0'`, 30000);
+		const saveError = await pp.text('#cb-error');
 		const snap = () => ({ marks: A.work('SELECT * FROM bundles_schedule_mark ORDER BY case_id, locator'), regs: A.work("SELECT row_id, store, fields FROM register_row WHERE store IN ('bundle-header', 'caselines-links', 'discovery-mode') ORDER BY row_id") });
 		const s0 = JSON.stringify(snap());
 		await A.srv.stop('SIGKILL');
@@ -322,7 +325,7 @@ try {
 		const s2 = JSON.stringify(snap());
 		await pp.go(B, 'court_bundle_tab');
 		const shown = await pp.evaluate(`document.getElementById('cbh_caseNo').value`);
-		return { pass: s0 === s1 && s1 === s2 && JSON.parse(s0).regs.length >= 3 && JSON.parse(s0).marks.length >= 1 && shown === caseNo, evidence: { rows: JSON.parse(s0).regs.length + JSON.parse(s0).marks.length, shown } };
+		return { pass: s0 === s1 && s1 === s2 && JSON.parse(s0).regs.length >= 3 && JSON.parse(s0).marks.length >= 1 && shown === caseNo && saveError === '', evidence: { rows: JSON.parse(s0).regs.length + JSON.parse(s0).marks.length, shown, saveError } };
 	};
 	await S('CB-RESTART-SLOW', 'court_bundle_tab', 'GRS-152: a header save whose reload of the saved data the browser holds for 5 s finishes before the SIGKILL restart, so the page opens another view afterwards', async () => {
 		const q = await page(b, A.origin);

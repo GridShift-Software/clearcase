@@ -62,7 +62,7 @@ async function server(repo: string) {
 function scratchOf(...records: { role: string; pid: number }[]) {
 	const scratch = mkdtempSync(path.join(tmpdir(), 'hosted-scratch-'));
 	cleanups.push(() => rmSync(scratch, { recursive: true, force: true }));
-	writeFileSync(path.join(scratch, 'pids.jsonl'), records.map((r) => JSON.stringify({ ...r, start: processStart(r.pid), runId: path.basename(scratch), at: new Date().toISOString() })).join('\n') + '\n');
+	writeFileSync(path.join(scratch, 'pids.jsonl'), records.map((r) => JSON.stringify({ ...r, start: processStart(r.pid), boot: readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim(), runId: path.basename(scratch), at: new Date().toISOString() })).join('\n') + '\n');
 	return scratch;
 }
 

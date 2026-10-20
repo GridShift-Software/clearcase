@@ -3,6 +3,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "items": {
     "properties": {
+      "category": {
+        "type": "string"
+      },
       "impact": {
         "type": "string"
       },
@@ -14,6 +17,15 @@
       },
       "mitigation": {
         "type": "string"
+      },
+      "owner": {
+        "type": "string"
+      },
+      "refs": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
       }
     },
     "required": [

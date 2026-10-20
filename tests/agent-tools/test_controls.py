@@ -1201,7 +1201,8 @@ class GuardClosure(GuardCase):
 
     def test_sveltekit_generated_tsconfig_is_not_a_resolver_input_but_other_missing_extends_still_fail_closed(self):
         test = "import { clamp } from '../src/clamp';\n" + self.original
-        for extended, code in (('./.svelte-kit/tsconfig.json', 0), ('./tsconfig.missing.json', 1)):
+        for extended, code in (('./.svelte-kit/tsconfig.json', 0), ('$app/tsconfig', 0), ('./missing/tsconfig', 1),
+                               ('./tsconfig.missing.json', 1)):
             with self.subTest(extends=extended):
                 self.protect({'src/clamp.ts': 'export function clamp(x: number) { return x; }\n',
                               'tsconfig.json': json.dumps({'extends': extended})}, test)
@@ -1420,6 +1421,518 @@ test('rejects stale evidence', () => {
                 self.write('tests/setup.ts', "import { expect } from 'vitest';\nexpect.extend({ toEqual: () => ({ pass: true, message: () => '' }) });\n")
                 self.commit('patch matchers in the setup file')
                 self.assertIn('protected', self.guard(code=1))
+
+
+class GuardReach(GuardCase):
+    """GRS-148, the GRS-104 re-check's residual findings: code that runs in the named test's process but sat outside
+    both the protected closure and the framework-reach check."""
+    named_api, api, weakened = GuardAllowlist.named_api, GuardAllowlist.api, GuardAllowlist.weakened
+    patch, reason = GuardAllowlist.patch, GuardAllowlist.reason
+    weaken = GuardAllowlist.weaken
+    # the matcher state's registry, reached without importing vitest
+    symbol_patch = "(globalThis as any)[Symbol.for('$$jest-matchers-object')].customEqualityTesters.push(() => true);\nexport {};\n"
+
+    def test_a_support_file_loaded_from_application_code_cannot_reach_the_framework(self):
+        # finding 1 (high): a support-named file reached only from the module under test was skipped by the reach check
+        for folder in ('support', 'fixtures', 'test-utils'):
+            for label, patch in (('vitest import', self.patch), ('matcher symbol, no vitest import', self.symbol_patch)):
+                with self.subTest(bypass=f'src/{folder}/patch.ts, {label}'):
+                    self.protect({'src/api.ts': self.api}, self.named_api)
+                    self.write('src/api.ts', f"import './{folder}/patch';\n" + self.weakened)
+                    self.write(f'src/{folder}/patch.ts', patch)
+                    self.commit('load a framework patch from the module under test')
+                    self.assertIn('reaches the test framework', self.guard(code=1))
+        with self.subTest(bypass='a changed support file that unchanged application code already loads'):
+            api = "import { data } from './fixtures/data';\n" + self.api
+            self.protect({'src/api.ts': api, 'src/fixtures/data.ts': 'export const data = 1;\n'}, self.named_api)
+            self.write('src/api.ts', "import { data } from './fixtures/data';\n" + self.weakened)
+            self.write('src/fixtures/data.ts', self.patch + 'export const data = 1;\n')
+            self.commit('patch the framework from a loaded fixture')
+            self.assertIn('reaches the test framework', self.guard(code=1))
+        for label, files, line in (
+                ('an unchanged support helper', {'tests/support/matchers.ts': self.patch}, "import '../tests/support/matchers';\n"),
+                ('an unchanged support index re-exporting a patch', {'tests/support/matchers.ts': self.patch,
+                 'tests/support/index.ts': "export * from './matchers';\n"}, "import { patched } from '../tests/support/index';\n"),
+                ('an unchanged test file', {'tests/patch.test.ts': self.patch + "test('x', () => { expect(1).toBe(1); });\n"},
+                 "import '../tests/patch.test';\n")):
+            with self.subTest(bypass=f'application code newly loads {label}'):
+                self.protect({'src/api.ts': self.api, **files}, self.named_api)
+                self.write('src/api.ts', line + self.weakened)
+                self.commit('load reviewed test code from the module under test')
+                self.assertIn('newly loads', self.guard(code=1))
+        with self.subTest(control='a new test file with its plain helper, and a script loading a plain test helper'):
+            self.protect({'src/api.ts': self.api, 'tests/e2e/lib/env.ts': 'export const PORT = 1;\n'}, self.named_api)
+            self.write('src/api.ts', self.api.replace("v === 'new'", "v === 'new' && v.length === 3"))
+            self.write('tests/other.test.ts', "import { test, expect } from 'vitest';\nimport { one } from './support/plain';\n"
+                       "test('other', () => { expect(one()).toBe(1); });\n")
+            self.write('tests/support/plain.ts', 'export const one = () => 1;\n')
+            self.write('scripts/measure.ts', "import { PORT } from '../tests/e2e/lib/env';\nexport const port = PORT;\n")
+            self.commit('fix with a regression test in another file')
+            self.guard()
+
+    def test_a_new_import_cannot_run_import_time_code_before_the_named_test(self):
+        # finding 2 (medium): imports evaluate before the named test, so a new import of an unchanged module whose top
+        # level sets state changes what the named test proves
+        strict = "import { configure } from './api';\nconfigure(true);\nexport const strict = true;\n"
+        for label, files, line in (
+                ('a top-level call', {'src/strict.ts': strict}, "import { strict } from '../src/strict';\n"),
+                ('a re-export of a module with one', {'src/strict.ts': strict, 'src/flags.ts': "export { strict } from './strict';\n"},
+                 "import { strict } from '../src/flags';\n"),
+                ('a class static block', {'src/boot.ts': "import { configure } from './api';\nexport class Boot { static { configure(true); } }\n"},
+                 "import { Boot } from '../src/boot';\n"),
+                ('a top-level assignment', {'src/flip.ts': "import { settings } from './api';\nsettings.strict = true;\nexport const flipped = true;\n"},
+                 "import { flipped } from '../src/flip';\n"),
+                ('a package the reviewed test does not load', {'src/pkg.ts': "export { pad } from 'left-pad';\n"},
+                 "import { pad } from '../src/pkg';\n")):
+            with self.subTest(bypass=f'new import of {label}'):
+                self.assertIn('import time', self.weaken(line + self.named_api, files, reasons=self.reason))
+        with self.subTest(control='a new import of modules with no top-level effects'):
+            consts = ("import type { Kind } from './types';\nimport { join } from 'node:path';\nimport { base } from './base';\n"
+                      "import { configure } from './api';\nexport const LIMIT = base + 1;\nexport const kinds: Kind[] = ['a'];\n"
+                      "export function setup() { configure(true); return join('a', 'b'); }\n"
+                      "export class Box { static size = LIMIT * 2; open() { configure(false); } }\nexport default { LIMIT };\n")
+            self.protect({'src/api.ts': self.api, 'src/consts.ts': consts, 'src/base.ts': 'export const base = 1;\n',
+                          'src/types.ts': "export type Kind = 'a';\n"}, self.named_api)
+            self.write('src/api.ts', self.api.replace("v === 'new'", "v === 'new' && v.length === 3"))
+            self.write('tests/protected.test.ts', "import { LIMIT } from '../src/consts';\n" + self.named_api
+                       + "test('limit', () => { expect(LIMIT).toBe(2); });\n")
+            self.commit('fix with a test of a constant')
+            self.guard(reasons=self.reason)
+        with self.subTest(control='a new import of a helper the reviewed test already loads'):
+            helpers = {'support/a.ts': "export * from './b';\n",
+                       'support/b.ts': "import { configure } from '../src/api';\nconfigure(true);\nexport const ready = true;\n"}
+            test = "import { ready } from '../support/a';\n" + self.named_api
+            self.protect({'src/api.ts': self.api, **helpers}, test)
+            self.write('tests/protected.test.ts', "import { ready as loaded } from '../support/b';\n" + test
+                       + "test('ready', () => { expect(loaded).toBe(true); });\n")
+            self.commit('import a loaded helper directly')
+            self.guard(reasons=self.reason)
+
+    def test_every_setup_file_entry_binds_to_a_file_or_the_guard_fails_closed(self):
+        # finding 3 (medium, latent): setup files named by a template literal or a process.cwd() join were not resolved,
+        # and an entry the resolver could not bind did not fail closed; bun's preload list is the same shape
+        test = "import { test, expect } from 'vitest';\n" + self.original
+        # a setup file that never touches the framework but stubs the global the named test calls
+        stub = "(globalThis as any).validate = (v: string) => v === 'new';\nexport {};\n"
+        head = "import { join } from 'node:path';\n"
+        for label, files in (
+                ('dirname template literal', {'vitest.config.ts': "export default { test: { setupFiles: [`${__dirname}/tests/setup.ts`] } };\n"}),
+                ('process.cwd join', {'vitest.config.ts': head + "export default { test: { setupFiles: [join(process.cwd(), 'tests', 'setup.ts')] } };\n"}),
+                ('bunfig preload', {'bunfig.toml': '[test]\npreload = ["./tests/setup.ts"]\n'})):
+            with self.subTest(bypass=label):
+                self.protect({**files, 'tests/setup.ts': 'export {};\n'}, test)
+                self.write('tests/setup.ts', stub)
+                self.commit('stub a global in the setup file')
+                self.assertIn('protected dependency', self.guard(code=1))
+        for label, files in (
+                ('a variable', {'vitest.config.ts': head + "const setup = join(process.env.ROOT ?? '.', 'tests/setup.ts');\nexport default { test: { setupFiles: [setup] } };\n"}),
+                ('a call', {'vitest.config.ts': "const pick = () => ['tests/setup.ts'];\nexport default { test: { globalSetup: pick() } };\n"}),
+                ('a spread', {'vitest.config.ts': "const shared = ['tests/setup.ts'];\nexport default { test: { setupFiles: [...shared] } };\n"}),
+                ('a shorthand property', {'vitest.config.ts': "const setupFiles = ['tests/setup.ts'];\nexport default { test: { setupFiles } };\n"}),
+                ('a missing file', {'vitest.config.ts': "export default { test: { setupFiles: ['./tests/missing.ts'] } };\n"}),
+                ('a bunfig preload that is not a string list', {'bunfig.toml': '[test]\npreload = { file = "./tests/setup.ts" }\n'}),
+                ('a bunfig preload in an inline table', {'bunfig.toml': 'test = { preload = "./tests/setup.ts" }\n'})):
+            with self.subTest(bypass=f'an unbound entry: {label}'):
+                self.protect({**files, 'tests/setup.ts': 'export {};\n'}, test)
+                self.write('tests/setup.ts', stub)
+                self.commit('stub a global in the setup file')
+                self.assertIn('cannot bind', self.guard(code=1))
+        with self.subTest(control='an unchanged config with path-built setup files and a fix in the module under test'):
+            config = head + ("export default { test: { setupFiles: [`${__dirname}/tests/setup.ts`, join(process.cwd(), 'tests/more.ts')],"
+                             " globalSetup: './tests/global.ts' } };\n")
+            self.protect({'vitest.config.ts': config, 'tests/setup.ts': 'export {};\n', 'tests/more.ts': 'export {};\n',
+                          'tests/global.ts': 'export default () => {};\n', 'tests/preload.ts': 'export {};\n',
+                          'bunfig.toml': '[test]\npreload = ["./tests/setup.ts", "./tests/preload.ts"] # two files\n',
+                          'src/clamp.ts': 'export function clamp(x: number) { return x; }\n'}, test)
+            self.write('src/clamp.ts', 'export function clamp(x: number) { if (x < 0) return 0; return x; }\n')
+            self.commit('fix')
+            self.guard()
+
+    def test_a_changed_module_cannot_reach_the_runner_through_computed_names(self):
+        # finding 4 (medium): a computed Symbol.for name and a computed key on globalThis reached the matcher state;
+        # decision: refuse the global object's computed members, framework-named members, aliases and hand-offs
+        for label, text in {
+            'computed Symbol.for and globalThis key': "const key = Symbol.for(['$$jest', 'matchers', 'object'].join('-'));\n(globalThis as any)[key].customEqualityTesters.push(() => true);\n",
+            'a computed global name': "const name = ['__vitest', 'worker__'].join('_');\n(globalThis as any)[name].config.sequence = {};\n",
+            'an alias of the global object': "const g: any = globalThis;\nconst k = 'cus' + 'tomEqualityTesters';\ng[Object.getOwnPropertySymbols(g)[0]][k].push(() => true);\n",
+            'the global object passed on': "const k = Reflect.ownKeys(globalThis).find((s) => String(s).includes('matchers'));\n",
+            'a framework global by its literal name': "(globalThis as any).__vitest_worker__.config.sequence = {};\n",
+            'globals-mode expect on the global object': "(window as any)['expect'].extend({ toEqual: () => ({ pass: true, message: () => '' }) });\n",
+            'computed destructuring of the global object': "const { [String(1)]: state } = globalThis as any;\n",
+        }.items():
+            with self.subTest(bypass=label):
+                self.protect({'src/api.ts': self.api}, self.named_api)
+                self.write('src/api.ts', text + self.weakened)
+                self.commit('reach the runner through a computed name')
+                self.assertIn('reaches the test framework', self.guard(code=1))
+        with self.subTest(control='literal globals and a non-framework symbol, as application code uses them'):
+            app = ("const g = globalThis as { __clearcase?: { n: number } };\ng.__clearcase ??= { n: 1 };\n"
+                   "const cache = (globalThis as any)[Symbol.for('app.cache')] ?? new Map();\n"
+                   "export const ready = Boolean(globalThis.performance) && g.__clearcase.n === 1 && cache instanceof Map;\n")
+            self.protect({'src/api.ts': self.api}, self.named_api)
+            self.write('src/api.ts', app + self.api)
+            self.commit('legitimate')
+            self.guard()
+
+    def test_the_same_shapes_elsewhere_refuse(self):
+        # class sweep: the framework loaded through a renamed require, a support component a change newly loads, and a
+        # bare setup entry that names neither a tracked file nor a declared package
+        for label, text in {
+            'createRequire': "import { createRequire } from 'node:module';\nconst load = createRequire(import.meta.url);\n"
+                             "load('vitest').expect.extend({ toEqual: () => ({ pass: true, message: () => '' }) });\n",
+            'a scoped framework package by name': "const load = (globalThis as any).require ?? (() => ({}));\nexport const m = [load][0]('@vitest/expect');\n",
+        }.items():
+            with self.subTest(bypass=label):
+                self.protect({'src/api.ts': self.api}, self.named_api)
+                self.write('src/api.ts', text + self.weakened)
+                self.commit('load the framework under another name')
+                self.assertIn('reaches the test framework', self.guard(code=1))
+        with self.subTest(bypass='application code newly loads an unchanged support component'):
+            component = "<script lang=\"ts\">\n" + self.patch + "</script>\n<p>x</p>\n"
+            self.protect({'src/api.ts': self.api, 'tests/support/Patch.svelte': component}, self.named_api)
+            self.write('src/api.ts', "import '../tests/support/Patch.svelte';\n" + self.weakened)
+            self.commit('load a support component from the module under test')
+            self.assertIn('newly loads', self.guard(code=1))
+        test = "import { test, expect } from 'vitest';\n" + self.original
+        package = json.dumps({'name': 'x', 'devDependencies': {'@testing-library/jest-dom': '6.0.0'}})
+        with self.subTest(bypass='a bare setup entry naming an ignored file'):
+            self.protect({'.gitignore': 'setup.ts\n', 'package.json': package,
+                          'vitest.config.ts': "export default { test: { setupFiles: ['setup.ts'] } };\n"}, test)
+            self.write('setup.ts', "(globalThis as any).validate = () => false;\n")
+            self.write('app.txt', 'fixed\n')
+            self.commit('fix')
+            self.assertIn('cannot bind', self.guard(code=1))
+        with self.subTest(control='a setup entry naming a declared package'):
+            self.protect({'package.json': package,
+                          'vitest.config.ts': "export default { test: { setupFiles: ['@testing-library/jest-dom/vitest'] } };\n"}, test)
+            self.write('app.txt', 'fixed\n')
+            self.commit('fix')
+            self.guard()
+
+    def test_a_changed_test_file_is_exempt_only_while_test_files_are_isolated(self):
+        # class sweep: test files are left out of the reach check because the runner isolates each; a configuration
+        # that shares one process between them, or bun's runner, which does, voids that
+        other = "import { test, expect } from 'vitest';\n" + self.patch + "test('other', () => { expect(1).toBe(1); });\n"
+        for n, (label, files, test) in enumerate((
+                ('isolate: false', {'vitest.config.ts': "export default { test: { isolate: false } };\n"}, self.named_api),
+                ('a single fork', {'vitest.config.ts': "export default { test: { poolOptions: { forks: { singleFork: true } } } };\n"}, self.named_api),
+                ('--no-isolate in the test script', {'package.json': json.dumps({'name': 'x', 'scripts': {'test': 'vitest run --no-isolate'}})}, self.named_api),
+                ('bun:test', {}, self.named_api.replace("from 'vitest'", "from 'bun:test'")))):
+            with self.subTest(bypass=label):
+                self.protect({'src/api.ts': self.api, **files}, test)
+                self.write('src/api.ts', self.weakened)
+                # a new file each time: one left by an earlier subtest is unchanged in this diff
+                self.write(f'tests/other-{n}.test.ts', other.replace("from 'vitest'", "from 'bun:test'") if label == 'bun:test' else other)
+                self.commit('patch the framework from another test file')
+                self.assertIn('isolat', self.guard(code=1))
+        with self.subTest(bypass='a test script that runs bun test'):
+            self.protect({'src/api.ts': self.api, 'package.json': json.dumps({'name': 'x', 'scripts': {'test': 'bun test --timeout 5000'}})}, self.named_api)
+            self.write('src/api.ts', self.weakened)
+            self.write('tests/other-bun.test.ts', other)
+            self.commit('patch the framework from another test file')
+            self.assertIn('isolat', self.guard(code=1))
+        with self.subTest(control='isolation named only in comments, and bun running vitest'):
+            config = "// `bun run --bun test` runs this; isolate: false is not set, nor singleFork: true\nexport default { test: { pool: 'forks' } };\n"
+            self.protect({'src/api.ts': self.api, 'vitest.config.ts': config,
+                          'package.json': json.dumps({'name': 'x', 'scripts': {'test': 'vitest run', 'test:all': 'bun run --bun test'}})}, self.named_api)
+            self.write('src/api.ts', self.api.replace("v === 'new'", "v === 'new' && v.length === 3"))
+            self.write('tests/other-control.test.ts', "import { test, expect } from 'vitest';\ntest('other', () => { expect(1).toBe(1); });\n")
+            self.commit('fix with a regression test in another file')
+            self.guard()
+
+    def test_the_guard_itself_may_change_alongside_a_fix(self):
+        # the guard's own source is a module outside the closure when a later ticket changes it: it must not read as
+        # reaching the framework
+        guard = (TOOLS / 'test_guard.mjs').read_text()
+        packages = json.dumps({'name': 'x', 'devDependencies': {'typescript': '6.0.3', 'svelte': '5.57.2'}})  # as the repository declares them
+        self.protect({'src/api.ts': self.api, 'scripts/agent-tools/test_guard.mjs': guard, 'package.json': packages}, self.named_api)
+        self.write('scripts/agent-tools/test_guard.mjs', guard + '// a later change\n')
+        self.commit('change the guard')
+        self.guard()
+
+
+class GuardRoutes(GuardCase):
+    """GRS-148 fix round: each route by which a changed file makes a named test pass on weakened code, closed as a
+    class: the loader's unbound specifiers and the test-file exemption (H1), builtin mutation (H2), global-object
+    aliases (M1), Svelte script extraction (M2) and the per-named-file closure (M3)."""
+    named_api, api, weakened = GuardAllowlist.named_api, GuardAllowlist.api, GuardAllowlist.weakened
+    patch, reason = GuardAllowlist.patch, GuardAllowlist.reason
+    extend = "expect.extend({ toEqual: () => ({ pass: true, message: () => '' }) });\n"
+    patch_test = "import { test, expect } from 'vitest';\n" + extend + "test('other', () => { expect(1).toBe(1); });\n"
+    # the matcher registry through the global object held under a name `g`
+    registry = ("const s = Object.getOwnPropertySymbols(%s).find((x) => String(x).includes('jest-matchers')) as symbol;\n"
+                "%s[s].customEqualityTesters.push(() => true);\n")
+    counter = 0
+
+    def fresh(self, name):
+        """A file name no earlier subtest wrote: subtests share one repository."""
+        GuardRoutes.counter += 1
+        stem, dot, extension = name.partition('.')
+        return f'{stem}-{GuardRoutes.counter}{dot}{extension}'
+
+    def route(self, label, head, base=None, why=None, test=None, reasons=None, delete=()):
+        """The reviewed state (the module under test, `base`), then `head` written over it. `why` is what a refusal says;
+        None is a positive control that must pass."""
+        with self.subTest(route=label):
+            self.protect({'src/api.ts': self.api, **(base or {})}, test or self.named_api)
+            for name, text in head.items():
+                self.write(name, text)
+            for name in delete:
+                (self.repo / name).unlink()
+            self.commit(label)
+            if why is None:
+                self.guard(reasons=reasons)
+            else:
+                self.assertIn(why, self.guard(code=1, reasons=reasons))
+
+    def test_every_specifier_a_changed_module_loads_binds_or_the_guard_fails_closed(self):
+        # H1, the loader: loads() dropped a specifier the resolver could not bind, so a root-relative or ?query edge to a
+        # new test file went unseen
+        for label, spec in (('a root-relative path', '/tests/%s'), ('a query suffix', '../tests/%s?x'),
+                            ('a fragment', '../tests/%s#frag'), ('an extensionless root-relative path', '/tests/%s')):
+            name = self.fresh('patch.test.ts')
+            target = name[:-3] if 'extensionless' in label else name
+            self.route(f'application code imports a new test file by {label}',
+                       {'src/api.ts': f"import '{spec % target}';\n" + self.weakened, f'tests/{name}': self.patch_test},
+                       why='newly loads the test file')
+        for label, line in (('a missing local module', "import './generated';\n"), ('an undeclared package', "import 'left-pad';\n"),
+                            ('a literal dynamic import', "void import('./missing');\n"), ('a require', "const m = require('./missing');\n"),
+                            ('a re-export', "export * from './missing';\n"), ('a root-relative missing module', "import '/nowhere/x';\n")):
+            self.route(f'an unbound specifier: {label}', {'src/api.ts': line + self.weakened}, why='binds to no')
+        manifest = json.dumps({'name': 'x', 'devDependencies': {'left-pad': '1.0.0', '@scope/pkg': '1.0.0'}})
+        self.route('every kind of specifier that does bind',
+                   {'src/api.ts': ("import { pad } from 'left-pad';\nimport scoped from '@scope/pkg/sub';\nimport { join } from 'node:path';\n"
+                                   "import { readFileSync } from 'fs';\nimport { building } from '$app/environment';\n"
+                                   "import { PUBLIC_X } from '$env/static/public';\nimport { version } from '$service-worker';\n"
+                                   "import type { PageLoad } from './$types';\nimport logo from './logo.png?url';\n"
+                                   "import { lib } from '$lib/lib';\nimport { rooted } from '/src/rooted';\n"
+                                   "import { run } from './run.js';\n") + self.weakened,
+                    'src/logo.png': 'png\n', 'src/lib/lib.ts': 'export const lib = 1;\n', 'src/rooted.ts': 'export const rooted = 1;\n',
+                    'src/run.ts': 'export const run = 1;\n'}, base={'package.json': manifest})
+
+    def test_a_test_file_a_module_loads_loses_its_exemption(self):
+        # H1, the exemption: a changed test file is left to its assertion count only while nothing but the runner loads it
+        limits = "import { test, expect } from 'vitest';\nexport const LIMIT = 3;\ntest('limit', () => { expect(LIMIT).toBe(3); });\n"
+        patched = limits.replace('export const', self.extend + 'export const')
+        name = self.fresh('limits.test.ts')
+        imp = f"import {{ LIMIT }} from './{name[:-3]}';\nexport const limit = LIMIT;\n"
+        self.route('application code already loads an existing test file, which is patched in place',
+                   {'src/api.ts': imp + self.weakened, f'src/{name}': patched},
+                   base={'src/api.ts': imp + self.api, f'src/{name}': limits}, why='is loaded by')
+        name = self.fresh('limits.test.ts')
+        self.route('a support helper already loads an existing test file, which is patched in place',
+                   {'src/api.ts': self.weakened, f'src/{name}': patched},
+                   base={'tests/support/helper.ts': f"export {{ LIMIT }} from '../../src/{name[:-3]}';\n", f'src/{name}': limits},
+                   why='is loaded by')
+        name = self.fresh('limits.test.ts')
+        self.route('a changed test file only the runner loads',
+                   {f'tests/{name}': limits, 'src/api.ts': self.api.replace("v === 'new'", "v === 'new' && v.length === 3")},
+                   base={f'tests/{name}': limits.replace('3', '4')})
+
+    def test_a_changed_module_cannot_mutate_a_builtin(self):
+        # H2: Object.is = () => true made toEqual and toBe pass, with no framework name and no global object in sight
+        for label, line in {
+            'an assignment to a builtin member': 'Object.is = () => true;\n',
+            'an assignment to a prototype': 'Array.prototype.includes = () => true;\n',
+            'a delete': 'delete Object.is;\n',
+            'a logical assignment': 'Object.is ||= () => true;\n',
+            'an assignment through an alias': 'const O = Object;\nO.is = () => true;\n',
+            'a destructuring assignment target': '[Object.is] = [() => true];\n',
+            'a property destructuring target': '({ is: Object.is } = { is: () => true });\n',
+            'a for-of target': 'for (Object.is of [() => true]);\n',
+            'an assignment through the global object': '(globalThis as any).Object.is = () => true;\n',
+            'defineProperty': "Object.defineProperty(Object, 'is', { value: () => true });\n",
+            'defineProperties': "Object.defineProperties(Object, { is: { value: () => true } });\n",
+            'Object.assign': 'Object.assign(Object, { is: () => true });\n',
+            'setPrototypeOf': 'Object.setPrototypeOf(Array.prototype, { includes: () => true });\n',
+            'Reflect.set': "Reflect.set(Object, 'is', () => true);\n",
+            'Reflect.defineProperty': "Reflect.defineProperty(Object, 'is', { value: () => true });\n",
+            'a mutator held in a variable': "const d = Object.defineProperty;\nd(Object, 'is', { value: () => true });\n",
+            'a mutator called through call': "Object.defineProperty.call(null, Object, 'is', { value: () => true });\n",
+            'a prototype reached by getPrototypeOf': 'Object.getPrototypeOf([]).includes = () => true;\n',
+            'a prototype reached through constructor': '[].constructor.prototype.includes = () => true;\n',
+            'a prototype reached through __proto__': '({} as any).__proto__.is = () => true;\n',
+            'a prototype kept in a variable': 'const p = Object.getPrototypeOf([]);\np.includes = () => true;\n',
+            'a member of an imported builtin module': "import fs from 'node:fs';\n(fs as any).readFileSync = () => '';\n",
+            'a builtin handed to a function': "function d(o: object) { Object.defineProperty(o, 'is', { value: () => true }); }\nd(Object);\n",
+            'a prototype from getPrototypeOf handed to a function': "function d(o: object) { Object.defineProperty(o, 'includes', { value: () => true }); }\nd(Object.getPrototypeOf([]));\n",
+        }.items():
+            self.route(f'a changed module mutates a builtin: {label}', {'src/api.ts': line + self.weakened}, why='reaches the test framework')
+        self.route('plain mutation of the module\'s own objects and constructors',
+                   {'src/api.ts': ("const o: Record<string, number> = { a: 1 };\no.a = 2;\ndelete o.a;\nObject.assign(o, { b: 1 });\n"
+                                   "Object.defineProperty(o, 'c', { value: 1 });\nfunction Foo() {}\nFoo.prototype.bar = function () { return 1; };\n"
+                                   "import { readFileSync } from 'node:fs';\nimport * as path from 'node:path';\nexport const here = path.join('a', String(readFileSync.length));\n"
+                                   "let count = 0;\ncount++;\nexport const next = () => count++;\nconst copy = Object.assign({}, o);\n"
+                                   "export const table = Object.fromEntries(Object.entries(copy).map(([k, v]) => [k, v + 1]));\n") + self.weakened})
+
+    def test_a_changed_module_may_hold_the_global_object_only_as_a_literal_property_read(self):
+        # M1: an allowlist, not a list of the aliases the guard knew: any other holder of the global object refuses
+        for label, line in {
+            'an array element': "const g: any = [globalThis][0];\n" + self.registry % ('g', 'g'),
+            'a destructuring rename': "const { globalThis: g } = globalThis as any;\n" + self.registry % ('g', 'g'),
+            'a conditional': "const g: any = Math.random() < 2 ? globalThis : null;\n" + self.registry % ('g', 'g'),
+            'a later assignment': "let g: any;\ng = globalThis;\n" + self.registry % ('g', 'g'),
+            'a comma expression': "const s = Object.getOwnPropertySymbols((0, globalThis)).find((x) => String(x).includes('jest-matchers')) as symbol;\n"
+                                  "((0, globalThis) as any)[s].customEqualityTesters.push(() => true);\n",
+            'an object property': "const s = Object.getOwnPropertySymbols(({ g: globalThis }).g).find((x) => String(x).includes('jest-matchers')) as symbol;\n"
+                                  "({ g: globalThis } as any).g[s].customEqualityTesters.push(() => true);\n",
+            'a function parameter': "const reach = (g: any) => g[Object.getOwnPropertySymbols(g)[0]];\nreach(globalThis).customEqualityTesters.push(() => true);\n",
+            'a returned value': "const here = () => globalThis as any;\nconst g = here();\n" + self.registry % ('g', 'g'),
+            'an alias used by something other than a property read': "const g: any = globalThis;\nconst h = g;\n" + self.registry % ('h', 'h'),
+            'window': "const g: any = window;\n" + self.registry % ('g', 'g'),
+            'Symbol.for held in a variable': "const f = Symbol.for;\n(globalThis as any)[f('$$jest-matchers-object')].customEqualityTesters.push(() => true);\n",
+            'Symbol.for through a computed member': "(globalThis as any)[(Symbol as any)['f' + 'or']('$$jest-matchers-object')].customEqualityTesters.push(() => true);\n",
+            'Symbol itself aliased': "const S = Symbol;\n(globalThis as any)[S.for('$$jest-matchers-object')].customEqualityTesters.push(() => true);\n",
+            'Symbol.for with a computed name': "(globalThis as any)[Symbol.for(['$$jest', 'matchers-object'].join('-'))].customEqualityTesters.push(() => true);\n",
+        }.items():
+            self.route(f'a changed module holds the global object as {label}', {'src/api.ts': line + self.weakened}, why='reaches the test framework')
+        self.route('literal property reads, a const alias used only for them, and a direct literal Symbol.for',
+                   {'src/api.ts': ("const g = globalThis as { __clearcase?: { n: number } };\ng.__clearcase ??= { n: 1 };\n"
+                                   "const cache = (globalThis as any)[Symbol.for('app.cache')] ?? new Map();\n"
+                                   "const browser = typeof window !== 'undefined' && 'document' in globalThis;\n"
+                                   "const now = globalThis.performance?.now() ?? 0;\nconst { performance } = globalThis;\n"
+                                   "export const ready = Boolean(globalThis.performance) && g.__clearcase.n === 1 && cache instanceof Map"
+                                   " && browser === false && now >= 0 && performance !== undefined && typeof globalThis['fetch'] === 'function';\n")
+                    + self.weakened})
+
+    def test_a_svelte_component_is_read_by_the_compiler(self):
+        # M2: the <script> regex ended a tag at the first '>', so a '>' inside an attribute hid the script, and the markup
+        # (event handlers, {expressions}) was never read at all
+        hidden = ("<script module lang=\"ts\" data-x=\"a>b\">import { expect } from 'vitest'; " + self.extend.strip() + "</script>\n<p>x</p>\n")
+        registry = "(globalThis as any)[Object.getOwnPropertySymbols(globalThis as any)[0]].customEqualityTesters.push(() => true)"
+        for label, component, why in (
+                ('a > inside a script attribute', hidden, 'reaches the test framework'),
+                ('a single-quoted < inside a script attribute', hidden.replace('data-x="a>b"', "data-x='<'"), 'reaches the test framework'),
+                ('the markup of a component', f"<script lang=\"ts\">let a = 1;</script>\n<button onclick={{() => {registry}}}>{{a}}</button>\n", 'reaches the test framework'),
+                ('a markup expression', f"<script lang=\"ts\">let a = 1;</script>\n{{{registry}}}\n", 'reaches the test framework'),
+                ('a component that does not parse', "<script>let a = ;</script>\n<p>x</p>\n", 'cannot parse')):
+            name = self.fresh('Patch.svelte')
+            self.route(f'a Svelte component with {label}', {'src/api.ts': f"import './{name}';\n" + self.weakened, f'src/{name}': component}, why=why)
+        name = self.fresh('Plain.svelte')
+        self.route('a component with runes, markup and a style',
+                   {'src/api.ts': f"import './{name}';\n" + self.weakened,
+                    f'src/{name}': ("<script lang=\"ts\">\nlet { a }: { a: number } = $props();\nlet n = $state(0);\n</script>\n"
+                                    "{#if a}<button onclick={() => n++}>{n}</button>{/if}\n<style>button { color: red; }</style>\n")})
+
+    def test_the_modules_a_named_test_loads_are_those_of_that_test_file(self):
+        # M3: the loaded set was the union over every named file, so file A could newly import the effectful helper only
+        # file B loaded
+        helper = "import { configure } from '../src/api';\nconfigure(true);\nexport const ready = true;\n"
+        other = "import { test, expect } from 'vitest';\nimport { ready } from '../support/b';\ntest('b works', () => { expect(ready).toBe(true); });\n"
+        self.named = [{'file': 'tests/protected.test.ts', 'name': 'rejects stale evidence'}, {'file': 'tests/b.test.ts', 'name': 'b works'}]
+        files = {'support/b.ts': helper, 'tests/b.test.ts': other}
+        test = "import { ready } from '../support/b';\n" + self.named_api + "test('ready', () => { expect(ready).toBe(true); });\n"
+        self.route('file A newly imports the effectful helper only file B loads', {'src/api.ts': self.weakened, 'tests/protected.test.ts': test},
+                   base=files, why='must name a module the reviewed file imports', reasons=self.reason)
+        reviewed = "import { ready } from '../support/b';\n" + self.named_api
+        self.route('file A newly imports a helper it already loads',
+                   {'tests/protected.test.ts': "import { ready as loaded } from '../support/b';\n" + reviewed
+                    + "test('ready', () => { expect(loaded).toBe(true); });\n"},
+                   base=files, test=reviewed, reasons=self.reason)
+
+
+class GuardEscapes(GuardCase):
+    """GRS-148 escalation (DIAG-148): a value rooted at a builtin, a builtin module or the global object is held wherever
+    it goes, so it cannot leave the module that made it under another name, through an import or as a value the guard
+    did not name, and a write is judged by where the written value came from."""
+    named_api, api, weakened = GuardAllowlist.named_api, GuardAllowlist.api, GuardAllowlist.weakened
+    registry = GuardRoutes.registry
+    fresh, route = GuardRoutes.fresh, GuardRoutes.route
+
+    def through(self, label, exporter, importer, base=None, why='reaches the test framework'):
+        """`exporter` as a fresh module o, and `importer` as a fresh module b that the module under test imports;
+        './o' and './b' name them. `base` puts o in the reviewed state instead of the fix."""
+        o, b = self.fresh('o.ts'), self.fresh('b.ts')
+        name = lambda text: text.replace("'./o'", f"'./{o[:-3]}'").replace("'./b'", f"'./{b[:-3]}'")
+        files = {f'src/{o}': name(exporter)}
+        head = {'src/api.ts': f"import './{b[:-3]}';\n" + self.weakened, f'src/{b}': name(importer) + 'export {};\n'}
+        self.route(label, head if base else {**head, **files}, base=files if base else None, why=why)
+
+    def test_a_capability_leaves_its_module_under_no_name(self):
+        # H-new-1: `export { g as h }` was never one of g's uses, so Object and the global object left the module under a
+        # new name and a second changed module wrote through them (a real Vitest run passed the weakened code)
+        write = "import { P } from './o';\n(P as any).is = () => true;\n"
+        self.through('Object exported as another name, written by a second changed module', 'const O = Object;\nexport { O as P };\n', write)
+        self.through('the global object exported as another name, the registry reached by a second changed module',
+                     'const g = globalThis;\nexport { g as h };\n', "import { h } from './o';\n" + self.registry % ('h', 'h'))
+        self.route('the global object exported as another name and imported back by its own module',
+                   {'src/api.ts': "import { h } from './api';\nconst g = globalThis;\nexport { g as h };\n" + self.registry % ('h', 'h') + self.weakened},
+                   why='exported as h')
+        name = self.fresh('o.ts')
+        self.route('Object exported as another name by the only changed module',
+                   {f'src/{name}': 'const O = Object;\nexport { O as P };\n', 'src/api.ts': f"import './{name[:-3]}';\n" + self.weakened}, why='exported as P')
+        for label, exporter, importer in (
+                ('as default', 'const O = Object;\nexport { O as default };\n', "import P from './o';\n(P as any).is = () => true;\n"),
+                ('as a string name', "const O = Object;\nexport { O as 'P' };\n", write),
+                ('then re-exported by another module', "const O = Object;\nexport { O as P };\n", "export { P as Q } from './o';\nimport { Q } from './b';\n(Q as any).is = () => true;\n"),
+                ('then passed on by export *', "const O = Object;\nexport { O as P };\n", "export * from './o';\nimport { P } from './b';\n(P as any).is = () => true;\n"),
+                ('through a namespace import', "const O = Object;\nexport { O as P };\n", "import * as o from './o';\n(o.P as any).is = () => true;\n"),
+                ('through import()', "const O = Object;\nexport { O as P };\n", "const o: any = await import('./o');\no.P.is = () => true;\n"),
+                ('as a TypeScript import alias', 'const O = Object;\nexport import P = O;\n', write),
+                ('a builtin module exported as another name', "import fs from 'node:fs';\nexport { fs as P };\n", "import { P } from './o';\n(P as any).readFileSync = () => '';\n")):
+            self.through(f'a capability exported {label}', exporter, importer)
+        self.route('a plain const and a function exported as other names, and an importer writing a module\'s own state',
+                   {'src/api.ts': ("import { settings as shared } from './api';\nconst limit = 3;\nfunction twice(n: number) { return n * 2; }\n"
+                                   "export { limit as LIMIT, twice as double };\nexport { readFileSync as read } from 'node:fs';\n"
+                                   "export function reset() { shared.strict = true; }\n") + self.weakened})
+
+    def test_a_write_through_an_import_is_judged_by_the_module_that_made_the_value(self):
+        # the importer side of H-new-1: a write through an import binding was rooted at nothing, so an alias in a module
+        # the fix does not touch was as good as one it adds
+        self.through('a reviewed module exports an Object alias, the fix writes through it', 'const O = Object;\nexport { O as P };\n',
+                     "import { P } from './o';\n(P as any).is = () => true;\n", base=True)
+        self.through('a reviewed module exports the global object, the fix reaches the registry through it', 'const g = globalThis;\nexport { g as h };\n',
+                     "import { h } from './o';\n" + self.registry % ('h', 'h'), base=True)
+        self.through('a reviewed module re-exports a builtin module, the fix writes through it', "export { default as fs } from 'node:fs';\n",
+                     "import { fs } from './o';\n(fs as any).readFileSync = () => '';\n", base=True)
+        self.through('a reviewed module exports its own state, the fix writes it', 'export const state = { strict: true };\n',
+                     "import { state } from './o';\nstate.strict = false;\n", base=True, why=None)
+
+    def test_a_capability_reached_without_its_name_is_held_like_one(self):
+        # a builtin reached through constructor, __proto__ or super was refused only when written in place, so it left
+        # the module, or reached a function, unseen
+        for label, exporter, importer in (
+                ('({}).constructor', 'export const O = ({}).constructor;\n', "import { O } from './o';\n(O as any).is = () => true;\n"),
+                ('[].__proto__', 'export const AP = ([] as any).__proto__;\n', "import { AP } from './o';\n(AP as any).includes = () => true;\n")):
+            self.through(f'{label} exported, written by a second changed module', exporter, importer)
+        for label, line in (
+                ('({}).constructor handed to a function', "function d(o: any) { o.is = () => true; }\nd(({}).constructor);\n"),
+                ('[].constructor returned from a function', "const get = (): any => [].constructor;\nget().isArray = () => true;\n"),
+                ('super.prototype in a class that extends Array', "class A extends Array { static arm() { (super.prototype as any).includes = () => true; } }\nA.arm();\n")):
+            self.route(f'a builtin reached as {label}', {'src/api.ts': line + self.weakened}, why='reaches the test framework')
+        self.route('constructor and super in plain classes, and a record\'s own constructor key',
+                   {'src/api.ts': ("class E extends Error { constructor(m: string) { super(m); this.name = 'E'; } describe() { return super.toString() + this.constructor.name; } }\n"
+                                   "export const same = (a: object, b: object) => a.constructor === b.constructor && new (a.constructor as any)() instanceof E;\n"
+                                   "export const record = (v: any) => { v.constructor = { prototype: {} }; delete v.constructor; return new E('x'); };\n")
+                    + self.weakened})
+
+    def test_a_builtin_module_object_moves_like_a_builtin(self):
+        # a builtin module was rooted only as its own import binding: destructured, required, imported by import() or
+        # handed to a function, its members were written unseen
+        for label, line in (
+                ('a destructured member', "import fs from 'node:fs';\nconst { promises } = fs;\n(promises as any).readFile = () => '';\n"),
+                ('a require', "import { createRequire } from 'node:module';\nconst require = createRequire(import.meta.url);\nrequire('node:fs').readFileSync = () => '';\n"),
+                ('an import()', "const fs: any = await import('node:fs');\nfs.default.readFileSync = () => '';\n"),
+                ('an argument', "import fs from 'node:fs';\nfunction d(m: any) { m.readFileSync = () => ''; }\nd(fs);\n")):
+            self.route(f'a builtin module written through {label}', {'src/api.ts': line + self.weakened}, why='reaches the test framework')
+        self.route('the repository\'s own uses of builtins, builtin modules and the global object',
+                   {'src/api.ts': ("import fs from 'node:fs';\nimport path from 'node:path';\nimport { promisify } from 'node:util';\n"
+                                   "const { performance } = globalThis;\nconst o = { a: 1 };\nconst copy = Object.assign({}, o);\nconst run = (0, eval);\n"
+                                   "const { readFile } = await import('node:fs/promises');\nexport const read = promisify(fs.readFile);\n"
+                                   "export const names = ['a/b'].map(path.basename);\nexport const keys = Object.keys;\n"
+                                   "export const t = performance.now() + Object.keys(copy).length + String(run).length + String(readFile).length;\n")
+                    + self.weakened})
+
+    def test_a_test_file_loaded_through_an_imports_alias_loses_its_exemption(self):
+        # M-new-2: the importers of a test file were found by grepping for .test/.spec, so a package.json imports alias
+        # that names one hid the edge and the test file, patched in place, kept its exemption
+        limits = "import { test, expect } from 'vitest';\nexport const LIMIT = 3;\ntest('limit', () => { expect(LIMIT).toBe(3); });\n"
+        name = self.fresh('limits.test.ts')
+        manifest = json.dumps({'name': 'x', 'imports': {'#limits': f'./src/{name}'}})
+        imp = "import { LIMIT } from '#limits';\nexport const limit = LIMIT;\n"
+        self.route('application code loads a test file through a package.json imports alias, and the test file is patched in place',
+                   {'src/api.ts': imp + self.weakened, f'src/{name}': limits.replace('export const', GuardRoutes.extend + 'export const')},
+                   base={'package.json': manifest, 'src/api.ts': imp + self.api, f'src/{name}': limits}, why='is loaded by')
 
 
 class GuardBinding(ControlCase):

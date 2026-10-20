@@ -56,11 +56,39 @@
 			<h2 id="diff-heading">Changes against the active version</h2>
 			<p id="diff-summary">Matched by original fingerprint, never by ref: {data.diff.unchanged} unchanged, {data.diff.changedRows.length} with changed rows, {data.diff.renumbered.length} renumbered, {data.diff.added.length} added, {data.diff.removed.length} removed, {data.diff.ambiguous.length} ambiguous fingerprints; {data.diff.unmatched.candidate} candidate documents without an original cannot be matched.</p>
 			{#if data.diff.renumbered.length}<p>Renumbered: {data.diff.renumbered.slice(0, 30).map((x) => `${x.from} → ${x.to}`).join(', ')}{data.diff.renumbered.length > 30 ? ', …' : ''}</p>{/if}
-			{#if data.diff.ambiguous.length}<p>Ambiguous (several refs share the same bytes; user work is not re-attached automatically): {data.diff.ambiguous.slice(0, 20).map((x) => `${x.base.join('/')} → ${x.candidate.join('/')}`).join('; ')}</p>{/if}
+			{#if data.diff.ambiguous.length}<p>Ambiguous (several refs share the same bytes; user work is not re-attached automatically): {data.diff.ambiguous.slice(0, 20).map((x) => `${x.base.join('/')} → ${x.candidate.join('/')}`).join('; ')}{data.diff.ambiguous.length > 20 ? '; …' : ''}</p>{/if}
 		</section>
 	{/if}
 	{#if data.notes && data.notes.total}
 		<p class="card" id="notes-impact">User work for this case: {plural(data.notes.total, 'note')}; in this candidate {data.notes.here + data.notes.exact} attach to a document, {data.notes.ambiguous} are ambiguous and {data.notes.missing + data.notes.unanchored} would be shown as detached. Activation never changes user work.</p>
+	{/if}
+
+	{#if data.textCoverage}
+		<section class="card" id="text-coverage" aria-labelledby="text-coverage-heading">
+			<h2 id="text-coverage-heading">Source text coverage</h2>
+			{#if data.textCoverage.known}
+				{#each data.textCoverage.notes as note, i (i)}<p>{note}.</p>{/each}
+				<p><em>{data.textCoverage.hint}</em></p>
+			{:else}
+				<p>This package carries no conversion report, so whether its source export cut document text short is not known.</p>
+			{/if}
+		</section>
+	{/if}
+
+	{#if data.sourceCoverage}
+		<section class="card" id="source-coverage" aria-labelledby="source-coverage-heading">
+			<h2 id="source-coverage-heading">Source coverage</h2>
+			{#if data.sourceCoverage.known}
+				<p>What the converter recorded about source data it kept but does not present, or could not map:</p>
+				{#each data.sourceCoverage.groups as g (g.code)}
+					<h3>{g.code} ({g.total})</h3>
+					<ul>{#each g.items as it, i (i)}<li>{#if it.subject}<code>{it.subject}</code>: {/if}{it.message}.</li>{/each}</ul>
+					{#if g.hint}<p><em>{g.hint}</em></p>{/if}
+				{/each}
+			{:else}
+				<p>This package carries no conversion report, so what the source export holds beyond the views is not known.</p>
+			{/if}
+		</section>
 	{/if}
 
 	{#if r.app.length}

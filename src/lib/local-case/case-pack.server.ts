@@ -6,6 +6,7 @@ import path from 'node:path';
 import { crc32 } from 'node:zlib';
 import { CASE_ID } from '../case-package/schema.ts';
 import { withLimits } from '../case-package/limits.ts';
+import type { Diagnostic } from '../case-package/codes.ts';
 import { convertV5 } from '../case-package/v5/adapter.ts';
 import { writePackageDir } from '../case-package/writer.ts';
 import { extractEntries, readCentralDirectory, ZipError, type ZipEntry } from '../case-package/zip.ts';
@@ -65,6 +66,20 @@ export async function listFolder(requested: string | null): Promise<FolderListin
 
 
 export class CasePackError extends Error {}
+
+/** The converter refused the workspace HTML: the caller records it as a rejected import and keeps the HTML as received. */
+export class ConversionRefused extends CasePackError {
+	readonly diagnostics: Diagnostic[];
+	readonly received: Uint8Array;
+	readonly htmlName: string;
+	readonly caseId: string;
+	readonly caseLabel: string;
+	readonly caseFolder: string;
+	constructor(message: string, refused: { diagnostics: Diagnostic[]; received: Uint8Array; htmlName: string; caseId: string; caseLabel: string; caseFolder: string }) {
+		super(message);
+		this.diagnostics = refused.diagnostics; this.received = refused.received; this.htmlName = refused.htmlName; this.caseId = refused.caseId; this.caseLabel = refused.caseLabel; this.caseFolder = refused.caseFolder;
+	}
+}
 
 /** extract and check (an earlier extraction read back): files and bytes; convert: originals fingerprinted; find and write carry no counts */
 export interface PackProgress { phase: 'extract' | 'check' | 'find' | 'convert' | 'write'; done: number; total: number; bytesDone: number; bytesTotal: number }
@@ -216,7 +231,7 @@ export async function prepareCasePack(source: string, destination: string, o: Pr
 	o.signal.throwIfAborted();
 	if (!conv.files) {
 		const errs = conv.diagnostics.filter((d) => d.severity === 'error');
-		throw new CasePackError(`${path.basename(html)} could not be converted: ${errs.slice(0, 5).map((d) => `${d.code} ${d.message}`).join('; ')}${errs.length > 5 ? `; and ${errs.length - 5} more` : ''}. Nothing was imported.`);
+		throw new ConversionRefused(`${path.basename(html)} could not be converted: ${errs.slice(0, 5).map((d) => `${d.code} ${d.message}`).join('; ')}${errs.length > 5 ? `; and ${errs.length - 5} more` : ''}. Nothing was imported.`, { diagnostics: conv.diagnostics, received: bytes, htmlName: path.basename(html), caseId: caseIdFrom(name), caseLabel: o.caseLabel?.trim() || name, caseFolder });
 	}
 	o.onProgress(step('write'));
 	const packageDir = await freeResultsDir(dest, name);

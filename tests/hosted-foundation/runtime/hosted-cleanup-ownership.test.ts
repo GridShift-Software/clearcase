@@ -6,7 +6,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { writePidFile } from '../../../scripts/pidfile.ts';
+import { processStart, writePidFile } from '../../../scripts/pidfile.ts';
 // @ts-expect-error plain .mjs
 import { cleanupRun, hostedRun, REPO } from '../../../.agents/skills/verify-clearcase-hosted/lib/main.mjs';
 
@@ -58,11 +58,11 @@ async function server(repo: string) {
 	return { wrapper: child.pid!, pid, pidFile, stateFile };
 }
 
-/** A scratch directory whose pids.jsonl records `roles` the way the run's namespace and inner runner do. */
+/** A scratch directory whose pids.jsonl records `roles` the way the run's namespace and inner runner do: pid, start time, run. */
 function scratchOf(...records: { role: string; pid: number }[]) {
 	const scratch = mkdtempSync(path.join(tmpdir(), 'hosted-scratch-'));
 	cleanups.push(() => rmSync(scratch, { recursive: true, force: true }));
-	writeFileSync(path.join(scratch, 'pids.jsonl'), records.map((r) => JSON.stringify({ ...r, at: new Date().toISOString() })).join('\n') + '\n');
+	writeFileSync(path.join(scratch, 'pids.jsonl'), records.map((r) => JSON.stringify({ ...r, start: processStart(r.pid), runId: path.basename(scratch), at: new Date().toISOString() })).join('\n') + '\n');
 	return scratch;
 }
 

@@ -1,6 +1,6 @@
 # Chart the route from the ClearCase POC to hosted alpha
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-69/chart-the-route-from-the-clearcase-poc-to-hosted-alpha) is the execution authority.
 
 ## Destination
 

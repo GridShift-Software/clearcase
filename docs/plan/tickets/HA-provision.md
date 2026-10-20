@@ -1,6 +1,6 @@
 # Provision isolated client instances, cases and explicit grants
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-114/provision-isolated-client-instances-cases-and-explicit-grants) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-114/provision-isolated-client-instances-cases-and-explicit-grants) is the execution authority.
 
 Planning key `HA-provision`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

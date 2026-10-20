@@ -1,6 +1,6 @@
 # Implement accepted media and archive-contained viewing paths
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-123/implement-accepted-media-and-archive-contained-viewing-paths) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-123/implement-accepted-media-and-archive-contained-viewing-paths) is the execution authority.
 
 Planning key `HA-viewer-media-archive`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

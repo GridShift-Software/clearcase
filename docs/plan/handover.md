@@ -2,6 +2,10 @@
 
 This page indexes everything an external reviewer needs, in one place. It is written for `dianbrown` and any other reader of `dev` who has only a clone.
 
+## Update, 20 October 2026 (GRS-159)
+
+The sections up to and including the state table record the review at SHA `383c385e` on 17 October and stay as recorded. Since then: Greptile's check, CI and no unresolved finding at the exact head gate `dev`, and `dianbrown` approves only a release PR into `main`; GRS-141, GRS-142, GRS-138 and GRS-106 are Done, and the synthetic hosted gate exists while every real-provider check stays UNRUN; `dev` is at `8d818acd` with the last recorded dev-gate PASS at `83cbf184` and no verdict at `8d818acd`.
+
 ## The review
 
 - **Review SHA:** `383c385e54ea492d6665f5d90b644be1aba8b6fc`. It is the content commit of branch `feature/grs-69-docs-consistency`, cut from `dev` at `525aa8a`; the next commit changes only this line. After the merge, review `dev` at the merge commit.

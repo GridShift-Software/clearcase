@@ -1,6 +1,12 @@
 # Implement hosted D1 results storage and protected R2 assets
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-115/implement-hosted-d1-results-storage-and-protected-r2-assets) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-115/implement-hosted-d1-results-storage-and-protected-r2-assets) is the execution authority.
+
+## User decision — 19 October 2026
+
+The user confirmed that app access to withdrawn result derivatives must refuse across previews, result exports/packages and generated bundles, including Keep-marked versions. Keep protects against pruning, not withdrawal. Preserve authorized original and independent user-work access, and prevent stale caches/capabilities from bypassing withdrawal. Retention is separate from availability; previously delivered copies cannot be recalled. Coordinate <issue id="07b2f5cd-c6a9-432a-88e0-0c0ff13e69c5" href="https://linear.app/vaper/issue/GRS-31/sign-off-and-publish-an-exact-results-version">GRS-31</issue>/128/118; release acceptance is <issue id="51458563-33f0-4e38-bbfb-8eef5834a872" href="https://linear.app/vaper/issue/GRS-32/verify-hosted-isolation-recovery-and-release-readiness">GRS-32</issue>.
+
+---
 
 Planning key `HA-storage`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

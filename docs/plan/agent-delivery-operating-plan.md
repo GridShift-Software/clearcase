@@ -1,12 +1,12 @@
 # Hosted alpha agent delivery plan
 
-Updated 17 October 2026. The user approved this plan on 17 October 2026 at 14:20 SAST (GRS-69 comment `45db4bdd-c268-4f6b-8658-cc2edb77bc6a`). GRS-69 and [GRS-94](https://linear.app/vaper/issue/GRS-94/define-the-fable-and-swarm-delivery-operating-plan) are Done in Linear. Approval is not runtime acceptance: every hosted implementation, runtime and provider check is UNRUN.
+Updated 17 October 2026; policy and state reconciled 20 October 2026 (GRS-159). The user approved this plan on 17 October 2026 at 14:20 SAST (GRS-69 comment `45db4bdd-c268-4f6b-8658-cc2edb77bc6a`). GRS-69 and [GRS-94](https://linear.app/vaper/issue/GRS-94/define-the-fable-and-swarm-delivery-operating-plan) are Done in Linear. Approval is not runtime acceptance: the hosted synthetic gate (GRS-138) is Done, but every real-provider check (Clerk, D1, R2, email, deployment) and every hosted acceptance check is UNRUN.
 
 The workspace `AGENTS.md` and `ORCHESTRATOR.md` are the operative rules. The sections up to "Snapshot of the earlier proposal" are current and agree with them. The snapshot at the end is archived history. [Verification and review](verification-and-review.md) holds the verification model, and [handover](handover.md) indexes the lot for an external reviewer.
 
 ## Current state
 
-- The dev gate at `8ab9ef4` is FAIL at strict parity (two demo-merge subtitles). App code is unchanged at `525aa8a`. The repair is GRS-141 (with GRS-143 and GRS-142) on `wave/preflight-parity`, the recorded exception to needing a green base.
+- The dev gate was FAIL at `8ab9ef4` at strict parity (17 October); GRS-141, GRS-143 and GRS-142 are Done. The last recorded dev-gate PASS is at `83cbf184` (19 October). `dev` is at `8d818acd`, the merge of the hosted-bootstrap wave PR #75, and the dev-gate run at that commit recorded no verdict. The delivery-controls wave (GRS-157) is not on `dev`.
 - Cloudflare account, domain and provider work is pinned until the user unpins it (GRS-26 decision `d6367d1a`). Local proof legs may run. Any leg that needs a real provider, a Paid plan or a credential is HOLD, never a mock PASS. Once unpinned, the ceiling is USD 25 a month with an alert at USD 10. GRS-105 (PC2) is no-go.
 - GRS-24 no longer gates the proof tickets GRS-106 to GRS-111. It still gates GRS-26 and so the design gate GRS-27.
 
@@ -28,7 +28,7 @@ Set model and effort explicitly on every launch, including subagents. Nothing in
 
 Targets are reporting only. Overspend never pauses or cancels work by itself. Attempts are bounded instead: one fix round, one recheck, one escalation and one transient infrastructure retry. The same failure twice without a new diagnosis stops the unit. The T3 task API has no spend cap, and the prepared headless resume scripts carry `--max-budget-usd` caps from the M2 run that are not policy.
 
-Not used: the `swarm`, `arena`, `interrogate` and `reflect` skills, verification lanes, adversarial swarms, critic panels, brief drafters and the Workflow tool. At most three workers and two browser jobs at once is capacity, not permission to fan out. Codex is allowed only as `gpt-6-astra`, the recorded rare escalator.
+Not used: the `swarm`, `arena`, `interrogate` and `reflect` skills, verification lanes, adversarial swarms, critic panels, brief drafters and the Workflow tool. At most three workers and two browser jobs at once is capacity, not permission to fan out. A model or harness the user chooses for a session or task, Codex included, takes precedence for that session or task (workspace `AGENTS.md`, 20 October 2026). Otherwise Codex runs only as `gpt-6-astra`, the recorded rare escalator.
 
 ### The one current pstack sheet
 
@@ -38,7 +38,7 @@ The sheet written on 17 October at `~/.config/t3-pstack/models.md` is the one cu
 
 Accepted escalation rule: first use the normal build/review/written-fix/recheck process. Escalate a remaining substantive blocker or a clearly documented technical impasse with the exact failure, attempted fixes, evidence and a bounded question. Before dispatch, create a linked Linear escalation issue recording the source issue, exact SHA, reproduction, prior attempts, evidence, bounded question, selected model/effort, spend target and completion predicate. Choose one escalator and add its T3 task ID to that issue. After the attempt, update the same issue with findings, outcome, resulting SHA and checks. Keep the source blocked if unresolved; after one bounded escalation, return the unresolved blocker or design decision to the user. Do not create an escalation issue or dispatch a model when no blocker exists. Missing access, unavailable infrastructure and simple editorial corrections do not by themselves justify an expensive escalation.
 
-The user permits Astra in this rare role despite the older blanket workspace ban on Codex. This is a scoped exception; it does not enable all Codex roles or recurring model panels. Keep the existing restriction on `max` and unrequested modes.
+The user permits Astra in this rare role despite the older blanket workspace ban on Codex. This is a scoped exception; it does not enable all Codex roles or recurring model panels. A harness the user names for a session or task takes precedence for that task only (workspace `AGENTS.md`, 20 October 2026). Keep the existing restriction on `max` and unrequested modes.
 
 ## Work loop and controls
 
@@ -82,7 +82,7 @@ A wave is a set of tickets on one branch `wave/<name>`, at most seven writers, r
 | `wave/widen-3` | GRS-119, GRS-124 to GRS-128 | GRS-66 |
 | `wave/release` | GRS-32 | GRS-32 |
 
-At each checkpoint the user reads the aggregate report and drives the verification skill once. Agents run unattended between checkpoints and stop, with `status.md` written, when only checkpoint-blocked work remains. When the aggregate is accepted, the orchestrator opens one PR from the wave branch into `dev` and requests `dianbrown`. His findings get one fix round per owner on the wave branch, then he is re-requested. The wave merges into `dev` when his latest review on the wave head approves. A scheduled task at 08:30 SAST on weekdays posts one Linear project status update; it is the only routine human notification.
+At each checkpoint the user reads the aggregate report and drives the verification skill once. Agents run unattended between checkpoints and stop, with `status.md` written, when only checkpoint-blocked work remains. When the aggregate is accepted, the orchestrator opens one PR from the wave branch into `dev`. Greptile reviews it and each new commit on it; its findings get one fix round per owner on the wave branch. The wave merges into `dev` through `merge-check --merge` when Greptile's check passes at the exact head (required confidence 4 of 5), CI passes there and no finding is unresolved. End-of-sprint human review replaces per-wave review: only a release PR from `dev` into `main` requests `dianbrown`, who must approve it at the release head, and the user merges `main`. A scheduled task at 08:30 SAST on weekdays posts one Linear project status update; it is the only routine human notification.
 
 ## The first workflow and the human gate
 
@@ -102,7 +102,7 @@ Workers do not re-derive the architecture. In order: `docs/development.md` and `
 
 ## Concrete delivery owners
 
-The plan snapshot holds 76 items, of which 34 are hosted delivery owners and 17 are accepted historical work. The 17 October morning readback (08:20Z) captured 114 project issues, 63 of them open; the 14:27Z capture holds 115 issues and records the approval. The owners carry bounded scope, acceptance, evidence recipes and native prerequisites. Exact paths and the accepted upstream SHA are pinned again at pickup. The table lists the initial scope of each delivery owner.
+The plan snapshot of 20 October holds 77 items, of which 34 are hosted delivery owners and 32 are accepted historical work. Its Linear capture (2026-10-20T19:21:49Z) holds 132 project issues, 59 of them open, 14 of those outside the plan. The 17 October readbacks (114 and 115 issues) are superseded. The owners carry bounded scope, acceptance, evidence recipes and native prerequisites. Exact paths and the accepted upstream SHA are pinned again at pickup. The table lists the initial scope of each delivery owner.
 
 | Delivery owner | Initial scope |
 | --- | --- |
@@ -149,8 +149,9 @@ The source-only ownership check at the planning reference found 46 shared `app()
 - Bounded escalation and the initial worker roles are accepted (Linear decision comment `410c1a45-c3d6-4359-acb4-bc5281a69201`). Spend reporting-only and the shared Rescan & Update flow are accepted in `045279af-b2f6-4867-b17f-c9017593cae3`. Retry and runtime limits: writing 90 minutes, review 30 minutes, stall assessment at 30 minutes, with bounded retry counts.
 - The final workflow-scenario answers of GRS-136 are accepted (decision comment `f9705162-0911-492f-8684-4db568edefa7`): the primary lawyer journeys with all 42 views and the current processing prompts; the first complete workflow GRS-137; retrievable originals before publication; requested supplements linked to the same processing job; and cases that exist without a publication.
 - The large/xhigh preset and session hook on were chosen (decision comment `68ef42c3-ac86-4a1c-b7f6-ef908922859e`) and the sheet was written on 17 October.
-- The user approved the complete written plan on 17 October at 14:20 SAST. Runtime acceptance is UNRUN.
-- Planning-tool limits, recorded as follow-ups: the readback file is coordinator-supplied and unauthenticated, so `--linear-relations` shows agreement with that file, not that it is live; a reserved test path names where a test lives, not that a runner collects it; the legacy ten-lane plan-format template is obsolete and its check is SKIPPED (GRS-104), so `check-plan` is not a PASS overall. Eleven open tickets still carry the older "every Opus agent uses high" boundary wording in their Linear text; the workspace `AGENTS.md` table overrides it, and the next readback refresh normalizes it.
+- The user approved the complete written plan on 17 October at 14:20 SAST. Real-provider and hosted acceptance are UNRUN.
+- Since 20 October 2026 (user decision, workspace `AGENTS.md`): Greptile's check, CI and the absence of unresolved findings at the exact head gate `dev`, and `dianbrown` approves only a release PR into `main`; a model or harness the user chooses for a session or task, Codex included, takes precedence for that task.
+- Planning-tool limits, recorded as follow-ups: the readback file is coordinator-supplied and unauthenticated, so `--linear-relations` shows agreement with that file, not that it is live; a reserved test path names where a test lives, not that a runner collects it; `check-plan` now checks the delivery plan against its own generated format contract (`scripts/planning/plan_format.py`, GRS-159) and reports `NOT RUN: linear-relations` unless a readback is supplied; pstack's generic plan-format template stays available as `verify pstack-plan-format --plan PATH`. Eleven open tickets still carry the older "every Opus agent uses high" boundary wording in their Linear text; the workspace `AGENTS.md` table overrides it, and the next readback refresh normalizes it.
 
 ## Pstack sheet as written
 

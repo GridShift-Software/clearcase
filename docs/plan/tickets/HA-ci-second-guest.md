@@ -1,6 +1,12 @@
 # Second CI guest on pc1: instance-aware VM scripts and two jobs at once
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-140/second-ci-guest-on-pc1-instance-aware-vm-scripts-and-two-jobs-at-once) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-140/second-ci-guest-on-pc1-instance-aware-vm-scripts-and-two-jobs-at-once) is the execution authority.
+
+## User decision — 19 October 2026
+
+The user authorizes maintenance while CI is free. Let active jobs finish; CI jobs may queue until maintenance finishes, or a separate runner may be brought up if the work will take a while. Apply the existing measured-headroom, guest-isolation and teardown requirements, keep unrelated host changes outside this ticket, and restore/verify service. This satisfies the ticket's quiet-window consent conditionally on CI being idle. It does not unpin Cloudflare or authorize interrupting active CI.
+
+---
 
 Planning key `HA-ci-second-guest`. From the read-only CI review of 17 October 2026 (`clearcase/.orchestration/reports/CI-REVIEW-20261017/report.md`). Optional: it buys redundancy and removes the 40 to 75 s queue waits when a PR run and a dev merge overlap. It does not shorten a job. Do it after the CI verdict ticket, and only after pc1's headroom is measured.
 

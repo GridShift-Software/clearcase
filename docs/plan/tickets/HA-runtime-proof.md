@@ -1,6 +1,6 @@
 # Prove SvelteKit 3 and Bun builds on the Cloudflare Workers runtime
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-106/prove-sveltekit-3-and-bun-builds-on-the-cloudflare-workers-runtime) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-106/prove-sveltekit-3-and-bun-builds-on-the-cloudflare-workers-runtime) is the execution authority.
 
 Planning key `HA-runtime-proof`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

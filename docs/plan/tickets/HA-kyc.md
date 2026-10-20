@@ -1,6 +1,6 @@
 # Implement represented-client KYC review and separate compliance access
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-124/implement-represented-client-kyc-review-and-separate-compliance-access) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-124/implement-represented-client-kyc-review-and-separate-compliance-access) is the execution authority.
 
 Planning key `HA-kyc`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

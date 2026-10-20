@@ -1,0 +1,91 @@
+{
+  "schema": "clearcase-fix-round/1",
+  "unit": "PRFIX-84/implementation",
+  "fixBase": "3d821e27f339b56766ffb83bfcc298924b5fd1ff",
+  "reviewFindingsSha256": "372c97746d741d795ccfbf3dc3d4cef2d0c6be27c907476f33bfc315f2929b9b",
+  "review": {
+    "pullRequest": 84,
+    "reviewId": "pullrequestreview-5592954414",
+    "reviewer": "greptile-apps[bot]",
+    "reviewedHead": "afd48fc4edf3ec0de52e4de546430d1d8dd52287",
+    "waveBase": "8d818acd2ce8b99b6707ac9a52aa241dc11e95fd",
+    "note": "fixBase is the red commit 3d821e2: the guard needs each named test to exist at the base, and these regressions are new; the manifest follows it, since a commit cannot name its own hash. The reviewed head and the dev base are recorded here. reviewFindingsSha256 is the sha256 of .orchestration/merge-records/evidence/PR-84/review-comment-4331310767.md."
+  },
+  "findings": [
+    {
+      "file": "scripts/browser-lock.mjs",
+      "line": 34,
+      "comment": "https://github.com/GridShift-Software/clearcase/pull/84#discussion_r4331310767",
+      "severity": "P2",
+      "text": "<a href=\"#\"><img alt=\"P2\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/p2.svg?v=9\" align=\"top\"></a> **Discovery can use another checkout**\n\n`resolveBrowserLock` inherits `GIT_DIR`, `GIT_WORK_TREE` and `GIT_COMMON_DIR` when it asks Git for the checkout's common directory. If a Git hook or another checkout's script invokes verification with those variables set, Git can name that other repository instead of `repo`. Discovery then rejects a valid workspace lock or takes a different workspace's lock. Strip Git's directory overrides before this call, as `command_environment()` already does for receipt commands.",
+      "tests": [
+        {
+          "file": "tests/gate/browser-admission-git-env.test.ts",
+          "name": "discovers the repository's own lock with GIT_DIR and GIT_WORK_TREE naming a repository that has none"
+        },
+        {
+          "file": "tests/gate/browser-admission-git-env.test.ts",
+          "name": "discovers the repository's own lock with GIT_COMMON_DIR naming a repository that has none"
+        },
+        {
+          "file": "tests/gate/browser-admission-git-env.test.ts",
+          "name": "returns the repository's lock, never another workspace's, when the variables name a workspace that has one"
+        },
+        {
+          "file": "tests/gate/browser-admission-git-env.test.ts",
+          "name": "the local gate reports the head of the checkout it runs in, not the one GIT_DIR names"
+        },
+        {
+          "file": "tests/gate/browser-admission-git-env.test.ts",
+          "name": "gate:hosted reports the head of the checkout it runs in, not the one GIT_DIR names"
+        },
+        {
+          "file": "tests/gate/browser-admission-git-env.test.ts",
+          "name": "the revision stamp names the head of the checkout it is written in, not the one GIT_DIR names"
+        },
+        {
+          "file": "tests/gate/browser-admission-git-env.test.ts",
+          "name": "the hosted runner's preflight names the revision of its own checkout, not the one GIT_DIR names"
+        },
+        {
+          "file": "tests/gate/browser-admission-git-env.test.ts",
+          "name": "scripts/verify/evidence.sh stamps the revision of its own checkout, not the one GIT_DIR names"
+        }
+      ]
+    }
+  ],
+  "tests": [
+    {
+      "file": "tests/gate/browser-admission-git-env.test.ts",
+      "name": "discovers the repository's own lock with GIT_DIR and GIT_WORK_TREE naming a repository that has none"
+    },
+    {
+      "file": "tests/gate/browser-admission-git-env.test.ts",
+      "name": "discovers the repository's own lock with GIT_COMMON_DIR naming a repository that has none"
+    },
+    {
+      "file": "tests/gate/browser-admission-git-env.test.ts",
+      "name": "returns the repository's lock, never another workspace's, when the variables name a workspace that has one"
+    },
+    {
+      "file": "tests/gate/browser-admission-git-env.test.ts",
+      "name": "the local gate reports the head of the checkout it runs in, not the one GIT_DIR names"
+    },
+    {
+      "file": "tests/gate/browser-admission-git-env.test.ts",
+      "name": "gate:hosted reports the head of the checkout it runs in, not the one GIT_DIR names"
+    },
+    {
+      "file": "tests/gate/browser-admission-git-env.test.ts",
+      "name": "the revision stamp names the head of the checkout it is written in, not the one GIT_DIR names"
+    },
+    {
+      "file": "tests/gate/browser-admission-git-env.test.ts",
+      "name": "the hosted runner's preflight names the revision of its own checkout, not the one GIT_DIR names"
+    },
+    {
+      "file": "tests/gate/browser-admission-git-env.test.ts",
+      "name": "scripts/verify/evidence.sh stamps the revision of its own checkout, not the one GIT_DIR names"
+    }
+  ]
+}

@@ -17,6 +17,14 @@ import { isAbsolute, resolve } from 'node:path';
 
 export const ADMISSION_FIX = "set CLEARCASE_BROWSER_LOCK to the absolute path of the workspace's orch-bin/browser-lock, or to none to run browser jobs without a slot (CI)";
 const SOURCES = { explicit: 'CLEARCASE_BROWSER_LOCK', discovered: 'discovered from git-common-dir', none: 'CLEARCASE_BROWSER_LOCK=none: browser steps take no slot' };
+
+/**
+ * `base` without Git's variables (GIT_DIR, GIT_WORK_TREE, GIT_COMMON_DIR, GIT_INDEX_FILE, every GIT_*), as
+ * `command_environment()` in scripts/agent-tools/agent_tools.py does: a Git hook, or another checkout's script, exports
+ * them, and they would make `git -C <repo>` or `cwd: <repo>` answer for a different repository. Every Git call on the
+ * browser-admission and gate-identity paths takes its `env` from here (scripts/verify/evidence.sh does the same in shell).
+ */
+export const gitEnv = (base = process.env) => Object.fromEntries(Object.entries(base).filter(([k]) => !k.startsWith('GIT_')));
 const executable = (p) => { try { accessSync(p, constants.X_OK); return statSync(p).isFile(); } catch { return false; } };
 
 /**
@@ -31,7 +39,7 @@ export function resolveBrowserLock({ env = process.env, repo = process.cwd() } =
 		if (isAbsolute(explicit) && executable(explicit)) return { lock: explicit, source: 'explicit' };
 		return { problem: `CLEARCASE_BROWSER_LOCK=${JSON.stringify(explicit)} is neither none nor an absolute path to an executable file` };
 	}
-	const r = spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd: repo, encoding: 'utf8' });
+	const r = spawnSync('git', ['rev-parse', '--git-common-dir'], { cwd: repo, encoding: 'utf8', env: gitEnv() });
 	if (r.error || r.status !== 0) return { problem: `no browser admission: CLEARCASE_BROWSER_LOCK is unset and git names no common directory for ${repo} (${(r.error?.message ?? r.stderr).trim()})` };
 	const lock = resolve(repo, r.stdout.trim(), '..', '..', 'orch-bin', 'browser-lock');
 	if (!executable(lock)) return { problem: `no browser admission: CLEARCASE_BROWSER_LOCK is unset and ${lock} is not an executable file` };

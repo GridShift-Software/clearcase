@@ -14,6 +14,7 @@ import { formatDoctor, liveDoctor } from './doctor.mjs';
 import { DRIVE_STEPS, innerProblem, PROFILE } from './evidence.mjs';
 import { featureIndex, formatIndex } from './features.mjs';
 import { proves, recordPid } from './pids.mjs';
+import { ADMISSION_FIX, resolveBrowserLock } from '../../../../scripts/browser-lock.mjs';
 import { processStart } from '../../../../scripts/pidfile.ts';
 
 export const SKILL = resolve(import.meta.dirname, '..');
@@ -76,9 +77,10 @@ export function preflight({ port = ports() } = {}) {
 	need(ip, 'ip (iproute2) not found', 'install iproute2');
 	need(mount, 'mount (util-linux) not found', 'install util-linux');
 	need(executable(CHROME), `Chromium not found at ${CHROME}`, 'set CLEARCASE_CHROMIUM, or install the Playwright build at ~/.cache/ms-playwright/chromium-1223/chrome-linux64/chrome');
-	const lock = env.CLEARCASE_BROWSER_LOCK || null;
-	facts.lock = lock;
-	if (lock) need(lock.startsWith('/') && executable(lock), `CLEARCASE_BROWSER_LOCK=${lock} is not an absolute path to an executable`, 'point it at orch-bin/browser-lock by absolute path, or unset it');
+	const admission = resolveBrowserLock({ env, repo: REPO });
+	facts.lock = admission.lock ?? null;
+	facts.admission = admission.source ?? null;
+	need(!admission.problem, admission.problem, ADMISSION_FIX);
 	facts.ports = port;
 	need([port.app, port.canary].every((n) => Number.isInteger(n) && n >= 1024 && n <= 65535) && port.app !== port.canary, `ports ${JSON.stringify(port)} are not distinct integers in 1024-65535`, 'set VERIFY_CLEARCASE_HOSTED_PORT and CANARY_PORT');
 	return { ok: !problems.length, problems, facts };
@@ -148,9 +150,11 @@ export function cleanupRun(scratch, port) {
 /**
  * One hosted run: the offline namespace runs inner.mjs (build, `checks` at their phase, start, live doctor, drive,
  * stop), then cleanup and the evidence-kept check. `checks`: [{ id, title, at: 'build' | 'server', cmd, cwd?, env?, summary? }].
+ * `lock` is preflight's `facts.lock`: the browser lock the drive runs through, or null when admission is none.
  * Returns { ok, steps, inner }; `steps` is every step in order with PASS, FAIL or NOT RUN.
  */
-export async function hostedRun({ revision, evidence, scratch, port, checks = [], node, tools, lock = env.CLEARCASE_BROWSER_LOCK || null, keepScratch = false, log = (s) => process.stdout.write(s) }) {
+export async function hostedRun({ revision, evidence, scratch, port, checks = [], node, tools, lock, keepScratch = false, log = (s) => process.stdout.write(s) }) {
+	if (lock === undefined) throw new Error('hostedRun: pass lock, the browser lock preflight admitted (null for none)');
 	mkdirSync(evidence, { recursive: true });
 	mkdirSync(scratch, { recursive: true });
 	const steps = [];

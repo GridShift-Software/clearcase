@@ -4,6 +4,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 // @ts-expect-error plain .mjs script, no declarations
+import { hostedRun, preflight } from '../../.agents/skills/verify-clearcase-hosted/lib/main.mjs';
+// @ts-expect-error plain .mjs script, no declarations
+import { resolveBrowserLock } from '../../scripts/browser-lock.mjs';
+// @ts-expect-error plain .mjs script, no declarations
+import { runHostedGate } from '../../scripts/gate-hosted.mjs';
+// @ts-expect-error plain .mjs script, no declarations
 import { readHead, runGate } from '../../scripts/gate.mjs';
 
 // The gate's browser admission and checkout identity, against synthetic checkouts: a workspace directory holding the
@@ -78,7 +84,7 @@ describe('browser admission before any step', () => {
 	it('refuses the retired BROWSER_LOCK spelling, alone or beside a valid CLEARCASE_BROWSER_LOCK', async () => {
 		const repo = repository();
 		const lock = workspaceLock();
-		for (const env of [{ BROWSER_LOCK: lock }, { BROWSER_LOCK: '' }, { BROWSER_LOCK: lock, CLEARCASE_BROWSER_LOCK: lock }]) {
+		for (const env of [{ BROWSER_LOCK: lock }, { BROWSER_LOCK: '' }, { BROWSER_LOCK: lock, CLEARCASE_BROWSER_LOCK: lock }] as Record<string, string>[]) {
 			const r = await gate(repo, env);
 			expect(r.ran).toEqual([]);
 			expect(r.lines.join('\n')).toMatch(/BROWSER_LOCK is the retired spelling/);
@@ -168,5 +174,127 @@ describe('checkout identity', () => {
 		expect(headOf(repo)).toEqual(before);
 		git(repo, 'worktree', 'remove', '--force', probe);
 		expect(headOf(repo)).toEqual(before);
+	});
+});
+
+// The other entry points resolve through scripts/browser-lock.mjs too: evidence.sh (run as a copy in the synthetic
+// workspace, with a stub for its metrics step), the hosted runner's preflight, and gate:hosted through that preflight.
+const REPO = join(import.meta.dirname, '..', '..');
+const PATH = `${join(process.execPath, '..')}:${process.env.PATH}`;
+const STUB_METRICS = "console.log('metrics ran');\n";
+
+/** A synthetic checkout carrying this revision's evidence.sh and browser-lock.mjs, with a stub metrics step. */
+function evidenceCheckout() {
+	const repo = repository();
+	for (const f of ['scripts/verify/evidence.sh', 'scripts/browser-lock.mjs']) {
+		mkdirSync(join(repo, f, '..'), { recursive: true });
+		writeFileSync(join(repo, f), readFileSync(join(REPO, f)));
+	}
+	chmodSync(join(repo, 'scripts/verify/evidence.sh'), 0o755);
+	writeFileSync(join(repo, 'scripts/verify/metrics.mjs'), STUB_METRICS);
+	git(repo, 'add', '.');
+	git(repo, 'commit', '-q', '-m', 'evidence');
+	return repo;
+}
+const evidence = (repo: string, env: Record<string, string>) => {
+	const r = spawnSync(join(repo, 'scripts/verify/evidence.sh'), ['metrics'], { encoding: 'utf8', env: { PATH, HOME: process.env.HOME!, ...env } });
+	const log = join(repo, '.local', 'GRS-21', 'metrics.log');
+	return { ...r, ran: existsSync(log) && readFileSync(log, 'utf8').includes('metrics ran') };
+};
+
+describe('evidence.sh admits browser steps through the same contract', () => {
+	it('discovers the workspace lock from the main checkout and from a linked worktree, and runs the step through it', () => {
+		const repo = evidenceCheckout();
+		const lock = workspaceLock();
+		const linked = join(ws, 'worktrees', 'evidence');
+		git(repo, 'worktree', 'add', '-q', '--detach', linked);
+		for (const dir of [repo, linked]) {
+			const r = evidence(dir, {});
+			expect(r.status, r.stderr).toBe(0);
+			expect(r.stderr).toContain(`browser lock ${lock} (discovered from git-common-dir)`);
+			expect(r.ran).toBe(true);
+		}
+		expect(calls()).toEqual(['bun scripts/verify/metrics.mjs', 'bun scripts/verify/metrics.mjs']);
+	});
+
+	it('an explicit lock wins over discovery, and none runs the step without a slot', () => {
+		const repo = evidenceCheckout();
+		workspaceLock();
+		const other = executable(join(ws, 'elsewhere', 'lock'), `#!/bin/sh\necho "$*" >> "${join(ws, 'other-calls')}"\nexec "$@"\n`);
+		expect(evidence(repo, { CLEARCASE_BROWSER_LOCK: other }).status).toBe(0);
+		expect(readFileSync(join(ws, 'other-calls'), 'utf8').trim()).toBe('bun scripts/verify/metrics.mjs');
+		const r = evidence(repo, { CLEARCASE_BROWSER_LOCK: 'none' });
+		expect(r.status).toBe(0);
+		expect(r.ran).toBe(true);
+		expect(calls()).toEqual([]);
+	});
+
+	it.each([
+		['unset with no workspace lock', {}, /no browser admission/],
+		['relative', { CLEARCASE_BROWSER_LOCK: 'orch-bin/browser-lock' }, /CLEARCASE_BROWSER_LOCK="orch-bin\/browser-lock" is neither none/],
+		['the retired BROWSER_LOCK', { BROWSER_LOCK: '/bin/env' }, /BROWSER_LOCK is the retired spelling/],
+	])('exits 2 before any step: %s', (_n, env, why) => {
+		const r = evidence(evidenceCheckout(), env as Record<string, string>);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toMatch(why);
+		expect(r.stdout).not.toContain('== metrics');
+		expect(existsSync(join(ws, 'clearcase', '.local', 'GRS-21'))).toBe(false);
+	});
+});
+
+describe('the hosted runner and gate:hosted admit through the same contract', () => {
+	const KEYS = ['CLEARCASE_BROWSER_LOCK', 'BROWSER_LOCK'] as const;
+	const saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
+	const setEnv = (env: Partial<Record<(typeof KEYS)[number], string>>) => { for (const k of KEYS) { if (env[k] === undefined) delete process.env[k]; else process.env[k] = env[k]; } };
+	afterEach(() => setEnv(saved as Record<string, string>));
+	const port = { app: 43700, canary: 43799 };
+	const admissionProblems = (problems: string[]) => problems.filter((p) => /BROWSER_LOCK|browser admission/.test(p));
+
+	it.each([
+		['relative', { CLEARCASE_BROWSER_LOCK: 'orch-bin/browser-lock' }, 'CLEARCASE_BROWSER_LOCK="orch-bin/browser-lock" is neither none'],
+		['empty', { CLEARCASE_BROWSER_LOCK: '' }, 'CLEARCASE_BROWSER_LOCK="" is neither none'],
+		['the retired BROWSER_LOCK', { BROWSER_LOCK: '/bin/env' }, 'BROWSER_LOCK is the retired spelling'],
+	])('preflight refuses %s and names the fix', (_n, env, why) => {
+		setEnv(env);
+		const r = preflight({ port });
+		expect(r.ok).toBe(false);
+		expect(admissionProblems(r.problems)).toHaveLength(1);
+		expect(admissionProblems(r.problems)[0]).toContain(why);
+		expect(admissionProblems(r.problems)[0]).toContain('fix: set CLEARCASE_BROWSER_LOCK');
+		expect(r.facts.lock).toBe(null);
+	});
+
+	it('preflight admits none and an explicit executable, and reports what this checkout discovers when unset', () => {
+		setEnv({ CLEARCASE_BROWSER_LOCK: 'none' });
+		let r = preflight({ port });
+		expect(admissionProblems(r.problems)).toEqual([]);
+		expect([r.facts.lock, r.facts.admission]).toEqual([null, 'none']);
+		const lock = workspaceLock();
+		setEnv({ CLEARCASE_BROWSER_LOCK: lock });
+		r = preflight({ port });
+		expect(admissionProblems(r.problems)).toEqual([]);
+		expect([r.facts.lock, r.facts.admission]).toEqual([lock, 'explicit']);
+		setEnv({});
+		r = preflight({ port });
+		const own = resolveBrowserLock({ env: {}, repo: REPO });
+		expect([r.facts.lock, r.facts.admission]).toEqual([own.lock ?? null, own.source ?? null]);
+		expect(admissionProblems(r.problems).length).toBe(own.problem ? 1 : 0);
+	});
+
+	it('gate:hosted fails preflight on an invalid lock before its refusals or the hosted run start', async () => {
+		setEnv({ CLEARCASE_BROWSER_LOCK: 'orch-bin/browser-lock' });
+		const started: string[] = [];
+		const sha = 'f'.repeat(40);
+		const r = await runHostedGate({ head: { sha, dirty: false }, env: {}, repo: REPO, evidenceRoot: join(ws, 'evidence'), scratchRoot: join(ws, 'scratch'), refusals: async () => { started.push('refusals'); return { ok: true }; }, hosted: async () => { started.push('hosted'); return { ok: true, steps: [] }; } });
+		expect(started).toEqual([]);
+		expect(r.lines.at(-1)).toBe(`GATE FAIL preflight ${sha}`);
+		expect(r.lines.join('\n')).toContain('CLEARCASE_BROWSER_LOCK="orch-bin/browser-lock" is neither none');
+		expect(existsSync(join(ws, 'evidence'))).toBe(false);
+	});
+
+	it('hostedRun refuses a caller that passes no admitted lock, before it creates anything', async () => {
+		const evidenceDir = join(ws, 'evidence');
+		await expect(hostedRun({ revision: 'r', evidence: evidenceDir, scratch: join(ws, 'scratch'), port, node: { path: process.execPath, version: '0' }, tools: {} })).rejects.toThrow(/pass lock/);
+		expect(existsSync(evidenceDir)).toBe(false);
 	});
 });

@@ -9,6 +9,10 @@ import { readPidFile } from '../../scripts/pidfile.ts';
 
 type Step = { name: string; cmd: string[]; browser?: boolean; needs?: () => string | null | Promise<string | null>; summary?: { dir: string; file: string; env?: string } };
 const head = { sha: 'abc123def456', dirty: false };
+/** Browser steps take no slot, and HEAD and the tree read the same after the steps. */
+const none = { lock: null, source: 'none' };
+const unchanged = () => ({ head });
+const admitted = 'browser lock none (CLEARCASE_BROWSER_LOCK=none: browser steps take no slot)';
 let repo: string;
 beforeEach(() => { repo = mkdtempSync(join(tmpdir(), 'gate-test-')); });
 afterEach(() => { rmSync(repo, { recursive: true, force: true }); });
@@ -26,18 +30,18 @@ const now = () => (t += 2000);
 
 describe('runGate', () => {
 	it('passes: one PASS line per step between the head line and GATE PASS', async () => {
-		const r = await runGate(steps, { repo, env: {}, head, lock: null, run: stub(null), now });
+		const r = await runGate(steps, { repo, env: {}, head, admission: none, reread: unchanged, run: stub(null), now });
 		expect(r.pass).toBe(true);
-		expect(r.lines).toEqual(['gate abc123def456 clean tree', 'PASS a 2s', 'PASS b 2s', 'PASS c 2s', 'GATE PASS abc123def456']);
+		expect(r.lines).toEqual(['gate abc123def456 clean tree', admitted, 'PASS a 2s', 'PASS b 2s', 'PASS c 2s', 'GATE PASS abc123def456']);
 	});
 
 	it('stops at the first failure, skips the rest, and prints a bounded log tail', async () => {
 		const ran: string[][] = [];
-		const r = await runGate(steps, { repo, env: {}, head, lock: null, run: stub('b', 500, ran), now });
+		const r = await runGate(steps, { repo, env: {}, head, admission: none, reread: unchanged, run: stub('b', 500, ran), now });
 		expect(r.pass).toBe(false);
 		expect(r.failed).toBe('b');
 		expect(ran).toEqual([['a'], ['b']]);
-		expect(r.lines.slice(1, 4)).toEqual(['PASS a 2s', 'FAIL b 2s', 'SKIP c']);
+		expect(r.lines.slice(2, 5)).toEqual(['PASS a 2s', 'FAIL b 2s', 'SKIP c']);
 		expect(r.lines.at(-1)).toBe('GATE FAIL b abc123def456');
 		expect(r.lines.length).toBeLessThanOrEqual(30);
 		expect(r.lines).toContain('b line 499');
@@ -49,7 +53,7 @@ describe('runGate', () => {
 		['a spawn error', { status: null, error: new Error('spawn /x/lock ENOENT') }, 'gate: cannot run a: spawn /x/lock ENOENT'],
 		['a signal', { status: null, signal: 'SIGTERM' }, 'gate: killed by SIGTERM'],
 	])('fails %s and says why in the tail', async (_n, result, line) => {
-		const r = await runGate(steps, { repo, env: {}, head, lock: null, run: () => result, now });
+		const r = await runGate(steps, { repo, env: {}, head, admission: none, reread: unchanged, run: () => result, now });
 		expect(r.pass).toBe(false);
 		expect(r.lines).toContain('FAIL a 2s');
 		expect(r.lines).toContain(line);
@@ -57,22 +61,22 @@ describe('runGate', () => {
 	});
 
 	it('fails a step that exits 75, the lock\'s own failure code', async () => {
-		const r = await runGate(steps, { repo, env: {}, head, lock: null, run: () => ({ status: 75 }), now });
+		const r = await runGate(steps, { repo, env: {}, head, admission: none, reread: unchanged, run: () => ({ status: 75 }), now });
 		expect(r.lines).toContain('FAIL a 2s');
 		expect(r.lines.at(-1)).toBe('GATE FAIL a abc123def456');
 	});
 
 	it('marks a dirty tree on the first line', async () => {
-		const r = await runGate(steps, { repo, env: {}, head: { ...head, dirty: true }, lock: null, run: stub(null), now });
+		const r = await runGate(steps, { repo, env: {}, head: { ...head, dirty: true }, admission: none, reread: unchanged, run: stub(null), now });
 		expect(r.lines[0]).toMatch(/DIRTY/);
 	});
 
 	it('wraps only browser steps in the lock command, and only when it is set', async () => {
 		const withLock: string[][] = [];
-		await runGate(steps, { repo, env: {}, head, lock: '/x/lock', run: stub(null, 0, withLock), now });
+		await runGate(steps, { repo, env: {}, head, admission: { lock: '/x/lock', source: 'explicit' }, reread: unchanged, run: stub(null, 0, withLock), now });
 		expect(withLock).toEqual([['a'], ['/x/lock', 'b'], ['c']]);
 		const without: string[][] = [];
-		await runGate(steps, { repo, env: {}, head, lock: null, run: stub(null, 0, without), now });
+		await runGate(steps, { repo, env: {}, head, admission: none, reread: unchanged, run: stub(null, 0, without), now });
 		expect(without).toEqual([['a'], ['b'], ['c']]);
 	});
 
@@ -82,11 +86,11 @@ describe('runGate', () => {
 		const ok = () => { checks.push('ok'); return null; };
 		const missing = async () => { checks.push('missing'); return 'stale prerequisite: x\nRefresh: y'; };
 		const needy: Step[] = [{ name: 'a', cmd: ['a'], needs: ok }, steps[2], { name: 'p:q', cmd: ['p'], needs: missing }, { name: 'r', cmd: ['r'], needs: missing }];
-		const r = await runGate(needy, { repo, env: {}, head, lock: null, run: stub(null, 0, ran), now });
+		const r = await runGate(needy, { repo, env: {}, head, admission: none, reread: unchanged, run: stub(null, 0, ran), now });
 		expect(ran).toEqual([]);
 		expect(checks).toEqual(['ok', 'missing']);
 		expect(r.failed).toBe('p:q');
-		expect(r.lines).toEqual(['gate abc123def456 clean tree', 'FAIL p:q prerequisite (no step ran)', 'stale prerequisite: x', 'Refresh: y', `see ${join('.local', 'gate', 'p-q.log')}`, 'GATE FAIL p:q abc123def456']);
+		expect(r.lines).toEqual(['gate abc123def456 clean tree', admitted, 'FAIL p:q prerequisite (no step ran)', 'stale prerequisite: x', 'Refresh: y', `see ${join('.local', 'gate', 'p-q.log')}`, 'GATE FAIL p:q abc123def456']);
 		expect(readFileSync(join(repo, '.local', 'gate', 'p-q.log'), 'utf8')).toBe('stale prerequisite: x\nRefresh: y\n');
 	});
 });
@@ -99,7 +103,7 @@ const probeWith = (body: string | null): Step => ({
 });
 const probe = (doc: object | null) => probeWith(doc && JSON.stringify(doc));
 const good = { ok: true, evidence: true, freshBuild: { head: `${head.sha}0000000000000000000000000000` } };
-const gate = (s: Step) => runGate([s], { repo, env: {}, head, lock: null, now });
+const gate = (s: Step) => runGate([s], { repo, env: {}, head, admission: none, reread: unchanged, now });
 
 describe('evidence-qualified summaries', () => {
 	it('fails a child that exits 0 and writes evidence: false', async () => {
@@ -141,7 +145,7 @@ describe('reduced runs', () => {
 	it.each(['E2E_ONLY', 'E2E_STOP_AFTER', 'E2E_LATENCY_SIZES_MIB', 'CLEARCASE_E2E_TMP', 'PARITY_MAX_COMBOS'])('refuses to start when %s is set, even empty', async (name) => {
 		for (const value of ['1', '']) {
 			const ran: string[][] = [];
-			const r = await runGate(steps, { repo, env: { [name]: value }, head, lock: null, run: stub(null, 0, ran), now });
+			const r = await runGate(steps, { repo, env: { [name]: value }, head, admission: none, reread: unchanged, run: stub(null, 0, ran), now });
 			expect(ran).toEqual([]);
 			expect(r.pass).toBe(false);
 			expect(r.lines.join('\n')).toContain(`${name} is set`);

@@ -22,6 +22,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import { gitEnv } from './browser-lock.mjs';
 import { REDUCED_ENV } from './gate.mjs';
 import { claimPidFile, releasePidFile, stopPidFile } from './pidfile.ts';
 import { cleanupRun, FIXTURE_MODULE, hostedRun, LIFECYCLE, preflight, runId } from '../.agents/skills/verify-clearcase-hosted/lib/main.mjs';
@@ -210,7 +211,7 @@ export function runRefusals(evidence, sha) {
 
 /** Reads the full head SHA and tree state (untracked files count). */
 export function readHead(repo = REPO) {
-	const git = (...a) => spawnSync('git', ['-C', repo, ...a], { encoding: 'utf8' });
+	const git = (...a) => spawnSync('git', ['-C', repo, ...a], { encoding: 'utf8', env: gitEnv() });
 	const sha = git('rev-parse', 'HEAD'), status = git('status', '--porcelain', '--untracked-files=all');
 	if (sha.status !== 0 || status.status !== 0) return { error: `git failed: ${(sha.stderr || status.stderr).trim()}` };
 	return { head: { sha: sha.stdout.trim(), dirty: status.stdout !== '', changes: status.stdout.split('\n').filter(Boolean).slice(0, 5) } };

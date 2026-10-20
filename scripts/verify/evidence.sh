@@ -12,6 +12,8 @@
 # exits with the first non-zero step status it saw, after running every step.
 set -uo pipefail
 cd "$(dirname "$0")/../.."
+# Git answers for this checkout whatever GIT_DIR, GIT_WORK_TREE or GIT_COMMON_DIR a hook or a calling script exported.
+git() { (unset $(compgen -e GIT_); command git "$@"); }
 lock=$(bun scripts/browser-lock.mjs) || exit 2
 LOCK=()
 [ -n "$lock" ] && LOCK=("$lock")

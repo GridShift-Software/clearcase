@@ -14,7 +14,7 @@ import { formatDoctor, liveDoctor } from './doctor.mjs';
 import { DRIVE_STEPS, innerProblem, PROFILE } from './evidence.mjs';
 import { featureIndex, formatIndex } from './features.mjs';
 import { proves, recordPid } from './pids.mjs';
-import { ADMISSION_FIX, resolveBrowserLock } from '../../../../scripts/browser-lock.mjs';
+import { ADMISSION_FIX, gitEnv, resolveBrowserLock } from '../../../../scripts/browser-lock.mjs';
 import { processStart } from '../../../../scripts/pidfile.ts';
 
 export const SKILL = resolve(import.meta.dirname, '..');
@@ -36,7 +36,7 @@ export function ports(base = Number(env.VERIFY_CLEARCASE_HOSTED_PORT ?? 43700)) 
 export const runId = () => `${new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')}-${process.pid}`;
 const executable = (p) => { try { accessSync(p, constants.X_OK); return statSync(p).isFile(); } catch { return false; } };
 const systemTool = (name) => [...(env.PATH ?? '').split(delimiter), ...SYSTEM_PATH.split(':')].filter(Boolean).map((d) => join(d, name)).find(executable) ?? null;
-const git = (...a) => spawnSync('git', ['-C', REPO, ...a], { encoding: 'utf8' });
+const git = (...a) => spawnSync('git', ['-C', REPO, ...a], { encoding: 'utf8', env: gitEnv() });
 const flags = (argv) => { const o = {}; for (let i = 0; i < argv.length; i++) if (argv[i].startsWith('--')) { const k = argv[i].slice(2); o[k] = argv[i + 1]?.startsWith('--') || argv[i + 1] === undefined ? true : argv[++i]; } return o; };
 
 /** The first `node` on PATH that is really Node, not Bun's `bun run --bun` stand-in: Wrangler needs Node. */

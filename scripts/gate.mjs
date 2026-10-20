@@ -23,7 +23,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import { join, resolve } from 'node:path';
 import { DEV_ENV } from '../tests/e2e/pilot/run.mjs';
 import { convert as convertV5, loadConfig } from '../tests/e2e/pilot/v5/fixture.mjs';
-import { ADMISSION_FIX, describeAdmission, resolveBrowserLock } from './browser-lock.mjs';
+import { ADMISSION_FIX, describeAdmission, gitEnv, resolveBrowserLock } from './browser-lock.mjs';
 import { claimPidFile, releasePidFile, stopPidFile } from './pidfile.ts';
 
 const REPO = resolve(import.meta.dirname, '..');
@@ -228,7 +228,7 @@ export async function runGate(steps, { repo = REPO, head, env = process.env, adm
 /** Reads the head SHA and tree state. Returns `{ head }`, or `{ error }` when a git call cannot run or exits non-zero. */
 export function readHead(spawn = spawnSync, repo = REPO) {
 	const git = (...args) => {
-		const r = spawn('git', args, { cwd: repo, encoding: 'utf8' });
+		const r = spawn('git', args, { cwd: repo, encoding: 'utf8', env: gitEnv() });
 		if (r.error) return { error: r.error.message };
 		if (r.status !== 0) return { error: `${args[0]} exited ${r.status ?? r.signal}: ${(r.stderr ?? '').trim()}` };
 		return { out: r.stdout.trim() };

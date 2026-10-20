@@ -6,7 +6,7 @@
 // does: a plain non-zero exit of the hook fails the job but not its `if: always()` steps (actions/runner v2.338.0,
 // StepsRunner.cs), so a denial has to stop the worker.
 import { execFileSync, spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -122,6 +122,9 @@ describe('the admission hook that provision installs', () => {
     ['a push to a branch that ends in dev', push('refs/heads/feature/dev'), { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/feature/dev' }],
     ['a push of a tag named dev', push('refs/tags/dev'), { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/tags/dev' }],
     ['a push whose payload ref differs from the environment', push('refs/heads/main'), { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/dev' }],
+    ['a push to dev whose environment names another ref', push('refs/heads/dev'), { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/main' }],
+    ['a push to dev whose payload also holds a fork pull request', push('refs/heads/dev', { pull_request: pullRequest(FORK).pull_request }), { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/dev' }],
+    ['a manual run whose environment names another ref', dispatch('refs/heads/dev'), { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/main' }],
     ['a push to dev in a fork', push('refs/heads/dev', { repository: { full_name: FORK } }), { GITHUB_EVENT_NAME: 'push', GITHUB_REF: 'refs/heads/dev', GITHUB_REPOSITORY: FORK }],
     ['a manual run in a fork', dispatch('refs/heads/dev', FORK), { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/dev', GITHUB_REPOSITORY: FORK }],
     ['a fork\'s payload under this repository\'s name in the environment', dispatch('refs/heads/dev', FORK), { GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/dev' }],
@@ -175,6 +178,19 @@ describe('the admission hook that provision installs', () => {
       expect(run.alwaysStepRan, `${name}: the always() step ran`).toBe(false);
       expect(run.killed, name).toBe(true);
     }
+  });
+
+  it('refuses a payload reached through a linked directory, though the file itself is a regular file', () => {
+    const g = guest();
+    const env = { GITHUB_EVENT_NAME: 'pull_request', GITHUB_REF: 'refs/pull/7/merge' };
+    expect(job(pullRequest(REPO), env, { g }).admitted).toBe(true);
+    const dir = path.dirname(g.event);
+    renameSync(dir, `${dir}.real`);
+    symlinkSync(`${dir}.real`, dir);
+    const linked = job(pullRequest(REPO), env, { g });
+    expect(linked.admitted).toBe(false);
+    expect(linked.alwaysStepRan).toBe(false);
+    expect(linked.killed).toBe(true);
   });
 
   it('does not read the hook\'s decision from anything a workflow can set: its own environment, PYTHONPATH, or a planted module', () => {

@@ -6,7 +6,7 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { processStart, writePidFile } from '../../../scripts/pidfile.ts';
+import { writePidFile } from '../../../scripts/pidfile.ts';
 // @ts-expect-error plain .mjs
 import { cleanupRun, hostedRun, REPO } from '../../../.agents/skills/verify-clearcase-hosted/lib/main.mjs';
 
@@ -58,15 +58,23 @@ async function server(repo: string) {
 	return { wrapper: child.pid!, pid, pidFile, stateFile };
 }
 
-/** A scratch directory whose pids.jsonl records `roles` the way the run's namespace and inner runner do: pid, start time, run. */
+/** A scratch directory whose pids.jsonl records `roles` the way the run's namespace and inner runner do. */
 function scratchOf(...records: { role: string; pid: number }[]) {
 	const scratch = mkdtempSync(path.join(tmpdir(), 'hosted-scratch-'));
 	cleanups.push(() => rmSync(scratch, { recursive: true, force: true }));
-	writeFileSync(path.join(scratch, 'pids.jsonl'), records.map((r) => JSON.stringify({ ...r, start: processStart(r.pid), boot: readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim(), runId: path.basename(scratch), at: new Date().toISOString() })).join('\n') + '\n');
+	writeFileSync(path.join(scratch, 'pids.jsonl'), records.map((r) => JSON.stringify({ ...r, at: new Date().toISOString() })).join('\n') + '\n');
 	return scratch;
 }
 
 describe('the hosted verification stops only a server it started', () => {
+	// a row as the run writes it now: with the process's start time and the run's name (the old { role, pid, at } proves nothing)
+	const recordedScratch = (role: string, pid: number) => {
+		const scratch = scratchOf();
+		const start = readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' ')[19];
+		writeFileSync(path.join(scratch, 'pids.jsonl'), JSON.stringify({ role, pid, start, runId: path.basename(scratch), at: new Date().toISOString() }) + '\n');
+		return scratch;
+	};
+
 	it('a run that refused to start because a server holds the port leaves that server, its pid file and its state alone', async () => {
 		const other = await server(REPO);
 		// the refusing run recorded its namespace and inner runner, then threw before spawning start:hosted
@@ -94,7 +102,7 @@ describe('the hosted verification stops only a server it started', () => {
 
 	it('stops the server whose pid file names a process the run recorded', async () => {
 		const own = await server(REPO);
-		const out = cleanupRun(scratchOf({ role: 'start-hosted', pid: own.pid }), PORT);
+		const out = cleanupRun(recordedScratch('start-hosted', own.pid), PORT);
 		expect(out.stop).toMatch(/^0: /);
 		expect(await gone(own.pid)).toBe(true);
 		expect(existsSync(own.stateFile)).toBe(false);
@@ -102,7 +110,7 @@ describe('the hosted verification stops only a server it started', () => {
 
 	it('stops the server whose pid file names a descendant of a process the run recorded (the bun wrapper of start:hosted)', async () => {
 		const own = await server(REPO);
-		const out = cleanupRun(scratchOf({ role: 'start-hosted', pid: own.wrapper }), PORT);
+		const out = cleanupRun(recordedScratch('start-hosted', own.wrapper), PORT);
 		expect(out.stop).toMatch(/^0: /);
 		expect(await gone(own.pid)).toBe(true);
 	}, 60_000);

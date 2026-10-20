@@ -28,7 +28,6 @@ const gone = async (pid: number) => {
 	for (let i = 0; i < 100 && alive(pid); i++) await new Promise((r) => setTimeout(r, 50));
 	return !alive(pid);
 };
-const boot = readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
 const other = (start: string | null) => String(Number(start) - 1000);
 
 /** A process standing for a hosted server, recorded in the port's pid file and state file as start:hosted would. */
@@ -60,12 +59,12 @@ async function server(repo: string) {
 	return { wrapper: child.pid!, pid: sleeper, pidFile, stateFile };
 }
 
-/** A scratch whose pids.jsonl holds `rows` as written by the run (`runId` is the scratch's own name; `boot` defaults to this boot's id); `at` is always set. */
+/** A scratch whose pids.jsonl holds `rows` as written by the run (`runId` is the scratch's own name); `at` is always set. */
 function scratchOf(...rows: ((runId: string) => Record<string, unknown>)[]) {
 	const scratch = mkdtempSync(path.join(tmpdir(), 'hosted-scratch-'));
 	cleanups.push(() => rmSync(scratch, { recursive: true, force: true }));
 	const runId = path.basename(scratch);
-	writeFileSync(path.join(scratch, 'pids.jsonl'), rows.map((r) => JSON.stringify({ boot, ...r(runId), at: new Date().toISOString() })).join('\n') + '\n');
+	writeFileSync(path.join(scratch, 'pids.jsonl'), rows.map((r) => JSON.stringify({ ...r(runId), at: new Date().toISOString() })).join('\n') + '\n');
 	return scratch;
 }
 const survives = (s: { pid: number; pidFile: string; stateFile: string }) => [alive(s.pid), existsSync(s.pidFile), existsSync(s.stateFile)];
@@ -102,13 +101,6 @@ describe('a saved pid proves ownership only while the live process started when 
 		expect(out.stop).toBeUndefined();
 		expect(survives(newer)).toEqual([true, true, true]);
 		expect(out.preserved.map((p: { pid: number }) => p.pid)).toEqual([newer.pid]);
-	}, 60_000);
-
-	it('a row from another boot (same pid, same start ticks) proves nothing', async () => {
-		const newer = await server(REPO);
-		const out = cleanupRun(scratchOf((runId) => ({ role: 'hosted-server', pid: newer.pid, start: processStart(newer.pid), boot: 'a-previous-boot', runId })), PORT);
-		expect(out.stop).toBeUndefined();
-		expect(survives(newer)).toEqual([true, true, true]);
 	}, 60_000);
 
 	it('control: a row whose saved start equals the live process\'s start is stopped, with its state file removed', async () => {

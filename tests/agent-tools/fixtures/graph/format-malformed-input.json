@@ -1,0 +1,21 @@
+{
+  "description": "Malformed view coverage fails without a traceback",
+  "capability": "plan-format",
+  "editsAfter": {
+    "docs/plan/view-coverage.json": [
+      [
+        "{",
+        "{,"
+      ]
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "plan-format: FAIL. cannot read the plan or its inputs"
+    ],
+    "absent": [
+      "Traceback"
+    ]
+  }
+}

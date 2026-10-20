@@ -1,0 +1,17 @@
+{
+  "description": "A plan rendered before a status change is stale",
+  "capability": "plan-format",
+  "patchAfterGenerate": true,
+  "set": {
+    "HA-notes.status": "In Progress"
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "HA-notes: title or status differs from work-items.json (In Progress); the plan is stale"
+    ],
+    "absent": [
+      "Traceback"
+    ]
+  }
+}

@@ -17,7 +17,8 @@ export async function page(b, origin) {
 	p.origin = origin;
 	// the bundle views render data-ready on the server and data-hydrated once their controls work
 	const MINE = ['discovery_tab', 'caselines_tab', 'court_bundle_tab'];
-	p.go = async (path, ready) => { await p.navigate(origin + path, { timeout: 30000 }); if (ready) await p.waitFor(`document.querySelector('main[data-ready="${ready}"]${MINE.includes(ready) ? '[data-hydrated]' : ''}')`, 30000); };
+	// a navigation the page refused (its leave guard) or that failed keeps the old document, so fail here rather than wait on its markers
+	p.go = async (path, ready) => { const r = await p.navigate(origin + path, { timeout: 30000 }); if (r.errorText) throw new Error(`navigation to ${path} did not load: ${r.errorText}`); if (ready) await p.waitFor(`document.querySelector('main[data-ready="${ready}"]${MINE.includes(ready) ? '[data-hydrated]' : ''}')`, 30000); };
 	p.click = async (sel) => {
 		const box = await p.evaluate(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return null; e.scrollIntoView({ block: 'center' }); const r = e.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; })()`);
 		if (!box) throw new Error(`no element ${sel}`);

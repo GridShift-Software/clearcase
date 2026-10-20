@@ -1,0 +1,164 @@
+{
+  "schema": "clearcase-fix-round/1",
+  "unit": "GRS-158/implementation",
+  "fixBase": "ac06aa8df3d3e706236510ea0ba6ce118261c32a",
+  "reviewFindingsSha256": "844b01a436b6016e6fd70c1317c13045d5c64d817fb52c95f90b5df3932f527e",
+  "review": {
+    "issue": "GRS-158",
+    "round": "review-r1",
+    "reviewer": "internal diff review (code-review skill)",
+    "reviewedHead": "2263a53ddd4875c2fddbd612cdd6575519458986",
+    "waveBase": "9d51186ceb4721f43b59d6ca780de9335208c52f",
+    "note": "fixBase is the red commit, which holds the regressions (the guard needs each named test to exist at the base). reviewFindingsSha256 is the sha256 of .orchestration/reports/GRS-158-hub-20261020/review-r1/findings.json, which is unchanged. SP3 (historical public logs and artifacts) is the coordinator's operational follow-up and ST1 (evaluator features, duplicate evaluator) is recorded low debt, so neither has a regression test; the tests of SP1 and SP2 are the new regressions, the rest of the list protects tests that already existed. tests/ci/pc1-vm-verify.test.ts, which holds the new provision and register regressions and the GRS-155 tests, is not listed: test-guard refuses it (\"nonliteral protected import\": its `await import(testRunner)` is from GRS-155), so those tests are checked by the run, not by the guard. fixBase moved from the red commit 23dbbb59c3f9 to f1f0bb239650, which only adds rows and one test to tests/ci/admission-hook.test.ts that mutating the policy showed were missing (the guard compares a whole top-level describe block, so any edit inside it counts as a change of every test in it). The red commit 23dbbb59c3f9 is the one that fails at the reviewed head. fixBase moved again, from f1f0bb239650 to 293b8f3abf96, the commit that changes the no-worker test to run in a PID namespace (CI failure, see GRS-158-r2.json); the guard compares a whole top-level describe block, so that edit cannot sit inside this manifest's range. The re-check reads that diff."
+  },
+  "findings": [
+    {
+      "file": "docs/ci-runner.md",
+      "line": 80,
+      "comment": "review-r1 SP1 (spec, probed: False); files docs/ci-runner.md:80, .github/workflows/ci.yml:31-34, scripts/ci/guest-provision.sh",
+      "severity": "medium",
+      "text": "The acceptance item 'fork code cannot reach pc1' (user: 'no other external commits, only us') rests on a procedural writer rule. Nothing enforces it. Repro: An admin (an org member) opens a PR from outsider:branch into wave/*. Org members need no approval under all_external_contributors, and the merge commit's ci.yml (which the fork can strip of the guard and tests/ci/) runs on the persistent pc1 runner. After that review the outsider can still push to the head, and nobody has verified whether GitHub gates those synchronize runs. The docs omit this. Fix: Make guest-provision.sh install a root-owned job-started hook outside the runner directory, enabled through a root-owned systemd drop-in, that refuses unless GITHUB_EVENT_PATH names this repository, the event is allowed, and a pull_request head is this repository. Add a fake-guest test. The coordinator deploys it and checks live that always() steps do not run after a hook failure. Alternatively, record a user decision narrowing the acceptance; the docs gain the outsider-push case either way.",
+      "tests": [
+        {
+          "file": "tests/ci/admission-hook.test.ts",
+          "name": "was installed by provision, so these tests run the real thing"
+        },
+        {
+          "file": "tests/ci/admission-hook.test.ts",
+          "name": "lets the job go on for a pull request from this repository, a push to dev and a manual run"
+        },
+        {
+          "file": "tests/ci/admission-hook.test.ts",
+          "name": "ends the job, and its always() steps, for every event that is not this repository's own"
+        },
+        {
+          "file": "tests/ci/admission-hook.test.ts",
+          "name": "refuses a payload it cannot trust: missing, not at the runner's path, a link, stale, empty, not JSON, not an object, with a repeated key"
+        },
+        {
+          "file": "tests/ci/admission-hook.test.ts",
+          "name": "does not read the hook's decision from anything a workflow can set: its own environment, PYTHONPATH, or a planted module"
+        },
+        {
+          "file": "tests/ci/admission-hook.test.ts",
+          "name": "ends the job when its own policy cannot run, instead of letting it go on"
+        },
+        {
+          "file": "tests/ci/admission-hook.test.ts",
+          "name": "fails the hook, without a worker to stop, when it finds no Runner.Worker above it"
+        },
+        {
+          "file": "tests/ci/admission-hook.test.ts",
+          "name": "says why it refused, and writes the reason to a file the next person can read"
+        },
+        {
+          "file": "tests/ci/admission-hook.test.ts",
+          "name": "and its policy carry no write bit for the runner user's group or others"
+        },
+        {
+          "file": "tests/ci/admission-hook.test.ts",
+          "name": "refuses a payload reached through a linked directory, though the file itself is a regular file"
+        }
+      ]
+    },
+    {
+      "file": "tests/ci/workflow-admission.test.ts",
+      "line": 26,
+      "comment": "review-r1 SP2 (spec, probed: True); files tests/ci/workflow-admission.test.ts:26, tests/ci/workflow-admission.test.ts:53",
+      "severity": "low",
+      "text": "The admission tests do not model the writer-opened fork PR: every row's github.actor is 'someone'. Repro: Extend the guard with '|| github.actor == \"gridshift-admin\"' on the fork pull_request clause. bun run --bun test tests/ci/workflow-admission.test.ts still passes 90/90 (P2). Fix: Assert that the job if: names no identity context (actor, triggering_actor, sender, author_association, user.login), or add a fork row whose actor and sender are a member.",
+      "tests": [
+        {
+          "file": "tests/ci/workflow-admission.test.ts",
+          "name": "names no person, role or sender in its guard, so being a member does not admit a fork's code"
+        }
+      ]
+    },
+    {
+      "file": ".github/workflows/ci.yml",
+      "line": 285,
+      "comment": "review-r1 SP3 (spec, probed: False); files .github/workflows/ci.yml:285-290, docs/ci-runner.md:91",
+      "severity": "low",
+      "text": "Logs and receipts artifacts made while the repository was private became public today, and nobody has reviewed them. Repro: gh api repos/GridShift-Software/clearcase/actions/artifacts reports 104 unexpired artifacts (the newest expires 2027-01-18); there are 129 runs. Any signed-in user can download the raw stdout and stderr. Fix: Coordinator follow-up: leak-scan a sample, or delete the artifacts made before the switch. The data is synthetic and the receipts do not dump the environment, hence low.",
+      "tests": []
+    },
+    {
+      "file": "tests/ci/actions-expression.ts",
+      "line": 41,
+      "comment": "review-r1 ST1 (standards, probed: False); files tests/ci/actions-expression.ts:41-58, tests/ci/guard-enforcement.test.ts:34",
+      "severity": "low",
+      "text": "Judgement call: Speculative Generality and Duplicated Code. The evaluator supports functions, indexing and status functions that no job if: uses, while holds() remains a second evaluator. Repro: Reading only: no job-level if: uses contains, startsWith, endsWith, [ ] or the status functions; step ifs go through holds() instead. Fix: Route holds() through runs() with a steps context, or cut the evaluator back to ==, !=, &&, ||, ! and . access.",
+      "tests": []
+    }
+  ],
+  "tests": [
+    {
+      "file": "tests/ci/admission-hook.test.ts",
+      "name": "was installed by provision, so these tests run the real thing"
+    },
+    {
+      "file": "tests/ci/admission-hook.test.ts",
+      "name": "lets the job go on for a pull request from this repository, a push to dev and a manual run"
+    },
+    {
+      "file": "tests/ci/admission-hook.test.ts",
+      "name": "ends the job, and its always() steps, for every event that is not this repository's own"
+    },
+    {
+      "file": "tests/ci/admission-hook.test.ts",
+      "name": "refuses a payload it cannot trust: missing, not at the runner's path, a link, stale, empty, not JSON, not an object, with a repeated key"
+    },
+    {
+      "file": "tests/ci/admission-hook.test.ts",
+      "name": "does not read the hook's decision from anything a workflow can set: its own environment, PYTHONPATH, or a planted module"
+    },
+    {
+      "file": "tests/ci/admission-hook.test.ts",
+      "name": "ends the job when its own policy cannot run, instead of letting it go on"
+    },
+    {
+      "file": "tests/ci/admission-hook.test.ts",
+      "name": "fails the hook, without a worker to stop, when it finds no Runner.Worker above it"
+    },
+    {
+      "file": "tests/ci/admission-hook.test.ts",
+      "name": "says why it refused, and writes the reason to a file the next person can read"
+    },
+    {
+      "file": "tests/ci/admission-hook.test.ts",
+      "name": "and its policy carry no write bit for the runner user's group or others"
+    },
+    {
+      "file": "tests/ci/workflow-admission.test.ts",
+      "name": "names no person, role or sender in its guard, so being a member does not admit a fork's code"
+    },
+    {
+      "file": "tests/ci/workflow-admission.test.ts",
+      "name": "evaluates a guard on every job of every workflow"
+    },
+    {
+      "file": "tests/ci/workflow-admission.test.ts",
+      "name": "docs/ci-runner.md lists exactly the actions the workflows use"
+    },
+    {
+      "file": "tests/ci/workflow-admission.test.ts",
+      "name": "compares strings without case and mismatched types as numbers, as GitHub does"
+    },
+    {
+      "file": "tests/ci/workflow-admission.test.ts",
+      "name": "reads a missing property as null, and && and || return an operand"
+    },
+    {
+      "file": "tests/ci/workflow-admission.test.ts",
+      "name": "adds the implied success() unless the condition names a status function"
+    },
+    {
+      "file": "tests/ci/workflow-admission.test.ts",
+      "name": "refuses what it cannot evaluate, instead of guessing"
+    },
+    {
+      "file": "tests/ci/admission-hook.test.ts",
+      "name": "refuses a payload reached through a linked directory, though the file itself is a regular file"
+    }
+  ]
+}

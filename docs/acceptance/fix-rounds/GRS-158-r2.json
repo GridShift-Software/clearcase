@@ -1,0 +1,35 @@
+{
+  "schema": "clearcase-fix-round/1",
+  "unit": "GRS-158/implementation",
+  "fixBase": "62c10b5d08573d9502596659037ca3577984a59e",
+  "reviewFindingsSha256": "68bf9181f9dbba231fbccd647e4e14d89199c9a2575a103564d3ca9939b8b947",
+  "review": {
+    "issue": "GRS-158",
+    "round": "ci-failure",
+    "reviewer": "CI, PR 80 run 39458745094 at 4fb92a92 (job check, step test)",
+    "reviewedHead": "4fb92a92584063d2850972eeee4930eb8811d118",
+    "waveBase": "9d51186ceb4721f43b59d6ca780de9335208c52f",
+    "note": "fixBase is the red commit 62c10b5d08573d9502596659037ca3577984a59e, which holds the regression (the guard needs the named test to exist at the base). reviewFindingsSha256 is the sha256 of .orchestration/reports/GRS-158-hub-20261020/ci-fix/findings.json. The fix edits one existing test, the no-worker case of tests/ci/admission-hook.test.ts, which GRS-158-r1.json binds: that manifest's fixBase moves to the fix commit 293b8f3abf96 in the same change, as the earlier move to f1f0bb239650 did, so the edit is for the re-check to read, not for the guard. Its assertions are kept and it gains two (the hook ran in its own PID namespace; the hook itself exited with status 1)."
+  },
+  "findings": [
+    {
+      "file": "tests/ci/admission-hook.test.ts",
+      "line": 234,
+      "comment": "CI failure, PR 80 run 39458745094 at 4fb92a92 (class: a test that runs the hook with a real process tree above it)",
+      "severity": "high",
+      "text": "The no-worker hook test ran the hook with the real process tree above it. On the pc1 runner that tree holds the real Runner.Worker, which the hook found and ended with SIGKILL, so the CI job died in its test step. Repro: run the hook tests under a process named Runner.Worker. Fix: run that case in a PID namespace with its own /proc, keep its assertions, and run the whole hook test file under an outer stand-in worker that must survive.",
+      "tests": [
+        {
+          "file": "tests/ci/admission-hook-outer-worker.test.ts",
+          "name": "leave the Runner.Worker above them running, whatever process tree they sit in"
+        }
+      ]
+    }
+  ],
+  "tests": [
+    {
+      "file": "tests/ci/admission-hook-outer-worker.test.ts",
+      "name": "leave the Runner.Worker above them running, whatever process tree they sit in"
+    }
+  ]
+}

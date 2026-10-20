@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -150,6 +150,12 @@ test('provision refuses a held verification lock before any mutation', () => {
   assert.equal(readFileSync(path.join(f.guest, 'service-state'), 'utf8'), 'active\n');
 });
 
+// The runner-side admission hook (GRS-158): root-owned files outside the runner's directory, and the systemd drop-in that
+// sets ACTIONS_RUNNER_HOOK_JOB_STARTED for the runner service.
+const hookDir = (guest: string) => path.join(guest, 'usr/local/lib/clearcase-ci');
+const hookPath = (guest: string) => path.join(hookDir(guest), 'job-started-hook.sh');
+const dropIn = (guest: string) => path.join(guest, 'etc/systemd/system/actions.runner.GridShift-Software-clearcase.clearcase-pc1-vm.service.d/10-clearcase-admission.conf');
+
 function registerFixture(scenario = 'pass') {
   const f = provisionFixture(scenario);
   const runner = path.join(f.guest, 'home/runner/actions-runner');
@@ -159,6 +165,13 @@ function registerFixture(scenario = 'pass') {
   for (const script of ['svc.sh', 'config.sh']) chmodSync(path.join(runner, script), 0o755);
   writeFileSync(path.join(runner, '.runner'), 'previous registration\n');
   writeFileSync(path.join(runner, '.credentials'), 'previous credential\n');
+  // A guest that provision has already given the admission hook (GRS-158): register refuses to run without it.
+  mkdirSync(hookDir(f.guest), { recursive: true });
+  mkdirSync(path.dirname(dropIn(f.guest)), { recursive: true });
+  writeFileSync(hookPath(f.guest), '#!/bin/bash\nexit 0\n');
+  chmodSync(hookPath(f.guest), 0o755);
+  writeFileSync(path.join(hookDir(f.guest), 'job-started-policy.py'), '');
+  writeFileSync(dropIn(f.guest), `[Service]\nEnvironment=ACTIONS_RUNNER_HOOK_JOB_STARTED=${hookPath(f.guest)}\n`);
   const script = path.join(f.source, 'scripts/ci/guest-provision.sh');
   const options = { cwd: f.source, env: f.env, encoding: 'utf8', input: 'synthetic-registration-token\n', timeout: 10_000 } as const;
   const register = () => spawnSync(fake, ['register', script], options);
@@ -241,6 +254,106 @@ for (const [setup, pattern] of [['state-unreadable', /could not read.*service st
     assert.deepEqual(f.registration(), ['previous registration\n', 'previous credential\n']);
   });
 }
+
+// GRS-158: the repository is public, so the runner itself refuses a job whose event is not this repository's. The hook
+// and its policy are root-owned files outside the runner's writable directory; a systemd drop-in sets the variable the
+// runner reads, and the runner has to restart to read it.
+const installedAs = (guest: string) => readFileSync(path.join(guest, 'installs'), 'utf8').trim().split('\n');
+const mode = (file: string) => (statSync(file).mode & 0o777).toString(8);
+
+test('provision installs the root-owned admission hook, its policy and the drop-in that enables the hook, and reloads systemd before it restarts the runner', () => {
+  const f = provisionFixture();
+  const result = f.provision();
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  assert.equal(mode(hookPath(f.guest)), '755');
+  assert.equal(mode(path.join(hookDir(f.guest), 'job-started-policy.py')), '644');
+  assert.equal(mode(dropIn(f.guest)), '644');
+  assert.equal(mode(hookDir(f.guest)), '755');
+  assert.equal(mode(path.dirname(dropIn(f.guest))), '755');
+  // The runner user can neither replace nor edit any of them, because root owns them and no one else can write.
+  for (const target of [hookDir(f.guest), path.dirname(dropIn(f.guest)), hookPath(f.guest), path.join(hookDir(f.guest), 'job-started-policy.py'), dropIn(f.guest)]) {
+    assert.ok(installedAs(f.guest).some((line) => line.startsWith('root:root ') && line.endsWith(target)), `${target} is not installed as root:root`);
+  }
+  const active = readFileSync(dropIn(f.guest), 'utf8').split('\n').filter((line) => line && !line.startsWith('#'));
+  assert.deepEqual(active, ['[Service]', `Environment=ACTIONS_RUNNER_HOOK_JOB_STARTED=${hookPath(f.guest)}`]);
+  const events = f.events();
+  assert.ok(events.indexOf('daemon-reload') > events.indexOf('stop'), events.join());
+  assert.ok(events.indexOf('daemon-reload') < events.lastIndexOf('start'), events.join());
+  assert.equal(events.at(-1), 'start');
+  assert.equal(readFileSync(path.join(f.guest, 'service-state'), 'utf8'), 'active\n');
+});
+
+test('provision restarts a runner that is already at the current version once, to load a hook it did not have', () => {
+  const f = provisionFixture();
+  writeFileSync(path.join(f.guest, 'home/runner/actions-runner/.clearcase-version'), '99.0.0\n');
+  const result = f.provision();
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  const events = f.events();
+  assert.equal(events.includes('extract'), false, 'the runner archive was unpacked again');
+  assert.deepEqual(events.filter((event) => ['stop', 'daemon-reload', 'start'].includes(event)), ['stop', 'daemon-reload', 'start']);
+  assert.equal(readFileSync(path.join(f.guest, 'service-state'), 'utf8'), 'active\n');
+});
+
+test('provision of a guest that already has the hook stops and starts nothing', () => {
+  const f = provisionFixture();
+  assert.equal(f.provision().status, 0);
+  writeFileSync(path.join(f.guest, 'events'), '');
+  const before = readFileSync(hookPath(f.guest), 'utf8');
+  const result = f.provision();
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  assert.deepEqual(f.events().filter((event) => ['stop', 'start', 'lock-missing'].includes(event)), []);
+  assert.equal(readFileSync(hookPath(f.guest), 'utf8'), before);
+});
+
+test('provision installs the hook but leaves an inactive runner stopped', () => {
+  const f = provisionFixture();
+  writeFileSync(path.join(f.guest, 'service-state'), 'inactive\n');
+  const result = f.provision();
+  assert.equal(result.status, 0, result.stderr + result.stdout);
+  assert.equal(existsSync(hookPath(f.guest)), true);
+  assert.equal(existsSync(dropIn(f.guest)), true);
+  assert.equal(f.events().some((event) => ['stop', 'start'].includes(event)), false);
+  assert.equal(readFileSync(path.join(f.guest, 'service-state'), 'utf8'), 'inactive\n');
+});
+
+test('provision leaves the runner stopped, rather than start it without the hook, when systemd does not load the drop-in', () => {
+  const f = provisionFixture('dropin-ignored');
+  const result = f.provision();
+  assert.equal(result.status, 1, result.stderr + result.stdout);
+  assert.match(result.stderr, /admission hook is not loaded/);
+  assert.equal(f.events().includes('start'), false);
+  assert.equal(readFileSync(path.join(f.guest, 'service-state'), 'utf8'), 'inactive\n');
+});
+
+test('provision does not start the runner when systemd cannot reload', () => {
+  const f = provisionFixture('daemon-reload-fail');
+  const result = f.provision();
+  assert.notEqual(result.status, 0, result.stderr + result.stdout);
+  assert.equal(f.events().includes('start'), false);
+  assert.equal(readFileSync(path.join(f.guest, 'service-state'), 'utf8'), 'inactive\n');
+});
+
+for (const [missing, remove] of [['script', (guest: string) => hookPath(guest)], ['policy', (guest: string) => path.join(hookDir(guest), 'job-started-policy.py')], ['drop-in', (guest: string) => dropIn(guest)]] satisfies [string, (guest: string) => string][]) {
+  test(`register refuses to run without the ${missing} of the admission hook, before any mutation`, () => {
+    const f = registerFixture();
+    rmSync(remove(f.guest));
+    const result = f.register();
+    assert.equal(result.status, 1, result.stderr + result.stdout);
+    assert.match(result.stderr, /admission hook is not installed; run provision first/);
+    assert.deepEqual(f.events(), []);
+    assert.deepEqual(f.registration(), ['previous registration\n', 'previous credential\n']);
+    assert.equal(f.state(), 'active\n');
+  });
+}
+
+test('register does not start the runner when systemd does not load the drop-in for the reinstalled unit', () => {
+  const f = registerFixture('dropin-ignored');
+  const result = f.register();
+  assert.equal(result.status, 1, result.stderr + result.stdout);
+  assert.match(result.stderr, /admission hook is not loaded/);
+  assert.equal(f.events().includes('start'), false);
+  assert.equal(f.state(), 'inactive\n');
+});
 
 for (const scenario of ['job-after-observation', 'transient-after-observation', 'transient-during-stop']) {
   test(`verify refuses ${scenario}, preserves state and runs no checks`, () => {

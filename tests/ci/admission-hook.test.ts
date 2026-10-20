@@ -232,7 +232,13 @@ describe('the admission hook that provision installs', () => {
   });
 
   it('fails the hook, without a worker to stop, when it finds no Runner.Worker above it', () => {
-    const run = spawnSync('bash', ['-e', shared.hook], { encoding: 'utf8', env: { PATH: shared.env.PATH, GITHUB_EVENT_PATH: shared.event, GITHUB_REPOSITORY: FORK, GITHUB_EVENT_NAME: 'pull_request' } });
+    // On the real runner this test sits under the real Runner.Worker, which the hook would find and end (PR 80, run
+    // 39458745094). So the hook runs in a PID namespace with its own /proc, where only the wrapper is above it; the
+    // wrapper reports whether this process is visible and how the hook ended, because it can only exit with a status.
+    const inside = 'echo "visible=$([ -e "/proc/$OUTSIDE" ] && echo yes || echo no)"; bash -e "$HOOK"; status=$?; echo "hook-status=$status"; exit "$status"';
+    const run = spawnSync('unshare', ['-Urpf', '--mount-proc', 'bash', '-c', inside], { encoding: 'utf8', env: { PATH: shared.env.PATH, HOOK: shared.hook, OUTSIDE: String(process.pid), GITHUB_EVENT_PATH: shared.event, GITHUB_REPOSITORY: FORK, GITHUB_EVENT_NAME: 'pull_request' } });
+    expect(run.stdout, 'the hook did not run in its own PID namespace').toContain('visible=no');
+    expect(run.stdout, 'the hook was ended by a signal').toMatch(/hook-status=1\n/);
     expect(run.status).not.toBe(0);
     expect(run.signal).toBe(null);
     expect(run.stderr).toMatch(/Runner\.Worker/);

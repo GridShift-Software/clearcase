@@ -1,6 +1,6 @@
 # Implement Outlook and Gmail email-file and attachment viewing
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-122/implement-outlook-and-gmail-email-file-and-attachment-viewing) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-122/implement-outlook-and-gmail-email-file-and-attachment-viewing) is the execution authority.
 
 Planning key `HA-viewer-email`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

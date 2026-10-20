@@ -2,6 +2,10 @@
 
 This page indexes everything an external reviewer needs, in one place. It is written for `dianbrown` and any other reader of `dev` who has only a clone.
 
+## Update, 20 October 2026 (GRS-159)
+
+The sections up to and including the state table record the review at SHA `383c385e` on 17 October and stay as recorded. Since then: Greptile's check, CI and no unresolved finding at the exact head gate `dev`, and `dianbrown` approves only a release PR into `main`; GRS-141, GRS-142, GRS-138 and GRS-106 are Done, and the synthetic hosted gate exists while every real-provider check stays UNRUN; `dev` is at `8d818acd` with the last recorded dev-gate PASS at `83cbf184` and no verdict at `8d818acd`.
+
 ## The review
 
 - **Review SHA:** `383c385e54ea492d6665f5d90b644be1aba8b6fc`. It is the content commit of branch `feature/grs-69-docs-consistency`, cut from `dev` at `525aa8a`; the next commit changes only this line. After the merge, review `dev` at the merge commit.
@@ -40,7 +44,7 @@ Cloudflare account, domain and provider work is pinned. The unpin is the user's 
 
 ## Waves and checkpoints
 
-At most seven writers per wave. Ticket PRs target their wave branch; only wave PRs target `dev`; `dianbrown` reviews the wave PR, and the checkpoint ticket is reviewed with it. At each checkpoint the user reads the aggregate report and drives the verification skill once.
+At most seven writers per wave. Ticket PRs target their wave branch; only wave PRs target `dev`. Since 20 October 2026 Greptile reviews each wave PR, which merges when Greptile's check and CI pass at its exact head with no finding unresolved; `dianbrown` approves only release PRs into `main`. Appendix A keeps the 17 October rules as they were. At each checkpoint the user reads the aggregate report and drives the verification skill once.
 
 | Wave branch | Tickets | Checkpoint |
 | --- | --- | --- |

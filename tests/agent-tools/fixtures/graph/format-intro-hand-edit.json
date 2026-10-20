@@ -1,0 +1,21 @@
+{
+  "description": "A plan whose intro was edited by hand, not regenerated, fails",
+  "capability": "plan-format",
+  "editsAfter": {
+    "docs/delivery-plan.md": [
+      [
+        "The remote is `origin`.",
+        "The remote is `upstream`."
+      ]
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "the plan does not begin with docs/plan/program-intro.md"
+    ],
+    "absent": [
+      "Traceback"
+    ]
+  }
+}

@@ -1,6 +1,12 @@
 # Define the Fable and swarm delivery operating plan
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-94/define-the-fable-and-swarm-delivery-operating-plan) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-94/define-the-fable-and-swarm-delivery-operating-plan) is the execution authority.
+
+## User decision — 19 October 2026
+
+Review contract confirmed: Dian reviews one coherent wave PR at a time, at most seven tickets, asynchronously with no promised hours. Routine updates remain at 08:30 SAST on weekdays; urgent failures that stop agents are surfaced immediately in the coordinator's T3 thread. Existing independent ticket reviews, checkpoint evidence, one written fix round and one re-request remain. No direct-message/email authority is added.
+
+---
 
 ## Question
 

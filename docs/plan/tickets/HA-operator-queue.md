@@ -1,6 +1,6 @@
 # Implement the internal FIFO processing queue and audited operator claims
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-135/implement-the-internal-fifo-processing-queue-and-audited-operator) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-135/implement-the-internal-fifo-processing-queue-and-audited-operator) is the execution authority.
 
 Planning key `HA-operator-queue`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

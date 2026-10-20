@@ -1,6 +1,6 @@
 # Implement app-side email drafts and firm-managed templates
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-126/implement-app-side-email-drafts-and-firm-managed-templates) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-126/implement-app-side-email-drafts-and-firm-managed-templates) is the execution authority.
 
 Planning key `HA-drafts`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

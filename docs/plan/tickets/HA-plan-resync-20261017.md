@@ -1,6 +1,6 @@
 # Resync the plan snapshot and generated briefs to live Linear of 17 October (13 stale descriptions)
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-142/resync-the-plan-snapshot-and-generated-briefs-to-live-linear-of-17) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-142/resync-the-plan-snapshot-and-generated-briefs-to-live-linear-of-17) is the execution authority.
 
 Planning key `HA-plan-resync-20261017`. Preparation sprint, wave `wave/preflight-parity`.
 

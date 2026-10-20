@@ -1,6 +1,6 @@
 # Adapt system help and Rescan & Update for hosted processing
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-134/adapt-system-help-and-rescan-and-update-for-hosted-processing) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-134/adapt-system-help-and-rescan-and-update-for-hosted-processing) is the execution authority.
 
 Planning key `HA-views-system`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

@@ -97,6 +97,18 @@ def graph_line(item, by_key, by_id, sources):
     return " ".join(parts)
 
 
+def snapshot_line(snapshot):
+    return f"Snapshot of {snapshot['date']} at `{snapshot['sourceRevision'][:12]}`. {snapshot['authority']} Hosted runtime evidence is {snapshot['runtimeEvidence']}."
+
+
+def outside_lines(readback):
+    return [f"- {row['identifier']}. {row['title']}. {row['status']}. Milestone {row['milestone'] or 'none'}." for row in readback["openOutsidePlan"]]
+
+
+def pending_lines(snapshot):
+    return [f"- {row['issue']}. {row['change']}" for row in snapshot.get("pendingCoordinatorChanges", [])]
+
+
 def plan_sections(plan, coverage):
     items, snapshot = plan["items"], plan["snapshot"]
     by_key = {item["key"]: item for item in items}
@@ -115,7 +127,7 @@ def plan_sections(plan, coverage):
         f"Accepted under {issue_ref(by_id[snapshot['operatingDecision']])}. The [operating plan](plan/agent-delivery-operating-plan.md) and the [hosted-alpha acceptance baseline](plan/hosted-alpha-acceptance.md) hold the full text. These controls replace the 8 October brief boilerplate kept in historical tickets.",
         "\n".join(f"- {line}" for line in plan["controls"]),
         "## Current issue graph",
-        f"Snapshot of {snapshot['date']} at `{snapshot['sourceRevision'][:12]}`. {snapshot['authority']} Hosted runtime evidence is {snapshot['runtimeEvidence']}.",
+        snapshot_line(snapshot),
         f"The plan holds {len(items)} issues. {len(items) - len(open_items)} are accepted historical work. Of the {len(open_items)} open issues, {count('writer')} are writers, {count('aggregate')} are integration aggregates{records} {len(snapshot['hostedDeliveryOwners'])} writers are the hosted delivery owners, {'each natively blocked by' if gate_done else 'each Backlog and natively blocked by'} {issue_ref(gate)}. The readback holds {readback['projectIssues']} project issues, {readback['openIssues']} of them open.",
         "Follow the native blockers listed here, not the summary order in the checklist. An aggregate closes only when its children are accepted; a child never waits on its parent.",
     ]
@@ -124,9 +136,8 @@ def plan_sections(plan, coverage):
         rows.append("\n".join(graph_line(item, by_key, by_id, snapshot["externalSources"])
                                for item in items if item["milestone"] == milestone["key"]))
     rows += ["## Open issues outside the plan",
-             "These open project issues have no planning key. None blocks a plan item; the checker fails if one starts to."]
-    rows.append("\n".join(f"- {row['identifier']}. {row['title']}. {row['status']}. Milestone {row['milestone'] or 'none'}."
-                           for row in readback["openOutsidePlan"]))
+             "These open project issues have no planning key. A plan item names one as an external prerequisite where Linear lists it as a native blocker. The checker fails when an open project issue is missing from this list."]
+    rows.append("\n".join(outside_lines(readback)))
     owners = defaultdict(list)
     for view in coverage["views"]:
         owners[view["hostedOwner"]].append(view["id"])
@@ -137,7 +148,7 @@ def plan_sections(plan, coverage):
     pending = snapshot.get("pendingCoordinatorChanges", [])
     rows += ["## Pending coordinator changes",
              "The checker holds, with a non-zero exit, while any of these is listed. It waives nothing: the coordinator changes Linear, refreshes the snapshot and removes the row." if pending else "None."]
-    rows += ["\n".join(f"- {row['issue']}. {row['change']}" for row in pending)] if pending else []
+    rows += ["\n".join(pending_lines(snapshot))] if pending else []
     rows += ["## Close the program", "\n".join([
         "- [ ] Reconcile delegated task IDs, receipts and attempt counts with Linear before closing a milestone.",
         "- [ ] Read back every project issue's status, parent, native blockers and description. Refresh `docs/plan/work-items.json`, regenerate, and run `scripts/agent-tools/check-plan --linear-relations READBACK`.",

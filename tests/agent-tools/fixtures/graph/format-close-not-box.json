@@ -1,0 +1,21 @@
+{
+  "description": "A close-the-program item that is not a box fails",
+  "capability": "plan-format",
+  "editsAfter": {
+    "docs/delivery-plan.md": [
+      [
+        "- [ ] Reconcile delegated task IDs",
+        "- Reconcile delegated task IDs"
+      ]
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "Close the program item is not a box"
+    ],
+    "absent": [
+      "Traceback"
+    ]
+  }
+}

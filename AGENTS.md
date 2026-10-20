@@ -41,4 +41,4 @@ These hold in a clean clone, where the workspace `AGENTS.md` is absent.
 - `dev` is the integration branch. `main` is release-only and changes only through the user.
 - A ticket branch is cut from the wave branch `wave/<name>` its brief names, or from the upstream ticket's branch while that is unmerged. A ticket PR targets its wave branch. A wave PR targets `dev`, and nothing else targets `dev` directly.
 - When a lower layer changes, merge the updated upstream branch into each layer above and rerun the affected checks. `gh stack link --base dev` links the layers. `gh stack sync` and `gh stack rebase` rebase, so they are not used.
-- Nothing merges into `dev` before the external reviewer approves the wave PR.
+- A wave PR merges into `dev` only when Greptile's check and CI pass at its exact head and no review finding is unresolved. Only a release PR from `dev` into `main` needs `dianbrown`'s approval, and only the user merges `main`.

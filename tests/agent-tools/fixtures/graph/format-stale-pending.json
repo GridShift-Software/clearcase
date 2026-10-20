@@ -1,0 +1,22 @@
+{
+  "description": "A plan that omits a recorded coordinator change is stale",
+  "capability": "plan-format",
+  "patchAfterGenerate": true,
+  "snapshot": {
+    "pendingCoordinatorChanges": [
+      {
+        "issue": "GRS-36",
+        "change": "Add the GRS-129 blocker"
+      }
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "Pending coordinator changes lists 0 rows, work-items.json 1"
+    ],
+    "absent": [
+      "Traceback"
+    ]
+  }
+}

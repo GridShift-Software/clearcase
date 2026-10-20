@@ -1,13 +1,13 @@
 {
-  "description": "Live GRS-104 moved to In Progress after the snapshot",
+  "description": "Live GRS-109 moved to In Progress after the snapshot",
   "capability": "linear-relations",
   "readback": {
-    "HA-tooling.status": "In Progress"
+    "HA-storage-proof.status": "In Progress"
   },
   "expect": {
     "exit": 1,
     "output": [
-      "HA-tooling: live status In Progress differs from Backlog",
+      "HA-storage-proof: live status In Progress differs from Backlog",
       "Recorded project issue and status counts differ from the readback"
     ]
   }

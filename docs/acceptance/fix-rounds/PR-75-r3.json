@@ -34,10 +34,6 @@
         {
           "file": "tests/hosted-foundation/runtime/hosted-cleanup-pid-reuse.test.ts",
           "name": "a saved ancestor whose pid now runs a process with another start does not own the server under it"
-        },
-        {
-          "file": "tests/hosted-foundation/runtime/hosted-cleanup-pid-reuse.test.ts",
-          "name": "a row from another boot (same pid, same start ticks) proves nothing"
         }
       ]
     }
@@ -58,10 +54,6 @@
     {
       "file": "tests/hosted-foundation/runtime/hosted-cleanup-pid-reuse.test.ts",
       "name": "a saved ancestor whose pid now runs a process with another start does not own the server under it"
-    },
-    {
-      "file": "tests/hosted-foundation/runtime/hosted-cleanup-pid-reuse.test.ts",
-      "name": "a row from another boot (same pid, same start ticks) proves nothing"
     }
   ]
 }

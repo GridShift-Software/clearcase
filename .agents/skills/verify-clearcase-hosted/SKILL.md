@@ -80,7 +80,7 @@ After a crash or `--keep-scratch`:
 
 It exits 1 if a recorded process survives.
 
-Every row of `<scratch>/pids.jsonl` is `{role, pid, start, boot, runId, at}`: the process's start time (field 22 of `/proc/<pid>/stat`), the boot it counts from (`boot_id`) and the run's name (its scratch's basename) are written with the pid, because Linux reuses pids. A retained scratch can be cleaned up long after the run: the server on the port is stopped only when the pid file's process, or the ancestor of it that matches a `start-hosted` or `hosted-server` row, is running now with the start that row recorded, and the row names this scratch. A row of the old shape (no `start`), one with another start, boot or run proves nothing: the server is left running and listed as `preserved`. SIGTERM and SIGKILL go only to a recorded pid whose command line names the scratch and, when its row has a `start`, whose start still matches.
+Every row of `<scratch>/pids.jsonl` is `{role, pid, start, runId, at}`: the process's start time (field 22 of `/proc/<pid>/stat`) and the run's name (its scratch's basename) are written with the pid, because Linux reuses pids. A retained scratch can be cleaned up long after the run: the server on the port is stopped only when the pid file's process, or the ancestor of it that matches a `start-hosted` or `hosted-server` row, is running now with the start that row recorded, and the row names this scratch. A row of the old shape (no `start`), one with another start or one for another run proves nothing: the server is left running and listed as `preserved`. SIGTERM and SIGKILL go only to a recorded pid whose command line names the scratch and, when its row has a `start`, whose start still matches.
 
 ## Helpers
 

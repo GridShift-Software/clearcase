@@ -3,8 +3,9 @@
 // Launches Chromium with every non-loopback host mapped to the canary, runs steps.mjs against the running server, then
 // requires that nothing but the app's loopback origin was requested. Writes <evidence>/drive.json; exit 0 only when
 // every step passed.
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { recordPid } from './pids.mjs';
 import { steps } from './steps.mjs';
 import { DRIVE_STEPS } from './evidence.mjs';
 
@@ -18,7 +19,7 @@ const { gateFixture } = await import(cfg.fixtureModule);
 
 const ev = cfg.evidence;
 mkdirSync(join(ev, 'screens'), { recursive: true });
-appendFileSync(cfg.pidFile, JSON.stringify({ role: 'drive', pid: process.pid, at: new Date().toISOString() }) + '\n');
+recordPid(cfg.pidFile, 'drive', process.pid);
 const startedAt = Date.now();
 const results = [];
 let failed = false, shotN = 0, b = null, canary = null;
@@ -44,7 +45,7 @@ await step('browser', null, 'launch Chromium (own profile; every non-loopback ho
 	canary = await startCanary();
 	const disable = 'Translate,OptimizationHints,MediaRouter,AutofillServerCommunication,CertificateTransparencyComponentUpdater,NetworkTimeServiceQuerying';
 	b = await launch({ profileRoot: cfg.profileDir, extra: [`--disable-features=${disable}`] });
-	appendFileSync(cfg.pidFile, JSON.stringify({ role: 'chromium', pid: b.proc.pid, at: new Date().toISOString() }) + '\n');
+	recordPid(cfg.pidFile, 'chromium', b.proc.pid);
 	return { pid: b.proc.pid, canaryPort: cfg.ports.canary };
 });
 

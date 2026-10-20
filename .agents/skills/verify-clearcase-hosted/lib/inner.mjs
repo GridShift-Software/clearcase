@@ -7,10 +7,11 @@
 // rewritten after every step (partial: true until the end).
 import { spawn } from 'node:child_process';
 import { connect } from 'node:net';
-import { appendFileSync, cpSync, createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { processStart, readPidFile } from '../../../../scripts/pidfile.ts';
 import { formatDoctor, liveDoctor, tree } from './doctor.mjs';
+import { recordPid } from './pids.mjs';
 import { buildProblem, driveProblem, healthProblem, PROFILE, testSummaryProblem } from './evidence.mjs';
 
 const cfg = JSON.parse(readFileSync(process.argv[2], 'utf8'));
@@ -19,7 +20,7 @@ const { gateFixture } = await import(cfg.fixtureModule);
 const ev = cfg.evidence, repo = cfg.repo, app = `http://127.0.0.1:${cfg.ports.app}`;
 const bun = (...args) => [process.execPath, 'run', '--bun', ...args];
 const stateFile = join(repo, '.local', 'hosted', `server-${cfg.ports.app}.json`), pidFile = join(repo, '.local', 'hosted', `start-${cfg.ports.app}.pid`);
-const pid = (role, p) => appendFileSync(cfg.pidFile, JSON.stringify({ role, pid: p, at: new Date().toISOString() }) + '\n');
+const pid = (role, p) => recordPid(cfg.pidFile, role, p);
 pid('inner', process.pid);
 
 const results = [];

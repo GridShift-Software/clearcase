@@ -67,14 +67,6 @@ function scratchOf(...records: { role: string; pid: number }[]) {
 }
 
 describe('the hosted verification stops only a server it started', () => {
-	// a row as the run writes it now: with the process's start time and the run's name (the old { role, pid, at } proves nothing)
-	const recordedScratch = (role: string, pid: number) => {
-		const scratch = scratchOf();
-		const start = readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' ')[19];
-		writeFileSync(path.join(scratch, 'pids.jsonl'), JSON.stringify({ role, pid, start, runId: path.basename(scratch), at: new Date().toISOString() }) + '\n');
-		return scratch;
-	};
-
 	it('a run that refused to start because a server holds the port leaves that server, its pid file and its state alone', async () => {
 		const other = await server(REPO);
 		// the refusing run recorded its namespace and inner runner, then threw before spawning start:hosted
@@ -102,7 +94,11 @@ describe('the hosted verification stops only a server it started', () => {
 
 	it('stops the server whose pid file names a process the run recorded', async () => {
 		const own = await server(REPO);
-		const out = cleanupRun(recordedScratch('start-hosted', own.pid), PORT);
+		// the row as the run writes it now: pid, start time (field 22 of /proc/<pid>/stat) and the run's name; the old { role, pid, at } proves nothing
+		const scratch = scratchOf();
+		const start = readFileSync(`/proc/${own.pid}/stat`, 'utf8').split(') ')[1].split(' ')[19];
+		writeFileSync(path.join(scratch, 'pids.jsonl'), JSON.stringify({ role: 'start-hosted', pid: own.pid, start, runId: path.basename(scratch), at: new Date().toISOString() }) + '\n');
+		const out = cleanupRun(scratch, PORT);
 		expect(out.stop).toMatch(/^0: /);
 		expect(await gone(own.pid)).toBe(true);
 		expect(existsSync(own.stateFile)).toBe(false);
@@ -110,7 +106,11 @@ describe('the hosted verification stops only a server it started', () => {
 
 	it('stops the server whose pid file names a descendant of a process the run recorded (the bun wrapper of start:hosted)', async () => {
 		const own = await server(REPO);
-		const out = cleanupRun(recordedScratch('start-hosted', own.wrapper), PORT);
+		// the row as the run writes it now: pid, start time (field 22 of /proc/<pid>/stat) and the run's name; the old { role, pid, at } proves nothing
+		const scratch = scratchOf();
+		const start = readFileSync(`/proc/${own.wrapper}/stat`, 'utf8').split(') ')[1].split(' ')[19];
+		writeFileSync(path.join(scratch, 'pids.jsonl'), JSON.stringify({ role: 'start-hosted', pid: own.wrapper, start, runId: path.basename(scratch), at: new Date().toISOString() }) + '\n');
+		const out = cleanupRun(scratch, PORT);
 		expect(out.stop).toMatch(/^0: /);
 		expect(await gone(own.pid)).toBe(true);
 	}, 60_000);

@@ -1,0 +1,31 @@
+# GRS-158 live proof of the runner's admission hook. Throwaway: it exists on a probe branch of this repository only and is
+# never merged. A push of a branch other than dev must end the job before any step, the `always()` one included; a pull
+# request from this repository's own branch must run both and print what the real payload says. Trusted code, no fork.
+name: hook-proof-plain
+on:
+  push:
+  pull_request:
+permissions: {}
+jobs:
+  proof:
+    runs-on: [self-hosted, Linux, X64, clearcase-pc1]
+    timeout-minutes: 5
+    steps:
+      - name: ordinary step
+        env:
+          REAL_EVENT_PATH: ${{ github.event_path }}
+        run: |
+          printf '%s%s\n' GRS158-HOOKPROOF-PLAIN- ORDINARY-STEP-RAN
+          printf 'env GITHUB_EVENT_NAME=%s GITHUB_REPOSITORY=%s GITHUB_REF=%s\n' "$GITHUB_EVENT_NAME" "$GITHUB_REPOSITORY" "$GITHUB_REF"
+          python3 -I - "$REAL_EVENT_PATH" <<'PY'
+          import json, sys
+          event = json.load(open(sys.argv[1]))
+          pr = event.get("pull_request") or {}
+          print("payload repository", (event.get("repository") or {}).get("full_name"))
+          print("payload head", ((pr.get("head") or {}).get("repo") or {}).get("full_name"))
+          print("payload base", ((pr.get("base") or {}).get("repo") or {}).get("full_name"))
+          print("payload ref", event.get("ref"))
+          PY
+      - name: always step
+        if: always()
+        run: printf '%s%s\n' GRS158-HOOKPROOF-PLAIN- ALWAYS-STEP-RAN

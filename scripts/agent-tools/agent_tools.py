@@ -892,8 +892,8 @@ def codex_install(layout, root, explicit):
     source = (config.get("marketplaces", {}).get("t3-pstack") or {}).get("source")
     record = json_record(layout["install"])
     if not isinstance(source, str) or record.get("source") != source:
-        raise ValueError(f"{redact(layout['install'])} records source {record.get('source')!r}, but config.toml installs "
-                         f"the t3-pstack marketplace from {source!r}")
+        raise ValueError(f"{redact(layout['install'])} records another source than the t3-pstack marketplace in config.toml "
+                         "(neither is printed: a source URL can carry credentials)")
     revision = record.get("revision")
     if not isinstance(revision, str) or not FULL_ID.fullmatch(revision):
         raise ValueError(f"{redact(layout['install'])} revision must be an exact Git SHA")

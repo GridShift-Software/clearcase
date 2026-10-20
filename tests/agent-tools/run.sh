@@ -1044,9 +1044,11 @@ set_json "$CODEX_CLONE/.codex-marketplace-install.json" 'd["revision"] = "HEAD"'
 run "a Codex install record without an exact revision fails" 1 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
 reason_has "the inexact revision is named" "revision"
 restore_codex
-set_json "$CODEX_CLONE/.codex-marketplace-install.json" 'd["source"] = "https://example.invalid/other.git"'
+set_json "$CODEX_CLONE/.codex-marketplace-install.json" 'd["source"] = "https://agent:source-canary-159@example.invalid/other.git"'
 run "a Codex install record from another source fails" 1 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack
-reason_has "the other source is named" "example.invalid"
+reason_has "the mismatch is named" "records another source than the t3-pstack marketplace"
+lacks "the output never prints a source URL, which can carry credentials" "source-canary-159"
+lacks_in_receipt "the receipt never records a source URL" "source-canary-159"
 restore_codex
 rm "$CODEX_CLONE/.codex-marketplace-install.json"
 run "a Codex install with no marketplace install record fails" 1 "${HENV[@]}" CODEX_THREAD_ID=synthetic "$TOOLS/verify" pstack

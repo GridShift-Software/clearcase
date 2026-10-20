@@ -1,0 +1,60 @@
+{
+  "schema": "clearcase-fix-round/1",
+  "unit": "PRFIX-75/implementation-r2",
+  "fixBase": "8c07a769e9e54778dbbc757c14de702ca5ddb49c",
+  "reviewFindingsSha256": "4b84f69842a1d9952aca7fd9a79236a62a30d8d995d7af328ee16af086c51a95",
+  "review": {
+    "pullRequest": 75,
+    "reviewId": "pullrequestreview-5580872983",
+    "reviewer": "Vaperizer2",
+    "reviewedHead": "26a4a7d4071b71d6156e64663200f7ee3f16ac53",
+    "waveBase": "83cbf184e75ae6680a94fcdb24bef4e7be1c8ce9",
+    "note": "fixBase is the red commit, after the dev merge d14dcda: the guard needs each named test to exist, and be readable, at the base, and these regressions are new. The reviewed head and the dev base are recorded here. reviewFindingsSha256 is the sha256 of .orchestration/reports/PR-REVIEW-20261019/raw.md from the line '## wave PR #75, round 3' to its end."
+  },
+  "findings": [
+    {
+      "file": ".agents/skills/verify-clearcase-hosted/lib/inner.mjs",
+      "line": 99,
+      "comment": "https://github.com/GridShift-Software/clearcase/pull/75#discussion_r4321560310",
+      "severity": "P1",
+      "text": "**[P1] Do not stop an existing starter after this run loses the PID claim.**\n\nAn existing starter can hold `start-PORT.pid` while waiting for Wrangler readiness, before it writes `server-PORT.json`. The verifier's state-file check passes and it spawns a contender, setting `server`. That contender fails `claimPidFile()` and exits 2. Because `server` remains non-null, this unconditional `start:hosted --stop` terminates the original owner. The outer `cleanupRun()` ownership check happens after the damage.\n\nI reproduced this with the unchanged production inner lifecycle and real `serve`/PID-lock/stop implementations. Before verification, the original owner was alive with a PID file and no state file. After verification, the contender had exited 2, the original owner was dead, and the stop step was recorded as PASS. Build and offline preconditions were synthetic; this was a focused failure diagnostic.\n\nCheck the PID-file owner's process identity against the process this run launched, or its verified descendant, before invoking `--stop`. Also validate ownership before recording `state.pid` from the shared state file as `hosted-server`.\n\nAdd a regression that actually executes `inner.mjs` while another starter is held before Ready. Assert that the contender fails and the original owner, its PID file, and any later state file survive. The current `hostedRun` test replaces the namespace with an immediately failing command, so it never exercises this path.",
+      "tests": [
+        {
+          "file": "tests/hosted-foundation/runtime/hosted-inner-ownership.test.ts",
+          "name": "a contender that loses the pid-file claim to a starter held before Ready leaves that starter, its pid file and its later state file alone"
+        },
+        {
+          "file": "tests/hosted-foundation/runtime/hosted-inner-ownership.test.ts",
+          "name": "a state file that appears from another starter while this run waits is not recorded as this run's hosted-server, and that starter survives"
+        },
+        {
+          "file": "tests/hosted-foundation/runtime/hosted-inner-ownership.test.ts",
+          "name": "a server this run did start is still stopped by it: the starter, its Wrangler tree, the pid file and the state file are gone"
+        }
+      ]
+    },
+    {
+      "file": "scripts/agent-tools/test_guard.mjs",
+      "line": 208,
+      "comment": "https://github.com/GridShift-Software/clearcase/pull/75#discussion_r4321560316",
+      "severity": "P1",
+      "text": "**[P1] Update the trusted base guard before relying on this exemption.**\n\nThis compatibility change only updates the PR's copy. [The workflow](https://github.com/GridShift-Software/clearcase/blob/26a4a7d4071b71d6156e64663200f7ee3f16ac53/.github/workflows/ci.yml#L154-L158) checks out the base branch and executes its `fix-round-guard`, which loads the base's `test_guard.mjs`. That copy lacks the exemption, so this change cannot make the PR's CI pass.\n\nThe current [CI job](https://github.com/GridShift-Software/clearcase/actions/runs/39300734359/job/118224946090) fails with:\n\n```text\ntest-guard: FAIL. unsupported or unavailable protected resolver configuration: File '$app/tsconfig' not found.\n```\n\nI reproduced the same failure by running the guard from base `4d5f7be7b021e3db85fb5d95a4d9d92ce9cf20ee` against head `26a4a7d4071b71d6156e64663200f7ee3f16ac53`, even after generating the local SvelteKit config.\n\nLand the narrowly reviewed SvelteKit 3 compatibility change in the trusted base first, update this branch, and rerun the same base-owned guard plus CI. Keep CI executing the trusted base guard rather than letting the PR judge itself.",
+      "tests": [],
+      "note": "Resolved by the merge of origin/dev (PR #77, GRS-148): dev's guard carries the Kit 3 $app/tsconfig exemption and its test (tests/agent-tools/test_controls.py). scripts/agent-tools/test_guard.mjs and tests/agent-tools/ are byte-identical to origin/dev."
+    }
+  ],
+  "tests": [
+    {
+      "file": "tests/hosted-foundation/runtime/hosted-inner-ownership.test.ts",
+      "name": "a contender that loses the pid-file claim to a starter held before Ready leaves that starter, its pid file and its later state file alone"
+    },
+    {
+      "file": "tests/hosted-foundation/runtime/hosted-inner-ownership.test.ts",
+      "name": "a state file that appears from another starter while this run waits is not recorded as this run's hosted-server, and that starter survives"
+    },
+    {
+      "file": "tests/hosted-foundation/runtime/hosted-inner-ownership.test.ts",
+      "name": "a server this run did start is still stopped by it: the starter, its Wrangler tree, the pid file and the state file are gone"
+    }
+  ]
+}

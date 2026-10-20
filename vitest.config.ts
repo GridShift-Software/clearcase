@@ -21,8 +21,9 @@ export default defineConfig({
   // the Svelte transform and SvelteKit's $lib alias, so a test that reaches a component (an owner's overview widget
   // through the slot registry's import.meta.glob, say) compiles it instead of failing import analysis on the .svelte
   // source or on a $lib import
-  plugins: [svelte()],
-  resolve: { alias: { $lib: fileURLToPath(new URL('./src/lib', import.meta.url)) } },
+  plugins: [svelte({ configFile: false })],
+  // the Workers runtime module exists only on workerd; unit tests see an env with no bindings
+  resolve: { alias: { $lib: fileURLToPath(new URL('./src/lib', import.meta.url)), 'cloudflare:workers': fileURLToPath(new URL('./tests/hosted-foundation/runtime/cloudflare-workers.ts', import.meta.url)) } },
   test: {
     // GRS-10's package suite, then the pilot's unit tests (storage, import, activation, originals, contracts), the
     // parity harness, the pilot e2e harness's own unit tests, and the M2 owners' write scopes
@@ -41,6 +42,7 @@ export default defineConfig({
       'src/routes/**/*.test.ts',
       'tests/e2e/pilot/**/*.test.ts',
       'tests/demo/**/*.test.ts',
+      'tests/hosted-foundation/runtime/**/*.test.ts',
       'tests/acceptance/CC-25/*.test.ts',
     ],
     pool: 'forks',

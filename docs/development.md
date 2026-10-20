@@ -4,7 +4,7 @@ The local pilot (GRS-12, CC-03): an operator imports a results package for a cas
 
 ## Stack decision
 
-SvelteKit 2 with TypeScript, `node:sqlite` storage, run and built with Bun 1.4.2.
+SvelteKit 3 (3.1.0 since GRS-112; the stack judge below ran on Kit 2) with TypeScript, `node:sqlite` storage, run and built with Bun 1.4.2.
 
 Historical stack-judge evidence lives in the workspace's `../spikes/stack-judge/`, outside this repository and Git. Three stacks used the same scenarios. Scores out of 10:
 
@@ -38,6 +38,114 @@ Start the pilot only with `bun run --bun start` (`scripts/pilot/start.ts`). It b
 `scripts/agent-tools/verify app` runs the project verification skill (`.agents/skills/verify-clearcase/`): a fresh build of the committed revision in an isolated copy, an offline Bun boot, the live doctor, a drive through import, activation and a citation to the original, and cleanup.
 
 Planning snapshot validation lives in `scripts/planning/check.py`; `scripts/agent-tools/check-plan --linear-relations PATH` compares the supplied readback with `snapshot.readback`, including project totals and status counts. If an issue creation or status change causes "Recorded project issue and status counts differ from the readback", refresh the capture and `snapshot.readback` together.
+
+## Hosted runtime (GRS-112)
+
+One app builds two artifacts, chosen by one build variable. Unset (or `local`), `CLEARCASE_TARGET` builds the local pilot on adapter-node, which `bun run --bun start` serves. `CLEARCASE_TARGET=hosted` builds the Workers artifact on adapter-cloudflare from the route tree and server hooks that `deploy/client/hosted-files.json` selects (`deploy/client/routes/`, `src/lib/server/runtime/hosted/hooks.server.ts`). Set it only through `build:hosted`. The CSP and the Origin check are the app's, and the hosted graph has its own `handleError` (`src/lib/server/runtime/hosted/handle.ts`) in place of the local one; in the hosted graph the identity handle's authorization replaces the local loopback boundary. The pins are those of `docs/acceptance/hosting/runtime.md` (Kit 3.1.0, adapter-cloudflare 8.0.1, Wrangler 4.151.1, workerd 1.20261012.1).
+
+The second variable, `CLEARCASE_HOSTED_PROFILE`, is a test variable read at build time. `production`, the default, holds no test double. Every protected request is refused with 503 until the identity, storage (GRS-117) and asset (GRS-118) adapters land. `/health` and the 404 for `/api/browse` still answer. `hosted-gate` swaps in `src/lib/server/runtime/hosted/gate/hooks.server.ts` and the named test doubles under that directory. The import guard and the artifact scan refuse those doubles in any production artifact.
+
+| Command | Host | What it does |
+| --- | --- | --- |
+| `bun run --bun build:hosted` | Bun (the build and the script) | `vite build` with a credential-free environment allowlist into `.svelte-kit/cloudflare` and `.svelte-kit/output/server`. Stamps the artifact with HEAD (Kit `version.name`, and the build stamp `/health` reports), scans the emitted modules (`scripts/ci/hosted-artifact.ts`), records the stamp and artifact digest in `.svelte-kit/clearcase-hosted.json`, then regenerates the local tree's Kit types |
+| `bun run --bun start:hosted` | Node hosts Wrangler only, and Wrangler runs native workerd, which serves the artifact | Refuses a dirty tree, a stamp that is not HEAD, a dirty-built stamp or a changed artifact. Provisions local D1 and R2 under `.local/hosted/run-*/persist` with `wrangler d1 execute --local` and `wrangler r2 object put --local` (the runtime sentinels, plus the synthetic two-client fixture for `hosted-gate`). Then it serves `http://127.0.0.1:$PORT` (41301) through `wrangler dev --local` with GRS-106's environment allowlist (fresh HOME and XDG, no telemetry, error reports, cf.json fetch, dotenv or process env). It checks `/health` reports this artifact on workerd and records `.local/hosted/server-$PORT.json`. `--stop` (same `PORT`) stops that server and its process tree |
+| `bun run --bun test:hosted` | Bun sends every request; workerd answers | Against the running server, at HEAD: the request, render and action smoke legs of `tests/hosted-foundation/runtime/smoke.ts`, then the import-boundary negative test (`guard-mutations.ts`). Writes `.local/hosted/test-<sha>-<profile>.json` and exits 0 only when every leg passes |
+
+A Node or Bun server pass is not hosted evidence; only these workerd runs are. No Cloudflare account, token, login or deploy is involved: every binding in `deploy/client/wrangler.toml` is `remote = false`, and its database id is a placeholder. The client a deployment serves comes from its `CLEARCASE_CLIENT_ID` var, never from a request.
+
+### Test doubles and the GRS-138 feature map
+
+- **Doubles.** In the hosted-gate artifact these are doubles:
+  - identity: a test identity, sessions in local D1, with no Clerk;
+  - store: case identity and publication state in local D1 fixture tables (results stay unavailable until GRS-117 and GRS-118 land);
+  - assets: originals in local R2, read whole and checked against the recorded size and SHA-256 before release, with the audit event written first;
+  - audit: events in local D1.
+
+  User work is unavailable. The D1 and R2 bindings and workerd themselves are real local Miniflare/workerd, not Cloudflare's.
+- **Memory doubles.** The memory doubles (`src/lib/server/runtime/memory*.ts`) serve the unit tests in `tests/hosted-foundation/runtime/` only. No artifact contains them.
+- **Fixture.** `tests/hosted-foundation/runtime/gate-fixture.ts` defines it:
+  - two clients, A and B;
+  - cases A1 (no publication), A2 (withdrawn) and B1;
+  - identities `a-viewer` (A1), `a-editor` (A1 and A2), `a-unassigned` and `b-editor` (B1);
+  - four synthetic originals.
+
+  The local deployment serves client A, so to it B's session is wrong-client, and B's case and asset ids do not exist.
+
+The feature map GRS-138 drives (the smoke test walks the same steps):
+
+```sh
+CLEARCASE_HOSTED_PROFILE=hosted-gate bun run --bun build:hosted
+bun run --bun start:hosted &        # http://127.0.0.1:41301
+bun run --bun test:hosted
+bun run --bun start:hosted --stop
+```
+
+A verification run stops only a server it started: when a server already holds the port (`server-$PORT.json`), the run refuses to start and leaves that server, its PID file and its state alone.
+
+1. Sign in as the test identity. On `GET /sign-in` (`[data-auth-provider=double]`), choose `client-a/a-viewer` in `#test-identity` and submit `#sign-in`. The form answers 303 to `/cases` with an HttpOnly `clearcase_session` cookie.
+2. Open the provisioned case. On `/cases` (`[data-auth-state=signed-in]`), follow `a[data-action=open-case][data-case-id=case-a1]`. `/cases/case-a1` shows `[data-results-state=pending]` (`ResultsState`), the originals, and `[data-user-work-state]` apart from results.
+3. Open an original. `a[data-action=open-original][data-asset-id=a1-letter]` serves `/cases/case-a1/originals/a1-letter`: 200, the whole file, `attachment`, audited. A `Range` request gets 416.
+4. Deny a wrong-client request. Sign in as `client-b/b-editor`: `/cases` answers 401 `[data-denial-code=wrong-client]`, and B's original answers 401 with no bytes. As `a-viewer`, `/cases/case-a2`, `/cases/case-b1` and `/cases/case-a1/originals/b1-letter` answer 404.
+
+   Each denial and delivery is a row in local D1's `audit_event`. Read it with `wrangler d1 execute DB --local --persist-to <run>/persist --config deploy/client/wrangler.toml --command "SELECT * FROM audit_event"`.
+
+### Import boundary
+
+`bun run --bun check:hosted-imports`, run by `check`, walks both profiles' source graphs before tree shaking; each hosted build (`vite.config.ts`, at `buildStart`) walks only its own profile's graph. Every route file Kit builds is a root (`+page`, `+layout`, `+server`, `+error`, their `@` layout-reset and `.server` forms), any other `+`-prefixed file under the routes fails closed, and the guard resolves the following:
+
+- TypeScript aliases;
+- re-exports;
+- literal dynamic imports;
+- Svelte components (compiled, script blocks included) by `$lib` or relative path;
+- Vite `import.meta.glob` edges: `*` within a segment and `**` as a whole segment; braces, classes, extglobs and base-moving options fail closed.
+
+It refuses each of the following with the import chain:
+
+- filesystem, SQLite, network, process and `bun:` capabilities, and computed imports or globals;
+- the local implementations, and any module of `src/routes/` (the folder browser among them);
+- the memory doubles, and the gate doubles outside `hosted-gate`;
+- any package outside its allowlist (`svelte`, `@sveltejs/kit`, `typebox`; plus the Kit modules `$app/env|forms|navigation|paths|state` and `cloudflare:workers`).
+
+The allowlisted packages are not walked. `scripts/ci/hosted-artifact.ts` checks what was actually emitted for them: no import of a local-only module, no memory double, and gate doubles only in a gate artifact.
+
+`bun run --bun probe:hosted-imports` commits one mutant per case in a disposable checkout under `.local/hosted/`, with its own generated Kit 3 tsconfig. It requires the real `check` to refuse each for its reason; `test:hosted` runs it.
+
+`bun run --bun test tests/hosted-foundation/runtime` runs the contract diagnostics (memory doubles, both clients), the guard and the artifact scan. It claims nothing about Clerk, D1, R2 or workerd. Keep `bun run --bun test tests/e2e` distinct from the browser runner `test:e2e`.
+
+### Hosted checks (GRS-138)
+
+`bun run --bun gate:hosted` (`scripts/gate-hosted.mjs`) proves one exact revision of the hosted artifact, credential-free, the way `gate` proves the local app. It is the required check for a ticket that touches hosted paths. Before any step runs it refuses each of these, with `GATE FAIL <reason> <sha>`:
+
+- `usage`: any argument (only `--stop` is accepted);
+- `env`: a reduced-run variable of `gate`'s list, even empty;
+- `dirty`: an uncommitted, staged or untracked file;
+- `bindings`: `deploy/client/wrangler.toml` without the `DB`, `BUCKET` or `ASSETS` binding, a binding that is not `remote = false`, or an `account_id`;
+- `preflight`: a missing tool. These are the skill's checks: Bun 1.4.2, the installed packages, a real Node >= 22, `unshare -rn`, `ip`, `mount` and Chromium.
+
+Then it runs these steps, stopping at the first failure:
+
+| Step | What passes it |
+| --- | --- |
+| `refusals` | `tests/hosted-foundation/gate/refusals.mjs`: a throwaway test for each refusal. Dirty tree, reduced-run variable and missing binding run the real gate in a throwaway clone of HEAD. Stale stamp and summary-not-evidence drive `runHostedGate` with its real validators on written evidence, one field changed per case. `failure-tail` checks that a failed run prints the cause from the step's log and at most 30 lines. `evidence-walk` (`mutations.mjs`, runnable alone) deletes, nulls, retypes, empties, flips, zeroes or adds a key to every field of each evidence file, the summary and `refusals.json`, about 4,000 mutants, and every one must be refused; only a step's own `evidence` record, an `ms`, drive's `startedAt` and one assertion fewer in a leg are free-form. An unchanged control must pass. It runs alone too, and isn't a Vitest file, because Vitest's globs do not collect `tests/hosted-foundation/gate/` |
+| `net-offline` … `stop` | the [verify-clearcase-hosted](../.agents/skills/verify-clearcase-hosted/SKILL.md) lifecycle in one offline network namespace on port 43800, with the gate's checks inside it, in this order: `build` (`build:hosted`, hosted-gate profile, stamped with HEAD in full); `artifact` (`scripts/ci/hosted-artifact.ts`); `probe-check` (GRS-106's `test:check`); `start` (`start:hosted`); `live-doctor` and `live-doctor-negative`; `test:hosted` (the smoke legs and the import-boundary negative test with its mutants: 23 on 19 October, 21 refused and 2 controls, and the leg asserts only that there is at least one); `drive` (the feature map in Chromium, through `$CLEARCASE_BROWSER_LOCK` when set); `stop` (`start:hosted --stop`) |
+| `offline`, `cleanup`, `evidence-kept` | the namespace finished with every step PASS; the run's processes, scratch and server state are gone; the evidence is still there |
+
+After the run the gate rereads every file the run wrote and judges it itself, so a step that exited 0 without evidence for HEAD fails. The files are the build stamp and `_app/version.json`, `health.json`, the `test:hosted` summary, `drive.json` and `inner.json`; a prefix of the SHA is not the SHA. Each is judged against one expected shape (`lib/evidence.mjs`: exact key sets, types and values, so a missing or unknown field fails) and the files are tied to one another: one build stamp and artifact digest across the build, health, test and inner files, one server state and fixture. It then checks that HEAD and the tree did not change, and writes `summary.json` (`clearcase-hosted-gate/1`). The summary names the exact SHA, the fixture (its sha256, the identity `client-a/a-viewer`, the wrong-client identity `client-b/b-editor`, the deployment's client), the tools and each boundary. It says `evidence: true` only when nothing was reduced, skipped, stale or failed. The gate validates that file again against an exact shape before `GATE PASS <sha>`: the boundaries equal the gate's own table and `notEvidenceFor` is exactly its list.
+
+| Boundary | In a gate run |
+| --- | --- |
+| identity, store, assets, audit | `double` (the hosted-gate test doubles) |
+| user work, results | `unavailable` |
+| D1, R2 | `real-local`: Miniflare under `wrangler dev --local`, not Cloudflare's |
+| runtime, browser | `real`: native workerd with Wrangler on Node; Chromium on the loopback origin only |
+
+No gate run is evidence for Clerk, Cloudflare D1 or R2, email or a deployment; the summary's `notEvidenceFor` says so. Those stay with the proof tickets and the release gate.
+
+Output: at most 30 lines, with one line per step and its seconds, and the drive's line naming each feature step and the browser-slot wait. A failure adds a `cause:` line from the step's log (the first GATE FAIL, forbidden or problem line) before the end of its error. Evidence and logs go to `.local/gate-hosted/<sha12>/<run>/`, or `$CLEARCASE_HOSTED_REPORT_DIR/<run>`. Scratch goes under `$CLEARCASE_HOSTED_SCRATCH/gate`, or `.local/gate-hosted/scratch`. One hosted gate per worktree (`.local/gate-hosted/pid`, the same flock admission as `gate`). `bun run --bun gate:hosted --stop` stops that group and cleans its stranded runs. A run took 2 min 33 s on the archlinux host on 19 October 2026: refusals 2 s, build 3 s, start 9 s, test:hosted 44 s, and a drive of 92 s, most of it waiting for a browser slot.
+
+CI runs it as the third receipt step (`gate-hosted`) after `check` and `test`, with Node 24.22.0 (24 LTS) from `actions/setup-node`, `CI=1`, Wrangler telemetry off, `.local/hosted` and the scratch on the step's `/dev/shm` directory, and no Cloudflare account, binding or token. Its evidence uploads with the receipts. If the Node step fails (PC1 run 39260890102: Node 26.10.0 unpacked into the tool cache and its binary exited 127), the `node diagnostics` step prints the guest's kernel, mounts, loader and libraries, and `node fallback` puts nodejs.org's tarball of the same version first on `PATH` after checking its SHA-256 against a pinned value and the published `SHASUMS256.txt`. The gate step proves the `node` it runs is not Bun, and the receipt names its path. A hung namespace stops after 25 minutes, inside the job's 30, so a `gate-hosted` receipt is always written.
+
+To prove one hosted user path in seconds without the gate's checks, run `.agents/skills/verify-clearcase-hosted/bin/verify-clearcase-hosted run`. Owners who replace a double (GRS-113, GRS-115, GRS-120) extend its feature map and change the gate's boundary entry in the same change.
 
 ## Configuration
 

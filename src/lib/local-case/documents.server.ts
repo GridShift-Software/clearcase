@@ -1,16 +1,10 @@
+import type { DropReason, DocumentRowsResult } from '../server/runtime/dto.ts';
+export type { DropReason, DocumentRowsResult } from '../server/runtime/dto.ts';
+import type { DocumentSource, DocumentRow, ProviderRow } from '../server/runtime/dto.ts';
+export type { DocumentSource, DocumentRow, ProviderRow } from '../server/runtime/dto.ts';
 import type { ChronologyListRow, DocumentStateRow } from './model.ts';
 import type { CaseStore } from './store.server.ts';
 
-export type DocumentSource = 'results' | `provider:${string}`;
-export interface DocumentRow {
-	ref: string;
-	ord: number;
-	source: DocumentSource;
-	row: Readonly<Record<string, unknown>>;
-	list: Readonly<ChronologyListRow>;
-	state: Readonly<DocumentStateRow>;
-}
-export interface ProviderRow { ref: string; row: Record<string, unknown>; list: Omit<ChronologyListRow, 'ord'>; state: DocumentStateRow }
 export interface DocumentRowProvider {
 	id: string;
 	owner: string;
@@ -34,17 +28,6 @@ const freeze = <T>(v: T): T => {
 	if (v !== null && typeof v === 'object' && !Object.isFrozen(v)) { Object.freeze(v); for (const k of Object.keys(v)) freeze((v as Record<string, unknown>)[k]); }
 	return v;
 };
-
-export type DropReason =
-	| 'the ref already names a document of this version'
-	| 'the list entry names another ref'
-	| 'the original was left out: a present original needs a path, size, sha256 and media type'
-	| `malformed row: ${string}`;
-export interface DocumentRowsResult {
-	rows: readonly DocumentRow[];
-	dropped: { source: DocumentSource; ref: string; reason: DropReason }[];
-	failed: { source: DocumentSource; owner: string; reason: string }[];
-}
 
 const LIST_TEXT = ['date', 'docType', 'bundle', 'subject', 'filename', 'sender', 'to', 'excerpt', 'amount', 'url', 'textStatus', 'preview'] as const;
 const LIST_NULLABLE = ['dateType', 'dateSource', 'parentRef'] as const;

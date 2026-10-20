@@ -11,7 +11,7 @@
 	import '$lib/views/quantum/quantum.css';
 	let { data } = $props();
 	const defaults = $derived(defaultInputs(data.claim, data.defaults));
-	const inputs = $derived(settleInputs(page.url.searchParams, defaults));
+	const inputs = $derived(settleInputs(new URLSearchParams(page.url.search), defaults));
 	const out = $derived(settleOutcome(inputs));
 	let vals = $state<SettleInputs>({ ...untrack(() => inputs) });
 	let sent: SettleInputs | null = null;

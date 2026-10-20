@@ -1,7 +1,7 @@
 {
   "schema": "clearcase-fix-round/1",
   "unit": "PRFIX-75/implementation",
-  "fixBase": "d14dcdaba7eb2b47da84f8a2edca69cec1a1dffa",
+  "fixBase": "f0948d79dd9e6846c5f6d9ed33ac4da5fd021a66",
   "reviewFindingsSha256": "65520f35839212e429f00ddbe7ebabe4761da865338d4fbfc805c87ba1ee08f1",
   "review": {
     "pullRequest": 75,
@@ -12,7 +12,9 @@
     "note": "fixBase is the red commit: the guard needs each named test to exist, and be readable, at the base, and these regressions are new. The reviewed head and the dev base are recorded here.",
     "originalFixBase": "282c161a9021dc7704c0750bb5dc0dacc9f52630",
     "fixBaseAdvancedAt": "d14dcda",
-    "advanceNote": "fixBase advanced from the red commit 282c161 to the merge commit d14dcda (origin/dev 83cbf18 into this wave) on 20 Oct 2026. The guard compares snapshots at fixBase and HEAD, so after the required dev merge the original range contained dev's own vitest.config.ts include line (CC-25) and no reason can excuse a runner-configuration change. The original range 282c161..26a4a7d passed the guard and the fresh re-check (reports/PRFIX-75/recheck.md) before the merge; the named tests are unchanged since. Guard merge-awareness is a filed follow-up."
+    "advanceNote": "fixBase advanced from the red commit 282c161 to the merge commit d14dcda (origin/dev 83cbf18 into this wave) on 20 Oct 2026. The guard compares snapshots at fixBase and HEAD, so after the required dev merge the original range contained dev's own vitest.config.ts include line (CC-25) and no reason can excuse a runner-configuration change. The original range 282c161..26a4a7d passed the guard and the fresh re-check (reports/PRFIX-75/recheck.md) before the merge; the named tests are unchanged since. Guard merge-awareness is a filed follow-up.",
+    "fixBaseAdvancedAt2": "f0948d7",
+    "advanceNote2": "fixBase advanced a second time, from the merge commit d14dcda to f0948d7 on 20 Oct 2026, for round 4 (PRFIX-75-r3). The round-4 fix makes an old-shape pids.jsonl row {role, pid, at} prove nothing, so the two control tests in this file that wrote old-shape rows and expect a stop ('stops the server whose pid file names a process the run recorded' and its descendant variant) now write the new row shape (pid, start, runId) inline; the guard treats the whole describe as each named test's body, so any edit in the file fails this manifest. The three named tests of this manifest are byte-identical since the original red commit 282c161 (checked by the orchestrator and the fresh re-check). The new rule is protected by PR-75-r3.json's four named tests."
   },
   "findings": [
     {

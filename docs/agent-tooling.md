@@ -298,15 +298,22 @@ the commit of the review the ledger recorded before the unit's first `fix` dispa
 names other findings, refuses, and so does a `fix` dispatch with no review recorded before it. CI has no copy of the
 ledger, so there the manifest's `fixBase` is used, and the binding at `approve` is what ties it to the review.
 
-The CI job's `test guard` step runs on pull requests only. It adds a detached worktree at the pull request's head
+The CI job's `test guard` step runs on pull requests only, before any step that runs the pull request's code: its
+install scripts, its tests, or a line they add to `GITHUB_ENV`. It adds a detached worktree at the pull request's head
 (GitHub tests the merge commit, which would include the base branch's later changes) and a second one at the base
-branch (`origin/<base>`), and runs the base branch's `fix-round-guard` with `--root <head worktree>` and
-`--base origin/<the PR's base branch>`. The base copy carries the guard and the Python tools, so a pull request cannot
-weaken the check that judges it; the installed `node_modules` (TypeScript) are linked in from the checkout, so a pull
-request that changes `bun.lock` also changes the parser, and that shows in its diff. When the base branch has no guard
-yet, the pull request that adds it runs its own copy and the step says so. The runner has no Node, so the step sets
-`CLEARCASE_NODE` to Bun and the receipt's `node` row records Bun's version. The step runs even when `check` or `test`
-failed. A manifest stays in the tree, so a wave PR into `dev` runs every manifest its tickets added, at the wave head:
+branch (`origin/<base>`), installs the base's `bun.lock` there with `--frozen-lockfile --ignore-scripts`, and runs the
+base branch's `fix-round-guard` with `--root <head worktree>` and `--base origin/<the PR's base branch>`. The guard, the
+Python tools and the TypeScript that parses the tests all come from the base, so a pull request cannot weaken the check
+that judges it; its own guard and `node_modules` are never used. The guard's child runs in the head worktree, where Bun
+would read the pull request's `bunfig.toml` and `.env` (a preload, or a `.env` pointing Git at a candidate fsmonitor,
+ran inside the old step), so `CLEARCASE_NODE` is a wrapper that runs Bun with an empty config, `--no-install` and
+`--no-env-file`, and the receipt's `node` row records Bun's version. A base without the guard or `bun.lock`, or a failed
+install (an unreachable registry included), prints `HOLD`: nothing was judged. The step itself does not end the job;
+`test guard verdict`, after the other checks, fails it unless the guard succeeded, so `check` and `test` still report.
+`tests/ci-guard/run.sh` replays the step from the workflow in synthetic repositories against each of these routes
+(Bun, Git, Python, `unshare -rn` and the npm registry; it runs outside Vitest and CI). Two things stay trusted: the
+workflow, which comes from the merge commit, so a pull request that changes it needs review, and the runner, whose Bun
+install and transpiler caches an earlier job can alter (`docs/ci-runner.md`). A manifest stays in the tree, so a wave PR into `dev` runs every manifest its tickets added, at the wave head:
 a later ticket in the same wave that changes a protected file needs a reviewed `assertionCountReasons` entry in that
 manifest, for a free test only. CI has no copy of the ledger, so it cannot tell on its own that a pull request is a
 fix round; the `fix-round` label, and the binding at `approve` below, are the two controls.

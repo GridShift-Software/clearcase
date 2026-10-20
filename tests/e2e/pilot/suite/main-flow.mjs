@@ -310,9 +310,11 @@ export async function keyboard(ctx) {
 	// same-page traversal SvelteKit handles without a navigation; the heading must still take focus.
 	await p.goto(`${A.origin}${ctx.mainImport.path}`, `document.querySelectorAll('main a[href^="#code-"]').length > 0`);
 	const hFrag = await p.evaluate('history.length');
-	await p.evaluate(`document.querySelector('main a[href^="#code-"]').focus(); true`);
+	await p.evaluate(`window.__ccFragHashchange = 0; addEventListener('hashchange', () => { window.__ccFragHashchange++; }, { once: true }); document.querySelector('main a[href^="#code-"]').focus(); true`);
 	await p.key('Enter');
-	await p.waitFor(`location.hash.startsWith('#code-')`);
+	// Back as a person presses it: after the fragment navigation has finished, i.e. its hashchange (and the router's
+	// handler of it) ran. Back before that raced the router and hid a lost focus (DIAG-BA14).
+	await p.waitFor(`location.hash.startsWith('#code-') && window.__ccFragHashchange === 1`);
 	const fragHash = await p.evaluate('location.hash');
 	await p.evaluate('history.back(); true');
 	await p.waitFor(`location.hash === ''`);

@@ -28,7 +28,7 @@
 		});
 	});
 	function go(extra: Record<string, string>) {
-		goto(`${page.url.pathname}?${paramsOf(q, extra)}`, { replaceState: true, keepFocus: true, noScroll: true });
+		goto(`${page.url.pathname}?${paramsOf(q, extra)}`, { replaceState: true, reset: false });
 	}
 	let exportError = $state<string | null>(null);
 	async function exportCsv() {

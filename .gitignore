@@ -11,3 +11,6 @@ __pycache__/
 # SvelteKit build output (GRS-12)
 .svelte-kit/
 build/
+
+# Wrangler's local build and dev state beside deploy/client/wrangler.toml (start:hosted)
+.wrangler/

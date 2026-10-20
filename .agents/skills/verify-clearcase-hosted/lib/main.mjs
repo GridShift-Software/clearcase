@@ -13,6 +13,8 @@ import { delimiter, dirname, join, resolve } from 'node:path';
 import { formatDoctor, liveDoctor } from './doctor.mjs';
 import { DRIVE_STEPS, innerProblem, PROFILE } from './evidence.mjs';
 import { featureIndex, formatIndex } from './features.mjs';
+import { proves, recordPid } from './pids.mjs';
+import { processStart } from '../../../../scripts/pidfile.ts';
 
 export const SKILL = resolve(import.meta.dirname, '..');
 export const REPO = resolve(SKILL, '..', '..', '..');
@@ -102,17 +104,21 @@ const readState = (file) => { try { return JSON.parse(readFileSync(file, 'utf8')
  *
  * A server on the port is this run's only if the run recorded starting one (a `start-hosted` or `hosted-server` row in
  * its pids.jsonl: inner.mjs records one only after its own refusal of an existing state file) and the pid file's process
- * is that recorded process or runs under it, and the state file, when there is one, names the same process. Anything
- * else (a run that refused because a server already held the port, a record that names another process) is another
- * run's or user's server: it is left running with its files, and reported as `preserved`.
+ * is that recorded process or runs under it, and the state file, when there is one, names the same process. A saved row
+ * proves that only while it still names the same process: it carries the process's start time and the run's name, and
+ * counts only when the live process at that pid (the pid file's own, or the ancestor it matches in the lineage) started
+ * when the row says (`proves`). A retained scratch outlives pid reuse. Anything else (a run that refused because a
+ * server already held the port, a record that names another process, a row without a start or of another start) is
+ * another run's or user's server: it is left running with its files, and reported as `preserved`.
  */
 export function cleanupRun(scratch, port) {
 	const out = { scratch, port, killed: [], survivors: [], preserved: [], removed: false };
 	const pidFile = join(REPO, '.local', 'hosted', `start-${port}.pid`), stateFile = join(REPO, '.local', 'hosted', `server-${port}.json`);
 	const file = join(scratch, 'pids.jsonl');
 	const recorded = existsSync(file) ? readFileSync(file, 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l)) : [];
-	const started = recorded.filter((r) => r.role === 'start-hosted' || r.role === 'hosted-server').map((r) => r.pid);
-	const ownedBy = (pid) => started.includes(pid) || lineage(pid).some((p) => started.includes(p));
+	const started = recorded.filter((r) => (r.role === 'start-hosted' || r.role === 'hosted-server') && proves(r, scratch)).map((r) => r.pid);
+	const recordedStart = recorded.some((r) => r.role === 'start-hosted' || r.role === 'hosted-server');
+	const ownedBy = (pid) => lineage(pid).some((p) => started.includes(p));
 	const record = existsSync(pidFile) ? readPidFile(pidFile) : null, state = existsSync(stateFile) ? readState(stateFile) : null;
 	const agree = !state || !record || state.pid === record.pid;
 	if (record && alive(record.pid)) {
@@ -124,16 +130,17 @@ export function cleanupRun(scratch, port) {
 	if (existsSync(stateFile)) {
 		const pid = state?.pid ?? null;
 		if (pid && alive(pid)) { if (ownedBy(pid) && agree) out.survivors.push({ role: 'start-hosted', pid }); else if (!out.preserved.some((p) => p.pid === pid)) out.preserved.push({ role: 'unowned-server', pid, files: [stateFile] }); }
-		else if (started.length) { rmSync(stateFile, { force: true }); out.staleState = 'removed'; }
+		else if (recordedStart) { rmSync(stateFile, { force: true }); out.staleState = 'removed'; }
 		else out.preserved.push({ role: 'unowned-state', pid, files: [stateFile] });
 	}
-	const ours = (pid) => { try { return readFileSync(`/proc/${pid}/cmdline`, 'utf8').includes(scratch); } catch { return false; } };
+	// a row with a start also needs the pid to still run from that start; an old-shape row keeps the scratch-path test alone
+	const ours = (r) => { try { return readFileSync(`/proc/${r.pid}/cmdline`, 'utf8').includes(scratch) && (r.start === undefined || processStart(r.pid) === r.start); } catch { return false; } };
 	for (const sig of ['SIGTERM', 'SIGKILL']) {
-		for (const r of recorded) if (ours(r.pid)) { try { process.kill(r.pid, sig); out.killed.push({ ...r, sig }); } catch {} }
+		for (const r of recorded) if (ours(r)) { try { process.kill(r.pid, sig); out.killed.push({ ...r, sig }); } catch {} }
 		const until = Date.now() + 3000;
-		while (recorded.some((r) => ours(r.pid)) && Date.now() < until) spawnSync('sleep', ['0.05']);
+		while (recorded.some(ours) && Date.now() < until) spawnSync('sleep', ['0.05']);
 	}
-	out.survivors.push(...recorded.filter((r) => ours(r.pid)));
+	out.survivors.push(...recorded.filter(ours));
 	if (!out.survivors.length) { rmSync(scratch, { recursive: true, force: true }); out.removed = !existsSync(scratch); }
 	return out;
 }
@@ -156,7 +163,7 @@ export async function hostedRun({ revision, evidence, scratch, port, checks = []
 	const argv = ['-rn', 'env', `OUTER_UID=${process.getuid()}`, `OUTER_GID=${process.getgid()}`, join(HARNESS, 'offline.sh'), process.execPath, join(SKILL, 'lib', 'inner.mjs'), join(scratch, 'config.json')];
 	const t0 = Date.now();
 	const child = spawn(tools.unshare, argv, { cwd: scratch, stdio: ['ignore', 'pipe', 'pipe'], env: childEnv });
-	writeFileSync(cfg.pidFile, JSON.stringify({ role: 'offline-namespace', pid: child.pid, at: new Date().toISOString() }) + '\n', { flag: 'a' });
+	recordPid(cfg.pidFile, 'offline-namespace', child.pid);
 	const chunks = [];
 	for (const s of [child.stdout, child.stderr]) s.on('data', (d) => { log(d.toString()); chunks.push(d); });
 	const limit = Number(env.VERIFY_CLEARCASE_HOSTED_TIMEOUT_MS ?? 1_500_000);

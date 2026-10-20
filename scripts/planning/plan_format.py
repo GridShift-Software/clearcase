@@ -16,7 +16,8 @@ import re
 import sys
 from pathlib import Path
 
-import generate
+sys.dont_write_bytecode = True  # importing generate must not leave a __pycache__ in the checkout being checked
+import generate  # noqa: E402
 
 REPO = Path(__file__).resolve().parents[2]
 SECTIONS = ["Delivery controls", "Current issue graph", "Open issues outside the plan", "Hosted view ownership",

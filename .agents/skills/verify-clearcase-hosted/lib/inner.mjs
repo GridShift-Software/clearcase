@@ -3,12 +3,13 @@
 // Proves the namespace is offline, builds the hosted-gate artifact of HEAD with `build:hosted`, runs the caller's
 // build checks, serves it with `start:hosted` (Node hosts Wrangler, native workerd serves, local D1 and R2), runs the
 // live doctor and its negative controls, the caller's server checks, the Chromium drive (drive.mjs, through
-// $CLEARCASE_BROWSER_LOCK when set), and stops the server with `start:hosted --stop`. Results: <evidence>/inner.json,
+// $CLEARCASE_BROWSER_LOCK when set), and stops the server with `start:hosted --stop` only while the port's pid file names a process this run launched. Results: <evidence>/inner.json,
 // rewritten after every step (partial: true until the end).
 import { spawn } from 'node:child_process';
 import { connect } from 'node:net';
 import { appendFileSync, cpSync, createWriteStream, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { processStart, readPidFile } from '../../../../scripts/pidfile.ts';
 import { formatDoctor, liveDoctor, tree } from './doctor.mjs';
 import { buildProblem, driveProblem, healthProblem, PROFILE, testSummaryProblem } from './evidence.mjs';
 
@@ -17,7 +18,7 @@ const { proveOffline } = await import(join(cfg.harness, 'netproof.mjs'));
 const { gateFixture } = await import(cfg.fixtureModule);
 const ev = cfg.evidence, repo = cfg.repo, app = `http://127.0.0.1:${cfg.ports.app}`;
 const bun = (...args) => [process.execPath, 'run', '--bun', ...args];
-const stateFile = join(repo, '.local', 'hosted', `server-${cfg.ports.app}.json`);
+const stateFile = join(repo, '.local', 'hosted', `server-${cfg.ports.app}.json`), pidFile = join(repo, '.local', 'hosted', `start-${cfg.ports.app}.pid`);
 const pid = (role, p) => appendFileSync(cfg.pidFile, JSON.stringify({ role, pid: p, at: new Date().toISOString() }) + '\n');
 pid('inner', process.pid);
 
@@ -93,10 +94,28 @@ async function checks(at) {
 	}
 }
 
+/**
+ * The live starter the port's pid file names, when it is the process this run launched or runs under it (the `bun run`
+ * wrapper's child); else null. A starter that holds the file while it waits for Ready is another run's or user's: a
+ * contender of this run that lost the claim exited, and `start:hosted --stop` would stop that owner instead.
+ */
+function ownedStarter() {
+	const rec = readPidFile(pidFile);
+	if (!rec || !server || processStart(rec.pid) !== rec.start) return null;
+	return tree(server.pid).some((p) => p.pid === rec.pid) ? rec : null;
+}
+
 async function stopServer() {
 	if (!server) return { started: false };
 	const out = { command: 'start:hosted --stop' };
-	try { await run(bun('start:hosted', '--stop'), { log: 'stop.log', env: { PORT: String(cfg.ports.app) }, ms: 60_000 }); out.stop = 'exit 0'; } catch (e) { out.stop = String(e.message); }
+	const rec = readPidFile(pidFile), owned = ownedStarter();
+	if (owned) {
+		try { await run(bun('start:hosted', '--stop'), { log: 'stop.log', env: { PORT: String(cfg.ports.app) }, ms: 60_000 }); out.stop = 'exit 0'; } catch (e) { out.stop = String(e.message); }
+	} else if (rec && processStart(rec.pid) === rec.start) {
+		out.stop = `refused: ${pidFile} names the live starter ${rec.pid}, which this run did not launch; it and its files are left alone`;
+		out.refused = { pid: rec.pid, files: [pidFile, existsSync(stateFile) ? stateFile : null].filter(Boolean) };
+		if (server.exitCode === null && server.signalCode === null) await killTree(server.pid); // this run's own contender
+	} else out.stop = `nothing to stop: ${pidFile} names no live starter`;
 	for (const until = Date.now() + 20_000; Date.now() < until && server.exitCode === null && server.signalCode === null; ) await new Promise((r) => setTimeout(r, 100));
 	out.starterExit = server.exitCode ?? server.signalCode;
 	out.survivors = serverTree.filter((p) => existsSync(`/proc/${p.pid}`)).map((p) => `${p.pid} ${p.exe}`);
@@ -147,7 +166,8 @@ await step('start', `bun run --bun start:hosted on ${app}: provision local D1 an
 	for (;;) {
 		if (existsSync(stateFile)) {
 			try { state = readJson(stateFile); } catch { state = null; }
-			if (state) break;
+			if (state && ownedStarter()?.pid === state.pid) break; // a state file of another starter (one that won the claim before this run's) is not this run's
+			state = null;
 		}
 		if (server.exitCode !== null || server.signalCode !== null) throw new Error(`start:hosted exited ${server.exitCode ?? server.signalCode} before serving; see server.log`);
 		if (Date.now() - t0 > 120_000) throw new Error('start:hosted recorded no server within 120 s; see server.log');
@@ -211,7 +231,7 @@ await step('drive', `drive the feature map in Chromium${cfg.lock ? ` (slot throu
 
 const stopStart = Date.now();
 const stop = await stopServer();
-const stopped = stop.started !== false && /exit 0/.test(stop.stop ?? '') && stop.starterExit !== null && !stop.survivors.length && !stop.portOpen && !stop.stateFile;
+const stopped = stop.started !== false && /^(exit 0|nothing to stop)/.test(stop.stop ?? '') && stop.starterExit !== null && !stop.survivors.length && !stop.portOpen && !stop.stateFile;
 results.push({ id: 'stop', title: 'start:hosted --stop: the server, Wrangler and workerd are gone, the port is closed, the run state is removed', status: stopped ? 'PASS' : failed && stop.started === false ? 'NOT RUN' : 'FAIL', ms: Date.now() - stopStart, evidence: stop });
 const ok = !failed && stopped && results.every((r) => r.status === 'PASS');
 save(ok);

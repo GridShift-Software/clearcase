@@ -279,3 +279,37 @@ test('keeps the real app inventory at the base 19 pages and one server without r
  expect(result.declaredButCsv).toEqual([]);
  expect(result.unrecognised).toEqual([]);
 });
+
+// The hosted route tree (deploy/client/routes, GRS-112) is not src/routes, so the class suite does not map its forms. Each
+// hosted page with a form is declared with a reason (declared.mjs HOSTED_FORMS), and the reason is checked: the route is
+// one discovery finds, and the hosted smoke run (tests/hosted-foundation/runtime/smoke.ts) names it.
+// @ts-expect-error plain .mjs
+import { hostedForms } from '../classes/targets.mjs';
+import { readFileSync } from 'node:fs';
+describe('hosted forms are declared, with a reason the suite checks', () => {
+ const app = join(import.meta.dirname, '..', '..', '..');
+ const found: string[] = hostedForms(app);
+ const declaredRoutes = Object.keys(declared.HOSTED_FORMS ?? {});
+ test('discovery finds the hosted sign-in, sign-out and case-list forms', () => {
+  expect(found).toEqual(['/cases', '/sign-in', '/sign-out']);
+ });
+ test('every hosted form is declared and every declaration names a form discovery finds', () => {
+  expect(declaredRoutes.sort()).toEqual(found);
+  for (const route of declaredRoutes) expect(declared.HOSTED_FORMS[route].length).toBeGreaterThan(20);
+ });
+ test('the hosted smoke run drives each declared route', () => {
+  const smoke = readFileSync(join(app, 'tests', 'hosted-foundation', 'runtime', 'smoke.ts'), 'utf8');
+  for (const route of declaredRoutes) expect(smoke).toContain(`'${route}'`);
+ });
+ test('discovery reads a form from a page and from exported actions, and ignores a page with neither', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cc-hosted-'));
+  const put2 = (rel: string, text: string) => { const f = join(dir, 'deploy', 'client', 'routes', rel); mkdirSync(dirname(f), { recursive: true }); writeFileSync(f, text); };
+  put2('a/+page.svelte', '<form method="POST"></form>');
+  put2('b/+page.svelte', '<p>b</p>');
+  put2('b/+page.server.ts', 'export const actions = {};');
+  put2('c/+page.svelte', '<p>c</p>');
+  put2('c/+server.ts', 'export const GET = () => new Response();');
+  put2('d/[id]/+page.svelte', '<form action="/x"></form>');
+  try { expect(hostedForms(dir)).toEqual(['/a', '/b', '/d/[id]']); } finally { rmSync(dir, { recursive: true, force: true }); }
+ });
+});

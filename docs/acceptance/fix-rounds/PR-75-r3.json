@@ -1,0 +1,59 @@
+{
+  "schema": "clearcase-fix-round/1",
+  "unit": "PRFIX-75/implementation",
+  "fixBase": "a53447f88b72cfea970128c7da1b7ab15aa81265",
+  "reviewFindingsSha256": "7fbcab9177d53c17f093d4da484997adb021a2a8d876a4abd231eaf343254438",
+  "review": {
+    "pullRequest": 75,
+    "reviewId": "pullrequestreview-5581735453",
+    "reviewer": "dianbrown",
+    "reviewedHead": "6513afeec07d2fbdd10d8ce5ffe7325b600c8ae2",
+    "waveBase": "83cbf184e75ae6680a94fcdb24bef4e7be1c8ce9",
+    "note": "fixBase is the red commit a53447f: the guard needs each named test to exist, and be readable, at the base, and these regressions are new. The reviewed head and the dev base are recorded here. reviewFindingsSha256 is the sha256 of .orchestration/reports/PR-REVIEW-20261019/raw.md from the line '## wave PR #75, round 4' to its end."
+  },
+  "findings": [
+    {
+      "file": ".agents/skills/verify-clearcase-hosted/lib/main.mjs",
+      "line": 117,
+      "comment": "https://github.com/GridShift-Software/clearcase/pull/75#discussion_r4322292600",
+      "severity": "P1",
+      "text": "**[Medium / P1] Verify saved process identity before stopping a retained run's server.** A `--keep-scratch` run retains `pids.jsonl` containing only `{role,pid,at}`. Later manual cleanup reduces those records to numeric PIDs here. If Linux has reused an old `hosted-server` PID (or wrapper PID) for a newer unrelated server on this port, `ownedBy` returns true and the current matching PID/state files pass `agree`, so cleanup invokes `start:hosted --stop`. That command validates the newer server's own start time, not its relationship to the retained run, and stops it. An exact-source diagnostic at this head, with old saved PID123 and newer PID123/start9000/different runId, issued `--stop` with `preserved: []`. This violates `docs/development.md:83` (a verification run stops only a server it started) and requires no check-then-act race. Record the original process start/boot identity and run identity, validate both direct-PID and wrapper-ancestry ownership against those saved values, and preserve records with missing or stale proof. Add a retained-scratch/PID-reuse regression requiring the newer process and its files to survive. The new inner ownership checks do not cover this later outer cleanup.",
+      "tests": [
+        {
+          "file": "tests/hosted-foundation/runtime/hosted-cleanup-pid-reuse.test.ts",
+          "name": "a retained row naming the pid of a newer, unrelated server (same pid, different start, different run) stops nothing and is reported preserved"
+        },
+        {
+          "file": "tests/hosted-foundation/runtime/hosted-cleanup-pid-reuse.test.ts",
+          "name": "a retained row of the old shape ({ role, pid, at }, no start) proves nothing: no stop, the server is preserved"
+        },
+        {
+          "file": "tests/hosted-foundation/runtime/hosted-cleanup-pid-reuse.test.ts",
+          "name": "a retained row with a start but another run's name proves nothing either"
+        },
+        {
+          "file": "tests/hosted-foundation/runtime/hosted-cleanup-pid-reuse.test.ts",
+          "name": "a saved ancestor whose pid now runs a process with another start does not own the server under it"
+        }
+      ]
+    }
+  ],
+  "tests": [
+    {
+      "file": "tests/hosted-foundation/runtime/hosted-cleanup-pid-reuse.test.ts",
+      "name": "a retained row naming the pid of a newer, unrelated server (same pid, different start, different run) stops nothing and is reported preserved"
+    },
+    {
+      "file": "tests/hosted-foundation/runtime/hosted-cleanup-pid-reuse.test.ts",
+      "name": "a retained row of the old shape ({ role, pid, at }, no start) proves nothing: no stop, the server is preserved"
+    },
+    {
+      "file": "tests/hosted-foundation/runtime/hosted-cleanup-pid-reuse.test.ts",
+      "name": "a retained row with a start but another run's name proves nothing either"
+    },
+    {
+      "file": "tests/hosted-foundation/runtime/hosted-cleanup-pid-reuse.test.ts",
+      "name": "a saved ancestor whose pid now runs a process with another start does not own the server under it"
+    }
+  ]
+}

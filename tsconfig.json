@@ -1,5 +1,5 @@
 {
-  "extends": "./.svelte-kit/tsconfig.json",
+  "extends": "$app/tsconfig",
   "compilerOptions": {
     "target": "es2024",
     "lib": ["esnext", "dom", "dom.iterable"],
@@ -14,6 +14,20 @@
     "skipLibCheck": true,
     "allowJs": false,
     "checkJs": false,
-    "types": ["node"]
-  }
+    "types": ["$app/types", "node"]
+  },
+  "include": [
+    "src/**/*.js",
+    "src/**/*.ts",
+    "src/**/*.svelte",
+    "tests/**/*.js",
+    "tests/**/*.ts",
+    "tests/**/*.svelte",
+    "scripts/**/*.ts",
+    "deploy/**/*.ts",
+    "deploy/**/*.svelte",
+    "vite.config.ts",
+    "vitest.config.ts"
+  ],
+  "exclude": ["node_modules/**", "src/service-worker.js", "src/service-worker/**/*.js", "tests/acceptance/**", "build/**"]
 }

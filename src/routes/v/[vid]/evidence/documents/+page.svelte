@@ -15,7 +15,7 @@
 		const p = new URLSearchParams(page.url.search);
 		for (const [k, v] of Object.entries(change)) { if (v === '' || v === undefined || (k === 'page' && v === 1)) p.delete(k); else p.set(k, String(v)); }
 		const s = p.toString();
-		goto(`${page.url.pathname}${s ? `?${s}` : ''}`, { replaceState: true, keepFocus: true, noScroll: true });
+		goto(`${page.url.pathname}${s ? `?${s}` : ''}`, { replaceState: true, reset: false });
 	}
 	let ready = $state(false);
 	onMount(() => { ready = true; });

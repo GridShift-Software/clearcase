@@ -50,20 +50,34 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
-      # The fix-round test guard; `test guard verdict` below says what it checks. It runs before any step that runs the
-      # pull request's code, so nothing the pull request supplies (its install scripts, its tests, a line they add to
-      # GITHUB_ENV) has run in this job when it judges. It runs the base commit's guard and Python tools with the base's
-      # bun.lock installed frozen, without lifecycle scripts, into the base checkout, never the pull request's guard or
-      # node_modules. The guard's child runs in the head checkout, where Bun would read the pull request's bunfig.toml
-      # and .env, so Bun gets an empty config, --no-install and --no-env-file through a CLEARCASE_NODE wrapper (the guard
-      # strips BUN_OPTIONS). A base without the guard or bun.lock, or a failed install, judges nothing: HOLD.
-      # tests/ci-guard/run.sh replays this step against each route. Still trusted: this workflow, which comes from the
-      # merge commit, so a pull request that changes it needs review, and the runner, whose Bun caches an earlier job
-      # can alter (docs/ci-runner.md).
+      # The fix-round test guard (docs/agent-tooling.md). A fix round commits its review findings and the reviewed SHA
+      # under docs/acceptance/fix-rounds/; the guard fails a pull request that deletes, skips, loosens or renames a test
+      # those findings name, that changes the test code, runner configuration or fixtures they depend on, or that deletes
+      # a manifest. A pull request labelled fix-round must carry a manifest: the coordinator's ledger has no copy here,
+      # so the label is how CI learns of a fix round. A push to dev ran it in its pull request. It checks the pull
+      # request's own head, not the merge commit, and runs under Bun because the runner has no Node.
+      #
+      # It runs before any step that runs the pull request's code, so nothing the pull request supplies (its install
+      # scripts, its tests, a line they add to GITHUB_ENV or GITHUB_PATH) has run in this job when it judges, and the step
+      # fails the job itself: it has no continue-on-error and no later step reads its outcome, because a later step is a
+      # shell that code the pull request has by then run can steer (BASH_ENV, a `bash` ahead on PATH). Steps after it are
+      # skipped, so a refused pull request gets no check, test or gate-hosted result, and summary lists their receipts
+      # as missing.
+      #
+      # It runs the base commit's guard and Python tools with the base's bun.lock installed frozen, without lifecycle
+      # scripts, into the base checkout, never the pull request's guard or node_modules. The guard's child runs in the
+      # head checkout, where Bun would read the pull request's bunfig.toml and .env, so Bun gets an empty config,
+      # --no-install and --no-env-file through a CLEARCASE_NODE wrapper (the guard strips BUN_OPTIONS). A base without the
+      # guard or bun.lock, or a failed install, judges nothing: HOLD, which also fails the job.
+      # tests/ci-guard/run.sh replays this step against each route, and tests/ci/guard-enforcement.test.ts replays the
+      # job's failure against what the pull request's install adds for later steps. Still trusted: this workflow, which
+      # comes from the merge commit, so a pull request that changes it needs review, and the whole persistent runner
+      # (docs/ci-runner.md: its binaries, the _work checkout's Git configuration and hooks, tool and Bun caches, $HOME),
+      # which an earlier job can alter. The steps that run after the guard run the pull request's code, and a pull
+      # request can make its own check, test and summary steps pass; only the guard's verdict is settled before it.
       - name: test guard
         id: guard
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
-        continue-on-error: true
         env:
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           BASE_REF: ${{ github.base_ref }}
@@ -174,20 +188,6 @@ jobs:
             CLEARCASE_HOSTED_REPORT_DIR="$RUNNER_TEMP/receipts/hosted" \
             scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base origin/dev --name gate-hosted --tool bun --tool node -- \
             bash -c 'node -e "$1" && exec bun run --bun gate:hosted' bash "$proof"
-      # A fix round commits its review findings and the reviewed SHA under docs/acceptance/fix-rounds/
-      # (docs/agent-tooling.md). The guard fails a pull request that deletes, skips, loosens or renames a test those
-      # findings name, that changes the test code, runner configuration or fixtures they depend on, or that deletes a
-      # manifest. It checks the pull request's own head, not the merge commit, and runs under Bun because the runner has
-      # no Node. The `test guard` step runs it before the pull request's code and may fail without ending the job, so a
-      # refused pull request still gets check, test and gate-hosted results; this step fails the job unless the guard
-      # succeeded, a HOLD included. A pull request labelled fix-round must carry a manifest; the coordinator's ledger
-      # has no copy here, so the label is how CI learns of a fix round. A push to dev ran it in its pull request.
-      - name: test guard verdict
-        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
-        env:
-          OUTCOME: ${{ steps.guard.outcome }}
-        run: |
-          [ "$OUTCOME" = success ] || { echo "test guard: $OUTCOME, not success; the test guard step's log says why" >&2; exit 1; }
       # Fails the job unless every receipt (check, test, gate-hosted) is PASS for this checkout and every tracked test
       # file ran with no failed or skipped test; writes the job summary and summary.json, which name each problem and
       # how to reproduce it.

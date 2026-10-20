@@ -35,7 +35,10 @@ cat > "$T/workflow.mjs" <<'JS'
 const [file, command, name] = process.argv.slice(2);
 const steps = Bun.YAML.parse(await Bun.file(file).text()).jobs.check.steps;
 const at = (n) => steps.findIndex((s) => s.name === n);
-if (command === 'run') {
+if (command === 'outcome-readers') {
+	const g = steps.find((s) => s.name === 'test guard') ?? {};
+	console.log(steps.filter((s) => s !== g && JSON.stringify([s.if, s.env]).includes(`steps.${g.id}.outcome`)).length);
+} else if (command === 'run') {
 	const step = steps[at(name)];
 	if (!step) process.exit(3);
 	process.stdout.write(String(step.run));
@@ -231,17 +234,16 @@ if [ "$guard_at" -ge 0 ] && [ "$guard_at" -lt "$pr_code_at" ]; then
 else
 	report FAIL order "the guard is step $guard_at, after step $pr_code_at, which runs the pull request's code first (install scripts, tests, GITHUB_ENV)"
 fi
-if [ "$verdict_at" -gt "$guard_at" ] && [ "$verdict_key" != - ] && [ "$verdict_if" = same-if ] && [ "$guard_continues" = continues ]; then
-	wf run 'test guard verdict' > "$T/verdict-step.sh"
-	seen=""
-	for outcome in success failure cancelled skipped; do
-		env -i PATH="$PATH" "$verdict_key=$outcome" bash --noprofile --norc -eo pipefail "$T/verdict-step.sh" > /dev/null 2>&1
-		seen+="$outcome=$? "
-	done
-	[[ $seen == "success=0 failure=1 cancelled=1 skipped=1 " ]] && report ok verdict "step $verdict_at fails the job unless the guard succeeded: $seen" \
-		|| report FAIL verdict "step $verdict_at must exit 0 only on success: $seen"
+# H1 (review-r1): the guard's failure must be the job's own. A later step that turned the guard's outcome into the job's
+# ran after the pull request's code, which could clear it through BASH_ENV in GITHUB_ENV or a `bash` shim on GITHUB_PATH.
+# So the guard step must stop the job when it fails (no continue-on-error), and no step may read its outcome. The
+# scenarios below show that it exits 1 on a FAIL and a HOLD, and 0 on a PASS; tests/ci/guard-enforcement.test.ts replays
+# the job's conclusion against those routes.
+settled_by_outcome=$(wf outcome-readers)
+if [ "$guard_at" -ge 0 ] && [ "$guard_continues" = stops ] && [ "$settled_by_outcome" = 0 ]; then
+	report ok verdict "the guard step fails the job itself (no continue-on-error) and no step reads its outcome ($settled_by_outcome), so nothing the pull request's code adds to GITHUB_ENV or GITHUB_PATH can clear it"
 else
-	report FAIL verdict "no later step turns the guard's outcome into the job's (index $verdict_at, env $verdict_key, $verdict_if, guard $guard_continues)"
+	report FAIL verdict "the guard's failure must be the job's own: guard $guard_continues, $settled_by_outcome step(s) read its outcome (step $verdict_at, env $verdict_key)"
 fi
 
 base_ref=dev

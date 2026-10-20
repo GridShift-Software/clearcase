@@ -152,26 +152,28 @@ fails_on "receipt_check fails on a receipt that is not JSON" '{' JSONDecodeError
 fails_on "lacks_in_receipt fails without a receipt to read" - "no receipt to read" lacks_in_receipt absent anything
 OUT="$WORK/no-such-output" fails_on "lacks fails on output it cannot read" - "cannot read" lacks unreadable anything
 
-echo "# pstack check-plan.mjs fixtures through verify plan-format"
+echo "# pstack check-plan.mjs fixtures through verify pstack-plan-format"
 repo_base_ref=
 for ref in origin/dev dev; do
 	repo_base=$(git -C "$REPO" rev-parse --verify -q "$ref^{commit}") && repo_base_ref=$ref && break
 done
 repo_head=$(git -C "$REPO" rev-parse HEAD)
 repo_fork=$(git -C "$REPO" merge-base HEAD "$repo_base")
-run "valid plan passes" 0 "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md"
+run "valid plan passes" 0 "$TOOLS/verify" pstack-plan-format --plan "$FIXTURES/plans/valid.md"
 has "valid plan reports zero problems" "1 PR sections, 0 problems"
 receipt_is "valid plan receipt is PASS" PASS 0
 receipt_check "valid plan receipt records each input's identity" 'all(re.fullmatch("[0-9a-f]{64}", i["sha256"]) and all(type(i[key]) is int for key in ("size", "mtimeNs", "device", "inode")) for i in r["inputs"])'
 receipt_revision "valid plan receipt records this checkout's head and default base" "$repo_head" "$repo_base_ref" "$repo_base" "$repo_fork"
 short_base=$(git -C "$REPO" rev-parse --short "$repo_base")
-run "valid plan passes with an explicit short --base" 0 "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md" --base "$short_base"
+run "valid plan passes with an explicit short --base" 0 "$TOOLS/verify" pstack-plan-format --plan "$FIXTURES/plans/valid.md" --base "$short_base"
 receipt_revision "explicit --base is recorded as given and resolved to its full commit" "$repo_head" "$short_base" "$repo_base" "$repo_fork"
-run "invalid plan fails with the checker's own exit code" 1 "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/invalid.md"
+run "invalid plan fails with the checker's own exit code" 1 "$TOOLS/verify" pstack-plan-format --plan "$FIXTURES/plans/invalid.md"
 for message in "long dash" 'How to read this lacks "One box is one unit of work"' "lanes are [1,2,3,4,5,6,7,8,9,11]" "perf boxes are [Metric., Probe., Baseline.]"; do
 	has "invalid plan diagnoses: $message" "$message"
 done
 receipt_is "invalid plan receipt is FAIL" FAIL 1
+run "pstack-plan-format without --plan fails instead of judging the delivery plan" 1 "$TOOLS/verify" pstack-plan-format
+reason_has "the missing plan names the option and the project check" "--plan PATH (docs/delivery-plan.md is checked by plan-format)"
 if grep -qF "long dash" "$(compgen -G "$RECEIPTS/*/stderr.txt")"; then ok "checker stderr preserved in receipt"; else bad "checker stderr preserved in receipt"; fi
 
 echo "# planning fixtures through verify plan-graph / plan-format / linear-relations"
@@ -251,16 +253,16 @@ echo "# receipts record the exact revision and never PASS without it"
 NOGIT="$WORK/bin-without-git"
 mkdir -p "$NOGIT"
 for tool in python3 node; do ln -s "$(command -v "$tool")" "$NOGIT/$tool"; done
-run "plan-format without git is FAIL" 1 env PATH="$NOGIT" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md" --base "$repo_base"
+run "pstack-plan-format without git is FAIL" 1 env PATH="$NOGIT" "$TOOLS/verify" pstack-plan-format --plan "$FIXTURES/plans/valid.md" --base "$repo_base"
 has "missing git is named with the fix" "required tool not found: git; install it or put it on PATH"
-receipt_is "no-git plan-format receipt is FAIL" FAIL 1
+receipt_is "no-git pstack-plan-format receipt is FAIL" FAIL 1
 valid_tree="$WORK/tree-readback-valid"
 run "check-plan without git fails with no PASS" 3 env PATH="$NOGIT" "$TOOLS/check-plan" --root "$valid_tree" --require-linear-relations --linear-relations "$valid_tree/readback.json"
 has "no-git check-plan names each unavailable or failed step" "check-plan: FAIL. plan-graph=SKIPPED, plan-format=FAIL, linear-relations=SKIPPED."
 receipt_check "no-git required format fails; other unavailable checks remain SKIPPED" 'r["result"] == ("FAIL" if r["name"] == "plan-format" else "SKIPPED") and r["exitCode"] == (1 if r["name"] == "plan-format" else 3)'
 run "receipt without git does not run the command" 3 env PATH="$NOGIT" "$TOOLS/receipt" --name no-git -- python3 -c "open('$MARKER', 'w')"
 not_run "the command did not run without git"
-run "an unresolvable --base is FAIL" 1 "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md" --base no-such-base-cc27
+run "an unresolvable --base is FAIL" 1 "$TOOLS/verify" pstack-plan-format --plan "$FIXTURES/plans/valid.md" --base no-such-base-cc27
 has "the bad base is named with the fix" "base 'no-such-base-cc27' does not resolve to a commit"
 receipt_is "bad-base receipt is FAIL" FAIL 1
 run "an unresolvable CLEARCASE_BASE_REF is not replaced by a default" 3 env CLEARCASE_BASE_REF=no-such-base-cc27 "$TOOLS/receipt" --name bad-env-base -- touch "$MARKER"
@@ -271,7 +273,7 @@ not_run "the command did not run with an empty --base"
 run "an empty --base is not replaced by CLEARCASE_BASE_REF" 3 env CLEARCASE_BASE_REF="$repo_base" "$TOOLS/receipt" --name empty-over-env --base "" -- true
 run "an empty CLEARCASE_BASE_REF is SKIPPED, not replaced by a default" 3 env CLEARCASE_BASE_REF= "$TOOLS/receipt" --name empty-env-base -- touch "$MARKER"
 not_run "the command did not run with an empty CLEARCASE_BASE_REF"
-run "an inherited GIT_DIR does not change the recorded revision" 0 env GIT_DIR="$WORK/tree-valid/.git" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md"
+run "an inherited GIT_DIR does not change the recorded revision" 0 env GIT_DIR="$WORK/tree-valid/.git" "$TOOLS/verify" pstack-plan-format --plan "$FIXTURES/plans/valid.md"
 receipt_revision "receipt records this checkout despite GIT_DIR" "$repo_head" "$repo_base_ref" "$repo_base" "$repo_fork"
 run "CLEARCASE_GIT does not replace the git that resolves the revision" 0 env CLEARCASE_GIT=/bin/false "$TOOLS/receipt" --name git-override -- true
 lacks_in_receipt "the receipt lists the git on PATH" '"path": "/bin/false"'
@@ -357,12 +359,12 @@ run "check-plan rejects a plan in pstack's generic format" 1 "$EVTOOLS/check-pla
 has "the generic plan fails only the format step" "check-plan: FAIL. plan-graph=PASS, plan-format=FAIL, linear-relations=PASS."
 has "the generic plan is named for its missing sections" "sections after the intro are"
 echo "untracked synthetic input" >"$EV/untracked.txt"
-run "an intact index records the untracked file" 0 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "an intact index records the untracked file" 0 "$EVTOOLS/verify" pstack-plan-format --plan "$EVPLAN"
 receipt_check "the intact-index receipt is dirty with a fingerprint" 'r["revision"]["dirty"] is True and re.fullmatch("[0-9a-f]{64}", r["revision"]["diffSha256"] or "")'
 cp "$EV/.git/index" "$WORK/index.saved"
 printf 'broken index\n' >"$EV/.git/index"
 status_failed='`git status --porcelain` exited 128: fatal: .git/index: index file smaller than expected'
-run "a corrupt index is FAIL by verify" 1 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "a corrupt index is FAIL by verify" 1 "$EVTOOLS/verify" pstack-plan-format --plan "$EVPLAN"
 receipt_is "corrupt-index verify receipt is FAIL" FAIL 1
 reason_has "the verify receipt names the failed git status and its error" "working tree state unknown: $status_failed"
 receipt_check "the corrupt-index receipt records no working-tree state" 'r["revision"]["dirty"] is None and r["revision"]["diffSha256"] is None'
@@ -379,7 +381,7 @@ receipt_check "corrupt-index required format fails; no receipt is PASS" 'r["resu
 reason_has "every check-plan receipt names the failed git status" "$status_failed"
 cp "$WORK/index.saved" "$EV/.git/index"
 tree=$(loose "HEAD^{tree}") && mv "$tree" "$WORK/tree.saved"
-run "an unreadable HEAD tree object is FAIL" 1 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "an unreadable HEAD tree object is FAIL" 1 "$EVTOOLS/verify" pstack-plan-format --plan "$EVPLAN"
 reason_has "names the failed git status and the bad tree" '`git status --porcelain` exited 128: error: bad tree object HEAD'
 mv "$WORK/tree.saved" "$tree"
 changed_file=tests/agent-tools/fixtures/plans/invalid.md
@@ -390,11 +392,11 @@ reason_has "names the failed git diff" '`git diff --binary --no-ext-diff --no-te
 not_run "the command did not run without the changed file's object"
 mv "$WORK/blob.saved" "$blob" && git -C "$EV" checkout -q -- "$changed_file"
 chmod 000 "$EV/$changed_file"
-run "an unreadable tracked file is FAIL" 1 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "an unreadable tracked file is FAIL" 1 "$EVTOOLS/verify" pstack-plan-format --plan "$EVPLAN"
 reason_has "names the file git diff cannot hash" "cannot hash $changed_file"
 chmod 644 "$EV/$changed_file"
 head_object=$(loose HEAD) && mv "$head_object" "$WORK/commit.saved"
-run "a HEAD whose commit object is unreadable is FAIL" 1 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "a HEAD whose commit object is unreadable is FAIL" 1 "$EVTOOLS/verify" pstack-plan-format --plan "$EVPLAN"
 reason_has "names the commit HEAD names" "no head revision: HEAD names $(git -C "$EV" rev-parse HEAD), which is not a commit Git can read"
 mv "$WORK/commit.saved" "$head_object"
 dangling=$(git -C "$EV" -c user.name=t -c user.email=t@example.invalid commit-tree "HEAD^{tree}" -m dangling)
@@ -429,7 +431,7 @@ reason_has "names the file git does not check" "git does not check 1 tracked fil
 not_run "the command did not run with a file git does not check"
 git -C "$EV" update-index --no-assume-unchanged "$changed_file" && git -C "$EV" checkout -q -- "$changed_file"
 git -C "$EV" update-index --skip-worktree "$changed_file" && echo hidden >>"$EV/$changed_file"
-run "a changed file marked skip-worktree is FAIL" 1 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "a changed file marked skip-worktree is FAIL" 1 "$EVTOOLS/verify" pstack-plan-format --plan "$EVPLAN"
 reason_has "names the skip-worktree file" "for example $changed_file"
 git -C "$EV" update-index --no-skip-worktree "$changed_file" && git -C "$EV" checkout -q -- "$changed_file"
 git -C "$EV" config status.showUntrackedFiles no
@@ -457,7 +459,7 @@ fi
 exec @GIT@ "$@"
 EOF
 chmod +x "$FAKEGIT/git"
-run "a git status that fails is FAIL" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL=status "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "a git status that fails is FAIL" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL=status "$EVTOOLS/verify" pstack-plan-format --plan "$EVPLAN"
 reason_has "names the failed git status" '`git status --porcelain` exited 2: synthetic failure of status'
 run "a git status that fails fails the doctor" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL=status "$EVTOOLS/doctor"
 has "the doctor names the failed git status" 'FAIL     revision       working tree state unknown: `git status'
@@ -467,15 +469,15 @@ not_run "the command did not run when git diff failed"
 run "a git ls-files that fails fails check-plan" 3 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL=ls-files "$EVTOOLS/check-plan" --require-linear-relations --linear-relations "$READBACK"
 receipt_check "failing ls-files required format fails; other steps are unavailable" 'r["result"] == ("FAIL" if r["name"] == "plan-format" else "SKIPPED") and r["exitCode"] == (1 if r["name"] == "plan-format" else 3)'
 reason_has "every step names the failed git ls-files" '`git ls-files -z --others --exclude-standard` exited 2: synthetic failure of ls-files'
-run "a branch that cannot be read is FAIL" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL=--abbrev-ref "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "a branch that cannot be read is FAIL" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL=--abbrev-ref "$EVTOOLS/verify" pstack-plan-format --plan "$EVPLAN"
 reason_has "names the failed branch query" 'branch unknown: `git rev-parse --abbrev-ref HEAD` exited 2'
-run "a head query that fails keeps git's error" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL='HEAD^{commit}' "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "a head query that fails keeps git's error" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL='HEAD^{commit}' "$EVTOOLS/verify" pstack-plan-format --plan "$EVPLAN"
 reason_has "names the failed head query" 'no head revision: `git rev-parse --verify -q HEAD^{commit}` exited 2: synthetic failure of HEAD^{commit}'
-run "a head that is not a commit ID is FAIL" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_LIE='HEAD^{commit}' "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "a head that is not a commit ID is FAIL" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_LIE='HEAD^{commit}' "$EVTOOLS/verify" pstack-plan-format --plan "$EVPLAN"
 reason_has "names what git printed for HEAD" "git printed 'lie' for HEAD, not a commit ID"
-run "a merge base that is not a commit ID is FAIL" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_LIE=merge-base "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "a merge base that is not a commit ID is FAIL" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_LIE=merge-base "$EVTOOLS/verify" pstack-plan-format --plan "$EVPLAN"
 reason_has "names what git printed for the merge base" "no merge base: git printed 'lie', not a commit ID"
-run "a git whose --version fails is FAIL" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL=--version "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "a git whose --version fails is FAIL" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL=--version "$EVTOOLS/verify" pstack-plan-format --plan "$EVPLAN"
 reason_has "names the failed version probe" 'tool version unknown: `'"$FAKEGIT"'/git --version` exited 2: synthetic failure of --version'
 run "a git whose --version fails fails the doctor" 1 env PATH="$FAKEGIT:$PATH" CC27_GIT_FAIL=--version "$EVTOOLS/doctor"
 has "the doctor names the git version probe" "git --version\` exited 2"
@@ -483,17 +485,17 @@ run "an untracked file that disappears after listing is SKIPPED" 3 env -C "$EV" 
 reason_has "names the file that disappeared" "untracked $EV/untracked.txt: No such file or directory (listed by \`git ls-files --others\`, then not read)"
 not_run "the command did not run without the untracked file's content"
 echo "untracked synthetic input" >"$EV/untracked.txt" && chmod 000 "$EV/untracked.txt"
-run "an unreadable untracked file is FAIL" 1 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "an unreadable untracked file is FAIL" 1 "$EVTOOLS/verify" pstack-plan-format --plan "$EVPLAN"
 reason_has "names the unreadable untracked file" "untracked $EV/untracked.txt: Permission denied"
 chmod 644 "$EV/untracked.txt"
 mkdir "$EV/locked" && echo hidden >"$EV/locked/file.txt" && chmod 000 "$EV/locked"
-run "an untracked directory git cannot open is FAIL, though git exits 0" 1 "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "an untracked directory git cannot open is FAIL, though git exits 0" 1 "$EVTOOLS/verify" pstack-plan-format --plan "$EVPLAN"
 reason_has "names git's warning" "\`git status --porcelain\` exited 0: warning: could not open directory 'locked/': Permission denied"
 chmod 755 "$EV/locked" && rm -r "$EV/locked"
 BADNODE="$WORK/node-without-version"
 printf '#!/bin/bash\n[[ $1 == --version ]] && { echo "synthetic failure of node --version" >&2; exit 1; }\nexec %q "$@"\n' "$(command -v node)" >"$BADNODE"
 chmod +x "$BADNODE"
-run "a node whose --version fails is FAIL" 1 env CLEARCASE_NODE="$BADNODE" "$EVTOOLS/verify" plan-format --plan "$EVPLAN"
+run "a node whose --version fails is FAIL" 1 env CLEARCASE_NODE="$BADNODE" "$EVTOOLS/verify" pstack-plan-format --plan "$EVPLAN"
 reason_has "names the failed node probe" 'node-without-version --version` exited 1: synthetic failure of node --version'
 run "a node whose --version fails fails the doctor" 1 env CLEARCASE_NODE="$BADNODE" "$EVTOOLS/doctor"
 has "the doctor names the failed node probe" "FAIL     node           \`$BADNODE --version\` exited 1"
@@ -534,7 +536,7 @@ run "an unreadable --input is SKIPPED" 3 env -C "$EV" scripts/agent-tools/receip
 reason_has "names the unreadable input" "input not fingerprinted: $WORK/unreadable-input.txt: Permission denied"
 not_run "the command did not run without its input's fingerprint"
 cp "$EVPLAN" "$WORK/unreadable-plan.md" && chmod 000 "$WORK/unreadable-plan.md"
-run "an unreadable plan is FAIL before the checker runs" 1 "$EVTOOLS/verify" plan-format --plan "$WORK/unreadable-plan.md"
+run "an unreadable plan is FAIL before the checker runs" 1 "$EVTOOLS/verify" pstack-plan-format --plan "$WORK/unreadable-plan.md"
 reason_has "names the unreadable plan" "input not fingerprinted: $WORK/unreadable-plan.md: Permission denied"
 run "an input that changes while it is read is SKIPPED" 3 env -C "$EV" scripts/agent-tools/receipt --name changing-input --input /proc/self/status -- touch "$MARKER"
 reason_has "names the changed input" "input not fingerprinted: /proc/self/status: changed while it was read"
@@ -546,7 +548,7 @@ SWAPNODE="$WORK/node-replacing-the-plan"
 printf '#!/bin/bash\n[[ $1 == --version ]] || mv %q "$2"\nexec %q "$@"\n' "$WORK/replacement-plan.md" "$(command -v node)" >"$SWAPNODE"
 chmod +x "$SWAPNODE"
 invalid_sha=$(sha256sum <"$WORK/replaced-plan.md") && invalid_sha=${invalid_sha%% *}
-run "a plan replaced while the checker runs is not PASS" 1 env CLEARCASE_NODE="$SWAPNODE" "$EVTOOLS/verify" plan-format --plan "$WORK/replaced-plan.md"
+run "a plan replaced while the checker runs is not PASS" 1 env CLEARCASE_NODE="$SWAPNODE" "$EVTOOLS/verify" pstack-plan-format --plan "$WORK/replaced-plan.md"
 has "the checker passed the replacement" "1 PR sections, 0 problems"
 receipt_is "the replaced-plan receipt is FAIL" FAIL 1
 reason_has "names the replaced plan and how it changed" "input changed during the run: $WORK/replaced-plan.md: sha256 ${invalid_sha:0:12} -> "
@@ -598,7 +600,7 @@ mkdir -p "$WORK/read-only" && chmod a-w "$WORK/read-only"
 run "an unwritable receipt directory is SKIPPED" 3 env -C "$EV" scripts/agent-tools/receipt --receipts "$WORK/read-only/receipts" --name unwritable -- touch "$MARKER"
 has "names the receipt directory" "cannot create its receipt directory: $WORK/read-only/receipts: Permission denied"
 not_run "the command did not run without a receipt directory"
-run "verify with an unwritable receipt directory is FAIL" 1 "$EVTOOLS/verify" plan-format --plan "$EVPLAN" --receipts "$WORK/read-only/receipts"
+run "verify with an unwritable receipt directory is FAIL" 1 "$EVTOOLS/verify" pstack-plan-format --plan "$EVPLAN" --receipts "$WORK/read-only/receipts"
 run "the doctor with an unwritable receipt directory fails" 1 "$EVTOOLS/doctor" --receipts "$WORK/read-only/receipts"
 has "the doctor says its receipt was not written" "doctor: FAIL. Receipt not written"
 run "a receipt directory that becomes unwritable during the run gives no PASS" 3 env -C "$EV" scripts/agent-tools/receipt --name locked-out -- bash -c 'chmod a-w "$CLEARCASE_RECEIPTS_DIR"/*'
@@ -673,8 +675,9 @@ for tool in python3 git; do ln -s "$(command -v "$tool")" "$NONODE/$tool"; done
 run "doctor fails without node" 1 env PATH="$NONODE" "$TOOLS/doctor"
 has "doctor names node and the fix" "fix: install Node.js >= 18"
 receipt_is "no-node doctor receipt is FAIL" FAIL 1
-run "plan-format without node is FAIL" 1 env PATH="$NONODE" "$TOOLS/verify" plan-format
+run "pstack-plan-format without node is FAIL" 1 env PATH="$NONODE" "$TOOLS/verify" pstack-plan-format --plan "$FIXTURES/plans/valid.md"
 receipt_is "no-node receipt is FAIL" FAIL 1
+run "the project plan-format needs no node" 0 env PATH="$NONODE" "$TOOLS/verify" plan-format
 run "doctor without python3 explains the PATH" 2 env PATH=/nonexistent "$TOOLS/doctor"
 has "no-python message is actionable" "fix: install Python >= 3.10"
 no_receipt "doctor without python3 writes no receipt"
@@ -823,12 +826,12 @@ has "rc.10 sorts after rc.9" "version 2.0.0-rc.10"
 receipt_check "plugin receipt records install identity and file fingerprints" 'r["pstack"]["version"] == "2.0.0-rc.10" and r["pstack"]["gitCommitSha"] == "a" * 40 and any(i["path"].endswith("installed_plugins.json") and i["sha256"] for i in r["inputs"])'
 run "an inherited T3_PSTACK_ROOT would redirect discovery" 1 env T3_PSTACK_ROOT="$WORK/hostile-root" HOME="$PLUGIN_HOME" "$TOOLS/verify" pstack
 run "the fixture environment ignores an inherited T3_PSTACK_ROOT and skills dir" 0 env T3_PSTACK_ROOT="$WORK/hostile-root" CLEARCASE_SKILLS_DIR="$WORK/hostile-skills" "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" "$TOOLS/verify" pstack
-run "explicit plugin root wins over the newest version" 0 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" T3_PSTACK_ROOT="$PLUGIN_OLD" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md"
+run "explicit plugin root wins over the newest version" 0 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" T3_PSTACK_ROOT="$PLUGIN_OLD" "$TOOLS/verify" pstack-plan-format --plan "$FIXTURES/plans/valid.md"
 receipt_check "explicit root is recorded" 'r["pstack"]["selection"] == "T3_PSTACK_ROOT" and r["pstack"]["version"] == "2.0.0-rc.5"'
-run "the canonical checker rejects the invalid plan through the fixture plugin" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/invalid.md"
+run "the canonical checker rejects the invalid plan through the fixture plugin" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" "$TOOLS/verify" pstack-plan-format --plan "$FIXTURES/plans/invalid.md"
 has "the checker's own verdict is shown" "long dash"
 # A HOME written with a trailing slash still locates the plugin, and receipts show ~ in place of it.
-run "a HOME with a trailing slash locates the plugin and checker" 0 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME/" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md"
+run "a HOME with a trailing slash locates the plugin and checker" 0 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME/" "$TOOLS/verify" pstack-plan-format --plan "$FIXTURES/plans/valid.md"
 lacks_in_receipt "receipts redact a HOME with a trailing slash" "$PLUGIN_HOME"
 receipt_check "internal paths stay raw while the receipt shows ~" 'r["pstack"]["root"].startswith("~/.claude/plugins/cache/")'
 run "doctor rows locate the plugin files under a HOME with a trailing slash" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME/" "$TOOLS/doctor"
@@ -848,7 +851,7 @@ receipt_is "retired pstack-upstream without --checkout has a FAIL receipt" FAIL 
 run "the internal compare-upstream entry point FAILs" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" python3 -I -B "$TOOLS/agent_tools.py" compare-upstream --checkout "$WORK/no-checkout"
 has "compare-upstream names its replacement" "use scripts/agent-tools/verify pstack"
 lacks "compare-upstream never prints a PASS" "PASS"
-run "missing explicit plugin fails without a legacy fallback" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" T3_PSTACK_ROOT="$WORK/no-plugin" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md"
+run "missing explicit plugin fails without a legacy fallback" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" T3_PSTACK_ROOT="$WORK/no-plugin" "$TOOLS/verify" pstack-plan-format --plan "$FIXTURES/plans/valid.md"
 receipt_is "missing explicit plugin has a FAIL receipt" FAIL 1
 reason_has "missing plugin reason names discovery" "pstack discovery failed"
 run "empty plugin override fails instead of falling back" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" T3_PSTACK_ROOT= "$TOOLS/verify" pstack
@@ -879,14 +882,14 @@ run "nonexact plugin install SHA fails" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME"
 reason_has "bad install SHA is explicit" "gitCommitSha must be an exact Git SHA"
 cp "$WORK/plugin-registry.saved" "$PLUGIN_REGISTRY"
 mv "$PLUGIN_LATEST/skills/poteto-mode/scripts/check-plan.mjs" "$WORK/check-plan.saved"
-run "missing canonical checker fails before running" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md"
+run "missing canonical checker fails before running" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" "$TOOLS/verify" pstack-plan-format --plan "$FIXTURES/plans/valid.md"
 receipt_is "missing checker is FAIL, never SKIPPED" FAIL 1
 reason_has "missing checker is named" "required pstack file missing or unreadable"
 mv "$WORK/check-plan.saved" "$PLUGIN_LATEST/skills/poteto-mode/scripts/check-plan.mjs"
 LEGACY_HOME="$WORK/legacy-home"
 mkdir -p "$LEGACY_HOME/.agents/skills"
 cp -a "$PLUGIN_LATEST/skills/." "$LEGACY_HOME/.agents/skills/"
-run "legacy bundle is accepted only when the plugin is absent" 0 "${PSTACK_ENV[@]}" HOME="$LEGACY_HOME" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md"
+run "legacy bundle is accepted only when the plugin is absent" 0 "${PSTACK_ENV[@]}" HOME="$LEGACY_HOME" "$TOOLS/verify" pstack-plan-format --plan "$FIXTURES/plans/valid.md"
 receipt_check "fallback identity is honest about unavailable provenance" 'r["pstack"]["kind"] == "legacy" and r["pstack"]["version"] is None and r["pstack"]["gitCommitSha"] is None'
 mkdir -p "$LEGACY_HOME/.claude/plugins"
 printf '{"version":2,"plugins":{"other-plugin@market":[{"installPath":"/x","version":"1.0.0"}],"t3-pstack@t3-pstack":[]}}\n' >"$LEGACY_HOME/.claude/plugins/installed_plugins.json"
@@ -910,8 +913,8 @@ run "a registered plugin whose cache directory is gone fails despite working leg
 lacks "the missing cache is never a legacy PASS" "legacy fallback"
 receipt_is "missing registered cache has a FAIL receipt" FAIL 1
 reason_has "the receipt says the registered plugin is missing" "registered in installed_plugins.json"
-run "plan-format also FAILs for a registered plugin with no cache" 1 "${PSTACK_ENV[@]}" HOME="$GONE_HOME" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md"
-receipt_is "plan-format with no registered cache has a FAIL receipt" FAIL 1
+run "pstack-plan-format also FAILs for a registered plugin with no cache" 1 "${PSTACK_ENV[@]}" HOME="$GONE_HOME" "$TOOLS/verify" pstack-plan-format --plan "$FIXTURES/plans/valid.md"
+receipt_is "pstack-plan-format with no registered cache has a FAIL receipt" FAIL 1
 EMPTY_HOME=$(registered_home empty) && rm -rf "$EMPTY_HOME/.claude/plugins/cache" && mkdir -p "$EMPTY_HOME/.claude/plugins/cache/t3-pstack/t3-pstack"
 run "a registered plugin with an empty cache fails despite working legacy skills" 1 "${PSTACK_ENV[@]}" HOME="$EMPTY_HOME" "$TOOLS/verify" pstack
 receipt_is "empty registered cache has a FAIL receipt" FAIL 1
@@ -956,7 +959,7 @@ chmod 644 "$PLANTED/${pinned[0]}/SKILL.md"
 MUTATING_NODE="$WORK/node-mutates-plugin"
 printf '#!/bin/bash\n[[ $1 == --version ]] || echo " " >>%q\nexec %q "$@"\n' "$PLUGIN_REGISTRY" "$(command -v node)" >"$MUTATING_NODE"
 chmod +x "$MUTATING_NODE"
-run "plugin registry changed during the run is FAIL" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" CLEARCASE_NODE="$MUTATING_NODE" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md"
+run "plugin registry changed during the run is FAIL" 1 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" CLEARCASE_NODE="$MUTATING_NODE" "$TOOLS/verify" pstack-plan-format --plan "$FIXTURES/plans/valid.md"
 receipt_is "stale plugin provenance has a FAIL receipt" FAIL 1
 reason_has "changed provenance is named" "input changed during the run:"
 cp "$WORK/plugin-registry.saved" "$PLUGIN_REGISTRY"
@@ -967,7 +970,7 @@ NEWER_NODE="$WORK/node-adds-newer-plugin"
 printf '#!/bin/bash\nif [[ $1 != --version && ! -e %q ]]; then cp -a %q %q && printf %s %q >%q; fi\nexec %q "$@"\n' \
 	"$NEWER" "$PLUGIN_LATEST" "$NEWER" '%s' '{"name":"t3-pstack","version":"2.0.0-rc.11"}' "$NEWER/.claude-plugin/plugin.json" "$(command -v node)" >"$NEWER_NODE"
 chmod +x "$NEWER_NODE"
-run "a newer plugin appearing during the run does not change the checked identity" 0 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" CLEARCASE_NODE="$NEWER_NODE" "$TOOLS/verify" plan-format --plan "$FIXTURES/plans/valid.md"
+run "a newer plugin appearing during the run does not change the checked identity" 0 "${PSTACK_ENV[@]}" HOME="$PLUGIN_HOME" CLEARCASE_NODE="$NEWER_NODE" "$TOOLS/verify" pstack-plan-format --plan "$FIXTURES/plans/valid.md"
 receipt_check "the receipt records the fingerprinted install, not a later rediscovery" 'r["pstack"]["version"] == "2.0.0-rc.10" and r["pstack"]["root"].endswith("/2.0.0-rc.10")'
 rm -rf "$NEWER"
 # One discovery per capability run: the fingerprinted paths and the receipt's identity come from the same call.

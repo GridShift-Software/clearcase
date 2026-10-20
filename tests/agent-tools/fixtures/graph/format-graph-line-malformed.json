@@ -1,5 +1,5 @@
 {
-  "description": "A graph line without its key in backticks is malformed and its item goes missing",
+  "description": "A graph line without its key in backticks is malformed: its item goes missing and its referrers name a missing line",
   "capability": "plan-format",
   "editsAfter": {
     "docs/delivery-plan.md": [
@@ -13,7 +13,8 @@
     "exit": 1,
     "output": [
       "graph line is not",
-      "HA-notes from work-items.json has no graph line"
+      "HA-notes from work-items.json has no graph line",
+      "names GRS-119, which has no graph line in the plan"
     ],
     "absent": [
       "Traceback"

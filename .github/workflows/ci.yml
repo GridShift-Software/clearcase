@@ -50,6 +50,50 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
+      # The fix-round test guard; `test guard verdict` below says what it checks. It runs before any step that runs the
+      # pull request's code, so nothing the pull request supplies (its install scripts, its tests, a line they add to
+      # GITHUB_ENV) has run in this job when it judges. It runs the base commit's guard and Python tools with the base's
+      # bun.lock installed frozen, without lifecycle scripts, into the base checkout, never the pull request's guard or
+      # node_modules. The guard's child runs in the head checkout, where Bun would read the pull request's bunfig.toml
+      # and .env, so Bun gets an empty config, --no-install and --no-env-file through a CLEARCASE_NODE wrapper (the guard
+      # strips BUN_OPTIONS). A base without the guard or bun.lock, or a failed install, judges nothing: HOLD.
+      # tests/ci-guard/run.sh replays this step against each route. Still trusted: this workflow, which comes from the
+      # merge commit, so a pull request that changes it needs review, and the runner, whose Bun caches an earlier job
+      # can alter (docs/ci-runner.md).
+      - name: test guard
+        id: guard
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        continue-on-error: true
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+          FIX_ROUND_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'fix-round') }}
+        run: |
+          head=$RUNNER_TEMP/pr-head
+          base_tools=$RUNNER_TEMP/base-tools
+          trusted=$RUNNER_TEMP/trusted-bun
+          hold() { echo "test guard: HOLD, nothing was judged: $*" >&2; exit 2; }
+          git worktree prune
+          trap 'git worktree remove --force "$head" 2>/dev/null || true; git worktree remove --force "$base_tools" 2>/dev/null || true; rm -rf "$trusted"' EXIT
+          base=$(git rev-parse -q --verify "origin/$BASE_REF^{commit}") || hold "origin/$BASE_REF is not a commit"
+          git cat-file -e "$base:scripts/agent-tools/fix-round-guard" 2>/dev/null \
+            || hold "origin/$BASE_REF has no scripts/agent-tools/fix-round-guard, and the pull request's own copy never judges"
+          git cat-file -e "$base:bun.lock" 2>/dev/null || hold "origin/$BASE_REF has no bun.lock to install frozen"
+          git worktree add -q --detach "$head" "$PR_HEAD_SHA"
+          git worktree add -q --detach "$base_tools" "$base"
+          mkdir -p "$trusted"
+          : > "$trusted/bunfig.toml"
+          bun=$(command -v bun)
+          flags=(--no-env-file "--config=$trusted/bunfig.toml")
+          printf '#!/bin/bash\nexec %q --no-install %s"$@"\n' "$bun" "$(printf '%q ' "${flags[@]}")" > "$trusted/bun"
+          chmod +x "$trusted/bun"
+          (cd "$base_tools" && "$bun" install --frozen-lockfile --ignore-scripts "${flags[@]}") \
+            || hold "the base's frozen install failed, and the pull request's dependencies are never used instead"
+          require=()
+          if [ "$FIX_ROUND_LABEL" = true ]; then require=(--require-manifest); fi
+          CLEARCASE_NODE=$trusted/bun "$base_tools/scripts/agent-tools/fix-round-guard" --root "$head" --base "origin/$BASE_REF" \
+            --branch "$HEAD_REF" --receipts "$RUNNER_TEMP/receipts" "${require[@]}"
       - run: scripts/ci/install-chrome.sh
       - run: bun install --frozen-lockfile
       - name: check
@@ -134,35 +178,16 @@ jobs:
       # (docs/agent-tooling.md). The guard fails a pull request that deletes, skips, loosens or renames a test those
       # findings name, that changes the test code, runner configuration or fixtures they depend on, or that deletes a
       # manifest. It checks the pull request's own head, not the merge commit, and runs under Bun because the runner has
-      # no Node. The guard itself is the base branch's copy, checked out beside the head with the installed
-      # node_modules: a pull request cannot weaken the check that judges it. A pull request labelled fix-round must
-      # carry a manifest; the coordinator's ledger has no copy here, so the label is how CI learns of a fix round. A
-      # push to dev ran it in its pull request.
-      - name: test guard
+      # no Node. The `test guard` step runs it before the pull request's code and may fail without ending the job, so a
+      # refused pull request still gets check, test and gate-hosted results; this step fails the job unless the guard
+      # succeeded, a HOLD included. A pull request labelled fix-round must carry a manifest; the coordinator's ledger
+      # has no copy here, so the label is how CI learns of a fix round. A push to dev ran it in its pull request.
+      - name: test guard verdict
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         env:
-          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-          BASE_REF: ${{ github.base_ref }}
-          HEAD_REF: ${{ github.head_ref }}
-          FIX_ROUND_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'fix-round') }}
+          OUTCOME: ${{ steps.guard.outcome }}
         run: |
-          head=$RUNNER_TEMP/pr-head
-          base_tools=$RUNNER_TEMP/base-tools
-          git worktree prune
-          git worktree add -q --detach "$head" "$PR_HEAD_SHA"
-          trap 'git worktree remove --force "$head"; git worktree remove --force "$base_tools" 2>/dev/null || true' EXIT
-          runner=scripts/agent-tools/fix-round-guard
-          if git cat-file -e "origin/$BASE_REF:scripts/agent-tools/fix-round-guard" 2>/dev/null; then
-            git worktree add -q --detach "$base_tools" "origin/$BASE_REF"
-            ln -s "$PWD/node_modules" "$base_tools/node_modules"
-            runner="$base_tools/scripts/agent-tools/fix-round-guard"
-          else
-            echo "the base branch has no fix-round guard yet (this pull request adds it): running the pull request's own copy" >&2
-          fi
-          require=()
-          if [ "$FIX_ROUND_LABEL" = true ]; then require=(--require-manifest); fi
-          CLEARCASE_NODE=$(command -v bun) "$runner" --root "$head" --base "origin/$BASE_REF" --branch "$HEAD_REF" \
-            --receipts "$RUNNER_TEMP/receipts" "${require[@]}"
+          [ "$OUTCOME" = success ] || { echo "test guard: $OUTCOME, not success; the test guard step's log says why" >&2; exit 1; }
       # Fails the job unless every receipt (check, test, gate-hosted) is PASS for this checkout and every tracked test
       # file ran with no failed or skipped test; writes the job summary and summary.json, which name each problem and
       # how to reproduce it.

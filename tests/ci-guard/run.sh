@@ -28,7 +28,7 @@ trap 'chmod -R u+w "$T" 2>/dev/null; rm -rf "$T"' EXIT
 mkdir -p "$T/tmp" "$T/marks" "$T/bun-cache" "$T/home"
 export BUN_INSTALL_CACHE_DIR=$T/bun-cache HOME=$T/home
 : > "$T/empty.toml"
-quiet_bun() { bun --no-env-file --config="$T/empty.toml" "$@"; }
+plain_bun() { bun --no-env-file --config="$T/empty.toml" "$@"; }
 mark=$T/marks
 
 cat > "$T/workflow.mjs" <<'JS'
@@ -48,7 +48,7 @@ if (command === 'run') {
 		g['continue-on-error'] === true ? 'continues' : 'stops');
 }
 JS
-wf() { quiet_bun "$T/workflow.mjs" "$workflow" "$@"; }
+wf() { plain_bun "$T/workflow.mjs" "$workflow" "$@"; }
 wf run 'test guard' > "$T/guard-step.sh" || hold "$workflow has no step named test guard"
 read -r guard_at pr_code_at install_at verdict_at verdict_key verdict_if guard_continues <<<"$(wf order)"
 
@@ -63,7 +63,7 @@ pin=$(git -C "$repo" show "$guard_rev:package.json" | python3 -I -c 'import json
 printf '{"name":"ci-guard-fixture","private":true,"packageManager":"%s","devDependencies":{"typescript":"%s","svelte":"%s"}}\n' \
 	"$pin" "$ts_version" "$svelte_version" > "$O/package.json"
 printf 'node_modules\n' > "$O/.gitignore"
-(cd "$O" && quiet_bun install --ignore-scripts) > "$T/setup.log" 2>&1 || { tail -5 "$T/setup.log" >&2; hold "the synthetic base's install failed (registry unreachable?)"; }
+(cd "$O" && plain_bun install --ignore-scripts) > "$T/setup.log" 2>&1 || { tail -5 "$T/setup.log" >&2; hold "the synthetic base's install failed (registry unreachable?)"; }
 commit base > /dev/null
 
 test_file="import { test, expect } from 'bun:test';
@@ -106,7 +106,7 @@ for id in dependency dependency-installed; do
 	payload_js "$O/vendor/typescript/index.js" "$id" "candidate typescript"
 	printf '{"name":"typescript","version":"%s","type":"module","main":"index.js"}\n' "$ts_version" > "$O/vendor/typescript/package.json"
 	sed -i "s#\"typescript\":\"$ts_version\"#\"typescript\":\"file:./vendor/typescript\"#" "$O/package.json"
-	(cd "$O" && quiet_bun install --ignore-scripts) >> "$T/setup.log" 2>&1 || hold "cannot lock the candidate typescript"
+	(cd "$O" && plain_bun install --ignore-scripts) >> "$T/setup.log" 2>&1 || hold "cannot lock the candidate typescript"
 	commit "$id" > /dev/null
 done
 candidate env-file valid
@@ -144,7 +144,7 @@ o switch -q -c dev-skew dev
 sed -i 's#"devDependencies":{#"devDependencies":{"left-pad":"1.3.0",#' "$O/package.json"
 commit dev-skew > /dev/null
 fix_round install-fails dev-skew
-(cd "$O" && quiet_bun install --ignore-scripts) >> "$T/setup.log" 2>&1 || hold "cannot lock the skewed base"
+(cd "$O" && plain_bun install --ignore-scripts) >> "$T/setup.log" 2>&1 || hold "cannot lock the skewed base"
 commit "candidate lock" > /dev/null
 o switch -q -c dev-scripts dev
 mkdir -p "$O/localdep"
@@ -157,14 +157,14 @@ p["trustedDependencies"] = ["localdep"]
 p["scripts"] = {k: f"pwd >> {sys.argv[2]}" for k in ("preinstall", "install", "postinstall", "prepare")}
 json.dump(p, open(sys.argv[1], "w"))
 PY
-(cd "$O" && quiet_bun install --ignore-scripts) >> "$T/setup.log" 2>&1 || hold "cannot lock the lifecycle base"
+(cd "$O" && plain_bun install --ignore-scripts) >> "$T/setup.log" 2>&1 || hold "cannot lock the lifecycle base"
 commit dev-scripts > /dev/null
 fix_round lifecycle dev-scripts
 o switch -q dev
 control=$T/control
 mkdir -p "$control"
 o archive dev-scripts | tar -x -C "$control"
-(cd "$control" && quiet_bun install --frozen-lockfile) >> "$T/setup.log" 2>&1
+(cd "$control" && plain_bun install --frozen-lockfile) >> "$T/setup.log" 2>&1
 lifecycle_control=$(grep -c . "$mark/lifecycle" 2>/dev/null)
 rm -rf "$control" "$mark/lifecycle"
 

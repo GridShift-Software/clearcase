@@ -30,6 +30,11 @@ systemctl)
   if [[ ${*: -1} == nftables ]]; then event "nftables $1"; exit; fi
   if [[ $1 == show ]]; then
     [[ $scenario != state-unreadable ]] || exit 1
+    if [[ ${2:-} == --property=Environment ]]; then
+      # What systemd has loaded for the unit: its drop-ins' Environment= assignments on one line, unless the drop-in is ignored.
+      [[ $scenario == dropin-ignored ]] || { sed -n 's/^Environment=//p' "$root"/etc/systemd/system/*.service.d/*.conf 2>/dev/null | paste -sd ' ' || true; }
+      exit
+    fi
     cat "$root/service-state"
     exit
   fi
@@ -37,6 +42,7 @@ systemctl)
   event "$1"
   [[ $scenario != "$1-fail" ]] || exit 1
   case $1 in
+  daemon-reload) ;;
   stop)
     if [[ $scenario == job-during-stop ]]; then
       # Dispatch after the idle observation, immediately before the service stop takes effect.
@@ -78,10 +84,12 @@ pgrep)
   ;;
 install)
   # Account ownership is the only install behavior that needs privilege on the real guest.
-  args=()
+  args=() owner=
   while (( $# )); do
-    case $1 in -o | -g) shift 2 ;; *) args+=("$1"); shift ;; esac
+    case $1 in -o) owner+="$2:"; shift 2 ;; -g) owner+=$2; shift 2 ;; *) args+=("$1"); shift ;; esac
   done
+  # Each install with the account it would own its target as, for tests of what the guest keeps root-owned.
+  printf '%s %s\n' "$owner" "${args[*]}" >>"$root/installs"
   exec /usr/bin/install "${args[@]}"
   ;;
 apt-get | sysctl | chown)
@@ -259,6 +267,8 @@ for source, target in [("/home/runner", root + "/home/runner"),
                        ("/etc/nftables.conf", root + "/etc/nftables.conf"),
                        ("/etc/os-release", root + "/os-release"),
                        ("/usr/local/bin/bun", root + "/bin/bun"),
+                       ("/usr/local/lib/clearcase-ci", root + "/usr/local/lib/clearcase-ci"),
+                       ("/etc/systemd/system", root + "/etc/systemd/system"),
                        ("/run/clearcase-ci-verify.lock", root + "/verify.lock")]:
     script = script.replace(source, target)
 sys.stdout.write(script)

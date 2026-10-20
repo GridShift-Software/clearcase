@@ -117,6 +117,10 @@ jobs:
           "$bin/node" --version
           echo "$bin" >> "$GITHUB_PATH"
       - name: gate-hosted
+        # The runner has no workspace browser lock: none is the deliberate, documented bypass (docs/development.md,
+        # Browser admission). Unset, the hosted preflight refuses the run.
+        env:
+          CLEARCASE_BROWSER_LOCK: none
         run: |
           tmp=$(mktemp -d /dev/shm/clearcase-ci-hosted.XXXXXX)
           # The test step leaves a real .local/hosted (hosted-cleanup-ownership.test.ts): ln -sfn would link inside it, and

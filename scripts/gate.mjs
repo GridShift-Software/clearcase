@@ -2,10 +2,12 @@
 // `bun run --bun gate`: every check in order, stopping at the first failure.
 //
 // build (the e2e and parity steps need a build stamped with HEAD), check, test, test:e2e, parity --all
-// --strict-register, verify:pilot:v5. Prints at most 30 lines: the head and tree state, one line per step
-// (PASS/FAIL/SKIP and seconds), the tail of the first failure's log, and `GATE PASS <sha>` or
+// --strict-register, verify:pilot:v5. Prints at most 30 lines: the head and tree state, the browser lock, one line per
+// step (PASS/FAIL/SKIP and seconds), the tail of the first failure's log, and `GATE PASS <sha>` or
 // `GATE FAIL <step> <sha>`. Full logs go to .local/gate/<step>.log, with `:` in the step name replaced by `-`. Exit 0 only when every step passed.
-// Browser steps take a slot through $CLEARCASE_BROWSER_LOCK (a command that runs its arguments) when it is set.
+// Browser steps take a slot through the lock scripts/browser-lock.mjs resolves; without admission (see there) the gate
+// fails `env` before any step. After the steps it reads HEAD and the tree again: a tree dirty at entry or at the end,
+// or a HEAD that moved, fails `head`, so no gate passes for a checkout other than the commit it named.
 // Exit 0 is not evidence: test:e2e, parity and verify:pilot:v5 exit 0 for a reduced or stale-build run and record
 // `evidence: false`. So the gate refuses to start when a variable that selects a reduced run is set (REDUCED_ENV), and
 // after each of those steps it reads the summary the step wrote in this run (an old one is deleted first) and requires
@@ -21,6 +23,7 @@ import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSyn
 import { join, resolve } from 'node:path';
 import { DEV_ENV } from '../tests/e2e/pilot/run.mjs';
 import { convert as convertV5, loadConfig } from '../tests/e2e/pilot/v5/fixture.mjs';
+import { ADMISSION_FIX, describeAdmission, resolveBrowserLock } from './browser-lock.mjs';
 import { claimPidFile, releasePidFile, stopPidFile } from './pidfile.ts';
 
 const REPO = resolve(import.meta.dirname, '..');
@@ -145,17 +148,31 @@ function summaryProblem(step, file, sha) {
 	return null;
 }
 
+/** Why the checkout `reread` found after the steps is not the commit `entry` named, or null. */
+function identityProblem(entry, after) {
+	if (after.error) return `cannot read HEAD and the tree again: ${after.error}`;
+	if (entry.dirty) return 'the tree was dirty at entry: a gate over uncommitted work is evidence for no SHA; commit and rerun';
+	if (after.head.sha !== entry.sha) return `HEAD ${entry.sha} at entry, ${after.head.sha} now: the checkout moved during the gate`;
+	if (after.head.dirty) return 'clean at entry, dirty now: something changed the tree during the gate';
+	return null;
+}
+
 /**
- * Checks every step's prerequisite (each distinct `needs` once) before the first step and fails the gate on the first
- * problem without running anything; then runs `steps` in order and stops at the first failure. Returns `{ pass, failed, lines }`; `lines` is the whole
- * summary. `head` is `{ sha, dirty }`. `run` (returns a spawn result), `now`, `lock` and `env` (the environment checked for reduced-run variables) are injectable so a test needs no browser.
+ * Refuses a reduced run or a missing browser admission (`env`), then checks every step's prerequisite (each distinct
+ * `needs` once) and fails the gate on the first problem, all without running anything; then runs `steps` in order and
+ * stops at the first failure, and fails `head` when `reread` finds another checkout than `head` named. Returns
+ * `{ pass, failed, lines }`; `lines` is the whole summary. `head` is `{ sha, dirty }`; `admission` is
+ * resolveBrowserLock's answer for `env` and `repo`. `run` (returns a spawn result), `now`, `admission`, `reread` and
+ * `env` (the environment checked for reduced-run variables) are injectable so a test needs no browser.
  */
-export async function runGate(steps, { repo = REPO, head, lock = process.env.CLEARCASE_BROWSER_LOCK, run = exec, now = Date.now, env = process.env } = {}) {
+export async function runGate(steps, { repo = REPO, head, env = process.env, admission = resolveBrowserLock({ env, repo }), run = exec, now = Date.now, reread = () => readHead(spawnSync, repo) } = {}) {
 	const logDir = join(repo, '.local', 'gate');
 	mkdirSync(logDir, { recursive: true });
 	const lines = [`gate ${head.sha} ${head.dirty ? 'DIRTY tree (not evidence)' : 'clean tree'}`];
 	const reduced = reducedRun(env);
 	if (reduced.length) return { pass: false, failed: 'env', lines: [...lines, ...reduced, `GATE FAIL env ${head.sha}`] };
+	if (admission.problem) return { pass: false, failed: 'env', lines: [...lines, admission.problem, `fix: ${ADMISSION_FIX}`, `GATE FAIL env ${head.sha}`] };
+	lines.push(describeAdmission(admission));
 	const checked = new Map();
 	for (const step of steps) {
 		if (!step.needs) continue;
@@ -176,7 +193,7 @@ export async function runGate(steps, { repo = REPO, head, lock = process.env.CLE
 		const logFile = join(logDir, logName(step));
 		writeFileSync(logFile, '');
 		const start = now();
-		const cmd = lock && step.browser ? [lock, ...step.cmd] : step.cmd;
+		const cmd = admission.lock && step.browser ? [admission.lock, ...step.cmd] : step.cmd;
 		const sum = step.summary && { dir: join(repo, step.summary.dir), file: join(repo, step.summary.dir, step.summary.file) };
 		if (sum) {
 			rmSync(sum.file, { force: true });
@@ -199,6 +216,11 @@ export async function runGate(steps, { repo = REPO, head, lock = process.env.CLE
 		}
 	}
 	if (failed) lines.push(...tail, `see ${join('.local', 'gate', logName(steps.find((s) => s.name === failed)))}`);
+	const moved = identityProblem(head, reread());
+	if (moved) {
+		lines.push(clip(`FAIL head: ${moved}`));
+		failed ??= 'head';
+	}
 	lines.push(failed ? `GATE FAIL ${failed} ${head.sha}` : `GATE PASS ${head.sha}`);
 	return { pass: !failed, failed, lines };
 }

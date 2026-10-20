@@ -20,11 +20,15 @@ For the second reviewer of GRS-21 (CC-11). The gate's author cannot give its fin
 
 3. Copy the coordinator's current `.local/v5-verification.json` into the checkout. The v5 steps need it; the gate names the expected resultsVersion when it is stale.
 
-4. In the ClearCase workspace, take browser slots through the lock:
+4. Admit the browser jobs ([Browser admission](../../development.md#browser-admission-grs-154)). On the shared host (PUK) export nothing: leave `CLEARCASE_BROWSER_LOCK` unset and a checkout under the ClearCase workspace discovers `orch-bin/browser-lock` itself, taking a slot per browser job. Or export the absolute path of the installed lock. A relative path is refused. `BROWSER_LOCK` is the retired spelling and must be unset, even empty. Check what this checkout resolves before the long runs:
 
    ```sh
-   export CLEARCASE_BROWSER_LOCK=../../orch-bin/browser-lock BROWSER_LOCK=../../orch-bin/browser-lock
+   unset BROWSER_LOCK
+   bun scripts/browser-lock.mjs        # stdout: the lock; stderr: how it was admitted; exit 2 and the fix if refused
+   # or, instead of discovery: export CLEARCASE_BROWSER_LOCK=/abs/path/to/ClearCase/orch-bin/browser-lock
    ```
+
+   `CLEARCASE_BROWSER_LOCK=none` runs browser jobs without a slot. Use it only on an isolated runner or CI host with no workspace lock, never to get past a refusal on the shared host. The gate, `evidence.sh` and the hosted runner refuse before running any step when admission is missing or invalid.
 
 ## Critical paths
 

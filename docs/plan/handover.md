@@ -40,7 +40,7 @@ Cloudflare account, domain and provider work is pinned. The unpin is the user's 
 
 ## Waves and checkpoints
 
-At most seven writers per wave. Ticket PRs target their wave branch; only wave PRs target `dev`; `dianbrown` reviews the wave PR, and the checkpoint ticket is reviewed with it. At each checkpoint the user reads the aggregate report and drives the verification skill once.
+At most seven writers per wave. Ticket PRs target their wave branch; only wave PRs target `dev`. Since 20 October 2026 Greptile reviews each wave PR, which merges when Greptile's check and CI pass at its exact head with no finding unresolved; `dianbrown` approves only release PRs into `main`. Appendix A keeps the 17 October rules as they were. At each checkpoint the user reads the aggregate report and drives the verification skill once.
 
 | Wave branch | Tickets | Checkpoint |
 | --- | --- | --- |

@@ -1,0 +1,281 @@
+{
+  "schema": "clearcase-fix-round/1",
+  "unit": "GRS-159/implementation",
+  "fixBase": "c4320909b97dabab9d02ff10b6d74b64c868055e",
+  "reviewFindingsSha256": "4d1cae29514c05ac3f277a24c26763897248753a25dcbd535ca02c8a67c5e93a",
+  "review": {
+    "issue": "GRS-159",
+    "round": "review-r1",
+    "reviewer": "internal diff review (code-review skill)",
+    "reviewedHead": "c33912c2c7b1c54bcc432c17aed8912996baa273",
+    "waveBase": "d3ff3d5980ee7541608aec843bcb9a0645915775",
+    "note": "fixBase is the red commit, which holds every new regression (the guard refuses a changed .py or .sh test inside the range, so the tooling tests all sit at or before the red commit). reviewFindingsSha256 is the sha256 of .orchestration/reports/GRS-159/review-r1/report.md, unchanged. The named tests are the inherited GRS-154 browser-admission tests in tests/gate/browser-admission.test.ts that finding 1 relies on; the guard cannot bind run.sh or the JSON graph fixtures, so those regressions are listed honestly as unprotectedTests and are checked by the run, not by the guard. Findings 3 and 9 are documentation and evidence corrections with no executable test."
+  },
+  "findings": [
+    {
+      "file": "AGENTS.md (workspace)",
+      "line": 57,
+      "severity": "high",
+      "comment": "review-r1 finding 1",
+      "text": "The live workspace lock rule assumes scripts/browser-lock.mjs (GRS-154) on every branch. It exists only on wave/delivery-controls; dev, wave/hosted-bootstrap, wave/tooling and wave/maintenance still need an explicit CLEARCASE_BROWSER_LOCK export, and a gate run without a slot does not count. Fix: branch-aware workspace text and a doctor browser-lock row that judges the checkout the way scripts/browser-lock.mjs does.",
+      "tests": [
+        {
+          "file": "tests/gate/browser-admission.test.ts",
+          "name": "refuses a gate with no admission: CLEARCASE_BROWSER_LOCK unset and no workspace lock to discover"
+        },
+        {
+          "file": "tests/gate/browser-admission.test.ts",
+          "name": "discovers the workspace lock through git-common-dir from the main checkout and from a linked worktree"
+        },
+        {
+          "file": "tests/gate/browser-admission.test.ts",
+          "name": "an explicit absolute executable wins over the discovered lock"
+        },
+        {
+          "file": "tests/gate/browser-admission.test.ts",
+          "name": "none runs browser steps without a slot, deliberately, even when a workspace lock is discoverable"
+        }
+      ],
+      "unprotectedTests": [
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "with the resolver and no lock to discover, the doctor fails"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "with the resolver and a discoverable lock, no export is needed"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "an explicit absolute executable is reported as explicit"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "the retired BROWSER_LOCK fails the doctor"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "CLEARCASE_BROWSER_LOCK=none fails the local preflight"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "a checkout without the resolver and without an export fails the doctor"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "a checkout without the resolver passes with an explicit executable"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "a checkout without the resolver fails on a relative export"
+        }
+      ]
+    },
+    {
+      "file": "scripts/agent-tools/agent_tools.py",
+      "line": 866,
+      "severity": "medium",
+      "comment": "review-r1 finding 2",
+      "text": "claude_install never reads enabledPlugins, so a disabled Claude install passes. Fix: read the settings that govern the install (user; plus project and local for those scopes), refuse an explicit false and any malformed explicit field, fingerprint the settings, never fall back to another harness.",
+      "tests": [],
+      "unprotectedTests": [
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "a Claude install disabled in settings.json fails"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "a disabled Claude install is not replaced by the valid Codex install"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "a local-scope install disabled in the project's local settings fails"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "the project's local settings win over its shared settings"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "a project-scoped install with a relative projectPath fails"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "a Claude install enabled in settings.json passes"
+        }
+      ]
+    },
+    {
+      "file": "docs/delivery-plan.md",
+      "line": 76,
+      "severity": "medium",
+      "comment": "review-r1 finding 3",
+      "text": "The policy reconcile is partial: work-items.json controls, the operating plan, the verification doc and the delivery plan still make dianbrown's approval the dev gate and allow Codex only as gpt-6-astra. Fix: reconcile each, keep dated appendices historical, refresh the planning snapshot to the live capture.",
+      "tests": [],
+      "unprotectedTests": []
+    },
+    {
+      "file": "scripts/planning/plan_format.py",
+      "line": 204,
+      "severity": "low",
+      "comment": "review-r1 finding 4",
+      "text": "AttributeError traceback for an item whose linear field is a string.",
+      "tests": [],
+      "unprotectedTests": [
+        {
+          "file": "tests/agent-tools/fixtures/graph/format-linear-string.json",
+          "name": "format-linear-string"
+        }
+      ]
+    },
+    {
+      "file": "scripts/planning/plan_format.py",
+      "line": 7,
+      "severity": "low",
+      "comment": "review-r1 finding 5",
+      "text": "Docstring overclaims: outside-plan rows, pending rows and the snapshot line were compared by count or prefix only. Fix: compare the exact lines the generator writes.",
+      "tests": [],
+      "unprotectedTests": [
+        {
+          "file": "tests/agent-tools/fixtures/graph/format-outside-row-changed.json",
+          "name": "format-outside-row-changed"
+        },
+        {
+          "file": "tests/agent-tools/fixtures/graph/format-pending-row-changed.json",
+          "name": "format-pending-row-changed"
+        },
+        {
+          "file": "tests/agent-tools/fixtures/graph/format-snapshot-line-changed.json",
+          "name": "format-snapshot-line-changed"
+        }
+      ]
+    },
+    {
+      "file": "scripts/agent-tools/agent_tools.py",
+      "line": 842,
+      "severity": "low",
+      "comment": "review-r1 finding 6",
+      "text": "harness_choice runs before the T3_PSTACK_ROOT branch, so an explicit root fails as ambiguous when both session variables are set.",
+      "tests": [],
+      "unprotectedTests": [
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "an explicit Codex root wins when both session variables are set"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "an explicit Claude root wins when both session variables are set"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "both session variables with no root stay ambiguous"
+        }
+      ]
+    },
+    {
+      "file": "scripts/agent-tools/_common.sh",
+      "line": 18,
+      "severity": "low",
+      "comment": "review-r1 finding 7",
+      "text": "The Python floor is wrong: the code needs 3.12 (nested quotes in an f-string expression), Codex discovery needs tomllib from 3.11.",
+      "tests": [],
+      "unprotectedTests": [
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "an older python3 is refused by the wrapper"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "the verify entry point refuses an older python3 too"
+        }
+      ]
+    },
+    {
+      "file": "tests/agent-tools/run.sh",
+      "line": 1046,
+      "severity": "low",
+      "comment": "review-r1 finding 8",
+      "text": "Some tests do not pin their bug: the canary sat only in the install record, and reason_has config.toml and revision matched unrelated reasons.",
+      "tests": [],
+      "unprotectedTests": [
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "the malformed config is named"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "the inexact revision is named"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "the missing record is named"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "the config.toml source URL is never printed"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "the install record's source URL is never printed"
+        }
+      ]
+    },
+    {
+      "file": ".orchestration/reports/GRS-159/build/build-report.md",
+      "line": 15,
+      "severity": "low",
+      "comment": "review-r1 finding 9",
+      "text": "Evidence credited to the wrong SHA. Fix: a separate appended correction artifact.",
+      "tests": [],
+      "unprotectedTests": []
+    },
+    {
+      "file": "scripts/agent-tools/agent_tools.py",
+      "line": 866,
+      "severity": "low",
+      "comment": "review-r1 finding 10",
+      "text": "Claude errors break the Codex style: a malformed installed_plugins.json gives a bare parser message, and the orphan error prints a raw absolute path.",
+      "tests": [],
+      "unprotectedTests": [
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "a Claude record that is not an object fails"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "a Claude record without installPath fails"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "a Claude record with a retyped version fails"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "a Claude registry that is not JSON fails"
+        },
+        {
+          "file": "tests/agent-tools/run.sh",
+          "name": "a Claude record for another root fails"
+        }
+      ]
+    }
+  ],
+  "tests": [
+    {
+      "file": "tests/gate/browser-admission.test.ts",
+      "name": "refuses a gate with no admission: CLEARCASE_BROWSER_LOCK unset and no workspace lock to discover"
+    },
+    {
+      "file": "tests/gate/browser-admission.test.ts",
+      "name": "discovers the workspace lock through git-common-dir from the main checkout and from a linked worktree"
+    },
+    {
+      "file": "tests/gate/browser-admission.test.ts",
+      "name": "an explicit absolute executable wins over the discovered lock"
+    },
+    {
+      "file": "tests/gate/browser-admission.test.ts",
+      "name": "none runs browser steps without a slot, deliberately, even when a workspace lock is discoverable"
+    }
+  ]
+}

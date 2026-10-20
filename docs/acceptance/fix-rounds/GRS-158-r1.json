@@ -1,7 +1,7 @@
 {
   "schema": "clearcase-fix-round/1",
   "unit": "GRS-158/implementation",
-  "fixBase": "ac06aa8df3d3e706236510ea0ba6ce118261c32a",
+  "fixBase": "c7226833debba6731666e5c900d6a55da2d67078",
   "reviewFindingsSha256": "844b01a436b6016e6fd70c1317c13045d5c64d817fb52c95f90b5df3932f527e",
   "review": {
     "issue": "GRS-158",

@@ -12,7 +12,7 @@ CI (`.github/workflows/ci.yml`) runs `bun run --bun check` and `bun run --bun te
 
 The runner is repository-scoped, with labels `self-hosted`, `Linux`, `X64` and `clearcase-pc1` (the workflow names them in that case). The job installs Chrome for Testing 148.0.7778.96 into the runner's home with `scripts/ci/install-chrome.sh` (it unpacks a tree again only when the tree's `.zip-sha256` stamp does not name the checked zip) and wraps each check in `scripts/agent-tools/receipt --base origin/dev` after a full-history checkout. The receipts, Vitest's JSON report `vitest.json`, the summary and a `run-metadata.json` (run ID and attempt, `GITHUB_SHA`, event, ref, pull request head SHA where there is one, runner name; no environment dump) are uploaded as the `receipts` artifact, which fails the job when it is empty.
 
-CI runs for pull requests (on GitHub's merge commit), pushes to `dev` and manual runs (`workflow_dispatch`). A push to a feature branch runs nothing until its pull request exists. That push run used to duplicate the PR run of the same commit on the one runner, so the PR run queued behind it for 110-140 s. The cost: a branch gets no CI before its pull request is opened. The worker's local `bun run --bun gate`, which is required anyway, covers that stretch, and a manual run covers a branch on request (`gh workflow run CI --ref BRANCH`). A newer run of a pull request cancels the superseded one. A push to `dev` never cancels a run in progress, but GitHub keeps only one pending run per branch and replaces it with a newer one, so quick successive pushes can lose the middle commits' results (the last push always runs).
+CI runs for pull requests from this repository's own branches (on GitHub's merge commit), pushes to `dev` and manual runs (`workflow_dispatch`), and for nothing else ("Public repository", below). A push to a feature branch runs nothing until its pull request exists. That push run used to duplicate the PR run of the same commit on the one runner, so the PR run queued behind it for 110-140 s. The cost: a branch gets no CI before its pull request is opened. The worker's local `bun run --bun gate`, which is required anyway, covers that stretch, and a manual run covers a branch on request (`gh workflow run CI --ref BRANCH`). A newer run of a pull request cancels the superseded one. A push to `dev` never cancels a run in progress, but GitHub keeps only one pending run per branch and replaces it with a newer one, so quick successive pushes can lose the middle commits' results (the last push always runs).
 
 ## Test step and timings
 
@@ -45,10 +45,61 @@ The `summary` step runs even after a failure. It writes the job summary, and `su
 
 Read it with `gh run view RUN_ID` (the summary) or `gh run download RUN_ID -n receipts` (`summary.json`, and the full logs in each receipt's `stdout.txt` and `stderr.txt`). `bun scripts/ci/summary.ts DIR check test` runs the same verdict on local receipts.
 
+## Public repository
+
+The repository has been public since 20 October 2026. Anyone can read its code and its workflow logs, fork it, open issues and comment; any signed-in GitHub user can download a run's `receipts` artifact. Only collaborators can open pull requests. The runner must still run only collaborators' code. GitHub's settings are what keep other code off it; the job's guard comes second, because a pull request's run uses the pull request's own copy of the workflow.
+
+### Settings
+
+The coordinator set and read these on 20 October 2026 with an admin `gh` login; GRS-158 read them again at 14:40 UTC the same day. Read them again with the same commands after any change to the settings, the collaborators or the organization's members. Use the REST API's default version, `2022-11-28`: a newer version returned unreadable JSON that day.
+
+| Setting | Value on 20 October 2026 | Read with `gh api` |
+| --- | --- | --- |
+| Visibility and issues | `visibility: public`, `has_issues: true` | `repos/GridShift-Software/clearcase` |
+| Who can open a pull request | `pull_request_creation_policy: collaborators_only`. In an organization's repository GitHub counts only the write, maintain and admin roles as collaborators for this. | `repos/GridShift-Software/clearcase` |
+| Forks | `allow_forking: true`. A public repository cannot refuse forks; this flag governs private forks. | `repos/GridShift-Software/clearcase` |
+| Approval of a fork's workflow run | `approval_policy: all_external_contributors`: a user who is not a member or owner of the repository and not a member of the organization needs a writer's approval. | `repos/GridShift-Software/clearcase/actions/permissions/fork-pr-contributor-approval` |
+| Actions | `allowed_actions: selected`, `sha_pinning_required: true`, `github_owned_allowed: false`, `verified_allowed: false`, and only the four actions below | `.../actions/permissions`, `.../actions/permissions/selected-actions` |
+| Workflow token | `default_workflow_permissions: read`, `can_approve_pull_request_reviews: false` | `.../actions/permissions/workflow` |
+| Runners | `clearcase-pc1-vm` alone, labels `self-hosted`, `Linux`, `X64`, `clearcase-pc1` | `.../actions/runners` |
+
+The allowed actions, each pinned to the commit the workflow uses:
+
+- `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1` (v7.0.1)
+- `oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6` (v2.2.0)
+- `actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1` (v7.1.0)
+- `actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9` (v7.0.2)
+
+GitHub refuses a run that uses any other action or commit, so bumping an action changes the workflow, this list and the repository's allowed actions together.
+
+GRS-158 also read, on 20 October 2026: the collaborators are two admins and one member with the read role, and all three are private members of the organization; `main`, the default branch, has no workflow files; `dev` has no branch protection and the repository has no rulesets; Dependabot security updates are off (its alerts are on).
+
+### Who can run code on pc1
+
+- **A pull request from a branch of this repository, a push to `dev`, a manual run.** Each runs code that someone with write access pushed. The job runs.
+- **A fork's pull request.** The guard skips it, but the fork's copy of the workflow can drop the guard. Two settings stop it instead: only writers (today the two admins) can open a pull request, and a fork's run from an external contributor, as the table above defines one, waits for a writer's approval. Organization members need no approval, so a writer who opens a pull request from a fork, their own or anyone else's, sends that fork's workflow to pc1 without one. Open pull requests only from branches of this repository, never from a fork, and never approve a fork's workflow run.
+- **Issues, comments, discussions, stars and forks.** No workflow listens. GitHub runs the default branch's workflows for these events and for `pull_request_target`, `workflow_run` and `schedule`; `main` has none yet, and the one it will get from `dev` lists only `pull_request`, `push` to `dev` and `workflow_dispatch`.
+
+Adding an organization member, or giving anyone the write role, widens who can run code on pc1.
+
+### The guard and its tests
+
+The `check` job runs only in `GridShift-Software/clearcase`, and only for a pull request whose head is a branch of this repository, a push to `dev` or a manual run. Any other event is skipped, takes no runner and uses no GitHub-hosted minutes. GitHub counts a skipped job as passing a required status check; `dev` has no required checks, and `orch-bin/merge-check` requires the `check` job to have succeeded, so a skipped run never clears a merge. A fork's own copy of the workflow is skipped too, instead of waiting for a runner the fork lacks.
+
+`tests/ci/workflow-admission.test.ts` evaluates each job's guard and each workflow's triggers with GitHub's expression rules (`tests/ci/actions-expression.ts`) against pull requests from forks, deleted forks and a fork's own branches, `pull_request_target`, `workflow_run`, issue and comment events and the other events, and pushes to other branches and tags, for every job in every workflow. It also checks that each job can land only on `clearcase-pc1-vm`, has a token that only reads, uses only the actions listed above, checks out without keeping a credential, stops within an hour and puts no `${{ }}` expression inside a script. These tests run in the pull request they judge, so a pull request that edits `.github/` can edit them too: read such a diff before merging it.
+
+### Limits
+
+- GitHub-hosted runners are not turned off for the organization. That needs the `admin:org` scope, which the coordinator's login lacks. The tests refuse a job that could land on one, but a pull request can change both.
+- Forks cannot be refused. A fork's copy of the workflow runs in the fork, where the guard skips it; this runner is registered to this repository and takes no fork's jobs.
+- Everything a job prints is public: run logs to anyone, and the `receipts` artifact, with each check's raw stdout and stderr, to any signed-in user. No workflow reads a secret, the token only reads, checkout keeps no credential and the checks use synthetic data; keep it that way.
+- The runner is persistent (Isolation, below). One admitted job that ran hostile code could change every later job and read the runner's credential. The VM boundary limits what such code reaches on pc1, not what it does on the internet.
+- The guard names the repository, so after a rename or a transfer every job is skipped, and merges block, until the name in `ci.yml` changes.
+
 ## Isolation
 
 - **The VM is disposable, a job is not.** The runner is persistent: it keeps its credentials, binaries (`/home/runner/actions-runner`, writable by `runner`), caches and `_work` between jobs, and one job can alter what every later job runs. There is no per-job isolation and no ephemeral runner. Run only code from trusted writers; the isolation boundary is the VM, and `destroy` followed by `create` removes all state it retained, including the runner credential, which `create` replaces with a new one.
-- **Fork pull requests are blocked by the repository's settings.** The repository is private with `allow_forking: false` and `run_workflows_from_fork_pull_requests: false` (read on 12 October 2026 from `gh api repos/GridShift-Software/clearcase` and `.../actions/permissions/fork-pr-workflows-private-repos`). The job's `if:` guard also skips fork pull requests, but it is not a control: a fork could supply its own workflow file with the runner's labels. Do not relax those settings or make the repository public while this runner is registered.
+- **Fork code is kept off the runner by the repository's settings.** Until 20 October 2026 the repository was private, with forking and fork workflows off. It is now public, and "Public repository" above lists the settings that replace those and what they leave open. Keep pull request creation at collaborators only and fork approval at all external contributors while this runner is registered.
 - QEMU runs as the unprivileged `clearcase-ci` user under systemd sandboxing, with only `/dev/kvm` and its own directory. There are no shared folders, host sockets or credentials in the guest.
 - **The guest cannot reach pc1's own services, even as root.** QEMU's user-mode network turns the guest's `10.0.2.2` into pc1's loopback, and guest root can hand QEMU raw frames for any address, such as `127.0.0.53:1716`, which QEMU then connects to from pc1. So the boundary is on the host, around the QEMU process:
   - `clearcase-ci-vm.service` sets `IPAddressDeny=` for all of `127.0.0.0/8` and `::1`, private ranges, the tailnet and pc1's own networks, and `IPAddressAllow=` for `127.0.0.57` (the SSH forward) and `127.0.0.53` (the resolver QEMU forwards the guest's DNS to). These lists are per address, not per port.

@@ -1,8 +1,9 @@
 // GRS-158: the repository is public, so anyone can fork it, open issues and comment, and only its write, maintain and
 // admin collaborators can open pull requests. Which events reach the pc1 runner is decided by each job's `if:`, which
 // this file evaluates with GitHub's expression semantics (actions-expression.ts) against synthetic event contexts, for
-// every job in every workflow. The guard is not the control for a pull request, whose run uses the pull request's own
-// workflow file; docs/ci-runner.md ("Public repository") names the settings that are.
+// every job in every workflow, together with the triggers, the runner a job can land on, its token, its actions and its
+// scripts. The guard is not the control for a pull request, whose run uses the pull request's own workflow file;
+// docs/ci-runner.md ("Public repository") names the settings that are.
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,7 +15,8 @@ type Workflow = { on: unknown; jobs: Record<string, Job> } & Record<string, unkn
 const { Bun: bun } = globalThis as unknown as { Bun: { YAML: { parse(s: string): Workflow } } };
 const dir = fileURLToPath(new URL('../../.github/workflows/', import.meta.url));
 const workflows = readdirSync(dir).filter((f) => /\.ya?ml$/.test(f)).map((file) => ({ file, doc: bun.YAML.parse(readFileSync(path.join(dir, file), 'utf8')) }));
-const jobs = workflows.flatMap(({ file, doc }) => Object.entries(doc.jobs).map(([id, job]) => ({ name: `${file} ${id}`, job })));
+const jobs = workflows.flatMap(({ file, doc }) => Object.entries(doc.jobs).map(([id, job]) => ({ name: `${file} ${id}`, job, workflow: doc })));
+const steps = (job: Job) => (Array.isArray(job.steps) ? job.steps : []) as Record<string, unknown>[];
 const ci = workflows.find((w) => w.file === 'ci.yml')!.doc;
 
 const REPO = 'GridShift-Software/clearcase';
@@ -65,6 +67,26 @@ const REJECTED: Case[] = [
 	...OTHER_EVENTS.map((e) => on(`a ${e} event`, e, 'refs/heads/main', { action: 'created' })),
 ];
 
+// Whether GitHub starts a run of the workflow for the event, from its on: block: the event's name, a push's branch by
+// exact name (a tag push does not match a branches filter), a pull request's activity type. Any other filter throws.
+const FILTERS: Record<string, string[]> = { push: ['branches'], pull_request: ['types'], workflow_dispatch: ['inputs'] };
+function starts(on: unknown, github: Case['github']): boolean {
+	const triggers = (typeof on === 'string' ? { [on]: null } : Array.isArray(on) ? Object.fromEntries(on.map((e) => [e, null])) : on) as Record<string, unknown>;
+	const name = String(github.event_name), event = github.event as Record<string, Value>;
+	if (!Object.hasOwn(triggers, name)) return false;
+	const filter = (triggers[name] ?? {}) as Record<string, unknown>;
+	for (const key of Object.keys(filter)) if (!(FILTERS[name] ?? []).includes(key)) throw new Error(`starts(): the ${name} filter ${key} is not modelled`);
+	if (name === 'push' && filter.branches !== undefined) {
+		const branches = filter.branches;
+		if (!Array.isArray(branches) || branches.some((b) => typeof b !== 'string' || /[*?+![\]]/.test(b))) throw new Error(`starts(): only exact branch names are modelled, not ${JSON.stringify(branches)}`);
+		return String(github.ref).startsWith('refs/heads/') && branches.includes(String(github.ref).slice('refs/heads/'.length));
+	}
+	if (name === 'pull_request') return ((filter.types as string[] | undefined) ?? ['opened', 'synchronize', 'reopened']).includes(String(event.action));
+	return true;
+}
+// The rows a trigger list of pull_request, push to dev and workflow_dispatch refuses by itself; the rest reach the guard.
+const refusedByTriggers = REJECTED.filter(({ github: g }) => !(g.event_name === 'pull_request' || g.event_name === 'workflow_dispatch' || (g.event_name === 'push' && g.ref === 'refs/heads/dev')));
+
 describe('workflow admission', () => {
 	it('evaluates a guard on every job of every workflow', () => {
 		expect(jobs.length).toBeGreaterThan(0);
@@ -74,8 +96,68 @@ describe('workflow admission', () => {
 			expect(runs(job.if, { github, needs: {} })).toBe(false);
 		});
 	});
-	it.each(ADMITTED)('CI runs its check job for $name', ({ github }) => {
+	describe.each(workflows)('$file', ({ doc }) => {
+		it.each(refusedByTriggers)('starts no run for $name', ({ github }) => {
+			expect(starts(doc.on, github)).toBe(false);
+		});
+	});
+	it.each(ADMITTED)('CI starts and runs its check job for $name', ({ github }) => {
+		expect(starts(ci.on, github)).toBe(true);
 		expect(runs(ci.jobs.check!.if, { github, needs: {} })).toBe(true);
+	});
+});
+
+// The labels clearcase-pc1-vm carries (docs/ci-runner.md). GitHub gives a job to a runner that has every label the job
+// names, and GitHub's own runners never carry self-hosted.
+const PC1 = ['self-hosted', 'Linux', 'X64', 'clearcase-pc1'];
+function labels(runsOn: unknown): string[] {
+	const list: unknown = typeof runsOn === 'string' ? [runsOn] : runsOn;
+	if (!Array.isArray(list) || list.length === 0 || list.some((l) => typeof l !== 'string' || l.includes('${{')))
+		throw new Error(`runs-on ${JSON.stringify(runsOn)} is not a literal list of labels: a group or an expression could pick a GitHub-hosted runner`);
+	return list.map((l: string) => l.toLowerCase());
+}
+// A token permission that is not read or none, for the job's own permissions or else its workflow's.
+function writes(permissions: unknown): string[] {
+	if (permissions === 'read-all' || (permissions !== null && typeof permissions === 'object' && !Array.isArray(permissions) && Object.values(permissions).every((v) => v === 'read' || v === 'none'))) return [];
+	return [JSON.stringify(permissions ?? 'unset, so the repository default applies')];
+}
+const docs = readFileSync(new URL('../../docs/ci-runner.md', import.meta.url), 'utf8');
+const policy = docs.slice(docs.indexOf('\n## Public repository'), docs.indexOf('\n## ', docs.indexOf('\n## Public repository') + 1));
+// The actions the repository's Actions settings allow, as docs/ci-runner.md records them: exact commit SHAs only.
+const ALLOWED = [...policy.matchAll(/`([\w.-]+\/[\w.-]+@[0-9a-f]{40})`/g)].map((m) => m[1]!);
+
+describe('public repository workflow policy', () => {
+	describe.each(jobs)('$name', ({ job, workflow }) => {
+		it('can land only on clearcase-pc1-vm, never on a GitHub-hosted runner', () => {
+			const wanted = labels(job['runs-on']);
+			expect(wanted).toContain('self-hosted');
+			expect(wanted).toContain('clearcase-pc1');
+			expect(wanted.filter((l) => !PC1.map((p) => p.toLowerCase()).includes(l)), 'labels clearcase-pc1-vm lacks').toEqual([]);
+		});
+		it('has a token that can only read, and no container, service or reusable workflow', () => {
+			expect(writes(job.permissions ?? workflow.permissions)).toEqual([]);
+			for (const key of ['container', 'services', 'uses', 'secrets']) expect(job[key], key).toBeUndefined();
+		});
+		it('stops within an hour', () => {
+			expect(typeof job['timeout-minutes']).toBe('number');
+			expect(job['timeout-minutes']).toBeGreaterThan(0);
+			expect(job['timeout-minutes']).toBeLessThanOrEqual(60);
+		});
+		it('uses only the allowed actions, and checks out without keeping a credential', () => {
+			for (const step of steps(job).filter((s) => s.uses !== undefined)) expect(ALLOWED, String(step.uses)).toContain(step.uses);
+			for (const step of steps(job).filter((s) => String(s.uses).startsWith('actions/checkout@'))) {
+				const inputs = (step.with ?? {}) as Record<string, unknown>;
+				expect(inputs['persist-credentials']).toBe(false);
+				for (const key of ['repository', 'token', 'ssh-key']) expect(inputs[key], key).toBeUndefined();
+			}
+		});
+		it('puts no ${{ }} expression inside a script, where a branch name or title would become code', () => {
+			for (const step of steps(job)) expect(String(step.run ?? ''), String(step.name ?? step.run)).not.toContain('${{');
+		});
+	});
+	it('docs/ci-runner.md lists exactly the actions the workflows use', () => {
+		expect(ALLOWED.length).toBeGreaterThan(0);
+		expect(new Set(ALLOWED)).toEqual(new Set(jobs.flatMap(({ job }) => steps(job).map((s) => s.uses).filter((u) => u !== undefined))));
 	});
 });
 

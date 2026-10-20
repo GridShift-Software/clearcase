@@ -32,6 +32,9 @@ jobs:
     # pc1: a pull request's run uses the pull request's own copy of this file, which can drop it. The repository's
     # settings are (docs/ci-runner.md, "Public repository"): only write, maintain and admin collaborators can open a
     # pull request, and a fork's run from an external contributor waits for a writer's approval, which nobody gives.
+    # Neither stops a writer from opening a pull request from a fork, so the runner refuses one itself: a root-owned
+    # job-started hook (scripts/ci/guest-provision.sh) ends the job before its first step unless the pull request's
+    # head is this repository, once pc1 has been provisioned with it (docs/ci-runner.md says whether it has).
     # tests/ci/workflow-admission.test.ts evaluates this condition, and the triggers, for each kind of event.
     if: >-
       github.repository == 'GridShift-Software/clearcase' && (

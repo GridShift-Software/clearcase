@@ -83,7 +83,7 @@ A wave is a set of tickets on one branch `wave/<name>`, at most seven writers. T
 | `wave/widen-3` | GRS-119, GRS-124 to GRS-128 | GRS-66 |
 | `wave/release` | GRS-32 | GRS-32 |
 
-Ticket PRs target their wave branch. A dependent branch may be cut from its upstream ticket's branch for ancestry, but its PR still targets the wave. Only wave PRs target `dev`, and `dianbrown` reviews the wave PR. The internal fresh review of every ticket and the independent review of gate-authored verification code (CC-20) stay. These are separate decisions: the internal ticket review, the independent gate-code review, the user's checkpoint and Dian's wave approval.
+Ticket PRs target their wave branch. A dependent branch may be cut from its upstream ticket's branch for ancestry, but its PR still targets the wave. Only wave PRs target `dev`. On 17 October `dianbrown` reviewed the wave PR; since 20 October 2026 Greptile's check, CI and no unresolved finding at the exact head gate `dev`, and `dianbrown` approves only release PRs into `main` (workspace `AGENTS.md`). The internal fresh review of every ticket and the independent review of gate-authored verification code (CC-20) stay. These are separate decisions: the internal ticket review, the independent gate-code review, the user's checkpoint and Dian's wave approval.
 
 ## 5. Pre-kickoff checklist and state on 17 October
 

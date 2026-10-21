@@ -4,14 +4,17 @@
 // operations it took (x-probe-* headers), which the runner counts to choose the layout.
 //
 // Integrity rules it proves:
-// - every request first checks that its D1 database and R2 bucket both belong to the deployment's client (crossed or
-//   missing identity: 503, nothing read or written);
+// - an isolate's first request checks that its D1 database and R2 bucket both belong to the deployment's client, and
+//   the verified client is then cached for the isolate's life (crossed or missing identity: 503, nothing read or
+//   written);
 // - the whole object a byte belongs to is hashed and matched against its recorded SHA-256 and size (410 and no bytes
 //   otherwise), ranges included. Up to 32 MiB that happens before the first byte leaves. Beyond it the object is read
 //   twice: the first read hashes it before the headers, the second hashes again while streaming and holds back its last
 //   chunk until the digest matches, so a change between the reads ends the response in an error before its last byte;
 //   the bytes before that chunk have already left;
-// - every multi-statement write is one D1 batch whose first statement is a guard; a failed guard rolls the batch back.
+// - every multi-statement write is one D1 batch whose first statement is a guard; a failed guard rolls the batch back;
+// - R2 keys that a D1 row records, or that hold verified bytes, are never overwritten or deleted by the Worker: a repeat of
+//   the same bytes is a no-op and anything else answers 409 (orig/, pkg/, rm/; backup/ keys embed their own digest).
 import { type D1, type D1Result, type D1Value, type Env, type R2, type R2Object, type R2ObjectBody, type R2UploadedPart, digestStream, fixedLength, hasBody, hex, sha256Hex } from './platform.ts';
 import { type Sha256State, Sha256 } from './sha256.ts';
 import { DESCRIPTOR_SIZE, type Entry, centralDirectory, checkLocal, crc32, descriptor, locate, localHeader, localHeaderSize, trailer } from './zip.ts';
@@ -37,7 +40,7 @@ const SINGLE_PUT_MAX = 64 * MiB; // larger uploads go through multipart parts, e
 const BUFFER_MAX = 32 * MiB; // a verified original up to this size, or a range up to it, is served from one hashing pass; larger ones from two
 const PART = 8 * MiB; // an export step writes one multipart part of exactly this size; only the packet's last part is shorter
 const RESTORE_STEP_BYTES = 64 * MiB;
-const BACKUP_FORMAT = 'clearcase.case-packet/1';
+const BACKUP_FORMAT = 'clearcase.case-backup/1'; // a case backup: user work too, so not GLOSSARY.md's Complete case export
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SHA = /^[0-9a-f]{64}$/;
 const VERSION = /^sha256:[0-9a-f]{64}$/;

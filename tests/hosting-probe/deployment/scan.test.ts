@@ -37,10 +37,21 @@ describe('credential scan', () => {
 		expect(scanPaths({ roots: [root], canaries: [CANARY] }).hits.map((h) => h.rule)).toEqual(['canary-1']);
 	});
 
-	test('installed packages and symlinks are not walked', () => {
-		const root = tree({ 'node_modules/lib/key.js': `CLOUDFLARE_API_TOKEN=${CANARY}`, 'out/clean.txt': 'nothing\n' });
-		symlinkSync(path.join(root, 'node_modules'), path.join(root, 'out/linked'));
-		expect(scanPaths({ roots: [root], canaries: [CANARY] })).toEqual({ hits: [], files: 1 });
+	test('installed packages are not walked, but a symlink is a hit wherever it points', () => {
+		const root = tree({ 'node_modules/lib/key.js': `CLOUDFLARE_API_TOKEN=${CANARY}`, 'out/clean.txt': 'nothing\n', 'outside/secret.txt': 'plain\n' });
+		expect(scanPaths({ roots: [root], canaries: [CANARY] })).toEqual({ hits: [], files: 2 });
+		symlinkSync(path.join(root, 'outside/secret.txt'), path.join(root, 'out/linked-file'));
+		symlinkSync(path.join(root, 'outside'), path.join(root, 'out/linked-dir'));
+		expect(scanPaths({ roots: [path.join(root, 'out')], canaries: [CANARY], base: root }).hits).toEqual([
+			{ file: 'out/linked-dir', rule: 'symlink' },
+			{ file: 'out/linked-file', rule: 'symlink' },
+		]);
+	});
+
+	test("a symlink named node_modules, a stage's link to its tools, is the one allowed", () => {
+		const root = tree({ 'tools/lib/key.js': `CLOUDFLARE_API_TOKEN=${CANARY}`, 'stage/clean.txt': 'nothing\n' });
+		symlinkSync(path.join(root, 'tools'), path.join(root, 'stage/node_modules'));
+		expect(scanPaths({ roots: [path.join(root, 'stage')], canaries: [CANARY] })).toEqual({ hits: [], files: 1 });
 	});
 
 	test('a library that only names the private-key header is not a hit', () => expect(scanPaths({ roots: [tree({ 'pem.js': 'const HEADER = "-----BEGIN PRIVATE KEY-----";\n' })], canaries: [] }).hits).toEqual([]));

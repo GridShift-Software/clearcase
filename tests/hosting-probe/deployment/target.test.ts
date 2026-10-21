@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 import { checkPrebuilt, checkTarget, digestDir, loadTargets, stage, STAGED, type Target } from '../../../deploy/probes/target.ts';
@@ -248,5 +248,50 @@ describe('the trusted parent stages only a checked config and the reviewed artif
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain(`refused: swapped.jsonc: r2 bucket ${b.r2.bucket} belongs to client-b, not client-a`);
 		expect(cli('check').status).toBe(2);
+	});
+});
+
+describe('the artifact digest binds exactly what is staged (M1)', () => {
+	const SCRATCH = path.join(import.meta.dirname, '../../../.local/hosting-probe/deployment', `bind-${process.pid}`);
+	afterAll(() => rmSync(SCRATCH, { recursive: true, force: true }));
+	let n = 0;
+	const tree = (files: Record<string, string>) => {
+		const root = path.join(SCRATCH, `t${++n}`);
+		for (const [f, body] of Object.entries(files)) (mkdirSync(path.dirname(path.join(root, f)), { recursive: true }), writeFileSync(path.join(root, f), body));
+		return root;
+	};
+
+	test('a symlink in the artifact is refused, to a file or a directory', () => {
+		const outside = tree({ 'secret.txt': 'outside the artifact\n' });
+		const file = tree({ '_worker.js': 'export default {};\n' });
+		symlinkSync(path.join(outside, 'secret.txt'), path.join(file, 'extra.txt'));
+		expect(() => digestDir(file)).toThrow(/extra\.txt is not a regular file/);
+		const dir = tree({ '_worker.js': 'export default {};\n' });
+		symlinkSync(outside, path.join(dir, 'linked'));
+		expect(() => digestDir(dir)).toThrow(/linked is not a regular file/);
+	});
+
+	test('two trees that differ only in where the bytes split between files digest differently', () => {
+		expect(digestDir(tree({ a: 'one\0b\0two' }))).not.toBe(digestDir(tree({ a: 'one', b: 'two' })));
+		expect(digestDir(tree({ 'a': 'x', 'b/c': 'y' }))).not.toBe(digestDir(tree({ 'a': 'x\0b/c\0y' })));
+	});
+
+	test('stage refuses a symlink added after review, although the digest of its regular files is the reviewed one, and stages nothing', () => {
+		const reviewed = tree({ '_worker.js': 'export default {};\n', '_app/version.json': '{}\n' });
+		const wanted = digestDir(reviewed);
+		const built = tree({ '_worker.js': 'export default {};\n', '_app/version.json': '{}\n' });
+		symlinkSync(path.join(tree({ 'k.txt': 'outside\n' }), 'k.txt'), path.join(built, 'extra.txt'));
+		const out = path.join(SCRATCH, `stage-link-${n}`);
+		const problems = stage({ client: 'client-a', artifact: built, digest: wanted, out });
+		expect(problems.join('\n')).toMatch(/extra\.txt is not a regular file/);
+		expect(existsSync(out)).toBe(false);
+	});
+
+	test('the digest in stage.json is that of the staged copy, which holds only regular files', () => {
+		const art = tree({ '_worker.js': 'export default {};\n', '_app/version.json': '{}\n' });
+		const out = path.join(SCRATCH, `stage-copy-${n}`);
+		expect(stage({ client: 'client-a', artifact: art, digest: digestDir(art), out })).toEqual([]);
+		expect(JSON.parse(readFileSync(path.join(out, 'stage.json'), 'utf8')).artifact).toBe(digestDir(path.join(out, 'artifact')));
+		expect(() => digestDir(out)).not.toThrow(/not a regular file/);
 	});
 });

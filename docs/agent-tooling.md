@@ -336,6 +336,31 @@ a later ticket in the same wave that changes a protected file needs a reviewed `
 manifest, for a free test only. CI has no copy of the ledger, so it cannot tell on its own that a pull request is a
 fix round; the `fix-round` label, and the binding at `approve` below, are the two controls.
 
+A manifest's `fixBase..HEAD` range also spans every later merge from the base, so a change the base made to a helper,
+fixture, setup file or runner configuration used to fail every older manifest on the branch (PR #75, GRS-153). With an
+explicit `--base` and no `--ledger`, `fix-round-guard` passes the base's commit to the guard (`--trusted-base`), and a
+path that differs between the fix base and HEAD counts as the base's change when all three hold: the base is an ancestor
+of HEAD (merged, not copied); the fix base's copy equals the copy at every merge base of the fix base and the base (the
+branch had not changed the path when it was reviewed); and HEAD's copy is the base's, mode and blob alike. This applies to
+the protected dependencies (a derived entry, the test scripts or a `package.json`'s resolution fields, through its whole
+file), the fixtures, the statements of a protected test file outside its named tests, and the checks on the rest of the
+fix diff (framework reach, assertion counts, changed Python or shell tests). It is not a weakening: such a path is
+byte-identical to the base, so merging the pull request changes nothing there, the branch made none of the change, and
+the base changes only through pull requests CI has judged. The named tests are still compared token for token whatever
+the base holds. Everything else refuses with the messages above: a branch edit after a merge or on top of a base change,
+an edit inside the merge commit, a revert of a reviewed change to the base's older copy, a path both sides changed (a
+hand-resolved union, which is a branch-side choice: PR #75's `vitest.config.ts` was one, and even Git's 3-way merge of it
+conflicts), a protected dependency added or deleted, a symlink, a mode change on top, a base HEAD has not merged
+(including one that moved on after the merge: merge it again), an unreadable base, and no `--base` (the default base sets
+the range only). `--ledger` binds the guard to the reviewed commit alone, and `test-guard`, `verify test-guard` and
+`receipt --fix-base` never accept a base change. The receipt records `guard.trustedBase` (null otherwise), and the guard
+prints how many changed files it left to the base and which protected ones. Reviewer-owned: a base change to the runner
+configuration is accepted even where it decides whether the branch's named tests run (a base `exclude`, or an `include`
+list that no longer matches the branch's test directory), since the guard cannot evaluate globs; the re-check reads each
+protected file the guard's line names. A `fixBase` advance like `e7681a6` (PR #75) is no longer needed for a base change
+to a path the branch had not touched; it still is for a hand-resolved union and for a later ticket in the same wave
+(`afd48fc4`, PR #84, where the change came from the wave, not the base). Existing manifests stay as they are.
+
 Findings JSON has `tests: [{"file": "tests/example.test.ts", "name": "rejects stale evidence"}]`.
 The list must be nonempty. Paths are relative to the repository; literal names must be unique
 and active in both revisions. JS/TS syntax is parsed by the project's TypeScript dependency,
@@ -559,7 +584,8 @@ not from the worker's files: the review that prompted the fix is the unit's late
 `fix` event, and the receipt must show (1) a `fixBase` equal to that review's recorded SHA, (2) a manifest whose
 `reviewFindingsSha256` equals the content hash of that review's recorded findings and whose `unit` is the unit, and
 (3) a manifest `tests` list equal to the recorded findings' `protectedTests`. A worker-written manifest with a later
-`fixBase`, another findings hash or a shorter `tests` list refuses. When the recorded review lists no `protectedTests`
+`fixBase`, another findings hash or a shorter `tests` list refuses, and so does a receipt whose `guard.trustedBase` is
+set (`fix-round-guard --base` without `--ledger`), since a worker chooses that base. When the recorded review lists no `protectedTests`
 field the approval refuses; an empty list records `guard.nothingToProtect` and needs no receipt. The row keeps the
 binding and the receipt joins the fingerprinted inputs, so editing the receipt afterwards refuses at readback.
 A unit with no recorded `fix` dispatch approves as before.

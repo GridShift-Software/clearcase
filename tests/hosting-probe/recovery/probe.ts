@@ -742,7 +742,7 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			const viaPacket = await restorePacket(raw, A1);
 			check(viaPacket.open === '409 case-deleted' && isGone(await liveOf(A1)), `the same backup uploaded as a restore packet is refused at open and nothing is written (${JSON.stringify(viaPacket)})`);
 			const stepFinish = [await post(`/restore/packets/${raw}/step`, { caseId: A1, from: 1 }), await post(`/restore/packets/${raw}/finish`, { caseId: A1 })];
-			check(stepFinish.every((r) => code(r, 409, 'case-deleted')) && isGone(await liveOf(A1)), 'step and finish of that packet are refused as well');
+			check(stepFinish.every((r) => code(r, 409, 'case-deleted')) && isGone(await liveOf(A1)) && !(await held('live', `import/${raw}.zip`)), "step and finish of that packet are refused as well, and the packet, which holds the deleted case's data, is deleted");
 			refused += 3;
 			const wr = await post(`/cases/${A1}/work/restore`, { expectedRev: 0, snapshot: { format: 'clearcase.user-work/1', caseId: A1, rev: 0, tables: {} } });
 			check(code(wr, 410, 'case-deleted'), 'a user-work restore into the removed case answers 410 case-deleted');
@@ -857,7 +857,7 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			plant('foreign.json', base);
 			await serve('client-a');
 			const foreign = await http('/recovery/copies');
-			check(code(foreign, 503, 'foreign-deletion-record') && foreign.json().binding === 'RECOVERY' && !foreign.text.includes('client-b') && (refused++, true), "a deletion record naming another client answers 503 foreign-deletion-record on every request: it is never applied, and never ignored");
+			check(code(foreign, 503, 'foreign-deletion-record') && foreign.json().binding === 'RECOVERY' && !foreign.text.includes('client-b') && (refused++, true), "from the first request of a fresh isolate, a deletion record naming another client answers 503 foreign-deletion-record and is never applied");
 			const { caseId: _, ...noCase } = base;
 			plant('malformed.json', { ...noCase, client: 'client-a' });
 			const malformed = await http(`/cases/${A2}/documents/S-0001`);

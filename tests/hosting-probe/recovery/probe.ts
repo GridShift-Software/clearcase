@@ -2,8 +2,8 @@
 //
 //   (cd ../storage && bun install --frozen-lockfile)   # once, online: Wrangler, workerd and Miniflare at GRS-109's pins
 //   bun run --bun probe [--out FILE]
-//   bun run --bun probe --check FILE
-//   bun run --bun test:check                          # every mutation of the committed summary must be refused
+//   bun run --bun probe --check FILE                  # shape, and the summary's sourceSha bound to HEAD
+//   bun run --bun test:check                          # the committed summary passes; a made-up sourceSha and every mutation are refused
 //
 // The first form builds this directory's Worker (GRS-109's storage Worker behind the recovery and deletion routes) with
 // Bun, provisions local D1 databases and R2 buckets with Wrangler's CLI, serves each deployment on native workerd through
@@ -967,10 +967,27 @@ function enterOffline(args: string[]): number {
 	return r.status ?? 1;
 }
 
-/** What `test:check` decides for a summary: its shape, against the sourceSha the summary itself names. */
+/** The only files a commit after the run may change: this page and the committed summary. */
+const EVIDENCE_FILES = ['docs/acceptance/hosting/recovery.md', 'docs/acceptance/hosting/evidence/recovery-summary.json'];
+
+/** A git command whose failure is an answer, not an error. */
+const asked = (...args: string[]) => run('git', args, { env: { PATH: '/usr/bin:/bin' } });
+
+/** Whether `sourceSha` is the code at HEAD: HEAD itself, or an ancestor of it with nothing changed since but the page and the summary. */
+export function bindingProblems(sourceSha: string): string[] {
+	if (!/^[0-9a-f]{40}$/.test(sourceSha) || asked('cat-file', '-e', `${sourceSha}^{commit}`).code !== 0) return [`sourceSha ${sourceSha.slice(0, 60)} is not a commit of this clone`];
+	if (sourceSha === head()) return [];
+	if (asked('merge-base', '--is-ancestor', sourceSha, 'HEAD').code !== 0) return [`sourceSha ${sourceSha} is not an ancestor of HEAD`];
+	// Rename detection off, so a file moved out of a protected path is listed under both its names.
+	const changed = asked('diff', '--name-only', '--no-renames', sourceSha, 'HEAD').stdout.split('\n').filter(Boolean);
+	const other = changed.filter((f) => !EVIDENCE_FILES.includes(f));
+	return other.length ? [`${other.length} file(s) changed between sourceSha ${sourceSha.slice(0, 12)} and HEAD besides the page and the summary: ${other.slice(0, 3).join(', ')}`] : [];
+}
+
+/** What `--check` and `test:check` decide for a summary: the sourceSha it names is bound to HEAD, and its shape holds for that sourceSha. */
 export function checkEvidence(summary: unknown): string[] {
 	const sha = isObject(summary) && typeof summary.sourceSha === 'string' ? summary.sourceSha : '';
-	return checkSummary(summary, sha);
+	return [...bindingProblems(sha), ...checkSummary(summary, sha)];
 }
 
 /** `test:check`: the committed summary passes as it is, and every mutation of it is refused. */
@@ -989,6 +1006,10 @@ function selfTest(): number {
 		['failure set', (s) => (s.failure = 'x')],
 		['a made-up sourceSha', (s) => (s.sourceSha = '0'.repeat(40))],
 	];
+	// A real commit from before the last change to the Worker: the code at HEAD is not the code the summary would then describe.
+	const worker = asked('log', '-1', '--format=%H', '--', 'tests/hosting-probe/recovery/src/worker.ts').stdout.trim();
+	const before = worker ? asked('rev-parse', `${worker}~1`).stdout.trim() : '';
+	if (/^[0-9a-f]{40}$/.test(before)) named.push(['a sourceSha from before the last change to the Worker', (s) => (s.sourceSha = before)]);
 	let holes = 0;
 	for (const [label, edit] of named) {
 		const copy = structuredClone(summary);
@@ -1008,7 +1029,7 @@ if (process.argv[1] === import.meta.filename) {
 		if (process.versions.bun !== BUN) throw new Refusal(`runs under Bun ${BUN} only (packageManager); this is ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node ${process.versions.node}`}`);
 		if (values['self-test']) process.exit(selfTest());
 		if (values.check) {
-			const problems = checkSummary(JSON.parse(readFileSync(values.check, 'utf8')), head());
+			const problems = checkEvidence(JSON.parse(readFileSync(values.check, 'utf8')));
 			for (const problem of problems) console.log(`refused: ${problem}`);
 			console.log(problems.length ? `CHECK FAIL ${values.check}` : `CHECK PASS ${values.check}`);
 			process.exit(problems.length ? 1 : 0);

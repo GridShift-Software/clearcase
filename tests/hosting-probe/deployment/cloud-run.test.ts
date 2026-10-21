@@ -2,7 +2,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
-import { janitorPlan, openRun, runName, type Listed, type RunManifest } from '../../../deploy/probes/cloud-run.ts';
+import { janitorPlan, openRun, runName, type Kind, type Listed, type Provider, type RunManifest } from '../../../deploy/probes/cloud-run.ts';
 import { fakeCloud } from './fixtures/fake-cloud.ts';
 
 const REPO = path.join(import.meta.dirname, '../../..');
@@ -93,6 +93,77 @@ describe('run manifest and teardown', () => {
 		expect(m.state).toBe('finished');
 		expect(m.resources.map((x) => `${x.kind}:${x.teardown}:${x.error}`)).toEqual(['worker:deleted:null', 'd1:failed:synthetic d1 delete failure', 'r2:deleted:null']);
 		expect(w.provider.names()).toEqual([`d1/${NAME}`, ...OTHERS]);
+	});
+});
+
+describe('teardown deletes only what this run opened (M3)', () => {
+	/** A provider that records every call, over the fake cloud. */
+	const spy = (w: ReturnType<typeof world>) => {
+		const removed: string[] = [];
+		return { removed, provider: { create: w.provider.create, remove: (kind: Kind, name: string) => (removed.push(`${kind}/${name}`), w.provider.remove(kind, name)) } };
+	};
+	const open = (w: ReturnType<typeof world>, provider: Provider) => openRun({ dir: w.manifests, ticket: '107', worker: 'w1', sha: 'abc1234', kinds: ['worker', 'd1', 'r2'], provider, trap: false });
+	const rewrite = (w: ReturnType<typeof world>, edit: (m: RunManifest) => void) => {
+		const m = manifest(w.manifests);
+		edit(m);
+		writeFileSync(path.join(w.manifests, `${NAME}.json`), JSON.stringify(m));
+	};
+
+	test("a manifest rewritten during the run to list an unprefixed D1 deletes nothing but the run's own", () => {
+		const w = world();
+		mkdirSync(path.join(w.cloud, 'd1', 'clearcase-client-a-db'), { recursive: true });
+		const { removed, provider } = spy(w);
+		const run = open(w, provider);
+		run.create('d1');
+		rewrite(w, (m) => m.resources.push({ kind: 'd1', name: 'clearcase-client-a-db', created: true, teardown: 'pending', error: null }));
+		run.teardown();
+		expect(removed).toEqual([`worker/${NAME}`, `d1/${NAME}`, `r2/${NAME}`]);
+		expect(w.provider.names()).toContain('d1/clearcase-client-a-db');
+	});
+
+	test("a manifest rewritten to name another run's resources, or another kind, deletes nothing of theirs", () => {
+		const w = world();
+		const { removed, provider } = spy(w);
+		const run = open(w, provider);
+		rewrite(w, (m) => {
+			m.resources[0]!.name = 'cc-107-w9-1234567';
+			m.resources[1]!.kind = 'kv' as never;
+		});
+		run.teardown();
+		expect(removed).toEqual([`worker/${NAME}`, `d1/${NAME}`, `r2/${NAME}`]);
+		expect(w.provider.names()).toEqual(OTHERS);
+	});
+
+	test('a manifest deleted or unreadable at teardown still tears down the run and leaves a finished record', () => {
+		const w = world();
+		const { removed, provider } = spy(w);
+		const run = open(w, provider);
+		run.create('d1');
+		writeFileSync(path.join(w.manifests, `${NAME}.json`), '{ not json');
+		const done = run.teardown();
+		expect(removed).toEqual([`worker/${NAME}`, `d1/${NAME}`, `r2/${NAME}`]);
+		expect(done.state).toBe('finished');
+		expect(manifest(w.manifests).state).toBe('finished');
+	});
+
+	test('a manifest rewritten to finished makes create refuse, since its status is the one thing read from the file', () => {
+		const w = world();
+		const run = open(w, w.provider);
+		rewrite(w, (m) => (m.state = 'finished'));
+		expect(() => run.create('d1')).toThrow(/not in the open manifest/);
+	});
+});
+
+describe('the janitor needs its manifests directory named (L6)', () => {
+	test("a checkout's own .local/cloud-runs is never the default: another checkout's open runs would look orphaned", () => {
+		const cwd = path.join(SCRATCH, 'checkout');
+		mkdirSync(path.join(cwd, '.local/cloud-runs'), { recursive: true });
+		const file = path.join(SCRATCH, 'listing-default.json');
+		writeFileSync(file, JSON.stringify([{ kind: 'd1', name: 'cc-108-w3-ccccccc', createdAt: '2026-10-19T00:00:00.000Z' }]));
+		const r = spawnSync(process.execPath, [path.join(REPO, 'deploy/probes/cloud-run.ts'), 'janitor', '--listing', file, '--now', '2026-10-21T12:00:00.000Z'], { cwd, encoding: 'utf8' });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toMatch(/janitor needs --manifests DIR/);
+		expect(r.stdout).not.toContain('would delete');
 	});
 });
 

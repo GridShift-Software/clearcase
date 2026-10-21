@@ -427,7 +427,8 @@ try {
 	});
 	await S('CB-RELOAD-FAST', 'court_bundle_tab', 'GRS-160: when the server dies as the page reloads its data, the failed fetch ends the wait at once: the error shows and the page leaves busy well before RELOAD_BOUND_MS (7 s), with a fragment in the URL as without', async () => {
 		// a field typed while the reload runs makes the page refuse SvelteKit's fallback load, so the error stays on screen to read
-		const typed = 'SYN TYPED WHILE RELOADING';
+		// not the value CB-RELOAD-LOST stores: typed equal to the stored header is no unsaved change, and the page would not refuse
+		const typed = 'SYN TYPED IN THE FAST RELOAD';
 		// settled once the error is on screen (and the page not busy), so a read taken while SvelteKit's refused fallback load is under way cannot pass for it
 		const ERROR_SHOWN = `document.querySelector('#main')?.dataset.busy === '0' && !!document.getElementById('cb-reload-error')`;
 		const quick = (ev) => ev.settled && ev.settledMs < 3000 && ev.page.app && ev.page.busy === '0' && /could not reload/.test(ev.page.error) && ev.page.alert === 'alert' && ev.page.saveDisabled === false;

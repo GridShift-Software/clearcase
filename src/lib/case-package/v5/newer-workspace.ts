@@ -166,10 +166,11 @@ export function caselinesIndexOf(idx: JsonObject, caselinesSrc: string, pages: n
 }
 
 export function schedOf(list: readonly JsonObject[]): JsonObject {
-  const file = (f: JsonObject): JsonObject => ({ ...f, fn: f.fn ?? str(f.name), url: str(f.url), co: f.co ?? '' });
+  const file = (f: JsonObject): JsonObject => writeOver({ ...f }, { fn: f.fn ?? str(f.name), url: str(f.url), co: f.co ?? '' });
   const item = (i: JsonObject): JsonObject => {
     const files = mapObjs(i.files, file) ?? [];
-    return { ...i, no: count(i.no), date: str(i.date), desc: str(i.desc), co: i.co ?? '', nfiles: i.nfiles ?? objs(files).length, files };
+    // files is the same list mapped file by file, so it replaces the source's and is not a collision
+    return own(writeOver({ ...i }, { no: count(i.no), date: str(i.date), desc: str(i.desc), co: i.co ?? '', nfiles: i.nfiles ?? objs(files).length }), 'files', files);
   };
   const of = (bundle: string) => list.filter((s) => str(s.bundle) === bundle).flatMap((s) => objs(s.items).map(item));
   return { discovery: of('Original'), supplementary: of('Supplementary'), schedules: [...list] };

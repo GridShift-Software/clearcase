@@ -69,7 +69,7 @@ export class Pace {
 	}
 }
 
-export type User = { id: string; email: string };
+export type User = { id: string; email: string; createdAt: number };
 
 export class Backend {
 	calls = 0;
@@ -93,25 +93,25 @@ export class Backend {
 	}
 
 	usersCount = async (): Promise<number> => (await this.call('GET', '/users/count')).total_count;
-	/** Every user whose primary email starts with `prefix` (a run's own synthetic addresses). */
+	/** Every user whose primary email starts with `prefix` (a run's own synthetic addresses), with the creation time Clerk gives in ms. */
 	async users(prefix: string): Promise<User[]> {
 		const out: User[] = [];
 		for (let offset = 0; ; offset += 100) {
 			const page = (await this.call('GET', `/users?limit=100&offset=${offset}&query=${encodeURIComponent(prefix)}`)) as any[];
 			for (const u of page) {
 				const email = u.email_addresses?.find((e: any) => e.id === u.primary_email_address_id)?.email_address ?? '';
-				if (email.startsWith(prefix)) out.push({ id: u.id, email });
+				if (email.startsWith(prefix)) out.push({ id: u.id, email, createdAt: Number(u.created_at) || 0 });
 			}
 			if (page.length < 100) return out;
 		}
 	}
 	/** Every invitation for an address that starts with `prefix`, with its status. */
-	async invitations(prefix: string): Promise<{ id: string; email: string; status: string }[]> {
-		const out: { id: string; email: string; status: string }[] = [];
+	async invitations(prefix: string): Promise<{ id: string; email: string; status: string; createdAt: number }[]> {
+		const out: { id: string; email: string; status: string; createdAt: number }[] = [];
 		for (let offset = 0; ; offset += 100) {
 			const page = await this.call('GET', `/invitations?limit=100&offset=${offset}&query=${encodeURIComponent(prefix)}`);
 			const rows = (Array.isArray(page) ? page : page.data) as any[];
-			for (const i of rows) if (i.email_address.startsWith(prefix)) out.push({ id: i.id, email: i.email_address, status: i.status });
+			for (const i of rows) if (i.email_address.startsWith(prefix)) out.push({ id: i.id, email: i.email_address, status: i.status, createdAt: Number(i.created_at) || 0 });
 			if (rows.length < 100) return out;
 		}
 	}

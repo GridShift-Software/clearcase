@@ -4,10 +4,10 @@
 // tests are evidence for that code, never for Clerk; probe.ts runs the Clerk legs against the real development instances.
 import { type ChildProcess, spawn } from 'node:child_process';
 import { createSign, generateKeyPairSync, randomBytes, type KeyObject } from 'node:crypto';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import path from 'node:path';
-import { appEnv, build, fetchApp, realNode, run, seed, startServe, stopServe, wranglerArgs, type Reply } from './harness.ts';
+import { appEnv, build, fetchApp, freePorts, realNode, run, seed, startServe, stopServe, wranglerArgs, type Reply } from './harness.ts';
 
 const HERE = import.meta.dirname;
 
@@ -68,16 +68,15 @@ export async function statusDouble() {
 	};
 }
 
-export const CLIENT_PORT = 18831;
-export const STAFF_PORT = 18832;
-export const CLIENT_ORIGIN = `http://127.0.0.1:${CLIENT_PORT}`;
-export const STAFF_ORIGIN = `http://127.0.0.1:${STAFF_PORT}`;
-
 /**
- * The crafted world: one build, seeded client and staff stores, both Workers served by serve.mjs with crafted issuers
- * and the status double, and the fixture identities of gates.sql already enrolled.
+ * The crafted world: one build, seeded client and staff stores, both Workers served by serve.mjs on free ports with
+ * crafted issuers and the status double, and the fixture identities of gates.sql already enrolled.
  */
-export type WorldOptions = { mfaRequired?: boolean; ports?: [number, number] };
+export type WorldOptions = {
+	mfaRequired?: boolean;
+	/** Serve the build already in .svelte-kit instead of building again (the lifecycle runner, whose caller built it). */
+	reuseBuild?: boolean;
+};
 
 export async function craftedWorld(opts: WorldOptions = {}) {
 	const node = realNode();
@@ -95,9 +94,9 @@ export async function craftedWorld(opts: WorldOptions = {}) {
 }
 
 async function world(node: { path: string; version: string }, runDir: string, logs: string, opts: WorldOptions) {
-	const [clientPort, staffPort] = opts.ports ?? [CLIENT_PORT, STAFF_PORT];
+	const [clientPort, staffPort] = await freePorts(2);
 	const origin = { client: `http://127.0.0.1:${clientPort}`, staff: `http://127.0.0.1:${staffPort}` };
-	build(node, runDir, 'crafted');
+	if (!(opts.reuseBuild && existsSync(path.join(HERE, '.svelte-kit/cloudflare/_worker.js')))) build(node, runDir, 'crafted');
 	const env = appEnv(node, runDir);
 	const persist = path.join(runDir, 'persist');
 	seed(node, env, persist, logs, { client: ['schema/common.sql', 'schema/client.sql', 'schema/fixtures.sql', 'schema/crafted.sql'], staff: ['schema/common.sql', 'schema/crafted-staff.sql'] });

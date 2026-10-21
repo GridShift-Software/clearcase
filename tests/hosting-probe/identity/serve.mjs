@@ -4,7 +4,7 @@
 // It takes the keys off fd 3 once (takeSecrets(), the child half of deploy/probes/secrets.ts), so they are never in
 // this process's environment, argv or a file, and hands them to Wrangler's startWorker as secret_text bindings: Wrangler
 // prints them as hidden and passes them to workerd inside its config, over a pipe. Each Worker is local: its D1 and R2
-// are Miniflare's, under the config's persist directory. On SIGINT or SIGTERM it disposes both Workers and exits 0.
+// are Miniflare's, under the config's persist directory. On SIGINT or SIGTERM, or when its stdin (a pipe from the runner) ends, it disposes both Workers and exits 0.
 import { unstable_startWorker } from 'wrangler';
 import { takeSecrets } from '../../../deploy/probes/secrets-child.mjs';
 
@@ -50,6 +50,11 @@ async function stop(code) {
 }
 process.once('SIGINT', () => stop(0));
 process.once('SIGTERM', () => stop(0));
+// stdin is a pipe from the runner that started this process (harness.ts), never written: when it ends the runner is gone,
+// whether it exited, threw or was killed, and a process group of its own would outlive it holding both ports.
+process.stdin.on('end', () => stop(0));
+process.stdin.on('error', () => stop(0));
+process.stdin.resume();
 
 try {
 	for (const app of ['client', 'staff']) {

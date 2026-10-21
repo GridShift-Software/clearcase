@@ -8,12 +8,15 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
-import { CLIENT_ORIGIN, craftedWorld, STAFF_ORIGIN, type World } from './crafted.ts';
+import { craftedWorld, type World } from './crafted.ts';
 
 let w: World;
+let CLIENT_ORIGIN: string;
+let STAFF_ORIGIN: string;
 // the root vitest.config.ts has a 10 s hook timeout and a 60 s test timeout; a world is a build, a seed and two workerds
 beforeAll(async () => {
 	w = await craftedWorld();
+	({ client: CLIENT_ORIGIN, staff: STAFF_ORIGIN } = w.origin);
 }, 180_000);
 afterAll(async () => {
 	await w?.stop();
@@ -237,9 +240,9 @@ describe('MFA flag', () => {
 	});
 
 	test('on: the server refuses a token without a verified second factor, whatever the UI shows', async () => {
-		const m = await craftedWorld({ mfaRequired: true, ports: [18833, 18834] });
+		const m = await craftedWorld({ mfaRequired: true });
 		try {
-			const origin = 'http://127.0.0.1:18833';
+			const origin = m.origin.client;
 			const no = await m.get(origin, '/cases/case-1', { token: m.token(m.client, 'user_crafted_viewer1', {}, origin), headers: json });
 			expect([no.status, no.denial]).toEqual([401, 'mfa-required']);
 			const yes = await m.get(origin, '/cases/case-1', { token: m.token(m.client, 'user_crafted_viewer1', { fva: [0, 0] }, origin), headers: { accept: 'text/html' } });
@@ -276,10 +279,6 @@ describe('default deny in the hook', () => {
 // lifecycle-child.ts starts a crafted world and ends the ways a runner ends; each test then asks whether the two ports
 // are still held. CRAFTED_SKIP_BUILD lets the children reuse this file's build (the tests run one after another).
 describe('process lifecycle: serve.mjs and its workerd stop with the runner that started them', () => {
-	// the shared world is stopped first: at 3a0b1a95 every world takes the same two ports
-	beforeAll(async () => {
-		await w.stop();
-	}, 60_000);
 	const listening = (port: number) => new Promise<boolean>((resolve) => {
 		const s = connect(port, '127.0.0.1');
 		s.once('connect', () => (s.destroy(), resolve(true)));

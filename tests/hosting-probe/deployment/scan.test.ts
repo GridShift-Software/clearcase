@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
 import { scanPaths } from '../../../deploy/probes/scan.ts';
@@ -35,6 +35,12 @@ describe('credential scan', () => {
 	test('a canary inside a binary file is found', () => {
 		const root = tree({ 'state.sqlite': `SQLite format 3\0\0\0${CANARY}\0` });
 		expect(scanPaths({ roots: [root], canaries: [CANARY] }).hits.map((h) => h.rule)).toEqual(['canary-1']);
+	});
+
+	test('installed packages and symlinks are not walked', () => {
+		const root = tree({ 'node_modules/lib/key.js': `CLOUDFLARE_API_TOKEN=${CANARY}`, 'out/clean.txt': 'nothing\n' });
+		symlinkSync(path.join(root, 'node_modules'), path.join(root, 'out/linked'));
+		expect(scanPaths({ roots: [root], canaries: [CANARY] })).toEqual({ hits: [], files: 1 });
 	});
 
 	test('a library that only names the private-key header is not a hit', () => expect(scanPaths({ roots: [tree({ 'pem.js': 'const HEADER = "-----BEGIN PRIVATE KEY-----";\n' })], canaries: [] }).hits).toEqual([]));

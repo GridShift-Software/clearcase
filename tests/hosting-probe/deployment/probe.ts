@@ -159,6 +159,8 @@ async function main(out: string): Promise<number> {
 		CLOUDFLARE_CF_FETCH_ENABLED: 'false',
 		CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV: 'false',
 		CLOUDFLARE_INCLUDE_PROCESS_ENV: 'false',
+		// Bun would cache transpiled packages (Miniflare's bundled localhost test key among them) under HOME, which the scan reads
+		BUN_RUNTIME_TRANSPILER_CACHE_PATH: '0',
 	};
 	const tool = { cf: path.join(HERE, 'node_modules/cf/bin/cf'), wrangler: path.join(HERE, 'node_modules/wrangler/bin/wrangler.js'), void: path.join(HERE, 'node_modules/void/dist/cli/cli.mjs'), vitest: path.join(HERE, 'node_modules/vitest/vitest.mjs'), vite: path.join(HERE, 'node_modules/vite/bin/vite.js') };
 	const show = (s: string) => s.replaceAll(runDir, '<run>').replaceAll(HERE, '<probe>').replaceAll(root, '<repo>').replaceAll(node.path, 'node').replaceAll(bunPath, 'bun');

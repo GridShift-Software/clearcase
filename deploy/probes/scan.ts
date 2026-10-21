@@ -1,7 +1,8 @@
 // Credential scan of build artifacts, logs and a probe's outputs (GRS-107). Two kinds of rule: the exact canary values a
 // run planted in the trusted parent's environment, which must never reach a child's output, and credential shapes
 // (token variables, prefixed Cloudflare tokens, bearer headers, Clerk secret keys, private keys, Wrangler OAuth state).
-// A hit names the file and the rule, never the matched text.
+// A hit names the file and the rule, never the matched text. Installed packages (node_modules) are not outputs and are
+// skipped, and so are symlinks, so a staged directory's link to its tools is not walked.
 //
 //   bun deploy/probes/scan.ts [--canaries FILE] PATH...
 //
@@ -25,11 +26,9 @@ const MAX_BYTES = 64 << 20;
 export type Hit = { file: string; rule: string };
 
 function files(root: string): string[] {
-	const st = statSync(root);
-	if (st.isFile()) return [root];
-	return readdirSync(root, { recursive: true, withFileTypes: true })
-		.filter((e) => e.isFile())
-		.map((e) => path.join(e.parentPath, e.name))
+	if (statSync(root).isFile()) return [root];
+	return readdirSync(root, { withFileTypes: true })
+		.flatMap((e) => (e.isFile() ? [path.join(root, e.name)] : e.isDirectory() && e.name !== 'node_modules' ? files(path.join(root, e.name)) : []))
 		.sort();
 }
 

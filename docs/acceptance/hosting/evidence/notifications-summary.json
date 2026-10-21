@@ -1,0 +1,382 @@
+{
+  "schema": "clearcase.notifications-probe/1",
+  "sourceSha": "238199f56723144ae4b39288379690958637fba6",
+  "treeClean": true,
+  "servedRevision": "238199f56723144ae4b39288379690958637fba6",
+  "startedAt": "2026-10-21T12:37:44.739Z",
+  "finishedAt": "2026-10-21T12:38:00.256Z",
+  "runDir": ".local/hosting-probe/notifications/2026-10-21T12-37-44-739Z",
+  "hosts": {
+    "bun": "1.4.2",
+    "node": "26.10.0",
+    "workerd": "1.20261012.1",
+    "build": "Bun 1.4.2",
+    "runner": "Bun 1.4.2",
+    "wrangler": "Node 26.10.0",
+    "app": "workerd 1.20261012.1 (native)"
+  },
+  "pins": {
+    "miniflare": "5.20261012.1-beta",
+    "workerd": "1.20261012.1",
+    "wrangler": "4.151.1"
+  },
+  "artifact": "sha256:4e7e69d097b2da0965d362e6927f383be56201745e0a6dbc53c7798297dcc2b2",
+  "isolation": {
+    "network": "own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden",
+    "env": [
+      "CI",
+      "CLOUDFLARE_CF_FETCH_ENABLED",
+      "CLOUDFLARE_INCLUDE_PROCESS_ENV",
+      "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV",
+      "HOME",
+      "PATH",
+      "WRANGLER_HIDE_BANNER",
+      "WRANGLER_LOG_PATH",
+      "WRANGLER_SEND_ERROR_REPORTS",
+      "WRANGLER_SEND_METRICS",
+      "XDG_CACHE_HOME",
+      "XDG_CONFIG_HOME"
+    ]
+  },
+  "boundaries": {
+    "runtime": "real: native workerd under wrangler dev --local",
+    "d1": "real local: Miniflare D1",
+    "r2": "real local: Miniflare R2",
+    "email": "simulated: the local send_email binding saves each message and sends nothing",
+    "providerFailures": "double: FAULT_PLAN in the faults environment",
+    "identity": "double: the x-probe-identity header stands in for a Clerk session"
+  },
+  "legs": {
+    "build": {
+      "status": "PASS",
+      "commands": [
+        "Bun.build src/worker.ts -> build/worker.js (PROBE_SOURCE_REVISION=HEAD)"
+      ],
+      "asserted": [
+        "Bun 1.4.2 builds the Worker, offline",
+        "the build writes one module, build/worker.js",
+        "the module imports nothing (Wrangler serves it as built, no_bundle) and carries the HEAD stamp",
+        "the module digest is recorded (artifact)"
+      ]
+    },
+    "binding-config": {
+      "status": "PASS",
+      "commands": [
+        "node node_modules/wrangler/bin/wrangler.js d1 execute DB --local --persist-to <run>/persist/default --file schema.sql",
+        "node node_modules/wrangler/bin/wrangler.js dev --local --ip 127.0.0.1 --port 18911 --inspector-ip 127.0.0.1 --inspector-port 0 --persist-to <run>/persist/default --show-interactive-dev-session=false"
+      ],
+      "asserted": [
+        "wrangler d1 execute --local applies schema.sql (synthetic clients A and B), exit 0",
+        "Wrangler (node) prints Ready and a native workerd descendant serves the Worker",
+        "Wrangler lists env.EMAIL as a local Send Email binding restricted to client A's sender (allowed_sender_addresses)",
+        "D1 and R2 are local bindings",
+        "no binding is remote",
+        "GET /health: client A's instance sees DB, BUCKET and EMAIL.send",
+        "GET /health reports the HEAD stamp of the build"
+      ]
+    },
+    "publication-notice": {
+      "status": "PASS",
+      "commands": [
+        "POST /cases/case-a1/publish round=1 (a-publisher)"
+      ],
+      "asserted": [
+        "the publication answers 200 with the stored file digest",
+        "the notice was sent once and the simulated binding accepted it (a messageId came back)",
+        "delivery and inbox arrival are reported apart from acceptance, as not observed",
+        "the simulator saved exactly one message, the one whose messageId the app recorded",
+        "it is from client A's sender to the uploader alone, with the generic publication subject",
+        "the saved message passes the content check: the publication template around one link, no case title, document title, file name or reference",
+        "no HTML part and no attachment was saved",
+        "its only link is client A's origin /n/<the notice id>, with no query or token"
+      ]
+    },
+    "input-needed-notice": {
+      "status": "PASS",
+      "commands": [
+        "POST /cases/case-a1/input-needed round=1 (a-publisher)"
+      ],
+      "asserted": [
+        "the input-needed event answers 200 and its notice was sent once",
+        "the simulator saved one more message, the one the app recorded",
+        "it passes the content check as the input-needed template",
+        "it links its own notice, not the publication notice"
+      ]
+    },
+    "authenticated-link": {
+      "status": "PASS",
+      "commands": [
+        "GET /n/<id> (no identity)",
+        "GET /n/<id> (client-b/b-uploader)",
+        "GET /n/<id> (client-a/a-viewer)",
+        "GET /n/<id> (client-a/a-uploader)",
+        "GET /cases/case-a1 and /cases/case-a1/file?version=1 (a-uploader)"
+      ],
+      "asserted": [
+        "the link alone is refused: 401 sign in, no redirect",
+        "client B's session is no session on client A's instance: 401",
+        "another user of client A gets 404, with nothing about the notice's case",
+        "the signed-in uploader is sent to the case, inside the app, for both notices",
+        "the uploader sees the publication and reads its file byte for byte",
+        "the in-app notices are the two the emails link to"
+      ]
+    },
+    "app-deduplication": {
+      "status": "PASS",
+      "commands": [
+        "POST /cases/case-a1/publish round=1 (again, same file)",
+        "POST /cases/case-a1/publish round=1 (other file)"
+      ],
+      "asserted": [
+        "publishing the same version again returns the same notice, not a second one, and sends nothing more",
+        "the same version with other content answers 409",
+        "the simulator saved no further message",
+        "the file, the publication and the in-app notices are unchanged"
+      ]
+    },
+    "wrong-client": {
+      "status": "PASS",
+      "commands": [
+        "POST /cases/case-b1/publish (client-a/a-publisher)",
+        "POST /cases/case-a1/publish round=2 (client-b/b-publisher)",
+        "GET /cases/case-b1 (client-a/a-publisher)",
+        "GET /ops/notifications (client-b/b-publisher)"
+      ],
+      "asserted": [
+        "client B's case is not found through client A's instance, though its row is in the same store: 404",
+        "client B's publisher gets 401 on A's publish and operator routes; A's publisher gets 404 for B's case",
+        "no message was saved for any crossed request",
+        "client A's case has no round-2 publication or notice"
+      ]
+    },
+    "content-refused": {
+      "status": "PASS",
+      "commands": [
+        "POST /cases/case-a6/publish (title \"New results\")",
+        "GET /cases/case-a6 and its file (a-uploader)"
+      ],
+      "asserted": [
+        "the Worker's own content check refuses the notice (its body would carry the case title) and does not retry; the publication answers 200",
+        "nothing was sent",
+        "the publication, its file and the in-app notice are intact"
+      ]
+    },
+    "recipient-missing": {
+      "status": "PASS",
+      "commands": [
+        "POST /cases/case-a5/publish (uploader has no address)",
+        "GET /cases/case-a5 and its file (publisher)"
+      ],
+      "asserted": [
+        "an uploader with no address fails closed: RECIPIENT_MISSING, no retry, publication 200",
+        "nothing was sent",
+        "the publication, its file and the in-app notice are intact"
+      ]
+    },
+    "interrupted-send": {
+      "status": "PASS",
+      "commands": [
+        "node node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env faults --persist-to <run>/persist/faults --file schema.sql",
+        "node node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env faults --persist-to <run>/persist/faults --command \"<a case-a8 notice whose attempt 1 is still sending, claimed 1 h ago>\"",
+        "node node_modules/wrangler/bin/wrangler.js dev --local --ip 127.0.0.1 --port 18911 --inspector-ip 127.0.0.1 --inspector-port 0 --persist-to <run>/persist/faults --show-interactive-dev-session=false --env faults",
+        "scheduled sweep at +1 min",
+        "scheduled sweep at +7 min"
+      ],
+      "asserted": [
+        "schema.sql applied to the faults state",
+        "an attempt left \"sending\" by a Worker cut off mid-send is settled by the next sweep as ambiguous (INTERRUPTED), and retried",
+        "the retry is accepted, and the notice is marked a possible duplicate, since attempt 1 may have sent",
+        "one message was saved, linking the seeded notice"
+      ]
+    },
+    "retry-bounded": {
+      "status": "PASS",
+      "commands": [
+        "POST /cases/case-a2/publish (faults: E_RATE_LIMIT_EXCEEDED x3)",
+        "scheduled sweep at +1 min",
+        "scheduled sweep at +6 min",
+        "scheduled sweep at +40 min",
+        "scheduled sweep at +120 min",
+        "GET /cases/case-a2 and its file (a-uploader)"
+      ],
+      "asserted": [
+        "attempt 1 is refused as transient; the publication answers 200 and attempt 2 is due 5 min later",
+        "a sweep before the attempt is due sends nothing",
+        "the sweep at +6 min makes attempt 2; attempt 3 is due 30 min later",
+        "attempt 3 fails it: state failed, acceptance refused, no possible duplicate, nothing more due",
+        "retry is bounded: a later sweep makes no fourth attempt (MAX_ATTEMPTS 3)",
+        "no message was saved for case-a2",
+        "the publication, its file and the in-app notice are intact after three failed sends"
+      ]
+    },
+    "ambiguous-duplicate": {
+      "status": "PASS",
+      "commands": [
+        "POST /cases/case-a3/publish (faults: accepted, then E_INTERNAL_SERVER_ERROR; then pass)",
+        "POST /cases/case-a4/publish (faults: no answer within 1.5 s; then pass)",
+        "scheduled sweep at +6 min",
+        "GET /ops/notifications (a-operator)",
+        "GET /cases/case-a3 (a-uploader)"
+      ],
+      "asserted": [
+        "case-a3: the binding saved the message, but the Worker saw E_INTERNAL_SERVER_ERROR; the attempt is ambiguous and the app holds no messageId for it",
+        "case-a4: a send with no answer within the timeout is ambiguous too; nothing was saved",
+        "the sweep retries both, and both are accepted",
+        "case-a3 has two saved messages: the same generic notice and link, two provider messageIds (a real duplicate)",
+        "the operator view marks both possible duplicates; it knows only the messageId the app saw",
+        "the uploader has one in-app notice for case-a3, not two",
+        "both copies pass the content check"
+      ]
+    },
+    "permanent-no-retry": {
+      "status": "PASS",
+      "commands": [
+        "POST /cases/case-a7/publish (faults: E_RECIPIENT_SUPPRESSED)",
+        "scheduled sweep at +120 min"
+      ],
+      "asserted": [
+        "a suppressed recipient is permanent: failed after one attempt, publication 200",
+        "no sweep retries it",
+        "the publication, its file and the in-app notice are intact; nothing was saved"
+      ]
+    },
+    "operator-visibility": {
+      "status": "PASS",
+      "commands": [
+        "GET /ops/notifications (client-a/a-viewer)",
+        "GET /ops/notifications (client-a/a-operator)"
+      ],
+      "asserted": [
+        "a client user who is not an operator gets 403",
+        "the operator sees every notice of this instance, each with its attempts, bound and per-attempt outcome and code",
+        "failed notices and possible duplicates are listed, not hidden",
+        "the view keeps acceptance apart from delivery and inbox, and carries no address, case title, document title, file name or reference"
+      ]
+    },
+    "sender-restriction": {
+      "status": "PASS",
+      "commands": [
+        "node node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env wrong-sender --persist-to <run>/persist/wrong-sender --file schema.sql",
+        "node node_modules/wrangler/bin/wrangler.js dev --local --ip 127.0.0.1 --port 18911 --inspector-ip 127.0.0.1 --inspector-port 0 --persist-to <run>/persist/wrong-sender --show-interactive-dev-session=false --env wrong-sender",
+        "POST /cases/case-a1/publish (SENDER is client B's address)",
+        "GET /cases/case-a1 and its file (a-uploader)"
+      ],
+      "asserted": [
+        "schema.sql applied to the wrong-sender state",
+        "the binding is still restricted to client A's sender",
+        "the local binding refuses a send from client B's address (allowed_sender_addresses); permanent, no retry, publication 200",
+        "nothing was saved",
+        "the publication, its file and the in-app notice are intact"
+      ]
+    },
+    "binding-missing": {
+      "status": "PASS",
+      "commands": [
+        "node node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env missing-email --persist-to <run>/persist/missing-email --file schema.sql",
+        "node node_modules/wrangler/bin/wrangler.js dev --local --ip 127.0.0.1 --port 18911 --inspector-ip 127.0.0.1 --inspector-port 0 --persist-to <run>/persist/missing-email --show-interactive-dev-session=false --env missing-email",
+        "POST /cases/case-a1/publish",
+        "GET /cases/case-a1 and its file (a-uploader)"
+      ],
+      "asserted": [
+        "schema.sql applied to the missing-email state",
+        "the same Worker without its send_email binding starts; /health reports EMAIL absent",
+        "publishing answers 200; the notice fails closed as EMAIL_BINDING_MISSING, visible to the operator",
+        "nothing was saved",
+        "the publication, its file and the in-app notice are intact"
+      ]
+    },
+    "no-leak": {
+      "status": "PASS",
+      "commands": [
+        "scan of every saved message, Wrangler log and operator response of the run"
+      ],
+      "asserted": [
+        "the run saved exactly the six expected messages, all MessageBuilder sends with a text part only",
+        "every saved message passes the content check for its own case's strings",
+        "no saved message carries any case's title, reference, id, document title, file name or file text, or any address but the uploader's",
+        "the Authorization and cookie canaries sent on every request appear in no saved message, Wrangler log or operator response"
+      ]
+    }
+  },
+  "messages": [
+    {
+      "env": "default",
+      "caseId": "case-a1",
+      "kind": "publication",
+      "text": "sha256:3178f4df44d99ef6746ec1208941cdfba130790ff5786b086c6bb4ca50ecc52d",
+      "contentCheck": "PASS",
+      "appSaw": "accepted",
+      "providerAcceptance": "simulated: saved by the local binding",
+      "delivery": "HOLD: M3",
+      "inboxArrival": "HOLD: M3"
+    },
+    {
+      "env": "default",
+      "caseId": "case-a1",
+      "kind": "input-needed",
+      "text": "sha256:1f00eb050a39d792acd75603f33181581e206c795b3828565757a1d4d4cbe1e8",
+      "contentCheck": "PASS",
+      "appSaw": "accepted",
+      "providerAcceptance": "simulated: saved by the local binding",
+      "delivery": "HOLD: M3",
+      "inboxArrival": "HOLD: M3"
+    },
+    {
+      "env": "faults",
+      "caseId": "case-a8",
+      "kind": "input-needed",
+      "text": "sha256:ab45f715e98d2337c27836fa61f145bbdbaefe1a8810a4dae975865068a64fce",
+      "contentCheck": "PASS",
+      "appSaw": "accepted",
+      "providerAcceptance": "simulated: saved by the local binding",
+      "delivery": "HOLD: M3",
+      "inboxArrival": "HOLD: M3"
+    },
+    {
+      "env": "faults",
+      "caseId": "case-a3",
+      "kind": "publication",
+      "text": "sha256:3b981197d55d5fabef45412196c3ea156bb696542f80520a8d34f86deb002df5",
+      "contentCheck": "PASS",
+      "appSaw": "not seen: the attempt ended ambiguous",
+      "providerAcceptance": "simulated: saved by the local binding",
+      "delivery": "HOLD: M3",
+      "inboxArrival": "HOLD: M3"
+    },
+    {
+      "env": "faults",
+      "caseId": "case-a3",
+      "kind": "publication",
+      "text": "sha256:3b981197d55d5fabef45412196c3ea156bb696542f80520a8d34f86deb002df5",
+      "contentCheck": "PASS",
+      "appSaw": "accepted",
+      "providerAcceptance": "simulated: saved by the local binding",
+      "delivery": "HOLD: M3",
+      "inboxArrival": "HOLD: M3"
+    },
+    {
+      "env": "faults",
+      "caseId": "case-a4",
+      "kind": "publication",
+      "text": "sha256:351428bc010c36cda90e77be4b2d2960dc27cabec428a8068e80bc39b85dc0f5",
+      "contentCheck": "PASS",
+      "appSaw": "accepted",
+      "providerAcceptance": "simulated: saved by the local binding",
+      "delivery": "HOLD: M3",
+      "inboxArrival": "HOLD: M3"
+    }
+  ],
+  "hold": [
+    "provider acceptance against delivery and inbox arrival on real Email Sending: M3, Workers Paid",
+    "SPF, DKIM and DMARC on a sending subdomain under sandbox.gridshift.co.za with its own _dmarc record: M3",
+    "allowed_sender_addresses enforced by the real binding (the simulator enforces it; see sender-restriction): M3",
+    "the Paid qualifier and whether Workers Free can send (the pricing page contradicts itself): M3",
+    "real provider error responses: the E_* failures here come from the faults double"
+  ],
+  "failure": null,
+  "evidence": true,
+  "checker": {
+    "mutationsRefused": 1216,
+    "accepted": null
+  }
+}

@@ -17,6 +17,10 @@ const FIXTURE_DIR = /^(?:fixtures?|__fixtures__|__mocks__|__snapshots__)$/;
 // A test file: the runner collects it as an entry of its own.
 const isEntry = file => /\.(?:test|spec)\.[^/]*$/.test(file);
 const isSupport = file => isEntry(file) || file.split('/').slice(0, -1).some(part => SUPPORT_DIR.test(part));
+// Documentation for a docs-only fix round: a .md file no directory of which holds code, served files, build output or
+// tests. Anything else fails closed.
+const CODE_DIR = /^(?:src|scripts|static|build|node_modules|\.svelte-kit|RAWS|\.local)$/;
+const isDocument = file => file.endsWith('.md') && file.split('/').slice(0, -1).every(part => !CODE_DIR.test(part) && !SUPPORT_DIR.test(part));
 const CONFIG_FILE = /(?:^|\/)(?:(?:vitest|vite|jest|playwright)\.(?:config|workspace|setup)[^/]*|bunfig\.toml)$/;
 const TEST_SCRIPT = /^(?:pre|post)?test(?::|$)/;
 // Runner configuration keys that name files run in the test process or around it (Vitest, Jest, Playwright).
@@ -576,6 +580,11 @@ function main() {
       || base !== options['--expected-base']) throw Error('guard repository identity differs from receipt collector');
   if (git('merge-base', base, head).trim() !== base) throw Error('fix base must be an ancestor of HEAD');
   if (git('status', '--porcelain=v1', '--untracked-files=all').trim()) throw Error('fix diff needs a clean tree');
+  // At a wave head, fix-round-guard bounds a no-test declaration at the tip of the fix round's own line (--fix-head).
+  const tip = options['--fix-head'] === undefined ? head : git('rev-parse', '--verify', `${options['--fix-head']}^{commit}`).trim();
+  if (tip !== head && (git('merge-base', tip, head).trim() !== tip || git('merge-base', base, tip).trim() !== base)) {
+    throw Error('fix head must lie between the fix base and HEAD');
+  }
   // A manifest's range spans every later merge from the base it targets. --trusted-base is that base's commit, which
   // fix-round-guard passes only for an explicit --base and no --ledger (CI: the pull request's base branch). A path that
   // changed between the fix base and HEAD is the base's change, and not this branch's, when the base is merged into HEAD,
@@ -585,7 +594,7 @@ function main() {
     : git('rev-parse', '--verify', `${options['--trusted-base']}^{commit}`).trim();
   const common = trusted && spawnSync('git', ['-C', root, 'merge-base', '--all', base, trusted], { env, encoding: 'utf8' });
   const forks = common?.status === 0 ? common.stdout.split('\n').filter(Boolean) : [];
-  const merged = forks.length > 0 && spawnSync('git', ['-C', root, 'merge-base', '--is-ancestor', trusted, head], { env }).status === 0;
+  const merged = forks.length > 0 && spawnSync('git', ['-C', root, 'merge-base', '--is-ancestor', trusted, tip], { env }).status === 0;
   // a revision's tracked files: path -> { mode, id }, parsed once for the base-change test and the closures alike
   const trees = new Map();
   const tracked = revision => {
@@ -603,12 +612,62 @@ function main() {
   };
   // A key neither HEAD nor the fix base tracks (a derived entry whose origin was not mapped, a typo) is nobody's change:
   // undefined === undefined must not read as "the base's copy".
-  const fromBase = file => merged && (treeEntry(head, file) !== undefined || treeEntry(base, file) !== undefined)
-    && treeEntry(head, file) === treeEntry(trusted, file)
+  const fromBase = file => merged && (treeEntry(tip, file) !== undefined || treeEntry(base, file) !== undefined)
+    && treeEntry(tip, file) === treeEntry(trusted, file)
     && forks.every(fork => treeEntry(fork, file) === treeEntry(base, file));
   const inherited = [];
+  const proceed = () => {
+    if (!command.length) return 0;
+    const result = spawnSync(command[0], command.slice(1), { stdio: 'inherit', cwd: root, env });
+    if (result.error) throw result.error;
+    return result.status ?? 1;
+  };
   const findings = JSON.parse(readFileSync(options['--findings'], 'utf8'));
-  if (!Array.isArray(findings.tests) || !findings.tests.length) throw Error('findings.tests must be a nonempty list of {file, name}');
+  // A no-test declaration (docs/agent-tooling.md, Docs-only fix rounds): the review named no test, so the manifest names
+  // none, binds the declaration to the reviewed commit and the review's findings hash, and gives a reason. Its range may
+  // change only Markdown documentation outside code and test directories, and the manifest itself. Nothing else runs.
+  if (findings.noTests !== undefined) {
+    const declared = findings.noTests;
+    const refuse = why => { throw Error(`no-test declaration ${why}`); };
+    if (!declared || typeof declared !== 'object' || Array.isArray(declared)
+        || Object.keys(declared).sort().join() !== 'reason,reviewFindingsSha256,reviewSha') {
+      refuse('must be an object holding exactly reviewSha, reviewFindingsSha256 and reason');
+    }
+    if (!Array.isArray(findings.tests) || findings.tests.length) refuse('stands for an empty tests list: a manifest names tests or declares none, never both');
+    if (findings.assertionCountReasons !== undefined) refuse('excuses no test change, so assertionCountReasons has no place beside it');
+    if (declared.reviewSha !== base) refuse(`names ${String(declared.reviewSha).slice(0, 12)}, not the reviewed fix base ${base.slice(0, 12)} in full`);
+    if (!/^[0-9a-f]{64}$/.test(String(declared.reviewFindingsSha256)) || declared.reviewFindingsSha256 !== findings.reviewFindingsSha256) {
+      refuse('must name the review findings hash the manifest names in reviewFindingsSha256');
+    }
+    if (typeof declared.reason !== 'string' || !declared.reason.trim()) refuse('needs a reason');
+    const own = path.relative(root, realpathSync(options['--findings'])).split(path.sep).join('/');
+    const changes = git('diff', '--raw', '--no-renames', '-z', base, tip).split('\0').filter(Boolean);
+    const offending = [];
+    let documents = 0;
+    for (let i = 0; i < changes.length; i += 2) {
+      const [oldMode, newMode] = changes[i].slice(1).split(' ');
+      const file = changes[i + 1];
+      if (fromBase(file)) inherited.push(file);
+      else if (file === own) documents++;
+      else if (isDocument(file) && [oldMode, newMode].every(mode => mode === '000000' || mode === '100644')) documents++;
+      else offending.push(file);
+    }
+    if (offending.length) {
+      refuse(`covers a docs-only range, but ${base.slice(0, 12)}..${tip.slice(0, 12)} changes ${offending.join(', ')}; only `
+        + 'regular Markdown files outside source, script and test directories, and the manifest itself, may change');
+    }
+    if (inherited.length) {
+      console.log(`test-guard: ${inherited.length} changed file(s) are the base's, not this fix round's: the base ${trusted} `
+        + `is merged into ${tip} and it holds each as the base does`);
+    }
+    console.log(`test-guard: PASS (docs-only, no tests named: ${documents} changed file(s); ${base}..${tip}`
+      + `${tip === head ? '' : `, the fix round's line in ${head}`}${trusted ? `; trusted base ${trusted}` : ''})`);
+    return proceed();
+  }
+  if (tip !== head) throw Error('a fix head bounds a no-test declaration only');
+  if (!Array.isArray(findings.tests) || !findings.tests.length) {
+    throw Error('findings.tests must be a nonempty list of {file, name}; a fix round that protects no test declares it in noTests');
+  }
   const reasons = findings.assertionCountReasons ?? {};
   const source = (revision, file) => {
     if (file.split('/').some(part => part === 'RAWS' || part === '.local')) throw Error('private dependency cannot be inspected');
@@ -1338,12 +1397,7 @@ function main() {
       + `is merged into HEAD and HEAD holds each as it does; protected among them: ${[...new Set(inherited)].join(', ') || 'none'}`);
   }
   console.log(`test-guard: PASS (${findings.tests.length} named tests; ${base}..${head}${trusted ? `; trusted base ${trusted}` : ''})`);
-  if (command.length) {
-    const result = spawnSync(command[0], command.slice(1), { stdio: 'inherit', cwd: root, env });
-    if (result.error) throw result.error;
-    return result.status ?? 1;
-  }
-  return 0;
+  return proceed();
 }
 try { process.exitCode = main(); }
 catch (error) { console.error(`test-guard: FAIL. ${error.message}`); process.exitCode = 1; }

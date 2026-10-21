@@ -2,9 +2,20 @@
 //
 //   bun run --bun test
 //
-// Adverse notices against the content check the Worker runs before every send and the runner runs on every saved
-// message: each must be refused, and the one clean notice accepted. Exit 1 on any case that goes the wrong way.
+// 1. Adverse notices against the content check the Worker runs before every send and the runner runs on every saved
+//    message: each must be refused, and the one clean notice accepted.
+// 2. The retry policy: every documented send() error code, the simulator's restrictions and the app's own codes map to
+//    the outcome the policy names, and the schedule is bounded.
+// 3. The committed evidence summary, its SHAs pointed at HEAD, passes `--check`'s shape, and every mutation of it
+//    (summary.ts's walk: each leaf and container deleted, nulled, retyped, emptied, flipped or zeroed, and an unknown
+//    key added to each object) is refused.
+// Exit 1 on any case that goes the wrong way.
+import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import path from 'node:path';
 import { composeNotice, noticeProblems, type Message } from './src/notice.ts';
+import { classify, DOCUMENTED_CODES, errorCode, MAX_ATTEMPTS, nextAttemptAt } from './src/policy.ts';
+import { checkSummary, mutationsRefused } from './summary.ts';
 
 const NOTICE_ID = '7d3f0b6e-2c4a-4e8b-9f10-3a5b6c7d8e9f';
 const ctx = {
@@ -47,6 +58,31 @@ for (const field of ['from', 'to', 'subject', 'text']) {
 }
 expect('not an object', 'ClearCase', true);
 expect('the input-needed body under a publication notice', composeNotice({ ...ctx, kind: 'input-needed', noticeId: NOTICE_ID }) satisfies Message, true);
+
+// 2. The retry policy
+const policy = (label: string, ok: boolean) => (ok ? console.log(`ok      ${label}`) : failures.push(label));
+const coded = (code: unknown) => Object.assign(new Error('provider failure for uploader-a@client-a.example.test'), { code });
+const permanent = DOCUMENTED_CODES.filter((c) => !['E_RATE_LIMIT_EXCEEDED', 'E_DAILY_LIMIT_EXCEEDED', 'E_DELIVERY_FAILED', 'E_INTERNAL_SERVER_ERROR'].includes(c));
+policy('the 20 documented send() codes are all classified', DOCUMENTED_CODES.length === 20 && new Set(DOCUMENTED_CODES).size === 20);
+policy('16 documented codes are permanent (the message itself was refused)', permanent.length === 16 && permanent.every((c) => classify(c) === 'permanent'));
+policy('rate and daily limits are transient', classify('E_RATE_LIMIT_EXCEEDED') === 'transient' && classify('E_DAILY_LIMIT_EXCEEDED') === 'transient');
+policy('internal error, delivery failure, timeout, interruption, a missing messageId and an unknown code are ambiguous', ['E_INTERNAL_SERVER_ERROR', 'E_DELIVERY_FAILED', 'TIMEOUT', 'INTERRUPTED', 'NO_MESSAGE_ID', 'UNKNOWN', 'E_NOT_YET_DOCUMENTED'].every((c) => classify(c) === 'ambiguous'));
+policy("the app's own refusals are permanent", ['NOTICE_CONTENT_REFUSED', 'EMAIL_BINDING_MISSING', 'RECIPIENT_MISSING'].every((c) => classify(c) === 'permanent'));
+policy('a thrown error is recorded by its code', errorCode(coded('E_RECIPIENT_SUPPRESSED')) === 'E_RECIPIENT_SUPPRESSED');
+policy("the simulator's two restrictions are recognised and permanent", errorCode(new Error('email from notices@notify.client-b.example.test not allowed')) === 'LOCAL_SENDER_NOT_ALLOWED' && errorCode(new Error('email to x@client-b.example.test not allowed')) === 'LOCAL_RECIPIENT_NOT_ALLOWED' && classify('LOCAL_SENDER_NOT_ALLOWED') === 'permanent' && classify('LOCAL_RECIPIENT_NOT_ALLOWED') === 'permanent');
+policy('an error with no code, a retyped code or a lower-case code is UNKNOWN (ambiguous), never its message', [new Error('uploader-a@client-a.example.test'), coded(7), coded('e_rate_limit_exceeded'), coded(null), null, 'E_RATE_LIMIT_EXCEEDED'].every((e) => errorCode(e) === 'UNKNOWN'));
+policy('attempt 2 is due 5 min after attempt 1, attempt 3 30 min after attempt 2', nextAttemptAt(1, 'transient', 0) === 300_000 && nextAttemptAt(2, 'ambiguous', 1_000) === 1_801_000);
+policy(`no attempt follows attempt ${MAX_ATTEMPTS} or a permanent failure`, MAX_ATTEMPTS === 3 && nextAttemptAt(3, 'ambiguous', 0) === null && nextAttemptAt(1, 'permanent', 0) === null && nextAttemptAt(4, 'transient', 0) === null);
+
+// 3. The committed evidence and the summary check
+const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: import.meta.dirname, encoding: 'utf8' }).stdout.trim();
+const evidence = JSON.parse(readFileSync(path.join(import.meta.dirname, '../../../docs/acceptance/hosting/evidence/notifications-summary.json'), 'utf8')) as Record<string, unknown>;
+const control = { ...structuredClone(evidence), sourceSha: head, servedRevision: head };
+const controlProblems = checkSummary(control, head);
+policy(`the committed evidence passes the summary check at HEAD${controlProblems.length ? ` (${controlProblems[0]})` : ''}`, controlProblems.length === 0);
+const walk = mutationsRefused(control, head);
+policy(`every mutation of the committed evidence is refused (${walk.refused} refused${walk.accepted ? `; accepted: ${walk.accepted}` : ''})`, walk.accepted === null && walk.refused > 500);
+policy('a summary for another SHA is refused', checkSummary(evidence, '0'.repeat(40)).length > 0);
 
 console.log(failures.join('\n'));
 console.log(failures.length ? `CASES FAIL: ${failures.length} went the wrong way` : 'CASES PASS');

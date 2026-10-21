@@ -1,0 +1,108 @@
+# Local workerd only (GRS-111): no account, no deploy, no real message. Every binding is local (remote = false), the
+# database id is a placeholder that no Cloudflare account holds, and every address is under the reserved .test TLD.
+# Without remote = true, `wrangler dev` simulates send_email: it saves each message under the dev session's temp
+# directory, logs where, and sends nothing.
+#
+# Bun builds build/worker.js from src/worker.ts (probe.ts); Wrangler serves it as built (no_bundle).
+name = "clearcase-notifications-probe"
+main = "build/worker.js"
+no_bundle = true
+compatibility_date = "2026-10-12"
+send_metrics = false
+
+# The retry sweep. The probe fires it through Miniflare's /cdn-cgi/local/scheduled with a chosen scheduledTime.
+[triggers]
+crons = ["*/5 * * * *"]
+
+[vars]
+CLIENT_ID = "client-a"
+APP_ORIGIN = "https://client-a.example.test"
+SENDER = "notices@notify.client-a.example.test"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "notifications-probe-local-only"
+database_id = "00000000-0000-4000-8000-000000000111"
+remote = false
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "notifications-probe-local-only"
+remote = false
+
+# One client's binding may send only from that client's sender on its own sending subdomain (provisional default:
+# one sending subdomain per client).
+[[send_email]]
+name = "EMAIL"
+allowed_sender_addresses = ["notices@notify.client-a.example.test"]
+remote = false
+
+# Named environments inherit none of vars, D1, R2 or send_email, so each redeclares what it keeps.
+
+# `faults`: the same Worker with FAULT_PLAN, a test double for the provider's failure responses, keyed by
+# "<case>/<kind>" and indexed by attempt. Only this environment declares it.
+[env.faults]
+[env.faults.vars]
+CLIENT_ID = "client-a"
+APP_ORIGIN = "https://client-a.example.test"
+SENDER = "notices@notify.client-a.example.test"
+SEND_TIMEOUT_MS = "1500"
+FAULT_PLAN = '{"case-a2/publication":["E_RATE_LIMIT_EXCEEDED","E_RATE_LIMIT_EXCEEDED","E_RATE_LIMIT_EXCEEDED"],"case-a3/publication":["accepted-then:E_INTERNAL_SERVER_ERROR","pass"],"case-a4/publication":["hang","pass"],"case-a7/publication":["E_RECIPIENT_SUPPRESSED"]}'
+
+[[env.faults.d1_databases]]
+binding = "DB"
+database_name = "notifications-probe-local-only"
+database_id = "00000000-0000-4000-8000-000000000111"
+remote = false
+
+[[env.faults.r2_buckets]]
+binding = "BUCKET"
+bucket_name = "notifications-probe-local-only"
+remote = false
+
+[[env.faults.send_email]]
+name = "EMAIL"
+allowed_sender_addresses = ["notices@notify.client-a.example.test"]
+remote = false
+
+# `wrong-sender`: client A's binding, configured with client B's sender. The binding's allowed_sender_addresses must
+# refuse every send.
+[env.wrong-sender]
+[env.wrong-sender.vars]
+CLIENT_ID = "client-a"
+APP_ORIGIN = "https://client-a.example.test"
+SENDER = "notices@notify.client-b.example.test"
+
+[[env.wrong-sender.d1_databases]]
+binding = "DB"
+database_name = "notifications-probe-local-only"
+database_id = "00000000-0000-4000-8000-000000000111"
+remote = false
+
+[[env.wrong-sender.r2_buckets]]
+binding = "BUCKET"
+bucket_name = "notifications-probe-local-only"
+remote = false
+
+[[env.wrong-sender.send_email]]
+name = "EMAIL"
+allowed_sender_addresses = ["notices@notify.client-a.example.test"]
+remote = false
+
+# `missing-email`: the same Worker deployed without its send_email binding.
+[env.missing-email]
+[env.missing-email.vars]
+CLIENT_ID = "client-a"
+APP_ORIGIN = "https://client-a.example.test"
+SENDER = "notices@notify.client-a.example.test"
+
+[[env.missing-email.d1_databases]]
+binding = "DB"
+database_name = "notifications-probe-local-only"
+database_id = "00000000-0000-4000-8000-000000000111"
+remote = false
+
+[[env.missing-email.r2_buckets]]
+binding = "BUCKET"
+bucket_name = "notifications-probe-local-only"
+remote = false

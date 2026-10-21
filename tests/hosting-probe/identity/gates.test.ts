@@ -2,7 +2,11 @@
 // assets and audit are the probe's real code; only the token issuer and Clerk's session-status endpoint stand in.
 // These cover what a real Clerk instance will not issue: tokens missing a claim, with the wrong algorithm or issuer,
 // signed by another key, and a status endpoint that fails. probe.ts covers the same gates against Clerk itself.
+import { spawn } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
+import { connect } from 'node:net';
+import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { CLIENT_ORIGIN, craftedWorld, STAFF_ORIGIN, type World } from './crafted.ts';
 
@@ -265,4 +269,67 @@ describe('default deny in the hook', () => {
 		expect([res.status, res.denial]).toEqual([404, null]);
 		expect(w.status.calls.length).toBe(before + 0);
 	});
+});
+
+// M1: serve.mjs runs in a process group of its own, so nothing stops it with its runner unless the runner arranges it.
+// lifecycle-child.ts starts a crafted world and ends the ways a runner ends; each test then asks whether the two ports
+// are still held. CRAFTED_SKIP_BUILD lets the children reuse this file's build (the tests run one after another).
+describe('process lifecycle: serve.mjs and its workerd stop with the runner that started them', () => {
+	// the shared world is stopped first: at 3a0b1a95 every world takes the same two ports
+	beforeAll(async () => {
+		await w.stop();
+	}, 60_000);
+	const listening = (port: number) => new Promise<boolean>((resolve) => {
+		const s = connect(port, '127.0.0.1');
+		s.once('connect', () => (s.destroy(), resolve(true)));
+		s.once('error', () => resolve(false));
+	});
+	/** The serve.mjs processes (each a group leader) started for these ports, or by this runner: its argv carries the config JSON. */
+	const serveLeaders = (ports: number[], runner: number) => readdirSync('/proc').filter((n) => /^\d+$/.test(n)).flatMap((n) => {
+		try {
+			const argv = readFileSync(`/proc/${n}/cmdline`, 'utf8').split('\0');
+			if (!argv.some((a) => a.endsWith('serve.mjs'))) return [];
+			const stat = readFileSync(`/proc/${n}/stat`, 'utf8');
+			const parent = Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[1]);
+			return parent === runner || ports.some((p) => argv.some((a) => a.includes(`"port":${p}`))) ? [Number(n)] : [];
+		} catch {
+			return [];
+		}
+	});
+	for (const mode of ['exit', 'throw', 'SIGINT', 'SIGTERM', 'SIGKILL'] as const) {
+		test(`on ${mode} of the runner`, async () => {
+			const child = spawn(process.execPath, [path.join(import.meta.dirname, 'lifecycle-child.ts'), mode], { cwd: import.meta.dirname, env: { ...process.env, CRAFTED_SKIP_BUILD: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
+			const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
+			let ports: number[] = [];
+			try {
+				let text = '';
+				ports = await new Promise<number[]>((resolve, reject) => {
+					const timer = setTimeout(() => reject(new Error(`the runner printed no world within 150 s: ${text.slice(-800)}`)), 150_000);
+					const onData = (b: Buffer) => {
+						text += b.toString();
+						const m = /^world (\{.*\})$/m.exec(text);
+						if (m) (clearTimeout(timer), resolve((JSON.parse(m[1]!) as { ports: number[] }).ports));
+					};
+					child.stdout!.on('data', onData);
+					child.stderr!.on('data', onData);
+					child.once('exit', () => (clearTimeout(timer), reject(new Error(`the runner ended before it printed a world: ${text.slice(-800)}`))));
+				});
+				if (mode.startsWith('SIG')) {
+					expect(await Promise.all(ports.map(listening))).toEqual([true, true]);
+					child.kill(mode);
+				}
+				await exited;
+				let held = ports;
+				for (const until = Date.now() + 20_000; Date.now() < until && held.length; ) {
+					const open = await Promise.all(ports.map(listening));
+					held = ports.filter((_, i) => open[i]);
+					if (held.length) await new Promise((r) => setTimeout(r, 250));
+				}
+				expect(held, `ports still held 20 s after the runner ended on ${mode}`).toEqual([]);
+			} finally {
+				for (const pid of serveLeaders(ports, child.pid!)) try { process.kill(-pid, 'SIGKILL'); } catch {}
+				if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+			}
+		}, 240_000);
+	}
 });

@@ -233,7 +233,7 @@ function savedProblems(m: Saved, c: { caseId: string; kind: NoticeKind }): strin
 }
 /** `check`'s arguments for a list of problems, so a failed assertion names them. */
 const clear = (problems: string[], what: string): [boolean, string] => [problems.length === 0, problems.length ? `${what} -- ${problems.join('; ')}` : what];
-const noticeContext = (c: { caseId: string; kind: NoticeKind }) => ({ kind: c.kind, origin: ORIGIN, sender: SENDER, recipient: UPLOADER, forbidden: CASE_STRINGS[c.caseId]! });
+const noticeContext = (c: { caseId: string; kind: NoticeKind }) => ({ kind: c.kind, clientId: 'client-a', origin: ORIGIN, sender: SENDER, recipient: UPLOADER, forbidden: CASE_STRINGS[c.caseId]! });
 
 /**
  * Waits until the simulator has logged `count` messages on this server, then reads each new one's files. The binding
@@ -591,15 +591,23 @@ async function main(out: string, adverse: string | null): Promise<number> {
 			await stop();
 		});
 
-		await leg('sender-restriction', [d1Cmd('wrong-sender', '--file schema.sql'), serveCmd('wrong-sender'), 'POST /cases/case-a1/publish (SENDER is client B\'s address)', 'GET /cases/case-a1 and its file (a-uploader)'], async (check) => {
-			check(d1('wrong-sender', '--file', 'schema.sql').code === 0, 'schema.sql applied to the wrong-sender state');
-			server = await serve('wrong-sender');
-			check(/env\.EMAIL \(unrestricted - senders: notices@notify\.client-a\.example\.test\)/.test(server.log()), "the binding is still restricted to client A's sender");
-			const r = await publish('case-a1');
-			check(r.json?.published === true && r.json.notice.state === 'failed' && history(r.json.notice) === '1:permanent:LOCAL_SENDER_NOT_ALLOWED', "the local binding refuses a send from client B's address (allowed_sender_addresses); permanent, no retry, publication 200");
-			check((await savedMessages(server!, 0)).length === 0 && !server.log().includes('send_email binding called'), 'nothing was saved');
-			check(published(await intact('case-a1'), 'case-a1'), 'the publication, its file and the in-app notice are intact');
-			await stop();
+		// Three misconfigurations of client A's Worker (wrangler.toml): the first two never reach the binding, the third does.
+		const misconfigured: { label: string; restricted: string; what: string; code: string; reached: boolean }[] = [
+			{ label: 'wrong-sender', restricted: 'client-a', what: "SENDER is client B's address", code: 'NOTICE_CONTENT_REFUSED', reached: false },
+			{ label: 'wrong-origin', restricted: 'client-a', what: "APP_ORIGIN is client B's", code: 'NOTICE_CONTENT_REFUSED', reached: false },
+			{ label: 'wrong-binding', restricted: 'client-b', what: "the binding allows only client B's sender", code: 'LOCAL_SENDER_NOT_ALLOWED', reached: true },
+		];
+		await leg('sender-restriction', misconfigured.flatMap((x) => [d1Cmd(x.label, '--file schema.sql'), serveCmd(x.label), `POST /cases/case-a1/publish (${x.what})`, 'GET /cases/case-a1 and its file (a-uploader)']), async (check) => {
+			for (const x of misconfigured) {
+				check(d1(x.label, '--file', 'schema.sql').code === 0, `schema.sql applied to the ${x.label} state`);
+				server = await serve(x.label);
+				check(server.log().includes(`env.EMAIL (unrestricted - senders: notices@notify.${x.restricted}.example.test)`), `${x.label}: the binding is restricted to ${x.restricted === 'client-a' ? "client A's" : "client B's"} sender`);
+				const r = await publish('case-a1');
+				check(r.json?.published === true && r.json.notice.state === 'failed' && history(r.json.notice) === `1:permanent:${x.code}`, x.reached ? `${x.label}: the local binding refuses the send (allowed_sender_addresses); permanent, no retry, publication 200` : `${x.label}: the Worker's own check refuses the send before it reaches the binding (${x.what}); permanent, no retry, publication 200`);
+				check((await savedMessages(server!, 0)).length === 0 && !server.log().includes('send_email binding called'), `${x.label}: nothing was saved`);
+				check(published(await intact('case-a1'), 'case-a1'), `${x.label}: the publication, its file and the in-app notice are intact`);
+				await stop();
+			}
 		});
 
 		await leg('binding-missing', [d1Cmd('missing-email', '--file schema.sql'), serveCmd('missing-email'), 'POST /cases/case-a1/publish', 'GET /cases/case-a1 and its file (a-uploader)'], async (check) => {

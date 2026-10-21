@@ -43,7 +43,7 @@ export const LEG_SHAPE: Record<LegName, [number, number]> = {
 	'permanent-no-retry': [2, 3],
 	'interrupted-send': [5, 4],
 	'operator-visibility': [2, 4],
-	'sender-restriction': [4, 5],
+	'sender-restriction': [12, 15],
 	'binding-missing': [4, 5],
 	'no-leak': [1, 4],
 };

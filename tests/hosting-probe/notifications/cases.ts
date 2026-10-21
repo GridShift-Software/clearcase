@@ -20,6 +20,7 @@ import { checkSummary, mutationsRefused } from './summary.ts';
 const NOTICE_ID = '7d3f0b6e-2c4a-4e8b-9f10-3a5b6c7d8e9f';
 const ctx = {
 	kind: 'publication' as const,
+	clientId: 'client-a',
 	origin: 'https://client-a.example.test',
 	sender: 'notices@notify.client-a.example.test',
 	recipient: 'uploader-a@client-a.example.test',
@@ -57,6 +58,10 @@ for (const field of ['from', 'to', 'subject', 'text']) {
 	expect(`${field} retyped`, edit((m) => (m[field] = 1)), true);
 }
 expect('not an object', 'ClearCase', true);
+// a case word that occurs only in an address is no content: the denylist scans the subject and body
+const wordsInAddresses = noticeProblems(clean, { ...ctx, forbidden: ['uploader-a', 'notices@notify'] });
+if (wordsInAddresses.length) failures.push(`a case word that occurs only in the sender or recipient address: refused (${wordsInAddresses.join('; ')})`);
+else console.log('ok      a case word that occurs only in the sender or recipient address is not case content');
 
 // The recipient is data (users.email) and the origin and sender are configuration: the Worker builds the message from
 // them, so a check that compares the message with those same inputs accepts whatever they hold. `viaWorker` is how the

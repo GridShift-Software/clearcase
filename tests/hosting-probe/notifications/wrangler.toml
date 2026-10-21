@@ -65,8 +65,11 @@ name = "EMAIL"
 allowed_sender_addresses = ["notices@notify.client-a.example.test"]
 remote = false
 
-# `wrong-sender`: client A's binding, configured with client B's sender. The binding's allowed_sender_addresses must
-# refuse every send.
+# Three misconfigurations of client A's Worker. The Worker's own check (src/notice.ts) compares the origin and the sender
+# it was configured with against the values derived from CLIENT_ID, so the first two are refused before any send. The
+# third reaches the binding, whose allowed_sender_addresses must refuse the send.
+#
+# `wrong-sender`: SENDER is client B's address.
 [env.wrong-sender]
 [env.wrong-sender.vars]
 CLIENT_ID = "client-a"
@@ -87,6 +90,52 @@ remote = false
 [[env.wrong-sender.send_email]]
 name = "EMAIL"
 allowed_sender_addresses = ["notices@notify.client-a.example.test"]
+remote = false
+
+# `wrong-origin`: APP_ORIGIN is client B's, so every link would point at B's instance.
+[env.wrong-origin]
+[env.wrong-origin.vars]
+CLIENT_ID = "client-a"
+APP_ORIGIN = "https://client-b.example.test"
+SENDER = "notices@notify.client-a.example.test"
+
+[[env.wrong-origin.d1_databases]]
+binding = "DB"
+database_name = "notifications-probe-local-only"
+database_id = "00000000-0000-4000-8000-000000000111"
+remote = false
+
+[[env.wrong-origin.r2_buckets]]
+binding = "BUCKET"
+bucket_name = "notifications-probe-local-only"
+remote = false
+
+[[env.wrong-origin.send_email]]
+name = "EMAIL"
+allowed_sender_addresses = ["notices@notify.client-a.example.test"]
+remote = false
+
+# `wrong-binding`: the Worker is right, the binding is restricted to client B's sender.
+[env.wrong-binding]
+[env.wrong-binding.vars]
+CLIENT_ID = "client-a"
+APP_ORIGIN = "https://client-a.example.test"
+SENDER = "notices@notify.client-a.example.test"
+
+[[env.wrong-binding.d1_databases]]
+binding = "DB"
+database_name = "notifications-probe-local-only"
+database_id = "00000000-0000-4000-8000-000000000111"
+remote = false
+
+[[env.wrong-binding.r2_buckets]]
+binding = "BUCKET"
+bucket_name = "notifications-probe-local-only"
+remote = false
+
+[[env.wrong-binding.send_email]]
+name = "EMAIL"
+allowed_sender_addresses = ["notices@notify.client-b.example.test"]
 remote = false
 
 # `missing-email`: the same Worker deployed without its send_email binding.

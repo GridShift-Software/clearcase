@@ -88,7 +88,7 @@ async function attempt(env: Env, noticeId: string, now: number): Promise<void> {
 	if (!row.email) code = 'RECIPIENT_MISSING';
 	else if (!send) code = 'EMAIL_BINDING_MISSING';
 	else {
-		const ctx = { kind: row.kind, origin: env.APP_ORIGIN, sender: env.SENDER, recipient: row.email, forbidden };
+		const ctx = { kind: row.kind, clientId: env.CLIENT_ID, origin: env.APP_ORIGIN, sender: env.SENDER, recipient: row.email, forbidden };
 		const message = composeNotice({ ...ctx, noticeId });
 		if (noticeProblems(message, ctx).length) code = 'NOTICE_CONTENT_REFUSED';
 		else {

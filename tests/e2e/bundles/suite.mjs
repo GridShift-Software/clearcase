@@ -339,6 +339,112 @@ try {
 		} finally { off(); await q.close(); }
 	});
 	await S('CB-RESTART', 'court_bundle_tab', 'restarts: after a SIGKILL restart and a graceful restart every saved bundle-view row is unchanged (by id and fields)', () => restartKeepsRows(p, '9/2001'));
+	// GRS-160: the server dies once a header save is stored, while the page reloads its data (`typed` goes into the judge
+	// field then). SvelteKit gives up that reload for a full page load, which a leave guard may refuse; invalidateAll()
+	// never settles. Restarts the server before it returns. `opt`: hash (appended to the page's URL), prepare (runs once the
+	// page is open, in place of typing the case number), save (the selector pressed), settled (a page expression that turns
+	// true once the page stopped waiting).
+	const reloadDies = async (pp, caseNo, typed, opt = {}) => {
+		const ev = { kills: 0, paused: [] };
+		const off = b.on((m) => {
+			if (m.sessionId !== pp.sessionId || m.method !== 'Fetch.requestPaused') return;
+			ev.paused.push(m.params.request.url.replace(/^.*\/bundles\//, ''));
+			(async () => {
+				const srv = A.srv;
+				A.srv = null;
+				if (srv) {
+					if (typed) await pp.evaluate(`(() => { const e = document.getElementById('cbh_judge'); e.value = ${JSON.stringify(typed)}; e.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+					await srv.stop('SIGKILL');
+					ev.kills++;
+				}
+				await pp.s('Fetch.continueRequest', { requestId: m.params.requestId });
+			})().catch((e) => { ev.handler = String(e?.message ?? e).slice(0, 200); });
+		});
+		try {
+			await pp.go(B + (opt.hash ?? ''), 'court_bundle_tab');
+			if (opt.prepare) await opt.prepare();
+			// the builder's URL has a query before SvelteKit's own (?view=build&x-sveltekit-invalidated=…)
+			await pp.s('Fetch.enable', { patterns: [{ urlPattern: '*__data.json?*x-sveltekit-invalidated=*', requestStage: 'Request' }] });
+			if (!opt.prepare) await pp.evaluate(`(() => { const e = document.getElementById('cbh_caseNo'); e.value = '${caseNo}'; e.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+			const mk = b.mark();
+			await pp.click(opt.save ?? '#cb-save');
+			await until(() => ev.kills > 0, 10000);
+			ev.settled = await until(async () => await pp.evaluate(opt.settled ?? `(document.querySelector('#main')?.dataset.busy ?? 'left') !== '1'`).catch(() => true), 10000);
+			ev.page = await pp.evaluate(`(() => { const e = document.getElementById('cb-reload-error'); return { app: !!document.querySelector('main[data-ready="court_bundle_tab"]'), busy: document.querySelector('#main')?.dataset.busy ?? null, error: e?.textContent.trim() ?? '', alert: e?.getAttribute('role') ?? null, saveDisabled: document.getElementById('cb-save')?.disabled ?? null, caseNoChanged: document.getElementById('cbh_caseNo')?.classList.contains('changed') ?? null, judge: document.getElementById('cbh_judge')?.value ?? null, unsaved: document.getElementById('cb-unsaved')?.textContent.trim() ?? '' }; })()`).catch((e) => ({ error: String(e?.message ?? e).slice(0, 200) }));
+			ev.dialogs = b.since(mk).dialogs.map((d) => d.type);
+			ev.stored = A.work("SELECT fields FROM register_row WHERE store = 'bundle-header'").map((r) => JSON.parse(r.fields))[0] ?? null;
+			await pp.s('Fetch.disable').catch(() => {});
+			return ev;
+		} finally { off(); if (!A.srv) await startA(); }
+	};
+	await S('CB-RELOAD-LOST', 'court_bundle_tab', 'GRS-160: a header save stored just before the server dies, with another field typed while the page reloads: the page shows an error, leaves busy, counts the saved field as saved and keeps the typed one; after the restart Save stores it and the page opens another view', async () => {
+		const q = await page(b, A.origin);
+		const typed = 'SYN TYPED WHILE RELOADING';
+		try {
+			const ev = await reloadDies(q, '9/3001', typed);
+			const s = ev.page, after = {};
+			try {
+				await q.click('#cb-save');
+				await q.waitFor(`document.querySelector('#main')?.dataset.busy === '0' && !document.getElementById('cb-reload-error')`, 30000);
+				after.judge = A.work("SELECT fields FROM register_row WHERE store = 'bundle-header'").map((r) => JSON.parse(r.fields).judge)[0] ?? null;
+				await q.go(C, 'caselines_tab');
+				after.left = true;
+			} catch (e) { after.error = String(e?.message ?? e).slice(0, 200); }
+			return { pass: ev.kills === 1 && ev.stored?.caseNo === '9/3001' && ev.settled && s.app && s.busy === '0' && /could not reload/.test(s.error) && s.alert === 'alert' && s.saveDisabled === false && s.caseNoChanged === false && s.judge === typed && s.unsaved === '1 field changed, not saved' && after.judge === typed && after.left === true, evidence: { ...ev, after } };
+		} finally { await q.close(); }
+	});
+	await S('CB-RELOAD-GONE', 'court_bundle_tab', 'GRS-160: with nothing else typed, a header save stored just before the server dies does not hold the page: no leave prompt opens, and after the restart the page shows the saved header and opens another view', async () => {
+		const q = await page(b, A.origin);
+		try {
+			const ev = await reloadDies(q, '9/3002');
+			const after = {};
+			try {
+				await q.go(B, 'court_bundle_tab');
+				Object.assign(after, await q.evaluate(`({ shown: document.getElementById('cbh_caseNo').value, busy: document.querySelector('#main').dataset.busy, unsaved: document.getElementById('cb-unsaved')?.textContent.trim() ?? '' })`));
+				await q.go(C, 'caselines_tab');
+				after.left = true;
+			} catch (e) { after.error = String(e?.message ?? e).slice(0, 200); }
+			return { pass: ev.kills === 1 && ev.stored?.caseNo === '9/3002' && ev.settled && !ev.dialogs.includes('beforeunload') && after.shown === '9/3002' && after.busy === '0' && after.unsaved === '' && after.left === true, evidence: { ...ev, after } };
+		} finally { await q.close(); }
+	});
+
+	await S('CB-RELOAD-FRAGMENT', 'court_bundle_tab', 'GRS-160: with a fragment in the URL (a skip link, a bookmark) SvelteKit\'s fallback after a failed reload is a same-document navigation that raises no leave: a header save stored just before the server dies still shows the error and leaves busy, and after the restart the page shows the saved header and opens another view', async () => {
+		const q = await page(b, A.origin);
+		try {
+			const ev = await reloadDies(q, '9/3003', undefined, { hash: '#main' });
+			const s = ev.page, after = {};
+			try {
+				await q.go(B, 'court_bundle_tab');
+				Object.assign(after, await q.evaluate(`({ shown: document.getElementById('cbh_caseNo').value, busy: document.querySelector('#main').dataset.busy, unsaved: document.getElementById('cb-unsaved')?.textContent.trim() ?? '' })`));
+				await q.go(C, 'caselines_tab');
+				after.left = true;
+			} catch (e) { after.error = String(e?.message ?? e).slice(0, 200); }
+			return { pass: ev.kills === 1 && ev.stored?.caseNo === '9/3003' && ev.settled && s.app && s.busy === '0' && /could not reload/.test(s.error) && s.alert === 'alert' && s.saveDisabled === false && s.caseNoChanged === false && !ev.dialogs.includes('beforeunload') && after.shown === '9/3003' && after.busy === '0' && after.unsaved === '' && after.left === true, evidence: { ...ev, after } };
+		} finally { await q.close(); }
+	});
+	await S('CB-RELOAD-STRAY', 'court_bundle_tab', 'GRS-160: a leave the page refuses while a slow reload is still on its way is not a failed reload: the page stays busy with no error and Save disabled until the reload lands, then shows neither', async () => {
+		const q = await page(b, A.origin);
+		const held = [];
+		const off = b.on((m) => { if (m.sessionId === q.sessionId && m.method === 'Fetch.requestPaused') { held.push(m.params.request.url); setTimeout(() => q.s('Fetch.continueRequest', { requestId: m.params.requestId }).catch(() => {}), 4000); } });
+		try {
+			await q.go(B, 'court_bundle_tab');
+			await q.s('Fetch.enable', { patterns: [{ urlPattern: '*__data.json?x-sveltekit-invalidated=*', requestStage: 'Request' }] });
+			await q.evaluate(`(() => { const e = document.getElementById('cbh_caseNo'); e.value = '9/3004'; e.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+			const mk = b.mark();
+			await q.click('#cb-save');
+			await until(() => held.length > 0, 10000);
+			await q.evaluate(`(() => { const e = document.getElementById('cbh_judge'); e.value = 'SYN STRAY TYPED'; e.dispatchEvent(new Event('input', { bubbles: true })); })()`);
+			const state = () => q.evaluate(`({ busy: document.querySelector('#main')?.dataset.busy ?? null, error: document.getElementById('cb-reload-error')?.textContent.trim() ?? '', saveDisabled: document.getElementById('cb-save')?.disabled ?? null })`);
+			await q.evaluate(`setTimeout(() => { location.href = '/cases'; }, 0)`);
+			const refused = await until(() => b.since(mk).dialogs.some((d) => d.type === 'beforeunload'), 3000);
+			await sleep(300);
+			const during = await state();
+			const landed = await until(async () => (await q.evaluate(`document.querySelector('#main')?.dataset.busy ?? 'left'`).catch(() => 'left')) === '0', 15000);
+			const end = await state();
+			const stored = A.work("SELECT fields FROM register_row WHERE store = 'bundle-header'").map((r) => JSON.parse(r.fields).caseNo)[0] ?? null;
+			return { pass: held.length === 1 && refused && during.busy === '1' && during.error === '' && during.saveDisabled === true && landed && end.error === '' && end.saveDisabled === false && stored === '9/3004', evidence: { held: held.length, refused, during, landed, end, stored } };
+		} finally { off(); await q.s('Fetch.disable').catch(() => {}); await q.close(); }
+	});
 
 	// ---- CC-09-r2 regressions ---------------------------------------------------------------------------------
 	const J = JSON.stringify;
@@ -683,6 +789,45 @@ try {
 			f.src = href; f.style.width = '300px'; f.style.height = '300px'; document.body.append(f);
 		})`);
 		return { pass: link.same && link.type === 'application/pdf' && /^blob:/.test(link.url ?? ''), evidence: { first, link } };
+	});
+	await S('CB-BUILD-RELOAD', 'court_bundle_tab', 'GRS-160: a builder Save stored just before the server dies, while the page reloads its data: the builder leaves Saving…, enables Save again and the page shows the reload error; after the restart the saved bundle is listed and can be removed', async () => {
+		const q = await page(b, A.origin);
+		let orig = '';
+		try {
+			const ev = await reloadDies(q, '', undefined, {
+				prepare: async () => {
+					// an unsaved header field makes the page refuse SvelteKit's fallback load, so the page keeps its state
+					orig = await val(q, 'cbh_judge');
+					await setVal(q, 'cbh_judge', 'SYN TYPED BEFORE BUILDING');
+					await q.click('#cb-build');
+					await q.waitFor(`document.getElementById('cbbfile')`, 30000);
+					await pick(q, ['Alpha_Statement.pdf']);
+					await q.waitFor(`document.querySelectorAll('#cbbfiles tbody tr').length === 1 && !document.getElementById('cbbmsg').textContent`, 30000);
+					await q.type('#cbbname', 'Syn Reload');
+					await q.click('#cbbrun');
+					await q.waitFor(`document.getElementById('cbbdownload')`, 60000);
+				},
+				save: '#cbbsave',
+				settled: `!document.querySelector('#cbbout .saving')`,
+			});
+			const now = await q.evaluate(`({ saving: !!document.querySelector('#cbbout .saving'), saveDisabled: document.getElementById('cbbsave')?.disabled ?? null, error: document.getElementById('cb-reload-error')?.textContent.trim() ?? '', alert: document.getElementById('cb-reload-error')?.getAttribute('role') ?? null })`).catch(() => null);
+			const mine = () => customRows().filter((r) => r.name === 'SYN RELOAD');
+			const stored = mine().length;
+			const after = {};
+			try {
+				// back to the list, and the field typed before building back to what it was, so the page lets this tab go
+				await q.click('#cb-builder-back');
+				await q.waitFor(`document.getElementById('cbh_judge')`, 30000);
+				await setVal(q, 'cbh_judge', orig);
+				await q.go(B, 'court_bundle_tab');
+				after.listed = await q.evaluate(`[...document.querySelectorAll('#cb-list tbody tr')].some((r) => r.textContent.includes('SYN RELOAD'))`);
+				await q.evaluate(`window.confirm = () => true`);
+				await q.click(`[data-delete="${mine()[0]?.no}"]`);
+				await until(() => mine().length === 0, 30000);
+				after.removed = mine().length === 0;
+			} catch (e) { after.error = String(e?.message ?? e).slice(0, 200); }
+			return { pass: ev.kills === 1 && ev.settled && now?.saving === false && now.saveDisabled === false && /could not reload/.test(now.error) && now.alert === 'alert' && stored === 1 && after.listed === true && after.removed === true, evidence: { ...ev, now, stored, after } };
+		} finally { await q.close(); }
 	});
 	await S('NOJS', 'discovery_tab', 'D4: without JavaScript no control of the three views looks usable, and each view says saving needs JavaScript; the bundle builder says it needs JavaScript', async () => {
 		const out = {};

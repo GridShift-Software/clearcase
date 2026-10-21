@@ -56,12 +56,11 @@ const CONFLICT = 'Not saved: the header was changed in another tab since this pa
 function headerWrite(vid: string, c: string, version: string, values: Record<string, string>, write: () => Promise<void>) {
 	return guarded(values, () => serial(c, HEADER_STORE, async () => {
 		const now = singleHash(c, HEADER_STORE);
-		if (version !== now) {
-			const raw = datasetOf<Raw>(app().store, vid, 'bundles');
-			return fail(409, { message: CONFLICT, values, stored: headerRaw(raw?.headerDefaults ?? {}, singleRow(c, HEADER_STORE)?.fields ?? null), version: now });
-		}
+		const stored = () => headerRaw(datasetOf<Raw>(app().store, vid, 'bundles')?.headerDefaults ?? {}, singleRow(c, HEADER_STORE)?.fields ?? null);
+		if (version !== now) return fail(409, { message: CONFLICT, values, stored: stored(), version: now });
 		await write();
-		return { saved: true, version: singleHash(c, HEADER_STORE) };
+		// the stored header comes back with the answer, so the page holds it even when its reload fails (GRS-160)
+		return { saved: true, version: singleHash(c, HEADER_STORE), stored: stored() };
 	}));
 }
 const versionOf = (f: FormData) => String(f.get('version') ?? '');

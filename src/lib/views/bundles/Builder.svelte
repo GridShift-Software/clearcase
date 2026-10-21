@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto, invalidateAll } from '$app/navigation';
+	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import {
 		addFile, docxBundle, fromBundle, indexDocxName, indexPdfName, newRow, pdfName, plan, rowDel, rowMove, savedBundle, segAdd, segDel, segFile, setSeg,
@@ -13,7 +13,7 @@
 	import { postAction } from './post.ts';
 	import TableScroll from '$lib/components/TableScroll.svelte';
 
-	let { bundles, h, creator, off, onback }: { bundles: Bundle[]; h: Header; creator: string; off: boolean; onback: () => void } = $props();
+	let { bundles, h, creator, off, reload, onback }: { bundles: Bundle[]; h: Header; creator: string; off: boolean; reload: () => Promise<boolean>; onback: () => void } = $props();
 	const pl = $derived(plan(bld.b));
 	const need = $derived(unlinked(pl));
 	const why = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -123,7 +123,7 @@
 			const no = String(r.data?.no ?? '');
 			o.saved = no;
 			blobs[o.id] = o.url;
-			await invalidateAll();
+			if (!(await reload())) return;
 			if (page.url.searchParams.get('view') === 'build' && bld.out?.id === o.id) await goto(`?${new URLSearchParams({ b: no, tab: 'index' })}`);
 		} finally {
 			bld.saving = false;

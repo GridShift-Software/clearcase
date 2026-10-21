@@ -2270,6 +2270,13 @@ class FixRoundMergedBase(ControlCase):
         self.assertEqual(receipt['guard']['trustedBase'], self.git('rev-parse', 'dev'))
         self.assertEqual(receipt['revision']['base'], self.git('rev-parse', 'dev'))
 
+    def test_the_base_ref_variable_alone_does_not_trust_the_base(self):
+        self.on_dev(self.base_change)
+        self.merge()
+        self.env['CLEARCASE_BASE_REF'] = 'dev'
+        self.assertIn('protected dependency changed', self.guard(code=1))
+        self.assertIsNone(self.last_receipt()['guard']['trustedBase'])
+
     def test_the_pass_line_names_the_base_it_trusted_only_when_one_was_given(self):
         self.on_dev(self.base_change)
         self.merge()

@@ -46,7 +46,7 @@ scripts/agent-tools/bootstrap
 scripts/agent-tools/verify pstack
 ```
 
-Use `--base REF` (or `CLEARCASE_BASE_REF`) when neither `origin/dev` nor `dev` is available. The accepted base must resolve locally; an archive initialized as a new repository needs its own explicit base. Bun can be selected with `CLEARCASE_BUN`, and Chromium with `CLEARCASE_CHROMIUM`; no shell profile is required.
+Use `--base REF` (or `CLEARCASE_BASE_REF`) when neither `origin/dev` nor `dev` is available. `CLEARCASE_BASE_REF` names the base revision like `--base` does, but only an explicit `--base` lets `fix-round-guard` accept a base change HEAD merged (below): the variable alone leaves that guard strict. The accepted base must resolve locally; an archive initialized as a new repository needs its own explicit base. Bun can be selected with `CLEARCASE_BUN`, and Chromium with `CLEARCASE_CHROMIUM`; no shell profile is required.
 
 Plain `bootstrap` runs doctor, then creates only ignored local state: `.local/agent-tools/skills` points to the selected pstack skills directory and `bootstrap.json` records its identity. Repeated calls report `unchanged`. A conflicting existing link fails and asks for `bootstrap --remove` before replacing it. The link is kept only for compatibility; nothing in these tools reads it, and it names a version-specific plugin path, so a plugin update makes the next plain `bootstrap` FAIL with the conflict message until `bootstrap --remove` clears it. A later change may drop the link. Discovery always checks the plugin cache again. Removing bootstrap deletes only its local link and state; receipts and installed skills stay.
 
@@ -175,7 +175,7 @@ Before a receipt-producing command runs anything, it resolves the revision it wi
 | git is not on PATH | SKIPPED, exit 3: `required tool not found: git`. |
 | The directory is not a Git checkout, `--root` is below a checkout's top, or the checkout has no commit. This includes `receipt` run from a copy of the tools outside any checkout. | SKIPPED, exit 3: `no head revision: ...`. The receipt records the attempt; the command does not run. |
 | `receipt` is run from a directory outside that checkout, or inside a different repository nested in it | SKIPPED, exit 3. Run it inside the checkout, or pass `--root DIR` naming the checkout the command runs in. |
-| `--base REF`, or `CLEARCASE_BASE_REF` when `--base` is absent, does not resolve to a commit. An empty value counts as given, so `--base "$UNSET"` cannot fall back. | SKIPPED, exit 3, naming the ref. An explicit base never falls back to a default. It is a missing required input, like a missing `--input` file. |
+| `--base REF`, or `CLEARCASE_BASE_REF` when `--base` is absent, does not resolve to a commit. An empty value counts as given, so `--base "$UNSET"` cannot fall back. | SKIPPED, exit 3, naming the ref. An explicit base never falls back to a default. It is a missing required input, like a missing `--input` file. The variable stands in for `--base` as the base revision, not as the explicit `--base` the fix-round guard's base-change rule needs. |
 | No explicit base, and neither `origin/dev` nor `dev` exists | SKIPPED, exit 3: `no base revision`. Pass `--base REF`. |
 | The base shares no history with HEAD | SKIPPED, exit 3. |
 | HEAD, or the default `origin/dev`, names an object that is not a commit Git can read, for example a deleted or corrupt object | SKIPPED, exit 3, naming the ref and the object. A broken `origin/dev` does not fall back to `dev`; only a default that does not exist does. |
@@ -294,7 +294,9 @@ review's findings file). The reviewer's findings file, the one `review-record` r
 must equal it. The fix worker commits the manifest first, with the red tests. `scripts/agent-tools/fix-round-guard
 --base REF [--root DIR]` lists the manifests added or changed between the merge base with REF and HEAD, and runs
 the guard at HEAD for each one, with one `test-guard` receipt per manifest. A deleted manifest, a malformed one, or a
-`fixBase` that is not a full SHA of an ancestor fails (exit 1).
+`fixBase` that is not a full SHA of an ancestor fails (exit 1). Whatever `--base` names is the trust anchor: the guard accepts the base's changes
+as that ref holds them. A local run is evidence only when `--base` is the pull request's base branch (CI passes
+`origin/$BASE_REF`, `base-guard` passes its SHA); a side branch merged into HEAD and named as `--base` passes a weakened helper.
 
 A branch with no new or changed manifest exits 0, prints `nothing to protect` and writes a `fix-round-guard`
 receipt whose `guard.nothingToProtect` is true: the receipt says no guard ran, and approval never accepts it as a guard
@@ -345,16 +347,21 @@ branch had not changed the path when it was reviewed); and HEAD's copy is the ba
 the protected dependencies (a derived entry, the test scripts or a `package.json`'s resolution fields, through its whole
 file), the fixtures, the statements of a protected test file outside its named tests, and the checks on the rest of the
 fix diff (framework reach, assertion counts, changed Python or shell tests). It is not a weakening: such a path is
-byte-identical to the base, so merging the pull request changes nothing there, the branch made none of the change, and
-the base changes only through pull requests CI has judged. The named tests are still compared token for token whatever
+byte-identical to the base, so merging the pull request changes nothing there and the branch made none of the change. What the base
+holds is not always a pull request CI judged: a wave base also receives `dev` merges and fix commits. That stays safe because the wave
+pull request into `dev` reruns every manifest with `dev` as the base, where a weakening that came in through the wave's base is the
+branch's own change again. The named tests are still compared token for token whatever
 the base holds. Everything else refuses with the messages above: a branch edit after a merge or on top of a base change,
 an edit inside the merge commit, a revert of a reviewed change to the base's older copy, a path both sides changed (a
 hand-resolved union, which is a branch-side choice: PR #75's `vitest.config.ts` was one, and even Git's 3-way merge of it
 conflicts), a protected dependency added or deleted, a symlink, a mode change on top, a base HEAD has not merged
 (including one that moved on after the merge: merge it again), an unreadable base, and no `--base` (the default base sets
-the range only). `--ledger` binds the guard to the reviewed commit alone, and `test-guard`, `verify test-guard` and
-`receipt --fix-base` never accept a base change. The receipt records `guard.trustedBase` (null otherwise), and the guard
-prints how many changed files it left to the base and which protected ones. Reviewer-owned: a base change to the runner
+the range only). A key that neither HEAD nor the fix base tracks, such as a derived entry whose file is not mapped, is never the base's
+change. A criss-cross history also refuses falsely: if the fix base merged a `dev` config change Q and `dev` merged the branch's P, the
+merge bases are {P, Q}, P holds the older copy, and a later base-only change to that path refuses with `protected dependency changed`.
+It fails closed, and a reviewed `fixBase` advance is the remedy. `--ledger` binds the guard to the reviewed commit alone, and `test-guard`, `verify test-guard` and
+`receipt --fix-base` never accept a base change. The receipt records `guard.trustedBase` (null otherwise), the guard
+prints how many changed files it left to the base and which protected ones, and its PASS line ends `; trusted base <full SHA>` when a base was trusted. Reviewer-owned: a base change to the runner
 configuration is accepted even where it decides whether the branch's named tests run (a base `exclude`, or an `include`
 list that no longer matches the branch's test directory), since the guard cannot evaluate globs; the re-check reads each
 protected file the guard's line names. A `fixBase` advance like `e7681a6` (PR #75) is no longer needed for a base change

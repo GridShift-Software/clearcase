@@ -27,7 +27,7 @@ import { type OriginalPlan, type Plan, type Scale, V5, aggregates, listText, ori
 
 const HERE = import.meta.dirname;
 const SCHEMA = 'clearcase.storage-probe/1';
-const LEGS = ['build', 'provision', 'crossed-bindings', 'upload', 'import', 'layout', 'range', 'user-work', 'export', 'corruption', 'restore'] as const;
+const LEGS = ['build', 'provision', 'crossed-bindings', 'upload', 'import', 'layout', 'range', 'write-once', 'user-work', 'export', 'corruption', 'restore'] as const;
 type LegName = (typeof LEGS)[number];
 type Measure = Record<string, number | string | boolean>;
 type Leg = { status: 'PASS' | 'FAIL' | 'NOT RUN'; commands: string[]; asserted: string[]; measured: Measure; failure?: string };
@@ -64,6 +64,15 @@ const repo = () => git('rev-parse', '--show-toplevel');
 const head = () => git('rev-parse', 'HEAD');
 const dirty = () => git('status', '--porcelain', '--untracked-files=all');
 const sha256 = (b: Uint8Array | string) => createHash('sha256').update(b).digest('hex');
+/** SHA-256 of a file in 8 MiB reads, so a multi-GB blob never has to fit in one Buffer. */
+function fileSha(file: string): string {
+	const h = createHash('sha256');
+	const fd = openSync(file, 'r');
+	const buf = Buffer.alloc(8 << 20);
+	for (let at = 0, n = 1; n > 0; at += n) h.update(buf.subarray(0, (n = readSync(fd, buf, 0, buf.length, at))));
+	closeSync(fd);
+	return h.digest('hex');
+}
 
 /** [commands, asserted] each leg writes; a leg that gains or loses one changes this table, or `evidence` stays false. */
 const LEG_SHAPE: Record<LegName, [number, number]> = {
@@ -74,6 +83,7 @@ const LEG_SHAPE: Record<LegName, [number, number]> = {
 	import: [9, 12],
 	layout: [5, 9],
 	range: [10, 11],
+	'write-once': [5, 7],
 	'user-work': [12, 16],
 	export: [6, 7],
 	corruption: [11, 12],
@@ -132,6 +142,7 @@ const MEASURES: Record<LegName, Record<string, Spec>> = {
 		warmChronologyMs: MS,
 	},
 	range: { largestOriginalBytes: poc.originals.max, rangeOnLargestMs: MS, wholeLargestMs: MS, workerdPeakRssBytes: POSITIVE },
+	'write-once': { refusedWrites: 4 },
 	'user-work': { concurrentAdds: 100, duplicateSeqs: 0, naiveDuplicateSeqs: POSITIVE, racedReplaces: 20, staleReplaces: 19, restoreRace: /^(restore-first|adds-first|interleaved)$/ },
 	export: { entries: POSITIVE, packetBytes: POSITIVE, parts: POSITIVE, steps: POSITIVE, maxR2OpsPerStep: POSITIVE, maxD1StatementsPerStep: POSITIVE, wallMs: MS, offlineCheckMs: MS, workerdPeakRssBytes: POSITIVE },
 	corruption: { casesRefused: 8 },
@@ -441,6 +452,24 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 		}
 	}
 
+	/** Flips one byte of the local R2 blob that has this size (and SHA-256, when given), as a credential holder with disk access could. */
+	const flip = (bucket: string, sizeOf: number, digest: string | null, at: number) => {
+		const dir = path.join(persist, 'v3/r2', bucket, 'blobs');
+		let flipped = 0;
+		for (const f of readdirSync(dir)) {
+			const file = path.join(dir, f);
+			if (statSync(file).size !== sizeOf || (digest !== null && fileSha(file) !== digest)) continue;
+			const fd = openSync(file, 'r+');
+			const b = Buffer.alloc(1);
+			readSync(fd, b, 0, 1, at);
+			b[0] = b[0]! ^ 0xff;
+			writeSync(fd, b, 0, 1, at);
+			closeSync(fd);
+			flipped++;
+		}
+		return flipped;
+	};
+
 	const p: Plan = plan(SEED, scale);
 	const shas: string[] = [];
 	const bytesOf = (o: OriginalPlan) => originalBytes(p, o);
@@ -734,6 +763,48 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			m.workerdPeakRssBytes = workerdPeak(server!);
 		});
 
+
+		// ----- write-once: a key a D1 row records, or that holds verified bytes, is never deleted or overwritten -----
+		await leg('write-once', ['PUT /originals/<sha256>, POST /cases/case-wo-1/originals (finalize), GET Range: bytes=0-63', 'POST /cases/case-wo-2/originals with the same SHA-256 and a wrong size', 'POST /originals/<sha>/uploads, PUT …/1 (other bytes), PUT /originals/<sha> and finalize, then POST …/complete over the recorded key', 'POST …/uploads and …/complete with bytes other than the key names, finalize, GET /probe/head/orig/<sha>', 'POST /cases/case-wo-1/originals binding an asset to another original'], async (check, m) => {
+			const synthetic = (label: string, n: number) => new TextEncoder().encode(`SYNTHETIC ONLY: ${label}\n`.repeat(n));
+			const A = synthetic('write-once original A', 600);
+			const B = synthetic('write-once original B', 500);
+			const J = synthetic('bytes other than the ones the key names', 300);
+			const [hA, hB, hJ] = [sha256(A), sha256(B), sha256(synthetic('the digest a client claims', 300))];
+			const finalize = (caseId: string, assetId: string, h: string, size: number) => post(`/cases/${caseId}/originals`, { assetId, sha256: h, size, filename: `${assetId}.pdf`, mediaType: 'application/pdf' });
+			const served = async (caseId: string, assetId: string, bytes: Uint8Array) => {
+				const r = await http(`/cases/${caseId}/originals/${assetId}`, { headers: { range: 'bytes=0-63' } });
+				const w = await http(`/cases/${caseId}/originals/${assetId}`);
+				return r.status === 206 && equal(r.bytes, bytes.subarray(0, 64)) && w.status === 200 && equal(w.bytes, bytes);
+			};
+			const held = async (sha: string) => {
+				const r = await http(`/probe/head/orig/${sha}`);
+				return r.status === 200 ? { size: r.json().size as number, sha256: r.json().sha256 as string | null } : null;
+			};
+			let refused = 0;
+			check((await http(`/originals/${hA}`, { method: 'PUT', body: A })).status === 200 && (await finalize('case-wo-1', 'wo-letter', hA, A.length)).status === 200 && (await served('case-wo-1', 'wo-letter', A)), 'an original is uploaded and finalized in case 1, and its range and whole GET serve its bytes');
+			const wrongSize = await finalize('case-wo-2', 'wo-other', hA, A.length + 1);
+			if (wrongSize.status === 409 && wrongSize.json().code === 'digest-mismatch') refused++;
+			check(wrongSize.status === 409 && wrongSize.json().code === 'digest-mismatch' && wrongSize.json().check === 'size', "case 2 finalizing the same SHA-256 with a wrong size answers 409 digest-mismatch (size), not a deletion of case 1's original");
+			check((await held(hA))?.sha256 === hA && (await served('case-wo-1', 'wo-letter', A)) && (await http('/cases/case-wo-2/originals/wo-other')).status === 404, "case 1's original is still stored and served byte for byte after the refused finalize, and case 2 recorded nothing");
+			const up = (await post(`/originals/${hB}/uploads`, {})).json();
+			const part = await http(`/originals/${hB}/uploads/${up.uploadId}/1`, { method: 'PUT', body: synthetic('other bytes under B’s key', 700) });
+			check(part.status === 200 && (await http(`/originals/${hB}`, { method: 'PUT', body: B })).status === 200 && (await finalize('case-wo-1', 'wo-b', hB, B.length)).status === 200, 'a second original is stored and recorded while a multipart upload for the same key is still open');
+			const over = await post(`/originals/${hB}/uploads/${up.uploadId}/complete`, { parts: [part.json()] });
+			if (over.status === 409 && over.json().code === 'conflicting-object') refused++;
+			check(over.status === 409 && over.json().code === 'conflicting-object' && (await held(hB))?.sha256 === hB && (await served('case-wo-1', 'wo-b', B)), 'completing that multipart upload over the recorded key answers 409 conflicting-object, and the recorded original is served unchanged');
+			const uj = (await post(`/originals/${hJ}/uploads`, {})).json();
+			const pj = await http(`/originals/${hJ}/uploads/${uj.uploadId}/1`, { method: 'PUT', body: J });
+			check(pj.status === 200 && (await post(`/originals/${hJ}/uploads/${uj.uploadId}/complete`, { parts: [pj.json()] })).status === 200, 'a multipart upload whose bytes are not the ones its key names completes: R2 checks no SHA-256 for multipart');
+			const junk = await finalize('case-wo-1', 'wo-junk', hJ, J.length);
+			if (junk.status === 409 && junk.json().code === 'digest-mismatch') refused++;
+			check(junk.status === 409 && junk.json().code === 'digest-mismatch' && junk.json().check === 'sha256' && (await held(hJ))?.size === J.length && (await http('/cases/case-wo-1/originals/wo-junk')).status === 404, 'finalizing it answers 409 digest-mismatch (sha256), records nothing and deletes nothing: the unrecorded object stays for a reaper');
+			const rebind = await finalize('case-wo-1', 'wo-letter', hB, B.length);
+			if (rebind.status === 409 && rebind.json().code === 'asset-bound-to-another-original') refused++;
+			check(rebind.status === 409 && rebind.json().code === 'asset-bound-to-another-original' && (await served('case-wo-1', 'wo-letter', A)), 'binding a recorded asset to another original answers 409 and the asset still serves the first');
+			m.refusedWrites = refused;
+		});
+
 		// ----- user work (P4) -----
 		await leg('user-work', ['100 concurrent POST /cases/<case>/registers/{a,b}/add', '100 concurrent POST …/naive-add (control: read, then write)', 'POST …/add again with an operationId already used', '20 concurrent POST …/replace with one expected version', 'POST …/remove with a stale, then the current version; …/replace after removal', 'GET /cases/<case>/work?backup=1 (snapshot)', 'POST /cases/<case>/work/restore with a stale rev', 'POST …/work/restore with an injected failure after the deletes', 'POST …/work/restore with a snapshot lacking a table', 'POST …/work/restore with the current rev', 'POST …/work/restore racing 20 adds', 'GET /cases/<case>/work'], async (check, m) => {
 			const add = (store: string, i: number) => post(`/cases/${caseId}/registers/${store}/add`, { fields: { label: `synthetic ${store} ${i}` }, operationId: `op-${store}-${i}` });
@@ -850,22 +921,6 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 				return !text.includes(Buffer.from(original.subarray(0, 64))) && (r.bytes.length === 0 || r.type.startsWith('application/json'));
 			};
 			const pick = (k: number) => p.originals.filter((o) => o.size > 4096 && o.size < 4 * MiB)[k]!;
-			const flip = (bucket: string, sizeOf: number, digest: string, at: number) => {
-				const dir = path.join(persist, 'v3/r2', bucket, 'blobs');
-				let flipped = 0;
-				for (const f of readdirSync(dir)) {
-					const file = path.join(dir, f);
-					if (statSync(file).size !== sizeOf || sha256(readFileSync(file)) !== digest) continue;
-					const fd = openSync(file, 'r+');
-					const b = Buffer.alloc(1);
-					readSync(fd, b, 0, 1, at);
-					b[0] = b[0]! ^ 0xff;
-					writeSync(fd, b, 0, 1, at);
-					closeSync(fd);
-					flipped++;
-				}
-				return flipped;
-			};
 			// a. at-rest corruption outside the first 64 bytes
 			const a = pick(0);
 			const aBytes = bytesOf(a);

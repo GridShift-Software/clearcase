@@ -880,6 +880,15 @@ async function restoreFinish(ctx: Ctx, packetId: string): Promise<Response> {
 	return json(ctx, { restored: caseId, resultsVersion: v, entries: entries.length - 1 });
 }
 
+/** What a case holds in D1, for the runner to compare before and after a refused restore. */
+async function liveState(ctx: Ctx, caseId: string): Promise<Response> {
+	const versions = await ctx.db.all('SELECT version_id, state FROM results_version WHERE case_id = ? ORDER BY version_id', caseId);
+	const active = await ctx.db.first<{ version_id: string }>('SELECT version_id FROM active WHERE case_id = ?', caseId);
+	const originals = (await ctx.db.first<{ n: number }>('SELECT count(*) AS n FROM case_original WHERE case_id = ?', caseId))!.n;
+	const work = await snapshot(ctx, caseId);
+	return json(ctx, { versions, active: active?.version_id ?? null, originals, rev: work.rev, work: Object.fromEntries(Object.entries(work.tables).map(([t, v]) => [t, v.rows.length])) });
+}
+
 /** A digest of everything stored for a case, to compare a restored deployment with its source. */
 async function stateDigest(ctx: Ctx, caseId: string): Promise<Response> {
 	const s = await caseState(ctx, caseId);
@@ -902,6 +911,13 @@ async function route(request: Request, env: Env): Promise<Response> {
 	const ctx = await open(env);
 	if (m === 'GET' && seg.length === 1 && seg[0] === 'identity') return json(ctx, { client: ctx.client, d1: ctx.client, r2: ctx.client });
 	if (m === 'GET' && seg.length === 1 && seg[0] === 'd1-size') return json(ctx, { bytes: (await ctx.db.batch([['SELECT 1', []]]))[0]!.meta.size_after });
+	// Read-only introspection for the runner: what an R2 key holds, and what a case holds in D1.
+	if (m === 'GET' && seg[0] === 'probe' && seg[1] === 'head' && seg.length > 2) {
+		const key = seg.slice(2).join('/');
+		const o = /^(orig|pkg|rm|backup|preview)\//.test(key) ? await ctx.bucket.head(key) : null;
+		return o ? json(ctx, { key, size: o.size, sha256: checksum(o), etag: o.etag }) : json(ctx, { code: 'not-found' }, 404);
+	}
+	if (m === 'GET' && seg[0] === 'probe' && seg[1] === 'live' && seg.length === 3 && isText(ID)(seg[2])) return liveState(ctx, seg[2]);
 	if (seg[0] === 'originals' && isText(SHA)(seg[1])) {
 		const sha = seg[1];
 		if (m === 'PUT' && seg.length === 2) return putOriginal(ctx, request, sha);

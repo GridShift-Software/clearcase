@@ -2102,15 +2102,16 @@ class GuardBinding(ControlCase):
         self.prepare([{'id': 'L1', 'severity': 'low'}])
         self.assertIn('protectedTests', self.approve('--guard-receipt', self.guard_receipt, code=1))
 
-    def test_a_review_that_names_nothing_to_protect_needs_no_guard_receipt(self):
+    def test_a_review_that_names_nothing_to_protect_still_needs_a_guard_receipt_once_a_fix_is_recorded(self):
+        # GRS-156 M2, the old test_a_review_that_names_nothing_to_protect_needs_no_guard_receipt tightened: approval
+        # admits no recorded fix that fix-round-guard --ledger refuses, and that guard needs a manifest. A review that
+        # names no test is bound by a manifest's noTests declaration (tests/agent-tools/test_docs_only.py, Approval).
         self.unit = 'GRS-105/implementation'
         self.start(self.unit, {'protectedTests': []})
         self.write('app.txt', 'fixed\n')
         self.commit('fix round')
         self.prepare([{'id': 'L1', 'severity': 'low'}])
-        self.approve()
-        approved = sorted(self.receipts.glob('*/receipt.json'))[-1]
-        self.assertTrue(json.loads(approved.read_text())['approval']['guard']['nothingToProtect'])
+        self.assertIn('--guard-receipt', self.approve(code=1))
 
 
 class FixRoundGuardRequired(ControlCase):

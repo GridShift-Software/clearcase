@@ -270,6 +270,11 @@ Escalation tests prove missing linkage, source, exact/clean SHA or bounded quest
 
 The suite exits nonzero on any unexpected behavior. `check-plan` can independently remain FAIL for the real plan even when every tooling behavior test passes.
 
+`tests/agent-tools/test_docs_only.py`, which the suite runs after `test_controls.py`, drives the real `fix-round-guard`,
+`test-guard`, `approve` and `approval-check` through a docs-only fix round ([Docs-only fix rounds](#docs-only-fix-rounds)):
+the accepted declaration in either order, each refused binding and path, the omitted named tests, the ledger and
+approval bindings, and the declaration carried from its ticket into the wave pull request.
+
 ## Fix-diff test protection
 
 A passing guard is not clearance: it bounds test-code changes and the capability routes in the reviewer-owned list at the end of
@@ -291,7 +296,8 @@ CI runs it from the repository. A fix round commits its findings as a manifest,
 the canonical `unit`, `fixBase` (the reviewed commit's full SHA) and `reviewFindingsSha256` (the content hash of the
 review's findings file). The reviewer's findings file, the one `review-record` retains, carries
 `"protectedTests": [{"file", "name"}]` (a list; empty only when the review names no test) and the manifest's `tests`
-must equal it. The fix worker commits the manifest first, with the red tests. `scripts/agent-tools/fix-round-guard
+must equal it; an empty list is declared in `noTests` ([Docs-only fix rounds](#docs-only-fix-rounds)). The fix worker
+commits the manifest first, with the red tests. `scripts/agent-tools/fix-round-guard
 --base REF [--root DIR]` lists the manifests added or changed between the merge base with REF and HEAD, and runs
 the guard at HEAD for each one, with one `test-guard` receipt per manifest. A deleted manifest, a malformed one, or a
 `fixBase` that is not a full SHA of an ancestor fails (exit 1). Whatever `--base` names is the trust anchor: the guard accepts the base's changes
@@ -369,7 +375,8 @@ to a path the branch had not touched; it still is for a hand-resolved union and 
 (`afd48fc4`, PR #84, where the change came from the wave, not the base). Existing manifests stay as they are.
 
 Findings JSON has `tests: [{"file": "tests/example.test.ts", "name": "rejects stale evidence"}]`.
-The list must be nonempty. Paths are relative to the repository; literal names must be unique
+The list must be nonempty, unless the manifest declares that the review names no test
+([Docs-only fix rounds](#docs-only-fix-rounds)). Paths are relative to the repository; literal names must be unique
 and active in both revisions. JS/TS syntax is parsed by the project's TypeScript dependency,
 without executing the tests. Deletion, rename, skip/todo/only and inactive parent groups fail.
 The guard compares changed paths with rename detection off, so a renamed test counts as deleted at its old path and added at its new one, and its old assertion count is checked.
@@ -559,6 +566,80 @@ Unsupported named syntax or changed Python/shell test sources fail closed, and s
 module the resolver cannot bind, a `.svelte` component included; this draft does not claim semantic understanding of
 arbitrary test frameworks.
 
+### Docs-only fix rounds
+
+A review that names no test (`protectedTests: []`) gives the guard nothing to protect by name, yet a fix round labelled
+`fix-round`, or one the ledger records, still needs a manifest (GRS-156). Its manifest lists `"tests": []` and declares
+why, once:
+
+```json
+"noTests": {"reviewSha": "<fixBase>", "reviewFindingsSha256": "<the manifest's reviewFindingsSha256>",
+            "reason": "M1 is a documentation finding; the review names no test."}
+```
+
+The declaration is bound to the saved review: `reviewSha` is the reviewed commit's full SHA and equals `fixBase`, and
+`reviewFindingsSha256` equals the manifest's own, the content hash of the findings file `review-record` retained. It
+holds exactly these three fields, with a nonempty reason, and stands for the empty list: a manifest names tests or
+declares none, never both, and takes no `assertionCountReasons`. A manifest without `noTests` still needs a nonempty
+`tests` list, and a missing manifest on a fix round, a malformed one and a deleted one still refuse as above.
+
+What the guard bounds. A declaration holds for a docs-only range only. Every path that differs between the fix base and
+HEAD, other than the base's changes as above, must be the manifest itself or a documentation file: a regular,
+non-executable file (mode `100644`, or absent on one side) whose name ends in `.md` and none of whose directories is
+`src`, `scripts`, `static`, `build`, `node_modules`, `.svelte-kit`, `RAWS`, `.local` or a test-support directory listed
+above. Anything else fails closed and is named: a runtime module, a test, helper or fixture, a shell or Python test
+(GRS-155's `tests/ci-guard/run.sh`), the workflow, another manifest, Markdown under `src/` or `tests/`, an executable or
+symlinked `.md`, a `.MD`. A Markdown file that tracked code or a test reads, as an input or an expected value, is that
+check's input and not documentation: a docs-only round could loosen the check without changing a test. Naming a file is
+not reading it: a comment, printed text, a message or an assertion's expected text that holds a document's name reads
+nothing, and GRS-154's two files are named only so. The guard refuses a changed `.md` file that `READ_DOCUMENTS` in
+`scripts/agent-tools/test_guard.mjs` lists (an entry ending in `/` covers its directory), and one that the tip's tracked
+code reads, which catches a reader the branch adds before the base's list holds it; the refusal names the entry, or the
+reader and its line. A read is a path that reaches a file-read call (`readFileSync`, `readdirSync`, `Bun.file`, an
+import, Python's `open` or `read_text`, a shell command), a call that takes it as a path (a fixture loader), or a path
+built with `join`, `resolve` or `new URL`, resolved through the file's constants and parameter defaults. A write, an
+existence test and a copy are not reads: the code that reads a copy is scanned where it reads. Ambiguity fails closed:
+a path computed under a directory that holds documentation (`` join(ROOT, 'docs', 'plan', `${id}.md`) ``) reads that
+directory, and a read of a file name under an unknown directory (a copy in a temporary tree) reads every document of that
+name. A walk with no static directory, as `check-links` makes over every `.md` file, judges each document as its subject,
+not as an expected value, and is not counted. `ReadDocuments` in `tests/agent-tools/test_docs_only.py` is the control:
+it fails when `test_guard.mjs --root . --read-documents HEAD` finds a read no entry covers, or an entry that covers no
+document, so a new reader adds its document to the list in the same change. A round that changes a read document names
+the tests to protect instead.
+For a declaration the guard runs nothing else, since a docs-only range holds no code for the closure, reach or assertion-count checks to
+judge; its receipt records the declaration as `guard.noTests`. `test-guard` and `fix-round-guard` compare the declaration
+with the manifest only. With `--ledger`, `fix-round-guard` also refuses a declaration when the review the ledger recorded
+names a test or lists no `protectedTests`, besides the `fixBase` and findings-hash binding every manifest gets there, and
+`approve` checks the same ([The guard binding](#the-guard-binding)). CI has no ledger, so a declaration that names a
+later commit consistently passes there; the ledger and approval refuse it.
+
+Ordering, and the fix rounds before it. A docs-only round has no red test, so its manifest may come before or after the
+docs fix within the round: the guard judges the whole range from the fix base at HEAD either way. GRS-154's correction
+(`8507d759..431fb7b7`, two Markdown files) predates the declaration and stays as it shipped: no manifest, the ordinary
+trusted guard's `nothing to protect`, no `fix-round` label, the exception disclosed on its pull request and Linear issue,
+and its re-check's evidence that no non-Markdown byte changed. It gets no manifest after the fact, since a range from its
+fix base would now span later work; its draft manifest's `orderingLimitation` field is not part of a declaration.
+
+In the wave. A wave pull request into `dev` reruns the declaration at the wave head, where the range from the fix base
+also holds the wave's later tickets. With an explicit `--base` that is `dev` (`origin/dev`), no `--ledger`, a `--branch`
+of the form `wave/<name>` (one component, as `merge-check` admits) and a manifest added in the range, `fix-round-guard`
+bounds the declaration at its own fix round. The head branch's name alone proves nothing: CI passes the pull request's own,
+and a ticket PR into a wave may use any, so the bound also needs a base of `dev` and a first-parent line of merges alone
+from the merge base to HEAD; one commit of the wave's own on that line, before the joining merge or after it, or a
+manifest committed there, gives the whole range. The oldest commit on HEAD's first-parent line that holds the manifest is the merge that brought the round's line
+into the wave, and its one other parent holding the same manifest bytes is the line's tip. The guard judges the fix base
+to that tip (`--fix-head`, recorded as `guard.fixHead`), with the newest wave state the tip holds as the trusted base, so
+a wave change the ticket merged in before its own merge is the wave's, as at the ticket's pull request. A manifest changed
+after the merge or brought in any other way gets the whole range, which fails closed. The merges that follow it on the
+wave's line, a later merge of the same ticket branch included, are other pull requests' work, judged by their own guard
+runs. On
+any other base or branch the whole range is the declaration's, so a ticket that merges its manifest in from a side line is
+judged whole. Approval refuses a bounded receipt as it refuses a base-aware one.
+
+Rollout. CI and `base-guard` run the guard of the pull request's base branch, never the pull request's own. A
+declaration is therefore refused (`findings.tests must be a nonempty list`) until this change reaches the PR's base
+branch, and a wave's pull request into `dev` refuses one until the wave itself has landed the change.
+
 ## Exact-revision approval ledger
 
 `approve --unit ISSUE/STAGE --sha FULL_SHA --review REVIEW.json --findings FINDINGS.json
@@ -594,9 +675,14 @@ not from the worker's files: the review that prompted the fix is the unit's late
 (3) a manifest `tests` list equal to the recorded findings' `protectedTests`. A worker-written manifest with a later
 `fixBase`, another findings hash or a shorter `tests` list refuses, and so does a receipt from `fix-round-guard --base`
 without `--ledger` (its `guard.trustedBase` is set, or its recorded command carries `--trusted-base`), since a worker
-chooses that base. When the recorded review lists no `protectedTests`
-field the approval refuses; an empty list records `guard.nothingToProtect` and needs no receipt. The row keeps the
-binding and the receipt joins the fingerprinted inputs, so editing the receipt afterwards refuses at readback.
+chooses that base. A receipt bounded at a fix head (`guard.fixHead`, or `--fix-head` in its command) refuses too.
+When the recorded review lists no `protectedTests` field the approval refuses. An empty list records
+`guard.nothingToProtect` and still needs the receipt: approval admits no recorded fix that `fix-round-guard --ledger`
+refuses, and that guard demands a manifest. The only manifest an empty list can have is a docs-only declaration
+([Docs-only fix rounds](#docs-only-fix-rounds)), whose PASS receipt must name the recorded review's SHA and findings hash,
+so a recorded fix with no manifest refuses, whatever it changes. A declaration for a review that names tests
+refuses. The row keeps the binding (with `noTests` for a declaration) and the receipt joins the fingerprinted inputs, so
+editing the receipt afterwards refuses at readback.
 A unit with no recorded `fix` dispatch approves as before.
 
 ## Model-sheet verification

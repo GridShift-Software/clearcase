@@ -1398,6 +1398,7 @@ for fault in "v1-doctor: summary.tsv does not hold exactly one MATCH row with ex
 done
 
 run "unattended controls synthetic CLI suite" 0 python3 -I "$HERE/test_controls.py"
+run "docs-only fix round controls (GRS-156)" 0 python3 -I "$HERE/test_docs_only.py"
 
 echo "# summary"
 echo "$passed passed, $failed failed"

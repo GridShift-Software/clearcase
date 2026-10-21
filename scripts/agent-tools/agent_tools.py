@@ -266,13 +266,13 @@ def environment():
     }
 
 
-def git(root, *args, quiet=False):
+def git(root, *args, quiet=False, stdin=None):
     """Run the git on PATH in root as (exit code, stdout bytes, problem). problem is None only for exit 0, and with
     quiet also only without stderr; otherwise it names the command, its exit code and its stderr, in English.
     Inherited GIT_* variables such as GIT_DIR are dropped, so they cannot redirect it."""
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")} | {"LC_ALL": "C"}
     try:
-        out = subprocess.run([shutil.which("git") or "git", "-C", str(root), *args], capture_output=True, env=env)
+        out = subprocess.run([shutil.which("git") or "git", "-C", str(root), *args], capture_output=True, env=env, input=stdin)
     except OSError as error:
         return None, b"", f"`git {' '.join(args)}` did not run: {error}"
     failed_query = out.returncode or (quiet and out.stderr.strip())
@@ -1426,9 +1426,10 @@ def capability_command(name, args):
         script = TOOLS_DIR / "test_guard.mjs"
         findings = Path(args.findings).expanduser().resolve() if args.findings else None
         problem = None if findings and args.fix_base else "test-guard requires --findings PATH and --fix-base REF"
-        trusted = getattr(args, "trusted_base", None)
+        trusted, tip = getattr(args, "trusted_base", None), getattr(args, "fix_head", None)
         return ([which("node") or "node", str(script), "--root", str(root), "--fix-base", args.fix_base or "",
-                 "--findings", str(findings or ""), *(["--trusted-base", trusted] if trusted else [])],
+                 "--findings", str(findings or ""), *(["--trusted-base", trusted] if trusted else []),
+                 *(["--fix-head", tip] if tip else [])],
                 ["node"], [script, *([findings] if findings else [])], problem, None)
     if name == "app":
         runner = root / APP_RUNNER
@@ -1462,16 +1463,17 @@ def guard_claims(root, args):
     """What a test-guard receipt binds for approval: the commit the diff is measured from and the manifest's own claims
     about the review that prompted the fix round. approve compares them with the ledger's recorded review."""
     base = commit_of(root, args.fix_base)[0] if args.fix_base else None
-    claims = dict.fromkeys(("manifestSha256", "reviewFindingsSha256", "unit", "tests", "testsExact"))
+    claims = dict.fromkeys(("manifestSha256", "reviewFindingsSha256", "unit", "tests", "testsExact", "noTests"))
     try:
         findings = Path(args.findings).expanduser().resolve()
         manifest = json_object(findings)
         claims.update(manifestSha256=sha256_file(findings), reviewFindingsSha256=manifest.get("reviewFindingsSha256"),
                       unit=manifest.get("unit"), tests=manifest.get("tests"),
-                      testsExact=each_string(manifest.get("tests"), seal))
+                      testsExact=each_string(manifest.get("tests"), seal), noTests=manifest.get("noTests"))
     except (OSError, ValueError, TypeError):
         pass  # the guard itself refuses a missing or malformed manifest
-    return {"guard": {"fixBase": base, **claims, "trustedBase": getattr(args, "trusted_base", None)}}
+    return {"guard": {"fixBase": base, **claims, "trustedBase": getattr(args, "trusted_base", None),
+                      "fixHead": getattr(args, "fix_head", None)}}
 
 
 def run_capability(name, args):
@@ -1834,7 +1836,9 @@ def fix_state(store, unit):
 def guard_binding(store, unit, supplied, identity):
     """(binding, evidence paths). A unit with a recorded fix attempt needs a PASS test-guard receipt at the approved
     HEAD whose fix base is the commit the prompting review recorded, whose manifest names that review's findings by
-    content hash and lists exactly the tests that review protects. None when no fix attempt is recorded."""
+    content hash and lists exactly the tests that review protects. A review that names no test (protectedTests: []) is
+    bound by a receipt of a manifest that carries a no-test declaration for that review: the receipt is never optional,
+    as the manifest is not for fix-round-guard --ledger. None when no fix attempt is recorded."""
     fix, prompting = fix_state(store, unit)
     if fix is None:
         return None, []
@@ -1846,28 +1850,34 @@ def guard_binding(store, unit, supplied, identity):
         raise ValueError("the review that prompted the fix lists no protectedTests (a list of {file, name}; empty "
                          "only when it names no test); the guard cannot be bound to it")
     binding = {"nothingToProtect": not protected, "reviewEvent": prompting["hash"], "fixEvent": fix["hash"], "fixBase": record["sha"]}
-    if not protected:
-        return binding, []
     if not supplied:
         raise ValueError("a fix attempt is recorded for this unit: approval needs the PASS test-guard receipt "
-                         "(--guard-receipt) bound to the reviewed commit and findings")
+                         "(--guard-receipt) bound to the reviewed commit and findings, as fix-round-guard --ledger needs "
+                         "a fix-round manifest. A review that names no test (protectedTests: []) is bound by the "
+                         "manifest's noTests declaration (docs/agent-tooling.md, Docs-only fix rounds)")
     path = Path(supplied).expanduser().resolve()
     receipt = json_object(path)
     passing_check(receipt, identity)
     claims = receipt.get("guard") if receipt.get("name") == "test-guard" else None
     if not isinstance(claims, dict):
         raise ValueError("the guard receipt is not a test-guard receipt")
-    # the claim, or the command it records, when an edit drops the claim
-    if claims.get("trustedBase") is not None or "--trusted-base" in (receipt.get("command") or []):
+    # the claim, or the command it records, when an edit drops the claim; a fix head comes only with a trusted base
+    if (claims.get("trustedBase") is not None or claims.get("fixHead") is not None
+            or {"--trusted-base", "--fix-head"} & set(receipt.get("command") or [])):
         raise ValueError("the guard receipt was judged with a --base ref whose changes it could accept (fix-round-guard without --ledger); approval "
                          "needs one judged against the reviewed commit alone (fix-round-guard --ledger, or test-guard)")
     if claims.get("fixBase") != record["sha"]:
         raise ValueError(f"guard fix base {str(claims.get('fixBase'))[:12]} differs from the reviewed SHA {record['sha'][:12]} in the ledger")
     if claims.get("reviewFindingsSha256") != record["findingsHash"] or claims.get("unit") != unit:
         raise ValueError("the guard manifest names other review findings than the ledger's review for this unit")
+    declared = claims.get("noTests")
+    if declared is not None and protected:
+        raise ValueError(f"the guard manifest declares no tests, but the review that prompted the fix names {len(protected)} "
+                         "protected test(s); a declaration cannot leave them out")
     if json.dumps(exact(claims, "tests", "guard"), sort_keys=True) != json.dumps(protected, sort_keys=True):
         raise ValueError("the guard manifest's tests differ from the review's protectedTests")
-    return {**binding, "receipt": str(path), "manifestSha256": claims.get("manifestSha256"), "tests": protected}, [path]
+    return {**binding, "receipt": str(path), "manifestSha256": claims.get("manifestSha256"), "tests": protected,
+            **({"noTests": declared} if declared is not None else {})}, [path]
 
 
 def approval_evidence(args, identity, paths):
@@ -2112,6 +2122,40 @@ def cmd_dispatch(args):
 LEDGER_COMMANDS = ("review-record", "approve", "approval-check", "dispatch", "pre-push")
 FEATURE_REF = re.compile(r"refs/heads/feature/([a-z][a-z0-9]*-[0-9]+)(?:-.+)?")
 FIX_ROUNDS = "docs/acceptance/fix-rounds"
+# What merge-check admits as the head of a pull request into dev: wave/<name>, one component.
+WAVE_REF = re.compile(r"wave/[^/\s]+")
+DEV_REF = re.compile(r"(?:refs/heads/|refs/remotes/origin/|origin/)?dev")
+
+
+def fix_round_line(root, head, merge_base, path):
+    """Where the fix round that added the manifest at path ends, seen from a wave head: (the tip of its line, the newest
+    wave state that tip holds). The oldest commit of HEAD's first-parent line that holds the manifest is the merge that
+    brought the line in, and the one other parent holding the same manifest is the line's tip. (None, None) when the
+    manifest was committed on HEAD's own line, changed after the merge, or came in any other way, when any commit of that
+    line from the merge base to HEAD is not a merge (a commit made on the wave, before the join or after it), or when Git
+    cannot say: then the whole range from the fix base is the fix round's. Two Git runs read the line and its manifests."""
+    _, out, problem = git(root, "rev-list", "--first-parent", "--parents", head, f"^{merge_base}")
+    line = [] if problem else [row.split() for row in os.fsdecode(out).splitlines()]
+    if not line or line[0][0] != head:
+        return None, None
+    wanted = [f"{sha}:{path}" for row in line for sha in row]
+    _, out, problem = git(root, "cat-file", "--batch-check=%(objectname) %(objecttype)", stdin="\n".join(wanted).encode())
+    answers = [] if problem else os.fsdecode(out).splitlines()
+    if len(answers) != len(wanted):
+        return None, None
+    blobs = {name.split(":", 1)[0]: (answer.split()[0] if answer.endswith(" blob") else None)
+             for name, answer in zip(wanted, answers)}
+    joined = 0
+    while joined + 1 < len(line) and blobs[line[joined + 1][0]]:
+        joined += 1
+    if not blobs[head] or any(len(row) < 3 for row in line):
+        return None, None
+    parents = line[joined][1:]
+    holders = [parent for parent in parents[1:] if blobs[parent] == blobs[head]]
+    if len(holders) != 1:
+        return None, None
+    _, out, problem = git(root, "merge-base", holders[0], parents[0])
+    return (holders[0], os.fsdecode(out).strip()) if not problem else (None, None)
 
 
 def ledger_store(args):
@@ -2183,6 +2227,7 @@ def cmd_fix_round_guard(args):
         if kind == "D":
             sys.stderr.write(f"fix-round-guard: FAIL {path}: deleted; a fix round's protection cannot be withdrawn\n")
             status = 1
+    kinds = {path: kind for kind, path in changes}
     manifests = [path for kind, path in changes if kind != "D" and path.endswith(".json")]
     required = "the pull request carries the fix-round label" if args.require_manifest else None
     match = FEATURE_REF.fullmatch(f"refs/heads/{args.branch or ''}")
@@ -2219,6 +2264,12 @@ def cmd_fix_round_guard(args):
                                  f"{prompting['payload']['sha'][:12]} the ledger recorded for {unit}")
             if fix is not None and manifest.get("reviewFindingsSha256") != prompting["payload"]["findingsHash"]:
                 raise ValueError(f"reviewFindingsSha256 names other findings than the review the ledger recorded for {unit}")
+            if fix is not None and "noTests" in manifest:
+                store = Path(args.ledger).expanduser().resolve()
+                named = json_object(store / "blobs" / prompting["payload"]["findingsHash"]).get("protectedTests")
+                if named != []:
+                    raise ValueError(f"the manifest declares no tests, but the review the ledger recorded for {unit} "
+                                     + (f"names {len(named)} protected test(s)" if isinstance(named, list) else "lists no protectedTests"))
         except (OSError, ValueError) as error:
             sys.stderr.write(f"fix-round-guard: FAIL {path}: {error}\n")
             status = 1
@@ -2226,8 +2277,18 @@ def cmd_fix_round_guard(args):
         # An explicit --base without the ledger lets the guard accept a change the base made and HEAD merged
         # (test_guard.mjs, --trusted-base); with the ledger, the guard binds to the reviewed commit alone.
         trusted = identity["base"] if args.base is not None and not args.ledger else None
+        # A wave pull request into dev reruns every manifest at the wave head. A no-test declaration there covers its
+        # own fix round, which ends where its line merged into the wave, judged against the wave state that line holds.
+        # The head branch's name proves nothing (CI passes the pull request's own, a ticket PR may use any), so the
+        # bound needs a base that is dev, which merge-check admits only from wave/<name>, and a first-parent line of
+        # merges. Anything else is judged whole.
+        tip = None
+        if (trusted and "noTests" in manifest and kinds[path] == "A" and DEV_REF.fullmatch(args.base or "")
+                and WAVE_REF.fullmatch(args.branch or "")):
+            tip, line_base = fix_round_line(root, identity["head"], identity["mergeBase"], path)
+            trusted = line_base if tip else trusted
         guard = argparse.Namespace(**{**vars(args), "findings": str(root / path), "fix_base": manifest["fixBase"],
-                                      "trusted_base": trusted})
+                                      "trusted_base": trusted, "fix_head": tip})
         status = run_capability("test-guard", guard) or status
     return 1 if status else 0
 

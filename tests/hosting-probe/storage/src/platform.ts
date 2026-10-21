@@ -27,7 +27,7 @@ export interface R2ObjectBody extends R2Object {
 }
 export type R2Range = { offset: number; length?: number } | { suffix: number };
 export interface R2GetOptions { range?: R2Range; onlyIf?: { etagMatches?: string } }
-export interface R2PutOptions { sha256?: string; customMetadata?: Record<string, string>; httpMetadata?: { contentType?: string } }
+export interface R2PutOptions { sha256?: string; customMetadata?: Record<string, string>; httpMetadata?: { contentType?: string }; onlyIf?: { etagDoesNotMatch?: string } }
 export interface R2UploadedPart { partNumber: number; etag: string }
 export interface R2MultipartUpload {
 	key: string;

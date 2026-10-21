@@ -47,6 +47,10 @@ CREATE TABLE uw_note (case_id TEXT NOT NULL, note_id TEXT NOT NULL, anchor TEXT,
 CREATE TABLE export_job (export_id TEXT PRIMARY KEY, case_id TEXT NOT NULL, version_id TEXT NOT NULL, state TEXT NOT NULL CHECK (state IN ('building', 'complete', 'failed')), object_key TEXT NOT NULL, upload_id TEXT NOT NULL, next_entry INTEGER NOT NULL, next_offset INTEGER NOT NULL, parts TEXT NOT NULL, entry_state TEXT, plan TEXT NOT NULL, size INTEGER, sha256 TEXT, failure TEXT);
 CREATE TABLE export_entry (export_id TEXT NOT NULL, idx INTEGER NOT NULL, path TEXT NOT NULL, crc INTEGER NOT NULL, size INTEGER NOT NULL, offset_bytes INTEGER NOT NULL, PRIMARY KEY (export_id, idx));
 
+-- What a restore step wrote under orig/, pkg/ and rm/ before any row names it (finish writes those rows). A case's removal
+-- and the 30-day rotation find the objects of a restore that never finished here; written_at is the step's time.
+CREATE TABLE restore_object (case_id TEXT NOT NULL, object_key TEXT NOT NULL, written_at TEXT NOT NULL, PRIMARY KEY (case_id, object_key));
+
 -- The probe's control: the same register add as read-then-write, two statements, no UNIQUE (P4's sensitivity check).
 CREATE TABLE probe_naive_seq (case_id TEXT NOT NULL, store TEXT NOT NULL, seq INTEGER NOT NULL);
 -- The probe's layout arm: package files as D1 BLOBs, to measure what that costs against R2. Never read by a route.

@@ -898,6 +898,8 @@ async function restoreStep(ctx: Ctx, request: Request, packetId: string): Promis
 		}
 		i++;
 	}
+	// The record comes first: a step that stops after it leaves a row for an object that is not there, never an object no row names.
+	if (toWrite.length) await ctx.db.batch(toWrite.map(({ target }): [string, D1Value[]] => ['INSERT INTO restore_object (case_id, object_key, written_at) VALUES (?, ?, ?) ON CONFLICT (case_id, object_key) DO UPDATE SET written_at = excluded.written_at', [caseId, target, new Date().toISOString()]]));
 	for (const { e, m, target } of toWrite) {
 		const n = new TextEncoder().encode(e.path).length;
 		const data = await ctx.bucket.get(key, { range: { offset: e.offset + 30 + n, length: e.size } });

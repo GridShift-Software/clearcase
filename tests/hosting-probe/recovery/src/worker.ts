@@ -132,8 +132,16 @@ async function catalog(ctx: Ctx) {
 	return { versionT, exportT, caseT: [...caseT].filter((t) => !parents.includes(t)), parents };
 }
 
-type Plan = { versions: string[]; exports: string[]; originals: string[] };
+type Plan = { versions: string[]; exports: string[]; originals: string[]; leftovers?: string[] };
 const union = (a: string[], b: string[]) => [...new Set([...a, ...b])].sort();
+
+/** Whether a row (after the case's own are gone) still names the object a restore step wrote: an original by its digest, a package file or list by its version. */
+async function named(ctx: Ctx, key: string): Promise<boolean> {
+	const orig = /^orig\/([0-9a-f]{64})$/.exec(key);
+	if (orig) return !!(await first(ctx.db, 'SELECT 1 AS x FROM case_original WHERE sha256 = ? UNION ALL SELECT 1 FROM original WHERE sha256 = ?', orig[1]!, orig[1]!));
+	const version = /^(?:pkg|rm)\/(sha256:[0-9a-f]{64})\//.exec(key);
+	return !version || !!(await first(ctx.db, 'SELECT 1 AS x FROM results_version WHERE version_id = ?', version[1]!));
+}
 
 /** Removes every live row and object of the case, keeping its case_deletion row as `removed`. Safe to repeat. */
 async function erase(ctx: Ctx, caseId: string, set: [string, D1Value[]], condition: [string, D1Value[]]) {
@@ -144,8 +152,10 @@ async function erase(ctx: Ctx, caseId: string, set: [string, D1Value[]], conditi
 		// An original another case also records stays: originals are content-addressed and shared.
 		originals: (await all<{ s: string }>(ctx.db, 'SELECT DISTINCT sha256 AS s FROM case_original c WHERE c.case_id = ? AND NOT EXISTS (SELECT 1 FROM case_original o WHERE o.sha256 = c.sha256 AND o.case_id <> c.case_id)', caseId)).map((r) => r.s),
 	};
-	const before: Plan = prior ? (JSON.parse(prior) as Plan) : { versions: [], exports: [], originals: [] };
-	const plan: Plan = { versions: union(before.versions, found.versions), exports: union(before.exports, found.exports), originals: union(before.originals, found.originals) };
+	// What a restore step wrote for this case before any row named it (storage's restore_object): found before the rows go.
+	found.leftovers = (await all<{ k: string }>(ctx.db, 'SELECT object_key AS k FROM restore_object WHERE case_id = ?', caseId)).map((r) => r.k);
+	const before: Plan = prior ? (JSON.parse(prior) as Plan) : { versions: [], exports: [], originals: [], leftovers: [] };
+	const plan: Plan = { versions: union(before.versions, found.versions), exports: union(before.exports, found.exports), originals: union(before.originals, found.originals), leftovers: union(before.leftovers ?? [], found.leftovers) };
 	const building = await all<{ object_key: string; upload_id: string }>(ctx.db, "SELECT object_key, upload_id FROM export_job WHERE case_id = ? AND state = 'building'", caseId);
 	const t = await catalog(ctx);
 	const statements: [string, D1Value[]][] = [
@@ -171,6 +181,7 @@ async function erase(ctx: Ctx, caseId: string, set: [string, D1Value[]], conditi
 	// Restore packets staged from the case's recovery copies carry its id; GRS-109's own uploads name no case (see rotate).
 	for (const o of await listed(ctx.bucket, 'import/')) if (o.customMetadata?.caseId === caseId) keys.push(o.key);
 	for (const sha of plan.originals) if (!(await first(ctx.db, 'SELECT 1 AS x FROM case_original WHERE sha256 = ?', sha))) keys.push(`orig/${sha}`);
+	for (const key of plan.leftovers ?? []) if (!keys.includes(key) && !(await named(ctx, key))) keys.push(key);
 	for (let i = 0; i < keys.length; i += 1000) await ctx.bucket.delete(keys.slice(i, i + 1000));
 	for (const b of building) await ctx.bucket.resumeMultipartUpload(b.object_key, b.upload_id).abort().catch(() => undefined); // an unsealed export's parts
 	return { plan, objects: keys.length };
@@ -210,17 +221,23 @@ function parseRecord(ctx: Ctx, key: string, text: string, binding: string): Dele
 	return r as unknown as DeletionRecord;
 }
 
-/** Write-once in both buckets: the same bytes again are a no-op, other bytes under the key are refused. */
+/**
+ * Write-once in both buckets: the same bytes again are a no-op, other bytes under the key are refused. The put is conditional
+ * (R2's etagDoesNotMatch "*" refuses it when the key exists), so a record another isolate wrote between the head and the put
+ * is not replaced; the key is then read again and the bytes compared.
+ */
 async function writeRecord(ctx: Ctx, record: DeletionRecord) {
 	const text = JSON.stringify(record);
 	const sha = await sha256Hex(text);
+	const same = (o: R2Object | null) => !!o?.checksums.sha256 && hex(o.checksums.sha256) === sha;
 	for (const [bucket, binding] of [[ctx.bucket, 'BUCKET'], [ctx.copies, 'RECOVERY']] as const) {
 		const held = await bucket.head(recordKey(record.caseId));
 		if (held) {
-			if (!held.checksums.sha256 || hex(held.checksums.sha256) !== sha) refuse(503, 'conflicting-deletion-record', { binding, caseId: record.caseId });
+			if (!same(held)) refuse(503, 'conflicting-deletion-record', { binding, caseId: record.caseId });
 			continue;
 		}
-		await bucket.put(recordKey(record.caseId), text, { sha256: sha, customMetadata: { client: ctx.client } });
+		const put = await bucket.put(recordKey(record.caseId), text, { sha256: sha, customMetadata: { client: ctx.client }, onlyIf: { etagDoesNotMatch: '*' } });
+		if (put === null && !same(await bucket.head(recordKey(record.caseId)))) refuse(503, 'conflicting-deletion-record', { binding, caseId: record.caseId });
 	}
 }
 
@@ -394,7 +411,14 @@ async function rotate(ctx: Ctx, request: Request): Promise<Response> {
 	// find it; it ages out here with the copies.
 	const packets = (await listed(ctx.bucket, 'import/')).filter((o) => now - o.uploaded.getTime() > RETENTION_MS).map((o) => o.key);
 	for (let i = 0; i < packets.length; i += 1000) await ctx.bucket.delete(packets.slice(i, i + 1000));
-	return json({ scheduledTime: at, removed: old, kept: copies.length - old.length, packetsRemoved: packets.length });
+	// So is what a restore step wrote and no row ever named, once the restore has been left 30 days: a row of restore_object
+	// older than that goes, and its object with it unless a row names the object by now (a restore that finished).
+	const steps = (await all<{ case_id: string; object_key: string; written_at: string }>(ctx.db, 'SELECT case_id, object_key, written_at FROM restore_object')).filter((r) => now - Date.parse(r.written_at) > RETENTION_MS);
+	const leftovers: string[] = [];
+	for (const r of steps) if (!(await named(ctx, r.object_key)) && !leftovers.includes(r.object_key)) leftovers.push(r.object_key);
+	for (let i = 0; i < leftovers.length; i += 1000) await ctx.bucket.delete(leftovers.slice(i, i + 1000));
+	for (let i = 0; i < steps.length; i += 100) await ctx.db.batch(steps.slice(i, i + 100).map((r) => ctx.db.prepare('DELETE FROM restore_object WHERE case_id = ? AND object_key = ?').bind(r.case_id, r.object_key)));
+	return json({ scheduledTime: at, removed: old, kept: copies.length - old.length, packetsRemoved: packets.length, leftoversRemoved: leftovers.length });
 }
 
 // ----- bundle history (a GRS-128 stand-in) -----

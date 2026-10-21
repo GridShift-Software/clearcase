@@ -5,7 +5,6 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 // @ts-expect-error plain .mjs script, no declarations
 import { preflight } from '../../.agents/skills/verify-clearcase-hosted/lib/main.mjs';
-// @ts-expect-error plain .mjs script, no declarations
 import { resolveBrowserLock } from '../../scripts/browser-lock.mjs';
 // @ts-expect-error plain .mjs script, no declarations
 import { readHead as hostedReadHead } from '../../scripts/gate-hosted.mjs';

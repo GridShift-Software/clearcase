@@ -19,7 +19,6 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-// @ts-expect-error plain .mjs script, no declarations
 import { gitEnv } from '../browser-lock.mjs';
 import { canonicalText } from '../../src/lib/case-package/canonical.ts';
 import { parseStrictJson } from '../../src/lib/case-package/strict-json.ts';

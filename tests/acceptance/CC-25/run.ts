@@ -24,7 +24,6 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-// @ts-expect-error plain .mjs script, no declarations
 import { gitEnv } from '../../../scripts/browser-lock.mjs';
 import { gateEvidenceProblems } from './gate-evidence.ts';
 

@@ -12,7 +12,6 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-// @ts-expect-error plain .mjs script, no declarations
 import { gitEnv } from '../browser-lock.mjs';
 import { canonicalBytes, canonicalJson, canonicalText } from '../../src/lib/case-package/canonical.ts';
 import { isPathKey } from '../../src/lib/case-package/refs.ts';

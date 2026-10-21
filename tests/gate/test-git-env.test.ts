@@ -41,6 +41,7 @@ describe('a test run with an inherited GIT_DIR leaves that repository alone', ()
 	});
 
 	it('a gate step (scripts/gate.mjs exec) is given an environment without GIT_*', async () => {
+		// @ts-expect-error plain .mjs script, no declarations
 		const { exec } = await import('../../scripts/gate.mjs');
 		const log = join(ws, 'step.log');
 		exec(['env'], log, ws, { CLEARCASE_E2E_OUT: 'x' }, hooked());

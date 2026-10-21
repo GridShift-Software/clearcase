@@ -13,7 +13,6 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
-// @ts-expect-error plain .mjs script, no declarations
 import { gitEnv } from '../browser-lock.mjs';
 
 /** The two Bun APIs this script uses; the project has no @types/bun. */

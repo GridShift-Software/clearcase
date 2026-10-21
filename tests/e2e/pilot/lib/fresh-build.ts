@@ -23,7 +23,6 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
-// @ts-expect-error plain .mjs script, no declarations
 import { gitEnv } from '../../../../scripts/browser-lock.mjs';
 
 export const ALLOW_FLAG = '--allow-stale-build';

@@ -16,7 +16,6 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-// @ts-expect-error plain .mjs script, no declarations
 import { gitEnv } from '../browser-lock.mjs';
 import { ALLOW_FLAG, allowStale, type BuildStamp, evidenceRecord, evidenceSuffix, freshLine, freshness, notCommitted, readStamp, refusal } from '../../tests/e2e/pilot/lib/fresh-build.ts';
 

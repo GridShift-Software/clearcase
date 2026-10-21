@@ -9,7 +9,6 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-// @ts-expect-error plain .mjs script, no declarations
 import { gitEnv } from '../browser-lock.mjs';
 
 type Problem = { check: string; where: string | null; detail: string; reproduce: string };

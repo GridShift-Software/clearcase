@@ -21,10 +21,13 @@ const SOURCES = { explicit: 'CLEARCASE_BROWSER_LOCK', discovered: 'discovered fr
 /**
  * `base` without Git's variables (GIT_DIR, GIT_WORK_TREE, GIT_COMMON_DIR, GIT_INDEX_FILE, every GIT_*), as
  * `command_environment()` in scripts/agent-tools/agent_tools.py does: a Git hook, or another checkout's script, exports
- * them, and they would make `git -C <repo>` or `cwd: <repo>` answer for a different repository. The one definition:
- * every Git call the tools and runners make about a checkout (`-C <repo>`, `cwd: <repo>`, or the cwd a package script
- * runs in) takes its `env` from here; tests/e2e/pilot/lib/fresh-build.ts re-exports it, and scripts/verify/evidence.sh
- * does the same in shell. It lives here because this file imports nothing from the repository.
+ * them, and they would make `git -C <repo>` or `cwd: <repo>` answer for a different repository. The one definition in
+ * JavaScript: the runners and checks that read a checkout's revision or tracked files (`-C <repo>`, `cwd: <repo>`, or
+ * the cwd a package script runs in) take their `env` from here; tests/e2e/pilot/lib/fresh-build.ts re-exports it, and
+ * scripts/verify/evidence.sh and scripts/ci/pc1-vm do the same in shell. Tests strip GIT_* at their boundary instead
+ * (scripts/gate.mjs, tests/setup/strip-git-env.ts, both shell harnesses). Not covered: scripts/agent-tools/test_guard.mjs
+ * keeps its own inline copy (its owner's), and scripts/fixtures/leak_check.py reads the repository GIT_DIR names.
+ * It lives here because this file imports nothing from the repository.
  */
 export const gitEnv = (base = process.env) => Object.fromEntries(Object.entries(base).filter(([k]) => !k.startsWith('GIT_')));
 const executable = (p) => { try { accessSync(p, constants.X_OK); return statSync(p).isFile(); } catch { return false; } };

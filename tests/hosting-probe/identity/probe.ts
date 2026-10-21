@@ -22,14 +22,11 @@ import { parseArgs } from 'node:util';
 import { scanPaths } from '../../../deploy/probes/scan.ts';
 import { checkSummary, countsOf, HOLD, inputsDigest, INPUT_PATHS, LEGS, SCHEMA, type LegName } from './check.ts';
 import { Backend, Browser, ClerkError, claimsOf, frontendApi, Pace, ticketOf } from './clerk.ts';
-import { appEnv, BUN, build, checkInstalled, fetchApp, HERE, realNode, Refusal, run, seed, startServe, stopServe, type Reply, type ServeConfig } from './harness.ts';
-import { CLASS_ORDER, classesOf, expectFor, label, MARKERS, mayShow, pathOf, rows, type Class, type Row } from './matrix.ts';
+import { appEnv, BUN, build, checkInstalled, fetchApp, freePorts, HERE, onInterrupt, realNode, Refusal, run, seed, startServe, stopServe, type Reply, type ServeConfig } from './harness.ts';
+import { CLASS_ORDER, classesOf, expectFor, label, MARKERS, mayShow, ownInstance, pathOf, rows, type Class, type Row } from './matrix.ts';
 
 const KEYS = ['CLIENT_A_PK', 'CLIENT_A_SK', 'STAFF_PK', 'STAFF_SK'] as const;
-const CLIENT_PORT = 18811;
-const STAFF_PORT = 18812;
-const ORIGIN = { client: `http://127.0.0.1:${CLIENT_PORT}`, staff: `http://127.0.0.1:${STAFF_PORT}` } as const;
-type AppName = keyof typeof ORIGIN;
+type AppName = 'client' | 'staff';
 /** The claims Clerk's v2 session token carries; a key outside this set would be data the probe did not expect in Clerk. */
 const CLAIMS = ['azp', 'exp', 'fva', 'iat', 'iss', 'nbf', 'sid', 'sts', 'sub', 'v'];
 
@@ -71,6 +68,9 @@ async function main(out: string): Promise<number> {
 	if (bunVersion !== BUN) throw new Refusal(`builds with Bun ${BUN} only (packageManager); PROBE_BUN names ${bunVersion || 'no Bun'}`);
 	if (dirty()) throw new Refusal('the tree is dirty: commit or stash first, so the summary describes HEAD');
 	const node = realNode();
+	// free ports, so two worktrees' runs (or a run and the root test) never share the two Workers' ports
+	const [clientPort, staffPort] = await freePorts(2);
+	const ORIGIN = { client: `http://127.0.0.1:${clientPort}`, staff: `http://127.0.0.1:${staffPort}` } as const;
 	const pins = checkInstalled();
 	// GRS-107's child half of the reader, untyped .mjs: a computed specifier keeps tsc from asking for its declarations
 	const child = '../../../deploy/probes/secrets-child.mjs';
@@ -98,7 +98,7 @@ async function main(out: string): Promise<number> {
 	const bapi = { client: new Backend(keys.get('CLIENT_A_SK')!, new Pace(40, 10_000)), staff: new Backend(keys.get('STAFF_SK')!, new Pace(40, 10_000)) };
 	const prefix = `cc108-${runId}-`;
 	const emailOf = (who: string) => `${prefix}${who}+clerk_test@example.com`;
-	const clerk = { users: { created: 0, deleted: 0 }, invitations: { created: 0, deleted: 0 }, sessions: { created: 0, ended: 0 }, testingTokens: { created: 0 }, devBrowsers: { created: 0 } };
+	const clerk = { users: { created: 0, deleted: 0 }, invitations: { created: 0, deleted: 0 }, sessions: { created: 0, ended: 0, pending: 0 }, testingTokens: { created: 0 }, devBrowsers: { created: 0 } };
 	const sessionIds: { app: AppName; id: string }[] = [];
 	const baseline: Record<AppName, { users: number; pendingInvitations: number }> = { client: { users: 0, pendingInvitations: 0 }, staff: { users: 0, pendingInvitations: 0 } };
 
@@ -180,11 +180,120 @@ async function main(out: string): Promise<number> {
 	let serve: ChildProcess | null = null;
 	const instances: Record<string, unknown> = {};
 	const routeTable: { app: string; method: string; route: string; gate: string; checks: { class: Class; expect: string; got: string; leak: string[]; missing: boolean }[] }[] = [];
-	const serveConfig: ServeConfig = { persist, logs, mfaRequired: false, jwtKeys: false, client: { port: CLIENT_PORT, origin: ORIGIN.client }, staff: { port: STAFF_PORT, origin: ORIGIN.staff } };
+	const serveConfig: ServeConfig = { persist, logs, mfaRequired: false, jwtKeys: false, client: { port: clientPort, origin: ORIGIN.client }, staff: { port: staffPort, origin: ORIGIN.staff } };
 	const serveKeys = new Map(KEYS.map((k) => [k, keys.get(k)!]));
 	let failure: string | null = null;
 	let scanHits: number | null = null;
 	let expiredTokens: { client: string; staff: string } | null = null;
+
+	const describe = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+	/**
+	 * An earlier run that was killed before its cleanup leaves its `cc108-` users and invitations in the development
+	 * instances. Removes those over an hour old (never this run's own, nor a concurrent run's), invitations before users.
+	 * A failure is reported and the sweep goes on: it is housekeeping, not evidence.
+	 */
+	const swept = { users: 0, invitations: 0, failed: 0 };
+	async function sweep(): Promise<void> {
+		const cutoff = Date.now() - 3_600_000;
+		for (const app of ['client', 'staff'] as const) {
+			const stale = async <T extends { id: string; createdAt: number }>(kind: 'users' | 'invitations', list: () => Promise<T[]>, remove: (id: string) => Promise<unknown>) => {
+				let found: T[] = [];
+				try {
+					found = await list();
+				} catch (e) {
+					swept.failed++;
+					console.error(`sweep: listing ${app} ${kind} failed: ${describe(e)}`);
+				}
+				for (const row of found.filter((x) => x.createdAt < cutoff)) {
+					try {
+						await remove(row.id);
+						swept[kind]++;
+					} catch (e) {
+						swept.failed++;
+						console.error(`sweep: deleting a stale ${app} ${kind.slice(0, -1)} failed: ${describe(e)}`);
+					}
+				}
+			};
+			await stale('invitations', () => bapi[app].invitations('cc108-'), (id) => bapi[app].call('DELETE', `/invitations/${id}`));
+			await stale('users', () => bapi[app].users('cc108-'), (id) => bapi[app].deleteUser(id));
+		}
+	}
+
+	let cleanedUp: Promise<void> | null = null;
+	/**
+	 * Stops the Workers, deletes what this run made in both instances and checks that nothing is left. It runs once, from
+	 * `finally` or from an interrupt, whichever comes first. Every object is tried and a failure does not stop the rest;
+	 * the failures are reported together at the end.
+	 */
+	const cleanup = () =>
+		(cleanedUp ??= leg('cleanup', async (check) => {
+			const problems: string[] = [];
+			const attempt = async (what: string, fn: () => Promise<void>): Promise<boolean> => {
+				try {
+					await fn();
+					return true;
+				} catch (e) {
+					problems.push(`${what}: ${describe(e)}`);
+					return false;
+				}
+			};
+			const verify = (ok: boolean, what: string) => (ok ? check(true, what) : void problems.push(`not so: ${what}`));
+			if (serve) {
+				const s = serve;
+				serve = null;
+				await attempt('stopping serve.mjs', async () => void (await stopServe(s)));
+			}
+			// invitations first: deleting a user also removes the invitation it accepted
+			for (const app of ['client', 'staff'] as const) {
+				let invitations: Awaited<ReturnType<Backend['invitations']>> = [];
+				await attempt(`listing ${app} invitations`, async () => void (invitations = await bapi[app].invitations(prefix)));
+				for (const i of invitations) await attempt(`deleting a ${app} invitation`, async () => (await bapi[app].call('DELETE', `/invitations/${i.id}`), void clerk.invitations.deleted++));
+				let users: Awaited<ReturnType<Backend['users']>> = [];
+				await attempt(`listing ${app} users`, async () => void (users = await bapi[app].users(prefix)));
+				for (const u of users) await attempt(`deleting a ${app} user`, async () => (await bapi[app].deleteUser(u.id), void clerk.users.deleted++));
+			}
+			// each session's own status: gone (404), or any status but active; a pending session is counted apart and fails the check
+			let ended = 0;
+			let pending = 0;
+			for (const s of sessionIds) {
+				let status = 'gone';
+				const read = await attempt(`reading a ${s.app} session`, async () => {
+					try {
+						status = (await bapi[s.app].getSession(s.id)).status;
+					} catch (e) {
+						if (!(e instanceof ClerkError && e.status === 404)) throw e;
+					}
+				});
+				if (!read) continue;
+				if (status === 'active') problems.push(`a ${s.app} session the run created is still active after its user was deleted`);
+				else if (status === 'pending') pending++;
+				else ended++;
+			}
+			clerk.sessions.ended = ended;
+			clerk.sessions.pending = pending;
+			verify(ended === sessionIds.length && pending === 0, `all ${sessionIds.length} sessions the run created are gone or ended (${ended} ended, ${pending} pending)`);
+			for (const app of ['client', 'staff'] as const) {
+				await attempt(`checking ${app}`, async () => {
+					verify((await bapi[app].users(prefix)).length === 0 && (await bapi[app].invitations(prefix)).length === 0, `${app}: no user or invitation of this run is left in Clerk`);
+					verify((await bapi[app].usersCount()) === baseline[app].users && (await bapi[app].pendingInvitations()) === baseline[app].pendingInvitations, `${app}: the user count and pending invitations are back to the run's baseline`);
+				});
+			}
+			verify(clerk.users.created === clerk.users.deleted && clerk.invitations.created === clerk.invitations.deleted, `created ${clerk.users.created} users and ${clerk.invitations.created} invitations; deleted the same`);
+			check(problems.length === 0, `every object of the run was deleted or ended${problems.length ? `; ${problems.length} problem(s): ${problems.slice(0, 8).join('; ')}` : ''}`);
+		}));
+	// SIGINT or SIGTERM (Ctrl-C, a timeout, a killed terminal): the Workers stop and Clerk is cleaned before the process ends
+	onInterrupt(async () => {
+		failure ??= 'interrupted by a signal';
+		try {
+			await cleanup();
+		} catch (e) {
+			console.error(`cleanup after the signal: ${describe(e)}`);
+		}
+		console.error(`interrupted: clerk users ${clerk.users.created}/${clerk.users.deleted} invitations ${clerk.invitations.created}/${clerk.invitations.deleted} sessions ${clerk.sessions.created}/${clerk.sessions.ended} (created/deleted or ended)`);
+	});
+	await sweep();
+	console.log(`sweep: removed ${swept.users} users and ${swept.invitations} invitations of earlier runs older than an hour${swept.failed ? `; ${swept.failed} failed (see above)` : ''}`);
 
 	try {
 		await leg('integration', async (check) => {
@@ -550,14 +659,13 @@ async function main(out: string): Promise<number> {
 				}
 			};
 			const table = new Map(all.map((r) => [`${r.app} ${r.method} ${r.route}`, { app: r.app, method: r.method, route: r.route, gate: r.gate, checks: [] as (typeof routeTable)[number]['checks'] }]));
-			const ownGate = (r: Row) => (r.app === 'client' && ['session', 'member', 'case-read', 'case-write', 'firm-admin'].includes(r.gate) ? 'client' : 'staff');
-			let n = 0;
+					let n = 0;
 			const deltaProblems: string[] = [];
 			for (const cls of CLASS_ORDER) {
 				const t = await tokens(cls);
 				const before = snapshot();
 				for (const r of all.filter((x) => classesOf(x).includes(cls))) {
-					const credential = r.gate === 'public' ? (cls === 'anonymous' ? null : t.client ?? t.staff) : ownGate(r) === 'client' ? t.client : t.staff;
+					const credential = r.gate === 'public' ? (cls === 'anonymous' ? null : t.client ?? t.staff) : ownInstance(r) === 'client' ? t.client : t.staff;
 					const e = expectFor(r, cls);
 					const p = pathOf(r);
 					const body = r.method === 'GET' ? {} : r.route === '/cases/[case]' ? { form: { requestId: `matrix-form-${cls}-${runId}`, body: 'synthetic matrix note' } } : { json: bodyFor(r, cls) };
@@ -608,38 +716,10 @@ async function main(out: string): Promise<number> {
 	} catch (e) {
 		failure = e instanceof Error ? e.message : String(e);
 	} finally {
-		if (serve) await stopServe(serve).catch((e: unknown) => (failure ??= `stop: ${String(e)}`));
 		try {
-			await leg('cleanup', async (check) => {
-				// invitations first: deleting a user also removes the invitation it accepted
-				for (const app of ['client', 'staff'] as const) {
-					for (const i of await bapi[app].invitations(prefix)) {
-						await bapi[app].call('DELETE', `/invitations/${i.id}`);
-						clerk.invitations.deleted++;
-					}
-					for (const u of await bapi[app].users(prefix)) {
-						await bapi[app].deleteUser(u.id);
-						clerk.users.deleted++;
-					}
-				}
-				for (const s of sessionIds) {
-					let status = 'gone';
-					try {
-						status = (await bapi[s.app].getSession(s.id)).status;
-					} catch (e) {
-						if (!(e instanceof ClerkError && e.status === 404)) throw e;
-					}
-					if (status === 'active') throw new Error('a session the run created is still active after its user was deleted');
-				}
-				clerk.sessions.ended = sessionIds.length;
-				for (const app of ['client', 'staff'] as const) {
-					check((await bapi[app].users(prefix)).length === 0 && (await bapi[app].invitations(prefix)).length === 0, `${app}: no user or invitation of this run is left in Clerk`);
-					check((await bapi[app].usersCount()) === baseline[app].users && (await bapi[app].pendingInvitations()) === baseline[app].pendingInvitations, `${app}: the user count and pending invitations are back to the run's baseline`);
-				}
-				check(clerk.users.created === clerk.users.deleted && clerk.invitations.created === clerk.invitations.deleted, `created ${clerk.users.created} users and ${clerk.invitations.created} invitations; deleted the same`);
-			});
+			await cleanup();
 		} catch (e) {
-			failure ??= e instanceof Error ? e.message : String(e);
+			failure ??= describe(e);
 		}
 	}
 
@@ -688,7 +768,7 @@ async function main(out: string): Promise<number> {
 	writeFileSync(out, `${JSON.stringify(summary, null, 2)}\n`);
 	for (const name of LEGS) console.log(`${legs[name].status.padEnd(7)} ${name}${legs[name].failure ? `: ${legs[name].failure}` : ''}`);
 	if (failure === null) for (const p of problems.slice(0, 10)) console.log(`refused: ${p}`);
-	console.log(`clerk: users ${clerk.users.created}/${clerk.users.deleted} invitations ${clerk.invitations.created}/${clerk.invitations.deleted} sessions ${clerk.sessions.created}/${clerk.sessions.ended} (created/deleted or ended); scan hits ${scanHits}`);
+	console.log(`clerk: users ${clerk.users.created}/${clerk.users.deleted} invitations ${clerk.invitations.created}/${clerk.invitations.deleted} sessions ${clerk.sessions.created}/${clerk.sessions.ended} (created/ended, ${clerk.sessions.pending} pending); scan hits ${scanHits}`);
 	console.log(`${summary.evidence ? 'PROBE PASS' : 'PROBE FAIL'} ${sha} evidence: ${summary.evidence} summary: ${path.relative(root, out)}`);
 	return summary.evidence ? 0 : 1;
 

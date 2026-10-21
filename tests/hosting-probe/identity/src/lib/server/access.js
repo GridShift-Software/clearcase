@@ -6,8 +6,8 @@ import { env } from 'cloudflare:workers';
 import gates from '#lib/gates.json';
 import { authenticate, instances, kind } from './identity.js';
 
-/** Which trusted instance a gate verifies against. */
-const STAFF_GATES = new Set(['staff-session', 'instance-admin', 'operator-grant']);
+/** Which trusted instance a gate verifies against: the staff one for the gates gates.json lists. */
+const STAFF_GATES = new Set(gates.staffGates);
 
 /** The gate of this request's route and method: `public`, a protected gate, or a status (404 not served, 405). */
 export function gateOf(routeId, method) {

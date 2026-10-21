@@ -25,7 +25,11 @@ export function rows(gatesFile = path.join(import.meta.dirname, 'src/lib/gates.j
 	return out.sort((a, b) => (a.app === b.app ? last(a) - last(b) : a.app === 'client' ? -1 : 1));
 }
 
-const OWN_CLIENT = new Set<Gate>(['session', 'member', 'case-read', 'case-write', 'firm-admin']);
+/** The gates a client app verifies against the staff instance: gates.json's `staffGates`, the one definition (the hook reads it too). */
+export const STAFF_GATES = new Set<string>((JSON.parse(readFileSync(path.join(import.meta.dirname, 'src/lib/gates.json'), 'utf8')) as { staffGates: string[] }).staffGates);
+
+/** The Clerk instance whose session a row's protected request carries: the client's own, unless the row is a staff app route or a staff gate on the client app. */
+export const ownInstance = (r: Row): App => (r.app === 'client' && !STAFF_GATES.has(r.gate) ? 'client' : 'staff');
 
 /** The order the classes are swept in: the operator last, because its sweep ends with an allowed sign-out. */
 export const CLASS_ORDER: Class[] = ['anonymous', 'expired', 'revoked', 'wrong-app', 'wrong-party', 'non-member', 'wrong-case', 'firm-admin', 'viewer', 'editor', 'global-admin', 'operator'];
@@ -36,7 +40,7 @@ export function classesOf(r: Row): Class[] {
 	const pick = (extra: Class[]) => CLASS_ORDER.filter((c) => refused.includes(c) || extra.includes(c));
 	if (r.gate === 'public') return ['anonymous', 'expired', 'revoked'];
 	if (r.route === '/auth/sign-out') return pick([r.app === 'client' ? 'non-member' : 'operator']);
-	if (r.app === 'client' && OWN_CLIENT.has(r.gate)) return pick(['non-member', 'wrong-case', 'firm-admin', 'viewer', 'editor']);
+	if (ownInstance(r) === 'client') return pick(['non-member', 'wrong-case', 'firm-admin', 'viewer', 'editor']);
 	return pick(['global-admin', 'operator']);
 }
 

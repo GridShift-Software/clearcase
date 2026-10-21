@@ -1,5 +1,6 @@
 {
-	"//": "Every route each app serves, per method, and the gate hooks.server.js enforces before the route runs (GRS-108). A route id or method missing here is not served (404 or 405). public: no identity call. session, member, case-read, case-write, firm-admin, global-admin: a session of the app's own Clerk instance. staff-session, instance-admin, operator-grant: a session of the staff instance, accepted by the client app on /manage and /operator only.",
+	"//": "Every route each app serves, per method, and the gate hooks.server.js enforces before the route runs (GRS-108). A route id or method missing here is not served (404 or 405). public: no identity call. session, member, case-read, case-write, firm-admin, global-admin: a session of the app's own Clerk instance. staff-session, instance-admin, operator-grant: a session of the staff instance, accepted by the client app on /manage and /operator only (staffGates lists them; access.js and matrix.ts read that list).",
+	"staffGates": ["staff-session", "instance-admin", "operator-grant"],
 	"client": {
 		"/": { "GET": "public" },
 		"/login": { "GET": "public" },

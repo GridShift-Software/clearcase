@@ -7,6 +7,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test } from 'vitest';
+// @ts-expect-error plain .mjs script, no declarations
 import { STEPS } from '../../scripts/gate.mjs';
 
 const root = path.resolve(import.meta.dirname, '../..');

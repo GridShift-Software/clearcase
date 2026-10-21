@@ -314,7 +314,7 @@ describe('process lifecycle: serve.mjs and its workerd stop with the runner that
 					child.stderr!.on('data', onData);
 					child.once('exit', () => (clearTimeout(timer), reject(new Error(`the runner ended before it printed a world: ${text.slice(-800)}`))));
 				});
-				if (mode.startsWith('SIG')) {
+				if (mode !== 'exit' && mode !== 'throw') {
 					expect(await Promise.all(ports.map(listening))).toEqual([true, true]);
 					child.kill(mode);
 				}

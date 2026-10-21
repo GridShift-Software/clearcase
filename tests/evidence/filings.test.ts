@@ -66,15 +66,16 @@ describe('filings register', () => {
 	});
 
 	it('writes untouched imported values of an edited or conflicting seed as imported cells in the export (D16)', () => {
-		const rec = { filing: '-Imported filing', fdate: '', fparty: '+Imported party', response: '', rdate: '', ref: '', status: '' };
+		// ref is an untouched imported `-5`: a plain number stays a number where imported, and is neutralised where typed
+		const rec = { filing: '-Imported filing', fdate: '', fparty: '+Imported party', response: '', rdate: '', ref: '-5', status: '' };
 		const s = { datasetKey: 'filings', seedId: 'seed:a', seedSha256: 'h1', record: rec };
 		const line = (seeds: ReturnType<typeof viewSeeds>) => toCSV(registerCsvRows(registerEntries(seeds, []))).split('\r\n')[1];
-		expect(line(viewSeeds([s], []))).toBe("'-Imported filing,,'+Imported party,,,,");
-		// edited: only the field the user changed is user-entered
-		const edit = overlay('seed:a', 'h1', { ...rec, response: '=my reply', deleted: false });
-		expect(line(viewSeeds([s], [edit]))).toBe("'-Imported filing,,'+Imported party,'=my reply,,,");
+		expect(line(viewSeeds([s], []))).toBe("'-Imported filing,,'+Imported party,,,-5,");
+		// edited: only the fields the user changed are user-entered (response and fdate, typed as `-5`)
+		const edit = overlay('seed:a', 'h1', { ...rec, response: '=my reply', fdate: '-5', deleted: false });
+		expect(line(viewSeeds([s], [edit]))).toBe("'-Imported filing,'-5,'+Imported party,'=my reply,,-5,");
 		// conflict: compared with the seed as imported now
-		expect(line(viewSeeds([{ ...s, seedSha256: 'h2', record: { ...rec, rdate: '2001-02-03' } }], [edit]))).toBe("'-Imported filing,,'+Imported party,'=my reply,,,");
+		expect(line(viewSeeds([{ ...s, seedSha256: 'h2', record: { ...rec, rdate: '2001-02-03' } }], [edit]))).toBe("'-Imported filing,'-5,'+Imported party,'=my reply,,-5,");
 		// a user's own row stays fully user-entered
 		expect(toCSV(registerCsvRows(registerEntries([], [user('u', 1, '-typed')]))).split('\r\n')[1]).toBe("'-typed,,,,,,");
 	});

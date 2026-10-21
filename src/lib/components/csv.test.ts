@@ -200,3 +200,24 @@ describe('imported cells that start a formula, in any column (GRS-172)', () => {
 		for (const s of ['=SYN(1)', '\t=1', '\r\r=1', 'x;=1', '-5', '-1+2']) expect(csvCell(csvCell(s).replace(/^"|"$/g, '').replaceAll('""', '"'))).toBe(csvCell(s));
 	});
 });
+
+describe('a cell that starts with spaces and then a formula character (GRS-172 M1)', () => {
+	// LibreOffice's "Trim spaces" import turns ` =1+1` into a live formula, whether the text was imported or typed
+	const cases: [string, string][] = [[' =1+1', "' =1+1"], ['  +1', "'  +1"], [' -5', "' -5"], [' @SUM(A1)', "' @SUM(A1)"], [' \t=1', "' \t=1"]];
+	it.each(cases)('%j starts with a `\'` at position 0, imported (csvCell) and typed (userCell)', (raw, want) => {
+		const q = (s: string) => (/[",;\t\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s);
+		expect(csvCell(raw)).toBe(q(want));
+		expect(userCell(raw)).toBe(want);
+		expect(parseCsv(toCSV([[raw, 'B']]))).toEqual([[want, 'B']]);
+		expect(parseCsv(toCSV([[userCell(raw), 'B']]))).toEqual([[want, 'B']]);
+	});
+	it('matches the segment rule: after a separator the same spaces and character get a `\'`, and text with an inner space does not', () => {
+		expect(userCell('x; =1+1')).toBe("x; '=1+1");
+		expect(csvCell(' =1+1')).toBe("' =1+1");
+		expect([csvCell('a =1+1'), csvCell(' plain'), userCell(' plain')]).toEqual(['a =1+1', ' plain', ' plain']);
+	});
+	it('is idempotent, and keeps the plain-number exception only for an unpadded number', () => {
+		expect(userCell(userCell(' =1+1'))).toBe("' =1+1");
+		expect([csvCell('-5'), csvCell(' 5'), userCell('-5')]).toEqual(['-5', ' 5', "'-5"]);
+	});
+});

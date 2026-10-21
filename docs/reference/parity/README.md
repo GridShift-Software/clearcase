@@ -18,7 +18,7 @@ bun run --bun parity -- --view chronology,overview --fixture-config .local/v5-ve
 | `--fixture-config FILE` | The local fixture locator (`.local/v5-verification.json`, the same file `verify:pilot:v5` uses). It stays local by design, since it names the case material. Its main HTML and expected-examples hashes are checked against the committed profile, and the scorecard records the fixture identity the run used (`fixture`, below). |
 | `--out DIR` | Output directory, inside `.local/` or outside the repository. See [The output directory](#the-output-directory). |
 | `--clock ISO`, `--timezone TZ` | The fixed clock (default `2026-10-08T09:00:00Z`) and timezone (default `UTC`) for both sides. |
-| `--approved-only` | Only approved register entries cover differences. The CC-11 gate uses this. |
+| `--approved-only` | Only approved register entries cover differences. No gate passes it: `bun run --bun gate` runs `--all --strict-register`. |
 | `--strict-register` | Fail when a register entry covered nothing in the views run (see [Unused entries](#unused-entries)). |
 | `--no-sweeps`, `--no-exports` | Skip the interaction sweeps or the export capture (quick checks while writing an adapter). Such a run is not evidence. |
 | `--keep-work` | Keep this run's working directory `DIR/.work-<pid>-XXXXXX` (the converted package, the server's data and log, the browser profile: case-bearing, local only) instead of removing it on exit. Later runs never sweep a kept directory: remove it by hand. |
@@ -202,7 +202,7 @@ The register is `intentional-differences.json` plus one fragment per M2 owner in
 
 - **No case values.** A field names structure and a `when` names UI wording or markers. The validator refuses digit runs of four or more and `@`. Refer to a row by a glob (`table.table_1.row.*.date`), never by its ref.
 - **Make entries narrow.** An entry without `when` covers any value of its field, so a later regression in that field would pass unnoticed. Prefer `when`, and keep the field list short.
-- **Approval.** Commit proposed entries with the adapter. The coordinator reviews them, sets `approvedBy` and `approvedOn` on the entries that are not product-visible, and lists the `productVisible` improvements for the user, who approves them. Proposed entries cover differences in an ordinary run and count under *pending approval*. With `--approved-only` (the gate) they do not.
+- **Approval.** Commit proposed entries with the adapter. The coordinator reviews them, sets `approvedBy` and `approvedOn` on the entries that are not product-visible, and lists the `productVisible` improvements for the user, who approves them. Proposed entries cover differences in an ordinary run and count under *pending approval*. With `--approved-only` they do not; the gate does not pass it. Approval pages for the user are under [`approvals/`](approvals/).
 
 ### Fragments
 
@@ -223,7 +223,7 @@ Every v5 source defect in `docs/reference/defects.md` and `docs/reference/view-c
 
 ### Unused entries
 
-An improvement that reverts to v5 behaviour makes the app match v5, so no difference is left to fail. Instead, its register entry covers nothing. Every run lists such entries in `register-usage.json` and counts them in the scorecard. `--strict-register` fails on them. The CC-11 gate should use it together with `--approved-only`.
+An improvement that reverts to v5 behaviour makes the app match v5, so no difference is left to fail. Instead, its register entry covers nothing. Every run lists such entries in `register-usage.json` and counts them in the scorecard. `--strict-register` fails on them, and `bun run --bun gate` passes it (with `--all`, not `--approved-only`).
 
 ## Scorecard
 

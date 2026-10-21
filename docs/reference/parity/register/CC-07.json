@@ -64,7 +64,7 @@
       },
       "type": "defect-fix",
       "source": "S-hardcoded-case",
-      "reason": "v5 names the export after its browser storage key, which carries case-specific initials; the app uses a neutral name. The exported columns and rows are compared and equal, except that a validated amount in the Amount column is written as a plain two-decimal number (see IDR-286).",
+      "reason": "v5 names the export after its browser storage key, which carries case-specific initials; the app uses a neutral name. The exported columns and rows are compared and equal, except that a validated amount in the Amount column is written as a plain two-decimal number (GRS-49; see IDR-286).",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
       "approvedBy": null,

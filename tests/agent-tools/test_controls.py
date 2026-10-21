@@ -2155,6 +2155,64 @@ class FixRoundGuardRequired(ControlCase):
         self.ledger_guard()
 
 
+class FixRoundMergedBase(ControlCase):
+    """GRS-153: a manifest's range spans every later merge from the base. A protected file the base changed, merged into
+    the branch and held byte for byte at HEAD, is the base's change and passes; the same change made on the branch, or
+    any change on top of it, still refuses."""
+    original = TestWeakening.original
+    path = FixRoundManifest.path
+    manifest = FixRoundManifest.manifest
+    config = "export default { test: { include: ['tests/**/*.test.ts'] } };\n"
+    helper = 'export const expected = false;\n'
+    test = "import { expected } from '../support/helper';\n" + TestWeakening.original
+    # what the base changes after the review: the runner configuration (PR #75's CC-25 include line) and a helper
+    base_change = {'vitest.config.ts': "export default { test: { include: ['tests/**/*.test.ts', 'tests/acceptance/**/*.test.ts'] } };\n",
+                   'support/helper.ts': 'export const expected = false;\nexport const unrelated = 1;\n'}
+
+    def setUp(self):
+        super().setUp()
+        self.write('vitest.config.ts', self.config)
+        self.write('support/helper.ts', self.helper)
+        self.dev = self.commit('runner configuration and helper')
+        self.git('switch', '-q', '-c', 'feature/grs-104-tooling')
+        self.write('tests/protected.test.ts', self.test)
+        self.base = self.commit('reviewed tests')
+        self.write('app.txt', 'fixed\n')
+        self.manifest()
+        self.fixed = self.commit('fix round')
+
+    def on_dev(self, files, message='a later change on the base'):
+        self.git('switch', '-q', 'dev')
+        for name, text in files.items():
+            self.write(name, text)
+        self.commit(message)
+        self.git('switch', '-q', 'feature/grs-104-tooling')
+
+    def merge(self, ref='dev'):
+        self.git('-c', 'user.name=Synthetic', '-c', 'user.email=test@example.invalid', 'merge', '-q', '--no-ff',
+                 '-m', f'Merge {ref} into the branch', ref)
+        return self.git('rev-parse', 'HEAD')
+
+    def guard(self, *args, code=0):
+        return self.cli('fix-round-guard', *args, code=code)
+
+    def test_a_protected_change_merged_from_the_base_passes(self):
+        self.on_dev(self.base_change)
+        head = self.merge()
+        self.guard('--base', 'dev')
+        receipt = self.last_receipt()
+        self.assertEqual((receipt['name'], receipt['result'], receipt['revision']['head']), ('test-guard', 'PASS', head))
+
+    def test_the_same_change_made_on_the_branch_refuses(self):
+        for name, text in self.base_change.items():
+            with self.subTest(file=name):
+                self.git('switch', '-q', '-C', 'feature/grs-104-tooling', self.fixed)
+                self.write(name, text)
+                self.commit(f'the branch changes {name}')
+                self.assertIn(f'protected dependency changed: {name}', self.guard('--base', 'dev', code=1))
+                self.assertEqual(self.last_receipt()['result'], 'FAIL')
+
+
 class RetainedPaths(ControlCase):
     """L1 and L2."""
     prepare = ApprovalLedger.prepare

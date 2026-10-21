@@ -24,6 +24,8 @@ const contractItem = (p: Pairs) => (contractsOf({ groups: [{ key: 'G', items: [r
 const seriesRow = (p: Pairs) => (quantumOf({ amountDueSeries: [rec(['ref', 'OD-001'], ['title', 'Own'], ...p)] }, byRef) as J).amountDueSeries[0] as J;
 const linkRow = (p: Pairs) => (linkSampleOf([rec(['ref', 'OD-001'], ['title', 'Own'], ...p)], byRef) as J[])[0]!;
 const pendingRow = (p: Pairs) => (buildReportOf({ pending: [rec(['ref', 'OD-001'], ['title', 'Own'], ...p)] }, byRef) as J).pending[0] as J;
+const schedItem = (p: Pairs) => (schedOf([{ key: 'pl1', bundle: 'Original', items: [rec(...p)] }]) as J).discovery[0] as J;
+const schedFile = (p: Pairs) => (schedOf([{ key: 'pl1', bundle: 'Original', items: [{ files: [rec(['name', 'A.pdf'], ...p)] }] }]) as J).discovery[0].files[0] as J;
 const EXTRACTS = [{ ref: 'CB-001', name: 'PL-1.pdf' }];
 
 /** Each site: the record a mapper writes, the key it writes, the source value already there, and what the mapper writes. */
@@ -47,6 +49,10 @@ const SITES: { site: string; map: (p: Pairs) => J; k: string; held: unknown; wro
   { site: 'a quantum series row filename that is not text', map: seriesRow, k: 'filename', held: odd('filename'), wrote: 'OD-001 Supply agreement.pdf' },
   { site: 'a link sample row filename that is not text', map: linkRow, k: 'filename', held: 3, wrote: 'OD-001 Supply agreement.pdf' },
   { site: 'a build report row filename that is not text', map: pendingRow, k: 'filename', held: true, wrote: 'OD-001 Supply agreement.pdf' },
+  { site: 'a schedule item no read as a count', map: schedItem, k: 'no', held: 'held-no', wrote: 0 },
+  { site: 'a schedule item date read as text', map: schedItem, k: 'date', held: odd('date'), wrote: '' },
+  { site: 'a schedule item desc read as text', map: schedItem, k: 'desc', held: ['held-desc'], wrote: '' },
+  { site: 'a schedule file url read as text', map: schedFile, k: 'url', held: odd('url'), wrote: '' },
 ];
 
 const keeps = (out: J, v: unknown) => Object.values(out).some((x) => JSON.stringify(x) === JSON.stringify(v));
@@ -80,6 +86,9 @@ describe('a newer-export mapper never overwrites a source field of the name it w
       [bundle([['items', 1]]), { items: ['1-1'], nDocs: 1, nItems: 1 }],
       [bundles([['extracts', null]]), { extracts: '' }],
       [seriesRow([['filename', null]]), { filename: 'OD-001 Supply agreement.pdf' }],
+      [schedItem([['no', 12], ['date', '2001-02-03'], ['desc', 'Letter']]), { no: 12, date: '2001-02-03', desc: 'Letter' }],
+      [schedItem([['no', null], ['date', 20010203]]), { no: 0, date: '20010203', desc: '' }],
+      [schedFile([['url', 'files/A.pdf']]), { url: 'files/A.pdf' }],
     ];
     for (const [out, expected] of carried) {
       expect(out).toMatchObject(expected);

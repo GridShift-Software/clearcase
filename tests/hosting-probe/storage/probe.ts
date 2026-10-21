@@ -94,7 +94,7 @@ const LEG_SHAPE: Record<LegName, [number, number]> = {
 	export: [6, 8],
 	corruption: [11, 12],
 	restore: [8, 8],
-	'restore-guards': [13, 27],
+	'restore-guards': [13, 28],
 };
 
 type Spec = null | boolean | number | string | RegExp | ((v: unknown) => boolean) | Spec[] | { [key: string]: Spec };
@@ -155,7 +155,7 @@ const MEASURES: Record<LegName, Record<string, Spec>> = {
 	export: { entries: POSITIVE, packetBytes: POSITIVE, parts: POSITIVE, steps: POSITIVE, maxR2OpsPerStep: POSITIVE, maxD1StatementsPerStep: POSITIVE, wallMs: MS, offlineCheckMs: MS, workerdPeakRssBytes: POSITIVE },
 	corruption: { casesRefused: 8 },
 	restore: { entries: POSITIVE, steps: POSITIVE, wallMs: MS, objects: POSITIVE },
-	'restore-guards': { refusals: 16 },
+	'restore-guards': { refusals: 17 },
 };
 
 /** The one expected shape of a PASS summary for `sha`: every field, its type and its value. */
@@ -1169,7 +1169,7 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			};
 			const code = (r: Res, status: number, c: string) => r.status === status && r.json().code === c;
 			/** A complete backup of one case: its user work (with the deployment's own columns), read model, results record, package file, list and one original. */
-			const backupOf = async (caseId: string, resultsVersion: string, tag: string, o: { dropTable?: string; foreignCase?: string; docs?: number; dupNote?: boolean; nullNote?: boolean; docRows?: object[] } = {}) => {
+			const backupOf = async (caseId: string, resultsVersion: string, tag: string, o: { dropTable?: string; foreignCase?: string; docs?: number; dupNote?: boolean; nullNote?: boolean; dupSeq?: boolean; docRows?: object[] } = {}) => {
 				const original = synthetic(`restore guard original ${tag}`, 200);
 				const file = JSON.stringify({ synthetic: true, tag });
 				const list = JSON.stringify([{ ref: 'S-9001' }]);
@@ -1177,6 +1177,8 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 				tables.uw_note!.rows = [{ case_id: caseId, note_id: 'n-1', anchor: null, body: 'synthetic restored note', version: 'v-note-1' }];
 				if (o.dupNote) tables.uw_note!.rows.push({ ...(tables.uw_note!.rows[0] as object) });
 				if (o.nullNote) (tables.uw_note!.rows[0] as Record<string, unknown>).body = null;
+				// two register rows whose seq is 1 and '01': INTEGER affinity stores both as 1, so UNIQUE (case_id, store, seq) refuses the second
+				if (o.dupSeq) tables.uw_register_row!.rows = [1, '01'].map((seq, i) => ({ case_id: caseId, store: 'q', row_id: `r-${i + 1}`, seq, version: `v-row-${i + 1}`, fields: '{}', operation_id: `op-${i + 1}` }));
 				if (o.dropTable) delete tables[o.dropTable];
 				const results = {
 					version: { version_id: resultsVersion, case_id: caseId, state: 'stored', expected_documents: o.docs ?? 1, expected_assets: 0, expected_seeds: 0, expected_files: 1, list_sha256: sha256(list), list_size: list.length },
@@ -1318,6 +1320,8 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			check(dupNote.opened && refused(code(dupNote.res, 422, 'invalid-packet')) && reasonOf(dupNote.res).includes('uw_note') && (await live(uw)) === uwBefore, 'a backup whose user work holds one note key twice opens, and finishing it answers 422 invalid-packet naming uw_note; the case holds no version, row or revision it did not hold before');
 			const nullNote = await finishOf({ nullNote: true });
 			check(nullNote.opened && refused(code(nullNote.res, 422, 'invalid-packet')) && reasonOf(nullNote.res).includes('uw_note') && (await live(uw)) === uwBefore, 'a note whose NOT NULL body is null is refused the same way, and the case is as it was');
+			const dupSeq = await finishOf({ dupSeq: true });
+			check(dupSeq.opened && refused(code(dupSeq.res, 422, 'invalid-packet')) && reasonOf(dupSeq.res).includes('uw_register_row') && (await live(uw)) === uwBefore, 'a backup whose register rows carry seq 1 and "01" (one INTEGER key) is refused 422 invalid-packet naming uw_register_row, before the first write; the case is as it was');
 			const dupDoc = await finishOf({ docs: 2, docRows: [{ ref: 'S-9001', row_json: '{}' }, { ref: 'S-9001', row_json: '{}' }] });
 			check(dupDoc.opened && refused(code(dupDoc.res, 422, 'invalid-packet')) && reasonOf(dupDoc.res) === 'read-model/document.json.ref' && (await live(uw)) === uwBefore, 'a read model with one document ref twice is refused with the key named, and the case is as it was');
 			const typedDoc = await finishOf({ docRows: [{ ref: 'S-9001', row_json: 5 }] });

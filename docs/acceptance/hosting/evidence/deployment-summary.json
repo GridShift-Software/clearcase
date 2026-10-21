@@ -1,10 +1,15 @@
 {
   "schema": "clearcase.deployment-probe/1",
-  "sourceSha": "37f892afb9e117f70b7d22477651fc5de36be912",
+  "sourceSha": "d7779a072b8863101558ca8b840bcf5398ed50b1",
+  "inputs": {
+    "deploy/probes": "a0581a046fa325be78061ca45bfea10ccc51d0ec",
+    "tests/hosting-probe/deployment": "0161d37a0224b9606fed83cf4225e87d0bc4a340",
+    "tests/e2e/pilot/offline.sh": "f10ef9f0b803bb058b17fe456b0b27788b32dad6"
+  },
   "treeClean": true,
-  "startedAt": "2026-10-21T13:02:30.657Z",
-  "finishedAt": "2026-10-21T13:03:41.881Z",
-  "runDir": ".local/hosting-probe/deployment/2026-10-21T13-02-30-657Z",
+  "startedAt": "2026-10-21T15:13:42.067Z",
+  "finishedAt": "2026-10-21T15:14:35.939Z",
+  "runDir": ".local/hosting-probe/deployment/2026-10-21T15-13-42-067Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -56,42 +61,42 @@
           "cmd": "node <probe>/node_modules/cf/bin/cf --version",
           "host": "Node",
           "exit": 0,
-          "ms": 113,
+          "ms": 147,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/cf/bin/cf cli search create D1 database",
           "host": "Node",
           "exit": 0,
-          "ms": 353,
+          "ms": 365,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/cf/bin/cf schema d1 create",
           "host": "Node",
           "exit": 0,
-          "ms": 153,
+          "ms": 155,
           "network": []
         },
         {
           "cmd": "bun <probe>/node_modules/cf/bin/cf --version",
           "host": "Bun",
           "exit": 0,
-          "ms": 108,
+          "ms": 114,
           "network": "not recorded (Bun host)"
         },
         {
           "cmd": "bun <probe>/node_modules/cf/bin/cf deploy --dry-run --no-provision",
           "host": "Bun",
           "exit": 0,
-          "ms": 1699,
+          "ms": 1833,
           "network": "not recorded (Bun host)"
         },
         {
           "cmd": "node <probe>/node_modules/cf/bin/cf deploy --dry-run --no-provision",
           "host": "Node",
           "exit": 0,
-          "ms": 901,
+          "ms": 964,
           "network": []
         }
       ],
@@ -121,7 +126,9 @@
         "cf --version prints 1.0.0-beta.20",
         "cf cli search answers offline with JSON on stdout naming cf d1 create",
         "cf schema d1 create answers offline with the d1.create operation as JSON",
-        "under Node, cf deploy --dry-run --no-provision completes in a plain Worker project with cloudflare.config.ts"
+        "under Node, cf deploy --dry-run --no-provision completes in a plain Worker project with cloudflare.config.ts",
+        "under Bun, cf --version exits 0 and prints 1.0.0-beta.20",
+        "under Bun, cf deploy --dry-run --no-provision completes too: the documented Bun config-loading failure does not reproduce"
       ]
     },
     "P2a-kit-no-config": {
@@ -132,21 +139,21 @@
           "cmd": "node <probe>/node_modules/cf/bin/cf init . --dry-run",
           "host": "Node",
           "exit": 0,
-          "ms": 248,
+          "ms": 257,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/cf/bin/cf build",
           "host": "Node",
           "exit": 1,
-          "ms": 257,
+          "ms": 259,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/cf/bin/cf deploy --dry-run",
           "host": "Node",
           "exit": 1,
-          "ms": 428,
+          "ms": 435,
           "network": []
         }
       ],
@@ -177,14 +184,14 @@
           "cmd": "node <probe>/node_modules/cf/bin/cf build",
           "host": "Node",
           "exit": 1,
-          "ms": 3316,
+          "ms": 2835,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/cf/bin/cf deploy --dry-run --no-provision",
           "host": "Node",
           "exit": 1,
-          "ms": 3167,
+          "ms": 2989,
           "network": []
         }
       ],
@@ -196,8 +203,9 @@
         "deployDryRunCompleted": false
       },
       "asserted": [
-        "cf build ran to an exit code",
-        "the framework build ran: adapter 8 wrote .svelte-kit/cloudflare/_worker.js"
+        "the framework build ran: adapter 8 wrote .svelte-kit/cloudflare/_worker.js",
+        "cf build exits 1 after the framework build with \"Build Output Specification: no root config found at .cloudflare/output/v0/config.json\" and writes no Build Output: cf cannot build Kit 3",
+        "cf deploy --dry-run --no-provision exits 1 on the same project"
       ]
     },
     "P3-build-workerd": {
@@ -208,14 +216,14 @@
           "cmd": "bun run --bun build",
           "host": "Bun",
           "exit": 0,
-          "ms": 4163,
+          "ms": 3628,
           "network": "not recorded (Bun host)"
         },
         {
           "cmd": "node <probe>/node_modules/wrangler/bin/wrangler.js d1 migrations apply DB --local --persist-to <run>/persist/p3",
           "host": "Node",
           "exit": 0,
-          "ms": 2493,
+          "ms": 1281,
           "network": []
         },
         {
@@ -229,19 +237,19 @@
           "cmd": "node harness.mjs",
           "host": "Node",
           "exit": 0,
-          "ms": 2082,
+          "ms": 833,
           "network": []
         },
         {
           "cmd": "bun harness.mjs",
           "host": "Bun",
           "exit": 1,
-          "ms": 2427,
+          "ms": 1151,
           "network": "not recorded (Bun host)"
         }
       ],
       "observed": {
-        "artifact": "sha256:4ee94767910c33bf972e5bd79d7f6b8bf95dc66ca3627185c195fe3f7a232e24",
+        "artifact": "sha256:08109fce78e35469074aa4f22c04f48686aeebaebdd57e89b9c04809912ae93c",
         "health": {
           "ok": true,
           "client": "probe-local",
@@ -260,7 +268,8 @@
         "the build wrote .svelte-kit/cloudflare-tmp/server.js",
         "wrangler d1 migrations apply --local creates the schema",
         "GET /api/health answers 200 from workerd with the local client, one seeded note and the R2 binding",
-        "createTestHarness serves /api/health from the built Worker under Node"
+        "createTestHarness serves /api/health from the built Worker under Node",
+        "createTestHarness exits 1 under Bun"
       ]
     },
     "P4-local-migrations": {
@@ -271,42 +280,42 @@
           "cmd": "node <probe>/node_modules/cf/bin/cf d1 migrations apply 00000000-0000-4000-8000-000000000107 --local --persist-to <run>/persist/p4-cf --dir migrations",
           "host": "Node",
           "exit": 0,
-          "ms": 2224,
+          "ms": 1577,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/wrangler/bin/wrangler.js d1 migrations apply DB --local --persist-to <run>/persist/p4-wrangler",
           "host": "Node",
           "exit": 0,
-          "ms": 2584,
+          "ms": 1229,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/cf/bin/cf d1 query 00000000-0000-4000-8000-000000000107 --local --persist-to <run>/persist/p4-cf --sql SELECT id, name FROM d1_migrations ORDER BY id",
           "host": "Node",
           "exit": 1,
-          "ms": 1181,
+          "ms": 513,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/cf/bin/cf d1 raw 00000000-0000-4000-8000-000000000107 --local --persist-to <run>/persist/p4-cf --sql SELECT id, name FROM d1_migrations ORDER BY id",
           "host": "Node",
           "exit": 0,
-          "ms": 2188,
+          "ms": 1517,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --persist-to <run>/persist/p4-cf --json --command SELECT id, name FROM d1_migrations ORDER BY id",
           "host": "Node",
           "exit": 0,
-          "ms": 1283,
+          "ms": 711,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --persist-to <run>/persist/p4-wrangler --json --command SELECT id, name FROM d1_migrations ORDER BY id",
           "host": "Node",
           "exit": 0,
-          "ms": 928,
+          "ms": 712,
           "network": []
         },
         {
@@ -373,63 +382,63 @@
           "cmd": "node <probe>/node_modules/wrangler/bin/wrangler.js d1 migrations apply DB --local --persist-to <run>/persist/failure",
           "host": "Node",
           "exit": 0,
-          "ms": 1474,
+          "ms": 1241,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --persist-to <run>/persist/failure --json --command SELECT name FROM d1_migrations ORDER BY id",
           "host": "Node",
           "exit": 0,
-          "ms": 876,
+          "ms": 714,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --persist-to <run>/persist/failure --json --command SELECT id FROM notes ORDER BY id",
           "host": "Node",
           "exit": 0,
-          "ms": 928,
+          "ms": 705,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/wrangler/bin/wrangler.js d1 migrations apply DB --local --persist-to <run>/persist/failure",
           "host": "Node",
           "exit": 1,
-          "ms": 1456,
+          "ms": 1100,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --persist-to <run>/persist/failure --json --command SELECT name FROM d1_migrations ORDER BY id",
           "host": "Node",
           "exit": 0,
-          "ms": 956,
+          "ms": 699,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --persist-to <run>/persist/failure --json --command SELECT id FROM notes ORDER BY id",
           "host": "Node",
           "exit": 0,
-          "ms": 941,
+          "ms": 712,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/wrangler/bin/wrangler.js d1 migrations apply DB --local --persist-to <run>/persist/failure",
           "host": "Node",
           "exit": 1,
-          "ms": 1467,
+          "ms": 1102,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --persist-to <run>/persist/failure --json --command SELECT name FROM d1_migrations ORDER BY id",
           "host": "Node",
           "exit": 0,
-          "ms": 993,
+          "ms": 709,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --persist-to <run>/persist/failure --json --command SELECT id FROM notes ORDER BY id",
           "host": "Node",
           "exit": 0,
-          "ms": 924,
+          "ms": 703,
           "network": []
         }
       ],
@@ -480,14 +489,14 @@
           "cmd": "node <probe>/node_modules/vitest/vitest.mjs run --config vitest.workers.config.mjs",
           "host": "Node",
           "exit": 0,
-          "ms": 1834,
+          "ms": 1085,
           "network": []
         },
         {
           "cmd": "bun --bun <probe>/node_modules/vitest/vitest.mjs run --config vitest.workers.config.mjs",
           "host": "Bun",
           "exit": 0,
-          "ms": 2508,
+          "ms": 1429,
           "network": "not recorded (Bun host)"
         }
       ],
@@ -500,7 +509,8 @@
         }
       },
       "asserted": [
-        "under Node the Workers pool runs the bindings test in workerd and it passes"
+        "under Node the Workers pool runs the bindings test in workerd and it passes",
+        "under Bun the Workers pool also runs the bindings test in workerd and it passes"
       ]
     },
     "P6-void-native-d1": {
@@ -511,21 +521,21 @@
           "cmd": "node <probe>/node_modules/void/dist/cli/cli.mjs info --json",
           "host": "Node",
           "exit": 0,
-          "ms": 298,
+          "ms": 239,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/vite/bin/vite.js build",
           "host": "Node",
           "exit": 1,
-          "ms": 3077,
+          "ms": 2813,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/void/dist/cli/cli.mjs deploy --platform cloudflare",
           "host": "Node",
           "exit": 1,
-          "ms": 799,
+          "ms": 709,
           "network": [
             "api.cloudflare.com:443",
             "api.cloudflare.com"
@@ -570,6 +580,7 @@
       },
       "asserted": [
         "void info --json answers offline with JSON",
+        "vite build with Void's plugin exits 1 with ERR_UNSUPPORTED_ESM_URL_SCHEME on cloudflare:, so there is no bundle to inspect",
         "void deploy evaluates void.config.ts in the process that holds the deploy token, and the config code can read it: scrubbing the build child alone does not protect the token",
         "offline, void deploy stops in provisioning, before any build or migration, after inferring a D1 database it tries to list",
         "void.config.ts is code that the Void CLI and the Vite build both evaluate",
@@ -585,7 +596,7 @@
           "cmd": "node <probe>/node_modules/cf/bin/cf deploy --dry-run --no-provision",
           "host": "Node",
           "exit": 0,
-          "ms": 1787,
+          "ms": 1539,
           "network": []
         }
       ],
@@ -610,35 +621,35 @@
           "cmd": "node <probe>/node_modules/cf/bin/cf d1 delete 00000000-0000-4000-8000-00000000aaaa",
           "host": "Node",
           "exit": 1,
-          "ms": 203,
+          "ms": 192,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/cf/bin/cf d1 delete 00000000-0000-4000-8000-00000000aaaa",
           "host": "Node",
           "exit": 1,
-          "ms": 211,
+          "ms": 192,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/cf/bin/cf workers delete clearcase-client-a",
           "host": "Node",
           "exit": 1,
-          "ms": 470,
+          "ms": 449,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/cf/bin/cf d1 delete 00000000-0000-4000-8000-000000000107 --local --persist-to <run>/persist/p4-cf",
           "host": "Node",
           "exit": 1,
-          "ms": 209,
+          "ms": 182,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/wrangler/bin/wrangler.js d1 delete clearcase-client-a-db",
           "host": "Node",
           "exit": 1,
-          "ms": 611,
+          "ms": 552,
           "network": [
             "api.cloudflare.com:443",
             "api.cloudflare.com",
@@ -650,7 +661,7 @@
           "cmd": "node <probe>/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --persist-to <run>/persist/p4-cf --json --command SELECT COUNT(*) AS n FROM d1_migrations",
           "host": "Node",
           "exit": 0,
-          "ms": 791,
+          "ms": 703,
           "network": []
         }
       ],
@@ -715,7 +726,7 @@
       "status": "PASS",
       "steps": [
         {
-          "cmd": "bun <repo>/deploy/probes/target.ts stage client-a --artifact <run>/artifact --digest sha256:4ee94767910c33bf972e5bd79d7f6b8bf95dc66ca3627185c195fe3f7a232e24 --out <run>/stage-client-a",
+          "cmd": "bun <repo>/deploy/probes/target.ts stage client-a --artifact <run>/artifact --digest sha256:08109fce78e35469074aa4f22c04f48686aeebaebdd57e89b9c04809912ae93c --out <run>/stage-client-a",
           "host": "Bun",
           "exit": 0,
           "ms": 20,
@@ -725,140 +736,140 @@
           "cmd": "node <probe>/node_modules/cf/bin/cf deploy --dry-run --no-provision",
           "host": "Node",
           "exit": 0,
-          "ms": 1875,
+          "ms": 1542,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/wrangler/bin/wrangler.js deploy --dry-run --outdir <run>/stage-client-a/wrangler-out -c wrangler.jsonc",
           "host": "Node",
           "exit": 0,
-          "ms": 699,
+          "ms": 564,
           "network": []
         },
         {
-          "cmd": "bun <repo>/deploy/probes/target.ts stage client-b --artifact <run>/artifact --digest sha256:4ee94767910c33bf972e5bd79d7f6b8bf95dc66ca3627185c195fe3f7a232e24 --out <run>/stage-client-b",
-          "host": "Bun",
-          "exit": 0,
-          "ms": 21,
-          "network": "not recorded (Bun host)"
-        },
-        {
-          "cmd": "node <probe>/node_modules/cf/bin/cf deploy --dry-run --no-provision",
-          "host": "Node",
-          "exit": 0,
-          "ms": 2088,
-          "network": []
-        },
-        {
-          "cmd": "node <probe>/node_modules/wrangler/bin/wrangler.js deploy --dry-run --outdir <run>/stage-client-b/wrangler-out -c wrangler.jsonc",
-          "host": "Node",
-          "exit": 0,
-          "ms": 714,
-          "network": []
-        },
-        {
-          "cmd": "bun <repo>/deploy/probes/target.ts stage client-a --artifact <run>/artifact --digest sha256:4ee94767910c33bf972e5bd79d7f6b8bf95dc66ca3627185c195fe3f7a232e24 --out <run>/stage-client-a-prebuilt",
-          "host": "Bun",
-          "exit": 0,
-          "ms": 21,
-          "network": "not recorded (Bun host)"
-        },
-        {
-          "cmd": "node <probe>/node_modules/cf/bin/cf build",
-          "host": "Node",
-          "exit": 0,
-          "ms": 1752,
-          "network": []
-        },
-        {
-          "cmd": "bun <repo>/deploy/probes/target.ts prebuilt client-a --stage <run>/stage-client-a-prebuilt",
-          "host": "Bun",
-          "exit": 0,
-          "ms": 13,
-          "network": "not recorded (Bun host)"
-        },
-        {
-          "cmd": "node <probe>/node_modules/cf/bin/cf deploy --prebuilt --dry-run --no-provision",
-          "host": "Node",
-          "exit": 0,
-          "ms": 524,
-          "network": []
-        },
-        {
-          "cmd": "bun <repo>/deploy/probes/target.ts stage client-b --artifact <run>/artifact --digest sha256:4ee94767910c33bf972e5bd79d7f6b8bf95dc66ca3627185c195fe3f7a232e24 --out <run>/stage-client-b-prebuilt",
-          "host": "Bun",
-          "exit": 0,
-          "ms": 20,
-          "network": "not recorded (Bun host)"
-        },
-        {
-          "cmd": "node <probe>/node_modules/cf/bin/cf build",
-          "host": "Node",
-          "exit": 0,
-          "ms": 1620,
-          "network": []
-        },
-        {
-          "cmd": "bun <repo>/deploy/probes/target.ts prebuilt client-b --stage <run>/stage-client-b-prebuilt",
-          "host": "Bun",
-          "exit": 0,
-          "ms": 13,
-          "network": "not recorded (Bun host)"
-        },
-        {
-          "cmd": "node <probe>/node_modules/cf/bin/cf deploy --prebuilt --dry-run --no-provision",
-          "host": "Node",
-          "exit": 0,
-          "ms": 507,
-          "network": []
-        },
-        {
-          "cmd": "bun <repo>/deploy/probes/target.ts prebuilt client-a --stage <run>/stage-prebuilt-swapped",
-          "host": "Bun",
-          "exit": 1,
-          "ms": 13,
-          "network": "not recorded (Bun host)"
-        },
-        {
-          "cmd": "node <probe>/node_modules/cf/bin/cf deploy --prebuilt --dry-run --no-provision",
-          "host": "Node",
-          "exit": 0,
-          "ms": 485,
-          "network": []
-        },
-        {
-          "cmd": "bun <repo>/deploy/probes/target.ts stage client-a --artifact <run>/artifact --digest sha256:4ee94767910c33bf972e5bd79d7f6b8bf95dc66ca3627185c195fe3f7a232e24 --out <run>/stage-swapped",
+          "cmd": "bun <repo>/deploy/probes/target.ts stage client-b --artifact <run>/artifact --digest sha256:08109fce78e35469074aa4f22c04f48686aeebaebdd57e89b9c04809912ae93c --out <run>/stage-client-b",
           "host": "Bun",
           "exit": 0,
           "ms": 18,
           "network": "not recorded (Bun host)"
         },
         {
+          "cmd": "node <probe>/node_modules/cf/bin/cf deploy --dry-run --no-provision",
+          "host": "Node",
+          "exit": 0,
+          "ms": 1557,
+          "network": []
+        },
+        {
+          "cmd": "node <probe>/node_modules/wrangler/bin/wrangler.js deploy --dry-run --outdir <run>/stage-client-b/wrangler-out -c wrangler.jsonc",
+          "host": "Node",
+          "exit": 0,
+          "ms": 566,
+          "network": []
+        },
+        {
+          "cmd": "bun <repo>/deploy/probes/target.ts stage client-a --artifact <run>/artifact --digest sha256:08109fce78e35469074aa4f22c04f48686aeebaebdd57e89b9c04809912ae93c --out <run>/stage-client-a-prebuilt",
+          "host": "Bun",
+          "exit": 0,
+          "ms": 23,
+          "network": "not recorded (Bun host)"
+        },
+        {
+          "cmd": "node <probe>/node_modules/cf/bin/cf build",
+          "host": "Node",
+          "exit": 0,
+          "ms": 1416,
+          "network": []
+        },
+        {
+          "cmd": "bun <repo>/deploy/probes/target.ts prebuilt client-a --stage <run>/stage-client-a-prebuilt",
+          "host": "Bun",
+          "exit": 0,
+          "ms": 11,
+          "network": "not recorded (Bun host)"
+        },
+        {
+          "cmd": "node <probe>/node_modules/cf/bin/cf deploy --prebuilt --dry-run --no-provision",
+          "host": "Node",
+          "exit": 0,
+          "ms": 441,
+          "network": []
+        },
+        {
+          "cmd": "bun <repo>/deploy/probes/target.ts stage client-b --artifact <run>/artifact --digest sha256:08109fce78e35469074aa4f22c04f48686aeebaebdd57e89b9c04809912ae93c --out <run>/stage-client-b-prebuilt",
+          "host": "Bun",
+          "exit": 0,
+          "ms": 24,
+          "network": "not recorded (Bun host)"
+        },
+        {
+          "cmd": "node <probe>/node_modules/cf/bin/cf build",
+          "host": "Node",
+          "exit": 0,
+          "ms": 1333,
+          "network": []
+        },
+        {
+          "cmd": "bun <repo>/deploy/probes/target.ts prebuilt client-b --stage <run>/stage-client-b-prebuilt",
+          "host": "Bun",
+          "exit": 0,
+          "ms": 11,
+          "network": "not recorded (Bun host)"
+        },
+        {
+          "cmd": "node <probe>/node_modules/cf/bin/cf deploy --prebuilt --dry-run --no-provision",
+          "host": "Node",
+          "exit": 0,
+          "ms": 437,
+          "network": []
+        },
+        {
+          "cmd": "bun <repo>/deploy/probes/target.ts prebuilt client-a --stage <run>/stage-prebuilt-swapped",
+          "host": "Bun",
+          "exit": 1,
+          "ms": 12,
+          "network": "not recorded (Bun host)"
+        },
+        {
+          "cmd": "node <probe>/node_modules/cf/bin/cf deploy --prebuilt --dry-run --no-provision",
+          "host": "Node",
+          "exit": 0,
+          "ms": 438,
+          "network": []
+        },
+        {
+          "cmd": "bun <repo>/deploy/probes/target.ts stage client-a --artifact <run>/artifact --digest sha256:08109fce78e35469074aa4f22c04f48686aeebaebdd57e89b9c04809912ae93c --out <run>/stage-swapped",
+          "host": "Bun",
+          "exit": 0,
+          "ms": 19,
+          "network": "not recorded (Bun host)"
+        },
+        {
           "cmd": "bun <repo>/deploy/probes/target.ts check client-a --format cf --config <run>/stage-swapped/cloudflare.config.ts",
           "host": "Bun",
           "exit": 1,
-          "ms": 11,
+          "ms": 12,
           "network": "not recorded (Bun host)"
         },
         {
           "cmd": "bun <repo>/deploy/probes/target.ts check client-a --format wrangler --config <run>/stage-swapped/wrangler.jsonc",
           "host": "Bun",
           "exit": 1,
-          "ms": 13,
+          "ms": 11,
           "network": "not recorded (Bun host)"
         },
         {
           "cmd": "node <probe>/node_modules/cf/bin/cf deploy --dry-run --no-provision",
           "host": "Node",
           "exit": 0,
-          "ms": 1752,
+          "ms": 1527,
           "network": []
         },
         {
           "cmd": "node <probe>/node_modules/wrangler/bin/wrangler.js deploy --dry-run --outdir <run>/stage-swapped/wrangler-out -c wrangler.jsonc",
           "host": "Node",
           "exit": 0,
-          "ms": 623,
+          "ms": 558,
           "network": []
         }
       ],
@@ -978,31 +989,31 @@
       "status": "PASS",
       "steps": [
         {
-          "cmd": "bun <repo>/deploy/probes/cloud-run.ts name --ticket 107 --worker w1 --sha 37f892afb9e117f70b7d22477651fc5de36be912",
+          "cmd": "bun <repo>/deploy/probes/cloud-run.ts name --ticket 107 --worker w1 --sha d7779a072b8863101558ca8b840bcf5398ed50b1",
           "host": "Bun",
           "exit": 0,
           "ms": 6,
           "network": "not recorded (Bun host)"
         },
         {
-          "cmd": "bun <repo>/deploy/probes/cloud-run.ts janitor --listing <run>/janitor/listing.json --manifests <run>/janitor/cloud-runs --now 2026-10-21T13:02:30.657Z",
+          "cmd": "bun <repo>/deploy/probes/cloud-run.ts janitor --listing <run>/janitor/listing.json --manifests <run>/janitor/cloud-runs --now 2026-10-21T15:13:42.067Z",
           "host": "Bun",
           "exit": 0,
-          "ms": 6,
+          "ms": 7,
           "network": "not recorded (Bun host)"
         },
         {
-          "cmd": "bun <repo>/deploy/probes/cloud-run.ts janitor --listing <run>/janitor/listing.json --manifests <run>/janitor/no-such-runs --now 2026-10-21T13:02:30.657Z",
+          "cmd": "bun <repo>/deploy/probes/cloud-run.ts janitor --listing <run>/janitor/listing.json --manifests <run>/janitor/no-such-runs --now 2026-10-21T15:13:42.067Z",
           "host": "Bun",
           "exit": 1,
-          "ms": 6,
+          "ms": 5,
           "network": "not recorded (Bun host)"
         }
       ],
       "observed": {
         "plan": [
-          "would delete worker cc-107-w1-aaaaaaa (created 2026-10-20T12:02:30.657Z)",
-          "would delete r2 cc-109-w2-bbbbbbb (created 2026-10-20T12:02:30.657Z)",
+          "would delete worker cc-107-w1-aaaaaaa (created 2026-10-20T14:13:42.067Z)",
+          "would delete r2 cc-109-w2-bbbbbbb (created 2026-10-20T14:13:42.067Z)",
           "keep d1 cc-108-w3-ccccccc: its manifest is \"open\", not finished: an open run, or one an operator must read",
           "keep d1 cc-110-w1-ddddddd: younger than 24 hours",
           "keep worker clearcase-client-a: not a run name (cc-<ticket>-<worker>-<sha7>): never touched",
@@ -1014,7 +1025,7 @@
         }
       },
       "asserted": [
-        "this run's resources would be named cc-107-w1-37f892a",
+        "this run's resources would be named cc-107-w1-d7779a0",
         "the dry run plans 2 deletions, keeps 4 and deletes nothing",
         "it would delete only the finished run and the orphan, both older than 24 hours",
         "it never touches an unprefixed or malformed name",
@@ -1041,7 +1052,7 @@
           "<run>/plain/.cloudflare",
           "<run>/plain-p7/.cloudflare"
         ],
-        "files": 562,
+        "files": 568,
         "hits": [],
         "control": [
           {
@@ -1061,7 +1072,7 @@
       "asserted": [
         "the scan finds a canary planted on purpose (it is not blind)",
         "the scan read the artifacts and logs",
-        "no canary or credential shape in 562 files: []"
+        "no canary or credential shape in 568 files: []"
       ]
     }
   },

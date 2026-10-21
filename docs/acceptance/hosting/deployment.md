@@ -2,7 +2,7 @@
 
 [GRS-107](https://linear.app/vaper/issue/GRS-107) asks for proof of the cf and Void deployment, migration and credential boundaries. Under the local-first plan on GRS-26, this unit runs GRS-102's P1 to P9 offline under `unshare -rn`, with a placeholder account (`00000000000000000000000000000107`) and synthetic data. There is no account, token, login or deploy. Cloudflare stays pinned. P10 and the janitor's real sweep wait for the account owner at moment M1.
 
-**Verdict: PASS for the local legs at `37f892afb9e117f70b7d22477651fc5de36be912`; HOLD for the cloud legs.** All 13 probe legs pass, and so do the 99 tests of the trusted parent, the resource kit, the secrets reader and the scan. The committed run is [evidence/deployment-summary.json](evidence/deployment-summary.json), which names the SHA it ran at. What stays HOLD is listed [at the end](#what-stays-hold).
+**Verdict: PASS for the local legs at `d7779a072b8863101558ca8b840bcf5398ed50b1`; HOLD for the cloud legs.** All 13 probe legs pass, and so do the 147 tests of the trusted parent, the resource kit, the secrets reader, the scan and the summary check; `gate:hosted` and `gate` pass at the same commit. The committed run is [evidence/deployment-summary.json](evidence/deployment-summary.json), which names the SHA it ran at. What stays HOLD is listed [at the end](#what-stays-hold).
 
 ## Run it
 
@@ -10,7 +10,7 @@ From `tests/hosting-probe/deployment/`, a workspace with its own pins and `bun.l
 
 ```sh
 bun install --frozen-lockfile   # once, online
-bun run --bun test              # TESTCOUNT tests of deploy/probes/, about 3 s
+bun run --bun test              # 147 tests of deploy/probes/, about 3 s
 bun run --bun probe             # about 60 s; writes .local/hosting-probe/deployment/summary.json at the repo root
 bun run --bun probe --check     # does the committed summary vouch for this checkout?
 ```
@@ -19,7 +19,7 @@ bun run --bun probe --check     # does the committed summary vouch for this chec
 
 [`probe.ts`](../../../tests/hosting-probe/deployment/probe.ts) refuses to run (exit 2) on a dirty tree, on a Bun other than 1.4.2, when an installed package differs from its pin, or when no real Node is on `PATH`. It re-runs itself inside [`tests/e2e/pilot/offline.sh`](../../../tests/e2e/pilot/offline.sh), which gives it a network namespace with only loopback and hides the host resolver. Every child gets an allowlisted environment: a fresh `HOME`, `CI=1`, and telemetry, error reports, the update banner, the `cf.json` fetch and dotenv loading turned off. A Node preload ([`net-recorder.mjs`](../../../tests/hosting-probe/deployment/net-recorder.mjs)) records every connect and DNS lookup that a Node tool attempts, so a leg can assert "no network" from evidence rather than from the sandbox. The runner exits 0 only when every leg passes, the tree and HEAD are unchanged, and its own summary holds no canary.
 
-Receipts for the run at `37f892af` (ignored, local): `grs-107-probe` (exit 0) and `grs-107-probe-tests` (exit 0) under `.local/agent-receipts/`.
+Checks at `d7779a07` (the product head; the commits after it change only this page and the summary): the 147 tests (exit 0), the probe (exit 0, 13/13 legs), `bun run --bun check` (exit 0), `gate:hosted` (PASS) and `gate` (PASS: build, check, test, test:e2e, parity, verify:pilot:v5). `bun run --bun probe --check` passes on the commit that records this page.
 
 ## What runs where
 
@@ -63,7 +63,7 @@ Each leg's commands, hosts, exit codes, network attempts and assertions are in t
 | P8 unforced destructive | PASS | `cf d1 delete` with no token (1); `cf d1 delete`, `cf workers delete`, `cf d1 delete --local` with a synthetic token (1 each); `wrangler d1 delete` (1) | With stdin not a terminal, cf prints its prompt, "(non-interactive; pass --force to confirm) Aborted." and exits 1, which settles the docs and release notes on exit 1 at beta.20. With no token cf stops at authentication first. Wrangler asks the API before any prompt, so offline it fails on the request. The aborted local delete left the local database intact |
 | P9 wrong client | PASS | `target.ts stage` (0 per client); `cf deploy --dry-run --no-provision` (0) and `wrangler deploy --dry-run` (0) per stage; `cf build` (0), `target.ts prebuilt` (0) and `cf deploy --prebuilt --dry-run --no-provision` (0) per client; `target.ts check` on the swapped configs (1, 1); `target.ts prebuilt` on the swapped Build Output (1) | Each dry run names exactly its own D1, bucket and client var. With client B's D1 id in client A's config or Build Output, the target check refuses and names client B, while the dry runs alone exit 0 and print only the binding's name, `DB=clearcase-client-a-db`. The check is what catches it |
 | janitor dry run | PASS | `cloud-run.ts name` (0), `cloud-run.ts janitor` (0), and with no manifests directory (1) | See [disposable resources](#disposable-resources) |
-| credential scan | PASS | `scanPaths` over 562 files | No canary or credential shape in the Kit build output, the artifact, every stage and Build Output, the logs and the tool homes. A control file with the canary is found, so the scan is not blind |
+| credential scan | PASS | `scanPaths` over 568 files | No canary or credential shape in the Kit build output, the artifact, every stage and Build Output, the logs and the tool homes. A control file with the canary is found, so the scan is not blind |
 
 ## Job matrix
 
@@ -124,7 +124,7 @@ A token able to upload one client's Worker can upload any client's Worker in the
 
 [`cloud-run.ts`](../../../deploy/probes/cloud-run.ts):
 
-- Names are `cc-<ticket>-<worker>-<sha7>` (`cc-107-w1-37f892a` for this run), lowercase, validated.
+- Names are `cc-<ticket>-<worker>-<sha7>` (`cc-107-w1-d7779a0` for this run), lowercase, validated.
 - `openRun` writes `<dir>/<name>.json` before anything is created, and refuses a name that already has a manifest. Each creation is recorded after the provider returns, so a run that dies in between leaves the resource unrecorded; the teardown does not depend on the record.
 - An exit trap tears down the (kind, name) pairs the run itself opened, held in memory and each checked against the run's own name and the `cc-` prefix, Worker first so nothing writes to the database or bucket while they go, then D1, then R2, on normal exit, a throw, SIGINT, SIGTERM and SIGHUP. The run reads only the manifest's status back from the file, so a file rewritten during the run deletes nothing the run did not create. Each result, a failed delete included, is recorded, and the manifest ends `finished`.
 - The janitor deletes only resources that have a run name and a run kind, are older than 24 hours, and whose manifest is finished or absent. It keeps unprefixed names, malformed `cc-` names, unreadable times, younger resources and open or unreadable manifests, and it refuses to plan without its manifests directory, which has no default: one checkout's default would read another checkout's open runs as orphaned. The probe's dry run against a fake listing planned 2 deletions, kept 4 and deleted nothing.

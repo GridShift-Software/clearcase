@@ -7,7 +7,7 @@ import { createSign, generateKeyPairSync, randomBytes, type KeyObject } from 'no
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import path from 'node:path';
-import { appEnv, build, fetchApp, realNode, seed, startServe, stopServe, type Reply } from './harness.ts';
+import { appEnv, build, fetchApp, realNode, run, seed, startServe, stopServe, wranglerArgs, type Reply } from './harness.ts';
 
 const HERE = import.meta.dirname;
 
@@ -20,7 +20,8 @@ export function craftedIssuer(host: string) {
 	return {
 		iss: `https://${host}`,
 		publishableKey: ['pk', 'test', Buffer.from(`${host}$`).toString('base64')].join('_'),
-		jwtKey: publicKey.export({ type: 'spki', format: 'pem' }).toString(),
+		// one line: the fd-3 protocol carries KEY=VALUE lines, and Clerk's PEM loader drops line breaks anyway
+		jwtKey: publicKey.export({ type: 'spki', format: 'pem' }).toString().replace(/\n/g, ''),
 		kid,
 		sign: (claims: Claims, header: Record<string, unknown> = {}, key: KeyObject = privateKey) => sign({ alg: 'RS256', typ: 'JWT', kid, ...header }, claims, key),
 	};
@@ -51,7 +52,7 @@ export async function statusDouble() {
 		const u = /^\/v1\/users\/([^/?]+)$/.exec(req.url ?? '');
 		if (req.method === 'GET' && u && users.has(u[1]!)) {
 			const email = users.get(u[1]!)!;
-			return send(200, { object: 'user', id: u[1], primary_email_address_id: 'idn_1', email_addresses: [{ id: 'idn_1', email_address: email, verification: { status: 'verified' } }], public_metadata: {}, private_metadata: {}, unsafe_metadata: {} });
+			return send(200, { object: 'user', id: u[1], primary_email_address_id: 'idn_1', email_addresses: [{ object: 'email_address', id: 'idn_1', email_address: email, verification: { status: 'verified', strategy: 'email_code', attempts: null, expire_at: null }, linked_to: [] }], public_metadata: {}, private_metadata: {}, unsafe_metadata: {} });
 		}
 		send(404, { errors: [{ code: 'resource_not_found' }] });
 	});
@@ -76,7 +77,9 @@ export const STAFF_ORIGIN = `http://127.0.0.1:${STAFF_PORT}`;
  * The crafted world: one build, seeded client and staff stores, both Workers served by serve.mjs with crafted issuers
  * and the status double, and the fixture identities of gates.sql already enrolled.
  */
-export async function craftedWorld(opts: { mfaRequired?: boolean } = {}) {
+export type WorldOptions = { mfaRequired?: boolean; ports?: [number, number] };
+
+export async function craftedWorld(opts: WorldOptions = {}) {
 	const node = realNode();
 	const parent = path.join(HERE, '../../../.local/hosting-probe/identity');
 	mkdirSync(parent, { recursive: true });
@@ -91,11 +94,13 @@ export async function craftedWorld(opts: { mfaRequired?: boolean } = {}) {
 	}
 }
 
-async function world(node: { path: string; version: string }, runDir: string, logs: string, opts: { mfaRequired?: boolean }) {
+async function world(node: { path: string; version: string }, runDir: string, logs: string, opts: WorldOptions) {
+	const [clientPort, staffPort] = opts.ports ?? [CLIENT_PORT, STAFF_PORT];
+	const origin = { client: `http://127.0.0.1:${clientPort}`, staff: `http://127.0.0.1:${staffPort}` };
 	build(node, runDir, 'crafted');
 	const env = appEnv(node, runDir);
 	const persist = path.join(runDir, 'persist');
-	seed(node, env, persist, logs, { client: ['schema/client.sql', 'schema/fixtures.sql', 'schema/crafted.sql'], staff: ['schema/staff.sql', 'schema/crafted-staff.sql'] });
+	seed(node, env, persist, logs, { client: ['schema/common.sql', 'schema/client.sql', 'schema/fixtures.sql', 'schema/crafted.sql'], staff: ['schema/common.sql', 'schema/crafted-staff.sql'] });
 	const client = craftedIssuer('crafted-client.clerk.invalid');
 	const staff = craftedIssuer('crafted-staff.clerk.invalid');
 	const status = await statusDouble();
@@ -107,11 +112,11 @@ async function world(node: { path: string; version: string }, runDir: string, lo
 		['STAFF_SK', 'sk_test_synthetic-placeholder-not-a-key'],
 		['STAFF_JWT_KEY', staff.jwtKey],
 	]);
-	const serveConfig = { persist, logs, apiUrl: status.url, mfaRequired: opts.mfaRequired ?? false, jwtKeys: true, client: { port: CLIENT_PORT, origin: CLIENT_ORIGIN }, staff: { port: STAFF_PORT, origin: STAFF_ORIGIN } };
+	const serveConfig = { persist, logs, apiUrl: status.url, mfaRequired: opts.mfaRequired ?? false, jwtKeys: true, client: { port: clientPort, origin: origin.client }, staff: { port: staffPort, origin: origin.staff } };
 	let serve: ChildProcess = await startServe(node, env, serveConfig, secrets, logs);
 	const now = () => Math.floor(Date.now() / 1000);
 	/** A Clerk-shaped v2 session token for `sub`, valid for 60 s, unless `over` changes a claim (undefined deletes it). */
-	const token = (who: Issuer, sub: string, over: Claims = {}, azp = who === client ? CLIENT_ORIGIN : STAFF_ORIGIN) => {
+	const token = (who: Issuer, sub: string, over: Claims = {}, azp = who === client ? origin.client : origin.staff) => {
 		const sid = `sess_${sub}`;
 		status.set(sid, sub);
 		const claims: Claims = { azp, exp: now() + 60, fva: [0, -1], iat: now() - 1, iss: who.iss, nbf: now() - 6, sid, sub, v: 2, ...over };
@@ -123,7 +128,13 @@ async function world(node: { path: string; version: string }, runDir: string, lo
 		staff,
 		status,
 		token,
-		get: (origin: string, pathname: string, init: RequestInit & { token?: string } = {}): Promise<Reply> => fetchApp(origin, pathname, init),
+		origin,
+		get: (at: string, pathname: string, init: Parameters<typeof fetchApp>[2] = {}): Promise<Reply> => fetchApp(at, pathname, init),
+		/** Runs one SQL statement against an app's local D1 from outside the Worker, as the seed does. */
+		execute: (app: 'client' | 'staff', sql: string) => {
+			const r = run(node.path, wranglerArgs(['d1', 'execute', 'DB', '--local', '--env', app, '--persist-to', persist, '--command', sql]), { env });
+			if (r.code !== 0) throw new Error(`d1 execute on ${app} failed (exit ${r.code}): ${r.out.slice(-400)}`);
+		},
 		restart: async () => {
 			await stopServe(serve);
 			serve = await startServe(node, env, serveConfig, secrets, logs);

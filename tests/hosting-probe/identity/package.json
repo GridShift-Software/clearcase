@@ -3,9 +3,13 @@
   "private": true,
   "type": "module",
   "packageManager": "bun@1.4.2",
+  "imports": {
+    "#lib": "./src/lib",
+    "#lib/*": "./src/lib/*"
+  },
   "scripts": {
     "test": "vitest run",
-    "probe": "bun probe.ts",
+    "probe": "bun ../../../deploy/probes/secrets.ts run clerk-dev --keys CLIENT_A_PK,CLIENT_A_SK,STAFF_PK,STAFF_SK -- bun probe.ts",
     "check:evidence": "bun check.ts",
     "build": "vite build --config vite.probe.config.js"
   },

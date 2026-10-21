@@ -74,7 +74,7 @@ export function build(node: { path: string }, runDir: string, revision: string):
 	return r.out;
 }
 
-const wranglerArgs = (args: string[]) => [path.join(HERE, 'node_modules/wrangler/bin/wrangler.js'), ...args];
+export const wranglerArgs = (args: string[]) => [path.join(HERE, 'node_modules/wrangler/bin/wrangler.js'), ...args];
 
 /** Applies each app's SQL files to its local D1 and puts every file under fixtures/r2/<app>/ into its local R2, through the Wrangler CLI (a separate process from the Workers). */
 export function seed(node: { path: string }, env: Record<string, string>, persist: string, logs: string, sql: Record<'client' | 'staff', string[]>): string[] {
@@ -111,7 +111,7 @@ export type ServeConfig = {
 export async function startServe(node: { path: string }, env: Record<string, string>, config: ServeConfig, secrets: Map<string, string>, logs: string): Promise<ChildProcess> {
 	const n = readdirSync(logs).filter((f) => f.startsWith('serve-')).length;
 	const log = createWriteStream(path.join(logs, `serve-${n}.log`));
-	const child = spawn(node.path, [path.join(HERE, 'serve.mjs'), JSON.stringify(config)], { cwd: HERE, env: { ...env, CLEARCASE_SECRETS_FD: '3' }, detached: true, stdio: ['ignore', 'pipe', 'pipe', 'pipe'] });
+	const child = spawn(node.path, [path.join(HERE, 'serve.mjs'), JSON.stringify(config)], { cwd: HERE, env: { ...env, WRANGLER_LOG: 'warn', CLEARCASE_SECRETS_FD: '3' }, detached: true, stdio: ['ignore', 'pipe', 'pipe', 'pipe'] });
 	const pipe = child.stdio[3] as NodeJS.WritableStream;
 	pipe.on('error', () => {});
 	pipe.end([...secrets].map(([k, v]) => `${k}=${v}\n`).join(''));

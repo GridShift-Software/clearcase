@@ -24,6 +24,8 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+// @ts-expect-error plain .mjs script, no declarations
+import { gitEnv } from '../../../scripts/browser-lock.mjs';
 import { gateEvidenceProblems } from './gate-evidence.ts';
 
 const REPO = path.resolve(import.meta.dirname, '../../..');
@@ -37,7 +39,7 @@ const out = path.resolve(a.out);
 rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 
-const git = (...args: string[]) => spawnSync('git', ['-C', REPO, ...args], { encoding: 'utf8' });
+const git = (...args: string[]) => spawnSync('git', ['-C', REPO, ...args], { encoding: 'utf8', env: gitEnv() });
 const head = git('rev-parse', 'HEAD').stdout.trim();
 const locator = JSON.parse(readFileSync(path.join(REPO, '.local/v5-verification.json'), 'utf8')) as { caseFolder: string; mainHtml: { path: string } };
 const mainHtml = (dir: string) => {

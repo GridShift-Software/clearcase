@@ -21,8 +21,10 @@ const SOURCES = { explicit: 'CLEARCASE_BROWSER_LOCK', discovered: 'discovered fr
 /**
  * `base` without Git's variables (GIT_DIR, GIT_WORK_TREE, GIT_COMMON_DIR, GIT_INDEX_FILE, every GIT_*), as
  * `command_environment()` in scripts/agent-tools/agent_tools.py does: a Git hook, or another checkout's script, exports
- * them, and they would make `git -C <repo>` or `cwd: <repo>` answer for a different repository. Every Git call on the
- * browser-admission and gate-identity paths takes its `env` from here (scripts/verify/evidence.sh does the same in shell).
+ * them, and they would make `git -C <repo>` or `cwd: <repo>` answer for a different repository. The one definition:
+ * every Git call the tools and runners make about a checkout (`-C <repo>`, `cwd: <repo>`, or the cwd a package script
+ * runs in) takes its `env` from here; tests/e2e/pilot/lib/fresh-build.ts re-exports it, and scripts/verify/evidence.sh
+ * does the same in shell. It lives here because this file imports nothing from the repository.
  */
 export const gitEnv = (base = process.env) => Object.fromEntries(Object.entries(base).filter(([k]) => !k.startsWith('GIT_')));
 const executable = (p) => { try { accessSync(p, constants.X_OK); return statSync(p).isFile(); } catch { return false; } };

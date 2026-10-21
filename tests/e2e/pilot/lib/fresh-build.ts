@@ -23,6 +23,8 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+// @ts-expect-error plain .mjs script, no declarations
+import { gitEnv } from '../../../../scripts/browser-lock.mjs';
 
 export const ALLOW_FLAG = '--allow-stale-build';
 
@@ -43,10 +45,11 @@ export interface Freshness {
 /** A commit id shortened to 12 characters; any other revision label (a mutant's, say) in full. */
 const short = (r: string) => (/^[0-9a-f]{40}$/.test(r) ? r.slice(0, 12) : r);
 /**
- * The environment git runs in here: every GIT_* variable removed, so GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE,
- * GIT_COMMON_DIR or injected config (GIT_CONFIG_*) cannot make git answer for another repository, work tree or index.
+ * The environment git runs in here: scripts/browser-lock.mjs's gitEnv, every GIT_* variable removed, so GIT_DIR,
+ * GIT_WORK_TREE, GIT_INDEX_FILE, GIT_COMMON_DIR or injected config (GIT_CONFIG_*) cannot make git answer for another
+ * repository, work tree or index.
  */
-export const gitEnv = (env: NodeJS.ProcessEnv = process.env) => Object.fromEntries(Object.entries(env).filter(([k]) => !k.startsWith('GIT_')));
+export { gitEnv };
 
 /** git's output, or null and why it failed (its first stderr line). */
 const git = (repo: string, args: string[], input?: string): { out: string | null; error: string | null } => {

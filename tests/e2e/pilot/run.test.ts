@@ -108,6 +108,7 @@ describe('fresh-build evidence', () => {
 		const copy = join(repo, '.local', 'copy');
 		cpSync(HERE, join(copy, 'tests', 'e2e', 'pilot'), { recursive: true });
 		cpSync(join(HERE, '..', 'classes'), join(copy, 'tests', 'e2e', 'classes'), { recursive: true });
+		cpSync(join(REPO, 'scripts', 'browser-lock.mjs'), join(copy, 'scripts', 'browser-lock.mjs'));
 		put(join(copy, 'tests', 'e2e', 'pilot', 'suite.mjs'), `${readFileSync(join(HERE, 'suite.mjs'), 'utf8')}\n// modified in the copy\n`);
 		put(join(copy, 'build', 'handler.js'));
 		put(join(copy, 'build', 'clearcase-build.json'), JSON.stringify({ revision: g('rev-parse', 'HEAD'), dirty: false, buildId: 'synthetic' }));
@@ -136,6 +137,7 @@ describe('fresh-build evidence', () => {
 		const g = (...a: string[]) => { const x = spawnSync('git', ['-C', repo, '-c', 'user.name=synthetic', '-c', 'user.email=synthetic@example.invalid', '-c', 'commit.gpgsign=false', ...a], { encoding: 'utf8' }); if (x.status !== 0) throw new Error(x.stderr); return x.stdout.trim(); };
 		cpSync(HERE, join(repo, 'tests', 'e2e', 'pilot'), { recursive: true });
 		cpSync(join(HERE, '..', 'classes'), join(repo, 'tests', 'e2e', 'classes'), { recursive: true });
+		cpSync(join(REPO, 'scripts', 'browser-lock.mjs'), join(repo, 'scripts', 'browser-lock.mjs'));
 		for (const f of ['view-registry.ts', 'overview-slots.ts']) cpSync(join(REPO, 'src', 'lib', 'components', f), join(repo, 'src', 'lib', 'components', f));
 		put(join(repo, '.gitignore'), readFileSync(join(REPO, '.gitignore'), 'utf8'));
 		const commit = (msg: string) => {

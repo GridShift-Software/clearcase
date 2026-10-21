@@ -9,7 +9,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { describeAdmission, resolveBrowserLock } from '../../scripts/browser-lock.mjs';
+import { describeAdmission, gitEnv, resolveBrowserLock } from '../../scripts/browser-lock.mjs';
 import { readHead, runGate } from '../../scripts/gate.mjs';
 
 const REPO = resolve(import.meta.dirname, '..', '..');
@@ -34,7 +34,7 @@ const dir = mkdtempSync(join(tmpdir(), 'gate-queue-'));
 const locks = [join(dir, 'a.lock'), join(dir, 'b.lock')];
 const env = { ...process.env, CLEARCASE_BROWSER_LOCKS: locks.join(' '), CLEARCASE_BROWSER_POLL: '1', CLEARCASE_BROWSER_SLOT_WAIT: '120', CLEARCASE_BROWSER_MIN_MB: '0' };
 delete env.CLEARCASE_BROWSER_SLOT;
-const git = (cwd, ...a) => spawnSync('git', ['-C', cwd, '-c', 'user.name=queue-probe', '-c', 'user.email=queue-probe@example.invalid', ...a], { encoding: 'utf8' });
+const git = (cwd, ...a) => spawnSync('git', ['-C', cwd, '-c', 'user.name=queue-probe', '-c', 'user.email=queue-probe@example.invalid', ...a], { encoding: 'utf8', env: gitEnv() });
 const exits = {};
 const children = [];
 function track(name, child) {

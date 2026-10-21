@@ -12,6 +12,8 @@ import { spawnSync } from 'node:child_process';
 import { mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+// @ts-expect-error plain .mjs script, no declarations
+import { gitEnv } from '../browser-lock.mjs';
 import { canonicalBytes, canonicalJson, canonicalText } from '../../src/lib/case-package/canonical.ts';
 import { isPathKey } from '../../src/lib/case-package/refs.ts';
 import type { ImportResult } from '../../src/lib/case-package/candidate.ts';
@@ -57,7 +59,7 @@ await mkdir(out, { recursive: true });
 await rm(work, { recursive: true, force: true });
 await mkdir(work, { recursive: true });
 
-const git = (args: string[]) => spawnSync('git', args, { cwd: repo, encoding: 'utf8' }).stdout.trim();
+const git = (args: string[]) => spawnSync('git', args, { cwd: repo, encoding: 'utf8', env: gitEnv() }).stdout.trim();
 const head = git(['rev-parse', 'HEAD']);
 const dirty = git(['status', '--porcelain']).length > 0;
 const bunVersion = spawnSync(process.execPath, ['--version'], { encoding: 'utf8' }).stdout.trim();

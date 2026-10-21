@@ -392,6 +392,7 @@ describe('the build stamp (scripts/pilot/copy-pdfjs.ts)', () => {
 		copyFileSync(join(REPO, 'scripts', 'pilot', 'copy-pdfjs.ts'), join(d, 'scripts', 'pilot', 'copy-pdfjs.ts'));
 		mkdirSync(join(d, 'tests', 'e2e', 'pilot', 'lib'), { recursive: true });
 		copyFileSync(join(REPO, 'tests', 'e2e', 'pilot', 'lib', 'fresh-build.ts'), join(d, 'tests', 'e2e', 'pilot', 'lib', 'fresh-build.ts'));
+		copyFileSync(join(REPO, 'scripts', 'browser-lock.mjs'), join(d, 'scripts', 'browser-lock.mjs'));
 		const viewer = join('src', 'lib', 'local-case', 'viewer');
 		mkdirSync(join(d, viewer), { recursive: true });
 		for (const f of ['viewer.mjs', 'viewer.css', 'wrapper.mjs', 'frame.html']) copyFileSync(join(REPO, viewer, f), join(d, viewer, f));

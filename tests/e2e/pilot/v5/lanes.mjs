@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { documentRoute } from '../../../../src/lib/case-package/browser.ts';
 import { writePackageDir } from '../../../../src/lib/case-package/writer.ts';
 import { viewHeading } from '../../../../src/lib/views/analysis/headings.ts';
+import { gitEnv } from '../../../../scripts/browser-lock.mjs';
 import { editPackage } from '../../../case-package/fixtures/build.ts';
 import { frameEvaluator } from '../lib/cdp.mjs';
 import { vpath } from '../lib/client.mjs';
@@ -711,7 +712,7 @@ export async function checkIsolation(C, L) {
 	L.note(`Chromium background requests contained by the canary (never left the namespace): ${browserOwn.length ? JSON.stringify(browserOwn) : 'none'}`);
 	const real = (p) => { try { return spawnSync('realpath', [p], { encoding: 'utf8' }).stdout.trim(); } catch { return p; } };
 	L.check('originals live outside the repository (case folder not inside the worktree)', false, (real(C.fx.caseFolder) + '/').startsWith(real(REPO) + '/'));
-	const tracked = spawnSync('git', ['-C', REPO, 'ls-files', '-z'], { encoding: 'utf8' }).stdout.split('\0').filter(Boolean);
+	const tracked = spawnSync('git', ['-C', REPO, 'ls-files', '-z'], { encoding: 'utf8', env: gitEnv() }).stdout.split('\0').filter(Boolean);
 	const names = new Set(C.fx.inventory.refs.map((r) => r.path.split('/').pop()));
 	L.check('no tracked file in the repository has the name of an original', [], tracked.filter((t) => names.has(t.split('/').pop())).slice(0, 5));
 	const after = treeStamp(C.fx.caseFolder);

@@ -5,16 +5,17 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { gitEnv } from '../../../../scripts/browser-lock.mjs';
 import { BUN } from './server.mjs';
 
 const sha = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
 
 export function isolatedBuild({ repo, rev = 'HEAD', dir, log = (m) => console.error(m) }) {
-	const full = execFileSync('git', ['-C', repo, 'rev-parse', '--verify', `${rev}^{commit}`], { encoding: 'utf8' }).trim();
+	const full = execFileSync('git', ['-C', repo, 'rev-parse', '--verify', `${rev}^{commit}`], { encoding: 'utf8', env: gitEnv() }).trim();
 	const src = join(dir, 'src');
 	rmSync(src, { recursive: true, force: true });
 	mkdirSync(src, { recursive: true });
-	execFileSync('bash', ['-c', `git -C "$0" archive --format=tar "$1" | tar -x -C "$2"`, repo, full, src]);
+	execFileSync('bash', ['-c', `git -C "$0" archive --format=tar "$1" | tar -x -C "$2"`, repo, full, src], { env: gitEnv() });
 	if (!existsSync(join(src, 'bun.lock'))) throw new Error(`${full} has no bun.lock`);
 	if (sha(join(src, 'bun.lock')) !== sha(join(repo, 'bun.lock'))) throw new Error(`bun.lock at ${full} differs from the installed one in ${repo}; install that revision separately`);
 	const cp = spawnSync('cp', ['-a', '--reflink=auto', join(repo, 'node_modules'), join(src, 'node_modules')], { encoding: 'utf8' });

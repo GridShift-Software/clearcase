@@ -63,7 +63,7 @@ describe('a JSON-script source field already named source_<name> is never overwr
       await writePackageDir(pkgDir, files);
       const imported = await importCandidate(pkgDir, caseDir);
       expect(imported.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
-      const keys = result.manifest!.files.filter((f) => f.role === 'dataset' && f.key !== 'conversion-report').map((f) => f.key);
+      const keys = result.manifest!.files.flatMap((f) => (f.role === 'dataset' && f.key !== undefined && f.key !== 'conversion-report' ? [f.key] : []));
       const kept = VALUES.map((s) => ({ s, at: keys.flatMap((key) => fieldsHolding(dataset(files, key), s).map((field) => ({ key, field }))) }));
       expect(kept.filter((v) => v.at.length === 0).map((v) => v.s), 'values lost').toEqual([]);
       // a value kept as residual has the warning that names its dataset; one kept on a mapped record, its field's own

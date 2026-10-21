@@ -65,9 +65,9 @@ export function appEnv(node: { path: string }, runDir: string): Record<string, s
 	};
 }
 
-/** Builds the probe app with Bun for adapter-cloudflare, stamped with `revision`; throws with the log's tail on failure. */
-export function build(node: { path: string }, runDir: string, revision: string): string {
-	const r = run(process.execPath, ['run', '--bun', 'build'], { env: { ...appEnv(node, runDir), PROBE_SOURCE_REVISION: revision } });
+/** Builds the probe app with Bun (`bun`, this process's own by default) for adapter-cloudflare, stamped with `revision`; throws with the log's tail on failure. */
+export function build(node: { path: string }, runDir: string, revision: string, bun = process.execPath): string {
+	const r = run(bun, ['run', '--bun', 'build'], { env: { ...appEnv(node, runDir), PROBE_SOURCE_REVISION: revision } });
 	writeFileSync(path.join(runDir, 'logs', 'build.log'), r.out);
 	if (r.code !== 0) throw new Error(`build failed (exit ${r.code}): ${r.out.slice(-1200)}`);
 	if (!existsSync(path.join(HERE, '.svelte-kit/cloudflare/_worker.js'))) throw new Error('build wrote no .svelte-kit/cloudflare/_worker.js');

@@ -3,16 +3,16 @@
 //   bun install --frozen-lockfile   # once, online: this workspace's own pins, apart from the root lockfile
 //   bun run --bun probe [--out FILE]
 //
-// `probe` runs this file under GRS-107's reader (bun ../../../deploy/probes/secrets.ts run clerk-dev --keys ...), which
-// hands the four Clerk development keys over fd 3; nothing else reads the secrets file. The runner builds the probe app
-// with Bun, serves the client instance (client A) and the staff app on native workerd through serve.mjs (Node hosts
+// `probe` (live.ts, on Bun) runs this file on a real Node under GRS-107's reader (bun ../../../deploy/probes/secrets.ts
+// run clerk-dev --keys ... -- <node> probe.ts), which hands the four Clerk development keys to a Node child only, over fd
+// 3 and its preload; nothing else reads the secrets file. The runner builds the probe app with Bun (PROBE_BUN), serves the client instance (client A) and the staff app on native workerd through serve.mjs (Node hosts
 // Wrangler only) with local D1 and R2, and drives both against the real development instances Clear-Case-Dev-A
 // (client) and Clear-Case-Dev-B (staff). There is no Cloudflare account, login or deploy. Identities are synthetic
 // (+clerk_test addresses on example.com: Clerk sends nothing and takes the fixed test code). Every user, invitation and
 // session it creates is deleted in a finally step, failure or not, and counted.
 //
-// It refuses (exit 2) a dirty tree, a Bun other than packageManager's, an installed package that is not its pin, a Node
-// that is really Bun, or a missing key. Otherwise it writes the summary (default .local/hosting-probe/identity/summary.json)
+// It refuses (exit 2) a dirty tree, a runner that is not a real Node, a build Bun other than packageManager's, an
+// installed package that is not its pin, keys not handed over by the reader, or a missing key. Otherwise it writes the summary (default .local/hosting-probe/identity/summary.json)
 // and exits 0 only when `evidence` is true. check.ts judges a committed summary; see its header for the binding rule.
 import { type ChildProcess } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -65,15 +65,22 @@ function descendants(root: number): string[] {
 async function main(out: string): Promise<number> {
 	const root = git('rev-parse', '--show-toplevel');
 	const sha = head();
-	if (process.versions.bun !== BUN) throw new Refusal(`runs under Bun ${BUN} only (packageManager)`);
+	if (process.versions.bun !== undefined) throw new Refusal("the runner is a real Node, the only child GRS-107's reader hands keys to: run `bun run --bun probe`");
+	const bun = process.env.PROBE_BUN ?? '';
+	const bunVersion = bun ? run(bun, ['--version']).out.trim() : '';
+	if (bunVersion !== BUN) throw new Refusal(`builds with Bun ${BUN} only (packageManager); PROBE_BUN names ${bunVersion || 'no Bun'}`);
 	if (dirty()) throw new Refusal('the tree is dirty: commit or stash first, so the summary describes HEAD');
 	const node = realNode();
 	const pins = checkInstalled();
-	if (!process.env.CLEARCASE_SECRETS_FD) throw new Refusal('run through `bun run --bun probe`, which reads the keys with deploy/probes/secrets.ts');
 	// GRS-107's child half of the reader, untyped .mjs: a computed specifier keeps tsc from asking for its declarations
 	const child = '../../../deploy/probes/secrets-child.mjs';
 	const { takeSecrets } = (await import(child)) as { takeSecrets: () => Map<string, string> };
-	const keys = takeSecrets();
+	let keys: Map<string, string>;
+	try {
+		keys = takeSecrets();
+	} catch {
+		throw new Refusal('no keys were handed over: run `bun run --bun probe`, which reads them with deploy/probes/secrets.ts');
+	}
 	const missing = KEYS.filter((k) => !keys.get(k));
 	if (missing.length) throw new Refusal(`clerk-dev has no ${missing.join(', ')}`);
 	rmSync(out, { force: true });
@@ -182,7 +189,7 @@ async function main(out: string): Promise<number> {
 	try {
 		await leg('integration', async (check) => {
 			rmSync(path.join(HERE, '.svelte-kit'), { recursive: true, force: true });
-			const log = build(node, runDir, sha);
+			const log = build(node, runDir, sha, bun);
 			check(log.includes(`[probe build host] {"bun":"${BUN}"`), `the SvelteKit build (adapter-cloudflare) ran under Bun ${BUN}`);
 			const stamp = JSON.parse(readFileSync(path.join(HERE, '.svelte-kit/cloudflare/_app/version.json'), 'utf8')) as { version?: string };
 			check(stamp.version === sha, 'the build is stamped with HEAD');
@@ -644,7 +651,7 @@ async function main(out: string): Promise<number> {
 		startedAt,
 		finishedAt: new Date().toISOString(),
 		runDir: path.relative(root, runDir),
-		hosts: { bun: process.versions.bun, node: node.version, build: `Bun ${BUN}`, runner: `Bun ${BUN}`, wrangler: `Node ${node.version}`, app: `workerd ${pins.workerd} (native)` },
+		hosts: { bun: bunVersion, node: node.version, build: `Bun ${BUN}`, runner: `Node ${process.versions.node}`, wrangler: `Node ${node.version}`, app: `workerd ${pins.workerd} (native)` },
 		pins,
 		artifact,
 		instances,

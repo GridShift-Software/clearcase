@@ -27,7 +27,7 @@ function passing(): Record<string, unknown> {
 		startedAt: '2026-01-01T00:00:00.000Z',
 		finishedAt: '2026-01-01T00:05:00.000Z',
 		runDir: '.local/hosting-probe/identity/run-1',
-		hosts: { bun, node: '24.0.0', build: `Bun ${bun}`, runner: `Bun ${bun}`, wrangler: 'Node 24.0.0', app: `workerd ${pkg.devDependencies.workerd} (native)` },
+		hosts: { bun, node: '24.0.0', build: `Bun ${bun}`, runner: 'Node 24.0.0', wrangler: 'Node 24.0.0', app: `workerd ${pkg.devDependencies.workerd} (native)` },
 		pins: { ...pkg.devDependencies },
 		artifact: `sha256:${'c'.repeat(64)}`,
 		instances: { client: instance('Clear-Case-Dev-A'), staff: instance('Clear-Case-Dev-B') },

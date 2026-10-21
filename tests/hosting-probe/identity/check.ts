@@ -20,7 +20,7 @@ import path from 'node:path';
 import { classesOf, expectFor, label, rows, type Row } from './matrix.ts';
 
 export const SCHEMA = 'clearcase.identity-probe/1';
-export const INPUT_PATHS = ['tests/hosting-probe/identity', 'deploy/probes/secrets.ts', 'deploy/probes/secrets-child.mjs', 'deploy/probes/secrets-env.mjs'];
+export const INPUT_PATHS = ['tests/hosting-probe/identity', 'deploy/probes/secrets.ts', 'deploy/probes/secrets-child.mjs', 'deploy/probes/secrets-env.mjs', 'deploy/probes/secrets-fd.mjs'];
 export const LEGS = ['integration', 'instances', 'invite-only', 'grants-outside-clerk', 'operator-access', 'revocation', 'expiry-and-recovery', 'restart', 'route-matrix', 'public-entry', 'cleanup', 'credential-scan'] as const;
 export type LegName = (typeof LEGS)[number];
 export const HOLD = [
@@ -127,7 +127,7 @@ function expectedShape(summary: Record<string, unknown>, ctx: { head: string; di
 		startedAt: ISO,
 		finishedAt: ISO,
 		runDir: /^\.local\/hosting-probe\/identity\/[0-9A-Za-z-]+$/,
-		hosts: { bun: ctx.bun, node: /^\d+\.\d+\.\d+$/, build: `Bun ${ctx.bun}`, runner: `Bun ${ctx.bun}`, wrangler: `Node ${node}`, app: `workerd ${ctx.pins.workerd} (native)` },
+		hosts: { bun: ctx.bun, node: /^\d+\.\d+\.\d+$/, build: `Bun ${ctx.bun}`, runner: `Node ${node}`, wrangler: `Node ${node}`, app: `workerd ${ctx.pins.workerd} (native)` },
 		pins: { ...ctx.pins },
 		artifact: /^sha256:[0-9a-f]{64}$/,
 		instances: { client: instance('Clear-Case-Dev-A'), staff: instance('Clear-Case-Dev-B') },

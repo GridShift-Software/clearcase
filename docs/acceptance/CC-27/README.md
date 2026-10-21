@@ -1,6 +1,6 @@
 # CC-27 acceptance evidence
 
-CC-27 is [GRS-35](https://linear.app/vaper/issue/GRS-35/set-up-pstack-and-verification-skills-for-agent-cli-access), agent tooling and the Linear plan sync. The receipts in `evidence-7f26ebe/` were produced at `efb41fc50759a8a54c4b95bc547e490c3675330c` on branch `feature/grs-35-agent-tooling`, base `dev` at `6b86fc6`, on `puk` (CachyOS, bash 5.3, Python 3.14.7, Node 26.10, Bun 1.4.2, git 2.56). Later commits on the branch change only this directory. Run `git diff --stat efb41fc HEAD` to confirm that before accepting these receipts for the reviewed head. They contain no case material, and paths under the home directory appear as `~`.
+CC-27 is [GRS-35](https://linear.app/vaper/issue/GRS-35/set-up-pstack-and-verification-skills-for-agent-cli-access), agent tooling and the Linear plan sync. The receipts in `evidence-7f26ebe/` were produced at `efb41fc50759a8a54c4b95bc547e490c3675330c` on branch `feature/grs-35-agent-tooling`, base `dev` at `6b86fc6`, on `puk` (CachyOS, bash 5.3, Python 3.14.7, Node 26.10, Bun 1.4.2, git 2.56). Later commits on the branch change only this directory. Run `git diff --stat efb41fc HEAD` to confirm that before accepting these receipts for the reviewed head. They contain no case material, and paths under the home directory appear as `~`. The receipts were recorded before the 21 October 2026 history rewrite and name the earlier forms (first six characters) of the same commits: `7f26eb` for `efb41fc5` (head) and `81c3f4` for `6b86fc64` (base).
 
 ## Independent rerun (verification item 7)
 

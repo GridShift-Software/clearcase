@@ -2,7 +2,7 @@
 
 PASS at `901af655e813296eb58f46b75e065722df6aba5e`, round 2. This gate head merges repaired package `46c5cd2032d20155d9d40179ec09b236800e33c1` into `feature/grs-11-gate-reference-package`.
 
-G1 and G2 are fixed. Previously passing checks show no regression, and N1-N4 and N10 hold. The independent reviewer changed acceptance documentation only. The later evidence commit records this verdict; all release receipts bind to the clean reviewed merge revision above.
+G1 and G2 are fixed. Previously passing checks show no regression, and N1-N4 and N10 hold. The independent reviewer changed acceptance documentation only. The evidence JSON (`execution-summary.json` and the two observation files) was recorded before the 21 October 2026 history rewrite and names the earlier forms (first six characters) of the same commits: `ca46a4` for `901af655`, `adf4fa` for `46c5cd20`, `c3c773` for `7c888eeb`, `bf1343` for `20e2466a` and `81c3f4` for `6b86fc6`. The later evidence commit records this verdict; all release receipts bind to the clean reviewed merge revision above.
 
 ## G1
 

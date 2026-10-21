@@ -4,7 +4,7 @@ The frozen alpha file coverage, with the fixture evidence behind each cell. The 
 
 | Evaluation | Value |
 | --- | --- |
-| Revision | `1932037ab00fd919e945ad17b40422d7688c5d75`, harness tree `3cbc76c24d8ff604c441350358adcc914e7c2eb8`, clean (the tree is unchanged by the commit that adds `results.json`). Re-run after the review of aad3e04; the first run was at `7c0a58e` |
+| Revision | `1932037ab00fd919e945ad17b40422d7688c5d75`, harness tree `3cbc76c24d8ff604c441350358adcc914e7c2eb8`, clean (the tree is unchanged by the commit that adds `results.json`). Re-run after the review of aad3e04; the first run was at `7c0a58e`. `results.json` was recorded before the 21 October 2026 history rewrite and names the earlier form (first six characters) of the revision, `8f3194` for `1932037a` |
 | Harness | `tests/viewer-evaluation/` (run instructions in its README), 105 synthetic fixtures generated in code (75 at `7c0a58e`; 29 added for the review's classes; `archive/stored-lying-size.zip` added at `bd4d3dc`, after the recorded run, so `results.json` does not cover it) |
 | Browser | Chrome for Testing 148.0.7778.96, headless, driven by `playwright-core` 1.64.1 |
 | Network | `tests/e2e/pilot/offline.sh` (loopback only); the browser context also aborts and records any request leaving the harness origin |

@@ -190,7 +190,7 @@ GRS-123: `media.mjs` and `archive.mjs` checks: decode, seek accuracy by frame co
 
 ## 9. Defaults decided 20 October 2026
 
-Every default below was chosen because the question could not be put to the user during this unit. The user accepted all of them on 20 October 2026 (**[decided 20 October 2026][decision]**); implementation owners build to the default. The question text is in [handoff.md](handoff.md#open-questions-and-the-defaults-used).
+Every default below was chosen because the question could not be put to the user during this unit. The user accepted all of them (**[decided 20 October 2026][decision]**); implementation owners build to the default. The question text is in [handoff.md](handoff.md#open-questions-and-the-defaults-used).
 
 | # | Question | Default built into this contract | Where it appears |
 | --- | --- | --- | --- |

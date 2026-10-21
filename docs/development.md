@@ -63,6 +63,9 @@ The resolver exists only on branches that carry GRS-154 (`wave/delivery-controls
 - `tests/e2e/pilot/offline.sh` wraps any command, not only the pilot: `unshare -rn env OUTER_UID="$(id -u)" OUTER_GID="$(id -g)" tests/e2e/pilot/offline.sh <cmd>`. The class suite alone is `offline.sh bun tests/e2e/classes/suite.mjs` under the browser lock.
 - A passed `gate` leaves its step summaries in `.local/gate/parity-out/scorecard.json` and `.local/gate/v5-out/lanes-v5.json`; `freshBuild.head` in the first is the revision.
 - `pgrep -f '<pattern>'` inside an until-loop matches the loop's own shell: wait on a PID or an output marker. Under `bash -e`, a failing command in an `EXIT` trap replaces the script's exit status.
+- Do not export `GIT_OPTIONAL_LOCKS=0` into a gate or a test run: `tests/e2e/pilot/lib/fresh-build.test.ts` ("an fsmonitor hook that reports no change cannot hide an edit to a tracked file") fails with it and passes without. Set it on single read-only Git commands only; `tests/ci-guard/run.sh:11` exports it for its own Git calls.
+- Bun writes its transpiler cache to `$HOME/.bun/install/cache/@t@*` even when `BUN_INSTALL_CACHE_DIR` points elsewhere, so a run with a private `HOME` still finds that one directory (`tests/ci-guard/run.sh` allows it and refuses any other stray file).
+- A `Bun.build` entry outside the package directory resolves packages from its own location and fails with `Could not resolve`; give its directory a `node_modules` link to the package's.
 
 ## Hosted runtime (GRS-112)
 
@@ -363,7 +366,7 @@ The overview has typed widget slots declared in `src/lib/components/overview-slo
 
 **Paths a view owner may write:** `src/routes/v/[vid]/<category>/**` for their own category, and the owner-specific paths the coordinator reserves at dispatch: proposed `src/lib/views/<category>/**` (where overview widgets live), `tests/e2e/<category>/**`, and their own feature files under `.agents/skills/verify-clearcase/features/`.
 
-**Coordinator-serialized files** (one writer at a time, through the coordinator): `package.json`, `bun.lock`, `tsconfig.json`, `vitest.config.ts`, `svelte.config.js`, `vite.config.ts`, `src/app.*`, `src/hooks.server.ts`, `static/**`, `src/routes/+layout.*`, `src/routes/+error.svelte`, `src/routes/v/[vid]/+layout.*`, `src/routes/v/[vid]/[category]/[view]/**`, `src/lib/components/**` (shared contracts and the registry), `src/lib/local-case/**` (storage, persistence API, originals), `scripts/pilot/**`, `tests/e2e/pilot/lib/**`, and the skill's `SKILL.md` and runner.
+**Coordinator-serialized files** (one writer at a time, through the coordinator): `package.json`, `bun.lock`, `tsconfig.json`, `vitest.config.ts`, `vite.config.ts` (it holds the Kit options; a `svelte.config.js` is refused, see Shared contracts), `src/app.*`, `src/hooks.server.ts`, `static/**`, `src/routes/+layout.*`, `src/routes/+error.svelte`, `src/routes/v/[vid]/+layout.*`, `src/routes/v/[vid]/[category]/[view]/**`, `src/lib/components/**` (shared contracts and the registry), `src/lib/local-case/**` (storage, persistence API, originals), `scripts/pilot/**`, `tests/e2e/pilot/lib/**`, and the skill's `SKILL.md` and runner.
 
 ## Shared contracts
 

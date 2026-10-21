@@ -22,6 +22,8 @@ Not pre-added: `docx-preview` 0.4.1 (Apache-2.0, 51,194 B gzip, with `jszip` 3.1
 
 Evaluation-only (`tests/viewer-evaluation/package.json`, never shipped): `playwright-core` 1.64.1 (Apache-2.0) to drive Chrome for Testing, and `cfb` 1.2.2 (Apache-2.0) to write synthetic MSG fixtures.
 
+SheetJS CE drops a formula cell that has no stored result unless the reader passes `sheetStubs: true`; with it, the cell reads as `{t:'z', f, v:0}`, so `v` is not a result there (checked with 0.20.3).
+
 Operator workstation tools (0 browser bytes), versions installed and used here:
 
 | Tool | Version | Licence | Used for |
@@ -58,7 +60,7 @@ The harness used local bytes in one browser. These are not established and must 
 
 ## Open questions and the defaults used
 
-From the pre-read. Nobody could answer them during this unit, so each default was marked as assumed in the contract itself. The user accepted all five on 20 October 2026 (**[decided 20 October 2026][decision]**), and the contract now marks them so (section 9 lists them by question number; sections 1, 2 and 6 mark them where they apply). This file only repeats them.
+From the pre-read. Nobody could answer them during this unit, so each default was marked as assumed in the contract itself. The user accepted all five (**[decided 20 October 2026][decision]**), and the contract now marks them so (section 9 lists them by question number; sections 1, 2 and 6 mark them where they apply). This file only repeats them.
 
 1. **Accepted codecs, image formats and archive methods.** Default: images PNG, JPEG, GIF, WebP, AVIF native; TIFF (including BigTIFF) and HEIC through prepared page images. Media: MP4/MOV/MKV with H.264/AAC, WebM VP9/Opus, MP3, WAV, Ogg Opus, M4A native; other video (AVI, HEVC) through a prepared H.264/AAC rendition. ZIP: stored or deflate, unencrypted, single volume, no ZIP64, nesting depth 3; encrypted, split, ZIP64 and other methods are held. Bulk mailboxes (mbox, PST, OST) are not accepted as one file; the operator extracts EML files and records the mailbox hash and offsets. 7z, RAR, gzip, bzip2, xz, zstd and tar, and bytes that match no reader, are held for manual extraction.
 2. **Initial POC limits.** Default: the measured tiers (1,000 PDF pages, 100 MP image, 1m cells, 1,000 archive members) as the upper test points, ZIP members at most 64 MiB and 512 MiB total, 10,000 members. No latency or memory budget is enforced yet; measured times are reported.

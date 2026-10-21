@@ -46,11 +46,11 @@ describe('run manifest and teardown', () => {
 		} });
 		run.create('worker');
 		run.create('d1');
-		expect(seen[0]).toBe(`worker:r2/${NAME}/false,d1/${NAME}/false,worker/${NAME}/false`);
-		expect(seen[1]).toBe(`d1:r2/${NAME}/false,d1/${NAME}/false,worker/${NAME}/true`);
+		expect(seen[0]).toBe(`worker:worker/${NAME}/false,d1/${NAME}/false,r2/${NAME}/false`);
+		expect(seen[1]).toBe(`d1:worker/${NAME}/true,d1/${NAME}/false,r2/${NAME}/false`);
 		expect(manifest(w.manifests).state).toBe('open');
 		const done = run.teardown();
-		expect(done.resources.map((r) => [r.kind, r.created, r.teardown])).toEqual([['r2', false, 'deleted'], ['d1', true, 'deleted'], ['worker', true, 'deleted']]);
+		expect(done.resources.map((r) => [r.kind, r.created, r.teardown])).toEqual([['worker', true, 'deleted'], ['d1', true, 'deleted'], ['r2', false, 'deleted']]);
 		expect(w.provider.names()).toEqual(OTHERS);
 	});
 
@@ -70,7 +70,7 @@ describe('run manifest and teardown', () => {
 		expect(r.status).toBe(code);
 		const m = manifest(w.manifests);
 		expect(m.state).toBe('finished');
-		expect(m.resources.map((x) => `${x.kind}:${x.created}:${x.teardown}`)).toEqual(['r2:true:deleted', 'd1:true:deleted', 'worker:true:deleted']);
+		expect(m.resources.map((x) => `${x.kind}:${x.created}:${x.teardown}`)).toEqual(['worker:true:deleted', 'd1:true:deleted', 'r2:true:deleted']);
 		expect(w.provider.names()).toEqual(OTHERS);
 	});
 
@@ -81,7 +81,7 @@ describe('run manifest and teardown', () => {
 		mkdirSync(path.join(w.cloud, 'worker', NAME)); // created by the provider, but the run died before recording it
 		const code = await new Promise((resolve) => (child.on('close', (c) => resolve(c)), child.kill('SIGTERM')));
 		expect(code).toBe(143);
-		expect(manifest(w.manifests).resources.map((x) => `${x.kind}:${x.created}:${x.teardown}`)).toEqual(['r2:true:deleted', 'd1:true:deleted', 'worker:false:deleted']);
+		expect(manifest(w.manifests).resources.map((x) => `${x.kind}:${x.created}:${x.teardown}`)).toEqual(['worker:false:deleted', 'd1:true:deleted', 'r2:true:deleted']);
 		expect(w.provider.names()).toEqual(OTHERS);
 	});
 
@@ -91,7 +91,7 @@ describe('run manifest and teardown', () => {
 		expect(r.status).toBe(0);
 		const m = manifest(w.manifests);
 		expect(m.state).toBe('finished');
-		expect(m.resources.map((x) => `${x.kind}:${x.teardown}:${x.error}`)).toEqual(['r2:deleted:null', 'd1:failed:synthetic d1 delete failure', 'worker:deleted:null']);
+		expect(m.resources.map((x) => `${x.kind}:${x.teardown}:${x.error}`)).toEqual(['worker:deleted:null', 'd1:failed:synthetic d1 delete failure', 'r2:deleted:null']);
 		expect(w.provider.names()).toEqual([`d1/${NAME}`, ...OTHERS]);
 	});
 });

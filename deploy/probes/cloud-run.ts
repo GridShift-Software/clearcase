@@ -18,8 +18,8 @@ import { fileURLToPath } from 'node:url';
 export const RUN_SCHEMA = 'clearcase.cloud-run/1';
 export const RUN_NAME = /^cc-([0-9]{1,6})-([a-z0-9]{1,12})-([0-9a-f]{7})$/;
 export const MAX_AGE_HOURS = 24;
-/** Teardown order: a bucket must be emptied and deleted, and the database deleted, before the Worker that binds them. */
-export const KINDS = ['r2', 'd1', 'worker'] as const;
+/** Teardown order: the Worker first, so nothing writes to its database or bucket while they are deleted; the bucket last. */
+export const KINDS = ['worker', 'd1', 'r2'] as const;
 export type Kind = (typeof KINDS)[number];
 
 export type Resource = { kind: Kind; name: string; created: boolean; teardown: 'pending' | 'deleted' | 'failed'; error: string | null };

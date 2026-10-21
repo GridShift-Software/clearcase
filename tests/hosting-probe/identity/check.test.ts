@@ -34,7 +34,7 @@ function passing(): Record<string, unknown> {
 		legs: Object.fromEntries(LEGS.map((n) => [n, { status: 'PASS', asserted: ['a synthetic assertion'] }])),
 		routes,
 		counts: countsOf(routes),
-		clerk: { users: { created: 9, deleted: 9 }, invitations: { created: 12, deleted: 12 }, sessions: { created: 20, ended: 20 }, testingTokens: { created: 20 }, devBrowsers: { created: 20 }, apiCalls: { backend: 100 } },
+		clerk: { users: { created: 9, deleted: 9 }, invitations: { created: 12, deleted: 12 }, sessions: { created: 20, ended: 20, pending: 0 }, testingTokens: { created: 20 }, devBrowsers: { created: 20 }, apiCalls: { backend: 100 } },
 		hold: [...HOLD],
 		failure: null,
 		evidence: true,
@@ -77,6 +77,18 @@ describe('shape, table and counts', () => {
 		walk(base, []);
 		expect(accepted).toEqual([]);
 		expect(refused).toBeGreaterThan(5000);
+	});
+
+	test('a session still pending, one not ended, or one still active in Clerk is refused: sessions.ended is counted from Clerk, not assumed', () => {
+		for (const [what, edit] of [
+			['one pending', (c: any) => (c.clerk.sessions.pending = 1)],
+			['one pending and so one fewer ended', (c: any) => ((c.clerk.sessions.pending = 1), (c.clerk.sessions.ended -= 1))],
+			['one not ended', (c: any) => (c.clerk.sessions.ended -= 1)],
+		] as const) {
+			const copy = structuredClone(passing());
+			edit(copy);
+			expect([what, checkSummary(copy, ctx).length > 0]).toEqual([what, true]);
+		}
 	});
 
 	test('a check whose response differs from its expectation, a leak, a missing marker or a dropped route is refused', () => {

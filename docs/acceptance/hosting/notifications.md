@@ -2,7 +2,7 @@
 
 [GRS-111](https://linear.app/vaper/issue/GRS-111) asks for a proven minimal notification on the Cloudflare-native route, with safe configuration and bounded failure behaviour. Cloudflare stays pinned (GRS-26, decisions of 17 and 20 October 2026), so this unit runs the **local legs** only: `wrangler dev`'s simulated `send_email` binding on native workerd, which saves each message and sends nothing. No account, token, login, DNS change, deploy or real message is involved. The cloud legs wait for moment M3 and its owner (GitHub `dianbrown`) and run before GRS-137.
 
-**Verdict: PASS for the local legs at `238199f56723144ae4b39288379690958637fba6`; HOLD for the cloud legs.** The committed run is [evidence/notifications-summary.json](evidence/notifications-summary.json). What stays HOLD is listed [at the end](#what-stays-hold).
+**Verdict: PASS for the local legs at `5e58e4948ab728886f23512cfac78dd9f173e900`; HOLD for the cloud legs.** The committed run is [evidence/notifications-summary.json](evidence/notifications-summary.json). What stays HOLD is listed [at the end](#what-stays-hold).
 
 ## Run it
 
@@ -15,7 +15,7 @@ bun run --bun probe --check FILE   # exit 0 only for this runner's PASS summary 
 bun run --bun test                 # the content check, the retry policy, and the summary check over the committed evidence
 ```
 
-[`probe.ts`](../../../tests/hosting-probe/notifications/probe.ts) follows GRS-106's runner ([runtime.md](runtime.md)). It refuses to run (exit 2) on a dirty tree, on any Bun but 1.4.2, when an installed package differs from its pin, or when the only `node` it finds is Bun. It re-runs itself inside [`tests/e2e/pilot/offline.sh`](../../../tests/e2e/pilot/offline.sh), checks again that `lo` is the only interface and that no route exists, and gives every child the same environment allowlist: a fresh `HOME` and XDG directories, `CI=1`, and telemetry, error reports, the banner, the `cf.json` fetch and dotenv loading off. The summary says `evidence: true` only when every leg passes, `/health` serves the HEAD stamp, HEAD and the tree are unchanged at the end, and the runner's own checker refuses every mutation of the summary (1,216 at this SHA). `--check` compares the whole summary with one exact shape ([`summary.ts`](../../../tests/hosting-probe/notifications/summary.ts)).
+[`probe.ts`](../../../tests/hosting-probe/notifications/probe.ts) follows GRS-106's runner ([runtime.md](runtime.md)). It refuses to run (exit 2) on a dirty tree, on any Bun but 1.4.2, when an installed package differs from its pin, or when the only `node` it finds is Bun. It re-runs itself inside [`tests/e2e/pilot/offline.sh`](../../../tests/e2e/pilot/offline.sh), checks again that `lo` is the only interface and that no route exists, and gives every child the same environment allowlist: a fresh `HOME` and XDG directories, `CI=1`, and telemetry, error reports, the banner, the `cf.json` fetch and dotenv loading off. The summary says `evidence: true` only when every leg passes, `/health` serves the HEAD stamp, HEAD and the tree are unchanged at the end, and the runner's own checker refuses every mutation of the summary (1,264 at this SHA). `--check` compares the whole summary with one exact shape ([`summary.ts`](../../../tests/hosting-probe/notifications/summary.ts)).
 
 ## What runs where
 
@@ -34,7 +34,7 @@ The doubles are named in the summary's `boundaries`. No result here is evidence 
 
 ## The design under test
 
-- **Order.** A publication puts the results file in R2, then one D1 batch writes the publication, the in-app notice and its outbox row. Only then is the email tried. Email never gates or rolls back what came before it: the outbox row records the attempt, and a failed first attempt still answers the committed publication with 200. The in-app notice is authoritative (GRS-93).
+- **Order.** A publication puts the results file in R2, under a key that carries its digest, then one D1 batch writes the publication, the in-app notice and its outbox row. A racing publish of the same version with another file writes another object and answers 409 when its batch loses. Only then is the email tried. Email never gates or rolls back what came before it: the outbox row records the attempt, and a failed first attempt still answers the committed publication with 200. The in-app notice is authoritative (GRS-93).
 - **Content.** [`src/notice.ts`](../../../tests/hosting-probe/notifications/src/notice.ts) has one fixed subject and plain-text body per kind, publication and input-needed. The only variable part is one link, `<client origin>/n/<uuid>`: an opaque notice id, with no query, token, case id or case wording. The content check is an allowlist: exactly the keys `from`, `to`, `subject` and `text`, each a string; `from` is the client's sender; `to` is the uploader alone; subject and body equal the kind's template around one such link. A denylist of the case's own strings (title, reference, id, document titles, file names) runs on top. The Worker runs the check before every send and refuses the send on any problem (`NOTICE_CONTENT_REFUSED`); the runner runs it again on every saved message.
 - **Authenticated link.** `/n/<id>` needs the signed-in recipient of that notice on this client's instance: no session 401, another client's session 401, another user of the client 404, the uploader 303 to the case inside the app.
 - **Retry.** [`src/policy.ts`](../../../tests/hosting-probe/notifications/src/policy.ts) classifies each failed `send()`: 16 of the 20 codes on Cloudflare's Workers API page (updated 15 October 2026) are permanent (the message was refused) and get no retry. `E_RATE_LIMIT_EXCEEDED` and `E_DAILY_LIMIT_EXCEEDED` are transient. `E_INTERNAL_SERVER_ERROR`, `E_DELIVERY_FAILED`, a timeout, an attempt cut off mid-send, a missing `messageId` and any unknown code are ambiguous: acceptance is unknown. Transient and ambiguous failures retry, at most three attempts in all, 5 and 30 minutes apart, from a cron sweep. No Queues.
@@ -53,7 +53,7 @@ The doubles are named in the summary's `boundaries`. No result here is evidence 
 
 ## Legs
 
-All PASS at `238199f5`, offline, in one run of 16 s ([summary](evidence/notifications-summary.json)).
+All PASS at `5e58e494`, offline, in one run of 16 s ([summary](evidence/notifications-summary.json)).
 
 | Leg | What it asserts |
 | --- | --- |
@@ -62,7 +62,7 @@ All PASS at `238199f5`, offline, in one run of 16 s ([summary](evidence/notifica
 | publication-notice | publishing answers 200 with the file digest; the notice is sent once and the binding returns a `messageId`. Exactly one message is saved, the one the app recorded: from client A's sender to the uploader alone, the generic subject, no HTML part, no attachment, the template around one link to this notice. Delivery and inbox arrival are reported as not observed |
 | input-needed-notice | the same for the input-needed template, with its own notice id |
 | authenticated-link | the link alone answers 401 with no redirect; client B's session 401; another client A user 404; the uploader 303 to the case. The uploader then sees the publication, reads the file byte for byte, and sees the two in-app notices the emails link to |
-| app-deduplication | publishing the same version again returns the same notice and sends nothing; other content under the same version answers 409; file, publication and notices are unchanged |
+| app-deduplication | publishing the same version again returns the same notice and sends nothing; other content under the same version answers 409; file, publication and notices are unchanged. Two concurrent publishes of one version with different files: one answers 200 and the other 409, and the file served is the one the publication names, with one in-app notice and one email |
 | wrong-client | client B's case is not found through client A's instance though its row is in the same store (404); client B's publisher gets 401 on A's publish and operator routes; nothing is saved |
 | content-refused | a case titled "New results", which is template wording, has its notice refused by the Worker's own check, with no retry; the publication, file and in-app notice are intact |
 | recipient-missing | an uploader with no address fails closed (`RECIPIENT_MISSING`), with no retry; the publication is intact |
@@ -73,7 +73,7 @@ All PASS at `238199f5`, offline, in one run of 16 s ([summary](evidence/notifica
 | operator-visibility | a client user who is not an operator gets 403. The operator sees all five notices of the faults run with attempts and codes; failed notices and possible duplicates are listed, and the view carries no address, title or reference |
 | sender-restriction | client A's binding configured with client B's sender: the local binding refuses the send (`email from … not allowed`), recorded as permanent; nothing is saved; the publication is intact |
 | binding-missing | the same Worker without its `send_email` binding starts, `/health` reports `EMAIL` absent, and publishing answers 200 with the notice failed closed (`EMAIL_BINDING_MISSING`) |
-| no-leak | the run saved exactly six messages, all plain text with no attachment, each passing the content check for its own case. No saved message carries any case's title, reference, id, document title, file name or file text, or any address but the uploader's. The synthetic Authorization and cookie canaries sent on every request appear in no saved message, Wrangler log or operator response |
+| no-leak | the run saved exactly seven messages, all plain text with no attachment, each passing the content check for its own case. No saved message carries any case's title, reference, id, document title, file name or file text, or any address but the uploader's. The synthetic Authorization and cookie canaries sent on every request appear in no saved message, Wrangler log or operator response |
 
 ## Provisional defaults
 

@@ -1,11 +1,11 @@
 {
   "schema": "clearcase.notifications-probe/1",
-  "sourceSha": "238199f56723144ae4b39288379690958637fba6",
+  "sourceSha": "5e58e4948ab728886f23512cfac78dd9f173e900",
   "treeClean": true,
-  "servedRevision": "238199f56723144ae4b39288379690958637fba6",
-  "startedAt": "2026-10-21T12:37:44.739Z",
-  "finishedAt": "2026-10-21T12:38:00.256Z",
-  "runDir": ".local/hosting-probe/notifications/2026-10-21T12-37-44-739Z",
+  "servedRevision": "5e58e4948ab728886f23512cfac78dd9f173e900",
+  "startedAt": "2026-10-21T12:45:27.747Z",
+  "finishedAt": "2026-10-21T12:45:43.460Z",
+  "runDir": ".local/hosting-probe/notifications/2026-10-21T12-45-27-747Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -20,7 +20,7 @@
     "workerd": "1.20261012.1",
     "wrangler": "4.151.1"
   },
-  "artifact": "sha256:4e7e69d097b2da0965d362e6927f383be56201745e0a6dbc53c7798297dcc2b2",
+  "artifact": "sha256:90b87127688f2eba85172e0c9e90210579f44b1bccc107c04f93994a94f884c8",
   "isolation": {
     "network": "own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden",
     "env": [
@@ -125,13 +125,15 @@
       "status": "PASS",
       "commands": [
         "POST /cases/case-a1/publish round=1 (again, same file)",
-        "POST /cases/case-a1/publish round=1 (other file)"
+        "POST /cases/case-a1/publish round=1 (other file)",
+        "two concurrent POST /cases/case-a8/publish round=1, with two different files"
       ],
       "asserted": [
         "publishing the same version again returns the same notice, not a second one, and sends nothing more",
         "the same version with other content answers 409",
         "the simulator saved no further message",
-        "the file, the publication and the in-app notices are unchanged"
+        "the file, the publication and the in-app notices are unchanged",
+        "of two concurrent publishes of one version with different files, one answers 200 and one 409; the file served is the one the publication names, with one in-app notice and one email"
       ]
     },
     "wrong-client": {
@@ -291,7 +293,7 @@
         "scan of every saved message, Wrangler log and operator response of the run"
       ],
       "asserted": [
-        "the run saved exactly the six expected messages, all MessageBuilder sends with a text part only",
+        "the run saved exactly the seven expected messages, all MessageBuilder sends with a text part only",
         "every saved message passes the content check for its own case's strings",
         "no saved message carries any case's title, reference, id, document title, file name or file text, or any address but the uploader's",
         "the Authorization and cookie canaries sent on every request appear in no saved message, Wrangler log or operator response"
@@ -303,7 +305,7 @@
       "env": "default",
       "caseId": "case-a1",
       "kind": "publication",
-      "text": "sha256:3178f4df44d99ef6746ec1208941cdfba130790ff5786b086c6bb4ca50ecc52d",
+      "text": "sha256:37612f12957dff7210c777d5c379ae5f76265bcd7bddd23bd4ca9ee80b639d72",
       "contentCheck": "PASS",
       "appSaw": "accepted",
       "providerAcceptance": "simulated: saved by the local binding",
@@ -314,7 +316,18 @@
       "env": "default",
       "caseId": "case-a1",
       "kind": "input-needed",
-      "text": "sha256:1f00eb050a39d792acd75603f33181581e206c795b3828565757a1d4d4cbe1e8",
+      "text": "sha256:b8a284ddc7bdb5b428ef901b7af0268f4d4266be85da2d29e4f19a37bf139114",
+      "contentCheck": "PASS",
+      "appSaw": "accepted",
+      "providerAcceptance": "simulated: saved by the local binding",
+      "delivery": "HOLD: M3",
+      "inboxArrival": "HOLD: M3"
+    },
+    {
+      "env": "default",
+      "caseId": "case-a8",
+      "kind": "publication",
+      "text": "sha256:399eaf9fa307ac3443734c15e78cae2d567287b607c205be05149d0c0e4f715a",
       "contentCheck": "PASS",
       "appSaw": "accepted",
       "providerAcceptance": "simulated: saved by the local binding",
@@ -325,7 +338,7 @@
       "env": "faults",
       "caseId": "case-a8",
       "kind": "input-needed",
-      "text": "sha256:ab45f715e98d2337c27836fa61f145bbdbaefe1a8810a4dae975865068a64fce",
+      "text": "sha256:3736326121468fa91ba91c7c5e16a52525dde1b6b2847c31cf61076cf0f8a40f",
       "contentCheck": "PASS",
       "appSaw": "accepted",
       "providerAcceptance": "simulated: saved by the local binding",
@@ -336,7 +349,7 @@
       "env": "faults",
       "caseId": "case-a3",
       "kind": "publication",
-      "text": "sha256:3b981197d55d5fabef45412196c3ea156bb696542f80520a8d34f86deb002df5",
+      "text": "sha256:d42db4f9f7faff6c306fe13fb86c91b331ad0e76eaf72187b88c8539d81f6975",
       "contentCheck": "PASS",
       "appSaw": "not seen: the attempt ended ambiguous",
       "providerAcceptance": "simulated: saved by the local binding",
@@ -347,7 +360,7 @@
       "env": "faults",
       "caseId": "case-a3",
       "kind": "publication",
-      "text": "sha256:3b981197d55d5fabef45412196c3ea156bb696542f80520a8d34f86deb002df5",
+      "text": "sha256:d42db4f9f7faff6c306fe13fb86c91b331ad0e76eaf72187b88c8539d81f6975",
       "contentCheck": "PASS",
       "appSaw": "accepted",
       "providerAcceptance": "simulated: saved by the local binding",
@@ -358,7 +371,7 @@
       "env": "faults",
       "caseId": "case-a4",
       "kind": "publication",
-      "text": "sha256:351428bc010c36cda90e77be4b2d2960dc27cabec428a8068e80bc39b85dc0f5",
+      "text": "sha256:f69b5efa7f0efaedc73f51d98315863e28d01c690f8150bc1739a58d9ca6c1a8",
       "contentCheck": "PASS",
       "appSaw": "accepted",
       "providerAcceptance": "simulated: saved by the local binding",
@@ -376,7 +389,7 @@
   "failure": null,
   "evidence": true,
   "checker": {
-    "mutationsRefused": 1216,
+    "mutationsRefused": 1264,
     "accepted": null
   }
 }

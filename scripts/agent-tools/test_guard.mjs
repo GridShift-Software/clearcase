@@ -586,15 +586,25 @@ function main() {
   const common = trusted && spawnSync('git', ['-C', root, 'merge-base', '--all', base, trusted], { env, encoding: 'utf8' });
   const forks = common?.status === 0 ? common.stdout.split('\n').filter(Boolean) : [];
   const merged = forks.length > 0 && spawnSync('git', ['-C', root, 'merge-base', '--is-ancestor', trusted, head], { env }).status === 0;
+  // a revision's tracked files: path -> { mode, id }, parsed once for the base-change test and the closures alike
   const trees = new Map();
-  const treeEntry = (revision, file) => {
+  const tracked = revision => {
     if (!trees.has(revision)) {
-      trees.set(revision, new Map(git('ls-tree', '-r', '-z', revision).split('\0').filter(Boolean)
-        .map(line => [line.slice(line.indexOf('\t') + 1), line.slice(0, line.indexOf('\t'))])));
+      trees.set(revision, new Map(git('ls-tree', '-r', '-z', revision).split('\0').filter(Boolean).map(entry => {
+        const [mode, , id] = entry.slice(0, entry.indexOf('\t')).split(' ');
+        return [entry.slice(entry.indexOf('\t') + 1), { mode, id }];
+      })));
     }
-    return trees.get(revision).get(file);
+    return trees.get(revision);
   };
-  const fromBase = file => merged && treeEntry(head, file) === treeEntry(trusted, file)
+  const treeEntry = (revision, file) => {
+    const entry = tracked(revision).get(file);
+    return entry && `${entry.mode} ${entry.id}`;
+  };
+  // A key neither HEAD nor the fix base tracks (a derived entry whose origin was not mapped, a typo) is nobody's change:
+  // undefined === undefined must not read as "the base's copy".
+  const fromBase = file => merged && (treeEntry(head, file) !== undefined || treeEntry(base, file) !== undefined)
+    && treeEntry(head, file) === treeEntry(trusted, file)
     && forks.every(fork => treeEntry(fork, file) === treeEntry(base, file));
   const inherited = [];
   const findings = JSON.parse(readFileSync(options['--findings'], 'utf8'));
@@ -647,9 +657,8 @@ function main() {
   };
   // Resolve imports against Git snapshots, never the worker's filesystem or module loader. Only test code is followed.
   const closure = (revision, starts) => {
-    const entries = git('ls-tree', '-r', '-z', revision).split('\0').filter(Boolean);
-    const modes = new Map(entries.map(entry => [entry.slice(entry.indexOf('\t') + 1), entry.split(' ')[0]]));
-    const ids = new Map(entries.map(entry => [entry.slice(entry.indexOf('\t') + 1), entry.split(/[ \t]/)[2]]));
+    const modes = new Map([...tracked(revision)].map(([file, entry]) => [file, entry.mode]));
+    const ids = new Map([...tracked(revision)].map(([file, entry]) => [file, entry.id]));
     const files = new Set(modes.keys());
     const resolutionInputs = new Map();
     const reads = new Set();
@@ -1327,7 +1336,7 @@ function main() {
     console.log(`test-guard: ${diff.length - changed.length} changed file(s) are the base's, not this branch's: the base ${trusted} `
       + `is merged into HEAD and HEAD holds each as it does; protected among them: ${inherited.join(', ') || 'none'}`);
   }
-  console.log(`test-guard: PASS (${findings.tests.length} named tests; ${base}..${head})`);
+  console.log(`test-guard: PASS (${findings.tests.length} named tests; ${base}..${head}${trusted ? `; trusted base ${trusted}` : ''})`);
   if (command.length) {
     const result = spawnSync(command[0], command.slice(1), { stdio: 'inherit', cwd: root, env });
     if (result.error) throw result.error;

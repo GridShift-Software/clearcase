@@ -1859,7 +1859,7 @@ def guard_binding(store, unit, supplied, identity):
         raise ValueError("the guard receipt is not a test-guard receipt")
     # the claim, or the command it records, when an edit drops the claim
     if claims.get("trustedBase") is not None or "--trusted-base" in (receipt.get("command") or []):
-        raise ValueError("the guard receipt accepted changes its --base ref holds (fix-round-guard without --ledger); approval "
+        raise ValueError("the guard receipt was judged with a --base ref whose changes it could accept (fix-round-guard without --ledger); approval "
                          "needs one judged against the reviewed commit alone (fix-round-guard --ledger, or test-guard)")
     if claims.get("fixBase") != record["sha"]:
         raise ValueError(f"guard fix base {str(claims.get('fixBase'))[:12]} differs from the reviewed SHA {record['sha'][:12]} in the ledger")

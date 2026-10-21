@@ -1,6 +1,6 @@
 import type { DiagSink } from '../diagnostics.ts';
 import { isObject, type JsonObject, type JsonValue } from '../strict-json.ts';
-import { carryTyped, fits, keepRest, own, sourceName, type Kind } from './carry.ts';
+import { carryTyped, fits, keepRest, own, putDerived, sourceName, type Kind } from './carry.ts';
 import type { V5Root } from './extract.ts';
 
 type Roots = Partial<Record<V5Root, JsonValue>>;
@@ -13,6 +13,20 @@ const objs = (v: JsonValue | undefined): JsonObject[] => (Array.isArray(v) ? v.f
 const nonEmpty = (parts: string[]) => parts.filter((s) => s !== '');
 const tally = (keys: Iterable<string>): Record<string, number> => { const c: Record<string, number> = {}; for (const k of keys) own(c, k, (Object.hasOwn(c, k) ? c[k]! : 0) + 1); return c; };
 const mapObjs = (v: JsonValue | undefined, f: (o: JsonObject) => JsonObject): JsonValue | undefined => (Array.isArray(v) ? v.map((x) => (isObject(x) ? f(x) : x)) : v);
+
+/**
+ * `into` with each of `writes` written over the source value of its name. A source value the write does not carry moves
+ * aside first (putDerived), so nothing is overwritten: one that is not null or empty text, not the value written, and not
+ * a number or boolean written as its text.
+ */
+const writeOver = (into: JsonObject, writes: JsonObject): JsonObject => {
+  for (const [k, v] of Object.entries(writes)) {
+    const held = Object.hasOwn(into, k) ? into[k] : null;
+    if (held === null || held === '' || held === v || (typeof held !== 'object' && v === String(held))) own(into, k, v);
+    else putDerived(into, k, v);
+  }
+  return into;
+};
 
 /** The builder versions this adapter maps. Another META.version is a generation nobody has inventoried. */
 export const NEWER_VERSIONS: readonly string[] = ['V1'];
@@ -78,7 +92,7 @@ export function matterOf(profile: JsonObject, meta: JsonObject): JsonObject {
 }
 
 const withFilename = (rowsByRef: RowsByRef) => (r: JsonObject): JsonObject =>
-  typeof r.filename === 'string' ? r : { ...r, filename: str(rowsByRef.get(str(r.ref))?.filename) || str(r.title) };
+  typeof r.filename === 'string' ? r : writeOver({ ...r }, { filename: str(rowsByRef.get(str(r.ref))?.filename) || str(r.title) });
 
 export function quantumOf(q: JsonObject, rowsByRef: RowsByRef): JsonObject {
   const fill = withFilename(rowsByRef);
@@ -88,18 +102,17 @@ export function quantumOf(q: JsonObject, rowsByRef: RowsByRef): JsonObject {
 }
 
 export function contractsOf(c: JsonObject, rowsByRef: RowsByRef): JsonObject {
-  const item = (it: JsonObject): JsonObject => ({
+  const item = (it: JsonObject): JsonObject => writeOver({
     ...it,
     doc_type: it.doc_type ?? str(rowsByRef.get(str(it.ref))?.doc_type),
     party: it.party ?? '',
     role: it.role ?? '',
-    note: typeof it.note === 'string' && it.note !== '' ? it.note : str(it.signed),
-  });
+  }, { note: typeof it.note === 'string' && it.note !== '' ? it.note : str(it.signed) });
   return { ...c, groups: mapObjs(c.groups, (g) => ({ ...g, items: mapObjs(g.items, item) ?? g.items })) ?? c.groups };
 }
 
 const seedOf = (r: JsonObject): JsonObject =>
-  r.fdate !== undefined || r.fparty !== undefined ? r : { ...r, fdate: str(r.date), filing: str(r.filing), fparty: str(r.party), rdate: str(r.answerDate), ref: str(r.ref), response: str(r.answer), status: str(r.status) };
+  r.fdate !== undefined || r.fparty !== undefined ? r : writeOver({ ...r }, { fdate: str(r.date), filing: str(r.filing), fparty: str(r.party), rdate: str(r.answerDate), ref: str(r.ref), response: str(r.answer), status: str(r.status) });
 
 export function filingsOf(f: JsonObject): JsonObject {
   return {
@@ -116,27 +129,30 @@ export function bundlesOf(b: JsonObject): JsonObject {
     const rows = mapObjs(x.rows, (r) => ({ ...r, from: r.from ?? count(r.frm) })) ?? x.rows;
     const keys = objs(rows).map((r) => str(r.key));
     const n = typeof x.items === 'number' ? count(x.items) : keys.length;
-    return {
+    const out: JsonObject = {
       ...x,
       slug: x.slug ?? bundleSlug(str(x.no), str(x.name)), planFile: x.planFile ?? '',
       bundlePages: x.bundlePages ?? count(x.bodyPages ?? x.pages), filePages: x.filePages ?? count(x.pages),
       nDocs: x.nDocs ?? n, nItems: x.nItems ?? n, nMissing: x.nMissing ?? 0, nNeedsExtent: x.nNeedsExtent ?? 0, nReview: x.nReview ?? 0,
-      items: Array.isArray(x.items) ? x.items : keys,
-      rows,
     };
+    // a count in items is read as nDocs and nItems, and the row keys take its place; a count neither keeps moves aside
+    const items = Array.isArray(x.items) ? x.items : keys;
+    if (typeof x.items === 'number' && (out.nDocs === x.items || out.nItems === x.items)) out.items = items;
+    else writeOver(out, { items });
+    return Object.assign(out, { rows });
   };
   const sections = Array.isArray(b.caselinesSections)
-    ? Object.fromEntries(objs(b.caselinesSections).map((s) => [str(s.sec), { ...s, from: count(s.first), to: count(s.last), title: str(s.title) }]))
+    ? Object.fromEntries(objs(b.caselinesSections).map((s) => [str(s.sec), writeOver({ ...s }, { from: count(s.first), to: count(s.last), title: str(s.title) })]))
     : b.caselinesSections;
-  return {
+  const out: JsonObject = {
     ...b,
     source: b.source ?? '', indexSource: b.indexSource ?? '',
     catalogue: b.catalogue ?? {}, catCount: b.catCount ?? (isObject(b.catalogue) ? Object.keys(b.catalogue).length : 0),
-    extracts: typeof b.extracts === 'string' ? b.extracts : '',
-    ...(Array.isArray(b.extracts) && { extractFiles: b.extracts }),
-    ...(sections !== undefined && { caselinesSections: sections }),
-    list: mapObjs(b.list, bundle) ?? b.list,
   };
+  // a list of extracts moves to extractFiles and leaves the text empty; extracts of another kind is read as text
+  if (Array.isArray(b.extracts)) writeOver(own(out, 'extracts', ''), { extractFiles: b.extracts });
+  else writeOver(out, { extracts: typeof b.extracts === 'string' ? b.extracts : '' });
+  return Object.assign(out, sections !== undefined ? { caselinesSections: sections } : {}, { list: mapObjs(b.list, bundle) ?? b.list });
 }
 
 const nameOfLocator = (u: string): string => { const seg = u.split('/').pop() ?? ''; try { return decodeURIComponent(seg); } catch { return seg; } };
@@ -146,7 +162,7 @@ export function caselinesIndexOf(idx: JsonObject, caselinesSrc: string, pages: n
   const rest: JsonObject = {};
   for (const [k, t] of Object.entries(idx)) if (/^\d+$/.test(k)) index.push([Number(k), str(t)]); else own(rest, k, t);
   index.sort((a, b) => ((a as number[])[0]! - (b as number[])[0]!));
-  return { ...rest, file: nameOfLocator(caselinesSrc), pages: pages || index.length, index };
+  return writeOver(rest, { file: nameOfLocator(caselinesSrc), pages: pages || index.length, index });
 }
 
 export function schedOf(list: readonly JsonObject[]): JsonObject {

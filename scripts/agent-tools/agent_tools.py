@@ -266,13 +266,13 @@ def environment():
     }
 
 
-def git(root, *args, quiet=False):
+def git(root, *args, quiet=False, stdin=None):
     """Run the git on PATH in root as (exit code, stdout bytes, problem). problem is None only for exit 0, and with
     quiet also only without stderr; otherwise it names the command, its exit code and its stderr, in English.
     Inherited GIT_* variables such as GIT_DIR are dropped, so they cannot redirect it."""
     env = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")} | {"LC_ALL": "C"}
     try:
-        out = subprocess.run([shutil.which("git") or "git", "-C", str(root), *args], capture_output=True, env=env)
+        out = subprocess.run([shutil.which("git") or "git", "-C", str(root), *args], capture_output=True, env=env, input=stdin)
     except OSError as error:
         return None, b"", f"`git {' '.join(args)}` did not run: {error}"
     failed_query = out.returncode or (quiet and out.stderr.strip())
@@ -2148,27 +2148,36 @@ def cmd_dispatch(args):
 LEDGER_COMMANDS = ("review-record", "approve", "approval-check", "dispatch", "pre-push")
 FEATURE_REF = re.compile(r"refs/heads/feature/([a-z][a-z0-9]*-[0-9]+)(?:-.+)?")
 FIX_ROUNDS = "docs/acceptance/fix-rounds"
-WAVE_REF = re.compile(r"wave/\S+")
+# What merge-check admits as the head of a pull request into dev: wave/<name>, one component.
+WAVE_REF = re.compile(r"wave/[^/\s]+")
+DEV_REF = re.compile(r"(?:refs/heads/|refs/remotes/origin/|origin/)?dev")
 
 
-def fix_round_line(root, head, path):
+def fix_round_line(root, head, merge_base, path):
     """Where the fix round that added the manifest at path ends, seen from a wave head: (the tip of its line, the newest
     wave state that tip holds). The oldest commit of HEAD's first-parent line that holds the manifest is the merge that
     brought the line in, and the one other parent holding the same manifest is the line's tip. (None, None) when the
-    manifest was committed on HEAD's own line, changed after the merge, or came in any other way, or Git cannot say:
-    then the whole range from the fix base is the fix round's."""
-    def blob(commit):
-        code, out, _ = git(root, "rev-parse", "-q", "--verify", f"{commit}:{path}")
-        return out.strip() if code == 0 else None
-    _, out, problem = git(root, "rev-list", "--first-parent", head)
-    joined = head
-    for commit in [] if problem else os.fsdecode(out).split()[1:]:
-        if blob(commit) is None:
-            break
-        joined = commit
-    _, out, problem = git(root, "rev-list", "--parents", "-n", "1", joined)
-    parents = [] if problem else os.fsdecode(out).split()[1:]
-    holders = [parent for parent in parents[1:] if blob(parent) == blob(head)]
+    manifest was committed on HEAD's own line, changed after the merge, or came in any other way, when any commit of that
+    line from the merge base to the joining merge is not a merge, or when Git cannot say: then the whole range from the
+    fix base is the fix round's. Two Git runs read the line and its manifests."""
+    _, out, problem = git(root, "rev-list", "--first-parent", "--parents", head, f"^{merge_base}")
+    line = [] if problem else [row.split() for row in os.fsdecode(out).splitlines()]
+    if not line or line[0][0] != head:
+        return None, None
+    wanted = [f"{sha}:{path}" for row in line for sha in row]
+    _, out, problem = git(root, "cat-file", "--batch-check=%(objectname) %(objecttype)", stdin="\n".join(wanted).encode())
+    answers = [] if problem else os.fsdecode(out).splitlines()
+    if len(answers) != len(wanted):
+        return None, None
+    blobs = {name.split(":", 1)[0]: (answer.split()[0] if answer.endswith(" blob") else None)
+             for name, answer in zip(wanted, answers)}
+    joined = 0
+    while joined + 1 < len(line) and blobs[line[joined + 1][0]]:
+        joined += 1
+    if not blobs[head] or any(len(row) < 3 for row in line[joined:]):
+        return None, None
+    parents = line[joined][1:]
+    holders = [parent for parent in parents[1:] if blobs[parent] == blobs[head]]
     if len(holders) != 1:
         return None, None
     _, out, problem = git(root, "merge-base", holders[0], parents[0])
@@ -2294,11 +2303,15 @@ def cmd_fix_round_guard(args):
         # An explicit --base without the ledger lets the guard accept a change the base made and HEAD merged
         # (test_guard.mjs, --trusted-base); with the ledger, the guard binds to the reviewed commit alone.
         trusted = identity["base"] if args.base is not None and not args.ledger else None
-        # A wave pull request reruns every manifest at the wave head. A no-test declaration there covers its own fix
-        # round, which ends where its line merged into the wave, judged against the wave state that line holds.
+        # A wave pull request into dev reruns every manifest at the wave head. A no-test declaration there covers its
+        # own fix round, which ends where its line merged into the wave, judged against the wave state that line holds.
+        # The head branch's name proves nothing (CI passes the pull request's own, a ticket PR may use any), so the
+        # bound needs a base that is dev, which merge-check admits only from wave/<name>, and a first-parent line of
+        # merges. Anything else is judged whole.
         tip = None
-        if trusted and "noTests" in manifest and kinds[path] == "A" and WAVE_REF.fullmatch(args.branch or ""):
-            tip, line_base = fix_round_line(root, identity["head"], path)
+        if (trusted and "noTests" in manifest and kinds[path] == "A" and DEV_REF.fullmatch(args.base or "")
+                and WAVE_REF.fullmatch(args.branch or "")):
+            tip, line_base = fix_round_line(root, identity["head"], identity["mergeBase"], path)
             trusted = line_base if tip else trusted
         guard = argparse.Namespace(**{**vars(args), "findings": str(root / path), "fix_base": manifest["fixBase"],
                                       "trusted_base": trusted, "fix_head": tip})

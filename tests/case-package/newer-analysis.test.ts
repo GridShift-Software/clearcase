@@ -182,6 +182,19 @@ describe('a contradictions dataset the v5 shape cannot hold is demoted, never th
   });
 });
 
+describe('a contradictions dataset that already holds source_checks keeps them (PR #88 round 1)', () => {
+  it('d) checks without a count n beside an existing source_checks: the source value is never overwritten, and the whole dataset is demoted with a diagnostic', async () => {
+    const held = [{ check: 'Held', result: 'ok' }];
+    const checks = [{ n: 1, check: 'Counted', result: 'ok' }, { check: 'Uncounted', result: 'ok' }];
+    const source = { categories: [{ key: 'rates', title: 'Rates', severity: 'high', explain: 'Invented', items: [{ label: 'L', detail: 'D', refs: [], values: { a: '1.00' } }] }], total: 1, byCat: { rates: 1 }, checks, highCount: 1, source_checks: held };
+    const c = await convert([], (r) => { r.DATA.contradictions = structuredClone(source); });
+    expect(c.result.ok).toBe(true);
+    expect(keys(c)).not.toContain('contradictions');
+    expect(notes(c, 'V5_DATASET_SHAPE_UNMAPPED').map((d) => d.subject)).toContain('contradictions');
+    expect(data(c, 'v5-residual-contradictions')).toEqual(source);
+  });
+});
+
 describe('the product text for the analysis residual (M2)', () => {
   it('says what is true now: the module is mapped, and V5_OVERLAY_UNMAPPED names roots no recognised merge placed', async () => {
     const { title, hint } = CODES.V5_OVERLAY_UNMAPPED;

@@ -292,7 +292,7 @@ async function main(out: string, adverse: string | null): Promise<number> {
 	const isolation = checkOffline();
 	const node = realNode();
 	const pins = checkInstalled();
-	rmSync(out, { force: true }); // after every refusal, so a refused run deletes nothing
+	if (adverse === null) rmSync(out, { force: true }); // after every refusal, so a refused run deletes nothing; an adverse run writes no summary and leaves the last one
 	const startedAt = new Date().toISOString();
 	const runDir = path.join(root, '.local', 'hosting-probe', 'notifications', runStamp(startedAt)); // the summary's runDir is derived from startedAt
 	const rel = (p: string) => p.replace(runDir, '<run>');

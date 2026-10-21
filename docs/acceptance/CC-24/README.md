@@ -2,7 +2,7 @@
 
 ## Resumed gate, 9 October 2026
 
-**PASS at `25965d9e964b870190c27bd5f1c8933e5c75e9ad`.** See [the resumed record](r2.md) and [receipt summary](r2-summary.json). Both original HOLD reasons are closed; no implementation files were changed by this reviewer. The evidence JSON in this directory was recorded before the 21 October 2026 history rewrite and names the earlier forms (first six characters) of the same commits: `27d818` for `25965d9e` (`r2-summary.json`) and `5aa7b9` for `0d312bba` (`execution-summary.json`, `ownership-plan.json`).
+**PASS at `25965d9e964b870190c27bd5f1c8933e5c75e9ad`.** See [the resumed record](r2.md) and [receipt summary](r2-summary.json). Both original HOLD reasons are closed; no implementation files were changed by this reviewer. The evidence JSON in this directory was recorded before the 21 October 2026 history rewrite and names the earlier forms (first six characters) of the same commits: `27d818` for `25965d9e` (`r2-summary.json`) and `5aa7b9` for `0d312bba` (`execution-summary.json`, `ownership-plan.json`, `r2-summary.json`).
 
 ## First run, retained record
 

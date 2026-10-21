@@ -537,7 +537,7 @@ async function registerWrite(ctx: Ctx, request: Request, caseId: string, store: 
 	}
 }
 
-async function restoreStatements(ctx: Ctx, caseId: string, snap: Row, expectedRev: number, fail: boolean): Promise<[string, D1Value[]][]> {
+async function restoreStatements(ctx: Ctx, caseId: string, snap: Row, expectedRev: number, fail: boolean, invalid: 'invalid-packet' | 'invalid-snapshot'): Promise<[string, D1Value[]][]> {
 	if (snap.format !== 'clearcase.user-work/1' || snap.caseId !== caseId || !isObject(snap.tables)) refuse(422, 'invalid-snapshot');
 	const have = await uwTables(ctx);
 	const given = Object.keys(snap.tables as Row);
@@ -555,7 +555,7 @@ async function restoreStatements(ctx: Ctx, caseId: string, snap: Row, expectedRe
 		const constraints = await constraintsOf(ctx.db, t);
 		if (constraints === null) refuse(500, 'unchecked-constraint', { table: t });
 		const problem = userWorkProblem(t, list, constraints!);
-		if (problem !== null) refuse(422, 'invalid-packet', { reason: problem });
+		if (problem !== null) refuse(422, invalid, { reason: problem });
 		statements.push(...inserts(t, columns, list, 'json', null));
 	}
 	statements.push(['SELECT rev FROM case_rev WHERE case_id = ?', [caseId]], CLEAR);
@@ -566,7 +566,7 @@ async function restore(ctx: Ctx, request: Request, caseId: string): Promise<Resp
 	const b = await body(request);
 	const expectedRev = field(b, 'expectedRev', isCount);
 	const snap = field(b, 'snapshot', isObject);
-	const statements = await restoreStatements(ctx, caseId, snap, expectedRev, b.failAfterDelete === true);
+	const statements = await restoreStatements(ctx, caseId, snap, expectedRev, b.failAfterDelete === true, 'invalid-snapshot');
 	const pre = await backup(ctx, caseId, 'pre-restore', await snapshot(ctx, caseId)); // durable before any D1 write
 	try {
 		const out = await ctx.db.batch(statements);
@@ -996,7 +996,7 @@ async function restoreFinish(ctx: Ctx, request: Request, packetId: string): Prom
 	for (const r of model.asset) if ((r.sha256 !== null && typeof r.sha256 !== 'string') || (r.size !== null && !isCount(r.size)) || (r.kind !== 'file' && r.kind !== 'embedded')) refuse(422, 'invalid-packet', { reason: 'read-model/asset.json' });
 	await verifyObjects(ctx, v, stage.list, files);
 	const rev = (await ctx.db.first<{ rev: number }>('SELECT rev FROM case_rev WHERE case_id = ?', caseId))?.rev ?? 0;
-	const userWork = await restoreStatements(ctx, caseId, await readObject('user-work.json'), rev, false);
+	const userWork = await restoreStatements(ctx, caseId, await readObject('user-work.json'), rev, false, 'invalid-packet');
 
 	const pre = await backup(ctx, caseId, 'pre-restore', await snapshot(ctx, caseId)); // durable before any D1 write
 	// The same staged path as an import. The version flips to stored, and the case to active, last and in one batch: a

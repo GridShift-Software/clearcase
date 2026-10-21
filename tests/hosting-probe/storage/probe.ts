@@ -90,7 +90,7 @@ const LEG_SHAPE: Record<LegName, [number, number]> = {
 	range: [10, 11],
 	'write-once': [5, 8],
 	'two-pass': [5, 6],
-	'user-work': [13, 18],
+	'user-work': [13, 19],
 	export: [6, 8],
 	corruption: [11, 12],
 	restore: [8, 8],
@@ -912,6 +912,8 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			check(extraTable.status === 422 && extraTable.json().code === 'snapshot-unknown-table' && extraTable.json().table === 'uw_extra' && sha256(JSON.stringify(afterAdds)) === sha256((await http(`/cases/${caseId}/work`)).bytes), 'a snapshot that adds a table the deployment lacks is refused, naming the table, and changes nothing');
 			const extraColumn = await post(`/cases/${caseId}/work/restore`, { expectedRev: afterAdds.rev, snapshot: { ...snapshot, tables: { ...snapshot.tables, uw_note: { ...snapshot.tables.uw_note, columns: [...snapshot.tables.uw_note.columns, 'extra_column'] } } } });
 			check(extraColumn.status === 422 && extraColumn.json().code === 'snapshot-columns-differ' && extraColumn.json().table === 'uw_note' && sha256(JSON.stringify(afterAdds)) === sha256((await http(`/cases/${caseId}/work`)).bytes), 'a snapshot that adds a column to a table is refused, naming the table, and changes nothing');
+			const repeated = await post(`/cases/${caseId}/work/restore`, { expectedRev: afterAdds.rev, snapshot: { ...snapshot, tables: { ...snapshot.tables, uw_register_row: { ...snapshot.tables.uw_register_row, rows: [snapshot.tables.uw_register_row.rows[0], snapshot.tables.uw_register_row.rows[0]] } } } });
+			check(repeated.status === 422 && repeated.json().code === 'invalid-snapshot' && String(repeated.json().reason).includes('uw_register_row') && sha256(JSON.stringify(afterAdds)) === sha256((await http(`/cases/${caseId}/work`)).bytes), 'a snapshot that repeats a register row is refused 422 invalid-snapshot (not invalid-packet, which names a backup), naming the table, and changes nothing');
 			const ok = await post(`/cases/${caseId}/work/restore`, { expectedRev: afterAdds.rev, snapshot });
 			const restored = (await http(`/cases/${caseId}/work`)).json();
 			check(ok.status === 200 && JSON.stringify(restored.tables) === JSON.stringify(snapshot.tables) && restored.rev === afterAdds.rev + 1 && ok.json().preRestore.startsWith(`backup/${caseId}/pre-restore-`), 'a restore at the current revision replaces the case’s user work whole with the snapshot, after a durable pre-restore copy');

@@ -397,6 +397,19 @@ class IntoTheWave(DocsOnlyFixRound):
             with self.subTest(branch=branch):
                 self.assertIn('src/app.ts', self.guard(branch=branch, code=1))
 
+    def test_a_ticket_pull_request_into_a_wave_is_judged_whole_even_from_a_line_of_merges(self):
+        # a ticket branch of merges alone: another branch's runtime change, then the docs round's line. Its pull request is
+        # into a wave and CI cannot tell its head name from a wave's, so the base decides.
+        self.git('switch', '-q', '-c', 'side', self.reviewed)
+        self.fix_round()
+        self.git('switch', '-q', '-c', 'feature/grs-107-runtime', WAVE)
+        self.write('src/runtime.ts', 'export const runtime = 1;\n')
+        self.commit('a runtime change another branch made')
+        self.git('switch', '-q', '-c', 'feature/grs-108-merges', WAVE)
+        self.merge('feature/grs-107-runtime')
+        self.merge('side')
+        self.assertIn('src/runtime.ts', self.guard(branch='wave/evil', code=1))
+
     def test_a_wave_line_that_holds_a_commit_of_its_own_is_judged_whole(self):
         # A wave PR into dev is bounded only when its first-parent line, from the merge base to the merge that brought
         # the round in, is merges of pull requests alone.

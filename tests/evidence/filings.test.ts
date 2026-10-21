@@ -56,27 +56,33 @@ describe('filings register', () => {
 		expect(formFields((k) => f.get(k) ?? null)).toEqual({ ok: true, values: { filing: '   ', fdate: '', fparty: '', response: '', rdate: '', ref: 'OD-1' } });
 	});
 
-	it('exports the register in v5 columns, imported values unchanged and user-entered formulas neutralised', () => {
+	it('exports the register in v5 columns, with imported and user-entered formulas neutralised (GRS-172)', () => {
 		const rows = [{ ...seed('seed:a', 'h1', '=SUM(A1)'), record: { ...seed('seed:a', 'h1', '=SUM(A1)').record, status: '' } }];
 		const e = registerEntries(viewSeeds(rows, []), [user('u', 1, '=HYPERLINK("x")')]);
 		const csv = toCSV(registerCsvRows(e));
 		expect(csv.split('\r\n')[0]).toBe('filing,fdate,fparty,response,rdate,ref,status');
-		expect(csv.split('\r\n')[1]).toBe('=SUM(A1),,Synthetic party,,,,');
+		expect(csv.split('\r\n')[1]).toBe("'=SUM(A1),,Synthetic party,,,,");
 		expect(csv.split('\r\n')[2]!.startsWith("\"'=HYPERLINK(")).toBe(true);
 	});
 
-	it('keeps untouched imported values of an edited or conflicting seed unchanged in the export (D16)', () => {
+	it('writes untouched imported values of an edited or conflicting seed as imported cells in the export (D16)', () => {
 		const rec = { filing: '-Imported filing', fdate: '', fparty: '+Imported party', response: '', rdate: '', ref: '', status: '' };
 		const s = { datasetKey: 'filings', seedId: 'seed:a', seedSha256: 'h1', record: rec };
 		const line = (seeds: ReturnType<typeof viewSeeds>) => toCSV(registerCsvRows(registerEntries(seeds, []))).split('\r\n')[1];
-		expect(line(viewSeeds([s], []))).toBe('-Imported filing,,+Imported party,,,,');
+		expect(line(viewSeeds([s], []))).toBe("'-Imported filing,,'+Imported party,,,,");
 		// edited: only the field the user changed is user-entered
 		const edit = overlay('seed:a', 'h1', { ...rec, response: '=my reply', deleted: false });
-		expect(line(viewSeeds([s], [edit]))).toBe("-Imported filing,,+Imported party,'=my reply,,,");
+		expect(line(viewSeeds([s], [edit]))).toBe("'-Imported filing,,'+Imported party,'=my reply,,,");
 		// conflict: compared with the seed as imported now
-		expect(line(viewSeeds([{ ...s, seedSha256: 'h2', record: { ...rec, rdate: '2001-02-03' } }], [edit]))).toBe("-Imported filing,,+Imported party,'=my reply,,,");
+		expect(line(viewSeeds([{ ...s, seedSha256: 'h2', record: { ...rec, rdate: '2001-02-03' } }], [edit]))).toBe("'-Imported filing,,'+Imported party,'=my reply,,,");
 		// a user's own row stays fully user-entered
 		expect(toCSV(registerCsvRows(registerEntries([], [user('u', 1, '-typed')]))).split('\r\n')[1]).toBe("'-typed,,,,,,");
+	});
+
+	it('keeps an untouched imported plain number a number, where the same number typed is neutralised (D16, GRS-172)', () => {
+		const rec = { filing: '-5', fdate: '', fparty: '', response: '', rdate: '', ref: '', status: '' };
+		const e = registerEntries(viewSeeds([{ datasetKey: 'filings', seedId: 'seed:a', seedSha256: 'h1', record: rec }], []), [user('u', 1, '-5')]);
+		expect(toCSV(registerCsvRows(e)).split('\r\n').slice(1)).toEqual(['-5,,,,,,', "'-5,,,,,,"]);
 	});
 
 	it('exports every group item in v5 columns and order (L2653)', () => {

@@ -76,9 +76,9 @@ describe('titles, citations and formatting', () => {
 		expect(dateBasis({ date: '2001-01-01', dateType: null, dateSource: null })).toMatch(/^basis unknown/);
 		expect(dateBasis({ date: '2001-01-01', dateType: 'issued', dateSource: 'header' })).toBe('type issued, source header');
 	});
-	it('quotes CSV cells with quotes, commas, semicolons, tabs, CR or LF, and neutralises formulas only in user-entered cells', () => {
+	it('quotes CSV cells with quotes, commas, semicolons, tabs, CR or LF, and neutralises formulas in imported and user-entered cells (GRS-172)', () => {
 		expect(toCSV([['a', 'b,c', 'd"e'], ['x\ry', ['p', 'q'], null]])).toBe('a,"b,c","d""e"\r\n"x\ry","p; q",');
-		expect(csvCell('=SUM(A1)')).toBe('=SUM(A1)');
+		expect(csvCell('=SUM(A1)')).toBe("'=SUM(A1)");
 		expect(userCell('=SUM(A1)')).toBe("'=SUM(A1)");
 	});
 });

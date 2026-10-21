@@ -11,8 +11,8 @@ describe('defence & rebuttal export', () => {
 		expect(lines[1]).toBe('Point,Their case,Evidence,OD-1 SD-2,Rebuttal,OD-1 – OD-2');
 		expect(lines[2]).toBe('Point,Their case,Evidence,,Rebuttal,');
 	});
-	it('exports imported values unchanged, quoting only where CSV needs it', () => {
-		expect(defenceCsv(NEUTRAL_CSV_KEYS, [row({ point: '=SUM(A1)', evidence: 'a, "b"' })], true).split('\r\n')[1]).toBe('=SUM(A1),Their case,"a, ""b""",,Rebuttal,');
+	it('exports imported values with a formula start neutralised, quoting only where CSV needs it (GRS-172)', () => {
+		expect(defenceCsv(NEUTRAL_CSV_KEYS, [row({ point: '=SUM(A1)', evidence: 'a, "b"' })], true).split('\r\n')[1]).toBe('\'=SUM(A1),Their case,"a, ""b""",,Rebuttal,');
 	});
 	it('keeps the package keys unless one would repeat the refs header', () => {
 		const pkg = { keys: ['a', 'b', 'c', 'd', 'e'], note: null };

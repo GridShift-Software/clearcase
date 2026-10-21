@@ -4,11 +4,11 @@
 {
   "name": "clearcase-client-a",
   "account_id": "00000000000000000000000000000107",
-  "main": "artifact/_worker.js",
+  "main": "artifact/cloudflare/_worker.js",
   "compatibility_date": "2026-10-12",
   "compatibility_flags": ["nodejs_als"],
   "send_metrics": false,
-  "assets": { "directory": "artifact", "binding": "ASSETS" },
+  "assets": { "directory": "artifact/cloudflare", "binding": "ASSETS" },
   "vars": { "CLEARCASE_CLIENT_ID": "client-a" },
   "secrets": { "required": ["CLERK_SECRET_KEY"] },
   "d1_databases": [{ "binding": "DB", "database_name": "clearcase-client-a-db", "database_id": "00000000-0000-4000-8000-00000000aaaa", "migrations_dir": "migrations" }],

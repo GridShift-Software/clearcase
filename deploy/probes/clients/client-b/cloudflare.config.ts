@@ -6,7 +6,7 @@ export default {
     "name": "clearcase-client-b",
     "compatibilityDate": "2026-10-12",
     "compatibilityFlags": ["nodejs_als"],
-    "entrypoint": "./artifact/_worker.js",
+    "entrypoint": "./artifact/cloudflare/_worker.js",
     "env": {
       "DB": { "type": "d1", "name": "clearcase-client-b-db", "id": "00000000-0000-4000-8000-00000000bbbb" },
       "BUCKET": { "type": "r2", "name": "clearcase-client-b-files" },

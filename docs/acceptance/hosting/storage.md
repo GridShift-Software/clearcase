@@ -2,7 +2,7 @@
 
 [GRS-109](https://linear.app/vaper/issue/GRS-109) asks for proof of the per-client D1 and R2 layout, its integrity and its POC workload before production storage is built. Cloudflare stays pinned (GRS-26, 17 and 20 October 2026), so this unit runs only the legs that can pass on native workerd with local D1 and R2 and no Cloudflare account. Dian (`dianbrown`) owns the unpin and the cloud legs.
 
-**Verdict at a156c2c559c8: PASS for the local legs; HOLD for the cloud legs.** Every local leg below passed at POC scale at `a156c2c559c8afc25e496624a75d3e6a8c8ce678` (exit 0, `evidence: true`). What stays HOLD, and the moment each needs, is [at the end](#what-stays-hold). The probe is a model of the storage design, not the product's storage: GRS-117 and GRS-118 implement it.
+**Verdict at 5819d9bc790b: PASS for the local legs; HOLD for the cloud legs.** Every local leg below passed at POC scale at `5819d9bc790bee2367c990f84bf18f7fdd19f701` (exit 0, `evidence: true`). What stays HOLD, and the moment each needs, is [at the end](#what-stays-hold). The probe is a model of the storage design, not the product's storage: GRS-117 and GRS-118 implement it.
 
 ## Run it
 
@@ -10,7 +10,7 @@ From `tests/hosting-probe/storage/`, a workspace with its own pins and `bun.lock
 
 ```sh
 bun install --frozen-lockfile        # once, online
-bun run --bun probe                  # POC scale, about 7 minutes; writes .local/hosting-probe/storage/summary.json at the repo root
+bun run --bun probe                  # POC scale, about 9 minutes; writes .local/hosting-probe/storage/summary.json at the repo root
 bun run --bun probe --check FILE     # exit 0 only for this runner's POC-scale PASS summary for HEAD
 bun run --bun test:check             # mutates the committed summary and runs --check on each mutant
 bun generate.ts                      # prints the synthetic corpus's counts and sizes
@@ -18,19 +18,19 @@ bun generate.ts                      # prints the synthetic corpus's counts and 
 
 [`probe.ts`](../../../tests/hosting-probe/storage/probe.ts) has GRS-106's guards. It refuses (exit 2) a dirty tree, any Bun but 1.4.2, an installed package that differs from its pin, or a `node` that is really Bun. It re-runs itself inside [`tests/e2e/pilot/offline.sh`](../../../tests/e2e/pilot/offline.sh) (loopback only, the host resolver hidden), checks that again, and gives every child the same environment allowlist: a fresh `HOME` and XDG directories, `CI=1`, and no telemetry, error reports, `cf.json` fetch or dotenv. No account, login, token or Cloudflare request is possible. `--scale smoke` and `--allow-dirty` exist for working on the probe; neither can produce `evidence: true`. The local D1 and R2 state (about 13 GB at POC scale) is deleted at the end unless `--keep-state` is given; logs stay under `.local/hosting-probe/storage/<run>/logs`.
 
-`evidence` is `true` only when every leg passes at POC scale, HEAD and the tree are unchanged, and the runner's checker refuses every mutation of its own summary (1,774 mutants at this run). The checker holds the summary to one exact shape: the same keys and types at every level; the run's identity as literals (schema, SHA, scale, seed, pins, hosts, `evidence`, `failure`); the counts the seeded corpus and the legs fix as literals (corpus counts and sizes, layout counts, how many refusals each guard leg reaches); and a number above zero for every timing, so a zeroed field is refused too. It does not hold to the value what varies from run to run: a measured count such as the export's entries, parts and steps or the recovered rows, the retries, the artifact digest, an assertion's wording, or a timing. A hand edit of one of those passes `--check`; what shows it is the SHA, the run's logs and a rerun. The committed run is [evidence/storage-summary.json](evidence/storage-summary.json). It names the SHA it ran at.
+`evidence` is `true` only when every leg passes at POC scale, HEAD and the tree are unchanged, and the runner's checker refuses every mutation of its own summary (2,076 mutants at this run). The checker holds the summary to one exact shape: the same keys and types at every level; the run's identity as literals (schema, SHA, scale, seed, pins, hosts, `evidence`, `failure`); the counts the seeded corpus and the legs fix as literals (corpus counts and sizes, layout counts, how many refusals each guard leg reaches); and a number above zero for every timing, so a zeroed field is refused too. It does not hold to the value what varies from run to run: a measured count such as the export's entries, parts and steps or the recovered rows, the retries, the artifact digest, an assertion's wording, or a timing. A hand edit of one of those passes `--check`; what shows it is the SHA, the run's logs and a rerun. The committed run is [evidence/storage-summary.json](evidence/storage-summary.json). It names the SHA it ran at.
 
-Wrangler's dev proxy sometimes drops a request on its pooled connection to the Worker before the Worker runs. It answers a 500 in `text/plain` that starts `Error: Network connection lost.`, about 20 ms after the request, and retries only GET and HEAD itself. Two POC restores failed on it. Logging every restored entry showed the failed request never reached the Worker, and the same request passed on the next attempt. The runner now retries such a request up to twice, after 250 ms, and lists each retry with its leg in `devProxyRetries`. The upload leg's `retries` is that list's upload count. This run: 1 (`restore: POST /restore/packets/<id>/step (attempt 2)`). An answer from the Worker itself, always JSON or verified bytes, is never retried.
+Wrangler's dev proxy sometimes drops a request on its pooled connection to the Worker before the Worker runs. It answers a 500 in `text/plain` that starts `Error: Network connection lost.`, about 20 ms after the request, and retries only GET and HEAD itself. Two POC restores failed on it. Logging every restored entry showed the failed request never reached the Worker, and the same request passed on the next attempt. The runner now retries such a request up to twice, after 250 ms, and lists each retry with its leg in `devProxyRetries`. The upload leg's `retries` is that list's upload count. This run: 3 (each `restore: POST /restore/packets/<id>/step (attempt 2)`); a restore step is also safe to repeat now, since it writes each key once. An answer from the Worker itself, always JSON or verified bytes, is never retried.
 
 ## What runs where
 
 | Step | Host |
 | --- | --- |
-| `bun build src/worker.ts` (the Worker module, 66.8 KB, no `node:` or `bun:` import) | Bun 1.4.2 |
+| `bun build src/worker.ts` (the Worker module, 73.9 KB, no `node:` or `bun:` import) | Bun 1.4.2 |
 | Runner, corpus generator, HTTP requests, assertions, summary | Bun 1.4.2 |
 | `wrangler dev --local`, `wrangler d1 execute --local`, `wrangler r2 object put/get/delete --local` | Node 26.10.0 hosts Wrangler 4.151.1 only |
 | The Worker | native workerd 1.20261012.1, a descendant of Wrangler; the runner checks it in `/proc` |
-| Offline packet check | `python3 -I` (`zipfile`, `hashlib`): an independent reader |
+| Offline backup check | `python3 -I` (`zipfile`, `hashlib`): an independent reader |
 
 D1 and R2 are Miniflare's local implementations inside workerd. They are not Cloudflare's, so this run is not evidence of remote D1 or R2 behaviour, limits or latency.
 
@@ -54,7 +54,7 @@ The p99 is 1.2% under its target because the curve also has to meet the 32 MiB s
 
 ## Legs
 
-Every leg ran at `a156c2c559c8afc25e496624a75d3e6a8c8ce678`, POC scale. Exit code 0.
+Every leg ran at `5819d9bc790bee2367c990f84bf18f7fdd19f701`, POC scale. Exit code 0.
 
 | Leg | Research leg | What it asserts | Result |
 | --- | --- | --- | --- |
@@ -75,7 +75,7 @@ Every leg ran at `a156c2c559c8afc25e496624a75d3e6a8c8ce678`, POC scale. Exit cod
 
 ## Acceptance items
 
-| Item | Status at `a156c2c559c8` | Evidence |
+| Item | Status at `5819d9bc790b` | Evidence |
 | --- | --- | --- |
 | Run P1–P8 where they apply, including wrong-client access, upload and finalize, integrity, concurrent user work, complete export, corruption and restore; no Node CPU proxy | PASS for P4, P5 (logic), P7, P8, wrong client, upload and finalize. HOLD for P1, P2, P3, P5's limit enforcement and P6, and for P4 to P6 against the two-database layout arm | legs above; no step ran on Node except Wrangler's host |
 | Layout chosen from actual request, row and object counts; separate clients' resources and preview/published namespaces | Chosen structurally, from the counts of one layout; the comparison against the two-database arm is HOLD (it needs P4 to P6 against both layouts, and P6 is HOLD). PASS for the counts, separate clients and the published namespace | [Layout](#the-layout-frozen-for-product-owners); `crossed-bindings`; candidate files 404 in `layout` |
@@ -91,7 +91,7 @@ Each case is a corruption the `corruption` leg made on the source deployment, th
 | Case | How it was made | Caught by | Answer |
 | --- | --- | --- | --- |
 | Bit flip at rest in an original, outside bytes 0–63; same size and etag | one byte at offset 100 of its blob in the local R2 store | the whole-object SHA-256 on delivery | `Range: bytes=0-63`, GET and HEAD: 410 `changed-original`, no original bytes |
-| The same corrupted original reached by an export | export step | the entry's SHA-256 over the bytes written into the packet, across parts when it spans them | 410; the job is `failed`, its multipart upload aborted, and no packet object exists |
+| The same corrupted original reached by an export | export step | the entry's SHA-256 over the bytes written into the backup, across parts when it spans them | 410; the job is `failed`, its multipart upload aborted, and no backup object exists |
 | Truncated original (a credential holder's PUT) | `wrangler r2 object put` | the recorded size | 410 (`size`), no bytes |
 | Replaced original, same size (a credential holder's PUT) | `wrangler r2 object put` | the whole-object SHA-256 | 410 (`sha256`), no bytes |
 | Deleted original | `wrangler r2 object delete` | the R2 read | 410 `missing-original` |
@@ -120,7 +120,7 @@ The cost of this rule on the largest original is in [Local measurements](#local-
 | Read model in D1, written through `json_each` | 6 statements for every row of a version, against 206 with bound rows. Local D1 refuses a 101st bound parameter, so bound rows need at least 33 rows a statement. The largest invocation took 47 statements; 25,458 rows were written in the import leg, both attempts and both arms | fewer statements per invocation, which matters under the 50-query (Free) and 1,000-query (Paid) limits that local workerd does not enforce |
 | One database per client, results and user work in separate tables | a document page costs 1 D1 statement and 0 R2 operations; the chronology view 1 statement and 1 R2 GET; a range of an original 1 statement and 1 R2 GET (a whole-object read). Activation, a restore and the import's flip are each one batch | activation (`active`, `activation_log` and the version state) and a restore need one atomic batch, and `batch()` is per database. The cost: a D1 Time Travel restore rolls back user work too, so per-case user-work restores use the R2 snapshots (`backup/`). A second database is the alternative if P6 shows Time Travel must restore results alone. That comparison (P4 to P6 against both layouts, which GRS-95 says choosing needs) is not run: this layout is chosen structurally, from its counts, and the comparison is HOLD |
 | Originals content-addressed (`orig/<sha256>`), write-once | 1,662 objects, 9 of them multipart; a finalize takes 2 R2 operations | a repeat upload is a no-op, and dedupe is free. The Worker never deletes or overwrites such a key; the rule and every site that writes or deletes in R2 are in [the table below](#r2-writes-and-deletes-every-site) |
-| Export as a multipart packet, one 8 MiB part per step | at most 45 R2 operations and 6 D1 statements in one step; 385 steps | each invocation stays bounded. A one-invocation export of 1,662 originals would exceed the Free plan's subrequest limit. R2 (local R2 too) completes a multipart upload only when every part but the last has one size and the last is no larger: the first POC run, with one part per group of entries, failed at completion (10048) |
+| Export as a multipart backup, one 8 MiB part per step | at most 45 R2 operations and 6 D1 statements in one step; 385 steps | each invocation stays bounded. A one-invocation export of 1,662 originals would exceed the Free plan's subrequest limit. R2 (local R2 too) completes a multipart upload only when every part but the last has one size and the last is no larger: the first POC run, with one part per group of entries, failed at completion (10048) |
 
 **R2 keys** (per client bucket):
 
@@ -130,8 +130,8 @@ orig/<sha256>                           originals, content-addressed, write-once
 pkg/<resultsVersion>/<path>             exact package files, put({sha256})
 rm/<resultsVersion>/chronology.json     the chronology list, put({sha256})
 backup/<caseId>/<label>-<rev>-<sha256>.json   user-work snapshots: on demand and before every restore
-export/<caseId>/<exportId>.zip          case packets (ZIP64, store-only)
-import/<packetId>.zip                   a packet uploaded for restore
+export/<caseId>/<exportId>.zip          case backups (ZIP64, store-only)
+import/<packetId>.zip                   a backup uploaded for restore
 ```
 
 Previews (GRS-118) take `preview/<resultsVersion>/<assetId>`, beside `pkg/`, so a candidate's previews are never under a published version's key. No code writes `preview/` yet, so that namespace is unproven here. Publication is the D1 `active` pointer: only the active version's files are served.
@@ -179,16 +179,16 @@ These are wall times on one host (20 threads), local workerd and Miniflare's D1 
 
 | Measure | Local value |
 | --- | ---: |
-| Upload and finalize of 1,662 originals (3,211,390,882 bytes) | 68,514 ms |
-| Import of one version (both attempts, plus the bound-row arm) | 6,734 ms |
-| Document page: cold (first request on a fresh workerd) / warm (median of 5) | 30.7 / 6.0 ms |
-| Chronology view (1.5 MB list verified and parsed): cold / warm | 13.6 / 7.6 ms |
-| 64 KiB range of the largest original (258,590,305 bytes, hashed whole first) | 2,464 ms |
-| The largest original whole (two passes) | 6,368 ms |
-| Export build and seal | 104,708 ms |
-| Offline packet check (Python) | 2,702 ms |
-| Restore into the fresh deployment (upload, steps, finish) | 109,378 ms |
-| Peak resident set of the workerd processes (process memory, not an isolate's 128 MB) | range leg 466,411,520 bytes; export leg 1,041,293,312 bytes |
+| Upload and finalize of 1,662 originals (3,211,390,882 bytes) | 57,797 ms |
+| Import of one version (both attempts, plus the bound-row arm) | 5,347 ms |
+| Document page: cold (first request on a fresh workerd) / warm (median of 5) | 30.2 / 3.9 ms |
+| Chronology view (1.5 MB list verified and parsed): cold / warm | 8.7 / 5.7 ms |
+| 64 KiB range of the largest original (258,590,305 bytes; a range of up to 32 MiB is one hashing pass over the whole object, so this is the first read alone) | 2,356 ms |
+| The largest original whole (two reads, the second hashed as it streams) | 5,556 ms |
+| Export build and seal | 101,206 ms |
+| Offline backup check (Python) | 2,700 ms |
+| Restore into the fresh deployment (upload, steps, finish) | 126,622 ms |
+| Peak resident set of the workerd processes (process memory, not an isolate's 128 MB) | range leg 470,855,680 bytes; export leg 1,080,745,984 bytes |
 
 ## What stays HOLD
 

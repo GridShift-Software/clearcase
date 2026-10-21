@@ -27,8 +27,8 @@ const mutants = (value: unknown) =>
 		}),
 	);
 
-// Reviewed with the config, never compared with a target: none of them names a client or the uploaded code.
-const UNREAD = /^(compatibility_date|compatibility_flags|send_metrics|assets\.binding|d1_databases\.0\.migrations_dir|worker\.compatibilityDate|worker\.compatibilityFlags)(\.|$)/;
+// Reviewed with the config, never compared with a target: none of them names a client, a path or the uploaded code.
+const UNREAD = /^(compatibility_date|compatibility_flags|send_metrics|assets\.binding|worker\.compatibilityDate|worker\.compatibilityFlags)(\.|$)/;
 
 describe('same-account wrong-client identifiers', () => {
 	for (const [format, file] of FORMATS) {
@@ -89,6 +89,12 @@ describe('the target check fails closed', () => {
 		refuses('wrangler', text, /belongs to client-b/);
 	});
 
+	test.each(['/etc', '../../client-b/migrations', '../stage-client-b/artifact', 'artifact/cloudflare', 'migrations/', ''])('wrangler: migrations_dir %j is outside the staged migrations', (dir) => {
+		const text = wrangler.replace('"migrations_dir": "migrations"', `"migrations_dir": ${JSON.stringify(dir)}`);
+		expect(text).not.toBe(wrangler);
+		refuses('wrangler', text, /the migrations directory is .*not the staged migrations/);
+	});
+	test('wrangler: a D1 binding without migrations_dir', () => refuses('wrangler', wrangler.replace(', "migrations_dir": "migrations"', ''), /the migrations directory is missing/));
 	test('wrangler: a second D1 binding', () => refuses('wrangler', wrangler.replace('"migrations_dir": "migrations" }]', '"migrations_dir": "migrations" }, { "binding": "DB2", "database_name": "x-db", "database_id": "00000000-0000-4000-8000-000000000000" }]'), /binds 2 D1 databases/));
 	test('wrangler: the client var naming another client', () => refuses('wrangler', wrangler.replace('"CLEARCASE_CLIENT_ID": "client-a"', '"CLEARCASE_CLIENT_ID": "client-b"'), /vars are/));
 	test("wrangler: client B's identifier in a field the comparisons do not read", () => refuses('wrangler', wrangler.replace('"CLEARCASE_CLIENT_ID": "client-a"', `"CLEARCASE_CLIENT_ID": "client-a", "NOTE": "${b.d1.id}"`), /belongs to client-b/));
@@ -188,6 +194,33 @@ describe("the Build Output of a credential-free cf build is checked again before
 	test('no Build Output', () => refuses(path.join(BOS, 'none'), /holds 0 Workers/));
 	test('a module beside the staged entry', () =>
 		refuses(write('module', { ...worker(a), manifest: { ...worker(a).manifest, modules: { ...worker(a).manifest.modules, 'extra.js': { type: 'esm' } } } }), /Worker entry/));
+	test.each([
+		['a container beside the Worker', 'containers/clearcase-client-b/container.json'],
+		['a second assets tree', 'assets/index.html'],
+		['a second assets tree under the Worker', 'workers/default/assets/index.html'],
+		['a file in the bundle the manifest does not name', 'workers/default/bundle/extra.js'],
+		['a file at the top of the Build Output', 'notes.txt'],
+	])('%s is refused', (_what, rel) => {
+		const stage = write(`stray-${rel.replace(/\W/g, '-')}`, worker(a));
+		const file = path.join(stage, '.cloudflare/output/v0', rel);
+		mkdirSync(path.dirname(file), { recursive: true });
+		writeFileSync(file, '{"name":"clearcase-client-b"}');
+		refuses(stage, new RegExp(`${rel.replace('.', '\\.')} is not part of a prebuilt Worker's Build Output`));
+	});
+	test('a symlink in the Build Output is refused', () => {
+		const stage = write('linked', worker(a));
+		const out = path.join(stage, '.cloudflare/output/v0');
+		mkdirSync(path.join(out, 'workers/default/bundle'), { recursive: true });
+		symlinkSync('/etc/hostname', path.join(out, 'workers/default/bundle/_worker.js'));
+		refuses(stage, /_worker\.js is not a regular file/);
+	});
+	test("the named module files are the only ones the Build Output may hold", () => {
+		const stage = write('modules', worker(a));
+		const bundle = path.join(stage, '.cloudflare/output/v0/workers/default/bundle');
+		mkdirSync(bundle, { recursive: true });
+		for (const f of ['_worker.js', '_worker.js.map']) writeFileSync(path.join(bundle, f), '//\n');
+		expect(checkPrebuilt({ client: 'client-a', stage, targets })).toEqual([]);
+	});
 	test('every mutant of the Build Output outside the unread keys is refused', () => {
 		const accepted = mutants({ accountId: a.accountId, buildContext: { isPreview: false }, worker: worker(a) })
 			.filter(({ label }) => !UNREAD.test(label.split(' ')[1]!))
@@ -218,6 +251,9 @@ describe('the trusted parent stages only a checked config and the reviewed artif
 		const record = JSON.parse(readFileSync(path.join(out, 'stage.json'), 'utf8'));
 		expect(record).toMatchObject({ schema: 'clearcase.deploy-stage/1', client: 'client-a', artifact: digest });
 		expect(Object.keys(record.files).sort()).toEqual(['cloudflare.config.ts', 'target.json', 'wrangler.jsonc']);
+		expect(record.migrations).toBe(digestDir(path.join(CLIENTS, 'client-a', 'migrations')));
+		expect(digestDir(path.join(out, 'migrations'))).toBe(record.migrations);
+
 	});
 
 	test('an artifact changed after review is refused and nothing is staged', () => {
@@ -236,6 +272,15 @@ describe('the trusted parent stages only a checked config and the reviewed artif
 		writeFileSync(file, readFileSync(file, 'utf8').replace(a.d1.id, b.d1.id));
 		const out = path.join(SCRATCH, 'stage-swapped');
 		expect(stage({ client: 'client-a', artifact, digest, out, clients })).toEqual([`cloudflare.config.ts: d1 id ${b.d1.id} belongs to client-b, not client-a`]);
+		expect(existsSync(out)).toBe(false);
+	});
+
+	test("a client's migrations that hold a symlink are refused and nothing is staged", () => {
+		const clients = path.join(SCRATCH, 'clients-linked');
+		cpSync(CLIENTS, clients, { recursive: true });
+		symlinkSync('/etc/hostname', path.join(clients, 'client-a', 'migrations', '9999_linked.sql'));
+		const out = path.join(SCRATCH, 'stage-linked-migrations');
+		expect(stage({ client: 'client-a', artifact, digest, out, clients }).join('\n')).toMatch(/9999_linked\.sql is not a regular file/);
 		expect(existsSync(out)).toBe(false);
 	});
 

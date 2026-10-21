@@ -9,7 +9,7 @@
     "reviewer": "greptile-apps[bot]",
     "reviewedHead": "326455a9d878d0a270dbb26512f636274b934b69",
     "waveBase": "67ffc21cb80e2b3765f61d284153a391c7b4bfb1",
-    "note": "fixBase is the red commit 0299fb7: the guard needs each named test to exist at the base, and this regression is new; the manifest follows it, since a commit cannot name its own hash. The class sweep's second test (keepRest and carryTyped, red 986bbc9) is added inside the range and is not named. reviewFindingsSha256 is the sha256 of .orchestration/merge-records/evidence/PR-88/review-comment-4335850895.md."
+    "note": "fixBase is the red commit 0299fb7: the guard needs each named test to exist at the base, and this regression is new; the manifest follows it, since a commit cannot name its own hash. The class sweep's second test (keepRest and carryTyped, red 986bbc9) lives in its own file, tests/case-package/newer-source-names.test.ts, and is not named. reviewFindingsSha256 is the sha256 of .orchestration/merge-records/evidence/PR-88/review-comment-4335850895.md."
   },
   "findings": [
     {
@@ -31,8 +31,5 @@
       "file": "tests/case-package/newer-analysis.test.ts",
       "name": "d) checks without a count n beside an existing source_checks: the source value is never overwritten, and the whole dataset is demoted with a diagnostic"
     }
-  ],
-  "assertionCountReasons": {
-    "tests/case-package/newer-analysis.test.ts": "Adds the class sweep's independent test (red 986bbc9, typed in 027f8a9) for keepRest and carryTyped, with the import of defenceRowOf, riskMatrixOf and timelineEventOf it calls; the named test d) is unchanged."
-  }
+  ]
 }

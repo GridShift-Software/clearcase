@@ -191,9 +191,10 @@ async function main(out: string): Promise<number> {
 	/**
 	 * An earlier run that was killed before its cleanup leaves its `cc108-` users and invitations in the development
 	 * instances. Removes those over an hour old (never this run's own, nor a concurrent run's), invitations before users.
-	 * A failure is reported and the sweep goes on: it is housekeeping, not evidence.
+	 * A failure is reported and the sweep goes on: it is housekeeping, not evidence. A row for which Clerk states no finite
+	 * creation time is left in place, as there is no telling its age, and is counted so that a stranded row shows up.
 	 */
-	const swept = { users: 0, invitations: 0, failed: 0 };
+	const swept = { users: 0, invitations: 0, failed: 0, undated: 0 };
 	async function sweep(): Promise<void> {
 		const cutoff = Date.now() - 3_600_000;
 		for (const app of ['client', 'staff'] as const) {
@@ -205,6 +206,7 @@ async function main(out: string): Promise<number> {
 					swept.failed++;
 					console.error(`sweep: listing ${app} ${kind} failed: ${describe(e)}`);
 				}
+				swept.undated += found.filter((x) => x.createdAt === null).length;
 				for (const row of found.filter((x) => x.createdAt !== null && x.createdAt < cutoff)) {
 					try {
 						await remove(row.id);
@@ -294,7 +296,7 @@ async function main(out: string): Promise<number> {
 		console.error(`interrupted: clerk users ${clerk.users.created}/${clerk.users.deleted} invitations ${clerk.invitations.created}/${clerk.invitations.deleted} sessions ${clerk.sessions.created}/${clerk.sessions.ended} (created/deleted or ended)`);
 	});
 	await sweep();
-	console.log(`sweep: removed ${swept.users} users and ${swept.invitations} invitations of earlier runs older than an hour${swept.failed ? `; ${swept.failed} failed (see above)` : ''}`);
+	console.log(`sweep: removed ${swept.users} users and ${swept.invitations} invitations of earlier runs older than an hour${swept.undated ? `; ${swept.undated} rows with no creation time left in place` : ''}${swept.failed ? `; ${swept.failed} failed (see above)` : ''}`);
 
 	try {
 		await leg('integration', async (check) => {

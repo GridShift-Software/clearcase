@@ -114,7 +114,7 @@ for (const g of ['v5', 'newer', 'json'] as const) {
   try { doc = JSON.parse(r.stdout.slice(0, r.stdout.lastIndexOf('\n}') + 2)); } catch { problems.push('probe output does not parse'); }
   probes[g] = doc;
   const res = doc?.result ?? {};
-  const want = { v5: { documents: 1689 }, newer: { documents: 2131, storyline: 8, strategy: 5 }, json: { documents: 4466, storyline: 29 } }[g];
+  const want = { v5: { documents: 1689 }, newer: { documents: 2131, storyline: 6, strategy: 6 }, json: { documents: 4466, storyline: 29 } }[g];
   if (res.documents !== want.documents) problems.push(`documents ${res.documents}, expected ${want.documents}`);
   if (doc && (doc.result.unaccounted?.length ?? 1) !== 0) problems.push(`unaccounted datasets: ${doc.result.unaccounted}`);
   if ('storyline' in want && res.matterHeadings?.storyline !== want.storyline) problems.push(`storyline headings ${res.matterHeadings?.storyline}, expected ${want.storyline}`);

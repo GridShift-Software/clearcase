@@ -567,7 +567,7 @@ arbitrary test frameworks.
 
 Where a change to `scripts/agent-tools/test_guard.mjs` lands:
 
-- `closure(revision, starts)` returns `loaded` (the files the named tests load, reached by `follow()`) apart from `found` (all compared text, including runner configuration and resolver inputs) and `loadedBy(start)` per named file, plus `declared`. `importsOf(tree, file, strict)` skips nonliteral imports of app code when `strict` is false; strict mode still throws for protected files.
+- `closure(revision, starts)` returns `{found, ids, modes, data, runner, resolve, loadedBy, declared, origin}`. `follow()` fills `found` (all compared text, including runner configuration and resolver inputs) and the import edges; `loadedBy(start)` walks those edges from one named file plus the shared files, so the files a test loads are per file, not one `loaded` set. `importsOf(tree, file, strict)` skips nonliteral imports of app code when `strict` is false; strict mode still throws for protected files.
 - `analysisOf(file, text, exporter)` (module level, cached per exporter) owns `rootOf`, `exportRoot` and `exportedBy`. `reachesFramework(file, text, exporter)` takes `main()`'s `exporter`, which links a specifier and reads `runnableOf` at HEAD, memoised; without an exporter, imports are not followed. It is an allowlist (`held`, `rootOf`, `mutation`), and Svelte files read `scriptOf` (parse) and `runnableOf` (compile).
 - `link`, `unquery`, `external` and `exporter` sit in `main()` just after `currentClosure`, because `quiet()` uses them. `link()` binds `.svelte` and extensioned specifiers for new-load edges only; the closure's own `resolve` still fails closed on them.
 

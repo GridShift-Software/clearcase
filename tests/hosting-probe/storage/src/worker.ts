@@ -838,6 +838,18 @@ async function entryBytes(ctx: Ctx, key: string, e: Entry): Promise<Uint8Array> 
 const restoreTarget = (m: Omit<PlanEntry, 'source'>, resultsVersion: string) =>
 	m.kind === 'original' ? `orig/${m.sha256}` : m.kind === 'package' ? `pkg/${resultsVersion}/${m.path.slice('package/'.length)}` : m.kind === 'list' ? `rm/${resultsVersion}/chronology.json` : null;
 
+/**
+ * Whether the object stored under a restore target is the one the manifest names. R2 keeps a SHA-256 for a single PUT and
+ * none for a multipart object, so for an `orig/` key without one an `original` row with this SHA-256 and size stands in:
+ * finalize hashes the whole object before it writes that row. An unrecorded object, or one of another size, is not it.
+ */
+async function isStored(ctx: Ctx, target: string, o: R2Object, sha: string, size: number): Promise<boolean> {
+	if (o.size !== size) return false;
+	const stored = checksum(o);
+	if (stored) return stored === sha;
+	return target === `orig/${sha}` && (await ctx.db.first('SELECT 1 FROM original WHERE sha256 = ? AND size = ?', sha, size)) !== null;
+}
+
 /** A restore stages a version that is new, or its own case's unfinished one, in a case with no active version; nothing else. */
 async function restorable(ctx: Ctx, caseId: string, v: string) {
 	const row = await ctx.db.first<{ case_id: string; state: string }>('SELECT case_id, state FROM results_version WHERE version_id = ?', v);
@@ -862,7 +874,7 @@ async function restoreStep(ctx: Ctx, request: Request, packetId: string): Promis
 		if (target) {
 			// Write-once: bytes already there that are these ones are a repeat of an earlier step; anything else is left as it is.
 			const stored = await ctx.bucket.head(target);
-			if (stored && (stored.size !== m.size || checksum(stored) !== m.sha256)) refuse(409, 'conflicting-object', { entry: e.path });
+			if (stored && !(await isStored(ctx, target, stored, m.sha256, m.size))) refuse(409, 'conflicting-object', { entry: e.path });
 			const n = new TextEncoder().encode(e.path).length;
 			const head = await ctx.bucket.get(key, { range: { offset: e.offset, length: 30 + n } });
 			if (!hasBody(head)) refuse(410, 'integrity');
@@ -923,7 +935,7 @@ async function restoreFinish(ctx: Ctx, request: Request, packetId: string): Prom
 		const target = restoreTarget(m, v);
 		if (!target) continue;
 		const o = await ctx.bucket.head(target);
-		if (!o || o.size !== m.size || checksum(o) !== m.sha256) refuse(409, 'incomplete', { missing: target });
+		if (!o || !(await isStored(ctx, target, o, m.sha256, m.size))) refuse(409, 'incomplete', { missing: target });
 	}
 
 	// Everything the restore will write is read and checked here, before the first write: a refusal leaves the case as it was.

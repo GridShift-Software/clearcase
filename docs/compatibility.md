@@ -80,7 +80,7 @@ Counted from the source on 21 October 2026 (`analysisOverlay` and `analysisRead`
 | `defenceMatrix` | 11 | `defence-matrix` | `theirs` is `dcs`; each cited ref becomes a document link (`docs`); `refs` is empty |
 | `witnesses` | 10 | `witnesses` | as written; `side`, `proves`, `docs`, `status` carried |
 | `infoRequired` | 14 | `info-required` | as written; `id`, `why`, `refs`, `from` carried |
-| `contradictions` | 5 categories, 19 items, 6 checks | `contradictions` | an item's refs become document links, `values` carried; the checks carry no count `n`, so they are kept as `source_checks` and the view lists no checks |
+| `contradictions` | 5 categories, 19 items, 6 checks | `contradictions` | an item's refs become document links, `values` carried; the checks carry no count `n`, so they are kept as `source_checks` and the view lists no checks; a source that already holds `source_checks` is never overwritten, and its whole dataset is kept residual under `V5_DATASET_SHAPE_UNMAPPED` |
 | `legality` | intro, 14 documents, 4 scenarios, 5 factors | `lit-legality` | as written |
 | `elements` | 9 | `lit-elements` | `goto` is `tab`; `refs`, `gap` carried |
 | `recon` | 57 | `lit-recon` | `period` is `month`, `due` is `amountdue`; `breakdown` carried |

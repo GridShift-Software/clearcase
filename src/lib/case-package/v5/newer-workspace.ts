@@ -251,7 +251,8 @@ export function defenceRowOf(r: JsonObject, rowsByRef: RowsByRef): JsonObject {
 
 /**
  * Newer contradictions: an item's cited refs become v5's document links. A check without v5's count `n` cannot be
- * one of v5's checks, so the source checks stay beside them as `source_checks` and no count is invented.
+ * one of v5's checks, so the source checks stay beside them as `source_checks` and no count is invented. A source that
+ * already holds `source_checks` is never overwritten: the checks stay where it wrote them and the dataset's shape check demotes it whole.
  */
 export function contradictionsOf(c: JsonObject, rowsByRef: RowsByRef): JsonObject {
   const item = (it: JsonObject): JsonObject => (Array.isArray(it.refs) && it.refs.length > 0 && fits('strs', it.refs)
@@ -259,7 +260,7 @@ export function contradictionsOf(c: JsonObject, rowsByRef: RowsByRef): JsonObjec
     : it);
   const out: JsonObject = { ...c };
   if (Array.isArray(c.categories)) out.categories = mapObjs(c.categories, (cat) => (Array.isArray(cat.items) ? { ...cat, items: mapObjs(cat.items, item)! } : cat))!;
-  if (Array.isArray(c.checks) && !c.checks.every((x) => isObject(x) && typeof x.n === 'number')) { out.checks = []; own(out, sourceName('checks'), c.checks); }
+  if (Array.isArray(c.checks) && !Object.hasOwn(c, sourceName('checks')) && !c.checks.every((x) => isObject(x) && typeof x.n === 'number')) { out.checks = []; own(out, sourceName('checks'), c.checks); }
   return out;
 }
 

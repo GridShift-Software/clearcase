@@ -27,7 +27,7 @@ import { type OriginalPlan, type Plan, type Scale, V5, aggregates, listText, ori
 
 const HERE = import.meta.dirname;
 const SCHEMA = 'clearcase.storage-probe/1';
-const LEGS = ['build', 'provision', 'crossed-bindings', 'upload', 'import', 'layout', 'range', 'write-once', 'user-work', 'export', 'corruption', 'restore'] as const;
+const LEGS = ['build', 'provision', 'crossed-bindings', 'upload', 'import', 'layout', 'range', 'write-once', 'two-pass', 'user-work', 'export', 'corruption', 'restore'] as const;
 type LegName = (typeof LEGS)[number];
 type Measure = Record<string, number | string | boolean>;
 type Leg = { status: 'PASS' | 'FAIL' | 'NOT RUN'; commands: string[]; asserted: string[]; measured: Measure; failure?: string };
@@ -84,8 +84,9 @@ const LEG_SHAPE: Record<LegName, [number, number]> = {
 	layout: [5, 9],
 	range: [10, 11],
 	'write-once': [5, 7],
+	'two-pass': [5, 5],
 	'user-work': [12, 16],
-	export: [6, 7],
+	export: [6, 8],
 	corruption: [11, 12],
 	restore: [8, 8],
 };
@@ -143,6 +144,7 @@ const MEASURES: Record<LegName, Record<string, Spec>> = {
 	},
 	range: { largestOriginalBytes: poc.originals.max, rangeOnLargestMs: MS, wholeLargestMs: MS, workerdPeakRssBytes: POSITIVE },
 	'write-once': { refusedWrites: 4 },
+	'two-pass': { originalBytes: 40 * MiB, changedReadsRefused: 3 },
 	'user-work': { concurrentAdds: 100, duplicateSeqs: 0, naiveDuplicateSeqs: POSITIVE, racedReplaces: 20, staleReplaces: 19, restoreRace: /^(restore-first|adds-first|interleaved)$/ },
 	export: { entries: POSITIVE, packetBytes: POSITIVE, parts: POSITIVE, steps: POSITIVE, maxR2OpsPerStep: POSITIVE, maxD1StatementsPerStep: POSITIVE, wallMs: MS, offlineCheckMs: MS, workerdPeakRssBytes: POSITIVE },
 	corruption: { casesRefused: 8 },
@@ -468,6 +470,19 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			flipped++;
 		}
 		return flipped;
+	};
+
+	/** Reads a streamed response to its end, or to the error that cut it short: how many bytes arrived and how it ended. */
+	const drain = async (res: Response) => {
+		let received = 0;
+		let error: string | null = null;
+		const hash = createHash('sha256');
+		try {
+			for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) (hash.update(chunk), (received += chunk.length));
+		} catch (e) {
+			error = String(e);
+		}
+		return { received, error, sha256: hash.digest('hex') };
 	};
 
 	const p: Plan = plan(SEED, scale);
@@ -805,6 +820,49 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			m.refusedWrites = refused;
 		});
 
+		// ----- two-pass: the bytes a client receives are the bytes that were hashed, or the response ends in an error -----
+		await leg('two-pass', ['PUT /originals/<sha256> (40 MiB) and POST /cases/case-tp/originals (finalize)', 'GET the original whole and Range: bytes=0-36700159, nothing changed', 'GET the original whole; one byte of its R2 blob changed once the headers are back', 'GET Range: bytes=0-36700159; one byte inside the range changed after the headers', 'GET Range: bytes=0-36700159; one byte outside the range changed after the headers'], async (check, m) => {
+			const big = new Uint8Array(40 * MiB);
+			for (let i = 0, x = 0x9e3779b9; i < big.length; i++) ((x ^= x << 13), (x ^= x >>> 17), (x ^= x << 5), (big[i] = x & 0xff));
+			big.set(new TextEncoder().encode('SYNTHETIC ONLY: two-pass original\n'));
+			const h = sha256(big);
+			const url = `${BASE}/cases/case-tp/originals/tp-big`;
+			const rangeEnd = 35 * MiB - 1;
+			check((await http(`/originals/${h}`, { method: 'PUT', body: big as Uint8Array<ArrayBuffer>, timeout: 300_000 })).status === 200 && (await post('/cases/case-tp/originals', { assetId: 'tp-big', sha256: h, size: big.length, filename: 'tp-big.pdf', mediaType: 'application/pdf' }, 300_000)).status === 200, 'a 40 MiB original, over the 32 MiB buffer, is uploaded and finalized');
+			const whole = await http('/cases/case-tp/originals/tp-big', { timeout: 300_000 });
+			const range = await http('/cases/case-tp/originals/tp-big', { headers: { range: `bytes=0-${rangeEnd}` }, timeout: 300_000 });
+			check(whole.status === 200 && sha256(whole.bytes) === h && range.status === 206 && equal(range.bytes, big.subarray(0, rangeEnd + 1)), 'unchanged, the whole GET and a 35 MiB range answer exactly their bytes');
+			// Headers are back once the first pass has hashed the object; one byte of the stored blob then changes (size, ETag and
+			// recorded digest as before) and the body is read. The response must end in an error before its last byte.
+			let refused = 0;
+			const race = async (init: RequestInit, at: number, want: number) => {
+				let res: Response;
+				for (let attempt = 1; ; attempt++) {
+					res = await fetch(url, { ...init, signal: AbortSignal.timeout(300_000) });
+					if (res.status !== 500 || attempt > 2) break; // Wrangler's dev proxy sometimes drops a request before the Worker runs
+					await res.arrayBuffer();
+				}
+				const flipped = flip('storage-a', big.length, h, at);
+				const out = await drain(res);
+				const bad = Uint8Array.from(big);
+				bad[at] = bad[at]! ^ 0xff;
+				const restored = flip('storage-a', big.length, sha256(bad), at);
+				const ended = (res.status === 200 || res.status === 206) && (out.error !== null || out.received < want);
+				if (ended) refused++;
+				return { flipped: flipped === 1 && restored === 1, ended, status: res.status, ...out };
+			};
+			const w = await race({}, big.length - 1000, big.length);
+			check(w.flipped && w.ended, `the whole GET errors before its end when a byte changes after its headers (${w.status}, ${w.received} of ${big.length} bytes, ${w.error ?? 'no error'})`);
+			const inside = await race({ headers: { range: `bytes=0-${rangeEnd}` } }, 34 * MiB, rangeEnd + 1);
+			check(inside.flipped && inside.ended, `a 35 MiB range errors before its end when a byte inside it changes (${inside.status}, ${inside.received} of ${rangeEnd + 1} bytes, ${inside.error ?? 'no error'})`);
+			const outside = await race({ headers: { range: `bytes=0-${rangeEnd}` } }, 39 * MiB, rangeEnd + 1);
+			check(outside.flipped && outside.ended, `a 35 MiB range errors before its end when a byte outside it changes, because the digest covers the whole object (${outside.status}, ${outside.received} of ${rangeEnd + 1} bytes, ${outside.error ?? 'no error'})`);
+			const again = await http('/cases/case-tp/originals/tp-big', { timeout: 300_000 });
+			check(again.status === 200 && sha256(again.bytes) === h, 'with the byte put back, the whole GET answers exactly the original');
+			m.originalBytes = big.length;
+			m.changedReadsRefused = refused;
+		});
+
 		// ----- user work (P4) -----
 		await leg('user-work', ['100 concurrent POST /cases/<case>/registers/{a,b}/add', '100 concurrent POST …/naive-add (control: read, then write)', 'POST …/add again with an operationId already used', '20 concurrent POST …/replace with one expected version', 'POST …/remove with a stale, then the current version; …/replace after removal', 'GET /cases/<case>/work?backup=1 (snapshot)', 'POST /cases/<case>/work/restore with a stale rev', 'POST …/work/restore with an injected failure after the deletes', 'POST …/work/restore with a snapshot lacking a table', 'POST …/work/restore with the current rev', 'POST …/work/restore racing 20 adds', 'GET /cases/<case>/work'], async (check, m) => {
 			const add = (store: string, i: number) => post(`/cases/${caseId}/registers/${store}/add`, { fields: { label: `synthetic ${store} ${i}` }, operationId: `op-${store}-${i}` });
@@ -869,7 +927,7 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 		let packetSha = '';
 		let sourceState = '';
 		let exportEntries = 0;
-		await leg('export', ['POST /cases/<case>/exports', 'POST /cases/<case>/exports/<id>/step until complete (one multipart part each)', 'POST …/seal (the packet hashed whole)', 'GET /cases/<case>/exports/<id> (two-pass verified download)', 'python3 -I (zipfile): open the packet offline, every entry’s CRC and the manifest’s SHA-256 and size', 'GET /cases/<case>/state'], async (check, m) => {
+		await leg('export', ['POST /cases/<case>/exports', 'POST /cases/<case>/exports/<id>/step until complete (one multipart part each)', 'POST …/seal (the packet hashed whole)', 'GET /cases/<case>/exports/<id> (two-pass verified download), then again with one byte of the packet changed after the headers', 'python3 -I (zipfile): open the packet offline, every entry’s CRC and the manifest’s SHA-256 and size', 'GET /cases/<case>/state'], async (check, m) => {
 			const t0 = performance.now();
 			const start = await post(`/cases/${caseId}/exports`, {}, 600_000);
 			check(start.status === 200, 'an export job starts from the active version, with a manifest of every entry');
@@ -901,6 +959,14 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			closeSync(fd);
 			packetSha = hash.digest('hex');
 			check(packetSha === seal.json().sha256 && statSync(packet).size === seal.json().size, 'the downloaded bytes match the sealed SHA-256 and size');
+			// The same race as the two-pass leg, on the packet: a byte changes after the headers, and the download must end in an error.
+			const packetSize = seal.json().size as number;
+			const raced = await fetch(`${BASE}/cases/${caseId}/exports/${exportId}`, { signal: AbortSignal.timeout(900_000) });
+			const flippedPacket = flip('storage-a', packetSize, null, packetSize - 1000);
+			const drained = await drain(raced);
+			flip('storage-a', packetSize, null, packetSize - 1000);
+			const ended = raced.status === 200 && (drained.error !== null || drained.received < packetSize);
+			check(flippedPacket === 1 && (ended || (scale === 'smoke' && drained.sha256 === packetSha)), `a packet download errors before its end when a byte of the packet changes after its headers (${drained.received} of ${packetSize} bytes, ${drained.error ?? 'no error'}); at smoke scale the packet may be read before the byte changes, and then it must be intact`);
 			const t1 = performance.now();
 			const py = run('/usr/bin/python3', ['-I', '-c', PY_CHECK, packet], { env: { PATH: '/usr/bin:/bin' } });
 			m.offlineCheckMs = ms(t1);

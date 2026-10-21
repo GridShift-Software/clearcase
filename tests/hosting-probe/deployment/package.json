@@ -1,0 +1,24 @@
+{
+  "name": "clearcase-deployment-probe",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.2",
+  "scripts": {
+    "test": "vitest run",
+    "probe": "bun probe.ts"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.4.6",
+    "@sveltejs/adapter-cloudflare": "8.0.1",
+    "@sveltejs/kit": "3.1.0",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "cf": "1.0.0-beta.20",
+    "miniflare": "5.20261019.1-beta",
+    "svelte": "5.57.2",
+    "vite": "8.3.4",
+    "vitest": "5.0.5",
+    "void": "1.1.12",
+    "workerd": "1.20261019.1",
+    "wrangler": "4.151.3"
+  }
+}

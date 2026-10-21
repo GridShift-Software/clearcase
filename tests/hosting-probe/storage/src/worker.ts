@@ -254,14 +254,12 @@ async function finalize(ctx: Ctx, request: Request, caseId: string): Promise<Res
 	const object = await ctx.bucket.head(key);
 	if (!object) refuse(409, 'not-uploaded');
 	// The upload checked a SHA-256 only for single PUTs; multipart has none. Every original is hashed here before its
-	// row exists, so a recorded original is always one whose stored bytes matched.
+	// row exists, so a recorded original is always one whose stored bytes matched. A mismatch records nothing and deletes
+	// nothing: the key may hold another case's verified bytes, and `size` is the caller's claim.
 	try {
 		await hashWhole(ctx, key, sha, size);
 	} catch (e) {
-		if (e instanceof Refused) {
-			await ctx.bucket.delete(key);
-			refuse(422, 'digest-mismatch', { check: e.detail.check });
-		}
+		if (e instanceof Refused && e.code === 'changed-original') refuse(409, 'digest-mismatch', { check: e.detail.check });
 		throw e;
 	}
 	try {
@@ -934,7 +932,13 @@ async function route(request: Request, env: Env): Promise<Response> {
 		}
 		if (seg.length === 5 && seg[2] === 'uploads' && seg[4] === 'complete' && m === 'POST') {
 			const b = await body(request);
-			const o = await ctx.bucket.resumeMultipartUpload(key, seg[3]!).complete(field(b, 'parts', (x): x is R2UploadedPart[] => Array.isArray(x)));
+			const upload = ctx.bucket.resumeMultipartUpload(key, seg[3]!);
+			// orig/<sha> is write-once: a complete would replace whatever a racing upload put there since this one began.
+			if (await ctx.bucket.head(key)) {
+				await upload.abort().catch(() => undefined);
+				refuse(409, 'conflicting-object');
+			}
+			const o = await upload.complete(field(b, 'parts', (x): x is R2UploadedPart[] => Array.isArray(x)));
 			return json(ctx, { size: o.size });
 		}
 	}

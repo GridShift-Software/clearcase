@@ -578,7 +578,7 @@ async function main(out: string): Promise<number> {
 	});
 
 	await leg('credential-scan', 'no canary or credential shape in build artifacts, staged deploy inputs, logs or homes', (l, check) => {
-		const roots = [path.join(kit, '.svelte-kit'), artifact, logs, home, ...readdirSync(runDir).filter((d) => d.startsWith('stage-')).map((d) => path.join(runDir, d)), path.join(plain, '.cloudflare')].filter(existsSync);
+		const roots = [path.join(kit, '.svelte-kit'), artifact, logs, home, ...readdirSync(runDir).filter((d) => d.startsWith('stage-')).map((d) => path.join(runDir, d)), path.join(plain, '.cloudflare'), path.join(runDir, 'plain-p7', '.cloudflare')].filter(existsSync);
 		const values = [canaries.token, canaries.clerk];
 		const control = path.join(runDir, 'control');
 		mkdirSync(control);

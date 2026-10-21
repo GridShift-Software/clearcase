@@ -1,6 +1,6 @@
 # Dev gate FAIL at c89d405: overview and documents subtitles differ from v5 since the demo merges
 
-Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-141/dev-gate-fail-at-8ab9ef4-overview-and-documents-subtitles-differ-from) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-141/dev-gate-fail-at-c89d405-overview-and-documents-subtitles-differ-from) is the execution authority.
 
 Found by `orch-bin/dev-gate c89d405` on 17 October 2026 (verdict file under `.orchestration/dev-gate/`). Build, check, test and the e2e suite PASS; strict parity FAILS with exactly two unregistered differences and `verify:pilot:v5` was skipped behind it.
 

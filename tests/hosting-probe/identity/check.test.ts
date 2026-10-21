@@ -136,16 +136,15 @@ describe('binding to an ancestor sourceSha and the inputs only', () => {
 
 	git('init', '-q', '-b', 'main');
 	for (const p of INPUT_PATHS) write(p.endsWith('identity') ? `${p}/probe.ts` : p, `synthetic ${p}\n`);
-	write('deploy/probes/scan.ts', 'synthetic scan\n');
 	const source = commit('README.md', 'synthetic\n');
 
 	test('at its own revision the summary passes', () => {
 		expect(at(source)).toEqual([]);
 	});
 
-	test('a later commit outside the inputs (another probe, deploy/probes/scan.ts, the app) keeps it valid', () => {
+	test('a later commit outside the inputs (another probe, the app, the rest of deploy/probes) keeps it valid', () => {
 		commit('src/app.ts', 'synthetic app change\n');
-		commit('deploy/probes/scan.ts', 'synthetic scan change\n');
+		commit('deploy/probes/target.ts', 'synthetic target change\n');
 		expect(at(source)).toEqual([]);
 	});
 
@@ -168,6 +167,13 @@ describe('binding to an ancestor sourceSha and the inputs only', () => {
 	test("a change to GRS-107's secrets reader makes it stale", () => {
 		git('checkout', '-q', '-b', 'reader-change');
 		commit('deploy/probes/secrets-child.mjs', 'synthetic changed reader\n');
+		expect(at(source).join('\n')).toMatch(/inputs\.digest/);
+		git('checkout', '-q', 'main');
+	});
+
+	test("a change to the scanner the credential-scan leg imports (deploy/probes/scan.ts) makes it stale", () => {
+		git('checkout', '-q', '-b', 'scan-change');
+		commit('deploy/probes/scan.ts', 'synthetic changed scanner\n');
 		expect(at(source).join('\n')).toMatch(/inputs\.digest/);
 		git('checkout', '-q', 'main');
 	});

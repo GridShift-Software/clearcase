@@ -21,7 +21,7 @@ import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { scanPaths } from '../../../deploy/probes/scan.ts';
 import { checkSummary, countsOf, HOLD, inputsDigest, INPUT_PATHS, LEGS, SCHEMA, type LegName } from './check.ts';
-import { Backend, Browser, ClerkError, claimsOf, frontendApi, Pace, ticketOf } from './clerk.ts';
+import { Backend, Browser, ClerkError, claimsOf, frontendApi, halt, Pace, ticketOf } from './clerk.ts';
 import { appEnv, BUN, build, checkInstalled, fetchApp, freePorts, HERE, onInterrupt, persistOf, realNode, Refusal, run, seed, startServe, stopServe, type Reply, type ServeConfig } from './harness.ts';
 import { CLASS_ORDER, classesOf, expectFor, label, MARKERS, mayShow, ownInstance, pathOf, rows, type Class, type Row } from './matrix.ts';
 
@@ -197,7 +197,7 @@ async function main(out: string): Promise<number> {
 	async function sweep(): Promise<void> {
 		const cutoff = Date.now() - 3_600_000;
 		for (const app of ['client', 'staff'] as const) {
-			const stale = async <T extends { id: string; createdAt: number }>(kind: 'users' | 'invitations', list: () => Promise<T[]>, remove: (id: string) => Promise<unknown>) => {
+			const stale = async <T extends { id: string; createdAt: number | null }>(kind: 'users' | 'invitations', list: () => Promise<T[]>, remove: (id: string) => Promise<unknown>) => {
 				let found: T[] = [];
 				try {
 					found = await list();
@@ -205,7 +205,7 @@ async function main(out: string): Promise<number> {
 					swept.failed++;
 					console.error(`sweep: listing ${app} ${kind} failed: ${describe(e)}`);
 				}
-				for (const row of found.filter((x) => x.createdAt < cutoff)) {
+				for (const row of found.filter((x) => x.createdAt !== null && x.createdAt < cutoff)) {
 					try {
 						await remove(row.id);
 						swept[kind]++;
@@ -282,9 +282,10 @@ async function main(out: string): Promise<number> {
 			verify(clerk.users.created === clerk.users.deleted && clerk.invitations.created === clerk.invitations.deleted, `created ${clerk.users.created} users and ${clerk.invitations.created} invitations; deleted the same`);
 			check(problems.length === 0, `every object of the run was deleted or ended${problems.length ? `; ${problems.length} problem(s): ${problems.slice(0, 8).join('; ')}` : ''}`);
 		}));
-	// SIGINT or SIGTERM (Ctrl-C, a timeout, a killed terminal): the Workers stop and Clerk is cleaned before the process ends
+	// SIGINT, SIGTERM or SIGHUP (Ctrl-C, a timeout, a killed terminal): the Workers stop and Clerk is cleaned before the process ends
 	onInterrupt(async () => {
 		failure ??= 'interrupted by a signal';
+		halt.on = true; // the running step creates nothing more while the cleanup lists what exists
 		try {
 			await cleanup();
 		} catch (e) {

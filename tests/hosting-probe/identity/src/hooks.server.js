@@ -1,6 +1,6 @@
 // The one place a request is admitted (GRS-108). Every route the app serves has a gate per method in #lib/gates.json;
 // this hook looks it up before the route runs, so a route without a gate is never served and no route checks access
-// on its own. A request with no route is refused too (404 not-served), except Kit's own 404 for a path nothing matches.
+// on its own. A request with no route is refused too (404 not-served), and never resolved.
 // Public routes (the BA-19 and BA-20 entry points) never call Clerk or D1.
 import { decide, gateOf } from '#lib/server/access.js';
 
@@ -20,11 +20,8 @@ export async function handle({ event, resolve }) {
 	// Kit 3.1.0 matches no route to a remote-function call (/_app/remote/...), so no gate could name it: default deny.
 	if (event.isRemoteRequest) return refusal(event, 404, 'not-served', null);
 	const found = gateOf(event.route.id, event.request.method);
-	if (found.status === 404 && found.reason === 'no-route') {
-		// No file matches. Kit's own 404 may stand; any other answer to a request with no route is refused.
-		const response = await resolve(event);
-		return response.status === 404 ? response : refusal(event, 404, 'not-served', null);
-	}
+	// No file matches: the answer is ours, never Kit's, and nothing is resolved.
+	if (found.status === 404 && found.reason === 'no-route') return refusal(event, 404, 'not-served', null);
 	if (found.status) return refusal(event, found.status, found.reason, null);
 	if (found.gate === 'public') return resolve(event);
 	const d = await decide(event, found.gate).catch(() => ({ status: 503, reason: 'access-unavailable' }));

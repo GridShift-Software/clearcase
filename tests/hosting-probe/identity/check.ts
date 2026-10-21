@@ -2,7 +2,7 @@
 //
 //   bun run --bun check:evidence [FILE]   # default ../../../docs/acceptance/hosting/evidence/identity-summary.json
 //
-// A summary is evidence for the probe's own inputs (this directory and deploy/probes/secrets*, INPUT_PATHS) at the
+// A summary is evidence for the probe's own inputs (this directory, deploy/probes/secrets* and deploy/probes/scan.ts, which probe.ts imports: INPUT_PATHS) at the
 // revision it ran, not for the whole repository, so a merge that leaves those inputs alone keeps it valid, and any
 // change to them makes it stale. The check never replaces the summary's sourceSha with HEAD. It refuses (exit 1) unless:
 //   - sourceSha is HEAD or an ancestor of it, and the inputs' tree at HEAD hashes to the summary's digest and to the
@@ -21,7 +21,7 @@ import path from 'node:path';
 import { classesOf, expectFor, label, rows, type Row } from './matrix.ts';
 
 export const SCHEMA = 'clearcase.identity-probe/1';
-export const INPUT_PATHS = ['tests/hosting-probe/identity', 'deploy/probes/secrets.ts', 'deploy/probes/secrets-child.mjs', 'deploy/probes/secrets-env.mjs', 'deploy/probes/secrets-fd.mjs'];
+export const INPUT_PATHS = ['tests/hosting-probe/identity', 'deploy/probes/secrets.ts', 'deploy/probes/secrets-child.mjs', 'deploy/probes/secrets-env.mjs', 'deploy/probes/secrets-fd.mjs', 'deploy/probes/scan.ts'];
 export const LEGS = ['integration', 'instances', 'invite-only', 'grants-outside-clerk', 'operator-access', 'revocation', 'expiry-and-recovery', 'restart', 'route-matrix', 'public-entry', 'cleanup', 'credential-scan'] as const;
 export type LegName = (typeof LEGS)[number];
 export const HOLD = [

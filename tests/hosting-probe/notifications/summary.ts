@@ -34,7 +34,7 @@ export const LEG_SHAPE: Record<LegName, [number, number]> = {
 	'publication-notice': [1, 8],
 	'input-needed-notice': [1, 4],
 	'authenticated-link': [5, 6],
-	'app-deduplication': [2, 4],
+	'app-deduplication': [3, 5],
 	'wrong-client': [4, 4],
 	'content-refused': [2, 3],
 	'recipient-missing': [2, 3],
@@ -52,13 +52,14 @@ export const LEG_SHAPE: Record<LegName, [number, number]> = {
 export const MESSAGES: [string, string, string][] = [
 	['default', 'case-a1', 'publication'],
 	['default', 'case-a1', 'input-needed'],
+	['default', 'case-a8', 'publication'],
 	['faults', 'case-a8', 'input-needed'],
 	['faults', 'case-a3', 'publication'],
 	['faults', 'case-a3', 'publication'],
 	['faults', 'case-a4', 'publication'],
 ];
 /** What the app saw for each saved message, measured: its messageId came back in a response, or the attempt ended without one. */
-export const APP_SAW = ['accepted', 'accepted', 'accepted', 'not seen: the attempt ended ambiguous', 'accepted', 'accepted'];
+export const APP_SAW = ['accepted', 'accepted', 'accepted', 'accepted', 'not seen: the attempt ended ambiguous', 'accepted', 'accepted'];
 
 export const HOLD = [
 	'provider acceptance against delivery and inbox arrival on real Email Sending: M3, Workers Paid',

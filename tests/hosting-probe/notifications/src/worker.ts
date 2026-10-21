@@ -132,11 +132,12 @@ async function sweep(env: Env, now: number): Promise<void> {
 	const stale = await env.DB.prepare("SELECT o.notice_id, o.attempts FROM outbox o JOIN notices n ON n.id = o.notice_id WHERE n.client = ? AND o.state = 'sending' AND o.claimed_at <= ?")
 		.bind(env.CLIENT_ID, now - STALE_SENDING_MS)
 		.all<{ notice_id: string; attempts: number }>();
-	for (const s of stale.results) await record(env, s.notice_id, s.attempts, now, 'ambiguous', 'INTERRUPTED', null);
+	// one row's error (a D1 failure, a record raced by a late original) must not stop the rows after it
+	for (const s of stale.results) await record(env, s.notice_id, s.attempts, now, 'ambiguous', 'INTERRUPTED', null).catch(() => {});
 	const due = await env.DB.prepare("SELECT o.notice_id FROM outbox o JOIN notices n ON n.id = o.notice_id WHERE n.client = ? AND o.state IN ('pending', 'retrying') AND (o.next_at IS NULL OR o.next_at <= ?) ORDER BY o.updated_at LIMIT 50")
 		.bind(env.CLIENT_ID, now)
 		.all<{ notice_id: string }>();
-	for (const d of due.results) await attempt(env, d.notice_id, now);
+	for (const d of due.results) await attempt(env, d.notice_id, now).catch(() => {});
 }
 
 /** Creates the in-app notice and its outbox row with `extra` in one batch, or returns the notice that already exists for this event. */
@@ -222,13 +223,20 @@ async function handle(req: Request, env: Env): Promise<Response> {
 		}
 		const file = b?.file;
 		if (typeof file !== 'string' || !file) return refuse(400, 'file must be a non-empty string');
-		const key = `publications/${c.id}/${round}/results.txt`;
-		const prior = await env.DB.prepare('SELECT file_sha256 FROM publications WHERE client = ? AND case_id = ? AND version = ?').bind(env.CLIENT_ID, c.id, round).first<{ file_sha256: string }>();
-		if (prior && prior.file_sha256 !== (await sha256(file))) return refuse(409, `version ${round} is already published with other content`);
-		if (!prior) await env.BUCKET.put(key, file);
 		const digest = await sha256(file);
+		// The key carries the digest, so two racing publishes of one version with different files never overwrite each
+		// other's object; the D1 row that commits names the file that is published.
+		const key = `publications/${c.id}/${round}/${digest}.txt`;
+		const prior = await env.DB.prepare('SELECT file_sha256 FROM publications WHERE client = ? AND case_id = ? AND version = ?').bind(env.CLIENT_ID, c.id, round).first<{ file_sha256: string }>();
+		if (prior && prior.file_sha256 !== digest) return refuse(409, `version ${round} is already published with other content`);
+		if (!prior) await env.BUCKET.put(key, file);
 		const publication = env.DB.prepare('INSERT INTO publications (client, case_id, version, file_key, file_sha256, published_at) VALUES (?, ?, ?, ?, ?, ?)').bind(env.CLIENT_ID, c.id, round, key, digest, new Date(now).toISOString());
 		const { noticeId, created } = await notify(env, c.id, 'publication', round as number, c.uploader, prior ? [] : [publication], now);
+		if (!created) {
+			// a racing publish of this version committed first: answer as it did only if it published the same file
+			const won = await env.DB.prepare('SELECT file_sha256 FROM publications WHERE client = ? AND case_id = ? AND version = ?').bind(env.CLIENT_ID, c.id, round).first<{ file_sha256: string }>();
+			if (won?.file_sha256 !== digest) return refuse(409, `version ${round} is already published with other content`);
+		}
 		// The publication is committed above; the email below can only add to the outbox row.
 		if (created) await firstAttempt(env, noticeId, now);
 		return json({ published: true, version: round, fileSha256: digest, noticeId, created, notice: await outboxView(env, noticeId) });

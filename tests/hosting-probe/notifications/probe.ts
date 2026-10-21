@@ -285,7 +285,7 @@ async function main(out: string): Promise<number> {
 		s.publications.length === 1 && s.publications[0].version === 1 && s.publications[0].file_sha256 === sha256(fileFor(caseId, 1)) && s.file === fileFor(caseId, 1) && s.notices.length === 1 && s.notices[0].kind === 'publication';
 	const history = (row: any) => (row?.history ?? []).map((h: any) => `${h.n}:${h.outcome}:${h.code}`).join(' ');
 	const noticeCase = new Map<string, { caseId: string; kind: NoticeKind }>();
-	const remember = (r: { json: any }, caseId: string, kind: NoticeKind) => (r.json?.noticeId && noticeCase.set(r.json.noticeId, { caseId, kind }), r);
+	const remember = <T extends { json: any }>(r: T, caseId: string, kind: NoticeKind): T => (r.json?.noticeId && noticeCase.set(r.json.noticeId, { caseId, kind }), r);
 
 	const legs = Object.fromEntries(LEGS.map((n) => [n, { status: 'NOT RUN', commands: [], asserted: [] } as Leg])) as Record<LegName, Leg>;
 	async function leg(name: LegName, commands: string[], body: (check: (ok: boolean, what: string) => void) => Promise<void>) {
@@ -387,7 +387,7 @@ async function main(out: string): Promise<number> {
 			check(s.notices.map((n: any) => n.id).sort().join() === [pub, inp].sort().join(), 'the in-app notices are the two the emails link to');
 		});
 
-		await leg('app-deduplication', ['POST /cases/case-a1/publish round=1 (again, same file)', 'POST /cases/case-a1/publish round=1 (other file)'], async (check) => {
+		await leg('app-deduplication', ['POST /cases/case-a1/publish round=1 (again, same file)', 'POST /cases/case-a1/publish round=1 (other file)', 'two concurrent POST /cases/case-a8/publish round=1, with two different files'], async (check) => {
 			const again = await publish('case-a1');
 			check(again.status === 200 && again.json.created === false && again.json.noticeId === [...noticeCase.keys()][0] && again.json.notice.attempts === 1, 'publishing the same version again returns the same notice, not a second one, and sends nothing more');
 			const other = await publish('case-a1', 1, 'synthetic other content');
@@ -395,6 +395,12 @@ async function main(out: string): Promise<number> {
 			check((await savedMessages(server!, 2)).length === 2, 'the simulator saved no further message');
 			const s = await intact('case-a1');
 			check(s.file === fileFor('case-a1', 1) && s.publications.length === 1 && s.notices.length === 2, 'the file, the publication and the in-app notices are unchanged');
+			const files = ['synthetic racing file one', 'synthetic racing file two'];
+			const raced = await Promise.all(files.map((f) => publish('case-a8', 1, f)));
+			const won = raced.findIndex((r) => r.status === 200);
+			if (won >= 0) remember(raced[won]!, 'case-a8', 'publication');
+			const a8 = await intact('case-a8');
+			check(raced.map((r) => r.status).sort().join() === '200,409' && a8.publications.length === 1 && a8.publications[0].file_sha256 === sha256(files[won]!) && a8.file === files[won] && a8.notices.length === 1 && (await savedMessages(server!, 3)).length === 3, 'of two concurrent publishes of one version with different files, one answers 200 and one 409; the file served is the one the publication names, with one in-app notice and one email');
 		});
 
 		await leg('wrong-client', ['POST /cases/case-b1/publish (client-a/a-publisher)', 'POST /cases/case-a1/publish round=2 (client-b/b-publisher)', 'GET /cases/case-b1 (client-a/a-publisher)', 'GET /ops/notifications (client-b/b-publisher)'], async (check) => {
@@ -404,7 +410,7 @@ async function main(out: string): Promise<number> {
 			const bc = await http('GET', '/cases/case-b1', A('a-publisher'));
 			const bo = await http('GET', '/ops/notifications', 'client-b/b-publisher');
 			check(b.status === 401 && bo.status === 401 && bc.status === 404, "client B's publisher gets 401 on A's publish and operator routes; A's publisher gets 404 for B's case");
-			check((await savedMessages(server!, 2)).length === 2, 'no message was saved for any crossed request');
+			check((await savedMessages(server!, 3)).length === 3, 'no message was saved for any crossed request');
 			const s = await intact('case-a1');
 			check(s.publications.length === 1 && s.notices.length === 2, "client A's case has no round-2 publication or notice");
 		});
@@ -412,14 +418,14 @@ async function main(out: string): Promise<number> {
 		await leg('content-refused', ['POST /cases/case-a6/publish (title "New results")', 'GET /cases/case-a6 and its file (a-uploader)'], async (check) => {
 			const r = await publish('case-a6');
 			check(r.status === 200 && r.json.published === true && r.json.notice.state === 'failed' && history(r.json.notice) === '1:permanent:NOTICE_CONTENT_REFUSED', "the Worker's own content check refuses the notice (its body would carry the case title) and does not retry; the publication answers 200");
-			check((await savedMessages(server!, 2)).length === 2, 'nothing was sent');
+			check((await savedMessages(server!, 3)).length === 3, 'nothing was sent');
 			check(published(await intact('case-a6'), 'case-a6'), 'the publication, its file and the in-app notice are intact');
 		});
 
 		await leg('recipient-missing', ['POST /cases/case-a5/publish (uploader has no address)', 'GET /cases/case-a5 and its file (publisher)'], async (check) => {
 			const r = await publish('case-a5');
 			check(r.status === 200 && r.json.notice.state === 'failed' && history(r.json.notice) === '1:permanent:RECIPIENT_MISSING', 'an uploader with no address fails closed: RECIPIENT_MISSING, no retry, publication 200');
-			check((await savedMessages(server!, 2)).length === 2, 'nothing was sent');
+			check((await savedMessages(server!, 3)).length === 3, 'nothing was sent');
 			check(published(await intact('case-a5', A('a-publisher')), 'case-a5'), 'the publication, its file and the in-app notice are intact');
 			await stop();
 		});
@@ -523,9 +529,9 @@ async function main(out: string): Promise<number> {
 		});
 
 		await leg('no-leak', ['scan of every saved message, Wrangler log and operator response of the run'], async (check) => {
-			check(allSaved.map((m) => `${m.env}/${noticeCase.get(linkedNotice(m.text, ORIGIN) ?? '')?.caseId}/${noticeCase.get(linkedNotice(m.text, ORIGIN) ?? '')?.kind}`).join() === MESSAGES.map((m) => m.join('/')).join() && allSaved.every((m) => !m.raw && m.html === 0 && m.attachments === 0), 'the run saved exactly the six expected messages, all MessageBuilder sends with a text part only');
+			check(allSaved.map((m) => `${m.env}/${noticeCase.get(linkedNotice(m.text, ORIGIN) ?? '')?.caseId}/${noticeCase.get(linkedNotice(m.text, ORIGIN) ?? '')?.kind}`).join() === MESSAGES.map((m) => m.join('/')).join() && allSaved.every((m) => !m.raw && m.html === 0 && m.attachments === 0), 'the run saved exactly the seven expected messages, all MessageBuilder sends with a text part only');
 			check(allSaved.every((m) => { const c = noticeCase.get(linkedNotice(m.text, ORIGIN) ?? '')!; return noticeProblems({ from: m.from, to: m.to, subject: m.subject, text: m.text }, { kind: c.kind, origin: ORIGIN, sender: SENDER, recipient: UPLOADER, forbidden: CASE_STRINGS[c.caseId]! }).length === 0; }), "every saved message passes the content check for its own case's strings");
-			const everything = [...Object.values(CASE_STRINGS).flat(), ...OTHER_ADDRESSES, ...Object.keys(CASE_STRINGS).flatMap((c) => [fileFor(c, 1), fileFor(c, 2)]), 'synthetic other content'];
+			const everything = [...Object.values(CASE_STRINGS).flat(), ...OTHER_ADDRESSES, ...Object.keys(CASE_STRINGS).flatMap((c) => [fileFor(c, 1), fileFor(c, 2)]), 'synthetic other content', 'synthetic racing file'];
 			check(allSaved.every((m) => !everything.some((f) => `${m.from}\n${m.to}\n${m.subject}\n${m.text}`.toLowerCase().includes(f.toLowerCase()))), "no saved message carries any case's title, reference, id, document title, file name or file text, or any address but the uploader's");
 			const surfaces = [...allSaved.map((m) => m.text), ...serverLogs, ...opsSeen].join('\n');
 			check(!canaries.some((c) => surfaces.includes(c)), 'the Authorization and cookie canaries sent on every request appear in no saved message, Wrangler log or operator response');

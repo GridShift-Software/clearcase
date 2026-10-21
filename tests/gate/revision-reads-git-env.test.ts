@@ -97,6 +97,17 @@ describe('revision reads that evidence depends on ignore inherited Git directory
 		expect(source.status).toBe(0);
 	});
 
+	it('the CI summary (scripts/ci/summary.ts, also run on local receipts) judges receipts against the head of its own checkout, not the one GIT_DIR names', () => {
+		const { repo, other, repoSha, otherSha } = checkouts();
+		const receipts = join(ws, 'receipts');
+		mkdirSync(join(receipts, 'check'), { recursive: true });
+		writeFileSync(join(receipts, 'check', 'receipt.json'), JSON.stringify({ name: 'check', result: 'PASS', exitCode: 0, reason: null, command: ['bun', 'run', '--bun', 'check'], durationSeconds: 1, revision: { head: otherSha, dirty: false } }));
+		const summary = spawnSync(process.execPath, [join(REPO_ROOT, 'scripts', 'ci', 'summary.ts'), receipts, 'check'], { cwd: repo, encoding: 'utf8', env: { ...clean(), ...redirect(other), GITHUB_STEP_SUMMARY: '' } });
+		expect(summary.stdout).toContain(`## CI FAIL at ${repoSha}`);
+		expect(summary.stdout).toContain(`receipt is for ${otherSha}, the checkout is ${repoSha}`);
+		expect(summary.status).toBe(1);
+	});
+
 	it('control: with no GIT_* variable set, each read answers for its checkout as before', () => {
 		const { repo, repoSha } = checkouts();
 		expect(exported({}, () => gitIdentity(repo))).toEqual({ head: repoSha, branch: 'asked', dirty: false, dirtyPaths: [] });

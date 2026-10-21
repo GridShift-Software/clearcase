@@ -6,6 +6,8 @@ import datetime
 import hashlib
 import importlib.util
 import json
+import shutil
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -20,6 +22,9 @@ BRANCH = 'feature/grs-104-tooling'
 WAVE = 'wave/tooling'
 NAMED = [{'file': 'tests/app.test.ts', 'name': 'keeps the value'}]
 DROP = object()
+REPO = Path(__file__).resolve().parents[2]
+# GRS-154's docs-only round (fix base 8507d759, tip 431fb7b7) changed these two files and nothing else
+GRS154 = ('.agents/skills/verify-clearcase-hosted/SKILL.md', 'docs/acceptance/CC-11/reviewer-guide.md')
 
 
 class DocsOnlyFixRound(ControlCase):
@@ -421,6 +426,19 @@ class IntoTheWave(DocsOnlyFixRound):
         self.another_ticket()
         self.assertIn('src/direct.ts', self.guard(base='dev', branch=WAVE, code=1))
 
+    def test_a_commit_on_the_wave_after_the_round_s_merge_is_judged_whole(self):
+        # L-M1 (re-check): the round merged into the wave, then a commit made on the wave itself changes the app and
+        # loosens its test. The first-parent line holds a commit that is not a merge, so the whole range is judged.
+        self.fix_round()
+        self.git('switch', '-q', WAVE)
+        self.merge(BRANCH)
+        self.write('src/direct.ts', 'export const direct = 1;\n')
+        self.write('tests/app.test.ts', self.test.replace('toEqual(1)', 'toBeDefined()'))
+        self.commit('a runtime commit on the wave after the merge, loosening a test')
+        out = self.guard(base='dev', branch=WAVE, code=1)
+        self.assertIn('src/direct.ts', out)
+        self.assertIn('tests/app.test.ts', out)
+
     def test_a_head_branch_that_is_not_wave_name_is_not_bounded(self):
         # merge-check admits a wave PR into dev from wave/<name> alone, with one name component
         self.fix_round()
@@ -428,6 +446,91 @@ class IntoTheWave(DocsOnlyFixRound):
         self.merge(BRANCH)
         self.another_ticket()
         self.assertIn('src/grs-105-other.ts', self.guard(base='dev', branch='wave/with/slash', code=1))
+
+
+class TheRepositoryItself(DocsOnlyFixRound):
+    """The repository's own tracked tree at HEAD is the reviewed commit, so its real readers, comments and printed text
+    judge the round, as they judged GRS-154's history."""
+
+    def setUp(self):
+        ControlCase.setUp(self)
+        tree = subprocess.run(['git', '-C', str(REPO), 'archive', 'HEAD'], env=self.env, capture_output=True, check=True)
+        subprocess.run(['tar', '-x', '-C', str(self.repo)], input=tree.stdout, check=True)
+        self.reviewed = self.dev = self.commit('dev: the repository at HEAD')
+        self.git('switch', '-q', '-c', WAVE)
+        self.git('switch', '-q', '-c', BRANCH)
+        self.saved_review([])
+
+    def correct(self, *names):
+        """A docs fix round that adds a sentence to each of names, and the manifest."""
+        for name in names:
+            target = self.repo / name
+            target.write_text(target.read_text() + '\nA corrected sentence.\n')
+        self.manifest()
+        return self.commit('a docs fix round')
+
+    def test_grs_154_s_correction_passes(self):
+        # H1 (re-check): code mentions both files only in comments ("see ../SKILL.md"), printed text
+        # (scripts/verify/matrix.mjs) and directory names. Nothing reads either, so the declaration holds.
+        head = self.correct(*GRS154)
+        self.assertIn('test-guard: PASS (docs-only, no tests named: 3 changed file(s)', self.guard())
+        self.assertEqual(self.last_receipt()['revision']['head'], head)
+        self.assertEqual(json.loads(self.strict().read_text())['result'], 'PASS')
+
+    def test_a_document_that_tests_read_is_refused(self):
+        self.correct(GRS154[1], 'docs/results-package.md')
+        out = self.guard(code=1)
+        self.assertIn('docs/results-package.md (READ_DOCUMENTS lists it', out)
+        self.assertNotIn(GRS154[1], out)
+
+
+def read_documents(root, revision='HEAD'):
+    """The guard's READ_DOCUMENTS, the documents of root at revision, and the Markdown reads its tracked code makes."""
+    result = subprocess.run([shutil.which('node') or 'node', str(controls.TOOLS / 'test_guard.mjs'), '--root', str(root),
+                             '--read-documents', revision], capture_output=True, text=True)
+    if result.returncode:
+        raise AssertionError(f'test_guard.mjs --read-documents exited {result.returncode}: {result.stdout}{result.stderr}')
+    return json.loads(result.stdout)
+
+
+def covered(path, entries):
+    return any(path == entry or entry.endswith('/') and path.startswith(entry) for entry in entries)
+
+
+def unlisted(found):
+    """Each read that no READ_DOCUMENTS entry covers, as reader:line reads document."""
+    return sorted({f"{read['reader']}:{read['line']} reads {read['document']}" for read in found['reads']
+                   if not covered(read['document'], found['list'])})
+
+
+class ReadDocuments(ControlCase):
+    """The control that keeps READ_DOCUMENTS whole: a read of Markdown documentation that the list does not cover fails.
+    A read is a path that reaches a file-read call, an import, a fixture loader or a shell command; a comment or printed
+    text is not. A path computed under a directory of documents reads that directory."""
+
+    def test_the_control_names_each_read_the_list_does_not_hold(self):
+        for name in ('docs/unlisted.md', 'docs/py.md', 'docs/sh.md', 'docs/plan/one.md', 'docs/mentioned.md',
+                     'docs/results-package.md'):
+            self.write(name, '# A document\n')
+        self.write('tests/oracle.test.ts', "import { readFileSync } from 'node:fs';\n"
+                   "const doc = readFileSync('docs/unlisted.md', 'utf8');\n"
+                   "const listed = readFileSync('docs/results-package.md', 'utf8');\n")
+        self.write('scripts/walk.mjs', "readFileSync(join(ROOT, 'docs', 'plan', `${id}.md`));\n")
+        self.write('scripts/check.py', "text = (ROOT / 'docs' / 'py.md').read_text()\n")
+        self.write('scripts/check.sh', 'grep -q done docs/sh.md\n')
+        self.write('scripts/mention.mjs', "// see docs/mentioned.md\nconsole.log('read docs/mentioned.md first');\n")
+        self.write('scripts/mention.sh', '# see docs/mentioned.md\necho "read docs/mentioned.md first"\n')
+        self.commit('readers, and code that only mentions a document')
+        self.assertEqual(unlisted(read_documents(self.repo)), [
+            'scripts/check.py:1 reads docs/py.md', 'scripts/check.sh:1 reads docs/sh.md',
+            'scripts/walk.mjs:1 reads docs/plan/', 'tests/oracle.test.ts:2 reads docs/unlisted.md'])
+
+    def test_every_markdown_document_that_tracked_code_reads_is_listed(self):
+        # The real control: this repository at HEAD. A new reader adds its document to READ_DOCUMENTS in
+        # scripts/agent-tools/test_guard.mjs; an entry that names no document is stale.
+        found = read_documents(REPO)
+        self.assertEqual(unlisted(found), [])
+        self.assertEqual([entry for entry in found['list'] if not any(covered(doc, [entry]) for doc in found['documents'])], [])
 
 
 class Approval(DocsOnlyFixRound):

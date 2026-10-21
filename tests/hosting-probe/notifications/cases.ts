@@ -83,6 +83,13 @@ viaWorker('a data-borne recipient that is not an address', { recipient: 'uploade
 viaWorker("client B's origin on client A's Worker", { origin: 'https://client-b.example.test' });
 viaWorker("client B's sender on client A's Worker", { sender: 'notices@notify.client-b.example.test' });
 viaWorker("client B's origin and sender on client A's Worker", { origin: 'https://client-b.example.test', sender: 'notices@notify.client-b.example.test' });
+// What the Worker passes the check is data and configuration, so these are the ways a message can differ from the template
+// yet equal what it was composed from: characters no address and no template holds, and a client the probe never configured.
+viaWorker('a data-borne recipient with a NUL', { recipient: 'uploader-a\u0000@client-a.example.test' });
+viaWorker('a data-borne recipient with U+0085 (next line)', { recipient: 'uploader-a\u0085bcc@client-a.example.test' });
+viaWorker('a data-borne recipient with U+200B (zero-width space)', { recipient: 'uploader-a\u200b@client-a.example.test' });
+viaWorker('a data-borne recipient with a non-ASCII letter', { recipient: 'uploader-\u00e4@client-a.example.test' });
+viaWorker('a CLIENT_ID the probe does not know, with the origin and sender it derives', { clientId: 'client-z', origin: 'https://client-z.example.test', sender: 'notices@notify.client-z.example.test', recipient: 'uploader-z@client-z.example.test' });
 expect('the input-needed body under a publication notice', composeNotice({ ...ctx, kind: 'input-needed', noticeId: NOTICE_ID }) satisfies Message, true);
 
 // 2. The retry policy
@@ -100,6 +107,7 @@ policy('an error with no code, a retyped code or a lower-case code is UNKNOWN (a
 policy('attempt 2 is due 5 min after attempt 1, attempt 3 30 min after attempt 2', nextAttemptAt(1, 'transient', 0) === 300_000 && nextAttemptAt(2, 'ambiguous', 1_000) === 1_801_000);
 policy(`no attempt follows attempt ${MAX_ATTEMPTS} or a permanent failure`, MAX_ATTEMPTS === 3 && nextAttemptAt(3, 'ambiguous', 0) === null && nextAttemptAt(1, 'permanent', 0) === null && nextAttemptAt(4, 'transient', 0) === null);
 
+policy('SEND_TIMEOUT_MS above 60 s is refused (the default), because a timer past 2^31 - 1 ms fires at once and one of hours holds the request', ['60001', '3600000', '2147483648', '1e12'].every((v) => sendTimeoutMs(v) === DEFAULT_SEND_TIMEOUT_MS) && sendTimeoutMs('60000') === 60_000);
 policy('SEND_TIMEOUT_MS is used when it is a positive number', sendTimeoutMs('1500') === 1500 && sendTimeoutMs('1e3') === 1000);
 policy(`SEND_TIMEOUT_MS that is absent, empty, non-numeric, zero, negative or infinite is the ${DEFAULT_SEND_TIMEOUT_MS} ms default, never a 0 ms timer`, [undefined, '', ' ', 'soon', '10s', 'NaN', '0', '-5', 'Infinity'].every((v) => sendTimeoutMs(v) === DEFAULT_SEND_TIMEOUT_MS));
 

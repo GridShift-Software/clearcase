@@ -186,12 +186,42 @@ async function serveOriginal(ctx: Ctx, request: Request, caseId: string, assetId
 	const key = `orig/${row.sha256}`;
 	const range = parseRange(request.headers.get('range'), row.size);
 	if (range === 'unsatisfiable') return new Response(null, { status: 416, headers: { ...NO_STORE, 'content-range': `bytes */${row.size}`, ...probeHeaders(ctx) } });
-	// Not yet verified: whatever R2 holds under the key is served.
-	const object = await ctx.bucket.get(key, range ? { range: { offset: range.start, length: range.end - range.start + 1 } } : {});
-	if (!hasBody(object)) refuse(410, 'missing-original', { key });
-	const length = range ? range.end - range.start + 1 : row.size;
-	const headers: Record<string, string> = { ...NO_STORE, 'content-type': row.media_type, 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(row.filename)}`, 'accept-ranges': 'bytes', etag: `"${row.sha256}"`, 'content-length': String(length), ...probeHeaders(ctx), ...(range ? { 'content-range': `bytes ${range.start}-${range.end}/${row.size}` } : {}) };
-	return new Response(request.method === 'HEAD' ? null : (object as R2ObjectBody).body, { status: range ? 206 : 200, headers });
+	const headers: Record<string, string> = { ...NO_STORE, 'content-type': row.media_type, 'content-disposition': `attachment; filename*=UTF-8''${encodeURIComponent(row.filename)}`, 'accept-ranges': 'bytes', etag: `"${row.sha256}"` };
+	const head = request.method === 'HEAD';
+	if (range && range.end - range.start + 1 <= BUFFER_MAX) {
+		const bytes = await readVerified(ctx, key, row.sha256, row.size, range);
+		return new Response(head ? null : bytes, { status: 206, headers: { ...headers, 'content-range': `bytes ${range.start}-${range.end}/${row.size}`, 'content-length': String(bytes.length), ...probeHeaders(ctx) } });
+	}
+	if (!range && row.size <= BUFFER_MAX) {
+		const bytes = await readVerified(ctx, key, row.sha256, row.size, null);
+		return new Response(head ? null : bytes, { status: 200, headers: { ...headers, 'content-length': String(bytes.length), ...probeHeaders(ctx) } });
+	}
+	// Too large to hold: hash the whole object first, then stream it again pinned to the etag that was verified. The
+	// second pass of a whole object is hashed again and the response errors before its end if it differs.
+	const etag = await hashWhole(ctx, key, row.sha256, row.size);
+	const [start, end] = range ? [range.start, range.end] : [0, row.size - 1];
+	const again = await ctx.bucket.get(key, { onlyIf: { etagMatches: etag }, ...(range ? { range: { offset: start, length: end - start + 1 } } : {}) });
+	if (!hasBody(again)) refuse(410, 'changed-original', { key, check: 'etag' });
+	const meta = { ...headers, 'content-length': String(end - start + 1), ...probeHeaders(ctx), ...(range ? { 'content-range': `bytes ${start}-${end}/${row.size}` } : {}) };
+	if (head) return new Response(null, { status: range ? 206 : 200, headers: meta });
+	let stream: ReadableStream<Uint8Array> = (again as R2ObjectBody).body;
+	if (!range) {
+		const ds = digestStream();
+		const w = ds.getWriter();
+		stream = stream.pipeThrough(
+			new TransformStream<Uint8Array, Uint8Array>({
+				async transform(chunk, c) {
+					await w.write(chunk);
+					c.enqueue(chunk);
+				},
+				async flush(c) {
+					await w.close();
+					if (hex(await ds.digest) !== row.sha256) c.error(new Error('changed-original'));
+				},
+			}),
+		);
+	}
+	return new Response(stream, { status: range ? 206 : 200, headers: meta });
 }
 
 // ----- uploads and finalize -----

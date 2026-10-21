@@ -7,7 +7,7 @@
 //   Admin removes it, which erases the case's live rows and objects and leaves only the deletion state in D1;
 // - deletion records: written to the live bucket and to RECOVERY before the erasure, and reapplied on every restore. A
 //   copy or packet of a deleted case is refused, and a D1 database rolled back to before a removal, or a fresh deployment
-//   that never saw it, is brought back in line before it serves anything (reconcile);
+//   that never saw it, is brought back in line before it serves the case, or anything from a new isolate (reconcile);
 // - rolling recovery copies: a sealed case backup copied into RECOVERY, staged back into the live bucket for GRS-109's
 //   restore path (tagged with its case, deleted when its restore finishes, swept by the case's removal), and rotated by age
 //   (30 days) without touching live data or bundle history; rotation also ages out restore packets that name no case;
@@ -96,10 +96,12 @@ async function open(env: RecoveryEnv): Promise<Ctx | Response> {
 		if (held !== client) refuse(503, 'crossed-binding', { binding: 'RECOVERY' });
 		recoveryClient = client;
 	}
-	// One D1 statement a request: a database holding fewer removed cases than the ledger was rolled back (D1 Time Travel)
-	// or is new; one holding more was written by another isolate. Either way the ledger is read again and applied.
-	const removed = (await first<{ n: number }>(ctx.db, "SELECT count(*) AS n FROM case_deletion WHERE state = 'removed'"))!.n;
-	if (ledgerSize === null || removed !== ledgerSize) await reconcile(ctx);
+	// A new isolate applies the whole ledger before it serves anything: a fresh deployment, or a database rolled back (D1
+	// Time Travel) while the isolate was down, is brought in line at once. A running isolate relies on the case gate.
+	if (!ledgerApplied) {
+		await reconcile(ctx);
+		ledgerApplied = true;
+	}
 	return ctx;
 }
 
@@ -180,7 +182,7 @@ type DeletionRecord = { format: string; client: string; caseId: string; requeste
 const RECORD_KEYS = 'approvedAt,approvedBy,caseId,client,format,offeredExport,removedAt,removedBy,requestedAt,requestedBy';
 const recordKey = (caseId: string) => `deletion/${caseId}.json`;
 const ACTOR = /^[a-z-]{1,40}:[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
-let ledgerSize: number | null = null; // per isolate: how many deletion records D1 was last seen to hold as removed
+let ledgerApplied = false; // per isolate: whether the ledger was applied once at its start; no request is gated on it
 
 /** The record of a removed case, in one key order, so both buckets hold the same bytes. */
 function recordOf(d: Deletion, client: string): DeletionRecord {
@@ -251,13 +253,16 @@ async function reconcile(ctx: Ctx) {
 		const e = r.offeredExport;
 		await erase(ctx, r.caseId, ["INSERT INTO case_deletion (case_id, state, requested_by, requested_at, approved_by, approved_at, export_id, export_sha256, export_size, offered_at, removed_by, removed_at) VALUES (?, 'removed', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (case_id) DO UPDATE SET state = 'removed', requested_by = excluded.requested_by, requested_at = excluded.requested_at, approved_by = excluded.approved_by, approved_at = excluded.approved_at, export_id = excluded.export_id, export_sha256 = excluded.export_sha256, export_size = excluded.export_size, offered_at = excluded.offered_at, removed_by = excluded.removed_by, removed_at = excluded.removed_at", [r.caseId, r.requestedBy, r.requestedAt, r.approvedBy, r.approvedAt, e.exportId, e.sha256, e.size, e.offeredAt, r.removedBy, r.removedAt]], ['1 = 1', []]);
 	}
-	ledgerSize = ledger.size;
 }
 
-/** Whether a restore would bring back a removed case: D1 says so, or either bucket holds its record. */
-async function isDeleted(ctx: Ctx, caseId: string): Promise<boolean> {
+const recordHeld = async (ctx: Ctx, caseId: string) => !!(await ctx.bucket.head(recordKey(caseId))) || !!(await ctx.copies.head(recordKey(caseId)));
+
+/** Whether the case is removed: D1 says so, or either bucket holds its record, in which case D1 is brought in line first. */
+async function removedCase(ctx: Ctx, caseId: string): Promise<boolean> {
 	if ((await deletionOf(ctx, caseId))?.state === 'removed') return true;
-	return !!(await ctx.bucket.head(recordKey(caseId))) || !!(await ctx.copies.head(recordKey(caseId)));
+	if (!(await recordHeld(ctx, caseId))) return false;
+	await reconcile(ctx);
+	return true;
 }
 
 async function deletionStep(ctx: Ctx, request: Request, caseId: string, step: Step): Promise<Response> {
@@ -286,10 +291,15 @@ async function deletionStep(ctx: Ctx, request: Request, caseId: string, step: St
 		} else {
 			if (d?.state === 'removed') return json({ caseId, state: 'removed', repeated: true, ...(await erase(ctx, caseId, ['SELECT 1', []], ["EXISTS (SELECT 1 FROM case_deletion WHERE case_id = ? AND state = 'removed')", [caseId]])) });
 			expect('offered');
+			// A record already written (by another isolate, or by a removal that stopped part-way) is adopted, never replaced
+			// by one with a new removed_at; reconcile applies it to D1 and finishes the erasure.
+			if (await recordHeld(ctx, caseId)) {
+				await reconcile(ctx);
+				return json({ caseId, state: 'removed', repeated: true, adopted: true });
+			}
 			// The record is durable in both buckets before anything is erased: if the erasure stops part-way, the next
-			// request finds a record D1 does not hold as removed, and reconcile finishes it.
+			// request for the case finds the record, and reconcile finishes the erasure.
 			await writeRecord(ctx, recordOf({ ...d!, state: 'removed', removed_by: who, removed_at: now }, ctx.client));
-			ledgerSize = null;
 			const out = await erase(ctx, caseId, ["UPDATE case_deletion SET state = 'removed', removed_by = ?, removed_at = ? WHERE case_id = ?", [who, now, caseId]], ["EXISTS (SELECT 1 FROM case_deletion WHERE case_id = ? AND state = 'offered')", [caseId]]);
 			return json({ caseId, state: 'removed', repeated: false, ...out });
 		}
@@ -322,6 +332,7 @@ async function makeCopy(ctx: Ctx, request: Request): Promise<Response> {
 	const b = await body(request);
 	const caseId = field(b, 'caseId', isText(ID));
 	const exportId = field(b, 'exportId', isText(UUID));
+	if (await removedCase(ctx, caseId)) refuse(409, 'case-deleted', { caseId });
 	const job = await first<{ state: string; sha256: string | null; size: number | null; object_key: string }>(ctx.db, 'SELECT state, sha256, size, object_key FROM export_job WHERE export_id = ? AND case_id = ?', exportId, caseId);
 	if (!job) refuse(404, 'no-such-export');
 	if (job!.state !== 'complete' || !job!.sha256 || job!.size === null) refuse(409, 'export-not-sealed');
@@ -347,7 +358,7 @@ async function listed(bucket: R2, prefix: string): Promise<Stored[]> {
 /** A copy back into the live bucket as a restore packet, for GRS-109's open, step and finish. */
 async function stageCopy(ctx: Ctx, request: Request, copyId: string): Promise<Response> {
 	const caseId = field(await body(request), 'caseId', isText(ID));
-	if (await isDeleted(ctx, caseId)) refuse(409, 'case-deleted', { caseId });
+	if (await removedCase(ctx, caseId)) refuse(409, 'case-deleted', { caseId });
 	const key = copyKey(caseId, copyId);
 	const head = await ctx.copies.head(key);
 	if (!head) refuse(404, 'no-such-copy');
@@ -421,7 +432,7 @@ async function route(request: Request, env: RecoveryEnv): Promise<Response> {
 	if (m === 'POST' && seg[0] === 'restore' && seg[1] === 'packets' && seg.length === 4 && ['open', 'step', 'finish'].includes(seg[3]!)) {
 		// GRS-109's restore names its case in the body; a removed case is refused before the storage Worker reads the packet.
 		const caseId = await request.clone().json().then((b: unknown) => (isObject(b) ? b.caseId : null), () => null);
-		if (isText(ID)(caseId) && (await isDeleted(ctx, caseId))) {
+		if (isText(ID)(caseId) && (await removedCase(ctx, caseId))) {
 			if (isText(UUID)(seg[2])) await ctx.bucket.delete(`import/${seg[2]}.zip`); // the packet holds the deleted case's data
 			return json({ code: 'case-deleted', caseId }, 409);
 		}
@@ -435,6 +446,9 @@ async function route(request: Request, env: RecoveryEnv): Promise<Response> {
 	if (seg[0] === 'cases' && isText(ID)(seg[1])) {
 		const caseId = seg[1];
 		const rest = seg.slice(2);
+		// Every case route is gated on the ledger, never on D1 alone: a record in either bucket removes the case here, on this
+		// isolate, however D1 got behind (another isolate's removal stopped part-way, or D1 was rolled back).
+		const removed = await removedCase(ctx, caseId);
 		if (rest[0] === 'deletion') {
 			if (m === 'GET' && rest.length === 1) {
 				const d = await deletionOf(ctx, caseId);
@@ -443,7 +457,7 @@ async function route(request: Request, env: RecoveryEnv): Promise<Response> {
 			if (m === 'POST' && rest.length === 2 && Object.hasOwn(ROLE, rest[1]!)) return deletionStep(ctx, request, caseId, rest[1] as Step);
 			return json({ code: 'not-found' }, 404);
 		}
-		if ((await deletionOf(ctx, caseId))?.state === 'removed') return json({ code: 'case-deleted', caseId }, 410);
+		if (removed) return json({ code: 'case-deleted', caseId }, 410);
 		if (m === 'PUT' && rest[0] === 'bundles' && rest.length === 2 && isText(ID)(rest[1])) return putBundle(ctx, request, caseId, rest[1]);
 		if (m === 'GET' && rest.join('/') === 'bundles') return json(await all(ctx.db, 'SELECT bundle_id, sha256, size, created_at FROM bundle_version WHERE case_id = ? ORDER BY bundle_id', caseId));
 	}

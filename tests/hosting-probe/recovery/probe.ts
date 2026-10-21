@@ -766,7 +766,7 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			check(revived.active === 1 && revived.deletion === 0 && revived.a2rows === 5, "the rolled-back database holds A1 live again, with no deletion, and A2 as it was at the dump (its later row lost)");
 			const doc = await http(`/cases/${A1}/documents/S-0001`);
 			const reapplied = d1('client-a', `SELECT (SELECT state FROM case_deletion WHERE case_id = '${A1}') AS state, (SELECT count(*) FROM active WHERE case_id = '${A1}') AS active, (SELECT count(*) FROM results_version WHERE case_id = '${A1}') AS versions`)[0]!;
-			check(code(doc, 410, 'case-deleted') && reapplied.state === 'removed' && reapplied.active === 0 && reapplied.versions === 0 && residue('client-a', A1, deleted.versions, deleted.exports).left.length === 0, `the running Worker's next request finds fewer removed cases in D1 than records in the ledger, reapplies the deletion, and answers 410 (${doc.status}, ${JSON.stringify(reapplied)})`);
+			check(code(doc, 410, 'case-deleted') && reapplied.state === 'removed' && reapplied.active === 0 && reapplied.versions === 0 && residue('client-a', A1, deleted.versions, deleted.exports).left.length === 0, `the running Worker's next request for A1 finds its record in the buckets while D1 holds A1 live, reapplies the deletion, and answers 410 (${doc.status}, ${JSON.stringify(reapplied)})`);
 			check((await http(`/cases/${A2}/state`)).status === 200 && rowsOf(await work(A2)).length === 5, 'A2 is served from the rolled-back database, without the row written after the dump');
 			Object.assign(m, { restoresRefused: refused, rollbackLostRows: 1, reappliedAfterRollback: true });
 		});

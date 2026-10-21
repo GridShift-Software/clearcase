@@ -2,7 +2,7 @@
 
 [GRS-110](https://linear.app/vaper/issue/GRS-110) asks for a tested recovery design that keeps acknowledged originals and ordinary rollback user work, and that defines deletion and backup behaviour. Cloudflare stays pinned (GRS-26, 17 and 20 October 2026), so this unit runs only the legs that can pass on native workerd with local D1 and R2 and no Cloudflare account. The cloud legs' owner (GitHub `dianbrown`) holds the unpin and the legs at moment M2.
 
-**Verdict at 6bd0a77a: PASS for the local legs; HOLD for the cloud legs.** Every leg below passed at `6bd0a77aa1fe80d71d2e1300e3d8f9143e6c09aa` (exit 0, `evidence: true`, 1,203 mutations of its summary refused, 0 dev-proxy retries). This is the fix round after the first review (`bfd9e088`), which found that removal left staged packets behind (H1), that a running isolate could serve a removed case (M1) and that nothing verified the evidence binding (M2). The three legs that stay HOLD, and the moment each needs, are [at the end](#what-stays-hold). Like GRS-109's, this probe is a model of the design, not the product: GRS-117 and the owners in [the handoff](#product-and-runbook-handoff) implement it.
+**Verdict at ad600394: PASS for the local legs; HOLD for the cloud legs.** Every leg below passed at `ad60039448a76e41afb766746525229a2f6e9de5` (exit 0, `evidence: true`, 1,203 mutations of its summary refused, 0 dev-proxy retries). This is the fix round after the first review (`bfd9e088`), which found that removal left staged packets behind (H1), that a running isolate could serve a removed case (M1) and that nothing verified the evidence binding (M2). The three legs that stay HOLD, and the moment each needs, are [at the end](#what-stays-hold). Like GRS-109's, this probe is a model of the design, not the product: GRS-117 and the owners in [the handoff](#product-and-runbook-handoff) implement it.
 
 ## Run it
 
@@ -57,7 +57,7 @@ Every `put` in `src/worker.ts` and in the storage Worker it imports, and the pat
 
 ## Legs
 
-Every leg ran at `6bd0a77aa1fe80d71d2e1300e3d8f9143e6c09aa`. Exit code 0. Each assertion's wording is in the summary.
+Every leg ran at `ad60039448a76e41afb766746525229a2f6e9de5`. Exit code 0. Each assertion's wording is in the summary.
 
 | Leg | What it asserts | Result |
 | --- | --- | --- |
@@ -78,11 +78,11 @@ Every leg ran at `6bd0a77aa1fe80d71d2e1300e3d8f9143e6c09aa`. Exit code 0. Each a
 
 `e17714a3` committed the probe with the deletion flow and the copies but no deletion record. Its run on a clean tree failed `deletion-reapply` (exit 1, `PROBE FAIL e17714a3… evidence: false`): `restoring A1's earlier recovery copy, made before the deletion, is refused and A1 stays deleted ({"stage":"200","open":"200","step":"200","finish":"200"}; A1 now: active sha256:de0b1aed…, 2 originals, 4 rows)`. The deleted case came back with its originals and user work. `6ad9e97e` adds the records and their reapplication.
 
-The fix round after review `bfd9e088` was red first as well. `efd29883` adds the `warm-isolate` leg, which fails at the base: on a running isolate every route of A2 answered 200 or 206 (a register add 200, an export 200) while both buckets held its record. `5051496b` stages a copy of A1 before its removal and uploads a packet: the packet outlived the removal and every rotation. `ff2e2185` makes `test:check` refuse a made-up `sourceSha`: against `bfd9e088`'s probe it printed `HOLE a made-up sourceSha passes --check`. Their fixes are `8dbdc462`, `1f181706` and `d50f9aef`; `6bd0a77a` counts the measured values and gates rotation's clock.
+The fix round after review `bfd9e088` was red first as well. `efd29883` adds the `warm-isolate` leg, which fails at the base: on a running isolate every route of A2 answered 200 or 206 (a register add 200, an export 200) while both buckets held its record. `5051496b` stages a copy of A1 before its removal and uploads a packet: the packet outlived the removal and every rotation. `ff2e2185` makes `test:check` refuse a made-up `sourceSha`: against `bfd9e088`'s probe it printed `HOLE a made-up sourceSha passes --check`. Their fixes are `8dbdc462`, `1f181706` and `d50f9aef`; `6bd0a77a` counts the measured values and gates rotation's clock, and `ad600394` makes `test:check` find the last Worker change from the probe directory.
 
 ## Acceptance items
 
-| Item | Leg | Status at `6bd0a77a` | Evidence |
+| Item | Leg | Status at `ad600394` | Evidence |
 | --- | --- | --- | --- |
 | Acknowledged originals recover | local | PASS | `restore-from-copy`: originals byte for byte under `orig/<sha256>`, state digest equal to the source's |
 | Disaster recovery loses at most one hour of recent Notes and case edits | cloud | HOLD (M2) | Needs D1 Time Travel. Locally, what each path loses was measured, not budgeted: a copy restore loses the writes since the copy (2 rows), and a database rollback loses the writes since its point (1 row) |
@@ -128,10 +128,10 @@ The aim is to bring a client's cases back within four staffed hours of an incide
 
 | Measure (`restore-from-copy`) | Local value |
 | --- | ---: |
-| Staging A2's copy into the fresh live bucket | 9.9 ms |
-| GRS-109's open, steps and finish for it | 79 ms |
-| The checks after it (digest, verify, originals, user work, corruption) | 84.7 ms |
-| The whole leg, the refused copy and the corrupted packet included | 1,824.9 ms |
+| Staging A2's copy into the fresh live bucket | 7.5 ms |
+| GRS-109's open, steps and finish for it | 76.9 ms |
+| The checks after it (digest, verify, originals, user work, corruption) | 86.6 ms |
+| The whole leg, the refused copy and the corrupted packet included | 1,830.8 ms |
 
 GRS-109's restore of one POC-size case (1,662 originals, 3.2 GB) into a fresh deployment took 126,622 ms locally ([storage page](storage.md#local-measurements-not-budgets)). The observation the aim needs is HOLD.
 

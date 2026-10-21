@@ -1,10 +1,10 @@
 {
   "schema": "clearcase.recovery-probe/1",
-  "sourceSha": "6bd0a77aa1fe80d71d2e1300e3d8f9143e6c09aa",
+  "sourceSha": "ad60039448a76e41afb766746525229a2f6e9de5",
   "treeClean": true,
-  "startedAt": "2026-10-21T13:45:11.956Z",
-  "finishedAt": "2026-10-21T13:46:06.518Z",
-  "runDir": ".local/hosting-probe/recovery/2026-10-21T13-45-11-956Z",
+  "startedAt": "2026-10-21T13:48:20.230Z",
+  "finishedAt": "2026-10-21T13:49:15.051Z",
+  "runDir": ".local/hosting-probe/recovery/2026-10-21T13-48-20-230Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -260,10 +260,10 @@
       "measured": {
         "restoredOriginals": 2,
         "lostRowsAfterCopy": 2,
-        "stageMs": 9.9,
-        "restoreMs": 79,
-        "checksMs": 84.7,
-        "totalMs": 1824.9
+        "stageMs": 7.5,
+        "restoreMs": 76.9,
+        "checksMs": 86.6,
+        "totalMs": 1830.8
       }
     },
     "retention": {

@@ -1308,21 +1308,21 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			const uw = 'case-guard-uw';
 			const Vu = versionOf('uw');
 			const uwBefore = await live(uw);
-			const finishOf = async (tag: string, o: Parameters<typeof backupOf>[3]) => {
-				const id = await upload((await backupOf(uw, Vu, tag, o)).bytes);
+			const finishOf = async (o: Parameters<typeof backupOf>[3]) => {
+				const id = await upload((await backupOf(uw, Vu, 'uw', o)).bytes); // one tag: the package file and the original are the same bytes in each
 				const opened = (await post(`/restore/packets/${id}/open`, { caseId: uw })).status === 200 && (await stepAll(id, uw)).status === 200;
 				return { opened, res: await post(`/restore/packets/${id}/finish`, { caseId: uw }, 60_000) };
 			};
 			const reasonOf = (r: Res) => String(r.json().reason ?? '');
-			const dupNote = await finishOf('uw-dup', { dupNote: true });
+			const dupNote = await finishOf({ dupNote: true });
 			check(dupNote.opened && refused(code(dupNote.res, 422, 'invalid-packet')) && reasonOf(dupNote.res).includes('uw_note') && (await live(uw)) === uwBefore, 'a backup whose user work holds one note key twice opens, and finishing it answers 422 invalid-packet naming uw_note; the case holds no version, row or revision it did not hold before');
-			const nullNote = await finishOf('uw-null', { nullNote: true });
+			const nullNote = await finishOf({ nullNote: true });
 			check(nullNote.opened && refused(code(nullNote.res, 422, 'invalid-packet')) && reasonOf(nullNote.res).includes('uw_note') && (await live(uw)) === uwBefore, 'a note whose NOT NULL body is null is refused the same way, and the case is as it was');
-			const dupDoc = await finishOf('uw-doc', { docs: 2, docRows: [{ ref: 'S-9001', row_json: '{}' }, { ref: 'S-9001', row_json: '{}' }] });
+			const dupDoc = await finishOf({ docs: 2, docRows: [{ ref: 'S-9001', row_json: '{}' }, { ref: 'S-9001', row_json: '{}' }] });
 			check(dupDoc.opened && refused(code(dupDoc.res, 422, 'invalid-packet')) && reasonOf(dupDoc.res) === 'read-model/document.json.ref' && (await live(uw)) === uwBefore, 'a read model with one document ref twice is refused with the key named, and the case is as it was');
-			const typedDoc = await finishOf('uw-type', { docRows: [{ ref: 'S-9001', row_json: 5 }] });
+			const typedDoc = await finishOf({ docRows: [{ ref: 'S-9001', row_json: 5 }] });
 			check(typedDoc.opened && refused(code(typedDoc.res, 422, 'invalid-packet')) && reasonOf(typedDoc.res) === 'read-model/document.json row_json' && (await live(uw)) === uwBefore, 'a read model whose row_json is not text is refused with the column named, and the case is as it was');
-			const uwOk = await finishOf('uw-ok', {});
+			const uwOk = await finishOf({});
 			const uwAfter = JSON.parse(await live(uw));
 			check(uwOk.opened && uwOk.res.status === 200 && uwAfter.active === Vu && uwAfter.work.uw_note === 1, 'the corrected backup of the same case and version restores');
 			m.refusals = refusals;

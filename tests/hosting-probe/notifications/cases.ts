@@ -94,14 +94,17 @@ policy('attempt 2 is due 5 min after attempt 1, attempt 3 30 min after attempt 2
 policy(`no attempt follows attempt ${MAX_ATTEMPTS} or a permanent failure`, MAX_ATTEMPTS === 3 && nextAttemptAt(3, 'ambiguous', 0) === null && nextAttemptAt(1, 'permanent', 0) === null && nextAttemptAt(4, 'transient', 0) === null);
 
 // 3. The committed evidence and the summary check
+const failuresBeforeEvidence = failures.length;
 const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: import.meta.dirname, encoding: 'utf8' }).stdout.trim();
-const evidence = JSON.parse(readFileSync(path.join(import.meta.dirname, '../../../docs/acceptance/hosting/evidence/notifications-summary.json'), 'utf8')) as Record<string, unknown>;
+// NOTIFICATIONS_EVIDENCE names another file to check; tamper.ts uses it to prove that stale evidence fails this command.
+const evidence = JSON.parse(readFileSync(process.env.NOTIFICATIONS_EVIDENCE ?? path.join(import.meta.dirname, '../../../docs/acceptance/hosting/evidence/notifications-summary.json'), 'utf8')) as Record<string, unknown>;
 const control = { ...structuredClone(evidence), sourceSha: head, servedRevision: head };
 const controlProblems = checkSummary(control, head);
 policy(`the committed evidence passes the summary check at HEAD${controlProblems.length ? ` (${controlProblems[0]})` : ''}`, controlProblems.length === 0);
 const walk = mutationsRefused(control, head);
 policy(`every mutation of the committed evidence is refused (${walk.refused} refused${walk.accepted ? `; accepted: ${walk.accepted}` : ''})`, walk.accepted === null && walk.refused > 500);
-policy('a summary for another SHA is refused', checkSummary(evidence, '0'.repeat(40)).length > 0);
+policy('a summary for another SHA is refused', checkSummary(evidence, '1'.repeat(40)).length > 0);
+console.log(failures.length > failuresBeforeEvidence ? 'EVIDENCE FAIL' : 'EVIDENCE PASS');
 
 console.log(failures.join('\n'));
 console.log(failures.length ? `CASES FAIL: ${failures.length} went the wrong way` : 'CASES PASS');

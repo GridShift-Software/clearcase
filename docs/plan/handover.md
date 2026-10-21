@@ -69,7 +69,7 @@ The ignored `.orchestration/` folder holds the artifacts named below. Ask the co
 | Area | State | Exact revision and source |
 | --- | --- | --- |
 | Local runtime, planning documents | `check`, `test`, `generate.py --check` and the graph fixtures PASS on this branch | The content commit above; run by the author of this branch, with the commands in its report |
-| Local runtime, pilot harness | PASS: gate green at `9249654` (GRS-143), pilot 18/18 | `.orchestration/reports/GRS-143/report.md` |
+| Local runtime, pilot harness | PASS: gate green at `73025c3` (GRS-143), pilot 18/18 | `.orchestration/reports/GRS-143/report.md` |
 | Local runtime, parity repair | PASS at `78c0516` (GRS-141), parity 0 unregistered; the full gate there failed only at `verify:pilot:v5`, which GRS-143 repairs | `.orchestration/reports/GRS-141/report.md` |
 | Wave review | APPROVE WITH P2s, no P0 or P1, at wave head `2117c37` (`wave/preflight-parity`); not a gate run | `.orchestration/reports/WAVE-PREFLIGHT-REVIEW-CODEX/review.md` |
 | Dev gate | FAIL at `c89d405` at strict parity (two demo-merge subtitles). App code is unchanged at `8fc2058`, which has no gate receipt. The repair, GRS-141, GRS-143 and GRS-142, is in flight on `wave/preflight-parity` | `.orchestration/dev-gate/8ab9ef40ebe95ff4f8fc2665ffc85e4d941c1fd6` |

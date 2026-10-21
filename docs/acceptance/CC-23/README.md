@@ -73,7 +73,7 @@ The full local report is `/home/operator/Work/Active/MX-two/ClearCase/clearcase/
 
 ## Round 3 (PR #4 review fixes)
 
-The PR #4 review found two package defects at `46c5cd2032d20155d9d40179ec09b236800e33c1`. The repaired package head `91fbfa7` was merged into this branch at `2511740`. This round adds independent regressions in [`pr4-review.test.ts`](../../../tests/acceptance/CC-23/pr4-review.test.ts). They use synthetic data and the public library API only.
+The PR #4 review found two package defects at `46c5cd2032d20155d9d40179ec09b236800e33c1`. The repaired package head `91fbfa7` was merged into this branch at `213a15c`. This round adds independent regressions in [`pr4-review.test.ts`](../../../tests/acceptance/CC-23/pr4-review.test.ts). They use synthetic data and the public library API only.
 
 - **Missing-original identity.** Within one case, an earlier `ORIG_MISSING` for `GT-001` is used as the trusted baseline for a later import. That baseline must not waive the later warning when `GT-001` names a different document. Three cases are tested: a different path and different bytes; the same path and size with different bytes; and the same bytes at a different path. The positive control re-imports an unchanged missing document, both as-is and with only its case label changed. Its fingerprint must stay the same, and the earlier baseline must still clear it.
 - **Zip compressed bounds.** The tests cover:
@@ -87,11 +87,11 @@ The PR #4 review found two package defects at `46c5cd2032d20155d9d40179ec09b2368
 | Run | Source | Result | Receipt |
 | --- | --- | --- | --- |
 | `r3-prefix-new-tests-final` | `src` from `46c5cd2`, tests from this round | 9 failed, 4 passed: the 4 positive controls passed | exit 1 (expected) |
-| `r3-postfix-new-tests` | `2511740` | 13 passed | exit 0 |
-| `r3-gate-tests` | `2511740` | 4 files; 42 passed, 0 failed, 0 skipped | exit 0 |
-| `r3-gate-typecheck` | `2511740` | Strict typecheck of all gate files | exit 0 |
-| `r3-test` | `2511740` | 11 files; 760 passed, 0 failed, 0 skipped | exit 0 |
-| `r3-check` | `2511740` | Types; 38 schemas; 71 accepted and 59 rejected examples | exit 0 |
-| `r3-install` | `2511740` | `bun install --frozen-lockfile`; no changes | exit 0 |
+| `r3-postfix-new-tests` | `213a15c` | 13 passed | exit 0 |
+| `r3-gate-tests` | `213a15c` | 4 files; 42 passed, 0 failed, 0 skipped | exit 0 |
+| `r3-gate-typecheck` | `213a15c` | Strict typecheck of all gate files | exit 0 |
+| `r3-test` | `213a15c` | 11 files; 760 passed, 0 failed, 0 skipped | exit 0 |
+| `r3-check` | `213a15c` | Types; 38 schemas; 71 accepted and 59 rejected examples | exit 0 |
+| `r3-install` | `213a15c` | `bun install --frozen-lockfile`; no changes | exit 0 |
 
-Before the fix, all nine targeted tests failed. The three identity cases produced the same `ORIG_MISSING` fingerprint for different documents. The padded deflate entry and the inconsistent stored entry passed `readCentralDirectory`. `readEntry` requested reads of 8,388,608 bytes and 17 bytes for oversized entries. The padded zip package was accepted. The `2511740` source tree is unchanged by the test and documentation commits. Tests ran under `unshare -rn` with Bun 1.4.2. Receipts are in the local r3 report directory and use base `46c5cd2`. An earlier r3 pre-fix run had the same failures and passed tests. It was rerun only to correct one test title.
+Before the fix, all nine targeted tests failed. The three identity cases produced the same `ORIG_MISSING` fingerprint for different documents. The padded deflate entry and the inconsistent stored entry passed `readCentralDirectory`. `readEntry` requested reads of 8,388,608 bytes and 17 bytes for oversized entries. The padded zip package was accepted. The `213a15c` source tree is unchanged by the test and documentation commits. Tests ran under `unshare -rn` with Bun 1.4.2. Receipts are in the local r3 report directory and use base `46c5cd2`. An earlier r3 pre-fix run had the same failures and passed tests. It was rerun only to correct one test title.

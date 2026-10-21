@@ -1,0 +1,24 @@
+{
+  "name": "clearcase-identity-probe",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.2",
+  "scripts": {
+    "test": "vitest run",
+    "probe": "bun probe.ts",
+    "check:evidence": "bun check.ts",
+    "build": "vite build --config vite.probe.config.js"
+  },
+  "devDependencies": {
+    "@clerk/backend": "3.26.0",
+    "@sveltejs/adapter-cloudflare": "8.0.1",
+    "@sveltejs/kit": "3.1.0",
+    "@sveltejs/vite-plugin-svelte": "7.3.1",
+    "miniflare": "5.20261019.1-beta",
+    "svelte": "5.57.2",
+    "vite": "8.3.4",
+    "vitest": "5.0.5",
+    "workerd": "1.20261019.1",
+    "wrangler": "4.151.3"
+  }
+}

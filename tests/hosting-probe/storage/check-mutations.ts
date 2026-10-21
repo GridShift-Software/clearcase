@@ -3,12 +3,13 @@
 //
 //   bun run --bun test:check
 //
-// It takes the committed evidence summary, points its SHA at HEAD so the control passes, then mutates every leaf and
+// It takes the committed evidence summary as committed (its sourceSha an ancestor of HEAD, never rewritten), so the
+// control passes only while the summary vouches for this checkout, then mutates every leaf and
 // every container one at a time (delete, null, retype, empty string, flipped boolean, zeroed or negated number, an
 // unknown key added to every object) and runs the real `--check` CLI on each file. Any mutation that prints CHECK PASS is
 // a hole. The walk is over the summary itself, not over the checker's own field list, so a field the checker forgets
 // cannot hide from it. Named cases run on top, so a regression names what it let through.
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -17,9 +18,7 @@ const HERE = import.meta.dirname;
 const EVIDENCE = path.join(HERE, '../../../docs/acceptance/hosting/evidence/storage-summary.json');
 type Json = Record<string, unknown>;
 
-const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: HERE, encoding: 'utf8' }).stdout.trim();
 const base = JSON.parse(readFileSync(EVIDENCE, 'utf8')) as Json;
-base.sourceSha = head;
 
 const dir = mkdtempSync(path.join(tmpdir(), 'storage-check-'));
 let n = 0;
@@ -62,6 +61,10 @@ walk(base, []);
 const legs = (s: Json) => s.legs as Record<string, { measured: Json; failure?: string; asserted: string[] }>;
 const named: [string, Edit][] = [
 	['scale smoke', (s) => (s.scale = 'smoke')],
+	['a made-up sourceSha', (s) => (s.sourceSha = '0'.repeat(40))],
+	['an input object id of another tree', (s) => ((s.inputs as Json)['tests/hosting-probe/storage'] = '1'.repeat(40))],
+	['an input dropped', (s) => delete (s.inputs as Json)['tests/e2e/pilot/offline.sh']],
+	['an input added', (s) => ((s.inputs as Json)['README.md'] = '1'.repeat(40))],
 	['a cloud leg dropped from hold', (s) => (s.hold as string[]).splice(0, 1)],
 	['hold entry changed to done', (s) => ((s.hold as string[])[4] = 'P6 Time Travel restore: PASS')],
 	['an upload failure', (s) => (legs(s).upload!.measured.failures = 1)],

@@ -5,8 +5,9 @@
 // Shape alone (summary.ts) cannot tell a summary of this branch from one of a base without the probe, or an artifact
 // digest from a zeroed one, or a count of 1 from a count of 1,264. So, beyond the shape for its own sourceSha:
 // 1. sourceSha is an ancestor of HEAD;
-// 2. nothing under tests/hosting-probe/notifications/ differs from sourceSha, committed or not, tracked or not (so the
-//    probe, the Worker and the checks are those of the run);
+// 2. nothing under tests/hosting-probe/notifications/ or in tests/e2e/pilot/offline.sh (the namespace the probe runs in)
+//    differs from sourceSha, committed or not, tracked or not (so the probe, the Worker, the checks and the isolation are
+//    those of the run);
 // 3. a rebuild of src/worker.ts with sourceSha as its stamp has the digest in `artifact` (so the Worker that ran is
 //    the Worker in the tree);
 // 4. checker.mutationsRefused is the count the walk gives for this summary now (summary.ts).
@@ -20,8 +21,9 @@ import { checkSummary, isObject, mutationsRefused } from './summary.ts';
 
 const HERE = import.meta.dirname;
 const DIR = 'tests/hosting-probe/notifications/';
-/** git runs in this directory, so `.` is DIR (a pathspec of DIR itself would be relative to here). */
-const HERE_SPEC = '.';
+/** What the run reads from the repository, as pathspecs from this directory (git runs here, so `.` is DIR): the probe's own directory and the namespace it runs in. */
+const INPUTS = ['.', '../../e2e/pilot/offline.sh'];
+const INPUT_NAMES = `${DIR} or tests/e2e/pilot/offline.sh`;
 
 function git(...args: string[]): { code: number; out: string } {
 	const r = spawnSync('git', args, { cwd: HERE, encoding: 'utf8', env: { PATH: '/usr/bin:/bin', HOME: '/nonexistent' } });
@@ -36,8 +38,8 @@ export async function evidenceProblems(summary: unknown): Promise<string[]> {
 	const problems = checkSummary(summary, sha);
 
 	if (git('merge-base', '--is-ancestor', sha, 'HEAD').code !== 0) return [...problems, `sourceSha ${sha.slice(0, 12)} is not an ancestor of HEAD`];
-	const changed = [...git('diff', '--name-only', sha, '--', HERE_SPEC).out.split('\n'), ...git('ls-files', '--others', '--exclude-standard', '--', HERE_SPEC).out.split('\n')].filter(Boolean);
-	if (changed.length) problems.push(`${changed.length} file(s) under ${DIR} differ from sourceSha ${sha.slice(0, 12)}, so the run does not describe this checkout: ${changed.slice(0, 3).join(', ')}`);
+	const changed = [...git('diff', '--name-only', sha, '--', ...INPUTS).out.split('\n'), ...git('ls-files', '--others', '--exclude-standard', '--', ...INPUTS).out.split('\n')].filter(Boolean);
+	if (changed.length) problems.push(`${changed.length} file(s) under ${INPUT_NAMES} differ from sourceSha ${sha.slice(0, 12)}, so the run does not describe this checkout: ${changed.slice(0, 3).join(', ')}`);
 
 	const out = mkdtempSync(path.join(tmpdir(), 'notifications-rebuild-'));
 	try {

@@ -2,7 +2,7 @@
 //
 //   bun install --frozen-lockfile   # once, online: this workspace's own pins, apart from the root lockfile
 //   bun run --bun probe [--out FILE] [--scale poc|smoke]
-//   bun run --bun probe --check FILE
+//   bun run --bun probe --check FILE   # shape; sourceSha an ancestor of HEAD and the git object id of each input as at sourceSha
 //
 // The first form builds the probe Worker with Bun, provisions per-client local D1 databases and R2 buckets with Wrangler's
 // CLI, serves each deployment on native workerd through `wrangler dev --local` (Node hosts Wrangler only; Bun hosts the
@@ -15,8 +15,8 @@
 // .local/hosting-probe/storage/; the local D1 and R2 state (several GB at POC scale) is deleted at the end unless
 // --keep-state is given.
 //
-// `--check FILE` refuses (exit 1) a summary that is not this runner's PASS for HEAD: exact key sets, types and values at
-// every level (expectedShape), measurements included. check-mutations.ts mutates every leaf of a real PASS summary and runs
+// `--check FILE` refuses (exit 1) a summary that is not this runner's PASS for a revision of this checkout: exact key sets,
+// types and values at every level (expectedShape), measurements included, and its inputs bound as in checkEvidence. check-mutations.ts mutates every leaf of a real PASS summary and runs
 // this check on each (bun run --bun test:check).
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -167,6 +167,7 @@ function expectedShape(sha: string, summary: Record<string, unknown>): Spec {
 	return {
 		schema: SCHEMA,
 		sourceSha: sha,
+		inputs: Object.fromEntries(PROBE_INPUTS.map((input) => [input, /^[0-9a-f]{40}$/])),
 		treeClean: true,
 		scale: 'poc',
 		seed: SEED,
@@ -205,6 +206,44 @@ function conform(value: unknown, spec: Spec, at: string, problems: string[]): vo
 		for (const [k, s] of Object.entries(spec)) if (k in value) conform(value[k], s, `${at}.${k}`, problems);
 		else problems.push(`${at}.${k} is missing`);
 	} else if (value !== spec) problems.push(`${at} is ${got}, not ${JSON.stringify(spec)}`);
+}
+
+/** A git command whose failure is an answer, not an error. */
+const asked = (...args: string[]) => run('git', args, { env: { PATH: '/usr/bin:/bin' } });
+
+/**
+ * What the run reads from the repository: nothing outside these decides its result. This directory holds the probe, its
+ * Worker, schema, lockfile and generator; offline.sh is the namespace it runs in. The summary records the git object id of
+ * each at sourceSha (the deployment probe's rule, deploy/probes/summary-check.ts).
+ */
+export const PROBE_INPUTS = ['tests/hosting-probe/storage', 'tests/e2e/pilot/offline.sh'] as const;
+const objectAt = (rev: string, input: string) => {
+	const r = asked('rev-parse', `${rev}:${input}`);
+	return r.code === 0 ? r.stdout.trim() : null;
+};
+const inputsAt = (rev: string) => Object.fromEntries(PROBE_INPUTS.map((input) => [input, objectAt(rev, input) ?? 'missing']));
+
+/**
+ * Whether the summary vouches for this checkout: `sourceSha` is a commit of it and an ancestor of HEAD, never rewritten to
+ * HEAD; the object ids it records are those of the inputs at sourceSha; and those ids are the same at HEAD, so a merge of
+ * other tickets' work changes nothing the summary vouches for.
+ */
+export function bindingProblems(sourceSha: string, recorded: unknown): string[] {
+	if (!/^[0-9a-f]{40}$/.test(sourceSha) || asked('cat-file', '-e', `${sourceSha}^{commit}`).code !== 0) return [`sourceSha ${sourceSha.slice(0, 60)} is not a commit of this clone`];
+	if (asked('merge-base', '--is-ancestor', sourceSha, 'HEAD').code !== 0) return [`sourceSha ${sourceSha} is not an ancestor of HEAD`];
+	const ids = isObject(recorded) ? recorded : {};
+	const problems: string[] = [];
+	for (const input of PROBE_INPUTS) {
+		if (ids[input] === undefined || ids[input] !== objectAt(sourceSha, input)) problems.push(`${input}: the inputs recorded in the summary are not what ${sourceSha.slice(0, 12)} held`);
+		else if (objectAt('HEAD', input) !== ids[input]) problems.push(`${input} changed since the run at ${sourceSha.slice(0, 12)}: run the probe again`);
+	}
+	return problems;
+}
+
+/** What `--check` decides for a summary: the sourceSha it names and the inputs it records are bound to this checkout, and its shape holds for that sourceSha. */
+export function checkEvidence(summary: unknown): string[] {
+	const sha = isObject(summary) && typeof summary.sourceSha === 'string' ? summary.sourceSha : '';
+	return [...bindingProblems(sha, isObject(summary) ? summary.inputs : undefined), ...checkSummary(summary, sha)];
 }
 
 export function checkSummary(summary: unknown, sha: string): string[] {
@@ -1348,6 +1387,7 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 	const summary: Record<string, unknown> = {
 		schema: SCHEMA,
 		sourceSha: sha,
+		inputs: inputsAt(sha),
 		treeClean: clean && endSha === sha,
 		scale,
 		seed: SEED,
@@ -1417,7 +1457,7 @@ if (process.argv[1] === import.meta.filename) {
 	try {
 		if (process.versions.bun !== BUN) throw new Refusal(`runs under Bun ${BUN} only (packageManager); this is ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node ${process.versions.node}`}`);
 		if (values.check) {
-			const problems = checkSummary(JSON.parse(readFileSync(values.check, 'utf8')), head());
+			const problems = checkEvidence(JSON.parse(readFileSync(values.check, 'utf8')));
 			for (const problem of problems) console.log(`refused: ${problem}`);
 			console.log(problems.length ? `CHECK FAIL ${values.check}` : `CHECK PASS ${values.check}`);
 			process.exit(problems.length ? 1 : 0);

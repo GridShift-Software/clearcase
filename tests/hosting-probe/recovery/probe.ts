@@ -2,7 +2,7 @@
 //
 //   (cd ../storage && bun install --frozen-lockfile)   # once, online: Wrangler, workerd and Miniflare at GRS-109's pins
 //   bun run --bun probe [--out FILE]
-//   bun run --bun probe --check FILE                  # shape, and the summary's sourceSha bound to HEAD
+//   bun run --bun probe --check FILE                  # shape; sourceSha an ancestor of HEAD and the git object id of each input as at sourceSha
 //   bun run --bun test:check                          # the committed summary passes; a made-up sourceSha and every mutation are refused
 //
 // The first form builds this directory's Worker (GRS-109's storage Worker behind the recovery and deletion routes) with
@@ -105,6 +105,7 @@ function expectedShape(sha: string, summary: Record<string, unknown>): Spec {
 	return {
 		schema: SCHEMA,
 		sourceSha: sha,
+		inputs: Object.fromEntries(PROBE_INPUTS.map((input) => [input, /^[0-9a-f]{40}$/])),
 		treeClean: true,
 		startedAt: ISO,
 		finishedAt: ISO,
@@ -1008,6 +1009,7 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 	const summary: Record<string, unknown> = {
 		schema: SCHEMA,
 		sourceSha: sha,
+		inputs: inputsAt(sha),
 		treeClean: clean && endSha === sha,
 		startedAt,
 		finishedAt: new Date().toISOString(),
@@ -1045,27 +1047,42 @@ function enterOffline(args: string[]): number {
 	return r.status ?? 1;
 }
 
-/** The only files a commit after the run may change: this page and the committed summary. */
-const EVIDENCE_FILES = ['docs/acceptance/hosting/recovery.md', 'docs/acceptance/hosting/evidence/recovery-summary.json'];
-
 /** A git command whose failure is an answer, not an error. */
 const asked = (...args: string[]) => run('git', args, { env: { PATH: '/usr/bin:/bin' } });
 
-/** Whether `sourceSha` is the code at HEAD: HEAD itself, or an ancestor of it with nothing changed since but the page and the summary. */
-export function bindingProblems(sourceSha: string): string[] {
+/**
+ * What the run reads from the repository: nothing outside these decides its result. This probe's Worker imports the storage
+ * Worker (src/), applies its schema.sql, and takes its pins from its package.json and bun.lock; offline.sh is the namespace
+ * it runs in. The summary records the git object id of each at sourceSha (the deployment probe's rule, deploy/probes/summary-check.ts).
+ */
+export const PROBE_INPUTS = ['tests/hosting-probe/recovery', 'tests/hosting-probe/storage/src', 'tests/hosting-probe/storage/schema.sql', 'tests/hosting-probe/storage/package.json', 'tests/hosting-probe/storage/bun.lock', 'tests/e2e/pilot/offline.sh'] as const;
+const objectAt = (rev: string, input: string) => {
+	const r = asked('rev-parse', `${rev}:${input}`);
+	return r.code === 0 ? r.stdout.trim() : null;
+};
+const inputsAt = (rev: string) => Object.fromEntries(PROBE_INPUTS.map((input) => [input, objectAt(rev, input) ?? 'missing']));
+
+/**
+ * Whether the summary vouches for this checkout: `sourceSha` is a commit of it and an ancestor of HEAD, never rewritten to
+ * HEAD; the object ids it records are those of the inputs at sourceSha; and those ids are the same at HEAD, so a merge of
+ * other tickets' work changes nothing the summary vouches for.
+ */
+export function bindingProblems(sourceSha: string, recorded: unknown): string[] {
 	if (!/^[0-9a-f]{40}$/.test(sourceSha) || asked('cat-file', '-e', `${sourceSha}^{commit}`).code !== 0) return [`sourceSha ${sourceSha.slice(0, 60)} is not a commit of this clone`];
-	if (sourceSha === head()) return [];
 	if (asked('merge-base', '--is-ancestor', sourceSha, 'HEAD').code !== 0) return [`sourceSha ${sourceSha} is not an ancestor of HEAD`];
-	// Rename detection off, so a file moved out of a protected path is listed under both its names.
-	const changed = asked('diff', '--name-only', '--no-renames', sourceSha, 'HEAD').stdout.split('\n').filter(Boolean);
-	const other = changed.filter((f) => !EVIDENCE_FILES.includes(f));
-	return other.length ? [`${other.length} file(s) changed between sourceSha ${sourceSha.slice(0, 12)} and HEAD besides the page and the summary: ${other.slice(0, 3).join(', ')}`] : [];
+	const ids = isObject(recorded) ? recorded : {};
+	const problems: string[] = [];
+	for (const input of PROBE_INPUTS) {
+		if (ids[input] === undefined || ids[input] !== objectAt(sourceSha, input)) problems.push(`${input}: the inputs recorded in the summary are not what ${sourceSha.slice(0, 12)} held`);
+		else if (objectAt('HEAD', input) !== ids[input]) problems.push(`${input} changed since the run at ${sourceSha.slice(0, 12)}: run the probe again`);
+	}
+	return problems;
 }
 
-/** What `--check` and `test:check` decide for a summary: the sourceSha it names is bound to HEAD, and its shape holds for that sourceSha. */
+/** What `--check` and `test:check` decide for a summary: the sourceSha it names and the inputs it records are bound to this checkout, and its shape holds for that sourceSha. */
 export function checkEvidence(summary: unknown): string[] {
 	const sha = isObject(summary) && typeof summary.sourceSha === 'string' ? summary.sourceSha : '';
-	return [...bindingProblems(sha), ...checkSummary(summary, sha)];
+	return [...bindingProblems(sha, isObject(summary) ? summary.inputs : undefined), ...checkSummary(summary, sha)];
 }
 
 /** `test:check`: the committed summary passes as it is, and every mutation of it is refused. */
@@ -1083,6 +1100,9 @@ function selfTest(): number {
 		['a HOLD dropped', (s) => s.hold.pop()],
 		['failure set', (s) => (s.failure = 'x')],
 		['a made-up sourceSha', (s) => (s.sourceSha = '0'.repeat(40))],
+		['an input object id of another tree', (s) => (s.inputs['tests/hosting-probe/storage/src'] = '1'.repeat(40))],
+		['an input dropped', (s) => delete s.inputs['tests/e2e/pilot/offline.sh']],
+		['an input added', (s) => (s.inputs['README.md'] = '1'.repeat(40))],
 	];
 	// A real commit from before the last change to the Worker: the code at HEAD is not the code the summary would then describe.
 	const worker = asked('log', '-1', '--format=%H', '--', 'src/worker.ts').stdout.trim();

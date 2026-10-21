@@ -1,8 +1,8 @@
 // The trusted parent's target check (GRS-107). Every client shares one Cloudflare account, so the account is no
 // boundary and a token that can deploy one client's Worker can deploy another's. Before anything is uploaded, the
 // parent compares each reviewed deploy config with the client's reviewed target manifest (clients/<client>/target.json)
-// and refuses a missing field, an unexpected key or binding, and any identifier that is not this client's, naming the
-// client it belongs to. Configs are read as data: a cf config must be a JSON literal, and nothing here evaluates config
+// and refuses a missing field, an unexpected key or binding, a Worker entry or assets directory outside the staged
+// artifact, and any identifier that is not this client's, naming the client it belongs to. Configs are read as data: a cf config must be a JSON literal, and nothing here evaluates config
 // code, because the parent is the process that later holds the upload credentials.
 //
 //   bun deploy/probes/target.ts check <client> [--format wrangler|cf --config FILE]
@@ -19,6 +19,8 @@ import { fileURLToPath } from 'node:url';
 export const TARGET_SCHEMA = 'clearcase.deploy-target/1';
 export const CLIENTS_DIR = path.join(import.meta.dirname, 'clients');
 export const CONFIG_FILES = { wrangler: 'wrangler.jsonc', cf: 'cloudflare.config.ts' } as const;
+/** Where a stage puts the reviewed artifact, relative to the configs: the only Worker entry and assets a config may name. */
+export const STAGED = { entry: 'artifact/cloudflare/_worker.js', assets: 'artifact/cloudflare' } as const;
 export type Format = keyof typeof CONFIG_FILES;
 
 export type Target = {
@@ -40,6 +42,9 @@ type Resolved = {
 	r2: { binding: unknown; bucket: unknown }[];
 	secrets: unknown;
 	vars: unknown;
+	entry: unknown;
+	/** The Wrangler assets directory; a cf config has none. */
+	assets?: unknown;
 	/** The whole parsed config, which the foreign-identifier sweep walks. */
 	raw: unknown;
 };
@@ -126,7 +131,8 @@ function readWrangler(text: string, problems: string[]): Resolved | null {
 		return { binding: o.binding, bucket: o.bucket_name };
 	});
 	const secrets = isObject(config.secrets) ? (onlyKeys(config.secrets, ['required'], 'config.secrets', problems), config.secrets.required) : undefined;
-	return { accountId: config.account_id, worker: config.name, d1, r2, secrets, vars: config.vars, raw: config };
+	const assets = isObject(config.assets) ? (onlyKeys(config.assets, ['directory', 'binding'], 'config.assets', problems), config.assets.directory) : undefined;
+	return { accountId: config.account_id, worker: config.name, d1, r2, secrets, vars: config.vars, entry: config.main, assets, raw: config };
 }
 
 /** A cloudflare.config.ts that is `export default <JSON literal>;` after whole-line comments, as data, never evaluated. */
@@ -146,7 +152,7 @@ function readCf(text: string, problems: string[]): Resolved | null {
 	const worker = isObject(config.worker) ? config.worker : (problems.push(`config.worker is ${show(config.worker)}`), {});
 	onlyKeys(worker, ['name', 'compatibilityDate', 'compatibilityFlags', 'entrypoint', 'env'], 'config.worker', problems);
 	const env = isObject(worker.env) ? worker.env : (problems.push(`config.worker.env is ${show(worker.env)}`), {});
-	const resolved: Resolved & { secrets: string[]; vars: Record<string, unknown> } = { accountId: config.accountId, worker: worker.name, d1: [], r2: [], secrets: [], vars: {}, raw: config };
+	const resolved: Resolved & { secrets: string[]; vars: Record<string, unknown> } = { accountId: config.accountId, worker: worker.name, d1: [], r2: [], secrets: [], vars: {}, entry: worker.entrypoint, raw: config };
 	for (const [binding, b] of Object.entries(env)) {
 		const at = `config.worker.env.${binding}`;
 		const o = isObject(b) ? b : {};
@@ -176,6 +182,10 @@ export function checkTarget(a: { client: string; targets: Target[]; format: Form
 	};
 	expect('account id', config.accountId, target.accountId);
 	expect('worker', config.worker, target.worker);
+	// The stage checks the artifact's digest, so the config must upload that artifact and nothing beside it.
+	const staged = (v: unknown) => (typeof v === 'string' ? path.posix.normalize(v) : v);
+	if (staged(config.entry) !== STAGED.entry) problems.push(`the Worker entry is ${show(config.entry)}, not the staged artifact's ${STAGED.entry}`);
+	if (a.format === 'wrangler' && staged(config.assets) !== STAGED.assets) problems.push(`the assets directory is ${show(config.assets)}, not the staged artifact's ${STAGED.assets}`);
 	if (config.d1.length !== 1) problems.push(`the config binds ${config.d1.length} D1 databases, not exactly ${a.client}'s one`);
 	for (const d of config.d1) (expect('d1 binding', d.binding, target.d1.binding), expect('d1 name', d.name, target.d1.name), expect('d1 id', d.id, target.d1.id));
 	if (config.r2.length !== 1) problems.push(`the config binds ${config.r2.length} R2 buckets, not exactly ${a.client}'s one`);

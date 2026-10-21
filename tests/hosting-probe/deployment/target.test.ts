@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
-import { checkTarget, digestDir, loadTargets, stage } from '../../../deploy/probes/target.ts';
+import { checkTarget, digestDir, loadTargets, stage, STAGED } from '../../../deploy/probes/target.ts';
 
 const CLIENTS = path.join(import.meta.dirname, '../../../deploy/probes/clients');
 const targets = loadTargets(CLIENTS);
@@ -84,6 +84,72 @@ describe('the target check fails closed', () => {
 	test('cf: a D1 binding without its id', () => refuses('cf', cf.replace(`, "id": "${a.d1.id}"`, ''), /d1 id is missing/));
 	test('cf: no account id', () => refuses('cf', cf.replace('  "accountId": "00000000000000000000000000000107",\n', ''), /account id is missing/));
 	test('an unknown client', () => expect(checkTarget({ client: 'client-c', targets, format: 'cf', text: cf })).toEqual(['no target manifest for client-c']));
+});
+
+describe('every field the check reads, deleted, nulled or retyped, is refused', () => {
+	type Path = (string | number)[];
+	const leaves = (v: unknown, at: Path = []): Path[] =>
+		(at.length ? [at] : []).concat(v && typeof v === 'object' ? Object.entries(v).flatMap(([k, x]) => leaves(x, [...at, Array.isArray(v) ? Number(k) : k])) : []);
+	const mutants = (value: unknown) =>
+		leaves(value).flatMap((at) =>
+			(['delete', 'null', 'retype'] as const).map((op) => {
+				const copy = structuredClone(value) as Record<string | number, unknown>;
+				const parent = at.slice(0, -1).reduce<Record<string | number, unknown>>((o, k) => o[k] as Record<string | number, unknown>, copy);
+				const key = at.at(-1)!;
+				const old = parent[key];
+				if (op === 'delete') Array.isArray(parent) ? parent.splice(key as number, 1) : delete parent[key];
+				else parent[key] = op === 'null' ? null : typeof old === 'string' ? 7 : Array.isArray(old) ? {} : typeof old === 'object' && old !== null ? [] : 'x';
+				return { label: `${op} ${at.join('.')}`, copy };
+			}),
+		);
+	const MUTANT = path.join(import.meta.dirname, '../../../.local/hosting-probe/deployment', `mutant-${process.pid}`);
+	afterAll(() => rmSync(MUTANT, { recursive: true, force: true }));
+	const data = (text: string) => JSON.parse(text.split('\n').filter((l) => !l.trimStart().startsWith('//')).join('\n').replace(/^\s*export default /, '').replace(/;\s*$/, ''));
+	// Reviewed with the config, never compared with a target: none of them names a client or the uploaded code.
+	const UNREAD = /^(compatibility_date|compatibility_flags|send_metrics|assets\.binding|d1_databases\.0\.migrations_dir|worker\.compatibilityDate|worker\.compatibilityFlags)(\.|$)/;
+
+	for (const [format, file] of FORMATS) {
+		test(`${format}: every mutant of client A's config outside the unread keys is refused`, () => {
+			const accepted = mutants(data(config('client-a', file)))
+				.filter(({ label }) => !UNREAD.test(label.split(' ')[1]!))
+				.filter(({ copy }) => checkTarget({ client: 'client-a', targets, format, text: format === 'cf' ? `export default ${JSON.stringify(copy)};` : JSON.stringify(copy) }).length === 0)
+				.map(({ label }) => label);
+			expect(accepted).toEqual([]);
+		});
+	}
+
+	test("every mutant of client A's target manifest is refused", () => {
+		const target = JSON.parse(config('client-a', 'target.json'));
+		const accepted = mutants(target)
+			.filter(({ label }) => label !== 'delete secrets.0') // a client without secrets is a legitimate target; its configs must then name none
+			.filter(({ copy }) => {
+				const dir = MUTANT;
+				rmSync(dir, { recursive: true, force: true });
+				cpSync(CLIENTS, dir, { recursive: true });
+				writeFileSync(path.join(dir, 'client-a', 'target.json'), JSON.stringify(copy));
+				try {
+					return checkTarget({ client: 'client-a', targets: loadTargets(dir), format: 'wrangler', text: config('client-a', 'wrangler.jsonc') }).length === 0;
+				} catch {
+					return false;
+				}
+			})
+			.map(({ label }) => label);
+		expect(accepted).toEqual([]);
+	});
+
+	for (const [format, file] of FORMATS)
+		test(`${format}: a Worker entry outside the staged artifact is refused`, () => {
+			const text = config('client-a', file);
+			expect(text).toContain(STAGED.entry);
+			const problems = checkTarget({ client: 'client-a', targets, format, text: text.replace(STAGED.entry, 'src/_worker.js') });
+			expect(problems.some((p) => p.includes("not the staged artifact's")), problems.join('\n')).toBe(true);
+		});
+
+	test('wrangler: an assets directory outside the staged artifact is refused', () => {
+		const text = config('client-a', 'wrangler.jsonc').replace(`"directory": "${STAGED.assets}"`, '"directory": "static"');
+		const problems = checkTarget({ client: 'client-a', targets, format: 'wrangler', text });
+		expect(problems.some((p) => p.includes('assets directory')), problems.join('\n')).toBe(true);
+	});
 });
 
 describe('the trusted parent stages only a checked config and the reviewed artifact', () => {

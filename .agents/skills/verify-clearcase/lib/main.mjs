@@ -14,6 +14,7 @@ import { delimiter, dirname, join, resolve } from 'node:path';
 import { formatDoctor, liveDoctor } from './live-doctor.mjs';
 import { pilotSteps } from './drive.mjs';
 import { featureIndex, formatIndex } from './features.mjs';
+import { gitEnv } from '../../../../scripts/browser-lock.mjs';
 
 export const SKILL = resolve(import.meta.dirname, '..');
 export const REPO = resolve(SKILL, '..', '..', '..');
@@ -34,7 +35,7 @@ const sha = (p) => createHash('sha256').update(readFileSync(p)).digest('hex');
 const executable = (p) => { try { accessSync(p, constants.X_OK); return statSync(p).isFile(); } catch { return false; } };
 /** A system tool from PATH, else from the standard system directories (ip often lives in /usr/sbin). */
 export const systemTool = (name) => [...(env.PATH ?? '').split(delimiter), ...SYSTEM_PATH.split(':')].filter(Boolean).map((d) => join(d, name)).find(executable) ?? null;
-const git = (...a) => spawnSync('git', ['-C', REPO, ...a], { encoding: 'utf8' });
+const git = (...a) => spawnSync('git', ['-C', REPO, ...a], { encoding: 'utf8', env: gitEnv() });
 const flags = (argv) => { const o = {}; for (let i = 0; i < argv.length; i++) if (argv[i].startsWith('--')) { const k = argv[i].slice(2); o[k] = argv[i + 1]?.startsWith('--') || argv[i + 1] === undefined ? true : argv[++i]; } return o; };
 
 /** Local checks only (files, versions, `unshare -rn true`): no build, no listener, no network. */

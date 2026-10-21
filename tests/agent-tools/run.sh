@@ -3,6 +3,9 @@
 # doctor passes in this environment, Bun >= 1.4.2 on PATH or in CLEARCASE_BUN.
 # Usage: bash tests/agent-tools/run.sh   (exit 0 only when every case passes)
 set -u
+# No inherited GIT_* variable (a Git hook exports GIT_DIR) may send the scratch repositories below to another repository.
+# shellcheck disable=SC2046
+unset $(compgen -e GIT_)
 
 HERE=$(cd "${BASH_SOURCE[0]%/*}" && pwd)
 REPO=$(cd "$HERE/../.." && pwd)

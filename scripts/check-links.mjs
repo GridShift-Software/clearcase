@@ -7,6 +7,7 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join, posix, resolve } from 'node:path';
+import { gitEnv } from './browser-lock.mjs';
 
 const REPO = resolve(import.meta.dirname, '..');
 
@@ -89,7 +90,7 @@ export function check(files, read) {
 }
 
 if (import.meta.main) {
-	const ls = spawnSync('git', ['ls-files', '-z'], { cwd: REPO, encoding: 'utf8' });
+	const ls = spawnSync('git', ['ls-files', '-z'], { cwd: REPO, encoding: 'utf8', env: gitEnv() });
 	if (ls.status !== 0) {
 		console.error(`check-links: git ls-files failed: ${ls.stderr || ls.error?.message}`);
 		process.exit(1);

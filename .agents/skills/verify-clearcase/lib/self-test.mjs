@@ -15,6 +15,7 @@
 import { spawnSync } from 'node:child_process';
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { gitEnv } from '../../../../scripts/browser-lock.mjs';
 import { liveDoctor } from './live-doctor.mjs';
 import { pilotSteps } from './drive.mjs';
 import { discoverFeatures, driveSteps, featureIndex } from './features.mjs';
@@ -57,10 +58,10 @@ export async function selfTest(_o, ctx) {
 		const clean = join(scratch, 'clean');
 		mkdirSync(clean);
 		const ok = (r, what) => { if (r.status !== 0) throw new Error(`${what}: ${r.stderr}`); };
-		ok(spawnSync('bash', ['-c', 'git -C "$0" archive --format=tar HEAD | tar -x -C "$1"', REPO, clean], { encoding: 'utf8' }), 'git archive');
+		ok(spawnSync('bash', ['-c', 'git -C "$0" archive --format=tar HEAD | tar -x -C "$1"', REPO, clean], { encoding: 'utf8', env: gitEnv() }), 'git archive');
 		rmSync(join(clean, '.agents/skills/verify-clearcase'), { recursive: true, force: true });
 		cpSync(SKILL, join(clean, '.agents/skills/verify-clearcase'), { recursive: true });
-		ok(spawnSync('bash', ['-c', 'cd "$0" && git init -q -b dev && git add -A && git -c user.name=t -c user.email=t@example.invalid commit -qm clean', clean], { encoding: 'utf8' }), 'git init');
+		ok(spawnSync('bash', ['-c', 'cd "$0" && git init -q -b dev && git add -A && git -c user.name=t -c user.email=t@example.invalid commit -qm clean', clean], { encoding: 'utf8', env: gitEnv() }), 'git init');
 		const a = runner(clean);
 		record('clean checkout: preflight stops with the install command (exit 3), no build, no browser, no bun install',
 			a.code === 3 && /node_modules/.test(a.stderr) && a.stderr.includes('bun install --frozen-lockfile') && onlyRunner(a.invoked) && quiet(a) && notBuilt(a.summary) && !existsSync(join(clean, 'node_modules')) && !a.scratchLeft.length,

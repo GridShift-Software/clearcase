@@ -26,6 +26,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { bunIdentity, chromiumIdentity, ensureOffline, gitIdentity, hostIdentity, PORTS, REPO, stats } from '../../tests/e2e/pilot/v5/env.mjs';
+import { gitEnv } from '../browser-lock.mjs';
 
 const { values: a } = parseArgs({ options: {
 	ticket: { type: 'string' }, candidate: { type: 'string' }, samples: { type: 'string' }, warmup: { type: 'string' },
@@ -59,7 +60,7 @@ let fx;
 try { fx = await loadConfig(a.config ? resolve(a.config) : undefined); } catch (e) { console.error(`cc04: ${e.message}`); process.exit(e instanceof ConfigError ? 2 : 1); }
 rmSync(work, { recursive: true, force: true });
 mkdirSync(work, { recursive: true });
-const rev = (r) => { const p = spawnSync('git', ['-C', REPO, 'rev-parse', '--verify', `${r}^{commit}`], { encoding: 'utf8' }); if (p.status !== 0) usage(`unknown revision ${r}`); return p.stdout.trim(); };
+const rev = (r) => { const p = spawnSync('git', ['-C', REPO, 'rev-parse', '--verify', `${r}^{commit}`], { encoding: 'utf8', env: gitEnv() }); if (p.status !== 0) usage(`unknown revision ${r}`); return p.stdout.trim(); };
 const full = rev(a.candidate ?? 'HEAD');
 const RV = fx.accepted.resultsVersion;
 

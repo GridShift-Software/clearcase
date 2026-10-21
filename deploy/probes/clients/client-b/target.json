@@ -1,0 +1,10 @@
+{
+  "schema": "clearcase.deploy-target/1",
+  "client": "client-b",
+  "accountId": "00000000000000000000000000000107",
+  "worker": "clearcase-client-b",
+  "d1": { "binding": "DB", "name": "clearcase-client-b", "id": "00000000-0000-4000-8000-00000000bbbb" },
+  "r2": { "binding": "BUCKET", "bucket": "clearcase-client-b" },
+  "secrets": ["CLERK_SECRET_KEY"],
+  "vars": { "CLEARCASE_CLIENT_ID": "client-b" }
+}

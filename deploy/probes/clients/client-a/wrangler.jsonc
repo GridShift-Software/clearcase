@@ -1,0 +1,16 @@
+// The reviewed Wrangler and Void config for synthetic client-a (GRS-107), checked against target.json by
+// deploy/probes/target.ts. Placeholder account and D1 IDs that no Cloudflare account holds. Paths are relative to the
+// trusted parent's staging directory, which holds this file and the prebuilt artifact.
+{
+  "name": "clearcase-client-a",
+  "account_id": "00000000000000000000000000000107",
+  "main": "artifact/_worker.js",
+  "compatibility_date": "2026-10-12",
+  "compatibility_flags": ["nodejs_als"],
+  "send_metrics": false,
+  "assets": { "directory": "artifact", "binding": "ASSETS" },
+  "vars": { "CLEARCASE_CLIENT_ID": "client-a" },
+  "secrets": { "required": ["CLERK_SECRET_KEY"] },
+  "d1_databases": [{ "binding": "DB", "database_name": "clearcase-client-a", "database_id": "00000000-0000-4000-8000-00000000aaaa", "migrations_dir": "migrations" }],
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "clearcase-client-a" }]
+}

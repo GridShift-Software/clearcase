@@ -39,4 +39,16 @@ describe('halt: after an interrupt the run creates nothing more but still cleans
 		await b.revokeSession('sess_1');
 		expect(fetch.mock.calls.map(([url, init]) => `${init?.method} ${String(url).replace(/^.*\/v1/, '')}`)).toEqual(['DELETE /users/user_1', 'GET /sessions/sess_1', 'POST /sessions/sess_1/revoke']);
 	});
+
+	test('a create queued in the pace when the run halts is refused when its turn comes, not sent (polish C, L4)', async () => {
+		const fetch = stub({}, {});
+		const b = new Backend('sk_test_synthetic-placeholder-not-a-key', new Pace(1, 60));
+		await b.getUser('user_0'); // takes the only slot in the window
+		const queued = b.createUser('cc108-z+clerk_test@example.com', 'synthetic'); // passes the first check, then waits for a slot
+		const refusal = expect(queued).rejects.toThrow(/interrupted/);
+		await new Promise((r) => setTimeout(r, 10));
+		halt.on = true;
+		await refusal;
+		expect(fetch.mock.calls.map(([url, init]) => `${init?.method} ${String(url).replace(/^.*\/v1/, '')}`)).toEqual(['GET /users/user_0']);
+	});
 });

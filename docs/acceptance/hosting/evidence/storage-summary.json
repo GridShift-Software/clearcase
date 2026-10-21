@@ -1,12 +1,12 @@
 {
   "schema": "clearcase.storage-probe/1",
-  "sourceSha": "48ce6f329c216029ce81e9842696ae4c84cc815d",
+  "sourceSha": "b9271a86071709cff1fa307dd5ef1abc0b1aae4e",
   "treeClean": true,
   "scale": "poc",
   "seed": "grs-109",
-  "startedAt": "2026-10-21T10:08:09.828Z",
-  "finishedAt": "2026-10-21T10:16:20.688Z",
-  "runDir": ".local/hosting-probe/storage/2026-10-21T10-08-09-828Z",
+  "startedAt": "2026-10-21T12:53:54.854Z",
+  "finishedAt": "2026-10-21T13:02:00.773Z",
+  "runDir": ".local/hosting-probe/storage/2026-10-21T12-53-54-854Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -21,7 +21,7 @@
     "workerd": "1.20261012.1",
     "wrangler": "4.151.1"
   },
-  "artifact": "sha256:f83332b7ed446accc5225c9f31bc5e91724d032c7a2fed5aa325de6544436fc7",
+  "artifact": "sha256:686a95740b8ce9c89595365a1108abb2ffe43078121eeadd136ca920b801396b",
   "isolation": {
     "network": "own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden",
     "env": [
@@ -149,7 +149,7 @@
         "the bundle imports no node:, bun: or CommonJS module"
       ],
       "measured": {
-        "workerBytes": 76107
+        "workerBytes": 78254
       }
     },
     "provision": {
@@ -216,7 +216,7 @@
         "finalize without a size answers 400 naming the field, never a default (400 {\"code\":\"invalid-field\",\"field\":\"size\"})"
       ],
       "measured": {
-        "wallMs": 60512.5,
+        "wallMs": 57700.4,
         "originals": 1662,
         "bytes": 3211390882,
         "multipart": 9,
@@ -256,7 +256,7 @@
       ],
       "measured": {
         "recoveredRows": 3253,
-        "wallMs": 5927.2,
+        "wallMs": 5256.9,
         "documents": 1689,
         "assets": 3054,
         "seeds": 7,
@@ -301,10 +301,10 @@
         "chronologyR2Ops": 1,
         "originalRangeD1Statements": 1,
         "originalRangeR2Ops": 1,
-        "coldDocumentMs": 28.2,
-        "warmDocumentMs": 3.3,
-        "coldChronologyMs": 8.4,
-        "warmChronologyMs": 6.5
+        "coldDocumentMs": 29.5,
+        "warmDocumentMs": 3.6,
+        "coldChronologyMs": 9.7,
+        "warmChronologyMs": 6.6
       }
     },
     "range": {
@@ -335,10 +335,10 @@
         "client A's deployment knows no asset of client B's case (404, from A's own database)"
       ],
       "measured": {
-        "wholeLargestMs": 5764,
-        "rangeOnLargestMs": 2384.3,
+        "wholeLargestMs": 5367.1,
+        "rangeOnLargestMs": 2278.9,
         "largestOriginalBytes": 258590305,
-        "workerdPeakRssBytes": 476200960
+        "workerdPeakRssBytes": 478699520
       }
     },
     "write-once": {
@@ -453,9 +453,9 @@
         "the source deployment’s state digest covers the case’s rows and every object, none missing"
       ],
       "measured": {
-        "wallMs": 105853.1,
-        "workerdPeakRssBytes": 1079443456,
-        "offlineCheckMs": 2416.1,
+        "wallMs": 102007.8,
+        "workerdPeakRssBytes": 1059516416,
+        "offlineCheckMs": 2659,
         "entries": 1706,
         "packetBytes": 3222959051,
         "parts": 385,
@@ -520,7 +520,7 @@
         "finishing the same restore again answers 409 already-restored and changes nothing"
       ],
       "measured": {
-        "wallMs": 104480.9,
+        "wallMs": 107038.2,
         "entries": 1706,
         "steps": 32,
         "objects": 1700
@@ -539,7 +539,9 @@
         "POST …/finish again and …/step on the stored version",
         "POST …/finish for a case that already has an active version",
         "POST …/finish of a backup whose counts disagree with its rows, then of a corrected one",
-        "POST …/uploads and …/finalize of a shared original, then …/step and …/finish of a backup carrying it"
+        "POST …/uploads and …/finalize of a shared original, then …/step and …/finish of a backup carrying it",
+        "POST …/finish of a backup whose user work repeats a key or leaves a NOT NULL column null, then of a corrected one",
+        "POST …/finish of a backup whose read model repeats a key or retypes a value"
       ],
       "asserted": [
         "an original is stored and verified through the upload path",
@@ -563,10 +565,15 @@
         "finishing it answers 422 invalid-packet and the case holds no version, original, revision or user work it did not hold before",
         "the corrected backup of the same case and version restores",
         "an original is stored through multipart and recorded by another case: R2 holds no SHA-256 for it",
-        "a backup carrying that original steps and restores: the recorded multipart object is accepted and left as it was"
+        "a backup carrying that original steps and restores: the recorded multipart object is accepted and left as it was",
+        "a backup whose user work holds one note key twice opens, and finishing it answers 422 invalid-packet naming uw_note; the case holds no version, row or revision it did not hold before",
+        "a note whose NOT NULL body is null is refused the same way, and the case is as it was",
+        "a read model with one document ref twice is refused with the key named, and the case is as it was",
+        "a read model whose row_json is not text is refused with the column named, and the case is as it was",
+        "the corrected backup of the same case and version restores"
       ],
       "measured": {
-        "refusals": 12
+        "refusals": 16
       }
     }
   },
@@ -588,7 +595,7 @@
   "failure": null,
   "evidence": true,
   "checker": {
-    "mutationsRefused": 2096,
+    "mutationsRefused": 2124,
     "accepted": null
   }
 }

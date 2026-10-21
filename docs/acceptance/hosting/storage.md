@@ -2,7 +2,7 @@
 
 [GRS-109](https://linear.app/vaper/issue/GRS-109) asks for proof of the per-client D1 and R2 layout, its integrity and its POC workload before production storage is built. Cloudflare stays pinned (GRS-26, 17 and 20 October 2026), so this unit runs only the legs that can pass on native workerd with local D1 and R2 and no Cloudflare account. Dian (`dianbrown`) owns the unpin and the cloud legs.
 
-**Verdict at 48ce6f329c21: PASS for the local legs; HOLD for the cloud legs.** Every local leg below passed at POC scale at `48ce6f329c216029ce81e9842696ae4c84cc815d` (exit 0, `evidence: true`). What stays HOLD, and the moment each needs, is [at the end](#what-stays-hold). The probe is a model of the storage design, not the product's storage: GRS-117 and GRS-118 implement it.
+**Verdict at b9271a860717: PASS for the local legs; HOLD for the cloud legs.** Every local leg below passed at POC scale at `b9271a86071709cff1fa307dd5ef1abc0b1aae4e` (exit 0, `evidence: true`). What stays HOLD, and the moment each needs, is [at the end](#what-stays-hold). The probe is a model of the storage design, not the product's storage: GRS-117 and GRS-118 implement it.
 
 ## Run it
 
@@ -18,7 +18,7 @@ bun generate.ts                      # prints the synthetic corpus's counts and 
 
 [`probe.ts`](../../../tests/hosting-probe/storage/probe.ts) has GRS-106's guards. It refuses (exit 2) a dirty tree, any Bun but 1.4.2, an installed package that differs from its pin, or a `node` that is really Bun. It re-runs itself inside [`tests/e2e/pilot/offline.sh`](../../../tests/e2e/pilot/offline.sh) (loopback only, the host resolver hidden), checks that again, and gives every child the same environment allowlist: a fresh `HOME` and XDG directories, `CI=1`, and no telemetry, error reports, `cf.json` fetch or dotenv. No account, login, token or Cloudflare request is possible. `--scale smoke` and `--allow-dirty` exist for working on the probe; neither can produce `evidence: true`. The local D1 and R2 state (about 13 GB at POC scale) is deleted at the end unless `--keep-state` is given; logs stay under `.local/hosting-probe/storage/<run>/logs`.
 
-`evidence` is `true` only when every leg passes at POC scale, HEAD and the tree are unchanged, and the runner's checker refuses every mutation of its own summary (2,096 mutants at this run). The checker holds the summary to one exact shape: the same keys and types at every level; the run's identity as literals (schema, SHA, scale, seed, pins, hosts, `evidence`, `failure`); the counts the seeded corpus and the legs fix as literals (corpus counts and sizes, layout counts, how many refusals each guard leg reaches); and a number above zero for every timing, so a zeroed field is refused too. It does not hold to the value what varies from run to run: a measured count such as the export's entries, parts and steps or the recovered rows, the retries, the artifact digest, an assertion's wording, or a timing. A hand edit of one of those passes `--check`; what shows it is the SHA, the run's logs and a rerun. The committed run is [evidence/storage-summary.json](evidence/storage-summary.json). It names the SHA it ran at.
+`evidence` is `true` only when every leg passes at POC scale, HEAD and the tree are unchanged, and the runner's checker refuses every mutation of its own summary (2,124 mutants at this run). The checker holds the summary to one exact shape: the same keys and types at every level; the run's identity as literals (schema, SHA, scale, seed, pins, hosts, `evidence`, `failure`); the counts the seeded corpus and the legs fix as literals (corpus counts and sizes, layout counts, how many refusals each guard leg reaches); and a number above zero for every timing, so a zeroed field is refused too. It does not hold to the value what varies from run to run: a measured count such as the export's entries, parts and steps or the recovered rows, the retries, the artifact digest, an assertion's wording, or a timing. A hand edit of one of those passes `--check`; what shows it is the SHA, the run's logs and a rerun. The committed run is [evidence/storage-summary.json](evidence/storage-summary.json). It names the SHA it ran at.
 
 Wrangler's dev proxy sometimes drops a request on its pooled connection to the Worker before the Worker runs. It answers a 500 in `text/plain` that starts `Error: Network connection lost.`, about 20 ms after the request, and retries only GET and HEAD itself. Two POC restores failed on it. Logging every restored entry showed the failed request never reached the Worker, and the same request passed on the next attempt. The runner now retries such a request up to twice, after 250 ms, and lists each retry with its leg in `devProxyRetries`. The upload leg's `retries` is that list's upload count. This run: 1 (`restore: POST /restore/packets/<id>/step (attempt 2)`); a restore step is also safe to repeat now, since it writes each key once. An answer from the Worker itself, always JSON or verified bytes, is never retried.
 
@@ -26,7 +26,7 @@ Wrangler's dev proxy sometimes drops a request on its pooled connection to the W
 
 | Step | Host |
 | --- | --- |
-| `bun build src/worker.ts` (the Worker module, 76.1 KB, no `node:` or `bun:` import) | Bun 1.4.2 |
+| `bun build src/worker.ts` (the Worker module, 78.3 KB, no `node:` or `bun:` import) | Bun 1.4.2 |
 | Runner, corpus generator, HTTP requests, assertions, summary | Bun 1.4.2 |
 | `wrangler dev --local`, `wrangler d1 execute --local`, `wrangler r2 object put/get/delete --local` | Node 26.10.0 hosts Wrangler 4.151.1 only |
 | The Worker | native workerd 1.20261012.1, a descendant of Wrangler; the runner checks it in `/proc` |
@@ -54,7 +54,7 @@ The p99 is 1.2% under its target because the curve also has to meet the 32 MiB s
 
 ## Legs
 
-Every leg ran at `48ce6f329c216029ce81e9842696ae4c84cc815d`, POC scale. Exit code 0.
+Every leg ran at `b9271a86071709cff1fa307dd5ef1abc0b1aae4e`, POC scale. Exit code 0.
 
 | Leg | Research leg | What it asserts | Result |
 | --- | --- | --- | --- |
@@ -75,7 +75,7 @@ Every leg ran at `48ce6f329c216029ce81e9842696ae4c84cc815d`, POC scale. Exit cod
 
 ## Acceptance items
 
-| Item | Status at `48ce6f329c21` | Evidence |
+| Item | Status at `b9271a860717` | Evidence |
 | --- | --- | --- |
 | Run P1–P8 where they apply, including wrong-client access, upload and finalize, integrity, concurrent user work, complete export, corruption and restore; no Node CPU proxy | PASS for P4, P5 (logic), P7, P8, wrong client, upload and finalize. HOLD for P1, P2, P3, P5's limit enforcement and P6, and for P4 to P6 against the two-database layout arm | legs above; no step ran on Node except Wrangler's host |
 | Layout chosen from actual request, row and object counts; separate clients' resources and preview/published namespaces | Chosen structurally, from the counts of one layout; the comparison against the two-database arm is HOLD (it needs P4 to P6 against both layouts, and P6 is HOLD). PASS for the counts, separate clients and the published namespace | [Layout](#the-layout-frozen-for-product-owners); `crossed-bindings`; candidate files 404 in `layout` |
@@ -190,7 +190,7 @@ These are wall times on one host (20 threads), local workerd and Miniflare's D1 
 | Export build and seal | 105,853 ms |
 | Offline backup check (Python) | 2,416 ms |
 | Restore into the fresh deployment (upload, steps, finish) | 104,481 ms |
-| Peak resident set of the workerd processes (process memory, not an isolate's 128 MB) | range leg 476,200,960 bytes; export leg 1,079,443,456 bytes |
+| Peak resident set of the workerd processes (process memory, not an isolate's 128 MB) | range leg 478,699,520 bytes; export leg 1,059,516,416 bytes |
 
 ## What stays HOLD
 

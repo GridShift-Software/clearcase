@@ -1,24 +1,47 @@
-// The user-work constraint check on SQLite itself (bun:sqlite), with the Worker's own schema.sql for the real tables:
+// The storage probe's own test command: the user-work constraint check (src/constraints.ts) on SQLite itself, with the
+// Worker's own schema.sql for the real tables. From this directory:
 //
-//   bun test            (from this directory)
-import { Database } from 'bun:sqlite';
-import { describe, expect, test } from 'bun:test';
+//   bun run --bun test
+//
+// Exit 1 on any case that goes the wrong way.
+import { DatabaseSync } from 'node:sqlite';
+import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { type Db, constraintsOf, userWorkProblem } from './constraints.ts';
+import { type Db, constraintsOf, userWorkProblem } from './src/constraints.ts';
 
-const schema = readFileSync(path.join(import.meta.dirname, '../schema.sql'), 'utf8');
+const schema = readFileSync(path.join(import.meta.dirname, 'schema.sql'), 'utf8');
 
 function database(extra: string[] = []) {
-	const sqlite = new Database(':memory:');
+	const sqlite = new DatabaseSync(':memory:');
 	sqlite.exec(schema);
 	for (const statement of extra) sqlite.exec(statement);
 	const db: Db = {
-		all: async <T>(text: string, ...params: string[]) => sqlite.query(text).all(...params) as T[],
-		first: async <T>(text: string, ...params: string[]) => (sqlite.query(text).get(...params) ?? null) as T | null,
+		all: async <T>(text: string, ...params: string[]) => sqlite.prepare(text).all(...params) as T[],
+		first: async <T>(text: string, ...params: string[]) => (sqlite.prepare(text).get(...params) ?? null) as T | null,
 	};
 	return { sqlite, db };
 }
+
+const failures: string[] = [];
+let group = '';
+const describe = (label: string, body: () => void) => ((group = label), body());
+const pending: Promise<void>[] = [];
+const test = (label: string, body: () => void | Promise<void>) => {
+	const name = `${group}: ${label}`;
+	pending.push(
+		(async () => body())().then(
+			() => console.log(`ok      ${name}`),
+			(e: unknown) => void failures.push(`${name}: ${e instanceof Error ? e.message.split('\n')[0] : String(e)}`),
+		),
+	);
+};
+const expect = (actual: unknown) => ({
+	toContain: (part: string) => assert.ok(String(actual).includes(part), `${JSON.stringify(actual)} does not contain ${JSON.stringify(part)}`),
+	toBeNull: () => assert.equal(actual, null),
+	toBe: (value: unknown) => assert.equal(actual, value),
+	toThrow: (re: RegExp) => assert.throws(actual as () => void, re),
+});
 
 async function problem(extra: string[], table: string, rows: Record<string, unknown>[]): Promise<string | null | 'unchecked'> {
 	const { db } = database(extra);
@@ -41,7 +64,7 @@ describe('key values are compared the way the column stores them', () => {
 			const { sqlite } = database();
 			sqlite.exec(`INSERT INTO uw_register_row VALUES ('c','s','r-1',1,'v','{}','op-1')`);
 			try {
-				sqlite.query(`INSERT INTO uw_register_row VALUES ('c','s','r-2',?,'v','{}','op-2')`).run(value);
+				sqlite.prepare(`INSERT INTO uw_register_row VALUES ('c','s','r-2',?,'v','{}','op-2')`).run(value);
 				return false;
 			} catch (e) {
 				return /UNIQUE/.test(String(e));
@@ -84,3 +107,8 @@ describe('a table whose comparisons are not the defaults is not checked', () => 
 		expect(await problem(['CREATE TABLE uw_plain (case_id TEXT NOT NULL, k TEXT COLLATE BINARY, PRIMARY KEY (case_id, k))'], 'uw_plain', [])).toBeNull();
 	});
 });
+
+await Promise.all(pending);
+console.log(failures.join('\n'));
+console.log(failures.length ? `CASES FAIL: ${failures.length} went the wrong way` : 'CASES PASS');
+process.exit(failures.length ? 1 : 0);

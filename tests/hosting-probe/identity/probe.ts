@@ -357,6 +357,8 @@ async function main(out: string): Promise<number> {
 			check(g.status === 201, 'client: the Global Admin grants the operator case 1 for 10 minutes');
 			const short = await req('client', '/manage/operator-grants', { token: gaT, method: 'POST', json: { subject: op.subject, case: 'case-2', seconds: 20 } });
 			check(short.status === 201, 'client: and case 2 for 20 seconds (the expiry leg replays it later)');
+			const unknown = await req('client', '/manage/operator-grants', { token: gaT, method: 'POST', json: { subject: 'user_cc108unenrolled', case: 'case-1', seconds: 600 } });
+			check(unknown.status === 404, 'client: a grant to a subject that is no user of the staff instance (Dev-B) is refused (404)');
 			const opT = await token(op);
 			const meta = await req('client', '/operator/cases/case-1', { token: opT });
 			check(meta.status === 200 && meta.body.includes('CC108-CASE1-META') && !meta.body.includes('CC108-CASE2'), 'client: the operator reads case 1 metadata under the grant');
@@ -375,6 +377,7 @@ async function main(out: string): Promise<number> {
 			check(events.some((e) => e.subject === ga.subject && e.action === 'POST /manage/operator-grants' && e.outcome === 'allowed'), 'client: each grant is an audit event naming the Global Admin');
 			check(events.some((e) => e.subject === ga.subject && e.case_id === 'case-1' && e.outcome === `grant:${op.subject}`), "client: the grant itself is an audit event naming the case and the operator, written in the grant's transaction");
 			check(events.some((e) => e.subject === person('firmadmin').subject && e.outcome === 'denied:no-case-access'), "client: the firm admin's refused case read is an audit event");
+			check(events.some((e) => e.subject === ga.subject && e.case_id === 'case-1' && e.outcome === 'denied:unknown-grantee') && !events.some((e) => e.outcome === 'grant:user_cc108unenrolled'), "client: the refused grant is an audit event naming the Global Admin and the case, and no grant row was written for that subject");
 			const faAudit = await req('client', '/manage/audit', { token: await token(person('firmadmin')) });
 			check(faAudit.status === 401, "client: a firm admin's client session cannot read the audit (401)");
 		});

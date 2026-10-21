@@ -104,6 +104,9 @@ async function world(node: { path: string; version: string }, runDir: string, lo
 	const client = craftedIssuer('crafted-client.clerk.invalid');
 	const staff = craftedIssuer('crafted-staff.clerk.invalid');
 	const status = await statusDouble();
+	// the staff users the tests grant to or sign in as; an operator grant needs a user of the staff instance
+	status.user('user_crafted_ga', 'crafted-ga@example.com');
+	status.user('user_crafted_operator', 'crafted-operator@example.com');
 	const secrets = new Map([
 		['CLIENT_A_PK', client.publishableKey],
 		['CLIENT_A_SK', 'sk_test_synthetic-placeholder-not-a-key'],

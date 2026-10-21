@@ -2493,6 +2493,39 @@ class FixRoundRenames(ControlCase):
         self.assertIn('protected among them:', self.guard('--base', 'dev'))
 
 
+class FixRoundFixtureModule(ControlCase):
+    """GRS-153 polish L1: a fixture module a protected test imports is in the closure twice, as code and as data, and the
+    receipt line names it once."""
+    original = TestWeakening.original
+    path = FixRoundManifest.path
+    manifest = FixRoundManifest.manifest
+    reset = FixRoundMergedBase.reset
+    change = FixRoundMergedBase.change
+    on_dev = FixRoundMergedBase.on_dev
+    merge = FixRoundMergedBase.merge
+    guard = FixRoundMergedBase.guard
+    fixture = 'export const expected = false;\n'
+    test = "import { expected } from './fixtures/data';\n" + TestWeakening.original
+
+    def setUp(self):
+        super().setUp()
+        self.write('tests/fixtures/data.ts', self.fixture)
+        self.dev = self.commit('a fixture module')
+        self.git('switch', '-q', '-c', 'feature/grs-104-tooling')
+        self.write('tests/protected.test.ts', self.test)
+        self.base = self.commit('reviewed tests')
+        self.write('app.txt', 'fixed\n')
+        self.manifest()
+        self.fixed = self.commit('fix round')
+
+    def test_an_imported_fixture_module_the_base_changed_is_named_once(self):
+        self.on_dev({'tests/fixtures/data.ts': self.fixture + 'export const unrelated = 1;\n'})
+        self.merge()
+        out = self.guard('--base', 'dev')
+        self.assertEqual(out.count('tests/fixtures/data.ts'), 1, out)
+        self.assertIn('protected among them: tests/fixtures/data.ts\n', out)
+
+
 class FixRoundDerivedKeys(ControlCase):
     """GRS-153 review M1: the guard's derived entries (`package.json#scripts`, `<dir>/package.json#resolution`) are read
     from a tracked file but have no path of their own. A merged base change counts for one only through the file it is

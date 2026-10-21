@@ -37,6 +37,7 @@ const SINGLE_PUT_MAX = 64 * MiB; // larger uploads go through multipart parts, e
 const BUFFER_MAX = 32 * MiB; // a verified original up to this size, or a range up to it, is served from one hashing pass; larger ones from two
 const PART = 8 * MiB; // an export step writes one multipart part of exactly this size; only the packet's last part is shorter
 const RESTORE_STEP_BYTES = 64 * MiB;
+const BACKUP_FORMAT = 'clearcase.case-packet/1';
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SHA = /^[0-9a-f]{64}$/;
 const VERSION = /^sha256:[0-9a-f]{64}$/;
@@ -403,25 +404,29 @@ async function rows(ctx: Ctx, request: Request, caseId: string, v: string): Prom
 	return json(ctx, { inserted: items.length, statements: statements.length });
 }
 
+/** The staged version's list and package files must be in R2 with the recorded size and SHA-256. */
+async function verifyObjects(ctx: Ctx, v: string, list: { sha256: string; size: number }, files: { path: string; sha256: string; size: number }[]) {
+	for (const [key, sha, size] of [[`rm/${v}/chronology.json`, list.sha256, list.size] as const, ...files.map((f) => [`pkg/${v}/${f.path}`, f.sha256, f.size] as const)]) {
+		const o = await ctx.bucket.head(key);
+		if (!o || o.size !== size || checksum(o) !== sha) refuse(409, 'incomplete', { missing: key });
+	}
+}
+
+const count = (t: string) => `(SELECT count(*) FROM ${t} WHERE version_id = v.version_id)`;
+/** Holds only while the version is staging with every row it expects. */
+const hasEveryRow = (v: string, caseId: string) => guard(`EXISTS (SELECT 1 FROM results_version v WHERE v.version_id = ? AND v.case_id = ? AND v.state = 'staging' AND ${count('document')} = v.expected_documents AND ${count('asset')} = v.expected_assets AND ${count('seed')} = v.expected_seeds AND ${count('package_file')} = v.expected_files)`, v, caseId);
+const incomplete = async (ctx: Ctx, v: string) => json(ctx, { code: 'incomplete', have: await ctx.db.first(`SELECT state, ${count('document')} AS documents, ${count('asset')} AS assets, ${count('seed')} AS seeds, ${count('package_file')} AS files FROM results_version v WHERE v.version_id = ?`, v) }, 409);
+
 async function finish(ctx: Ctx, caseId: string, v: string): Promise<Response> {
 	const files = await ctx.db.all<{ path: string; sha256: string; size: number }>('SELECT path, sha256, size FROM package_file WHERE version_id = ?', v);
 	const version = await ctx.db.first<{ list_sha256: string; list_size: number }>('SELECT list_sha256, list_size FROM results_version WHERE version_id = ? AND case_id = ?', v, caseId);
 	if (!version) refuse(404, 'not-found');
-	for (const [key, sha, size] of [[`rm/${v}/chronology.json`, version!.list_sha256, version!.list_size] as const, ...files.map((f) => [`pkg/${v}/${f.path}`, f.sha256, f.size] as const)]) {
-		const o = await ctx.bucket.head(key);
-		if (!o || o.size !== size || checksum(o) !== sha) refuse(409, 'incomplete', { missing: key });
-	}
-	const count = (t: string) => `(SELECT count(*) FROM ${t} WHERE version_id = v.version_id)`;
+	await verifyObjects(ctx, v, { sha256: version!.list_sha256, size: version!.list_size }, files);
 	try {
-		await ctx.db.batch([
-			guard(`EXISTS (SELECT 1 FROM results_version v WHERE v.version_id = ? AND v.case_id = ? AND v.state = 'staging' AND ${count('document')} = v.expected_documents AND ${count('asset')} = v.expected_assets AND ${count('seed')} = v.expected_seeds AND ${count('package_file')} = v.expected_files)`, v, caseId),
-			["UPDATE results_version SET state = 'stored' WHERE version_id = ?", [v]],
-			CLEAR,
-		]);
+		await ctx.db.batch([hasEveryRow(v, caseId), ["UPDATE results_version SET state = 'stored' WHERE version_id = ?", [v]], CLEAR]);
 	} catch (e) {
 		if (!(e instanceof GuardFailed)) throw e;
-		const have = await ctx.db.first(`SELECT state, ${count('document')} AS documents, ${count('asset')} AS assets, ${count('seed')} AS seeds, ${count('package_file')} AS files FROM results_version v WHERE v.version_id = ?`, v);
-		return json(ctx, { code: 'incomplete', have }, 409);
+		return incomplete(ctx, v);
 	}
 	return json(ctx, { stored: true });
 }
@@ -600,7 +605,7 @@ async function startExport(ctx: Ctx, caseId: string): Promise<Response> {
 	entries.push({ path: 'list/chronology.json', source: `rm/${s.v}/chronology.json`, sha256: s.version.list_sha256 as string, size: s.version.list_size as number, kind: 'list' });
 	const seen = new Set<string>();
 	for (const o of s.originals) if (!seen.has(o.sha256)) (seen.add(o.sha256), entries.push({ path: `originals/${o.sha256}`, source: `orig/${o.sha256}`, sha256: o.sha256, size: o.size, kind: 'original' }));
-	const manifest = JSON.stringify({ format: 'clearcase.case-packet/1', client: ctx.client, caseId, resultsVersion: s.v, entries: entries.map(({ source: _, ...e }) => e) });
+	const manifest = JSON.stringify({ format: BACKUP_FORMAT, client: ctx.client, caseId, resultsVersion: s.v, entries: entries.map(({ source: _, ...e }) => e) });
 	const manifestSha = await sha256Hex(manifest);
 	await ctx.bucket.put(`${base}/gen/manifest.json`, manifest, { sha256: manifestSha });
 	entries.unshift({ path: 'manifest.json', source: `${base}/gen/manifest.json`, sha256: manifestSha, size: new TextEncoder().encode(manifest).length, kind: 'manifest' });
@@ -764,7 +769,30 @@ async function downloadExport(ctx: Ctx, caseId: string, exportId: string): Promi
 
 // ----- restore from a packet (P7) -----
 
-async function packetDirectory(ctx: Ctx, key: string) {
+type Manifest = { format: string; client: string; caseId: string; resultsVersion: string; entries: Omit<PlanEntry, 'source'>[] };
+const KINDS = new Set(['manifest', 'user-work', 'read-model', 'results', 'package', 'list', 'original']);
+const DOT_SEGMENT = /(^|\/)\.\.?(\/|$)/;
+
+/** The manifest, with every field the restore uses checked for its shape; anything else is a refusal, never a default. */
+function readManifest(text: string): Manifest {
+	const bad = (reason: string): never => refuse(422, 'invalid-packet', { reason });
+	let value: unknown;
+	try {
+		value = JSON.parse(text);
+	} catch {
+		return bad('the manifest is not JSON');
+	}
+	if (!isObject(value) || typeof value.format !== 'string' || typeof value.client !== 'string' || !isText(ID)(value.caseId) || !isText(VERSION)(value.resultsVersion) || !Array.isArray(value.entries)) return bad('the manifest lacks a field');
+	const entries = value.entries.map((e: unknown): Omit<PlanEntry, 'source'> => {
+		if (!isObject(e) || typeof e.path !== 'string' || !isText(SHA)(e.sha256) || !isCount(e.size) || typeof e.kind !== 'string' || !KINDS.has(e.kind)) return bad('a manifest entry lacks a field');
+		if (e.kind === 'package' && !(e.path.startsWith('package/') && PATH.test(e.path.slice('package/'.length)) && !DOT_SEGMENT.test(e.path))) return bad('a package entry has an unusable path');
+		return e as unknown as Omit<PlanEntry, 'source'>;
+	});
+	return { format: value.format, client: value.client, caseId: value.caseId, resultsVersion: value.resultsVersion, entries };
+}
+
+/** Opens a backup of the case the request names: any other client or case is refused before anything else is read. */
+async function packetDirectory(ctx: Ctx, key: string, caseId: string) {
 	const head = await ctx.bucket.head(key);
 	if (!head) refuse(404, 'not-found');
 	const size = head!.size;
@@ -785,9 +813,10 @@ async function packetDirectory(ctx: Ctx, key: string) {
 	if (entries![0]?.path !== 'manifest.json') refuse(422, 'invalid-packet', { reason: 'the first entry is not manifest.json' });
 	const manifestBytes = await entryBytes(ctx, key, entries![0]!);
 	if (crc32(manifestBytes) !== entries![0]!.crc) refuse(422, 'invalid-packet', { reason: 'manifest CRC' });
-	const manifest = JSON.parse(new TextDecoder().decode(manifestBytes)) as { format: string; client: string; caseId: string; resultsVersion: string; entries: Omit<PlanEntry, 'source'>[] };
-	if (manifest.format !== 'clearcase.case-packet/1') refuse(422, 'invalid-packet', { reason: 'format' });
+	const manifest = readManifest(new TextDecoder().decode(manifestBytes));
+	if (manifest.format !== BACKUP_FORMAT) refuse(422, 'invalid-packet', { reason: 'format' });
 	if (manifest.client !== ctx.client) refuse(409, 'wrong-client');
+	if (manifest.caseId !== caseId) refuse(409, 'wrong-case');
 	const listed = manifest.entries.map((e) => `${e.path}:${e.size}`).join('\n');
 	const present = entries!.slice(1).map((e) => `${e.path}:${e.size}`).join('\n');
 	if (listed !== present) refuse(422, 'invalid-packet', { reason: 'the manifest does not list exactly the entries present' });
@@ -806,11 +835,21 @@ async function entryBytes(ctx: Ctx, key: string, e: Entry): Promise<Uint8Array> 
 const restoreTarget = (m: Omit<PlanEntry, 'source'>, resultsVersion: string) =>
 	m.kind === 'original' ? `orig/${m.sha256}` : m.kind === 'package' ? `pkg/${resultsVersion}/${m.path.slice('package/'.length)}` : m.kind === 'list' ? `rm/${resultsVersion}/chronology.json` : null;
 
+/** A restore stages a version that is new, or its own case's unfinished one, in a case with no active version; nothing else. */
+async function restorable(ctx: Ctx, caseId: string, v: string) {
+	const row = await ctx.db.first<{ case_id: string; state: string }>('SELECT case_id, state FROM results_version WHERE version_id = ?', v);
+	if (row && row.case_id !== caseId) refuse(409, 'version-of-another-case');
+	if (row?.state === 'stored') refuse(409, 'already-restored');
+	if (await activeVersion(ctx, caseId)) refuse(409, 'case-live');
+}
+
 async function restoreStep(ctx: Ctx, request: Request, packetId: string): Promise<Response> {
 	const b = await body(request);
+	const caseId = field(b, 'caseId', isText(ID));
 	const from = field(b, 'from', isCount);
 	const key = `import/${packetId}.zip`;
-	const { entries, manifest } = await packetDirectory(ctx, key);
+	const { entries, manifest } = await packetDirectory(ctx, key, caseId);
+	await restorable(ctx, caseId, manifest.resultsVersion);
 	let i = Math.max(1, from);
 	let bytes = 0;
 	while (i < entries.length && bytes < RESTORE_STEP_BYTES) {
@@ -818,25 +857,31 @@ async function restoreStep(ctx: Ctx, request: Request, packetId: string): Promis
 		const m = manifest.entries[i - 1]!;
 		const target = restoreTarget(m, manifest.resultsVersion);
 		if (target) {
+			// Write-once: bytes already there that are these ones are a repeat of an earlier step; anything else is left as it is.
+			const stored = await ctx.bucket.head(target);
+			if (stored && (stored.size !== m.size || checksum(stored) !== m.sha256)) refuse(409, 'conflicting-object', { entry: e.path });
 			const n = new TextEncoder().encode(e.path).length;
 			const head = await ctx.bucket.get(key, { range: { offset: e.offset, length: 30 + n } });
 			if (!hasBody(head)) refuse(410, 'integrity');
 			checkLocal(new Uint8Array(await (head as R2ObjectBody).arrayBuffer()), e.path);
-			const data = await ctx.bucket.get(key, { range: { offset: e.offset + 30 + n, length: e.size } });
-			if (!hasBody(data)) refuse(410, 'integrity');
+			// The archive's CRC-32 is checked over the whole entry before a byte is written, so a mismatch has written nothing.
+			const first = await ctx.bucket.get(key, { range: { offset: e.offset + 30 + n, length: e.size } });
+			if (!hasBody(first)) refuse(410, 'integrity');
 			let crc = 0;
-			const fls = fixedLength(e.size);
-			const piped = (data as R2ObjectBody).body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({ transform: (chunk, c) => ((crc = crc32(chunk, crc)), c.enqueue(chunk)) })).pipeTo(fls.writable);
-			try {
-				// R2 refuses the PUT unless the bytes match the manifest's SHA-256; the CRC is the archive's own check
-				await Promise.all([ctx.bucket.put(target, fls.readable, { sha256: m.sha256, customMetadata: { client: ctx.client } }), piped]);
-			} catch (err) {
-				if (/SHA-256/i.test(String(err))) refuse(422, 'digest-mismatch', { entry: e.path });
-				throw err;
-			}
-			if (crc !== e.crc) {
-				await ctx.bucket.delete(target);
-				refuse(422, 'crc-mismatch', { entry: e.path });
+			for await (const chunk of (first as R2ObjectBody).body) crc = crc32(chunk, crc);
+			if (crc !== e.crc) refuse(422, 'crc-mismatch', { entry: e.path });
+			if (!stored) {
+				const data = await ctx.bucket.get(key, { range: { offset: e.offset + 30 + n, length: e.size } });
+				if (!hasBody(data)) refuse(410, 'integrity');
+				const fls = fixedLength(e.size);
+				const piped = (data as R2ObjectBody).body.pipeTo(fls.writable);
+				try {
+					// R2 refuses the PUT, and stores nothing, unless the bytes match the manifest's SHA-256
+					await Promise.all([ctx.bucket.put(target, fls.readable, { sha256: m.sha256, customMetadata: { client: ctx.client } }), piped]);
+				} catch (err) {
+					if (/SHA-256/i.test(String(err))) refuse(422, 'digest-mismatch', { entry: e.path });
+					throw err;
+				}
 			}
 			bytes += e.size;
 		}
@@ -845,18 +890,31 @@ async function restoreStep(ctx: Ctx, request: Request, packetId: string): Promis
 	return json(ctx, { next: i, of: entries.length });
 }
 
-async function restoreFinish(ctx: Ctx, packetId: string): Promise<Response> {
+/** A field of the backup's own records: missing, null or retyped is a refusal naming it. */
+function recorded<T>(o: Row, name: string, where: string, ok: (v: unknown) => v is T): T {
+	return ok(o[name]) ? (o[name] as T) : refuse(422, 'invalid-packet', { reason: `${where}.${name}` });
+}
+
+async function restoreFinish(ctx: Ctx, request: Request, packetId: string): Promise<Response> {
+	const caseId = field(await body(request), 'caseId', isText(ID));
 	const key = `import/${packetId}.zip`;
-	const { entries, manifest } = await packetDirectory(ctx, key);
-	const caseId = manifest.caseId;
+	const { entries, manifest } = await packetDirectory(ctx, key, caseId);
 	const v = manifest.resultsVersion;
-	if ((await ctx.db.first<{ state: string }>('SELECT state FROM results_version WHERE version_id = ?', v))?.state === 'stored') refuse(409, 'already-restored');
+	await restorable(ctx, caseId, v);
 	const read = async (path: string) => {
 		const k = entries.findIndex((e) => e.path === path);
 		if (k < 1) refuse(422, 'invalid-packet', { reason: `no ${path}` });
 		const bytes = await entryBytes(ctx, key, entries[k]!);
 		if ((await sha256Hex(bytes)) !== manifest.entries[k - 1]!.sha256 || crc32(bytes) !== entries[k]!.crc) refuse(422, 'digest-mismatch', { entry: path });
-		return JSON.parse(new TextDecoder().decode(bytes)) as Row;
+		return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+	};
+	const readObject = async (path: string) => {
+		const x = await read(path);
+		return isObject(x) ? x : refuse(422, 'invalid-packet', { reason: path });
+	};
+	const readRows = async (path: string) => {
+		const x = await read(path);
+		return isRows(x) ? x : refuse(422, 'invalid-packet', { reason: path });
 	};
 	for (const m of manifest.entries) {
 		const target = restoreTarget(m, v);
@@ -864,36 +922,65 @@ async function restoreFinish(ctx: Ctx, packetId: string): Promise<Response> {
 		const o = await ctx.bucket.head(target);
 		if (!o || o.size !== m.size || checksum(o) !== m.sha256) refuse(409, 'incomplete', { missing: target });
 	}
-	const results = await read('results/version.json');
-	const version = results.version as Row;
-	const files = results.packageFiles as Row[];
-	const originals = results.originals as Row[];
-	const model = { document: (await read('read-model/document.json')) as unknown as Row[], asset: (await read('read-model/asset.json')) as unknown as Row[], seed: (await read('read-model/seed.json')) as unknown as Row[] };
-	const work = await read('user-work.json');
+
+	// Everything the restore will write is read and checked here, before the first write: a refusal leaves the case as it was.
+	const results = await readObject('results/version.json');
+	const version = recorded(results, 'version', 'results', isObject);
 	if (version.version_id !== v || version.case_id !== caseId || version.state !== 'stored') refuse(422, 'invalid-packet', { reason: 'results/version.json' });
-	// The same staged path as an import: staging rows, then a guarded flip to stored once the counts match.
-	await ctx.db.batch([["INSERT INTO results_version (version_id, case_id, state, attempt, expected_documents, expected_assets, expected_seeds, expected_files, list_sha256, list_size) VALUES (?, ?, 'staging', 1, ?, ?, ?, ?, ?, ?) ON CONFLICT (version_id) DO NOTHING", [v, caseId, version.expected_documents as number, version.expected_assets as number, version.expected_seeds as number, version.expected_files as number, version.list_sha256 as string, version.list_size as number]]]);
+	const stage = {
+		documents: recorded(version, 'expected_documents', 'version', isCount),
+		assets: recorded(version, 'expected_assets', 'version', isCount),
+		seeds: recorded(version, 'expected_seeds', 'version', isCount),
+		files: recorded(version, 'expected_files', 'version', isCount),
+		list: { sha256: recorded(version, 'list_sha256', 'version', isText(SHA)), size: recorded(version, 'list_size', 'version', isCount) },
+	};
+	const files = recorded(results, 'packageFiles', 'results', isRows).map((f) => ({ path: recorded(f, 'path', 'packageFiles', isText(PATH)), sha256: recorded(f, 'sha256', 'packageFiles', isText(SHA)), size: recorded(f, 'size', 'packageFiles', isCount) }));
+	const originals = recorded(results, 'originals', 'results', isRows).map((o) => ({
+		asset_id: recorded(o, 'asset_id', 'originals', isText(ID)),
+		sha256: recorded(o, 'sha256', 'originals', isText(SHA)),
+		size: recorded(o, 'size', 'originals', isCount),
+		filename: recorded(o, 'filename', 'originals', isText(/^[^/\\\0]{1,200}$/)),
+		media_type: recorded(o, 'media_type', 'originals', isText(/^[a-z]+\/[a-z0-9.+-]+$/)),
+	}));
+	const packaged = new Map(manifest.entries.filter((e) => e.kind === 'original').map((e) => [e.sha256, e.size]));
+	for (const o of originals) if (packaged.get(o.sha256) !== o.size) refuse(422, 'invalid-packet', { reason: 'an original record has no such entry in the backup' });
+	const bound = new Map((await ctx.db.all<{ asset_id: string; sha256: string }>('SELECT asset_id, sha256 FROM case_original WHERE case_id = ?', caseId)).map((r) => [r.asset_id, r.sha256]));
+	for (const o of originals) if (bound.has(o.asset_id) && bound.get(o.asset_id) !== o.sha256) refuse(409, 'asset-bound-to-another-original');
+	const model: Record<Table, Row[]> = { document: await readRows('read-model/document.json'), asset: await readRows('read-model/asset.json'), seed: await readRows('read-model/seed.json') };
+	for (const t of Object.keys(TABLES) as Table[]) for (const r of model[t]) for (const c of TABLES[t]) if (!(c in r)) refuse(422, 'invalid-packet', { reason: `read-model/${t}.json lacks ${c}` });
+	await verifyObjects(ctx, v, stage.list, files);
+	const rev = (await ctx.db.first<{ rev: number }>('SELECT rev FROM case_rev WHERE case_id = ?', caseId))?.rev ?? 0;
+	const userWork = await restoreStatements(ctx, caseId, await readObject('user-work.json'), rev, false);
+
+	const pre = await backup(ctx, caseId, 'pre-restore', await snapshot(ctx, caseId)); // durable before any D1 write
+	// The same staged path as an import. The version flips to stored, and the case to active, last and in one batch: a
+	// refusal or a crash before it leaves a staging version that a retry of this call rebuilds.
+	await ctx.db.batch([["INSERT INTO results_version (version_id, case_id, state, attempt, expected_documents, expected_assets, expected_seeds, expected_files, list_sha256, list_size) VALUES (?, ?, 'staging', 1, ?, ?, ?, ?, ?, ?) ON CONFLICT (version_id) DO UPDATE SET expected_documents = excluded.expected_documents, expected_assets = excluded.expected_assets, expected_seeds = excluded.expected_seeds, expected_files = excluded.expected_files, list_sha256 = excluded.list_sha256, list_size = excluded.list_size WHERE results_version.state = 'staging' AND results_version.case_id = excluded.case_id", [v, caseId, stage.documents, stage.assets, stage.seeds, stage.files, stage.list.sha256, stage.list.size]]]);
 	for (const t of Object.keys(TABLES) as Table[]) await ctx.db.batch([staging(v, caseId), [`DELETE FROM ${t} WHERE version_id = ?`, [v]], ...inserts(t, TABLES[t], model[t], 'json', { column: 'version_id', value: v }), CLEAR]);
 	await ctx.db.batch([staging(v, caseId), ['DELETE FROM package_file WHERE version_id = ?', [v]], ...inserts('package_file', ['path', 'sha256', 'size'], files, 'json', { column: 'version_id', value: v }), CLEAR]);
-	const flipped = await finish(ctx, caseId, v);
-	if (flipped.status !== 200) return flipped;
-	await ctx.db.batch([
-		...inserts('original', ['sha256', 'size'], originals.map((o) => ({ sha256: o.sha256, size: o.size })), 'json', null).map(([s, p]): [string, D1Value[]] => [`${s} WHERE true ON CONFLICT (sha256) DO NOTHING`, p]),
-		...inserts('case_original', ['case_id', 'asset_id', 'sha256', 'filename', 'media_type'], originals.map((o) => ({ case_id: caseId, ...o })), 'json', null).map(([s, p]): [string, D1Value[]] => [`${s} WHERE true ON CONFLICT (case_id, asset_id) DO NOTHING`, p]),
-	]);
-	const current = await activeVersion(ctx, caseId);
-	if (current?.version_id !== v) {
-		const r = await activate(ctx, new Request('http://probe/', { method: 'POST', body: JSON.stringify({ version: v, expected: current?.version_id ?? null }) }), caseId);
-		if (r.status !== 200) return r;
-	}
-	const rev = (await ctx.db.first<{ rev: number }>('SELECT rev FROM case_rev WHERE case_id = ?', caseId))?.rev ?? 0;
+	const ignoring = (statements: [string, D1Value[]][]) => statements.map(([s, p]): [string, D1Value[]] => [`${s} WHERE true ON CONFLICT DO NOTHING`, p]);
+	const originalRows = [...ignoring(inserts('original', ['sha256', 'size'], originals, 'json', null)), ...ignoring(inserts('case_original', ['case_id', 'asset_id', 'sha256', 'filename', 'media_type'], originals.map((o) => ({ asset_id: o.asset_id, sha256: o.sha256, filename: o.filename, media_type: o.media_type, case_id: caseId })), 'json', null))];
+	if (originalRows.length) await ctx.db.batch(originalRows);
 	try {
-		await ctx.db.batch(await restoreStatements(ctx, caseId, work, rev, false));
+		await ctx.db.batch(userWork);
 	} catch (e) {
 		if (e instanceof GuardFailed) refuse(409, 'stale');
 		throw e;
 	}
-	return json(ctx, { restored: caseId, resultsVersion: v, entries: entries.length - 1 });
+	try {
+		await ctx.db.batch([
+			hasEveryRow(v, caseId),
+			guard('NOT EXISTS (SELECT 1 FROM active WHERE case_id = ?)', caseId),
+			["UPDATE results_version SET state = 'stored' WHERE version_id = ?", [v]],
+			['INSERT INTO activation_log (case_id, seq, version_id, previous) SELECT ?, coalesce(max(seq), 0) + 1, ?, NULL FROM activation_log WHERE case_id = ?', [caseId, v, caseId]],
+			['INSERT INTO active (case_id, version_id) VALUES (?, ?)', [caseId, v]],
+			CLEAR,
+		]);
+	} catch (e) {
+		if (!(e instanceof GuardFailed)) throw e;
+		return (await activeVersion(ctx, caseId)) ? json(ctx, { code: 'case-live' }, 409) : incomplete(ctx, v);
+	}
+	return json(ctx, { restored: caseId, resultsVersion: v, entries: entries.length - 1, preRestore: pre });
 }
 
 /** What a case holds in D1, for the runner to compare before and after a refused restore. */
@@ -975,14 +1062,15 @@ async function route(request: Request, env: Env): Promise<Response> {
 		}
 		if (m === 'POST' && seg.length === 4 && seg[3] === 'open') {
 			// A packet of another client is refused and not kept.
-			const { entries, manifest } = await packetDirectory(ctx, key).catch(async (e: unknown) => {
+			const caseId = field(await body(request), 'caseId', isText(ID));
+			const { entries, manifest } = await packetDirectory(ctx, key, caseId).catch(async (e: unknown) => {
 				if (e instanceof Refused && e.code === 'wrong-client') await ctx.bucket.delete(key);
 				throw e;
 			});
 			return json(ctx, { entries: entries.length, caseId: manifest.caseId, resultsVersion: manifest.resultsVersion });
 		}
 		if (m === 'POST' && seg.length === 4 && seg[3] === 'step') return restoreStep(ctx, request, packetId);
-		if (m === 'POST' && seg.length === 4 && seg[3] === 'finish') return restoreFinish(ctx, packetId);
+		if (m === 'POST' && seg.length === 4 && seg[3] === 'finish') return restoreFinish(ctx, request, packetId);
 	}
 	if (seg[0] === 'cases' && isText(ID)(seg[1])) {
 		const caseId = seg[1];

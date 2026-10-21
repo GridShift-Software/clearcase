@@ -62,7 +62,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'obj
 const LEG_SHAPE: Record<LegName, [number, number]> = {
 	build: [1, 3],
 	provision: [4, 3],
-	'crossed-recovery': [4, 4],
+	'crossed-recovery': [4, 5],
 	seed: [6, 5],
 	rollback: [5, 12],
 	copies: [5, 7],
@@ -592,6 +592,7 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			if (r2put('client-b', 'recovery-copies-b', 'identity/client.json', identityFile('client-b', '-recovery')).code !== 0) throw new Error("identity object for client B's recovery bucket");
 			await serve('client-b');
 			check((await http('/recovery/copies')).status === 200, "once its recovery bucket carries client B's identity, client B's deployment answers");
+			check(code(await post('/recovery/rotate', { scheduledTime: new Date(Date.now() + 400 * DAY).toISOString() }), 404, 'not-found') && ((await http('/recovery/copies')).json() as unknown[]).length === 0, 'a deployment without the probe clock has no rotation route: a time named in a request is not accepted, and nothing is removed');
 			await serve('crossed-recovery');
 			check((await expectRefused(http('/recovery/copies'), 'crossed-binding')) && (await expectRefused(http(`/cases/${A1}/documents/S-0001`), 'crossed-binding')) && (await expectRefused(post(`/cases/${A1}/deletion/request`, { actor: { role: 'firm-admin', id: 'fa-1' } }), 'crossed-binding')), "client A's Worker bound to client B's recovery bucket answers 503 crossed-binding naming RECOVERY on recovery, case and deletion routes, and never names client B");
 			check(d1('client-a', 'SELECT count(*) AS n FROM case_deletion')[0]?.n === 0, 'the crossed deployment wrote nothing to client A');
@@ -641,19 +642,21 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			check(v2Kept.status === 200 && v2Kept.json().sha256 === v2.fileSha && (await http(`/probe/head/rm/${V2}/chronology.json`)).status === 200, "V2's objects stay in R2 with their SHA-256: a rollback deletes nothing");
 			const o = await http(`/cases/${A1}/originals/${oA1.assetId}`);
 			check(o.status === 200 && sha256(o.bytes) === oA1.sha && o.headers.get('etag') === `"${oA1.sha}"`, 'the originals are the same objects, orig/<sha256>, under either version');
+			const logBeforeStale = d1('client-a', `SELECT count(*) AS n FROM activation_log WHERE case_id = '${A1}'`)[0]!.n as number;
 			const stale = await post(`/cases/${A1}/activate`, { version: V1, expected: V2 });
-			check(code(stale, 409, 'stale-or-unstored') && JSON.stringify(await work(A1)) === JSON.stringify(w), 'a second rollback with the stale expectation answers 409 stale-or-unstored and changes nothing');
+			const staleRefused = code(stale, 409, 'stale-or-unstored') && (d1('client-a', `SELECT count(*) AS n FROM activation_log WHERE case_id = '${A1}'`)[0]!.n as number) === logBeforeStale && JSON.stringify(await work(A1)) === JSON.stringify(w);
+			check(staleRefused, 'a second rollback with the stale expectation answers 409 stale-or-unstored and changes nothing: no activation is logged and user work is as it was');
 			const next = await addRow(A1, 'A1 note after the rollback', 'S-0001');
 			check(next.seq === Math.max(...rowsOf(w).map((r) => r.seq as number)) + 1 && next.rev === w.rev + 1, 'the next write after the rollback takes the next seq and revision: no gap, no reuse');
 			check((await post(`/cases/${A1}/activate`, { version: V2, expected: V1 })).status === 200 && (await http(`/cases/${A1}/documents/S-0003`)).status === 200 && rowsOf(await work(A1)).length === rowsOf(w).length + 1, 'rolling forward to V2 serves the V2-only document again, with every row kept');
 			const log = d1('client-a', `SELECT count(*) AS n FROM activation_log WHERE case_id = '${A1}'`)[0]!.n as number;
 			check(log === 4, 'the activation log records each of the four publications');
-			Object.assign(m, { activations: log, workRowsKept: rowsOf(w).length, staleRefused: 1 });
+			Object.assign(m, { activations: log, workRowsKept: rowsOf(w).length, staleRefused: staleRefused ? 1 : 0 });
 		});
 
 		// ----- rolling recovery copies, apart from live data -----
 		const copies: Record<string, Awaited<ReturnType<typeof copyOf>>> = {};
-		const atCopy = { stateA2: '', workA2: '' };
+		const atCopy = { stateA2: '', workA2: '', rowsA2: 0 };
 		let stagedA1 = ''; // the packet of an aborted restore of A1, made before A1's removal
 		let t0Dump = '';
 		await leg('copies', ['POST /cases/<case>/exports, …/step, …/seal (GRS-109\'s case backup)', 'POST /recovery/copies {caseId, exportId}', 'GET /recovery/copies, GET /recovery/head/{live,copies}/<key>', 'a byte of one copy flipped in its local R2 blob, then POST /recovery/copies/<id>/stage', wcmd('d1 execute DB --local --env client-a --json --command "SELECT … FROM <each table sqlite_master lists>"') + ' > <run>/scratch/t0.sql'], async (check, m) => {
@@ -662,6 +665,7 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			copies.a2 = await copyOf(A2);
 			atCopy.stateA2 = (await json(`/cases/${A2}/state`)).sha256;
 			atCopy.workA2 = JSON.stringify(rowsOf(await work(A2)));
+			atCopy.rowsA2 = rowsOf(await work(A2)).length;
 			await addRow(A2, 'A2 note after the copy', 'S-0002');
 			copies.broken = await copyOf(A2); // one row more than copies.a2, so the two backups differ byte for byte
 			const listed = (await json('/recovery/copies')) as { key: string; caseId: string; sha256: string; size: number }[];
@@ -670,16 +674,18 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			check(!(await held('live', key(copies.a1first!, A1))) && (await held('copies', key(copies.a1first!, A1))) && (await held('live', `export/${A1}/${copies.a1first!.exportId}.zip`)), 'a copy is held only in the recovery bucket; the live bucket keeps its own export');
 			check(flip('recovery-copies-a', copies.broken.size, copies.broken.sha256, Math.floor(copies.broken.size / 2)) === 1, 'one byte in the middle of one copy is flipped at rest');
 			const staged = await post(`/recovery/copies/${copies.broken.copyId}/stage`, { caseId: A2 });
-			check(code(staged, 422, 'copy-corrupted'), 'staging the corrupted copy answers 422 copy-corrupted: R2 refused the write against the SHA-256 recorded at copy time');
+			const corruptedRefused = code(staged, 422, 'copy-corrupted');
+			check(corruptedRefused, 'staging the corrupted copy answers 422 copy-corrupted: R2 refused the write against the SHA-256 recorded at copy time');
 			const aborted = await post(`/recovery/copies/${copies.a1second!.copyId}/stage`, { caseId: A1 });
 			stagedA1 = aborted.status === 200 ? (aborted.json().packetId as string) : '';
 			check(stagedA1 !== '' && (await held('live', `import/${stagedA1}.zip`)), "A1's second copy is staged into the live bucket ahead of a restore that is never finished: the packet holds A1's originals, read model and user work");
 			await addRow(A2, 'A2 second note after the copy', 'S-0002');
-			check(rowsOf(await work(A2)).length === 5, 'A2 gains two rows after its copy');
+			const rowsAfterCopy = rowsOf(await work(A2)).length - atCopy.rowsA2;
+			check(rowsAfterCopy === 2, 'A2 gains two rows after its copy');
 			t0Dump = path.join(scratch, 't0.sql');
 			writeFileSync(t0Dump, dump('client-a'));
 			check(readFileSync(t0Dump, 'utf8').includes(`'${A1}'`), "client A's whole database is dumped, the stand-in for a D1 Time Travel point, before any deletion");
-			Object.assign(m, { copies: listed.length, corruptedCopiesRefused: 1, rowsAfterCopy: 2 });
+			Object.assign(m, { copies: listed.length, corruptedCopiesRefused: corruptedRefused ? 1 : 0, rowsAfterCopy });
 		});
 
 		// ----- deletion: request, approval, export offer, removal -----
@@ -758,6 +764,7 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			check(ledger.length === 1 && isObject(record) && Object.keys(record).sort().join() === 'approvedAt,approvedBy,caseId,client,format,offeredExport,removedAt,removedBy,requestedAt,requestedBy' && record.client === 'client-a' && record.removedAt === deleted.removedAt && !JSON.stringify(record).includes('SYNTHETIC'), 'the deletion record holds ids, roles and times only, no case content');
 			check((await held('live', `deletion/${A1}.json`)) && (await held('copies', `deletion/${A1}.json`)), 'it is kept in the live bucket and in the recovery bucket, beside the copies it governs');
 			// D1 Time Travel restores the whole database in place while isolates keep running; the earlier dump stands in for it.
+			const rowsBeforeRollback = rowsOf(await work(A2)).length;
 			const tables = (d1('client-a', `SELECT name FROM sqlite_master WHERE ${userTables} ORDER BY rowid`) as { name: string }[]).map((t) => t.name);
 			const rollback = path.join(scratch, 'rollback.sql');
 			writeFileSync(rollback, `${[...tables].reverse().map((t) => `DROP TABLE ${t};`).join('\n')}\n${readFileSync(t0Dump, 'utf8')}`);
@@ -766,15 +773,17 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			check(revived.active === 1 && revived.deletion === 0 && revived.a2rows === 5, "the rolled-back database holds A1 live again, with no deletion, and A2 as it was at the dump (its later row lost)");
 			const doc = await http(`/cases/${A1}/documents/S-0001`);
 			const reapplied = d1('client-a', `SELECT (SELECT state FROM case_deletion WHERE case_id = '${A1}') AS state, (SELECT count(*) FROM active WHERE case_id = '${A1}') AS active, (SELECT count(*) FROM results_version WHERE case_id = '${A1}') AS versions`)[0]!;
-			check(code(doc, 410, 'case-deleted') && reapplied.state === 'removed' && reapplied.active === 0 && reapplied.versions === 0 && residue('client-a', A1, deleted.versions, deleted.exports).left.length === 0, `the running Worker's next request for A1 finds its record in the buckets while D1 holds A1 live, reapplies the deletion, and answers 410 (${doc.status}, ${JSON.stringify(reapplied)})`);
+			const reappliedOk = code(doc, 410, 'case-deleted') && reapplied.state === 'removed' && reapplied.active === 0 && reapplied.versions === 0 && residue('client-a', A1, deleted.versions, deleted.exports).left.length === 0;
+			check(reappliedOk, `the running Worker's next request for A1 finds its record in the buckets while D1 holds A1 live, reapplies the deletion, and answers 410 (${doc.status}, ${JSON.stringify(reapplied)})`);
 			check((await http(`/cases/${A2}/state`)).status === 200 && rowsOf(await work(A2)).length === 5, 'A2 is served from the rolled-back database, without the row written after the dump');
-			Object.assign(m, { restoresRefused: refused, rollbackLostRows: 1, reappliedAfterRollback: true });
+			Object.assign(m, { restoresRefused: refused, rollbackLostRows: rowsBeforeRollback - (revived.a2rows as number), reappliedAfterRollback: reappliedOk });
 		});
 
 		// ----- client A's live database and bucket are lost: a fresh deployment restores from the recovery copies -----
 		await serve('recovered-a');
 		await leg('restore-from-copy', [serveCmd('recovered-a'), 'GET /recovery/copies', `POST /recovery/copies/<A1's copy>/stage`, "A2's copy with one byte of an original flipped, read from its blob and uploaded through POST /restore/packets, then …/step", "POST /recovery/copies/<A2's copy>/stage, POST /restore/packets/<id>/open, …/step, …/finish", 'GET /cases/<A2>/state, …/verify, …/work, …/originals/<asset>', "a byte of a restored original flipped in recovered-a's local R2 blob, then GET …/originals/<asset> with Range"], async (check, m) => {
 			const t0 = performance.now();
+			const rowsAtLoss = d1('client-a', `SELECT count(*) AS n FROM uw_register_row WHERE case_id = '${A2}'`)[0]!.n as number; // what the lost deployment held
 			const listed = (await json('/recovery/copies')) as { key: string }[];
 			check(listed.length === 4, "the fresh deployment sees client A's four recovery copies");
 			const a1 = await restoreCopy(A1, copies.a1second!.copyId);
@@ -806,7 +815,8 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			check(exact === 2, "every acknowledged original of A2, the shared one included, comes back byte for byte under its own key orig/<sha256>");
 			const restoredRows = JSON.stringify(rowsOf(await work(A2)));
 			check(restoredRows === atCopy.workA2, "A2's user work is exactly the copy's: every row id, seq, version and savedAt timestamp");
-			check(JSON.parse(restoredRows).length === 3, 'the two rows written after the copy are not in it: a copy restore loses what was written since the copy (Time Travel is the one-hour RPO path, HOLD)');
+			const lostRowsAfterCopy = rowsAtLoss - (JSON.parse(restoredRows) as unknown[]).length;
+			check(lostRowsAfterCopy === 2, 'the two rows written after the copy are not in it: a copy restore loses what was written since the copy (Time Travel is the one-hour RPO path, HOLD)');
 			const r = await http(`/cases/${A2}/originals/${oA2.assetId}`, { headers: { range: 'bytes=0-63' } });
 			check(r.status === 206 && Buffer.from(r.bytes).equals(Buffer.from(oA2.bytes.subarray(0, 64))), 'a range of a restored original is served from its verified bytes');
 			check(flip('recovered-a', oA2.bytes.length, oA2.sha, 100) === 1, "one byte of a restored original is flipped at rest in the fresh deployment's bucket");
@@ -814,7 +824,7 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			check(code(bad, 410, 'changed-original') && !bad.text.includes('SYNTHETIC'), 'the same range then answers 410 changed-original with no original bytes: the corruption checks hold on restored data');
 			const checksMs = ms(tChecks);
 			check(d1('recovered-a', `SELECT state FROM case_deletion WHERE case_id = '${A1}'`)[0]?.state === 'removed', "the fresh deployment's database now carries A1's deletion as removed");
-			Object.assign(m, { restoredOriginals: exact, lostRowsAfterCopy: 2, stageMs, restoreMs, checksMs, totalMs: ms(t0) });
+			Object.assign(m, { restoredOriginals: exact, lostRowsAfterCopy, stageMs, restoreMs, checksMs, totalMs: ms(t0) });
 		});
 
 		// ----- rotation: copies age out after 30 days; live data, bundle history and deletion records stay -----

@@ -8,8 +8,10 @@ no_bundle = true
 compatibility_date = "2026-10-12"
 send_metrics = false
 
+# PROBE_CLOCK lets POST /recovery/rotate take its time from the request, so the probe never waits 30 days. It is bound only
+# here, never in client B or a product deployment: there rotation runs from scheduled() with controller.scheduledTime.
 [env.client-a]
-vars = { CLEARCASE_CLIENT_ID = "client-a" }
+vars = { CLEARCASE_CLIENT_ID = "client-a", PROBE_CLOCK = "1" }
 d1_databases = [{ binding = "DB", database_name = "recovery-a", database_id = "00000000-0000-4000-8000-0000000110a1", remote = false }]
 r2_buckets = [{ binding = "BUCKET", bucket_name = "recovery-a", remote = false }, { binding = "RECOVERY", bucket_name = "recovery-copies-a", remote = false }]
 

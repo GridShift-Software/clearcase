@@ -32,7 +32,8 @@ const refuse = (status: number, code: string, detail: Record<string, unknown> = 
 class GuardFailed extends Error {}
 
 type Row = Record<string, unknown>;
-type RecoveryEnv = Env & { RECOVERY?: unknown };
+/** PROBE_CLOCK exists only in the probe's deployments: it lets a request name the rotation time. Never bind it in production. */
+type RecoveryEnv = Env & { RECOVERY?: unknown; PROBE_CLOCK?: string };
 type Ctx = { client: string; db: D1; bucket: R2; copies: R2; env: RecoveryEnv };
 /** What R2's list and head return beyond platform.ts's shape: the time R2 stored the object, which is what rotation ages. */
 type Stored = R2Object & { uploaded: Date };
@@ -246,7 +247,12 @@ async function readLedger(ctx: Ctx): Promise<Map<string, DeletionRecord>> {
 async function reconcile(ctx: Ctx) {
 	const ledger = await readLedger(ctx);
 	const removed = await all<Deletion>(ctx.db, "SELECT * FROM case_deletion WHERE state = 'removed'");
-	for (const d of removed) if (!ledger.has(d.case_id)) (await writeRecord(ctx, recordOf(d, ctx.client)), ledger.set(d.case_id, recordOf(d, ctx.client)));
+	for (const d of removed) {
+		if (ledger.has(d.case_id)) continue;
+		const record = recordOf(d, ctx.client);
+		await writeRecord(ctx, record);
+		ledger.set(d.case_id, record);
+	}
 	const applied = new Set(removed.map((d) => d.case_id));
 	for (const r of ledger.values()) {
 		if (applied.has(r.caseId)) continue;
@@ -371,8 +377,13 @@ async function stageCopy(ctx: Ctx, request: Request, copyId: string): Promise<Re
 	return json({ packetId, copyId, caseId, sha256: meta.sha256, size: head!.size });
 }
 
-/** Removes recovery copies, and restore packets, older than 30 days at `scheduledTime` (a Cron Trigger's scheduled time); nothing else. */
+/**
+ * Removes recovery copies, and restore packets, older than 30 days at `scheduledTime`; nothing else. The product runs this only
+ * from scheduled() with controller.scheduledTime and has no route for it: a time taken from a request would let any caller age
+ * out every copy. The probe's route exists only where PROBE_CLOCK is bound, so that it never waits 30 days.
+ */
 async function rotate(ctx: Ctx, request: Request): Promise<Response> {
+	if (ctx.env.PROBE_CLOCK !== '1') refuse(404, 'not-found');
 	const at = field(await body(request), 'scheduledTime', isText(ISO));
 	const now = Date.parse(at);
 	if (!Number.isFinite(now)) refuse(400, 'invalid-field', { field: 'scheduledTime' });

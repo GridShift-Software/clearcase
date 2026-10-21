@@ -4,8 +4,9 @@
 
 -- A case's deletion, from the firm admin's request to the removal of live access. One row per case, never deleted: once
 -- `removed`, it is the D1 copy of the case's deletion record (deletion/<caseId>.json in BUCKET and in RECOVERY), and
--- holds ids, roles and times only, no case content. erase_plan lists the results versions, exports and originals the
--- removal erased, so a repeated removal or a reapplied record erases the same objects.
+-- holds ids, roles and times only, no case content, apart from erase_plan: the results version ids, export ids and the
+-- SHA-256 of each original (a fingerprint of a removed document, never its bytes) the removal erased, so a repeated removal
+-- or a reapplied record erases the same objects. The deletion record in the buckets carries no erase_plan.
 CREATE TABLE case_deletion (
   case_id TEXT PRIMARY KEY,
   state TEXT NOT NULL CHECK (state IN ('requested', 'approved', 'offered', 'removed')),

@@ -74,3 +74,33 @@ describe('a JSON-script source field already named source_<name> is never overwr
     });
   }
 });
+
+// A risk's `l` and `i` write the derived likelihood_score and impact_score; a source risk that already holds either name beside a number keeps its own value aside.
+const scoreRisks = (): J[] => [
+  record([['risk', 'Invented score first.'], ['likelihood_score', 'held-likelihood_score'], ['impact_score', 'held-impact_score'], ['l', 4], ['i', 2]]),
+  record([['risk', 'Invented score last.'], ['l', 3], ['i', 1], ['impact_score', 'held-impact_score-last'], ['likelihood_score', 'held-likelihood_score-last']]),
+  record([['risk', 'Invented score and prefix.'], ['l', 5], ['i', 5], ['likelihood_score', 'held-score-a'], ['source_likelihood_score', 'held-score-b']]),
+];
+
+describe('a risk with a source likelihood_score or impact_score beside a numeric l or i keeps the source value (GRS-170)', () => {
+  it('writes the derived scores and keeps each source value aside, with its warning', async () => {
+    const root = await tempDir('json-source-names-scores');
+    roots.push(root);
+    const caseDir = path.join(root, 'case');
+    await writeCaseFolder(caseDir);
+    const appSeed = { risk: scoreRisks() };
+    const result = await convertV5({ html: jsonHtml([tag('app-data', { meta: { builtAt: '2003-04-05 06:07' } }), tag('app-seed', appSeed)]), htmlName: 'SYN_Workspace.html', caseFolder: caseDir, caseId: 'synthetic-json' });
+    expect(result.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+    const files = result.files!;
+    const pkgDir = path.join(root, 'pkg');
+    await writePackageDir(pkgDir, files);
+    const imported = await importCandidate(pkgDir, caseDir);
+    expect(imported.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
+    const risks = dataset(files, 'risk-matrix') as J[];
+    expect(risks.map((r) => [r.likelihood_score, r.impact_score])).toEqual([[4, 2], [3, 1], [5, 5]]);
+    const held = ['held-likelihood_score', 'held-impact_score', 'held-likelihood_score-last', 'held-impact_score-last', 'held-score-a', 'held-score-b'];
+    const kept = held.map((s) => ({ s, at: fieldsHolding(risks, s) }));
+    expect(kept.filter((v) => v.at.length === 0).map((v) => v.s), 'values lost').toEqual([]);
+    expect(kept.flatMap((v) => v.at.filter((field) => !imported.diagnostics.some((d) => d.code === 'DS_UNSUPPORTED_FIELD' && d.subject === field)).map((field) => `${v.s} in ${field}`)), 'values kept without a warning').toEqual([]);
+  });
+});

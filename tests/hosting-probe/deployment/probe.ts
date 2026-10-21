@@ -441,11 +441,14 @@ async function main(out: string): Promise<number> {
 		const built = build.code === 0 && existsSync(path.join(app, '.svelte-kit/cloudflare/_worker.js'));
 		const bundled = (needle: string) => (built ? readdirSync(path.join(app, '.svelte-kit'), { recursive: true, withFileTypes: true }).filter((e) => e.isFile() && /\.(?:js|mjs)$/.test(e.name) && readFileSync(path.join(e.parentPath, e.name), 'utf8').includes(needle)).length : 'no bundle');
 		const generated = existsSync(path.join(app, '.void-wrangler.jsonc')) ? readFileSync(path.join(app, '.void-wrangler.jsonc'), 'utf8') : '';
+		const evaluated = () => (existsSync(evalLog) ? readFileSync(evalLog, 'utf8').split('\n').filter(Boolean).map((x) => JSON.parse(x) as { entry: string; sawDeployToken: boolean }) : []);
+		const beforeDeploy = evaluated().length;
 		const deploy = step(l, 'Node', [tool.void, 'deploy', '--platform', 'cloudflare'], { cwd: app, env: credentialed, timeoutMs: 180_000 });
+		const duringDeploy = evaluated().slice(beforeDeploy);
+		check(duringDeploy.length > 0 && duringDeploy.every((e) => e.sawDeployToken), 'void deploy evaluates void.config.ts in the process that holds the deploy token, and the config code can read it: scrubbing the build child alone does not protect the token');
 		check(deploy.code !== 0 && /provision/i.test(deploy.out) && /d1 list/i.test(deploy.out), 'offline, void deploy stops in provisioning, before any build or migration, after inferring a D1 database it tries to list');
-		const evaluations = existsSync(evalLog) ? readFileSync(evalLog, 'utf8').split('\n').filter(Boolean).map((x) => JSON.parse(x) as { entry: string; sawDeployToken: boolean }) : [];
-		check(evaluations.length > 0, 'void.config.ts is code that Void and Vite evaluate');
-		check(evaluations.some((e) => e.sawDeployToken), "config code evaluated in the credentialed process reads its deploy token: scrubbing the build child's environment alone does not protect it");
+		const evaluations = evaluated();
+		check(evaluations.some((e) => e.entry.endsWith('cli.mjs')) && evaluations.some((e) => e.entry.endsWith('vite.js')), 'void.config.ts is code that the Void CLI and the Vite build both evaluate');
 		const dist = path.join(HERE, 'node_modules/void/dist');
 		const source = readdirSync(dist).filter((f) => f.startsWith('deploy-') && f.endsWith('.mjs')).map((f) => ({ f, text: readFileSync(path.join(dist, f), 'utf8') }));
 		const migrates = source.find((s) => s.text.includes('applyAndVerifyRemoteD1Migrations') && s.text.includes('d1.time-travel.bookmark'));
@@ -457,7 +460,7 @@ async function main(out: string): Promise<number> {
 			build: { exit: build.code, workerWritten: built, error: show(/ERR_[A-Z_]+[^\n]{0,160}|Error:[^\n]{0,200}/.exec(build.out)?.[0] ?? '') },
 			generatedConfigBindsD1: /d1_databases/.test(generated),
 			bundleModules: { drizzle: bundled('drizzle-orm'), betterAuth: bundled('better-auth') },
-			configEvaluations: evaluations,
+			configEvaluations: Object.entries(Object.groupBy(evaluations, (e) => `${e.entry} sawDeployToken=${e.sawDeployToken}`)).map(([k, v]) => `${k} x${v!.length}`),
 			deployOffline: { exit: deploy.code, network: deploy.network, lastLines: show(deploy.out.trim().split('\n').slice(-4).join(' | ')).slice(0, 600) },
 			automaticMigrations: { source: `node_modules/void/dist/${migrates?.f}`, order: 'list pending, save a time-travel bookmark (refuses to migrate without one), apply, list again', skipFlag: 'none found' },
 			canaryInVoidOutputs: voidScan.hits,
@@ -465,9 +468,12 @@ async function main(out: string): Promise<number> {
 	});
 
 	await leg('P7-cf-dry-run-offline', 'cf deploy --dry-run --no-provision in a project with a committed config: network, files and exit', (l, check) => {
-		const before = snapshot(plain);
-		const dry = step(l, 'Node', [tool.cf, 'deploy', '--dry-run', '--no-provision'], { cwd: plain });
-		const writes = changed(before, snapshot(plain));
+		const fresh = path.join(runDir, 'plain-p7');
+		cpSync(plain, fresh, { recursive: true, filter: (src) => !['node_modules', '.cloudflare', '.wrangler'].includes(path.basename(src)) });
+		symlinkSync(path.join(HERE, 'node_modules'), path.join(fresh, 'node_modules'));
+		const before = snapshot(fresh);
+		const dry = step(l, 'Node', [tool.cf, 'deploy', '--dry-run', '--no-provision'], { cwd: fresh });
+		const writes = changed(before, snapshot(fresh));
 		check(dry.code === 0, 'exit 0');
 		check(Array.isArray(dry.network) && dry.network.length === 0, 'no connect or lookup beyond loopback (the only sockets are the local Miniflare type generator)');
 		check(writes.every((w) => w.startsWith('.cloudflare/') || w.startsWith('.wrangler/')), 'it writes only its own .cloudflare/ and .wrangler/ state inside the project');
@@ -475,20 +481,27 @@ async function main(out: string): Promise<number> {
 	});
 
 	await leg('P8-unforced-destructive', 'an unforced destructive command, non-interactive, placeholder account, offline', (l, check) => {
-		const env = { CLOUDFLARE_ACCOUNT_ID: PLACEHOLDER_ACCOUNT };
+		// A synthetic placeholder, not a credential: without any token cf stops at authentication before its prompt.
+		const token = { CLOUDFLARE_API_TOKEN: 'synthetic-placeholder-not-a-token' };
+		const persist = path.join(runDir, 'persist/p4-cf');
+		const cases = [
+			['cf d1 delete, no token', [tool.cf, 'd1', 'delete', clientA.d1.id], {}],
+			['cf d1 delete', [tool.cf, 'd1', 'delete', clientA.d1.id], token],
+			['cf workers delete', [tool.cf, 'workers', 'delete', clientA.worker], token],
+			['cf d1 delete --local', [tool.cf, 'd1', 'delete', LOCAL_D1, '--local', '--persist-to', persist], token],
+			['wrangler d1 delete', [tool.wrangler, 'd1', 'delete', clientA.d1.name], token],
+		] as const;
 		const results = Object.fromEntries(
-			(
-				[
-					['cf d1 delete', 'Node', [tool.cf, 'd1', 'delete', clientA.d1.id]],
-					['cf workers delete', 'Node', [tool.cf, 'workers', 'delete', clientA.worker]],
-					['wrangler d1 delete', 'Node', [tool.wrangler, 'd1', 'delete', clientA.d1.name]],
-				] as const
-			).map(([label, host, cmd]) => {
-				const r = step(l, host, [...cmd], { cwd: plain, env });
-				return [label, { exit: r.code, aborted: /abort/i.test(r.out), auth: /auth|token|log ?in|credential/i.test(r.out), network: r.network, firstLine: show(r.out.trim().split('\n').find((x) => /\w/.test(x) && !x.includes('AGENT')) ?? '').slice(0, 200) }];
+			cases.map(([label, cmd, env]) => {
+				const r = step(l, 'Node', [...cmd], { cwd: plain, env: { CLOUDFLARE_ACCOUNT_ID: PLACEHOLDER_ACCOUNT, ...env } });
+				return [label, { exit: r.code, prompted: /pass --force to confirm/.test(r.out), aborted: /^Aborted\.$/m.test(r.out), authError: /CLOUDFLARE_API_TOKEN|not authenticated|log ?in/i.test(r.out), connectivityError: /fetch (?:request )?failed/i.test(r.out), network: r.network }];
 			}),
 		);
-		check(Object.values(results).every((r) => r.exit !== null), 'each command ran to an exit code');
+		for (const label of ['cf d1 delete', 'cf workers delete', 'cf d1 delete --local']) check(results[label]!.prompted && results[label]!.aborted && results[label]!.exit === 1, `${label} without --force prints its prompt, "Aborted." and exits 1 when stdin is not a terminal`);
+		check(results['cf d1 delete, no token']!.exit === 1 && !results['cf d1 delete, no token']!.prompted, 'with no token cf stops at authentication (exit 1) before the prompt');
+		check(results['wrangler d1 delete']!.exit === 1 && results['wrangler d1 delete']!.connectivityError, 'Wrangler asks the API before any prompt, so offline it exits 1 on the failed request');
+		const rows = step(l, 'Node', [tool.wrangler, 'd1', 'execute', 'DB', '--local', '--persist-to', persist, '--json', '--command', 'SELECT COUNT(*) AS n FROM d1_migrations'], { cwd: kit });
+		check(rows.code === 0 && (JSON.parse(rows.out) as { results: { n: number }[] }[])[0]!.results[0]!.n === 2, 'the aborted local delete left the local database intact');
 		l.observed = results;
 	});
 

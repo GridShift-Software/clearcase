@@ -11,9 +11,10 @@ import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { CLIENT_ORIGIN, craftedWorld, STAFF_ORIGIN, type World } from './crafted.ts';
 
 let w: World;
+// the root vitest.config.ts has a 10 s hook timeout and a 60 s test timeout; a world is a build, a seed and two workerds
 beforeAll(async () => {
 	w = await craftedWorld();
-});
+}, 180_000);
 afterAll(async () => {
 	await w?.stop();
 });
@@ -246,7 +247,7 @@ describe('MFA flag', () => {
 		} finally {
 			await m.stop();
 		}
-	});
+	}, 180_000);
 });
 
 describe('default deny in the hook', () => {

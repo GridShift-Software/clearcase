@@ -61,9 +61,9 @@ export function openRun(a: { dir: string; ticket: string; worker: string; sha: s
 	if (new Set(a.kinds).size !== a.kinds.length || !a.kinds.length) throw new Error(`kinds ${a.kinds.join(',')} must be distinct and nonempty`);
 	mkdirSync(a.dir, { recursive: true });
 	const order = [...a.kinds].sort((x, y) => KINDS.indexOf(x) - KINDS.indexOf(y));
-	write(file, { schema: RUN_SCHEMA, name, sha: a.sha, createdAt: now().toISOString(), state: 'open', finishedAt: null, resources: order.map((kind) => ({ kind, name, created: false, teardown: 'pending', error: null })) });
 	// The run's own record, in memory: the teardown deletes these (kind, name) pairs and nothing the file says.
-	const manifest: RunManifest = JSON.parse(readFileSync(file, 'utf8'));
+	const manifest: RunManifest = { schema: RUN_SCHEMA, name, sha: a.sha, createdAt: now().toISOString(), state: 'open', finishedAt: null, resources: order.map((kind) => ({ kind, name, created: false, teardown: 'pending', error: null })) };
+	write(file, manifest);
 	/** The one thing read back from the file: whether the run is still open. */
 	const status = () => {
 		try {

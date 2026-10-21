@@ -1,11 +1,13 @@
 // What the identity probe's runner (probe.ts) and its offline tests (crafted.ts) share (GRS-108): the pinned build, the
 // local D1 and R2 seed, and serve.mjs, the Node host that runs both Workers on native workerd through Wrangler's
-// startWorker. serve.mjs gets its keys over a pipe on fd 3 (the protocol of deploy/probes/secrets.ts, read with
-// takeSecrets()), never through its environment, argv or a file, and passes them to workerd inside the Worker config.
+// startWorker. serve.mjs gets its keys over a pipe on fd 3 (the protocol of deploy/probes/secrets.ts: it is started
+// with the reader's own fd preload and reads them with takeSecrets()), never through its environment, argv or a file,
+// and passes them to workerd inside the Worker config.
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import { accessSync, constants, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import path from 'node:path';
+import { FD_PRELOAD } from '../../../deploy/probes/secrets.ts';
 
 export const HERE = import.meta.dirname;
 export const pkg = JSON.parse(readFileSync(path.join(HERE, 'package.json'), 'utf8')) as { packageManager: string; devDependencies: Record<string, string> };
@@ -116,6 +118,9 @@ export type ServeConfig = {
 	staff: { port: number; origin: string };
 };
 
+/** What serve.mjs receives as argv[2]: the config with each app's own store directory (persistOf) added to the app. */
+export type ServeArgs = Omit<ServeConfig, 'client' | 'staff'> & { client: ServeConfig['client'] & { persist: string }; staff: ServeConfig['staff'] & { persist: string } };
+
 /** `n` distinct free loopback ports (all held open together, then released), so two worktrees or two runs never share one. */
 export async function freePorts(n: number): Promise<number[]> {
 	const servers = await Promise.all(Array.from({ length: n }, () => new Promise<ReturnType<typeof createServer>>((resolve, reject) => {
@@ -130,8 +135,9 @@ export async function freePorts(n: number): Promise<number[]> {
 
 // serve.mjs is a process group of its own (so stopServe can signal the group), which nothing would stop with its runner.
 // Three things do: serve.mjs ends when its stdin, a pipe from the runner, ends (any way the runner dies, SIGKILL included);
-// the runner's exit event signals every live group; and a SIGINT or SIGTERM runs the registered interrupt hooks (the live
-// probe's Clerk cleanup), then stops every live group and exits 128 + the signal.
+// the runner's exit event signals every live group; and a SIGINT, SIGTERM or SIGHUP runs the registered interrupt hooks (the
+// live probe's Clerk cleanup, which first halts the step that was running), then stops every live group and exits 128 + the
+// signal.
 const live = new Set<ChildProcess>();
 const hooks = new Set<() => Promise<void>>();
 let armed = false;
@@ -142,7 +148,7 @@ function arm(): void {
 		for (const c of live) try { process.kill(-c.pid!, 'SIGTERM'); } catch {}
 	});
 	let first = 0;
-	for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143]] as const) {
+	for (const [signal, code] of [['SIGINT', 130], ['SIGTERM', 143], ['SIGHUP', 129]] as const) {
 		process.on(signal, () => {
 			// Ctrl-C reaches the runner from the terminal and again from its launchers' forwarding, within milliseconds; a signal
 			// that comes well after the first, while it is still cleaning up, means "now"
@@ -156,7 +162,7 @@ function arm(): void {
 		});
 	}
 }
-/** Runs `hook` on SIGINT or SIGTERM, before the live serve.mjs groups are stopped and the process exits; returns its unregister. */
+/** Runs `hook` on SIGINT, SIGTERM or SIGHUP, before the live serve.mjs groups are stopped and the process exits; returns its unregister. */
 export function onInterrupt(hook: () => Promise<void>): () => void {
 	arm();
 	hooks.add(hook);
@@ -167,8 +173,9 @@ export function onInterrupt(hook: () => Promise<void>): () => void {
 export async function startServe(node: { path: string }, env: Record<string, string>, config: ServeConfig, secrets: Map<string, string>, logs: string): Promise<ChildProcess> {
 	const n = readdirSync(logs).filter((f) => f.startsWith('serve-')).length;
 	const log = createWriteStream(path.join(logs, `serve-${n}.log`));
-	const stores = { client: { ...config.client, persist: persistOf(config.persist, 'client') }, staff: { ...config.staff, persist: persistOf(config.persist, 'staff') } };
-	const child = spawn(node.path, [path.join(HERE, 'serve.mjs'), JSON.stringify({ ...config, ...stores })], { cwd: HERE, env: { ...env, WRANGLER_LOG: 'warn', CLEARCASE_SECRETS_FD: '3' }, detached: true, stdio: ['pipe', 'pipe', 'pipe', 'pipe'] });
+	const args: ServeArgs = { ...config, client: { ...config.client, persist: persistOf(config.persist, 'client') }, staff: { ...config.staff, persist: persistOf(config.persist, 'staff') } };
+	// the reader's own fd preload takes the keys off fd 3 and closes it before serve.mjs imports Wrangler: one protocol for handing keys over
+	const child = spawn(node.path, [`--import=${FD_PRELOAD}`, path.join(HERE, 'serve.mjs'), JSON.stringify(args)], { cwd: HERE, env: { ...env, WRANGLER_LOG: 'warn', CLEARCASE_SECRETS_FD: '3' }, detached: true, stdio: ['pipe', 'pipe', 'pipe', 'pipe'] });
 	arm();
 	live.add(child);
 	child.once('exit', () => live.delete(child));

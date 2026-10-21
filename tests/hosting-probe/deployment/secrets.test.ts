@@ -16,14 +16,16 @@ const SHA = createHash('sha256').update(VALUE).digest('hex');
 afterAll(() => rmSync(SCRATCH, { recursive: true, force: true }));
 
 /** The first `node` on PATH that is real Node: under `bun run --bun`, the first one is Bun's stand-in. */
-const NODE = (process.env.PATH ?? '').split(':').map((d) => path.join(d, 'node')).find((p) => {
+const found = (process.env.PATH ?? '').split(':').map((d) => path.join(d, 'node')).find((p) => {
 	try {
 		accessSync(p, constants.X_OK);
 	} catch {
 		return false;
 	}
 	return spawnSync(p, ['-p', 'typeof Bun'], { encoding: 'utf8' }).stdout.trim() === 'undefined';
-})!;
+});
+if (!found) throw new Error('secrets.test.ts needs a real Node (>= 22) on PATH past Bun\'s `node` stand-in, and none was found among: ' + (process.env.PATH ?? '(PATH is unset)'));
+const NODE: string = found;
 
 function synthetic(contents = `# synthetic, GRS-107\nSYNTHETIC_TOKEN=${VALUE}\nOTHER_TOKEN=cc-synthetic-other\n`, fileMode = 0o600, dirMode = 0o700) {
 	rmSync(SCRATCH, { recursive: true, force: true });
@@ -160,5 +162,27 @@ describe('refusals name the path, mode, key or line, never a value', () => {
 	test('a refused read starts no child', () => {
 		synthetic(undefined, 0o644);
 		expect(run().stdout).not.toContain('child ran');
+	});
+});
+
+describe("a preload or loader in the child's arguments is refused before the child starts (L1)", () => {
+	// Node runs these before the entry, so they would run before the reader's own preload could be relied on to be first.
+	const forms: string[][] = [['-r', 'x.cjs'], ['--require', 'x.cjs'], ['--require=x.cjs'], ['--import', 'x.mjs'], ['--import=x.mjs'], ['--loader', 'x.mjs'], ['--loader=x.mjs'], ['--experimental-loader', 'x.mjs']];
+	test.each(forms)('%s', (...flag) => {
+		const marker = path.join(SCRATCH, `ran-${flag[0]!.replaceAll('-', '')}`);
+		writeFileSync(path.join(SCRATCH, 'x.cjs'), `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran');\n`);
+		for (const to of ['fd', 'env']) {
+			const r = reader(['run', 'synthetic', '--to', to, '--', NODE, ...flag, '-e', '0']);
+			expect(r.status, `${flag.join(' ')} (${to})`).toBe(2);
+			expect(r.stderr).toContain(`secrets: refused: ${flag[0]!.split('=')[0]} in the command's arguments`);
+			expect(`${r.stdout}${r.stderr}`).not.toContain(VALUE);
+		}
+		expect(existsSync(marker)).toBe(false);
+	});
+
+	test('an argument that only contains one of the flags is passed on', () => {
+		const r = reader(['run', 'synthetic', '--', NODE, '-e', 'console.log(process.argv.slice(1).join(" "))', '--', 'import', '--required', '--important']);
+		expect(r.status).toBe(0);
+		expect(r.stdout.trim()).toBe('import --required --important');
 	});
 });

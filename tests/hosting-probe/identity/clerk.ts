@@ -69,7 +69,21 @@ export class Pace {
 	}
 }
 
-export type User = { id: string; email: string; createdAt: number };
+/** A row's creation time when Clerk states a finite one, else null: a missing time must not read as 1970 and be swept as old. */
+const timeOf = (t: unknown): number | null => (typeof t === 'number' && Number.isFinite(t) ? t : null);
+
+/**
+ * Set once the run is interrupted: the Backend and the Browser then refuse any call that creates something (a POST that is
+ * not a revoke), so the step that was running cannot add to what the cleanup is about to delete. Reads, deletes and
+ * revokes still go through.
+ */
+export const halt = { on: false };
+const creates = (method: string, pathname: string) => method === 'POST' && !pathname.endsWith('/revoke');
+function refuseIfHalted(method: string, pathname: string): void {
+	if (halt.on && creates(method, pathname)) throw new Error('interrupted: the run creates nothing more');
+}
+
+export type User = { id: string; email: string; createdAt: number | null };
 
 export class Backend {
 	calls = 0;
@@ -81,6 +95,7 @@ export class Backend {
 	}
 
 	async call(method: string, pathname: string, body?: unknown): Promise<any> {
+		refuseIfHalted(method, pathname);
 		await this.pace.take();
 		this.calls++;
 		const res = await fetch(`${API}${pathname}`, {
@@ -93,25 +108,25 @@ export class Backend {
 	}
 
 	usersCount = async (): Promise<number> => (await this.call('GET', '/users/count')).total_count;
-	/** Every user whose primary email starts with `prefix` (a run's own synthetic addresses), with the creation time Clerk gives in ms. */
+	/** Every user whose primary email starts with `prefix` (a run's own synthetic addresses), with the creation time Clerk gives in ms (null when it gives none). */
 	async users(prefix: string): Promise<User[]> {
 		const out: User[] = [];
 		for (let offset = 0; ; offset += 100) {
 			const page = (await this.call('GET', `/users?limit=100&offset=${offset}&query=${encodeURIComponent(prefix)}`)) as any[];
 			for (const u of page) {
 				const email = u.email_addresses?.find((e: any) => e.id === u.primary_email_address_id)?.email_address ?? '';
-				if (email.startsWith(prefix)) out.push({ id: u.id, email, createdAt: Number(u.created_at) || 0 });
+				if (email.startsWith(prefix)) out.push({ id: u.id, email, createdAt: timeOf(u.created_at) });
 			}
 			if (page.length < 100) return out;
 		}
 	}
 	/** Every invitation for an address that starts with `prefix`, with its status. */
-	async invitations(prefix: string): Promise<{ id: string; email: string; status: string; createdAt: number }[]> {
-		const out: { id: string; email: string; status: string; createdAt: number }[] = [];
+	async invitations(prefix: string): Promise<{ id: string; email: string; status: string; createdAt: number | null }[]> {
+		const out: { id: string; email: string; status: string; createdAt: number | null }[] = [];
 		for (let offset = 0; ; offset += 100) {
 			const page = await this.call('GET', `/invitations?limit=100&offset=${offset}&query=${encodeURIComponent(prefix)}`);
 			const rows = (Array.isArray(page) ? page : page.data) as any[];
-			for (const i of rows) if (i.email_address.startsWith(prefix)) out.push({ id: i.id, email: i.email_address, status: i.status, createdAt: Number(i.created_at) || 0 });
+			for (const i of rows) if (i.email_address.startsWith(prefix)) out.push({ id: i.id, email: i.email_address, status: i.status, createdAt: timeOf(i.created_at) });
 			if (rows.length < 100) return out;
 		}
 	}
@@ -163,6 +178,7 @@ export class Browser {
 	}
 
 	async call(method: 'GET' | 'POST' | 'PATCH' | 'DELETE', pathname: string, form?: Record<string, string>): Promise<any> {
+		refuseIfHalted(method, pathname);
 		this.calls++;
 		const url = new URL(`${this.fapi}${pathname}`);
 		url.searchParams.set('__clerk_db_jwt', this.devBrowser);

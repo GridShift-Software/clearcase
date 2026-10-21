@@ -340,3 +340,39 @@ describe('the artifact digest binds exactly what is staged (M1)', () => {
 		expect(() => digestDir(out)).not.toThrow(/not a regular file/);
 	});
 });
+
+describe('a stage root that is itself a symlink is refused (M1 root)', () => {
+	const SCRATCH = path.join(import.meta.dirname, '../../../.local/hosting-probe/deployment', `roots-${process.pid}`);
+	afterAll(() => rmSync(SCRATCH, { recursive: true, force: true }));
+	const real = path.join(SCRATCH, 'real-artifact');
+	mkdirSync(path.join(real, '_app'), { recursive: true });
+	writeFileSync(path.join(real, '_worker.js'), 'export default {};\n');
+	writeFileSync(path.join(real, '_app/version.json'), '{}\n');
+	const digest = digestDir(real);
+
+	test('a symlinked --artifact is refused although the link resolves to the reviewed bytes, and nothing is staged', () => {
+		const link = path.join(SCRATCH, 'linked-artifact');
+		symlinkSync(real, link);
+		const out = path.join(SCRATCH, 'stage-linked-artifact');
+		expect(stage({ client: 'client-a', artifact: link, digest, out }).join('\n')).toMatch(/linked-artifact is a symlink, not a directory/);
+		expect(existsSync(out)).toBe(false);
+	});
+
+	test("a client's migrations directory that is a symlink is refused, and nothing is staged", () => {
+		const clients = path.join(SCRATCH, 'clients-linked-root');
+		cpSync(CLIENTS, clients, { recursive: true });
+		const migrations = path.join(clients, 'client-a', 'migrations');
+		const moved = path.join(SCRATCH, 'moved-migrations');
+		cpSync(migrations, moved, { recursive: true });
+		rmSync(migrations, { recursive: true });
+		symlinkSync(moved, migrations);
+		const out = path.join(SCRATCH, 'stage-linked-migrations-root');
+		expect(stage({ client: 'client-a', artifact: real, digest, out, clients }).join('\n')).toMatch(/migrations is a symlink, not a directory/);
+		expect(existsSync(out)).toBe(false);
+	});
+
+	test('a plain artifact directory still stages (the control)', () => {
+		const out = path.join(SCRATCH, 'stage-plain');
+		expect(stage({ client: 'client-a', artifact: real, digest, out })).toEqual([]);
+	});
+});

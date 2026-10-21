@@ -11,12 +11,12 @@
 //   bun deploy/probes/target.ts prebuilt <client> --stage DIR
 //
 // `check` reads the client's committed wrangler.jsonc and cloudflare.config.ts unless --config names one file. `stage`
-// checks both, copies the configs, the target, the artifact and the client's reviewed migrations/ into a new directory,
-// the only directory an upload command then runs in, and compares the digest of the staged copy of the artifact (not
-// of the source) with the reviewed one. The digest covers regular files and directories only: a symlink, device,
-// socket or FIFO anywhere in the artifact or the migrations is refused. `prebuilt` checks the Build Output a
-// credential-free `cf build` wrote in that stage, because `cf deploy --prebuilt` uploads its bindings, not the cf
-// config's, and refuses any file in it that the check does not read. Exit 0 PASS, 1 refused, 2 usage.
+// refuses an artifact or migrations directory that is itself a symlink, copies the configs, the target, the artifact and
+// the client's reviewed migrations/ into a new directory, the only directory an upload command then runs in, and then
+// checks both configs and digests the artifact there: the check and `stage.json` read the staged copy, not the source.
+// The digest covers regular files and directories only: a symlink, device, socket or FIFO anywhere in the artifact or
+// the migrations, or as either root, is refused. `prebuilt` checks the Build Output a credential-free `cf build` wrote in
+// that stage, because `cf deploy --prebuilt` uploads its bindings, not the cf config's, and refuses any file in it that the check does not read. Exit 0 PASS, 1 refused, 2 usage.
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -287,41 +287,57 @@ export function digestDir(dir: string): string {
 	return `sha256:${h.digest('hex')}`;
 }
 
-/** Checks both reviewed configs and the artifact's digest, then copies them into `out` (which must not exist) with a stage record. The digest is taken from the staged copy, never from the source. */
+/** Refuses `dir` unless it is itself a real directory: `readdir` and `cp` follow a link at the root, so the walk below it would judge the link's target and a later swap of the link would change what is uploaded. */
+function realDirectory(dir: string, what: string): string | null {
+	try {
+		const st = lstatSync(dir);
+		if (st.isSymbolicLink()) return `${what} ${dir} is a symlink, not a directory (a symlink is refused)`;
+		return st.isDirectory() ? null : `${what} ${dir} is not a directory`;
+	} catch {
+		return `${what} ${dir} is missing`;
+	}
+}
+
+/**
+ * Copies the configs, the target manifest, the artifact and the client's migrations into `out` (which must not exist), then
+ * checks both configs, digests the artifact and the migrations, and writes a stage record. Every check and every hash reads
+ * the staged copy, once, so `stage.json` describes the bytes that were checked. A refusal removes `out`.
+ */
 export function stage(a: { client: string; artifact: string; digest: string; out: string; clients?: string }): string[] {
 	const dir = path.join(a.clients ?? CLIENTS_DIR, a.client);
 	const targets = loadTargets(a.clients);
-	const problems = (Object.keys(CONFIG_FILES) as Format[]).flatMap((format) => {
-		const file = path.join(dir, CONFIG_FILES[format]);
-		return existsSync(file) ? checkTarget({ client: a.client, targets, format, text: readFileSync(file, 'utf8') }).map((p) => `${CONFIG_FILES[format]}: ${p}`) : [`${CONFIG_FILES[format]} is missing`];
-	});
-	if (!existsSync(a.artifact)) problems.push(`artifact ${a.artifact} is missing, not the reviewed ${a.digest}`);
-	if (!existsSync(path.join(dir, STAGED.migrations))) problems.push(`${STAGED.migrations}/ is missing: the config's migrations_dir may name only the client's reviewed migrations`);
-	if (existsSync(a.out)) problems.push(`${a.out} exists; a stage starts empty`);
+	const files = ['target.json', ...Object.values(CONFIG_FILES)];
+	const migrationsDir = path.join(dir, STAGED.migrations);
+	const problems = [realDirectory(a.artifact, 'artifact'), realDirectory(migrationsDir, STAGED.migrations), existsSync(a.out) ? `${a.out} exists; a stage starts empty` : null].filter((p): p is string => p !== null);
+	for (const f of files) if (!existsSync(path.join(dir, f))) problems.push(`${f} is missing`);
 	if (problems.length) return problems;
 	mkdirSync(a.out, { recursive: true });
-	const refuse = (m: string) => (rmSync(a.out, { recursive: true, force: true }), [m]);
-	const files = ['target.json', ...Object.values(CONFIG_FILES)];
+	const refuse = (m: string[]) => (rmSync(a.out, { recursive: true, force: true }), m);
 	try {
-		// refuse before copying anything a copy would follow or block on, then bind the copy, not the source
+		// refuse before copying anything a copy would follow or block on; the staged copy is checked again below
 		for (const f of files) if (!lstatSync(path.join(dir, f)).isFile()) throw new Error(`${path.join(dir, f)} is not a regular file`);
 		walk(a.artifact);
-		walk(path.join(dir, STAGED.migrations));
+		walk(migrationsDir);
 		for (const f of files) cpSync(path.join(dir, f), path.join(a.out, f));
 		cpSync(a.artifact, path.join(a.out, 'artifact'), { recursive: true });
-		cpSync(path.join(dir, STAGED.migrations), path.join(a.out, STAGED.migrations), { recursive: true });
+		cpSync(migrationsDir, path.join(a.out, STAGED.migrations), { recursive: true });
 	} catch (e) {
-		return refuse((e as Error).message);
+		return refuse([(e as Error).message]);
 	}
+	const staged = Object.fromEntries(files.map((f) => [f, readFileSync(path.join(a.out, f))]));
+	const configProblems = (Object.keys(CONFIG_FILES) as Format[]).flatMap((format) =>
+		checkTarget({ client: a.client, targets, format, text: staged[CONFIG_FILES[format]]!.toString('utf8') }).map((p) => `${CONFIG_FILES[format]}: ${p}`),
+	);
+	if (configProblems.length) return refuse(configProblems);
 	let digest: string, migrations: string;
 	try {
 		digest = digestDir(path.join(a.out, 'artifact'));
 		migrations = digestDir(path.join(a.out, STAGED.migrations));
 	} catch (e) {
-		return refuse((e as Error).message);
+		return refuse([(e as Error).message]);
 	}
-	if (digest !== a.digest) return refuse(`artifact ${a.artifact} is ${digest}, not the reviewed ${a.digest}`);
-	const sha = (f: string) => `sha256:${createHash('sha256').update(readFileSync(path.join(a.out, f))).digest('hex')}`;
+	if (digest !== a.digest) return refuse([`artifact ${a.artifact} is ${digest}, not the reviewed ${a.digest}`]);
+	const sha = (f: string) => `sha256:${createHash('sha256').update(staged[f]!).digest('hex')}`;
 	writeFileSync(path.join(a.out, 'stage.json'), `${JSON.stringify({ schema: 'clearcase.deploy-stage/1', client: a.client, files: Object.fromEntries(files.map((f) => [f, sha(f)])), artifact: digest, migrations }, null, 2)}\n`);
 	return [];
 }

@@ -1234,8 +1234,9 @@ function main() {
     if (!currentClosure.ids.has(file) || !fromBase(file)) throw Error(`protected fixture changed or deleted: ${file}`);
     inherited.push(file);
   }
-  // A file the base changed and HEAD holds as the base does is not part of this branch's fix diff.
-  const diff = git('diff', '--name-only', '-z', base, head).split('\0').filter(Boolean);
+  // A file the base changed and HEAD holds as the base does is not part of this branch's fix diff. Renames are off, so
+  // a renamed file is deleted at its old path and added at its new one, and the old path keeps its assertion count.
+  const diff = git('diff', '--no-renames', '--name-only', '-z', base, head).split('\0').filter(Boolean);
   const changed = diff.filter(file => !fromBase(file));
   // A fix may change the module under test freely, but a matcher, spy or global installed from code the named test
   // loads changes what every test proves. Any changed module outside the protected closure and the runner can be
@@ -1334,7 +1335,7 @@ function main() {
   }
   if (diff.length > changed.length) {
     console.log(`test-guard: ${diff.length - changed.length} changed file(s) are the base's, not this branch's: the base ${trusted} `
-      + `is merged into HEAD and HEAD holds each as it does; protected among them: ${inherited.join(', ') || 'none'}`);
+      + `is merged into HEAD and HEAD holds each as it does; protected among them: ${[...new Set(inherited)].join(', ') || 'none'}`);
   }
   console.log(`test-guard: PASS (${findings.tests.length} named tests; ${base}..${head}${trusted ? `; trusted base ${trusted}` : ''})`);
   if (command.length) {

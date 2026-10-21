@@ -17,11 +17,12 @@ import { createHash } from 'node:crypto';
 import { accessSync, closeSync, constants, createWriteStream, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import { DESCRIPTOR_SIZE, type Entry, crc32, descriptor, localHeader, trailer } from '../storage/src/zip.ts';
 
 const HERE = import.meta.dirname;
 const STORAGE = path.join(HERE, '../storage');
 const SCHEMA = 'clearcase.recovery-probe/1';
-const LEGS = ['build', 'provision', 'crossed-recovery', 'seed', 'rollback', 'copies', 'deletion-flow', 'deletion-reapply', 'restore-from-copy', 'retention', 'ledger-guards', 'warm-isolate'] as const;
+const LEGS = ['build', 'provision', 'crossed-recovery', 'seed', 'rollback', 'copies', 'deletion-flow', 'deletion-reapply', 'restore-from-copy', 'retention', 'restore-leftovers', 'ledger-guards', 'warm-isolate'] as const;
 type LegName = (typeof LEGS)[number];
 type Measure = Record<string, number | string | boolean>;
 type Leg = { status: 'PASS' | 'FAIL' | 'NOT RUN'; commands: string[]; asserted: string[]; measured: Measure; failure?: string };
@@ -70,6 +71,7 @@ const LEG_SHAPE: Record<LegName, [number, number]> = {
 	'deletion-reapply': [6, 9],
 	'restore-from-copy': [7, 15],
 	retention: [5, 13],
+	'restore-leftovers': [5, 9],
 	'ledger-guards': [4, 4],
 	'warm-isolate': [5, 6],
 };
@@ -91,6 +93,7 @@ const MEASURES: Record<LegName, Record<string, Spec>> = {
 	'deletion-reapply': { restoresRefused: 5, rollbackLostRows: 1, reappliedAfterRollback: true },
 	'restore-from-copy': { restoredOriginals: 2, lostRowsAfterCopy: 2, stageMs: MS, restoreMs: MS, checksMs: MS, totalMs: MS },
 	retention: { rotations: 6, copiesRemoved: 4, copiesKept: 0, bundleVersionsKept: 1, packetsAged: 1 },
+	'restore-leftovers': { stepped: 6, erasedByLedger: 3, agedOut: 3, kept: 3, residueRows: 0 },
 	'ledger-guards': { refusedRequests: 3 },
 	'warm-isolate': { routesGone: 9, adoptedRemovals: 1, residueRows: 0 },
 };
@@ -292,6 +295,22 @@ const sleep = (n: number) => new Promise((r) => setTimeout(r, n));
 const enc = new TextEncoder();
 const synthetic = (label: string, n: number) => enc.encode(`SYNTHETIC ONLY: ${label}\n`.repeat(n));
 const versionOf = (label: string) => `sha256:${sha256(`recovery probe version ${label}`)}`;
+type Item = { path: string; kind: string; bytes: Uint8Array };
+/** A case backup (GRS-109's format) holding only what a restore step copies: the manifest first, then each entry with its CRC-32. */
+const backupZip = (caseId: string, resultsVersion: string, items: Item[]) => {
+	const manifest = { format: 'clearcase.case-backup/1', client: 'client-a', caseId, resultsVersion, entries: items.map((i) => ({ path: i.path, sha256: sha256(i.bytes), size: i.bytes.length, kind: i.kind })) };
+	const parts: Uint8Array[] = [];
+	const entries: Entry[] = [];
+	let at = 0;
+	for (const i of [{ path: 'manifest.json', kind: 'manifest', bytes: enc.encode(JSON.stringify(manifest)) }, ...items]) {
+		const header = localHeader(i.path);
+		entries.push({ path: i.path, crc: crc32(i.bytes), size: i.bytes.length, offset: at });
+		parts.push(header, i.bytes, descriptor(crc32(i.bytes), i.bytes.length));
+		at += header.length + i.bytes.length + DESCRIPTOR_SIZE;
+	}
+	parts.push(trailer(entries, at));
+	return Buffer.concat(parts);
+};
 type Original = { assetId: string; bytes: Uint8Array; sha: string; filename: string };
 const original = (assetId: string, label: string, n: number): Original => {
 	const bytes = synthetic(label, n);
@@ -503,7 +522,7 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 		return c.packetId as string;
 	};
 	/** GRS-109's restore of a packet, as far as it gets: each call's status and code. */
-	const restorePacket = async (packetId: string, caseId: string) => {
+	const restorePacket = async (packetId: string, caseId: string, finish = true) => {
 		const seen: Record<string, string> = {};
 		const say = (step: string, r: Res) => ((seen[step] = `${r.status}${r.type.startsWith('application/json') && r.json().code ? ` ${r.json().code}` : ''}`), r.status === 200);
 		if (!say('open', await post(`/restore/packets/${packetId}/open`, { caseId }))) return seen;
@@ -513,7 +532,7 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			from = s.json().next;
 			if (from >= s.json().of) break;
 		}
-		say('finish', await post(`/restore/packets/${packetId}/finish`, { caseId }, 600_000));
+		if (finish) say('finish', await post(`/restore/packets/${packetId}/finish`, { caseId }, 600_000));
 		return seen;
 	};
 	/** A whole recovery-copy restore: stage the copy into the live bucket, then GRS-109's open, step and finish. */
@@ -868,6 +887,55 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			check((await http('/identity')).status === 200 && (await held('live', `orig/${oShared.sha}`)) && (await held('live', `pkg/${VB}/datasets/chronology.json`)), 'no client purge: the deployment, its identity and its live objects all stay');
 			check(code(await post('/recovery/rotate', {}), 400, 'invalid-field') && code(await post('/recovery/rotate', { scheduledTime: 'soon' }), 400, 'invalid-field'), 'rotation with no scheduledTime or a malformed one is refused, naming the field');
 			Object.assign(m, { rotations: rotations + 2, copiesRemoved: removed, copiesKept: r3.kept, bundleVersionsKept: bundles.length, packetsAged: orphanHeld && !(await held('live', `import/${orphan}.zip`)) ? 1 : 0 });
+		});
+
+		// ----- the objects of a restore that never finished: no row names them, so removal and rotation must find them anyway -----
+		await leg('restore-leftovers', ["POST /restore/packets, PUT …/1, POST …/complete, for a synthetic backup of each of two cases with no version", 'POST /restore/packets/<id>/open, …/step (never …/finish), GET /recovery/head/live/<key>', wcmd('r2 object put {recovery-a,recovery-copies-a}/deletion/<A4>.json --local (a valid record, D1 holds no row of A4)'), 'GET /cases/<A4>/documents/<ref>; GET /recovery/head/live/<key>; GET /probe/live/<A4>', 'POST /recovery/rotate {scheduledTime} 30 days - 1 minute and + 1 minute after the steps; GET /recovery/head/live/<key>'], async (check, m) => {
+			const A3 = 'case-recovery-a3';
+			const A4 = 'case-recovery-a4';
+			const leftovers = async (caseId: string, tag: string) => {
+				const v = versionOf(`${tag} leftovers`);
+				const orig = synthetic(`recovery probe leftover original ${tag}`, 60);
+				const file = enc.encode(JSON.stringify({ synthetic: true, tag }));
+				const list = enc.encode(JSON.stringify([{ ref: 'S-9001' }]));
+				const packet = await upload(backupZip(caseId, v, [{ path: `originals/${sha256(orig)}`, kind: 'original', bytes: orig }, { path: 'package/datasets/leftover.json', kind: 'package', bytes: file }, { path: 'list/chronology.json', kind: 'list', bytes: list }]));
+				const run = await restorePacket(packet, caseId, false);
+				return { v, run, keys: [`orig/${sha256(orig)}`, `pkg/${v}/datasets/leftover.json`, `rm/${v}/chronology.json`] };
+			};
+			const held3 = async (keys: string[]) => (await Promise.all(keys.map((k) => held('live', k)))).filter(Boolean).length;
+			const a3 = await leftovers(A3, 'A3');
+			const a4 = await leftovers(A4, 'A4');
+			const shared = `orig/${oShared.sha}`;
+			const stepped = await held3([...a3.keys, ...a4.keys]);
+			check(a3.run.open === '200' && a3.run.step === '200' && a4.run.open === '200' && a4.run.step === '200' && stepped === 6, `two backups of cases with no version are opened and stepped, never finished: each leaves an original, a package file and a list under orig/, pkg/ and rm/ (${JSON.stringify([a3.run, a4.run])})`);
+			check(d1('client-a', `SELECT count(*) AS n FROM results_version WHERE version_id IN ('${a3.v}', '${a4.v}')`)[0]?.n === 0 && (await liveOf(A3)).versions.length === 0 && (await liveOf(A4)).versions.length === 0, 'no D1 row names either version: nothing but the objects shows that a restore began');
+			// A4: a record in both buckets removes the case on the next request for it, as in a fresh deployment that never saw the removal
+			const stamp = new Date().toISOString();
+			const record = { format: 'clearcase.deletion-record/1', client: 'client-a', caseId: A4, requestedBy: 'firm-admin:fa-1', requestedAt: stamp, approvedBy: 'global-admin:ga-1', approvedAt: stamp, offeredExport: { exportId: crypto.randomUUID(), sha256: '0'.repeat(64), size: 1, offeredAt: stamp }, removedBy: 'global-admin:ga-1', removedAt: stamp };
+			const file = path.join(scratch, 'leftover-record.json');
+			writeFileSync(file, JSON.stringify(record));
+			check(r2put('client-a', 'recovery-a', `deletion/${A4}.json`, file).code === 0 && r2put('client-a', 'recovery-copies-a', `deletion/${A4}.json`, file).code === 0, "A4's deletion record is written to both buckets while D1 holds no row of A4");
+			const gone = await http(`/cases/${A4}/documents/S-9001`);
+			check(code(gone, 410, 'case-deleted'), 'the next request for A4 answers 410 case-deleted: the ledger removed it');
+			const remaining4 = (await Promise.all(a4.keys.map(async (k) => ((await held('live', k)) ? k : null)))).filter(Boolean);
+			check(remaining4.length === 0, `the original, package file and list that A4's unfinished restore wrote are erased with the case (${remaining4.join(', ')} left)`);
+			const res = residue('client-a', A4, [a4.v], []);
+			check(res.left.length === 0 && (await held('live', shared)) && (await held3(a3.keys)) === 3, `no row of A4 is left in any of the ${res.tables} tables, the original A2 also records stays, and A3's objects, another case's, are untouched (${res.left.join(', ')})`);
+			// A3: nothing removes it; its leftovers age out like the staged packets do
+			const steppedAt = Date.now();
+			const rotate = async (at: number) => {
+				const r = await post('/recovery/rotate', { scheduledTime: new Date(at).toISOString() });
+				if (r.status !== 200) throw new Error(`rotate: ${r.status} ${r.text.slice(0, 200)}`);
+			};
+			await rotate(steppedAt + 30 * DAY - 60_000);
+			check((await held3(a3.keys)) === 3, "at 30 days less a minute after the steps rotation removes none of A3's leftovers (rolling)");
+			await rotate(steppedAt + 30 * DAY + 60_000);
+			const stillThere = (await Promise.all(a3.keys.map(async (k) => ((await held('live', k)) ? k : null)))).filter(Boolean);
+			check(stillThere.length === 0, `30 days and a minute after the steps rotation removes A3's leftovers: they name no case a removal could find (${stillThere.join(', ')} left)`);
+			const named = [shared, `orig/${oA2.sha}`, `pkg/${VB}/datasets/chronology.json`];
+			const kept = (await held3(named)) + (((await http(`/cases/${A2}/originals/${oA2.assetId}`)).status === 200) ? 0 : -1);
+			check(kept === named.length, 'rotation leaves what a row names: the original A2 shares with A1, A2’s own original and its package file stay, and A2 serves');
+			Object.assign(m, { stepped, erasedByLedger: a4.keys.length - remaining4.length, agedOut: a3.keys.length - stillThere.length, kept, residueRows: res.left.length });
 		});
 
 		// ----- a deletion record that is not this client's, or not well formed, stops the deployment -----

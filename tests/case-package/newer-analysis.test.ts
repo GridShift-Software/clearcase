@@ -2,8 +2,10 @@
 // holds `const X = {…}` and merges X into DATA's empty slots at run time. The converter reads the literal and the
 // module's merge statements as text, never evaluating either, and fills the package roots that v5 and the JSON script
 // fill. A shape the v5 roots cannot hold stays residual with a diagnostic and its counts. Every value below is invented.
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
+import { CODES } from '../../src/lib/case-package/codes.ts';
 import { importCandidate } from '../../src/lib/case-package/import.ts';
 import { decodeUtf8Strict, parseStrictJson } from '../../src/lib/case-package/strict-json.ts';
 import { convertV5 } from '../../src/lib/case-package/v5/adapter.ts';
@@ -148,5 +150,16 @@ describe('the newer export\'s code-embedded analysis (GRS-149)', () => {
     expect(data(c, 'v5-residual-analysis-overlay')).toEqual({ riskMatrix: X.riskMatrix, recon: X.recon });
     expect(notes(c, 'V5_OVERLAY_UNMAPPED')[0]!.message).toContain('riskMatrix 2, recon 1');
     expect(data(c, 'witnesses')).toEqual(X.witnesses);
+  });
+});
+
+describe('the product text for the analysis residual (M2)', () => {
+  it('says what is true now: the module is mapped, and V5_OVERLAY_UNMAPPED names roots no recognised merge placed', async () => {
+    const { title, hint } = CODES.V5_OVERLAY_UNMAPPED;
+    expect(`${title} ${hint}`).not.toMatch(/later converter ticket|not mapped into views/);
+    expect(title).toContain('no recognised merge');
+    const doc = await readFile('docs/results-package.md', 'utf8');
+    expect(doc).toContain(`| \`V5_OVERLAY_UNMAPPED\` | warning | quality | ${title} |`);
+    expect(doc).not.toMatch(/empty prescription summary is demoted/);
   });
 });

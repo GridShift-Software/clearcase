@@ -57,6 +57,25 @@ for (const field of ['from', 'to', 'subject', 'text']) {
 	expect(`${field} retyped`, edit((m) => (m[field] = 1)), true);
 }
 expect('not an object', 'ClearCase', true);
+
+// The recipient is data (users.email) and the origin and sender are configuration: the Worker builds the message from
+// them, so a check that compares the message with those same inputs accepts whatever they hold. `viaWorker` is how the
+// Worker calls the check: the message is composed from the values given, the check is told the client.
+const viaWorker = (label: string, given: Partial<typeof ctx>) => {
+	const c = { ...ctx, clientId: 'client-a', ...given };
+	const problems = noticeProblems(composeNotice({ ...c, noticeId: NOTICE_ID }), c);
+	if (problems.length === 0) failures.push(`${label}: accepted`);
+	else console.log(`ok      ${label}: ${problems[0]}`);
+};
+viaWorker('a data-borne recipient with a comma', { recipient: 'uploader-a@client-a.example.test, viewer-a@client-a.example.test' });
+viaWorker('a data-borne recipient with a CRLF Bcc: header', { recipient: 'uploader-a@client-a.example.test\r\nBcc: operator-a@client-a.example.test' });
+viaWorker('a data-borne recipient with a bare LF header', { recipient: 'uploader-a@client-a.example.test\nBcc: operator-a@client-a.example.test' });
+viaWorker('a data-borne recipient with a display name', { recipient: 'A. Uploader <uploader-a@client-a.example.test>' });
+viaWorker('a data-borne recipient with a quoted display name', { recipient: '"Uploader, A" <uploader-a@client-a.example.test>' });
+viaWorker('a data-borne recipient that is not an address', { recipient: 'uploader-a' });
+viaWorker("client B's origin on client A's Worker", { origin: 'https://client-b.example.test' });
+viaWorker("client B's sender on client A's Worker", { sender: 'notices@notify.client-b.example.test' });
+viaWorker("client B's origin and sender on client A's Worker", { origin: 'https://client-b.example.test', sender: 'notices@notify.client-b.example.test' });
 expect('the input-needed body under a publication notice', composeNotice({ ...ctx, kind: 'input-needed', noticeId: NOTICE_ID }) satisfies Message, true);
 
 // 2. The retry policy

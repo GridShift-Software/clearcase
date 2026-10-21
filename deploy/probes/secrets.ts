@@ -7,9 +7,12 @@
 //   bun deploy/probes/secrets.ts run <name> [--keys K1,K2] [--to fd|env] -- <command> [args...]
 //
 // The command must be a real Node (its resolved file is named node; Bun's `node` stand-in is not), in both modes, and
-// anything else is refused before it starts. The reader adds `--import <preload>`, and the preload takes the values off
-// fd 3, closes fd 3 and deletes CLEARCASE_SECRETS_FD before the child's own code runs, so no process the child starts
-// can inherit the pipe or the variable, whether or not the child ever asks for the values.
+// anything else is refused before it starts. So is a command with a preload or loader flag (-r, --require, --import,
+// --loader, --experimental-loader, bare or with =) anywhere in its arguments: Node would run that module beside the
+// reader's own, and the reader does not read the program's own arguments to tell which flag is Node's. The reader adds
+// `--import <preload>`, and the preload takes the values off fd 3, closes fd 3 and deletes CLEARCASE_SECRETS_FD before
+// the child's own code runs, so no process the child starts can inherit the pipe or the variable, whether or not the
+// child ever asks for the values.
 //   --to fd (the default): the preload keeps the values in memory for the child's one call to takeSecrets()
 //     in secrets-child.mjs.
 //   --to env: for a Node tool that reads its credential from process.env (cf, Wrangler, Void). The preload serves the
@@ -30,6 +33,8 @@ import { fileURLToPath } from 'node:url';
 
 export const SECRET_NAME = /^[a-z0-9][a-z0-9-]{0,40}$/;
 const KEY = /^[A-Z_][A-Z0-9_]{0,127}$/;
+/** Node options that load a module of the caller's choosing before the entry. */
+const LOADERS = /^(-r|--require|--import|--loader|--experimental-loader)(=|$)/;
 export const ENV_PRELOAD = path.join(import.meta.dirname, 'secrets-env.mjs');
 export const FD_PRELOAD = path.join(import.meta.dirname, 'secrets-fd.mjs');
 
@@ -128,6 +133,8 @@ export function runWithSecrets(a: { secrets: Map<string, string>; to: 'fd' | 'en
 	const file = resolveCommand(cmd, env.PATH);
 	if (!file) throw new Refusal(`${cmd} cannot be started: not found, not executable, or not a file`);
 	if (!isRealNode(file)) throw new Refusal(`--to ${a.to} runs a Node tool, and ${cmd} is not a real Node`);
+	const loader = args.find((x) => LOADERS.test(x));
+	if (loader) throw new Refusal(`${loader.split('=')[0]} in the command's arguments would load a module beside the reader's preload`);
 	env.CLEARCASE_SECRETS_FD = '3'; // read and deleted by the preload before the child's own code runs
 	const child = spawn(file, [`--import=${a.to === 'env' ? ENV_PRELOAD : FD_PRELOAD}`, ...args], { env, stdio: ['inherit', 'inherit', 'inherit', 'pipe'] });
 	const forward = (signal: NodeJS.Signals) => child.kill(signal);

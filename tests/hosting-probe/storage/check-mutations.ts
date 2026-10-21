@@ -85,6 +85,10 @@ const named: [string, Edit][] = [
 		d.count = d.requests.length;
 	}],
 	['a timing of zero', (s) => (legs(s).export!.measured.wallMs = 0)],
+	['the two-database arm dropped from hold', (s) => void (s.hold as string[]).pop()],
+	['a write-once refusal fewer', (s) => (legs(s)['write-once']!.measured.refusedWrites = 3)],
+	['a changed read that was served', (s) => (legs(s)['two-pass']!.measured.changedReadsRefused = 2)],
+	['a restore refusal fewer', (s) => (legs(s)['restore-guards']!.measured.refusals = 10)],
 ];
 
 const control = await check(base);

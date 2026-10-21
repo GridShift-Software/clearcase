@@ -1,12 +1,16 @@
 {
   "schema": "clearcase.storage-probe/1",
-  "sourceSha": "b9271a86071709cff1fa307dd5ef1abc0b1aae4e",
+  "sourceSha": "0493a66d06206fae872bb03f8cee01ddc6e732cb",
+  "inputs": {
+    "tests/hosting-probe/storage": "eaf0a724b92dbc51077982de02ac535e0b626cde",
+    "tests/e2e/pilot/offline.sh": "f10ef9f0b803bb058b17fe456b0b27788b32dad6"
+  },
   "treeClean": true,
   "scale": "poc",
   "seed": "grs-109",
-  "startedAt": "2026-10-21T12:53:54.854Z",
-  "finishedAt": "2026-10-21T13:02:00.773Z",
-  "runDir": ".local/hosting-probe/storage/2026-10-21T12-53-54-854Z",
+  "startedAt": "2026-10-21T22:26:48.244Z",
+  "finishedAt": "2026-10-21T22:35:02.021Z",
+  "runDir": ".local/hosting-probe/storage/2026-10-21T22-26-48-244Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -21,7 +25,7 @@
     "workerd": "1.20261012.1",
     "wrangler": "4.151.1"
   },
-  "artifact": "sha256:686a95740b8ce9c89595365a1108abb2ffe43078121eeadd136ca920b801396b",
+  "artifact": "sha256:7f46511fc9ab5e2b4edea8450ac724156219d4751e33795ff6405b12dfdbe224",
   "isolation": {
     "network": "own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden",
     "env": [
@@ -149,7 +153,7 @@
         "the bundle imports no node:, bun: or CommonJS module"
       ],
       "measured": {
-        "workerBytes": 78254
+        "workerBytes": 79954
       }
     },
     "provision": {
@@ -170,7 +174,7 @@
       ],
       "measured": {
         "deployments": 3,
-        "schemaStatements": 19
+        "schemaStatements": 20
       }
     },
     "crossed-bindings": {
@@ -216,7 +220,7 @@
         "finalize without a size answers 400 naming the field, never a default (400 {\"code\":\"invalid-field\",\"field\":\"size\"})"
       ],
       "measured": {
-        "wallMs": 57700.4,
+        "wallMs": 55487.7,
         "originals": 1662,
         "bytes": 3211390882,
         "multipart": 9,
@@ -256,7 +260,7 @@
       ],
       "measured": {
         "recoveredRows": 3253,
-        "wallMs": 5256.9,
+        "wallMs": 5283.8,
         "documents": 1689,
         "assets": 3054,
         "seeds": 7,
@@ -301,10 +305,10 @@
         "chronologyR2Ops": 1,
         "originalRangeD1Statements": 1,
         "originalRangeR2Ops": 1,
-        "coldDocumentMs": 29.5,
-        "warmDocumentMs": 3.6,
-        "coldChronologyMs": 9.7,
-        "warmChronologyMs": 6.6
+        "coldDocumentMs": 17.9,
+        "warmDocumentMs": 3,
+        "coldChronologyMs": 8.2,
+        "warmChronologyMs": 5.5
       }
     },
     "range": {
@@ -335,10 +339,10 @@
         "client A's deployment knows no asset of client B's case (404, from A's own database)"
       ],
       "measured": {
-        "wholeLargestMs": 5367.1,
-        "rangeOnLargestMs": 2278.9,
+        "wholeLargestMs": 5300.7,
+        "rangeOnLargestMs": 2267.1,
         "largestOriginalBytes": 258590305,
-        "workerdPeakRssBytes": 478699520
+        "workerdPeakRssBytes": 476676096
       }
     },
     "write-once": {
@@ -407,7 +411,7 @@
         "every one of 100 concurrent adds is written",
         "each store’s seq runs 1 to 50 with no gap and no duplicate",
         "each add moved the case revision exactly once",
-        "the control (read, then write) duplicates seq under the same load (98 duplicates), so the probe can see the defect it rules out",
+        "the control (read, then write) duplicates seq under the same load (97 duplicates), so the probe can see the defect it rules out",
         "an add repeated with its operationId is recognised (repeated) and writes nothing",
         "of 20 concurrent replaces with one expected version exactly one is written and 19 are stale",
         "a remove with a stale version answers stale and removes nothing",
@@ -418,6 +422,7 @@
         "a snapshot lacking a case table is refused, naming the table: a restore never leaves tables the snapshot lacks",
         "a snapshot that adds a table the deployment lacks is refused, naming the table, and changes nothing",
         "a snapshot that adds a column to a table is refused, naming the table, and changes nothing",
+        "a snapshot that repeats a register row is refused 422 invalid-snapshot (not invalid-packet, which names a backup), naming the table, and changes nothing",
         "a restore at the current revision replaces the case’s user work whole with the snapshot, after a durable pre-restore copy",
         "every racing add is written, and the restore is written or answers stale",
         "exactly the adds after the restore’s revision remain (all of them when the restore was stale): no half-applied restore",
@@ -426,7 +431,7 @@
       "measured": {
         "concurrentAdds": 100,
         "duplicateSeqs": 0,
-        "naiveDuplicateSeqs": 98,
+        "naiveDuplicateSeqs": 97,
         "racedReplaces": 20,
         "staleReplaces": 19,
         "restoreRace": "restore-first"
@@ -453,9 +458,9 @@
         "the source deployment’s state digest covers the case’s rows and every object, none missing"
       ],
       "measured": {
-        "wallMs": 102007.8,
-        "workerdPeakRssBytes": 1059516416,
-        "offlineCheckMs": 2659,
+        "wallMs": 101170.2,
+        "workerdPeakRssBytes": 1141628928,
+        "offlineCheckMs": 2489.6,
         "entries": 1706,
         "packetBytes": 3222959051,
         "parts": 385,
@@ -520,7 +525,7 @@
         "finishing the same restore again answers 409 already-restored and changes nothing"
       ],
       "measured": {
-        "wallMs": 107038.2,
+        "wallMs": 117823.2,
         "entries": 1706,
         "steps": 32,
         "objects": 1700
@@ -568,12 +573,13 @@
         "a backup carrying that original steps and restores: the recorded multipart object is accepted and left as it was",
         "a backup whose user work holds one note key twice opens, and finishing it answers 422 invalid-packet naming uw_note; the case holds no version, row or revision it did not hold before",
         "a note whose NOT NULL body is null is refused the same way, and the case is as it was",
+        "a backup whose register rows carry seq 1 and \"01\" (one INTEGER key) is refused 422 invalid-packet naming uw_register_row, before the first write; the case is as it was",
         "a read model with one document ref twice is refused with the key named, and the case is as it was",
         "a read model whose row_json is not text is refused with the column named, and the case is as it was",
         "the corrected backup of the same case and version restores"
       ],
       "measured": {
-        "refusals": 16
+        "refusals": 17
       }
     }
   },
@@ -595,7 +601,7 @@
   "failure": null,
   "evidence": true,
   "checker": {
-    "mutationsRefused": 2124,
+    "mutationsRefused": 2144,
     "accepted": null
   }
 }

@@ -1,10 +1,18 @@
 {
   "schema": "clearcase.recovery-probe/1",
-  "sourceSha": "ad60039448a76e41afb766746525229a2f6e9de5",
+  "sourceSha": "0493a66d06206fae872bb03f8cee01ddc6e732cb",
+  "inputs": {
+    "tests/hosting-probe/recovery": "035f767ce377559e5cbd2fb11349afb9702c6a0f",
+    "tests/hosting-probe/storage/src": "c1fad3cd5762cc8327d85a52c94b5b0eee51afff",
+    "tests/hosting-probe/storage/schema.sql": "d3e1b6993acbfefe4645b4956b7de4b1c2f6861a",
+    "tests/hosting-probe/storage/package.json": "68ce3647be995e5402a2992970b7d20409c08950",
+    "tests/hosting-probe/storage/bun.lock": "989d9825ebd42b7e6e22432a4cabf695e7c24b0e",
+    "tests/e2e/pilot/offline.sh": "f10ef9f0b803bb058b17fe456b0b27788b32dad6"
+  },
   "treeClean": true,
-  "startedAt": "2026-10-21T13:48:20.230Z",
-  "finishedAt": "2026-10-21T13:49:15.051Z",
-  "runDir": ".local/hosting-probe/recovery/2026-10-21T13-48-20-230Z",
+  "startedAt": "2026-10-21T22:21:57.974Z",
+  "finishedAt": "2026-10-21T22:22:54.661Z",
+  "runDir": ".local/hosting-probe/recovery/2026-10-21T22-21-57-974Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -19,7 +27,7 @@
     "workerd": "1.20261012.1",
     "wrangler": "4.151.1"
   },
-  "artifact": "sha256:20cac88bbb329260331f1787f2c203b401b6bfb4ecfc6593fba665002125fd67",
+  "artifact": "sha256:01a7954c844a687980ec0ec267104548caed7a76fd521fcc41a2893ce9dcefd9",
   "isolation": {
     "network": "own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden",
     "env": [
@@ -49,7 +57,7 @@
         "the bundle imports no node:, bun: or CommonJS module"
       ],
       "measured": {
-        "workerBytes": 97512
+        "workerBytes": 105228
       }
     },
     "provision": {
@@ -67,7 +75,7 @@
       ],
       "measured": {
         "deployments": 3,
-        "schemaStatements": 21
+        "schemaStatements": 22
       }
     },
     "crossed-recovery": {
@@ -189,7 +197,7 @@
         "the Global Admin removes the case",
         "every case route of A1 answers 410 case-deleted with no case bytes ()",
         "A1 holds no version, activation, original, revision or user-work row",
-        "no row of A1, its versions or its exports is left in any of the 17 tables sqlite_master lists with such a column ()",
+        "no row of A1, its versions or its exports is left in any of the 18 tables sqlite_master lists with such a column ()",
         "A1's package files, lists, exports, bundle history, its own original and the packet of its aborted restore are erased from the live bucket ()",
         "the original A2 also records stays and A2 serves it verified; everything of A2 is as it was",
         "a repeated removal is a no-op that erases what may be left, and a new request on the removed case is refused",
@@ -260,10 +268,10 @@
       "measured": {
         "restoredOriginals": 2,
         "lostRowsAfterCopy": 2,
-        "stageMs": 7.5,
-        "restoreMs": 76.9,
-        "checksMs": 86.6,
-        "totalMs": 1830.8
+        "stageMs": 4.7,
+        "restoreMs": 56.8,
+        "checksMs": 38.6,
+        "totalMs": 1546.7
       }
     },
     "retention": {
@@ -298,6 +306,34 @@
         "packetsAged": 1
       }
     },
+    "restore-leftovers": {
+      "status": "PASS",
+      "commands": [
+        "POST /restore/packets, PUT …/1, POST …/complete, for a synthetic backup of each of two cases with no version",
+        "POST /restore/packets/<id>/open, …/step (never …/finish), GET /recovery/head/live/<key>",
+        "node ../storage/node_modules/wrangler/bin/wrangler.js r2 object put {recovery-a,recovery-copies-a}/deletion/<A4>.json --local (a valid record, D1 holds no row of A4) --persist-to <run>/persist",
+        "GET /cases/<A4>/documents/<ref>; GET /recovery/head/live/<key>; GET /probe/live/<A4>",
+        "POST /recovery/rotate {scheduledTime} 30 days - 1 minute and + 1 minute after the steps; GET /recovery/head/live/<key>"
+      ],
+      "asserted": [
+        "two backups of cases with no version are opened and stepped, never finished: each leaves an original, a package file and a list under orig/, pkg/ and rm/ ([{\"open\":\"200\",\"step\":\"200\"},{\"open\":\"200\",\"step\":\"200\"}])",
+        "no D1 row names either version: nothing but the objects shows that a restore began",
+        "A4's deletion record is written to both buckets while D1 holds no row of A4",
+        "the next request for A4 answers 410 case-deleted: the ledger removed it",
+        "the original, package file and list that A4's unfinished restore wrote are erased with the case ( left)",
+        "no row of A4 is left in any of the 18 tables, the original A2 also records stays, and A3's objects, another case's, are untouched ()",
+        "at 30 days less a minute after the steps rotation removes none of A3's leftovers (rolling)",
+        "30 days and a minute after the steps rotation removes A3's leftovers: they name no case a removal could find ( left)",
+        "rotation leaves what a row names: the original A2 shares with A1, A2’s own original and its package file stay, and A2 serves"
+      ],
+      "measured": {
+        "stepped": 6,
+        "erasedByLedger": 3,
+        "agedOut": 3,
+        "kept": 3,
+        "residueRows": 0
+      }
+    },
     "ledger-guards": {
       "status": "PASS",
       "commands": [
@@ -329,13 +365,13 @@
         "A2 is approved and its export offered, and this running Worker has served A2",
         "A2's deletion record is written to both buckets while D1 still says offered",
         "the same running Worker answers 410 case-deleted on every case route of A2, reads and writes alike, with no case bytes ()",
-        "the Global Admin's retried removal succeeds",
+        "the Global Admin's retried removal succeeds as a repeat: the case routes in front of it already brought D1 in line with the record that is in both buckets",
         "D1 holds the record's removal time: the removal adopts the record and writes no new one",
-        "A2 holds no row in any of the 17 tables sqlite_master lists with such a column ()"
+        "A2 holds no row in any of the 18 tables sqlite_master lists with such a column ()"
       ],
       "measured": {
         "routesGone": 9,
-        "adoptedRemovals": 1,
+        "repeatedRemovals": 1,
         "residueRows": 0
       }
     }
@@ -352,7 +388,7 @@
   "failure": null,
   "evidence": true,
   "checker": {
-    "mutationsRefused": 1203,
+    "mutationsRefused": 1329,
     "accepted": null
   }
 }

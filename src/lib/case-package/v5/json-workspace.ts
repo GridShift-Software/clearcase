@@ -1,7 +1,7 @@
 import { fmtR } from '../../components/format.ts';
 import type { DiagSink } from '../diagnostics.ts';
 import { isObject, type JsonObject, type JsonValue } from '../strict-json.ts';
-import { amountText, carryTyped, fits, keepAside, keepRest, own, ownOrAside, type Kind, type Kinds } from './carry.ts';
+import { amountText, carryTyped, fits, keepAside, keepRest, own, ownOrAside, putDerived, type Kind, type Kinds } from './carry.ts';
 import type { V5Root } from './extract.ts';
 
 export { amountText };
@@ -151,8 +151,8 @@ const riskOf = (r: JsonObject): JsonObject => {
   for (const k of named) if (k !== chosen && typeof r[k] !== 'string') { keepAside(out, k, r[k]); handled.push(k); }
   for (const [k, kind] of [['owner', 'text'], ['refs', 'strs']] as const) if (carryTyped(out, r, k, kind)) handled.push(k);
   keepRest(out, r, READ.risk, KIND.risk, handled);
-  if (typeof r.l === 'number') out.likelihood_score = r.l;
-  if (typeof r.i === 'number') out.impact_score = r.i;
+  if (typeof r.l === 'number') putDerived(out, 'likelihood_score', r.l);
+  if (typeof r.i === 'number') putDerived(out, 'impact_score', r.i);
   return out;
 };
 const defenceOf = (d: JsonObject): JsonObject => keepRest({ point: nonEmpty([str(d.matter) && `Matter ${str(d.matter)}`, str(d.opponent)]).join(' · '), dcs: str(d.contention), rebuttal: str(d.rebuttal), evidence: str(d.evidence), refs: '', docs: [] }, d, READ.defence);

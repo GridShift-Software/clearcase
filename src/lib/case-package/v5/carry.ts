@@ -52,6 +52,12 @@ export const ownOrAside = (into: JsonObject, k: string, v: JsonValue | undefined
   if (Object.hasOwn(into, k)) keepAside(into, k, v); else own(into, k, v);
 };
 
+/** Writes a value the mapping derives; a source value already under that name moves aside first, so the derived one never overwrites it. */
+export const putDerived = (into: JsonObject, k: string, v: JsonValue): void => {
+  if (Object.hasOwn(into, k)) { const held = into[k]; delete into[k]; keepAside(into, k, held); }
+  own(into, k, v);
+};
+
 /**
  * Every source field the mapping did not read, and every read field it could not read as the kind it needs (a null
  * where text belongs, an object where a list does), stays on the record, so nothing is lost silently (DS_UNSUPPORTED_FIELD).

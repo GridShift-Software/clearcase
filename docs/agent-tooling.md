@@ -368,9 +368,9 @@ It fails closed, and a reviewed `fixBase` advance is the remedy. `--ledger` bind
 prints how many changed files it left to the base and which protected ones, and its PASS line ends `; trusted base <full SHA>` when a base was trusted. Reviewer-owned: a base change to the runner
 configuration is accepted even where it decides whether the branch's named tests run (a base `exclude`, or an `include`
 list that no longer matches the branch's test directory), since the guard cannot evaluate globs; the re-check reads each
-protected file the guard's line names. A `fixBase` advance like `e7681a6` (PR #75) is no longer needed for a base change
+protected file the guard's line names. A `fixBase` advance like `9699b18` (PR #75) is no longer needed for a base change
 to a path the branch had not touched; it still is for a hand-resolved union and for a later ticket in the same wave
-(`afd48fc4`, PR #84, where the change came from the wave, not the base). Existing manifests stay as they are.
+(`fc8ad471`, PR #84, where the change came from the wave, not the base). Existing manifests stay as they are.
 
 Findings JSON has `tests: [{"file": "tests/example.test.ts", "name": "rejects stale evidence"}]`.
 The list must be nonempty. Paths are relative to the repository; literal names must be unique
@@ -516,7 +516,7 @@ A local function named `expect`, and literal reads of the global object (`global
 `const g = globalThis as {...}` then `g.__clearcase`), are fine. A changed module may load an unchanged module under
 test freely, since application code is trusted as reviewed.
 
-What the guard bounds at `66f2bb3` (GRS-148, landed as defence in depth, as GRS-104 was): a changed JS/TS/Svelte
+What the guard bounds at `8df11a8` (GRS-148, landed as defence in depth, as GRS-104 was): a changed JS/TS/Svelte
 module cannot name a framework, move or write a rooted capability (the global object, `Symbol`, a builtin, a Node or
 Bun builtin module, a constructor or prototype) through the shapes listed above, followed through `const`/`let`/`var`,
 destructuring of a rooted initialiser, `await`, conditionals, a literal `require`/`import()` and import bindings

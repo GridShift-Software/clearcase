@@ -11,7 +11,7 @@ Planning checkpoint, 8 October 2026.
 | Integration branch | `dev`, pushed to `origin` |
 | Execution host | `puk`; `dev` clone `/home/operator/Work/Active/MX-two/ClearCase/clearcase`, worktrees under `/home/operator/Work/Active/MX-two/ClearCase/worktrees/` |
 | Coordinator host | T3 on `puk`, using the `dev` clone above |
-| Integration base | `dev` at `81c3f4b`; GRS-35 in review on `feature/grs-35-agent-tooling` |
+| Integration base | `dev` at `6b86fc6`; GRS-35 in review on `feature/grs-35-agent-tooling` |
 | Main checkout | `/home/operator/.t3/projects/clearcase`, unchanged |
 | Remote | `origin`, GitHub `GridShift-Software/clearcase`; stacked PRs into `dev` |
 | App code and runtime | Not implemented; no app dev server is running from this repository |

@@ -262,7 +262,7 @@ Start server work at `src/lib/local-case/app.server.ts`. For generic register wo
 
 ### Fan-out
 
-The ten modules with the most import sites at `492bee5` are below. The TypeScript AST census counts static imports, type imports and literal dynamic imports in tracked implementation files, including tests and scripts. It excludes re-exports, `require`, declarations and computed imports.
+The ten modules with the most import sites at `7ba16c8` are below. The TypeScript AST census counts static imports, type imports and literal dynamic imports in tracked implementation files, including tests and scripts. It excludes re-exports, `require`, declarations and computed imports.
 
 | Module | Import sites |
 | --- | ---: |

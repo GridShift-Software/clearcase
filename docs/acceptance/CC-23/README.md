@@ -1,6 +1,6 @@
 # CC-23 / GRS-11 independent gate
 
-PASS at `ca46a49189b6aee69b2c536dc71589daceac5ac0`, round 2. This gate head merges repaired package `adf4fa9108dea063e6da9ce41f1c6142788ad2e4` into `feature/grs-11-gate-reference-package`.
+PASS at `901af655e813296eb58f46b75e065722df6aba5e`, round 2. This gate head merges repaired package `46c5cd2032d20155d9d40179ec09b236800e33c1` into `feature/grs-11-gate-reference-package`.
 
 G1 and G2 are fixed. Previously passing checks show no regression, and N1-N4 and N10 hold. The independent reviewer changed acceptance documentation only. The later evidence commit records this verdict; all release receipts bind to the clean reviewed merge revision above.
 
@@ -40,7 +40,7 @@ All release checks passed at the clean reviewed revision. Receipt locations, cap
 | `r2-inventory` | 33 checks; 1,689 records; 42 views | 0 | `aaa8ec72ca69d9cca72d2e90d5860bd8ebcd7bc60ffa8419eeb598a4e3228c2d` |
 | `r2-package-ten-lanes` | Ten passing lanes; fixture unchanged | 0 | `b0d1940bce9204dd9aacef72902cc37bd9e074ea80478659c05cb253c2a63880` |
 | `r2-retained-conversion` | 36 files with full original validation | 0 | `7a442eaf0e71478d8269b3291504a8b99d0544e4baac485061bbee0b5c311028` |
-| `r2-conversion-output-diff-final` | 36 files byte-identical to c3c773c | 0 | `43e23f70343907f80d2e4a688f0b15ffd899702bd9f93566d522bfe72257b15d` |
+| `r2-conversion-output-diff-final` | 36 files byte-identical to 7c888ee | 0 | `43e23f70343907f80d2e4a688f0b15ffd899702bd9f93566d522bfe72257b15d` |
 | `r2-conversion-report-diff` | Validation report byte-identical | 0 | `74f7571b2cf337c8abd67f7f277e7601356d34761e185884508e4614bf35a79a` |
 | `r2-measure` | All budgets pass | 0 | `0c4f02fcc1bbec12177fa13e607f59f0c38cd5b477692bbfa8a7c9092bfbc9b7` |
 | `r2-history-leak-scan` | CLEAN; 82 commits; 1,147 distinct blobs | 0 | `205cd1fcd8d0dabf63a8ea4d03e485267efcd4c772c74e5ed0fa2bd8b49037c4` |
@@ -51,11 +51,11 @@ All release checks passed at the clean reviewed revision. Receipt locations, cap
 
 The package verification and measurement tools ran from a local copy under the reserved r2 report directory at the same Git head. All 351 tracked files matched byte for byte. This keeps their hard-coded `.local` scratch output inside the reserved directory. Independent gate tests and the retained conversion ran directly in the gate worktree.
 
-All 33,780 compared chronology values match the independent reference, all 1,308 attachment relationships resolve, and all ten real-v5 lanes pass. All 36 conversion files and the full validation report are byte-identical to the first gate's c3c773c outputs.
+All 33,780 compared chronology values match the independent reference, all 1,308 attachment relationships resolve, and all ten real-v5 lanes pass. All 36 conversion files and the full validation report are byte-identical to the first gate's 7c888ee outputs.
 
 Performance uses 20 warm samples after two discarded warmups per revision. The repaired head has median 2,479 ms, p95 2,496 ms, maximum 2,499 ms, and peak RSS 347.6 MiB. Limits are 10,000 ms, 1 GiB, and a repeat median at most 3,118.75 ms based on the recorded 2,495 ms baseline. All samples exited 0. Cold results are informational.
 
-The history scanner returned CLEAN over `81c3f4b..HEAD`. The final post-commit scan and pushed evidence head are recorded in the local report.
+The history scanner returned CLEAN over `6b86fc6..HEAD`. The final post-commit scan and pushed evidence head are recorded in the local report.
 
 ## Preserved attempts
 
@@ -65,7 +65,7 @@ An extra N1 probe initially expected an unlisted file to reject, although the co
 
 ## Previous gate and limits
 
-The first gate was FAIL at `c3c773cf4016d02ab22d62754c6eab5a23ca9401`, with 25 independent tests passing and four failing. Its immutable [containment observation](containment-observation.json) and [link-length observation](link-length-observation.json) remain available. This round closes G1 and G2 at the reviewed revision.
+The first gate was FAIL at `7c888eeb21a45886156bac03353f9bd73fe7bd6d`, with 25 independent tests passing and four failing. Its immutable [containment observation](containment-observation.json) and [link-length observation](link-length-observation.json) remain available. This round closes G1 and G2 at the reviewed revision.
 
 The six GRS-9 and six GRS-10 follow-ups, N5-N9, N11 and N12 remain non-blocking. The 52-of-55 route sub-item remains HOLD under the brief. No unchanged-code audit, newer-export acceptance, implemented HTTP-serving acceptance, SQLite pilot acceptance or cold-cache gate is claimed. No archive HTML or archive scripts were executed. Case-dependent outputs stay local and outside Git.
 
@@ -73,7 +73,7 @@ The full local report is `/home/operator/Work/Active/MX-two/ClearCase/clearcase/
 
 ## Round 3 (PR #4 review fixes)
 
-The PR #4 review found two package defects at `adf4fa9108dea063e6da9ce41f1c6142788ad2e4`. The repaired package head `8a7a92a` was merged into this branch at `2511740`. This round adds independent regressions in [`pr4-review.test.ts`](../../../tests/acceptance/CC-23/pr4-review.test.ts). They use synthetic data and the public library API only.
+The PR #4 review found two package defects at `46c5cd2032d20155d9d40179ec09b236800e33c1`. The repaired package head `91fbfa7` was merged into this branch at `2511740`. This round adds independent regressions in [`pr4-review.test.ts`](../../../tests/acceptance/CC-23/pr4-review.test.ts). They use synthetic data and the public library API only.
 
 - **Missing-original identity.** Within one case, an earlier `ORIG_MISSING` for `GT-001` is used as the trusted baseline for a later import. That baseline must not waive the later warning when `GT-001` names a different document. Three cases are tested: a different path and different bytes; the same path and size with different bytes; and the same bytes at a different path. The positive control re-imports an unchanged missing document, both as-is and with only its case label changed. Its fingerprint must stay the same, and the earlier baseline must still clear it.
 - **Zip compressed bounds.** The tests cover:
@@ -86,7 +86,7 @@ The PR #4 review found two package defects at `adf4fa9108dea063e6da9ce41f1c61427
 
 | Run | Source | Result | Receipt |
 | --- | --- | --- | --- |
-| `r3-prefix-new-tests-final` | `src` from `adf4fa9`, tests from this round | 9 failed, 4 passed: the 4 positive controls passed | exit 1 (expected) |
+| `r3-prefix-new-tests-final` | `src` from `46c5cd2`, tests from this round | 9 failed, 4 passed: the 4 positive controls passed | exit 1 (expected) |
 | `r3-postfix-new-tests` | `2511740` | 13 passed | exit 0 |
 | `r3-gate-tests` | `2511740` | 4 files; 42 passed, 0 failed, 0 skipped | exit 0 |
 | `r3-gate-typecheck` | `2511740` | Strict typecheck of all gate files | exit 0 |
@@ -94,4 +94,4 @@ The PR #4 review found two package defects at `adf4fa9108dea063e6da9ce41f1c61427
 | `r3-check` | `2511740` | Types; 38 schemas; 71 accepted and 59 rejected examples | exit 0 |
 | `r3-install` | `2511740` | `bun install --frozen-lockfile`; no changes | exit 0 |
 
-Before the fix, all nine targeted tests failed. The three identity cases produced the same `ORIG_MISSING` fingerprint for different documents. The padded deflate entry and the inconsistent stored entry passed `readCentralDirectory`. `readEntry` requested reads of 8,388,608 bytes and 17 bytes for oversized entries. The padded zip package was accepted. The `2511740` source tree is unchanged by the test and documentation commits. Tests ran under `unshare -rn` with Bun 1.4.2. Receipts are in the local r3 report directory and use base `adf4fa9`. An earlier r3 pre-fix run had the same failures and passed tests. It was rerun only to correct one test title.
+Before the fix, all nine targeted tests failed. The three identity cases produced the same `ORIG_MISSING` fingerprint for different documents. The padded deflate entry and the inconsistent stored entry passed `readCentralDirectory`. `readEntry` requested reads of 8,388,608 bytes and 17 bytes for oversized entries. The padded zip package was accepted. The `2511740` source tree is unchanged by the test and documentation commits. Tests ran under `unshare -rn` with Bun 1.4.2. Receipts are in the local r3 report directory and use base `46c5cd2`. An earlier r3 pre-fix run had the same failures and passed tests. It was rerun only to correct one test title.

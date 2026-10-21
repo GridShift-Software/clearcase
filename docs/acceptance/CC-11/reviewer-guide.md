@@ -62,4 +62,4 @@ The gate's author wrote these files. Review them as part of the gate:
 - `docs/acceptance/CC-11/*`;
 - the GRS-21 sections of `docs/development.md` and `docs/user-guide.md`.
 
-`git diff c064458..HEAD --stat` lists every change; no file under `src/` changes.
+`git diff d0e4786..HEAD --stat` lists every change; no file under `src/` changes.

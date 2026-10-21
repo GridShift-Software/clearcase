@@ -1,6 +1,6 @@
 # Make the CC-11 matrix refuse crashed or partial evidence inputs
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-68/make-the-cc-11-matrix-refuse-crashed-or-partial-evidence-inputs) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-68/make-the-cc-11-matrix-refuse-crashed-or-partial-evidence-inputs) is the execution authority.
 
 The <issue id="9c8b3267-fbf1-4821-a6f1-69ff48337884" href="https://linear.app/vaper/issue/GRS-21/verify-complete-v5-parity-and-local-release-readiness">GRS-21</issue> fix re-check at `e604b7a` (RECHECK-21) closed H1, H2, M1 and M2 from the second review. It found one new fail-open in `scripts/verify/matrix.mjs`. The committed results are not affected: both real layout runs cover 42 views with no error.
 

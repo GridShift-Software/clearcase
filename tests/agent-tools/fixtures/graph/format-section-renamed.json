@@ -1,0 +1,21 @@
+{
+  "description": "A generated section under another title fails the section order",
+  "capability": "plan-format",
+  "editsAfter": {
+    "docs/delivery-plan.md": [
+      [
+        "## Appendix B. Sources",
+        "## Sources"
+      ]
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "sections after the intro are"
+    ],
+    "absent": [
+      "Traceback"
+    ]
+  }
+}

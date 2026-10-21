@@ -1,0 +1,10 @@
+{
+  "description": "The generated delivery plan follows its own format contract",
+  "capability": "plan-format",
+  "expect": {
+    "exit": 0,
+    "output": [
+      "plan-format: PASS"
+    ]
+  }
+}

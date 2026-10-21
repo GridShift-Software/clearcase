@@ -1,0 +1,21 @@
+{
+  "description": "A view with two hosted owners fails",
+  "capability": "plan-format",
+  "editsAfter": {
+    "docs/delivery-plan.md": [
+      [
+        "1 views: annotations_tab.",
+        "2 views: annotations_tab, manual."
+      ]
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "view manual has a second hosted owner"
+    ],
+    "absent": [
+      "Traceback"
+    ]
+  }
+}

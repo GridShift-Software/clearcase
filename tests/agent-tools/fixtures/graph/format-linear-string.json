@@ -1,0 +1,17 @@
+{
+  "description": "A work item whose linear field is a string is refused, not a traceback",
+  "capability": "plan-format",
+  "patchAfterGenerate": true,
+  "set": {
+    "CC-01.linear": "GRS-1"
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "plan-format: FAIL. cannot read the plan or its inputs"
+    ],
+    "absent": [
+      "Traceback"
+    ]
+  }
+}

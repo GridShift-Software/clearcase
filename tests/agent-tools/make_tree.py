@@ -2,7 +2,8 @@
 
 Usage: python3 make_tree.py REPO DEST FIXTURE.json
 Copies the planning scripts and inputs into DEST, applies the fixture's edits
-(set, append and delete on items; snapshot fields; view fields), regenerates the plan and writes
+(set, append and delete on items; snapshot fields; view fields; editsBefore text replacements in any copied file),
+regenerates the plan, applies editsAfter text replacements to the generated output, and writes
 DEST/readback.json when the fixture asks for one (readback edits rows; readbackDropOwners omits created owners).
 The readback is synthetic: it is derived from the plan and padded with closed
 issues so that the counts recorded in the snapshot hold.
@@ -16,8 +17,8 @@ from pathlib import Path
 
 repo, dest, fixture_path = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
 fixture = json.loads(fixture_path.read_text())
-for rel in ["scripts/planning/check.py", "scripts/planning/generate.py", "docs/plan/work-items.json",
-            "docs/plan/view-coverage.json", "docs/plan/program-intro.md"]:
+for rel in [*(str(path.relative_to(repo)) for path in sorted((repo / "scripts/planning").glob("*.py"))),
+            "docs/plan/work-items.json", "docs/plan/view-coverage.json", "docs/plan/program-intro.md"]:
     (dest / rel).parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(repo / rel, dest / rel)
 plan_path = dest / "docs/plan/work-items.json"
@@ -26,6 +27,18 @@ coverage_path = dest / "docs/plan/view-coverage.json"
 
 def generate():
     subprocess.run([sys.executable, str(dest / "scripts/planning/generate.py")], check=True, stdout=subprocess.DEVNULL)
+
+
+def edit(key):
+    """Apply the fixture's [old, new] replacements for each file; an old text that is absent fails the build."""
+    for rel, pairs in fixture.get(key, {}).items():
+        path = dest / rel
+        text = path.read_text()
+        for old, new in pairs:
+            if old not in text:
+                raise SystemExit(f"{key}: {rel} does not contain {old!r}")
+            text = text.replace(old, new, 1)
+        path.write_text(text)
 
 
 def patch():
@@ -50,12 +63,14 @@ def patch():
     coverage_path.write_text(json.dumps(coverage, indent=2) + "\n")
 
 
+edit("editsBefore")
 if fixture.get("patchAfterGenerate"):
     generate()
     patch()
 else:
     patch()
     generate()
+edit("editsAfter")
 
 if "readback" in fixture:
     plan = json.loads(plan_path.read_text())
@@ -84,8 +99,8 @@ if "readback" in fixture:
     filler = [{"id": f"SYN-{status[:2].upper()}-{n}", "status": status, "parentId": None, "projectMilestone": None}
               for status, missing in counts.items() if status in {"Done", "Canceled", "Duplicate"} for n in range(max(missing, 0))]
     live = list(rows.values()) + filler
-    graph = {row["id"]: {"description": row["description"], "status": row["status"],
-                         "relations": {"blockedBy": [{"id": b} for b in row["blockedBy"]]}}
+    graph = {row["id"]: {"description": row.get("description", ""), "status": row["status"],
+                         "relations": {"blockedBy": [{"id": b} for b in row.get("blockedBy", [])]}}
              for row in live if row["status"] not in {"Done", "Canceled", "Duplicate"}}
     issues = [{"linear": {"id": items[key]["linear"]["identifier"]}} for key in snapshot["hostedDeliveryOwners"]
               if key not in fixture.get("readbackDropOwners", [])]

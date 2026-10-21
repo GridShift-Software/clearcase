@@ -1,0 +1,21 @@
+{
+  "description": "A graph line that links another item's brief fails",
+  "capability": "plan-format",
+  "editsAfter": {
+    "docs/delivery-plan.md": [
+      [
+        "[Brief](plan/tickets/HA-notes.md)",
+        "[Brief](plan/tickets/HA-gone.md)"
+      ]
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "HA-notes links the brief of HA-gone"
+    ],
+    "absent": [
+      "Traceback"
+    ]
+  }
+}

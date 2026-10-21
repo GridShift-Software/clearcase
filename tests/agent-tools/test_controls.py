@@ -1,8 +1,9 @@
-"""Synthetic CLI acceptance tests for the unattended controls; no case data or network."""
+"""Synthetic CLI acceptance tests for the unattended controls; no case data. Only ContinuousIntegrationWiring needs the network."""
 import datetime
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -30,7 +31,9 @@ class ControlCase(unittest.TestCase):
         self.repo = self.work / 'repo'
         self.repo.mkdir()
         self.receipts = self.work / 'receipts'
-        self.env = {k: v for k, v in os.environ.items() if k not in ('CLEARCASE_BASE_REF', 'GIT_DIR', 'GIT_WORK_TREE')}
+        # The harness variables would choose a pstack install outside the fixture HOME.
+        self.env = {k: v for k, v in os.environ.items() if k not in ('CLEARCASE_BASE_REF', 'GIT_DIR', 'GIT_WORK_TREE',
+                    'T3_PSTACK_HARNESS', 'CLAUDECODE', 'CODEX_THREAD_ID', 'CODEX_HOME')}
         self.env['CLEARCASE_RECEIPTS_DIR'] = str(self.receipts)
         self.git('init', '-q', '-b', 'dev')
         self.write('app.txt', 'before\n')
@@ -890,7 +893,7 @@ class LegacyRegistry(ControlCase):
         self.env['CLEARCASE_NODE'] = str(wrapper)
         self.env['LEGACY_REGISTRY'] = str(self.registry)
         plan = TOOLS.parents[1] / 'tests/agent-tools/fixtures/plans/valid.md'
-        self.assertIn('input changed during the run', self.cli('verify', 'plan-format', '--skills-dir', self.skills,
+        self.assertIn('input changed during the run', self.cli('verify', 'pstack-plan-format', '--skills-dir', self.skills,
                       '--plan', plan, code=1))
         self.assertEqual(self.last_receipt()['result'], 'FAIL')
 
@@ -2184,23 +2187,53 @@ class RetainedPaths(ControlCase):
 
 
 class ContinuousIntegrationWiring(unittest.TestCase):
-    def test_pull_requests_run_the_fix_round_guard_on_their_head_under_bun(self):
-        workflow = (TOOLS.parents[1] / '.github/workflows/ci.yml').read_text()
+    """The CI job's `test guard` step (GRS-155): the base branch's guard and frozen dependencies judge the pull request's
+    head under an empty Bun config, before any of the pull request's code runs, and the step fails the job by itself.
+    tests/ci-guard/run.sh replays the step as written in ci.yml against synthetic hostile pull requests, so the contract
+    is exercised, not matched in text. It needs Bun, the npm registry and `unshare -rn`; a run that cannot start (exit 2)
+    fails these tests, it is never a skip."""
+    WORKFLOW = TOOLS.parents[1] / '.github/workflows/ci.yml'
+    FIXTURE = TOOLS.parents[1] / 'tests/ci-guard/run.sh'
+    # Judged on the head's own Bun config, .env, dependencies and install scripts, none of which may steer the judge.
+    HEAD_ROWS = {'valid', 'weak', 'preload', 'dependency', 'dependency-installed', 'env-file', 'install-script',
+                 'no-candidate-deps'}
+    # The step runs before any code of the pull request, fails the job itself, takes the guard and the frozen install from
+    # the base, never falls back to the pull request's guard or dependencies, and leaves nothing behind.
+    BASE_ROWS = {'order', 'verdict', 'own-guard', 'missing-base', 'no-guard', 'no-lock', 'install-fails', 'offline',
+                 'lifecycle', 'lifecycle-scripts', 'interrupted', 'isolation'}
+
+    @classmethod
+    def setUpClass(cls):
+        env = {k: v for k, v in os.environ.items() if k not in ('CLEARCASE_BASE_REF', 'GIT_DIR', 'GIT_WORK_TREE')}
+        result = subprocess.run(['bash', str(cls.FIXTURE), '--workflow', str(cls.WORKFLOW)], env=env,
+                                capture_output=True, text=True, timeout=600)
+        cls.fixture_code = result.returncode
+        cls.fixture_output = result.stdout + result.stderr
+        cls.rows = {name: status for status, name in re.findall(r'^(ok|FAIL|HOLD) +(\S+)', cls.fixture_output, re.M)}
+
+    def step(self):
+        workflow = self.WORKFLOW.read_text()
         step = workflow[workflow.index('- name: test guard'):]
-        step = step[:step.index('\n      - ')]
-        for needle in ("github.event_name == 'pull_request'", 'github.event.pull_request.head.sha',
-                       'CLEARCASE_NODE=$(command -v bun)', 'scripts/agent-tools/fix-round-guard', 'origin/$BASE_REF'):
+        return step[:step.index('\n      - ')]
+
+    def assertScenariosHold(self, expected):
+        self.assertEqual(self.fixture_code, 0, self.fixture_output)
+        self.assertIn('ci-guard: PASS', self.fixture_output)
+        self.assertLessEqual(expected, set(self.rows), self.fixture_output)
+        self.assertEqual({n: s for n, s in self.rows.items() if s != 'ok'}, {}, self.fixture_output)
+
+    def test_pull_requests_run_the_fix_round_guard_on_their_head_under_bun(self):
+        step = self.step()
+        for needle in ("github.event_name == 'pull_request'", 'github.event.pull_request.head.sha'):
             self.assertIn(needle, step)
+        self.assertScenariosHold(self.HEAD_ROWS)
 
     def test_the_guard_comes_from_the_base_branch_and_a_fix_round_label_requires_a_manifest(self):
-        workflow = (TOOLS.parents[1] / '.github/workflows/ci.yml').read_text()
-        step = workflow[workflow.index('- name: test guard'):]
-        step = step[:step.index('\n      - ')]
-        for needle in ('git worktree add -q --detach "$base_tools" "origin/$BASE_REF"', 'ln -s', 'node_modules',
-                       '"$base_tools/scripts/agent-tools/fix-round-guard"', '--require-manifest', "'fix-round'",
-                       'github.head_ref'):
+        step = self.step()
+        for needle in ('--require-manifest', "'fix-round'", 'github.head_ref'):
             self.assertIn(needle, step)
         self.assertNotIn('\n          CLEARCASE_NODE=$(command -v bun) scripts/agent-tools/fix-round-guard', step)
+        self.assertScenariosHold(self.BASE_ROWS)
 
 if __name__ == '__main__':
     unittest.main(verbosity=2)

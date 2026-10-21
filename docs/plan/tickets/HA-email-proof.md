@@ -1,6 +1,6 @@
 # Prove minimal Cloudflare transactional notifications for alpha
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-111/prove-minimal-cloudflare-transactional-notifications-for-alpha) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-111/prove-minimal-cloudflare-transactional-notifications-for-alpha) is the execution authority.
 
 Planning key `HA-email-proof`. Hosted-alpha delivery plan; Backlog until the overall plan is approved.
 

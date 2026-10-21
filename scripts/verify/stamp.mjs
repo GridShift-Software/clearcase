@@ -4,10 +4,11 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { gitEnv } from '../browser-lock.mjs';
 
 /** `{ head, dirty, build: { revision, dirty } | null }`; head is null when git cannot say. */
 export function revisionStamp(root, buildDir = join(root, 'build')) {
-	const git = (...a) => spawnSync('git', a, { cwd: root, encoding: 'utf8' });
+	const git = (...a) => spawnSync('git', a, { cwd: root, encoding: 'utf8', env: gitEnv() });
 	const head = git('rev-parse', 'HEAD');
 	const status = git('status', '--porcelain', '--untracked-files=normal');
 	let build = null;

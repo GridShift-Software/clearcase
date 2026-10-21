@@ -1,0 +1,29 @@
+{
+  "description": "A pending coordinator row that differs from work-items.json fails even when the row count agrees",
+  "capability": "plan-format",
+  "snapshot": {
+    "pendingCoordinatorChanges": [
+      {
+        "issue": "GRS-36",
+        "change": "Add the GRS-129 blocker"
+      }
+    ]
+  },
+  "editsAfter": {
+    "docs/delivery-plan.md": [
+      [
+        "- GRS-36. Add the GRS-129 blocker",
+        "- GRS-36. Add the GRS-130 blocker"
+      ]
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "pending coordinator line differs from work-items.json"
+    ],
+    "absent": [
+      "Traceback"
+    ]
+  }
+}

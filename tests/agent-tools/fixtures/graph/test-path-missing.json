@@ -1,15 +1,15 @@
 {
-  "description": "HA-grs-49 reserves csv.ts without any test file",
+  "description": "HA-kyc reserves csv.ts without any test file",
   "capability": "plan-graph",
   "set": {
-    "HA-grs-49.scope": [
+    "HA-kyc.scope": [
       "src/lib/components/csv.ts"
     ]
   },
   "expect": {
     "exit": 1,
     "output": [
-      "HA-grs-49: no test path in write scope"
+      "HA-kyc: no test path in write scope"
     ]
   }
 }

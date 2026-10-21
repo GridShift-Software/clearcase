@@ -1,6 +1,6 @@
 # Evaluate viewer components and freeze alpha file coverage
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-97/evaluate-viewer-components-and-freeze-alpha-file-coverage) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-97/evaluate-viewer-components-and-freeze-alpha-file-coverage) is the execution authority.
 
 ## Outcome
 

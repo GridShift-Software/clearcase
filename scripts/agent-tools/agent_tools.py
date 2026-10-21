@@ -30,7 +30,8 @@ HOME = HOME.rstrip("/") or ("/" if HOME else "")  # /home/x/ and /home/x redact 
 MARKED_HOME = HOME if HOME.startswith("/") and HOME != "/" else None
 SKIPPED = 3
 MIN_NODE = (18, 0)
-MIN_PYTHON = (3, 10)
+# 3.12: agent_tools.py nests quotes inside an f-string expression (PEP 701). Codex discovery also needs tomllib (3.11).
+MIN_PYTHON = (3, 12)
 MIN_BASH = (4, 4)
 # The app's minimum Bun until GRS-10 adds package.json, whose packageManager then replaces it. Move it only in a
 # reviewed commit, after bun upgrade --stable; see docs/agent-tooling.md.
@@ -756,6 +757,9 @@ def plugin_version(value):
     return (*map(int, match.groups()[:3]), not prerelease, parts)
 
 
+HARNESS_VARIABLES = {"claude": "CLAUDECODE", "codex": "CODEX_THREAD_ID"}
+
+
 def pstack_registered(registry):
     """Whether installed_plugins.json has a t3-pstack record. A missing registry proves the plugin is absent; one that
     cannot be read or understood proves nothing, so it is an error."""
@@ -776,28 +780,239 @@ def pstack_registered(registry):
     return bool(records)
 
 
+def codex_config(path):
+    """Codex's config.toml as a dict, {} when absent. Never printed: it can hold credentials for other tools."""
+    try:
+        import tomllib
+    except ImportError:
+        raise ValueError("reading Codex's config.toml needs Python >= 3.11 (tomllib)") from None
+    try:
+        config = tomllib.loads(path.read_text())
+    except FileNotFoundError:
+        return {}
+    except OSError as error:
+        raise ValueError(f"cannot read {failed(error, path)}; that leaves the Codex t3-pstack install unproven") from None
+    except tomllib.TOMLDecodeError:
+        raise ValueError(f"{redact(path)} is not valid TOML; that leaves the Codex t3-pstack install unproven") from None
+    for table in ("plugins", "marketplaces"):
+        if not isinstance(config.get(table, {}), dict):
+            raise ValueError(f"{redact(path)} has a {table} key that is not a table")
+    return config
+
+
+def json_record(path):
+    """A JSON object from an install record; ValueError naming the file when it is missing, unreadable or malformed."""
+    try:
+        value = json.loads(path.read_text())
+    except OSError as error:
+        raise ValueError(f"cannot read {failed(error, path)}") from None
+    except ValueError:
+        raise ValueError(f"{redact(path)} is not JSON") from None
+    if not isinstance(value, dict):
+        raise ValueError(f"{redact(path)} must hold a JSON object")
+    return value
+
+
+def harness_layout(harness, home):
+    """Where a harness keeps its t3-pstack cache and the records that prove an install of it."""
+    if harness == "claude":
+        plugins = home / ".claude/plugins"
+        return {"cache": plugins / "cache/t3-pstack/t3-pstack", "registry": plugins / "installed_plugins.json",
+                "settings": home / ".claude/settings.json"}
+    chosen = os.environ.get("CODEX_HOME")
+    if chosen is not None and not os.path.isabs(chosen):
+        raise ValueError(f"CODEX_HOME is {chosen!r}, not an absolute path; Codex's config and plugin cache are located from it")
+    base = Path(chosen) if chosen else home / ".codex"
+    clone = base / ".tmp/marketplaces/t3-pstack"
+    return {"cache": base / "plugins/cache/t3-pstack/t3-pstack", "config": base / "config.toml",
+            "install": clone / ".codex-marketplace-install.json", "listing": clone / ".claude-plugin/marketplace.json"}
+
+
+def cached_versions(cache):
+    return [path for path in cache.iterdir() if path.is_dir()] if cache.exists() else []
+
+
+def harness_present(harness, layout):
+    """Whether the harness has t3-pstack: a cache version, or a record naming it. An unreadable record proves nothing."""
+    if cached_versions(layout["cache"]):
+        return True
+    if harness == "claude":
+        return pstack_registered(layout["registry"])
+    return "t3-pstack@t3-pstack" in codex_config(layout["config"]).get("plugins", {})
+
+
+def harness_choice(session=True):
+    """(harness, why) from T3_PSTACK_HARNESS, else from the running session's own variable when session is true;
+    (None, None) outside both. An explicit T3_PSTACK_ROOT names its own harness, so it skips the session."""
+    if "T3_PSTACK_HARNESS" in os.environ:
+        chosen = os.environ["T3_PSTACK_HARNESS"]
+        if chosen not in HARNESS_VARIABLES:
+            raise ValueError(f"T3_PSTACK_HARNESS is {chosen!r}; set it to claude or codex, or unset it")
+        return chosen, "T3_PSTACK_HARNESS"
+    if not session:
+        return None, None
+    active = [name for name, variable in HARNESS_VARIABLES.items() if os.environ.get(variable)]
+    if len(active) > 1:
+        raise ValueError("CLAUDECODE and CODEX_THREAD_ID are both set, so the active harness is ambiguous; "
+                         "set T3_PSTACK_HARNESS to claude or codex")
+    return (active[0], f"active harness ({HARNESS_VARIABLES[active[0]]})") if active else (None, None)
+
+
+def manifest_version(path):
+    manifest = json_record(path)
+    if manifest.get("name") != "t3-pstack":
+        raise ValueError(f"{redact(path)} names {manifest.get('name')!r}, expected t3-pstack")
+    version = manifest.get("version")
+    if not isinstance(version, str) or plugin_version(version) < plugin_version("2.0.0-rc.5") or plugin_version(version)[0] != 2:
+        raise ValueError(f"unsupported t3-pstack version {version!r}; expected >= 2.0.0-rc.5 and < 3.0.0")
+    return version
+
+
+PSTACK_PLUGIN = "t3-pstack@t3-pstack"
+
+
+def claude_records(registry):
+    """The t3-pstack install records in installed_plugins.json, each an object with a string installPath."""
+    plugins = json_record(registry).get("plugins")
+    records = plugins.get(PSTACK_PLUGIN, []) if isinstance(plugins, dict) else None
+    if not isinstance(records, list):
+        raise ValueError(f"{redact(registry)} must hold a plugins object that lists {PSTACK_PLUGIN} as a list of installs")
+    for row in records:
+        if not isinstance(row, dict) or not isinstance(row.get("installPath"), str):
+            raise ValueError(f"{redact(registry)} has a {PSTACK_PLUGIN} install record that is not an object with an installPath")
+    return records
+
+
+def claude_enablement(layout, record):
+    """([settings files that exist], None) when Claude loads the install; ValueError when enabledPlugins turns it off or
+    cannot be read. Claude loads an installed plugin unless enabledPlugins sets it to false (defaultEnabled is true), so
+    an absent file or entry keeps the default. The highest of local, project and user settings that sets the entry
+    decides; an install in the user scope is governed by the user settings, one in the project or local scope by that
+    project's settings above them. Managed settings are not read."""
+    scope = record.get("scope", "user")
+    files = [layout["settings"]]
+    if scope in ("project", "local"):
+        project = record.get("projectPath")
+        if not isinstance(project, str) or not os.path.isabs(project):
+            raise ValueError(f"the {PSTACK_PLUGIN} record has scope {scope!r} but projectPath {project!r}, which is not an absolute "
+                             "path; its project settings cannot be found. Reinstall the plugin through T3")
+        files = [Path(project) / ".claude/settings.local.json", Path(project) / ".claude/settings.json", *files]
+    elif scope != "user":
+        raise ValueError(f"the {PSTACK_PLUGIN} record has scope {scope!r}; only user, project and local installs are checked")
+    existing, decision = [], None
+    for path in files:
+        try:
+            text = path.read_text()
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            raise ValueError(f"cannot read {failed(error, path)}; that leaves {PSTACK_PLUGIN} enablement unproven") from None
+        existing.append(path)
+        try:
+            settings = json.loads(text)
+        except ValueError:
+            raise ValueError(f"{redact(path)} is not JSON; that leaves {PSTACK_PLUGIN} enablement unproven") from None
+        if not isinstance(settings, dict):
+            raise ValueError(f"{redact(path)} must hold a JSON object")
+        enabled = settings.get("enabledPlugins", {})
+        if not isinstance(enabled, dict):
+            raise ValueError(f"{redact(path)} has an enabledPlugins key that is not an object")
+        if PSTACK_PLUGIN in enabled and not isinstance(enabled[PSTACK_PLUGIN], bool):
+            raise ValueError(f"{redact(path)} sets enabledPlugins[{PSTACK_PLUGIN!r}] to {enabled[PSTACK_PLUGIN]!r}, not true or false")
+        if decision is None and PSTACK_PLUGIN in enabled:
+            decision = (path, enabled[PSTACK_PLUGIN])
+    if decision and not decision[1]:
+        raise ValueError(f"{PSTACK_PLUGIN} is disabled by enabledPlugins in {redact(decision[0])}; Claude does not load it. "
+                         "Enable it through Claude or T3")
+    return existing
+
+
+def claude_install(layout, root, explicit):
+    """(version, SHA, settings files read) of a Claude install: its manifest, exactly one installed_plugins.json record
+    for this root, and the settings that keep Claude from disabling it."""
+    version = manifest_version(root / ".claude-plugin/plugin.json")
+    if not explicit and root.name != version:
+        raise ValueError(f"plugin directory version {root.name!r} differs from manifest version {version!r}")
+    registry = layout["registry"]
+    records = [row for row in claude_records(registry) if Path(row["installPath"]).expanduser().resolve() == root]
+    if len(records) != 1:
+        raise ValueError(f"{redact(registry)} must contain exactly one t3-pstack install record for {redact(root)}")
+    if records[0].get("version") != version:
+        raise ValueError(f"{redact(registry)} version {records[0].get('version')!r} differs from manifest version {version!r}")
+    sha = records[0].get("gitCommitSha")
+    if not isinstance(sha, str) or not FULL_ID.fullmatch(sha):
+        raise ValueError(f"{redact(registry)} gitCommitSha must be an exact Git SHA")
+    return version, sha, claude_enablement(layout, records[0])
+
+
+def codex_install(layout, root, explicit):
+    """(version, revision, extra input files) of a Codex install. config.toml enables t3-pstack@t3-pstack from the t3-pstack marketplace;
+    the marketplace clone records an exact revision from that same source and lists one t3-pstack version; root is that
+    version's cache directory and its manifest agrees. Codex has no per-plugin SHA: the revision is the marketplace's."""
+    config = codex_config(layout["config"])
+    plugin = config.get("plugins", {}).get("t3-pstack@t3-pstack")
+    if not isinstance(plugin, dict) or plugin.get("enabled") is not True:
+        raise ValueError(f"t3-pstack@t3-pstack is not enabled in {redact(layout['config'])}; enable it through T3 or Codex")
+    source = (config.get("marketplaces", {}).get("t3-pstack") or {}).get("source")
+    record = json_record(layout["install"])
+    if not isinstance(source, str) or record.get("source") != source:
+        raise ValueError(f"{redact(layout['install'])} records another source than the t3-pstack marketplace in config.toml "
+                         "(neither is printed: a source URL can carry credentials)")
+    revision = record.get("revision")
+    if not isinstance(revision, str) or not FULL_ID.fullmatch(revision):
+        raise ValueError(f"{redact(layout['install'])} revision must be an exact Git SHA")
+    listed = [row for row in json_record(layout["listing"]).get("plugins", [])
+              if isinstance(row, dict) and row.get("name") == "t3-pstack"]
+    if len(listed) != 1 or not isinstance(listed[0].get("version"), str):
+        raise ValueError(f"{redact(layout['listing'])} must list t3-pstack once, with its version")
+    recorded = listed[0]["version"]
+    if root != (layout["cache"] / recorded).resolve():
+        held = f"{redact(root)} is not" if explicit else f"the newest Codex cache version {root.name!r} is not"
+        raise ValueError(f"{held} the version the marketplace records, {recorded!r}; the install is stale, orphaned or "
+                         "unfinished. Let Codex finish updating t3-pstack through T3")
+    version = manifest_version(root / ".codex-plugin/plugin.json")
+    if version != recorded:
+        raise ValueError(f".codex-plugin/plugin.json version {version!r} differs from the marketplace's {recorded!r}")
+    return version, revision, []
+
+
 def pstack_source(explicit=None):
-    """Return the selected source (raw paths; redact only to display it), its fingerprint inputs, and a failure. A
-    broken or registered plugin never falls back: legacy skills are used only when the registry shows no t3-pstack."""
-    source = {"kind": "plugin", "root": None, "skillsDir": None, "version": None, "gitCommitSha": None}
+    """Return the selected source (raw paths; redact only to display it), its fingerprint inputs, and a failure.
+
+    The harness is T3_PSTACK_HARNESS, else the one T3_PSTACK_ROOT lies in, else the running session's (CLAUDECODE or
+    CODEX_THREAD_ID), else Claude when it has t3-pstack, else Codex. Its install is judged only by its own records. A
+    broken, stale or missing install of the chosen harness fails; it never falls back to the other harness, an older
+    version or legacy skills. Legacy skills are used only when no harness was named and neither has t3-pstack."""
+    source = {"kind": "plugin", "harness": None, "harnessSelection": None, "root": None, "skillsDir": None,
+              "version": None, "gitCommitSha": None}
     paths = []
     try:
         home = home_dir()
-        cache = home / ".claude/plugins/cache/t3-pstack/t3-pstack"
-        registry = home / ".claude/plugins/installed_plugins.json"
+        harness, why = harness_choice(session="T3_PSTACK_ROOT" not in os.environ)
         if "T3_PSTACK_ROOT" in os.environ:
             chosen = os.environ["T3_PSTACK_ROOT"]
             if not chosen.strip():
                 raise ValueError("T3_PSTACK_ROOT is empty; give the installed plugin root")
             root = Path(chosen).expanduser().resolve()
             source["selection"] = "T3_PSTACK_ROOT"
+            if why != "T3_PSTACK_HARNESS":
+                in_codex = root.parent == harness_layout("codex", home)["cache"].resolve()
+                harness, why = ("codex", "T3_PSTACK_ROOT in the Codex cache") if in_codex else (
+                    "claude", "T3_PSTACK_ROOT outside the Codex cache")
+            layout = harness_layout(harness, home)
         else:
-            versions = [path for path in cache.iterdir() if path.is_dir()] if cache.exists() else []
-            if not versions:
-                if pstack_registered(registry):
-                    raise ValueError(f"t3-pstack is registered in installed_plugins.json but {cache} holds no installed "
-                                     "version; repair or reinstall the plugin through T3. Legacy skills never stand in "
-                                     "for a registered plugin")
+            if harness is None:
+                why = "default (no active harness; Claude, then Codex)"
+                harness = next((name for name in HARNESS_VARIABLES if harness_present(name, harness_layout(name, home))), None)
+            elif not harness_present(harness, harness_layout(harness, home)):
+                other = next(name for name in HARNESS_VARIABLES if name != harness)
+                if why == "T3_PSTACK_HARNESS" or harness_present(other, harness_layout(other, home)):
+                    raise ValueError(f"{why} selects {harness}, which has no t3-pstack install; another harness's install "
+                                     f"is never validated in its place, nor are legacy skills. Install t3-pstack for "
+                                     f"{harness} through T3, or set T3_PSTACK_HARNESS to the harness you run")
+                harness = None
+            if harness is None:
+                registry = harness_layout("claude", home)["registry"]
                 base = skills_dir(explicit)
                 source.update(kind="legacy", root=str(base), skillsDir=str(base), selection="legacy fallback")
                 paths = [*([registry] if registry.exists() else []), *[base / rel for rel in REQUIRED_PSTACK_FILES]]
@@ -808,32 +1023,22 @@ def pstack_source(explicit=None):
                 if missing:
                     raise ValueError(f"required legacy pstack file missing or unreadable: {', '.join(missing)}")
                 return source, paths, None
+            layout = harness_layout(harness, home)
+            versions = cached_versions(layout["cache"])
+            if not versions:
+                record = "installed_plugins.json" if harness == "claude" else "config.toml"
+                raise ValueError(f"t3-pstack is registered in {record} but {layout['cache']} holds no installed "
+                                 "version; repair or reinstall the plugin through T3. Legacy skills never stand in "
+                                 "for a registered plugin")
             root = max(versions, key=lambda path: plugin_version(path.name)).resolve()
-            source["selection"] = "newest Claude plugin cache version"
-        source.update(root=str(root), skillsDir=str(root / "skills"))
-        manifest_path = root / ".claude-plugin/plugin.json"
-        paths = [registry, manifest_path, *[root / "skills" / rel for rel in REQUIRED_PSTACK_FILES]]
-        manifest = json.loads(manifest_path.read_text())
-        if manifest.get("name") != "t3-pstack":
-            raise ValueError(f"{manifest_path} names {manifest.get('name')!r}, expected t3-pstack")
-        version = manifest.get("version")
-        if not isinstance(version, str) or plugin_version(version) < plugin_version("2.0.0-rc.5") or plugin_version(version)[0] != 2:
-            raise ValueError(f"unsupported t3-pstack version {version!r}; expected >= 2.0.0-rc.5 and < 3.0.0")
-        if source["selection"] != "T3_PSTACK_ROOT" and root.name != version:
-            raise ValueError(f"plugin directory version {root.name!r} differs from manifest version {version!r}")
-        source["version"] = version
-        installed = json.loads(registry.read_text())
-        records = installed.get("plugins", {}).get("t3-pstack@t3-pstack", [])
-        records = [row for row in records if Path(row["installPath"]).expanduser().resolve() == root]
-        if len(records) != 1:
-            raise ValueError(f"{registry} must contain exactly one t3-pstack install record for {root}")
-        record = records[0]
-        if record.get("version") != version:
-            raise ValueError(f"installed_plugins.json version {record.get('version')!r} differs from manifest version {version!r}")
-        sha = record.get("gitCommitSha")
-        if not isinstance(sha, str) or not FULL_ID.fullmatch(sha):
-            raise ValueError("installed_plugins.json gitCommitSha must be an exact Git SHA")
-        source["gitCommitSha"] = sha
+            source["selection"] = f"newest {harness.capitalize()} plugin cache version"
+        source.update(harness=harness, harnessSelection=why, root=str(root), skillsDir=str(root / "skills"))
+        records = ([layout["registry"], root / ".claude-plugin/plugin.json"] if harness == "claude" else
+                   [layout["config"], layout["install"], layout["listing"], root / ".codex-plugin/plugin.json"])
+        paths = [*records, *[root / "skills" / rel for rel in REQUIRED_PSTACK_FILES]]
+        install = claude_install if harness == "claude" else codex_install
+        source["version"], source["gitCommitSha"], settings = install(layout, root, source["selection"] == "T3_PSTACK_ROOT")
+        paths += settings
         missing = [str(path) for path in paths if not path.is_file() or not os.access(path, os.R_OK)]
         if missing:
             raise ValueError(f"required pstack file missing or unreadable: {', '.join(missing)}")
@@ -842,9 +1047,15 @@ def pstack_source(explicit=None):
         return source, paths, f"pstack discovery failed: {error}"
 
 
+def pstack_harness(source):
+    if not source["harness"]:
+        return "no harness (legacy)"
+    return f"harness {source['harness']}, chosen by {source['harnessSelection']}"
+
+
 def pstack_summary(source):
     """The one-line identity the pstack capability prints, from the discovery its receipt records."""
-    return (f"pstack: PASS. {source['selection']} at {redact(source['root'])}; "
+    return (f"pstack: PASS. {source['selection']} at {redact(source['root'])}; {pstack_harness(source)}; "
             f"version {source['version'] or 'unavailable (legacy)'}; SHA {source['gitCommitSha'] or 'unavailable (legacy)'}. "
             "Upstream bundle comparison is retired.")
 
@@ -878,6 +1089,46 @@ def system_tool(name):
 def chromium():
     """The Chromium the app skill drives: CLEARCASE_CHROMIUM, else the build scripts/ci/install-chrome.sh installs."""
     return os.environ.get("CLEARCASE_CHROMIUM") or str(Path(HOME or "~", ".cache/ms-playwright/chromium-1223/chrome-linux64/chrome"))
+
+
+ADMISSION_FIX = ("set CLEARCASE_BROWSER_LOCK to the absolute path of the workspace's orch-bin/browser-lock, or to none to run "
+                 "browser jobs without a slot (CI)")
+
+
+def is_executable_file(path):
+    return os.path.isfile(path) and os.access(path, os.X_OK)
+
+
+def browser_admission():
+    """(status, detail, fix) for browser admission in this checkout, judged the way scripts/browser-lock.mjs (GRS-154) does
+    where the checkout has it. Without it (dev, wave/hosted-bootstrap, wave/tooling, wave/maintenance before GRS-154
+    reaches them) a gate discovers no lock, so only an explicit executable gives it a slot. none passes the resolver but
+    fails here: a gate run without a slot is not local evidence."""
+    environ = os.environ
+    resolver = (REPO / "scripts/browser-lock.mjs").is_file()
+    if "BROWSER_LOCK" in environ:
+        return "FAIL", "BROWSER_LOCK is the retired spelling; unset it", ADMISSION_FIX
+    explicit = environ.get("CLEARCASE_BROWSER_LOCK")
+    if explicit is not None:
+        if os.path.isabs(explicit) and is_executable_file(explicit):
+            return "PASS", f"{explicit} (CLEARCASE_BROWSER_LOCK{'' if resolver else '; this checkout has no resolver'})", None
+        if explicit == "none" and resolver:
+            return ("FAIL", "CLEARCASE_BROWSER_LOCK=none: none runs browser jobs without a slot; a local gate run without one "
+                    "does not count", "unset CLEARCASE_BROWSER_LOCK to use the workspace lock; none is for CI")
+        return ("FAIL", f"CLEARCASE_BROWSER_LOCK={explicit!r} is not an absolute path to an executable file"
+                f"{'' if resolver else ' (none is not available: this checkout has no resolver)'}", ADMISSION_FIX)
+    if not resolver:
+        return ("FAIL", "this checkout has no scripts/browser-lock.mjs (GRS-154), so its gate discovers no lock and "
+                "CLEARCASE_BROWSER_LOCK is unset; a gate run without it takes no slot and does not count as evidence",
+                "export CLEARCASE_BROWSER_LOCK=<absolute path to the workspace's orch-bin/browser-lock> before gate, "
+                "scripts/verify/evidence.sh or the hosted runner")
+    _, out, problem = git(REPO, "rev-parse", "--git-common-dir")
+    if problem:
+        return "FAIL", f"no browser admission: CLEARCASE_BROWSER_LOCK is unset and git names no common directory ({problem})", ADMISSION_FIX
+    lock = os.path.normpath(os.path.join(REPO, os.fsdecode(out.strip()), "..", "..", "orch-bin", "browser-lock"))
+    if not is_executable_file(lock):
+        return "FAIL", f"no browser admission: CLEARCASE_BROWSER_LOCK is unset and {lock} is not an executable file", ADMISSION_FIX
+    return "PASS", f"{lock} (discovered from git-common-dir)", None
 
 
 def app_rows(add):
@@ -935,7 +1186,9 @@ def doctor_rows(skills=None, receipts=None, identity=None, unidentified=None, to
     _, py_problem = tools["python3"]
     add("PASS" if py >= MIN_PYTHON and not py_problem else "FAIL", "python3",
         py_problem or f"{platform.python_version()} at {redact(sys.executable)}",
-        None if py >= MIN_PYTHON and not py_problem else "install Python >= 3.10")
+        None if py >= MIN_PYTHON and not py_problem else "install Python >= 3.12")
+    status, detail, fix = browser_admission()
+    add(status, "browser-lock", detail, fix)
 
     git_row, git_problem = tools["git"]
     if git_row["path"]:
@@ -1005,9 +1258,11 @@ def doctor_rows(skills=None, receipts=None, identity=None, unidentified=None, to
             "restore it with git checkout -- scripts/agent-tools/skills.lock.json")
     source, _, problem = pstack
     add("FAIL" if problem else "PASS", "pstack-source", problem or
-        f"{source['selection']}: {source['root']}; version {source['version'] or 'unavailable (legacy)'}; "
-        f"SHA {source['gitCommitSha'] or 'unavailable (legacy)'}",
-        "check T3_PSTACK_ROOT and installed_plugins.json; do not reinstall upstream pstack" if problem else None)
+        f"{source['selection']}: {source['root']}; {pstack_harness(source)}; "
+        f"version {source['version'] or 'unavailable (legacy)'}; SHA {source['gitCommitSha'] or 'unavailable (legacy)'}",
+        "check T3_PSTACK_ROOT, T3_PSTACK_HARNESS and the chosen harness's install records (installed_plugins.json for "
+        "Claude; config.toml and the marketplace install record for Codex); do not reinstall upstream pstack"
+        if problem else None)
     if not problem:
         plugin_skills = Path(source["skillsDir"])
         for rel in REQUIRED_PSTACK_FILES:
@@ -1130,14 +1385,23 @@ def capability_command(name, args):
         readback = Path(readback).expanduser().resolve()
         return ([python, str(check), "--require-linear-ids", "--linear-relations", str(readback)], ["python3"],
                 [check, readback], None, None)
+    if name == "plan-format":
+        script = root / "scripts/planning/plan_format.py"
+        plan = Path(getattr(args, "plan", None) or root / "docs/delivery-plan.md").resolve()
+        inputs = [root / "docs/plan" / rel for rel in ("work-items.json", "view-coverage.json", "program-intro.md")]
+        return [python, str(script), "--root", str(root), str(plan)], ["python3"], [script, root / "scripts/planning/generate.py", plan, *inputs], None, None
     if name in RETIRED:
         return [], [], [], RETIRED[name], None
-    if name in ("plan-format", "pstack"):
+    if name in ("pstack-plan-format", "pstack"):
         source, paths, problem = pstack_source(args.skills_dir)
-        if name == "plan-format":
+        if name == "pstack-plan-format":
             script = Path(source["skillsDir"] or "<pstack>/skills") / "poteto-mode/scripts/check-plan.mjs"
-            plan = Path(getattr(args, "plan", None) or root / "docs/delivery-plan.md").resolve()
-            return [which("node") or "node", str(script), str(plan)], ["node"], [LOCK_PATH, *paths, plan], problem, source
+            plan = Path(args.plan).resolve() if getattr(args, "plan", None) else None
+            if plan is None:
+                problem = problem or ("pstack-plan-format checks a plan written in pstack's multi-phase format; give it "
+                                      "with --plan PATH (docs/delivery-plan.md is checked by plan-format)")
+            return ([which("node") or "node", str(script), str(plan or "")], ["node"],
+                    [LOCK_PATH, *paths, *([plan] if plan else [])], problem, source)
         # The identity was discovered once, above; print that, so the receipt and its fingerprints cannot disagree.
         return [python, "-I", "-B", "-c", "import sys; print(sys.argv[1])", "" if problem else pstack_summary(source)], \
             ["python3"], [LOCK_PATH, *paths], problem, source
@@ -1178,7 +1442,8 @@ CAPABILITIES = {
     "test-guard": "protect findings-named JS/TS tests and touched-file assertion counts across a fix diff",
     "plan-graph": "python3 scripts/planning/check.py --require-linear-ids (graph, coverage, Linear ID map, generated files)",
     "linear-relations": "python3 scripts/planning/check.py --require-linear-ids --linear-relations READBACK",
-    "plan-format": "node <skills>/poteto-mode/scripts/check-plan.mjs PLAN (pstack multi-phase plan structure)",
+    "plan-format": "python3 scripts/planning/plan_format.py PLAN (the generated ClearCase delivery-plan contract)",
+    "pstack-plan-format": "node <skills>/poteto-mode/scripts/check-plan.mjs --plan PATH (pstack's generic format; not in check-plan)",
     "pstack": "canonical t3-pstack install identity and required files (legacy fallback only when absent)",
     "pstack-upstream": "retired; FAILs with a migration message to verify pstack (no upstream comparison is made)",
     "app": "verify-clearcase run: isolated build of HEAD, offline boot under Bun, live doctor, Chromium drive, cleanup",
@@ -1213,7 +1478,7 @@ def run_capability(name, args):
     metadata = {"pstack": pstack} if pstack else guard_claims(root, args) if name == "test-guard" else None
     return run_with_receipt(name, argv, cwd=root, tools=tools, inputs=inputs, receipts=args.receipts,
                             base=args.base, root=root, skip_reason=skip,
-                            required=name in ("plan-format", "pstack", "models", "test-guard", *RETIRED),
+                            required=name in ("plan-format", "pstack-plan-format", "pstack", "models", "test-guard", *RETIRED),
                             metadata=metadata, spend=spend_fields(args))
 
 
@@ -1984,7 +2249,7 @@ def main(argv=None):
     check = common(sub.add_parser("check-plan"))
     check.add_argument("--linear-relations", metavar="READBACK")
     check.add_argument("--require-linear-relations", action="store_true")
-    check.add_argument("--plan", help="plan for check-plan.mjs (default: docs/delivery-plan.md)")
+    check.add_argument("--plan", help="plan for the plan-format step (default: docs/delivery-plan.md)")
     check.set_defaults(func=cmd_check_plan)
     verify = common(sub.add_parser("verify"))
     verify.add_argument("capability", choices=["list", *CAPABILITIES])
@@ -1992,7 +2257,7 @@ def main(argv=None):
     verify.add_argument("--model-sheet", help="sheet path (default: XDG config t3-pstack/models.md)")
     verify.add_argument("--catalog", help="fresh orchestrator_capabilities JSON with capturedAt")
     verify.add_argument("--readback", help="Linear readback JSON for linear-relations")
-    verify.add_argument("--plan", help="plan for plan-format (default: docs/delivery-plan.md)")
+    verify.add_argument("--plan", help="plan for plan-format (default: docs/delivery-plan.md) or pstack-plan-format (required)")
     verify.add_argument("--checkout", help="retired; accepted so an old caller reaches the migration FAIL, never used")
     verify.set_defaults(func=cmd_verify)
     guard = common(sub.add_parser("test-guard"))

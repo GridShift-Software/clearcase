@@ -1,6 +1,6 @@
 # Prove the first complete hosted PDF case workflow before broad view migration
 
-Planning snapshot, 17 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-137/prove-the-first-complete-hosted-pdf-case-workflow-before-broad-view) is the execution authority.
 
 Planning key `HA-first-workflow`. Accepted by the user in [Stress-test the complete hosted-alpha plan with final workflow scenarios](<https://linear.app/vaper/issue/GRS-136/stress-test-the-complete-hosted-alpha-plan-with-final-workflow>). This creates an execution owner, not a dispatch.
 

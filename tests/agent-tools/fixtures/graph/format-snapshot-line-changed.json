@@ -1,0 +1,21 @@
+{
+  "description": "A snapshot line that differs from work-items.json beyond its date and revision fails",
+  "capability": "plan-format",
+  "editsAfter": {
+    "docs/delivery-plan.md": [
+      [
+        "Hosted runtime evidence is ",
+        "Hosted runtime evidence was "
+      ]
+    ]
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "snapshot line differs from work-items.json"
+    ],
+    "absent": [
+      "Traceback"
+    ]
+  }
+}

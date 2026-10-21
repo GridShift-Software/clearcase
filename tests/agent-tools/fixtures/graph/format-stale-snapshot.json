@@ -1,0 +1,17 @@
+{
+  "description": "A plan rendered from an older snapshot is stale",
+  "capability": "plan-format",
+  "patchAfterGenerate": true,
+  "snapshot": {
+    "sourceRevision": "0123456789abcdef0123456789abcdef01234567"
+  },
+  "expect": {
+    "exit": 1,
+    "output": [
+      "Current issue graph lacks \"Snapshot of"
+    ],
+    "absent": [
+      "Traceback"
+    ]
+  }
+}

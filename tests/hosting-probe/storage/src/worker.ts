@@ -981,7 +981,7 @@ async function restoreFinish(ctx: Ctx, request: Request, packetId: string): Prom
 		if (!o || !(await isStored(ctx, target, o, m.sha256, m.size))) refuse(409, 'incomplete', { missing: target });
 	}
 
-	// Everything the restore will write is read and checked here, before the first write: a refusal leaves the case as it was.
+	// Everything the backup itself decides is read and checked here, before the first write: a refusal leaves the case as it was. That is its counts, keys, types and objects, and the user work's PRIMARY KEY, UNIQUE and NOT NULL.
 	const results = await readObject('results/version.json');
 	const version = recorded(results, 'version', 'results', isObject);
 	if (version.version_id !== v || version.case_id !== caseId || version.state !== 'stored') refuse(422, 'invalid-packet', { reason: 'results/version.json' });
@@ -1033,8 +1033,11 @@ async function restoreFinish(ctx: Ctx, request: Request, packetId: string): Prom
 
 	const pre = await backup(ctx, caseId, 'pre-restore', await snapshot(ctx, caseId)); // durable before any D1 write
 	// The same staged path as an import. The version flips to stored, and the case to active, last and in one batch: a
-	// refusal or a crash before it leaves a staging version that a retry of this call rebuilds. The first batch already
-	// holds the user work's revision, so a concurrent change to it is refused before anything is written.
+	// refusal or a crash before it leaves a staging version that a retry of this call rebuilds. The first batch holds the
+	// user work's revision, and the user-work batch holds it and that no version is live, so a concurrent change is refused
+	// before it writes. What a concurrent activation can still do is land after the user-work batch, while the originals
+	// are bound: the flip then answers 409 case-live, the user work stays replaced (the pre-restore backup keeps the old),
+	// the originals stay bound, and a retry answers 409 case-live too.
 	try {
 		await ctx.db.batch([guard('coalesce((SELECT rev FROM case_rev WHERE case_id = ?), 0) = ?', caseId, rev), ["INSERT INTO results_version (version_id, case_id, state, attempt, expected_documents, expected_assets, expected_seeds, expected_files, list_sha256, list_size) VALUES (?, ?, 'staging', 1, ?, ?, ?, ?, ?, ?) ON CONFLICT (version_id) DO UPDATE SET expected_documents = excluded.expected_documents, expected_assets = excluded.expected_assets, expected_seeds = excluded.expected_seeds, expected_files = excluded.expected_files, list_sha256 = excluded.list_sha256, list_size = excluded.list_size WHERE results_version.state = 'staging' AND results_version.case_id = excluded.case_id", [v, caseId, stage.documents, stage.assets, stage.seeds, stage.files, stage.list.sha256, stage.list.size]], CLEAR]);
 	} catch (e) {
@@ -1051,10 +1054,11 @@ async function restoreFinish(ctx: Ctx, request: Request, packetId: string): Prom
 	const ignoring = (statements: [string, D1Value[]][]) => statements.map(([s, p]): [string, D1Value[]] => [`${s} WHERE true ON CONFLICT DO NOTHING`, p]);
 	const originalRows = [...ignoring(inserts('original', ['sha256', 'size'], originals, 'json', null)), ...ignoring(inserts('case_original', ['case_id', 'asset_id', 'sha256', 'filename', 'media_type'], originals.map((o) => ({ asset_id: o.asset_id, sha256: o.sha256, filename: o.filename, media_type: o.media_type, case_id: caseId })), 'json', null))];
 	try {
-		await ctx.db.batch(userWork);
+		// The user work replaces the case's own only while no version is live: a case activated since the first batch is refused here, before it.
+		await ctx.db.batch([userWork[0]!, guard('NOT EXISTS (SELECT 1 FROM active WHERE case_id = ?)', caseId), ...userWork.slice(1)]);
 	} catch (e) {
-		if (e instanceof GuardFailed) refuse(409, 'stale');
-		throw e;
+		if (!(e instanceof GuardFailed)) throw e;
+		return (await activeVersion(ctx, caseId)) ? json(ctx, { code: 'case-live' }, 409) : refuse(409, 'stale');
 	}
 	// The originals are bound after the user work: a stale revision refuses before it, and binds nothing.
 	if (originalRows.length) await ctx.db.batch(originalRows);

@@ -4,11 +4,12 @@
 // signed by another key, and a status endpoint that fails. probe.ts covers the same gates against Clerk itself.
 import { spawn } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
-import { readdirSync, readFileSync, rmSync } from 'node:fs';
+import { readdirSync, readFileSync, readlinkSync, rmSync } from 'node:fs';
 import { connect } from 'node:net';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { craftedWorld, type World } from './crafted.ts';
+import { realNode } from './harness.ts';
 
 let w: World;
 let CLIENT_ORIGIN: string;
@@ -336,4 +337,62 @@ describe('process lifecycle: serve.mjs and its workerd stop with the runner that
 			}
 		}, 240_000);
 	}
+});
+
+// DIAG-108: CI timed the world out under load (the warm fetch's 120 s, or serve.mjs's 90 s). The two Workers ran in two
+// workerd processes on one persist root, so both held the same SQLite files open (each namespace's metadata.sqlite, the
+// observability store). When their starts overlapped, one workerd died with SQLITE_BUSY; Wrangler logs that only at debug
+// level and its ProxyWorker holds every request for a Worker that never started, so nothing failed until a timeout.
+describe('serve.mjs: one store per Worker, and a Worker that cannot start fails the start', () => {
+	/** The SQLite databases each workerd in serve.mjs's process group holds open, from /proc. */
+	const sqliteByWorkerd = (group: number) => new Map(readdirSync('/proc').filter((n) => /^\d+$/.test(n)).flatMap((n) => {
+		try {
+			const stat = readFileSync(`/proc/${n}/stat`, 'utf8');
+			if (stat.slice(stat.indexOf('(') + 1, stat.lastIndexOf(')')) !== 'workerd' || Number(stat.slice(stat.lastIndexOf(')') + 2).split(' ')[2]) !== group) return [];
+			const files = readdirSync(`/proc/${n}/fd`).flatMap((fd) => {
+				try {
+					return [readlinkSync(`/proc/${n}/fd/${fd}`)];
+				} catch {
+					return [];
+				}
+			});
+			return [[Number(n), new Set(files.filter((f) => f.endsWith('.sqlite')))] as const];
+		} catch {
+			return [];
+		}
+	}));
+
+	test('no SQLite file is open in both Workers\' workerd', () => {
+		const held = [...sqliteByWorkerd(w.servePid).values()];
+		expect(held.filter((files) => files.size).length, 'workerds holding a SQLite file').toBeGreaterThanOrEqual(2);
+		const seen = held.flatMap((files) => [...files]);
+		const shared = [...new Set(seen.filter((f, i) => seen.indexOf(f) !== i))];
+		expect(shared.map((f) => f.slice(f.lastIndexOf('/persist/') + 1))).toEqual([]);
+	});
+
+	test("a Worker whose workerd cannot start fails the start promptly, with workerd's error", async () => {
+		// the failure the shared store gave under load, made certain: while serve.mjs is stopped, a real Node takes an
+		// exclusive lock on a file of the client store and holds it through the start
+		const file = path.join(w.store('client'), 'v3/d1/miniflare-D1DatabaseObject/metadata.sqlite');
+		const holder = `import { DatabaseSync } from 'node:sqlite'; new DatabaseSync(${JSON.stringify(file)}).exec('PRAGMA locking_mode=EXCLUSIVE; BEGIN EXCLUSIVE'); console.log('locked'); setInterval(() => {}, 1 << 30);`;
+		let lock: ReturnType<typeof spawn> | undefined;
+		let started = 0;
+		try {
+			const failure = await w.restart(async () => {
+				lock = spawn(realNode().path, ['--input-type=module', '-e', holder], { stdio: ['ignore', 'pipe', 'pipe'] });
+				let err = '';
+				lock.stderr!.on('data', (b: Buffer) => (err += b.toString()));
+				await new Promise<void>((resolve, reject) => {
+					lock!.stdout!.once('data', () => resolve());
+					lock!.once('exit', (code) => reject(new Error(`the lock holder exited ${code}: ${err}`)));
+				});
+				started = Date.now();
+			}).then(() => 'started', (e: Error) => e.message);
+			expect(failure).toMatch(/SQLITE_BUSY/);
+			expect(Date.now() - started).toBeLessThan(60_000);
+		} finally {
+			lock?.kill('SIGKILL');
+			await w.restart();
+		}
+	}, 240_000);
 });

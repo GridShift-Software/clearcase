@@ -137,8 +137,16 @@ async function world(node: { path: string; version: string }, runDir: string, lo
 			const r = run(node.path, wranglerArgs(['d1', 'execute', 'DB', '--local', '--env', app, '--persist-to', persist, '--command', sql]), { env });
 			if (r.code !== 0) throw new Error(`d1 execute on ${app} failed (exit ${r.code}): ${r.out.slice(-400)}`);
 		},
-		restart: async () => {
+		/** serve.mjs's pid, which is also its process group's id. */
+		get servePid() {
+			return serve.pid!;
+		},
+		/** The directory holding `app`'s local D1 and R2: one root for both apps. */
+		store: (_app: 'client' | 'staff') => persist,
+		/** Stops serve.mjs and starts it again on the same stores, running `whileStopped` in between. */
+		restart: async (whileStopped?: () => Promise<void>) => {
 			await stopServe(serve);
+			await whileStopped?.();
 			serve = await startServe(node, env, serveConfig, secrets, logs);
 		},
 		stop: async () => {

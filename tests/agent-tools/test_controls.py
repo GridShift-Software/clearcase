@@ -2070,6 +2070,20 @@ class GuardBinding(ControlCase):
                 self.assertIn('--base', self.approve('--guard-receipt', base_aware, code=1))
         self.approve('--guard-receipt', self.guard_receipt)
 
+    def test_a_guard_receipt_whose_trusted_base_claim_is_retyped_does_not_bind(self):
+        self.git('branch', 'trunk', self.reviewed)
+        self.guarded()
+        self.cli('fix-round-guard', '--base', 'trunk')
+        base_aware = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        self.prepare([{'id': 'L1', 'severity': 'low'}])
+        data = json.loads(base_aware.read_text())
+        for retyped in ('', False, 0, []):
+            with self.subTest(trustedBase=retyped):
+                edited = json.loads(json.dumps(data))
+                edited['guard']['trustedBase'] = retyped
+                base_aware.write_text(json.dumps(edited))
+                self.assertIn('--base', self.approve('--guard-receipt', base_aware, code=1))
+
     def test_a_manifest_for_other_findings_does_not_bind(self):
         self.guarded(reviewFindingsSha256='0' * 64)
         self.prepare([{'id': 'L1', 'severity': 'low'}])
@@ -2256,6 +2270,13 @@ class FixRoundMergedBase(ControlCase):
         self.assertEqual(receipt['guard']['trustedBase'], self.git('rev-parse', 'dev'))
         self.assertEqual(receipt['revision']['base'], self.git('rev-parse', 'dev'))
 
+    def test_the_pass_line_names_the_base_it_trusted_only_when_one_was_given(self):
+        self.on_dev(self.base_change)
+        self.merge()
+        self.assertIn(f"; trusted base {self.git('rev-parse', 'dev')})\n", self.guard('--base', 'dev'))
+        self.reset()
+        self.assertNotIn('trusted base', self.guard())
+
     def test_a_branch_edit_after_the_merge_or_on_top_of_a_base_change_refuses(self):
         helper = self.base_change['support/helper.ts']
         cases = {
@@ -2299,9 +2320,15 @@ class FixRoundMergedBase(ControlCase):
             self.merge()
             self.assertIn('does not resolve', self.guard('--base', 'no-such-ref', code=1))
         with self.subTest(bypass='no --base: the default base only sets the range'):
+            self.reset()
+            self.on_dev(self.base_change)
+            self.merge()
             self.assertIn('protected dependency changed', self.guard(code=1))
             self.assertIsNone(self.last_receipt()['guard']['trustedBase'])
         with self.subTest(bypass='the ledger binds the guard to the reviewed commit alone'):
+            self.reset()
+            self.on_dev(self.base_change)
+            self.merge()
             out = self.guard('--base', 'dev', '--ledger', self.receipts, '--branch', 'feature/grs-104-tooling', code=1)
             self.assertIn('protected dependency changed', out)
             self.assertIsNone(self.last_receipt()['guard']['trustedBase'])

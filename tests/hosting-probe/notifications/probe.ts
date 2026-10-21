@@ -14,6 +14,10 @@
 // the summary (default .local/hosting-probe/notifications/summary.json) and exits 0 only when `evidence` is true.
 //
 // `--check FILE` refuses (exit 1) a summary that is not this runner's PASS for HEAD (summary.ts: one exact shape).
+//
+// `--adverse NAME|all` runs the same legs against a Worker that sends one thing more than the minimal notice (NAME is
+// one of ADVERSE: cc, bcc, reply-to, x-header). The runner's independent check of the saved messages must fail the
+// run on it: exit 0 only when it does, 1 when the run passed. It writes no summary and is never evidence.
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { accessSync, constants, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
@@ -25,6 +29,17 @@ import { BOUNDARIES, BUN, checkSummary, HOLD, LEGS, type LegName, MESSAGES, muta
 /** The one Bun API this script uses; the root project has no @types/bun. */
 declare const Bun: {
 	build(options: { entrypoints: string[]; outdir: string; target: 'browser'; format: 'esm'; define: Record<string, string> }): Promise<{ success: boolean; outputs: { path: string }[]; logs: unknown[] }>;
+};
+
+/**
+ * Worker variants that send one field more than the minimal notice. Each patches the one call site of `send.send(message)`
+ * after the Worker's own check has passed, so only the runner's check of what the binding saved can see the field.
+ */
+const ADVERSE: Record<string, string> = {
+	cc: "{ ...message, cc: 'viewer-a@client-a.example.test' }",
+	bcc: "{ ...message, bcc: 'operator-a@client-a.example.test' }",
+	'reply-to': "{ ...message, replyTo: 'publisher-b@client-b.example.test' }",
+	'x-header': "{ ...message, headers: { 'X-Case': 'Synthetic Matter A1' } }",
 };
 
 const HERE = import.meta.dirname;
@@ -212,7 +227,7 @@ async function stopServer(server: Server): Promise<void> {
 	if (survivors.length) throw new Error(`${server.label}: processes survived the stop: ${survivors.map((p) => `${p.pid} ${p.exe}`).join(', ')}`);
 }
 
-async function main(out: string): Promise<number> {
+async function main(out: string, adverse: string | null): Promise<number> {
 	const root = repo();
 	const sha = head();
 	if (dirty()) throw new Refusal('the tree is dirty: commit or stash first, so the summary describes HEAD');
@@ -322,7 +337,15 @@ async function main(out: string): Promise<number> {
 	try {
 		await leg('build', ['Bun.build src/worker.ts -> build/worker.js (PROBE_SOURCE_REVISION=HEAD)'], async (check) => {
 			rmSync(path.join(HERE, 'build'), { recursive: true, force: true });
-			const r = await Bun.build({ entrypoints: [path.join(HERE, 'src/worker.ts')], outdir: path.join(HERE, 'build'), target: 'browser', format: 'esm', define: { PROBE_SOURCE_REVISION: JSON.stringify(sha) } });
+			let entry = path.join(HERE, 'src/worker.ts');
+			if (adverse !== null) {
+				const source = readFileSync(entry, 'utf8');
+				if (source.split('send.send(message)').length !== 2) throw new Refusal('the Worker has not exactly one send.send(message) call site to patch');
+				mkdirSync(path.join(HERE, 'build/adverse'), { recursive: true });
+				entry = path.join(HERE, 'build/adverse/worker.ts');
+				writeFileSync(entry, source.replace('send.send(message)', `send.send(${ADVERSE[adverse]})`).replaceAll("'./", "'../../src/"));
+			}
+			const r = await Bun.build({ entrypoints: [entry], outdir: path.join(HERE, 'build'), target: 'browser', format: 'esm', define: { PROBE_SOURCE_REVISION: JSON.stringify(sha) } });
 			check(r.success && process.versions.bun === BUN, `Bun ${BUN} builds the Worker, offline`);
 			check(r.outputs.length === 1 && r.outputs[0]!.path === path.join(HERE, 'build/worker.js'), 'the build writes one module, build/worker.js');
 			const bundle = readFileSync(path.join(HERE, 'build/worker.js'), 'utf8');
@@ -543,6 +566,11 @@ async function main(out: string): Promise<number> {
 		for (const s of [...live]) await stopServer(s).catch((e: unknown) => (failure ??= String(e)));
 	}
 
+	if (adverse !== null) {
+		const caught = failure !== null && failure.includes('assertion failed');
+		console.log(caught ? `ADVERSE PASS ${adverse}: the run refused it (${failure})` : `ADVERSE FAIL ${adverse}: the run ${failure === null ? 'passed' : `failed for another reason (${failure})`} with the field sent`);
+		return caught ? 0 : 1;
+	}
 	const endSha = head();
 	const clean = !dirty();
 	// One entry per saved message, all measured but the two HOLD states, which no local run can observe.
@@ -600,7 +628,7 @@ function enterOffline(args: string[]): number {
 	return r.status ?? 1;
 }
 
-const { values } = parseArgs({ options: { out: { type: 'string' }, check: { type: 'string' }, inside: { type: 'boolean' } } });
+const { values } = parseArgs({ options: { out: { type: 'string' }, check: { type: 'string' }, adverse: { type: 'string' }, inside: { type: 'boolean' } } });
 try {
 	if (process.versions.bun !== BUN) throw new Refusal(`runs under Bun ${BUN} only (packageManager); this is ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node ${process.versions.node}`}`);
 	if (values.check) {
@@ -609,11 +637,18 @@ try {
 		console.log(problems.length ? `CHECK FAIL ${values.check}` : `CHECK PASS ${values.check}`);
 		process.exit(problems.length ? 1 : 0);
 	}
+	const names = values.adverse === 'all' ? Object.keys(ADVERSE) : values.adverse === undefined ? [] : [values.adverse];
+	for (const name of names) if (!(name in ADVERSE)) throw new Refusal(`--adverse ${name}: not one of ${Object.keys(ADVERSE).join(', ')}, all`);
+	if (names.length > 1) {
+		const results = names.map((name) => enterOffline(['--adverse', name]));
+		console.log(results.every((r) => r === 0) ? 'ADVERSE ALL PASS' : `ADVERSE ALL FAIL: ${names.filter((_, i) => results[i] !== 0).join(', ')}`);
+		process.exit(results.every((r) => r === 0) ? 0 : 1);
+	}
 	const out = path.resolve(values.out ?? path.join(repo(), '.local/hosting-probe/notifications/summary.json'));
-	if (!values.inside) process.exit(enterOffline(['--out', out]));
+	if (!values.inside) process.exit(enterOffline(names.length ? ['--adverse', names[0]!] : ['--out', out]));
 	if (process.env.CLEARCASE_OFFLINE !== '1') throw new Refusal('--inside runs only under tests/e2e/pilot/offline.sh');
 	for (const signal of ['SIGINT', 'SIGTERM'] as const) process.once(signal, () => void Promise.allSettled([...live].map(stopServer)).then(() => process.exit(130)));
-	process.exit(await main(out));
+	process.exit(await main(out, names[0] ?? null));
 } catch (e) {
 	if (!(e instanceof Refusal)) throw e;
 	console.error(`PROBE REFUSED: ${e.message}`);

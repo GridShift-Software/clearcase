@@ -15,8 +15,8 @@
       "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar link, as on every app view.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-201",
@@ -31,8 +31,8 @@
       "reason": "The reconciliation chain hides the POD column when no month has a proof-of-delivery ref (every POD cell is empty in v5's data, S-payments_tab-4); product rule: a column that carries no information on the imported data is hidden.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-202",
@@ -54,8 +54,8 @@
       "reason": "The POD column header is left out with its empty column (S-payments_tab-4): no month of the imported chain has a proof-of-delivery ref.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-203",
@@ -70,8 +70,8 @@
       "reason": "Amounts typed with separators or an R prefix (R 1 000.00 is the app's own format) count in full: the payments total uses the same parsed cents as the table. v5 summed parseFloat (1 000 counted as 1, R 500 as 0) while its table showed the full amounts (S-payments_tab-1, high). Pinned exactly (CC-06 r2, D14): both figures come only from the sweep's four synthetic payments (1 000, R 500, 250.50, 1,000.25).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-233",
@@ -90,8 +90,8 @@
       "reason": "The net claim after the separated payments (IDR-203) differs because the payments total does; it depends on the imported claim, so only its shape is registered here (CC-06 r2, D14). Its arithmetic is checked by sweep.separators.net_identity, which each driver computes from its own page (shown Net = shown Gross − shown Payments) and which must match ('ok' on both sides): a wrong net claim fails parity.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-204",
@@ -115,8 +115,8 @@
       "reason": "A non-numeric amount (the sweep types Synthetic entry N) is refused with a visible error and the typed text kept, so no payment is stored; v5 stored it, showed R 1.00 or R 2.00 and counted it as a receipt (S-payments_tab-2).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-205",
@@ -139,8 +139,8 @@
       "reason": "Because the two non-numeric amounts are refused (S-payments_tab-2), the table keeps its empty-state row and has no row to delete; v5 had two stored rows and deleted one.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-207",
@@ -159,8 +159,8 @@
       "reason": "The overview tile read at the end of the register sweep counts the register rows without extracted text instead of the build metadata figure (S-meta-counts, as IDR-049 on the overview).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-209",
@@ -175,8 +175,8 @@
       "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar link, as on every app view.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-210",
@@ -191,8 +191,8 @@
       "reason": "The imported interest-basis note is labelled as imported narrative that the calculator does not check against its computed dates or figures, so it cannot pass as a verified conclusion (BA-02). The note itself is shown unchanged.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-211",
@@ -207,8 +207,8 @@
       "reason": "The calculator's inputs live in the URL query, so a reload gives the same result, and a Reset to defaults link returns to the package defaults (BA-03; v5 kept no input and reset on every visit).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-212",
@@ -225,8 +225,8 @@
       "reason": "A capital typed with the app's own thousands separator (100 000) is the full amount; v5's parseFloat read it as 100, so capital, interest, total and the comparison line differ (S-interest_calc_tab-1, medium). Pinned exactly (CC-06 r2, D14): the sweep types every input of this figure. IDR-234 and IDR-235 pin the interest and the total; IDR-236 covers the comparison with the imported amount due by shape. The app value is an exact single-string pattern, written without a run of four digits (the register's case-value check).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-234",
@@ -243,8 +243,8 @@
       "reason": "The interest on the separated capital (IDR-212): R 100 000 at 10% simple for 366 days on the app, v5's R 100. Pinned exactly: every input is the sweep's own (CC-06 r2, D14). The app value is an exact single-string pattern, written without a run of four digits (the register's case-value check).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-235",
@@ -261,8 +261,8 @@
       "reason": "The total on the separated capital (IDR-212): capital plus interest. Pinned exactly: every input is the sweep's own (CC-06 r2, D14). The app value is an exact single-string pattern, written without a run of four digits (the register's case-value check).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-236",
@@ -281,8 +281,8 @@
       "reason": "The comparison of the separated total with the imported amount due (IDR-212) differs because the total does; the imported amount is case data, so only the line's shape is registered (CC-06 r2, D14). The total itself is pinned by IDR-235.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-213",
@@ -296,8 +296,8 @@
       "reason": "A reversed period (To before From) is refused visibly and nothing is computed; v5 showed a negative interest under a 0 yrs label (S-interest_calc_tab-3).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-214",
@@ -314,8 +314,8 @@
       "reason": "The refusal of a reversed period is a visible error line naming the problem (S-interest_calc_tab-3); the typed dates stay in the form.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-215",
@@ -330,8 +330,8 @@
       "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar link, as on every app view.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-217",
@@ -346,8 +346,8 @@
       "reason": "The page heading is the registry label (BA-18). v5's heading said Open Invoice Ledger although the ledger has no open or paid status and lists every invoice (S-invoice_ledger_tab-1).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-219",
@@ -362,8 +362,8 @@
       "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar link, as on every app view.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-220",
@@ -378,8 +378,8 @@
       "reason": "The page heading is the registry label, the task name the navigation uses (BA-18); v5's heading was Prescription Tracker.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-221",
@@ -394,8 +394,8 @@
       "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar link, as on every app view.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-223",
@@ -410,8 +410,8 @@
       "reason": "The imported prescription summary note is labelled as imported narrative that is not checked against the computed dates, so it cannot pass as a verified conclusion (BA-02); the note itself is shown unchanged.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-224",
@@ -428,8 +428,8 @@
       "reason": "An Arithmetic checks card counts the imported prescription dates that equal invoice date + 3 years (29 February moved to 28 February), labelled arithmetic only with the legal rule not approved. It answers S-prescription_tab-2 and S-prescription-frozen; approval of the legal rule stays with the user. Narrowed to this sentence (CC-06 r2, D14); IDR-238 covers the as-of sentence, and IDR-237's check keys must be exactly 0.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-238",
@@ -446,8 +446,8 @@
       "reason": "The card's second sentence (BA-01): the rows whose prescription date is before an explicit as-of date (on the as-of date itself the window is still open; PO decision, 11 October), the South African calendar date of the clock (CC-06 r2, D9), arithmetic only (S-prescription_tab-2, S-prescription-frozen). Its count is checked against the shown rows by IDR-237, which must be exactly 0 (CC-06 r2, D14).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-225",
@@ -464,8 +464,8 @@
       "reason": "Each row gets an As-of status computed from its imported prescription date and the as-of date (arithmetic only; a row has passed when its prescription date is before the as-of date, not on it), next to the imported Risk label, so a label frozen against the headline date is visible as such (S-prescription_tab-2, S-prescription-frozen). The parity report lists this cell for every row. Which status a row shows is checked by IDR-237 (count.check.as_of_status_disagreements must be exactly 0; CC-06 r2, D14).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-226",
@@ -487,8 +487,8 @@
       "reason": "The As-of status column (BA-01; S-prescription_tab-2, S-prescription-frozen) stands between the imported Risk label and the document link.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-237",
@@ -506,8 +506,8 @@
       "reason": "Check keys of the app adapter (CC-06 r2, D14): an oracle in the adapter recomputes each row's As-of status from its shown prescription date and the card's as-of date, and the card's +3-year and passed counts from the shown rows, and counts the disagreements. v5 has no such card (S-prescription_tab-2, S-prescription-frozen). Pinned to exactly 0: a wrong status, a swapped label or a wrong count fails parity, with no case value in the register.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-227",
@@ -527,8 +527,8 @@
       "reason": "The filter lives in the URL and the controls show it. Returning through the navigation now restores the view's last query (the base's sidebar, BASE-R2d; CC-06 r2, D19), so the table shows the filtered rows v5 shows, and the search box and Risk select show the filter that applies. v5 kept the old filter applied behind empty controls, so its table was silently filtered (S-prescription_tab-1, medium).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-228",
@@ -550,8 +550,8 @@
       "reason": "The export writes the rows the filters show, in the shown order (S-prescription_tab-3, BA-17); v5 always exported every row. Without a filter the export equals v5's.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-229",
@@ -568,8 +568,8 @@
       "reason": "The Arithmetic checks card states that its figures are arithmetic only and the legal rule (interruption) is not approved, and that the Prescribes and Risk columns are imported, the labels classified against the headline date (S-prescription_tab-2, S-prescription-frozen).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-230",
@@ -584,8 +584,8 @@
       "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar link, as on every app view.",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-231",
@@ -600,8 +600,8 @@
       "reason": "The model's inputs live in the URL query, so a reload gives the same result, and a Reset to defaults link returns to the package defaults and the prefilled claim (BA-03; v5 kept no input and reset on every visit).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-232",
@@ -624,8 +624,8 @@
       "reason": "A claim typed with the app's own thousands separator (1 000 000) is the full amount: every amount on the quantum views is parsed with one grammar. v5's parseFloat read it as 1, so all three scenarios differ (the separator half of S-settlement_tab-3; the whole-rand prefill is kept).",
       "productVisible": true,
       "author": "CC-06 worker (GRS-16)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-239",
@@ -636,8 +636,8 @@
       "reason": "The imported Risk labels are precomputed against a fixed headline date and leap-day invoices are moved to the 28th in the imported prescription dates. ClearCase still shows them as imported, but adds an As-of status computed from the shown date and an explicit as-of date, plus an arithmetic card; correcting the imported labels and dates is deferred to the document pipeline. Parity sees the change: IDR-225. Evidence: src/lib/views/quantum/prescription.ts:56.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-240",
@@ -648,8 +648,8 @@
       "reason": "S-quantum_tab-1: v5's headline source link bypasses the viewer, unlike every other document link; ClearCase renders it through the shared citation link, which opens the document page. S-quantum_tab-2: v5's charging shortcut sets only the type filter and keeps earlier filters; ClearCase links to the chronology with the default query and only the type set. Evidence: src/routes/v/[vid]/quantum/quantum_tab/+page.svelte:29, 17.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-241",
@@ -661,8 +661,8 @@
       "reason": "v5's amount chart assumes non-negative amounts and writes negative heights. ClearCase draws no bar for a negative amount. The bar-width formula with its minimum is unchanged, so bars can still overlap with a very large series, the other half of the defect; closing it would need an app change. Evidence: tests/quantum/ledger.test.ts:55.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-242",
@@ -674,8 +674,8 @@
       "reason": "v5 leaves the leap-day rule unspecified and precomputed. ClearCase still shows the imported date but adds an arithmetic-checks card counting leap-day invoices and rows equal to the invoice date plus three years, labelled arithmetic only with the legal rule not approved. The rule itself is still unspecified, which is the defect; specifying it needs a decision and an app change. Parity sees the change: IDR-224. Evidence: tests/quantum/prescription.test.ts:53.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-243",
@@ -698,8 +698,8 @@
       "reason": "v5 subtracts local-time dates, so a clock change gives a fractional day count. ClearCase counts whole days on the calendar from year, month and day, independent of the time zone. Evidence: tests/calculations/interest.test.ts:64.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-245",
@@ -748,8 +748,8 @@
       "reason": "S-settlement_tab-1 and S-settlement_tab-5: v5 hard-codes the cost, probability, years and discount defaults and a case narrative in the renderer; ClearCase reads them from the imported view-content dataset, so none is in code. S-settlement_tab-2: v5 uses the gross claim and ignores recorded payments; ClearCase prefills the net claim, the amount due less the recorded payments, and says so when payments exceed it. Evidence: src/routes/v/[vid]/quantum/settlement_tab/+page.server.ts:19, 21, 16.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-249",
@@ -761,8 +761,8 @@
       "reason": "v5's scenario labels do not reflect clamping of the probability, and costs are not discounted while recovery is. ClearCase copies both: fixed labels and undiscounted costs. Changing either would be an app change. Evidence: src/lib/views/quantum/settlement.ts:57.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     }
   ]
 }

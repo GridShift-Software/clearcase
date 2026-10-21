@@ -1,0 +1,601 @@
+{
+  "schema": "clearcase.storage-probe/1",
+  "sourceSha": "b9271a86071709cff1fa307dd5ef1abc0b1aae4e",
+  "treeClean": true,
+  "scale": "poc",
+  "seed": "grs-109",
+  "startedAt": "2026-10-21T12:53:54.854Z",
+  "finishedAt": "2026-10-21T13:02:00.773Z",
+  "runDir": ".local/hosting-probe/storage/2026-10-21T12-53-54-854Z",
+  "hosts": {
+    "bun": "1.4.2",
+    "node": "26.10.0",
+    "workerd": "1.20261012.1",
+    "build": "Bun 1.4.2",
+    "runner": "Bun 1.4.2",
+    "wrangler": "Node 26.10.0",
+    "app": "workerd 1.20261012.1 (native)"
+  },
+  "pins": {
+    "miniflare": "5.20261012.1-beta",
+    "workerd": "1.20261012.1",
+    "wrangler": "4.151.1"
+  },
+  "artifact": "sha256:686a95740b8ce9c89595365a1108abb2ffe43078121eeadd136ca920b801396b",
+  "isolation": {
+    "network": "own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden",
+    "env": [
+      "CI",
+      "CLOUDFLARE_CF_FETCH_ENABLED",
+      "CLOUDFLARE_INCLUDE_PROCESS_ENV",
+      "CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV",
+      "HOME",
+      "PATH",
+      "WRANGLER_HIDE_BANNER",
+      "WRANGLER_LOG_PATH",
+      "WRANGLER_SEND_ERROR_REPORTS",
+      "WRANGLER_SEND_METRICS",
+      "XDG_CACHE_HOME",
+      "XDG_CONFIG_HOME"
+    ]
+  },
+  "corpus": {
+    "target": {
+      "originals": {
+        "count": 1662,
+        "bytes": 3211390882,
+        "p50": 209920,
+        "p90": 1153434,
+        "p99": 33030144,
+        "max": 258590305,
+        "over32MiB": 17,
+        "over100MiB": 7
+      },
+      "package": {
+        "files": 37,
+        "bytes": 6249551,
+        "largest": {
+          "datasets/chronology.json": 1827097,
+          "datasets/bundles.json": 1613368,
+          "datasets/caselines-index.json": 1188230,
+          "assets.json": 798849
+        },
+        "othersUnder": 333000
+      },
+      "list": {
+        "rows": 1689,
+        "bytes": 1509878
+      },
+      "documents": {
+        "rows": 1689,
+        "p50": 1287,
+        "p99": 3093,
+        "max": 4617,
+        "bytes": 2342785
+      },
+      "assets": {
+        "rows": 3054,
+        "files": 1746,
+        "embedded": 1308
+      },
+      "seeds": {
+        "rows": 7
+      },
+      "kinds": [
+        [
+          "application/pdf",
+          "pdf",
+          1161
+        ],
+        [
+          "message/rfc822",
+          "eml",
+          467
+        ],
+        [
+          "application/vnd.ms-outlook",
+          "msg",
+          89
+        ],
+        [
+          "application/octet-stream",
+          "bin",
+          29
+        ]
+      ]
+    },
+    "generated": {
+      "originals": {
+        "count": 1662,
+        "bytes": 3211390882,
+        "p50": 210189,
+        "p90": 1153669,
+        "p99": 32648591,
+        "max": 258590305,
+        "over32MiB": 17,
+        "over100MiB": 7
+      },
+      "package": {
+        "files": 37,
+        "bytes": 6249551
+      },
+      "list": {
+        "rows": 1689,
+        "bytes": 1509878
+      },
+      "documents": {
+        "rows": 1689,
+        "bytes": 2342785,
+        "max": 4617
+      },
+      "assets": {
+        "rows": 3054,
+        "embedded": 1308
+      },
+      "seeds": {
+        "rows": 7
+      }
+    }
+  },
+  "legs": {
+    "build": {
+      "status": "PASS",
+      "commands": [
+        "bun run --bun build"
+      ],
+      "asserted": [
+        "bun build of src/worker.ts exits 0 offline under Bun 1.4.2",
+        "the Worker module dist/worker.js exists",
+        "the bundle imports no node:, bun: or CommonJS module"
+      ],
+      "measured": {
+        "workerBytes": 78254
+      }
+    },
+    "provision": {
+      "status": "PASS",
+      "commands": [
+        "node node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env client-a --file schema.sql --persist-to <run>/persist",
+        "node node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env client-b --file schema.sql --persist-to <run>/persist",
+        "node node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env restore-a --file schema.sql --persist-to <run>/persist",
+        "node node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env client-{a,b} --command \"INSERT INTO storage_identity …\" --persist-to <run>/persist",
+        "node node_modules/wrangler/bin/wrangler.js r2 object put storage-{a,b}/identity/client.json --local --persist-to <run>/persist",
+        "the restore-a identity follows in crossed-bindings"
+      ],
+      "asserted": [
+        "schema.sql applies to the three deployments’ local D1 databases in its own process",
+        "client A's database holds client A's identity row",
+        "client B's database holds client B's identity row, apart from A's",
+        "the restore deployment has the schema and no identity yet"
+      ],
+      "measured": {
+        "deployments": 3,
+        "schemaStatements": 19
+      }
+    },
+    "crossed-bindings": {
+      "status": "PASS",
+      "commands": [
+        "node node_modules/wrangler/bin/wrangler.js dev --local --env crossed-d1 --ip 127.0.0.1 --port 18797 --inspector-port 0 --persist-to <run>/persist",
+        "GET /identity, GET /cases/case-b1/work, PUT /originals/<sha>, POST /cases/case-b1/registers/notes/add",
+        "node node_modules/wrangler/bin/wrangler.js dev --local --env crossed-r2 --ip 127.0.0.1 --port 18797 --inspector-port 0 --persist-to <run>/persist",
+        "GET /identity, GET /cases/case-b1/work, PUT /originals/<sha>",
+        "node node_modules/wrangler/bin/wrangler.js dev --local --env restore-a --ip 127.0.0.1 --port 18797 --inspector-port 0 --persist-to <run>/persist",
+        "GET /identity before and after the D1 identity row",
+        "node node_modules/wrangler/bin/wrangler.js dev --local --env client-b --ip 127.0.0.1 --port 18797 --inspector-port 0 --persist-to <run>/persist"
+      ],
+      "asserted": [
+        "client A's Worker bound to B's database answers 503 crossed-binding naming DB, and never names client B",
+        "B's user work is not served through the crossed database",
+        "an upload through the crossed Worker is refused before any write",
+        "a user-work write through the crossed Worker is refused",
+        "client A's Worker bound to B's bucket answers 503 crossed-binding naming BUCKET on reads and writes",
+        "a deployment whose database has no identity row answers 503 missing-identity (fail-closed on a missing field)",
+        "with the D1 identity but no R2 identity object it still answers 503 missing-identity, naming BUCKET",
+        "client B's user work is byte for byte what it was before the crossed requests",
+        "neither bucket holds the object the crossed Workers were asked to store"
+      ],
+      "measured": {
+        "refusedRequests": 9
+      }
+    },
+    "upload": {
+      "status": "PASS",
+      "commands": [
+        "PUT /originals/<sha256> (single PUT, at most 64 MiB) for each original",
+        "POST /originals/<sha256>/uploads, PUT …/<part> (64 MiB parts), POST …/complete for the larger ones",
+        "POST /cases/case-synthetic-1/originals (finalize: the stored bytes hashed whole)",
+        "PUT with a wrong SHA-256; finalize of an object never uploaded; a repeated PUT"
+      ],
+      "asserted": [
+        "every original uploads and finalizes ()",
+        "finalize hashed every stored original whole before recording it",
+        "a PUT whose bytes differ from its SHA-256 answers 422 digest-mismatch: R2's put({sha256}) refused it",
+        "finalize of an object that was never uploaded answers 409 not-uploaded",
+        "a repeated PUT of the same content is a no-op (content-addressed, write-once)",
+        "finalize without a size answers 400 naming the field, never a default (400 {\"code\":\"invalid-field\",\"field\":\"size\"})"
+      ],
+      "measured": {
+        "wallMs": 57700.4,
+        "originals": 1662,
+        "bytes": 3211390882,
+        "multipart": 9,
+        "singlePuts": 1653,
+        "failures": 0,
+        "retries": 0,
+        "verifiedAtFinalizeBytes": 3211390882,
+        "maxR2OpsPerFinalize": 2
+      }
+    },
+    "import": {
+      "status": "PASS",
+      "commands": [
+        "POST /cases/<case>/versions/<v>/begin",
+        "PUT …/files/<path> (37 package files) and PUT …/list",
+        "POST …/rows (documents, then half the assets): attempt 1 stops there",
+        "POST …/begin again (recovery)",
+        "POST …/rows (json_each strategy, every table)",
+        "POST …/rows with an injected failing statement",
+        "POST …/finish (before and after the rows are complete)",
+        "POST …/rows and …/begin for a second version with bound parameters (the bound-row arm)",
+        "POST /cases/<case>/activate"
+      ],
+      "asserted": [
+        "begin stages a new version (attempt 1)",
+        "finish before every row is staged answers 409 incomplete and the version stays staging",
+        "begin after the interrupted attempt deletes its staged rows in one batch (attempt 2)",
+        "a rows batch whose last statement fails rolls back whole: no injected row stays",
+        "finish flips the version to stored once every count matches, in one guarded batch",
+        "D1 holds exactly the expected rows of each table for the version, none duplicated by the retry",
+        "rows sent after the version is stored are refused (409 not-staging)",
+        "begin on a stored version answers 409: a stored version is immutable",
+        "activation is one guarded batch: the stored version becomes the active one",
+        "a second activation with a stale expected pointer answers 409",
+        "a second version (the bound-row arm) stages beside the active one",
+        "the bound-row arm stores the same rows (a stored candidate, never activated)"
+      ],
+      "measured": {
+        "recoveredRows": 3253,
+        "wallMs": 5256.9,
+        "documents": 1689,
+        "assets": 3054,
+        "seeds": 7,
+        "packageFiles": 37,
+        "packageBytes": 6249551,
+        "listBytes": 1509878,
+        "jsonStatements": 6,
+        "boundStatements": 206,
+        "maxStatementsPerInvocation": 47,
+        "rowsWritten": 25458
+      }
+    },
+    "layout": {
+      "status": "PASS",
+      "commands": [
+        "POST /cases/<case>/versions/<v>/blob-arm (the package as D1 BLOBs, then removed)",
+        "GET /cases/<case>/documents/<ref> (cold, then 5 warm)",
+        "GET /cases/<case>/chronology (cold, then 5 warm)",
+        "GET /cases/<case>/originals/<asset> Range: bytes=0-63",
+        "GET /cases/<case>/versions/<candidate>/files/manifest.json"
+      ],
+      "asserted": [
+        "the 37 package files are written to D1 as BLOBs (layout arm) and removed again",
+        "the largest package value is the chronology dataset, 1,827,097 bytes: 91% of D1’s 2,000,000-byte limit",
+        "local D1 refuses a statement with 101 bound parameters (the 100 limit holds locally)",
+        "the document page reads its row by primary key from the active version",
+        "the chronology view reads the list from R2, verified, and parses every row",
+        "a range request of an original answers 206",
+        "a warm document page costs one D1 statement and no R2 operation",
+        "a warm chronology view costs one D1 statement and one R2 GET",
+        "a stored candidate's files are not served while another version is published; the published version's are"
+      ],
+      "measured": {
+        "d1BytesPerVersion": 4386816,
+        "d1BytesWithPackageBlobs": 6291456,
+        "largestPackageValue": 1827097,
+        "localRefusesValueOver2MB": false,
+        "localRefuses101Parameters": true,
+        "documentPageD1Statements": 1,
+        "documentPageR2Ops": 0,
+        "chronologyD1Statements": 1,
+        "chronologyR2Ops": 1,
+        "originalRangeD1Statements": 1,
+        "originalRangeR2Ops": 1,
+        "coldDocumentMs": 29.5,
+        "warmDocumentMs": 3.6,
+        "coldChronologyMs": 9.7,
+        "warmChronologyMs": 6.6
+      }
+    },
+    "range": {
+      "status": "PASS",
+      "commands": [
+        "GET Range: bytes=0-63, bytes=100-163, bytes=-64 and bytes=<n>- on an original",
+        "GET Range: bytes=0-0,5-9 (several ranges)",
+        "GET Range: bytes=<size>-",
+        "HEAD with a range",
+        "GET of a whole original up to 32 MiB",
+        "GET of the largest original, whole (two passes)",
+        "GET Range: bytes=0-65535 on the largest original",
+        "GET of another case’s and an unknown asset",
+        "GET Range: bytes=0-63 on an asset of client B’s case through client A",
+        "GET Range: bytes=9-0"
+      ],
+      "asserted": [
+        "bytes=0-63 answers 206 with exactly the first 64 bytes and their Content-Range",
+        "a middle range answers exactly bytes 100 to 163",
+        "a suffix range answers the last 64 bytes",
+        "an open-ended range answers through the last byte",
+        "several ranges, a range past the end and a backwards range answer 416 with no bytes",
+        "HEAD with a range answers its headers and no body",
+        "a whole original up to 32 MiB answers 200 with exactly its bytes",
+        "the largest original (258590305 bytes) answers 200 whole, its SHA-256 matching, through the two-pass path",
+        "a 64 KiB range of the largest original answers exactly those bytes, after the whole object was hashed",
+        "an asset id under another case, or an unknown asset, answers 404",
+        "client A's deployment knows no asset of client B's case (404, from A's own database)"
+      ],
+      "measured": {
+        "wholeLargestMs": 5367.1,
+        "rangeOnLargestMs": 2278.9,
+        "largestOriginalBytes": 258590305,
+        "workerdPeakRssBytes": 478699520
+      }
+    },
+    "write-once": {
+      "status": "PASS",
+      "commands": [
+        "PUT /originals/<sha256>, POST /cases/case-wo-1/originals (finalize), GET Range: bytes=0-63",
+        "POST /cases/case-wo-2/originals with the same SHA-256 and a wrong size",
+        "POST /originals/<sha>/uploads, PUT …/1 (other bytes), PUT /originals/<sha> and finalize, then POST …/complete over the recorded key",
+        "POST …/uploads and …/complete with bytes other than the key names, finalize, GET /probe/head/orig/<sha>",
+        "POST /cases/case-wo-1/originals binding an asset to another original"
+      ],
+      "asserted": [
+        "an original is uploaded and finalized in case 1, and its range and whole GET serve its bytes",
+        "case 2 finalizing the same SHA-256 with a wrong size answers 409 digest-mismatch (size), not a deletion of case 1's original",
+        "case 1's original is still stored and served byte for byte after the refused finalize, and case 2 recorded nothing",
+        "a second original is stored and recorded while a multipart upload for the same key is still open",
+        "completing that multipart upload over the recorded key answers 409 conflicting-object, and the recorded original is served unchanged",
+        "a multipart upload whose bytes are not the ones its key names completes: R2 checks no SHA-256 for multipart",
+        "finalizing it answers 409 digest-mismatch (sha256), records nothing and deletes nothing: the unrecorded object stays for a reaper",
+        "binding a recorded asset to another original answers 409 and the asset still serves the first"
+      ],
+      "measured": {
+        "refusedWrites": 4
+      }
+    },
+    "two-pass": {
+      "status": "PASS",
+      "commands": [
+        "PUT /originals/<sha256> (40 MiB) and POST /cases/case-tp/originals (finalize)",
+        "GET the original whole and Range: bytes=0-36700159, nothing changed",
+        "GET the original whole; one byte of its R2 blob changed once the headers are back",
+        "GET Range: bytes=0-36700159; one byte inside the range changed after the headers",
+        "GET Range: bytes=0-36700159; one byte outside the range changed after the headers"
+      ],
+      "asserted": [
+        "a 40 MiB original, over the 32 MiB buffer, is uploaded and finalized",
+        "unchanged, the whole GET and a 35 MiB range answer exactly their bytes",
+        "the whole GET errors before its end when a byte changes after its headers (200, 41938944 of 41943040 bytes, no error)",
+        "a 35 MiB range errors before its end when a byte inside it changes (206, 36696064 of 36700160 bytes, no error)",
+        "a 35 MiB range errors before its end when a byte outside it changes, because the digest covers the whole object (206, 36696064 of 36700160 bytes, no error)",
+        "with the byte put back, the whole GET answers exactly the original"
+      ],
+      "measured": {
+        "originalBytes": 41943040,
+        "changedReadsRefused": 3
+      }
+    },
+    "user-work": {
+      "status": "PASS",
+      "commands": [
+        "100 concurrent POST /cases/<case>/registers/{a,b}/add",
+        "100 concurrent POST …/naive-add (control: read, then write)",
+        "POST …/add again with an operationId already used",
+        "20 concurrent POST …/replace with one expected version",
+        "POST …/remove with a stale, then the current version; …/replace after removal",
+        "GET /cases/<case>/work?backup=1 (snapshot)",
+        "POST /cases/<case>/work/restore with a stale rev",
+        "POST …/work/restore with an injected failure after the deletes",
+        "POST …/work/restore with a snapshot lacking a table",
+        "POST …/work/restore with a snapshot adding a table, and with one adding a column",
+        "POST …/work/restore with the current rev",
+        "POST …/work/restore racing 20 adds",
+        "GET /cases/<case>/work"
+      ],
+      "asserted": [
+        "every one of 100 concurrent adds is written",
+        "each store’s seq runs 1 to 50 with no gap and no duplicate",
+        "each add moved the case revision exactly once",
+        "the control (read, then write) duplicates seq under the same load (98 duplicates), so the probe can see the defect it rules out",
+        "an add repeated with its operationId is recognised (repeated) and writes nothing",
+        "of 20 concurrent replaces with one expected version exactly one is written and 19 are stale",
+        "a remove with a stale version answers stale and removes nothing",
+        "a remove with the current version is written; a replace after it answers gone",
+        "the snapshot covers every uw_ table sqlite_master lists, and its backup is in R2",
+        "a restore against a revision that moved answers stale and changes nothing",
+        "a restore whose batch fails after its deletes rolls back whole: every row and the revision are as before",
+        "a snapshot lacking a case table is refused, naming the table: a restore never leaves tables the snapshot lacks",
+        "a snapshot that adds a table the deployment lacks is refused, naming the table, and changes nothing",
+        "a snapshot that adds a column to a table is refused, naming the table, and changes nothing",
+        "a restore at the current revision replaces the case’s user work whole with the snapshot, after a durable pre-restore copy",
+        "every racing add is written, and the restore is written or answers stale",
+        "exactly the adds after the restore’s revision remain (all of them when the restore was stale): no half-applied restore",
+        "the final revision is the last write’s"
+      ],
+      "measured": {
+        "concurrentAdds": 100,
+        "duplicateSeqs": 0,
+        "naiveDuplicateSeqs": 98,
+        "racedReplaces": 20,
+        "staleReplaces": 19,
+        "restoreRace": "restore-first"
+      }
+    },
+    "export": {
+      "status": "PASS",
+      "commands": [
+        "POST /cases/<case>/exports",
+        "POST /cases/<case>/exports/<id>/step until complete (one multipart part each)",
+        "POST …/seal (the packet hashed whole)",
+        "GET /cases/<case>/exports/<id> (two-pass verified download), then again with one byte of the packet changed after the headers",
+        "python3 -I (zipfile): open the packet offline, every entry’s CRC and the manifest’s SHA-256 and size",
+        "GET /cases/<case>/state"
+      ],
+      "asserted": [
+        "an export job starts from the active version, with a manifest of every entry",
+        "the export completes in 385 steps, each writing one part",
+        "seal hashes the completed packet whole and records its size and SHA-256",
+        "the packet downloads after a whole-object verification",
+        "the downloaded bytes match the sealed SHA-256 and size",
+        "a backup download errors before its end when a byte of the backup changes after its headers (3222958080 of 3222959051 bytes, no error); at smoke scale the backup may be read before the byte changes, and then it must be intact",
+        "Python's zipfile opens the packet offline: every entry's CRC-32 and the manifest's SHA-256 and size match, and the manifest's format is clearcase.case-backup/1 ({\"entries\": 1705, \"bytes\": 3222225140, \"client\": \"client-a\", \"caseId\": \"case-synthetic-1\", \"format\": \"clearcase.case-backup/1\"})",
+        "the source deployment’s state digest covers the case’s rows and every object, none missing"
+      ],
+      "measured": {
+        "wallMs": 102007.8,
+        "workerdPeakRssBytes": 1059516416,
+        "offlineCheckMs": 2659,
+        "entries": 1706,
+        "packetBytes": 3222959051,
+        "parts": 385,
+        "steps": 385,
+        "maxR2OpsPerStep": 45,
+        "maxD1StatementsPerStep": 6
+      }
+    },
+    "corruption": {
+      "status": "PASS",
+      "commands": [
+        "flip one byte at offset 100 of an original’s blob in the local R2 store (same size, same etag)",
+        "GET Range: bytes=0-63, GET and HEAD of it",
+        "POST /cases/<case>/exports and …/step until it fails",
+        "node node_modules/wrangler/bin/wrangler.js r2 object put storage-a/orig/<sha> --local --file <truncated> --persist-to <run>/persist",
+        "node node_modules/wrangler/bin/wrangler.js r2 object put storage-a/orig/<sha> --local --file <same size, other bytes> --persist-to <run>/persist",
+        "node node_modules/wrangler/bin/wrangler.js r2 object delete storage-a/orig/<sha> --local --persist-to <run>/persist",
+        "GET Range: bytes=0-63 of each",
+        "flip one byte of the chronology dataset’s blob (pkg/)",
+        "GET /cases/<case>/verify and GET …/files/datasets/chronology.json",
+        "node node_modules/wrangler/bin/wrangler.js r2 object put storage-a/rm/<v>/chronology.json --local --file <replaced> --persist-to <run>/persist",
+        "GET /cases/<case>/chronology"
+      ],
+      "asserted": [
+        "the original’s blob is found in the local R2 store by size and SHA-256, and one byte at offset 100 is flipped",
+        "Range: bytes=0-63 of the corrupted original answers 410 changed-original, with none of its bytes, though bytes 0 to 63 are intact",
+        "the whole GET and the HEAD answer 410 too",
+        "an export that reaches the corrupted original fails closed: 410, the job failed, its multipart upload aborted and no packet object",
+        "one original is truncated, one replaced by bytes of the same size, one deleted, each through the R2 CLI as a credential holder would",
+        "one byte of the chronology dataset’s blob (pkg/) is flipped at rest",
+        "the truncated original answers 410 (size), no bytes",
+        "the replaced original of the same size answers 410 (sha256), no bytes",
+        "the deleted original answers 410 missing-original",
+        "the version check and the file route refuse the corrupted package file (410 naming its key), serving none of it",
+        "the list (rm/) is replaced by bytes of the same size",
+        "the chronology view refuses the replaced list (410)"
+      ],
+      "measured": {
+        "casesRefused": 8
+      }
+    },
+    "restore": {
+      "status": "PASS",
+      "commands": [
+        "node node_modules/wrangler/bin/wrangler.js dev --local --env client-b --ip 127.0.0.1 --port 18797 --inspector-port 0 --persist-to <run>/persist",
+        "POST /restore/packets, PUT …/<part> (64 MiB parts), POST …/complete, POST …/open (client B)",
+        "node node_modules/wrangler/bin/wrangler.js dev --local --env restore-a --ip 127.0.0.1 --port 18797 --inspector-port 0 --persist-to <run>/persist",
+        "POST /restore/packets, PUT …/<part>, POST …/complete (restore-a)",
+        "POST /restore/packets/<id>/open",
+        "POST …/step until done",
+        "POST …/finish",
+        "GET /cases/<case>/state, GET …/originals/<asset> Range: bytes=0-63"
+      ],
+      "asserted": [
+        "client A's packet uploaded to client B's deployment is refused on open (409 wrong-client)",
+        "the fresh deployment opens the packet from its central directory and manifest, entry for entry",
+        "every object entry is copied to its key in 32 steps, R2 checking each against the manifest's SHA-256 and the archive's CRC-32",
+        "finish rebuilds the version, read model, originals, activation and user work through the guarded import path",
+        "the restored deployment’s state digest equals the source’s, taken before any corruption: rows, user work and every object",
+        "an original that was corrupted at the source is served intact, verified, from the restored deployment",
+        "the restored user work is readable",
+        "finishing the same restore again answers 409 already-restored and changes nothing"
+      ],
+      "measured": {
+        "wallMs": 107038.2,
+        "entries": 1706,
+        "steps": 32,
+        "objects": 1700
+      }
+    },
+    "restore-guards": {
+      "status": "PASS",
+      "commands": [
+        "POST /restore/packets, PUT …/1, POST …/complete, for each synthetic backup",
+        "POST …/open, …/step and …/finish naming a case other than the backup’s",
+        "POST …/step on an entry whose archive CRC-32 is wrong, for an original already stored",
+        "POST …/step on an entry whose key already holds other bytes (a multipart upload)",
+        "POST /cases/<case>/versions/<v>/begin by another case, then …/step and …/finish of a backup of that version",
+        "POST …/finish of a backup lacking a table the deployment has, then of a corrected one",
+        "GET /probe/live/<case> and /probe/head/<key> before and after each",
+        "POST …/finish again and …/step on the stored version",
+        "POST …/finish for a case that already has an active version",
+        "POST …/finish of a backup whose counts disagree with its rows, then of a corrected one",
+        "POST …/uploads and …/finalize of a shared original, then …/step and …/finish of a backup carrying it",
+        "POST …/finish of a backup whose user work repeats a key or leaves a NOT NULL column null, then of a corrected one",
+        "POST …/finish of a backup whose read model repeats a key or retypes a value"
+      ],
+      "asserted": [
+        "an original is stored and verified through the upload path",
+        "a backup with one entry whose central-directory CRC-32 is wrong still opens: its manifest is intact",
+        "its step answers 422 crc-mismatch and the stored original is still there, with its SHA-256 (a mismatch deletes nothing)",
+        "an object other than its key names is in place under orig/<sha> (a multipart upload)",
+        "a step whose target key holds other bytes answers 409 conflicting-object and leaves those bytes",
+        "open, step and finish naming another case answer 409 wrong-case, and neither case changes",
+        "another case stages the same results version",
+        "step and finish of a backup whose version belongs to another case answer 409 version-of-another-case, and the case is unchanged",
+        "a backup whose user work lacks uw_note opens, and its objects are copied",
+        "finishing it answers 422 snapshot-incomplete naming uw_note, and the case holds no version, row or activation it did not hold before",
+        "the corrected backup of the same case and version opens, and its objects, already copied, are accepted again",
+        "the retry restores the version, the activation, the original and the user work",
+        "the restore wrote its pre-restore backup first: it is in R2 under backup/, with its SHA-256",
+        "a backup whose original record carries another case’s id restores",
+        "the original is bound to the case in the request, and the case in the record has none",
+        "finish and step on the stored version answer 409 already-restored, and its package file is as it was",
+        "a backup of another version for a case that already has an active version answers 409 case-live, and the case is unchanged",
+        "a backup whose results record expects 2 documents but carries 1 opens, and its objects are copied",
+        "finishing it answers 422 invalid-packet and the case holds no version, original, revision or user work it did not hold before",
+        "the corrected backup of the same case and version restores",
+        "an original is stored through multipart and recorded by another case: R2 holds no SHA-256 for it",
+        "a backup carrying that original steps and restores: the recorded multipart object is accepted and left as it was",
+        "a backup whose user work holds one note key twice opens, and finishing it answers 422 invalid-packet naming uw_note; the case holds no version, row or revision it did not hold before",
+        "a note whose NOT NULL body is null is refused the same way, and the case is as it was",
+        "a read model with one document ref twice is refused with the key named, and the case is as it was",
+        "a read model whose row_json is not text is refused with the column named, and the case is as it was",
+        "the corrected backup of the same case and version restores"
+      ],
+      "measured": {
+        "refusals": 16
+      }
+    }
+  },
+  "hold": [
+    "P1 page latency from South Africa and the cold-isolate fraction: needs real Workers, D1 and R2 (M2)",
+    "P2 presigned-PUT upload burst of ~1,700 objects: needs the R2 S3 endpoint (M2)",
+    "P3 verification-job CPU against the Workers CPU limit, and whether a presigned PUT can enforce a SHA-256: needs real Workers and R2 (M2)",
+    "P5 enforcement of the per-invocation D1 query and subrequest limits: local workerd does not enforce them (M2)",
+    "P6 D1 Time Travel restore and undo, and wrangler d1 export duration: need a real D1 database (M2)",
+    "actual EU placement of D1 and R2 (jurisdiction eu): needs a Cloudflare account (M2)",
+    "P4 to P6 against the two-database layout arm (results and user work in separate D1 databases): not run, so the layout is chosen structurally, from statement and batch counts, until both layouts are compared (M2)"
+  ],
+  "devProxyRetries": {
+    "count": 1,
+    "requests": [
+      "restore: POST /restore/packets/<id>/step (attempt 2)"
+    ]
+  },
+  "failure": null,
+  "evidence": true,
+  "checker": {
+    "mutationsRefused": 2124,
+    "accepted": null
+  }
+}

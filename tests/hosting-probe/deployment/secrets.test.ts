@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { accessSync, chmodSync, constants, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { accessSync, chmodSync, constants, existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeEach, describe, expect, test } from 'vitest';
 
@@ -45,7 +45,7 @@ describe('one child gets the values; its children and environment do not', () =>
 		expect(`${r.stdout}${r.stderr}`).not.toContain(VALUE);
 		const seen = JSON.parse(r.stdout.trim().split('\n').at(-1)!);
 		expect(seen.sees).toBe(SHA);
-		expect(seen.fd3AtStart).toBe(to === 'fd' ? 'socket' : 'closed');
+		expect(seen.fd3AtStart).toBe('closed'); // a preload took the values and closed fd 3 before the child's own code ran, in both modes
 		expect(seen.fd3AfterTake).toBe('closed');
 		expect([seen.initialEnviron, seen.enumerable, seen.jsonCopy, seen.fdVariable]).toEqual([false, false, false, false]);
 		expect(seen.grandchildren).toHaveLength(6);
@@ -60,6 +60,58 @@ describe('one child gets the values; its children and environment do not', () =>
 
 	test("the child's exit code is the reader's", () => {
 		expect(reader(['run', 'synthetic', '--', NODE, '-e', 'process.exit(7)']).status).toBe(7);
+	});
+});
+
+describe('a grandchild gets neither the pipe nor its variable, whether or not the child reads it (M4)', () => {
+	test.each(['fd', 'env'])('--to %s: a child that never reads the values leaves nothing for `sh -c "sh -c ..."` to read from fd 3', (to) => {
+		const code = [
+			"const { execFileSync } = require('node:child_process');",
+			"const viaSh = execFileSync('sh', ['-c', 'sh -c \"cat <&3\" 2>/dev/null; echo end'], { encoding: 'utf8' });",
+			"console.log(JSON.stringify({ variable: 'CLEARCASE_SECRETS_FD' in process.env, shellEnv: execFileSync('sh', ['-c', 'env'], { encoding: 'utf8' }).includes('CLEARCASE_SECRETS_FD'), viaSh }));",
+		].join('\n');
+		const r = reader(['run', 'synthetic', '--keys', 'SYNTHETIC_TOKEN', '--to', to, '--', NODE, '-e', code]);
+		expect(r.status).toBe(0);
+		expect(`${r.stdout}${r.stderr}`).not.toContain(VALUE);
+		expect(JSON.parse(r.stdout.trim().split('\n').at(-1)!)).toEqual({ variable: false, shellEnv: false, viaSh: 'end\n' });
+	});
+
+	test.each(['fd', 'env'])('--to %s: a command that is not a real Node is refused before it starts, because only Node can close fd 3 first', (to) => {
+		const marker = path.join(SCRATCH, `ran-${to}`);
+		const script = path.join(SCRATCH, `not-node-${to}`);
+		writeFileSync(script, `#!/bin/sh\necho ran > ${marker}\n`, { mode: 0o755 });
+		for (const command of [[script], ['/bin/sh', '-c', 'true'], [process.execPath, '-e', '0']]) {
+			const r = reader(['run', 'synthetic', '--to', to, '--', ...command]);
+			expect(r.status, command.join(' ')).toBe(2);
+			expect(r.stderr).toMatch(/secrets: refused: .*not a real Node/);
+		}
+		expect(existsSync(marker)).toBe(false);
+	});
+});
+
+describe('a command that cannot start is a refusal with no stack trace, and --to env starts nothing first (L1)', () => {
+	test.each(['fd', 'env'])('--to %s: a command that does not exist', (to) => {
+		const r = reader(['run', 'synthetic', '--to', to, '--', path.join(SCRATCH, 'no-such-command')]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toMatch(/^secrets: refused: .*(no-such-command)/m);
+		expect(r.stderr).not.toMatch(/\n\s+at |\.ts:\d+/);
+		expect(`${r.stdout}${r.stderr}`).not.toContain(VALUE);
+	});
+
+	test('--to env does not run the command once without the secrets before it refuses', () => {
+		const marker = path.join(SCRATCH, 'ran-before-refusal');
+		const script = path.join(SCRATCH, 'probe-me');
+		writeFileSync(script, `#!/bin/sh\necho "$@" >> ${marker}\n`, { mode: 0o755 });
+		expect(reader(['run', 'synthetic', '--to', 'env', '--', script]).status).toBe(2);
+		expect(existsSync(marker)).toBe(false);
+	});
+
+	test('a command that exists but cannot be executed is a refusal too', () => {
+		const file = path.join(SCRATCH, 'not-executable');
+		writeFileSync(file, 'echo hi\n', { mode: 0o644 });
+		const r = reader(['run', 'synthetic', '--to', 'fd', '--', file]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).not.toMatch(/\n\s+at /);
 	});
 });
 

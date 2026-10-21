@@ -4,6 +4,7 @@
 //
 //   bun install --frozen-lockfile   # once, online: this workspace's own pins, apart from the root lockfile
 //   bun run --bun probe [--out FILE]
+//   bun run --bun probe --check     # does the committed summary vouch for this checkout? (an ancestor sourceSha, this probe's inputs unchanged, the page naming it)
 //
 // It re-runs itself inside tests/e2e/pilot/offline.sh (a network namespace with only loopback, the host resolver
 // hidden), so no account, login or request can reach Cloudflare; every account ID is a placeholder. Node hosts cf,
@@ -20,6 +21,7 @@ import { accessSync, appendFileSync, constants, cpSync, existsSync, mkdirSync, r
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { scanPaths } from '../../../deploy/probes/scan.ts';
+import { checkSummary, PROBE_INPUTS } from '../../../deploy/probes/summary-check.ts';
 import { BUILD_OUTPUT, checkTarget, digestDir, loadTargets } from '../../../deploy/probes/target.ts';
 
 const HERE = import.meta.dirname;
@@ -279,6 +281,9 @@ async function main(out: string): Promise<number> {
 		const bunDry = step(l, 'Bun', [tool.cf, 'deploy', '--dry-run', '--no-provision'], { cwd: plain });
 		const nodeDry = step(l, 'Node', [tool.cf, 'deploy', '--dry-run', '--no-provision'], { cwd: plain });
 		check(nodeDry.code === 0 && nodeDry.out.includes('--dry-run: exiting now'), 'under Node, cf deploy --dry-run --no-provision completes in a plain Worker project with cloudflare.config.ts');
+		// The page states these as measured; a changed tool must fail the leg, not leave the page stale.
+		check(bunVersion.code === 0 && bunVersion.out.trim() === pins.cf, `under Bun, cf --version exits 0 and prints ${pins.cf}`);
+		check(bunDry.code === 0 && bunDry.out.includes('--dry-run: exiting now'), 'under Bun, cf deploy --dry-run --no-provision completes too: the documented Bun config-loading failure does not reproduce');
 		l.observed = {
 			cfEngines: '^22.23.0 || ^24.22.0 || ^26.12.0',
 			nodeSatisfiesCfEngines: satisfies(node.version, '^22.23.0 || ^24.22.0 || ^26.12.0'),
@@ -308,8 +313,9 @@ async function main(out: string): Promise<number> {
 		const worker = existsSync(path.join(kit, '.svelte-kit/cloudflare/_worker.js'));
 		const deploy = step(l, 'Node', [tool.cf, 'deploy', '--dry-run', '--no-provision'], { cwd: kit });
 		const error = /Build Output Specification[^\n]*\n?[^\n]*/.exec(build.out)?.[0]?.replace(/│/g, '').replace(/\s+/g, ' ').trim() ?? null;
-		check(build.code !== null, 'cf build ran to an exit code');
 		check(worker, 'the framework build ran: adapter 8 wrote .svelte-kit/cloudflare/_worker.js');
+		check(build.code === 1 && error !== null && /no root config found at \S*\.cloudflare\/output\/v0\/config\.json/.test(error) && !buildOutput, 'cf build exits 1 after the framework build with "Build Output Specification: no root config found at .cloudflare/output/v0/config.json" and writes no Build Output: cf cannot build Kit 3');
+		check(deploy.code === 1, 'cf deploy --dry-run --no-provision exits 1 on the same project');
 		l.observed = { buildExit: build.code, buildOutputWritten: buildOutput, error: error && show(error), deployDryRunExit: deploy.code, deployDryRunCompleted: deploy.out.includes('--dry-run: exiting now') };
 	});
 
@@ -343,6 +349,7 @@ async function main(out: string): Promise<number> {
 		const h = lastJson(harness.out, '[harness] ');
 		check(harness.code === 0 && h?.status === 200 && (h.body as Record<string, unknown>).client === 'probe-local', 'createTestHarness serves /api/health from the built Worker under Node');
 		const bunHarness = step(l, 'Bun', ['harness.mjs'], { cwd: kit });
+		check(bunHarness.code === 1 && /UserError|cannot reach the Worker|Bun/.test(bunHarness.out), 'createTestHarness exits 1 under Bun');
 		l.observed = { artifact: digestDir(artifact), health, harnessUnderBun: { exit: bunHarness.code, userError: /UserError|cannot reach the Worker|Bun/.test(bunHarness.out) } };
 	});
 
@@ -412,6 +419,7 @@ async function main(out: string): Promise<number> {
 		const viaNode = step(l, 'Node', [tool.vitest, 'run', '--config', 'vitest.workers.config.mjs'], { cwd: kit });
 		check(viaNode.code === 0 && /1 passed/.test(viaNode.out), 'under Node the Workers pool runs the bindings test in workerd and it passes');
 		const viaBun = step(l, 'Bun', ['--bun', tool.vitest, 'run', '--config', 'vitest.workers.config.mjs'], { cwd: kit });
+		check(viaBun.code === 0 && /1 passed/.test(viaBun.out), 'under Bun the Workers pool also runs the bindings test in workerd and it passes');
 		l.observed = { node: 'supported: 1 passed', bun: { exit: viaBun.code, passed: /1 passed/.test(viaBun.out), firstError: show(/(?:Error|error)[^\n]{0,200}/.exec(viaBun.out)?.[0] ?? '') } };
 	});
 
@@ -440,6 +448,7 @@ async function main(out: string): Promise<number> {
 		})();
 		check(info.code === 0 && infoJson !== null, 'void info --json answers offline with JSON');
 		const build = step(l, 'Node', [tool.vite, 'build'], { cwd: app, env: credentialed });
+		check(build.code === 1 && build.out.includes('ERR_UNSUPPORTED_ESM_URL_SCHEME') && build.out.includes("'cloudflare:'"), "vite build with Void's plugin exits 1 with ERR_UNSUPPORTED_ESM_URL_SCHEME on cloudflare:, so there is no bundle to inspect");
 		const built = build.code === 0 && existsSync(path.join(app, '.svelte-kit/cloudflare/_worker.js'));
 		const bundled = (needle: string) => (built ? readdirSync(path.join(app, '.svelte-kit'), { recursive: true, withFileTypes: true }).filter((e) => e.isFile() && /\.(?:js|mjs)$/.test(e.name) && readFileSync(path.join(e.parentPath, e.name), 'utf8').includes(needle)).length : 'no bundle');
 		const generated = existsSync(path.join(app, '.void-wrangler.jsonc')) ? readFileSync(path.join(app, '.void-wrangler.jsonc'), 'utf8') : '';
@@ -624,6 +633,8 @@ async function main(out: string): Promise<number> {
 	const summary = {
 		schema: SCHEMA,
 		sourceSha: sha,
+		// the git object ids of the probe's own inputs at sourceSha, which --check compares with HEAD's
+		inputs: Object.fromEntries(PROBE_INPUTS.map((i) => [i, git('rev-parse', `${sha}:${i}`)])),
 		treeClean: clean && endSha === sha,
 		startedAt,
 		finishedAt: new Date().toISOString(),
@@ -661,9 +672,19 @@ function enterOffline(args: string[]): number {
 	return r.status ?? 1;
 }
 
-const { values } = parseArgs({ options: { out: { type: 'string' }, inside: { type: 'boolean' } } });
+/** `--check`: whether the committed summary vouches for this checkout (an ancestor sourceSha, the probe's own inputs unchanged, the page naming it). */
+function checkCommitted(): number {
+	const root = repo();
+	const problems = checkSummary({ repo: root, summary: path.join(root, 'docs/acceptance/hosting/evidence/deployment-summary.json'), doc: path.join(root, 'docs/acceptance/hosting/deployment.md') });
+	for (const p of problems) console.error(`refused: ${p}`);
+	console.log(`DEPLOYMENT SUMMARY ${problems.length ? 'REFUSED' : 'PASS'}`);
+	return problems.length ? 1 : 0;
+}
+
+const { values } = parseArgs({ options: { out: { type: 'string' }, inside: { type: 'boolean' }, check: { type: 'boolean' } } });
 try {
 	if (process.versions.bun !== BUN) throw new Refusal(`runs under Bun ${BUN} only (packageManager); this is ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node ${process.versions.node}`}`);
+	if (values.check) process.exit(checkCommitted());
 	const out = path.resolve(values.out ?? path.join(repo(), '.local/hosting-probe/deployment/summary.json'));
 	if (!values.inside) process.exit(enterOffline(['--out', out]));
 	if (process.env.CLEARCASE_OFFLINE !== '1') throw new Refusal('--inside runs only under tests/e2e/pilot/offline.sh');

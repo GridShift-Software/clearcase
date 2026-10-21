@@ -1,16 +1,19 @@
 // Disposable cloud resources for proof runs (GRS-107, the 17 October local-first plan on GRS-26). Every Worker, D1
 // database and R2 bucket a run creates is named cc-<ticket>-<worker>-<sha7>, in lowercase. A run writes its manifest,
-// .local/cloud-runs/<name>.json, before it creates anything, records each creation, and an exit trap deletes exactly the
-// resources the manifest lists (the bucket first, then the database, then the Worker) and records each result. The
-// janitor deletes only cc-* resources older than 24 hours whose manifest is finished or missing, and never one whose
-// name is not a run name. Creating and deleting go through a Provider; the Cloudflare provider and the janitor's real
+// <dir>/<name>.json, before it creates anything, records each creation after the provider returns, and an exit trap
+// deletes the (kind, name) pairs the run itself opened, held in memory and each checked against the run's own name
+// (the Worker first, then the database, then the bucket), and records each result. The manifest file is a record
+// for operators and the janitor: the run reads only its status, so a file rewritten during the run deletes nothing.
+// The janitor deletes only cc-* resources older than 24 hours whose manifest is finished or missing, and never one
+// whose name is not a run name. Creating and deleting go through a Provider; the Cloudflare provider and the janitor's real
 // sweep are cloud legs held for M1.
 //
 //   bun deploy/probes/cloud-run.ts name --ticket 107 --worker w1 [--sha <commit>]
-//   bun deploy/probes/cloud-run.ts janitor --listing FILE [--manifests DIR] [--now ISO]
+//   bun deploy/probes/cloud-run.ts janitor --listing FILE --manifests DIR [--now ISO]
 //
 // `janitor` is a dry run: it prints the plan for a resource listing (a JSON array of { kind, name, createdAt }) and
-// deletes nothing.
+// deletes nothing. It has no default manifests directory: a default inside one checkout would read another checkout's
+// open runs as orphaned.
 import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -59,24 +62,33 @@ export function openRun(a: { dir: string; ticket: string; worker: string; sha: s
 	mkdirSync(a.dir, { recursive: true });
 	const order = [...a.kinds].sort((x, y) => KINDS.indexOf(x) - KINDS.indexOf(y));
 	write(file, { schema: RUN_SCHEMA, name, sha: a.sha, createdAt: now().toISOString(), state: 'open', finishedAt: null, resources: order.map((kind) => ({ kind, name, created: false, teardown: 'pending', error: null })) });
-	const read = () => JSON.parse(readFileSync(file, 'utf8')) as RunManifest;
+	// The run's own record, in memory: the teardown deletes these (kind, name) pairs and nothing the file says.
+	const manifest: RunManifest = JSON.parse(readFileSync(file, 'utf8'));
+	/** The one thing read back from the file: whether the run is still open. */
+	const status = () => {
+		try {
+			return (JSON.parse(readFileSync(file, 'utf8')) as RunManifest).state;
+		} catch {
+			return 'unreadable';
+		}
+	};
 	let done: RunManifest | null = null;
 	const run: Run = {
 		name,
 		file,
 		create(kind) {
-			const m = read();
-			const r = m.resources.find((x) => x.kind === kind);
-			if (!r || m.state !== 'open') throw new Error(`${name}: ${kind} is not in the open manifest`);
+			const r = manifest.resources.find((x) => x.kind === kind);
+			if (!r || manifest.state !== 'open' || status() !== 'open') throw new Error(`${name}: ${kind} is not in the open manifest`);
 			a.provider.create(kind, name);
 			r.created = true;
-			write(file, m);
+			write(file, manifest);
 		},
 		teardown() {
 			if (done) return done;
-			const m = read();
-			for (const r of m.resources) {
+			for (const r of manifest.resources) {
 				try {
+					// a run deletes its own names and nothing else, whatever its manifest file or its caller says
+					if (r.name !== name || !RUN_NAME.test(r.name) || !KINDS.includes(r.kind)) throw new Error(`${r.kind} ${r.name} is not one of ${name}'s own`);
 					a.provider.remove(r.kind, r.name);
 					r.teardown = 'deleted';
 				} catch (e) {
@@ -84,10 +96,10 @@ export function openRun(a: { dir: string; ticket: string; worker: string; sha: s
 					r.error = e instanceof Error ? e.message : String(e);
 				}
 			}
-			m.state = 'finished';
-			m.finishedAt = now().toISOString();
-			write(file, m);
-			return (done = m);
+			manifest.state = 'finished';
+			manifest.finishedAt = now().toISOString();
+			write(file, manifest);
+			return (done = manifest);
 		},
 	};
 	if (a.trap !== false) {
@@ -149,15 +161,16 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 		} else if (command === 'janitor') {
 			const listing = arg('--listing');
 			if (!listing) throw new Error('janitor needs --listing FILE');
-			const manifests = path.resolve(arg('--manifests') ?? '.local/cloud-runs');
+			const manifests = arg('--manifests');
+			if (!manifests) throw new Error('janitor needs --manifests DIR: it has no default, because a default inside one checkout would read another checkout\'s open runs as orphaned');
 			const now = new Date(arg('--now') ?? Date.now());
 			if (!Number.isFinite(now.getTime())) throw new Error('--now is not a time');
-			const plan = janitorPlan({ listing: parseListing(JSON.parse(readFileSync(listing, 'utf8'))), manifests, now });
+			const plan = janitorPlan({ listing: parseListing(JSON.parse(readFileSync(listing, 'utf8'))), manifests: path.resolve(manifests), now });
 			for (const r of plan.remove) console.log(`would delete ${r.kind} ${r.name} (created ${r.createdAt})`);
 			for (const k of plan.keep) console.log(`keep ${k.resource.kind} ${k.resource.name}: ${k.reason}`);
 			console.log(`JANITOR DRY RUN: ${plan.remove.length} to delete, ${plan.keep.length} kept, nothing deleted`);
 		} else {
-			console.error('usage: cloud-run.ts name --ticket N --worker W [--sha SHA] | janitor --listing FILE [--manifests DIR] [--now ISO]');
+			console.error('usage: cloud-run.ts name --ticket N --worker W [--sha SHA] | janitor --listing FILE --manifests DIR [--now ISO]');
 			process.exit(2);
 		}
 	} catch (e) {

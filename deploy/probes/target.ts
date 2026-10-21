@@ -7,10 +7,13 @@
 //
 //   bun deploy/probes/target.ts check <client> [--format wrangler|cf --config FILE]
 //   bun deploy/probes/target.ts stage <client> --artifact DIR --digest sha256:<hex> --out DIR
+//   bun deploy/probes/target.ts prebuilt <client> --stage DIR
 //
 // `check` reads the client's committed wrangler.jsonc and cloudflare.config.ts unless --config names one file. `stage`
 // checks both, refuses an artifact whose digest is not the reviewed one, and copies the configs, the target and the
-// artifact into a new directory, the only directory an upload command then runs in. Exit 0 PASS, 1 refused, 2 usage.
+// artifact into a new directory, the only directory an upload command then runs in. `prebuilt` checks the Build Output a
+// credential-free `cf build` wrote in that stage, because `cf deploy --prebuilt` uploads its bindings, not the cf
+// config's. Exit 0 PASS, 1 refused, 2 usage.
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -21,6 +24,9 @@ export const CLIENTS_DIR = path.join(import.meta.dirname, 'clients');
 export const CONFIG_FILES = { wrangler: 'wrangler.jsonc', cf: 'cloudflare.config.ts' } as const;
 /** Where a stage puts the reviewed artifact, relative to the configs: the only Worker entry and assets a config may name. */
 export const STAGED = { entry: 'artifact/cloudflare/_worker.js', assets: 'artifact/cloudflare' } as const;
+/** The Build Output Specification directory a credential-free `cf build` writes in a stage, which `cf deploy --prebuilt` uploads. */
+export const BUILD_OUTPUT = '.cloudflare/output/v0';
+const PREBUILT_MODULES = { '_worker.js': 'esm', '_worker.js.map': 'sourcemap' } as Record<string, string>;
 export type Format = keyof typeof CONFIG_FILES;
 
 export type Target = {
@@ -135,24 +141,37 @@ function readWrangler(text: string, problems: string[]): Resolved | null {
 	return { accountId: config.account_id, worker: config.name, d1, r2, secrets, vars: config.vars, entry: config.main, assets, raw: config };
 }
 
-/** A cloudflare.config.ts that is `export default <JSON literal>;` after whole-line comments, as data, never evaluated. */
-function readCf(text: string, problems: string[]): Resolved | null {
+/** The one module a prebuilt Worker's manifest may start from, or the manifest itself when it names anything else. */
+function prebuiltEntry(manifest: unknown): unknown {
+	if (!isObject(manifest) || manifest.type !== 'complete' || !isObject(manifest.modules)) return manifest;
+	const modules = Object.entries(manifest.modules);
+	const known = modules.every(([name, m]) => isObject(m) && PREBUILT_MODULES[name] === m.type && Object.keys(m).length === 1);
+	return known && modules.length === Object.keys(PREBUILT_MODULES).length && Object.keys(manifest).length === 3 ? manifest.mainModule : manifest;
+}
+
+/**
+ * A cloudflare.config.ts that is `export default <JSON literal>;` after whole-line comments, as data, never evaluated; or,
+ * for `prebuilt`, the Build Output's config.json with its one Worker's worker.config.json as `worker`.
+ */
+function readCf(text: string, problems: string[], prebuilt = false): Resolved | null {
 	const body = text.split('\n').filter((l) => !l.trimStart().startsWith('//')).join('\n');
-	const literal = /^\s*export default (\{[\s\S]*\});\s*$/.exec(body);
+	const literal = prebuilt ? [body, body] : /^\s*export default (\{[\s\S]*\});\s*$/.exec(body);
 	let config: unknown;
 	try {
 		if (!literal) throw new Error('it is not `export default <JSON literal>;`');
 		config = JSON.parse(literal[1]!);
 	} catch (e) {
-		problems.push(`the cf config is not data only (${(e as Error).message}); the trusted parent never evaluates config code`);
+		problems.push(`the ${prebuilt ? 'Build Output' : 'cf config'} is not data only (${(e as Error).message}); the trusted parent never evaluates config code`);
 		return null;
 	}
 	if (!isObject(config)) return void problems.push('the cf config is not an object'), null;
-	onlyKeys(config, ['accountId', 'worker'], 'config', problems);
+	onlyKeys(config, prebuilt ? ['accountId', 'buildContext', 'worker'] : ['accountId', 'worker'], 'config', problems);
+	if (prebuilt && JSON.stringify(config.buildContext) !== '{"isPreview":false}') problems.push(`config.buildContext is ${show(config.buildContext)}, not a production build ({"isPreview":false})`);
 	const worker = isObject(config.worker) ? config.worker : (problems.push(`config.worker is ${show(config.worker)}`), {});
-	onlyKeys(worker, ['name', 'compatibilityDate', 'compatibilityFlags', 'entrypoint', 'env'], 'config.worker', problems);
+	onlyKeys(worker, ['name', 'compatibilityDate', 'compatibilityFlags', prebuilt ? 'manifest' : 'entrypoint', 'env'], 'config.worker', problems);
 	const env = isObject(worker.env) ? worker.env : (problems.push(`config.worker.env is ${show(worker.env)}`), {});
-	const resolved: Resolved & { secrets: string[]; vars: Record<string, unknown> } = { accountId: config.accountId, worker: worker.name, d1: [], r2: [], secrets: [], vars: {}, entry: worker.entrypoint, raw: config };
+	const entry = prebuilt ? prebuiltEntry(worker.manifest) : worker.entrypoint;
+	const resolved: Resolved & { secrets: string[]; vars: Record<string, unknown> } = { accountId: config.accountId, worker: worker.name, d1: [], r2: [], secrets: [], vars: {}, entry, raw: config };
 	for (const [binding, b] of Object.entries(env)) {
 		const at = `config.worker.env.${binding}`;
 		const o = isObject(b) ? b : {};
@@ -166,11 +185,11 @@ function readCf(text: string, problems: string[]): Resolved | null {
 }
 
 /** Every reason `text` (a `format` config) must not deploy `client`; empty means it names exactly the client's target. */
-export function checkTarget(a: { client: string; targets: Target[]; format: Format; text: string }): string[] {
+export function checkTarget(a: { client: string; targets: Target[]; format: Format | 'prebuilt'; text: string }): string[] {
 	const target = a.targets.find((t) => t.client === a.client);
 	if (!target) return [`no target manifest for ${a.client}`];
 	const problems: string[] = [];
-	const config = (a.format === 'wrangler' ? readWrangler : readCf)(a.text, problems);
+	const config = a.format === 'wrangler' ? readWrangler(a.text, problems) : readCf(a.text, problems, a.format === 'prebuilt');
 	if (!config) return problems;
 	const owners = new Map(a.targets.flatMap((t) => Object.values(identifiers(t)).flat().map((v) => [v, t.client] as const)));
 	const foreign = new Set<string>();
@@ -184,7 +203,8 @@ export function checkTarget(a: { client: string; targets: Target[]; format: Form
 	expect('worker', config.worker, target.worker);
 	// The stage checks the artifact's digest, so the config must upload that artifact and nothing beside it.
 	const staged = (v: unknown) => (typeof v === 'string' ? path.posix.normalize(v) : v);
-	if (staged(config.entry) !== STAGED.entry) problems.push(`the Worker entry is ${show(config.entry)}, not the staged artifact's ${STAGED.entry}`);
+	const entry = a.format === 'prebuilt' ? path.basename(STAGED.entry) : STAGED.entry;
+	if (staged(config.entry) !== entry) problems.push(`the Worker entry is ${show(config.entry)}, not the staged artifact's ${entry}`);
 	if (a.format === 'wrangler' && staged(config.assets) !== STAGED.assets) problems.push(`the assets directory is ${show(config.assets)}, not the staged artifact's ${STAGED.assets}`);
 	if (config.d1.length !== 1) problems.push(`the config binds ${config.d1.length} D1 databases, not exactly ${a.client}'s one`);
 	for (const d of config.d1) (expect('d1 binding', d.binding, target.d1.binding), expect('d1 name', d.name, target.d1.name), expect('d1 id', d.id, target.d1.id));
@@ -201,6 +221,23 @@ export function checkTarget(a: { client: string; targets: Target[]; format: Form
 	};
 	walk(config.raw);
 	return problems;
+}
+
+/** Every reason the Build Output a credential-free `cf build` wrote in `stage` must not be uploaded for `client` with `cf deploy --prebuilt`. */
+export function checkPrebuilt(a: { client: string; stage: string; targets?: Target[] }): string[] {
+	const out = path.join(a.stage, BUILD_OUTPUT);
+	const workers = existsSync(path.join(out, 'workers')) ? readdirSync(path.join(out, 'workers')) : [];
+	if (workers.length !== 1) return [`the Build Output holds ${workers.length} Workers, not exactly one`];
+	let text: string;
+	try {
+		const top = JSON.parse(readFileSync(path.join(out, 'config.json'), 'utf8')) as unknown;
+		const worker = JSON.parse(readFileSync(path.join(out, 'workers', workers[0]!, 'worker.config.json'), 'utf8')) as unknown;
+		if (!isObject(top) || 'worker' in top) return ['the Build Output config.json is not an object without a worker key'];
+		text = JSON.stringify({ ...top, worker });
+	} catch (e) {
+		return [`the Build Output cannot be read: ${(e as Error).message}`];
+	}
+	return checkTarget({ client: a.client, targets: a.targets ?? loadTargets(), format: 'prebuilt', text });
 }
 
 /** sha256 over every file under `dir` (relative path and bytes), in path order. */
@@ -242,7 +279,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 		const i = rest.indexOf(name);
 		return i < 0 ? undefined : rest[i + 1];
 	};
-	const usage = (): never => (console.error('usage: target.ts check <client> [--format wrangler|cf --config FILE] | stage <client> --artifact DIR --digest sha256:<hex> --out DIR'), process.exit(2));
+	const usage = (): never => (console.error('usage: target.ts check <client> [--format wrangler|cf --config FILE] | stage <client> --artifact DIR --digest sha256:<hex> --out DIR | prebuilt <client> --stage DIR'), process.exit(2));
 	if (!client) usage();
 	let problems: string[];
 	try {
@@ -252,6 +289,10 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 			const targets = loadTargets();
 			const files: [Format, string][] = format ? [[format as Format, config!]] : (Object.keys(CONFIG_FILES) as Format[]).map((f) => [f, path.join(CLIENTS_DIR, client!, CONFIG_FILES[f])]);
 			problems = files.flatMap(([f, file]) => checkTarget({ client: client!, targets, format: f, text: readFileSync(file, 'utf8') }).map((p) => `${path.basename(file)}: ${p}`));
+		} else if (command === 'prebuilt') {
+			const dir = arg('--stage');
+			if (!dir) usage();
+			problems = checkPrebuilt({ client: client!, stage: path.resolve(dir!) });
 		} else if (command === 'stage') {
 			const artifact = arg('--artifact'), digest = arg('--digest'), out = arg('--out');
 			if (!artifact || !digest || !out) usage();

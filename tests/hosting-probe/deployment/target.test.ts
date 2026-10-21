@@ -11,6 +11,25 @@ const b = targets.find((t) => t.client === 'client-b')!;
 const config = (client: string, file: string) => readFileSync(path.join(CLIENTS, client, file), 'utf8');
 const FORMATS = [['wrangler', 'wrangler.jsonc'], ['cf', 'cloudflare.config.ts']] as const;
 
+type Path = (string | number)[];
+const leaves = (v: unknown, at: Path = []): Path[] =>
+	(at.length ? [at] : []).concat(v && typeof v === 'object' ? Object.entries(v).flatMap(([k, x]) => leaves(x, [...at, Array.isArray(v) ? Number(k) : k])) : []);
+const mutants = (value: unknown) =>
+	leaves(value).flatMap((at) =>
+		(['delete', 'null', 'retype'] as const).map((op) => {
+			const copy = structuredClone(value) as Record<string | number, unknown>;
+			const parent = at.slice(0, -1).reduce<Record<string | number, unknown>>((o, k) => o[k] as Record<string | number, unknown>, copy);
+			const key = at.at(-1)!;
+			const old = parent[key];
+			if (op === 'delete') Array.isArray(parent) ? parent.splice(key as number, 1) : delete parent[key];
+			else parent[key] = op === 'null' ? null : typeof old === 'string' ? 7 : Array.isArray(old) ? {} : typeof old === 'object' && old !== null ? [] : 'x';
+			return { label: `${op} ${at.join('.')}`, copy };
+		}),
+	);
+
+// Reviewed with the config, never compared with a target: none of them names a client or the uploaded code.
+const UNREAD = /^(compatibility_date|compatibility_flags|send_metrics|assets\.binding|d1_databases\.0\.migrations_dir|worker\.compatibilityDate|worker\.compatibilityFlags)(\.|$)/;
+
 describe('same-account wrong-client identifiers', () => {
 	for (const [format, file] of FORMATS) {
 		test(`${format}: client B's D1 id in client A's config is refused, naming client B`, () => {
@@ -87,26 +106,9 @@ describe('the target check fails closed', () => {
 });
 
 describe('every field the check reads, deleted, nulled or retyped, is refused', () => {
-	type Path = (string | number)[];
-	const leaves = (v: unknown, at: Path = []): Path[] =>
-		(at.length ? [at] : []).concat(v && typeof v === 'object' ? Object.entries(v).flatMap(([k, x]) => leaves(x, [...at, Array.isArray(v) ? Number(k) : k])) : []);
-	const mutants = (value: unknown) =>
-		leaves(value).flatMap((at) =>
-			(['delete', 'null', 'retype'] as const).map((op) => {
-				const copy = structuredClone(value) as Record<string | number, unknown>;
-				const parent = at.slice(0, -1).reduce<Record<string | number, unknown>>((o, k) => o[k] as Record<string | number, unknown>, copy);
-				const key = at.at(-1)!;
-				const old = parent[key];
-				if (op === 'delete') Array.isArray(parent) ? parent.splice(key as number, 1) : delete parent[key];
-				else parent[key] = op === 'null' ? null : typeof old === 'string' ? 7 : Array.isArray(old) ? {} : typeof old === 'object' && old !== null ? [] : 'x';
-				return { label: `${op} ${at.join('.')}`, copy };
-			}),
-		);
 	const MUTANT = path.join(import.meta.dirname, '../../../.local/hosting-probe/deployment', `mutant-${process.pid}`);
 	afterAll(() => rmSync(MUTANT, { recursive: true, force: true }));
 	const data = (text: string) => JSON.parse(text.split('\n').filter((l) => !l.trimStart().startsWith('//')).join('\n').replace(/^\s*export default /, '').replace(/;\s*$/, ''));
-	// Reviewed with the config, never compared with a target: none of them names a client or the uploaded code.
-	const UNREAD = /^(compatibility_date|compatibility_flags|send_metrics|assets\.binding|d1_databases\.0\.migrations_dir|worker\.compatibilityDate|worker\.compatibilityFlags)(\.|$)/;
 
 	for (const [format, file] of FORMATS) {
 		test(`${format}: every mutant of client A's config outside the unread keys is refused`, () => {
@@ -186,6 +188,13 @@ describe("the Build Output of a credential-free cf build is checked again before
 	test('no Build Output', () => refuses(path.join(BOS, 'none'), /holds 0 Workers/));
 	test('a module beside the staged entry', () =>
 		refuses(write('module', { ...worker(a), manifest: { ...worker(a).manifest, modules: { ...worker(a).manifest.modules, 'extra.js': { type: 'esm' } } } }), /Worker entry/));
+	test('every mutant of the Build Output outside the unread keys is refused', () => {
+		const accepted = mutants({ accountId: a.accountId, buildContext: { isPreview: false }, worker: worker(a) })
+			.filter(({ label }) => !UNREAD.test(label.split(' ')[1]!))
+			.filter(({ copy }) => checkTarget({ client: 'client-a', targets, format: 'prebuilt', text: JSON.stringify(copy) }).length === 0)
+			.map(({ label }) => label);
+		expect(accepted).toEqual([]);
+	});
 	test('a preview build or another account', () => {
 		refuses(write('preview', worker(a), ['default'], { accountId: a.accountId, buildContext: { isPreview: true } }), /buildContext/);
 		refuses(write('account', worker(a), ['default'], { accountId: 'f'.repeat(32), buildContext: { isPreview: false } }), /account id/);

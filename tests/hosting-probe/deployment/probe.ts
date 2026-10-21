@@ -20,7 +20,7 @@ import { accessSync, appendFileSync, constants, cpSync, existsSync, mkdirSync, r
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { scanPaths } from '../../../deploy/probes/scan.ts';
-import { checkTarget, digestDir, loadTargets } from '../../../deploy/probes/target.ts';
+import { BUILD_OUTPUT, checkTarget, digestDir, loadTargets } from '../../../deploy/probes/target.ts';
 
 const HERE = import.meta.dirname;
 const SCHEMA = 'clearcase.deployment-probe/1';
@@ -28,6 +28,8 @@ const pkg = JSON.parse(readFileSync(path.join(HERE, 'package.json'), 'utf8')) as
 const BUN = pkg.packageManager.replace(/^bun@/, '');
 const LOCAL_D1 = '00000000-0000-4000-8000-000000000107';
 const PLACEHOLDER_ACCOUNT = '00000000000000000000000000000107';
+// A synthetic placeholder, not a credential: without any token cf stops at authentication before the step under test.
+const SYNTHETIC_TOKEN = { CLOUDFLARE_API_TOKEN: 'synthetic-placeholder-not-a-token' };
 const PORT = 18797;
 const HOLD = [
 	'P10 (moment M1, Workers Free): a real prebuilt upload with an upload-only token, enforced token grants and denied actions, a Void deploy with pending D1 migrations behind a time-travel bookmark, a Worker rollback, and teardown of cc-* resources through the run manifest',
@@ -481,8 +483,7 @@ async function main(out: string): Promise<number> {
 	});
 
 	await leg('P8-unforced-destructive', 'an unforced destructive command, non-interactive, placeholder account, offline', (l, check) => {
-		// A synthetic placeholder, not a credential: without any token cf stops at authentication before its prompt.
-		const token = { CLOUDFLARE_API_TOKEN: 'synthetic-placeholder-not-a-token' };
+		const token = SYNTHETIC_TOKEN;
 		const persist = path.join(runDir, 'persist/p4-cf');
 		const cases = [
 			['cf d1 delete, no token', [tool.cf, 'd1', 'delete', clientA.d1.id], {}],
@@ -505,7 +506,7 @@ async function main(out: string): Promise<number> {
 		l.observed = results;
 	});
 
-	await leg('P9-wrong-client', "two clients on one placeholder account: target check and dry runs, and client B's D1 id in client A's config", (l, check) => {
+	await leg('P9-wrong-client', "two clients on one placeholder account: target check, dry runs and cf's prebuilt route, and client B's D1 id in client A's config and Build Output", (l, check) => {
 		check(clientA.accountId === clientB.accountId, 'both clients name the same account');
 		const reviewed = digestDir(artifact);
 		const stageFor = (client: string, name = client) => {
@@ -532,6 +533,32 @@ async function main(out: string): Promise<number> {
 				own[`${t.client} ${toolName}`] = names;
 			}
 		}
+		// cf's route for a framework it cannot build (P2): a credential-free cf build of the staged artifact, the target check
+		// on the Build Output it wrote, then an upload of that Build Output alone, the only step that would hold a token.
+		const prebuiltNames: Record<string, unknown> = {};
+		let prebuiltA = '';
+		for (const t of [clientA, clientB]) {
+			const dir = stageFor(t.client, `${t.client}-prebuilt`);
+			const build = step(l, 'Node', [tool.cf, 'build'], { cwd: dir });
+			check(build.code === 0 && existsSync(path.join(dir, BUILD_OUTPUT, 'workers')), `cf build of ${t.client}'s stage writes a Build Output with no token`);
+			const checked = step(l, 'Bun', [path.join(root, 'deploy/probes/target.ts'), 'prebuilt', t.client, '--stage', dir], { cwd: root });
+			check(checked.code === 0, `target.ts prebuilt passes ${t.client}'s Build Output`);
+			const upload = step(l, 'Node', [tool.cf, 'deploy', '--prebuilt', '--dry-run', '--no-provision'], { cwd: dir, env: SYNTHETIC_TOKEN });
+			const names = bindingNames(upload.out);
+			check(upload.code === 0 && JSON.stringify(names) === JSON.stringify([`BUCKET=${t.r2.bucket}`, `CLEARCASE_CLIENT_ID="${t.client}"`, `DB=${t.d1.name}`]), `cf deploy --prebuilt --dry-run of ${t.client}'s Build Output names exactly its own D1, bucket and client`);
+			prebuiltNames[t.client] = names;
+			if (t === clientA) prebuiltA = dir;
+		}
+		const swappedOutput = path.join(runDir, 'stage-prebuilt-swapped');
+		cpSync(prebuiltA, swappedOutput, { recursive: true });
+		const workerConfig = path.join(swappedOutput, BUILD_OUTPUT, 'workers/default/worker.config.json');
+		writeFileSync(workerConfig, readFileSync(workerConfig, 'utf8').replace(clientA.d1.id, clientB.d1.id));
+		const outputCheck = step(l, 'Bun', [path.join(root, 'deploy/probes/target.ts'), 'prebuilt', 'client-a', '--stage', swappedOutput], { cwd: root });
+		check(outputCheck.code === 1 && outputCheck.out.includes(`d1 id ${clientB.d1.id} belongs to client-b, not client-a`), "the target check refuses client B's D1 id in client A's Build Output");
+		const outputUpload = step(l, 'Node', [tool.cf, 'deploy', '--prebuilt', '--dry-run', '--no-provision'], { cwd: swappedOutput, env: SYNTHETIC_TOKEN });
+		const prebuiltAlone = { exit: outputUpload.code, names: bindingNames(outputUpload.out), showsForeignId: outputUpload.out.includes(clientB.d1.id) };
+		check(prebuiltAlone.exit === 0 && !prebuiltAlone.showsForeignId, 'cf deploy --prebuilt --dry-run alone passes the swapped Build Output and never shows the foreign D1 id: the check runs again after cf build');
+
 		const swapped = stageFor('client-a', 'swapped');
 		for (const f of ['cloudflare.config.ts', 'wrangler.jsonc']) writeFileSync(path.join(swapped, f), readFileSync(path.join(swapped, f), 'utf8').replace(clientA.d1.id, clientB.d1.id));
 		const refusals = (['cf', 'wrangler'] as const).map((format) => {
@@ -543,7 +570,7 @@ async function main(out: string): Promise<number> {
 		const swappedRuns = dryRuns(swapped);
 		const dryRunAlone = Object.fromEntries(Object.entries(swappedRuns).map(([k, r]) => [k, { exit: r.code, names: bindingNames(r.out), showsForeignId: r.out.includes(clientB.d1.id) }]));
 		check(Object.values(dryRunAlone).every((r) => r.exit === 0 && !r.showsForeignId), "the dry runs alone pass the swapped config and never show the foreign D1 id: the manifest check is required");
-		l.observed = { account: clientA.accountId, own, refusals, dryRunAlone };
+		l.observed = { account: clientA.accountId, own, refusals, dryRunAlone, prebuilt: { names: prebuiltNames, refusal: outputCheck.out.split('\n').filter((x) => x.startsWith('refused:')), uploadAlone: prebuiltAlone } };
 	});
 
 	await leg('janitor-dry-run', 'the disposable-resource janitor against a fake account listing', (l, check) => {

@@ -186,3 +186,53 @@ describe("a preload or loader in the child's arguments is refused before the chi
 		expect(r.stdout.trim()).toBe('import --required --important');
 	});
 });
+
+describe('every Node option before the entry is refused unless it is on the allow-list (polish C, L1)', () => {
+	// --env-file and --experimental-config-file hand Node options to the child (NODE_OPTIONS=--require, nodeOptions.require) with no loader flag in argv.
+	const marker = () => path.join(SCRATCH, 'ran-option');
+	const files = () => {
+		writeFileSync(path.join(SCRATCH, 'x.cjs'), `require('node:fs').writeFileSync(${JSON.stringify(marker())}, 'ran');\n`);
+		writeFileSync(path.join(SCRATCH, 'pre.env'), `NODE_OPTIONS=--require ${path.join(SCRATCH, 'x.cjs')}\n`);
+		writeFileSync(path.join(SCRATCH, 'pre.json'), JSON.stringify({ nodeOptions: { require: [path.join(SCRATCH, 'x.cjs')] } }));
+	};
+	const refusedForms: [string, string[]][] = [
+		['--env-file=', ['--env-file=pre.env']],
+		['--env-file ', ['--env-file', 'pre.env']],
+		['--env-file-if-exists=', ['--env-file-if-exists=pre.env']],
+		['--env-file-if-exists ', ['--env-file-if-exists', 'pre.env']],
+		['--experimental-config-file=', ['--experimental-config-file=pre.json']],
+		['--experimental-config-file ', ['--experimental-config-file', 'pre.json']],
+		['an option no list names (--conditions=)', ['--conditions=x']],
+		['an option no list names (--inspect)', ['--inspect']],
+		['a short option no list names (-C)', ['-C', 'x']],
+	];
+	test.each(refusedForms)('%s', (_name, flag) => {
+		files();
+		for (const to of ['fd', 'env']) {
+			const r = reader(['run', 'synthetic', '--to', to, '--', NODE, ...flag, '-e', '0']);
+			expect(r.status, `${flag.join(' ')} (${to})`).toBe(2);
+			expect(r.stderr).toMatch(/secrets: refused: .*(Node option|before the entry)/);
+			expect(`${r.stdout}${r.stderr}`).not.toContain(VALUE);
+		}
+		expect(existsSync(marker())).toBe(false);
+	});
+
+	test('Node reads these three from anywhere before a `--`, so they are refused after -e and after the script too', () => {
+		files();
+		const args: string[][] = [['-e', '0', '--env-file=pre.env'], ['--env-file=pre.env', 'x.cjs'], ['--env-file', 'pre.env', 'x.cjs'], ['x.cjs', '--env-file=pre.env'], ['x.cjs', '--env-file-if-exists', 'pre.env'], ['x.cjs', '--experimental-config-file=pre.json']];
+		for (const a of args) expect(reader(['run', 'synthetic', '--', NODE, ...a]).status, a.join(' ')).toBe(2);
+		expect(existsSync(marker())).toBe(false);
+	});
+
+	test('the allow-listed options, and a script with arguments of its own (after `--` too), still run', () => {
+		files();
+		const script = path.join(SCRATCH, 'args.cjs');
+		writeFileSync(script, 'console.log(process.argv.slice(2).join(" "));\n');
+		const run = (...args: string[]) => reader(['run', 'synthetic', '--', NODE, ...args]);
+		expect(run('--no-warnings', '--max-old-space-size=256', '-p', '1 + 1').stdout.trim()).toBe('2');
+		expect(run('--no-warnings', script, 'a', '-x', '--y=1').stdout.trim()).toBe('a -x --y=1');
+		expect(run(script, '--', '--env-file=pre.env').stdout.trim()).toBe('-- --env-file=pre.env');
+		expect(run('--eval=console.log(7)').stdout.trim()).toBe('7');
+		expect(existsSync(marker())).toBe(false);
+	});
+});

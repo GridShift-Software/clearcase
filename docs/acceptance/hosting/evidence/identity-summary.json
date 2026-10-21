@@ -1,6 +1,6 @@
 {
   "schema": "clearcase.identity-probe/1",
-  "sourceSha": "ad1d0eb0277277245c3167d1b8e717973eac90ef",
+  "sourceSha": "159a79966425a4d189c55fba1941a7320191ad64",
   "inputs": {
     "paths": [
       "tests/hosting-probe/identity",
@@ -9,13 +9,13 @@
       "deploy/probes/secrets-env.mjs",
       "deploy/probes/secrets-fd.mjs"
     ],
-    "digest": "sha256:c395ff7b2315799abc82bf1bf28085a73b38de9f683852fdafb892240df93fbc"
+    "digest": "sha256:e953dee1e6521592d8f5d7f1557a8acaa82131a21af35514b5eafd2f4e272dfe"
   },
   "treeClean": true,
-  "servedStamp": "ad1d0eb0277277245c3167d1b8e717973eac90ef",
-  "startedAt": "2026-10-21T16:32:29.046Z",
-  "finishedAt": "2026-10-21T16:37:24.250Z",
-  "runDir": ".local/hosting-probe/identity/2026-10-21T16-32-29-044Z",
+  "servedStamp": "159a79966425a4d189c55fba1941a7320191ad64",
+  "startedAt": "2026-10-21T18:04:50.901Z",
+  "finishedAt": "2026-10-21T18:10:03.315Z",
+  "runDir": ".local/hosting-probe/identity/2026-10-21T18-04-50-897Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -36,7 +36,7 @@
     "workerd": "1.20261019.1",
     "wrangler": "4.151.3"
   },
-  "artifact": "sha256:3661b3e21f1642825b15d6af01476bc6017c6ccb8c8299cb9c9d99a18a416976",
+  "artifact": "sha256:fbdaa2f5baddcbf7720380202e97cf0c1a4a8f90cec2f2f3376316cf353e653c",
   "instances": {
     "client": {
       "name": "Clear-Case-Dev-A",
@@ -163,6 +163,7 @@
         "client: the firm admin has no case content without an assignment (404)",
         "client: the Global Admin grants the operator case 1 for 10 minutes",
         "client: and case 2 for 20 seconds (the expiry leg replays it later)",
+        "client: a grant to a subject that is no user of the staff instance (Dev-B) is refused (404)",
         "client: the operator reads case 1 metadata under the grant",
         "client: the operator reads case 1's draft asset under the grant",
         "client: an assigned viewer cannot reach the draft through the published-asset route (404)",
@@ -173,6 +174,7 @@
         "client: each grant is an audit event naming the Global Admin",
         "client: the grant itself is an audit event naming the case and the operator, written in the grant's transaction",
         "client: the firm admin's refused case read is an audit event",
+        "client: the refused grant is an audit event naming the Global Admin and the case, and no grant row was written for that subject",
         "client: a firm admin's client session cannot read the audit (401)"
       ]
     },
@@ -242,11 +244,13 @@
     "cleanup": {
       "status": "PASS",
       "asserted": [
+        "all 14 sessions the run created are gone or ended (14 ended, 0 pending)",
         "client: no user or invitation of this run is left in Clerk",
         "client: the user count and pending invitations are back to the run's baseline",
         "staff: no user or invitation of this run is left in Clerk",
         "staff: the user count and pending invitations are back to the run's baseline",
-        "created 8 users and 9 invitations; deleted the same"
+        "created 8 users and 9 invitations; deleted the same",
+        "every object of the run was deleted or ended"
       ]
     },
     "credential-scan": {
@@ -2304,7 +2308,8 @@
     },
     "sessions": {
       "created": 14,
-      "ended": 14
+      "ended": 14,
+      "pending": 0
     },
     "testingTokens": {
       "created": 17
@@ -2313,7 +2318,7 @@
       "created": 17
     },
     "apiCalls": {
-      "backend": 84
+      "backend": 88
     }
   },
   "hold": [

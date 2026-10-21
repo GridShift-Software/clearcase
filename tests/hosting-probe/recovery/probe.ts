@@ -21,7 +21,7 @@ import { parseArgs } from 'node:util';
 const HERE = import.meta.dirname;
 const STORAGE = path.join(HERE, '../storage');
 const SCHEMA = 'clearcase.recovery-probe/1';
-const LEGS = ['build', 'provision', 'crossed-recovery', 'seed', 'rollback', 'copies', 'deletion-flow', 'deletion-reapply', 'restore-from-copy', 'retention', 'ledger-guards'] as const;
+const LEGS = ['build', 'provision', 'crossed-recovery', 'seed', 'rollback', 'copies', 'deletion-flow', 'deletion-reapply', 'restore-from-copy', 'retention', 'ledger-guards', 'warm-isolate'] as const;
 type LegName = (typeof LEGS)[number];
 type Measure = Record<string, number | string | boolean>;
 type Leg = { status: 'PASS' | 'FAIL' | 'NOT RUN'; commands: string[]; asserted: string[]; measured: Measure; failure?: string };
@@ -71,6 +71,7 @@ const LEG_SHAPE: Record<LegName, [number, number]> = {
 	'restore-from-copy': [7, 14],
 	retention: [5, 11],
 	'ledger-guards': [4, 4],
+	'warm-isolate': [5, 6],
 };
 type Spec = null | boolean | number | string | RegExp | ((v: unknown) => boolean) | Spec[] | { [key: string]: Spec };
 const NONEMPTY = (v: unknown) => typeof v === 'string' && v.length > 0;
@@ -91,6 +92,7 @@ const MEASURES: Record<LegName, Record<string, Spec>> = {
 	'restore-from-copy': { restoredOriginals: 2, lostRowsAfterCopy: 2, stageMs: MS, restoreMs: MS, checksMs: MS, totalMs: MS },
 	retention: { rotations: 6, copiesRemoved: 4, copiesKept: 0, bundleVersionsKept: 1 },
 	'ledger-guards': { refusedRequests: 3 },
+	'warm-isolate': { routesGone: 9, adoptedRemovals: 1, residueRows: 0 },
 };
 const ENV_KEYS = ['CI', 'CLOUDFLARE_CF_FETCH_ENABLED', 'CLOUDFLARE_INCLUDE_PROCESS_ENV', 'CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV', 'HOME', 'PATH', 'WRANGLER_HIDE_BANNER', 'WRANGLER_LOG_PATH', 'WRANGLER_SEND_ERROR_REPORTS', 'WRANGLER_SEND_METRICS', 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME'];
 
@@ -868,6 +870,39 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			if (wrangler('r2', 'object', 'delete', 'recovery-copies-a/deletion/case-recovery-planted.json', '--local', '--env', 'client-a').code !== 0) throw new Error('removing the planted record');
 			check((await http(`/cases/${A2}/documents/S-0001`)).status === 200, 'with the planted record gone the deployment answers again, and A2 is intact');
 			m.refusedRequests = refused;
+		});
+
+		// ----- a running isolate learns of a deletion that its D1 does not hold -----
+		await leg('warm-isolate', ['POST /cases/<A2>/deletion/approve, …/offer {exportId}, GET /cases/<A2>/documents/<ref>', wcmd('r2 object put {recovery-a,recovery-copies-a}/deletion/<A2>.json --local (a valid record, D1 still says offered)'), 'every case route of A2 under the same running Worker', 'POST /cases/<A2>/deletion/remove {actor global-admin}, GET /cases/<A2>/deletion', wcmd('d1 execute DB --local --env client-a --command "<every table with a case_id, version_id or export_id column>"')], async (check, m) => {
+			const GA = { role: 'global-admin', id: 'ga-1' };
+			const ids = (sql: string, c: string) => (d1('client-a', sql) as Record<string, string>[]).map((r) => r[c]!);
+			const exportsOfA2 = ids(`SELECT export_id FROM export_job WHERE case_id = '${A2}'`, 'export_id');
+			const versionsOfA2 = ids(`SELECT version_id FROM results_version WHERE case_id = '${A2}'`, 'version_id');
+			const approved = await post(`/cases/${A2}/deletion/approve`, { actor: GA });
+			const sealed = await exportCase(A2);
+			exportsOfA2.push(sealed.exportId);
+			const offered = await post(`/cases/${A2}/deletion/offer`, { actor: GA, exportId: sealed.exportId });
+			check(approved.status === 200 && offered.status === 200 && (await http(`/cases/${A2}/documents/S-0001`)).status === 200, 'A2 is approved and its export offered, and this running Worker has served A2');
+			const d = await json(`/cases/${A2}/deletion`);
+			// What another isolate writes before its erasure stops part-way, or what D1 Time Travel leaves behind: the record is in both buckets, D1 says offered.
+			const record = { format: 'clearcase.deletion-record/1', client: 'client-a', caseId: A2, requestedBy: d.requested_by, requestedAt: d.requested_at, approvedBy: d.approved_by, approvedAt: d.approved_at, offeredExport: { exportId: d.export_id, sha256: d.export_sha256, size: d.export_size, offeredAt: d.offered_at }, removedBy: 'global-admin:ga-2', removedAt: new Date().toISOString() };
+			const file = path.join(scratch, 'warm-record.json');
+			writeFileSync(file, JSON.stringify(record));
+			check(r2put('client-a', 'recovery-a', `deletion/${A2}.json`, file).code === 0 && r2put('client-a', 'recovery-copies-a', `deletion/${A2}.json`, file).code === 0 && d.state === 'offered', "A2's deletion record is written to both buckets while D1 still says offered");
+			let gone = 0;
+			const answers: string[] = [];
+			for (const [label, request] of caseRoutes(A2)) {
+				const r = await request();
+				if (code(r, 410, 'case-deleted') && !r.text.includes('SYNTHETIC')) gone++;
+				else answers.push(`${label} ${r.status}`);
+			}
+			check(gone === caseRoutes(A2).length, `the same running Worker answers 410 case-deleted on every case route of A2, reads and writes alike, with no case bytes (${answers.join(', ')})`);
+			const retry = await post(`/cases/${A2}/deletion/remove`, { actor: GA });
+			check(retry.status === 200 && retry.json().state === 'removed', "the Global Admin's retried removal succeeds");
+			check((await json(`/cases/${A2}/deletion`)).removed_at === record.removedAt, "D1 holds the record's removal time: the removal adopts the record and writes no new one");
+			const res = residue('client-a', A2, versionsOfA2, exportsOfA2);
+			check(res.left.length === 0 && isGone(await liveOf(A2)), `A2 holds no row in any of the ${res.tables} tables sqlite_master lists with such a column (${res.left.join(', ')})`);
+			Object.assign(m, { routesGone: gone, adoptedRemovals: 1, residueRows: res.left.length });
 		});
 	} catch (e) {
 		failure = e instanceof Error ? e.message : String(e);

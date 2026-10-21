@@ -16,7 +16,8 @@ export const RULES: Record<string, RegExp> = {
 	'cloudflare-prefixed-token': /\bcf(?:at|ut|k)_[A-Za-z0-9_-]{20,}/,
 	'auth-header': /\b(?:authorization["']?\s*[:=]\s*["']?bearer\s+[A-Za-z0-9._-]{20,}|x-auth-key["']?\s*[:=]\s*["']?[0-9a-f]{37}\b)/i,
 	'clerk-secret-key': /\bsk_(?:live|test)_[A-Za-z0-9]{20,}/,
-	'private-key': /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
+	// the header followed by key material: a library that only names the header (a PEM parser, say) does not match
+	'private-key': /-----BEGIN [A-Z ]*PRIVATE KEY-----\s*[A-Za-z0-9+/=\s]{64,}/,
 	'oauth-state': /\b(?:oauth_token|refresh_token)["']?\s*[:=]\s*["'][^"'\s]{10,}/,
 };
 const MAX_BYTES = 64 << 20;

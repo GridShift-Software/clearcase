@@ -28,7 +28,7 @@ describe('credential scan', () => {
 		['an account-owned token', 'token cfat_abcdefghijklmnopqrstuvwxyz0123456789', 'cloudflare-prefixed-token'],
 		['a bearer header', 'Authorization: Bearer abcdefghijklmnopqrstuvwxyz.0123', 'auth-header'],
 		['a Clerk secret key', 'sk_test_abcdefghijklmnopqrstuvwxyz01', 'clerk-secret-key'],
-		['a private key', '-----BEGIN PRIVATE KEY-----\nMIIE\n', 'private-key'],
+		['a private key', `-----BEGIN PRIVATE KEY-----\n${'MIIEvQIBADANBgkqhkiG9w0BAQEFAASC'.repeat(3)}\n`, 'private-key'],
 		['Wrangler OAuth state', 'oauth_token = "abcdefghijklmnop"\n', 'oauth-state'],
 	])('finds %s', (_what, body, rule) => expect(scanPaths({ roots: [tree({ 'f.txt': body })], canaries: [] }).hits.map((h) => h.rule)).toEqual([rule]));
 
@@ -36,6 +36,8 @@ describe('credential scan', () => {
 		const root = tree({ 'state.sqlite': `SQLite format 3\0\0\0${CANARY}\0` });
 		expect(scanPaths({ roots: [root], canaries: [CANARY] }).hits.map((h) => h.rule)).toEqual(['canary-1']);
 	});
+
+	test('a library that only names the private-key header is not a hit', () => expect(scanPaths({ roots: [tree({ 'pem.js': 'const HEADER = "-----BEGIN PRIVATE KEY-----";\n' })], canaries: [] }).hits).toEqual([]));
 
 	test('a short canary, which would match by chance, is refused', () => expect(() => scanPaths({ roots: [SCRATCH], canaries: ['short'] })).toThrow(/shorter than 12/));
 

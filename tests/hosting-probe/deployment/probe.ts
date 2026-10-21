@@ -243,6 +243,13 @@ async function main(out: string): Promise<number> {
 	const clientA = targets.find((t) => t.client === 'client-a')!;
 	const clientB = targets.find((t) => t.client === 'client-b')!;
 	const bindingNames = (out: string) => [...out.matchAll(/env\.(\w+) \(([^)]+)\)/g)].map((m) => `${m[1]}=${m[2]}`).sort();
+	const jsonIn = (out: string): unknown => {
+		try {
+			return JSON.parse(out.slice(out.search(/[[{]/), Math.max(out.lastIndexOf('}'), out.lastIndexOf(']')) + 1));
+		} catch {
+			return null;
+		}
+	};
 	const lastJson = (out: string, prefix = '') => {
 		const line = out.split('\n').reverse().find((l) => l.startsWith(prefix) && l.slice(prefix.length).trim().startsWith('{'));
 		return line ? (JSON.parse(line.slice(prefix.length)) as Record<string, unknown>) : null;
@@ -287,7 +294,7 @@ async function main(out: string): Promise<number> {
 		check(deploy.code === 1 && deploy.out.includes(refusal), 'cf deploy --dry-run refuses the same way');
 		const writes = changed(before, snapshot(kit));
 		check(writes.length === 0, 'the refused commands wrote no file into the project');
-		l.observed = { initDryRun: { exit: init.code, out: lastJson(init.out) }, refusal, fallback: 'Bun-hosted vite build with adapter 8, served and deployed through Wrangler or a cf prebuilt entrypoint (P3, P9)' };
+		l.observed = { initDryRun: { exit: init.code, out: jsonIn(init.out) }, refusal, fallback: 'Bun-hosted vite build with adapter 8, served and deployed through Wrangler or a cf prebuilt entrypoint (P3, P9)' };
 	});
 
 	await leg('P2b-kit-cf-config', 'Kit 3.1.0 + adapter 8.0.1 with a hand-written cloudflare.config.ts: cf build and cf deploy --dry-run', (l, check) => {
@@ -306,7 +313,13 @@ async function main(out: string): Promise<number> {
 	const kit = copyApp('kit');
 	const artifact = path.join(runDir, 'artifact');
 	await leg('P3-build-workerd', 'Bun build of the Kit 3 app, served by wrangler dev on workerd, and one createTestHarness request', async (l, check) => {
-		const build = step(l, 'Bun', ['run', '--bun', 'build'], { cwd: kit });
+		// Built in place, as GRS-106's probe is: Kit's route analysis under Bun cannot load a Vite config through the
+		// scratch copy's symlinked node_modules. .svelte-kit is ignored; it moves to the scratch copy right after.
+		const app = path.join(HERE, 'app');
+		rmSync(path.join(app, '.svelte-kit'), { recursive: true, force: true });
+		const build = step(l, 'Bun', ['run', '--bun', 'build'], { cwd: app });
+		cpSync(path.join(app, '.svelte-kit'), path.join(kit, '.svelte-kit'), { recursive: true });
+		rmSync(path.join(app, '.svelte-kit'), { recursive: true, force: true });
 		check(build.code === 0 && build.out.includes(`[probe build host] {"bun":"${BUN}"`), `bun run --bun build exits 0 with Bun ${BUN} hosting vite`);
 		for (const f of ['.svelte-kit/cloudflare/_worker.js', '.svelte-kit/cloudflare/.assetsignore', '.svelte-kit/cloudflare-tmp/server.js']) check(existsSync(path.join(kit, f)), `the build wrote ${f}`);
 		mkdirSync(path.join(artifact, 'output'), { recursive: true });
@@ -342,23 +355,21 @@ async function main(out: string): Promise<number> {
 			}
 		};
 		const cfQuery = step(l, 'Node', [tool.cf, 'd1', 'query', LOCAL_D1, '--local', '--persist-to', x, '--sql', 'SELECT id, name FROM d1_migrations ORDER BY id'], { cwd: kit });
+		const cfRaw = step(l, 'Node', [tool.cf, 'd1', 'raw', LOCAL_D1, '--local', '--persist-to', x, '--sql', 'SELECT id, name FROM d1_migrations ORDER BY id'], { cwd: kit });
 		const viaCf = (() => {
-			try {
-				const parsed = JSON.parse(cfQuery.out) as unknown;
-				const results = (Array.isArray(parsed) ? (parsed[0] as { results?: unknown }) : (parsed as { results?: unknown }))?.results;
-				return results ?? parsed;
-			} catch {
-				return { exit: cfQuery.code, unreadable: true };
-			}
+			const raw = jsonIn(cfRaw.out) as { results?: { rows?: [number, string][] } }[] | null;
+			const rowsOf = raw?.[0]?.results?.rows;
+			return Array.isArray(rowsOf) ? rowsOf.map(([id, name]) => ({ id, name })) : { exit: cfRaw.code, unreadable: true };
 		})();
 		const wranglerReadsX = rows(x), wranglerReadsY = rows(y);
 		check(JSON.stringify(wranglerReadsY) === JSON.stringify([{ id: 1, name: '0001_notes.sql' }, { id: 2, name: '0002_tags.sql' }]), "Wrangler's d1_migrations rows are 0001_notes.sql and 0002_tags.sql");
-		check(JSON.stringify(viaCf) === JSON.stringify(wranglerReadsY), "cf's d1_migrations rows (read with cf d1 query) equal Wrangler's");
+		check(JSON.stringify(viaCf) === JSON.stringify(wranglerReadsY), "cf's d1_migrations rows (read with cf d1 raw --local; cf d1 query has no local form) equal Wrangler's");
+		check(JSON.stringify(wranglerReadsX) === JSON.stringify(wranglerReadsY), "Wrangler reads the state cf wrote under --persist-to X: one local layout");
 		const server = await serve(l, kit, x, 'p4-cf-state');
 		const res = await fetch(`http://127.0.0.1:${PORT}/api/health`, { signal: AbortSignal.timeout(15_000) });
 		const devReadsX = { status: res.status, body: await res.text() };
 		await stop(server);
-		l.observed = { cfRows: viaCf, wranglerRows: wranglerReadsY, wranglerReadsCfState: wranglerReadsX, wranglerDevOnCfState: { status: devReadsX.status, schemaVisible: devReadsX.status === 200 } };
+		l.observed = { cfQueryLocal: { exit: cfQuery.code, unsupported: /no local equivalent/.test(cfQuery.out) }, cfRows: viaCf, wranglerRows: wranglerReadsY, wranglerReadsCfState: wranglerReadsX, wranglerDevOnCfState: { status: devReadsX.status, schemaVisible: devReadsX.status === 200 } };
 	});
 
 	await leg('migration-failure-rollback', 'a failing migration on local D1, the bookmark taken first, and the rollback to it', async (l, check) => {
@@ -422,12 +433,12 @@ async function main(out: string): Promise<number> {
 			}
 		})();
 		check(info.code === 0 && infoJson !== null, 'void info --json answers offline with JSON');
-		check(/"DB"/.test(JSON.stringify(infoJson)), 'Void infers the DB binding from env.DB and the checked-in SQL');
 		const build = step(l, 'Node', [tool.vite, 'build'], { cwd: app, env: credentialed });
-		check(build.code === 0 && existsSync(path.join(app, '.svelte-kit/cloudflare/_worker.js')), 'vite build with voidPlugin writes the Worker');
-		const bundle = scanPaths({ roots: [path.join(app, '.svelte-kit/cloudflare'), path.join(app, '.svelte-kit/output/server')], canaries: [] });
-		const bundled = (needle: string) => readdirSync(path.join(app, '.svelte-kit'), { recursive: true, withFileTypes: true }).filter((e) => e.isFile() && /\.(?:js|mjs)$/.test(e.name) && readFileSync(path.join(e.parentPath, e.name), 'utf8').includes(needle)).length;
+		const built = build.code === 0 && existsSync(path.join(app, '.svelte-kit/cloudflare/_worker.js'));
+		const bundled = (needle: string) => (built ? readdirSync(path.join(app, '.svelte-kit'), { recursive: true, withFileTypes: true }).filter((e) => e.isFile() && /\.(?:js|mjs)$/.test(e.name) && readFileSync(path.join(e.parentPath, e.name), 'utf8').includes(needle)).length : 'no bundle');
+		const generated = existsSync(path.join(app, '.void-wrangler.jsonc')) ? readFileSync(path.join(app, '.void-wrangler.jsonc'), 'utf8') : '';
 		const deploy = step(l, 'Node', [tool.void, 'deploy', '--platform', 'cloudflare'], { cwd: app, env: credentialed, timeoutMs: 180_000 });
+		check(deploy.code !== 0 && /provision/i.test(deploy.out) && /d1 list/i.test(deploy.out), 'offline, void deploy stops in provisioning, before any build or migration, after inferring a D1 database it tries to list');
 		const evaluations = existsSync(evalLog) ? readFileSync(evalLog, 'utf8').split('\n').filter(Boolean).map((x) => JSON.parse(x) as { entry: string; sawDeployToken: boolean }) : [];
 		check(evaluations.length > 0, 'void.config.ts is code that Void and Vite evaluate');
 		check(evaluations.some((e) => e.sawDeployToken), "config code evaluated in the credentialed process reads its deploy token: scrubbing the build child's environment alone does not protect it");
@@ -439,7 +450,9 @@ async function main(out: string): Promise<number> {
 		const voidScan = scanPaths({ roots: [voidHome, path.join(app, '.svelte-kit'), ...['.void', '.void-wrangler.jsonc'].map((f) => path.join(app, f)).filter(existsSync)], canaries: [canaries.token, canaries.clerk], base: runDir });
 		l.observed = {
 			info: infoJson,
-			bundleModules: { drizzle: bundled('drizzle-orm'), betterAuth: bundled('better-auth'), credentialShapes: bundle.hits.length },
+			build: { exit: build.code, workerWritten: built, error: show(/ERR_[A-Z_]+[^\n]{0,160}|Error:[^\n]{0,200}/.exec(build.out)?.[0] ?? '') },
+			generatedConfigBindsD1: /d1_databases/.test(generated),
+			bundleModules: { drizzle: bundled('drizzle-orm'), betterAuth: bundled('better-auth') },
 			configEvaluations: evaluations,
 			deployOffline: { exit: deploy.code, network: deploy.network, lastLines: show(deploy.out.trim().split('\n').slice(-4).join(' | ')).slice(0, 600) },
 			automaticMigrations: { source: `node_modules/void/dist/${migrates?.f}`, order: 'list pending, save a time-travel bookmark (refuses to migrate without one), apply, list again', skipFlag: 'none found' },

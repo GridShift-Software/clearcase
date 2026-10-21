@@ -155,6 +155,9 @@ describe('every source value the newer mapping meets at a written name reaches t
       const imported = await importCandidate(b.pkgDir, b.caseDir);
       expect(imported.diagnostics.filter((d) => d.severity === 'error')).toEqual([]);
       const keys = b.result.manifest!.files.flatMap((f) => (f.role === 'dataset' && f.key !== undefined && f.key !== 'conversion-report' ? [f.key] : []));
+      // the schedule values must land in the mapped dataset: a demotion to a residual one would still be warned, so it is asserted apart
+      expect(keys, 'discovery-schedules is mapped').toContain('discovery-schedules');
+      expect(keys.filter((k) => k.startsWith('v5-residual-') && /sched/i.test(k)), 'no residual schedules dataset').toEqual([]);
       const data = (key: string) => (parseStrictJson(decodeUtf8Strict(b.files.get(`datasets/${key}.json`)!)) as { data: unknown }).data;
       const kept = VALUES.map((s) => ({ s, at: keys.flatMap((key) => pathsOf(data(key), s).map((path) => ({ key, path }))) }));
       expect(kept.filter((x) => x.at.length === 0).map((x) => x.s), 'values lost').toEqual([]);

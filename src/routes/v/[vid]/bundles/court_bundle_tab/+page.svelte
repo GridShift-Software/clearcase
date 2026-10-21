@@ -74,10 +74,12 @@
 				if (r.status === 409 && r.data?.stored) { conflict = r.data.stored as Header; version = String(r.data.version ?? version); }
 				return;
 			}
+			// every stored answer of headerWrite (+page.server.ts) carries the header; without it no field can be told from the old data
+			const answer = r.data?.stored as Header | undefined;
+			if (!answer) throw new Error('The header action was saved without the stored header in its answer.');
 			errors[action] = null;
 			if (action !== 'header') errors.header = null;
 			conflict = null;
-			const answer = (r.data?.stored as Header | undefined) ?? data.header;
 			stored = answer;
 			version = String(r.data?.version ?? version);
 			for (const k of HEADER_KEYS) if (hv[k] === sent[k]) hv[k] = answer[k];

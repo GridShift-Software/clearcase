@@ -367,11 +367,14 @@ try {
 			await pp.s('Fetch.enable', { patterns: [{ urlPattern: '*__data.json?*x-sveltekit-invalidated=*', requestStage: 'Request' }] });
 			if (!opt.prepare) await pp.evaluate(`(() => { const e = document.getElementById('cbh_caseNo'); e.value = '${caseNo}'; e.dispatchEvent(new Event('input', { bubbles: true })); })()`);
 			const mk = b.mark();
+			const t0 = Date.now();
 			await pp.click(opt.save ?? '#cb-save');
 			await until(() => ev.kills > 0, 10000);
 			ev.settled = await until(async () => await pp.evaluate(opt.settled ?? `(document.querySelector('#main')?.dataset.busy ?? 'left') !== '1'`).catch(() => true), 10000);
+			ev.settledMs = Date.now() - t0;
 			ev.page = await pp.evaluate(`(() => { const e = document.getElementById('cb-reload-error'); return { app: !!document.querySelector('main[data-ready="court_bundle_tab"]'), busy: document.querySelector('#main')?.dataset.busy ?? null, error: e?.textContent.trim() ?? '', alert: e?.getAttribute('role') ?? null, saveDisabled: document.getElementById('cb-save')?.disabled ?? null, caseNoChanged: document.getElementById('cbh_caseNo')?.classList.contains('changed') ?? null, judge: document.getElementById('cbh_judge')?.value ?? null, unsaved: document.getElementById('cb-unsaved')?.textContent.trim() ?? '' }; })()`).catch((e) => ({ error: String(e?.message ?? e).slice(0, 200) }));
 			ev.dialogs = b.since(mk).dialogs.map((d) => d.type);
+			if (opt.later) { await sleep(opt.later); ev.later = await pp.evaluate(`({ href: location.href, app: !!document.querySelector('main[data-ready="court_bundle_tab"]'), title: document.title })`).catch((e) => ({ error: String(e?.message ?? e).slice(0, 200) })); ev.dialogsLater = b.since(mk).dialogs.map((d) => d.type); }
 			ev.stored = A.work("SELECT fields FROM register_row WHERE store = 'bundle-header'").map((r) => JSON.parse(r.fields))[0] ?? null;
 			await pp.s('Fetch.disable').catch(() => {});
 			return ev;
@@ -421,6 +424,23 @@ try {
 			} catch (e) { after.error = String(e?.message ?? e).slice(0, 200); }
 			return { pass: ev.kills === 1 && ev.stored?.caseNo === '9/3003' && ev.settled && s.app && s.busy === '0' && /could not reload/.test(s.error) && s.alert === 'alert' && s.saveDisabled === false && s.caseNoChanged === false && !ev.dialogs.includes('beforeunload') && after.shown === '9/3003' && after.busy === '0' && after.unsaved === '' && after.left === true, evidence: { ...ev, after } };
 		} finally { await q.close(); }
+	});
+	await S('CB-RELOAD-FAST', 'court_bundle_tab', 'GRS-160: when the server dies as the page reloads its data, the failed fetch ends the wait at once: the error shows and the page leaves busy well before RELOAD_BOUND_MS (7 s), with a fragment in the URL as without', async () => {
+		// a field typed while the reload runs makes the page refuse SvelteKit's fallback load, so the error stays on screen to read
+		// not the value CB-RELOAD-LOST stores: typed equal to the stored header is no unsaved change, and the page would not refuse
+		const typed = 'SYN TYPED IN THE FAST RELOAD';
+		// settled once the error is on screen (and the page not busy), so a read taken while SvelteKit's refused fallback load is under way cannot pass for it
+		const ERROR_SHOWN = `document.querySelector('#main')?.dataset.busy === '0' && !!document.getElementById('cb-reload-error')`;
+		const quick = (ev) => ev.settled && ev.settledMs < 3000 && ev.page.app && ev.page.busy === '0' && /could not reload/.test(ev.page.error) && ev.page.alert === 'alert' && ev.page.saveDisabled === false;
+		const q1 = await page(b, A.origin);
+		try {
+			const plain = await reloadDies(q1, '9/3005', typed, { settled: ERROR_SHOWN, later: 1500 });
+			const q2 = await page(b, A.origin);
+			try {
+				const hashed = await reloadDies(q2, '9/3006', typed, { hash: '#main', settled: ERROR_SHOWN });
+				return { pass: plain.kills === 1 && hashed.kills === 1 && quick(plain) && quick(hashed), evidence: { plain: { settledMs: plain.settledMs, page: plain.page, later: plain.later, dialogs: plain.dialogsLater }, hashed: { settledMs: hashed.settledMs, page: hashed.page } } };
+			} finally { await q2.close(); }
+		} finally { await q1.close(); }
 	});
 	await S('CB-RELOAD-STRAY', 'court_bundle_tab', 'GRS-160: a leave the page refuses while a slow reload is still on its way is not a failed reload: the page stays busy with no error and Save disabled until the reload lands, then shows neither', async () => {
 		const q = await page(b, A.origin);

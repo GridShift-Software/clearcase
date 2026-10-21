@@ -15,8 +15,8 @@
       "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
       "productVisible": true,
       "author": "CC-05 worker (GRS-15)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-152",
@@ -31,8 +31,8 @@
       "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
       "productVisible": true,
       "author": "CC-05 worker (GRS-15)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-153",
@@ -47,8 +47,8 @@
       "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
       "productVisible": true,
       "author": "CC-05 worker (GRS-15)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-154",
@@ -63,8 +63,8 @@
       "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
       "productVisible": true,
       "author": "CC-05 worker (GRS-15)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-156",
@@ -79,8 +79,8 @@
       "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
       "productVisible": true,
       "author": "CC-05 worker (GRS-15)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-161",
@@ -95,8 +95,8 @@
       "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
       "productVisible": true,
       "author": "CC-05 worker (GRS-15)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-164",
@@ -111,8 +111,8 @@
       "reason": "After navigation focus moves to the page heading (BA-14), as on the pilot views; v5 leaves it on the navigation link.",
       "productVisible": true,
       "author": "CC-05 worker (GRS-15)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-167",
@@ -127,8 +127,8 @@
       "reason": "v5 escapes event titles twice, so a title or link label shows an entity such as &amp;; the app shows it once, as text. The v5 side's titles and link labels are unescaped once before comparing, so the app's must equal the unescaped v5 value exactly; this entry covers only the per-event record that v5 showed an entity and the app did not.",
       "productVisible": true,
       "author": "CC-05 worker (GRS-15)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-168",
@@ -148,8 +148,8 @@
       "reason": "Harness capture, not a product difference: the print capture is the whole page text. The app adapter trims it to the page's main (heading on); the v5 capture keeps v5's shell, which no v5 spec hook can trim (shared-file request in the CC-05 r2 report). The printed content after the heading is compared exactly in sweep.timeline_print.content. With CLEARCASE_ANALYSIS_ADDITIONS off (GRS-48, ADR 0003) the app's heading, where its capture starts, is v5's.",
       "productVisible": true,
       "author": "CC-05 worker (GRS-15)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-170",
@@ -172,8 +172,8 @@
       "reason": "v5 escapes an event's link label twice, so a title with an ampersand or angle bracket shows literal entity text. ClearCase cleans the title and shows it once, as a text node, so the characters appear as typed. Parity sees the change: IDR-167. Evidence: src/lib/views/analysis/timeline.test.ts:45.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-172",
@@ -196,8 +196,8 @@
       "reason": "v5 scales year bars by the maximum, so a map of only zero counts divides by zero and gives NaN heights. ClearCase takes the maximum with a zero floor and draws flat bars for all-zero counts and none for an empty map. Evidence: src/lib/views/analysis/timeline.test.ts:23.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-181",
@@ -209,8 +209,8 @@
       "reason": "v5 heads the page Chronology & Timeline while its navigation and crumb say Timeline. ClearCase reproduces this by default: a heading equal to the navigation label is an analysis addition behind CLEARCASE_ANALYSIS_ADDITIONS, off until the client approves it (ADR 0003, GRS-48); with the flag set to 1 the heading is Timeline. Info Required and Defence & Rebuttal keep v5's headings the same way. Evidence: src/lib/views/analysis/headings.ts:3.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-174",
@@ -259,8 +259,8 @@
       "reason": "v5 has no export or edit for this register-like view and maps colour by exact, case-sensitive High or Medium. ClearCase reproduces both: the page is a read-only table with no export button and the tone mapping is case-sensitive. Adding export or edit needs an app change. Evidence: src/routes/v/[vid]/analysis/risk_matrix_tab/+page.svelte:23.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-182",
@@ -272,8 +272,8 @@
       "reason": "v5 never shows or exports the defence matrix free-text refs. ClearCase reproduces this by default: the Refs column and the CSV's last refs column are analysis additions behind CLEARCASE_ANALYSIS_ADDITIONS, off until the client approves them (ADR 0003, GRS-48); with the flag set to 1 both show, after v5's columns. Evidence: tests/analysis/flag-states.test.ts:70.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-178",
@@ -296,8 +296,8 @@
       "reason": "v5 keys done flags by array index, so reordering or inserting items in a later version moves flags onto other items. ClearCase keys each flag by a digest of the item's own content and reports flags whose item has left the version instead of moving them. Evidence: tests/analysis/info-required.test.ts:31.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-180",
@@ -309,8 +309,8 @@
       "reason": "v5 has no export and the Status column ignores the done flag. ClearCase has no export on this view either, and its Status badge still shows only the imported status (a done item is struck through in the Item cell). An app change is needed to export or reflect done in Status. Evidence: src/routes/v/[vid]/analysis/info_required_tab/InfoChecklist.svelte:115.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     }
   ]
 }

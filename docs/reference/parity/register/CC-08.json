@@ -15,8 +15,8 @@
       "reason": "The page heading is the navigation label (BA-18), so the destination matches the task the user chose; v5 headed this view \"Cross-Examination Prep\".",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-301",
@@ -31,8 +31,8 @@
       "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 left it on the navigation link.",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-303",
@@ -51,8 +51,8 @@
       "reason": "The overview tile read after the sweep: the app counts register rows with text status none instead of repeating the source META figure, as on the overview itself (S-meta-counts, IDR-049).",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-304",
@@ -69,8 +69,8 @@
       "reason": "GRS-18 acceptance: the view labels its content as supplied analysis that ClearCase has not verified (every lit-* dataset is authored analysis); v5 showed no such note.",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-305",
@@ -85,8 +85,8 @@
       "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 left it on the navigation link.",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-306",
@@ -103,8 +103,8 @@
       "reason": "GRS-18 acceptance: the view labels its content as supplied analysis that ClearCase has not verified (every lit-* dataset is authored analysis); v5 showed no such note.",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-307",
@@ -119,8 +119,8 @@
       "reason": "The page heading is the navigation label (BA-18), so the destination matches the task the user chose; v5 headed this view \"Conflict-of-Interest Check\".",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-308",
@@ -135,8 +135,8 @@
       "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 left it on the navigation link.",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-309",
@@ -153,8 +153,8 @@
       "reason": "GRS-18 acceptance: the check always says it searched only this matter's people and entities (counted from the data) and that a result is not a conflict clearance; v5 said nothing about scope.",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-310",
@@ -169,8 +169,8 @@
       "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 left it on the navigation link.",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-312",
@@ -189,8 +189,8 @@
       "reason": "The overview tile read after the sweep: the app counts register rows with text status none instead of repeating the source META figure, as on the overview itself (S-meta-counts, IDR-049).",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-313",
@@ -207,8 +207,8 @@
       "reason": "GRS-18 acceptance: the view labels its content as supplied analysis that ClearCase has not verified (every lit-* dataset is authored analysis); v5 showed no such note.",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-315",
@@ -223,8 +223,8 @@
       "reason": "The page heading is the navigation label (BA-18), so the destination matches the task the user chose; v5 headed this view \"Legal Authorities\".",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-316",
@@ -239,8 +239,8 @@
       "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 left it on the navigation link.",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-318",
@@ -259,8 +259,8 @@
       "reason": "The overview tile read after the sweep: the app counts register rows with text status none instead of repeating the source META figure, as on the overview itself (S-meta-counts, IDR-049).",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-319",
@@ -277,8 +277,8 @@
       "reason": "GRS-18 acceptance: the view labels its content as supplied analysis that ClearCase has not verified (every lit-* dataset is authored analysis); v5 showed no such note.",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-321",
@@ -293,8 +293,8 @@
       "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 left it on the navigation link.",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-322",
@@ -311,8 +311,8 @@
       "reason": "GRS-18 acceptance: the view labels its content as supplied analysis that ClearCase has not verified (every lit-* dataset is authored analysis); v5 showed no such note.",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-325",
@@ -327,8 +327,8 @@
       "reason": "After navigation focus moves to the page heading (BA-14), as on every app view; v5 left it on the navigation link.",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-326",
@@ -345,8 +345,8 @@
       "reason": "GRS-18 acceptance: the view labels its content as supplied analysis that ClearCase has not verified (every lit-* dataset is authored analysis); v5 showed no such note.",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-327",
@@ -363,8 +363,8 @@
       "reason": "GRS-18 acceptance (r2, D20): Conflict Check ends with the same Source and scope note as the other litigation views, saying where its parties come from and that the list is unchecked; v5 showed no such note.",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-328",
@@ -395,8 +395,8 @@
       "reason": "GRS-18 acceptance: the register's Source and scope note goes on to say that rows the user adds are their own work, kept on this computer; v5 showed no such note.",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-330",
@@ -411,8 +411,8 @@
       "reason": "GRS-18 acceptance: the register's Source and scope note goes on to say that rows the user adds are their own work, kept on this computer; v5 showed no such note.",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-331",
@@ -427,8 +427,8 @@
       "reason": "GRS-18 acceptance: the register's Source and scope note goes on to say that rows the user adds are their own work, kept on this computer; v5 showed no such note.",
       "productVisible": true,
       "author": "CC-08 worker (GRS-18)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-332",
@@ -439,8 +439,8 @@
       "reason": "v5's input placeholder names a real company and a real person's e-mail address from the case. ClearCase uses a generic hint with no imported text and no personal data, and a test pins that. Evidence: tests/litigation/conflict.test.ts:82.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-333",
@@ -452,8 +452,8 @@
       "reason": "v5 matches a substring over space-joined fields, so a query can match across field boundaries and a very short query matches almost everything. ClearCase copies this deliberately (adding case, width and diacritic folding). Per-field matching or a minimum length would need an app change. Evidence: src/lib/views/litigation/conflict.ts:30.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-334",
@@ -465,8 +465,8 @@
       "reason": "v5's free-text box has no Enter-key handler; only Check or the select runs the search. ClearCase copies this: the box is a plain input outside a form, with no key handler. Handling Enter would be an app change. Evidence: src/routes/v/[vid]/litigation/conflict_tab/+page.svelte:13.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-335",
@@ -478,8 +478,8 @@
       "reason": "v5 concatenates e-mail and organisation unguarded, so an empty e-mail shows as empty brackets and a missing field prints and is searched as undefined. ClearCase copies this on purpose (tested); a guard would be an app change. Evidence: src/lib/views/litigation/conflict.ts:13.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-336",
@@ -490,8 +490,8 @@
       "reason": "v5 keys saved step statuses by array index, so changing the order or count remaps them to other steps. ClearCase keys each status by a digest of the step's phase and step text and discloses duplicate steps instead of guessing. Evidence: tests/litigation/enforcement.test.ts:20.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-337",
@@ -502,8 +502,8 @@
       "reason": "v5 leaves no option selected when a seed status is outside the list, so the browser shows To do while the stored value differs. ClearCase adds the imported status, and a saved one no longer offered, as its own option so the select shows what is stored. Evidence: tests/litigation/enforcement.test.ts:46.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-338",
@@ -538,8 +538,8 @@
       "reason": "v5 takes navigation target ids from the data unvalidated, so an unknown id opens a Not found page. ClearCase maps the id to a registry view only when it names one; otherwise the cell shows plain text saying there is no such view, with no link. Evidence: tests/litigation/readonly.test.ts:31.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-341",
@@ -551,8 +551,8 @@
       "reason": "v5 lets users add authorities but not edit or delete them. ClearCase copies this: user-added rows have no edit or delete control. Adding them would be an app change. Evidence: src/routes/v/[vid]/litigation/authorities_tab/+page.svelte:37.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-342",
@@ -576,8 +576,8 @@
       "reason": "v5 splits evidence refs only on spaces and commas, so semicolons or newlines leave refs unresolved. ClearCase copies this deliberately and the test pins it. Splitting on more separators would be an app change. Evidence: src/lib/views/litigation/heads.ts:7.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-344",
@@ -601,8 +601,8 @@
       "reason": "v5 copies the seed topics into user storage on first render, so later seeds are never shown. ClearCase reads seeds from the package on every render and stores only the user's edits and deletions as overlays, so a newer seed shows, with a disclosure when an edit conflicts. Evidence: tests/litigation/crossexam.test.ts:12.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-346",
@@ -614,8 +614,8 @@
       "reason": "v5 has no export for this register and shows document references as plain text. ClearCase has no export button and also shows the Documents cell as plain text. Export and linked references would need an app change. Evidence: src/routes/v/[vid]/litigation/crossexam_tab/+page.svelte:46.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-347",
@@ -627,8 +627,8 @@
       "reason": "v5 shows two Add buttons, one in the header and one in the form, with the same handler. ClearCase copies this: the header button submits the same form. Removing one would be an app change. Evidence: src/routes/v/[vid]/litigation/crossexam_tab/+page.svelte:23.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     }
   ]
 }

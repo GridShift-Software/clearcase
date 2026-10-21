@@ -1,3 +1,4 @@
+import { saDate } from '../../calculations/dates.ts';
 import { centsText } from '../../calculations/money.ts';
 import { fmtR } from '../../components/format.ts';
 import { toCSV, userCell } from '../../components/csv.ts';
@@ -43,12 +44,11 @@ export function invalidReason(def: Shape, e: Entry): string | null {
 }
 
 
+const calendarDay = (date: string) => Date.parse(`${date}T00:00:00Z`) / 86400000;
+/** Calendar days from today in South Africa, the court's calendar (saDate), to the deadline's date, whatever the host's time zone. */
 export function daysUntil(date: string, now: Date): number | null {
 	if (!date) return null;
-	const t = new Date(`${date}T00:00:00`);
-	const n = new Date(now.getTime());
-	n.setHours(0, 0, 0, 0);
-	return Math.round((t.getTime() - n.getTime()) / 86400000);
+	return calendarDay(date) - calendarDay(saDate(now));
 }
 
 export type Tone = 'muted' | 'danger' | 'warning' | 'success' | 'info';

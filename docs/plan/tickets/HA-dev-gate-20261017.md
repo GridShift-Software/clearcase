@@ -1,8 +1,8 @@
-# Dev gate FAIL at 8ab9ef4: overview and documents subtitles differ from v5 since the demo merges
+# Dev gate FAIL at c89d405: overview and documents subtitles differ from v5 since the demo merges
 
-Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-141/dev-gate-fail-at-8ab9ef4-overview-and-documents-subtitles-differ-from) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-141/dev-gate-fail-at-c89d405-overview-and-documents-subtitles-differ-from) is the execution authority.
 
-Found by `orch-bin/dev-gate 8ab9ef4` on 17 October 2026 (verdict file under `.orchestration/dev-gate/`). Build, check, test and the e2e suite PASS; strict parity FAILS with exactly two unregistered differences and `verify:pilot:v5` was skipped behind it.
+Found by `orch-bin/dev-gate c89d405` on 17 October 2026 (verdict file under `.orchestration/dev-gate/`). Build, check, test and the e2e suite PASS; strict parity FAILS with exactly two unregistered differences and `verify:pilot:v5` was skipped behind it.
 
 ## What is wrong
 
@@ -15,7 +15,7 @@ Values are not quoted here because the parity run used the real v5 sample; see `
 
 ## Where it came from
 
-The planning branch merged today (PR #45) changed nothing under `src/`, the parity adapters or the register. The demo merges PR #42 to #44 on 15 October did change both pages (`ae27bf2` "Apply the design system to every page", `c7bd883` "docs(ui): correct document ordering and v5 backup help", `2772b00` comment removal), and no dev gate ran on `b93bad0`. The last PASS on record is `a4880fd`. So `dev` has failed strict parity since 15 October.
+The planning branch merged today (PR #45) changed nothing under `src/`, the parity adapters or the register. The demo merges PR #42 to #44 on 15 October did change both pages (`124b462` "Apply the design system to every page", `07c6351` "docs(ui): correct document ordering and v5 backup help", `5624bb1` comment removal), and no dev gate ran on `f89c56c`. The last PASS on record is `79b0bb2`. So `dev` has failed strict parity since 15 October.
 
 ## What to do
 

@@ -1,0 +1,35 @@
+{
+  "schema": "clearcase-fix-round/1",
+  "unit": "PRFIX-88/implementation",
+  "fixBase": "0299fb7130f5ca95f170c5fece5c7b25d469291a",
+  "reviewFindingsSha256": "1e5d30451f5b5fbbfa73645d0830f5a186ec62f7a31ba230a2eae7e24a05fb03",
+  "review": {
+    "pullRequest": 88,
+    "reviewId": "pullrequestreview-5598486793",
+    "reviewer": "greptile-apps[bot]",
+    "reviewedHead": "326455a9d878d0a270dbb26512f636274b934b69",
+    "waveBase": "67ffc21cb80e2b3765f61d284153a391c7b4bfb1",
+    "note": "fixBase is the red commit 0299fb7: the guard needs each named test to exist at the base, and this regression is new; the manifest follows it, since a commit cannot name its own hash. The class sweep's second test (keepRest and carryTyped, red 986bbc9) lives in its own file, tests/case-package/newer-source-names.test.ts, and is not named. The round's one-sentence note in docs/results-package.md, a protected fixture of the named test's file, is left to the docs wave (GRS-162); docs/compatibility.md carries the behaviour. reviewFindingsSha256 is the sha256 of .orchestration/merge-records/evidence/PR-88/review-comment-4335850895.md."
+  },
+  "findings": [
+    {
+      "file": "src/lib/case-package/v5/newer-workspace.ts",
+      "line": 262,
+      "comment": "https://github.com/GridShift-Software/clearcase/pull/88#discussion_r4335850895",
+      "severity": "P2",
+      "text": "<a href=\"#\"><img alt=\"P2\" src=\"https://greptile-static-assets.s3.amazonaws.com/badges/p2.svg?v=9\" align=\"top\"></a> **Existing checks get overwritten**\n\nIf an export already has `source_checks`, `contradictionsOf` overwrites it when any check lacks `n`. The object is copied first, then `own` replaces that field with `checks`. The original value disappears from both the mapped dataset and the residual data without a warning.\n\nUse a collision-safe name when preserving the checks, and add a test with both fields present.",
+      "tests": [
+        {
+          "file": "tests/case-package/newer-analysis.test.ts",
+          "name": "d) checks without a count n beside an existing source_checks: the source value is never overwritten, and the whole dataset is demoted with a diagnostic"
+        }
+      ]
+    }
+  ],
+  "tests": [
+    {
+      "file": "tests/case-package/newer-analysis.test.ts",
+      "name": "d) checks without a count n beside an existing source_checks: the source value is never overwritten, and the whole dataset is demoted with a diagnostic"
+    }
+  ]
+}

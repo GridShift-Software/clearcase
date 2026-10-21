@@ -18,8 +18,8 @@
       "reason": "The pilot renders the whole filtered list incrementally (DataGrid) instead of v5 pages of 60 with Prev and Next; every row is compared, so only the pager wording and buttons differ.",
       "productVisible": true,
       "author": "CC-29 worker (GRS-37)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-042",
@@ -34,8 +34,8 @@
       "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
       "productVisible": true,
       "author": "CC-29 worker (GRS-37)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-043",
@@ -50,8 +50,8 @@
       "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
       "productVisible": true,
       "author": "CC-29 worker (GRS-37)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-044",
@@ -74,8 +74,8 @@
       "reason": "The six quick-link buttons and the narrative card line linking to Matter & Strategy became the Go to list: real links named like their destinations (BA-18). The Go to list links to Matter & Strategy too.",
       "productVisible": true,
       "author": "CC-29 worker (GRS-37)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-045",
@@ -97,8 +97,8 @@
       "reason": "Go to list entries are links labelled with the registry task names of their destinations (BA-18).",
       "productVisible": true,
       "author": "CC-29 worker (GRS-37)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-046",
@@ -120,8 +120,8 @@
       "reason": "The headline amount is labelled as the source value (provenance), with the same reference and date.",
       "productVisible": true,
       "author": "CC-29 worker (GRS-37)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-047",
@@ -143,8 +143,8 @@
       "reason": "v5 hard-codes a bundle count in this caption (S-bundle4, which lists S-overview-3). The app shows that caption as the source's, read from the view-content data, and states beside it what was counted and the actual number of bundles.",
       "productVisible": true,
       "author": "CC-29 worker (GRS-37)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-048",
@@ -166,8 +166,8 @@
       "reason": "v5 hard-codes a case party in this caption (renderer code). The app shows that caption as the source's, read from the view-content data (it describes the ledger figure above), and adds how many register rows have type invoice, so both sources are named.",
       "productVisible": true,
       "author": "CC-29 worker (GRS-37)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-049",
@@ -233,8 +233,8 @@
       "reason": "Combinations that choose a bundle v5 does not offer: v5 cannot select it, the app filters to it.",
       "productVisible": true,
       "author": "CC-29 worker (GRS-37)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-059",
@@ -249,8 +249,8 @@
       "reason": "An undated row says undated instead of a dash (BA-04 date provenance).",
       "productVisible": true,
       "author": "CC-29 worker (GRS-37)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-061",
@@ -265,8 +265,8 @@
       "reason": "Originals open from the document page (BA-09 routes, S-_shell-1 isolation): the last column is named Original and shows the original's state instead of a link.",
       "productVisible": true,
       "author": "CC-29 worker (GRS-37)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-062",
@@ -311,8 +311,8 @@
       "reason": "The tile is named for what it counts, documents without extracted text, instead of assuming every such document is a scan that needs OCR (BA-08).",
       "productVisible": true,
       "author": "M1-INT worker (integration)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-066",
@@ -331,8 +331,8 @@
       "reason": "The caption says the count comes from the register rows and shows the build metadata figure beside it as the source's claim (S-meta-counts: derive counts from data, show the metadata only as provenance).",
       "productVisible": true,
       "author": "M1-INT worker (integration)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-069",
@@ -349,8 +349,8 @@
       "reason": "Each row shows whether its original opens, downloads only, is missing or is blocked, instead of a direct open link (BA-09, S-_shell-1); the original opens from the document page.",
       "productVisible": true,
       "author": "M1-INT worker (integration)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-070",
@@ -365,8 +365,8 @@
       "reason": "Rows have no direct link to the original (BA-09, S-_shell-1); the original opens from the document page.",
       "productVisible": true,
       "author": "M1-INT worker (integration)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-071",
@@ -381,8 +381,8 @@
       "reason": "Each row's ref links to its document page, where the original opens or downloads (BA-09).",
       "productVisible": true,
       "author": "M1-INT worker (integration)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-072",
@@ -401,8 +401,8 @@
       "reason": "The date-span line keeps v5's layout, but the e-mail and correspondent counts are recounted from the package data; where the build metadata figure differs it is shown beside the count as the source's claim (S-meta-counts).",
       "productVisible": true,
       "author": "M1-INT worker (integration)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-073",
@@ -416,8 +416,8 @@
       "reason": "A paragraph after the date-span line says how many documents are undated and that dates are shown as the source gives them, with or without a known basis (BA-04).",
       "productVisible": true,
       "author": "M1-INT worker (integration)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-074",
@@ -428,8 +428,8 @@
       "reason": "The imported build metadata counts for documents without text and for e-mails disagree with the rows. ClearCase recounts both from the register rows and shows the metadata figure beside the count only where it differs, as the source claim; correcting the imported metadata is deferred to the document pipeline. IDR-049 is a defect-fix because it types the shown count it covers, which the app corrects; this entry types the defect, whose imported source stays wrong. Parity sees the change: IDR-049. Evidence: src/routes/v/[vid]/overview/+page.svelte:47.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-075",
@@ -440,8 +440,8 @@
       "reason": "v5 has no URL routing: reload and Back always return to the Overview and the page title never changes. In ClearCase every view and document is a real route with its own history entry, filters live in the URL, and the title names the document, section and case. Evidence: src/lib/components/PageHeader.svelte:8.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-076",
@@ -464,8 +464,8 @@
       "reason": "v5 global search sets only the query and keeps stale Advanced Search filters, so it can return filtered or empty results. ClearCase has no separate global search box: search runs only through the Advanced Search form, whose filters are exactly those in its address, so no stale filter applies (as S-search-2). Evidence: src/lib/views/evidence/search.ts:18.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-078",
@@ -476,8 +476,8 @@
       "reason": "v5 has no URL routing, so reload, Back and a deep link always land on the Overview. In ClearCase each navigation entry is a real link to its own route, so reload, Back and deep links return to the same view, and the current view is marked for navigation. Evidence: src/lib/components/ViewNav.svelte:36.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-079",
@@ -488,8 +488,8 @@
       "reason": "v5 opens originals in a modal with no focus trap, no focus return and no backdrop close. ClearCase has no modal: the document page offers Open and Download links that open the original in a separate browsing context, so there is no overlay to trap or restore focus in. Evidence: src/lib/components/OriginalOpen.svelte:32.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-080",
@@ -524,8 +524,8 @@
       "reason": "v5 opens its fallback panel only for previewable extensions, so mail files go straight to a new tab. ClearCase decides from the verified original on the document page and shows an explicit state for each case: viewer, inline, plain text, download only, parent route or missing. Evidence: src/lib/components/OriginalOpen.svelte:10.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-083",
@@ -536,8 +536,8 @@
       "reason": "v5 derives the file extension from the link text, so a suffix such as a page anchor defeats the viewer check. ClearCase never inspects a link: the server decides the presentation from the verified original, and the page anchor is appended to the viewer link only afterwards. Evidence: src/lib/components/OriginalOpen.svelte:31.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-084",
@@ -548,8 +548,8 @@
       "reason": "The imported build metadata count of documents without text disagrees with the rows whose text status is none. ClearCase counts the register rows for the tile and shows the metadata figure beside it as the source claim; correcting the imported metadata is deferred to the document pipeline. Parity sees the change: IDR-049. Evidence: src/routes/v/[vid]/overview/+page.svelte:47.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-085",
@@ -597,8 +597,8 @@
       "reason": "v5 always appends an ellipsis to the excerpt preview, even when the excerpt is shorter than the cut. ClearCase copies this: the preview is the first part of the excerpt followed by an ellipsis whenever the excerpt is non-empty; fixing it would need an app change. Evidence: src/lib/local-case/chronology.ts:44.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-089",
@@ -610,8 +610,8 @@
       "reason": "v5 says sorted by date in the subtitle whatever sort is chosen. ClearCase keeps the same fixed subtitle wording; there is no page to reset because the whole filtered list renders incrementally. Making the subtitle follow the chosen sort would need an app change. Evidence: src/routes/v/[vid]/chronology/+page.svelte:50.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-090",
@@ -623,8 +623,8 @@
       "reason": "v5 offers an ocr text-status option that no row can match. ClearCase offers the same whole vocabulary as v5 does, including ocr, so choosing it shows no rows; removing or labelling the empty option would need an app change. Evidence: src/lib/local-case/chronology.ts:36.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-091",

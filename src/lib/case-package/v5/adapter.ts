@@ -10,7 +10,7 @@ import { CONVERSION_REPORT, LAYOUT, OPAQUE_SCHEMA, REQUIRED_DATASETS, V5_DATASET
 import type { Asset, Manifest } from '../schema.ts';
 import { decodeUtf8Strict, isObject, type JsonObject, type JsonValue } from '../strict-json.ts';
 import { buildPackage, type DatasetSpec } from '../writer.ts';
-import { countOf, OVERLAY_MODULE, OVERLAY_SOURCE_PATH, readAnalysisOverlay } from './analysis-overlay.ts';
+import { countOf, mergeAnalysis, OVERLAY_MODULE, OVERLAY_SOURCE_PATH, readAnalysisOverlay } from './analysis-overlay.ts';
 import { extractV5, V5_ROOTS, type V5Root, type V5Source } from './extract.ts';
 import { mapNewerRoots, reportTextCap } from './newer-workspace.ts';
 import { extractViewContent, type FieldStatus, type ViewContentResult } from './view-content.ts';
@@ -77,6 +77,11 @@ const shapeMiss = (schema: unknown, v: unknown): string | undefined => {
   return e ? `${e.instancePath || '/'} ${e.message}` : 'does not match';
 };
 const objs = (v: JsonValue | undefined): JsonObject[] => arr(v).filter(isObject);
+/** How much a residual value holds, for its note: list entries or object keys. */
+const sizeNote = (v: JsonValue): string => {
+  const n = countOf(v);
+  return Array.isArray(v) ? ` (${n} ${n === 1 ? 'entry' : 'entries'})` : isObject(v) ? ` (${n} ${n === 1 ? 'key' : 'keys'})` : '';
+};
 
 export function packageLocators(bundles: JsonValue | undefined, sched: JsonValue | undefined, caselinesUrl?: JsonValue): string[] {
   // the CaseLines tab links the viewer code's own BUNDLE.url (view-content), which v5 spells apart from caselinesSrc
@@ -100,7 +105,12 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   const fail = (): ConvertResult => ({ ok: false, manifest: null, files: null, diagnostics: sink.finish(), source: null, viewContent, stats });
   const src = extractV5(opts.html, sink);
   if (!src) return fail();
-  const roots = src.generation === 'v5-js-newer' ? mapNewerRoots(src.roots) : src.roots;
+  const sourceText = () => decodeUtf8Strict(src.html.bom ? opts.html.subarray(3) : opts.html);
+  // the newer viewer's hand-authored analysis is code, not a payload line: its literal is read as strict JSON and its
+  // merges are recognised by text (never evaluated), then placed into DATA in the builder's order
+  const analysis = src.generation === 'v5-js-newer' ? readAnalysisOverlay(sourceText(), sink) : null;
+  const merged = analysis ? mergeAnalysis(src.roots, analysis) : null;
+  const roots = src.generation === 'v5-js-newer' ? mapNewerRoots(merged?.roots ?? src.roots) : src.roots;
   const DATA = roots.DATA as JsonObject;
   if (src.generation === 'v5-js-newer') reportTextCap(DATA, sink);
   const META = (roots.META ?? {}) as JsonObject;
@@ -126,7 +136,7 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   };
   const residual = (sourcePath: string, v: JsonValue) => {
     const key = residualKey('v5-residual-' + kebab(sourcePath.replace(/^DATA\./, '').replace(/^window\./, '')), sourcePath);
-    sink.add('V5_UNMAPPED_KEY', `${sourcePath} has no mapping; kept as the opaque dataset ${key}`, { file: 'input', subject: sourcePath });
+    sink.add('V5_UNMAPPED_KEY', `${sourcePath}${sizeNote(v)} has no mapping; kept as the opaque dataset ${key}`, { file: 'input', subject: sourcePath });
     datasets.push({ key, kind: 'generated', schema: OPAQUE_SCHEMA, required: false, provenance: prov(sourcePath), data: v });
     stats.residual++;
   };
@@ -147,18 +157,22 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   for (const sp of V5_SPLIT_PARENTS) { const v = getAt(roots, sp); if (isObject(v)) layout[sp] = Object.keys(v); }
   datasets.push({ key: LAYOUT.key, kind: LAYOUT.kind, schema: LAYOUT.schema, required: LAYOUT.required, provenance: prov(LAYOUT.sourcePath), data: layout });
 
-  // the newer viewer's hand-authored analysis is code, not a payload line: read as strict JSON, never evaluated, kept opaque
-  const overlay = src.generation === 'v5-js-newer' ? readAnalysisOverlay(decodeUtf8Strict(src.html.bom ? opts.html.subarray(3) : opts.html), sink) : null;
-  if (overlay) {
+  // what the module's merges did not place into DATA stays whole, as one opaque dataset
+  const rest = merged?.rest ?? {};
+  if (Object.keys(rest).length) {
     const key = residualKey('v5-residual-analysis-overlay', OVERLAY_SOURCE_PATH);
-    const counts = Object.entries(overlay).map(([k, v]) => `${k} ${countOf(v)}`).join(', ');
-    sink.add('V5_OVERLAY_UNMAPPED', `${OVERLAY_MODULE} holds the newer viewer's hand-authored analysis (${Object.keys(overlay).length} keys: ${counts}); its views are not mapped yet, so it is kept as the opaque dataset ${key}`, { file: 'input', subject: OVERLAY_SOURCE_PATH });
-    datasets.push({ key, kind: 'generated', schema: OPAQUE_SCHEMA, required: false, provenance: prov(OVERLAY_SOURCE_PATH), data: overlay });
+    const n = Object.keys(rest).length;
+    const counts = Object.entries(rest).map(([k, v]) => `${k} ${countOf(v)}`).join(', ');
+    const closed = analysis && (analysis.unrecognised || analysis.repeated) ? `; no merge was applied, because the module holds ${analysis.unrecognised} unrecognised and ${analysis.repeated} repeated statements` : '';
+    sink.add('V5_OVERLAY_UNMAPPED', `${OVERLAY_MODULE} holds hand-authored analysis that none of its recognised merges places into DATA (${n} ${n === 1 ? 'key' : 'keys'}: ${counts}), so it is kept as the opaque dataset ${key}${closed}`, { file: 'input', subject: OVERLAY_SOURCE_PATH });
+    datasets.push({ key, kind: 'generated', schema: OPAQUE_SCHEMA, required: false, provenance: prov(OVERLAY_SOURCE_PATH), data: rest });
     stats.residual++;
+  } else if (analysis && (analysis.unrecognised || analysis.repeated)) {
+    sink.add('V5_OVERLAY_UNMAPPED', `${OVERLAY_MODULE} holds ${analysis.unrecognised} unrecognised and ${analysis.repeated} repeated statements, so no merge was applied; its X holds no keys, so nothing is kept`, { file: 'input', subject: OVERLAY_SOURCE_PATH });
   }
 
   const vc: ViewContentResult = src.generation === 'v5-js'
-    ? extractViewContent(decodeUtf8Strict(src.html.bom ? opts.html.subarray(3) : opts.html), VIEW_CONTENT_MAP, VIEW_CONTENT_OMISSIONS, { skipLines: Object.values(src.lines).filter((n): n is number => n !== undefined), audit: VIEW_CONTENT_AUDIT, sink })
+    ? extractViewContent(sourceText(), VIEW_CONTENT_MAP, VIEW_CONTENT_OMISSIONS, { skipLines: Object.values(src.lines).filter((n): n is number => n !== undefined), audit: VIEW_CONTENT_AUDIT, sink })
     : { data: {}, fields: [], unmapped: [] };
   viewContent = { fields: vc.fields, unmapped: vc.unmapped };
   datasets.push({ key: VIEW_CONTENT.key, kind: VIEW_CONTENT.kind, schema: VIEW_CONTENT.schema, required: VIEW_CONTENT.required, provenance: prov(VIEW_CONTENT.sourcePath), data: vc.data });

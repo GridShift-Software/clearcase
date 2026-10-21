@@ -8,7 +8,7 @@ import { resolve, join } from 'node:path';
 import { parseArgs } from 'node:util';
 
 const REPO = resolve(import.meta.dirname, '../../..');
-const REVIEWED = '5aa7b91c3011ded3af57c3c14a23096d64712786';
+const REVIEWED = '0d312bba6ffda8cfe975a64c1fefb71a5aa4db71';
 const { values: args } = parseArgs({ options: {
   'app-root': { type: 'string', default: REPO }, out: { type: 'string' },
   revision: { type: 'string', default: REVIEWED }, corpus: { type: 'string' },

@@ -40,13 +40,20 @@ export const fits = (kind: Kind, v: JsonValue | undefined): boolean => FITS[kind
 /** Where a source field that cannot keep its own name goes: the record already has that name, or the schema types it differently. */
 export const sourceName = (k: string): string => `source_${k}`;
 
+/** Keeps a source value under its `source_` name; a name the record already holds is never overwritten, the prefix is added again. */
+const keepAside = (into: JsonObject, k: string, v: JsonValue | undefined): void => {
+  let name = sourceName(k);
+  while (Object.hasOwn(into, name)) name = sourceName(name);
+  own(into, name, v);
+};
+
 /**
  * Every source field the mapping did not read, and every read field it could not read as the kind it needs (a null
  * where text belongs, an object where a list does), stays on the record, so nothing is lost silently (DS_UNSUPPORTED_FIELD).
  * A field whose name the record already uses is kept as `source_<name>`. A `handled` key was written by the caller already.
  */
 export const keepRest = <T extends JsonObject>(into: T, from: JsonObject, read: readonly string[], kinds: Kinds = {}, handled: readonly string[] = []): T => {
-  for (const [k, v] of Object.entries(from)) if (!handled.includes(k) && (!read.includes(k) || !FITS[kinds[k] ?? 'str'](v))) own(into, Object.hasOwn(into, k) ? sourceName(k) : k, v);
+  for (const [k, v] of Object.entries(from)) if (!handled.includes(k) && (!read.includes(k) || !FITS[kinds[k] ?? 'str'](v))) { if (Object.hasOwn(into, k)) keepAside(into, k, v); else own(into, k, v); }
   return into;
 };
 
@@ -55,6 +62,6 @@ export function carryTyped(out: JsonObject, from: JsonObject, key: string, kind:
   if (!Object.hasOwn(from, key)) return false;
   const v = from[key];
   if (v !== null && v !== undefined && FITS[kind](v)) own(out, field, v);
-  else own(out, sourceName(key), v);
+  else keepAside(out, key, v);
   return true;
 }

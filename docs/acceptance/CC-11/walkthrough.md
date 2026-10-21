@@ -21,7 +21,7 @@ Then check the [differences register](../../reference/parity/README.md): every d
 
 ## Screenshot index
 
-All screenshots were taken at `848a10181ab7` by `scripts/verify/layout.mjs --shots`. Each is one viewport: 800 px high below 800 px wide, and 900 px high above that. The first table covers the real v5 sample; these screenshots are case material and stay on this computer. The second table covers the synthetic case. Both tables list 390 px and 1280 px only. Each run's `layout.json` lists every screenshot (`shots`), at all four widths, with its sha256.
+All screenshots were taken at `4a6b9a581a47` by `scripts/verify/layout.mjs --shots`. Each is one viewport: 800 px high below 800 px wide, and 900 px high above that. The first table covers the real v5 sample; these screenshots are case material and stay on this computer. The second table covers the synthetic case. Both tables list 390 px and 1280 px only. Each run's `layout.json` lists every screenshot (`shots`), at all four widths, with its sha256.
 
 **v5 sample** (168 screenshots; `.local/GRS-21/layout-v5/layout.json`):
 

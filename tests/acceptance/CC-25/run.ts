@@ -30,7 +30,7 @@ const REPO = path.resolve(import.meta.dirname, '../../..');
 const SUITE = ['tests/acceptance/CC-25', 'docs/acceptance/CC-25', 'docs/acceptance/fix-rounds', 'vitest.config.ts'];
 const { values: a } = parseArgs({ options: {
   out: { type: 'string' }, 'newer-case': { type: 'string' }, 'json-case': { type: 'string' },
-  base: { type: 'string', default: 'c6296f7a0de2ba3d7c6a832846ff6208436ee633' }, keep: { type: 'boolean', default: false },
+  base: { type: 'string', default: '10bd59fc39b076b92da9855c0b55773ad1efadac' }, keep: { type: 'boolean', default: false },
 } });
 if (!a.out || !a['newer-case'] || !a['json-case']) { console.error('usage: run.ts --out DIR --newer-case DIR --json-case DIR [--base REV] [--keep]'); process.exit(2); }
 const out = path.resolve(a.out);
@@ -114,7 +114,7 @@ for (const g of ['v5', 'newer', 'json'] as const) {
   try { doc = JSON.parse(r.stdout.slice(0, r.stdout.lastIndexOf('\n}') + 2)); } catch { problems.push('probe output does not parse'); }
   probes[g] = doc;
   const res = doc?.result ?? {};
-  const want = { v5: { documents: 1689 }, newer: { documents: 2131, storyline: 8, strategy: 5 }, json: { documents: 4466, storyline: 29 } }[g];
+  const want = { v5: { documents: 1689 }, newer: { documents: 2131, storyline: 6, strategy: 6 }, json: { documents: 4466, storyline: 29 } }[g];
   if (res.documents !== want.documents) problems.push(`documents ${res.documents}, expected ${want.documents}`);
   if (doc && (doc.result.unaccounted?.length ?? 1) !== 0) problems.push(`unaccounted datasets: ${doc.result.unaccounted}`);
   if ('storyline' in want && res.matterHeadings?.storyline !== want.storyline) problems.push(`storyline headings ${res.matterHeadings?.storyline}, expected ${want.storyline}`);

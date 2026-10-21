@@ -30,7 +30,7 @@ afterEach(() => { rmSync(ws, { recursive: true, force: true }); });
 
 describe('a test run with an inherited GIT_DIR leaves that repository alone', () => {
 	// tests/gate/ci-summary.test.ts builds its scratch checkout with a bare `git init` and `git commit`
-	const hooked = () => ({ ...clean(), GIT_DIR: join(target, '.git'), GIT_WORK_TREE: target });
+	const hooked = () => ({ ...clean(), GIT_DIR: join(target, '.git') });
 
 	it('bun run --bun test (direct, as a hook runs it) writes no commit into the repository GIT_DIR names', () => {
 		const before = commits();

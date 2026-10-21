@@ -35,7 +35,8 @@ type Leg = { status: 'PASS' | 'FAIL' | 'NOT RUN'; commands: string[]; asserted: 
 const PORT = 18797;
 const BASE = `http://127.0.0.1:${PORT}`;
 const SEED = 'grs-109';
-const FORMAT = 'clearcase.case-packet/1';
+/** The manifest format of the case backup: user work and the results record too, so not the Complete case export of GLOSSARY.md. */
+const FORMAT = 'clearcase.case-backup/1';
 const MiB = 1024 * 1024;
 /** The cloud legs: each needs moment M2 (Workers Paid plus R2, EU jurisdiction) and Dian's unpin. */
 const HOLD = [
@@ -45,6 +46,7 @@ const HOLD = [
 	'P5 enforcement of the per-invocation D1 query and subrequest limits: local workerd does not enforce them (M2)',
 	'P6 D1 Time Travel restore and undo, and wrangler d1 export duration: need a real D1 database (M2)',
 	'actual EU placement of D1 and R2 (jurisdiction eu): needs a Cloudflare account (M2)',
+	'P4 to P6 against the two-database layout arm (results and user work in separate D1 databases): not run, so the layout is chosen structurally, from statement and batch counts, until both layouts are compared (M2)',
 ];
 
 class Refusal extends Error {}
@@ -87,7 +89,7 @@ const LEG_SHAPE: Record<LegName, [number, number]> = {
 	range: [10, 11],
 	'write-once': [5, 7],
 	'two-pass': [5, 5],
-	'user-work': [12, 16],
+	'user-work': [13, 18],
 	export: [6, 8],
 	corruption: [11, 12],
 	restore: [8, 8],
@@ -868,7 +870,7 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 		});
 
 		// ----- user work (P4) -----
-		await leg('user-work', ['100 concurrent POST /cases/<case>/registers/{a,b}/add', '100 concurrent POST …/naive-add (control: read, then write)', 'POST …/add again with an operationId already used', '20 concurrent POST …/replace with one expected version', 'POST …/remove with a stale, then the current version; …/replace after removal', 'GET /cases/<case>/work?backup=1 (snapshot)', 'POST /cases/<case>/work/restore with a stale rev', 'POST …/work/restore with an injected failure after the deletes', 'POST …/work/restore with a snapshot lacking a table', 'POST …/work/restore with the current rev', 'POST …/work/restore racing 20 adds', 'GET /cases/<case>/work'], async (check, m) => {
+		await leg('user-work', ['100 concurrent POST /cases/<case>/registers/{a,b}/add', '100 concurrent POST …/naive-add (control: read, then write)', 'POST …/add again with an operationId already used', '20 concurrent POST …/replace with one expected version', 'POST …/remove with a stale, then the current version; …/replace after removal', 'GET /cases/<case>/work?backup=1 (snapshot)', 'POST /cases/<case>/work/restore with a stale rev', 'POST …/work/restore with an injected failure after the deletes', 'POST …/work/restore with a snapshot lacking a table', 'POST …/work/restore with a snapshot adding a table, and with one adding a column', 'POST …/work/restore with the current rev', 'POST …/work/restore racing 20 adds', 'GET /cases/<case>/work'], async (check, m) => {
 			const add = (store: string, i: number) => post(`/cases/${caseId}/registers/${store}/add`, { fields: { label: `synthetic ${store} ${i}` }, operationId: `op-${store}-${i}` });
 			const adds = await Promise.all(Array.from({ length: 100 }, (_, i) => add(i % 2 ? 'a' : 'b', i)));
 			check(adds.every((r) => r.status === 200), 'every one of 100 concurrent adds is written');
@@ -905,6 +907,10 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			const { uw_note: _n, ...lacking } = snapshot.tables;
 			const partial = await post(`/cases/${caseId}/work/restore`, { expectedRev: afterAdds.rev, snapshot: { ...snapshot, tables: lacking } });
 			check(partial.status === 422 && partial.json().code === 'snapshot-incomplete' && partial.json().table === 'uw_note', 'a snapshot lacking a case table is refused, naming the table: a restore never leaves tables the snapshot lacks');
+			const extraTable = await post(`/cases/${caseId}/work/restore`, { expectedRev: afterAdds.rev, snapshot: { ...snapshot, tables: { ...snapshot.tables, uw_extra: { columns: ['case_id'], rows: [] } } } });
+			check(extraTable.status === 422 && extraTable.json().code === 'snapshot-unknown-table' && extraTable.json().table === 'uw_extra' && sha256(JSON.stringify(afterAdds)) === sha256((await http(`/cases/${caseId}/work`)).bytes), 'a snapshot that adds a table the deployment lacks is refused, naming the table, and changes nothing');
+			const extraColumn = await post(`/cases/${caseId}/work/restore`, { expectedRev: afterAdds.rev, snapshot: { ...snapshot, tables: { ...snapshot.tables, uw_note: { ...snapshot.tables.uw_note, columns: [...snapshot.tables.uw_note.columns, 'extra_column'] } } } });
+			check(extraColumn.status === 422 && extraColumn.json().code === 'snapshot-columns-differ' && extraColumn.json().table === 'uw_note' && sha256(JSON.stringify(afterAdds)) === sha256((await http(`/cases/${caseId}/work`)).bytes), 'a snapshot that adds a column to a table is refused, naming the table, and changes nothing');
 			const ok = await post(`/cases/${caseId}/work/restore`, { expectedRev: afterAdds.rev, snapshot });
 			const restored = (await http(`/cases/${caseId}/work`)).json();
 			check(ok.status === 200 && JSON.stringify(restored.tables) === JSON.stringify(snapshot.tables) && restored.rev === afterAdds.rev + 1 && ok.json().preRestore.startsWith(`backup/${caseId}/pre-restore-`), 'a restore at the current revision replaces the case’s user work whole with the snapshot, after a durable pre-restore copy');
@@ -975,8 +981,8 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			const py = run('/usr/bin/python3', ['-I', '-c', PY_CHECK, packet], { env: { PATH: '/usr/bin:/bin' } });
 			m.offlineCheckMs = ms(t1);
 			writeFileSync(path.join(logs, 'packet-offline-check.log'), py.out);
-			const pyOut = py.code === 0 ? (JSON.parse(py.stdout.trim().split('\n').at(-1)!) as { entries: number; bytes: number; client: string; caseId: string }) : null;
-			check(py.code === 0 && pyOut!.entries === entries - 1 && pyOut!.client === 'client-a' && pyOut!.caseId === caseId, `Python's zipfile opens the packet offline: every entry's CRC-32 and the manifest's SHA-256 and size match (${py.out.trim().slice(-200)})`);
+			const pyOut = py.code === 0 ? (JSON.parse(py.stdout.trim().split('\n').at(-1)!) as { entries: number; bytes: number; client: string; caseId: string; format: string }) : null;
+			check(py.code === 0 && pyOut!.entries === entries - 1 && pyOut!.client === 'client-a' && pyOut!.caseId === caseId && pyOut!.format === FORMAT, `Python's zipfile opens the packet offline: every entry's CRC-32 and the manifest's SHA-256 and size match, and the manifest's format is ${FORMAT} (${py.out.trim().slice(-200)})`);
 			const st = await http(`/cases/${caseId}/state`, { timeout: 600_000 });
 			sourceState = st.json().sha256;
 			check(st.status === 200 && st.json().counts.missing === 0 && st.json().counts.originals === p.originals.length, 'the source deployment’s state digest covers the case’s rows and every object, none missing');
@@ -1322,7 +1328,7 @@ for e in m['entries']:
             h.update(b); n += len(b)
     assert h.hexdigest() == e['sha256'] and n == e['size'], 'entry ' + e['path'] + ' differs from the manifest'
     total += n
-print(json.dumps({'entries': len(m['entries']), 'bytes': total, 'client': m['client'], 'caseId': m['caseId']}))
+print(json.dumps({'entries': len(m['entries']), 'bytes': total, 'client': m['client'], 'caseId': m['caseId'], 'format': m['format']}))
 `;
 
 function enterOffline(args: string[]): number {

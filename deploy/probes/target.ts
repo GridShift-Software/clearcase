@@ -15,7 +15,7 @@
 // credential-free `cf build` wrote in that stage, because `cf deploy --prebuilt` uploads its bindings, not the cf
 // config's. Exit 0 PASS, 1 refused, 2 usage.
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -240,19 +240,38 @@ export function checkPrebuilt(a: { client: string; stage: string; targets?: Targ
 	return checkTarget({ client: a.client, targets: a.targets ?? loadTargets(), format: 'prebuilt', text });
 }
 
-/** sha256 over every file under `dir` (relative path and bytes), in path order. */
+/** Every entry under `dir` as a path relative to it, sorted, directories included. Refuses any entry that is not a regular file or a directory, symlinks included: the digest binds what a stage holds, and an upload follows a link. */
+function walk(dir: string, rel = ''): { rel: string; dir: boolean }[] {
+	return readdirSync(path.join(dir, rel), { withFileTypes: true }).flatMap((e) => {
+		const at = path.join(rel, e.name);
+		if (e.isDirectory()) return [{ rel: at, dir: true }, ...walk(dir, at)];
+		if (!e.isFile()) throw new Error(`${path.join(dir, at)} is not a regular file or directory (a symlink, device, socket or FIFO is refused)`);
+		return [{ rel: at, dir: false }];
+	});
+}
+
+/**
+ * sha256 over every entry under `dir`, in path order, each framed by its kind, the byte length of its path, the path,
+ * and for a file its byte length and bytes, so no two different trees share a digest by moving a separator. Throws on
+ * anything that is not a regular file or directory, and on a tree with no files.
+ */
 export function digestDir(dir: string): string {
 	const h = createHash('sha256');
-	const files = readdirSync(dir, { recursive: true, withFileTypes: true })
-		.filter((e) => e.isFile())
-		.map((e) => path.relative(dir, path.join(e.parentPath, e.name)))
-		.sort();
-	if (!files.length) throw new Error(`${dir} holds no files`);
-	for (const f of files) h.update(`${f}\0`).update(readFileSync(path.join(dir, f))).update('\0');
+	const entries = walk(dir).sort((x, y) => (x.rel < y.rel ? -1 : x.rel > y.rel ? 1 : 0));
+	if (!entries.some((e) => !e.dir)) throw new Error(`${dir} holds no files`);
+	for (const e of entries) {
+		const name = Buffer.from(e.rel);
+		h.update(`${e.dir ? 'd' : 'f'} ${name.length} `).update(name);
+		if (e.dir) h.update('\n');
+		else {
+			const bytes = readFileSync(path.join(dir, e.rel));
+			h.update(` ${bytes.length} `).update(bytes).update('\n');
+		}
+	}
 	return `sha256:${h.digest('hex')}`;
 }
 
-/** Checks both reviewed configs and the artifact's digest, then copies them into `out` (which must not exist) with a stage record. */
+/** Checks both reviewed configs and the artifact's digest, then copies them into `out` (which must not exist) with a stage record. The digest is taken from the staged copy, never from the source. */
 export function stage(a: { client: string; artifact: string; digest: string; out: string; clients?: string }): string[] {
 	const dir = path.join(a.clients ?? CLIENTS_DIR, a.client);
 	const targets = loadTargets(a.clients);
@@ -260,14 +279,28 @@ export function stage(a: { client: string; artifact: string; digest: string; out
 		const file = path.join(dir, CONFIG_FILES[format]);
 		return existsSync(file) ? checkTarget({ client: a.client, targets, format, text: readFileSync(file, 'utf8') }).map((p) => `${CONFIG_FILES[format]}: ${p}`) : [`${CONFIG_FILES[format]} is missing`];
 	});
-	const digest = existsSync(a.artifact) ? digestDir(a.artifact) : 'missing';
-	if (digest !== a.digest) problems.push(`artifact ${a.artifact} is ${digest}, not the reviewed ${a.digest}`);
+	if (!existsSync(a.artifact)) problems.push(`artifact ${a.artifact} is missing, not the reviewed ${a.digest}`);
 	if (existsSync(a.out)) problems.push(`${a.out} exists; a stage starts empty`);
 	if (problems.length) return problems;
 	mkdirSync(a.out, { recursive: true });
+	const refuse = (m: string) => (rmSync(a.out, { recursive: true, force: true }), [m]);
 	const files = ['target.json', ...Object.values(CONFIG_FILES)];
-	for (const f of files) cpSync(path.join(dir, f), path.join(a.out, f));
-	cpSync(a.artifact, path.join(a.out, 'artifact'), { recursive: true });
+	try {
+		// refuse before copying anything a copy would follow or block on, then bind the copy, not the source
+		for (const f of files) if (!lstatSync(path.join(dir, f)).isFile()) throw new Error(`${path.join(dir, f)} is not a regular file`);
+		walk(a.artifact);
+		for (const f of files) cpSync(path.join(dir, f), path.join(a.out, f));
+		cpSync(a.artifact, path.join(a.out, 'artifact'), { recursive: true });
+	} catch (e) {
+		return refuse((e as Error).message);
+	}
+	let digest: string;
+	try {
+		digest = digestDir(path.join(a.out, 'artifact'));
+	} catch (e) {
+		return refuse((e as Error).message);
+	}
+	if (digest !== a.digest) return refuse(`artifact ${a.artifact} is ${digest}, not the reviewed ${a.digest}`);
 	const sha = (f: string) => `sha256:${createHash('sha256').update(readFileSync(path.join(a.out, f))).digest('hex')}`;
 	writeFileSync(path.join(a.out, 'stage.json'), `${JSON.stringify({ schema: 'clearcase.deploy-stage/1', client: a.client, files: Object.fromEntries(files.map((f) => [f, sha(f)])), artifact: digest }, null, 2)}\n`);
 	return [];

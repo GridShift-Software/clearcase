@@ -2,12 +2,13 @@
 // run planted in the trusted parent's environment, which must never reach a child's output, and credential shapes
 // (token variables, prefixed Cloudflare tokens, bearer headers, Clerk secret keys, private keys, Wrangler OAuth state).
 // A hit names the file and the rule, never the matched text. Installed packages (node_modules) are not outputs and are
-// skipped, and so are symlinks, so a staged directory's link to its tools is not walked.
+// skipped, and a symlink with that name, a staged directory's link to its tools, is the one link allowed. Any other
+// symlink is a hit (rule symlink): the scan never reads through a link, so a link must not pass as clean.
 //
 //   bun deploy/probes/scan.ts [--canaries FILE] PATH...
 //
 // FILE holds one canary per line, so no canary appears in a command line. Exit 0 clean, 1 on a hit, 2 when a path is missing.
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -25,11 +26,22 @@ const MAX_BYTES = 64 << 20;
 
 export type Hit = { file: string; rule: string };
 
-function files(root: string): string[] {
-	if (statSync(root).isFile()) return [root];
-	return readdirSync(root, { withFileTypes: true })
-		.flatMap((e) => (e.isFile() ? [path.join(root, e.name)] : e.isDirectory() && e.name !== 'node_modules' ? files(path.join(root, e.name)) : []))
-		.sort();
+/** The files under `root`, and the symlinks that are not a stage's link to its tools. */
+function files(root: string): { files: string[]; links: string[] } {
+	if (lstatSync(root).isSymbolicLink()) return { files: [], links: [root] };
+	if (statSync(root).isFile()) return { files: [root], links: [] };
+	const found: { files: string[]; links: string[] } = { files: [], links: [] };
+	for (const e of readdirSync(root, { withFileTypes: true }).sort((x, y) => (x.name < y.name ? -1 : 1))) {
+		const at = path.join(root, e.name);
+		if (e.isSymbolicLink()) e.name !== 'node_modules' && found.links.push(at);
+		else if (e.isFile()) found.files.push(at);
+		else if (e.isDirectory() && e.name !== 'node_modules') {
+			const inner = files(at);
+			found.files.push(...inner.files);
+			found.links.push(...inner.links);
+		}
+	}
+	return found;
 }
 
 /** Every file under `roots` that holds a canary or a credential shape. Binary files are read as latin1, so ASCII credentials in a SQLite page or a bundle still match. */
@@ -40,7 +52,9 @@ export function scanPaths(a: { roots: string[]; canaries: string[]; base?: strin
 	let count = 0;
 	for (const root of a.roots) {
 		if (!existsSync(root)) throw new Error(`${root} does not exist`);
-		for (const file of files(root)) {
+		const found = files(root);
+		for (const link of found.links) hits.push({ file: path.relative(a.base ?? process.cwd(), link), rule: 'symlink' });
+		for (const file of found.files) {
 			const size = statSync(file).size;
 			const name = path.relative(a.base ?? process.cwd(), file);
 			if (size > MAX_BYTES) {

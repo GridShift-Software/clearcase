@@ -77,12 +77,13 @@
 			errors[action] = null;
 			if (action !== 'header') errors.header = null;
 			conflict = null;
-			stored = r.data!.stored as Header;
-			version = String(r.data!.version);
-			for (const k of HEADER_KEYS) if (hv[k] === sent[k]) hv[k] = stored[k];
+			const answer = (r.data?.stored as Header | undefined) ?? data.header;
+			stored = answer;
+			version = String(r.data?.version ?? version);
+			for (const k of HEADER_KEYS) if (hv[k] === sent[k]) hv[k] = answer[k];
 			if (!(await rl.reload())) return;
 			version = data.headerHash;
-			for (const k of HEADER_KEYS) if (hv[k] === sent[k]) hv[k] = data.header[k];
+			for (const k of HEADER_KEYS) if (hv[k] === answer[k]) hv[k] = data.header[k];
 		} finally { busy = null; }
 	};
 	const saveHeader = () => act('header');

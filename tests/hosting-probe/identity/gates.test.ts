@@ -162,6 +162,18 @@ describe('staff and client separation, operator grants and audit', () => {
 		expect(markers(JSON.stringify(audit))).toEqual([]);
 	});
 
+	test('a grant to a subject that is not a user of the staff instance is refused, audited and opens nothing', async () => {
+		const ga = () => w.token(w.staff, 'user_crafted_ga');
+		const stranger = 'user_crafted_unenrolled';
+		const grant = await w.get(CLIENT_ORIGIN, '/manage/operator-grants', { token: ga(), method: 'POST', headers: { ...json, 'content-type': 'application/json' }, body: JSON.stringify({ subject: stranger, case: 'case-1', seconds: 600 }) });
+		expect(grant.status).toBe(404);
+		const read = await w.get(CLIENT_ORIGIN, '/operator/cases/case-1/drafts/candidate.txt', { token: w.token(w.staff, stranger), headers: json });
+		expect([read.status, read.denial, markers(read.body)]).toEqual([403, 'no-operator-grant', []]);
+		const audit = JSON.parse((await w.get(CLIENT_ORIGIN, '/manage/audit', { token: ga(), headers: json })).body) as { events: { subject: string | null; case_id: string | null; outcome: string }[] };
+		expect(audit.events.some((e) => e.subject === 'user_crafted_ga' && e.case_id === 'case-1' && e.outcome === 'denied:unknown-grantee')).toBe(true);
+		expect(audit.events.some((e) => e.outcome === `grant:${stranger}`)).toBe(false);
+	});
+
 	test("a firm admin's own assignment is explicit: it opens the case, its removal closes it, and both are audited by case", async () => {
 		const fa = () => w.token(w.client, 'user_crafted_firmadmin');
 		const change = (method: string, body: object) => w.get(CLIENT_ORIGIN, '/admin/assignments', { token: fa(), method, headers: { ...json, 'content-type': 'application/json' }, body: JSON.stringify(body) });

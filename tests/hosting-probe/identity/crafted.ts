@@ -7,7 +7,7 @@ import { createSign, generateKeyPairSync, randomBytes, type KeyObject } from 'no
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import path from 'node:path';
-import { appEnv, build, fetchApp, freePorts, realNode, run, seed, startServe, stopServe, wranglerArgs, type Reply } from './harness.ts';
+import { appEnv, build, fetchApp, freePorts, persistOf, realNode, run, seed, startServe, stopServe, wranglerArgs, type Reply } from './harness.ts';
 
 const HERE = import.meta.dirname;
 
@@ -134,15 +134,15 @@ async function world(node: { path: string; version: string }, runDir: string, lo
 		get: (at: string, pathname: string, init: Parameters<typeof fetchApp>[2] = {}): Promise<Reply> => fetchApp(at, pathname, init),
 		/** Runs one SQL statement against an app's local D1 from outside the Worker, as the seed does. */
 		execute: (app: 'client' | 'staff', sql: string) => {
-			const r = run(node.path, wranglerArgs(['d1', 'execute', 'DB', '--local', '--env', app, '--persist-to', persist, '--command', sql]), { env });
+			const r = run(node.path, wranglerArgs(['d1', 'execute', 'DB', '--local', '--env', app, '--persist-to', persistOf(persist, app), '--command', sql]), { env });
 			if (r.code !== 0) throw new Error(`d1 execute on ${app} failed (exit ${r.code}): ${r.out.slice(-400)}`);
 		},
 		/** serve.mjs's pid, which is also its process group's id. */
 		get servePid() {
 			return serve.pid!;
 		},
-		/** The directory holding `app`'s local D1 and R2: one root for both apps. */
-		store: (_app: 'client' | 'staff') => persist,
+		/** The directory holding `app`'s local D1 and R2. */
+		store: (app: 'client' | 'staff') => persistOf(persist, app),
 		/** Stops serve.mjs and starts it again on the same stores, running `whileStopped` in between. */
 		restart: async (whileStopped?: () => Promise<void>) => {
 			await stopServe(serve);

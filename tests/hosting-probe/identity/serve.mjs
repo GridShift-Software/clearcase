@@ -4,12 +4,17 @@
 // It takes the keys off fd 3 once (takeSecrets(), the child half of deploy/probes/secrets.ts), so they are never in
 // this process's environment, argv or a file, and hands them to Wrangler's startWorker as secret_text bindings: Wrangler
 // prints them as hidden and passes them to workerd inside its config, over a pipe. Each Worker is local: its D1 and R2
-// are Miniflare's, under the config's persist directory. On SIGINT or SIGTERM, or when its stdin (a pipe from the runner) ends, it disposes both Workers and exits 0.
+// are Miniflare's, under its own persist directory (harness.ts, persistOf). On SIGINT or SIGTERM, or when its stdin (a pipe from the runner) ends, it disposes both Workers and exits 0.
+//
+// "serve: ready" means both Workers are live. Wrangler's worker.ready is only its ProxyWorker listening; the Worker's own
+// workerd starts after the bundle, and the proxy holds every request until it has. A Worker whose workerd fails to start
+// would leave the proxy holding them for good, and Wrangler logs that failure at debug level only, so every error event
+// from Wrangler is printed here and ends this process with exit 1.
 import { unstable_startWorker } from 'wrangler';
 import { takeSecrets } from '../../../deploy/probes/secrets-child.mjs';
 
 const config = JSON.parse(process.argv[2] ?? 'null');
-if (!config?.client?.port || !config?.staff?.port || !config.persist) {
+if (!config?.client?.port || !config?.staff?.port || !config.client.persist || !config.staff.persist) {
 	console.error('serve: usage: node serve.mjs <config JSON> (from harness.ts)');
 	process.exit(2);
 }
@@ -45,7 +50,9 @@ keys.clear();
 
 const workers = [];
 async function stop(code) {
-	for (const w of workers.splice(0)) await w.dispose().catch(() => {});
+	// dispose() first waits for the ProxyWorker, which a failed start may never have; the runner signals the whole group anyway
+	const disposed = Promise.all(workers.splice(0).map((w) => w.dispose().catch(() => {})));
+	await Promise.race([disposed, new Promise((r) => setTimeout(r, 10_000))]);
 	process.exit(code);
 }
 process.once('SIGINT', () => stop(0));
@@ -56,17 +63,25 @@ process.stdin.on('end', () => stop(0));
 process.stdin.on('error', () => stop(0));
 process.stdin.resume();
 
+const reason = (e) => (e instanceof Error ? e.message : `${e.source}: ${e.reason}: ${e.cause instanceof Error ? e.cause.message : String(e.cause)}`);
 try {
+	const live = [];
 	for (const app of ['client', 'staff']) {
 		const worker = await unstable_startWorker({
 			config: 'wrangler.toml',
 			env: app,
 			bindings: { ...common, ...apps[app] },
-			dev: { server: { hostname: '127.0.0.1', port: config[app].port }, inspector: false, persist: config.persist, watch: false, liveReload: false, remote: false },
+			dev: { server: { hostname: '127.0.0.1', port: config[app].port }, inspector: false, persist: config[app].persist, watch: false, liveReload: false, remote: false },
 		});
 		workers.push(worker);
+		worker.raw.on('error', (e) => {
+			console.error(`serve: ${app} failed: ${reason(e)}`);
+			void stop(1);
+		});
+		live.push(new Promise((resolve) => worker.raw.once('reloadComplete', resolve)));
 		await worker.ready;
 	}
+	await Promise.all(live);
 	console.log(`serve: ready client ${config.client.port} staff ${config.staff.port}`);
 } catch (e) {
 	console.error(`serve: failed: ${e instanceof Error ? e.message : String(e)}`);

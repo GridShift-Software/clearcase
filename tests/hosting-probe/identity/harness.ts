@@ -77,6 +77,13 @@ export function build(node: { path: string }, runDir: string, revision: string, 
 
 export const wranglerArgs = (args: string[]) => [path.join(HERE, 'node_modules/wrangler/bin/wrangler.js'), ...args];
 
+/**
+ * Where `app`'s local D1 and R2 live under a world's `persist` root. Each Worker has a directory of its own because each
+ * runs in its own workerd: two workerds on one directory hold the same SQLite files (every namespace's metadata.sqlite,
+ * the observability store), and when their starts overlap on a loaded machine one dies with SQLITE_BUSY.
+ */
+export const persistOf = (persist: string, app: 'client' | 'staff') => path.join(persist, app);
+
 /** Applies each app's SQL files to its local D1 and puts every file under fixtures/r2/<app>/ into its local R2, through the Wrangler CLI (a separate process from the Workers). */
 export function seed(node: { path: string }, env: Record<string, string>, persist: string, logs: string, sql: Record<'client' | 'staff', string[]>): string[] {
 	const commands: string[] = [];
@@ -87,16 +94,17 @@ export function seed(node: { path: string }, env: Record<string, string>, persis
 		if (r.code !== 0) throw new Error(`seed ${label} failed (exit ${r.code}): ${r.out.slice(-800)}`);
 	};
 	for (const app of ['client', 'staff'] as const) {
-		sql[app].forEach((file, i) => cli(`${app}-d1-${i}`, ['d1', 'execute', 'DB', '--local', '--env', app, '--persist-to', persist, '--file', file]));
+		sql[app].forEach((file, i) => cli(`${app}-d1-${i}`, ['d1', 'execute', 'DB', '--local', '--env', app, '--persist-to', persistOf(persist, app), '--file', file]));
 		const root = path.join(HERE, 'fixtures', 'r2', app);
 		if (!existsSync(root)) continue;
 		const files = readdirSync(root, { recursive: true, withFileTypes: true }).filter((e) => e.isFile()).map((e) => path.relative(root, path.join(e.parentPath, e.name))).sort();
-		files.forEach((key, i) => cli(`${app}-r2-${i}`, ['r2', 'object', 'put', `probe-identity-${app}/${key}`, '--local', '--env', app, '--persist-to', persist, '--file', path.join(root, key)]));
+		files.forEach((key, i) => cli(`${app}-r2-${i}`, ['r2', 'object', 'put', `probe-identity-${app}/${key}`, '--local', '--env', app, '--persist-to', persistOf(persist, app), '--file', path.join(root, key)]));
 	}
 	return commands;
 }
 
 export type ServeConfig = {
+	/** The world's store root: each app's state is under persistOf(persist, app). */
 	persist: string;
 	logs: string;
 	/** Clerk's Backend API base; the offline tests point it at their loopback status endpoint. */
@@ -155,11 +163,12 @@ export function onInterrupt(hook: () => Promise<void>): () => void {
 	return () => void hooks.delete(hook);
 }
 
-/** Starts serve.mjs with `secrets` on fd 3 and resolves once both Workers answer; the child's output goes to logs/serve-<n>.log. */
+/** Starts serve.mjs with `secrets` on fd 3 and resolves once both Workers are live; the child's output goes to logs/serve-<n>.log. */
 export async function startServe(node: { path: string }, env: Record<string, string>, config: ServeConfig, secrets: Map<string, string>, logs: string): Promise<ChildProcess> {
 	const n = readdirSync(logs).filter((f) => f.startsWith('serve-')).length;
 	const log = createWriteStream(path.join(logs, `serve-${n}.log`));
-	const child = spawn(node.path, [path.join(HERE, 'serve.mjs'), JSON.stringify(config)], { cwd: HERE, env: { ...env, WRANGLER_LOG: 'warn', CLEARCASE_SECRETS_FD: '3' }, detached: true, stdio: ['pipe', 'pipe', 'pipe', 'pipe'] });
+	const stores = { client: { ...config.client, persist: persistOf(config.persist, 'client') }, staff: { ...config.staff, persist: persistOf(config.persist, 'staff') } };
+	const child = spawn(node.path, [path.join(HERE, 'serve.mjs'), JSON.stringify({ ...config, ...stores })], { cwd: HERE, env: { ...env, WRANGLER_LOG: 'warn', CLEARCASE_SECRETS_FD: '3' }, detached: true, stdio: ['pipe', 'pipe', 'pipe', 'pipe'] });
 	arm();
 	live.add(child);
 	child.once('exit', () => live.delete(child));
@@ -180,9 +189,6 @@ export async function startServe(node: { path: string }, env: Record<string, str
 			child.stderr!.on('data', onData);
 			child.once('exit', (code) => (clearTimeout(timer), reject(new Error(`serve.mjs exited ${code} before it was ready: ${text.slice(-1500)}`))));
 		});
-		// "ready" is workerd up, not either Worker's script loaded: the first request to each compiles it, which took over 30 s
-		// (fetchApp's limit) on a loaded machine running the whole root suite. Absorb that here, on a public route, not in a test.
-		await Promise.all([config.client.origin, config.staff.origin].map(async (origin) => void (await (await fetch(`${origin}/`, { signal: AbortSignal.timeout(120_000) })).arrayBuffer())));
 	} catch (e) {
 		await stopServe(child).catch(() => {});
 		throw e;

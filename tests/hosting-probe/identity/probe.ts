@@ -22,7 +22,7 @@ import { parseArgs } from 'node:util';
 import { scanPaths } from '../../../deploy/probes/scan.ts';
 import { checkSummary, countsOf, HOLD, inputsDigest, INPUT_PATHS, LEGS, SCHEMA, type LegName } from './check.ts';
 import { Backend, Browser, ClerkError, claimsOf, frontendApi, Pace, ticketOf } from './clerk.ts';
-import { appEnv, BUN, build, checkInstalled, fetchApp, freePorts, HERE, onInterrupt, realNode, Refusal, run, seed, startServe, stopServe, type Reply, type ServeConfig } from './harness.ts';
+import { appEnv, BUN, build, checkInstalled, fetchApp, freePorts, HERE, onInterrupt, persistOf, realNode, Refusal, run, seed, startServe, stopServe, type Reply, type ServeConfig } from './harness.ts';
 import { CLASS_ORDER, classesOf, expectFor, label, MARKERS, mayShow, ownInstance, pathOf, rows, type Class, type Row } from './matrix.ts';
 
 const KEYS = ['CLIENT_A_PK', 'CLIENT_A_SK', 'STAFF_PK', 'STAFF_SK'] as const;
@@ -166,7 +166,7 @@ async function main(out: string): Promise<number> {
 		const tables = { client: ['members', 'assignments', 'invitations', 'notes', 'operator_grants'], staff: ['members', 'invitations'] } as const;
 		for (const app of ['client', 'staff'] as const) {
 			const sql = tables[app].map((t) => `SELECT '${t}' AS t, COUNT(*) AS n FROM ${t}`).join(' UNION ALL ');
-			const r = run(node.path, [path.join(HERE, 'node_modules/wrangler/bin/wrangler.js'), 'd1', 'execute', 'DB', '--local', '--env', app, '--persist-to', persist, '--json', '--command', sql], { env });
+			const r = run(node.path, [path.join(HERE, 'node_modules/wrangler/bin/wrangler.js'), 'd1', 'execute', 'DB', '--local', '--env', app, '--persist-to', persistOf(persist, app), '--json', '--command', sql], { env });
 			if (r.code !== 0) throw new Error(`snapshot of ${app} D1 failed (exit ${r.code})`);
 			for (const row of (JSON.parse(r.out.slice(r.out.indexOf('['))) as { results: { t: string; n: number }[] }[])[0]!.results) counts[`${app}.${row.t}`] = row.n;
 		}

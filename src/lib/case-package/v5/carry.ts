@@ -47,13 +47,18 @@ export const keepAside = (into: JsonObject, k: string, v: JsonValue | undefined)
   own(into, name, v);
 };
 
+/** Writes a source value under its own name, or aside when the record already holds that name. */
+export const ownOrAside = (into: JsonObject, k: string, v: JsonValue | undefined): void => {
+  if (Object.hasOwn(into, k)) keepAside(into, k, v); else own(into, k, v);
+};
+
 /**
  * Every source field the mapping did not read, and every read field it could not read as the kind it needs (a null
  * where text belongs, an object where a list does), stays on the record, so nothing is lost silently (DS_UNSUPPORTED_FIELD).
  * A field whose name the record already uses is kept as `source_<name>`. A `handled` key was written by the caller already.
  */
 export const keepRest = <T extends JsonObject>(into: T, from: JsonObject, read: readonly string[], kinds: Kinds = {}, handled: readonly string[] = []): T => {
-  for (const [k, v] of Object.entries(from)) if (!handled.includes(k) && (!read.includes(k) || !FITS[kinds[k] ?? 'str'](v))) { if (Object.hasOwn(into, k)) keepAside(into, k, v); else own(into, k, v); }
+  for (const [k, v] of Object.entries(from)) if (!handled.includes(k) && (!read.includes(k) || !FITS[kinds[k] ?? 'str'](v))) ownOrAside(into, k, v);
   return into;
 };
 

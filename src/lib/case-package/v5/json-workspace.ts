@@ -1,7 +1,7 @@
 import { fmtR } from '../../components/format.ts';
 import type { DiagSink } from '../diagnostics.ts';
 import { isObject, type JsonObject, type JsonValue } from '../strict-json.ts';
-import { amountText, carryTyped, fits, keepAside, keepRest, own, type Kind, type Kinds } from './carry.ts';
+import { amountText, carryTyped, fits, keepAside, keepRest, own, ownOrAside, type Kind, type Kinds } from './carry.ts';
 import type { V5Root } from './extract.ts';
 
 export { amountText };
@@ -259,7 +259,7 @@ export function toV5Roots(appData: JsonObject, appSeed: JsonObject, sink: DiagSi
     for (const [k, v] of Object.entries(from)) {
       const kind = Object.hasOwn(mapped, k) ? mapped[k] : null;
       if (kind === undefined || (kind !== null && fits(kind, v))) continue;
-      if (Object.hasOwn(DATA, k)) keepAside(DATA, k, v); else own(DATA, k, v);
+      ownOrAside(DATA, k, v);
     }
   }
   if (appData.ft !== undefined) sink.add('V5_SOURCE_INDEX_DROPPED', "app-data.ft is the viewer's full-text token index; not carried into the package (ClearCase indexes on its own)", { file: 'input', subject: 'app-data.ft' });

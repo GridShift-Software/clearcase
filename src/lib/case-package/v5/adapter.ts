@@ -167,6 +167,8 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
     sink.add('V5_OVERLAY_UNMAPPED', `${OVERLAY_MODULE} holds hand-authored analysis that none of its recognised merges places into DATA (${n} ${n === 1 ? 'key' : 'keys'}: ${counts}), so it is kept as the opaque dataset ${key}${closed}`, { file: 'input', subject: OVERLAY_SOURCE_PATH });
     datasets.push({ key, kind: 'generated', schema: OPAQUE_SCHEMA, required: false, provenance: prov(OVERLAY_SOURCE_PATH), data: rest });
     stats.residual++;
+  } else if (analysis && (analysis.unrecognised || analysis.repeated)) {
+    sink.add('V5_OVERLAY_UNMAPPED', `${OVERLAY_MODULE} holds ${analysis.unrecognised} unrecognised and ${analysis.repeated} repeated statements, so no merge was applied; its X holds no keys, so nothing is kept`, { file: 'input', subject: OVERLAY_SOURCE_PATH });
   }
 
   const vc: ViewContentResult = src.generation === 'v5-js'

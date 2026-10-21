@@ -252,6 +252,39 @@ class Refused(DocsOnlyFixRound):
                 build()
                 self.assertRefused(self.guard(code=1), 'docs-only', paths[label])
 
+    def readers(self, code, document='docs/oracle.md'):
+        """Code that reads `document`, and the document, in a commit that becomes the reviewed one."""
+        self.write(document, '# Oracle\n')
+        for name, text in code.items():
+            self.write(name, text)
+        self.reviewed = self.commit('code that reads a Markdown file')
+        self.saved_review([])
+
+    def test_markdown_that_code_or_a_test_reads_is_not_documentation(self):
+        # P1 (GRS-156 review): a test or script that reads a .md file makes it the check's input, so a docs-only round
+        # could loosen that check's oracle without changing a test.
+        cases = {
+            'a test naming the path': {'tests/oracle.test.ts': "readFileSync('docs/oracle.md');\n"},
+            'a script joining the path from parts': {'scripts/check.mjs': "join(root, 'docs', 'oracle.md');\n"},
+            'a shell script naming the file': {'scripts/check.sh': 'grep -q done docs/oracle.md\n'},
+        }
+        for label, code in cases.items():
+            with self.subTest(reader=label):
+                self.reset()
+                self.readers(code)
+                self.fix_round({'docs/oracle.md': '# Loosened\n'})
+                self.assertRefused(self.guard(code=1), 'docs-only', 'docs/oracle.md', 'names it')
+
+    def test_markdown_in_a_directory_that_code_reads_is_not_documentation(self):
+        self.readers({'tests/walk.test.ts': "readdirSync('docs/plan/tickets');\n"}, document='docs/plan/tickets/one.md')
+        self.fix_round({'docs/plan/tickets/one.md': '# Loosened\n'})
+        self.assertRefused(self.guard(code=1), 'docs-only', 'docs/plan/tickets/one.md', 'names it')
+
+    def test_a_document_no_code_names_still_passes_beside_one_that_is_read(self):
+        self.readers({'tests/oracle.test.ts': "readFileSync('docs/oracle.md');\n"})
+        self.fix_round({'docs/other.md': '# Other\n'})
+        self.guard()
+
     def test_a_test_manifest_still_needs_its_named_tests(self):
         # preserved: without a declaration, an empty or missing tests list and a missing manifest fail closed
         for label, manifest in {'tests: []': {'noTests': DROP}, 'no tests field': {'noTests': DROP, 'tests': DROP}}.items():
@@ -350,6 +383,39 @@ class IntoTheWave(DocsOnlyFixRound):
         self.merge('side')
         self.assertIn('src/app.ts', self.guard(code=1))
 
+    def test_a_head_branch_named_wave_does_not_bound_the_declaration(self):
+        # P2 (GRS-156 review): CI passes the pull request's own head-ref name, and a ticket PR into a wave may use any
+        # name, so a name matching wave/<x> proves nothing. Judged against the wave, as `feature/...` is, the same
+        # history fails.
+        self.git('switch', '-q', '-c', 'side', self.reviewed)
+        self.fix_round()
+        self.git('switch', '-q', BRANCH)
+        self.write('src/app.ts', 'export const value = 3;\n')
+        self.commit('a runtime change on the branch itself')
+        self.merge('side')
+        for branch in ('feature/grs-104-tooling', 'wave/evil'):
+            with self.subTest(branch=branch):
+                self.assertIn('src/app.ts', self.guard(branch=branch, code=1))
+
+    def test_a_wave_line_that_holds_a_commit_of_its_own_is_judged_whole(self):
+        # A wave PR into dev is bounded only when its first-parent line, from the merge base to the merge that brought
+        # the round in, is merges of pull requests alone.
+        self.fix_round()
+        self.git('switch', '-q', WAVE)
+        self.write('src/direct.ts', 'export const direct = 1;\n')
+        self.commit('a runtime commit made on the wave itself')
+        self.merge(BRANCH)
+        self.another_ticket()
+        self.assertIn('src/direct.ts', self.guard(base='dev', branch=WAVE, code=1))
+
+    def test_a_head_branch_that_is_not_wave_name_is_not_bounded(self):
+        # merge-check admits a wave PR into dev from wave/<name> alone, with one name component
+        self.fix_round()
+        self.git('switch', '-q', WAVE)
+        self.merge(BRANCH)
+        self.another_ticket()
+        self.assertIn('src/grs-105-other.ts', self.guard(base='dev', branch='wave/with/slash', code=1))
+
 
 class Approval(DocsOnlyFixRound):
     def test_a_declaration_receipt_approves_and_reads_back(self):
@@ -368,6 +434,25 @@ class Approval(DocsOnlyFixRound):
         self.fix_round()
         self.prepare([{'id': 'L1', 'severity': 'low'}])
         self.assertIn(self.path, self.approve(code=1))
+
+    def test_a_fix_that_loosens_a_test_with_no_manifest_is_not_approved(self):
+        # P3 (GRS-156 review): the ledger records a fix, the review names no test, and no manifest is committed. The
+        # ledger guard refuses this history ("records a fix attempt but no fix-round manifest"); approval must too.
+        self.record([])
+        self.write('src/app.ts', 'export const value = 3;\n')
+        self.write('tests/app.test.ts', self.test.replace('toEqual(1)', 'toBeDefined()'))
+        self.commit('a runtime fix that loosens a test, with no manifest')
+        self.assertIn('no fix-round manifest', self.cli('fix-round-guard', '--base', WAVE, '--ledger', self.receipts,
+                                                         '--branch', BRANCH, code=1))
+        self.prepare([{'id': 'L1', 'severity': 'low'}])
+        self.assertIn('--guard-receipt', self.approve(code=1))
+
+    def test_a_docs_only_fix_with_no_manifest_is_not_approved_either(self):
+        self.record([])
+        self.write('docs/guide.md', '# Guide\n\nThe corrected step.\n')
+        self.commit('a docs fix, with no manifest')
+        self.prepare([{'id': 'L1', 'severity': 'low'}])
+        self.assertIn('--guard-receipt', self.approve(code=1))
 
     def test_approval_refuses_a_declaration_for_other_findings(self):
         self.record([])

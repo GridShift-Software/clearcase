@@ -20,6 +20,8 @@ import { checkSummary, isObject, mutationsRefused } from './summary.ts';
 
 const HERE = import.meta.dirname;
 const DIR = 'tests/hosting-probe/notifications/';
+/** git runs in this directory, so `.` is DIR (a pathspec of DIR itself would be relative to here). */
+const HERE_SPEC = '.';
 
 function git(...args: string[]): { code: number; out: string } {
 	const r = spawnSync('git', args, { cwd: HERE, encoding: 'utf8', env: { PATH: '/usr/bin:/bin', HOME: '/nonexistent' } });
@@ -34,7 +36,7 @@ export async function evidenceProblems(summary: unknown): Promise<string[]> {
 	const problems = checkSummary(summary, sha);
 
 	if (git('merge-base', '--is-ancestor', sha, 'HEAD').code !== 0) return [...problems, `sourceSha ${sha.slice(0, 12)} is not an ancestor of HEAD`];
-	const changed = [...git('diff', '--name-only', sha, '--', DIR).out.split('\n'), ...git('ls-files', '--others', '--exclude-standard', '--', DIR).out.split('\n')].filter(Boolean);
+	const changed = [...git('diff', '--name-only', sha, '--', HERE_SPEC).out.split('\n'), ...git('ls-files', '--others', '--exclude-standard', '--', HERE_SPEC).out.split('\n')].filter(Boolean);
 	if (changed.length) problems.push(`${changed.length} file(s) under ${DIR} differ from sourceSha ${sha.slice(0, 12)}, so the run does not describe this checkout: ${changed.slice(0, 3).join(', ')}`);
 
 	const out = mkdtempSync(path.join(tmpdir(), 'notifications-rebuild-'));

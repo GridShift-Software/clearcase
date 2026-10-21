@@ -40,7 +40,7 @@ try {
 		const refused = r.stdout.includes('EVIDENCE FAIL');
 		const passed = r.stdout.includes('EVIDENCE PASS');
 		if (change === null ? !passed : !refused) wrong.push(`${label}: ${change === null ? 'refused' : 'accepted'}`);
-		else console.log(`ok      ${label}: ${change === null ? 'passes' : 'refused'}`);
+		else console.log(`ok      ${label}: ${change === null ? 'passes' : `refused (${r.stdout.split('\n').find((l) => l.startsWith('the committed evidence is'))?.split('recomputed (')[1]?.slice(0, 120) ?? '?'})`}`);
 	}
 } finally {
 	rmSync(dir, { recursive: true, force: true });

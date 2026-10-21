@@ -9,10 +9,10 @@
     "reviewer": "greptile-apps[bot]",
     "reviewedHead": "326455a9d878d0a270dbb26512f636274b934b69",
     "waveBase": "67ffc21cb80e2b3765f61d284153a391c7b4bfb1",
-    "note": "fixBase is the red commit 0299fb7: the guard needs each named test to exist at the base, and this regression is new; the manifest follows it, since a commit cannot name its own hash. The class sweep's second test (keepRest and carryTyped, red 986bbc9) lives in its own file, tests/case-package/newer-source-names.test.ts, and is not named. reviewFindingsSha256 is the sha256 of .orchestration/merge-records/evidence/PR-88/review-comment-4335850895.md.",
+    "note": "fixBase is the red commit 0299fb7: the guard needs each named test to exist at the base, and this regression is new; the manifest follows it, since a commit cannot name its own hash. The class sweep's second test (keepRest and carryTyped, red 986bbc9) is a free test in the same file and is not named. reviewFindingsSha256 is the sha256 of .orchestration/merge-records/evidence/PR-88/review-comment-4335850895.md.",
     "originalFixBase": "0299fb7130f5ca95f170c5fece5c7b25d469291a",
     "fixBaseAdvancedAt": "fdbb400",
-    "advanceNote": "fixBase advanced from the red commit 0299fb7 to the docs commit fdbb400 on 21 Oct 2026. fdbb400 rewrites one sentence of docs/results-package.md (the newer-generation paragraph), and that file is a protected fixture of the named test's file, whose M2 product-text test reads it; no reason can excuse a fixture change. The named test file is byte-identical between 0299fb7 and HEAD (git diff 0299fb7 HEAD -- tests/case-package/newer-analysis.test.ts is empty), and the edited sentence is not one the M2 test asserts on."
+    "advanceNote": "fixBase advanced from the red commit 0299fb7 to the docs commit fdbb400 on 21 Oct 2026. fdbb400 rewrites one sentence of docs/results-package.md (the newer-generation paragraph), and that file is a protected fixture of the named test's file, whose M2 product-text test reads it; no reason can excuse a fixture change. Between 0299fb7 and HEAD the named test file only gains the sweep's free test and its import (git diff 0299fb7 HEAD -- tests/case-package/newer-analysis.test.ts), the named test d) is unchanged, and the edited sentence is not one the M2 test asserts on."
   },
   "findings": [
     {
@@ -36,6 +36,6 @@
     }
   ],
   "assertionCountReasons": {
-    "tests/case-package/newer-analysis.test.ts": "The class sweep's test (red 986bbc9, typed in 027f8a9) and its import of defenceRowOf, riskMatrixOf and timelineEventOf move unchanged to tests/case-package/newer-source-names.test.ts; the file returns to its red-commit bytes and the named test d) is unchanged."
+    "tests/case-package/newer-analysis.test.ts": "027f8a9 adds a type annotation to the riskMatrixOf result in the class sweep's free test (red 986bbc9); its assertions and the named test d) are unchanged."
   }
 }

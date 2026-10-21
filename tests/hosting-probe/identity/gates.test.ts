@@ -4,7 +4,7 @@
 // signed by another key, and a status endpoint that fails. probe.ts covers the same gates against Clerk itself.
 import { spawn } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { connect } from 'node:net';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
@@ -298,6 +298,8 @@ describe('process lifecycle: serve.mjs and its workerd stop with the runner that
 	});
 	for (const mode of ['exit', 'throw', 'SIGINT', 'SIGTERM', 'SIGKILL'] as const) {
 		test(`on ${mode} of the runner`, async () => {
+			const worlds = path.join(import.meta.dirname, '../../../.local/hosting-probe/identity');
+			const before = new Set(readdirSync(worlds));
 			const child = spawn(process.execPath, [path.join(import.meta.dirname, 'lifecycle-child.ts'), mode], { cwd: import.meta.dirname, env: { ...process.env, CRAFTED_SKIP_BUILD: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
 			const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
 			let ports: number[] = [];
@@ -329,6 +331,8 @@ describe('process lifecycle: serve.mjs and its workerd stop with the runner that
 			} finally {
 				for (const pid of serveLeaders(ports, child.pid!)) try { process.kill(-pid, 'SIGKILL'); } catch {}
 				if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+				// a runner that ended without stop() leaves its world's directory
+				for (const d of readdirSync(worlds).filter((n) => !before.has(n) && n.startsWith('crafted-'))) rmSync(path.join(worlds, d), { recursive: true, force: true });
 			}
 		}, 240_000);
 	}

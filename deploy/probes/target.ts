@@ -13,7 +13,8 @@
 // `check` reads the client's committed wrangler.jsonc and cloudflare.config.ts unless --config names one file. `stage`
 // refuses an artifact or migrations directory that is itself a symlink, copies the configs, the target, the artifact and
 // the client's reviewed migrations/ into a new directory, the only directory an upload command then runs in, and then
-// checks both configs and digests the artifact there: the check and `stage.json` read the staged copy, not the source.
+// checks both configs against the staged target.json and digests the artifact there: the check and `stage.json` read the
+// staged copy, not the source (only the other clients' targets come from the source).
 // The digest covers regular files and directories only: a symlink, device, socket or FIFO anywhere in the artifact or
 // the migrations, or as either root, is refused. `prebuilt` checks the Build Output a credential-free `cf build` wrote in
 // that stage, because `cf deploy --prebuilt` uploads its bindings, not the cf config's, and refuses any file in it that the check does not read. Exit 0 PASS, 1 refused, 2 usage.
@@ -105,6 +106,12 @@ export function loadTargets(dir = CLIENTS_DIR): Target[] {
 			if (t.client !== e.name) throw new Error(`${file}: client ${t.client} is not its directory's name ${e.name}`);
 			return t;
 		});
+	if (!targets.length) throw new Error(`${dir}: no client targets`);
+	return distinct(targets);
+}
+
+/** `targets` itself, or a throw when two of them share an identifier. */
+function distinct(targets: Target[]): Target[] {
 	const owner = new Map<string, string>();
 	for (const t of targets)
 		for (const [kind, values] of Object.entries(identifiers(t)))
@@ -113,7 +120,6 @@ export function loadTargets(dir = CLIENTS_DIR): Target[] {
 				if (prior && prior !== t.client) throw new Error(`${kind} ${v} is in both ${prior}'s and ${t.client}'s targets`);
 				owner.set(v, t.client);
 			}
-	if (!targets.length) throw new Error(`${dir}: no client targets`);
 	return targets;
 }
 
@@ -305,7 +311,7 @@ function realDirectory(dir: string, what: string): string | null {
  */
 export function stage(a: { client: string; artifact: string; digest: string; out: string; clients?: string }): string[] {
 	const dir = path.join(a.clients ?? CLIENTS_DIR, a.client);
-	const targets = loadTargets(a.clients);
+	const sourceTargets = loadTargets(a.clients); // the other clients' manifests, for the wrong-client comparison; this client's own is read from the staged copy below
 	const files = ['target.json', ...Object.values(CONFIG_FILES)];
 	const migrationsDir = path.join(dir, STAGED.migrations);
 	const problems = [realDirectory(a.artifact, 'artifact'), realDirectory(migrationsDir, STAGED.migrations), existsSync(a.out) ? `${a.out} exists; a stage starts empty` : null].filter((p): p is string => p !== null);
@@ -325,6 +331,14 @@ export function stage(a: { client: string; artifact: string; digest: string; out
 		return refuse([(e as Error).message]);
 	}
 	const staged = Object.fromEntries(files.map((f) => [f, readFileSync(path.join(a.out, f))]));
+	let targets: Target[];
+	try {
+		const own = parseTarget(JSON.parse(staged['target.json']!.toString('utf8')), 'target.json (staged)');
+		if (own.client !== a.client) throw new Error(`target.json (staged): client ${own.client} is not ${a.client}`);
+		targets = distinct(sourceTargets.map((t) => (t.client === a.client ? own : t)));
+	} catch (e) {
+		return refuse([(e as Error).message]);
+	}
 	const configProblems = (Object.keys(CONFIG_FILES) as Format[]).flatMap((format) =>
 		checkTarget({ client: a.client, targets, format, text: staged[CONFIG_FILES[format]]!.toString('utf8') }).map((p) => `${CONFIG_FILES[format]}: ${p}`),
 	);

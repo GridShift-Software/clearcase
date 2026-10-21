@@ -231,6 +231,8 @@ function savedProblems(m: Saved, c: { caseId: string; kind: NoticeKind }): strin
 	problems.push(...noticeProblems({ from: m.from, to: m.to, subject: m.subject, text: m.text }, noticeContext(c)));
 	return problems;
 }
+/** `check`'s arguments for a list of problems, so a failed assertion names them. */
+const clear = (problems: string[], what: string): [boolean, string] => [problems.length === 0, problems.length ? `${what} -- ${problems.join('; ')}` : what];
 const noticeContext = (c: { caseId: string; kind: NoticeKind }) => ({ kind: c.kind, origin: ORIGIN, sender: SENDER, recipient: UPLOADER, forbidden: CASE_STRINGS[c.caseId]! });
 
 /**
@@ -441,7 +443,7 @@ async function main(out: string, adverse: string | null): Promise<number> {
 			check(saved.length === 1 && saved[0]!.messageId === n.messageIds[0] && !saved[0]!.raw, 'the simulator saved exactly one message, the one whose messageId the app recorded');
 			const m = saved[0]!;
 			check(m.from === SENDER && m.to === UPLOADER && m.subject === 'ClearCase: new results are ready', "it is from client A's sender to the uploader alone, with the generic publication subject");
-			check(savedProblems(m, { caseId: 'case-a1', kind: 'publication' }).length === 0, 'the saved message passes the one check of a saved message: only From, To, Subject and Text in the log, exactly those fields in the sent-mail store (no cc, bcc, replyTo or header), and the publication template around one link, no case title, document title, file name or reference');
+			check(...clear(savedProblems(m, { caseId: 'case-a1', kind: 'publication' }), 'the saved message passes the one check of a saved message: only From, To, Subject and Text in the log, exactly those fields in the sent-mail store (no cc, bcc, replyTo or header), and the publication template around one link, no case title, document title, file name or reference'));
 			check(m.html === 0 && m.attachments === 0, 'no HTML part and no attachment was saved');
 			check(linkedNotice(m.text, ORIGIN) === r.json.noticeId, "its only link is client A's origin /n/<the notice id>, with no query or token");
 		});
@@ -451,7 +453,7 @@ async function main(out: string, adverse: string | null): Promise<number> {
 			check(r.status === 200 && r.json.created === true && r.json.notice.state === 'accepted' && r.json.notice.attempts === 1, 'the input-needed event answers 200 and its notice was sent once');
 			const m = (await savedMessages(server!, 2))[1];
 			check(!!m && m.messageId === r.json.notice.messageIds[0], 'the simulator saved one more message, the one the app recorded');
-			check(!!m && savedProblems(m, { caseId: 'case-a1', kind: 'input-needed' }).length === 0, 'it passes the same check as the input-needed template');
+			check(...clear(m ? savedProblems(m, { caseId: 'case-a1', kind: 'input-needed' }) : ['no message'], 'it passes the same check as the input-needed template'));
 			check(!!m && linkedNotice(m.text, ORIGIN) === r.json.noticeId && r.json.noticeId !== [...noticeCase.keys()][0], 'it links its own notice, not the publication notice');
 		});
 
@@ -567,7 +569,7 @@ async function main(out: string, adverse: string | null): Promise<number> {
 			check(saved.length === 2 && saved[0]!.text === saved[1]!.text && saved[0]!.subject === saved[1]!.subject && saved[0]!.messageId !== saved[1]!.messageId, 'case-a3 has two saved messages: the same generic notice and link, two provider messageIds (a real duplicate)');
 			check(r3.possibleDuplicate === true && r3.acceptance === 'accepted' && r3.messageIds.length === 1 && r3.messageIds[0] === saved[1]!.messageId && r4.possibleDuplicate === true, 'the operator view marks both possible duplicates; it knows only the messageId the app saw');
 			check((await intact('case-a3')).notices.length === 1, 'the uploader has one in-app notice for case-a3, not two');
-			check(saved.every((m) => savedProblems(m, { caseId: 'case-a3', kind: 'publication' }).length === 0), 'both copies pass the same check');
+			check(...clear(saved.flatMap((m) => savedProblems(m, { caseId: 'case-a3', kind: 'publication' })), 'both copies pass the same check'));
 		});
 
 		const T3 = Date.now();
@@ -614,7 +616,7 @@ async function main(out: string, adverse: string | null): Promise<number> {
 
 		await leg('no-leak', ['scan of every saved message, Wrangler log and operator response of the run'], async (check) => {
 			check(allSaved.map((m) => `${m.env}/${noticeCase.get(linkedNotice(m.text, ORIGIN) ?? '')?.caseId}/${noticeCase.get(linkedNotice(m.text, ORIGIN) ?? '')?.kind}`).join() === MESSAGES.map((m) => m.join('/')).join() && allSaved.every((m) => !m.raw && m.html === 0 && m.attachments === 0) && strays.length === 0, 'the run saved exactly the seven expected messages, all MessageBuilder sends with a text part only, and the sent-mail store holds no other');
-			check(allSaved.every((m) => { const c = noticeCase.get(linkedNotice(m.text, ORIGIN) ?? ''); return !!c && savedProblems(m, c).length === 0; }), "every saved message passes the one check of a saved message for its own case's strings");
+			check(...clear(allSaved.flatMap((m) => { const c = noticeCase.get(linkedNotice(m.text, ORIGIN) ?? ''); return c ? savedProblems(m, c) : ['it links no notice of this run']; }), "every saved message passes the one check of a saved message for its own case's strings"));
 			const everything = [...Object.values(CASE_STRINGS).flat(), ...OTHER_ADDRESSES, ...Object.keys(CASE_STRINGS).flatMap((c) => [fileFor(c, 1), fileFor(c, 2)]), 'synthetic other content', 'synthetic racing file'];
 			check(allSaved.every((m) => !everything.some((f) => `${m.block.join('\n')}\n${JSON.stringify(m.stored)}\n${m.text}`.toLowerCase().includes(f.toLowerCase()))), "no saved message, in the log or the sent-mail store, carries any case's title, reference, id, document title, file name or file text, or any address but the uploader's");
 			const surfaces = [...allSaved.map((m) => m.text), ...serverLogs, ...opsSeen].join('\n');

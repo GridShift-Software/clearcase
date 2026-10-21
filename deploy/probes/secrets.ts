@@ -110,12 +110,17 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 	const argv = process.argv.slice(2);
 	const dash = argv.indexOf('--');
 	const [command, name, ...opts] = dash < 0 ? argv : argv.slice(0, dash);
-	const opt = (flag: string) => {
-		const i = opts.indexOf(flag);
-		return i < 0 ? undefined : opts[i + 1];
-	};
+	const usage = 'usage: secrets.ts run <name> [--keys K1,K2] [--to fd|env] -- <command> [args...]';
+	const given = new Map<string, string>();
+	const opt = (flag: string) => given.get(flag);
 	try {
-		if (command !== 'run' || !name || dash < 0) throw new Refusal('usage: secrets.ts run <name> [--keys K1,K2] [--to fd|env] -- <command> [args...]');
+		if (command !== 'run' || !name || dash < 0) throw new Refusal(usage);
+		// Each option once and with its value: a dropped --keys value must not widen the read to every key.
+		for (let i = 0; i < opts.length; i += 2) {
+			const [flag, value] = [opts[i]!, opts[i + 1]];
+			if (!['--keys', '--to'].includes(flag) || value === undefined || value.startsWith('--') || given.has(flag)) throw new Refusal(usage);
+			given.set(flag, value);
+		}
 		const to = opt('--to') ?? 'fd';
 		if (to !== 'fd' && to !== 'env') throw new Refusal('--to is fd or env');
 		const secrets = readSecrets({ home: process.env.HOME, name, keys: opt('--keys')?.split(',') });

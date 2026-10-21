@@ -99,6 +99,12 @@ describe('refusals name the path, mode, key or line, never a value', () => {
 		refused(reader(['run', 'synthetic', '--to', 'env', '--', '/bin/sh', '-c', 'true']), /not a real Node/);
 		refused(reader(['run', 'synthetic', '--to', 'env', '--', process.execPath, '-e', '0']), /not a real Node/);
 	});
+	test('an option without its value, or an unknown option, rather than passing every key', () => {
+		refused(run('synthetic', ['--keys']), /usage/);
+		refused(run('synthetic', ['--to']), /usage/);
+		refused(run('synthetic', ['--key', 'SYNTHETIC_TOKEN']), /usage/);
+		refused(run('synthetic', ['--keys', 'SYNTHETIC_TOKEN', '--keys', 'OTHER']), /usage/);
+	});
 	test('a refused read starts no child', () => {
 		synthetic(undefined, 0o644);
 		expect(run().stdout).not.toContain('child ran');

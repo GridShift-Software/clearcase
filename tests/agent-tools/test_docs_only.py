@@ -290,6 +290,14 @@ class Refused(DocsOnlyFixRound):
         self.fix_round({'docs/other.md': '# Other\n'})
         self.guard()
 
+    def test_a_tip_whose_code_cannot_be_read_refuses(self):
+        # The guard cannot tell what the tip's code reads when Git cannot hand it a tracked file (a pruned object, a
+        # partial clone): it fails closed, as when git grep failed before.
+        self.fix_round()
+        blob = self.git('rev-parse', 'HEAD:src/app.ts')
+        (self.repo / '.git/objects' / blob[:2] / blob[2:]).unlink()
+        self.assertRefused(self.guard(code=1), 'cannot read the tracked code')
+
     def test_a_test_manifest_still_needs_its_named_tests(self):
         # preserved: without a declaration, an empty or missing tests list and a missing manifest fail closed
         for label, manifest in {'tests: []': {'noTests': DROP}, 'no tests field': {'noTests': DROP, 'tests': DROP}}.items():
@@ -509,21 +517,33 @@ class ReadDocuments(ControlCase):
     text is not. A path computed under a directory of documents reads that directory."""
 
     def test_the_control_names_each_read_the_list_does_not_hold(self):
-        for name in ('docs/unlisted.md', 'docs/py.md', 'docs/sh.md', 'docs/plan/one.md', 'docs/mentioned.md',
-                     'docs/results-package.md'):
+        for name in ('docs/unlisted.md', 'docs/py.md', 'docs/sh.md', 'docs/plan/one.md', 'docs/feat/one.md', 'docs/b.md',
+                     'docs/sub/guessed.md', 'docs/mentioned.md', 'docs/results-package.md'):
             self.write(name, '# A document\n')
         self.write('tests/oracle.test.ts', "import { readFileSync } from 'node:fs';\n"
                    "const doc = readFileSync('docs/unlisted.md', 'utf8');\n"
                    "const listed = readFileSync('docs/results-package.md', 'utf8');\n")
+        # a path computed under a directory of documents, a parameter's default, the nearest of two declarations, a file
+        # name read under an unknown (temporary) directory
         self.write('scripts/walk.mjs', "readFileSync(join(ROOT, 'docs', 'plan', `${id}.md`));\n")
+        self.write('scripts/feat.mjs', "export const load = (dir = join(import.meta.dirname, '..', 'docs', 'feat')) => readdirSync(dir);\n")
+        self.write('scripts/scopes.mjs', "function a() { const p = join(ROOT, 'docs', 'a.json'); return readFileSync(p); }\n"
+                   "function b() { const p = join(ROOT, 'docs', 'b.md'); return readFileSync(p); }\n")
+        self.write('tests/copy.test.ts', "const text = readFileSync(join(tmp, 'guessed.md'), 'utf8');\n")
         self.write('scripts/check.py', "text = (ROOT / 'docs' / 'py.md').read_text()\n")
         self.write('scripts/check.sh', 'grep -q done docs/sh.md\n')
-        self.write('scripts/mention.mjs', "// see docs/mentioned.md\nconsole.log('read docs/mentioned.md first');\n")
-        self.write('scripts/mention.sh', '# see docs/mentioned.md\necho "read docs/mentioned.md first"\n')
+        # a comment, printed text, a message, a write, an existence test and a copy read nothing
+        self.write('scripts/mention.mjs', "// see docs/mentioned.md\nconsole.log('docs/mentioned.md');\n"
+                   "throw new Error('docs/mentioned.md');\nwriteFileSync(join(ROOT, 'docs', 'mentioned.md'), 'x');\n"
+                   "if (existsSync('docs/mentioned.md')) cpSync('docs/mentioned.md', out);\n")
+        self.write('scripts/mention.sh', '# see docs/mentioned.md\necho docs/mentioned.md\ncp docs/mentioned.md "$TMP/"\n')
+        self.write('scripts/mention.py', "# see docs/mentioned.md\nprint('docs/mentioned.md')\n"
+                   "if (ROOT / 'docs/mentioned.md').is_file(): pass\n")
         self.commit('readers, and code that only mentions a document')
         self.assertEqual(unlisted(read_documents(self.repo)), [
-            'scripts/check.py:1 reads docs/py.md', 'scripts/check.sh:1 reads docs/sh.md',
-            'scripts/walk.mjs:1 reads docs/plan/', 'tests/oracle.test.ts:2 reads docs/unlisted.md'])
+            'scripts/check.py:1 reads docs/py.md', 'scripts/check.sh:1 reads docs/sh.md', 'scripts/feat.mjs:1 reads docs/feat/',
+            'scripts/scopes.mjs:2 reads docs/b.md', 'scripts/walk.mjs:1 reads docs/plan/',
+            'tests/copy.test.ts:1 reads docs/sub/guessed.md', 'tests/oracle.test.ts:2 reads docs/unlisted.md'])
 
     def test_every_markdown_document_that_tracked_code_reads_is_listed(self):
         # The real control: this repository at HEAD. A new reader adds its document to READ_DOCUMENTS in

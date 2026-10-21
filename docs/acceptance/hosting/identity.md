@@ -39,7 +39,8 @@ One build serves both apps: `APP_KIND` (`client` or `staff`, a deployment variab
 
 [`src/hooks.server.js`](../../../tests/hosting-probe/identity/src/hooks.server.js) is the one place a request is admitted:
 
-1. `gateOf(route.id, method)` looks the request up in [`src/lib/gates.json`](../../../tests/hosting-probe/identity/src/lib/gates.json). A route the app does not serve is 404 `not-served` and a method it does not take is 405, before any Clerk or D1 call. HEAD uses GET's gate. A route that no file matches gets Kit's own 404.
+1. `gateOf(route.id, method)` looks the request up in [`src/lib/gates.json`](../../../tests/hosting-probe/identity/src/lib/gates.json). A route the app does not serve is 404 `not-served` and a method it does not take is 405, before any Clerk or D1 call. HEAD uses GET's gate.
+   - **Default deny (no route, no gate).** A request whose `route.id` is null is never resolved ungated. A remote-function call (`event.isRemoteRequest`, `/_app/remote/...`) has no matching route in Kit 3.1.0 (`respond.js`), so a future `.remote.js` would otherwise run with no gate; it is refused 404 `not-served` before anything runs, signed in or not. Any other null-route request resolves only to Kit's own 404 for a path nothing matches; a different answer is replaced by 404 `not-served`. A remote function is therefore a GRS-113 decision: it needs a gate table of its own, not a route in `gates.json`.
 2. `public` resolves at once. Public routes never call Clerk or D1.
 3. Otherwise `decide(event, gate)` runs. It verifies the session, reads the principal's role and grants from this app's D1, and writes an audit row; any exception is 503 `access-unavailable`.
 4. A refusal is JSON `{error: 'denied', reason}` with `x-probe-denial: <reason>` and `cache-control: no-store`. A signed-out GET for a document (accept `text/html`) is a 303 to `/login?reason=<reason>&next=<path>` (BA-19). Clerk's handshake is a 307 with Clerk's headers.

@@ -15,11 +15,12 @@ const tally = (keys: Iterable<string>): Record<string, number> => { const c: Rec
 const mapObjs = (v: JsonValue | undefined, f: (o: JsonObject) => JsonObject): JsonValue | undefined => (Array.isArray(v) ? v.map((x) => (isObject(x) ? f(x) : x)) : v);
 
 /**
- * `into` with each of `writes` written over the source value of its name. A source value the write does not carry moves
- * aside first (putDerived), so nothing is overwritten: one that is not null or empty text, not the value written, and not
- * a number or boolean written as its text.
+ * `into` with each of `writes` set, without overwriting a source value of the same name: one the write does not carry
+ * moves aside first (putDerived). A source value counts as carried when it is null or empty text, equals the write, or
+ * is a number or boolean written as its text. Unlike putDerived, which moves any held value aside even an equal one,
+ * this leaves a record whose coercion changes nothing byte-identical.
  */
-const writeOver = (into: JsonObject, writes: JsonObject): JsonObject => {
+const setKeepingSource = (into: JsonObject, writes: JsonObject): JsonObject => {
   for (const [k, v] of Object.entries(writes)) {
     const held = Object.hasOwn(into, k) ? into[k] : null;
     if (held === null || held === '' || held === v || (typeof held !== 'object' && v === String(held))) own(into, k, v);
@@ -92,7 +93,7 @@ export function matterOf(profile: JsonObject, meta: JsonObject): JsonObject {
 }
 
 const withFilename = (rowsByRef: RowsByRef) => (r: JsonObject): JsonObject =>
-  typeof r.filename === 'string' ? r : writeOver({ ...r }, { filename: str(rowsByRef.get(str(r.ref))?.filename) || str(r.title) });
+  typeof r.filename === 'string' ? r : setKeepingSource({ ...r }, { filename: str(rowsByRef.get(str(r.ref))?.filename) || str(r.title) });
 
 export function quantumOf(q: JsonObject, rowsByRef: RowsByRef): JsonObject {
   const fill = withFilename(rowsByRef);
@@ -102,7 +103,7 @@ export function quantumOf(q: JsonObject, rowsByRef: RowsByRef): JsonObject {
 }
 
 export function contractsOf(c: JsonObject, rowsByRef: RowsByRef): JsonObject {
-  const item = (it: JsonObject): JsonObject => writeOver({
+  const item = (it: JsonObject): JsonObject => setKeepingSource({
     ...it,
     doc_type: it.doc_type ?? str(rowsByRef.get(str(it.ref))?.doc_type),
     party: it.party ?? '',
@@ -112,7 +113,7 @@ export function contractsOf(c: JsonObject, rowsByRef: RowsByRef): JsonObject {
 }
 
 const seedOf = (r: JsonObject): JsonObject =>
-  r.fdate !== undefined || r.fparty !== undefined ? r : writeOver({ ...r }, { fdate: str(r.date), filing: str(r.filing), fparty: str(r.party), rdate: str(r.answerDate), ref: str(r.ref), response: str(r.answer), status: str(r.status) });
+  r.fdate !== undefined || r.fparty !== undefined ? r : setKeepingSource({ ...r }, { fdate: str(r.date), filing: str(r.filing), fparty: str(r.party), rdate: str(r.answerDate), ref: str(r.ref), response: str(r.answer), status: str(r.status) });
 
 export function filingsOf(f: JsonObject): JsonObject {
   return {
@@ -138,11 +139,11 @@ export function bundlesOf(b: JsonObject): JsonObject {
     // a count in items is read as nDocs and nItems, and the row keys take its place; a count neither keeps moves aside
     const items = Array.isArray(x.items) ? x.items : keys;
     if (typeof x.items === 'number' && (out.nDocs === x.items || out.nItems === x.items)) out.items = items;
-    else writeOver(out, { items });
+    else setKeepingSource(out, { items });
     return Object.assign(out, { rows });
   };
   const sections = Array.isArray(b.caselinesSections)
-    ? Object.fromEntries(objs(b.caselinesSections).map((s) => [str(s.sec), writeOver({ ...s }, { from: count(s.first), to: count(s.last), title: str(s.title) })]))
+    ? Object.fromEntries(objs(b.caselinesSections).map((s) => [str(s.sec), setKeepingSource({ ...s }, { from: count(s.first), to: count(s.last), title: str(s.title) })]))
     : b.caselinesSections;
   const out: JsonObject = {
     ...b,
@@ -150,8 +151,8 @@ export function bundlesOf(b: JsonObject): JsonObject {
     catalogue: b.catalogue ?? {}, catCount: b.catCount ?? (isObject(b.catalogue) ? Object.keys(b.catalogue).length : 0),
   };
   // a list of extracts moves to extractFiles and leaves the text empty; extracts of another kind is read as text
-  if (Array.isArray(b.extracts)) writeOver(own(out, 'extracts', ''), { extractFiles: b.extracts });
-  else writeOver(out, { extracts: typeof b.extracts === 'string' ? b.extracts : '' });
+  if (Array.isArray(b.extracts)) setKeepingSource(own(out, 'extracts', ''), { extractFiles: b.extracts });
+  else setKeepingSource(out, { extracts: typeof b.extracts === 'string' ? b.extracts : '' });
   return Object.assign(out, sections !== undefined ? { caselinesSections: sections } : {}, { list: mapObjs(b.list, bundle) ?? b.list });
 }
 
@@ -162,15 +163,15 @@ export function caselinesIndexOf(idx: JsonObject, caselinesSrc: string, pages: n
   const rest: JsonObject = {};
   for (const [k, t] of Object.entries(idx)) if (/^\d+$/.test(k)) index.push([Number(k), str(t)]); else own(rest, k, t);
   index.sort((a, b) => ((a as number[])[0]! - (b as number[])[0]!));
-  return writeOver(rest, { file: nameOfLocator(caselinesSrc), pages: pages || index.length, index });
+  return setKeepingSource(rest, { file: nameOfLocator(caselinesSrc), pages: pages || index.length, index });
 }
 
 export function schedOf(list: readonly JsonObject[]): JsonObject {
-  const file = (f: JsonObject): JsonObject => writeOver({ ...f }, { fn: f.fn ?? str(f.name), url: str(f.url), co: f.co ?? '' });
+  const file = (f: JsonObject): JsonObject => setKeepingSource({ ...f }, { fn: f.fn ?? str(f.name), url: str(f.url), co: f.co ?? '' });
   const item = (i: JsonObject): JsonObject => {
     const files = mapObjs(i.files, file) ?? [];
     // files is the same list mapped file by file, so it replaces the source's and is not a collision
-    return own(writeOver({ ...i }, { no: count(i.no), date: str(i.date), desc: str(i.desc), co: i.co ?? '', nfiles: i.nfiles ?? objs(files).length }), 'files', files);
+    return own(setKeepingSource({ ...i }, { no: count(i.no), date: str(i.date), desc: str(i.desc), co: i.co ?? '', nfiles: i.nfiles ?? objs(files).length }), 'files', files);
   };
   const of = (bundle: string) => list.filter((s) => str(s.bundle) === bundle).flatMap((s) => objs(s.items).map(item));
   return { discovery: of('Original'), supplementary: of('Supplementary'), schedules: [...list] };

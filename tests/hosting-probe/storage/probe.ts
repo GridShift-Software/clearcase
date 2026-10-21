@@ -37,6 +37,7 @@ const BASE = `http://127.0.0.1:${PORT}`;
 const SEED = 'grs-109';
 /** The manifest format of the case backup: user work and the results record too, so not the Complete case export of GLOSSARY.md. */
 const FORMAT = 'clearcase.case-backup/1';
+const PART_BYTES = 8 * 1024 * 1024; // the export's multipart part size (worker.ts PART)
 const MiB = 1024 * 1024;
 /** The cloud legs: each needs moment M2 (Workers Paid plus R2, EU jurisdiction) and Dian's unpin. */
 const HOLD = [
@@ -969,14 +970,23 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			closeSync(fd);
 			packetSha = hash.digest('hex');
 			check(packetSha === seal.json().sha256 && statSync(packet).size === seal.json().size, 'the downloaded bytes match the sealed SHA-256 and size');
-			// The same race as the two-pass leg, on the packet: a byte changes after the headers, and the download must end in an error.
+			// The same race as the two-pass leg, on the backup. R2 keeps a multipart object as its parts (8 MiB each, the last one
+			// shorter), so the byte to change is in the last part's blob, found by that part's size and SHA-256.
 			const packetSize = seal.json().size as number;
+			const lastPartSize = packetSize % PART_BYTES || PART_BYTES;
+			const lastPart = Buffer.alloc(lastPartSize);
+			const pfd = openSync(packet, 'r');
+			readSync(pfd, lastPart, 0, lastPartSize, packetSize - lastPartSize);
+			closeSync(pfd);
+			const flipAt = Math.max(0, lastPartSize - 1000);
+			const changedPart = Buffer.from(lastPart);
+			changedPart[flipAt] = changedPart[flipAt]! ^ 0xff;
 			const raced = await fetch(`${BASE}/cases/${caseId}/exports/${exportId}`, { signal: AbortSignal.timeout(900_000) });
-			const flippedPacket = flip('storage-a', packetSize, null, packetSize - 1000);
+			const flippedPacket = flip('storage-a', lastPartSize, sha256(lastPart), flipAt);
 			const drained = await drain(raced);
-			flip('storage-a', packetSize, null, packetSize - 1000);
+			const putBack = flip('storage-a', lastPartSize, sha256(changedPart), flipAt);
 			const ended = raced.status === 200 && (drained.error !== null || drained.received < packetSize);
-			check(flippedPacket === 1 && (ended || (scale === 'smoke' && drained.sha256 === packetSha)), `a packet download errors before its end when a byte of the packet changes after its headers (${drained.received} of ${packetSize} bytes, ${drained.error ?? 'no error'}); at smoke scale the packet may be read before the byte changes, and then it must be intact`);
+			check(flippedPacket === 1 && putBack === 1 && (ended || (scale === 'smoke' && drained.sha256 === packetSha)), `a backup download errors before its end when a byte of the backup changes after its headers (${drained.received} of ${packetSize} bytes, ${drained.error ?? 'no error'}); at smoke scale the backup may be read before the byte changes, and then it must be intact`);
 			const t1 = performance.now();
 			const py = run('/usr/bin/python3', ['-I', '-c', PY_CHECK, packet], { env: { PATH: '/usr/bin:/bin' } });
 			m.offlineCheckMs = ms(t1);

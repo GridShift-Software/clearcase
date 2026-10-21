@@ -1017,7 +1017,7 @@ function selfTest(): number {
 		['a made-up sourceSha', (s) => (s.sourceSha = '0'.repeat(40))],
 	];
 	// A real commit from before the last change to the Worker: the code at HEAD is not the code the summary would then describe.
-	const worker = asked('log', '-1', '--format=%H', '--', 'tests/hosting-probe/recovery/src/worker.ts').stdout.trim();
+	const worker = asked('log', '-1', '--format=%H', '--', 'src/worker.ts').stdout.trim();
 	const before = worker ? asked('rev-parse', `${worker}~1`).stdout.trim() : '';
 	if (/^[0-9a-f]{40}$/.test(before)) named.push(['a sourceSha from before the last change to the Worker', (s) => (s.sourceSha = before)]);
 	let holes = 0;

@@ -135,7 +135,7 @@ The census was cross-checked against a plain `grep` of the same patterns over `s
 - `src/lib/local-case/test-support.ts`: tests only;
 - `src/lib/user-work/backup/v5-keys.ts`: `localStorage` appears only in a comment.
 
-The line numbers below are at `4d5f7be`. This branch does not change `src/`.
+The line numbers below are at `83f595a`. This branch does not change `src/`.
 
 | File | Uses (line) | Replacement |
 | --- | --- | --- |

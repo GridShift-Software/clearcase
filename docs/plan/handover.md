@@ -4,11 +4,11 @@ This page indexes everything an external reviewer needs, in one place. It is wri
 
 ## Update, 20 October 2026 (GRS-159)
 
-The sections up to and including the state table record the review at SHA `383c385e` on 17 October and stay as recorded. Since then: Greptile's check, CI and no unresolved finding at the exact head gate `dev`, and `dianbrown` approves only a release PR into `main`; GRS-141, GRS-142, GRS-138 and GRS-106 are Done, and the synthetic hosted gate exists while every real-provider check stays UNRUN; `dev` is at `8d818acd` with the last recorded dev-gate PASS at `83cbf184` and no verdict at `8d818acd`.
+The sections up to and including the state table record the review at SHA `ff0d5d31` on 17 October and stay as recorded. Since then: Greptile's check, CI and no unresolved finding at the exact head gate `dev`, and `dianbrown` approves only a release PR into `main`; GRS-141, GRS-142, GRS-138 and GRS-106 are Done, and the synthetic hosted gate exists while every real-provider check stays UNRUN; `dev` is at `b22680f5` with the last recorded dev-gate PASS at `442adb93` and no verdict at `b22680f5`.
 
 ## The review
 
-- **Review SHA:** `383c385e54ea492d6665f5d90b644be1aba8b6fc`. It is the content commit of branch `feature/grs-69-docs-consistency`, cut from `dev` at `525aa8a`; the next commit changes only this line. After the merge, review `dev` at the merge commit.
+- **Review SHA:** `ff0d5d31fa8b0dcc46b8062ca6e5fcdb91436bbd`. It is the content commit of branch `feature/grs-69-docs-consistency`, cut from `dev` at `8fc2058`; the next commit changes only this line. After the merge, review `dev` at the merge commit.
 - **The opinion asked for:** is the plan, the verification model and the operating rules sound before kickoff? Say what you would change, and say which findings you would block on.
 - **What this is not:** runtime acceptance. Every hosted implementation, runtime and provider check is UNRUN. The approval below approves the written plan only.
 
@@ -69,17 +69,17 @@ The ignored `.orchestration/` folder holds the artifacts named below. Ask the co
 | Area | State | Exact revision and source |
 | --- | --- | --- |
 | Local runtime, planning documents | `check`, `test`, `generate.py --check` and the graph fixtures PASS on this branch | The content commit above; run by the author of this branch, with the commands in its report |
-| Local runtime, pilot harness | PASS: gate green at `9249654` (GRS-143), pilot 18/18 | `.orchestration/reports/GRS-143/report.md` |
-| Local runtime, parity repair | PASS at `de56e94` (GRS-141), parity 0 unregistered; the full gate there failed only at `verify:pilot:v5`, which GRS-143 repairs | `.orchestration/reports/GRS-141/report.md` |
-| Wave review | APPROVE WITH P2s, no P0 or P1, at wave head `54fc816` (`wave/preflight-parity`); not a gate run | `.orchestration/reports/WAVE-PREFLIGHT-REVIEW-CODEX/review.md` |
-| Dev gate | FAIL at `8ab9ef4` at strict parity (two demo-merge subtitles). App code is unchanged at `525aa8a`, which has no gate receipt. The repair, GRS-141, GRS-143 and GRS-142, is in flight on `wave/preflight-parity` | `.orchestration/dev-gate/8ab9ef40ebe95ff4f8fc2665ffc85e4d941c1fd6` |
+| Local runtime, pilot harness | PASS: gate green at `73025c3` (GRS-143), pilot 18/18 | `.orchestration/reports/GRS-143/report.md` |
+| Local runtime, parity repair | PASS at `78c0516` (GRS-141), parity 0 unregistered; the full gate there failed only at `verify:pilot:v5`, which GRS-143 repairs | `.orchestration/reports/GRS-141/report.md` |
+| Wave review | APPROVE WITH P2s, no P0 or P1, at wave head `2117c37` (`wave/preflight-parity`); not a gate run | `.orchestration/reports/WAVE-PREFLIGHT-REVIEW-CODEX/review.md` |
+| Dev gate | FAIL at `c89d405` at strict parity (two demo-merge subtitles). App code is unchanged at `8fc2058`, which has no gate receipt. The repair, GRS-141, GRS-143 and GRS-142, is in flight on `wave/preflight-parity` | `.orchestration/dev-gate/8ab9ef40ebe95ff4f8fc2665ffc85e4d941c1fd6` |
 | Test doubles | None built yet. GRS-138 will land the workerd gate with local D1 and R2 bindings, a test-mode identity and an email sink, each named as a double in its summary | UNRUN |
 | Real providers (Clerk, D1, R2, email, Cloudflare account) | UNRUN and HOLD while Cloudflare is pinned | Owners GRS-106 to GRS-111 and GRS-32 |
 | Hosted runtime acceptance | UNRUN | GRS-32 |
 
 ### Codex reports
 
-All are ignored files under `.orchestration/reports/`, written on 17 October 2026 against `dev` at `525aa8a` under the user's scoped authorization for Codex that day. None changed the repository.
+All are ignored files under `.orchestration/reports/`, written on 17 October 2026 against `dev` at `8fc2058` under the user's scoped authorization for Codex that day. None changed the repository.
 
 | Path | One-line summary |
 | --- | --- |
@@ -90,8 +90,8 @@ All are ignored files under `.orchestration/reports/`, written on 17 October 202
 | `CODEX-PONYTAIL-AUDIT-20261017/report.md` | Whole-repository over-engineering audit: worthwhile simplifications; no fixes applied. |
 | `CODEX-REVIEW-MD-HOSTED-20261017/review-md-hosted-section.md` | Draft hosted section for the `REVIEW.md` bug classes; proposals only, probes unrun. |
 | `CODEX-SECRET-PATH-DESIGN-20261017/design.md` | Secret path design (`orch-bin/cloud-guard`): design delivered; implementation and credential-boundary proofs HOLD. |
-| `CODEX-SYNTHETIC-CORPUS-20261017/report.md` | Synthetic corpus generator spike: PASS as a local proof against the exported app at `525aa8a`; not a gate run. |
-| `WAVE-PREFLIGHT-REVIEW-CODEX/review.md` | Review of the preflight wave head `54fc816`: APPROVE WITH P2s. |
+| `CODEX-SYNTHETIC-CORPUS-20261017/report.md` | Synthetic corpus generator spike: PASS as a local proof against the exported app at `8fc2058`; not a gate run. |
+| `WAVE-PREFLIGHT-REVIEW-CODEX/review.md` | Review of the preflight wave head `2117c37`: APPROVE WITH P2s. |
 
 ## Known open items
 

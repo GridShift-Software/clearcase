@@ -6,7 +6,7 @@ The workspace `AGENTS.md` and `ORCHESTRATOR.md` are the operative rules. The sec
 
 ## Current state
 
-- The dev gate was FAIL at `8ab9ef4` at strict parity (17 October); GRS-141, GRS-143 and GRS-142 are Done. The last recorded dev-gate PASS is at `83cbf184` (19 October). `dev` is at `8d818acd`, the merge of the hosted-bootstrap wave PR #75, and the dev-gate run at that commit recorded no verdict. The delivery-controls wave (GRS-157) is not on `dev`.
+- The dev gate was FAIL at `c89d405` at strict parity (17 October); GRS-141, GRS-143 and GRS-142 are Done. The last recorded dev-gate PASS is at `442adb93` (19 October). `dev` is at `b22680f5`, the merge of the hosted-bootstrap wave PR #75, and the dev-gate run at that commit recorded no verdict. The delivery-controls wave (GRS-157) is not on `dev`.
 - Cloudflare account, domain and provider work is pinned until the user unpins it (GRS-26 decision `d6367d1a`). Local proof legs may run. Any leg that needs a real provider, a Paid plan or a credential is HOLD, never a mock PASS. Once unpinned, the ceiling is USD 25 a month with an alert at USD 10. GRS-105 (PC2) is no-go.
 - GRS-24 no longer gates the proof tickets GRS-106 to GRS-111. It still gates GRS-26 and so the design gate GRS-27.
 

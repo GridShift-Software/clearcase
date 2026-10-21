@@ -70,7 +70,7 @@ jobs:
       # a manifest. A pull request labelled fix-round must carry a manifest: the coordinator's ledger has no copy here,
       # so the label is how CI learns of a fix round. A fix round whose review names no test carries a manifest whose
       # noTests declaration binds it to that review; the guard then lets only Markdown outside code and test directories
-      # change, and Markdown that code or a test names does not count; in a wave/ pull request into dev it judges the declared
+      # change, and Markdown that code or a test reads does not count; in a wave/ pull request into dev it judges the declared
       # round's own line, not the other tickets merged beside it. A push to dev ran it in its pull request. It checks the pull
       # request's own head, not the merge commit, and runs under Bun because the runner has no Node.
       #

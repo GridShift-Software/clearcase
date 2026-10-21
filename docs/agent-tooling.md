@@ -589,14 +589,24 @@ non-executable file (mode `100644`, or absent on one side) whose name ends in `.
 `src`, `scripts`, `static`, `build`, `node_modules`, `.svelte-kit`, `RAWS`, `.local` or a test-support directory listed
 above. Anything else fails closed and is named: a runtime module, a test, helper or fixture, a shell or Python test
 (GRS-155's `tests/ci-guard/run.sh`), the workflow, another manifest, Markdown under `src/` or `tests/`, an executable or
-symlinked `.md`, a `.MD`. A Markdown file that tracked code or a test reads is a check's input, not documentation. Reading cannot be told
-from naming, so the guard refuses a changed `.md` file whose name, or the path of a directory above it of two components or
-more (`docs/plan` for `docs/plan/x.md`), any tracked file other than Markdown and the fix-round manifests holds as a
-whole word (`docs/results-package.md`, `docs/ci-runner.md`, a verification skill's `SKILL.md`). It searches the tree at
-the tip of the range with `git grep`, so a newly read file is covered the day the reader lands, with no list to keep. It
-over-approximates (a script that only prints a document's name refuses a round that edits it), which fails closed: such a
-round names the tests to protect instead. A single top-level directory is not searched, since everything names it. For a declaration
-the guard runs nothing else, since a docs-only range holds no code for the closure, reach or assertion-count checks to
+symlinked `.md`, a `.MD`. A Markdown file that tracked code or a test reads, as an input or an expected value, is that
+check's input and not documentation: a docs-only round could loosen the check without changing a test. Naming a file is
+not reading it: a comment, printed text, a message or an assertion's expected text that holds a document's name reads
+nothing, and GRS-154's two files are named only so. The guard refuses a changed `.md` file that `READ_DOCUMENTS` in
+`scripts/agent-tools/test_guard.mjs` lists (an entry ending in `/` covers its directory), and one that the tip's tracked
+code reads, which catches a reader the branch adds before the base's list holds it; the refusal names the entry, or the
+reader and its line. A read is a path that reaches a file-read call (`readFileSync`, `readdirSync`, `Bun.file`, an
+import, Python's `open` or `read_text`, a shell command), a call that takes it as a path (a fixture loader), or a path
+built with `join`, `resolve` or `new URL`, resolved through the file's constants and parameter defaults. A write, an
+existence test and a copy are not reads: the code that reads a copy is scanned where it reads. Ambiguity fails closed:
+a path computed under a directory that holds documentation (`` join(ROOT, 'docs', 'plan', `${id}.md`) ``) reads that
+directory, and a read of a file name under an unknown directory (a copy in a temporary tree) reads every document of that
+name. A walk with no static directory, as `check-links` makes over every `.md` file, judges each document as its subject,
+not as an expected value, and is not counted. `ReadDocuments` in `tests/agent-tools/test_docs_only.py` is the control:
+it fails when `test_guard.mjs --root . --read-documents HEAD` finds a read no entry covers, or an entry that covers no
+document, so a new reader adds its document to the list in the same change. A round that changes a read document names
+the tests to protect instead.
+For a declaration the guard runs nothing else, since a docs-only range holds no code for the closure, reach or assertion-count checks to
 judge; its receipt records the declaration as `guard.noTests`. `test-guard` and `fix-round-guard` compare the declaration
 with the manifest only. With `--ledger`, `fix-round-guard` also refuses a declaration when the review the ledger recorded
 names a test or lists no `protectedTests`, besides the `fixBase` and findings-hash binding every manifest gets there, and
@@ -614,14 +624,15 @@ In the wave. A wave pull request into `dev` reruns the declaration at the wave h
 also holds the wave's later tickets. With an explicit `--base` that is `dev` (`origin/dev`), no `--ledger`, a `--branch`
 of the form `wave/<name>` (one component, as `merge-check` admits) and a manifest added in the range, `fix-round-guard`
 bounds the declaration at its own fix round. The head branch's name alone proves nothing: CI passes the pull request's own,
-and a ticket PR into a wave may use any, so the bound also needs a base of `dev` and a first-parent line of merges from
-the merge base to the joining merge; one commit of its own on that line, or a manifest committed there, gives the whole
-range. The oldest commit on HEAD's first-parent line that holds the manifest is the merge that brought the round's line
+and a ticket PR into a wave may use any, so the bound also needs a base of `dev` and a first-parent line of merges alone
+from the merge base to HEAD; one commit of the wave's own on that line, before the joining merge or after it, or a
+manifest committed there, gives the whole range. The oldest commit on HEAD's first-parent line that holds the manifest is the merge that brought the round's line
 into the wave, and its one other parent holding the same manifest bytes is the line's tip. The guard judges the fix base
 to that tip (`--fix-head`, recorded as `guard.fixHead`), with the newest wave state the tip holds as the trusted base, so
 a wave change the ticket merged in before its own merge is the wave's, as at the ticket's pull request. A manifest changed
-after the merge or brought in any other way gets the whole range, which fails closed. What follows the merge on the wave's
-line, a later merge of the same ticket branch included, is other pull requests' work, judged by their own guard runs. On
+after the merge or brought in any other way gets the whole range, which fails closed. The merges that follow it on the
+wave's line, a later merge of the same ticket branch included, are other pull requests' work, judged by their own guard
+runs. On
 any other base or branch the whole range is the declaration's, so a ticket that merges its manifest in from a side line is
 judged whole. Approval refuses a bounded receipt as it refuses a base-aware one.
 

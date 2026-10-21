@@ -584,8 +584,9 @@ not from the worker's files: the review that prompted the fix is the unit's late
 `fix` event, and the receipt must show (1) a `fixBase` equal to that review's recorded SHA, (2) a manifest whose
 `reviewFindingsSha256` equals the content hash of that review's recorded findings and whose `unit` is the unit, and
 (3) a manifest `tests` list equal to the recorded findings' `protectedTests`. A worker-written manifest with a later
-`fixBase`, another findings hash or a shorter `tests` list refuses, and so does a receipt whose `guard.trustedBase` is
-set (`fix-round-guard --base` without `--ledger`), since a worker chooses that base. When the recorded review lists no `protectedTests`
+`fixBase`, another findings hash or a shorter `tests` list refuses, and so does a receipt from `fix-round-guard --base`
+without `--ledger` (its `guard.trustedBase` is set, or its recorded command carries `--trusted-base`), since a worker
+chooses that base. When the recorded review lists no `protectedTests`
 field the approval refuses; an empty list records `guard.nothingToProtect` and needs no receipt. The row keeps the
 binding and the receipt joins the fingerprinted inputs, so editing the receipt afterwards refuses at readback.
 A unit with no recorded `fix` dispatch approves as before.

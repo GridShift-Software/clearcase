@@ -23,17 +23,19 @@ import { createHash } from 'node:crypto';
 import { accessSync, closeSync, constants, createWriteStream, existsSync, mkdirSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, rmSync, statSync, writeFileSync, writeSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import { DESCRIPTOR_SIZE, type Entry, crc32, descriptor, localHeader, trailer } from './src/zip.ts';
 import { type OriginalPlan, type Plan, type Scale, V5, aggregates, listText, originalBytes, packageFileText, plan, readModel } from './generate.ts';
 
 const HERE = import.meta.dirname;
 const SCHEMA = 'clearcase.storage-probe/1';
-const LEGS = ['build', 'provision', 'crossed-bindings', 'upload', 'import', 'layout', 'range', 'write-once', 'two-pass', 'user-work', 'export', 'corruption', 'restore'] as const;
+const LEGS = ['build', 'provision', 'crossed-bindings', 'upload', 'import', 'layout', 'range', 'write-once', 'two-pass', 'user-work', 'export', 'corruption', 'restore', 'restore-guards'] as const;
 type LegName = (typeof LEGS)[number];
 type Measure = Record<string, number | string | boolean>;
 type Leg = { status: 'PASS' | 'FAIL' | 'NOT RUN'; commands: string[]; asserted: string[]; measured: Measure; failure?: string };
 const PORT = 18797;
 const BASE = `http://127.0.0.1:${PORT}`;
 const SEED = 'grs-109';
+const FORMAT = 'clearcase.case-packet/1';
 const MiB = 1024 * 1024;
 /** The cloud legs: each needs moment M2 (Workers Paid plus R2, EU jurisdiction) and Dian's unpin. */
 const HOLD = [
@@ -89,6 +91,7 @@ const LEG_SHAPE: Record<LegName, [number, number]> = {
 	export: [6, 8],
 	corruption: [11, 12],
 	restore: [8, 8],
+	'restore-guards': [9, 17],
 };
 
 type Spec = null | boolean | number | string | RegExp | ((v: unknown) => boolean) | Spec[] | { [key: string]: Spec };
@@ -149,6 +152,7 @@ const MEASURES: Record<LegName, Record<string, Spec>> = {
 	export: { entries: POSITIVE, packetBytes: POSITIVE, parts: POSITIVE, steps: POSITIVE, maxR2OpsPerStep: POSITIVE, maxD1StatementsPerStep: POSITIVE, wallMs: MS, offlineCheckMs: MS, workerdPeakRssBytes: POSITIVE },
 	corruption: { casesRefused: 8 },
 	restore: { entries: POSITIVE, steps: POSITIVE, wallMs: MS, objects: POSITIVE },
+	'restore-guards': { refusals: 11 },
 };
 
 /** The one expected shape of a PASS summary for `sha`: every field, its type and its value. */
@@ -1074,24 +1078,24 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 				return c.packetId as string;
 			};
 			await serve('client-b');
-			const wrong = await post(`/restore/packets/${await uploadPacket()}/open`, {});
+			const wrong = await post(`/restore/packets/${await uploadPacket()}/open`, { caseId });
 			check(wrong.status === 409 && wrong.json().code === 'wrong-client', "client A's packet uploaded to client B's deployment is refused on open (409 wrong-client)");
 			await serve('restore-a');
 			const t0 = performance.now();
 			const id = await uploadPacket();
-			const opened = await post(`/restore/packets/${id}/open`, {});
+			const opened = await post(`/restore/packets/${id}/open`, { caseId });
 			check(opened.status === 200 && opened.json().entries === exportEntries && opened.json().caseId === caseId, 'the fresh deployment opens the packet from its central directory and manifest, entry for entry');
 			let from = 1;
 			let steps = 0;
 			for (;;) {
-				const s = await post(`/restore/packets/${id}/step`, { from }, 600_000);
+				const s = await post(`/restore/packets/${id}/step`, { caseId, from }, 600_000);
 				if (s.status !== 200) throw new Error(`restore step: ${s.status} ${new TextDecoder().decode(s.bytes).slice(0, 300)}`);
 				steps++;
 				from = s.json().next;
 				if (from >= exportEntries) break;
 			}
 			check(true, `every object entry is copied to its key in ${steps} steps, R2 checking each against the manifest's SHA-256 and the archive's CRC-32`);
-			const fin = await post(`/restore/packets/${id}/finish`, {}, 600_000);
+			const fin = await post(`/restore/packets/${id}/finish`, { caseId }, 600_000);
 			check(fin.status === 200 && fin.json().restored === caseId, 'finish rebuilds the version, read model, originals, activation and user work through the guarded import path');
 			m.wallMs = ms(t0);
 			const st = await http(`/cases/${caseId}/state`, { timeout: 600_000 });
@@ -1101,10 +1105,160 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			check(r.status === 206 && equal(r.bytes, bytesOf(o).subarray(0, 64)), 'an original that was corrupted at the source is served intact, verified, from the restored deployment');
 			const work = await http(`/cases/${caseId}/work`);
 			check(work.status === 200 && work.json().tables.uw_register_row.rows.length > 0, 'the restored user work is readable');
-			const again = await post(`/restore/packets/${id}/finish`, {}, 600_000);
+			const again = await post(`/restore/packets/${id}/finish`, { caseId }, 600_000);
 			check(again.status === 409 && again.json().code === 'already-restored' && (await http(`/cases/${caseId}/state`, { timeout: 600_000 })).json().sha256 === sourceState, 'finishing the same restore again answers 409 already-restored and changes nothing');
 			Object.assign(m, { entries: exportEntries, steps, objects: st.json().counts.objects });
 		});
+		// ----- restore guards: a restore never overwrites or deletes a stored key, stays in the case it names, and can be retried -----
+		// Small synthetic backups built here with the Worker's own ZIP writer, uploaded to the restore deployment, whose case
+		// `caseId` is live by now. Each scenario uses its own case and results version.
+		await leg('restore-guards', ['POST /restore/packets, PUT …/1, POST …/complete, for each synthetic backup', 'POST …/open, …/step and …/finish naming a case other than the backup’s', 'POST …/step on an entry whose archive CRC-32 is wrong, for an original already stored', 'POST …/step on an entry whose key already holds other bytes (a multipart upload)', 'POST /cases/<case>/versions/<v>/begin by another case, then …/step and …/finish of a backup of that version', 'POST …/finish of a backup lacking a table the deployment has, then of a corrected one', 'GET /probe/live/<case> and /probe/head/<key> before and after each', 'POST …/finish again and …/step on the stored version', 'POST …/finish for a case that already has an active version'], async (check, m) => {
+			const enc = new TextEncoder();
+			const bytesOfJson = (x: unknown) => enc.encode(JSON.stringify(x));
+			const synthetic = (label: string, n: number) => enc.encode(`SYNTHETIC ONLY: ${label}\n`.repeat(n));
+			const versionOf = (label: string) => `sha256:${sha256(`restore guard version ${label}`)}`;
+			type Item = { path: string; kind: string; bytes: Uint8Array; crc?: number };
+			/** A backup with the manifest first; `crc` replaces an entry's CRC-32 in the central directory only. */
+			const zip = (caseId: string, resultsVersion: string, items: Item[]) => {
+				const all: Item[] = [{ path: 'manifest.json', kind: 'manifest', bytes: bytesOfJson({ format: FORMAT, client: 'client-a', caseId, resultsVersion, entries: items.map((i) => ({ path: i.path, sha256: sha256(i.bytes), size: i.bytes.length, kind: i.kind })) }) }, ...items];
+				const parts: Uint8Array[] = [];
+				const entries: Entry[] = [];
+				let at = 0;
+				for (const i of all) {
+					const header = localHeader(i.path);
+					entries.push({ path: i.path, crc: i.crc ?? crc32(i.bytes), size: i.bytes.length, offset: at });
+					parts.push(header, i.bytes, descriptor(crc32(i.bytes), i.bytes.length));
+					at += header.length + i.bytes.length + DESCRIPTOR_SIZE;
+				}
+				parts.push(trailer(entries, at));
+				return Buffer.concat(parts);
+			};
+			const upload = async (bytes: Uint8Array) => {
+				const c = (await post('/restore/packets', {})).json();
+				const part = await http(`/restore/packets/${c.packetId}/${c.uploadId}/1`, { method: 'PUT', body: bytes as Uint8Array<ArrayBuffer> });
+				if (part.status !== 200 || (await post(`/restore/packets/${c.packetId}/${c.uploadId}/complete`, { parts: [part.json()] })).status !== 200) throw new Error('synthetic backup upload');
+				return c.packetId as string;
+			};
+			const stepAll = async (id: string, caseId: string) => {
+				for (let from = 1; ; ) {
+					const s = await post(`/restore/packets/${id}/step`, { caseId, from });
+					if (s.status !== 200 || s.json().next >= s.json().of) return s;
+					from = s.json().next;
+				}
+			};
+			const live = async (caseId: string) => JSON.stringify((await http(`/probe/live/${caseId}`)).json());
+			const held = async (key: string) => {
+				const r = await http(`/probe/head/${key}`);
+				return r.status === 200 ? { size: r.json().size as number, sha256: r.json().sha256 as string | null } : null;
+			};
+			const code = (r: Res, status: number, c: string) => r.status === status && r.json().code === c;
+			/** A complete backup of one case: its user work (with the deployment's own columns), read model, results record, package file, list and one original. */
+			const backupOf = async (caseId: string, resultsVersion: string, tag: string, o: { dropTable?: string; foreignCase?: string } = {}) => {
+				const original = synthetic(`restore guard original ${tag}`, 200);
+				const file = JSON.stringify({ synthetic: true, tag });
+				const list = JSON.stringify([{ ref: 'S-9001' }]);
+				const tables = (await http(`/cases/${caseId}/work`)).json().tables as Record<string, { columns: string[]; rows: object[] }>;
+				tables.uw_note!.rows = [{ case_id: caseId, note_id: 'n-1', anchor: null, body: 'synthetic restored note', version: 'v-note-1' }];
+				if (o.dropTable) delete tables[o.dropTable];
+				const results = {
+					version: { version_id: resultsVersion, case_id: caseId, state: 'stored', expected_documents: 1, expected_assets: 0, expected_seeds: 0, expected_files: 1, list_sha256: sha256(list), list_size: list.length },
+					packageFiles: [{ path: 'datasets/guard.json', sha256: sha256(file), size: file.length }],
+					originals: [{ asset_id: 'g-1', sha256: sha256(original), size: original.length, filename: 'g-1.pdf', media_type: 'application/pdf', ...(o.foreignCase ? { case_id: o.foreignCase } : {}) }],
+				};
+				return {
+					original,
+					bytes: zip(caseId, resultsVersion, [
+						{ path: 'user-work.json', kind: 'user-work', bytes: bytesOfJson({ format: 'clearcase.user-work/1', caseId, rev: 0, tables }) },
+						{ path: 'read-model/document.json', kind: 'read-model', bytes: bytesOfJson([{ ref: 'S-9001', row_json: '{"name":"S-9001"}' }]) },
+						{ path: 'read-model/asset.json', kind: 'read-model', bytes: bytesOfJson([]) },
+						{ path: 'read-model/seed.json', kind: 'read-model', bytes: bytesOfJson([]) },
+						{ path: 'results/version.json', kind: 'results', bytes: bytesOfJson(results) },
+						{ path: 'package/datasets/guard.json', kind: 'package', bytes: enc.encode(file) },
+						{ path: 'list/chronology.json', kind: 'list', bytes: enc.encode(list) },
+						{ path: `originals/${sha256(original)}`, kind: 'original', bytes: original },
+					]),
+					file,
+					fileSha: sha256(file),
+				};
+			};
+			let refusals = 0;
+			const refused = (ok: boolean) => ((refusals += ok ? 1 : 0), ok);
+
+			// a. a CRC-32 mismatch in the archive must not delete a key that already holds the verified bytes
+			const Z = synthetic('restore guard stored original', 100);
+			const hZ = sha256(Z);
+			check((await http(`/originals/${hZ}`, { method: 'PUT', body: Z })).status === 200, 'an original is stored and verified through the upload path');
+			const idCrc = await upload(zip('case-guard-crc', versionOf('crc'), [{ path: `originals/${hZ}`, kind: 'original', bytes: Z, crc: crc32(Z) ^ 1 }]));
+			check((await post(`/restore/packets/${idCrc}/open`, { caseId: 'case-guard-crc' })).status === 200, 'a backup with one entry whose central-directory CRC-32 is wrong still opens: its manifest is intact');
+			const crc = await post(`/restore/packets/${idCrc}/step`, { caseId: 'case-guard-crc', from: 1 });
+			check(refused(code(crc, 422, 'crc-mismatch')) && (await held(`orig/${hZ}`))?.sha256 === hZ, 'its step answers 422 crc-mismatch and the stored original is still there, with its SHA-256 (a mismatch deletes nothing)');
+
+			// b. a key that holds other bytes is not overwritten
+			const Y = synthetic('restore guard restore target', 100);
+			const hY = sha256(Y);
+			const other = synthetic('bytes under the target key already', 50);
+			const um = (await post(`/originals/${hY}/uploads`, {})).json();
+			const pm = await http(`/originals/${hY}/uploads/${um.uploadId}/1`, { method: 'PUT', body: other });
+			check(pm.status === 200 && (await post(`/originals/${hY}/uploads/${um.uploadId}/complete`, { parts: [pm.json()] })).status === 200, 'an object other than its key names is in place under orig/<sha> (a multipart upload)');
+			const idHeld = await upload(zip('case-guard-held', versionOf('held'), [{ path: `originals/${hY}`, kind: 'original', bytes: Y }]));
+			const over = await post(`/restore/packets/${idHeld}/step`, { caseId: 'case-guard-held', from: 1 });
+			const kept = await held(`orig/${hY}`);
+			check(refused(code(over, 409, 'conflicting-object')) && kept?.size === other.length && kept.sha256 !== hY, 'a step whose target key holds other bytes answers 409 conflicting-object and leaves those bytes');
+
+			// c. the backup names its case: any other case is refused, and nothing changes
+			const main = 'case-guard-main';
+			const V = versionOf('main');
+			const good = await backupOf(main, V, 'main');
+			const idMain = await upload(good.bytes);
+			const before = [await live(main), await live('case-guard-other')];
+			const asOther = [await post(`/restore/packets/${idMain}/open`, { caseId: 'case-guard-other' }), await post(`/restore/packets/${idMain}/step`, { caseId: 'case-guard-other', from: 1 }), await post(`/restore/packets/${idMain}/finish`, { caseId: 'case-guard-other' })];
+			check(asOther.every((r) => refused(code(r, 409, 'wrong-case'))) && (await live(main)) === before[0] && (await live('case-guard-other')) === before[1], 'open, step and finish naming another case answer 409 wrong-case, and neither case changes');
+
+			// d. a version that belongs to another case is refused
+			const sq = 'case-guard-sq';
+			const Vsq = versionOf('sq');
+			const squat = await backupOf(sq, Vsq, 'sq');
+			const idSq = await upload(squat.bytes);
+			check((await post(`/cases/case-guard-squatter/versions/${Vsq}/begin`, { expected: { documents: 1, assets: 0, seeds: 0, files: 1 }, list: { sha256: '0'.repeat(64), size: 1 } })).status === 200, 'another case stages the same results version');
+			const sqBefore = await live(sq);
+			const sqStep = await post(`/restore/packets/${idSq}/step`, { caseId: sq, from: 1 });
+			const sqFinish = await post(`/restore/packets/${idSq}/finish`, { caseId: sq });
+			check(refused(code(sqStep, 409, 'version-of-another-case')) && refused(code(sqFinish, 409, 'version-of-another-case')) && (await live(sq)) === sqBefore, 'step and finish of a backup whose version belongs to another case answer 409 version-of-another-case, and the case is unchanged');
+
+			// e. a backup lacking a table the deployment has is refused before anything is written, and the corrected one restores
+			const drift = await backupOf(main, V, 'main', { dropTable: 'uw_note' });
+			const idDrift = await upload(drift.bytes);
+			check((await post(`/restore/packets/${idDrift}/open`, { caseId: main })).status === 200 && (await stepAll(idDrift, main)).status === 200, 'a backup whose user work lacks uw_note opens, and its objects are copied');
+			const refusedDrift = await post(`/restore/packets/${idDrift}/finish`, { caseId: main });
+			check(refused(code(refusedDrift, 422, 'snapshot-incomplete')) && refusedDrift.json().table === 'uw_note' && (await live(main)) === before[0], 'finishing it answers 422 snapshot-incomplete naming uw_note, and the case holds no version, row or activation it did not hold before');
+			const idOk = await upload(good.bytes);
+			check((await post(`/restore/packets/${idOk}/open`, { caseId: main })).status === 200 && (await stepAll(idOk, main)).status === 200, 'the corrected backup of the same case and version opens, and its objects, already copied, are accepted again');
+			const ok = await post(`/restore/packets/${idOk}/finish`, { caseId: main }, 60_000);
+			const after = JSON.parse(await live(main));
+			check(ok.status === 200 && after.active === V && after.versions.length === 1 && after.versions[0].state === 'stored' && after.originals === 1 && after.work.uw_note === 1, 'the retry restores the version, the activation, the original and the user work');
+			const backupKey = ok.json().preRestore as { key: string; sha256: string } | undefined;
+			check(backupKey !== undefined && (await held(backupKey.key))?.sha256 === backupKey.sha256 && backupKey.key.startsWith(`backup/${main}/pre-restore-`), 'the restore wrote its pre-restore backup first: it is in R2 under backup/, with its SHA-256');
+
+			// f. rows come from an allow-list: an original record naming a foreign case binds nothing in it
+			const victim = 'case-guard-victim';
+			const foreign = await backupOf('case-guard-foreign', versionOf('foreign'), 'foreign', { foreignCase: victim });
+			const idForeign = await upload(foreign.bytes);
+			check((await post(`/restore/packets/${idForeign}/open`, { caseId: 'case-guard-foreign' })).status === 200 && (await stepAll(idForeign, 'case-guard-foreign')).status === 200 && (await post(`/restore/packets/${idForeign}/finish`, { caseId: 'case-guard-foreign' }, 60_000)).status === 200, 'a backup whose original record carries another case’s id restores');
+			check(JSON.parse(await live(victim)).originals === 0 && JSON.parse(await live('case-guard-foreign')).originals === 1, 'the original is bound to the case in the request, and the case in the record has none');
+
+			// g. a stored version is final; a live case is not replaced
+			const pkgBefore = await held(`pkg/${V}/datasets/guard.json`);
+			const again = await post(`/restore/packets/${idOk}/finish`, { caseId: main });
+			const restep = await post(`/restore/packets/${idOk}/step`, { caseId: main, from: 1 });
+			check(refused(code(again, 409, 'already-restored')) && refused(code(restep, 409, 'already-restored')) && JSON.stringify(await held(`pkg/${V}/datasets/guard.json`)) === JSON.stringify(pkgBefore) && pkgBefore?.sha256 === good.fileSha, 'finish and step on the stored version answer 409 already-restored, and its package file is as it was');
+			const second = await backupOf(main, versionOf('second'), 'second');
+			const idSecond = await upload(second.bytes);
+			const liveBefore = await live(main);
+			const replace = await post(`/restore/packets/${idSecond}/finish`, { caseId: main });
+			check(refused(code(replace, 409, 'case-live')) && (await live(main)) === liveBefore, 'a backup of another version for a case that already has an active version answers 409 case-live, and the case is unchanged');
+			m.refusals = refusals;
+		});
+
 	} catch (e) {
 		failure = e instanceof Error ? e.message : String(e);
 	} finally {

@@ -68,7 +68,10 @@ jobs:
       # under docs/acceptance/fix-rounds/; the guard fails a pull request that deletes, skips, loosens or renames a test
       # those findings name, that changes the test code, runner configuration or fixtures they depend on, or that deletes
       # a manifest. A pull request labelled fix-round must carry a manifest: the coordinator's ledger has no copy here,
-      # so the label is how CI learns of a fix round. A push to dev ran it in its pull request. It checks the pull
+      # so the label is how CI learns of a fix round. A fix round whose review names no test carries a manifest whose
+      # noTests declaration binds it to that review; the guard then lets only Markdown outside code and test directories
+      # change, and on a wave/ head (--branch) it judges the declared round's own line, not the other tickets merged
+      # beside it. A push to dev ran it in its pull request. It checks the pull
       # request's own head, not the merge commit, and runs under Bun because the runner has no Node.
       #
       # It runs before any step that runs the pull request's code, so nothing the pull request supplies (its install

@@ -94,7 +94,7 @@ const LEG_SHAPE: Record<LegName, [number, number]> = {
 	export: [6, 8],
 	corruption: [11, 12],
 	restore: [8, 8],
-	'restore-guards': [9, 17],
+	'restore-guards': [11, 22],
 };
 
 type Spec = null | boolean | number | string | RegExp | ((v: unknown) => boolean) | Spec[] | { [key: string]: Spec };
@@ -155,7 +155,7 @@ const MEASURES: Record<LegName, Record<string, Spec>> = {
 	export: { entries: POSITIVE, packetBytes: POSITIVE, parts: POSITIVE, steps: POSITIVE, maxR2OpsPerStep: POSITIVE, maxD1StatementsPerStep: POSITIVE, wallMs: MS, offlineCheckMs: MS, workerdPeakRssBytes: POSITIVE },
 	corruption: { casesRefused: 8 },
 	restore: { entries: POSITIVE, steps: POSITIVE, wallMs: MS, objects: POSITIVE },
-	'restore-guards': { refusals: 11 },
+	'restore-guards': { refusals: 12 },
 };
 
 /** The one expected shape of a PASS summary for `sha`: every field, its type and its value. */
@@ -1128,7 +1128,7 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 		// ----- restore guards: a restore never overwrites or deletes a stored key, stays in the case it names, and can be retried -----
 		// Small synthetic backups built here with the Worker's own ZIP writer, uploaded to the restore deployment, whose case
 		// `caseId` is live by now. Each scenario uses its own case and results version.
-		await leg('restore-guards', ['POST /restore/packets, PUT …/1, POST …/complete, for each synthetic backup', 'POST …/open, …/step and …/finish naming a case other than the backup’s', 'POST …/step on an entry whose archive CRC-32 is wrong, for an original already stored', 'POST …/step on an entry whose key already holds other bytes (a multipart upload)', 'POST /cases/<case>/versions/<v>/begin by another case, then …/step and …/finish of a backup of that version', 'POST …/finish of a backup lacking a table the deployment has, then of a corrected one', 'GET /probe/live/<case> and /probe/head/<key> before and after each', 'POST …/finish again and …/step on the stored version', 'POST …/finish for a case that already has an active version'], async (check, m) => {
+		await leg('restore-guards', ['POST /restore/packets, PUT …/1, POST …/complete, for each synthetic backup', 'POST …/open, …/step and …/finish naming a case other than the backup’s', 'POST …/step on an entry whose archive CRC-32 is wrong, for an original already stored', 'POST …/step on an entry whose key already holds other bytes (a multipart upload)', 'POST /cases/<case>/versions/<v>/begin by another case, then …/step and …/finish of a backup of that version', 'POST …/finish of a backup lacking a table the deployment has, then of a corrected one', 'GET /probe/live/<case> and /probe/head/<key> before and after each', 'POST …/finish again and …/step on the stored version', 'POST …/finish for a case that already has an active version', 'POST …/finish of a backup whose counts disagree with its rows, then of a corrected one', 'POST …/uploads and …/finalize of a shared original, then …/step and …/finish of a backup carrying it'], async (check, m) => {
 			const enc = new TextEncoder();
 			const bytesOfJson = (x: unknown) => enc.encode(JSON.stringify(x));
 			const synthetic = (label: string, n: number) => enc.encode(`SYNTHETIC ONLY: ${label}\n`.repeat(n));
@@ -1169,7 +1169,7 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			};
 			const code = (r: Res, status: number, c: string) => r.status === status && r.json().code === c;
 			/** A complete backup of one case: its user work (with the deployment's own columns), read model, results record, package file, list and one original. */
-			const backupOf = async (caseId: string, resultsVersion: string, tag: string, o: { dropTable?: string; foreignCase?: string } = {}) => {
+			const backupOf = async (caseId: string, resultsVersion: string, tag: string, o: { dropTable?: string; foreignCase?: string; docs?: number } = {}) => {
 				const original = synthetic(`restore guard original ${tag}`, 200);
 				const file = JSON.stringify({ synthetic: true, tag });
 				const list = JSON.stringify([{ ref: 'S-9001' }]);
@@ -1177,7 +1177,7 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 				tables.uw_note!.rows = [{ case_id: caseId, note_id: 'n-1', anchor: null, body: 'synthetic restored note', version: 'v-note-1' }];
 				if (o.dropTable) delete tables[o.dropTable];
 				const results = {
-					version: { version_id: resultsVersion, case_id: caseId, state: 'stored', expected_documents: 1, expected_assets: 0, expected_seeds: 0, expected_files: 1, list_sha256: sha256(list), list_size: list.length },
+					version: { version_id: resultsVersion, case_id: caseId, state: 'stored', expected_documents: o.docs ?? 1, expected_assets: 0, expected_seeds: 0, expected_files: 1, list_sha256: sha256(list), list_size: list.length },
 					packageFiles: [{ path: 'datasets/guard.json', sha256: sha256(file), size: file.length }],
 					originals: [{ asset_id: 'g-1', sha256: sha256(original), size: original.length, filename: 'g-1.pdf', media_type: 'application/pdf', ...(o.foreignCase ? { case_id: o.foreignCase } : {}) }],
 				};
@@ -1272,6 +1272,34 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			const liveBefore = await live(main);
 			const replace = await post(`/restore/packets/${idSecond}/finish`, { caseId: main });
 			check(refused(code(replace, 409, 'case-live')) && (await live(main)) === liveBefore, 'a backup of another version for a case that already has an active version answers 409 case-live, and the case is unchanged');
+
+			// h. a backup whose counts disagree with its rows is refused before the first write, and a corrected one restores
+			const counted = 'case-guard-count';
+			const Vc = versionOf('count');
+			const idCountBad = await upload((await backupOf(counted, Vc, 'count', { docs: 2 })).bytes);
+			const countBefore = await live(counted);
+			check((await post(`/restore/packets/${idCountBad}/open`, { caseId: counted })).status === 200 && (await stepAll(idCountBad, counted)).status === 200, 'a backup whose results record expects 2 documents but carries 1 opens, and its objects are copied');
+			const countRefused = await post(`/restore/packets/${idCountBad}/finish`, { caseId: counted }, 60_000);
+			check(refused(countRefused.status === 422 && countRefused.json().code === 'invalid-packet') && (await live(counted)) === countBefore, 'finishing it answers 422 invalid-packet and the case holds no version, original, revision or user work it did not hold before');
+			const idCountOk = await upload((await backupOf(counted, Vc, 'count')).bytes);
+			const countOpen = (await post(`/restore/packets/${idCountOk}/open`, { caseId: counted })).status === 200 && (await stepAll(idCountOk, counted)).status === 200;
+			const countOk = countOpen && (await post(`/restore/packets/${idCountOk}/finish`, { caseId: counted }, 60_000)).status === 200;
+			const countAfter = JSON.parse(await live(counted));
+			check(countOk && countAfter.active === Vc && countAfter.originals === 1 && countAfter.work.uw_note === 1, 'the corrected backup of the same case and version restores');
+
+			// i. an original that another case shares, stored and recorded through multipart (R2 keeps no SHA-256 for it), is accepted
+			const shared = synthetic('restore guard original mp', 200);
+			const hShared = sha256(shared);
+			const us = (await post(`/originals/${hShared}/uploads`, {})).json();
+			const ps = await http(`/originals/${hShared}/uploads/${us.uploadId}/1`, { method: 'PUT', body: shared });
+			const recorded = await post('/cases/case-guard-owner/originals', { assetId: 'own-1', sha256: hShared, size: shared.length, filename: 'own-1.pdf', mediaType: 'application/pdf' });
+			check(ps.status === 200 && (await post(`/originals/${hShared}/uploads/${us.uploadId}/complete`, { parts: [ps.json()] })).status === 200 && recorded.status === 200 && (await held(`orig/${hShared}`))?.sha256 === null, 'an original is stored through multipart and recorded by another case: R2 holds no SHA-256 for it');
+			const mpCase = 'case-guard-mp';
+			const Vmp = versionOf('mp');
+			const idMp = await upload((await backupOf(mpCase, Vmp, 'mp')).bytes);
+			const mpOpen = (await post(`/restore/packets/${idMp}/open`, { caseId: mpCase })).status === 200 && (await stepAll(idMp, mpCase)).status === 200;
+			const mpOk = mpOpen && (await post(`/restore/packets/${idMp}/finish`, { caseId: mpCase }, 60_000)).status === 200;
+			check(mpOk && JSON.parse(await live(mpCase)).active === Vmp && (await held(`orig/${hShared}`))?.sha256 === null, 'a backup carrying that original steps and restores: the recorded multipart object is accepted and left as it was');
 			m.refusals = refusals;
 		});
 

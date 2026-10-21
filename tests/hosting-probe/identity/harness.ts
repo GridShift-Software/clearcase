@@ -168,17 +168,25 @@ export async function startServe(node: { path: string }, env: Record<string, str
 	pipe.on('error', () => {});
 	pipe.end([...secrets].map(([k, v]) => `${k}=${v}\n`).join(''));
 	let text = '';
-	await new Promise<void>((resolve, reject) => {
-		const timer = setTimeout(() => reject(new Error(`serve.mjs: not ready within 90 s: ${text.slice(-1500)}`)), 90_000);
-		const onData = (b: Buffer) => {
-			log.write(b);
-			text += b.toString();
-			if (text.includes('serve: ready')) (clearTimeout(timer), resolve());
-		};
-		child.stdout!.on('data', onData);
-		child.stderr!.on('data', onData);
-		child.once('exit', (code) => (clearTimeout(timer), reject(new Error(`serve.mjs exited ${code} before it was ready: ${text.slice(-1500)}`))));
-	});
+	try {
+		await new Promise<void>((resolve, reject) => {
+			const timer = setTimeout(() => reject(new Error(`serve.mjs: not ready within 90 s: ${text.slice(-1500)}`)), 90_000);
+			const onData = (b: Buffer) => {
+				log.write(b);
+				text += b.toString();
+				if (text.includes('serve: ready')) (clearTimeout(timer), resolve());
+			};
+			child.stdout!.on('data', onData);
+			child.stderr!.on('data', onData);
+			child.once('exit', (code) => (clearTimeout(timer), reject(new Error(`serve.mjs exited ${code} before it was ready: ${text.slice(-1500)}`))));
+		});
+		// "ready" is workerd up, not either Worker's script loaded: the first request to each compiles it, which took over 30 s
+		// (fetchApp's limit) on a loaded machine running the whole root suite. Absorb that here, on a public route, not in a test.
+		await Promise.all([config.client.origin, config.staff.origin].map(async (origin) => void (await (await fetch(`${origin}/`, { signal: AbortSignal.timeout(120_000) })).arrayBuffer())));
+	} catch (e) {
+		await stopServe(child).catch(() => {});
+		throw e;
+	}
 	return child;
 }
 

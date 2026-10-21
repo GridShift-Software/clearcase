@@ -93,16 +93,18 @@ describe('the newer export\'s code-embedded analysis (GRS-149)', () => {
   });
 
   it('merges only the V1 builder\'s statements: another statement leaves its root residual and named with its count, and never reaches the register', async () => {
-    const extra = { ...X, extraRows: [{ ref: 'OD-099' }, { ref: 'OD-098' }] };
+    const extra = { ...X, extraRows: [{ ref: 'OD-099' }, { ref: 'ZZ-901' }] };
     const line = V1_MERGE_LINE.replace(' })();', ' DATA.chronology.push.apply(DATA.chronology, X.extraRows); })();');
     const c = await convert([MODULE, literal(extra), line]);
     expect(data(c, 'chronology')).toHaveLength(c.rows.length);
-    expect(data(c, 'risk-matrix')).toEqual(X.riskMatrix);
-    expect(data(c, 'v5-residual-analysis-overlay')).toEqual({ extraRows: extra.extraRows });
+    // the module does something other than the builder's merges, so none applies and X stays whole
+    expect(data(c, 'risk-matrix')).toEqual([]);
+    expect(data(c, 'v5-residual-analysis-overlay')).toEqual(extra);
     const w = notes(c, 'V5_OVERLAY_UNMAPPED');
     expect(w).toHaveLength(1);
-    expect(w[0]!.message).toContain('1 key');
+    expect(w[0]!.message).toContain('20 keys');
     expect(w[0]!.message).toContain('extraRows 2');
+    expect(w[0]!.message).toContain('1 unrecognised and 0 repeated statements');
   });
 
   describe('fails closed on a module whose statements are not all the pinned merges, each once (M1)', () => {

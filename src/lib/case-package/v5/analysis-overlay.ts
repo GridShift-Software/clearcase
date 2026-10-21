@@ -49,14 +49,19 @@ export const statementOf = (m: Merge): string =>
   : `Object.assign(${m.target}, {${(m.fields ?? []).map((f) => `${f}: X.${m.key}.${f}`).join(', ')}})`;
 const PINNED: ReadonlyMap<string, Merge> = new Map(V1_MERGES.map((m) => [statementOf(m), m]));
 
-/** The module's literal and the pinned merges among the statements that close it, in their order. */
-export interface AnalysisModule { X: JsonObject; merges: Merge[] }
+/**
+ * The module's literal and the pinned merges among the statements that close it, in their order. `unrecognised` and
+ * `repeated` count the statements that are not a pinned merge, and the pinned ones written again; when either is above
+ * 0, `merges` is empty, because the module does something other than the V1 builder's merges.
+ */
+export interface AnalysisModule { X: JsonObject; merges: Merge[]; unrecognised: number; repeated: number }
 
 /**
  * Finds the one line-anchored `(function(){ const X = {…};` of the analysis module and parses it as strict JSON, never
  * evaluating it. The statements after it, up to the line that ends `})();` within the same script, are matched by text
- * against the V1 builder's merges; any other statement merges nothing. Returns null, with a warning, when the module is
- * present but the literal cannot be read; returns null silently when the export has no such module.
+ * against the V1 builder's merges, and each must be one of them, once; otherwise no merge applies. Returns null, with a
+ * warning, when the module is present but the literal cannot be read; returns null silently when the export has no
+ * such module.
  */
 export function readAnalysisOverlay(text: string, sink: DiagSink): AnalysisModule | null {
   const lines = text.split('\n');
@@ -84,7 +89,7 @@ export function readAnalysisOverlay(text: string, sink: DiagSink): AnalysisModul
   const { n, json, tail } = found[0]!;
   try {
     const v = parseStrictJson(json);
-    if (isObject(v)) return { X: v, merges: mergesOf(tail) };
+    if (isObject(v)) return { X: v, ...mergesOf(tail) };
     sink.add('V5_OVERLAY_UNREADABLE', `${OVERLAY_MODULE} line ${n}: the literal is not an object; none of its analysis is imported`, at);
   } catch (e) {
     if (!(e instanceof StrictJsonError)) throw e;
@@ -93,11 +98,25 @@ export function readAnalysisOverlay(text: string, sink: DiagSink): AnalysisModul
   return null;
 }
 
-/** The pinned merges among the statements before `})();`. A module that never closes its function runs no merge. */
-function mergesOf(tail: string[] | null): Merge[] {
-  if (!tail) return [];
+/**
+ * The merges among the statements before `})();`, which fail closed: every non-empty `;` segment must be a pinned
+ * statement and may appear once. Anything else (an assignment, a comment, a string, a repeat) is counted and no merge
+ * applies, because the viewer would run it. A module that never closes its function runs no merge.
+ */
+function mergesOf(tail: string[] | null): Pick<AnalysisModule, 'merges' | 'unrecognised' | 'repeated'> {
+  const none = { merges: [], unrecognised: 0, repeated: 0 };
+  if (!tail) return none;
   const body = tail.join('\n').trimEnd().slice(0, -CLOSE.length);
-  return body.split(';').map((s) => PINNED.get(s.trim())).filter((m): m is Merge => m !== undefined);
+  const merges: Merge[] = [];
+  let unrecognised = 0;
+  let repeated = 0;
+  for (const seg of body.split(';').map((x) => x.trim()).filter(Boolean)) {
+    const m = PINNED.get(seg);
+    if (!m) unrecognised++;
+    else if (merges.includes(m)) repeated++;
+    else merges.push(m);
+  }
+  return unrecognised || repeated ? { ...none, unrecognised, repeated } : { merges, unrecognised, repeated };
 }
 
 type Roots = Partial<Record<V5Root, JsonValue>>;

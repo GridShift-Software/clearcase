@@ -163,7 +163,8 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
     const key = residualKey('v5-residual-analysis-overlay', OVERLAY_SOURCE_PATH);
     const n = Object.keys(rest).length;
     const counts = Object.entries(rest).map(([k, v]) => `${k} ${countOf(v)}`).join(', ');
-    sink.add('V5_OVERLAY_UNMAPPED', `${OVERLAY_MODULE} holds hand-authored analysis that none of its recognised merges places into DATA (${n} ${n === 1 ? 'key' : 'keys'}: ${counts}), so it is kept as the opaque dataset ${key}`, { file: 'input', subject: OVERLAY_SOURCE_PATH });
+    const closed = analysis && (analysis.unrecognised || analysis.repeated) ? `; no merge was applied, because the module holds ${analysis.unrecognised} unrecognised and ${analysis.repeated} repeated statements` : '';
+    sink.add('V5_OVERLAY_UNMAPPED', `${OVERLAY_MODULE} holds hand-authored analysis that none of its recognised merges places into DATA (${n} ${n === 1 ? 'key' : 'keys'}: ${counts}), so it is kept as the opaque dataset ${key}${closed}`, { file: 'input', subject: OVERLAY_SOURCE_PATH });
     datasets.push({ key, kind: 'generated', schema: OPAQUE_SCHEMA, required: false, provenance: prov(OVERLAY_SOURCE_PATH), data: rest });
     stats.residual++;
   }

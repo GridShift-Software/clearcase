@@ -1,0 +1,15 @@
+// Build and local config of the deployment probe's app (GRS-107): no account, every binding local, the database id a
+// placeholder. The adapter reads it at build time (Workers mode, so it writes .assetsignore), and wrangler dev, the
+// test harness and the Workers Vitest pool serve the build with it. A client deploy never uses this file: the trusted
+// parent stages the build with that client's reviewed config from deploy/probes/clients/.
+{
+  "name": "clearcase-deployment-probe",
+  "main": ".svelte-kit/cloudflare/_worker.js",
+  "compatibility_date": "2026-10-12",
+  "compatibility_flags": ["nodejs_als"],
+  "send_metrics": false,
+  "assets": { "directory": ".svelte-kit/cloudflare", "binding": "ASSETS" },
+  "vars": { "CLEARCASE_CLIENT_ID": "probe-local" },
+  "d1_databases": [{ "binding": "DB", "database_name": "probe-local-only", "database_id": "00000000-0000-4000-8000-000000000107", "migrations_dir": "migrations", "remote": false }],
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "probe-local-only", "remote": false }]
+}

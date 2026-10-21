@@ -113,7 +113,7 @@ By viewport: 1440×900 274 PASS and 11 FAIL (all component findings); 1024×768 
 
 ## Scale
 
-These are measurements at the proposed starting tiers on desktop Chrome, not agreed limits (open question 2).
+These are measurements at the starting tiers on desktop Chrome, not limits the product enforces (open question 2, [decided 20 October 2026][decision]).
 
 | Tier | Fixture | Result |
 | --- | --- | --- |
@@ -164,3 +164,5 @@ The 11 FAILs. Each assertion was written to fail if the component behaves the wa
 | `sheet/main.supplement-v1.pdf` ×2 | The office supplement recalculated the absent result to 20 and omitted the hidden sheets, row, column and comment | Supplements are visual-only; values come from the grid |
 | `media/mp4-two-audio-tracks.mp4` | Chrome exposes no `audioTracks` API, so the second track is unreachable | Prepared rendition per material track |
 | `media/mp4-truncated.mp4` | Chrome plays a cut MP4 as complete and shows a black frame past the cut | Import holds it (`media-damaged`); the reader alone cannot be trusted to fail |
+
+[decision]: https://linear.app/vaper/issue/GRS-27#comment-629983a8

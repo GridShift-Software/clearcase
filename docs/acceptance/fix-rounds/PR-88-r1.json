@@ -31,5 +31,8 @@
       "file": "tests/case-package/newer-analysis.test.ts",
       "name": "d) checks without a count n beside an existing source_checks: the source value is never overwritten, and the whole dataset is demoted with a diagnostic"
     }
-  ]
+  ],
+  "assertionCountReasons": {
+    "tests/case-package/newer-analysis.test.ts": "Adds the class sweep's independent test (red 986bbc9, typed in 027f8a9) for keepRest and carryTyped, with the import of defenceRowOf, riskMatrixOf and timelineEventOf it calls; the named test d) is unchanged."
+  }
 }

@@ -536,6 +536,43 @@ async function registerWrite(ctx: Ctx, request: Request, caseId: string, store: 
 	}
 }
 
+/**
+ * What a uw_* table declares, read from the schema and never listed by hand: its PRIMARY KEY and UNIQUE column sets, and
+ * its NOT NULL columns. A CHECK, a FOREIGN KEY, or an index on an expression or with a WHERE cannot be evaluated here,
+ * so a table declaring one stops every restore (a fault of the deployment, not of the backup) until this learns it.
+ */
+async function constraintsOf(ctx: Ctx, table: string) {
+	const info = await ctx.db.all<{ name: string; notnull: number; pk: number }>('SELECT name, "notnull", pk FROM pragma_table_info(?) ORDER BY cid', table);
+	const keys = new Map<string, string[]>();
+	const pk = info.filter((c) => c.pk > 0).sort((a, b) => a.pk - b.pk).map((c) => c.name);
+	if (pk.length) keys.set(pk.join(','), pk);
+	let unchecked = (await ctx.db.all('SELECT 1 FROM pragma_foreign_key_list(?)', table)).length > 0 || /\bCHECK\s*\(/i.test((await ctx.db.first<{ sql: string }>("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?", table))?.sql ?? '');
+	for (const ix of await ctx.db.all<{ name: string; partial: number }>('SELECT name, partial FROM pragma_index_list(?) WHERE "unique" = 1', table)) {
+		const columns = (await ctx.db.all<{ name: string | null }>('SELECT name FROM pragma_index_info(?) ORDER BY seqno', ix.name)).map((c) => c.name);
+		if (ix.partial || columns.some((c) => c === null)) unchecked = true;
+		else keys.set(columns.join(','), columns as string[]);
+	}
+	if (unchecked) refuse(500, 'unchecked-constraint', { table });
+	return { keys: [...keys.values()], required: info.filter((c) => c.notnull || c.pk > 0).map((c) => c.name) };
+}
+
+/** The rows of one uw_* table against its constraints, refused 422 before the first write: the database would refuse them too, but only after the staging rows were written. */
+function checkUserWork(table: string, rows: Row[], constraints: Awaited<ReturnType<typeof constraintsOf>>) {
+	const invalid = (what: string): never => refuse(422, 'invalid-packet', { reason: `user-work.json ${table}: ${what}` });
+	const seen = constraints.keys.map(() => new Set<string>());
+	for (const r of rows) {
+		for (const [c, v] of Object.entries(r)) if (v !== null && typeof v !== 'string' && typeof v !== 'number') invalid(`${c} is not text, a number or null`);
+		for (const c of constraints.required) if (r[c] === null) invalid(`${c} is null`);
+		constraints.keys.forEach((key, i) => {
+			const values = key.map((c) => r[c]);
+			if (values.includes(null)) return; // NULLs never collide in a UNIQUE constraint
+			const id = JSON.stringify(values.map(String)); // text and number columns coerce one into the other
+			if (seen[i]!.has(id)) invalid(`${key.join(', ')} repeats`);
+			seen[i]!.add(id);
+		});
+	}
+}
+
 async function restoreStatements(ctx: Ctx, caseId: string, snap: Row, expectedRev: number, fail: boolean): Promise<[string, D1Value[]][]> {
 	if (snap.format !== 'clearcase.user-work/1' || snap.caseId !== caseId || !isObject(snap.tables)) refuse(422, 'invalid-snapshot');
 	const have = await uwTables(ctx);
@@ -551,6 +588,7 @@ async function restoreStatements(ctx: Ctx, caseId: string, snap: Row, expectedRe
 		if (!isObject(entry) || JSON.stringify(entry.columns) !== JSON.stringify(columns) || !isRows(entry.rows)) refuse(422, 'snapshot-columns-differ', { table: t });
 		const list = (entry as { rows: Row[] }).rows;
 		for (const r of list) if (JSON.stringify(Object.keys(r).sort()) !== JSON.stringify([...columns].sort()) || r.case_id !== caseId) refuse(422, 'snapshot-row-invalid', { table: t });
+		checkUserWork(t, list, await constraintsOf(ctx, t));
 		statements.push(...inserts(t, columns, list, 'json', null));
 	}
 	statements.push(['SELECT rev FROM case_rev WHERE case_id = ?', [caseId]], CLEAR);

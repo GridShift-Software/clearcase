@@ -2050,6 +2050,40 @@ class GuardBinding(ControlCase):
                      assertionCountReasons={'tests/protected.test.ts': 'Tidy'}, code=1)
         self.assertEqual(json.loads(self.guard_receipt.read_text())['result'], 'FAIL')
 
+    def test_a_guard_receipt_that_could_accept_base_changes_does_not_bind(self):
+        # GRS-153: fix-round-guard with --base and no --ledger accepts a protected change the base made and HEAD merged.
+        # The ledger binds the guard to the reviewed commit alone, so that receipt cannot approve, even when it accepted none.
+        self.git('branch', 'trunk', self.reviewed)
+        self.guarded()
+        self.cli('fix-round-guard', '--base', 'trunk')
+        base_aware = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        self.assertEqual(json.loads(base_aware.read_text())['guard']['trustedBase'], self.reviewed)
+        self.prepare([{'id': 'L1', 'severity': 'low'}])
+        self.assertIn('--base', self.approve('--guard-receipt', base_aware, code=1))
+        data = json.loads(base_aware.read_text())
+        for label, edit in (('the claim deleted', lambda guard: guard.pop('trustedBase')),
+                            ('the claim nulled', lambda guard: guard.update(trustedBase=None))):
+            with self.subTest(bypass=label):
+                edited = json.loads(json.dumps(data))
+                edit(edited['guard'])
+                base_aware.write_text(json.dumps(edited))
+                self.assertIn('--base', self.approve('--guard-receipt', base_aware, code=1))
+        self.approve('--guard-receipt', self.guard_receipt)
+
+    def test_a_guard_receipt_whose_trusted_base_claim_is_retyped_does_not_bind(self):
+        self.git('branch', 'trunk', self.reviewed)
+        self.guarded()
+        self.cli('fix-round-guard', '--base', 'trunk')
+        base_aware = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        self.prepare([{'id': 'L1', 'severity': 'low'}])
+        data = json.loads(base_aware.read_text())
+        for retyped in ('', False, 0, []):
+            with self.subTest(trustedBase=retyped):
+                edited = json.loads(json.dumps(data))
+                edited['guard']['trustedBase'] = retyped
+                base_aware.write_text(json.dumps(edited))
+                self.assertIn('--base', self.approve('--guard-receipt', base_aware, code=1))
+
     def test_a_manifest_for_other_findings_does_not_bind(self):
         self.guarded(reviewFindingsSha256='0' * 64)
         self.prepare([{'id': 'L1', 'severity': 'low'}])
@@ -2153,6 +2187,395 @@ class FixRoundGuardRequired(ControlCase):
         self.manifest(reviewFindingsSha256=self.findings_sha)
         self.commit('fix round')
         self.ledger_guard()
+
+
+class FixRoundMergedBase(ControlCase):
+    """GRS-153: a manifest's range spans every later merge from the base. A protected file the base changed, merged into
+    the branch and held byte for byte at HEAD, is the base's change and passes; the same change made on the branch, or
+    any change on top of it, still refuses."""
+    original = TestWeakening.original
+    path = FixRoundManifest.path
+    manifest = FixRoundManifest.manifest
+    config = "export default { test: { include: ['tests/**/*.test.ts'] } };\n"
+    helper = 'export const expected = false;\n'
+    test = "import { expected } from '../support/helper';\n" + TestWeakening.original
+    # what the base changes after the review: the runner configuration (PR #75's CC-25 include line) and a helper
+    base_change = {'vitest.config.ts': "export default { test: { include: ['tests/**/*.test.ts', 'tests/acceptance/**/*.test.ts'] } };\n",
+                   'support/helper.ts': 'export const expected = false;\nexport const unrelated = 1;\n'}
+
+    other = "test('one', () => { expect(1).toEqual(1); });\ntest('two', () => { expect(2).toEqual(2); });\n"
+
+    def setUp(self):
+        super().setUp()
+        self.write('vitest.config.ts', self.config)
+        self.write('support/helper.ts', self.helper)
+        self.write('tests/fixtures/cases.json', '{"a":false}')
+        self.write('tests/other.test.ts', self.other)
+        self.dev = self.commit('runner configuration, helper, fixture and another test')
+        self.git('switch', '-q', '-c', 'feature/grs-104-tooling')
+        self.write('tests/protected.test.ts', self.test)
+        self.base = self.commit('reviewed tests')
+        self.write('app.txt', 'fixed\n')
+        self.manifest()
+        self.fixed = self.commit('fix round')
+
+    def reset(self):
+        self.git('switch', '-q', '-C', 'feature/grs-104-tooling', self.fixed)
+        self.git('branch', '-f', 'dev', self.dev)
+
+    def change(self, files, message):
+        """Write each file (None deletes it) and commit on the current branch."""
+        for name, text in files.items():
+            if text is None:
+                (self.repo / name).unlink()
+            else:
+                self.write(name, text)
+        return self.commit(message)
+
+    def on_dev(self, files, message='a later change on the base'):
+        self.git('switch', '-q', 'dev')
+        self.change(files, message)
+        self.git('switch', '-q', 'feature/grs-104-tooling')
+
+    def merge(self, ref='dev', commit=True):
+        self.git('-c', 'user.name=Synthetic', '-c', 'user.email=test@example.invalid', 'merge', '-q', '--no-ff',
+                 *([] if commit else ['--no-commit']), '-m', f'Merge {ref} into the branch', ref)
+        return self.git('rev-parse', 'HEAD')
+
+    def guard(self, *args, code=0):
+        return self.cli('fix-round-guard', *args, code=code)
+
+    def test_a_protected_change_merged_from_the_base_passes(self):
+        self.on_dev(self.base_change)
+        head = self.merge()
+        self.guard('--base', 'dev')
+        receipt = self.last_receipt()
+        self.assertEqual((receipt['name'], receipt['result'], receipt['revision']['head']), ('test-guard', 'PASS', head))
+
+    def test_the_same_change_made_on_the_branch_refuses(self):
+        for name, text in self.base_change.items():
+            with self.subTest(file=name):
+                self.git('switch', '-q', '-C', 'feature/grs-104-tooling', self.fixed)
+                self.write(name, text)
+                self.commit(f'the branch changes {name}')
+                self.assertIn(f'protected dependency changed: {name}', self.guard('--base', 'dev', code=1))
+                self.assertEqual(self.last_receipt()['result'], 'FAIL')
+
+    def test_the_receipt_names_the_base_and_the_changes_it_accepted(self):
+        self.on_dev(self.base_change)
+        self.merge()
+        out = self.guard('--base', 'dev')
+        self.assertRegex(out, r'protected among them: (vitest\.config\.ts, support/helper\.ts|support/helper\.ts, vitest\.config\.ts)\n')
+        receipt = self.last_receipt()
+        self.assertEqual(receipt['guard']['trustedBase'], self.git('rev-parse', 'dev'))
+        self.assertEqual(receipt['revision']['base'], self.git('rev-parse', 'dev'))
+
+    def test_the_base_ref_variable_alone_does_not_trust_the_base(self):
+        self.on_dev(self.base_change)
+        self.merge()
+        self.env['CLEARCASE_BASE_REF'] = 'dev'
+        self.assertIn('protected dependency changed', self.guard(code=1))
+        self.assertIsNone(self.last_receipt()['guard']['trustedBase'])
+
+    def test_the_pass_line_names_the_base_it_trusted_only_when_one_was_given(self):
+        self.on_dev(self.base_change)
+        self.merge()
+        self.assertIn(f"; trusted base {self.git('rev-parse', 'dev')})\n", self.guard('--base', 'dev'))
+        self.reset()
+        self.assertNotIn('trusted base', self.guard())
+
+    def test_a_branch_edit_after_the_merge_or_on_top_of_a_base_change_refuses(self):
+        helper = self.base_change['support/helper.ts']
+        cases = {
+            'a branch edit after a merge that left the helper alone': ({'docs/note.md': 'later\n'}, {'support/helper.ts': helper}),
+            'a branch edit on top of the base change': (self.base_change, {'support/helper.ts': helper.replace('= 1', '= 2')}),
+            'a branch edit on top of the base configuration': (self.base_change, {'vitest.config.ts': self.base_change['vitest.config.ts']
+                                                                  .replace('] } }', "], exclude: ['tests/protected.test.ts'] } }")}),
+        }
+        for label, (base, branch) in cases.items():
+            with self.subTest(bypass=label):
+                self.reset()
+                self.on_dev(base)
+                self.merge()
+                self.change(branch, label)
+                self.assertIn(f'protected dependency changed: {next(iter(branch))}', self.guard('--base', 'dev', code=1))
+        with self.subTest(bypass='an edit inside the merge commit, differing from both sides'):
+            self.reset()
+            self.on_dev(self.base_change)
+            self.merge(commit=False)
+            self.change({'support/helper.ts': helper.replace('= 1', '= 3')}, 'Merge dev into the branch')
+            self.assertEqual(len(self.git('rev-list', '--parents', '-n', '1', 'HEAD').split()), 3)
+            self.assertIn('protected dependency changed: support/helper.ts', self.guard('--base', 'dev', code=1))
+
+    def test_a_base_the_branch_has_not_merged_cannot_be_read_or_is_not_given_refuses(self):
+        with self.subTest(bypass='the base change copied onto the branch without a merge'):
+            self.reset()
+            self.on_dev(self.base_change)
+            self.change(self.base_change, 'copy the base change')
+            self.assertIn('protected dependency changed', self.guard('--base', 'dev', code=1))
+        with self.subTest(bypass='the base moved on after the merge (merge it again)'):
+            self.reset()
+            self.on_dev(self.base_change)
+            self.merge()
+            self.on_dev({'docs/note.md': 'later\n'})
+            self.assertIn('protected dependency changed', self.guard('--base', 'dev', code=1))
+            self.merge()
+            self.guard('--base', 'dev')
+        with self.subTest(bypass='an unreadable base'):
+            self.reset()
+            self.on_dev(self.base_change)
+            self.merge()
+            self.assertIn('does not resolve', self.guard('--base', 'no-such-ref', code=1))
+        with self.subTest(bypass='no --base: the default base only sets the range'):
+            self.reset()
+            self.on_dev(self.base_change)
+            self.merge()
+            self.assertIn('protected dependency changed', self.guard(code=1))
+            self.assertIsNone(self.last_receipt()['guard']['trustedBase'])
+        with self.subTest(bypass='the ledger binds the guard to the reviewed commit alone'):
+            self.reset()
+            self.on_dev(self.base_change)
+            self.merge()
+            out = self.guard('--base', 'dev', '--ledger', self.receipts, '--branch', 'feature/grs-104-tooling', code=1)
+            self.assertIn('protected dependency changed', out)
+            self.assertIsNone(self.last_receipt()['guard']['trustedBase'])
+
+    def test_an_added_deleted_symlinked_or_mode_changed_dependency_still_refuses(self):
+        setup = "export default { test: { include: ['tests/**/*.test.ts'], setupFiles: ['./tests/setup.ts'] } };\n"
+        cases = {
+            'a setup file the base added': ({'vitest.config.ts': setup, 'tests/setup.ts': 'export {};\n'}, 'protected dependency added/deleted: tests/setup.ts'),
+            'a configuration the base deleted': ({'vitest.config.ts': None}, 'protected dependency added/deleted: vitest.config.ts'),
+        }
+        for label, (base, message) in cases.items():
+            with self.subTest(bypass=label):
+                self.reset()
+                self.on_dev(base)
+                self.merge()
+                self.assertIn(message, self.guard('--base', 'dev', code=1))
+        with self.subTest(bypass='a helper the base made a symlink'):
+            self.reset()
+            self.git('switch', '-q', 'dev')
+            self.write('support/real.ts', self.helper)
+            (self.repo / 'support/helper.ts').unlink()
+            (self.repo / 'support/helper.ts').symlink_to('real.ts')
+            self.commit('symlink the helper')
+            self.git('switch', '-q', 'feature/grs-104-tooling')
+            self.merge()
+            self.assertIn('symlink/submodule protected dependency refuses: support/helper.ts', self.guard('--base', 'dev', code=1))
+        with self.subTest(bypass='a mode change on top of the base change'):
+            self.reset()
+            self.on_dev(self.base_change)
+            self.merge()
+            (self.repo / 'support/helper.ts').chmod(0o755)
+            self.commit('make the helper executable')
+            self.assertIn('protected dependency changed: support/helper.ts', self.guard('--base', 'dev', code=1))
+
+    def test_the_branch_reverting_a_reviewed_change_to_the_base_copy_refuses(self):
+        # HEAD holds the base's bytes, but the base never changed the helper: the change is the branch's own revert.
+        self.git('switch', '-q', '-C', 'feature/grs-104-tooling', self.dev)
+        self.write('support/helper.ts', self.helper + 'export const stricter = true;\n')
+        self.write('tests/protected.test.ts', self.test)
+        self.base = self.commit('reviewed tests and a stricter helper')
+        self.write('app.txt', 'fixed\n')
+        self.manifest()
+        self.write('support/helper.ts', self.helper)
+        self.commit('fix round, reverting the helper to the base copy')
+        self.assertIn('protected dependency changed: support/helper.ts', self.guard('--base', 'dev', code=1))
+
+    def test_a_fixture_the_base_changed_passes_and_a_branch_or_deleted_fixture_refuses(self):
+        self.on_dev({'tests/fixtures/cases.json': '{"a":true}'})
+        self.merge()
+        self.assertIn('protected among them: tests/fixtures/cases.json', self.guard('--base', 'dev'))
+        for label, (base, branch) in {'a branch edit': ({}, {'tests/fixtures/cases.json': '{"a":true}'}),
+                                      'a fixture the base deleted': ({'tests/fixtures/cases.json': None}, {})}.items():
+            with self.subTest(bypass=label):
+                self.reset()
+                if base:
+                    self.on_dev(base)
+                    self.merge()
+                if branch:
+                    self.change(branch, label)
+                self.assertIn('protected fixture changed or deleted: tests/fixtures/cases.json', self.guard('--base', 'dev', code=1))
+
+    def test_a_protected_test_file_the_base_changed_passes_but_not_its_named_test(self):
+        # the protected test file comes from the base here, so the base can change it after the review
+        self.git('switch', '-q', 'dev')
+        self.write('tests/protected.test.ts', self.test)
+        self.dev = self.base = self.commit('the protected test on the base')
+        self.git('switch', '-q', '-C', 'feature/grs-104-tooling')
+        self.write('app.txt', 'fixed\n')
+        self.manifest()
+        self.fixed = self.commit('fix round')
+        later = self.test + "test('later behavior', () => { expect(later()).toEqual(1); });\n"
+        self.on_dev({'tests/protected.test.ts': later})
+        self.merge()
+        self.assertIn('protected among them: tests/protected.test.ts', self.guard('--base', 'dev'))
+        with self.subTest(bypass='the same free test added on the branch, with no reason'):
+            self.reset()
+            self.change({'tests/protected.test.ts': later}, 'add a free test')
+            self.assertIn('protected dependency changed: tests/protected.test.ts', self.guard('--base', 'dev', code=1))
+        with self.subTest(bypass='a named test the base changed'):
+            self.reset()
+            self.on_dev({'tests/protected.test.ts': self.test.replace('.toEqual(false)', '.toBeDefined()')})
+            self.merge()
+            self.assertIn('named test changed', self.guard('--base', 'dev', code=1))
+
+    def test_a_test_change_the_base_made_is_not_the_branch_fix_diff(self):
+        base_changes = {'a Python test': {'tests/tools/test_tool.py': 'assert True\n'},
+                        'a test that lost an assertion': {'tests/other.test.ts': self.other.split('\n')[0] + '\n'},
+                        'a deleted test': {'tests/other.test.ts': None}}
+        for label, files in base_changes.items():
+            with self.subTest(control=label):
+                self.reset()
+                self.on_dev(files)
+                self.merge()
+                self.guard('--base', 'dev')
+        for label, (files, message) in {
+                'a Python test': (base_changes['a Python test'], 'unsupported changed test syntax: tests/tools/test_tool.py'),
+                'a test that lost an assertion': (base_changes['a test that lost an assertion'], 'assertion count fell in tests/other.test.ts')}.items():
+            with self.subTest(bypass=f'{label} on the branch'):
+                self.reset()
+                self.change(files, label)
+                self.assertIn(message, self.guard('--base', 'dev', code=1))
+
+
+class FixRoundRenames(ControlCase):
+    """GRS-153 polish M1: a path set is compared with rename detection off. A renamed test is deleted at its old path
+    and added at its new one, so a rename cannot hide the old file's assertions, and a base-side near-copy cannot
+    stand in for a test the branch deleted."""
+    original = TestWeakening.original
+    path = FixRoundManifest.path
+    manifest = FixRoundManifest.manifest
+    reset = FixRoundMergedBase.reset
+    change = FixRoundMergedBase.change
+    on_dev = FixRoundMergedBase.on_dev
+    merge = FixRoundMergedBase.merge
+    guard = FixRoundMergedBase.guard
+    config = FixRoundMergedBase.config
+    helper = FixRoundMergedBase.helper
+    test = FixRoundMergedBase.test
+    # eight assertions, similar enough to the file it is copied from for Git to call the copy a rename
+    big = ''.join(f"test('case {n}', () => {{ expect({n}).toEqual({n}); }});\n" for n in range(8))
+
+    def setUp(self):
+        super().setUp()
+        self.write('vitest.config.ts', self.config)
+        self.write('support/helper.ts', self.helper)
+        self.write('tests/big.test.ts', self.big)
+        self.dev = self.commit('runner configuration, helper and a test with eight assertions')
+        self.git('switch', '-q', '-c', 'feature/grs-104-tooling')
+        self.write('tests/protected.test.ts', self.test)
+        self.base = self.commit('reviewed tests')
+        self.write('app.txt', 'fixed\n')
+        self.manifest()
+        self.fixed = self.commit('fix round')
+
+    def test_a_branch_rename_that_drops_an_assertion_refuses(self):
+        self.git('mv', 'tests/big.test.ts', 'tests/renamed.test.ts')
+        self.write('tests/renamed.test.ts', self.big.replace(self.big.splitlines()[-1] + '\n', ''))
+        self.commit('rename a test and drop an assertion')
+        self.assertIn('assertion count fell in tests/big.test.ts: 8 -> 0', self.guard('--base', 'dev', code=1))
+        self.assertEqual(self.last_receipt()['result'], 'FAIL')
+
+    def test_a_base_near_copy_merged_into_a_branch_that_deleted_the_original_refuses(self):
+        self.on_dev({'tests/copy.test.ts': self.big + "test('extra', () => { expect(9).toEqual(9); });\n"})
+        self.git('rm', '-q', 'tests/big.test.ts')
+        self.commit('the branch deletes the test')
+        self.merge()
+        self.assertIn('assertion count fell in tests/big.test.ts: 8 -> 0', self.guard('--base', 'dev', code=1))
+
+    def test_a_rename_the_base_made_and_the_branch_merged_passes(self):
+        self.git('switch', '-q', 'dev')
+        self.git('mv', 'tests/big.test.ts', 'tests/renamed.test.ts')
+        self.commit('the base renames the test')
+        self.git('switch', '-q', 'feature/grs-104-tooling')
+        self.merge()
+        self.assertIn('protected among them:', self.guard('--base', 'dev'))
+
+
+class FixRoundFixtureModule(ControlCase):
+    """GRS-153 polish L1: a fixture module a protected test imports is in the closure twice, as code and as data, and the
+    receipt line names it once."""
+    original = TestWeakening.original
+    path = FixRoundManifest.path
+    manifest = FixRoundManifest.manifest
+    reset = FixRoundMergedBase.reset
+    change = FixRoundMergedBase.change
+    on_dev = FixRoundMergedBase.on_dev
+    merge = FixRoundMergedBase.merge
+    guard = FixRoundMergedBase.guard
+    fixture = 'export const expected = false;\n'
+    test = "import { expected } from './fixtures/data';\n" + TestWeakening.original
+
+    def setUp(self):
+        super().setUp()
+        self.write('tests/fixtures/data.ts', self.fixture)
+        self.dev = self.commit('a fixture module')
+        self.git('switch', '-q', '-c', 'feature/grs-104-tooling')
+        self.write('tests/protected.test.ts', self.test)
+        self.base = self.commit('reviewed tests')
+        self.write('app.txt', 'fixed\n')
+        self.manifest()
+        self.fixed = self.commit('fix round')
+
+    def test_an_imported_fixture_module_the_base_changed_is_named_once(self):
+        self.on_dev({'tests/fixtures/data.ts': self.fixture + 'export const unrelated = 1;\n'})
+        self.merge()
+        out = self.guard('--base', 'dev')
+        self.assertEqual(out.count('tests/fixtures/data.ts'), 1, out)
+        self.assertIn('protected among them: tests/fixtures/data.ts\n', out)
+
+
+class FixRoundDerivedKeys(ControlCase):
+    """GRS-153 review M1: the guard's derived entries (`package.json#scripts`, `<dir>/package.json#resolution`) are read
+    from a tracked file but have no path of their own. A merged base change counts for one only through the file it is
+    read from; a key tracked by neither HEAD nor the fix base is never the base's change."""
+    original = TestWeakening.original
+    path = FixRoundManifest.path
+    manifest = FixRoundManifest.manifest
+    reset = FixRoundMergedBase.reset
+    change = FixRoundMergedBase.change
+    on_dev = FixRoundMergedBase.on_dev
+    merge = FixRoundMergedBase.merge
+    guard = FixRoundMergedBase.guard
+    helper = 'export const expected = false;\n'
+    test = "import { expected } from '#helper';\n" + TestWeakening.original
+    package = {'name': 'x', 'scripts': {'test': 'vitest run', 'start': 'node a.js'}, 'imports': {'#helper': './support/helper.ts'}}
+
+    def setUp(self):
+        super().setUp()
+        self.write('package.json', json.dumps(self.package))
+        self.write('support/helper.ts', self.helper)
+        self.dev = self.commit('a package manifest with a test script and an imports alias, and a helper')
+        self.git('switch', '-q', '-c', 'feature/grs-104-tooling')
+        self.write('tests/protected.test.ts', self.test)
+        self.base = self.commit('reviewed tests')
+        self.write('app.txt', 'fixed\n')
+        self.manifest()
+        self.fixed = self.commit('fix round')
+
+    def edit(self, **fields):
+        return {'package.json': json.dumps({**self.package, **fields})}
+
+    def test_a_branch_edit_of_a_derived_entry_with_an_unrelated_merged_base_change_refuses(self):
+        scripts = {**self.package['scripts'], 'test': 'vitest run --exclude tests/protected.test.ts'}
+        for label, fields, message in (('the test script', {'scripts': scripts}, 'protected dependency changed: package.json#scripts'),
+                                       ('a resolution field', {'type': 'module'}, 'protected dependency changed: package.json#resolution')):
+            with self.subTest(bypass=label):
+                self.reset()
+                self.on_dev({'docs/note.md': 'later\n'})
+                self.change(self.edit(**fields), f'the branch changes {label}')
+                self.merge()
+                self.assertIn(message, self.guard('--base', 'dev', code=1))
+
+    def test_a_derived_entry_the_base_changed_and_the_branch_merged_passes(self):
+        for label, fields, key in (('the test script', {'scripts': {**self.package['scripts'], 'test': 'vitest run --silent'}}, 'package.json#scripts'),
+                                   ('a resolution field', {'type': 'module'}, 'package.json#resolution')):
+            with self.subTest(control=label):
+                self.reset()
+                self.on_dev(self.edit(**fields))
+                self.merge()
+                self.assertIn(f'protected among them: {key}', self.guard('--base', 'dev'))
 
 
 class RetainedPaths(ControlCase):

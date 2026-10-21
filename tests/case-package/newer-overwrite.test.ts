@@ -55,8 +55,6 @@ const SITES: { site: string; map: (p: Pairs) => J; k: string; held: unknown; wro
   { site: 'a schedule file url read as text', map: schedFile, k: 'url', held: odd('url'), wrote: '' },
 ];
 
-const keeps = (out: J, v: unknown) => Object.values(out).some((x) => JSON.stringify(x) === JSON.stringify(v));
-
 describe('a newer-export mapper never overwrites a source field of the name it writes (GRS-171)', () => {
   for (const s of SITES) {
     it(`keeps the source value of ${s.site} beside what the mapping writes`, () => {
@@ -66,11 +64,14 @@ describe('a newer-export mapper never overwrites a source field of the name it w
         [`${s.k}, then source_${s.k}`, [[s.k, s.held], [`source_${s.k}`, chain]]],
         [`source_${s.k}, then ${s.k}`, [[`source_${s.k}`, chain], [s.k, s.held]]],
       ];
+      // the held value lands at source_<k>, or at source_source_<k> when source_<k> holds a value of its own, which stays put
       for (const [name, pairs] of variants) {
         const out = s.map([...(s.base ?? []), ...pairs]);
         expect(out[s.k], `${name}: written`).toEqual(s.wrote);
-        expect(keeps(out, s.held), `${name}: ${JSON.stringify(s.held)} kept`).toBe(true);
-        if (pairs.length > 1) expect(keeps(out, chain), `${name}: ${chain} kept`).toBe(true);
+        if (pairs.length > 1) {
+          expect(out[`source_${s.k}`], `${name}: source_${s.k}`).toEqual(chain);
+          expect(out[`source_source_${s.k}`], `${name}: source_source_${s.k}`).toEqual(s.held);
+        } else expect(out[`source_${s.k}`], `${name}: source_${s.k}`).toEqual(s.held);
       }
     });
   }

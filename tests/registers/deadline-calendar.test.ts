@@ -25,3 +25,11 @@ describe('deadline day counts near midnight in South Africa', () => {
 		expect(openDeadlines(['2030-01-15', '2030-01-16', '2030-01-17'].map(row), AFTER)).toBe(2);
 	});
 });
+
+describe('a deadline date that is not on the calendar', () => {
+	it.each(['2030-02-30', '2030-13-01', '2030-00-10', '0024-01-01'])('shows a dash and is not counted as open (%s)', (date) => {
+		expect(daysUntil(date, BEFORE)).toBeNull();
+		expect(countdown(date, BEFORE)).toEqual({ text: '—', tone: 'muted' });
+		expect(openDeadlines([row(date), row('2030-01-16')], BEFORE)).toBe(1);
+	});
+});

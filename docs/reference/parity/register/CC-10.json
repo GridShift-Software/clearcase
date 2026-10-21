@@ -18,8 +18,8 @@
       "reason": "v5 asks the user to connect the case folder through the browser; the app already knows the folder the case was imported from and shows its path.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-401",
@@ -33,8 +33,8 @@
       "reason": "No folder connection is needed: the app scans the case folder the case was imported from.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-402",
@@ -47,8 +47,8 @@
       "reason": "v5's limitation note is replaced by the app's own account of what a quick and a full scan compare and that additions stay “not yet indexed” until processing includes them (text.page.2).",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-403",
@@ -64,8 +64,8 @@
       "reason": "Says what a quick scan (path, size, date) and a full scan (SHA-256 of every file) compare, how bundles and ref prefixes are chosen, and that additions are listed in every document view as not yet indexed.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-404",
@@ -79,8 +79,8 @@
       "reason": "A full scan reads every file and compares its SHA-256, so it finds a file changed without a change of size; v5 compares names and sizes only.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-405",
@@ -99,8 +99,8 @@
       "reason": "The app reports the last scan (counts and whether it supports calling the analysis current) and the changed or removed originals; v5 reports neither. Before a first scan they say so.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-406",
@@ -113,8 +113,8 @@
       "reason": "Before a scan has found additions the app says so in a sentence instead of an empty table with a placeholder row; the table, with v5's columns, appears once there are additions.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-407",
@@ -130,8 +130,8 @@
       "reason": "The sentence that stands in for the empty additions table.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-408",
@@ -145,8 +145,8 @@
       "reason": "Clearing is offered only when there are additions, behind a confirmation checkbox.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-409",
@@ -160,8 +160,8 @@
       "reason": "The index file is a download link (it works without JavaScript); same label and v5's ess_dcs_rescan_v1.json file name.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-410",
@@ -175,8 +175,8 @@
       "reason": "The download link that replaces v5's button.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-411",
@@ -191,8 +191,8 @@
       "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-412",
@@ -208,8 +208,8 @@
       "reason": "The backup holds all of one case's saved work (every table, not only the registers) and is restored into that case only.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-413",
@@ -222,8 +222,8 @@
       "reason": "v5 lists its 20 localStorage keys; the app lists the tables that hold the case's work, with their owner and row count, which also covers the five v5 stores v5's backup missed.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-414",
@@ -256,8 +256,8 @@
       "reason": "States that binaries (originals, results package) are not included, what the file covers, and that a restore is checked, case-scoped and keeps a copy of the current work.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-416",
@@ -271,8 +271,8 @@
       "reason": "Export is a download link (it works without JavaScript) with the same label.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-417",
@@ -286,8 +286,8 @@
       "reason": "The download link that replaces v5's button.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-418",
@@ -336,8 +336,8 @@
       "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-421",
@@ -353,8 +353,8 @@
       "reason": "The manual is rewritten for the app: starting, importing, search coverage, freshness and rescans, work and backups, link checks.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-422",
@@ -373,8 +373,8 @@
       "reason": "v5's sections describe v5 (the single-file workspace, its top bar, its build script); the app's sections describe the app and keep their substance (refs, freshness, amounts, documents without text).",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-423",
@@ -426,8 +426,8 @@
       "reason": "Both lists are links (?list=ocr, ?list=links), so they work without JavaScript and Back returns to them.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-426",
@@ -445,8 +445,8 @@
       "reason": "The two list links that replace v5's buttons, and a link to Backup / Restore from the backups section.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-427",
@@ -461,8 +461,8 @@
       "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-428",
@@ -481,8 +481,8 @@
       "reason": "The freshness stamp writes the document count with a thousands separator, as the rest of the app does, and adds the rescan additions (“+k via rescan”) when there are any.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-429",
@@ -501,8 +501,8 @@
       "reason": "The card's second line reports the last rescan of this version (when, quick or full, and its verdict) or that there has been none, and links to Rescan & Update; v5 only suggests opening it.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-430",
@@ -517,8 +517,8 @@
       "reason": "Rescan & Update is linked from the freshness card as well as from the quick links.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-431",
@@ -534,8 +534,8 @@
       "reason": "The app compares the case folder registered at import with the results version in place; it needs no folder connection and no Chrome / Edge, so the subtitle says what the page does.",
       "productVisible": true,
       "author": "CC-10 worker (GRS-20)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-432",
@@ -546,8 +546,8 @@
       "reason": "v5 compares walked paths with a different prefix style than the embedded URLs, so a first rescan treats every indexed file as new. ClearCase matches by decoded path relative to the case folder, the key the import used, so an indexed original is never re-added. Evidence: tests/system/rescan.test.ts:161.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-433",
@@ -558,8 +558,8 @@
       "reason": "v5 collects size and date but never reports a change. ClearCase reports changed originals: a quick scan finds a size change, a full scan compares SHA-256 and finds a same-size change, and the result is listed. Parity sees the change: IDR-404. Evidence: tests/system/rescan.test.ts:82.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-434",
@@ -570,8 +570,8 @@
       "reason": "v5 rescan links use one relative base while the embedded document links use another, so one of them is wrong for any app location. ClearCase builds addition links with the same base and encoding as imported documents, and opens them through the document route. Evidence: src/lib/local-case/rescan/rescan.server.ts:173.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-435",
@@ -582,8 +582,8 @@
       "reason": "v5 numbers a new ref from the bundle row count without padding, so it can collide or misorder. ClearCase continues the highest number used per prefix (imported, rescan and cleared refs), zero-padded to the case width, and never issues a ref twice. Evidence: tests/system/rescan.test.ts:55.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-436",
@@ -595,8 +595,8 @@
       "reason": "v5 turns everything under the folder, including its own app page and generated output, into document rows. ClearCase skips hidden entries, processing package folders and its own data directory, and never writes output into the case folder; the v5 app HTML and other loose files in the case folder are still listed as additions, and the defect names the app HTML first. Excluding them would need an app change. Evidence: tests/system/rescan.test.ts:143.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-437",
@@ -608,8 +608,8 @@
       "reason": "v5's Write updated index to file writes only the rescan additions, not a merged index. ClearCase keeps this: its download holds only the additions in v5's row shape. Writing a full updated index would need an app change. Evidence: src/lib/views/system/rescan.server.ts:60.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-438",
@@ -620,8 +620,8 @@
       "reason": "v5 marks non-PDF files as extracted although nothing was extracted, and detects invoices with a case-specific pattern. ClearCase marks every addition as pending processing and detects invoices by the generic word in the file name. Parity sees the change: IDR-403. Evidence: src/lib/local-case/rescan/rules.ts:10.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-439",
@@ -632,8 +632,8 @@
       "reason": "v5 swallows folder-picker cancel and permission errors silently. ClearCase needs no picker; a case folder that cannot be read, or a scan that fails, is reported on the page with the message and the statement that nothing was changed. Parity sees the change: IDR-401. Evidence: src/lib/views/system/rescan.server.ts:41.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-440",
@@ -644,8 +644,8 @@
       "reason": "v5's backup key list omits five live user-work stores, so their work is silently lost. ClearCase backs up every registered table and a test round-trips all 21 v5 stores, including those five, through backup and restore. Parity sees the change: IDR-413. Evidence: tests/system/stores-21.test.ts:134.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-441",
@@ -668,8 +668,8 @@
       "reason": "v5 import has no validation or confirmation, so a parseable but wrong file overwrites stores. ClearCase checks format, checksum, case and size before any write, requires a confirmation tick, keeps a copy of the current work, and changes nothing on refusal. Parity sees the change: IDR-419. Evidence: tests/system/backup.test.ts:99.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-443",
@@ -680,8 +680,8 @@
       "reason": "v5 starts the import from the file input's change event, so after a failed import choosing the same file again does not fire it. ClearCase starts a restore from an explicit Import state button, so the same file can be submitted again without re-choosing it. Parity sees the change: IDR-419. Evidence: src/routes/v/[vid]/system/backup_tab/+page.svelte:71.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-444",
@@ -692,8 +692,8 @@
       "reason": "v5's Verify link sample verifies nothing and its footnote hard-codes a count. ClearCase checks each sample link against the case folder now and reports found, missing or outside, with counts taken from the data. Evidence: src/lib/views/system/manual.server.ts:2.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-445",
@@ -704,8 +704,8 @@
       "reason": "v5's manual claims every store uses one key pattern and moves with Backup/Restore, which was false for several stores. The ClearCase manual says only that notes and registers are saved per case and that Backup / Restore carries all of a case's work, which the backup tests verify. Parity sees the change: IDR-423. Evidence: src/routes/v/[vid]/system/manual/+page.svelte:49.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-446",
@@ -716,8 +716,8 @@
       "reason": "v5's manual lists only four ref prefixes as if complete. ClearCase gives the same four as examples and says a case may use others, so the extra bundle prefixes in the data are not contradicted; it does not list them. Parity sees the change: IDR-423. Evidence: src/routes/v/[vid]/system/manual/+page.svelte:29.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     }
   ]
 }

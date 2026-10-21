@@ -4,7 +4,7 @@ import { Backend, halt, Pace } from './clerk.ts';
 
 const NOW = 1_700_000_000_000;
 const stub = (...replies: unknown[]) => {
-	const fetch = vi.fn(async () => new Response(JSON.stringify(replies.shift() ?? []), { status: 200 }));
+	const fetch = vi.fn(async (_url: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify(replies.shift() ?? []), { status: 200 }));
 	vi.stubGlobal('fetch', fetch);
 	return fetch;
 };
@@ -37,6 +37,6 @@ describe('halt: after an interrupt the run creates nothing more but still cleans
 		await b.deleteUser('user_1');
 		await b.getSession('sess_1');
 		await b.revokeSession('sess_1');
-		expect(fetch.mock.calls.map(([url, init]) => `${(init as RequestInit).method} ${String(url).replace(/^.*\/v1/, '')}`)).toEqual(['DELETE /users/user_1', 'GET /sessions/sess_1', 'POST /sessions/sess_1/revoke']);
+		expect(fetch.mock.calls.map(([url, init]) => `${init?.method} ${String(url).replace(/^.*\/v1/, '')}`)).toEqual(['DELETE /users/user_1', 'GET /sessions/sess_1', 'POST /sessions/sess_1/revoke']);
 	});
 });

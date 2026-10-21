@@ -202,7 +202,7 @@ The register is `intentional-differences.json` plus one fragment per M2 owner in
 
 - **No case values.** A field names structure and a `when` names UI wording or markers. The validator refuses digit runs of four or more and `@`. Refer to a row by a glob (`table.table_1.row.*.date`), never by its ref.
 - **Make entries narrow.** An entry without `when` covers any value of its field, so a later regression in that field would pass unnoticed. Prefer `when`, and keep the field list short.
-- **Approval.** Commit proposed entries with the adapter. The coordinator reviews them, sets `approvedBy` and `approvedOn` on the entries that are not product-visible, and lists the `productVisible` improvements for the user, who approves them. Proposed entries cover differences in an ordinary run and count under *pending approval*. With `--approved-only` (the gate) they do not.
+- **Approval.** Commit proposed entries with the adapter. The coordinator reviews them, sets `approvedBy` and `approvedOn` on the entries that are not product-visible, and lists the `productVisible` improvements for the user, who approves them. Proposed entries cover differences in an ordinary run and count under *pending approval*. With `--approved-only` they do not; the gate does not pass it. Approval pages for the user are under [`approvals/`](approvals/).
 
 ### Fragments
 

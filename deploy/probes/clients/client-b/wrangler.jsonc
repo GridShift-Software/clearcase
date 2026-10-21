@@ -11,6 +11,6 @@
   "assets": { "directory": "artifact", "binding": "ASSETS" },
   "vars": { "CLEARCASE_CLIENT_ID": "client-b" },
   "secrets": { "required": ["CLERK_SECRET_KEY"] },
-  "d1_databases": [{ "binding": "DB", "database_name": "clearcase-client-b", "database_id": "00000000-0000-4000-8000-00000000bbbb", "migrations_dir": "migrations" }],
-  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "clearcase-client-b" }]
+  "d1_databases": [{ "binding": "DB", "database_name": "clearcase-client-b-db", "database_id": "00000000-0000-4000-8000-00000000bbbb", "migrations_dir": "migrations" }],
+  "r2_buckets": [{ "binding": "BUCKET", "bucket_name": "clearcase-client-b-files" }]
 }

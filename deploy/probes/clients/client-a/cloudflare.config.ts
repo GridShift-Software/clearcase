@@ -8,8 +8,8 @@ export default {
     "compatibilityFlags": ["nodejs_als"],
     "entrypoint": "./artifact/_worker.js",
     "env": {
-      "DB": { "type": "d1", "name": "clearcase-client-a", "id": "00000000-0000-4000-8000-00000000aaaa" },
-      "BUCKET": { "type": "r2", "name": "clearcase-client-a" },
+      "DB": { "type": "d1", "name": "clearcase-client-a-db", "id": "00000000-0000-4000-8000-00000000aaaa" },
+      "BUCKET": { "type": "r2", "name": "clearcase-client-a-files" },
       "CLERK_SECRET_KEY": { "type": "secret" },
       "CLEARCASE_CLIENT_ID": { "type": "text", "value": "client-a" }
     }

@@ -549,7 +549,15 @@ class Approval(DocsOnlyFixRound):
         self.record([])
         self.fix_round()
         self.prepare([{'id': 'L1', 'severity': 'low'}])
-        self.assertIn('--guard-receipt', self.approve(code=1))
+        self.assertIn('approve: approval: refuse. a fix attempt is recorded for this unit: approval needs the PASS test-guard '
+                      'receipt (--guard-receipt) bound to the reviewed commit and findings, as fix-round-guard --ledger needs '
+                      "a fix-round manifest. A review that names no test (protectedTests: []) is bound by the manifest's "
+                      'noTests declaration (docs/agent-tooling.md, Docs-only fix rounds)', self.approve(code=1))
+        # the receipt was all that was missing: with it, approval binds the declaration of the manifest the tree holds
+        self.approve('--guard-receipt', self.strict())
+        guard = json.loads(sorted(self.receipts.glob('*/receipt.json'))[-1].read_text())['approval']['guard']
+        self.assertEqual((guard['nothingToProtect'], guard['noTests']['reviewSha'], guard['noTests']['reviewFindingsSha256']),
+                         (True, self.reviewed, self.findings_sha))
 
     def test_a_fix_that_loosens_a_test_with_no_manifest_is_not_approved(self):
         # P3 (GRS-156 review): the ledger records a fix, the review names no test, and no manifest is committed. The

@@ -441,7 +441,8 @@ try {
 			const during = await state();
 			const landed = await until(async () => (await q.evaluate(`document.querySelector('#main')?.dataset.busy ?? 'left'`).catch(() => 'left')) === '0', 15000);
 			const end = await state();
-			return { pass: held.length === 1 && refused && during.busy === '1' && during.error === '' && during.saveDisabled === true && landed && end.error === '' && end.saveDisabled === false && storedHeader()?.caseNo === '9/3004', evidence: { held: held.length, refused, during, landed, end } };
+			const stored = A.work("SELECT fields FROM register_row WHERE store = 'bundle-header'").map((r) => JSON.parse(r.fields).caseNo)[0] ?? null;
+			return { pass: held.length === 1 && refused && during.busy === '1' && during.error === '' && during.saveDisabled === true && landed && end.error === '' && end.saveDisabled === false && stored === '9/3004', evidence: { held: held.length, refused, during, landed, end, stored } };
 		} finally { off(); await q.s('Fetch.disable').catch(() => {}); await q.close(); }
 	});
 

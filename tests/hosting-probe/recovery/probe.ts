@@ -967,12 +967,17 @@ function enterOffline(args: string[]): number {
 	return r.status ?? 1;
 }
 
-/** `test:check`: the committed summary, pointed at HEAD, passes `--check`, and every mutation of it is refused. */
+/** What `test:check` decides for a summary: its shape, against the sourceSha the summary itself names. */
+export function checkEvidence(summary: unknown): string[] {
+	const sha = isObject(summary) && typeof summary.sourceSha === 'string' ? summary.sourceSha : '';
+	return checkSummary(summary, sha);
+}
+
+/** `test:check`: the committed summary passes as it is, and every mutation of it is refused. */
 function selfTest(): number {
 	const file = path.join(HERE, '../../../docs/acceptance/hosting/evidence/recovery-summary.json');
 	const summary = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
-	summary.sourceSha = head();
-	const control = checkSummary(summary, head());
+	const control = checkEvidence(summary);
 	for (const problem of control) console.log(`control refused: ${problem}`);
 	const named: [string, (s: any) => void][] = [
 		['evidence false', (s) => (s.evidence = false)],
@@ -982,14 +987,15 @@ function selfTest(): number {
 		['an assertion dropped', (s) => s.legs['deletion-flow'].asserted.pop()],
 		['a HOLD dropped', (s) => s.hold.pop()],
 		['failure set', (s) => (s.failure = 'x')],
+		['a made-up sourceSha', (s) => (s.sourceSha = '0'.repeat(40))],
 	];
 	let holes = 0;
 	for (const [label, edit] of named) {
 		const copy = structuredClone(summary);
 		edit(copy);
-		if (checkSummary(copy, head()).length === 0) (holes++, console.log(`HOLE    ${label} passes --check`));
+		if (checkEvidence(copy).length === 0) (holes++, console.log(`HOLE    ${label} passes --check`));
 	}
-	const mm = mutationsRefused(summary, head());
+	const mm = mutationsRefused(summary, summary.sourceSha as string);
 	if (mm.accepted !== null) console.log(`HOLE    ${mm.accepted} passes --check`);
 	const ok = control.length === 0 && holes === 0 && mm.accepted === null && mm.refused > 0;
 	console.log(`${ok ? 'SELF-TEST PASS' : 'SELF-TEST FAIL'} control ${control.length === 0 ? 'passes' : 'refused'}; ${named.length} named and ${mm.refused} generated mutations refused${mm.accepted ? `; accepted: ${mm.accepted}` : ''}`);

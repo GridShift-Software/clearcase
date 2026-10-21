@@ -643,24 +643,58 @@ function main() {
     const own = path.relative(root, realpathSync(options['--findings'])).split(path.sep).join('/');
     const changes = git('diff', '--raw', '--no-renames', '-z', base, tip).split('\0').filter(Boolean);
     const offending = [];
-    let documents = 0;
+    const documents = [];
     for (let i = 0; i < changes.length; i += 2) {
       const [oldMode, newMode] = changes[i].slice(1).split(' ');
       const file = changes[i + 1];
       if (fromBase(file)) inherited.push(file);
-      else if (file === own) documents++;
-      else if (isDocument(file) && [oldMode, newMode].every(mode => mode === '000000' || mode === '100644')) documents++;
+      else if (file === own) documents.push(file);
+      else if (isDocument(file) && [oldMode, newMode].every(mode => mode === '000000' || mode === '100644')) documents.push(file);
       else offending.push(file);
     }
     if (offending.length) {
       refuse(`covers a docs-only range, but ${base.slice(0, 12)}..${tip.slice(0, 12)} changes ${offending.join(', ')}; only `
         + 'regular Markdown files outside source, script and test directories, and the manifest itself, may change');
     }
+    // A document that code or a test reads is that check's input, not documentation. Reading cannot be told from naming, so
+    // a document counts as read when any tracked file other than Markdown (and the fix-round manifests, whose reasons may
+    // quote a path) holds its file name, or the path of a directory above it of two components or more ('docs/plan' of
+    // 'docs/plan/x.md'; a single top-level directory is named by everything), as a whole word. It over-approximates, which
+    // fails closed: a round that touches such a document names the tests to protect instead.
+    const readByCode = files => {
+      const needles = new Map();
+      for (const file of files) {
+        const parts = file.split('/');
+        for (const needle of [parts[parts.length - 1], ...parts.slice(0, -1).map((_, n) => parts.slice(0, n + 1).join('/')).filter(dir => dir.includes('/'))]) {
+          needles.set(needle, [...(needles.get(needle) ?? []), file]);
+        }
+      }
+      if (!needles.size) return [];
+      let lines;
+      try {
+        lines = git('grep', '-I', '-h', '-F', ...[...needles.keys()].flatMap(needle => ['-e', needle]), tip, '--', '.',
+          ':(exclude)*.md', ':(exclude)docs/acceptance/fix-rounds').split('\n');
+      } catch (error) {
+        if (error.status !== 1) throw error; // 1 is "no line matched"; anything else cannot be told and fails closed
+        return [];
+      }
+      const read = new Set();
+      for (const [needle, owners] of needles) {
+        const word = new RegExp(`(?<![A-Za-z0-9_])${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9_])`);
+        if (lines.some(line => word.test(line))) owners.forEach(file => read.add(file));
+      }
+      return [...read];
+    };
+    const inputs = readByCode(documents.filter(file => file !== own));
+    if (inputs.length) {
+      refuse(`covers a docs-only range, but ${inputs.join(', ')} changed beside it: tracked code or a test names it, or a `
+        + `directory above it, so a check may read it as an input, and a docs-only round cannot vouch for that check`);
+    }
     if (inherited.length) {
       console.log(`test-guard: ${inherited.length} changed file(s) are the base's, not this fix round's: the base ${trusted} `
         + `is merged into ${tip} and it holds each as the base does`);
     }
-    console.log(`test-guard: PASS (docs-only, no tests named: ${documents} changed file(s); ${base}..${tip}`
+    console.log(`test-guard: PASS (docs-only, no tests named: ${documents.length} changed file(s); ${base}..${tip}`
       + `${tip === head ? '' : `, the fix round's line in ${head}`}${trusted ? `; trusted base ${trusted}` : ''})`);
     return proceed();
   }

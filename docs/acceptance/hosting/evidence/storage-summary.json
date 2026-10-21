@@ -1,12 +1,12 @@
 {
   "schema": "clearcase.storage-probe/1",
-  "sourceSha": "5819d9bc790bee2367c990f84bf18f7fdd19f701",
+  "sourceSha": "b9271a86071709cff1fa307dd5ef1abc0b1aae4e",
   "treeClean": true,
   "scale": "poc",
   "seed": "grs-109",
-  "startedAt": "2026-10-21T09:13:52.547Z",
-  "finishedAt": "2026-10-21T09:22:24.557Z",
-  "runDir": ".local/hosting-probe/storage/2026-10-21T09-13-52-547Z",
+  "startedAt": "2026-10-21T12:53:54.854Z",
+  "finishedAt": "2026-10-21T13:02:00.773Z",
+  "runDir": ".local/hosting-probe/storage/2026-10-21T12-53-54-854Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -21,7 +21,7 @@
     "workerd": "1.20261012.1",
     "wrangler": "4.151.1"
   },
-  "artifact": "sha256:bbe6574bcb029fe6b6a25fb89fec7428016285373985ab9d80fe7e3eaa2de3c3",
+  "artifact": "sha256:686a95740b8ce9c89595365a1108abb2ffe43078121eeadd136ca920b801396b",
   "isolation": {
     "network": "own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden",
     "env": [
@@ -149,7 +149,7 @@
         "the bundle imports no node:, bun: or CommonJS module"
       ],
       "measured": {
-        "workerBytes": 73934
+        "workerBytes": 78254
       }
     },
     "provision": {
@@ -216,7 +216,7 @@
         "finalize without a size answers 400 naming the field, never a default (400 {\"code\":\"invalid-field\",\"field\":\"size\"})"
       ],
       "measured": {
-        "wallMs": 57796.6,
+        "wallMs": 57700.4,
         "originals": 1662,
         "bytes": 3211390882,
         "multipart": 9,
@@ -256,7 +256,7 @@
       ],
       "measured": {
         "recoveredRows": 3253,
-        "wallMs": 5346.5,
+        "wallMs": 5256.9,
         "documents": 1689,
         "assets": 3054,
         "seeds": 7,
@@ -301,10 +301,10 @@
         "chronologyR2Ops": 1,
         "originalRangeD1Statements": 1,
         "originalRangeR2Ops": 1,
-        "coldDocumentMs": 30.2,
-        "warmDocumentMs": 3.9,
-        "coldChronologyMs": 8.7,
-        "warmChronologyMs": 5.7
+        "coldDocumentMs": 29.5,
+        "warmDocumentMs": 3.6,
+        "coldChronologyMs": 9.7,
+        "warmChronologyMs": 6.6
       }
     },
     "range": {
@@ -335,10 +335,10 @@
         "client A's deployment knows no asset of client B's case (404, from A's own database)"
       ],
       "measured": {
-        "wholeLargestMs": 5555.8,
-        "rangeOnLargestMs": 2356.2,
+        "wholeLargestMs": 5367.1,
+        "rangeOnLargestMs": 2278.9,
         "largestOriginalBytes": 258590305,
-        "workerdPeakRssBytes": 470855680
+        "workerdPeakRssBytes": 478699520
       }
     },
     "write-once": {
@@ -453,9 +453,9 @@
         "the source deployment’s state digest covers the case’s rows and every object, none missing"
       ],
       "measured": {
-        "wallMs": 101205.8,
-        "workerdPeakRssBytes": 1080745984,
-        "offlineCheckMs": 2699.9,
+        "wallMs": 102007.8,
+        "workerdPeakRssBytes": 1059516416,
+        "offlineCheckMs": 2659,
         "entries": 1706,
         "packetBytes": 3222959051,
         "parts": 385,
@@ -520,7 +520,7 @@
         "finishing the same restore again answers 409 already-restored and changes nothing"
       ],
       "measured": {
-        "wallMs": 126621.7,
+        "wallMs": 107038.2,
         "entries": 1706,
         "steps": 32,
         "objects": 1700
@@ -537,7 +537,11 @@
         "POST …/finish of a backup lacking a table the deployment has, then of a corrected one",
         "GET /probe/live/<case> and /probe/head/<key> before and after each",
         "POST …/finish again and …/step on the stored version",
-        "POST …/finish for a case that already has an active version"
+        "POST …/finish for a case that already has an active version",
+        "POST …/finish of a backup whose counts disagree with its rows, then of a corrected one",
+        "POST …/uploads and …/finalize of a shared original, then …/step and …/finish of a backup carrying it",
+        "POST …/finish of a backup whose user work repeats a key or leaves a NOT NULL column null, then of a corrected one",
+        "POST …/finish of a backup whose read model repeats a key or retypes a value"
       ],
       "asserted": [
         "an original is stored and verified through the upload path",
@@ -556,10 +560,20 @@
         "a backup whose original record carries another case’s id restores",
         "the original is bound to the case in the request, and the case in the record has none",
         "finish and step on the stored version answer 409 already-restored, and its package file is as it was",
-        "a backup of another version for a case that already has an active version answers 409 case-live, and the case is unchanged"
+        "a backup of another version for a case that already has an active version answers 409 case-live, and the case is unchanged",
+        "a backup whose results record expects 2 documents but carries 1 opens, and its objects are copied",
+        "finishing it answers 422 invalid-packet and the case holds no version, original, revision or user work it did not hold before",
+        "the corrected backup of the same case and version restores",
+        "an original is stored through multipart and recorded by another case: R2 holds no SHA-256 for it",
+        "a backup carrying that original steps and restores: the recorded multipart object is accepted and left as it was",
+        "a backup whose user work holds one note key twice opens, and finishing it answers 422 invalid-packet naming uw_note; the case holds no version, row or revision it did not hold before",
+        "a note whose NOT NULL body is null is refused the same way, and the case is as it was",
+        "a read model with one document ref twice is refused with the key named, and the case is as it was",
+        "a read model whose row_json is not text is refused with the column named, and the case is as it was",
+        "the corrected backup of the same case and version restores"
       ],
       "measured": {
-        "refusals": 11
+        "refusals": 16
       }
     }
   },
@@ -573,17 +587,15 @@
     "P4 to P6 against the two-database layout arm (results and user work in separate D1 databases): not run, so the layout is chosen structurally, from statement and batch counts, until both layouts are compared (M2)"
   ],
   "devProxyRetries": {
-    "count": 3,
+    "count": 1,
     "requests": [
-      "restore: POST /restore/packets/<id>/step (attempt 2)",
-      "restore: POST /restore/packets/<id>/step (attempt 2)",
       "restore: POST /restore/packets/<id>/step (attempt 2)"
     ]
   },
   "failure": null,
   "evidence": true,
   "checker": {
-    "mutationsRefused": 2076,
+    "mutationsRefused": 2124,
     "accepted": null
   }
 }

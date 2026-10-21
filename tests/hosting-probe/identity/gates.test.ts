@@ -232,3 +232,25 @@ describe('MFA flag', () => {
 		}
 	});
 });
+
+describe('default deny in the hook', () => {
+	test("a remote-function request (/_app/remote/...) never reaches Kit's handler: 404 not-served, signed in or not, whatever the method", async () => {
+		const viewer = w.token(w.client, 'user_crafted_viewer1');
+		for (const p of ['/_app/remote/abc123/readCase', '/_app/remote/abc123/writeNote?payload=e30']) {
+			for (const [who, token] of [['anonymous', undefined], ['viewer', viewer]] as const) {
+				for (const method of ['GET', 'POST']) {
+					const res = await w.get(CLIENT_ORIGIN, p, { token, method, headers: json });
+					expect([who, method, p, res.status, res.denial]).toEqual([who, method, p, 404, 'not-served']);
+				}
+			}
+		}
+		expect((await w.get(STAFF_ORIGIN, '/_app/remote/abc123/readCase', { headers: json })).denial).toBe('not-served');
+	});
+
+	test("a path that no route matches still gets Kit's own 404, with no identity call", async () => {
+		const before = w.status.calls.length;
+		const res = await w.get(CLIENT_ORIGIN, '/no-such-page', { token: w.token(w.client, 'user_crafted_viewer1'), headers: { accept: 'text/html' } });
+		expect([res.status, res.denial]).toEqual([404, null]);
+		expect(w.status.calls.length).toBe(before + 0);
+	});
+});

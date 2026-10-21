@@ -5,7 +5,6 @@
 import { spawn } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
 import { readdirSync, readFileSync, readlinkSync, rmSync } from 'node:fs';
-import { connect } from 'node:net';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 import { craftedWorld, type World } from './crafted.ts';
@@ -268,23 +267,27 @@ describe('default deny in the hook', () => {
 		expect((await w.get(STAFF_ORIGIN, '/_app/remote/abc123/readCase', { headers: json })).denial).toBe('not-served');
 	});
 
-	test("a path that no route matches still gets Kit's own 404, with no identity call", async () => {
+	test('a path that no route matches is refused 404 not-served without resolving it, and with no identity call', async () => {
 		const before = w.status.calls.length;
 		const res = await w.get(CLIENT_ORIGIN, '/no-such-page', { token: w.token(w.client, 'user_crafted_viewer1'), headers: { accept: 'text/html' } });
-		expect([res.status, res.denial]).toEqual([404, null]);
+		expect([res.status, res.denial]).toEqual([404, 'not-served']);
 		expect(w.status.calls.length).toBe(before + 0);
 	});
 });
 
 // M1: serve.mjs runs in a process group of its own, so nothing stops it with its runner unless the runner arranges it.
-// lifecycle-child.ts starts a crafted world and ends the ways a runner ends; each test then asks whether the two ports
-// are still held. CRAFTED_SKIP_BUILD lets the children reuse this file's build (the tests run one after another).
+// lifecycle-child.ts starts a crafted world and ends the ways a runner ends; each test then asks whether serve.mjs's
+// process group (its pid, which the child prints) still has a member. CRAFTED_SKIP_BUILD lets the children reuse this file's build (the tests run one after another).
 describe('process lifecycle: serve.mjs and its workerd stop with the runner that started them', () => {
-	const listening = (port: number) => new Promise<boolean>((resolve) => {
-		const s = connect(port, '127.0.0.1');
-		s.once('connect', () => (s.destroy(), resolve(true)));
-		s.once('error', () => resolve(false));
-	});
+	/** True while serve.mjs's process group (its pid is the group id) has a member: workerd can outlive its host by a moment. */
+	const groupAlive = (group: number) => {
+		try {
+			process.kill(-group, 0);
+			return true;
+		} catch {
+			return false;
+		}
+	};
 	/** The serve.mjs processes (each a group leader) started for these ports, or by this runner: its argv carries the config JSON. */
 	const serveLeaders = (ports: number[], runner: number) => readdirSync('/proc').filter((n) => /^\d+$/.test(n)).flatMap((n) => {
 		try {
@@ -297,38 +300,36 @@ describe('process lifecycle: serve.mjs and its workerd stop with the runner that
 			return [];
 		}
 	});
-	for (const mode of ['exit', 'throw', 'SIGINT', 'SIGTERM', 'SIGKILL'] as const) {
+	for (const mode of ['exit', 'throw', 'SIGINT', 'SIGTERM', 'SIGHUP', 'SIGKILL'] as const) {
 		test(`on ${mode} of the runner`, async () => {
 			const worlds = path.join(import.meta.dirname, '../../../.local/hosting-probe/identity');
 			const before = new Set(readdirSync(worlds));
 			const child = spawn(process.execPath, [path.join(import.meta.dirname, 'lifecycle-child.ts'), mode], { cwd: import.meta.dirname, env: { ...process.env, CRAFTED_SKIP_BUILD: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
 			const exited = new Promise<void>((resolve) => child.once('exit', () => resolve()));
 			let ports: number[] = [];
+			let group = 0;
 			try {
 				let text = '';
-				ports = await new Promise<number[]>((resolve, reject) => {
+				[ports, group] = await new Promise<[number[], number]>((resolve, reject) => {
 					const timer = setTimeout(() => reject(new Error(`the runner printed no world within 150 s: ${text.slice(-800)}`)), 150_000);
 					const onData = (b: Buffer) => {
 						text += b.toString();
 						const m = /^world (\{.*\})$/m.exec(text);
-						if (m) (clearTimeout(timer), resolve((JSON.parse(m[1]!) as { ports: number[] }).ports));
+						if (m) {
+							clearTimeout(timer);
+							const world = JSON.parse(m[1]!) as { ports: number[]; servePid: number };
+							resolve([world.ports, world.servePid]);
+						}
 					};
 					child.stdout!.on('data', onData);
 					child.stderr!.on('data', onData);
 					child.once('exit', () => (clearTimeout(timer), reject(new Error(`the runner ended before it printed a world: ${text.slice(-800)}`))));
 				});
-				if (mode !== 'exit' && mode !== 'throw') {
-					expect(await Promise.all(ports.map(listening))).toEqual([true, true]);
-					child.kill(mode);
-				}
+				expect(groupAlive(group), 'serve.mjs runs in its own process group while the runner lives').toBe(true);
+				if (mode !== 'exit' && mode !== 'throw') child.kill(mode);
 				await exited;
-				let held = ports;
-				for (const until = Date.now() + 20_000; Date.now() < until && held.length; ) {
-					const open = await Promise.all(ports.map(listening));
-					held = ports.filter((_, i) => open[i]);
-					if (held.length) await new Promise((r) => setTimeout(r, 250));
-				}
-				expect(held, `ports still held 20 s after the runner ended on ${mode}`).toEqual([]);
+				for (const until = Date.now() + 20_000; Date.now() < until && groupAlive(group); ) await new Promise((r) => setTimeout(r, 250));
+				expect(groupAlive(group), `serve.mjs's process group ${group} still has a member 20 s after the runner ended on ${mode}`).toBe(false);
 			} finally {
 				for (const pid of serveLeaders(ports, child.pid!)) try { process.kill(-pid, 'SIGKILL'); } catch {}
 				if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
@@ -392,6 +393,26 @@ describe('serve.mjs: one store per Worker, and a Worker that cannot start fails 
 			expect(Date.now() - started).toBeLessThan(60_000);
 		} finally {
 			lock?.kill('SIGKILL');
+			await w.restart();
+		}
+	}, 240_000);
+
+	test('serve.mjs ends with exit 1, and nothing in its group survives, when a Worker dies after it was ready', async () => {
+		const group = w.servePid;
+		const workerds = [...sqliteByWorkerd(group).keys()];
+		expect(workerds.length).toBeGreaterThanOrEqual(2);
+		try {
+			process.kill(workerds[0]!, 'SIGKILL');
+			for (const until = Date.now() + 30_000; Date.now() < until; ) {
+				try {
+					process.kill(-group, 0);
+				} catch {
+					break;
+				}
+				await new Promise((r) => setTimeout(r, 250));
+			}
+			expect(() => process.kill(-group, 0), `serve.mjs's group ${group} is still running 30 s after one of its workerd was killed`).toThrow();
+		} finally {
 			await w.restart();
 		}
 	}, 240_000);

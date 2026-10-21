@@ -1,19 +1,22 @@
 // The trusted parent's target check (GRS-107). Every client shares one Cloudflare account, so the account is no
 // boundary and a token that can deploy one client's Worker can deploy another's. Before anything is uploaded, the
 // parent compares each reviewed deploy config with the client's reviewed target manifest (clients/<client>/target.json)
-// and refuses a missing field, an unexpected key or binding, a Worker entry or assets directory outside the staged
-// artifact, and any identifier that is not this client's, naming the client it belongs to. Configs are read as data: a cf config must be a JSON literal, and nothing here evaluates config
-// code, because the parent is the process that later holds the upload credentials.
+// and refuses a missing field, an unexpected key or binding, a Worker entry, assets directory or migrations directory
+// outside the staged copies, and any string value that is another client's identifier, naming the client it belongs
+// to. Configs are read as data: a cf config must be a JSON literal, and nothing here evaluates config code, because
+// the parent is the process that later holds the upload credentials.
 //
 //   bun deploy/probes/target.ts check <client> [--format wrangler|cf --config FILE]
 //   bun deploy/probes/target.ts stage <client> --artifact DIR --digest sha256:<hex> --out DIR
 //   bun deploy/probes/target.ts prebuilt <client> --stage DIR
 //
 // `check` reads the client's committed wrangler.jsonc and cloudflare.config.ts unless --config names one file. `stage`
-// checks both, refuses an artifact whose digest is not the reviewed one, and copies the configs, the target and the
-// artifact into a new directory, the only directory an upload command then runs in. `prebuilt` checks the Build Output a
+// checks both, copies the configs, the target, the artifact and the client's reviewed migrations/ into a new directory,
+// the only directory an upload command then runs in, and compares the digest of the staged copy of the artifact (not
+// of the source) with the reviewed one. The digest covers regular files and directories only: a symlink, device,
+// socket or FIFO anywhere in the artifact or the migrations is refused. `prebuilt` checks the Build Output a
 // credential-free `cf build` wrote in that stage, because `cf deploy --prebuilt` uploads its bindings, not the cf
-// config's. Exit 0 PASS, 1 refused, 2 usage.
+// config's, and refuses any file in it that the check does not read. Exit 0 PASS, 1 refused, 2 usage.
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -214,7 +217,7 @@ export function checkTarget(a: { client: string; targets: Target[]; format: Form
 	const secrets = Array.isArray(config.secrets) ? [...config.secrets].sort() : config.secrets;
 	if (JSON.stringify(secrets) !== JSON.stringify([...target.secrets].sort())) problems.push(`secret names are ${show(config.secrets)}, not ${a.client}'s ${show(target.secrets)}`);
 	if (!isObject(config.vars) || JSON.stringify(Object.entries(config.vars).sort()) !== JSON.stringify(Object.entries(target.vars).sort())) problems.push(`vars are ${show(config.vars)}, not ${a.client}'s ${show(target.vars)}`);
-	// Another client's identifier anywhere in the config, a field the comparisons above do not read included.
+	// Another client's identifier as any string value in the config, a field the comparisons above do not read included. The match is exact: an identifier inside a longer string is not found.
 	const walk = (v: unknown): void => {
 		if (typeof v === 'string' && owners.has(v) && owners.get(v) !== a.client && !foreign.has(v)) (foreign.add(v), problems.push(`${v} belongs to ${owners.get(v)}, not ${a.client}`));
 		else if (Array.isArray(v)) v.forEach(walk);

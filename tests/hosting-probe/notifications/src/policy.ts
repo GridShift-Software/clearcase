@@ -18,13 +18,16 @@ export type Outcome = 'permanent' | 'transient' | 'ambiguous';
 export const MAX_ATTEMPTS = 3;
 /** How long one send() may take before the attempt is recorded as a timeout (ambiguous). */
 export const DEFAULT_SEND_TIMEOUT_MS = 10_000;
+/** The longest SEND_TIMEOUT_MS taken: a timer past 2^31 - 1 ms fires at once, and one of hours holds the request open. */
+export const MAX_SEND_TIMEOUT_MS = 60_000;
 /**
- * SEND_TIMEOUT_MS as milliseconds. Anything but a positive finite number (absent, empty, non-numeric, zero, negative)
- * is DEFAULT_SEND_TIMEOUT_MS: a NaN timer fires at once, which would mark every send a timeout while it may have sent.
+ * SEND_TIMEOUT_MS as milliseconds. Anything but a positive finite number of at most MAX_SEND_TIMEOUT_MS (absent, empty,
+ * non-numeric, zero, negative, larger) is DEFAULT_SEND_TIMEOUT_MS: a NaN timer fires at once, which would mark every send
+ * a timeout while it may have sent.
  */
 export function sendTimeoutMs(value: string | undefined): number {
 	const ms = value === undefined ? NaN : Number(value);
-	return Number.isFinite(ms) && ms > 0 ? ms : DEFAULT_SEND_TIMEOUT_MS;
+	return Number.isFinite(ms) && ms > 0 && ms <= MAX_SEND_TIMEOUT_MS ? ms : DEFAULT_SEND_TIMEOUT_MS;
 }
 
 /** Minutes after attempt n (1-based) before attempt n + 1 is due. */

@@ -231,7 +231,9 @@ function savedProblems(m: Saved, c: { caseId: string; kind: NoticeKind }): strin
 	return problems;
 }
 /** `check`'s arguments for a list of problems, so a failed assertion names them. */
-const clear = (problems: string[], what: string): [boolean, string] => [problems.length === 0, problems.length ? `${what} -- ${problems.join('; ')}` : what];
+/** What a failed assertion of the saved-message check says, so an adverse run is counted only when this check refused it, not on any other failed assertion. */
+const SAVED_CHECK = 'saved-message check refused';
+const clear = (problems: string[], what: string): [boolean, string] => [problems.length === 0, problems.length ? `${what} -- ${SAVED_CHECK}: ${problems.join('; ')}` : what];
 const noticeContext = (c: { caseId: string; kind: NoticeKind }) => ({ kind: c.kind, clientId: 'client-a', origin: ORIGIN, sender: SENDER, recipient: UPLOADER, forbidden: CASE_STRINGS[c.caseId]! });
 
 /**
@@ -638,8 +640,8 @@ async function main(out: string, adverse: string | null): Promise<number> {
 
 	if (adverse !== null) {
 		rmSync(path.join(HERE, 'build/adverse'), { recursive: true, force: true }); // the root type check includes tests/**
-		const caught = failure !== null && failure.includes('assertion failed');
-		console.log(caught ? `ADVERSE PASS ${adverse}: the run refused it (${failure})` : `ADVERSE FAIL ${adverse}: the run ${failure === null ? 'passed' : `failed for another reason (${failure})`} with the field sent`);
+		const caught = failure !== null && failure.includes('assertion failed') && failure.includes(SAVED_CHECK);
+		console.log(caught ? `ADVERSE PASS ${adverse}: the saved-message check refused it (${failure})` : `ADVERSE FAIL ${adverse}: the run ${failure === null ? 'passed' : `failed, but not in the saved-message check (${failure})`} with the field sent`);
 		return caught ? 0 : 1;
 	}
 	const endSha = head();

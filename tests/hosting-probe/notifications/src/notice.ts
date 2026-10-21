@@ -25,10 +25,11 @@ const TEMPLATES: Record<NoticeKind, { subject: string; body: (link: string) => s
 		body: (link) => `ClearCase needs more information to continue.\n\nSign in to see what is needed:\n${link}\n\nThis message has no case details. If you did not expect it, ignore it.\n`,
 	},
 };
-export const NOTICE_KINDS = Object.keys(TEMPLATES) as NoticeKind[];
 const KEYS = ['from', 'subject', 'text', 'to'];
-/** One address and nothing else: no whitespace (so no CR or LF), comma, semicolon, angle bracket, quote, parenthesis, backslash or second @. */
-const BARE_ADDRESS = /^[^\s,;<>"'()\\@]+@[^\s,;<>"'()\\@]+$/;
+/** One address and nothing else: printable ASCII with no space (so no CR, LF, NUL, U+0085 or U+200B), and no comma, semicolon, angle bracket, quote, parenthesis, backslash or second @. */
+const BARE_ADDRESS = /^(?=[\x21-\x7e@]+$)[^\s,;<>"'()\\@]+@[^\s,;<>"'()\\@]+$/;
+/** The clients this probe configures (wrangler.toml): an origin and a sender derived from any other id are no configuration to trust. */
+const CLIENTS = ['client-a', 'client-b'];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 /** The synthetic probe's naming: client `client-a` is served at https://client-a.example.test and sends from notices@notify.client-a.example.test. */
@@ -61,6 +62,7 @@ export function noticeProblems(message: unknown, ctx: NoticeContext): string[] {
 	for (const k of KEYS) if (typeof m[k] !== 'string' || m[k] === '') problems.push(`${k} is ${m[k] === undefined ? 'missing' : JSON.stringify(m[k])}, not a non-empty string`);
 	if (problems.length) return problems;
 	const { from, to, subject, text } = m as Message;
+	if (!CLIENTS.includes(ctx.clientId)) problems.push(`client ${JSON.stringify(ctx.clientId)} is not one this probe configures (${CLIENTS.join(', ')})`);
 	if (ctx.origin !== expectedOrigin(ctx.clientId)) problems.push(`the configured origin is not the one for client ${ctx.clientId}`);
 	if (ctx.sender !== expectedSender(ctx.clientId)) problems.push(`the configured sender is not the one for client ${ctx.clientId}`);
 	if (from !== ctx.sender) problems.push("from is not this client's sender");

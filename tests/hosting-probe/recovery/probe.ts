@@ -65,11 +65,11 @@ const LEG_SHAPE: Record<LegName, [number, number]> = {
 	'crossed-recovery': [4, 4],
 	seed: [6, 5],
 	rollback: [5, 12],
-	copies: [5, 6],
+	copies: [5, 7],
 	'deletion-flow': [6, 17],
 	'deletion-reapply': [6, 9],
-	'restore-from-copy': [7, 14],
-	retention: [5, 11],
+	'restore-from-copy': [7, 15],
+	retention: [5, 13],
 	'ledger-guards': [4, 4],
 	'warm-isolate': [5, 6],
 };
@@ -90,7 +90,7 @@ const MEASURES: Record<LegName, Record<string, Spec>> = {
 	'deletion-flow': { refusedSteps: 12, routesGone: 9, erasedObjects: POSITIVE, residueRows: 0 },
 	'deletion-reapply': { restoresRefused: 5, rollbackLostRows: 1, reappliedAfterRollback: true },
 	'restore-from-copy': { restoredOriginals: 2, lostRowsAfterCopy: 2, stageMs: MS, restoreMs: MS, checksMs: MS, totalMs: MS },
-	retention: { rotations: 6, copiesRemoved: 4, copiesKept: 0, bundleVersionsKept: 1 },
+	retention: { rotations: 6, copiesRemoved: 4, copiesKept: 0, bundleVersionsKept: 1, packetsAged: 1 },
 	'ledger-guards': { refusedRequests: 3 },
 	'warm-isolate': { routesGone: 9, adoptedRemovals: 1, residueRows: 0 },
 };
@@ -654,6 +654,7 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 		// ----- rolling recovery copies, apart from live data -----
 		const copies: Record<string, Awaited<ReturnType<typeof copyOf>>> = {};
 		const atCopy = { stateA2: '', workA2: '' };
+		let stagedA1 = ''; // the packet of an aborted restore of A1, made before A1's removal
 		let t0Dump = '';
 		await leg('copies', ['POST /cases/<case>/exports, …/step, …/seal (GRS-109\'s case backup)', 'POST /recovery/copies {caseId, exportId}', 'GET /recovery/copies, GET /recovery/head/{live,copies}/<key>', 'a byte of one copy flipped in its local R2 blob, then POST /recovery/copies/<id>/stage', wcmd('d1 execute DB --local --env client-a --json --command "SELECT … FROM <each table sqlite_master lists>"') + ' > <run>/scratch/t0.sql'], async (check, m) => {
 			copies.a1first = await copyOf(A1);
@@ -670,6 +671,9 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			check(flip('recovery-copies-a', copies.broken.size, copies.broken.sha256, Math.floor(copies.broken.size / 2)) === 1, 'one byte in the middle of one copy is flipped at rest');
 			const staged = await post(`/recovery/copies/${copies.broken.copyId}/stage`, { caseId: A2 });
 			check(code(staged, 422, 'copy-corrupted'), 'staging the corrupted copy answers 422 copy-corrupted: R2 refused the write against the SHA-256 recorded at copy time');
+			const aborted = await post(`/recovery/copies/${copies.a1second!.copyId}/stage`, { caseId: A1 });
+			stagedA1 = aborted.status === 200 ? (aborted.json().packetId as string) : '';
+			check(stagedA1 !== '' && (await held('live', `import/${stagedA1}.zip`)), "A1's second copy is staged into the live bucket ahead of a restore that is never finished: the packet holds A1's originals, read model and user work");
 			await addRow(A2, 'A2 second note after the copy', 'S-0002');
 			check(rowsOf(await work(A2)).length === 5, 'A2 gains two rows after its copy');
 			t0Dump = path.join(scratch, 't0.sql');
@@ -720,10 +724,10 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			check(isGone(await liveOf(A1)), 'A1 holds no version, activation, original, revision or user-work row');
 			const res = residue('client-a', A1, deleted.versions, deleted.exports);
 			check(res.left.length === 0 && res.tables > 10, `no row of A1, its versions or its exports is left in any of the ${res.tables} tables sqlite_master lists with such a column (${res.left.join(', ')})`);
-			const objects = [`pkg/${V1}/datasets/chronology.json`, `pkg/${V2}/datasets/chronology.json`, `rm/${V1}/chronology.json`, `rm/${V2}/chronology.json`, `export/${A1}/${offered.exportId}.zip`, `bundle/${A1}/b-1.pdf`, `orig/${oA1.sha}`];
+			const objects = [`pkg/${V1}/datasets/chronology.json`, `pkg/${V2}/datasets/chronology.json`, `rm/${V1}/chronology.json`, `rm/${V2}/chronology.json`, `export/${A1}/${offered.exportId}.zip`, `bundle/${A1}/b-1.pdf`, `orig/${oA1.sha}`, `import/${stagedA1}.zip`];
 			const left = [];
 			for (const k of objects) if (await held('live', k)) left.push(k);
-			check(left.length === 0, `A1's package files, lists, exports, bundle history and its own original are erased from the live bucket (${left.join(', ')})`);
+			check(left.length === 0, `A1's package files, lists, exports, bundle history, its own original and the packet of its aborted restore are erased from the live bucket (${left.join(', ')})`);
 			const shared = await http(`/cases/${A2}/originals/${oShared.assetId}`);
 			check(shared.status === 200 && sha256(shared.bytes) === oShared.sha && (await json(`/cases/${A2}/state`)).sha256 === stateA2BeforeRemoval, 'the original A2 also records stays and A2 serves it verified; everything of A2 is as it was');
 			const again = await step('remove', GA);
@@ -789,6 +793,7 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			const run2 = await restorePacket(staged.json().packetId, A2);
 			const restoreMs = ms(tRestore);
 			check(run2.open === '200' && run2.step === '200' && run2.finish === '200', `GRS-109's restore opens, copies and finishes it (${JSON.stringify(run2)})`);
+			check(!(await held('live', `import/${staged.json().packetId}.zip`)), "the staged packet is deleted once its restore finishes with 200: the fresh bucket keeps the restored case's objects, not a second copy of the backup");
 			const tChecks = performance.now();
 			check((await json(`/cases/${A2}/state`)).sha256 === atCopy.stateA2, "A2's state digest in the fresh deployment equals the source's at copy time: rows, read model, user work and every object");
 			const v = await http(`/cases/${A2}/verify`);
@@ -824,12 +829,15 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 				removed += (r.json().removed as string[]).length;
 				return r.json() as { removed: string[]; kept: number };
 			};
+			const orphan = await upload(synthetic('recovery probe packet nobody tagged', 50)); // GRS-109's own upload: it names no case until it is opened
+			const orphanHeld = await held('live', `import/${orphan}.zip`);
 			const c1 = Date.parse(copies.a1first!.uploaded);
 			check((await rotate(c1 + 30 * DAY - 1)).removed.length === 0, 'at its first copy + 30 days - 1 ms rotation removes nothing');
 			const r1 = await rotate(c1 + 30 * DAY + 1);
 			check(r1.removed.length === 1 && r1.removed[0] === `recovery/${A1}/${copies.a1first!.copyId}.zip` && r1.kept === 3, 'at + 30 days + 1 ms it removes that copy only; the younger copies stay (rolling)');
 			const removedAt = Date.parse(deleted.removedAt);
 			const r2 = await rotate(removedAt + 30 * DAY + 1);
+			const orphanAtR2 = await held('live', `import/${orphan}.zip`);
 			check(r2.kept === 0 && !(await json('/recovery/copies')).some((c: { key: string }) => c.key.startsWith(`recovery/${A1}/`)), "within 30 days of A1's removal no copy of A1 is left anywhere");
 			check((await held('live', `deletion/${A1}.json`)) && (await held('copies', `deletion/${A1}.json`)), 'the deletion record outlives the copies it governs, in both buckets');
 			check(code(await post(`/recovery/copies/${copies.a1second!.copyId}/stage`, { caseId: A1 }), 409, 'case-deleted') && code(await post(`/recovery/copies/${copies.a2!.copyId}/stage`, { caseId: A2 }), 404, 'no-such-copy'), "a rotated copy can no longer be staged (A2's answers 404 no-such-copy; A1's is refused as deleted first)");
@@ -837,6 +845,11 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			check(fa.status === 200, 'a firm admin requests the deletion of A2 and nobody approves it');
 			const r3 = await rotate(removedAt + 400 * DAY);
 			check(r3.removed.length === 0 && (await json(`/cases/${A2}/deletion`)).state === 'requested', 'at + 400 days rotation removes nothing more, and the unapproved request is still only a request');
+			const leftOfA1 = [];
+			for (const k of [`import/${stagedA1}.zip`, `orig/${oA1.sha}`, `pkg/${V1}/datasets/chronology.json`, `pkg/${V2}/datasets/chronology.json`, `rm/${V1}/chronology.json`, `rm/${V2}/chronology.json`, `bundle/${A1}/b-1.pdf`]) if (await held('live', k)) leftOfA1.push(`live ${k}`);
+			for (const c of Object.values(copies)) if (await held('copies', `recovery/${A1}/${c.copyId}.zip`)) leftOfA1.push(`copies recovery/${A1}/${c.copyId}.zip`);
+			check(leftOfA1.length === 0 && (await held('live', `deletion/${A1}.json`)), `at A1's removal + 400 days no object of A1 is left in either bucket, the staged packet of its aborted restore included, except its deletion record (${leftOfA1.join(', ')})`);
+			check(orphanHeld && orphanAtR2 && !(await held('live', `import/${orphan}.zip`)), 'a packet uploaded through GRS-109 names no case, so removal cannot find it: it survives rotation while younger than 30 days and ages out with the copies');
 			const v = await http(`/cases/${A2}/verify`);
 			const o = await http(`/cases/${A2}/originals/${oA2.assetId}`);
 			check(v.status === 200 && o.status === 200 && sha256(o.bytes) === oA2.sha && (await http(`/cases/${A2}/documents/S-0001`)).status === 200 && rowsOf(await work(A2)).length === 5, 'no automatic case purge: A2 is live, verified and complete with every row, 400 days on');
@@ -844,7 +857,7 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			check(bundles.length === 1 && (await held('live', `bundle/${A2}/b-1.pdf`)), "A2's bundle history is kept: rotation ages only recovery copies");
 			check((await http('/identity')).status === 200 && (await held('live', `orig/${oShared.sha}`)) && (await held('live', `pkg/${VB}/datasets/chronology.json`)), 'no client purge: the deployment, its identity and its live objects all stay');
 			check(code(await post('/recovery/rotate', {}), 400, 'invalid-field') && code(await post('/recovery/rotate', { scheduledTime: 'soon' }), 400, 'invalid-field'), 'rotation with no scheduledTime or a malformed one is refused, naming the field');
-			Object.assign(m, { rotations: rotations + 2, copiesRemoved: removed, copiesKept: r3.kept, bundleVersionsKept: bundles.length });
+			Object.assign(m, { rotations: rotations + 2, copiesRemoved: removed, copiesKept: r3.kept, bundleVersionsKept: bundles.length, packetsAged: orphanHeld && !(await held('live', `import/${orphan}.zip`)) ? 1 : 0 });
 		});
 
 		// ----- a deletion record that is not this client's, or not well formed, stops the deployment -----

@@ -1,6 +1,6 @@
 {
   "schema": "clearcase.identity-probe/1",
-  "sourceSha": "4d9fc0aa8c8b70101699c0eec927b865edf5c869",
+  "sourceSha": "9e754c2720a32be69e9364a4902a34c169698827",
   "inputs": {
     "paths": [
       "tests/hosting-probe/identity",
@@ -9,13 +9,13 @@
       "deploy/probes/secrets-env.mjs",
       "deploy/probes/secrets-fd.mjs"
     ],
-    "digest": "sha256:3ecb66124fb7745cd605d989f48ee7b35b98c393c0c4fd85ed6b4a1d4befa47b"
+    "digest": "sha256:69728611e76db0d68231ee7499426f244b1cb43a2778c46ade90f301ba2ef0db"
   },
   "treeClean": true,
-  "servedStamp": "4d9fc0aa8c8b70101699c0eec927b865edf5c869",
-  "startedAt": "2026-10-21T18:16:43.854Z",
-  "finishedAt": "2026-10-21T18:21:47.322Z",
-  "runDir": ".local/hosting-probe/identity/2026-10-21T18-16-43-852Z",
+  "servedStamp": "9e754c2720a32be69e9364a4902a34c169698827",
+  "startedAt": "2026-10-21T20:38:15.088Z",
+  "finishedAt": "2026-10-21T20:43:34.251Z",
+  "runDir": ".local/hosting-probe/identity/2026-10-21T20-38-15-085Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -36,7 +36,7 @@
     "workerd": "1.20261019.1",
     "wrangler": "4.151.3"
   },
-  "artifact": "sha256:99fbb11abf6f89131aa5762ff2b953f7671cf585b8ab9e8ada211ac9f7b4fe6a",
+  "artifact": "sha256:d3e5d402387b67bd93e799e6e49c2b16f039c306a87ef0094ea9d5ad1825f6fc",
   "instances": {
     "client": {
       "name": "Clear-Case-Dev-A",
@@ -256,7 +256,7 @@
     "credential-scan": {
       "status": "PASS",
       "asserted": [
-        "no key, token, dev browser JWT, ticket or password of this run, and no credential shape, in 308 files of logs, local state, the build and the summary"
+        "no key, token, dev browser JWT, ticket or password of this run, and no credential shape, in 326 files of logs, local state, the build and the summary"
       ]
     }
   },

@@ -9,7 +9,8 @@
 //   copy or packet of a deleted case is refused, and a D1 database rolled back to before a removal, or a fresh deployment
 //   that never saw it, is brought back in line before it serves anything (reconcile);
 // - rolling recovery copies: a sealed case backup copied into RECOVERY, staged back into the live bucket for GRS-109's
-//   restore path, and rotated by age (30 days) without touching live data or bundle history;
+//   restore path (tagged with its case, deleted when its restore finishes, swept by the case's removal), and rotated by age
+//   (30 days) without touching live data or bundle history; rotation also ages out restore packets that name no case;
 // - bundle history, a stand-in for GRS-128's PDF bundle versions, so rotation can be shown to leave it alone.
 import storage from '../../storage/src/worker.ts';
 import { type D1, type D1Value, type Env, type R2, type R2Object, type R2ObjectBody, fixedLength, hasBody, hex, sha256Hex } from '../../storage/src/platform.ts';
@@ -164,6 +165,8 @@ async function erase(ctx: Ctx, caseId: string, set: [string, D1Value[]], conditi
 			cursor = page.cursor;
 		}
 	}
+	// Restore packets staged from the case's recovery copies carry its id; GRS-109's own uploads name no case (see rotate).
+	for (const o of await listed(ctx.bucket, 'import/')) if (o.customMetadata?.caseId === caseId) keys.push(o.key);
 	for (const sha of plan.originals) if (!(await first(ctx.db, 'SELECT 1 AS x FROM case_original WHERE sha256 = ?', sha))) keys.push(`orig/${sha}`);
 	for (let i = 0; i < keys.length; i += 1000) await ctx.bucket.delete(keys.slice(i, i + 1000));
 	for (const b of building) await ctx.bucket.resumeMultipartUpload(b.object_key, b.upload_id).abort().catch(() => undefined); // an unsealed export's parts
@@ -352,11 +355,12 @@ async function stageCopy(ctx: Ctx, request: Request, copyId: string): Promise<Re
 	if (meta.client !== ctx.client) refuse(409, 'wrong-client');
 	if (meta.caseId !== caseId || !isText(SHA)(meta.sha256)) refuse(422, 'invalid-copy', { key });
 	const packetId = crypto.randomUUID();
-	await copyVerified(ctx.copies, key, ctx.bucket, `import/${packetId}.zip`, meta.sha256!, head!.size, { client: ctx.client });
+	// Tagged with its case, so the case's removal can find the packet (erase) and a finished restore can drop it (route).
+	await copyVerified(ctx.copies, key, ctx.bucket, `import/${packetId}.zip`, meta.sha256!, head!.size, { client: ctx.client, caseId });
 	return json({ packetId, copyId, caseId, sha256: meta.sha256, size: head!.size });
 }
 
-/** Removes recovery copies older than 30 days at `scheduledTime` (a Cron Trigger's scheduled time); nothing else. */
+/** Removes recovery copies, and restore packets, older than 30 days at `scheduledTime` (a Cron Trigger's scheduled time); nothing else. */
 async function rotate(ctx: Ctx, request: Request): Promise<Response> {
 	const at = field(await body(request), 'scheduledTime', isText(ISO));
 	const now = Date.parse(at);
@@ -364,7 +368,11 @@ async function rotate(ctx: Ctx, request: Request): Promise<Response> {
 	const copies = await listed(ctx.copies, 'recovery/');
 	const old = copies.filter((o) => now - o.uploaded.getTime() > RETENTION_MS).map((o) => o.key);
 	for (let i = 0; i < old.length; i += 1000) await ctx.copies.delete(old.slice(i, i + 1000));
-	return json({ scheduledTime: at, removed: old, kept: copies.length - old.length });
+	// A restore packet is transient. One that GRS-109's upload route made names no case until it is opened, so removal cannot
+	// find it; it ages out here with the copies.
+	const packets = (await listed(ctx.bucket, 'import/')).filter((o) => now - o.uploaded.getTime() > RETENTION_MS).map((o) => o.key);
+	for (let i = 0; i < packets.length; i += 1000) await ctx.bucket.delete(packets.slice(i, i + 1000));
+	return json({ scheduledTime: at, removed: old, kept: copies.length - old.length, packetsRemoved: packets.length });
 }
 
 // ----- bundle history (a GRS-128 stand-in) -----
@@ -416,6 +424,12 @@ async function route(request: Request, env: RecoveryEnv): Promise<Response> {
 		if (isText(ID)(caseId) && (await isDeleted(ctx, caseId))) {
 			if (isText(UUID)(seg[2])) await ctx.bucket.delete(`import/${seg[2]}.zip`); // the packet holds the deleted case's data
 			return json({ code: 'case-deleted', caseId }, 409);
+		}
+		if (seg[3] === 'finish' && isText(UUID)(seg[2])) {
+			// A finished restore leaves the case's objects under their own keys; the packet, a second copy of the backup, goes.
+			const finished = await storage.fetch(request, env);
+			if (finished.status === 200) await ctx.bucket.delete(`import/${seg[2]}.zip`);
+			return finished;
 		}
 	}
 	if (seg[0] === 'cases' && isText(ID)(seg[1])) {

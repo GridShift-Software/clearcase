@@ -107,7 +107,7 @@ export async function convertV5(opts: ConvertOptions): Promise<ConvertResult> {
   if (!src) return fail();
   const sourceText = () => decodeUtf8Strict(src.html.bom ? opts.html.subarray(3) : opts.html);
   // the newer viewer's hand-authored analysis is code, not a payload line: its literal is read as strict JSON and its
-  // merges are recognised by text (never evaluated), then placed into DATA as the viewer places them
+  // merges are recognised by text (never evaluated), then placed into DATA in the builder's order
   const analysis = src.generation === 'v5-js-newer' ? readAnalysisOverlay(sourceText(), sink) : null;
   const merged = analysis ? mergeAnalysis(src.roots, analysis) : null;
   const roots = src.generation === 'v5-js-newer' ? mapNewerRoots(merged?.roots ?? src.roots) : src.roots;

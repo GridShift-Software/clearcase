@@ -129,9 +129,9 @@ const assigned = (into: JsonObject, from: JsonObject): JsonObject => { const out
 
 /**
  * DATA as the viewer has it after the module's merges, built by copying. A merge applies only when X holds its root
- * and the DATA slot is the kind the statement needs (an object to assign to, a list to push onto); the viewer could
- * not merge anything else either. Whatever no merge placed stays in `rest`, so nothing is dropped; `placed` lists the
- * merges that applied.
+ * and the DATA slot is the kind the statement needs (an object to assign to, a list to push onto). The viewer throws
+ * on any other slot and runs no later merge; this copy leaves that root and still places the later ones. Whatever no
+ * merge placed stays in `rest`, so nothing is dropped; `placed` lists the merges that applied.
  */
 export function mergeAnalysis(roots: Roots, analysis: AnalysisModule): { roots: Roots; rest: JsonObject; placed: Merge[] } {
   const rest: JsonObject = {};

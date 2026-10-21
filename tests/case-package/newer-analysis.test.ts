@@ -145,7 +145,7 @@ describe('the newer export\'s code-embedded analysis (GRS-149)', () => {
     });
   });
 
-  it('keeps a root residual when its DATA slot is not the kind the merge needs, as the viewer could not merge it either', async () => {
+  it('keeps a root residual when its DATA slot is not the kind the merge needs; the viewer would throw there and run no later merge, the converter still places them', async () => {
     const c = await convert([MODULE, literal(X), V1_MERGE_LINE], (r) => { r.DATA.riskMatrix = {}; delete (r.DATA.lit as J).recon; });
     expect(data(c, 'v5-residual-analysis-overlay')).toEqual({ riskMatrix: X.riskMatrix, recon: X.recon });
     expect(notes(c, 'V5_OVERLAY_UNMAPPED')[0]!.message).toContain('riskMatrix 2, recon 1');

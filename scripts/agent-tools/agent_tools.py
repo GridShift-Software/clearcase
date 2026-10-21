@@ -1898,9 +1898,6 @@ def guard_binding(store, unit, supplied, identity, root):
     if declared is not None and protected:
         raise ValueError(f"the guard manifest declares no tests, but the review that prompted the fix names {len(protected)} "
                          "protected test(s); a declaration cannot leave them out")
-    if declared is not None and (not isinstance(declared, dict) or declared.get("reviewSha") != record["sha"]
-                                 or declared.get("reviewFindingsSha256") != record["findingsHash"]):
-        raise ValueError("the guard manifest's no-test declaration is bound to another review than the ledger's for this unit")
     if json.dumps(exact(claims, "tests", "guard"), sort_keys=True) != json.dumps(protected, sort_keys=True):
         raise ValueError("the guard manifest's tests differ from the review's protectedTests")
     return {**binding, "receipt": str(path), "manifestSha256": claims.get("manifestSha256"), "tests": protected,

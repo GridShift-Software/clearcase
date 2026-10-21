@@ -332,6 +332,15 @@ class IntoTheWave(DocsOnlyFixRound):
         self.another_ticket()
         self.assertIn('src/app.ts', self.guard(base='dev', branch=WAVE, code=1))
 
+    def test_a_manifest_changed_on_the_wave_after_its_merge_is_judged_whole(self):
+        self.fix_round()
+        self.git('switch', '-q', WAVE)
+        self.merge(BRANCH)
+        self.another_ticket()
+        self.manifest(declaration=self.declaration(reason='M1 is a documentation finding, reworded on the wave.'))
+        self.commit('the manifest edited on the wave')
+        self.assertIn('src/grs-105-other.ts', self.guard(base='dev', branch=WAVE, code=1))
+
     def test_a_branch_that_merges_its_manifest_in_from_a_side_line_is_judged_whole(self):
         self.git('switch', '-q', '-c', 'side', self.reviewed)
         self.fix_round()

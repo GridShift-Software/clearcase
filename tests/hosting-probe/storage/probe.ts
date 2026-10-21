@@ -84,7 +84,9 @@ type Spec = null | boolean | number | string | RegExp | ((v: unknown) => boolean
 const NONEMPTY = (v: unknown) => typeof v === 'string' && v.length > 0;
 const COUNT = (v: unknown) => Number.isSafeInteger(v) && (v as number) >= 0;
 const POSITIVE = (v: unknown) => Number.isSafeInteger(v) && (v as number) > 0;
-const MS = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+const MS = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v > 0; // a measured wall time; zero would hide a zeroed field
+/** The requests Wrangler's dev proxy dropped before they reached the Worker, each retried: the count must equal the list. */
+const RETRIES = (v: unknown) => isObject(v) && Object.keys(v).sort().join() === 'count,requests' && Array.isArray(v.requests) && v.requests.every(NONEMPTY) && v.count === v.requests.length;
 const SHA = /^[0-9a-f]{64}$/;
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -140,6 +142,8 @@ const MEASURES: Record<LegName, Record<string, Spec>> = {
 function expectedShape(sha: string, summary: Record<string, unknown>): Spec {
 	const node = isObject(summary.hosts) && typeof summary.hosts.node === 'string' ? summary.hosts.node : '';
 	const workerd = pkg.devDependencies.workerd!;
+	const retried = isObject(summary.devProxyRetries) && Array.isArray(summary.devProxyRetries.requests) ? summary.devProxyRetries.requests : null;
+	const uploadRetries = retried ? retried.filter((r) => typeof r === 'string' && r.startsWith('upload: ')).length : -1;
 	return {
 		schema: SCHEMA,
 		sourceSha: sha,
@@ -154,8 +158,9 @@ function expectedShape(sha: string, summary: Record<string, unknown>): Spec {
 		artifact: /^sha256:[0-9a-f]{64}$/,
 		isolation: { network: /^own network namespace: interfaces \[lo\], 0 IPv4 routes, 0 IPv6 routes; /, env: ENV_KEYS },
 		corpus: { target: v5Target(), generated: poc },
-		legs: Object.fromEntries(LEGS.map((name) => [name, { status: 'PASS', commands: Array.from({ length: LEG_SHAPE[name][0] }, () => NONEMPTY), asserted: Array.from({ length: LEG_SHAPE[name][1] }, () => NONEMPTY), measured: MEASURES[name] }])),
+		legs: Object.fromEntries(LEGS.map((name) => [name, { status: 'PASS', commands: Array.from({ length: LEG_SHAPE[name][0] }, () => NONEMPTY), asserted: Array.from({ length: LEG_SHAPE[name][1] }, () => NONEMPTY), measured: name === 'upload' ? { ...MEASURES.upload, retries: uploadRetries } : MEASURES[name] }])),
 		hold: HOLD,
+		devProxyRetries: RETRIES,
 		failure: null,
 		evidence: true,
 		checker: { mutationsRefused: POSITIVE, accepted: null },
@@ -322,10 +327,25 @@ async function stopServer(server: Server): Promise<'SIGINT' | 'SIGTERM' | 'SIGKI
 }
 
 type Res = { status: number; type: string; headers: Headers; bytes: Uint8Array; json: () => any };
+const DROPPED = new TextEncoder().encode('Error: Network connection lost.');
+/** Requests Wrangler's dev proxy dropped on its pooled connection to the Worker, before the Worker ran; each was retried. */
+const proxyRetries: string[] = [];
+let currentLeg = 'setup';
 async function http(pathname: string, init: RequestInit & { timeout?: number } = {}): Promise<Res> {
-	const res = await fetch(BASE + pathname, { redirect: 'manual', ...init, signal: AbortSignal.timeout(init.timeout ?? 120_000) });
-	const bytes = new Uint8Array(await res.arrayBuffer());
-	return { status: res.status, type: res.headers.get('content-type') ?? '', headers: res.headers, bytes, json: () => JSON.parse(new TextDecoder().decode(bytes)) };
+	for (let attempt = 1; ; attempt++) {
+		const res = await fetch(BASE + pathname, { redirect: 'manual', ...init, signal: AbortSignal.timeout(init.timeout ?? 120_000) });
+		const bytes = new Uint8Array(await res.arrayBuffer());
+		const type = res.headers.get('content-type') ?? '';
+		// Wrangler's ProxyWorker answers a dropped connection to the user Worker with a 500 and a text stack, and retries it
+		// itself only for GET and HEAD. Every answer of the Worker itself is JSON or verified bytes, so this one is not.
+		const dropped = res.status === 500 && !type.startsWith('application/json') && equal(bytes.subarray(0, DROPPED.length), DROPPED);
+		if (dropped && attempt <= 2) {
+			proxyRetries.push(`${currentLeg}: ${init.method ?? 'GET'} ${pathname.replace(/[0-9a-f]{64}/g, '<sha256>').replace(/[0-9a-f-]{36}/g, '<id>')} (attempt ${attempt + 1})`);
+			await new Promise((r) => setTimeout(r, 250));
+			continue;
+		}
+		return { status: res.status, type, headers: res.headers, bytes, json: () => JSON.parse(new TextDecoder().decode(bytes)) };
+	}
 }
 const post = (p: string, b: unknown, timeout?: number) => http(p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(b), timeout });
 const probeCount = (r: Res, name: string) => Number(r.headers.get(`x-probe-${name}`));
@@ -408,6 +428,7 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 	async function leg(name: LegName, commands: string[], body: (check: (ok: boolean, what: string) => void, measure: Measure) => Promise<void>) {
 		const l: Leg = { status: 'FAIL', commands, asserted: [], measured: {} };
 		legs[name] = l;
+		currentLeg = name;
 		try {
 			await body((ok, what) => {
 				if (!ok) throw new Error(`assertion failed: ${what}`);
@@ -551,7 +572,7 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			check(again.status === 200 && again.json().repeated === true, 'a repeated PUT of the same content is a no-op (content-addressed, write-once)');
 			const missingField = await post(`/cases/${caseId}/originals`, { assetId: first.assetId, sha256: shas[first.index], filename: first.filename, mediaType: first.mediaType });
 			check(missingField.status === 400 && missingField.json().field === 'size', `finalize without a size answers 400 naming the field, never a default (${missingField.status} ${new TextDecoder().decode(missingField.bytes).slice(0, 200)})`);
-			Object.assign(m, { originals: p.originals.length, bytes: p.originals.reduce((n, o) => n + o.size, 0), multipart, singlePuts: singles, failures: failures.length, retries: 0, verifiedAtFinalizeBytes: verified, maxR2OpsPerFinalize: maxR2 });
+			Object.assign(m, { originals: p.originals.length, bytes: p.originals.reduce((n, o) => n + o.size, 0), multipart, singlePuts: singles, failures: failures.length, retries: proxyRetries.filter((r) => r.startsWith('upload: ')).length, verifiedAtFinalizeBytes: verified, maxR2OpsPerFinalize: maxR2 });
 		});
 
 		// ----- import (P5): staging, an interrupted attempt, recovery, the guarded flip, activation -----
@@ -990,6 +1011,7 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 		corpus: { target: JSON.parse(JSON.stringify(V5)), generated: aggregates(p) },
 		legs,
 		hold: HOLD,
+		devProxyRetries: { count: proxyRetries.length, requests: [...proxyRetries] },
 		failure,
 		evidence: false,
 	};
@@ -998,6 +1020,7 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 		const mm = mutationsRefused(draft, sha);
 		summary.checker = { mutationsRefused: mm.refused, accepted: mm.accepted };
 		summary.evidence = mm.accepted === null && checkSummary({ ...summary, evidence: true }, sha).length === 0;
+		if (mm.accepted !== null) console.log(`FAIL    the checker accepted a mutated summary: ${mm.accepted}`);
 	} else if (failure === null) for (const problem of checkSummary(draft, sha).slice(0, 10)) console.log(`shape: ${problem}`);
 	mkdirSync(path.dirname(out), { recursive: true });
 	writeFileSync(out, `${JSON.stringify(summary, null, 2)}\n`);

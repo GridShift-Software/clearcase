@@ -78,6 +78,13 @@ const named: [string, Edit][] = [
 	['hosts.wrangler = "Bun 1.4.2"', (s) => ((s.hosts as Json).wrangler = 'Bun 1.4.2')],
 	['checker.accepted set', (s) => ((s.checker as Json).accepted = 'schema deleted')],
 	['absolute runDir', (s) => (s.runDir = '/home/someone/run')],
+	['a dev-proxy retry missing from the count', (s) => void ((s.devProxyRetries as Json).count = ((s.devProxyRetries as Json).count as number) + 1)],
+	['an upload retry the upload leg does not report', (s) => {
+		const d = s.devProxyRetries as { count: number; requests: string[] };
+		d.requests.push('upload: PUT /originals/<sha256> (attempt 2)');
+		d.count = d.requests.length;
+	}],
+	['a timing of zero', (s) => (legs(s).export!.measured.wallMs = 0)],
 ];
 
 const control = await check(base);

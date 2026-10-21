@@ -11,7 +11,7 @@
 //
 // `janitor` is a dry run: it prints the plan for a resource listing (a JSON array of { kind, name, createdAt }) and
 // deletes nothing.
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -102,6 +102,7 @@ export type Plan = { remove: Listed[]; keep: { resource: Listed; reason: string 
 
 /** Which listed resources the janitor deletes: run names only, older than MAX_AGE_HOURS, whose manifest is finished or missing. */
 export function janitorPlan(a: { listing: Listed[]; manifests: string; now: Date }): Plan {
+	if (!existsSync(a.manifests) || !statSync(a.manifests).isDirectory()) throw new Error(`${a.manifests} is not a directory: without the run manifests every old run would look orphaned`);
 	const plan: Plan = { remove: [], keep: [] };
 	for (const resource of a.listing) {
 		const keep = (reason: string) => plan.keep.push({ resource, reason });
@@ -138,6 +139,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 	const [command, ...rest] = process.argv.slice(2);
 	const arg = (name: string) => {
 		const i = rest.indexOf(name);
+		if (i >= 0 && (rest[i + 1] === undefined || rest[i + 1]!.startsWith('--'))) throw new Error(`${name} needs a value`);
 		return i < 0 ? undefined : rest[i + 1];
 	};
 	try {

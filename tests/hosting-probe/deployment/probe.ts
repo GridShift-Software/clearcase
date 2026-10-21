@@ -572,7 +572,9 @@ async function main(out: string): Promise<number> {
 		check(lines.includes(`would delete worker cc-107-w1-aaaaaaa (created ${old})`) && lines.includes(`would delete r2 cc-109-w2-bbbbbbb (created ${old})`), 'it would delete only the finished run and the orphan, both older than 24 hours');
 		check(lines.some((x) => x.startsWith(`keep worker ${clientA.worker}: not a run name`)) && lines.some((x) => x.startsWith('keep r2 cc-prod-files: not a run name')), 'it never touches an unprefixed or malformed name');
 		check(readFileSync(file, 'utf8') === JSON.stringify(listing), 'the listing is unchanged');
-		l.observed = { plan: lines };
+		const blind = step(l, 'Bun', [path.join(root, 'deploy/probes/cloud-run.ts'), 'janitor', '--listing', file, '--manifests', path.join(dir, 'no-such-runs'), '--now', now.toISOString()], { cwd: root });
+		check(blind.code === 1 && !blind.out.includes('would delete'), 'without its manifests directory the janitor refuses (exit 1) rather than reading every old run as orphaned');
+		l.observed = { plan: lines, withoutManifests: { exit: blind.code } };
 	});
 
 	await leg('credential-scan', 'no canary or credential shape in build artifacts, staged deploy inputs, logs or homes', (l, check) => {

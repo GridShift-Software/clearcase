@@ -134,6 +134,18 @@ describe('janitor dry run', () => {
 		]);
 	});
 
+	test('a missing manifests directory is refused, not read as every run orphaned', () => {
+		const absent = path.join(SCRATCH, 'no-such-runs');
+		expect(() => janitorPlan({ listing, manifests: absent, now: NOW })).toThrow(/no-such-runs is not a directory/);
+		const file = path.join(SCRATCH, 'listing-absent.json');
+		writeFileSync(file, JSON.stringify(listing));
+		for (const args of [['--manifests', absent], ['--manifests']]) {
+			const r = spawnSync(process.execPath, [path.join(REPO, 'deploy/probes/cloud-run.ts'), 'janitor', '--listing', file, ...args, '--now', NOW.toISOString()], { cwd: SCRATCH, encoding: 'utf8' });
+			expect(r.status).toBe(1);
+			expect(r.stdout).not.toContain('would delete');
+		}
+	});
+
 	test('the CLI dry run prints the plan and changes no file', () => {
 		const dir = manifests();
 		const file = path.join(SCRATCH, 'listing.json');

@@ -2405,6 +2405,58 @@ class FixRoundMergedBase(ControlCase):
                 self.assertIn(message, self.guard('--base', 'dev', code=1))
 
 
+class FixRoundDerivedKeys(ControlCase):
+    """GRS-153 review M1: the guard's derived entries (`package.json#scripts`, `<dir>/package.json#resolution`) are read
+    from a tracked file but have no path of their own. A merged base change counts for one only through the file it is
+    read from; a key tracked by neither HEAD nor the fix base is never the base's change."""
+    original = TestWeakening.original
+    path = FixRoundManifest.path
+    manifest = FixRoundManifest.manifest
+    reset = FixRoundMergedBase.reset
+    change = FixRoundMergedBase.change
+    on_dev = FixRoundMergedBase.on_dev
+    merge = FixRoundMergedBase.merge
+    guard = FixRoundMergedBase.guard
+    helper = 'export const expected = false;\n'
+    test = "import { expected } from '#helper';\n" + TestWeakening.original
+    package = {'name': 'x', 'scripts': {'test': 'vitest run', 'start': 'node a.js'}, 'imports': {'#helper': './support/helper.ts'}}
+
+    def setUp(self):
+        super().setUp()
+        self.write('package.json', json.dumps(self.package))
+        self.write('support/helper.ts', self.helper)
+        self.dev = self.commit('a package manifest with a test script and an imports alias, and a helper')
+        self.git('switch', '-q', '-c', 'feature/grs-104-tooling')
+        self.write('tests/protected.test.ts', self.test)
+        self.base = self.commit('reviewed tests')
+        self.write('app.txt', 'fixed\n')
+        self.manifest()
+        self.fixed = self.commit('fix round')
+
+    def edit(self, **fields):
+        return {'package.json': json.dumps({**self.package, **fields})}
+
+    def test_a_branch_edit_of_a_derived_entry_with_an_unrelated_merged_base_change_refuses(self):
+        scripts = {**self.package['scripts'], 'test': 'vitest run --exclude tests/protected.test.ts'}
+        for label, fields, message in (('the test script', {'scripts': scripts}, 'protected dependency changed: package.json#scripts'),
+                                       ('a resolution field', {'type': 'module'}, 'protected dependency changed: package.json#resolution')):
+            with self.subTest(bypass=label):
+                self.reset()
+                self.on_dev({'docs/note.md': 'later\n'})
+                self.change(self.edit(**fields), f'the branch changes {label}')
+                self.merge()
+                self.assertIn(message, self.guard('--base', 'dev', code=1))
+
+    def test_a_derived_entry_the_base_changed_and_the_branch_merged_passes(self):
+        for label, fields, key in (('the test script', {'scripts': {**self.package['scripts'], 'test': 'vitest run --silent'}}, 'package.json#scripts'),
+                                   ('a resolution field', {'type': 'module'}, 'package.json#resolution')):
+            with self.subTest(control=label):
+                self.reset()
+                self.on_dev(self.edit(**fields))
+                self.merge()
+                self.assertIn(f'protected among them: {key}', self.guard('--base', 'dev'))
+
+
 class RetainedPaths(ControlCase):
     """L1 and L2."""
     prepare = ApprovalLedger.prepare

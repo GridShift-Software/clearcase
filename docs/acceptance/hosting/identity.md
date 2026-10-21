@@ -2,7 +2,7 @@
 
 [GRS-108](https://linear.app/vaper/issue/GRS-108) asks for a working Clerk integration on Workers and an explicit role, session and asset authorization contract for the design gate. Cloudflare stays pinned (no account, token, login, DNS change or deploy), so this unit runs the **local and Clerk-development legs**: two SvelteKit 3 Workers on native workerd with local D1 and R2, verifying sessions of the real development instances `Clear-Case-Dev-A` (client) and `Clear-Case-Dev-B` (staff).
 
-**Verdict: PASS for the local and Clerk-development legs; HOLD for the rest.** The committed run passed at `159a7996`, and `check:evidence` binds it to every later HEAD whose probe inputs are unchanged. Every acceptance item below that these legs can show passes. What stays HOLD, and who it needs, is listed [at the end](#what-stays-hold). The probe is not the production integration; GRS-113 adopts its contracts.
+**Verdict: PASS for the local and Clerk-development legs; HOLD for the rest.** The committed run passed at `4d9fc0aa`, and `check:evidence` binds it to every later HEAD whose probe inputs are unchanged. Every acceptance item below that these legs can show passes. What stays HOLD, and who it needs, is listed [at the end](#what-stays-hold). The probe is not the production integration; GRS-113 adopts its contracts.
 
 ## Run it
 
@@ -172,7 +172,7 @@ Legs: **offline** is `bun run --bun test` (crafted issuers on workerd, no Clerk)
 
 ## Legs
 
-| Leg | What it asserts at `159a7996` |
+| Leg | What it asserts at `4d9fc0aa` |
 | --- | --- |
 | integration | the Bun build with adapter-cloudflare is stamped with HEAD; `authenticateRequest` is in the server bundle with no `node:crypto` import; Wrangler seeds both apps' local D1 and R2 in its own process; `serve.mjs` starts both Workers with the keys as `secret_text`; native workerd serves them and both serve the HEAD stamp |
 | instances | each Frontend API is the named development instance; sign-up is restricted; MFA is not required and no second factor is enabled; Clerk refuses a sign-up with no invitation (403 `sign_up_mode_restricted`) |
@@ -222,10 +222,10 @@ The probe's own checks, all in `tests/hosting-probe/identity/`:
 
 | Command | Revision | Exit | Result |
 | --- | --- | --- | --- |
-| `bun run --bun test` | `159a7996` | 0 | 52 passed: `gates.test.ts` 41 (33 gate cases, 2 default-deny, the grant-to-a-non-staff-user case, 5 process-lifecycle), `check.test.ts` 11 |
-| `bun run --bun test tests/hosting-probe/identity/ tests/ci/test-collection.test.ts`, from the repository root | `159a7996` | 0 | 54 passed under the root config (the identity files are collected there now) |
-| `bun run --bun probe` | `159a7996` | 0 | `PROBE PASS`, `evidence: true`, all 12 legs PASS, 0 scan hits; sweep removed nothing; users 8/8, invitations 9/9, sessions 14/14 |
-| `bun run --bun check:evidence` | `159a7996` and the commit that adds this page | 0 | `CHECK PASS`, inputs `sha256:e953dee1…` |
+| `bun run --bun test` | `4d9fc0aa` | 0 | 52 passed: `gates.test.ts` 41 (33 gate cases, 2 default-deny, the grant-to-a-non-staff-user case, 5 process-lifecycle), `check.test.ts` 11 |
+| `bun run --bun test tests/hosting-probe/identity/ tests/ci/test-collection.test.ts`, from the repository root | `4d9fc0aa` | 0 | 54 passed under the root config (the identity files are collected there now) |
+| `bun run --bun probe` | `4d9fc0aa` | 0 | `PROBE PASS`, `evidence: true`, all 12 legs PASS, 0 scan hits; sweep removed nothing; users 8/8, invitations 9/9, sessions 14/14 |
+| `bun run --bun check:evidence` | `4d9fc0aa` and the commit that adds this page | 0 | `CHECK PASS`, inputs `sha256:3ecb6612…` |
 | `bun tests/hosting-probe/identity/check.ts` after `git merge origin/wave/proofs` (`b858213c`, already an ancestor) in a scratch checkout | the commit that adds this page | 0 | `CHECK PASS` |
 
 Receipts are under the worktree's ignored `.local/agent-receipts/`. The repository's `check`, `gate:hosted` and `gate` results are in the ticket's report at the hand-in head.

@@ -144,7 +144,7 @@ describe('explicit monetary CSV cells (GRS-49)', () => {
 		['-999999999999.99', '-999999999999.99'], ['R 1,250.50', '1250.50'], ['0', '0.00'], [' -500 ', '-500.00'],
 	])('exports the validated monetary amount %j as a numeric CSV cell', (raw, numeric) => {
 		expect(toCSV([['amount'], [monetaryCell(raw)]])).toBe(`amount\r\n${numeric}`);
-		expect(userCell(raw)).toBe(raw.startsWith('-') ? `'${raw}` : raw);
+		expect(userCell(raw)).toBe(/^ *-/.test(raw) ? `'${raw}` : raw); // GRS-172: spaces before the sign do not hide it
 	});
 	it.each(['-1+2', '-1e3', '-12,34', '-5.001', '-1000000000000', '=1', '@SUM(A1)', '', 'plain'])('does not exempt malformed monetary text %j', (raw) => {
 		expect(monetaryCell(raw)).toBe(userCell(raw));
@@ -203,7 +203,7 @@ describe('imported cells that start a formula, in any column (GRS-172)', () => {
 
 describe('a cell that starts with spaces and then a formula character (GRS-172 M1)', () => {
 	// LibreOffice's "Trim spaces" import turns ` =1+1` into a live formula, whether the text was imported or typed
-	const cases: [string, string][] = [[' =1+1', "' =1+1"], ['  +1', "'  +1"], [' -5', "' -5"], [' @SUM(A1)', "' @SUM(A1)"], [' \t=1', "' \t=1"]];
+	const cases: [string, string][] = [[' =1+1', "' =1+1"], ['  +1', "'  +1"], [' -5', "' -5"], [' @SUM(A1)', "' @SUM(A1)"], [' \t=1', "' \t'=1"]];
 	it.each(cases)('%j starts with a `\'` at position 0, imported (csvCell) and typed (userCell)', (raw, want) => {
 		const q = (s: string) => (/[",;\t\r\n]/.test(s) ? `"${s.replaceAll('"', '""')}"` : s);
 		expect(csvCell(raw)).toBe(q(want));

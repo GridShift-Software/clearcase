@@ -1,6 +1,6 @@
 import type { DiagSink } from '../diagnostics.ts';
 import { isObject, type JsonObject, type JsonValue } from '../strict-json.ts';
-import { carryTyped, own } from './carry.ts';
+import { carryTyped, fits, keepRest, own, sourceName, type Kind } from './carry.ts';
 import type { V5Root } from './extract.ts';
 
 type Roots = Partial<Record<V5Root, JsonValue>>;
@@ -208,7 +208,65 @@ export function riskMatrixOf(list: JsonValue | undefined): JsonValue | undefined
   });
 }
 
-const hasMatter = (v: JsonValue | undefined): boolean => isObject(v) && typeof v.title === 'string';
+// The newer viewer's analysis records (GRS-149) in the v5 shapes. A record already in the v5 shape stays as written.
+
+/** A record with source fields under their v5 names, each only where the v5 name is absent and the value is that kind; the rest stays as written. */
+function renamed(r: JsonObject, names: Readonly<Record<string, readonly [to: string, kind: Kind]>>): JsonObject {
+  const out: JsonObject = {};
+  for (const [k, v] of Object.entries(r)) {
+    const to = Object.hasOwn(names, k) ? names[k] : undefined;
+    own(out, to && !Object.hasOwn(r, to[0]) && v !== null && fits(to[1], v) ? to[0] : k, v);
+  }
+  return out;
+}
+
+/** Matter headings written as [heading, text] pairs become v5's {h, t}; a list of anything else stays as written. */
+const headingsOf = (v: JsonValue | undefined): JsonValue | undefined =>
+  Array.isArray(v) && v.length > 0 && fits('pairs', v) ? v.map((p) => ({ h: (p as string[])[0]!, t: (p as string[])[1]! })) : v;
+export function analysisMatterOf(m: JsonObject): JsonObject {
+  const out: JsonObject = { ...m };
+  for (const k of ['storyline', 'strategy']) if (Object.hasOwn(m, k)) out[k] = headingsOf(m[k])!;
+  return out;
+}
+
+const docLinkOf = (ref: string, rowsByRef: RowsByRef): JsonObject => {
+  const r = rowsByRef.get(ref);
+  return { date: str(r?.date), doc_type: str(r?.doc_type), filename: str(r?.filename), ref, url: str(r?.url) };
+};
+const firstRef = (v: JsonValue | undefined): string => (Array.isArray(v) && typeof v[0] === 'string' ? v[0] : '');
+
+/** A newer timeline event ({date, title, detail, phase, type, refs}): v5's kind and note, its first ref with that row's url; phase and refs stay on it. */
+export function timelineEventOf(e: JsonObject, rowsByRef: RowsByRef): JsonObject {
+  if (['kind', 'note', 'ref', 'url'].some((k) => Object.hasOwn(e, k))) return e;
+  const ref = firstRef(e.refs);
+  return keepRest({ date: typeof e.date === 'string' ? e.date : '', kind: str(e.type), note: str(e.detail), ref, title: str(e.title), url: str(rowsByRef.get(ref)?.url) }, e, ['date', 'title', 'type', 'detail'], { date: 'text' });
+}
+
+/** A newer defence row ({point, theirs, evidence, docs: refs, rebuttal}): theirs is v5's dcs, and each cited ref a document link. */
+export function defenceRowOf(r: JsonObject, rowsByRef: RowsByRef): JsonObject {
+  if (Object.hasOwn(r, 'dcs') || !Object.hasOwn(r, 'theirs')) return r;
+  const docs = fits('strs', r.docs) && Array.isArray(r.docs) ? (r.docs as string[]).map((ref) => docLinkOf(ref, rowsByRef)) : [];
+  return keepRest({ point: str(r.point), dcs: str(r.theirs), rebuttal: str(r.rebuttal), evidence: str(r.evidence), refs: '', docs }, r, ['point', 'theirs', 'rebuttal', 'evidence', 'docs'], { docs: 'strs' });
+}
+
+/**
+ * Newer contradictions: an item's cited refs become v5's document links. A check without v5's count `n` cannot be
+ * one of v5's checks, so the source checks stay beside them as `source_checks` and no count is invented.
+ */
+export function contradictionsOf(c: JsonObject, rowsByRef: RowsByRef): JsonObject {
+  const item = (it: JsonObject): JsonObject => (Array.isArray(it.refs) && it.refs.length > 0 && fits('strs', it.refs)
+    ? { ...it, refs: (it.refs as string[]).map((ref) => ({ ref, amount: '', filename: str(rowsByRef.get(ref)?.filename), url: str(rowsByRef.get(ref)?.url) })) }
+    : it);
+  const out: JsonObject = { ...c, categories: mapObjs(c.categories, (cat) => ({ ...cat, items: mapObjs(cat.items, item) ?? cat.items })) ?? c.categories };
+  if (Array.isArray(c.checks) && !c.checks.every((x) => isObject(x) && typeof x.n === 'number')) { out.checks = []; own(out, sourceName('checks'), c.checks); }
+  return out;
+}
+
+/** A newer cross-examination seed cites its documents as a list of refs; v5 holds them as one line of text. */
+const crossexamSeedOf = (r: JsonObject): JsonObject => (Array.isArray(r.docs) && fits('strs', r.docs) ? { ...r, docs: (r.docs as string[]).join(', ') } : r);
+
+/** The profile stands in for the matter only where DATA.matter is absent or empty, as the newer builder writes it before its analysis module runs. */
+const emptyMatter = (v: JsonValue | undefined): boolean => v === undefined || (isObject(v) && Object.keys(v).length === 0);
 
 export function mapNewerRoots(roots: Roots): Roots {
   if (!isObject(roots.DATA) || !isObject(roots.META)) return roots;
@@ -216,7 +274,11 @@ export function mapNewerRoots(roots: Roots): Roots {
   const rows = objs(DATA.chronology);
   const rowsByRef: RowsByRef = new Map(rows.map((r) => [str(r.ref), r]));
   const out: JsonObject = { ...DATA };
-  if (isObject(DATA.profile) && !hasMatter(DATA.matter)) out.matter = matterOf(DATA.profile, META);
+  if (isObject(DATA.profile) && emptyMatter(DATA.matter)) out.matter = matterOf(DATA.profile, META);
+  else if (isObject(DATA.matter)) out.matter = analysisMatterOf(DATA.matter);
+  if (isObject(DATA.timeline) && Array.isArray(DATA.timeline.events)) out.timeline = { ...DATA.timeline, events: mapObjs(DATA.timeline.events, (e) => timelineEventOf(e, rowsByRef))! };
+  if (DATA.defenceMatrix !== undefined) out.defenceMatrix = mapObjs(DATA.defenceMatrix, (r) => defenceRowOf(r, rowsByRef))!;
+  if (isObject(DATA.contradictions)) out.contradictions = contradictionsOf(DATA.contradictions, rowsByRef);
   if (isObject(DATA.quantum)) out.quantum = quantumOf(DATA.quantum, rowsByRef);
   if (isObject(DATA.contracts)) out.contracts = contractsOf(DATA.contracts, rowsByRef);
   if (isObject(DATA.filings)) out.filings = filingsOf(DATA.filings);
@@ -229,6 +291,9 @@ export function mapNewerRoots(roots: Roots): Roots {
     const lit: JsonObject = { ...DATA.lit };
     if (isObject(lit.interestBasis)) lit.interestBasis = interestBasisOf(lit.interestBasis, q);
     if (isObject(lit.settlement)) lit.settlement = settlementOf(lit.settlement, q);
+    if (lit.elements !== undefined) lit.elements = mapObjs(lit.elements, (e) => renamed(e, { goto: ['tab', 'text'] }))!;
+    if (lit.recon !== undefined) lit.recon = mapObjs(lit.recon, (r) => renamed(r, { period: ['month', 'text'], due: ['amountdue', 'strs'] }))!;
+    if (lit.crossexam_seed !== undefined) lit.crossexam_seed = mapObjs(lit.crossexam_seed, crossexamSeedOf)!;
     out.lit = lit;
   }
   const mapped: Roots = { ...roots, DATA: out, META: metaOf(META, rows) };

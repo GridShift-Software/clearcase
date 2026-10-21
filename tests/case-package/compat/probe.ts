@@ -12,9 +12,10 @@ import { parseArgs } from 'node:util';
 import { DiagSink } from '../../../src/lib/case-package/diagnostics.ts';
 import { importCandidate } from '../../../src/lib/case-package/import.ts';
 import { isRef } from '../../../src/lib/case-package/refs.ts';
-import { isObject, parseStrictJson, type JsonObject, type JsonValue } from '../../../src/lib/case-package/strict-json.ts';
+import { decodeUtf8Strict, isObject, parseStrictJson, type JsonObject, type JsonValue } from '../../../src/lib/case-package/strict-json.ts';
 import { matchAnchor } from '../../../src/lib/case-package/user-work.ts';
 import { convertV5 } from '../../../src/lib/case-package/v5/adapter.ts';
+import { mergeAnalysis, readAnalysisOverlay } from '../../../src/lib/case-package/v5/analysis-overlay.ts';
 import { extractV5 } from '../../../src/lib/case-package/v5/extract.ts';
 import { writePackageDir } from '../../../src/lib/case-package/writer.ts';
 import { accountFor, packageDatasets, sourceKeys } from './account.ts';
@@ -74,9 +75,21 @@ const validateMs = Math.round(performance.now() - t1);
 if (a.out) await writePackageDir(a.out, conv.files);
 
 const datasets = packageDatasets(conv.files);
-// the newer viewer's hand-authored analysis, as the package holds it: one opaque dataset, keys and counts only
-const overlayPath = 'datasets/v5-residual-analysis-overlay.json';
-inventory.analysisOverlay = conv.files.has(overlayPath) ? Object.fromEntries(Object.entries((json(conv.files, overlayPath) as { data: JsonObject }).data).map(([k, v]) => [k, size(v)])) : null;
+// the newer viewer's hand-authored analysis (GRS-149): its roots and counts as the module holds them, and for each root
+// the package datasets it reached through the module's merges, with their counts; keys and counts only
+const analysis = src.generation === 'v5-js-newer' ? readAnalysisOverlay(decodeUtf8Strict(src.html.bom ? html.subarray(3) : html), new DiagSink()) : null;
+inventory.analysisOverlay = analysis ? Object.fromEntries(Object.entries(analysis.X).map(([k, v]) => [k, size(v)] as const).sort(([x], [y]) => (x < y ? -1 : 1))) : null;
+const analysisRead = analysis && (() => {
+  const { rest, placed } = mergeAnalysis(src.roots, analysis);
+  const under = (p: string, t: string) => p === t || p.startsWith(t + '.');
+  return Object.fromEntries(Object.keys(analysis.X).sort().map((k) => {
+    const m = placed.find((x) => x.key === k);
+    const targets = !m ? [] : m.op === 'fields' ? (m.fields ?? []).map((f) => `${m.target}.${f}`) : [m.target];
+    const held = datasets.filter((d) => targets.some((t) => under(d.sourcePath, t))).map((d) => [d.key, d.count] as const);
+    if (Object.hasOwn(rest, k)) held.push(['v5-residual-analysis-overlay', size(rest[k])]);
+    return [k, Object.fromEntries(held.sort(([x], [y]) => (x < y ? -1 : 1)))];
+  }));
+})();
 const account = accountFor(src.generation, keys, datasets, new Set(conv.diagnostics.map((d) => d.subject ?? '')));
 const assets = (json(conv.files, 'assets.json') as { assets: Record<string, JsonObject> }).assets;
 const chronology = (json(conv.files, 'datasets/chronology.json') as { data: JsonObject[] }).data;
@@ -96,6 +109,7 @@ const result: JsonObject = {
   matterHeadings: { storyline: size(matter.storyline), strategy: size(matter.strategy) },
   peopleWithRole: people.filter((p) => typeof p.role === 'string' && p.role !== '').length,
   riskFields: { risks: risks.length, category: carry('category'), owner: carry('owner'), refs: carry('refs') },
+  analysisRead: analysisRead ?? null,
   analysisOverlayNotice: conv.diagnostics.find((d) => d.code === 'V5_OVERLAY_UNMAPPED' || d.code === 'V5_OVERLAY_UNREADABLE')?.message ?? null,
   textCapNotice: conv.diagnostics.find((d) => d.code === 'V5_TEXT_CAPPED')?.message ?? null,
   conversionWarnings: tally(conv.diagnostics.filter((d) => d.severity !== 'info').map((d) => d.code)), validation: tally(imported.diagnostics.map((d) => d.code)),
@@ -123,7 +137,7 @@ if (a.expect) {
   if (!block) { console.error('docs/compatibility.md has no compat-inventory block'); process.exit(2); }
   const want = (JSON.parse(block[1]!) as Record<string, JsonObject>)[a.expect];
   if (!want) { console.error(`no inventory named ${a.expect}`); process.exit(2); }
-  const got: Record<string, JsonValue | undefined> = { ...inventory, verdict: result.verdict, documents: result.documents, unaccounted: result.unaccounted, demoted: result.demoted, refReuse: out.refReuse, riskFields: result.riskFields, textCapNotice: result.textCapNotice };
+  const got: Record<string, JsonValue | undefined> = { ...inventory, verdict: result.verdict, documents: result.documents, unaccounted: result.unaccounted, demoted: result.demoted, refReuse: out.refReuse, riskFields: result.riskFields, textCapNotice: result.textCapNotice, analysisRead: result.analysisRead };
   for (const [k, v] of Object.entries(want)) if (JSON.stringify(got[k]) !== JSON.stringify(v)) failures.push(`${k}: expected ${JSON.stringify(v)}, got ${JSON.stringify(got[k])}`);
   out.expect = { name: a.expect, checked: Object.keys(want).length, failures };
 }

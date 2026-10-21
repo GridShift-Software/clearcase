@@ -12,7 +12,8 @@
 //   - its route table has one row per (app, method, route) of gates.json at HEAD, with that row's gate, exactly the
 //     matrix's classes, each check's expectation recomputed here from matrix.ts and met, no leaked marker and no
 //     missing one;
-//   - its counts recompute from the table, and every Clerk user, invitation and session it created was deleted or ended.
+//   - its counts recompute from the table, and every Clerk user, invitation and session it created was deleted or ended
+//     (sessions counted from Clerk's own status, none pending).
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
@@ -137,7 +138,8 @@ function expectedShape(summary: Record<string, unknown>, ctx: { head: string; di
 		clerk: {
 			users: { created: posInt, deleted: (v) => v === clerk.users?.created },
 			invitations: { created: posInt, deleted: (v) => v === clerk.invitations?.created },
-			sessions: { created: posInt, ended: (v) => v === clerk.sessions?.created },
+			// the runner counts ended from each session's own status in Clerk; a pending session is neither ended nor allowed
+			sessions: { created: posInt, ended: (v) => v === clerk.sessions?.created, pending: 0 },
 			testingTokens: { created: posInt },
 			devBrowsers: { created: posInt },
 			apiCalls: { backend: posInt },

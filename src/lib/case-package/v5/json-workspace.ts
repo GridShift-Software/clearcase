@@ -1,7 +1,7 @@
 import { fmtR } from '../../components/format.ts';
 import type { DiagSink } from '../diagnostics.ts';
 import { isObject, type JsonObject, type JsonValue } from '../strict-json.ts';
-import { amountText, carryTyped, fits, keepRest, own, sourceName, type Kind, type Kinds } from './carry.ts';
+import { amountText, carryTyped, fits, keepAside, keepRest, own, ownOrAside, putDerived, type Kind, type Kinds } from './carry.ts';
 import type { V5Root } from './extract.ts';
 
 export { amountText };
@@ -101,8 +101,8 @@ export function matterOf(seed: JsonObject): JsonObject | undefined {
   };
   // one record holds every matter, so what a matter carries beyond the keys above travels beside it, matter by matter
   const beside = matters.flatMap((m, at) => { const rest = keepRest({ at }, m, READ.matter, KIND.matter); return Object.keys(rest).length > 1 ? [rest] : []; });
-  if (beside.length) own(matter, sourceName('matters'), beside);
-  if (clientOdd) own(matter, sourceName('client'), seed.client);
+  if (beside.length) keepAside(matter, 'matters', beside);
+  if (clientOdd) keepAside(matter, 'client', seed.client);
   return matter;
 }
 
@@ -148,11 +148,11 @@ const riskOf = (r: JsonObject): JsonObject => {
   const named = ['category', 'type'].filter((k) => Object.hasOwn(r, k));
   const chosen = named.find((k) => typeof r[k] === 'string');
   if (chosen) { own(out, 'category', r[chosen]); handled.push(chosen); }
-  for (const k of named) if (k !== chosen && typeof r[k] !== 'string') { own(out, sourceName(k), r[k]); handled.push(k); }
+  for (const k of named) if (k !== chosen && typeof r[k] !== 'string') { keepAside(out, k, r[k]); handled.push(k); }
   for (const [k, kind] of [['owner', 'text'], ['refs', 'strs']] as const) if (carryTyped(out, r, k, kind)) handled.push(k);
   keepRest(out, r, READ.risk, KIND.risk, handled);
-  if (typeof r.l === 'number') out.likelihood_score = r.l;
-  if (typeof r.i === 'number') out.impact_score = r.i;
+  if (typeof r.l === 'number') putDerived(out, 'likelihood_score', r.l);
+  if (typeof r.i === 'number') putDerived(out, 'impact_score', r.i);
   return out;
 };
 const defenceOf = (d: JsonObject): JsonObject => keepRest({ point: nonEmpty([str(d.matter) && `Matter ${str(d.matter)}`, str(d.opponent)]).join(' · '), dcs: str(d.contention), rebuttal: str(d.rebuttal), evidence: str(d.evidence), refs: '', docs: [] }, d, READ.defence);
@@ -259,7 +259,7 @@ export function toV5Roots(appData: JsonObject, appSeed: JsonObject, sink: DiagSi
     for (const [k, v] of Object.entries(from)) {
       const kind = Object.hasOwn(mapped, k) ? mapped[k] : null;
       if (kind === undefined || (kind !== null && fits(kind, v))) continue;
-      own(DATA, Object.hasOwn(DATA, k) ? sourceName(k) : k, v);
+      ownOrAside(DATA, k, v);
     }
   }
   if (appData.ft !== undefined) sink.add('V5_SOURCE_INDEX_DROPPED', "app-data.ft is the viewer's full-text token index; not carried into the package (ClearCase indexes on its own)", { file: 'input', subject: 'app-data.ft' });

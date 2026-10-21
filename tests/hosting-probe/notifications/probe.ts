@@ -24,7 +24,7 @@ import { accessSync, constants, createWriteStream, existsSync, mkdirSync, readdi
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { linkedNotice, noticeProblems, type NoticeKind } from './src/notice.ts';
-import { BOUNDARIES, BUN, checkSummary, HOLD, LEGS, type LegName, MESSAGES, mutationsRefused, pkg, SCHEMA } from './summary.ts';
+import { BOUNDARIES, BUN, checkSummary, HOLD, isObject, LEGS, type LegName, MESSAGES, mutationsRefused, pkg, SCHEMA } from './summary.ts';
 
 /** The one Bun API this script uses; the root project has no @types/bun. */
 declare const Bun: {
@@ -150,9 +150,12 @@ function descendants(root: number): Proc[] {
 	return [...ids].map((id) => all.get(id)).filter((p): p is Proc => p !== undefined);
 }
 
-/** One saved message: what the simulator logged, and the text it wrote, read while the server runs. */
-type Saved = { env: string; from: string; to: string; subject: string; messageId: string; text: string; html: number; attachments: number; raw: boolean };
-type Server = { child: ChildProcess; tree: Proc[]; label: string; log: () => string; saved: Saved[] };
+/**
+ * One saved message, from two sources the runner reads while the server runs: what the simulator logged (and the text
+ * file it wrote), and the row it kept in its sent-mail store, which holds every field the Worker passed to send().
+ */
+type Saved = { env: string; from: string; to: string; subject: string; messageId: string; text: string; html: number; attachments: number; raw: boolean; block: string[]; stored: Record<string, unknown> | null };
+type Server = { child: ChildProcess; tree: Proc[]; label: string; log: () => string; saved: Saved[]; stored: Map<string, Record<string, unknown>> | null };
 const live = new Set<Server>();
 const plain = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, '');
 
@@ -160,7 +163,7 @@ async function startServer(node: string, env: Record<string, string>, persist: s
 	const args = ['node_modules/wrangler/bin/wrangler.js', 'dev', '--local', '--ip', '127.0.0.1', '--port', String(PORT), '--inspector-ip', '127.0.0.1', '--inspector-port', '0', '--persist-to', persist, '--show-interactive-dev-session=false', ...extra];
 	const child = spawn(node, args, { cwd: HERE, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
 	let text = '';
-	const server: Server = { child, tree: [], label, log: () => plain(text), saved: [] };
+	const server: Server = { child, tree: [], label, log: () => plain(text), saved: [], stored: null };
 	live.add(server);
 	const out = createWriteStream(path.join(logs, `wrangler-${label}.log`));
 	const ready = new Promise<void>((resolve, reject) => {
@@ -180,6 +183,57 @@ async function startServer(node: string, env: Record<string, string>, persist: s
 }
 
 /**
+ * Every message in the simulator's sent-mail store (the local explorer's API behind the same server), keyed by
+ * messageId, or null when the store cannot be read. The store keeps cc, bcc, replyTo and headers, which the log does not.
+ */
+async function storedMessages(): Promise<Map<string, Record<string, unknown>> | null> {
+	const api = `${BASE}/cdn-cgi/explorer/api/local/email/sending`;
+	const get = async (url: string) => (await fetch(url, { signal: AbortSignal.timeout(10_000) })).json() as Promise<{ success?: boolean; result?: unknown; result_info?: { has_more?: boolean } }>;
+	try {
+		const list = await get(api);
+		if (!list.success || !Array.isArray(list.result) || list.result_info?.has_more) return null;
+		const rows = new Map<string, Record<string, unknown>>();
+		for (const item of list.result as { messageId?: unknown }[]) {
+			if (typeof item.messageId !== 'string') return null;
+			const detail = await get(`${api}?email_id=${encodeURIComponent(item.messageId)}`);
+			if (!detail.success || !isObject(detail.result)) return null;
+			rows.set(item.messageId, detail.result);
+		}
+		return rows;
+	} catch {
+		return null;
+	}
+}
+
+/** The fields the store keeps for the minimal notice and nothing else: an address list, a header or a body part beyond these is a field more. */
+const STORED_KEYS = ['attachments', 'from', 'messageId', 'sentAt', 'subject', 'text', 'to', 'worker'];
+/** The only lines the simulator may log for one MessageBuilder send. */
+const LOGGED = ['From: ', 'To: ', 'Subject: ', 'Text: '];
+
+/**
+ * The one check of a saved message (H1): every reason it is not exactly the minimal notice of `c` to the uploader.
+ * Three independent readings must agree: the logged lines are only From, To, Subject and Text (so a Cc, Bcc, HTML part
+ * or attachment is refused even where the store cannot be read); the stored row has exactly the fields in STORED_KEYS
+ * and says the same as the log (so a replyTo or a header is refused); and the message passes the content check.
+ */
+function savedProblems(m: Saved, c: { caseId: string; kind: NoticeKind }): string[] {
+	const problems: string[] = [];
+	if (m.raw) problems.push('it is not a MessageBuilder send');
+	for (const line of m.block.slice(1)) if (line !== '' && !LOGGED.some((p) => line.startsWith(p))) problems.push(`the log has a ${line.split(':')[0]} line, not only From, To, Subject and Text`);
+	const row = m.stored;
+	if (row === null) problems.push('the sent-mail store has no readable row for it');
+	else {
+		const keys = Object.keys(row).sort();
+		if (keys.join() !== STORED_KEYS.join()) problems.push(`the stored message has fields [${keys.join(', ')}], not exactly [${STORED_KEYS.join(', ')}] (no cc, bcc, replyTo, headers, html or raw)`);
+		if (!Array.isArray(row.attachments) || row.attachments.length) problems.push('the stored message has an attachment');
+		if (!Array.isArray(row.to) || row.to.length !== 1 || row.to[0] !== m.to || row.from !== m.from || row.subject !== m.subject || row.text !== m.text) problems.push('the stored message differs from the logged one');
+	}
+	problems.push(...noticeProblems({ from: m.from, to: m.to, subject: m.subject, text: m.text }, noticeContext(c)));
+	return problems;
+}
+const noticeContext = (c: { caseId: string; kind: NoticeKind }) => ({ kind: c.kind, origin: ORIGIN, sender: SENDER, recipient: UPLOADER, forbidden: CASE_STRINGS[c.caseId]! });
+
+/**
  * Waits until the simulator has logged `count` messages on this server, then reads each new one's files. The binding
  * logs after send() resolves (in waitUntil), so a message can appear just after its response. A message that is not a
  * MessageBuilder send, or an unexpected extra, is kept so the legs can refuse it.
@@ -188,6 +242,7 @@ async function savedMessages(server: Server, count: number): Promise<Saved[]> {
 	const blocks = () => server.log().split(/\[wrangler:\w+\] send_email binding called with /).slice(1);
 	for (const until = Date.now() + 5_000; blocks().length < count && Date.now() < until; ) await new Promise((r) => setTimeout(r, 100));
 	await new Promise((r) => setTimeout(r, 300)); // and no more than count
+	server.stored = await storedMessages();
 	for (const block of blocks().slice(server.saved.length)) {
 		const lines = block.split('\n');
 		const end = lines.findIndex((l, i) => i > 0 && l.startsWith('['));
@@ -204,6 +259,8 @@ async function savedMessages(server: Server, count: number): Promise<Saved[]> {
 			html: body.filter((l) => l.startsWith('HTML: ')).length,
 			attachments: body.filter((l) => l.startsWith('Attachment')).length,
 			raw: !lines[0]!.startsWith('MessageBuilder:'),
+			block: body,
+			stored: server.stored?.get(`<${path.basename(textPath, '.txt')}>`) ?? null,
 		});
 	}
 	return server.saved;
@@ -324,11 +381,14 @@ async function main(out: string, adverse: string | null): Promise<number> {
 	let artifact: string | null = null;
 	const allSaved: Saved[] = [];
 	const serverLogs: string[] = [];
+	/** Rows the sent-mail store holds that the log never showed: a send nobody saw. */
+	const strays: string[] = [];
 	let failure: string | null = null;
 	let server: Server | null = null;
 	const stop = async () => {
 		if (!server) return;
 		await savedMessages(server, 0); // any message no leg asked for still counts in no-leak
+		for (const id of server.stored?.keys() ?? []) if (!server.saved.some((m) => m.messageId === id)) strays.push(id);
 		serverLogs.push(server.log());
 		allSaved.push(...server.saved);
 		await stopServer(server);
@@ -343,7 +403,7 @@ async function main(out: string, adverse: string | null): Promise<number> {
 				if (source.split('send.send(message)').length !== 2) throw new Refusal('the Worker has not exactly one send.send(message) call site to patch');
 				mkdirSync(path.join(HERE, 'build/adverse'), { recursive: true });
 				entry = path.join(HERE, 'build/adverse/worker.ts');
-				writeFileSync(entry, source.replace('send.send(message)', `send.send(${ADVERSE[adverse]})`).replaceAll("'./", "'../../src/"));
+				writeFileSync(entry, source.replace('send.send(message)', `send.send(${ADVERSE[adverse]} as Message)`).replaceAll("'./", "'../../src/"));
 			}
 			const r = await Bun.build({ entrypoints: [entry], outdir: path.join(HERE, 'build'), target: 'browser', format: 'esm', define: { PROBE_SOURCE_REVISION: JSON.stringify(sha) } });
 			check(r.success && process.versions.bun === BUN, `Bun ${BUN} builds the Worker, offline`);
@@ -351,7 +411,8 @@ async function main(out: string, adverse: string | null): Promise<number> {
 			const bundle = readFileSync(path.join(HERE, 'build/worker.js'), 'utf8');
 			check(!/^\s*import\b/m.test(bundle) && bundle.includes(JSON.stringify(sha)), 'the module imports nothing (Wrangler serves it as built, no_bundle) and carries the HEAD stamp');
 			artifact = `sha256:${sha256(bundle)}`;
-			check(true, 'the module digest is recorded (artifact)');
+			const again = await Bun.build({ entrypoints: [entry], outdir: path.join(runDir, 'rebuild'), target: 'browser', format: 'esm', define: { PROBE_SOURCE_REVISION: JSON.stringify(sha) } });
+			check(again.success && `sha256:${sha256(readFileSync(path.join(runDir, 'rebuild/worker.js'), 'utf8'))}` === artifact, 'a second build of the same source and stamp has the same digest (artifact), so the committed digest can be recomputed from a checkout');
 		});
 
 		await leg('binding-config', [d1Cmd('default', '--file schema.sql'), serveCmd('default')], async (check) => {
@@ -380,7 +441,7 @@ async function main(out: string, adverse: string | null): Promise<number> {
 			check(saved.length === 1 && saved[0]!.messageId === n.messageIds[0] && !saved[0]!.raw, 'the simulator saved exactly one message, the one whose messageId the app recorded');
 			const m = saved[0]!;
 			check(m.from === SENDER && m.to === UPLOADER && m.subject === 'ClearCase: new results are ready', "it is from client A's sender to the uploader alone, with the generic publication subject");
-			check(noticeProblems({ from: m.from, to: m.to, subject: m.subject, text: m.text }, { kind: 'publication', origin: ORIGIN, sender: SENDER, recipient: UPLOADER, forbidden: CASE_STRINGS['case-a1']! }).length === 0, 'the saved message passes the content check: the publication template around one link, no case title, document title, file name or reference');
+			check(savedProblems(m, { caseId: 'case-a1', kind: 'publication' }).length === 0, 'the saved message passes the one check of a saved message: only From, To, Subject and Text in the log, exactly those fields in the sent-mail store (no cc, bcc, replyTo or header), and the publication template around one link, no case title, document title, file name or reference');
 			check(m.html === 0 && m.attachments === 0, 'no HTML part and no attachment was saved');
 			check(linkedNotice(m.text, ORIGIN) === r.json.noticeId, "its only link is client A's origin /n/<the notice id>, with no query or token");
 		});
@@ -390,7 +451,7 @@ async function main(out: string, adverse: string | null): Promise<number> {
 			check(r.status === 200 && r.json.created === true && r.json.notice.state === 'accepted' && r.json.notice.attempts === 1, 'the input-needed event answers 200 and its notice was sent once');
 			const m = (await savedMessages(server!, 2))[1];
 			check(!!m && m.messageId === r.json.notice.messageIds[0], 'the simulator saved one more message, the one the app recorded');
-			check(!!m && noticeProblems({ from: m.from, to: m.to, subject: m.subject, text: m.text }, { kind: 'input-needed', origin: ORIGIN, sender: SENDER, recipient: UPLOADER, forbidden: CASE_STRINGS['case-a1']! }).length === 0, 'it passes the content check as the input-needed template');
+			check(!!m && savedProblems(m, { caseId: 'case-a1', kind: 'input-needed' }).length === 0, 'it passes the same check as the input-needed template');
 			check(!!m && linkedNotice(m.text, ORIGIN) === r.json.noticeId && r.json.noticeId !== [...noticeCase.keys()][0], 'it links its own notice, not the publication notice');
 		});
 
@@ -506,7 +567,7 @@ async function main(out: string, adverse: string | null): Promise<number> {
 			check(saved.length === 2 && saved[0]!.text === saved[1]!.text && saved[0]!.subject === saved[1]!.subject && saved[0]!.messageId !== saved[1]!.messageId, 'case-a3 has two saved messages: the same generic notice and link, two provider messageIds (a real duplicate)');
 			check(r3.possibleDuplicate === true && r3.acceptance === 'accepted' && r3.messageIds.length === 1 && r3.messageIds[0] === saved[1]!.messageId && r4.possibleDuplicate === true, 'the operator view marks both possible duplicates; it knows only the messageId the app saw');
 			check((await intact('case-a3')).notices.length === 1, 'the uploader has one in-app notice for case-a3, not two');
-			check(saved.every((m) => noticeProblems({ from: m.from, to: m.to, subject: m.subject, text: m.text }, { kind: 'publication', origin: ORIGIN, sender: SENDER, recipient: UPLOADER, forbidden: CASE_STRINGS['case-a3']! }).length === 0), 'both copies pass the content check');
+			check(saved.every((m) => savedProblems(m, { caseId: 'case-a3', kind: 'publication' }).length === 0), 'both copies pass the same check');
 		});
 
 		const T3 = Date.now();
@@ -552,10 +613,10 @@ async function main(out: string, adverse: string | null): Promise<number> {
 		});
 
 		await leg('no-leak', ['scan of every saved message, Wrangler log and operator response of the run'], async (check) => {
-			check(allSaved.map((m) => `${m.env}/${noticeCase.get(linkedNotice(m.text, ORIGIN) ?? '')?.caseId}/${noticeCase.get(linkedNotice(m.text, ORIGIN) ?? '')?.kind}`).join() === MESSAGES.map((m) => m.join('/')).join() && allSaved.every((m) => !m.raw && m.html === 0 && m.attachments === 0), 'the run saved exactly the seven expected messages, all MessageBuilder sends with a text part only');
-			check(allSaved.every((m) => { const c = noticeCase.get(linkedNotice(m.text, ORIGIN) ?? '')!; return noticeProblems({ from: m.from, to: m.to, subject: m.subject, text: m.text }, { kind: c.kind, origin: ORIGIN, sender: SENDER, recipient: UPLOADER, forbidden: CASE_STRINGS[c.caseId]! }).length === 0; }), "every saved message passes the content check for its own case's strings");
+			check(allSaved.map((m) => `${m.env}/${noticeCase.get(linkedNotice(m.text, ORIGIN) ?? '')?.caseId}/${noticeCase.get(linkedNotice(m.text, ORIGIN) ?? '')?.kind}`).join() === MESSAGES.map((m) => m.join('/')).join() && allSaved.every((m) => !m.raw && m.html === 0 && m.attachments === 0) && strays.length === 0, 'the run saved exactly the seven expected messages, all MessageBuilder sends with a text part only, and the sent-mail store holds no other');
+			check(allSaved.every((m) => { const c = noticeCase.get(linkedNotice(m.text, ORIGIN) ?? ''); return !!c && savedProblems(m, c).length === 0; }), "every saved message passes the one check of a saved message for its own case's strings");
 			const everything = [...Object.values(CASE_STRINGS).flat(), ...OTHER_ADDRESSES, ...Object.keys(CASE_STRINGS).flatMap((c) => [fileFor(c, 1), fileFor(c, 2)]), 'synthetic other content', 'synthetic racing file'];
-			check(allSaved.every((m) => !everything.some((f) => `${m.from}\n${m.to}\n${m.subject}\n${m.text}`.toLowerCase().includes(f.toLowerCase()))), "no saved message carries any case's title, reference, id, document title, file name or file text, or any address but the uploader's");
+			check(allSaved.every((m) => !everything.some((f) => `${m.block.join('\n')}\n${JSON.stringify(m.stored)}\n${m.text}`.toLowerCase().includes(f.toLowerCase()))), "no saved message, in the log or the sent-mail store, carries any case's title, reference, id, document title, file name or file text, or any address but the uploader's");
 			const surfaces = [...allSaved.map((m) => m.text), ...serverLogs, ...opsSeen].join('\n');
 			check(!canaries.some((c) => surfaces.includes(c)), 'the Authorization and cookie canaries sent on every request appear in no saved message, Wrangler log or operator response');
 		});
@@ -567,6 +628,7 @@ async function main(out: string, adverse: string | null): Promise<number> {
 	}
 
 	if (adverse !== null) {
+		rmSync(path.join(HERE, 'build/adverse'), { recursive: true, force: true }); // the root type check includes tests/**
 		const caught = failure !== null && failure.includes('assertion failed');
 		console.log(caught ? `ADVERSE PASS ${adverse}: the run refused it (${failure})` : `ADVERSE FAIL ${adverse}: the run ${failure === null ? 'passed' : `failed for another reason (${failure})`} with the field sent`);
 		return caught ? 0 : 1;
@@ -576,7 +638,7 @@ async function main(out: string, adverse: string | null): Promise<number> {
 	// One entry per saved message, all measured but the two HOLD states, which no local run can observe.
 	const messages = allSaved.map((m) => {
 		const c = noticeCase.get(linkedNotice(m.text, ORIGIN) ?? '');
-		const ok = !!c && noticeProblems({ from: m.from, to: m.to, subject: m.subject, text: m.text }, { kind: c.kind, origin: ORIGIN, sender: SENDER, recipient: UPLOADER, forbidden: CASE_STRINGS[c.caseId]! }).length === 0;
+		const ok = !!c && savedProblems(m, c).length === 0;
 		return { env: m.env, caseId: c?.caseId ?? null, kind: c?.kind ?? null, text: `sha256:${sha256(m.text)}`, contentCheck: ok ? 'PASS' : 'FAIL', appSaw: appIds.has(m.messageId) ? 'accepted' : 'not seen: the attempt ended ambiguous', providerAcceptance: 'simulated: saved by the local binding', delivery: 'HOLD: M3', inboxArrival: 'HOLD: M3' };
 	});
 	const summary: Record<string, unknown> = {

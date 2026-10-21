@@ -61,6 +61,7 @@ const JS_WRITE = /^(?:write|writeSync|writeFile|writeFileSync|appendFile|appendF
 const JS_TEXT = /^(?:log|warn|error|info|debug|trace|push|unshift|includes|toContain|toMatch|toBe|toEqual|toStrictEqual|toThrow|expect|assert|match|matchAll|equal|strictEqual|deepEqual|notEqual|ok|test|it|describe|exec|startsWith|endsWith|replace|replaceAll|split|indexOf|lastIndexOf|join|concat|has|get|set|add|delete|Error|TypeError|RangeError|fail|problem|refuse|relative|basename|extname|dirname)$/;
 const PY_READ = /\bopen\s*\(|\.read_(?:text|bytes)\s*\(|\.r?glob\s*\(|\.iterdir\s*\(|\b(?:listdir|walk|scandir)\s*\(/;
 const PY_DIRECTORY = /\.r?glob\s*\(|\.iterdir\s*\(|\b(?:listdir|walk|scandir)\s*\(/;
+const PY_WRITE = /\.(?:is_file|is_dir|exists|mkdir|write_text|write_bytes|unlink|touch|chmod|rename|replace|symlink_to)\s*\(|\b(?:shutil\.\w+|os\.(?:path\.(?:exists|isfile|isdir)|remove|unlink|makedirs|mkdir|rename))\s*\(/;
 // shell commands that print, write, test, move or copy, and workflow keys that hold no command
 const SH_TEXT = new Set(['echo', 'printf', 'die', 'hold', 'fail', 'log', 'info', 'warn', 'note', 'ok', 'bad', 'say', 'reason_has',
   'mkdir', 'rm', 'rmdir', 'touch', 'chmod', 'chown', 'ln', 'cp', 'mv', 'rsync', 'install', 'cd', 'pushd', 'popd', 'export',
@@ -156,9 +157,11 @@ function markdownReads(root, env, revision) {
   const texts = new Map();
   for (let at = 0, n = 0; n < code.length; n++) {
     const header = batch.stdout.indexOf(10, at);
-    const size = Number(batch.stdout.toString('latin1', at, header).split(' ')[2]);
-    texts.set(code[n].file, batch.stdout.toString('utf8', header + 1, header + 1 + size));
-    at = header + size + 2;
+    // a missing object (a pruned or partial clone) hides what the file reads: fail closed
+    const size = header < 0 ? null : /^[0-9a-f]+ blob (\d+)$/.exec(batch.stdout.toString('latin1', at, header))?.[1];
+    if (size == null) throw Error(`cannot read the tracked code of ${revision} for Markdown reads: ${code[n].file}`);
+    texts.set(code[n].file, batch.stdout.toString('utf8', header + 1, header + 1 + Number(size)));
+    at = header + Number(size) + 2;
   }
   const found = new Map();
   const normal = file => {
@@ -297,7 +300,7 @@ function markdownReads(root, env, revision) {
     };
     lines.forEach((line, n) => {
       const reading = PY_READ.test(line.blank);
-      if (!reading && !/\/\s*""|\bPath\s*\(|\bos\.path\.join\s*\(/.test(line.blank)) return;
+      if (!reading && (PY_WRITE.test(line.blank) || !/\/\s*""|\bPath\s*\(|\bos\.path\.join\s*\(/.test(line.blank))) return;
       // a read follows the names it uses to their assignments, two steps deep
       const sources = [line];
       for (let depth = 0, from = [n], seen = new Set([n]); reading && depth < 2; depth++) {

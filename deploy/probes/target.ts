@@ -22,8 +22,8 @@ import { fileURLToPath } from 'node:url';
 export const TARGET_SCHEMA = 'clearcase.deploy-target/1';
 export const CLIENTS_DIR = path.join(import.meta.dirname, 'clients');
 export const CONFIG_FILES = { wrangler: 'wrangler.jsonc', cf: 'cloudflare.config.ts' } as const;
-/** Where a stage puts the reviewed artifact, relative to the configs: the only Worker entry and assets a config may name. */
-export const STAGED = { entry: 'artifact/cloudflare/_worker.js', assets: 'artifact/cloudflare' } as const;
+/** Where a stage puts the reviewed artifact and the client's migrations, relative to the configs: the only Worker entry, assets directory and migrations directory a config may name. */
+export const STAGED = { entry: 'artifact/cloudflare/_worker.js', assets: 'artifact/cloudflare', migrations: 'migrations' } as const;
 /** The Build Output Specification directory a credential-free `cf build` writes in a stage, which `cf deploy --prebuilt` uploads. */
 export const BUILD_OUTPUT = '.cloudflare/output/v0';
 const PREBUILT_MODULES = { '_worker.js': 'esm', '_worker.js.map': 'sourcemap' } as Record<string, string>;
@@ -44,7 +44,7 @@ export type Target = {
 type Resolved = {
 	accountId: unknown;
 	worker: unknown;
-	d1: { binding: unknown; name: unknown; id: unknown }[];
+	d1: { binding: unknown; name: unknown; id: unknown; migrations?: unknown }[];
 	r2: { binding: unknown; bucket: unknown }[];
 	secrets: unknown;
 	vars: unknown;
@@ -129,7 +129,7 @@ function readWrangler(text: string, problems: string[]): Resolved | null {
 	const d1 = list('d1_databases').map((d, i) => {
 		const o = isObject(d) ? d : {};
 		onlyKeys(o, ['binding', 'database_name', 'database_id', 'migrations_dir'], `config.d1_databases[${i}]`, problems);
-		return { binding: o.binding, name: o.database_name, id: o.database_id };
+		return { binding: o.binding, name: o.database_name, id: o.database_id, migrations: o.migrations_dir };
 	});
 	const r2 = list('r2_buckets').map((r, i) => {
 		const o = isObject(r) ? r : {};
@@ -206,6 +206,7 @@ export function checkTarget(a: { client: string; targets: Target[]; format: Form
 	const entry = a.format === 'prebuilt' ? path.basename(STAGED.entry) : STAGED.entry;
 	if (staged(config.entry) !== entry) problems.push(`the Worker entry is ${show(config.entry)}, not the staged artifact's ${entry}`);
 	if (a.format === 'wrangler' && staged(config.assets) !== STAGED.assets) problems.push(`the assets directory is ${show(config.assets)}, not the staged artifact's ${STAGED.assets}`);
+	if (a.format === 'wrangler') for (const d of config.d1) if (staged(d.migrations) !== STAGED.migrations) problems.push(`the migrations directory is ${show(d.migrations)}, not the staged migrations ${STAGED.migrations}`);
 	if (config.d1.length !== 1) problems.push(`the config binds ${config.d1.length} D1 databases, not exactly ${a.client}'s one`);
 	for (const d of config.d1) (expect('d1 binding', d.binding, target.d1.binding), expect('d1 name', d.name, target.d1.name), expect('d1 id', d.id, target.d1.id));
 	if (config.r2.length !== 1) problems.push(`the config binds ${config.r2.length} R2 buckets, not exactly ${a.client}'s one`);
@@ -228,12 +229,24 @@ export function checkPrebuilt(a: { client: string; stage: string; targets?: Targ
 	const out = path.join(a.stage, BUILD_OUTPUT);
 	const workers = existsSync(path.join(out, 'workers')) ? readdirSync(path.join(out, 'workers')) : [];
 	if (workers.length !== 1) return [`the Build Output holds ${workers.length} Workers, not exactly one`];
+	// cf reads more than the two configs: containers/*, assets/ and every file in the bundle. Only these may exist.
+	const worker = workers[0]!;
+	const allowed = new Set(['config.json', `workers/${worker}/worker.config.json`, ...Object.keys(PREBUILT_MODULES).map((m) => `workers/${worker}/bundle/${m}`)]);
+	const dirs = new Set(['workers', `workers/${worker}`, `workers/${worker}/bundle`]);
+	let entries: { rel: string; dir: boolean }[];
+	try {
+		entries = walk(out);
+	} catch (e) {
+		return [`the Build Output holds an entry that is not a regular file or directory: ${(e as Error).message}`];
+	}
+	const stray = entries.filter((e) => !(e.dir ? dirs : allowed).has(e.rel));
+	if (stray.length) return stray.map((e) => `${e.rel} is not part of a prebuilt Worker's Build Output (config.json, the Worker's worker.config.json and its manifest's modules): cf would read it, and the target check does not`);
 	let text: string;
 	try {
 		const top = JSON.parse(readFileSync(path.join(out, 'config.json'), 'utf8')) as unknown;
-		const worker = JSON.parse(readFileSync(path.join(out, 'workers', workers[0]!, 'worker.config.json'), 'utf8')) as unknown;
+		const config = JSON.parse(readFileSync(path.join(out, 'workers', worker, 'worker.config.json'), 'utf8')) as unknown;
 		if (!isObject(top) || 'worker' in top) return ['the Build Output config.json is not an object without a worker key'];
-		text = JSON.stringify({ ...top, worker });
+		text = JSON.stringify({ ...top, worker: config });
 	} catch (e) {
 		return [`the Build Output cannot be read: ${(e as Error).message}`];
 	}
@@ -280,6 +293,7 @@ export function stage(a: { client: string; artifact: string; digest: string; out
 		return existsSync(file) ? checkTarget({ client: a.client, targets, format, text: readFileSync(file, 'utf8') }).map((p) => `${CONFIG_FILES[format]}: ${p}`) : [`${CONFIG_FILES[format]} is missing`];
 	});
 	if (!existsSync(a.artifact)) problems.push(`artifact ${a.artifact} is missing, not the reviewed ${a.digest}`);
+	if (!existsSync(path.join(dir, STAGED.migrations))) problems.push(`${STAGED.migrations}/ is missing: the config's migrations_dir may name only the client's reviewed migrations`);
 	if (existsSync(a.out)) problems.push(`${a.out} exists; a stage starts empty`);
 	if (problems.length) return problems;
 	mkdirSync(a.out, { recursive: true });
@@ -289,20 +303,23 @@ export function stage(a: { client: string; artifact: string; digest: string; out
 		// refuse before copying anything a copy would follow or block on, then bind the copy, not the source
 		for (const f of files) if (!lstatSync(path.join(dir, f)).isFile()) throw new Error(`${path.join(dir, f)} is not a regular file`);
 		walk(a.artifact);
+		walk(path.join(dir, STAGED.migrations));
 		for (const f of files) cpSync(path.join(dir, f), path.join(a.out, f));
 		cpSync(a.artifact, path.join(a.out, 'artifact'), { recursive: true });
+		cpSync(path.join(dir, STAGED.migrations), path.join(a.out, STAGED.migrations), { recursive: true });
 	} catch (e) {
 		return refuse((e as Error).message);
 	}
-	let digest: string;
+	let digest: string, migrations: string;
 	try {
 		digest = digestDir(path.join(a.out, 'artifact'));
+		migrations = digestDir(path.join(a.out, STAGED.migrations));
 	} catch (e) {
 		return refuse((e as Error).message);
 	}
 	if (digest !== a.digest) return refuse(`artifact ${a.artifact} is ${digest}, not the reviewed ${a.digest}`);
 	const sha = (f: string) => `sha256:${createHash('sha256').update(readFileSync(path.join(a.out, f))).digest('hex')}`;
-	writeFileSync(path.join(a.out, 'stage.json'), `${JSON.stringify({ schema: 'clearcase.deploy-stage/1', client: a.client, files: Object.fromEntries(files.map((f) => [f, sha(f)])), artifact: digest }, null, 2)}\n`);
+	writeFileSync(path.join(a.out, 'stage.json'), `${JSON.stringify({ schema: 'clearcase.deploy-stage/1', client: a.client, files: Object.fromEntries(files.map((f) => [f, sha(f)])), artifact: digest, migrations }, null, 2)}\n`);
 	return [];
 }
 

@@ -9,7 +9,11 @@
 // The command must be a real Node (its resolved file is named node; Bun's `node` stand-in is not), in both modes, and
 // anything else is refused before it starts. So is a command with a preload or loader flag (-r, --require, --import,
 // --loader, --experimental-loader, bare or with =) anywhere in its arguments: Node would run that module beside the
-// reader's own, and the reader does not read the program's own arguments to tell which flag is Node's. The reader adds
+// reader's own, and the reader does not read the program's own arguments to tell which flag is Node's. So is any other
+// Node option before the entry (the first argument that is not an option) unless it is on NODE_OPTIONS_ALLOWED, a short
+// list of options that load nothing, and --env-file, --env-file-if-exists and --experimental-config-file (bare or with
+// =) anywhere before a `--`, because Node reads those three from the whole command line, after the entry too, and each
+// can set NODE_OPTIONS=--require or nodeOptions.require. Arguments after a `--` are the program's own. The reader adds
 // `--import <preload>`, and the preload takes the values off fd 3, closes fd 3 and deletes CLEARCASE_SECRETS_FD before
 // the child's own code runs, so no process the child starts can inherit the pipe or the variable, whether or not the
 // child ever asks for the values.
@@ -35,6 +39,12 @@ export const SECRET_NAME = /^[a-z0-9][a-z0-9-]{0,40}$/;
 const KEY = /^[A-Z_][A-Z0-9_]{0,127}$/;
 /** Node options that load a module of the caller's choosing before the entry. */
 const LOADERS = /^(-r|--require|--import|--loader|--experimental-loader)(=|$)/;
+/** Node options that read a file of options, wherever they stand before a `--`: Node scans the whole command line for them. */
+const OPTION_FILES = /^--(env-file|env-file-if-exists|experimental-config-file)(=|$)/;
+/** The only Node options allowed before the entry: none loads a module or a file. The first four take the next argument as their code. */
+const CODE_OPTIONS = new Set(['-e', '-p', '--eval', '--print']);
+const NODE_OPTIONS_ALLOWED = [...CODE_OPTIONS, '--no-warnings', '--no-deprecation', '--trace-warnings', '--enable-source-maps', '--experimental-strip-types'];
+const NODE_OPTIONS_ALLOWED_WITH_VALUE = /^(--eval=|--print=|--max-old-space-size=\d+$)/;
 export const ENV_PRELOAD = path.join(import.meta.dirname, 'secrets-env.mjs');
 export const FD_PRELOAD = path.join(import.meta.dirname, 'secrets-fd.mjs');
 
@@ -121,6 +131,22 @@ function resolveCommand(command: string, searchPath: string | undefined): string
 /** True when the file really is Node, judged by its resolved name and never by running it: Bun's `node` stand-in resolves to bun. */
 const isRealNode = (file: string) => /^node(js)?\d*(\.\d+)*$/.test(path.basename(realpathSync(file)));
 
+/** Throws unless every Node option in `args` is one that loads nothing: see the header for what is refused and why. */
+function refuseNodeOptions(args: string[]): void {
+	const dash = args.indexOf('--');
+	let entry = false;
+	for (let i = 0; i < (dash < 0 ? args.length : dash); i++) {
+		const arg = args[i]!;
+		if (OPTION_FILES.test(arg)) throw new Refusal(`${arg.split('=')[0]} in the command's arguments would load Node options from a file beside the reader's preload`);
+		if (entry || !arg.startsWith('-') || arg === '-') {
+			entry = true;
+			continue;
+		}
+		if (CODE_OPTIONS.has(arg)) i++; // its value is code, not an option
+		else if (!NODE_OPTIONS_ALLOWED.includes(arg) && !NODE_OPTIONS_ALLOWED_WITH_VALUE.test(arg)) throw new Refusal(`${arg.split('=')[0]} before the entry is not a Node option the reader allows (${NODE_OPTIONS_ALLOWED.join(' ')} --max-old-space-size=N)`);
+	}
+}
+
 /**
  * Runs `command`, a real Node, with the secrets on its fd 3 and a preload that takes them off it, and resolves with its
  * exit code. The child's environment is the caller's, less any variable named like a secret. Throws a Refusal, before
@@ -135,6 +161,7 @@ export function runWithSecrets(a: { secrets: Map<string, string>; to: 'fd' | 'en
 	if (!isRealNode(file)) throw new Refusal(`--to ${a.to} runs a Node tool, and ${cmd} is not a real Node`);
 	const loader = args.find((x) => LOADERS.test(x));
 	if (loader) throw new Refusal(`${loader.split('=')[0]} in the command's arguments would load a module beside the reader's preload`);
+	refuseNodeOptions(args);
 	env.CLEARCASE_SECRETS_FD = '3'; // read and deleted by the preload before the child's own code runs
 	const child = spawn(file, [`--import=${a.to === 'env' ? ENV_PRELOAD : FD_PRELOAD}`, ...args], { env, stdio: ['inherit', 'inherit', 'inherit', 'pipe'] });
 	const forward = (signal: NodeJS.Signals) => child.kill(signal);

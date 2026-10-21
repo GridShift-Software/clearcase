@@ -867,12 +867,15 @@ async function restoreStep(ctx: Ctx, request: Request, packetId: string): Promis
 	await restorable(ctx, caseId, manifest.resultsVersion);
 	let i = Math.max(1, from);
 	let bytes = 0;
+	// Every entry of this step is checked before the first of them is written: a conflicting key, a bad local header or
+	// a wrong CRC-32 refuses the step with nothing stored by it. Write-once: bytes already there that are these ones
+	// are a repeat of an earlier step; anything else is left as it is.
+	const toWrite: { e: Entry; m: Omit<PlanEntry, 'source'>; target: string }[] = [];
 	while (i < entries.length && bytes < RESTORE_STEP_BYTES) {
 		const e = entries[i]!;
 		const m = manifest.entries[i - 1]!;
 		const target = restoreTarget(m, manifest.resultsVersion);
 		if (target) {
-			// Write-once: bytes already there that are these ones are a repeat of an earlier step; anything else is left as it is.
 			const stored = await ctx.bucket.head(target);
 			if (stored && !(await isStored(ctx, target, stored, m.sha256, m.size))) refuse(409, 'conflicting-object', { entry: e.path });
 			const n = new TextEncoder().encode(e.path).length;
@@ -885,22 +888,24 @@ async function restoreStep(ctx: Ctx, request: Request, packetId: string): Promis
 			let crc = 0;
 			for await (const chunk of (first as R2ObjectBody).body) crc = crc32(chunk, crc);
 			if (crc !== e.crc) refuse(422, 'crc-mismatch', { entry: e.path });
-			if (!stored) {
-				const data = await ctx.bucket.get(key, { range: { offset: e.offset + 30 + n, length: e.size } });
-				if (!hasBody(data)) refuse(410, 'integrity');
-				const fls = fixedLength(e.size);
-				const piped = (data as R2ObjectBody).body.pipeTo(fls.writable);
-				try {
-					// R2 refuses the PUT, and stores nothing, unless the bytes match the manifest's SHA-256
-					await Promise.all([ctx.bucket.put(target, fls.readable, { sha256: m.sha256, customMetadata: { client: ctx.client } }), piped]);
-				} catch (err) {
-					if (/SHA-256/i.test(String(err))) refuse(422, 'digest-mismatch', { entry: e.path });
-					throw err;
-				}
-			}
+			if (!stored && !toWrite.some((w) => w.target === target)) toWrite.push({ e, m, target });
 			bytes += e.size;
 		}
 		i++;
+	}
+	for (const { e, m, target } of toWrite) {
+		const n = new TextEncoder().encode(e.path).length;
+		const data = await ctx.bucket.get(key, { range: { offset: e.offset + 30 + n, length: e.size } });
+		if (!hasBody(data)) refuse(410, 'integrity');
+		const fls = fixedLength(e.size);
+		const piped = (data as R2ObjectBody).body.pipeTo(fls.writable);
+		try {
+			// R2 refuses the PUT, and stores nothing, unless the bytes match the manifest's SHA-256
+			await Promise.all([ctx.bucket.put(target, fls.readable, { sha256: m.sha256, customMetadata: { client: ctx.client } }), piped]);
+		} catch (err) {
+			if (/SHA-256/i.test(String(err))) refuse(422, 'digest-mismatch', { entry: e.path });
+			throw err;
+		}
 	}
 	return json(ctx, { next: i, of: entries.length });
 }
@@ -963,25 +968,58 @@ async function restoreFinish(ctx: Ctx, request: Request, packetId: string): Prom
 	for (const o of originals) if (bound.has(o.asset_id) && bound.get(o.asset_id) !== o.sha256) refuse(409, 'asset-bound-to-another-original');
 	const model: Record<Table, Row[]> = { document: await readRows('read-model/document.json'), asset: await readRows('read-model/asset.json'), seed: await readRows('read-model/seed.json') };
 	for (const t of Object.keys(TABLES) as Table[]) for (const r of model[t]) for (const c of TABLES[t]) if (!(c in r)) refuse(422, 'invalid-packet', { reason: `read-model/${t}.json lacks ${c}` });
+	// The backup's counts and keys must agree with its rows. The final guarded batch would refuse a mismatch too, but only
+	// after the rows, the originals and the user work were written; the database's own key and type checks likewise.
+	const agrees = (name: string, expected: number, have: number) => have === expected || refuse(422, 'invalid-packet', { reason: `${name}: the record expects ${expected} and the backup carries ${have}` });
+	agrees('expected_documents', stage.documents, model.document.length);
+	agrees('expected_assets', stage.assets, model.asset.length);
+	agrees('expected_seeds', stage.seeds, model.seed.length);
+	agrees('expected_files', stage.files, files.length);
+	const keyed = (rows: Row[], column: string, where: string) => {
+		const seen = new Set<unknown>();
+		for (const r of rows) {
+			if (typeof r[column] !== 'string' || seen.has(r[column])) refuse(422, 'invalid-packet', { reason: `${where}.${column}` });
+			seen.add(r[column]);
+		}
+	};
+	keyed(model.document, 'ref', 'read-model/document.json');
+	keyed(model.asset, 'asset_id', 'read-model/asset.json');
+	keyed(model.seed, 'seed_id', 'read-model/seed.json');
+	keyed(files, 'path', 'packageFiles');
+	keyed(originals, 'asset_id', 'originals');
+	for (const t of ['document', 'seed'] as const) for (const r of model[t]) if (typeof r.row_json !== 'string') refuse(422, 'invalid-packet', { reason: `read-model/${t}.json row_json` });
+	for (const r of model.asset) if ((r.sha256 !== null && typeof r.sha256 !== 'string') || (r.size !== null && !isCount(r.size)) || (r.kind !== 'file' && r.kind !== 'embedded')) refuse(422, 'invalid-packet', { reason: 'read-model/asset.json' });
 	await verifyObjects(ctx, v, stage.list, files);
 	const rev = (await ctx.db.first<{ rev: number }>('SELECT rev FROM case_rev WHERE case_id = ?', caseId))?.rev ?? 0;
 	const userWork = await restoreStatements(ctx, caseId, await readObject('user-work.json'), rev, false);
 
 	const pre = await backup(ctx, caseId, 'pre-restore', await snapshot(ctx, caseId)); // durable before any D1 write
 	// The same staged path as an import. The version flips to stored, and the case to active, last and in one batch: a
-	// refusal or a crash before it leaves a staging version that a retry of this call rebuilds.
-	await ctx.db.batch([["INSERT INTO results_version (version_id, case_id, state, attempt, expected_documents, expected_assets, expected_seeds, expected_files, list_sha256, list_size) VALUES (?, ?, 'staging', 1, ?, ?, ?, ?, ?, ?) ON CONFLICT (version_id) DO UPDATE SET expected_documents = excluded.expected_documents, expected_assets = excluded.expected_assets, expected_seeds = excluded.expected_seeds, expected_files = excluded.expected_files, list_sha256 = excluded.list_sha256, list_size = excluded.list_size WHERE results_version.state = 'staging' AND results_version.case_id = excluded.case_id", [v, caseId, stage.documents, stage.assets, stage.seeds, stage.files, stage.list.sha256, stage.list.size]]]);
-	for (const t of Object.keys(TABLES) as Table[]) await ctx.db.batch([staging(v, caseId), [`DELETE FROM ${t} WHERE version_id = ?`, [v]], ...inserts(t, TABLES[t], model[t], 'json', { column: 'version_id', value: v }), CLEAR]);
-	await ctx.db.batch([staging(v, caseId), ['DELETE FROM package_file WHERE version_id = ?', [v]], ...inserts('package_file', ['path', 'sha256', 'size'], files, 'json', { column: 'version_id', value: v }), CLEAR]);
+	// refusal or a crash before it leaves a staging version that a retry of this call rebuilds. The first batch already
+	// holds the user work's revision, so a concurrent change to it is refused before anything is written.
+	try {
+		await ctx.db.batch([guard('coalesce((SELECT rev FROM case_rev WHERE case_id = ?), 0) = ?', caseId, rev), ["INSERT INTO results_version (version_id, case_id, state, attempt, expected_documents, expected_assets, expected_seeds, expected_files, list_sha256, list_size) VALUES (?, ?, 'staging', 1, ?, ?, ?, ?, ?, ?) ON CONFLICT (version_id) DO UPDATE SET expected_documents = excluded.expected_documents, expected_assets = excluded.expected_assets, expected_seeds = excluded.expected_seeds, expected_files = excluded.expected_files, list_sha256 = excluded.list_sha256, list_size = excluded.list_size WHERE results_version.state = 'staging' AND results_version.case_id = excluded.case_id", [v, caseId, stage.documents, stage.assets, stage.seeds, stage.files, stage.list.sha256, stage.list.size]], CLEAR]);
+	} catch (e) {
+		if (e instanceof GuardFailed) refuse(409, 'stale');
+		throw e;
+	}
+	try {
+		for (const t of Object.keys(TABLES) as Table[]) await ctx.db.batch([staging(v, caseId), [`DELETE FROM ${t} WHERE version_id = ?`, [v]], ...inserts(t, TABLES[t], model[t], 'json', { column: 'version_id', value: v }), CLEAR]);
+		await ctx.db.batch([staging(v, caseId), ['DELETE FROM package_file WHERE version_id = ?', [v]], ...inserts('package_file', ['path', 'sha256', 'size'], files, 'json', { column: 'version_id', value: v }), CLEAR]);
+	} catch (e) {
+		if (e instanceof GuardFailed) refuse(409, 'not-staging');
+		throw e;
+	}
 	const ignoring = (statements: [string, D1Value[]][]) => statements.map(([s, p]): [string, D1Value[]] => [`${s} WHERE true ON CONFLICT DO NOTHING`, p]);
 	const originalRows = [...ignoring(inserts('original', ['sha256', 'size'], originals, 'json', null)), ...ignoring(inserts('case_original', ['case_id', 'asset_id', 'sha256', 'filename', 'media_type'], originals.map((o) => ({ asset_id: o.asset_id, sha256: o.sha256, filename: o.filename, media_type: o.media_type, case_id: caseId })), 'json', null))];
-	if (originalRows.length) await ctx.db.batch(originalRows);
 	try {
 		await ctx.db.batch(userWork);
 	} catch (e) {
 		if (e instanceof GuardFailed) refuse(409, 'stale');
 		throw e;
 	}
+	// The originals are bound after the user work: a stale revision refuses before it, and binds nothing.
+	if (originalRows.length) await ctx.db.batch(originalRows);
 	try {
 		await ctx.db.batch([
 			hasEveryRow(v, caseId),

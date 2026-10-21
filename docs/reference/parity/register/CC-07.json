@@ -16,8 +16,8 @@
       "reason": "The Unbilled time tile counts every time entry not billed 'yes'. v5 tested the Billed? text for truthiness, so an entry marked 'no' counted as billed and only entries left at the placeholder were summed; on the seeded entries v5 shows 2.5 h and the app 3.5 h (S-overview-1, S-timesheet_tab-1).",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-251",
@@ -32,8 +32,8 @@
       "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-258",
@@ -52,8 +52,8 @@
       "reason": "The register sweep ends on the overview tiles. The documents-without-text tile counts the register rows instead of the build metadata figure (S-meta-counts, as on the overview, IDR-049); this register does not change it.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-265",
@@ -67,8 +67,8 @@
       "reason": "v5 names the export after its browser storage key, which carries case-specific initials; the app uses a neutral name. The exported columns and rows are compared and equal, except that a validated amount in the Amount column is written as a plain two-decimal number (GRS-49; see IDR-286).",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-252",
@@ -83,8 +83,8 @@
       "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-259",
@@ -103,8 +103,8 @@
       "reason": "The register sweep ends on the overview tiles. The documents-without-text tile counts the register rows instead of the build metadata figure (S-meta-counts, as on the overview, IDR-049); this register does not change it.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-266",
@@ -118,8 +118,8 @@
       "reason": "v5 names the export after its browser storage key, which carries case-specific initials; the app uses a neutral name. The exported columns and rows are compared and equal.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-253",
@@ -134,8 +134,8 @@
       "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-260",
@@ -154,8 +154,8 @@
       "reason": "The register sweep ends on the overview tiles. The documents-without-text tile counts the register rows instead of the build metadata figure (S-meta-counts, as on the overview, IDR-049); this register does not change it.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-254",
@@ -170,8 +170,8 @@
       "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-261",
@@ -190,8 +190,8 @@
       "reason": "The register sweep ends on the overview tiles. The documents-without-text tile counts the register rows instead of the build metadata figure (S-meta-counts, as on the overview, IDR-049); this register does not change it.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-268",
@@ -205,8 +205,8 @@
       "reason": "v5 names the export after its browser storage key, which carries case-specific initials; the app uses a neutral name. The exported columns and rows are compared and equal.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-255",
@@ -221,8 +221,8 @@
       "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-262",
@@ -241,8 +241,8 @@
       "reason": "The register sweep ends on the overview tiles. The documents-without-text tile counts the register rows instead of the build metadata figure (S-meta-counts, as on the overview, IDR-049); this register does not change it.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-269",
@@ -256,8 +256,8 @@
       "reason": "v5 names the export after its browser storage key, which carries case-specific initials; the app uses a neutral name. The exported columns and rows are compared and equal.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-256",
@@ -272,8 +272,8 @@
       "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-263",
@@ -292,8 +292,8 @@
       "reason": "The register sweep ends on the overview tiles. The documents-without-text tile counts the register rows instead of the build metadata figure (S-meta-counts, as on the overview, IDR-049); this register does not change it.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-270",
@@ -307,8 +307,8 @@
       "reason": "v5 names the export after its browser storage key, which carries case-specific initials; the app uses a neutral name. The exported columns and rows are compared and equal.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-257",
@@ -323,8 +323,8 @@
       "reason": "After navigating, focus moves to the destination page heading (BA-14) instead of staying on the sidebar entry as in v5.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-264",
@@ -343,8 +343,8 @@
       "reason": "The register sweep ends on the overview tiles. The documents-without-text tile counts the register rows instead of the build metadata figure (S-meta-counts, as on the overview, IDR-049); this register does not change it.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-271",
@@ -358,8 +358,8 @@
       "reason": "v5 names the export after its browser storage key, which carries case-specific initials; the app uses a neutral name. The exported columns and rows are compared and equal.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-272",
@@ -378,8 +378,8 @@
       "reason": "Delete removes the row it is pressed on (by its stable id). v5 removed the stored entry at the shown position, so with deadlines entered out of date order Delete on the first shown (earliest) deadline removed the first-entered one instead.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-273",
@@ -402,8 +402,8 @@
       "reason": "After that delete, v5's calendar still holds the deadline the user deleted and lacks the one v5 removed by mistake; the app's calendar holds the deadlines the table shows.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-274",
@@ -422,8 +422,8 @@
       "reason": "Each calendar event's UID is the deadline's stable row id, so it never changes when other deadlines are deleted and a calendar re-import updates the same event; v5's UID was the deadline's storage position (S-deadlines_tab-2, S-ics).",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-275",
@@ -445,8 +445,8 @@
       "reason": "Each calendar event carries the DTSTAMP property RFC 5545 requires, stamped from the clock; v5 omitted it (S-deadlines_tab-2, S-ics).",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-276",
@@ -465,8 +465,8 @@
       "reason": "Commas, semicolons and backslashes in a deadline's title are escaped as RFC 5545 text, so the calendar shows them as typed; v5 replaced commas and semicolons with spaces and left backslashes unescaped (S-deadlines_tab-2, S-ics). Pinned to the sweep's own synthetic title, correctly escaped (the line break is dropped by the single-line input on both sides).",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-277",
@@ -485,8 +485,8 @@
       "reason": "Commas and semicolons in a deadline's note are escaped as RFC 5545 text, so the calendar's DESCRIPTION (category, then note) shows them as typed; v5 replaced them with spaces (S-deadlines_tab-2, S-ics). Pinned to the sweep's own synthetic note, correctly escaped.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-278",
@@ -501,8 +501,8 @@
       "reason": "The page heading is the navigation label, POPIA Register (BA-18), instead of v5's longer page title.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-279",
@@ -517,8 +517,8 @@
       "reason": "The page heading is the navigation label, Annotations (BA-18), instead of v5's page title Counsel Annotations.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-280",
@@ -533,8 +533,8 @@
       "reason": "A Doc ref that names a document of the imported version links to that document's page (its anchor is kept with the entry); the ref is stored and shown as typed. v5 showed it as plain text. A ref that names nothing still renders as text, marked as not in this results version, and is never matched loosely. Only row 0, the ref that names a document, differs; row 1 (a ref that names nothing) must stay text and is not covered.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-281",
@@ -549,8 +549,8 @@
       "reason": "A Doc ref that names a document of the imported version links to that document's page (its anchor is kept with the entry); the ref is stored and shown as typed. v5 showed it as plain text. A ref that names nothing still renders as text, marked as not in this results version, and is never matched loosely. Only row 0, the ref that names a document, differs; row 1 (a ref that names nothing) must stay text and is not covered.",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-282",
@@ -574,8 +574,8 @@
       "reason": "The Amount is parsed as an amount in rand (integer cents: digits, an optional R, groups of three, '.' and at most 2 decimals; a credit may be negative) and anything else is refused with a message that keeps the typed text. v5 accepted any text and showed what fmtR made of it, so the sweep's synthetic text 'Synthetic entry N' was saved and shown as R N.00; in the app both synthetic entries are refused and the register stays empty (S-disbursements_tab-1, no validation).",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-283",
@@ -590,8 +590,8 @@
       "reason": "After the two synthetic entries v5's table has 2 rows; the app refused both (IDR-282), so its table holds only the empty-state row (S-disbursements_tab-1).",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-284",
@@ -615,8 +615,8 @@
       "reason": "Hours and Rate/h are parsed as numbers (hours in hundredths, the rate in integer cents, '.' decimals, no negative, bounded) and Value is computed exactly; anything else is refused with a message that keeps the typed text. v5 parsed them with parseFloat, so the sweep's synthetic text was saved with a Value of R 0.00; in the app both synthetic entries are refused and the register stays empty (S-timesheet_tab-3).",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-285",
@@ -631,8 +631,8 @@
       "reason": "After the two synthetic entries v5's table has 2 rows; the app refused both (IDR-284), so its table holds only the empty-state row (S-timesheet_tab-3).",
       "productVisible": true,
       "author": "CC-07 worker (GRS-17)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-286",
@@ -643,8 +643,8 @@
       "reason": "v5's CSV export writes free-text fields unprotected, so a cell starting with a formula character can run as a formula in a spreadsheet. ClearCase passes every exported user cell through a neutraliser that prefixes such cells, and formula segments after a separator, with an apostrophe. The exception is a validated amount in a signed-money field (Disbursements Amount): it is written as a plain two-decimal number, credits included, with R and grouping removed, where v5 writes what the user typed. Evidence: tests/registers/logic.test.ts:90.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-287",
@@ -656,8 +656,8 @@
       "reason": "v5 exports only the stored fields, so the derived Value is missing from the CSV. ClearCase writes the same stored field keys and rows and does not add the Value column; an app change is needed to export it. Evidence: src/lib/views/registers/logic.ts:97.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     },
     {
       "id": "IDR-288",
@@ -695,8 +695,8 @@
       "reason": "v5 keeps large transcript bodies in browser storage with a quota near 5 MB and only alerts on failure. ClearCase stores them in the local case store with a 64 KiB entry limit and shows a failed save with the input kept. Bodies are still rendered whole, the other half of the defect; paging them would need an app change. Evidence: tests/registers/store.test.ts:151.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": null,
-      "approvedOn": null
+      "approvedBy": "Vaperizer2",
+      "approvedOn": "2026-10-21"
     }
   ]
 }

@@ -97,6 +97,7 @@ export class Backend {
 	async call(method: string, pathname: string, body?: unknown): Promise<any> {
 		refuseIfHalted(method, pathname);
 		await this.pace.take();
+		refuseIfHalted(method, pathname); // a create queued in the pace when the run halted must not go out when its turn comes
 		this.calls++;
 		const res = await fetch(`${API}${pathname}`, {
 			method,

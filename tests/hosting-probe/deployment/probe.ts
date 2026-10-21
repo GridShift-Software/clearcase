@@ -233,7 +233,7 @@ async function main(out: string): Promise<number> {
 	/** A scratch copy of the probe app sharing this workspace's node_modules. */
 	const copyApp = (name: string, edit?: (dir: string) => void) => {
 		const dir = path.join(runDir, name);
-		cpSync(path.join(HERE, 'app'), dir, { recursive: true });
+		cpSync(path.join(HERE, 'app'), dir, { recursive: true, filter: (src) => !['node_modules', '.svelte-kit'].includes(path.basename(src)) });
 		symlinkSync(path.join(HERE, 'node_modules'), path.join(dir, 'node_modules'));
 		edit?.(dir);
 		return dir;
@@ -314,12 +314,14 @@ async function main(out: string): Promise<number> {
 	const artifact = path.join(runDir, 'artifact');
 	await leg('P3-build-workerd', 'Bun build of the Kit 3 app, served by wrangler dev on workerd, and one createTestHarness request', async (l, check) => {
 		// Built in place, as GRS-106's probe is: Kit's route analysis under Bun cannot load a Vite config through the
-		// scratch copy's symlinked node_modules. .svelte-kit is ignored; it moves to the scratch copy right after.
+		// scratch copy's symlinked node_modules. The build's .svelte-kit and Kit's node_modules/$app (both ignored) move
+		// out of the tree right after.
 		const app = path.join(HERE, 'app');
-		rmSync(path.join(app, '.svelte-kit'), { recursive: true, force: true });
+		const clear = () => ['.svelte-kit', 'node_modules'].forEach((d) => rmSync(path.join(app, d), { recursive: true, force: true }));
+		clear();
 		const build = step(l, 'Bun', ['run', '--bun', 'build'], { cwd: app });
-		cpSync(path.join(app, '.svelte-kit'), path.join(kit, '.svelte-kit'), { recursive: true });
-		rmSync(path.join(app, '.svelte-kit'), { recursive: true, force: true });
+		if (existsSync(path.join(app, '.svelte-kit'))) cpSync(path.join(app, '.svelte-kit'), path.join(kit, '.svelte-kit'), { recursive: true });
+		clear();
 		check(build.code === 0 && build.out.includes(`[probe build host] {"bun":"${BUN}"`), `bun run --bun build exits 0 with Bun ${BUN} hosting vite`);
 		for (const f of ['.svelte-kit/cloudflare/_worker.js', '.svelte-kit/cloudflare/.assetsignore', '.svelte-kit/cloudflare-tmp/server.js']) check(existsSync(path.join(kit, f)), `the build wrote ${f}`);
 		mkdirSync(path.join(artifact, 'output'), { recursive: true });

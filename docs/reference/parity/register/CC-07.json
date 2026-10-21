@@ -653,7 +653,7 @@
       "type": "known-gap",
       "source": "S-timesheet_tab-2",
       "owner": "GRS-17",
-      "reason": "v5 exports only the stored fields, so the derived Value is missing from the CSV. ClearCase writes the same stored field keys and rows and does not add the Value column; an app change is needed to export it. Evidence: src/lib/views/registers/logic.ts:97.",
+      "reason": "v5 exports only the stored fields, so the derived Value is missing from the CSV. ClearCase writes the same stored field keys and rows and does not add the Value column; an app change is needed to export it. Evidence: src/lib/views/registers/logic.ts:93.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": "Vaperizer2",

@@ -21,6 +21,323 @@ const isSupport = file => isEntry(file) || file.split('/').slice(0, -1).some(par
 // tests. Anything else fails closed.
 const CODE_DIR = /^(?:src|scripts|static|build|node_modules|\.svelte-kit|RAWS|\.local)$/;
 const isDocument = file => file.endsWith('.md') && file.split('/').slice(0, -1).every(part => !CODE_DIR.test(part) && !SUPPORT_DIR.test(part));
+// Markdown documentation that tracked code or a test reads, as an input or an expected value: that check's input, so a
+// docs-only declaration that changes one is refused. An entry ending in / covers every file under it. ReadDocuments in
+// tests/agent-tools/test_docs_only.py fails when markdownReads() finds a read at HEAD that no entry covers; the base's
+// copy of the list judges a pull request.
+const READ_DOCUMENTS = [
+  '.agents/skills/verify-clearcase/features/', // lib/features.mjs reads each feature and checks its sections
+  '.agents/skills/verify-clearcase-hosted/features/', // lib/features.mjs: each driven step's feature must name it
+  'docs/acceptance/CC-11/defects-table.md', // scripts/verify/evidence.sh passes it to dispositions.mjs --md
+  'docs/acceptance/CC-11/matrix.md', // scripts/verify/matrix.mjs builds it as its default output
+  'docs/ci-runner.md', // tests/ci/workflow-admission.test.ts, tests/ci/pc1-vm-verify.test.ts
+  'docs/compatibility.md', // tests/case-package/compat/probe.ts reads its compat-inventory block
+  'docs/delivery-plan.md', // scripts/planning/plan_format.py and generate.py, agent-tools verify plan-format
+  'docs/plan/program-intro.md', // scripts/planning/generate.py and plan_format.py
+  'docs/plan/tickets/', // scripts/planning/generate.py compares each brief with the one it generates
+  'docs/reference/audit-dispositions.md', // tests/e2e/pilot/v5/lanes.mjs (verify:pilot:v5)
+  'docs/reference/defects.md', // scripts/verify/lib/defects.mjs, tests/parity/register-dispositions.test.ts
+  'docs/reference/parity/', // scripts/verify/dispositions.mjs and the register test read files there by computed name
+  'docs/reference/view-checklist.md', // scripts/verify/matrix.mjs and lib/defects.mjs, scripts/fixtures/count_actions.py
+  'docs/results-package.md', // tests/case-package/docs.test.ts and newer-analysis.test.ts
+];
+const listed = file => READ_DOCUMENTS.some(entry => file === entry || entry.endsWith('/') && file.startsWith(entry));
+
+// Where tracked code at a revision reads Markdown documentation: [{ reader, line, document }], each document a file or
+// a directory ending in /. A read is a path that reaches a file-read call, an import, a call that takes it as a path
+// rather than as text (a fixture loader), a path built with join, resolve or new URL, or a word of a shell command. A
+// comment, printed text, a message, an assertion's expected text, a write, an existence test and a copy are not: a copy
+// only moves files, and the code that reads the copy is scanned where it reads. Ambiguity fails closed: a path computed
+// under a directory that holds documentation reads that directory, and a read of a file name under an unknown directory
+// (a copy, a temporary tree) reads every document of that name. A path with no static directory (a walk of every file,
+// as check-links makes) or with another extension is not a read of documentation.
+const UNKNOWN = '\0';
+const HERE = '\u0001';
+const JS_READ = new Set(['readFileSync', 'readFile', 'createReadStream', 'readdirSync', 'readdir', 'opendirSync', 'opendir',
+  'globSync', 'glob', 'require']);
+const JS_DIRECTORY = new Set(['readdirSync', 'readdir', 'opendirSync', 'opendir', 'globSync', 'glob']);
+// calls that take a path to write, test, move or copy, not to read: the paths built for them are not reads
+const JS_WRITE = /^(?:write|writeSync|writeFile|writeFileSync|appendFile|appendFileSync|mkdir|mkdirSync|mkdtemp|mkdtempSync|rm|rmSync|rmdir|rmdirSync|unlink|unlinkSync|rename|renameSync|symlink|symlinkSync|chmod|chmodSync|existsSync|statSync|stat|lstatSync|access|accessSync|cp|cpSync|copyFile|copyFileSync)$/;
+const JS_TEXT = /^(?:log|warn|error|info|debug|trace|push|unshift|includes|toContain|toMatch|toBe|toEqual|toStrictEqual|toThrow|expect|assert|match|matchAll|equal|strictEqual|deepEqual|notEqual|ok|test|it|describe|exec|startsWith|endsWith|replace|replaceAll|split|indexOf|lastIndexOf|join|concat|has|get|set|add|delete|Error|TypeError|RangeError|fail|problem|refuse|relative|basename|extname|dirname)$/;
+const PY_READ = /\bopen\s*\(|\.read_(?:text|bytes)\s*\(|\.r?glob\s*\(|\.iterdir\s*\(|\b(?:listdir|walk|scandir)\s*\(/;
+const PY_DIRECTORY = /\.r?glob\s*\(|\.iterdir\s*\(|\b(?:listdir|walk|scandir)\s*\(/;
+// shell commands that print, write, test, move or copy, and workflow keys that hold no command
+const SH_TEXT = new Set(['echo', 'printf', 'die', 'hold', 'fail', 'log', 'info', 'warn', 'note', 'ok', 'bad', 'say', 'reason_has',
+  'mkdir', 'rm', 'rmdir', 'touch', 'chmod', 'chown', 'ln', 'cp', 'mv', 'rsync', 'install', 'cd', 'pushd', 'popd', 'export',
+  'local', 'declare', 'readonly', 'unset', 'trap', 'return', 'exit', 'true', 'false', ':', 'mktemp', 'test', '[', '[[',
+  'shift', 'set', 'wait', 'kill', 'sleep', 'name:', 'if:', 'with:', 'uses:', 'env:']);
+const SH_PREFIX = new Set(['sudo', 'env', 'exec', 'command', 'time', 'nohup', 'setsid', 'then', 'do', 'else', 'elif', 'if',
+  'while', 'until', '!', '-', 'run:']);
+const SH_ROOT = /^(?:REPO|ROOT|WT|TOP|REPO_ROOT|GITHUB_WORKSPACE)$/;
+const dollars = word => word.replace(/\$\{[^}]*\}|\$[A-Za-z_]\w*|\$\d|\*+|\?/g, UNKNOWN);
+
+// A Python file's lines: the code with each string blanked to "" and the comment cut, and the strings in order (an
+// f-string's fields unknown). Triple-quoted strings are text.
+const pythonLines = text => {
+  let triple = null;
+  return text.split('\n').map(raw => {
+    let blank = '';
+    const strings = [];
+    for (let i = 0; i < raw.length;) {
+      if (triple) {
+        const end = raw.indexOf(triple, i);
+        if (end < 0) break;
+        [i, triple, blank] = [end + 3, null, `${blank}""`];
+        strings.push('');
+        continue;
+      }
+      const c = raw[i];
+      if (c === '#') break;
+      if (c !== '"' && c !== "'") { blank += c; i++; continue; }
+      if (raw.startsWith(c.repeat(3), i)) { [triple, i] = [c.repeat(3), i + 3]; continue; }
+      const formatted = /(?:^|[^\w])[rRbB]?[fF][rRbB]?$/.test(raw.slice(0, i));
+      let j = i + 1;
+      let value = '';
+      while (j < raw.length && raw[j] !== c) value += raw[j] === '\\' ? raw[(j += 2) - 1] ?? '' : raw[j++];
+      strings.push(formatted ? value.replace(/\{[^}]*\}/g, UNKNOWN) : value);
+      [blank, i] = [`${blank}""`, j + 1];
+    }
+    return { blank, strings };
+  });
+};
+
+// A shell script's (or a workflow's) commands: [{ line, words }], quotes removed, comments and here-documents left out.
+const shellCommands = text => {
+  const commands = [];
+  let heredoc = null;
+  text.split('\n').forEach((raw, n) => {
+    if (heredoc) {
+      if (raw.trim() === heredoc) heredoc = null;
+      return;
+    }
+    let words = [];
+    let word = '';
+    let started = false;
+    let quote = null;
+    const flush = () => { if (started) words.push(word); [word, started] = ['', false]; };
+    const end = () => { flush(); if (words.length) commands.push({ line: n + 1, words }); words = []; };
+    for (let i = 0; i < raw.length; i++) {
+      const c = raw[i];
+      if (quote) {
+        if (c === quote) quote = null;
+        else if (quote === '"' && c === '\\') word += raw[++i] ?? '';
+        else word += c;
+      } else if (c === '"' || c === "'") [quote, started] = [c, true];
+      else if (c === '#' && !started) break;
+      else if (/\s/.test(c)) flush();
+      else if (c === '$' && raw[i + 1] === '{') {
+        const close = raw.indexOf('}', i);
+        word += close < 0 ? raw.slice(i) : raw.slice(i, close + 1);
+        [i, started] = [close < 0 ? raw.length : close, true];
+      } else if (c === '$' && raw[i + 1] === '(') { end(); i++; }
+      else if (';&|()`{}<>'.includes(c)) end();
+      else [word, started] = [word + c, true];
+    }
+    end();
+    heredoc = /<<-?\s*(['"]?)([A-Za-z_]\w*)\1/.exec(raw)?.[2] ?? null;
+  });
+  return commands;
+};
+
+function markdownReads(root, env, revision) {
+  const entries = execFileSync('git', ['-C', root, 'ls-tree', '-r', '-z', revision], { env, encoding: 'utf8', maxBuffer: 64 << 20 })
+    .split('\0').filter(Boolean).map(entry => {
+      const [mode, , id] = entry.slice(0, entry.indexOf('\t')).split(' ');
+      return { mode, id, file: entry.slice(entry.indexOf('\t') + 1) };
+    });
+  const documents = new Set(entries.filter(({ mode, file }) => mode === '100644' && isDocument(file)).map(({ file }) => file));
+  const holds = new Set([...documents].flatMap(file => file.split('/').slice(0, -1).map((_, n, parts) => parts.slice(0, n + 1).join('/'))));
+  const kind = file => /\.(?:[cm]?[jt]sx?|svelte)$/.test(file) ? 'js' : file.endsWith('.py') ? 'py'
+    : /\.(?:sh|bash|ya?ml)$/.test(file) ? 'sh' : /(?:^|\/)[^./]+$/.test(file) ? 'script' : null;
+  const code = entries.filter(({ mode, file }) => REGULAR.includes(mode) && kind(file)
+    && !file.split('/').some(part => ['RAWS', '.local', 'node_modules'].includes(part)));
+  const batch = spawnSync('git', ['-C', root, 'cat-file', '--batch'], { env, input: code.map(({ id }) => `${id}\n`).join(''), maxBuffer: 512 << 20 });
+  if (batch.status !== 0) throw Error(`cannot read the tracked code of ${revision} for Markdown reads`);
+  const texts = new Map();
+  for (let at = 0, n = 0; n < code.length; n++) {
+    const header = batch.stdout.indexOf(10, at);
+    const size = Number(batch.stdout.toString('latin1', at, header).split(' ')[2]);
+    texts.set(code[n].file, batch.stdout.toString('utf8', header + 1, header + 1 + size));
+    at = header + size + 2;
+  }
+  const found = new Map();
+  const normal = file => {
+    const normalized = path.posix.normalize(file).replace(/\/+$/, '').replace(/^\.\//, '');
+    return normalized === '.' ? '' : normalized;
+  };
+  // value: a path in which UNKNOWN stands for each part that cannot be told and HERE for the reader's own directory
+  // guess: a read site, where a file name under an unknown directory reads every document of that name
+  const locate = (reader, line, value, { directory = false, exact = false, guess = false } = {}) => {
+    const note = document => found.set(`${reader}\0${line}\0${document}`, { reader, line, document });
+    const here = path.posix.dirname(reader);
+    const anchored = value.includes(HERE);
+    let file = anchored ? here + value.slice(value.lastIndexOf(HERE) + 1) : value;
+    const unrooted = /^\0+\//.test(file); // an unknown directory leads: the repository's root, or another
+    if (unrooted) file = file.replace(/^\0+\/+/, '');
+    const places = rest => [...new Set([normal(rest), ...(anchored || unrooted ? [] : [normal(path.posix.join(here, rest))])])];
+    if (!file.includes(UNKNOWN)) {
+      const hits = places(file).filter(place => documents.has(place) || directory && holds.has(place));
+      hits.forEach(place => note(documents.has(place) ? place : `${place}/`));
+      if (!hits.length && guess && unrooted && file.endsWith('.md')) [...documents].filter(doc => doc.endsWith(`/${normal(file)}`)).forEach(note);
+      return;
+    }
+    const tail = file.slice(file.lastIndexOf(UNKNOWN) + 1);
+    if (exact || /\.\w+$/.test(tail) && !tail.endsWith('.md')) return;
+    const prefix = file.slice(0, file.indexOf(UNKNOWN));
+    const parent = normal(prefix.endsWith('/') ? prefix : path.posix.dirname(prefix));
+    if (!parent) return;
+    const hits = places(parent).filter(place => holds.has(place));
+    hits.forEach(place => note(`${place}/`));
+    if (!hits.length && guess && unrooted) [...holds].filter(dir => dir.endsWith(`/${parent}`)).forEach(dir => note(`${dir}/`));
+  };
+  const scanJs = (reader, text) => {
+    const tree = ts.createSourceFile(reader, text, ts.ScriptTarget.Latest, true);
+    // each name's constants and parameter defaults (the path a function reads unless told otherwise), in source order;
+    // a use takes the nearest one before it
+    const consts = new Map();
+    (function collect(node) {
+      if ((ts.isVariableDeclaration(node) || ts.isParameter(node)) && ts.isIdentifier(node.name) && node.initializer) {
+        consts.set(node.name.text, [...(consts.get(node.name.text) ?? []), node]);
+      }
+      ts.forEachChild(node, collect);
+    })(tree);
+    const declared = use => {
+      const all = consts.get(use.text) ?? [];
+      return (all.filter(declaration => declaration.pos < use.pos).at(-1) ?? all[0])?.initializer;
+    };
+    const lineOf = node => tree.getLineAndCharacterOfPosition(node.getStart(tree)).line + 1;
+    const nameOf = node => ts.isIdentifier(node) ? node.text : ts.isPropertyAccessExpression(node) ? node.name.text : '';
+    const valueOf = (node, depth = 0) => {
+      const next = child => valueOf(child, depth + 1);
+      if (!node || depth > 12) return UNKNOWN;
+      if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isNonNullExpression(node)
+          || ts.isSatisfiesExpression?.(node)) return next(node.expression);
+      if (ts.isStringLiteralLike(node)) return node.text;
+      if (ts.isTemplateExpression(node)) return node.head.text + node.templateSpans.map(span => next(span.expression) + span.literal.text).join('');
+      if (ts.isBinaryExpression(node)) {
+        const operator = node.operatorToken.kind;
+        if (operator === ts.SyntaxKind.PlusToken) return next(node.left) + next(node.right);
+        if (operator === ts.SyntaxKind.QuestionQuestionToken || operator === ts.SyntaxKind.BarBarToken) {
+          const left = next(node.left);
+          return left === UNKNOWN ? next(node.right) : left;
+        }
+        return UNKNOWN;
+      }
+      if (ts.isConditionalExpression(node)) {
+        const first = next(node.whenTrue);
+        return first === UNKNOWN ? next(node.whenFalse) : first;
+      }
+      if (ts.isIdentifier(node)) {
+        if (node.text === '__dirname') return HERE;
+        if (node.text === '__filename') return `${HERE}/${path.posix.basename(reader)}`;
+        const initializer = declared(node);
+        return initializer ? next(initializer) : UNKNOWN;
+      }
+      const text = ts.isPropertyAccessExpression(node) ? node.getText(tree) : '';
+      if (text === 'import.meta.dirname') return HERE;
+      if (text === 'import.meta.url' || text === 'import.meta.filename') return `${HERE}/${path.posix.basename(reader)}`;
+      if (ts.isPropertyAccessExpression(node) && ['pathname', 'href'].includes(node.name.text)) return next(node.expression);
+      if (ts.isNewExpression(node) && nameOf(node.expression) === 'URL' && node.arguments?.length) {
+        const [target, from] = node.arguments;
+        return from ? `${next(from)}/../${next(target)}` : next(target);
+      }
+      if (!ts.isCallExpression(node)) return UNKNOWN;
+      const name = nameOf(node.expression);
+      const args = node.arguments.map(next);
+      if (name === 'join' && args.length > 1 || name === 'resolve' && args.length) return args.join('/');
+      if (['fileURLToPath', 'normalize', 'String'].includes(name) && args.length) return args[0];
+      if (name === 'toString' && ts.isPropertyAccessExpression(node.expression)) return next(node.expression.expression);
+      if (name === 'dirname' && args.length) return `${args[0]}/..`;
+      if (name === 'cwd') return '.';
+      return UNKNOWN;
+    };
+    const written = new Set();
+    (function visit(node) {
+      if (ts.isCallExpression(node) || ts.isNewExpression(node)) {
+        const name = nameOf(node.expression);
+        const args = node.arguments ?? [];
+        const line = lineOf(node);
+        if (JS_WRITE.test(name)) args.forEach(arg => written.add(ts.skipOuterExpressions(arg)));
+        if (node.expression.kind === ts.SyntaxKind.ImportKeyword) locate(reader, line, `${HERE}/${valueOf(args[0]).split('?')[0]}`, { guess: true });
+        else if (JS_READ.has(name) || name === 'file' && node.expression.getText(tree) === 'Bun.file') {
+          locate(reader, line, valueOf(args[0]), { directory: JS_DIRECTORY.has(name), guess: true });
+        } else if (name === 'join' && args.length > 1 || name === 'resolve' && args.length || ts.isNewExpression(node) && name === 'URL') {
+          if (!written.has(node)) locate(reader, line, valueOf(node));
+        } else if (!JS_TEXT.test(name) && !JS_WRITE.test(name)) {
+          args.flatMap(arg => ts.isArrayLiteralExpression(arg) ? [...arg.elements] : [arg]).filter(arg => ts.isStringLiteralLike(arg))
+            .forEach(arg => locate(reader, lineOf(arg), arg.text, { exact: true }));
+        }
+      }
+      if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier
+          && ts.isStringLiteralLike(node.moduleSpecifier) && node.moduleSpecifier.text.startsWith('.')) {
+        locate(reader, lineOf(node), `${HERE}/${node.moduleSpecifier.text.split('?')[0]}`, { exact: true });
+      }
+      ts.forEachChild(node, visit);
+    })(tree);
+  };
+  const scanPython = (reader, text) => {
+    const lines = pythonLines(text);
+    const definitions = new Map();
+    lines.forEach(({ blank }, n) => {
+      const name = /^\s*([A-Za-z_]\w*)\s*(?::[^=]*)?=(?!=)/.exec(blank)?.[1];
+      if (name) definitions.set(name, [...(definitions.get(name) ?? []), n]);
+    });
+    // a line's paths: each string, and each run of strings joined by the / operator or by join() (an unknown directory
+    // before it when something else leads)
+    const paths = ({ blank, strings }) => {
+      const runs = [];
+      const run = (at, text, lead) => {
+        const before = (blank.slice(0, at).match(/""/g) ?? []).length;
+        const count = (text.match(/""/g) ?? []).length;
+        if (count) runs.push(`${lead ? `${UNKNOWN}/` : ''}${strings.slice(before, before + count).join('/')}`);
+      };
+      for (const match of blank.matchAll(/(\/\s*)?""(?:\s*\/\s*"")*/g)) if (match[1] || match[0].length > 2) run(match.index, match[0], match[1]);
+      for (const match of blank.matchAll(/\bjoin\s*\(([^()]*)\)/g)) run(match.index, match[0], /^\s*[^"\s]/.test(match[1]));
+      return [...strings, ...runs];
+    };
+    lines.forEach((line, n) => {
+      const reading = PY_READ.test(line.blank);
+      if (!reading && !/\/\s*""|\bPath\s*\(|\bos\.path\.join\s*\(/.test(line.blank)) return;
+      // a read follows the names it uses to their assignments, two steps deep
+      const sources = [line];
+      for (let depth = 0, from = [n], seen = new Set([n]); reading && depth < 2; depth++) {
+        from = from.flatMap(at => (lines[at].blank.match(/\b[A-Za-z_]\w*\b/g) ?? []).flatMap(name => definitions.get(name) ?? []))
+          .filter(at => !seen.has(at) && seen.add(at));
+        sources.push(...from.map(at => lines[at]));
+      }
+      const directory = PY_DIRECTORY.test(line.blank);
+      sources.flatMap(paths).forEach(value => locate(reader, n + 1, value, { directory, guess: reading }));
+    });
+  };
+  const scanShell = (reader, text) => {
+    for (const { line, words } of shellCommands(text)) {
+      let k = 0;
+      while (k < words.length && (/^[A-Za-z_]\w*=/.test(words[k]) || SH_PREFIX.has(words[k]))) k++;
+      if (k >= words.length || SH_TEXT.has(words[k])) continue;
+      for (const word of words.slice(k).map(word => word.slice(word.lastIndexOf('=') + 1))) {
+        const variable = /^\$\{?([A-Za-z_]\w*)\}?\/(.*)$/.exec(word);
+        if (variable && !SH_ROOT.test(variable[1])) {
+          if (variable[2].endsWith('.md')) locate(reader, line, `${UNKNOWN}/${dollars(variable[2])}`, { guess: true });
+        } else if (/[/.]/.test(variable ? variable[2] : word)) locate(reader, line, dollars(variable ? variable[2] : word), { directory: true, guess: true });
+      }
+    }
+  };
+  for (const { file } of code) {
+    let text = texts.get(file);
+    let language = kind(file);
+    if (language === 'script') {
+      const shebang = /^#!.*\b(python3?|bash|sh|zsh|node|bun)\b/.exec(text)?.[1];
+      language = !shebang ? null : shebang.startsWith('python') ? 'py' : ['node', 'bun'].includes(shebang) ? 'js' : 'sh';
+      if (language === 'js') text = text.replace(/^#!.*/, '');
+    }
+    // a component's scripts, its markup blanked line for line
+    if (file.endsWith('.svelte')) text = text.replace(/(<script[^>]*>[\s\S]*?<\/script>)|[^\n]+/g, (all, script) => script ? all.replace(/^<script[^>]*>|<\/script>$/g, '') : '');
+    if (language === 'js') scanJs(file, text);
+    else if (language === 'py') scanPython(file, text);
+    else if (language === 'sh') scanShell(file, text);
+  }
+  return { documents: [...documents].sort(), reads: [...found.values()].sort((a, b) => a.reader.localeCompare(b.reader) || a.line - b.line) };
+}
 const CONFIG_FILE = /(?:^|\/)(?:(?:vitest|vite|jest|playwright)\.(?:config|workspace|setup)[^/]*|bunfig\.toml)$/;
 const TEST_SCRIPT = /^(?:pre|post)?test(?::|$)/;
 // Runner configuration keys that name files run in the test process or around it (Vitest, Jest, Playwright).
@@ -573,6 +890,13 @@ function main() {
   const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')));
   env.LC_ALL = 'C';
   const git = (...words) => execFileSync('git', ['-C', root, ...words], { env, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+  // --read-documents REV judges nothing: it prints READ_DOCUMENTS, REV's documents and the Markdown reads its tracked
+  // code makes, for the control that keeps the list whole (ReadDocuments in tests/agent-tools/test_docs_only.py).
+  if (options['--read-documents'] !== undefined) {
+    const revision = git('rev-parse', '--verify', `${options['--read-documents']}^{commit}`).trim();
+    console.log(JSON.stringify({ list: READ_DOCUMENTS, ...markdownReads(root, env, revision) }));
+    return 0;
+  }
   const base = git('rev-parse', '--verify', `${options['--fix-base']}^{commit}`).trim();
   const head = git('rev-parse', 'HEAD').trim();
   if (realpathSync(git('rev-parse', '--show-toplevel').trim()) !== root
@@ -656,39 +980,17 @@ function main() {
       refuse(`covers a docs-only range, but ${base.slice(0, 12)}..${tip.slice(0, 12)} changes ${offending.join(', ')}; only `
         + 'regular Markdown files outside source, script and test directories, and the manifest itself, may change');
     }
-    // A document that code or a test reads is that check's input, not documentation. Reading cannot be told from naming, so
-    // a document counts as read when any tracked file other than Markdown (and the fix-round manifests, whose reasons may
-    // quote a path) holds its file name, or the path of a directory above it of two components or more ('docs/plan' of
-    // 'docs/plan/x.md'; a single top-level directory is named by everything), as a whole word. It over-approximates, which
-    // fails closed: a round that touches such a document names the tests to protect instead.
-    const readByCode = files => {
-      const needles = new Map();
-      for (const file of files) {
-        const parts = file.split('/');
-        for (const needle of [parts[parts.length - 1], ...parts.slice(0, -1).map((_, n) => parts.slice(0, n + 1).join('/')).filter(dir => dir.includes('/'))]) {
-          needles.set(needle, [...(needles.get(needle) ?? []), file]);
-        }
-      }
-      if (!needles.size) return [];
-      let lines;
-      try {
-        lines = git('grep', '-I', '-h', '-F', ...[...needles.keys()].flatMap(needle => ['-e', needle]), tip, '--', '.',
-          ':(exclude)*.md', ':(exclude)docs/acceptance/fix-rounds').split('\n');
-      } catch (error) {
-        if (error.status !== 1) throw error; // 1 is "no line matched"; anything else cannot be told and fails closed
-        return [];
-      }
-      const read = new Set();
-      for (const [needle, owners] of needles) {
-        const word = new RegExp(`(?<![A-Za-z0-9_])${needle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![A-Za-z0-9_])`);
-        if (lines.some(line => word.test(line))) owners.forEach(file => read.add(file));
-      }
-      return [...read];
-    };
-    const inputs = readByCode(documents.filter(file => file !== own));
+    // A document that code or a test reads is that check's input, not documentation: one READ_DOCUMENTS lists, or one the
+    // tip's code reads (a reader this branch adds is not on the base's list yet). Naming a file is not reading it.
+    const reads = markdownReads(root, env, tip).reads;
+    const inputs = documents.filter(file => file !== own).flatMap(file => {
+      const read = reads.find(({ document }) => file === document || document.endsWith('/') && file.startsWith(document));
+      const why = [listed(file) && 'READ_DOCUMENTS lists it', read && `${read.reader}:${read.line} reads it, or names it in a path it builds`];
+      return why.some(Boolean) ? [`${file} (${why.filter(Boolean).join('; ')})`] : [];
+    });
     if (inputs.length) {
-      refuse(`covers a docs-only range, but ${inputs.join(', ')} changed beside it: tracked code or a test names it, or a `
-        + `directory above it, so a check may read it as an input, and a docs-only round cannot vouch for that check`);
+      refuse(`covers a docs-only range, but ${inputs.join(', ')} changed beside it: a check reads it as an input, and a `
+        + 'docs-only round cannot vouch for that check');
     }
     if (inherited.length) {
       console.log(`test-guard: ${inherited.length} changed file(s) are the base's, not this fix round's: the base ${trusted} `

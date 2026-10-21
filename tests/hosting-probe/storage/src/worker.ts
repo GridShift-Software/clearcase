@@ -10,7 +10,8 @@
 //   (410 and no bytes otherwise), ranges included;
 // - every multi-statement write is one D1 batch whose first statement is a guard; a failed guard rolls the batch back.
 import { type D1, type D1Result, type D1Value, type Env, type R2, type R2Object, type R2ObjectBody, type R2UploadedPart, digestStream, fixedLength, hasBody, hex, sha256Hex } from './platform.ts';
-import { type Entry, centralDirectory, checkLocal, crc32, descriptor, locate, localHeader, trailer } from './zip.ts';
+import { type Sha256State, Sha256 } from './sha256.ts';
+import { DESCRIPTOR_SIZE, type Entry, centralDirectory, checkLocal, crc32, descriptor, locate, localHeader, localHeaderSize, trailer } from './zip.ts';
 
 class Refused extends Error {
 	readonly status: number;
@@ -31,7 +32,7 @@ class GuardFailed extends Error {}
 const MiB = 1024 * 1024;
 const SINGLE_PUT_MAX = 64 * MiB; // larger uploads go through multipart parts, each under the Workers request-body limit
 const BUFFER_MAX = 32 * MiB; // a verified original up to this size, or a range up to it, is served from one hashing pass
-const PART = 8 * MiB; // an export step writes one multipart part of at least this, or one large entry
+const PART = 8 * MiB; // an export step writes one multipart part of exactly this size; only the packet's last part is shorter
 const RESTORE_STEP_BYTES = 64 * MiB;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const SHA = /^[0-9a-f]{64}$/;
@@ -593,7 +594,7 @@ async function startExport(ctx: Ctx, caseId: string): Promise<Response> {
 	return json(ctx, { exportId, entries: entries.length, bytes: entries.reduce((n, e) => n + e.size, 0) });
 }
 
-type Job = { export_id: string; case_id: string; state: string; object_key: string; upload_id: string; next_entry: number; next_offset: number; parts: string; plan: string; size: number | null; sha256: string | null; failure: string | null };
+type Job = { export_id: string; case_id: string; state: string; object_key: string; upload_id: string; next_entry: number; next_offset: number; parts: string; entry_state: string | null; plan: string; size: number | null; sha256: string | null; failure: string | null };
 
 async function failExport(ctx: Ctx, job: Job, failure: string) {
 	await ctx.bucket.resumeMultipartUpload(job.object_key, job.upload_id).abort().catch(() => undefined);
@@ -605,108 +606,122 @@ async function cleanGenerated(ctx: Ctx, job: Job) {
 	if (keys.length) await ctx.bucket.delete(keys);
 }
 
+/** Where each entry starts in the packet (local header, data, 16-byte descriptor), where the trailer starts, and the packet's size. */
+function packetLayout(plan: PlanEntry[]) {
+	const at: number[] = [];
+	let o = 0;
+	for (const e of plan) (at.push(o), (o += localHeaderSize(e.path) + e.size + DESCRIPTOR_SIZE));
+	const trailerSize = trailer(plan.map((e, i) => ({ path: e.path, crc: 0, size: e.size, offset: at[i]! })), o).length;
+	return { at, entriesEnd: o, total: o + trailerSize };
+}
+
+/** The entry being written when a step ends: its index and its running SHA-256 and CRC-32. */
+type InFlight = { index: number; sha: Sha256State; crc: number };
+
 async function exportStep(ctx: Ctx, caseId: string, exportId: string): Promise<Response> {
 	const job = await ctx.db.first<Job>('SELECT * FROM export_job WHERE export_id = ? AND case_id = ?', exportId, caseId);
 	if (!job) refuse(404, 'not-found');
 	if (job!.state !== 'building') refuse(409, `export-${job!.state}`);
+	if (job!.size !== null) refuse(409, 'export-written');
 	const j = job!;
 	const plan = JSON.parse(j.plan) as PlanEntry[];
 	const parts = JSON.parse(j.parts) as R2UploadedPart[];
+	const { at, entriesEnd, total } = packetLayout(plan);
+	// The step writes packet bytes [start, end) as one part. R2 needs every part but the last to be the same size, so an
+	// entry may span parts; its running hash and CRC carry over in entry_state.
+	const start = parts.length * PART;
+	const end = Math.min(start + PART, total);
 	const upload = ctx.bucket.resumeMultipartUpload(j.object_key, j.upload_id);
-	let i = j.next_entry;
-	let offset = j.next_offset;
-	const pending: Uint8Array[] = [];
-	let pendingSize = 0;
-	const written: Entry[] = [];
-	const add = (b: Uint8Array) => (pending.push(b), (pendingSize += b.length));
-	let uploaded = false;
+	const fls = fixedLength(end - start);
+	const part = upload.uploadPart(parts.length + 1, fls.readable);
+	part.catch(() => undefined);
+	const w = fls.writable.getWriter();
+	const saved = j.entry_state ? (JSON.parse(j.entry_state) as InFlight) : null;
+	let flight: { index: number; sha: Sha256; crc: number } | null = saved ? { index: saved.index, sha: new Sha256(saved.sha), crc: saved.crc } : null;
+	const written: (Entry & { idx: number })[] = [];
+	const crcOf = async (i: number) => written.find((x) => x.idx === i)?.crc ?? (await ctx.db.first<{ crc: number }>('SELECT crc FROM export_entry WHERE export_id = ? AND idx = ?', exportId, i))!.crc;
+	const inFlight = (i: number) => {
+		if (flight?.index !== i) throw new Error(`export ${exportId}: entry ${i} has no running hash`);
+		return flight;
+	};
+	let pos = start;
 	try {
-		while (i < plan.length && !uploaded) {
-			const e = plan[i]!;
-			if (e.size >= PART) {
-				// A large entry streams straight into its own part, after whatever small entries were waiting; its bytes are
-				// hashed as they pass and the whole upload is aborted if they differ, so no packet with them ever completes.
-				const header = localHeader(e.path);
-				const total = pendingSize + header.length + e.size + 16;
-				const object = await ctx.bucket.get(e.source);
-				if (!hasBody(object) || (object as R2ObjectBody).size !== e.size) refuse(410, 'changed-original', { key: e.source });
-				const fls = fixedLength(total);
-				const part = upload.uploadPart(parts.length + 1, fls.readable);
-				const w = fls.writable.getWriter();
-				for (const p of pending) await w.write(p);
-				await w.write(header);
-				const ds = digestStream();
-				const dw = ds.getWriter();
-				let crc = 0;
-				for await (const chunk of (object as R2ObjectBody).body) {
-					crc = crc32(chunk, crc);
-					await dw.write(chunk);
-					await w.write(chunk);
-				}
-				await dw.close();
-				if (hex(await ds.digest) !== e.sha256) {
-					await w.abort('changed').catch(() => undefined);
-					await part.catch(() => undefined);
-					refuse(410, 'changed-original', { key: e.source });
-				}
-				await w.write(descriptor(crc, e.size));
-				await w.close();
-				parts.push(await part);
-				written.push({ path: e.path, crc, size: e.size, offset: offset + pendingSize });
-				offset += total;
-				pending.length = 0;
-				pendingSize = 0;
-				uploaded = true;
-				i++;
+		while (pos < end) {
+			if (pos >= entriesEnd) {
+				const before = await ctx.db.all<Entry>('SELECT path, crc, size, offset_bytes AS "offset" FROM export_entry WHERE export_id = ? ORDER BY idx', exportId);
+				const tail = trailer([...before, ...written.map(({ idx: _, ...e }) => e)], entriesEnd);
+				await w.write(tail.subarray(pos - entriesEnd, end - entriesEnd));
+				pos = end;
 				break;
 			}
-			const bytes = await verifiedObject(ctx, e.source, e.sha256, e.size).catch((err: unknown) => {
-				throw err instanceof Refused && e.kind === 'original' ? new Refused(410, 'changed-original', err.detail) : err;
-			});
-			const crc = crc32(bytes);
-			written.push({ path: e.path, crc, size: e.size, offset: offset + pendingSize });
-			add(localHeader(e.path));
-			add(bytes);
-			add(descriptor(crc, e.size));
-			i++;
-			if (pendingSize >= PART) {
-				parts.push(await upload.uploadPart(parts.length + 1, concat(pending, pendingSize)));
-				offset += pendingSize;
-				pending.length = 0;
-				pendingSize = 0;
-				uploaded = true;
+			let i = 0;
+			for (let hi = at.length - 1; i < hi; ) {
+				const mid = (i + hi + 1) >> 1;
+				if (at[mid]! <= pos) i = mid;
+				else hi = mid - 1;
+			}
+			const e = plan[i]!;
+			const changed = () => refuse(410, e.kind === 'original' ? 'changed-original' : 'integrity', { key: e.source });
+			const header = localHeader(e.path);
+			const dataAt = at[i]! + header.length;
+			const descAt = dataAt + e.size;
+			if (pos < dataAt) {
+				if (pos === at[i]) flight = { index: i, sha: new Sha256(), crc: 0 };
+				const n = Math.min(dataAt, end) - pos;
+				await w.write(header.subarray(pos - at[i]!, pos - at[i]! + n));
+				pos += n;
+			} else if (pos < descAt) {
+				const f = inFlight(i);
+				const from = pos - dataAt;
+				const n = Math.min(descAt, end) - pos;
+				const object = await ctx.bucket.get(e.source, { range: { offset: from, length: n } });
+				if (!hasBody(object) || object.size !== e.size) changed();
+				let got = 0;
+				for await (const chunk of (object as R2ObjectBody).body) {
+					f.sha.update(chunk);
+					f.crc = crc32(chunk, f.crc);
+					got += chunk.length;
+					await w.write(chunk);
+				}
+				if (got !== n) changed();
+				pos += n;
+			} else {
+				if (pos === descAt) {
+					// The entry's last byte is in: unless its bytes are the ones recorded, this part and the upload are aborted,
+					// so no packet holding them completes.
+					const f = inFlight(i);
+					if (f.sha.hex() !== e.sha256) changed();
+					written.push({ idx: i, path: e.path, crc: f.crc, size: e.size, offset: at[i]! });
+					flight = null;
+				}
+				const d = descriptor(await crcOf(i), e.size);
+				const n = Math.min(descAt + DESCRIPTOR_SIZE, end) - pos;
+				await w.write(d.subarray(pos - descAt, pos - descAt + n));
+				pos += n;
 			}
 		}
+		await w.close();
+		parts.push(await part);
+	} catch (err) {
+		await w.abort(String(err)).catch(() => undefined);
+		if (err instanceof Refused) await failExport(ctx, j, `${err.code}: ${String(err.detail.key ?? '')}`);
+		throw err;
+	}
+	const complete = end === total;
+	if (complete) await upload.complete(parts);
+	const next = written.length ? written.at(-1)!.idx + 1 : j.next_entry;
+	try {
+		await ctx.db.batch([
+			guard('EXISTS (SELECT 1 FROM export_job WHERE export_id = ? AND parts = ?)', exportId, j.parts),
+			...inserts('export_entry', ['idx', 'path', 'crc', 'size', 'offset_bytes'], written.map((x) => ({ idx: x.idx, path: x.path, crc: x.crc, size: x.size, offset_bytes: x.offset })), 'json', { column: 'export_id', value: exportId }),
+			['UPDATE export_job SET next_entry = ?, next_offset = ?, parts = ?, entry_state = ?, size = ? WHERE export_id = ?', [next, end, JSON.stringify(parts), flight ? JSON.stringify({ index: flight.index, sha: flight.sha.state(), crc: flight.crc }) : null, complete ? total : null, exportId]],
+			CLEAR,
+		]);
 	} catch (e) {
-		if (e instanceof Refused) {
-			await failExport(ctx, j, `${e.code}: ${String(e.detail.key ?? '')}`);
-			throw e;
-		}
+		if (e instanceof GuardFailed) refuse(409, 'stale-step');
 		throw e;
 	}
-	let complete = false;
-	if (i === plan.length && (!uploaded || pendingSize === 0)) {
-		// The last part: the waiting small entries, then the central directory and end records.
-		const before = await ctx.db.all<Entry>('SELECT path, crc, size, offset_bytes AS "offset" FROM export_entry WHERE export_id = ? ORDER BY idx', exportId);
-		const tail = trailer([...before, ...written], offset + pendingSize);
-		add(tail);
-		parts.push(await upload.uploadPart(parts.length + 1, concat(pending, pendingSize)));
-		offset += pendingSize;
-		await upload.complete(parts);
-		complete = true;
-	}
-	await ctx.db.batch([
-		...inserts('export_entry', ['idx', 'path', 'crc', 'size', 'offset_bytes'], written.map((w, k) => ({ idx: j.next_entry + k, path: w.path, crc: w.crc, size: w.size, offset_bytes: w.offset })), 'json', { column: 'export_id', value: exportId }),
-		[`UPDATE export_job SET next_entry = ?, next_offset = ?, parts = ?, size = ? WHERE export_id = ?`, [i, offset, JSON.stringify(parts), complete ? offset : null, exportId]],
-	]);
-	return json(ctx, { next: i, of: plan.length, parts: parts.length, complete });
-}
-
-function concat(chunks: Uint8Array[], size: number): Uint8Array {
-	const out = new Uint8Array(size);
-	let o = 0;
-	for (const c of chunks) (out.set(c, o), (o += c.length));
-	return out;
+	return json(ctx, { next, of: plan.length, parts: parts.length, complete });
 }
 
 async function sealExport(ctx: Ctx, caseId: string, exportId: string): Promise<Response> {

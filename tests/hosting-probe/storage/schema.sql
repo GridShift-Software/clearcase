@@ -42,8 +42,9 @@ CREATE TABLE case_rev (case_id TEXT PRIMARY KEY, rev INTEGER NOT NULL);
 CREATE TABLE uw_register_row (case_id TEXT NOT NULL, store TEXT NOT NULL, row_id TEXT NOT NULL, seq INTEGER NOT NULL, version TEXT NOT NULL, fields TEXT NOT NULL, operation_id TEXT NOT NULL, PRIMARY KEY (case_id, row_id), UNIQUE (case_id, store, seq), UNIQUE (case_id, operation_id));
 CREATE TABLE uw_note (case_id TEXT NOT NULL, note_id TEXT NOT NULL, anchor TEXT, body TEXT NOT NULL, version TEXT NOT NULL, PRIMARY KEY (case_id, note_id));
 
--- Exports: one packet per job, written to R2 as a multipart upload, one part per step.
-CREATE TABLE export_job (export_id TEXT PRIMARY KEY, case_id TEXT NOT NULL, version_id TEXT NOT NULL, state TEXT NOT NULL CHECK (state IN ('building', 'complete', 'failed')), object_key TEXT NOT NULL, upload_id TEXT NOT NULL, next_entry INTEGER NOT NULL, next_offset INTEGER NOT NULL, parts TEXT NOT NULL, plan TEXT NOT NULL, size INTEGER, sha256 TEXT, failure TEXT);
+-- Exports: one packet per job, written to R2 as a multipart upload, one part of a fixed size per step. entry_state holds
+-- the running SHA-256 and CRC-32 of an entry that spans parts.
+CREATE TABLE export_job (export_id TEXT PRIMARY KEY, case_id TEXT NOT NULL, version_id TEXT NOT NULL, state TEXT NOT NULL CHECK (state IN ('building', 'complete', 'failed')), object_key TEXT NOT NULL, upload_id TEXT NOT NULL, next_entry INTEGER NOT NULL, next_offset INTEGER NOT NULL, parts TEXT NOT NULL, entry_state TEXT, plan TEXT NOT NULL, size INTEGER, sha256 TEXT, failure TEXT);
 CREATE TABLE export_entry (export_id TEXT NOT NULL, idx INTEGER NOT NULL, path TEXT NOT NULL, crc INTEGER NOT NULL, size INTEGER NOT NULL, offset_bytes INTEGER NOT NULL, PRIMARY KEY (export_id, idx));
 
 -- The probe's control: the same register add as read-then-write, two statements, no UNIQUE (P4's sensitivity check).

@@ -41,7 +41,7 @@ export const LEG_SHAPE: Record<LegName, [number, number]> = {
 	'retry-bounded': [6, 7],
 	'ambiguous-duplicate': [5, 7],
 	'permanent-no-retry': [2, 3],
-	'interrupted-send': [2, 3],
+	'interrupted-send': [5, 4],
 	'operator-visibility': [2, 4],
 	'sender-restriction': [4, 5],
 	'binding-missing': [4, 5],
@@ -57,7 +57,7 @@ export const MESSAGES: [string, string, string][] = [
 	['faults', 'case-a3', 'publication'],
 	['faults', 'case-a4', 'publication'],
 ];
-/** What the app saw for each saved message: its messageId came back, or the attempt ended without one. */
+/** What the app saw for each saved message, measured: its messageId came back in a response, or the attempt ended without one. */
 export const APP_SAW = ['accepted', 'accepted', 'accepted', 'not seen: the attempt ended ambiguous', 'accepted', 'accepted'];
 
 export const HOLD = [

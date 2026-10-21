@@ -20,7 +20,7 @@ import { accessSync, constants, createWriteStream, existsSync, mkdirSync, readdi
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { linkedNotice, noticeProblems, type NoticeKind } from './src/notice.ts';
-import { BOUNDARIES, BUN, checkSummary, HOLD, LEG_SHAPE, LEGS, type LegName, MESSAGES, APP_SAW, mutationsRefused, pkg, SCHEMA } from './summary.ts';
+import { BOUNDARIES, BUN, checkSummary, HOLD, LEGS, type LegName, MESSAGES, mutationsRefused, pkg, SCHEMA } from './summary.ts';
 
 /** The one Bun API this script uses; the root project has no @types/bun. */
 declare const Bun: {
@@ -254,6 +254,8 @@ async function main(out: string): Promise<number> {
 	// Synthetic canaries on every request, as a session's Authorization header and cookie would be: none may surface.
 	const canaries = [`canary-auth-${randomUUID()}`, `canary-cookie-${randomUUID()}`];
 	const opsSeen: string[] = [];
+	/** Every messageId the app reported in any response: what it saw come back from send(). */
+	const appIds = new Set<string>();
 	async function http(method: string, pathname: string, as?: string, body?: unknown) {
 		const headers: Record<string, string> = { authorization: `Bearer ${canaries[0]}`, cookie: `__session=${canaries[1]}` };
 		if (as) headers['x-probe-identity'] = as;
@@ -265,6 +267,7 @@ async function main(out: string): Promise<number> {
 			json = JSON.parse(text);
 		} catch {}
 		if (pathname.startsWith('/ops/')) opsSeen.push(text);
+		for (const n of [json?.notice, ...(json?.notifications ?? [])]) for (const id of n?.messageIds ?? []) appIds.add(id);
 		return { status: res.status, location: res.headers.get('location'), text, json };
 	}
 	const A = (user: string) => `client-a/${user}`;
@@ -536,9 +539,12 @@ async function main(out: string): Promise<number> {
 
 	const endSha = head();
 	const clean = !dirty();
-	const messages = MESSAGES.map((_, i) => allSaved[i]).map((m, i) =>
-		m ? { env: m.env, caseId: noticeCase.get(linkedNotice(m.text, ORIGIN) ?? '')?.caseId ?? null, kind: noticeCase.get(linkedNotice(m.text, ORIGIN) ?? '')?.kind ?? null, text: `sha256:${sha256(m.text)}`, contentCheck: legs['no-leak'].status === 'PASS' ? 'PASS' : 'FAIL', appSaw: APP_SAW[i], providerAcceptance: 'simulated: saved by the local binding', delivery: 'HOLD: M3', inboxArrival: 'HOLD: M3' } : null,
-	);
+	// One entry per saved message, all measured but the two HOLD states, which no local run can observe.
+	const messages = allSaved.map((m) => {
+		const c = noticeCase.get(linkedNotice(m.text, ORIGIN) ?? '');
+		const ok = !!c && noticeProblems({ from: m.from, to: m.to, subject: m.subject, text: m.text }, { kind: c.kind, origin: ORIGIN, sender: SENDER, recipient: UPLOADER, forbidden: CASE_STRINGS[c.caseId]! }).length === 0;
+		return { env: m.env, caseId: c?.caseId ?? null, kind: c?.kind ?? null, text: `sha256:${sha256(m.text)}`, contentCheck: ok ? 'PASS' : 'FAIL', appSaw: appIds.has(m.messageId) ? 'accepted' : 'not seen: the attempt ended ambiguous', providerAcceptance: 'simulated: saved by the local binding', delivery: 'HOLD: M3', inboxArrival: 'HOLD: M3' };
+	});
 	const summary: Record<string, unknown> = {
 		schema: SCHEMA,
 		sourceSha: sha,

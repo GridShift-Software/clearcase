@@ -109,6 +109,14 @@ async function attempt(env: Env, noticeId: string, now: number): Promise<void> {
 	await record(env, noticeId, n, now, code === null ? 'accepted' : classify(code), code, messageId);
 }
 
+/**
+ * The first attempt, inline, so the response can report it; bounded by SEND_TIMEOUT_MS. If it throws (a D1 error), the
+ * committed publication and notice still answer 200: the row stays pending or sending, and the sweep takes it.
+ */
+async function firstAttempt(env: Env, noticeId: string, now: number): Promise<void> {
+	await attempt(env, noticeId, now).catch(() => {});
+}
+
 /** Writes attempt n's outcome and the outbox row's next state in one batch. */
 async function record(env: Env, noticeId: string, n: number, at: number, outcome: Outcome | 'accepted', code: string | null, messageId: string | null) {
 	const next = outcome === 'accepted' ? null : nextAttemptAt(n, outcome, at);
@@ -209,7 +217,7 @@ async function handle(req: Request, env: Env): Promise<Response> {
 		if (!Number.isInteger(round) || (round as number) < 1) return refuse(400, 'round must be a positive integer');
 		if (m[2] === 'input-needed') {
 			const { noticeId, created } = await notify(env, c.id, 'input-needed', round as number, c.uploader, [], now);
-			if (created) await attempt(env, noticeId, now);
+			if (created) await firstAttempt(env, noticeId, now);
 			return json({ inputNeeded: true, round, noticeId, created, notice: await outboxView(env, noticeId) });
 		}
 		const file = b?.file;
@@ -222,7 +230,7 @@ async function handle(req: Request, env: Env): Promise<Response> {
 		const publication = env.DB.prepare('INSERT INTO publications (client, case_id, version, file_key, file_sha256, published_at) VALUES (?, ?, ?, ?, ?, ?)').bind(env.CLIENT_ID, c.id, round, key, digest, new Date(now).toISOString());
 		const { noticeId, created } = await notify(env, c.id, 'publication', round as number, c.uploader, prior ? [] : [publication], now);
 		// The publication is committed above; the email below can only add to the outbox row.
-		if (created) await attempt(env, noticeId, now);
+		if (created) await firstAttempt(env, noticeId, now);
 		return json({ published: true, version: round, fileSha256: digest, noticeId, created, notice: await outboxView(env, noticeId) });
 	}
 

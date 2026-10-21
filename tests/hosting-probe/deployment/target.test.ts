@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, test } from 'vitest';
-import { checkTarget, digestDir, loadTargets, stage, STAGED } from '../../../deploy/probes/target.ts';
+import { checkPrebuilt, checkTarget, digestDir, loadTargets, stage, STAGED, type Target } from '../../../deploy/probes/target.ts';
 
 const CLIENTS = path.join(import.meta.dirname, '../../../deploy/probes/clients');
 const targets = loadTargets(CLIENTS);
@@ -149,6 +149,46 @@ describe('every field the check reads, deleted, nulled or retyped, is refused', 
 		const text = config('client-a', 'wrangler.jsonc').replace(`"directory": "${STAGED.assets}"`, '"directory": "static"');
 		const problems = checkTarget({ client: 'client-a', targets, format: 'wrangler', text });
 		expect(problems.some((p) => p.includes('assets directory')), problems.join('\n')).toBe(true);
+	});
+});
+
+describe("the Build Output of a credential-free cf build is checked again before a --prebuilt upload", () => {
+	// cf deploy --prebuilt uploads the bindings in .cloudflare/output/v0, not those in cloudflare.config.ts. This is the
+	// shape cf 1.0.0-beta.20's build wrote for client A's stage in the probe.
+	const BOS = path.join(import.meta.dirname, '../../../.local/hosting-probe/deployment', `bos-${process.pid}`);
+	afterAll(() => rmSync(BOS, { recursive: true, force: true }));
+	const worker = (t: Target) => ({
+		name: t.worker,
+		compatibilityDate: '2026-10-12',
+		compatibilityFlags: ['nodejs_als'],
+		env: { DB: { type: 'd1', name: t.d1.name, id: t.d1.id }, BUCKET: { type: 'r2', name: t.r2.bucket }, CLERK_SECRET_KEY: { type: 'secret' }, CLEARCASE_CLIENT_ID: { type: 'text', value: t.client } },
+		manifest: { type: 'complete', mainModule: '_worker.js', modules: { '_worker.js': { type: 'esm' }, '_worker.js.map': { type: 'sourcemap' } } },
+	});
+	const write = (name: string, config: object, workers = ['default'], top: object = { accountId: a.accountId, buildContext: { isPreview: false } }) => {
+		const out = path.join(BOS, name, '.cloudflare/output/v0');
+		for (const w of workers) {
+			mkdirSync(path.join(out, 'workers', w), { recursive: true });
+			writeFileSync(path.join(out, 'workers', w, 'worker.config.json'), JSON.stringify(config));
+		}
+		writeFileSync(path.join(out, 'config.json'), JSON.stringify(top));
+		return path.join(BOS, name);
+	};
+	const refuses = (stage: string, reason: RegExp) => {
+		const problems = checkPrebuilt({ client: 'client-a', stage, targets });
+		expect(problems.some((p) => reason.test(p)), problems.join('\n')).toBe(true);
+	};
+
+	test("client A's Build Output passes", () => expect(checkPrebuilt({ client: 'client-a', stage: write('clean', worker(a)), targets })).toEqual([]));
+	test("client B's D1 id in client A's Build Output is refused, naming client B", () =>
+		refuses(write('swapped', { ...worker(a), env: { ...worker(a).env, DB: { type: 'd1', name: a.d1.name, id: b.d1.id } } }), new RegExp(`d1 id ${b.d1.id} belongs to client-b`)));
+	test("client B's Worker name is refused", () => refuses(write('worker', { ...worker(a), name: b.worker }), /worker clearcase-client-b belongs to client-b/));
+	test('a second Worker in the Build Output', () => refuses(write('two', worker(a), ['default', 'other']), /holds 2 Workers, not exactly one/));
+	test('no Build Output', () => refuses(path.join(BOS, 'none'), /holds 0 Workers/));
+	test('a module beside the staged entry', () =>
+		refuses(write('module', { ...worker(a), manifest: { ...worker(a).manifest, modules: { ...worker(a).manifest.modules, 'extra.js': { type: 'esm' } } } }), /Worker entry/));
+	test('a preview build or another account', () => {
+		refuses(write('preview', worker(a), ['default'], { accountId: a.accountId, buildContext: { isPreview: true } }), /buildContext/);
+		refuses(write('account', worker(a), ['default'], { accountId: 'f'.repeat(32), buildContext: { isPreview: false } }), /account id/);
 	});
 });
 

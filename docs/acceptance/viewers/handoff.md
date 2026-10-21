@@ -22,7 +22,7 @@ Not pre-added: `docx-preview` 0.4.1 (Apache-2.0, 51,194 B gzip, with `jszip` 3.1
 
 Evaluation-only (`tests/viewer-evaluation/package.json`, never shipped): `playwright-core` 1.64.1 (Apache-2.0) to drive Chrome for Testing, and `cfb` 1.2.2 (Apache-2.0) to write synthetic MSG fixtures.
 
-SheetJS CE drops a formula cell that has no stored result unless the reader passes `sheetStubs: true`; with it, the cell reads as `{t:'z', f, v:0}`, so `v` is not a result there (checked with 0.20.3).
+SheetJS CE 0.20.3 reads a formula cell that has no stored result as `{t:'z', f, v:0}`, so `v` is not a result there: key on `t:'z'`. The recorded reader (`tests/viewer-evaluation/harness/renderers/sheet.mjs:42`: `cellFormula`, `cellNF`, `cellStyles` and `cellText`, no `sheetStubs`) shows it for B7 of `sheet/main.xlsx` (`results.json`, check "parser output alone distinguishes an absent formula result"). A viewer that reads with other options tests that cell with its own options.
 
 Operator workstation tools (0 browser bytes), versions installed and used here:
 

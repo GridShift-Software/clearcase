@@ -16,14 +16,16 @@ const SHA = createHash('sha256').update(VALUE).digest('hex');
 afterAll(() => rmSync(SCRATCH, { recursive: true, force: true }));
 
 /** The first `node` on PATH that is real Node: under `bun run --bun`, the first one is Bun's stand-in. */
-const NODE = (process.env.PATH ?? '').split(':').map((d) => path.join(d, 'node')).find((p) => {
+const found = (process.env.PATH ?? '').split(':').map((d) => path.join(d, 'node')).find((p) => {
 	try {
 		accessSync(p, constants.X_OK);
 	} catch {
 		return false;
 	}
 	return spawnSync(p, ['-p', 'typeof Bun'], { encoding: 'utf8' }).stdout.trim() === 'undefined';
-})!;
+});
+if (!found) throw new Error('secrets.test.ts needs a real Node (>= 22) on PATH past Bun\'s `node` stand-in, and none was found among: ' + (process.env.PATH ?? '(PATH is unset)'));
+const NODE: string = found;
 
 function synthetic(contents = `# synthetic, GRS-107\nSYNTHETIC_TOKEN=${VALUE}\nOTHER_TOKEN=cc-synthetic-other\n`, fileMode = 0o600, dirMode = 0o700) {
 	rmSync(SCRATCH, { recursive: true, force: true });

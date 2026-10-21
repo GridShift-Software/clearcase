@@ -1,11 +1,11 @@
 {
   "schema": "clearcase.notifications-probe/1",
-  "sourceSha": "5e58e4948ab728886f23512cfac78dd9f173e900",
+  "sourceSha": "213f8fa50fcc97d6490fc2e52c4117f53c1cf798",
   "treeClean": true,
-  "servedRevision": "5e58e4948ab728886f23512cfac78dd9f173e900",
-  "startedAt": "2026-10-21T12:45:27.747Z",
-  "finishedAt": "2026-10-21T12:45:43.460Z",
-  "runDir": ".local/hosting-probe/notifications/2026-10-21T12-45-27-747Z",
+  "servedRevision": "213f8fa50fcc97d6490fc2e52c4117f53c1cf798",
+  "startedAt": "2026-10-21T14:06:34.764Z",
+  "finishedAt": "2026-10-21T14:06:54.530Z",
+  "runDir": ".local/hosting-probe/notifications/2026-10-21T14-06-34-764Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -20,7 +20,7 @@
     "workerd": "1.20261012.1",
     "wrangler": "4.151.1"
   },
-  "artifact": "sha256:90b87127688f2eba85172e0c9e90210579f44b1bccc107c04f93994a94f884c8",
+  "artifact": "sha256:f2bfd8617fa896a894cce6b159f153cb026755e8f30869c5a24e9eca09b47dd9",
   "isolation": {
     "network": "own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden",
     "env": [
@@ -56,7 +56,7 @@
         "Bun 1.4.2 builds the Worker, offline",
         "the build writes one module, build/worker.js",
         "the module imports nothing (Wrangler serves it as built, no_bundle) and carries the HEAD stamp",
-        "the module digest is recorded (artifact)"
+        "a second build of the same source and stamp has the same digest (artifact), so the committed digest can be recomputed from a checkout"
       ]
     },
     "binding-config": {
@@ -86,7 +86,7 @@
         "delivery and inbox arrival are reported apart from acceptance, as not observed",
         "the simulator saved exactly one message, the one whose messageId the app recorded",
         "it is from client A's sender to the uploader alone, with the generic publication subject",
-        "the saved message passes the content check: the publication template around one link, no case title, document title, file name or reference",
+        "the saved message passes the one check of a saved message: only From, To, Subject and Text in the log, exactly those fields in the sent-mail store (no cc, bcc, replyTo or header), and the publication template around one link, no case title, document title, file name or reference",
         "no HTML part and no attachment was saved",
         "its only link is client A's origin /n/<the notice id>, with no query or token"
       ]
@@ -99,7 +99,7 @@
       "asserted": [
         "the input-needed event answers 200 and its notice was sent once",
         "the simulator saved one more message, the one the app recorded",
-        "it passes the content check as the input-needed template",
+        "it passes the same check as the input-needed template",
         "it links its own notice, not the publication notice"
       ]
     },
@@ -227,7 +227,7 @@
         "case-a3 has two saved messages: the same generic notice and link, two provider messageIds (a real duplicate)",
         "the operator view marks both possible duplicates; it knows only the messageId the app saw",
         "the uploader has one in-app notice for case-a3, not two",
-        "both copies pass the content check"
+        "both copies pass the same check"
       ]
     },
     "permanent-no-retry": {
@@ -261,14 +261,32 @@
         "node node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env wrong-sender --persist-to <run>/persist/wrong-sender --file schema.sql",
         "node node_modules/wrangler/bin/wrangler.js dev --local --ip 127.0.0.1 --port 18911 --inspector-ip 127.0.0.1 --inspector-port 0 --persist-to <run>/persist/wrong-sender --show-interactive-dev-session=false --env wrong-sender",
         "POST /cases/case-a1/publish (SENDER is client B's address)",
+        "GET /cases/case-a1 and its file (a-uploader)",
+        "node node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env wrong-origin --persist-to <run>/persist/wrong-origin --file schema.sql",
+        "node node_modules/wrangler/bin/wrangler.js dev --local --ip 127.0.0.1 --port 18911 --inspector-ip 127.0.0.1 --inspector-port 0 --persist-to <run>/persist/wrong-origin --show-interactive-dev-session=false --env wrong-origin",
+        "POST /cases/case-a1/publish (APP_ORIGIN is client B's)",
+        "GET /cases/case-a1 and its file (a-uploader)",
+        "node node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env wrong-binding --persist-to <run>/persist/wrong-binding --file schema.sql",
+        "node node_modules/wrangler/bin/wrangler.js dev --local --ip 127.0.0.1 --port 18911 --inspector-ip 127.0.0.1 --inspector-port 0 --persist-to <run>/persist/wrong-binding --show-interactive-dev-session=false --env wrong-binding",
+        "POST /cases/case-a1/publish (the binding allows only client B's sender)",
         "GET /cases/case-a1 and its file (a-uploader)"
       ],
       "asserted": [
         "schema.sql applied to the wrong-sender state",
-        "the binding is still restricted to client A's sender",
-        "the local binding refuses a send from client B's address (allowed_sender_addresses); permanent, no retry, publication 200",
-        "nothing was saved",
-        "the publication, its file and the in-app notice are intact"
+        "wrong-sender: the binding is restricted to client A's sender",
+        "wrong-sender: the Worker's own check refuses the send before it reaches the binding (SENDER is client B's address); permanent, no retry, publication 200",
+        "wrong-sender: nothing was saved",
+        "wrong-sender: the publication, its file and the in-app notice are intact",
+        "schema.sql applied to the wrong-origin state",
+        "wrong-origin: the binding is restricted to client A's sender",
+        "wrong-origin: the Worker's own check refuses the send before it reaches the binding (APP_ORIGIN is client B's); permanent, no retry, publication 200",
+        "wrong-origin: nothing was saved",
+        "wrong-origin: the publication, its file and the in-app notice are intact",
+        "schema.sql applied to the wrong-binding state",
+        "wrong-binding: the binding is restricted to client B's sender",
+        "wrong-binding: the local binding refuses the send (allowed_sender_addresses); permanent, no retry, publication 200",
+        "wrong-binding: nothing was saved",
+        "wrong-binding: the publication, its file and the in-app notice are intact"
       ]
     },
     "binding-missing": {
@@ -293,9 +311,9 @@
         "scan of every saved message, Wrangler log and operator response of the run"
       ],
       "asserted": [
-        "the run saved exactly the seven expected messages, all MessageBuilder sends with a text part only",
-        "every saved message passes the content check for its own case's strings",
-        "no saved message carries any case's title, reference, id, document title, file name or file text, or any address but the uploader's",
+        "the run saved exactly the seven expected messages, all MessageBuilder sends with a text part only, and the sent-mail store holds no other",
+        "every saved message passes the one check of a saved message for its own case's strings",
+        "no saved message, in the log or the sent-mail store, carries any case's title, reference, id, document title, file name or file text, or any address but the uploader's",
         "the Authorization and cookie canaries sent on every request appear in no saved message, Wrangler log or operator response"
       ]
     }
@@ -305,7 +323,7 @@
       "env": "default",
       "caseId": "case-a1",
       "kind": "publication",
-      "text": "sha256:37612f12957dff7210c777d5c379ae5f76265bcd7bddd23bd4ca9ee80b639d72",
+      "text": "sha256:d51e9bb3b1defcb1e3b92d27176f9a965bd8bc3258adc127c52ec399c32bd2eb",
       "contentCheck": "PASS",
       "appSaw": "accepted",
       "providerAcceptance": "simulated: saved by the local binding",
@@ -316,7 +334,7 @@
       "env": "default",
       "caseId": "case-a1",
       "kind": "input-needed",
-      "text": "sha256:b8a284ddc7bdb5b428ef901b7af0268f4d4266be85da2d29e4f19a37bf139114",
+      "text": "sha256:c9082f33fd661a8ae0fd1d91ba58a5cac62a512bdd10c3c7a21c36264907c8ef",
       "contentCheck": "PASS",
       "appSaw": "accepted",
       "providerAcceptance": "simulated: saved by the local binding",
@@ -327,7 +345,7 @@
       "env": "default",
       "caseId": "case-a8",
       "kind": "publication",
-      "text": "sha256:399eaf9fa307ac3443734c15e78cae2d567287b607c205be05149d0c0e4f715a",
+      "text": "sha256:d013aa608b9bcf0199cc586e8b7f6047cae1f141819f6380cd790bae34071707",
       "contentCheck": "PASS",
       "appSaw": "accepted",
       "providerAcceptance": "simulated: saved by the local binding",
@@ -338,7 +356,7 @@
       "env": "faults",
       "caseId": "case-a8",
       "kind": "input-needed",
-      "text": "sha256:3736326121468fa91ba91c7c5e16a52525dde1b6b2847c31cf61076cf0f8a40f",
+      "text": "sha256:9dc207cab38878847517fc079b7cafbd1383ee3562c01bd63f44ad59e33b27a1",
       "contentCheck": "PASS",
       "appSaw": "accepted",
       "providerAcceptance": "simulated: saved by the local binding",
@@ -349,7 +367,7 @@
       "env": "faults",
       "caseId": "case-a3",
       "kind": "publication",
-      "text": "sha256:d42db4f9f7faff6c306fe13fb86c91b331ad0e76eaf72187b88c8539d81f6975",
+      "text": "sha256:3fe74fed23f93dae507cdc0c5dc85a92bd5557cf0759196adf8ae945d46dc037",
       "contentCheck": "PASS",
       "appSaw": "not seen: the attempt ended ambiguous",
       "providerAcceptance": "simulated: saved by the local binding",
@@ -360,7 +378,7 @@
       "env": "faults",
       "caseId": "case-a3",
       "kind": "publication",
-      "text": "sha256:d42db4f9f7faff6c306fe13fb86c91b331ad0e76eaf72187b88c8539d81f6975",
+      "text": "sha256:3fe74fed23f93dae507cdc0c5dc85a92bd5557cf0759196adf8ae945d46dc037",
       "contentCheck": "PASS",
       "appSaw": "accepted",
       "providerAcceptance": "simulated: saved by the local binding",
@@ -371,7 +389,7 @@
       "env": "faults",
       "caseId": "case-a4",
       "kind": "publication",
-      "text": "sha256:f69b5efa7f0efaedc73f51d98315863e28d01c690f8150bc1739a58d9ca6c1a8",
+      "text": "sha256:63d215501e4ce77eea7bda814773a1931118c328dc1dfca5b76f25012894203c",
       "contentCheck": "PASS",
       "appSaw": "accepted",
       "providerAcceptance": "simulated: saved by the local binding",
@@ -384,12 +402,12 @@
     "SPF, DKIM and DMARC on a sending subdomain under sandbox.gridshift.co.za with its own _dmarc record: M3",
     "allowed_sender_addresses enforced by the real binding (the simulator enforces it; see sender-restriction): M3",
     "the Paid qualifier and whether Workers Free can send (the pricing page contradicts itself): M3",
-    "real provider error responses: the E_* failures here come from the faults double"
+    "real provider error responses: the E_* failures here come from the faults double: M3"
   ],
   "failure": null,
   "evidence": true,
   "checker": {
-    "mutationsRefused": 1264,
+    "mutationsRefused": 1336,
     "accepted": null
   }
 }

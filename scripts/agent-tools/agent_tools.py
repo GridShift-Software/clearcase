@@ -1833,32 +1833,12 @@ def fix_state(store, unit):
     return fix, (reviews[-1] if reviews else None)
 
 
-def unit_manifests(root, head, unit):
-    """The fix-round manifests tracked at head that name unit. A file there that is not a JSON object might be this
-    unit's, so it refuses."""
-    _, out, problem = git(root, "ls-tree", "-r", "-z", "--name-only", head, "--", f"{FIX_ROUNDS}/")
-    if problem:
-        raise ValueError(problem)
-    found = []
-    for path in [path for path in os.fsdecode(out).split("\0") if path.endswith(".json")]:
-        _, text, problem = git(root, "show", f"{head}:{path}")
-        try:
-            manifest = None if problem else json.loads(text)
-        except ValueError:
-            manifest = None
-        if not isinstance(manifest, dict):
-            raise ValueError(f"{path} is not a readable JSON object at {head[:12]}, so approval cannot tell whose fix round it is")
-        if manifest.get("unit") == unit:
-            found.append(path)
-    return found
-
-
-def guard_binding(store, unit, supplied, identity, root):
+def guard_binding(store, unit, supplied, identity):
     """(binding, evidence paths). A unit with a recorded fix attempt needs a PASS test-guard receipt at the approved
     HEAD whose fix base is the commit the prompting review recorded, whose manifest names that review's findings by
-    content hash and lists exactly the tests that review protects. A review that names no test needs none, unless the
-    tree holds the unit's manifest: then its receipt carries a no-test declaration bound to that review. None when no
-    fix attempt is recorded."""
+    content hash and lists exactly the tests that review protects. A review that names no test (protectedTests: []) is
+    bound by a receipt of a manifest that carries a no-test declaration for that review: the receipt is never optional,
+    as the manifest is not for fix-round-guard --ledger. None when no fix attempt is recorded."""
     fix, prompting = fix_state(store, unit)
     if fix is None:
         return None, []
@@ -1870,15 +1850,11 @@ def guard_binding(store, unit, supplied, identity, root):
         raise ValueError("the review that prompted the fix lists no protectedTests (a list of {file, name}; empty "
                          "only when it names no test); the guard cannot be bound to it")
     binding = {"nothingToProtect": not protected, "reviewEvent": prompting["hash"], "fixEvent": fix["hash"], "fixBase": record["sha"]}
-    if not protected and not supplied:
-        declared = unit_manifests(root, identity["head"], unit)
-        if not declared:
-            return binding, []
-        raise ValueError(f"{declared[0]} is this unit's fix-round manifest: approval needs its PASS test-guard receipt "
-                         "(--guard-receipt), also when the review names no test")
     if not supplied:
         raise ValueError("a fix attempt is recorded for this unit: approval needs the PASS test-guard receipt "
-                         "(--guard-receipt) bound to the reviewed commit and findings")
+                         "(--guard-receipt) bound to the reviewed commit and findings, as fix-round-guard --ledger needs "
+                         "a fix-round manifest. A review that names no test (protectedTests: []) is bound by the "
+                         "manifest's noTests declaration (docs/agent-tooling.md, Docs-only fix rounds)")
     path = Path(supplied).expanduser().resolve()
     receipt = json_object(path)
     passing_check(receipt, identity)
@@ -1953,8 +1929,7 @@ def approval_evidence(args, identity, paths):
         checks[name] = str(path)
     if set(checks) != set(requirements):
         raise ValueError(f"required check receipt mismatch: expected {required}, got {list(checks)}")
-    root = Path(args.root).resolve() if args.root else REPO
-    guard, guard_paths = guard_binding(receipts_root(args.receipts), args.unit, args.guard_receipt, identity, root)
+    guard, guard_paths = guard_binding(receipts_root(args.receipts), args.unit, args.guard_receipt, identity)
     paths.extend(guard_paths)
     # approval-check reads the review, findings, check receipts and guard binding back from their exact twins.
     return {"state": "approved", "unit": args.unit, "sha": args.sha, "approvedBy": args.approved_by, "guard": guard,
@@ -2011,8 +1986,7 @@ def cmd_approval(args):
             if event["hash"] != row["reviewEvent"]:
                 raise ValueError("approval review-step record mismatch")
             bound = exact(row, "guard", "approval")
-            guard, guard_paths = guard_binding(receipts_root(args.receipts), args.unit, (bound or {}).get("receipt"),
-                                               identity, root)
+            guard, guard_paths = guard_binding(receipts_root(args.receipts), args.unit, (bound or {}).get("receipt"), identity)
             if guard != bound:
                 raise ValueError("approval row lacks the test-guard binding the ledger now requires for this unit")
             paths.extend(guard_paths)

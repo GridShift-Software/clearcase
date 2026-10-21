@@ -433,7 +433,7 @@ class Approval(DocsOnlyFixRound):
         self.record([])
         self.fix_round()
         self.prepare([{'id': 'L1', 'severity': 'low'}])
-        self.assertIn(self.path, self.approve(code=1))
+        self.assertIn('--guard-receipt', self.approve(code=1))
 
     def test_a_fix_that_loosens_a_test_with_no_manifest_is_not_approved(self):
         # P3 (GRS-156 review): the ledger records a fix, the review names no test, and no manifest is committed. The

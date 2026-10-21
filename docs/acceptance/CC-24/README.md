@@ -2,13 +2,13 @@
 
 ## Resumed gate, 9 October 2026
 
-**PASS at `27d8183154ac0fcd5a07d4a15a0f2b2d8c38e965`.** See [the resumed record](r2.md) and [receipt summary](r2-summary.json). Both original HOLD reasons are closed; no implementation files were changed by this reviewer.
+**PASS at `25965d9e964b870190c27bd5f1c8933e5c75e9ad`.** See [the resumed record](r2.md) and [receipt summary](r2-summary.json). Both original HOLD reasons are closed; no implementation files were changed by this reviewer. The evidence JSON in this directory was recorded before the 21 October 2026 history rewrite and names the earlier forms (first six characters) of the same commits: `27d818` for `25965d9e` (`r2-summary.json`) and `5aa7b9` for `0d312bba` (`execution-summary.json`, `ownership-plan.json`, `r2-summary.json`).
 
 ## First run, retained record
 
 **Verdict: HOLD.** Required coordinator reservations and one independent adversarial report are missing. Keep M2 closed.
 
-Reviewed application revision: `5aa7b91c3011ded3af57c3c14a23096d64712786`. This evidence layer changes no implementation files. The complete local report, receipts, private screenshots and raw measurements remain in the coordinator's local `.orchestration/reports/CC-24/` directory.
+Reviewed application revision: `0d312bba6ffda8cfe975a64c1fefb71a5aa4db71`. This evidence layer changes no implementation files. The complete local report, receipts, private screenshots and raw measurements remain in the coordinator's local `.orchestration/reports/CC-24/` directory.
 
 The gate remains closed until the acceptance conditions, including ownership transfer, are satisfied. The runtime checks pass under Bun 1.4.2 in a network namespace with no external interface. The reservation ledger still holds CC-03's broad `src/routes/**` reservation and has no M2 owner route reservations or coordinator reservation for the shared layout and persistence paths. `ownership-plan.json` is the precise transfer request; it does not claim that the coordinator has activated those reservations.
 
@@ -20,7 +20,7 @@ Run the synthetic acceptance tests from this evidence checkout:
 
 ```sh
 export CLEARCASE_RECEIPTS_DIR=/absolute/local/CC-24/receipts
-scripts/agent-tools/receipt --name cc24-synthetic --base 5aa7b91c3011ded3af57c3c14a23096d64712786 --input tests/acceptance/CC-24/run.mjs -- bun tests/acceptance/CC-24/run.mjs --app-root /absolute/clean-reviewed-checkout --out /absolute/local/CC-24/synthetic
+scripts/agent-tools/receipt --name cc24-synthetic --base 0d312bba6ffda8cfe975a64c1fefb71a5aa4db71 --input tests/acceptance/CC-24/run.mjs -- bun tests/acceptance/CC-24/run.mjs --app-root /absolute/clean-reviewed-checkout --out /absolute/local/CC-24/synthetic
 ```
 
 The runner starts the real production entry under Bun, imports synthetic packages through the app, drives Chromium, proves loopback binding and SQLite pragmas, checks both Host guards, verifies preview isolation, rejects malformed and over-limit candidates without losing notes, kills the server and verifies restart recovery. It uses the repository's network wrapper to bring loopback up and restore the outer UID. No acceptance boundary is mocked.
@@ -30,7 +30,7 @@ Optional `--corpus /absolute/hostile-corpus` adds the independent synthetic HTML
 Check extension points and the coordinator's current reservations:
 
 ```sh
-scripts/agent-tools/receipt --name cc24-ownership --base 5aa7b91c3011ded3af57c3c14a23096d64712786 --input tests/acceptance/CC-24/extension-points.mjs -- bun tests/acceptance/CC-24/extension-points.mjs --root /absolute/clean-reviewed-checkout --oracle /absolute/view-oracle/oracle-42.json --reservations /absolute/coordinator/reservations.tsv --out /absolute/local/CC-24/ownership.json
+scripts/agent-tools/receipt --name cc24-ownership --base 0d312bba6ffda8cfe975a64c1fefb71a5aa4db71 --input tests/acceptance/CC-24/extension-points.mjs -- bun tests/acceptance/CC-24/extension-points.mjs --root /absolute/clean-reviewed-checkout --oracle /absolute/view-oracle/oracle-42.json --reservations /absolute/coordinator/reservations.tsv --out /absolute/local/CC-24/ownership.json
 ```
 
 An exit of 1 preserves the failed ownership conditions. Omitting `--reservations` checks the registry and planned scopes only; that narrower result is insufficient to open M2.

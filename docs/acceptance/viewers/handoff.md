@@ -22,6 +22,8 @@ Not pre-added: `docx-preview` 0.4.1 (Apache-2.0, 51,194 B gzip, with `jszip` 3.1
 
 Evaluation-only (`tests/viewer-evaluation/package.json`, never shipped): `playwright-core` 1.64.1 (Apache-2.0) to drive Chrome for Testing, and `cfb` 1.2.2 (Apache-2.0) to write synthetic MSG fixtures.
 
+SheetJS CE 0.20.3 reads a formula cell that has no stored result as `{t:'z', f, v:0}`, so `v` is not a result there: key on `t:'z'`. The recorded reader (`tests/viewer-evaluation/harness/renderers/sheet.mjs:42`: `cellFormula`, `cellNF`, `cellStyles` and `cellText`, no `sheetStubs`) shows it for B7 of `sheet/main.xlsx` (`results.json`, check "parser output alone distinguishes an absent formula result"). A viewer that reads with other options tests that cell with its own options.
+
 Operator workstation tools (0 browser bytes), versions installed and used here:
 
 | Tool | Version | Licence | Used for |
@@ -53,15 +55,17 @@ The harness used local bytes in one browser. These are not established and must 
 3. Firefox, WebKit, real iOS Safari and real Android Chrome: all **HOLD** (not installed, no devices). Mobile here is Chromium emulation at 390×844, which is not evidence for mobile codecs, memory or touch.
 4. Screen readers (NVDA with Firefox, VoiceOver with Safari): not run. Keyboard checks passed; ARIA roles are present but no assistive-technology task was performed.
 5. Owner-created real exports: an Outlook "Save as .msg", an Outlook/OWA "Download" EML, a Gmail "Download message" EML and a Gmail message forwarded as an attachment, with the export method and client version recorded. The fixtures here are structure models written by this harness, not exports from Outlook or Gmail; each carries a `provenance` record in the manifest saying so (`modelled: true`, `exportedFrom: null`).
-6. Initial POC limits (open question 2) and their just-below/at/above checks; the tiers measured here are proposals.
+6. Initial POC limits (open question 2) and their just-below/at/above checks; the tiers measured here are the starting tiers the user accepted ([decided 20 October 2026][decision]).
 7. W-side parsing: `postal-mime`, `msgreader` (with `nodejs_compat`) and `fflate` were run in Bun and in the browser, not in workerd.
 
 ## Open questions and the defaults used
 
-From the pre-read. Nobody could answer them during this unit, so each default is marked **assumed, pending user answer** in the contract itself (section 9 lists them by question number; sections 1, 2 and 6 mark them where they apply). This file only repeats them.
+From the pre-read. Nobody could answer them during this unit, so each default was marked as assumed in the contract itself. The user accepted all five (**[decided 20 October 2026][decision]**), and the contract now marks them so (section 9 lists them by question number; sections 1, 2 and 6 mark them where they apply). This file only repeats them.
 
 1. **Accepted codecs, image formats and archive methods.** Default: images PNG, JPEG, GIF, WebP, AVIF native; TIFF (including BigTIFF) and HEIC through prepared page images. Media: MP4/MOV/MKV with H.264/AAC, WebM VP9/Opus, MP3, WAV, Ogg Opus, M4A native; other video (AVI, HEVC) through a prepared H.264/AAC rendition. ZIP: stored or deflate, unencrypted, single volume, no ZIP64, nesting depth 3; encrypted, split, ZIP64 and other methods are held. Bulk mailboxes (mbox, PST, OST) are not accepted as one file; the operator extracts EML files and records the mailbox hash and offsets. 7z, RAR, gzip, bzip2, xz, zstd and tar, and bytes that match no reader, are held for manual extraction.
 2. **Initial POC limits.** Default: the measured tiers (1,000 PDF pages, 100 MP image, 1m cells, 1,000 archive members) as the upper test points, ZIP members at most 64 MiB and 512 MiB total, 10,000 members. No latency or memory budget is enforced yet; measured times are reported.
 3. **Reference application, fonts and presentation of tracked changes, hidden content, chart-only data, stale caches and embedded objects.** Default: LibreOffice 26.2 with the options above as the operator reference; comments in the margin; tracked changes as exported markup; hidden content and comments shown from the original in the grid; stored formula results shown as stored, without recalculation, and missing ones as "value unavailable".
 4. **Who prepares and reviews OCR, RTF companions, captions and location maps, and the turnaround in "Preview pending processing".** Default: the operator running the processing recipe prepares and reviews them; there is no turnaround target; any unmappable supplied reference holds the whole update until the operator repairs it. While a file is processed, natively readable originals (PDF, native images, workbooks, email with a body, native media, ZIP) are viewable and only formats that need a prepared preview show "Preview pending processing"; the ADR names PDFs and images only, so the wider list is an assumption.
 5. **SheetJS CE cadence and operator licences.** Default: accept SheetJS CE 0.20.3 from the official CDN, pinned by integrity, with an update lane owned by GRS-112; accept LibreOffice (MPL) and a GPL FFmpeg build on the operator workstation only, with their notices kept. No commercial or external viewer or conversion service.
+
+[decision]: https://linear.app/vaper/issue/GRS-27#comment-629983a8

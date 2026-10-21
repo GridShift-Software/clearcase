@@ -1,6 +1,6 @@
 # Independent v5 oracle reconciliation
 
-Reviewed implementation: `c3c773cf4016d02ab22d62754c6eab5a23ca9401`. The independent oracle has 42 views, 243 capability entries and 35 export entries. The checklist has 213 activated controls, 58 form-field groups/entries and eight shared-shell controls. All 26 action-count differences were resolved by reading the main v5 source as text. Source line numbers below refer to the pinned main HTML; no archive code was executed.
+Reviewed implementation: `7c888eeb21a45886156bac03353f9bd73fe7bd6d`. The independent oracle has 42 views, 243 capability entries and 35 export entries. The checklist has 213 activated controls, 58 form-field groups/entries and eight shared-shell controls. All 26 action-count differences were resolved by reading the main v5 source as text. Source line numbers below refer to the pinned main HTML; no archive code was executed.
 
 | View | Oracle | Checklist | Fields | Resolution from v5 source |
 | --- | ---: | ---: | ---: | --- |

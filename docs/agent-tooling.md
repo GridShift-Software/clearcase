@@ -92,6 +92,8 @@ To move the pin, run `bun upgrade --stable` (`pacman -Syu bun` for the distribut
 | `scripts/agent-tools/bootstrap [--relock \| --remove]` | See above. Plain `bootstrap` runs the doctor, which writes the doctor's receipt. A refused conflicting link, `--relock` and `--remove` write none. | 0 or 1 |
 | `python3 scripts/planning/generate.py --compare-linear EXPORT` | Diffs generated briefs against the descriptions in a full Linear export. Writes no receipt unless wrapped in `receipt`. | 0 all match, 1 drift |
 
+`verify` has no `check` capability (its list is `models`, `test-guard`, the plan and pstack checks, `pstack` and `app`): run `bun run --bun check` directly, wrapped in `receipt` if a record is wanted. `receipt` waits for every process that holds its output pipes, so a wrapped command that leaves a daemon with inherited stdout hangs it (`receipt -- sh -c 'sleep 40 & echo hi'` was still waiting after 20 s); redirect the daemon's stdout and stderr.
+
 All commands accept `--skills-dir`, `--receipts`, `--base REF` and `--root DIR`. `--root` checks a different planning tree, which must be the top of a Git checkout; the tests use it for fixtures. `doctor` and `bootstrap` ignore `--root` and check the checkout that holds the tools. `--base` names the revision that receipts compare against; see [Revision identity](#revision-identity).
 
 Capabilities and the commands they wrap:
@@ -268,6 +270,8 @@ The plugin section of the suite is self-contained. `tests/agent-tools/make_plugi
 
 Escalation tests prove missing linkage, source, exact/clean SHA or bounded question cannot write; complete request/outcome records retain the task fields without dispatch. Spend tests distinguish unavailable and zero, require an actual source, reject invalid numbers and prove overspend targets do not stop commands. These are tooling behavior tests, not evidence of a real escalation, live Linear agreement, provider billing, hosted deployment or deadline enforcement.
 
+`tests/agent-tools/test_controls.py` runs as one row of `run.sh` (`python3 -I tests/agent-tools/test_controls.py [Class]`). The `-m unittest` form cannot import under `-I`. A `GuardCase`'s subtests share one repository, so a file written identically in an earlier subtest is unchanged in the next diff.
+
 The suite exits nonzero on any unexpected behavior. `check-plan` can independently remain FAIL for the real plan even when every tooling behavior test passes.
 
 ## Fix-diff test protection
@@ -364,9 +368,9 @@ It fails closed, and a reviewed `fixBase` advance is the remedy. `--ledger` bind
 prints how many changed files it left to the base and which protected ones, and its PASS line ends `; trusted base <full SHA>` when a base was trusted. Reviewer-owned: a base change to the runner
 configuration is accepted even where it decides whether the branch's named tests run (a base `exclude`, or an `include`
 list that no longer matches the branch's test directory), since the guard cannot evaluate globs; the re-check reads each
-protected file the guard's line names. A `fixBase` advance like `e7681a6` (PR #75) is no longer needed for a base change
+protected file the guard's line names. A `fixBase` advance like `9699b18` (PR #75) is no longer needed for a base change
 to a path the branch had not touched; it still is for a hand-resolved union and for a later ticket in the same wave
-(`afd48fc4`, PR #84, where the change came from the wave, not the base). Existing manifests stay as they are.
+(`fc8ad471`, PR #84, where the change came from the wave, not the base). Existing manifests stay as they are.
 
 Findings JSON has `tests: [{"file": "tests/example.test.ts", "name": "rejects stale evidence"}]`.
 The list must be nonempty. Paths are relative to the repository; literal names must be unique
@@ -512,7 +516,7 @@ A local function named `expect`, and literal reads of the global object (`global
 `const g = globalThis as {...}` then `g.__clearcase`), are fine. A changed module may load an unchanged module under
 test freely, since application code is trusted as reviewed.
 
-What the guard bounds at `66f2bb3` (GRS-148, landed as defence in depth, as GRS-104 was): a changed JS/TS/Svelte
+What the guard bounds at `8df11a8` (GRS-148, landed as defence in depth, as GRS-104 was): a changed JS/TS/Svelte
 module cannot name a framework, move or write a rooted capability (the global object, `Symbol`, a builtin, a Node or
 Bun builtin module, a constructor or prototype) through the shapes listed above, followed through `const`/`let`/`var`,
 destructuring of a rooted initialiser, `await`, conditionals, a literal `require`/`import()` and import bindings
@@ -558,6 +562,14 @@ lands, the re-check reviewer owns each one and must check it by hand in every ch
 Unsupported named syntax or changed Python/shell test sources fail closed, and so does a protected file importing a
 module the resolver cannot bind, a `.svelte` component included; this draft does not claim semantic understanding of
 arbitrary test frameworks.
+
+### Guard internals
+
+Where a change to `scripts/agent-tools/test_guard.mjs` lands:
+
+- `closure(revision, starts)` returns `{found, ids, modes, data, runner, resolve, loadedBy, declared, origin}`. `follow()` fills `found` (all compared text, including runner configuration and resolver inputs) and the import edges; `loadedBy(start)` walks those edges from one named file plus the shared files, so the files a test loads are per file, not one `loaded` set. `importsOf(tree, file, strict)` skips nonliteral imports of app code when `strict` is false; strict mode still throws for protected files.
+- `analysisOf(file, text, exporter)` (module level, cached per exporter) owns `rootOf`, `exportRoot` and `exportedBy`. `reachesFramework(file, text, exporter)` takes `main()`'s `exporter`, which links a specifier and reads `runnableOf` at HEAD, memoised; without an exporter, imports are not followed. It is an allowlist (`held`, `rootOf`, `mutation`), and Svelte files read `scriptOf` (parse) and `runnableOf` (compile).
+- `link`, `unquery`, `external` and `exporter` sit in `main()` just after `currentClosure`, because `quiet()` uses them. `link()` binds `.svelte` and extensioned specifiers for new-load edges only; the closure's own `resolve` still fails closed on them.
 
 ## Exact-revision approval ledger
 

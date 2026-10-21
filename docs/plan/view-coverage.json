@@ -541,7 +541,7 @@
     "ess_dcs_transcripts_v1": "CC-07"
   },
   "hostedOwnership": {
-    "sourceRevision": "b93bad097fdd7b3c076d68025267c36395fc9921",
+    "sourceRevision": "f89c56cb07c808bcf711f96cc458e54c55b1899d",
     "snapshotDate": "16 October 2026",
     "note": "owner remains the historical v5 implementation owner used by the registry. hostedOwner names the hosted caller/feature migration owner. Shared core storage/auth/viewer contracts have separate Linear owners; no navigation redesign is approved.",
     "planningGate": "GRS-69",

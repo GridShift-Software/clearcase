@@ -25,7 +25,7 @@ The test step puts its temporary files (`TMPDIR` and `CLEARCASE_TEST_TMP`) in a 
 
 Measured on 12 October 2026 by running each commit's own workflow steps in scratch homes on this VM. Each side had one cold run (empty home: Chrome download, empty Bun cache), then five warm runs, alternating with the other side. Times are medians in seconds, with the warm range; the queue is not included. Both sides passed every run: 1943 tests before, 1979 after (the 36 new ones are GRS-60's).
 
-| step | before (`6edaff0`) warm | after (`cd6845e`) warm | before cold | after cold |
+| step | before (`f4c86d8`) warm | after (`ee4cd4a`) warm | before cold | after cold |
 | --- | --- | --- | --- | --- |
 | install Chrome | 3.7 (3.7-3.7) | 0.2 (0.2-0.2) | 32.7 | 33.7 |
 | `check` | 10.0 (10.0-10.1) | 10.3 (10.1-10.5) | 10.5 | 10.8 |
@@ -49,7 +49,7 @@ Read it with `gh run view RUN_ID` (the summary) or `gh run download RUN_ID -n re
 
 The repository has been public since 20 October 2026. Anyone can read its code and its workflow logs, fork it, open issues and comment; any signed-in GitHub user can download a run's `receipts` artifact. Only collaborators can open pull requests. The runner must still run only this repository's own code. Three layers, each weaker than the next: the job's guard (a pull request's run uses the pull request's own copy of the workflow, so it can drop the guard); GitHub's settings (an organization member needs no approval, so a writer can send a fork's workflow to the runner); and the runner's own admission hook (below), which does not depend on the workflow file or on who opened the pull request.
 
-**State on 20 October 2026: the hook is installed on pc1, loaded by the running runner and proven on the real `Runner.Worker`.** Source `4fb92a92584063d2850972eeee4930eb8811d118` was provisioned onto actions/runner 2.338.0, the version the hook was reviewed against (hook sha256 `54d266cb…`, policy `fdb92480…`). The service restarted and the readback matched at 17:14 UTC. The proof ran between 17:20 and 17:24 UTC from a checkout at `ff87e18cd7655b747327829b366cbc9520565591`, whose `scripts/ci` is identical to the installed source, using throwaway branches and a draft pull request of this repository (no fork), which the coordinator closes and deletes unmerged:
+**State on 20 October 2026: the hook is installed on pc1, loaded by the running runner and proven on the real `Runner.Worker`.** Source `62c33e7811874b9b13f8b5a519487724773b523c` was provisioned onto actions/runner 2.338.0, the version the hook was reviewed against (hook sha256 `54d266cb…`, policy `fdb92480…`). The service restarted and the readback matched at 17:14 UTC. The proof ran between 17:20 and 17:24 UTC from a checkout at `e763ab6115d732e613ae5335accab323298b95df`, whose `scripts/ci` is identical to the installed source, using throwaway branches and a draft pull request of this repository (no fork), which the coordinator closes and deletes unmerged:
 
 - **Refused, a push to a branch other than `dev`:** runs [39464961995](https://github.com/GridShift-Software/clearcase/actions/runs/39464961995) (the workflow sets `GITHUB_REPOSITORY`, `GITHUB_EVENT_NAME`, `GITHUB_EVENT_PATH` and `GITHUB_REF` to look like a push to `dev`) and [39464962224](https://github.com/GridShift-Software/clearcase/actions/runs/39464962224) (plain). Both failed with no step, the runner's own `Worker` log for each processes only the hook step and ends with exit 137, the guest's admission log has a `denied event=push` line for each, and neither the ordinary nor the `always()` marker was written. GitHub kept no log for those jobs (HTTP 404), so the absence of the markers rests on the runner's `_diag` logs and the admission log, not on an empty GitHub log.
 - **Admitted, a pull request from a branch of this repository:** runs [39464982453](https://github.com/GridShift-Software/clearcase/actions/runs/39464982453) (same overrides) and [39464982317](https://github.com/GridShift-Software/clearcase/actions/runs/39464982317) (plain). Both ran their ordinary and `always()` steps, and the payload's repository, head and base were all `GridShift-Software/clearcase`. The runner ignored the workflow's `GITHUB_*` overrides, so a job cannot supply them to the hook.
@@ -293,7 +293,7 @@ Accepted and not fixed in GRS-57:
 
 ## Review, 17 October 2026
 
-A read-only review at `origin/dev` `8ab9ef4` of the last 30 CI runs (12 to 15 October). Verdict: CI is already fast. The gap is independence from GitHub, not speed. Step times come from GitHub's whole-second timestamps.
+A read-only review at `origin/dev` `c89d405` of the last 30 CI runs (12 to 15 October). Verdict: CI is already fast. The gap is independence from GitHub, not speed. Step times come from GitHub's whole-second timestamps.
 
 | Median seconds (range) | 6 runs before GRS-60 | 23 runs on GRS-60 code |
 | --- | --- | --- |

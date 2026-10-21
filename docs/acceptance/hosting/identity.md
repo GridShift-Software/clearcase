@@ -2,7 +2,7 @@
 
 [GRS-108](https://linear.app/vaper/issue/GRS-108) asks for a working Clerk integration on Workers and an explicit role, session and asset authorization contract for the design gate. Cloudflare stays pinned (no account, token, login, DNS change or deploy), so this unit runs the **local and Clerk-development legs**: two SvelteKit 3 Workers on native workerd with local D1 and R2, verifying sessions of the real development instances `Clear-Case-Dev-A` (client) and `Clear-Case-Dev-B` (staff).
 
-**Verdict: PASS for the local and Clerk-development legs; HOLD for the rest.** The committed run passed at `9e754c27`, and `check:evidence` binds it to every later HEAD whose probe inputs are unchanged. Every acceptance item below that these legs can show passes. What stays HOLD, and who it needs, is listed [at the end](#what-stays-hold). The probe is not the production integration; GRS-113 adopts its contracts.
+**Verdict: PASS for the local and Clerk-development legs; HOLD for the rest.** The committed run passed at `dbaf18b4`, and `check:evidence` binds it to every later HEAD whose probe inputs are unchanged. Every acceptance item below that these legs can show passes. What stays HOLD, and who it needs, is listed [at the end](#what-stays-hold). The probe is not the production integration; GRS-113 adopts its contracts.
 
 ## Run it
 
@@ -172,7 +172,7 @@ Legs: **offline** is `bun run --bun test` (crafted issuers on workerd, no Clerk)
 
 ## Legs
 
-| Leg | What it asserts at `9e754c27` |
+| Leg | What it asserts at `dbaf18b4` |
 | --- | --- |
 | integration | the Bun build with adapter-cloudflare is stamped with HEAD; `authenticateRequest` is in the server bundle with no `node:crypto` import; Wrangler seeds both apps' local D1 and R2 in its own process; `serve.mjs` starts both Workers with the keys as `secret_text`; native workerd serves them and both serve the HEAD stamp |
 | instances | each Frontend API is the named development instance; sign-up is restricted; MFA is not required and no second factor is enabled; Clerk refuses a sign-up with no invitation (403 `sign_up_mode_restricted`) |
@@ -185,7 +185,7 @@ Legs: **offline** is `bun run --bun test` (crafted issuers on workerd, no Clerk)
 | route-matrix | 34 routes, 251 checks (196 refused, 55 allowed), each matching `matrix.ts`; no refusal carries a marker of either case and every allowed case-1 read carries its own; each class changed D1 by exactly its allowed writes |
 | public-entry | the BA-19 and BA-20 pages answer 200 logged out, with a stale cookie, set no cookie and carry no case content; a logged-out document request without a dev browser goes to the handshake first; with one it is a 303 to `/login?reason=signed-out&next=%2Fcases%2Fcase-1`; `/login` refuses an off-site return path; BA-20 copy is marked `placeholder-for-review` |
 | cleanup | every session the run created is gone or ended (read from Clerk, none pending); no user or invitation of the run is left in either instance, and both instances' user and pending-invitation counts are back at the run's baseline |
-| credential-scan | no key, token, dev browser JWT, ticket, password or credential shape in the 308 files of logs, local state, the build and the summary |
+| credential-scan | no key, token, dev browser JWT, ticket, password or credential shape in the 326 files of logs, local state, the build and the summary |
 
 ## Clerk objects
 
@@ -212,7 +212,7 @@ The committed run is [evidence/identity-summary.json](evidence/identity-summary.
 
 `check:evidence` also compares the whole summary with one exact shape, recomputes every expectation of the route table from `matrix.ts` at HEAD, recomputes the counts, and requires every Clerk user, invitation and session created to be deleted or ended (`sessions.ended` is counted from each session's status in Clerk, and `sessions.pending` must be 0). `check.test.ts` mutates a passing summary in more than 5,000 ways (every field deleted, nulled, retyped, emptied, flipped or zeroed, and an unknown key in each object) and the check refuses all of them; it also proves the binding in a scratch repository.
 
-`deploy/probes/scan.ts` is bound. The credential-scan leg imports it, and the leg's claim, no hit in 308 files, is that scanner's answer at the run's revision: a scanner changed later must be shown to give the same answer, which is a new run, not an old summary. `check.test.ts` asserts a change to it makes the summary stale, and a change to the rest of `deploy/probes/` does not.
+`deploy/probes/scan.ts` is bound. The credential-scan leg imports it, and the leg's claim, no hit in 326 files, is that scanner's answer at the run's revision: a scanner changed later must be shown to give the same answer, which is a new run, not an old summary. `check.test.ts` asserts a change to it makes the summary stale, and a change to the rest of `deploy/probes/` does not.
 
 On 21 October `wave/proofs` moved to `b858213c` when GRS-107 merged (PR #97) with a changed reader. In a scratch checkout of the earlier run's commit merged with it, the same check refused that run's summary: `summary.inputs.digest` was stale, because `deploy/probes/secrets.ts` and `secrets-child.mjs` had changed. This branch then merged `wave/proofs` (`19f82058`), moved the runner to Node for the new reader (`ad1d0eb0`), and ran again. In a scratch checkout of `ad1d0eb0` merged with `origin/wave/proofs` (already an ancestor, so Git reports "Already up to date"), `bun tests/hosting-probe/identity/check.ts` prints `CHECK PASS` and exits 0. `check.test.ts` covers a merge that does bring changes outside the inputs.
 
@@ -222,10 +222,10 @@ The probe's own checks, all in `tests/hosting-probe/identity/`:
 
 | Command | Revision | Exit | Result |
 | --- | --- | --- | --- |
-| `bun run --bun test` | `9e754c27` | 0 | 54 passed: `gates.test.ts` 43 (33 gate cases, 2 default-deny, the grant-to-a-non-staff-user case, 5 process-lifecycle, 2 on `serve.mjs`'s stores and start), `check.test.ts` 11 |
-| `bun run --bun test tests/hosting-probe/identity/ tests/ci/test-collection.test.ts`, from the repository root | `9e754c27` | 0 | 56 passed under the root config (the identity files are collected there now) |
-| `bun run --bun probe` | `9e754c27` | 0 | `PROBE PASS`, `evidence: true`, all 12 legs PASS, 0 scan hits; sweep removed nothing; users 8/8, invitations 9/9, sessions 14/14 |
-| `bun run --bun check:evidence` | `9e754c27` and the commit that adds this page | 0 | `CHECK PASS`, inputs `sha256:69728611…` |
+| `bun run --bun test` | `dbaf18b4` | 0 | 60 passed: `gates.test.ts` 45 (33 gate cases, 2 default-deny, the grant-to-a-non-staff-user case, 6 process-lifecycle, 3 on `serve.mjs`'s stores, start and a dead Worker), `check.test.ts` 12, `clerk.test.ts` 3 |
+| `bun run --bun test tests/hosting-probe/identity/ tests/ci/test-collection.test.ts`, from the repository root | `dbaf18b4` | 0 | 62 passed under the root config (the identity files are collected there now) |
+| `bun run --bun probe` | `dbaf18b4` | 0 | `PROBE PASS`, `evidence: true`, all 12 legs PASS, 0 scan hits; sweep removed nothing; users 8/8, invitations 9/9, sessions 14/14 |
+| `bun run --bun check:evidence` | `dbaf18b4` and the commit that adds this page | 0 | `CHECK PASS`, inputs `sha256:7bff9d60…` |
 | `bun tests/hosting-probe/identity/check.ts` after `git merge origin/wave/proofs` (`b858213c`, already an ancestor) in a scratch checkout | the commit that adds this page | 0 | `CHECK PASS` |
 
 Receipts are under the worktree's ignored `.local/agent-receipts/`. The repository's `check`, `gate:hosted` and `gate` results are in the ticket's report at the hand-in head.

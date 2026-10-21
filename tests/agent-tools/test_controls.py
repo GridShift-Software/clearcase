@@ -2439,6 +2439,60 @@ class FixRoundMergedBase(ControlCase):
                 self.assertIn(message, self.guard('--base', 'dev', code=1))
 
 
+class FixRoundRenames(ControlCase):
+    """GRS-153 polish M1: a path set is compared with rename detection off. A renamed test is deleted at its old path
+    and added at its new one, so a rename cannot hide the old file's assertions, and a base-side near-copy cannot
+    stand in for a test the branch deleted."""
+    original = TestWeakening.original
+    path = FixRoundManifest.path
+    manifest = FixRoundManifest.manifest
+    reset = FixRoundMergedBase.reset
+    change = FixRoundMergedBase.change
+    on_dev = FixRoundMergedBase.on_dev
+    merge = FixRoundMergedBase.merge
+    guard = FixRoundMergedBase.guard
+    config = FixRoundMergedBase.config
+    helper = FixRoundMergedBase.helper
+    test = FixRoundMergedBase.test
+    # eight assertions, similar enough to the file it is copied from for Git to call the copy a rename
+    big = ''.join(f"test('case {n}', () => {{ expect({n}).toEqual({n}); }});\n" for n in range(8))
+
+    def setUp(self):
+        super().setUp()
+        self.write('vitest.config.ts', self.config)
+        self.write('support/helper.ts', self.helper)
+        self.write('tests/big.test.ts', self.big)
+        self.dev = self.commit('runner configuration, helper and a test with eight assertions')
+        self.git('switch', '-q', '-c', 'feature/grs-104-tooling')
+        self.write('tests/protected.test.ts', self.test)
+        self.base = self.commit('reviewed tests')
+        self.write('app.txt', 'fixed\n')
+        self.manifest()
+        self.fixed = self.commit('fix round')
+
+    def test_a_branch_rename_that_drops_an_assertion_refuses(self):
+        self.git('mv', 'tests/big.test.ts', 'tests/renamed.test.ts')
+        self.write('tests/renamed.test.ts', self.big.replace(self.big.splitlines()[-1] + '\n', ''))
+        self.commit('rename a test and drop an assertion')
+        self.assertIn('assertion count fell in tests/big.test.ts: 8 -> 0', self.guard('--base', 'dev', code=1))
+        self.assertEqual(self.last_receipt()['result'], 'FAIL')
+
+    def test_a_base_near_copy_merged_into_a_branch_that_deleted_the_original_refuses(self):
+        self.on_dev({'tests/copy.test.ts': self.big + "test('extra', () => { expect(9).toEqual(9); });\n"})
+        self.git('rm', '-q', 'tests/big.test.ts')
+        self.commit('the branch deletes the test')
+        self.merge()
+        self.assertIn('assertion count fell in tests/big.test.ts: 8 -> 0', self.guard('--base', 'dev', code=1))
+
+    def test_a_rename_the_base_made_and_the_branch_merged_passes(self):
+        self.git('switch', '-q', 'dev')
+        self.git('mv', 'tests/big.test.ts', 'tests/renamed.test.ts')
+        self.commit('the base renames the test')
+        self.git('switch', '-q', 'feature/grs-104-tooling')
+        self.merge()
+        self.assertIn('protected among them:', self.guard('--base', 'dev'))
+
+
 class FixRoundDerivedKeys(ControlCase):
     """GRS-153 review M1: the guard's derived entries (`package.json#scripts`, `<dir>/package.json#resolution`) are read
     from a tracked file but have no path of their own. A merged base change counts for one only through the file it is

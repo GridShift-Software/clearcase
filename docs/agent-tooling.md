@@ -372,6 +372,7 @@ Findings JSON has `tests: [{"file": "tests/example.test.ts", "name": "rejects st
 The list must be nonempty. Paths are relative to the repository; literal names must be unique
 and active in both revisions. JS/TS syntax is parsed by the project's TypeScript dependency,
 without executing the tests. Deletion, rename, skip/todo/only and inactive parent groups fail.
+The guard compares changed paths with rename detection off, so a renamed test counts as deleted at its old path and added at its new one, and its old assertion count is checked.
 Protection is deliberately conservative: every executable token of the top-level statement containing a named test must stay
 unchanged (including its enclosing suite/control flow), so assertion changes (including strengthening) and callback rewrites also fail.
 Comments and whitespace may change. The protected closure, resolved from both Git snapshots, is test code only:

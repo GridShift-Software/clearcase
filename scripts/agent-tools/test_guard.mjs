@@ -1335,7 +1335,7 @@ function main() {
   }
   if (diff.length > changed.length) {
     console.log(`test-guard: ${diff.length - changed.length} changed file(s) are the base's, not this branch's: the base ${trusted} `
-      + `is merged into HEAD and HEAD holds each as it does; protected among them: ${inherited.join(', ') || 'none'}`);
+      + `is merged into HEAD and HEAD holds each as it does; protected among them: ${[...new Set(inherited)].join(', ') || 'none'}`);
   }
   console.log(`test-guard: PASS (${findings.tests.length} named tests; ${base}..${head}${trusted ? `; trusted base ${trusted}` : ''})`);
   if (command.length) {

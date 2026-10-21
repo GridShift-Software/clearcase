@@ -13,7 +13,8 @@
 // Bun other than packageManager's, an installed package that is not its pin, or a Node that is really Bun. It writes
 // the summary (default .local/hosting-probe/notifications/summary.json) and exits 0 only when `evidence` is true.
 //
-// `--check FILE` refuses (exit 1) a summary that is not this runner's PASS for HEAD (summary.ts: one exact shape).
+// `--check FILE` refuses (exit 1) a summary that is not this runner's PASS for a revision of this checkout, whose Worker
+// is the Worker in this tree (evidence.ts: summary.ts's one exact shape, then the binding to HEAD).
 //
 // `--adverse NAME|all` runs the same legs against a Worker that sends one thing more than the minimal notice (NAME is
 // one of ADVERSE: cc, bcc, reply-to, x-header). The runner's independent check of the saved messages must fail the
@@ -23,13 +24,11 @@ import { createHash, randomUUID } from 'node:crypto';
 import { accessSync, constants, createWriteStream, existsSync, mkdirSync, readdirSync, readFileSync, readlinkSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import { buildWorker } from './build.ts';
+import { evidenceProblems } from './evidence.ts';
 import { linkedNotice, noticeProblems, type NoticeKind } from './src/notice.ts';
-import { BOUNDARIES, BUN, checkSummary, HOLD, isObject, LEGS, type LegName, MESSAGES, mutationsRefused, pkg, SCHEMA } from './summary.ts';
+import { BOUNDARIES, BUN, checkSummary, HOLD, isObject, LEGS, type LegName, MESSAGES, mutationsRefused, pkg, runStamp, SCHEMA } from './summary.ts';
 
-/** The one Bun API this script uses; the root project has no @types/bun. */
-declare const Bun: {
-	build(options: { entrypoints: string[]; outdir: string; target: 'browser'; format: 'esm'; define: Record<string, string> }): Promise<{ success: boolean; outputs: { path: string }[]; logs: unknown[] }>;
-};
 
 /**
  * Worker variants that send one field more than the minimal notice. Each patches the one call site of `send.send(message)`
@@ -294,7 +293,8 @@ async function main(out: string, adverse: string | null): Promise<number> {
 	const node = realNode();
 	const pins = checkInstalled();
 	rmSync(out, { force: true }); // after every refusal, so a refused run deletes nothing
-	const runDir = path.join(root, '.local', 'hosting-probe', 'notifications', new Date().toISOString().replace(/[:.]/g, '-'));
+	const startedAt = new Date().toISOString();
+	const runDir = path.join(root, '.local', 'hosting-probe', 'notifications', runStamp(startedAt)); // the summary's runDir is derived from startedAt
 	const rel = (p: string) => p.replace(runDir, '<run>');
 	const logs = path.join(runDir, 'logs');
 	for (const d of ['home/.config', 'cache', 'logs/wrangler']) mkdirSync(path.join(runDir, d), { recursive: true });
@@ -377,7 +377,6 @@ async function main(out: string, adverse: string | null): Promise<number> {
 		}
 	}
 
-	const startedAt = new Date().toISOString();
 	let servedRevision: string | null = null;
 	let workerd: string | null = null;
 	let artifact: string | null = null;
@@ -407,13 +406,13 @@ async function main(out: string, adverse: string | null): Promise<number> {
 				entry = path.join(HERE, 'build/adverse/worker.ts');
 				writeFileSync(entry, source.replace('send.send(message)', `send.send(${ADVERSE[adverse]} as Message)`).replaceAll("'./", "'../../src/"));
 			}
-			const r = await Bun.build({ entrypoints: [entry], outdir: path.join(HERE, 'build'), target: 'browser', format: 'esm', define: { PROBE_SOURCE_REVISION: JSON.stringify(sha) } });
+			const r = await buildWorker(entry, path.join(HERE, 'build'), sha);
 			check(r.success && process.versions.bun === BUN, `Bun ${BUN} builds the Worker, offline`);
 			check(r.outputs.length === 1 && r.outputs[0]!.path === path.join(HERE, 'build/worker.js'), 'the build writes one module, build/worker.js');
 			const bundle = readFileSync(path.join(HERE, 'build/worker.js'), 'utf8');
 			check(!/^\s*import\b/m.test(bundle) && bundle.includes(JSON.stringify(sha)), 'the module imports nothing (Wrangler serves it as built, no_bundle) and carries the HEAD stamp');
 			artifact = `sha256:${sha256(bundle)}`;
-			const again = await Bun.build({ entrypoints: [entry], outdir: path.join(runDir, 'rebuild'), target: 'browser', format: 'esm', define: { PROBE_SOURCE_REVISION: JSON.stringify(sha) } });
+			const again = await buildWorker(entry, path.join(runDir, 'rebuild'), sha);
 			check(again.success && `sha256:${sha256(readFileSync(path.join(runDir, 'rebuild/worker.js'), 'utf8'))}` === artifact, 'a second build of the same source and stamp has the same digest (artifact), so the committed digest can be recomputed from a checkout');
 		});
 
@@ -676,7 +675,7 @@ async function main(out: string, adverse: string | null): Promise<number> {
 		if (problems.length === 0) {
 			const m = mutationsRefused(draft, sha);
 			summary.checker = { mutationsRefused: m.refused, accepted: m.accepted };
-			summary.evidence = m.accepted === null && checkSummary({ ...summary, evidence: true }, sha).length === 0;
+			summary.evidence = m.accepted === null && checkSummary({ ...summary, evidence: true }, sha).length === 0 && (await evidenceProblems({ ...summary, evidence: true })).length === 0;
 		} else for (const p of problems) console.log(`refused: ${p}`);
 	}
 	mkdirSync(path.dirname(out), { recursive: true });
@@ -704,7 +703,7 @@ const { values } = parseArgs({ options: { out: { type: 'string' }, check: { type
 try {
 	if (process.versions.bun !== BUN) throw new Refusal(`runs under Bun ${BUN} only (packageManager); this is ${process.versions.bun ? `Bun ${process.versions.bun}` : `Node ${process.versions.node}`}`);
 	if (values.check) {
-		const problems = checkSummary(JSON.parse(readFileSync(values.check, 'utf8')), head());
+		const problems = await evidenceProblems(JSON.parse(readFileSync(values.check, 'utf8')));
 		for (const p of problems) console.log(`refused: ${p}`);
 		console.log(problems.length ? `CHECK FAIL ${values.check}` : `CHECK PASS ${values.check}`);
 		process.exit(problems.length ? 1 : 0);

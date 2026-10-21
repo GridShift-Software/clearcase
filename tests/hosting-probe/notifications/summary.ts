@@ -86,6 +86,8 @@ export const BUN = pkg.packageManager.replace(/^bun@/, '');
 type Spec = null | boolean | string | RegExp | ((v: unknown) => boolean) | Spec[] | { [key: string]: Spec };
 const NONEMPTY = (v: unknown) => typeof v === 'string' && v.length > 0;
 const ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+/** The run directory's name for a run that started at `startedAt` (an ISO time): the same time with : and . as -. */
+export const runStamp = (startedAt: string) => startedAt.replace(/[:.]/g, '-');
 export const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 function expectedShape(sha: string, summary: Record<string, unknown>): Spec {
@@ -97,8 +99,8 @@ function expectedShape(sha: string, summary: Record<string, unknown>): Spec {
 		treeClean: true,
 		servedRevision: sha,
 		startedAt: ISO,
-		finishedAt: ISO,
-		runDir: /^\.local\/hosting-probe\/notifications\/[0-9A-Za-z-]+$/,
+		finishedAt: (v) => typeof v === 'string' && ISO.test(v) && Date.parse(v) >= Date.parse(String(summary.startedAt)),
+		runDir: typeof summary.startedAt === 'string' && ISO.test(summary.startedAt) ? `.local/hosting-probe/notifications/${runStamp(summary.startedAt)}` : /^$/,
 		hosts: { bun: BUN, node: /^\d+\.\d+\.\d+$/, workerd, build: `Bun ${BUN}`, runner: `Bun ${BUN}`, wrangler: `Node ${node}`, app: `workerd ${workerd} (native)` },
 		pins: { ...pkg.devDependencies },
 		artifact: /^sha256:[0-9a-f]{64}$/,

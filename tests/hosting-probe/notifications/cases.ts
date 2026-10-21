@@ -6,15 +6,17 @@
 //    message: each must be refused, and the one clean notice accepted.
 // 2. The retry policy: every documented send() error code, the simulator's restrictions and the app's own codes map to
 //    the outcome the policy names, and the schedule is bounded.
-// 3. The committed evidence summary, its SHAs pointed at HEAD, passes `--check`'s shape, and every mutation of it
-//    (summary.ts's walk: each leaf and container deleted, nulled, retyped, emptied, flipped or zeroed, and an unknown
-//    key added to each object) is refused.
+// 3. The committed evidence summary, as committed, passes evidence.ts: its shape for its own sourceSha, sourceSha an
+//    ancestor of HEAD with nothing under this directory changed since, a rebuild of the Worker with that stamp equal to
+//    its artifact, and its mutation count recomputed. Every mutation of it (summary.ts's walk: each leaf and container
+//    deleted, nulled, retyped, emptied, flipped or zeroed, and an unknown key added to each object) is refused.
+//    `bun run --bun tamper` proves the command fails on evidence that names the wrong commit, artifact or count.
 // Exit 1 on any case that goes the wrong way.
 import { readFileSync } from 'node:fs';
-import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { composeNotice, noticeProblems, type Message } from './src/notice.ts';
 import { classify, DEFAULT_SEND_TIMEOUT_MS, DOCUMENTED_CODES, errorCode, MAX_ATTEMPTS, nextAttemptAt, sendTimeoutMs } from './src/policy.ts';
+import { evidenceProblems } from './evidence.ts';
 import { checkSummary, mutationsRefused } from './summary.ts';
 
 const NOTICE_ID = '7d3f0b6e-2c4a-4e8b-9f10-3a5b6c7d8e9f';
@@ -103,13 +105,13 @@ policy(`SEND_TIMEOUT_MS that is absent, empty, non-numeric, zero, negative or in
 
 // 3. The committed evidence and the summary check
 const failuresBeforeEvidence = failures.length;
-const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: import.meta.dirname, encoding: 'utf8' }).stdout.trim();
-// NOTIFICATIONS_EVIDENCE names another file to check; tamper.ts uses it to prove that stale evidence fails this command.
 const evidence = JSON.parse(readFileSync(process.env.NOTIFICATIONS_EVIDENCE ?? path.join(import.meta.dirname, '../../../docs/acceptance/hosting/evidence/notifications-summary.json'), 'utf8')) as Record<string, unknown>;
-const control = { ...structuredClone(evidence), sourceSha: head, servedRevision: head };
-const controlProblems = checkSummary(control, head);
-policy(`the committed evidence passes the summary check at HEAD${controlProblems.length ? ` (${controlProblems[0]})` : ''}`, controlProblems.length === 0);
-const walk = mutationsRefused(control, head);
+const sha = String(evidence.sourceSha);
+// The file as committed, never with its SHAs pointed at HEAD: it must name a commit of this branch, an ancestor of HEAD,
+// with nothing under this directory changed since, and its artifact and mutation count must be recomputable here.
+const bound = await evidenceProblems(evidence);
+policy(`the committed evidence is this runner's PASS for ${sha.slice(0, 12)}, an ancestor of HEAD with this directory unchanged since, and its artifact and mutation count are recomputed${bound.length ? ` (${bound[0]})` : ''}`, bound.length === 0);
+const walk = mutationsRefused(evidence, sha);
 policy(`every mutation of the committed evidence is refused (${walk.refused} refused${walk.accepted ? `; accepted: ${walk.accepted}` : ''})`, walk.accepted === null && walk.refused > 500);
 policy('a summary for another SHA is refused', checkSummary(evidence, '1'.repeat(40)).length > 0);
 console.log(failures.length > failuresBeforeEvidence ? 'EVIDENCE FAIL' : 'EVIDENCE PASS');

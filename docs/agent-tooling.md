@@ -589,8 +589,13 @@ non-executable file (mode `100644`, or absent on one side) whose name ends in `.
 `src`, `scripts`, `static`, `build`, `node_modules`, `.svelte-kit`, `RAWS`, `.local` or a test-support directory listed
 above. Anything else fails closed and is named: a runtime module, a test, helper or fixture, a shell or Python test
 (GRS-155's `tests/ci-guard/run.sh`), the workflow, another manifest, Markdown under `src/` or `tests/`, an executable or
-symlinked `.md`, a `.MD`. Markdown a check reads (the delivery plan, a verification skill's `SKILL.md` or
-`features/*.md`) counts as documentation, and the check that reads it still runs on the pull request. For a declaration
+symlinked `.md`, a `.MD`. A Markdown file that tracked code or a test reads is a check's input, not documentation. Reading cannot be told
+from naming, so the guard refuses a changed `.md` file whose name, or the path of a directory above it of two components or
+more (`docs/plan` for `docs/plan/x.md`), any tracked file other than Markdown and the fix-round manifests holds as a
+whole word (`docs/results-package.md`, `docs/ci-runner.md`, a verification skill's `SKILL.md`). It searches the tree at
+the tip of the range with `git grep`, so a newly read file is covered the day the reader lands, with no list to keep. It
+over-approximates (a script that only prints a document's name refuses a round that edits it), which fails closed: such a
+round names the tests to protect instead. A single top-level directory is not searched, since everything names it. For a declaration
 the guard runs nothing else, since a docs-only range holds no code for the closure, reach or assertion-count checks to
 judge; its receipt records the declaration as `guard.noTests`. `test-guard` and `fix-round-guard` compare the declaration
 with the manifest only. With `--ledger`, `fix-round-guard` also refuses a declaration when the review the ledger recorded
@@ -606,18 +611,23 @@ and its re-check's evidence that no non-Markdown byte changed. It gets no manife
 fix base would now span later work; its draft manifest's `orderingLimitation` field is not part of a declaration.
 
 In the wave. A wave pull request into `dev` reruns the declaration at the wave head, where the range from the fix base
-also holds the wave's later tickets. With an explicit `--base`, no `--ledger`, a `--branch` of the form `wave/<name>`
-(CI passes the pull request's head branch, `base-guard` the worktree's) and a manifest added in the range,
-`fix-round-guard` bounds the declaration at its own fix round. The oldest commit on HEAD's first-parent line that holds
-the manifest is the merge that brought the round's line into the wave, and its one other parent holding the same
-manifest bytes is the line's tip. The guard judges the fix base to that tip (`--fix-head`, recorded as `guard.fixHead`),
-with the newest wave state the tip holds as the trusted base, so a wave change the ticket merged in before its own merge
-is the wave's, as at the ticket's pull request. A manifest committed on the wave's own line, changed after the merge or
-brought in any other way gets the whole range, which fails closed. What follows the merge on the wave's line, a later
-merge of the same ticket branch included, is other pull requests' work, judged by their own guard runs. The bound trusts
-a wave's first-parent line to be merges of pull requests (a wave PR's head is `wave/<name>`, and nothing commits to a
-wave directly). On any other branch the whole range is the declaration's, so a ticket that merges its manifest in from a
-side line is judged whole. Approval refuses a bounded receipt as it refuses a base-aware one.
+also holds the wave's later tickets. With an explicit `--base` that is `dev` (`origin/dev`), no `--ledger`, a `--branch`
+of the form `wave/<name>` (one component, as `merge-check` admits) and a manifest added in the range, `fix-round-guard`
+bounds the declaration at its own fix round. The head branch's name alone proves nothing: CI passes the pull request's own,
+and a ticket PR into a wave may use any, so the bound also needs a base of `dev` and a first-parent line of merges from
+the merge base to the joining merge; one commit of its own on that line, or a manifest committed there, gives the whole
+range. The oldest commit on HEAD's first-parent line that holds the manifest is the merge that brought the round's line
+into the wave, and its one other parent holding the same manifest bytes is the line's tip. The guard judges the fix base
+to that tip (`--fix-head`, recorded as `guard.fixHead`), with the newest wave state the tip holds as the trusted base, so
+a wave change the ticket merged in before its own merge is the wave's, as at the ticket's pull request. A manifest changed
+after the merge or brought in any other way gets the whole range, which fails closed. What follows the merge on the wave's
+line, a later merge of the same ticket branch included, is other pull requests' work, judged by their own guard runs. On
+any other base or branch the whole range is the declaration's, so a ticket that merges its manifest in from a side line is
+judged whole. Approval refuses a bounded receipt as it refuses a base-aware one.
+
+Rollout. CI and `base-guard` run the guard of the pull request's base branch, never the pull request's own. A
+declaration is therefore refused (`findings.tests must be a nonempty list`) until this change reaches the PR's base
+branch, and a wave's pull request into `dev` refuses one until the wave itself has landed the change.
 
 ## Exact-revision approval ledger
 
@@ -656,10 +666,10 @@ not from the worker's files: the review that prompted the fix is the unit's late
 without `--ledger` (its `guard.trustedBase` is set, or its recorded command carries `--trusted-base`), since a worker
 chooses that base. A receipt bounded at a fix head (`guard.fixHead`, or `--fix-head` in its command) refuses too.
 When the recorded review lists no `protectedTests` field the approval refuses. An empty list records
-`guard.nothingToProtect` and needs no receipt while the approved tree holds no fix-round manifest naming the unit; once
-it holds one, approval needs that manifest's PASS receipt, whose no-test declaration
-([Docs-only fix rounds](#docs-only-fix-rounds)) must name the recorded review's SHA and findings hash, and a manifest
-file there that is not a JSON object refuses, since it could be the unit's. A declaration for a review that names tests
+`guard.nothingToProtect` and still needs the receipt: approval admits no recorded fix that `fix-round-guard --ledger`
+refuses, and that guard demands a manifest. The only manifest an empty list can have is a docs-only declaration
+([Docs-only fix rounds](#docs-only-fix-rounds)), whose PASS receipt must name the recorded review's SHA and findings hash,
+so a recorded fix with no manifest refuses, whatever it changes. A declaration for a review that names tests
 refuses. The row keeps the binding (with `noTests` for a declaration) and the receipt joins the fingerprinted inputs, so
 editing the receipt afterwards refuses at readback.
 A unit with no recorded `fix` dispatch approves as before.

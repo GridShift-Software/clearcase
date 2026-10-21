@@ -14,7 +14,7 @@ import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { composeNotice, noticeProblems, type Message } from './src/notice.ts';
-import { classify, DOCUMENTED_CODES, errorCode, MAX_ATTEMPTS, nextAttemptAt } from './src/policy.ts';
+import { classify, DEFAULT_SEND_TIMEOUT_MS, DOCUMENTED_CODES, errorCode, MAX_ATTEMPTS, nextAttemptAt, sendTimeoutMs } from './src/policy.ts';
 import { checkSummary, mutationsRefused } from './summary.ts';
 
 const NOTICE_ID = '7d3f0b6e-2c4a-4e8b-9f10-3a5b6c7d8e9f';
@@ -97,6 +97,9 @@ policy("the simulator's two restrictions are recognised and permanent", errorCod
 policy('an error with no code, a retyped code or a lower-case code is UNKNOWN (ambiguous), never its message', [new Error('uploader-a@client-a.example.test'), coded(7), coded('e_rate_limit_exceeded'), coded(null), null, 'E_RATE_LIMIT_EXCEEDED'].every((e) => errorCode(e) === 'UNKNOWN'));
 policy('attempt 2 is due 5 min after attempt 1, attempt 3 30 min after attempt 2', nextAttemptAt(1, 'transient', 0) === 300_000 && nextAttemptAt(2, 'ambiguous', 1_000) === 1_801_000);
 policy(`no attempt follows attempt ${MAX_ATTEMPTS} or a permanent failure`, MAX_ATTEMPTS === 3 && nextAttemptAt(3, 'ambiguous', 0) === null && nextAttemptAt(1, 'permanent', 0) === null && nextAttemptAt(4, 'transient', 0) === null);
+
+policy('SEND_TIMEOUT_MS is used when it is a positive number', sendTimeoutMs('1500') === 1500 && sendTimeoutMs('1e3') === 1000);
+policy(`SEND_TIMEOUT_MS that is absent, empty, non-numeric, zero, negative or infinite is the ${DEFAULT_SEND_TIMEOUT_MS} ms default, never a 0 ms timer`, [undefined, '', ' ', 'soon', '10s', 'NaN', '0', '-5', 'Infinity'].every((v) => sendTimeoutMs(v) === DEFAULT_SEND_TIMEOUT_MS));
 
 // 3. The committed evidence and the summary check
 const failuresBeforeEvidence = failures.length;

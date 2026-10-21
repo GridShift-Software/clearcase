@@ -16,6 +16,17 @@
 
 export type Outcome = 'permanent' | 'transient' | 'ambiguous';
 export const MAX_ATTEMPTS = 3;
+/** How long one send() may take before the attempt is recorded as a timeout (ambiguous). */
+export const DEFAULT_SEND_TIMEOUT_MS = 10_000;
+/**
+ * SEND_TIMEOUT_MS as milliseconds. Anything but a positive finite number (absent, empty, non-numeric, zero, negative)
+ * is DEFAULT_SEND_TIMEOUT_MS: a NaN timer fires at once, which would mark every send a timeout while it may have sent.
+ */
+export function sendTimeoutMs(value: string | undefined): number {
+	const ms = value === undefined ? NaN : Number(value);
+	return Number.isFinite(ms) && ms > 0 ? ms : DEFAULT_SEND_TIMEOUT_MS;
+}
+
 /** Minutes after attempt n (1-based) before attempt n + 1 is due. */
 export const BACKOFF_MINUTES = [5, 30];
 

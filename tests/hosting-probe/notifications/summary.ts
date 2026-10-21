@@ -66,7 +66,7 @@ export const HOLD = [
 	'SPF, DKIM and DMARC on a sending subdomain under sandbox.gridshift.co.za with its own _dmarc record: M3',
 	'allowed_sender_addresses enforced by the real binding (the simulator enforces it; see sender-restriction): M3',
 	'the Paid qualifier and whether Workers Free can send (the pricing page contradicts itself): M3',
-	'real provider error responses: the E_* failures here come from the faults double',
+	'real provider error responses: the E_* failures here come from the faults double: M3',
 ];
 export const BOUNDARIES = {
 	runtime: 'real: native workerd under wrangler dev --local',

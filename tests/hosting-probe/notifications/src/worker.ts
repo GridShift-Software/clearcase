@@ -9,7 +9,7 @@
 // Identity is a test double: the `x-probe-identity: <client>/<user>` header stands in for the client's Clerk session
 // (GRS-108 owns Clerk). The link in the email carries only an opaque notice id; following it needs that identity.
 import { composeNotice, noticeProblems, type Message, type NoticeKind } from './notice.ts';
-import { classify, errorCode, MAX_ATTEMPTS, nextAttemptAt, type Outcome } from './policy.ts';
+import { classify, errorCode, MAX_ATTEMPTS, nextAttemptAt, sendTimeoutMs, type Outcome } from './policy.ts';
 
 type Row = Record<string, unknown>;
 type Stmt = { bind(...values: unknown[]): Stmt; first<T = Row>(): Promise<T | null>; all<T = Row>(): Promise<{ results: T[] }>; run(): Promise<{ meta: { changes: number } }> };
@@ -23,6 +23,13 @@ type Env = { DB: D1; BUCKET: R2; EMAIL?: SendEmail; CLIENT_ID: string; APP_ORIGI
 
 /** An attempt still `sending` this long after its claim was cut off mid-send (the Worker died or timed out): acceptance unknown. */
 const STALE_SENDING_MS = 10 * 60_000;
+
+/**
+ * Where a failure outside the outbox row can be seen. D1 itself may be what failed, so the row cannot record it: the
+ * event goes to the Worker's log (Workers Logs, `wrangler tail`) as one line with the notice id and the error's name,
+ * never its message, which can carry SQL, an address or case text. The row stays as it was and the next sweep takes it.
+ */
+const unrecorded = (where: string, noticeId: string) => (e: unknown) => console.error(JSON.stringify({ event: 'notification-error', where, noticeId, error: e instanceof Error ? e.name : typeof e }));
 
 const json = (body: unknown, status = 200) => Response.json(body, { status });
 const refuse = (status: number, error: string) => json({ error }, status);
@@ -93,7 +100,7 @@ async function attempt(env: Env, noticeId: string, now: number): Promise<void> {
 		if (noticeProblems(message, ctx).length) code = 'NOTICE_CONTENT_REFUSED';
 		else {
 			let timer: ReturnType<typeof setTimeout> | undefined;
-			const timedOut = new Promise<'TIMEOUT'>((resolve) => (timer = setTimeout(() => resolve('TIMEOUT'), Number(env.SEND_TIMEOUT_MS ?? 10_000))));
+			const timedOut = new Promise<'TIMEOUT'>((resolve) => (timer = setTimeout(() => resolve('TIMEOUT'), sendTimeoutMs(env.SEND_TIMEOUT_MS))));
 			try {
 				const result = await Promise.race([send.send(message), timedOut]);
 				if (result === 'TIMEOUT') code = 'TIMEOUT';
@@ -114,7 +121,7 @@ async function attempt(env: Env, noticeId: string, now: number): Promise<void> {
  * committed publication and notice still answer 200: the row stays pending or sending, and the sweep takes it.
  */
 async function firstAttempt(env: Env, noticeId: string, now: number): Promise<void> {
-	await attempt(env, noticeId, now).catch(() => {});
+	await attempt(env, noticeId, now).catch(unrecorded('first-attempt', noticeId));
 }
 
 /** Writes attempt n's outcome and the outbox row's next state in one batch. */
@@ -133,11 +140,11 @@ async function sweep(env: Env, now: number): Promise<void> {
 		.bind(env.CLIENT_ID, now - STALE_SENDING_MS)
 		.all<{ notice_id: string; attempts: number }>();
 	// one row's error (a D1 failure, a record raced by a late original) must not stop the rows after it
-	for (const s of stale.results) await record(env, s.notice_id, s.attempts, now, 'ambiguous', 'INTERRUPTED', null).catch(() => {});
+	for (const s of stale.results) await record(env, s.notice_id, s.attempts, now, 'ambiguous', 'INTERRUPTED', null).catch(unrecorded('settle-interrupted', s.notice_id));
 	const due = await env.DB.prepare("SELECT o.notice_id FROM outbox o JOIN notices n ON n.id = o.notice_id WHERE n.client = ? AND o.state IN ('pending', 'retrying') AND (o.next_at IS NULL OR o.next_at <= ?) ORDER BY o.updated_at LIMIT 50")
 		.bind(env.CLIENT_ID, now)
 		.all<{ notice_id: string }>();
-	for (const d of due.results) await attempt(env, d.notice_id, now).catch(() => {});
+	for (const d of due.results) await attempt(env, d.notice_id, now).catch(unrecorded('sweep-attempt', d.notice_id));
 }
 
 /** Creates the in-app notice and its outbox row with `extra` in one batch, or returns the notice that already exists for this event. */

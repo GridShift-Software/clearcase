@@ -95,7 +95,7 @@ const MEASURES: Record<LegName, Record<string, Spec>> = {
 	retention: { rotations: 6, copiesRemoved: 4, copiesKept: 0, bundleVersionsKept: 1, packetsAged: 1 },
 	'restore-leftovers': { stepped: 6, erasedByLedger: 3, agedOut: 3, kept: 3, residueRows: 0 },
 	'ledger-guards': { refusedRequests: 3 },
-	'warm-isolate': { routesGone: 9, adoptedRemovals: 1, residueRows: 0 },
+	'warm-isolate': { routesGone: 9, repeatedRemovals: 1, residueRows: 0 },
 };
 const ENV_KEYS = ['CI', 'CLOUDFLARE_CF_FETCH_ENABLED', 'CLOUDFLARE_INCLUDE_PROCESS_ENV', 'CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV', 'HOME', 'PATH', 'WRANGLER_HIDE_BANNER', 'WRANGLER_LOG_PATH', 'WRANGLER_SEND_ERROR_REPORTS', 'WRANGLER_SEND_METRICS', 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME'];
 
@@ -989,11 +989,11 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			}
 			check(gone === caseRoutes(A2).length, `the same running Worker answers 410 case-deleted on every case route of A2, reads and writes alike, with no case bytes (${answers.join(', ')})`);
 			const retry = await post(`/cases/${A2}/deletion/remove`, { actor: GA });
-			check(retry.status === 200 && retry.json().state === 'removed' && retry.json().adopted === true && retry.json().repeated === true, "the Global Admin's retried removal succeeds by adopting the record that is already in both buckets");
+			check(retry.status === 200 && retry.json().state === 'removed' && retry.json().repeated === true, "the Global Admin's retried removal succeeds as a repeat: the case routes in front of it already brought D1 in line with the record that is in both buckets");
 			check((await json(`/cases/${A2}/deletion`)).removed_at === record.removedAt, "D1 holds the record's removal time: the removal adopts the record and writes no new one");
 			const res = residue('client-a', A2, versionsOfA2, exportsOfA2);
 			check(res.left.length === 0 && isGone(await liveOf(A2)), `A2 holds no row in any of the ${res.tables} tables sqlite_master lists with such a column (${res.left.join(', ')})`);
-			Object.assign(m, { routesGone: gone, adoptedRemovals: retry.json().adopted === true ? 1 : 0, residueRows: res.left.length });
+			Object.assign(m, { routesGone: gone, repeatedRemovals: retry.json().repeated === true ? 1 : 0, residueRows: res.left.length });
 		});
 	} catch (e) {
 		failure = e instanceof Error ? e.message : String(e);

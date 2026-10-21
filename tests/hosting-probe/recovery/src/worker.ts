@@ -315,7 +315,10 @@ async function deletionStep(ctx: Ctx, request: Request, caseId: string, step: St
 			if (d?.state === 'removed') return json({ caseId, state: 'removed', repeated: true, ...(await erase(ctx, caseId, ['SELECT 1', []], ["EXISTS (SELECT 1 FROM case_deletion WHERE case_id = ? AND state = 'removed')", [caseId]])) });
 			expect('offered');
 			// A record already written (by another isolate, or by a removal that stopped part-way) is adopted, never replaced
-			// by one with a new removed_at; reconcile applies it to D1 and finishes the erasure.
+			// by one with a new removed_at; reconcile applies it to D1 and finishes the erasure. The route's ledger gate has
+			// applied any record that was there when the request arrived, so only one written between that gate and this
+			// line, by a racing isolate, gets here; no leg can time it, and the first writer's record stands either way
+			// (writeRecord's put is conditional).
 			if (await recordHeld(ctx, caseId)) {
 				await reconcile(ctx);
 				return json({ caseId, state: 'removed', repeated: true, adopted: true });

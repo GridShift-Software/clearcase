@@ -6,8 +6,11 @@
 // Integrity rules it proves:
 // - every request first checks that its D1 database and R2 bucket both belong to the deployment's client (crossed or
 //   missing identity: 503, nothing read or written);
-// - no stored byte leaves before the whole object it belongs to was hashed and matched its recorded SHA-256 and size
-//   (410 and no bytes otherwise), ranges included;
+// - the whole object a byte belongs to is hashed and matched against its recorded SHA-256 and size (410 and no bytes
+//   otherwise), ranges included. Up to 32 MiB that happens before the first byte leaves. Beyond it the object is read
+//   twice: the first read hashes it before the headers, the second hashes again while streaming and holds back its last
+//   chunk until the digest matches, so a change between the reads ends the response in an error before its last byte;
+//   the bytes before that chunk have already left;
 // - every multi-statement write is one D1 batch whose first statement is a guard; a failed guard rolls the batch back.
 import { type D1, type D1Result, type D1Value, type Env, type R2, type R2Object, type R2ObjectBody, type R2UploadedPart, digestStream, fixedLength, hasBody, hex, sha256Hex } from './platform.ts';
 import { type Sha256State, Sha256 } from './sha256.ts';
@@ -31,7 +34,7 @@ class GuardFailed extends Error {}
 
 const MiB = 1024 * 1024;
 const SINGLE_PUT_MAX = 64 * MiB; // larger uploads go through multipart parts, each under the Workers request-body limit
-const BUFFER_MAX = 32 * MiB; // a verified original up to this size, or a range up to it, is served from one hashing pass
+const BUFFER_MAX = 32 * MiB; // a verified original up to this size, or a range up to it, is served from one hashing pass; larger ones from two
 const PART = 8 * MiB; // an export step writes one multipart part of exactly this size; only the packet's last part is shorter
 const RESTORE_STEP_BYTES = 64 * MiB;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -167,6 +170,37 @@ async function hashWhole(ctx: Ctx, key: string, sha256: string, size: number): P
 	return o.etag;
 }
 
+/**
+ * Streams bytes [start, end] (inclusive) of an object whose first read already matched, hashing this second read whole as
+ * it goes. The last chunk of the range is held back until the second read has ended and its digest and length are the
+ * recorded ones; if they are not, the stream errors, so the response ends before its last byte. Earlier chunks have left.
+ */
+function verifiedStream(body: ReadableStream<Uint8Array>, sha256: string, size: number, start: number, end: number): ReadableStream<Uint8Array> {
+	const ds = digestStream();
+	const w = ds.getWriter();
+	let at = 0;
+	let held: Uint8Array | null = null;
+	return body.pipeThrough(
+		new TransformStream<Uint8Array, Uint8Array>({
+			async transform(chunk, c) {
+				await w.write(chunk);
+				const from = Math.max(start, at);
+				const to = Math.min(end + 1, at + chunk.length);
+				const first = at;
+				at += chunk.length;
+				if (from >= to) return;
+				if (held) c.enqueue(held);
+				held = chunk.subarray(from - first, to - first);
+			},
+			async flush(c) {
+				await w.close();
+				if (at !== size || held === null || hex(await ds.digest) !== sha256) return c.error(new Error('changed-original'));
+				c.enqueue(held);
+			},
+		}),
+	);
+}
+
 /** One `bytes=a-b`, `bytes=a-` or `bytes=-n` range; anything else (several ranges included) is unsatisfiable. */
 function parseRange(header: string | null, size: number): { start: number; end: number } | null | 'unsatisfiable' {
 	if (header === null) return null;
@@ -197,32 +231,15 @@ async function serveOriginal(ctx: Ctx, request: Request, caseId: string, assetId
 		const bytes = await readVerified(ctx, key, row.sha256, row.size, null);
 		return new Response(head ? null : bytes, { status: 200, headers: { ...headers, 'content-length': String(bytes.length), ...probeHeaders(ctx) } });
 	}
-	// Too large to hold: hash the whole object first, then stream it again pinned to the etag that was verified. The
-	// second pass of a whole object is hashed again and the response errors before its end if it differs.
+	// Too large to hold: hash the whole object first, then stream a second read pinned to the verified etag, hashed again
+	// whole (a range included); its last chunk is held until that digest matches (verifiedStream).
 	const etag = await hashWhole(ctx, key, row.sha256, row.size);
 	const [start, end] = range ? [range.start, range.end] : [0, row.size - 1];
-	const again = await ctx.bucket.get(key, { onlyIf: { etagMatches: etag }, ...(range ? { range: { offset: start, length: end - start + 1 } } : {}) });
+	const again = await ctx.bucket.get(key, { onlyIf: { etagMatches: etag } });
 	if (!hasBody(again)) refuse(410, 'changed-original', { key, check: 'etag' });
 	const meta = { ...headers, 'content-length': String(end - start + 1), ...probeHeaders(ctx), ...(range ? { 'content-range': `bytes ${start}-${end}/${row.size}` } : {}) };
 	if (head) return new Response(null, { status: range ? 206 : 200, headers: meta });
-	let stream: ReadableStream<Uint8Array> = (again as R2ObjectBody).body;
-	if (!range) {
-		const ds = digestStream();
-		const w = ds.getWriter();
-		stream = stream.pipeThrough(
-			new TransformStream<Uint8Array, Uint8Array>({
-				async transform(chunk, c) {
-					await w.write(chunk);
-					c.enqueue(chunk);
-				},
-				async flush(c) {
-					await w.close();
-					if (hex(await ds.digest) !== row.sha256) c.error(new Error('changed-original'));
-				},
-			}),
-		);
-	}
-	return new Response(stream, { status: range ? 206 : 200, headers: meta });
+	return new Response(verifiedStream((again as R2ObjectBody).body, row.sha256, row.size, start, end), { status: range ? 206 : 200, headers: meta });
 }
 
 // ----- uploads and finalize -----
@@ -741,7 +758,8 @@ async function downloadExport(ctx: Ctx, caseId: string, exportId: string): Promi
 	const etag = await hashWhole(ctx, job.object_key, job.sha256!, job.size!);
 	const again = await ctx.bucket.get(job.object_key, { onlyIf: { etagMatches: etag } });
 	if (!hasBody(again)) refuse(410, 'integrity', { key: job.object_key });
-	return new Response((again as R2ObjectBody).body, { headers: { ...NO_STORE, 'content-type': 'application/zip', 'content-length': String(job.size), 'x-packet-sha256': job.sha256!, ...probeHeaders(ctx) } });
+	// Hashed again as it streams, its last chunk held until the digest matches: the same rule as a large original.
+	return new Response(verifiedStream((again as R2ObjectBody).body, job.sha256!, job.size!, 0, job.size! - 1), { headers: { ...NO_STORE, 'content-type': 'application/zip', 'content-length': String(job.size), 'x-packet-sha256': job.sha256!, ...probeHeaders(ctx) } });
 }
 
 // ----- restore from a packet (P7) -----

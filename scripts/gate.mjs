@@ -112,11 +112,15 @@ export const STEPS = [
 const logName = (step) => `${step.name.replace(/[^\w.-]/g, '-')}.log`;
 const clip = (s) => (s.length > MAX_WIDTH ? `${s.slice(0, MAX_WIDTH - 1)}…` : s);
 
-/** Runs `cmd` with stdout and stderr appended to `logFile` (and `env` added to the environment); returns the spawn result (`status`, `signal`, `error`). */
-function exec(cmd, logFile, cwd, env = {}) {
+/**
+ * Runs `cmd` with stdout and stderr appended to `logFile` (and `env` added to `base`, the gate's own environment without
+ * its GIT_* variables, so a step's scratch repositories never land in the repository a hook's GIT_DIR names); returns
+ * the spawn result (`status`, `signal`, `error`).
+ */
+export function exec(cmd, logFile, cwd, env = {}, base = process.env) {
 	const fd = openSync(logFile, 'a');
 	try {
-		return spawnSync(cmd[0], cmd.slice(1), { cwd, stdio: ['ignore', fd, fd], env: { ...process.env, ...env } });
+		return spawnSync(cmd[0], cmd.slice(1), { cwd, stdio: ['ignore', fd, fd], env: { ...gitEnv(base), ...env } });
 	} finally {
 		closeSync(fd);
 	}

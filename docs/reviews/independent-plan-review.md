@@ -18,7 +18,7 @@ Scope, authority and model rules match the user's instructions. The pass is V1 t
 | View coverage | 42 labels match the seven groups in `product-brief.md:31-39`. Owners: CC-03 2, CC-04 7, CC-05 7, CC-06 6, CC-07 7, CC-08 7, CC-09 3, CC-10 3 |
 | GRS ↔ CC mapping in the kickoff | Matches `work-items.json` (GRS-11=CC-23, GRS-13=CC-24, GRS-21=CC-11, GRS-24=CC-25) |
 | Live Linear spot check (read-only) | GRS-12 blockedBy GRS-11. GRS-18 blockedBy GRS-13, 15 and 17. GRS-30 blockedBy GRS-23 and 29. All three match the local `depends`, and all are in Backlog |
-| Git | Only commit is `6edffe1`. No `src/` or `package.json`. Planning files are uncommitted. `README.md` is modified (docs index only) |
+| Git | Only commit is `71452d4`. No `src/` or `package.json`. Planning files are uncommitted. `README.md` is modified (docs index only) |
 | `/tmp` evidence citations in `docs/evidence.md:13-16` | All four files exist now |
 
 ## Findings
@@ -92,7 +92,7 @@ This check is based on artifacts only. No raw transcript for the authoring sessi
 | --- | --- | --- |
 | scope: v5 first, newer second, hosted later | `product-brief.md:7-10,83-89`, kickoff:42 | Supported |
 | structure: 26 issues, six gates, seven milestones | `work-items.json`, checker PASS, Linear spot check | Supported |
-| authority: planning only | No commits after `6edffe1`, no app files, `orchestration.md:9` | Supported |
+| authority: planning only | No commits after `71452d4`, no app files, `orchestration.md:9` | Supported |
 | models: no Cursor, Opus at high effort, not Opus-only | `skill-alignment.md:36`, `kickoff-prompt.md:54`, `orchestration.md:30` | Supported, and the correction is explicit |
 | verification: checker passing | Rerun here, exit 0 | Supported, but see F5 and F6 on what it proves |
 

@@ -1,6 +1,6 @@
 # Hosted alpha acceptance and operations — planning baseline
 
-Planning reference: `b93bad097fdd7b3c076d68025267c36395fc9921`.
+Planning reference: `f89c56cb07c808bcf711f96cc458e54c55b1899d`.
 Updated 17 October 2026. No hosted acceptance evidence has been collected for this draft.
 
 ## Authority and decision state
@@ -72,6 +72,6 @@ Every row below is **UNRUN**. It describes intended evidence, not existing imple
 
 ## Research pointers
 
-[Research Cloudflare-first transactional alpha notifications](https://linear.app/vaper/issue/GRS-103/research-cloudflare-first-transactional-alpha-notifications) links the published note at `684b853c55a48663ea4e6c72604aaf93b1ef863e`. Its nine provider/runtime proofs are UNRUN and some legs depend on the selected route/event approach. Its resolution carries three small wording/proof-matrix clarifications. Its earlier pending-decision statements are historical; the later policy comments above choose Cloudflare initially and settle recovery, retries and deletion. Cloudflare Queues remains an unadopted implementation choice.
+[Research Cloudflare-first transactional alpha notifications](https://linear.app/vaper/issue/GRS-103/research-cloudflare-first-transactional-alpha-notifications) links the published note at `b4770da552854d4813d605ca984e05703ccd8341`. Its nine provider/runtime proofs are UNRUN and some legs depend on the selected route/event approach. Its resolution carries three small wording/proof-matrix clarifications. Its earlier pending-decision statements are historical; the later policy comments above choose Cloudflare initially and settle recovery, retries and deletion. Cloudflare Queues remains an unadopted implementation choice.
 
 [Assess D1 and R2 performance and overhead for the alpha workload](https://linear.app/vaper/issue/GRS-95/assess-d1-and-r2-performance-and-overhead-for-the-alpha-workload) holds the storage workload and unrun hosted integrity, user-work, recovery and export proofs. [Prove the hosted architecture and Cloudflare deployment](https://linear.app/vaper/issue/GRS-26/prove-the-hosted-architecture-and-cloudflare-deployment) consumes those accepted choices and proofs; its work is split into the bounded proof owners GRS-106 to GRS-111. Cloudflare account and provider work is pinned until the user unpins it, so legs that need a real provider are HOLD rather than a mock PASS (see [verification and review](verification-and-review.md)).

@@ -153,6 +153,27 @@ describe('the newer export\'s code-embedded analysis (GRS-149)', () => {
   });
 });
 
+describe('a contradictions dataset the v5 shape cannot hold is demoted, never thrown (polish M1)', () => {
+  const demoted = (c: Converted) => {
+    expect(c.result.ok).toBe(true);
+    expect(notes(c, 'V5_DATASET_SHAPE_UNMAPPED').map((d) => d.subject)).toContain('contradictions');
+    expect(keys(c)).toContain('v5-residual-contradictions');
+  };
+
+  it('a) a module category without items converts and demotes contradictions', async () => {
+    const noItems = { ...X, contradictions: { ...X.contradictions, categories: [{ key: 'rates', title: 'Rates', severity: 'high', explain: 'Invented' }] } };
+    demoted(await convert([MODULE, literal(noItems), V1_MERGE_LINE]));
+  });
+
+  it('b) a V1 export with no module whose contradictions have no categories converts and demotes them', async () => {
+    demoted(await convert([], (r) => { r.DATA.contradictions = { total: 0, byCat: {}, checks: [], highCount: 0 }; }));
+  });
+
+  it('c) a V1 export with no module and a category without items converts and demotes them', async () => {
+    demoted(await convert([], (r) => { r.DATA.contradictions = { categories: [{ key: 'rates', title: 'Rates', severity: 'high', explain: 'Invented' }], total: 0, byCat: {}, checks: [], highCount: 0 }; }));
+  });
+});
+
 describe('the product text for the analysis residual (M2)', () => {
   it('says what is true now: the module is mapped, and V5_OVERLAY_UNMAPPED names roots no recognised merge placed', async () => {
     const { title, hint } = CODES.V5_OVERLAY_UNMAPPED;

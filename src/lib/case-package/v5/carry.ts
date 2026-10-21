@@ -41,7 +41,7 @@ export const fits = (kind: Kind, v: JsonValue | undefined): boolean => FITS[kind
 export const sourceName = (k: string): string => `source_${k}`;
 
 /** Keeps a source value under its `source_` name; a name the record already holds is never overwritten, the prefix is added again. */
-const keepAside = (into: JsonObject, k: string, v: JsonValue | undefined): void => {
+export const keepAside = (into: JsonObject, k: string, v: JsonValue | undefined): void => {
   let name = sourceName(k);
   while (Object.hasOwn(into, name)) name = sourceName(name);
   own(into, name, v);

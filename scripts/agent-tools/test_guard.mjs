@@ -576,6 +576,27 @@ function main() {
       || base !== options['--expected-base']) throw Error('guard repository identity differs from receipt collector');
   if (git('merge-base', base, head).trim() !== base) throw Error('fix base must be an ancestor of HEAD');
   if (git('status', '--porcelain=v1', '--untracked-files=all').trim()) throw Error('fix diff needs a clean tree');
+  // A manifest's range spans every later merge from the base it targets. --trusted-base is that base's commit, which
+  // fix-round-guard passes only for an explicit --base and no --ledger (CI: the pull request's base branch). A path that
+  // changed between the fix base and HEAD is the base's change, and not this branch's, when the base is merged into HEAD,
+  // the fix base held the copy of every commit it shares with the base (merge-base --all) and HEAD holds the base's
+  // copy, mode and blob alike. Without a trusted base, or with one HEAD has not merged, every change is the branch's.
+  const trusted = options['--trusted-base'] === undefined ? undefined
+    : git('rev-parse', '--verify', `${options['--trusted-base']}^{commit}`).trim();
+  const common = trusted && spawnSync('git', ['-C', root, 'merge-base', '--all', base, trusted], { env, encoding: 'utf8' });
+  const forks = common?.status === 0 ? common.stdout.split('\n').filter(Boolean) : [];
+  const merged = forks.length > 0 && spawnSync('git', ['-C', root, 'merge-base', '--is-ancestor', trusted, head], { env }).status === 0;
+  const trees = new Map();
+  const treeEntry = (revision, file) => {
+    if (!trees.has(revision)) {
+      trees.set(revision, new Map(git('ls-tree', '-r', '-z', revision).split('\0').filter(Boolean)
+        .map(line => [line.slice(line.indexOf('\t') + 1), line.slice(0, line.indexOf('\t'))])));
+    }
+    return trees.get(revision).get(file);
+  };
+  const fromBase = file => merged && treeEntry(head, file) === treeEntry(trusted, file)
+    && forks.every(fork => treeEntry(fork, file) === treeEntry(base, file));
+  const inherited = [];
   const findings = JSON.parse(readFileSync(options['--findings'], 'utf8'));
   if (!Array.isArray(findings.tests) || !findings.tests.length) throw Error('findings.tests must be a nonempty list of {file, name}');
   const reasons = findings.assertionCountReasons ?? {};
@@ -812,9 +833,12 @@ function main() {
       })(tree);
     };
     [...files].filter(file => CONFIG_FILE.test(file)).forEach(configure);
+    // the tracked file a derived entry (test scripts, resolution fields) is read from
+    const origins = new Map();
     if (files.has('package.json')) {
       const scripts = JSON.parse(source(revision, 'package.json')).scripts ?? {};
       found.set('package.json#scripts', JSON.stringify(Object.keys(scripts).filter(name => TEST_SCRIPT.test(name)).sort().map(name => [name, scripts[name]])));
+      origins.set('package.json#scripts', 'package.json');
     }
     // A package.json steers resolution only through these fields; a dependency or version edit does not.
     const steering = text => {
@@ -822,8 +846,10 @@ function main() {
       return JSON.stringify(['name', 'type', 'main', 'module', 'browser', 'imports', 'exports'].map(key => manifest[key] ?? null));
     };
     for (const [file, text] of resolutionInputs) {
-      if (path.posix.basename(file) === 'package.json') found.set(`${file}#resolution`, steering(text));
-      else if (!found.has(file)) found.set(file, text);
+      if (path.posix.basename(file) === 'package.json') {
+        found.set(`${file}#resolution`, steering(text));
+        origins.set(`${file}#resolution`, file);
+      } else if (!found.has(file)) found.set(file, text);
     }
     // Fixtures: files in a fixture directory under a protected test's top-level directory, and files read by literal path.
     const tops = new Set(starts.filter(file => file.includes('/')).map(file => file.split('/')[0]));
@@ -842,7 +868,7 @@ function main() {
       [start, ...shared].forEach(walk);
       return seen;
     };
-    return { found, ids, modes, data, runner, resolve, loadedBy, declared };
+    return { found, ids, modes, data, runner, resolve, loadedBy, declared, origin: key => origins.get(key) ?? key };
   };
   const controlFlow = (file, text) => {
     if (!supported(file)) return [];
@@ -1098,6 +1124,11 @@ function main() {
     return registration(statement);
   };
   for (const file of starts) {
+    // the named tests stay as reviewed (above) whatever the base holds; the rest of their file may be the base's change
+    if (oldClosure.found.get(file) !== currentClosure.found.get(file) && fromBase(file)) {
+      inherited.push(file);
+      continue;
+    }
     const names = new Set(findings.tests.filter(entry => entry.file === file).map(entry => entry.name));
     const reviewed = statements(file, oldClosure.found.get(file), names).list;
     const { list: current, tree, checker } = statements(file, currentClosure.found.get(file), names);
@@ -1180,15 +1211,23 @@ function main() {
     const newText = currentClosure.found.get(file);
     if (oldText === undefined || newText === undefined) throw Error(`protected dependency added/deleted: ${file}`);
     if (tokens(oldText) === tokens(newText)) continue;
+    if (fromBase(currentClosure.origin(file))) {
+      inherited.push(file);
+      continue;
+    }
     if (JSON.stringify(controlFlow(file, oldText)) !== JSON.stringify(controlFlow(file, newText))) {
       throw Error(`protected dependency control flow changed (return/conditional/wrapping): ${file}`);
     }
     throw Error(`protected dependency changed: ${file}; a recorded reason cannot excuse a helper, fixture, configuration or setup change`);
   }
   for (const file of oldClosure.data) {
-    if (currentClosure.ids.get(file) !== oldClosure.ids.get(file)) throw Error(`protected fixture changed or deleted: ${file}`);
+    if (currentClosure.ids.get(file) === oldClosure.ids.get(file)) continue;
+    if (!currentClosure.ids.has(file) || !fromBase(file)) throw Error(`protected fixture changed or deleted: ${file}`);
+    inherited.push(file);
   }
-  const changed = git('diff', '--name-only', '-z', base, head).split('\0').filter(Boolean);
+  // A file the base changed and HEAD holds as the base does is not part of this branch's fix diff.
+  const diff = git('diff', '--name-only', '-z', base, head).split('\0').filter(Boolean);
+  const changed = diff.filter(file => !fromBase(file));
   // A fix may change the module under test freely, but a matcher, spy or global installed from code the named test
   // loads changes what every test proves. Any changed module outside the protected closure and the runner can be
   // loaded that way, the module under test and the test-support files it loads alike, so none may reach the test
@@ -1283,6 +1322,10 @@ function main() {
     if (current < old && !(typeof reasons[file] === 'string' && reasons[file].trim())) {
       throw Error(`assertion count fell in ${file}: ${old} -> ${current}; record assertionCountReasons[file]`);
     }
+  }
+  if (diff.length > changed.length) {
+    console.log(`test-guard: ${diff.length - changed.length} changed file(s) are the base's, not this branch's: the base ${trusted} `
+      + `is merged into HEAD and HEAD holds each as it does; protected among them: ${inherited.join(', ') || 'none'}`);
   }
   console.log(`test-guard: PASS (${findings.tests.length} named tests; ${base}..${head})`);
   if (command.length) {

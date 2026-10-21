@@ -105,6 +105,42 @@ describe('the newer export\'s code-embedded analysis (GRS-149)', () => {
     expect(w[0]!.message).toContain('extraRows 2');
   });
 
+  describe('fails closed on a module whose statements are not all the pinned merges, each once (M1)', () => {
+    const RISK = 'DATA.riskMatrix.push.apply(DATA.riskMatrix, X.riskMatrix);';
+    const WITHOUT_RISK = V1_MERGE_LINE.replace(`${RISK} `, '');
+    const WITNESS = 'DATA.witnesses.push.apply(DATA.witnesses, X.witnesses);';
+    const closed = async (lines: string[], unrecognised: number, repeated: number) => {
+      const c = await convert([MODULE, literal(X), ...lines]);
+      expect(c.result.ok).toBe(true);
+      expect(data(c, 'risk-matrix')).toEqual([]);
+      expect(data(c, 'witnesses')).toEqual([]);
+      expect(data(c, 'matter')).not.toMatchObject({ title: 'Invented matter' });
+      expect(data(c, 'v5-residual-analysis-overlay')).toEqual(X);
+      const w = notes(c, 'V5_OVERLAY_UNMAPPED');
+      expect(w).toHaveLength(1);
+      expect(w[0]!.message).toContain('19 keys');
+      expect(w[0]!.message).toContain(`${unrecognised} unrecognised and ${repeated} repeated statements`);
+    };
+
+    it('a) an unknown statement before the merges places nothing', async () => {
+      await closed([`X.riskMatrix = []; ${V1_MERGE_LINE}`], 1, 0);
+    });
+
+    it('b) an unknown statement after the merges places nothing', async () => {
+      await closed([V1_MERGE_LINE.replace(' })();', ' DATA.witnesses.length = 0; })();')], 1, 0);
+    });
+
+    it('c) a merge inside a block comment, a string or a line comment is not a merge', async () => {
+      await closed([`/* off; ${RISK} */ ${WITHOUT_RISK}`], 2, 0);
+      await closed([`var off = "x; ${RISK} y"; ${WITHOUT_RISK}`], 2, 0);
+      await closed([`// off; ${RISK}`, WITHOUT_RISK], 1, 0);
+    });
+
+    it('d) a merge written twice places nothing', async () => {
+      await closed([V1_MERGE_LINE.replace(' })();', ` ${WITNESS} })();`)], 0, 1);
+    });
+  });
+
   it('keeps a root residual when its DATA slot is not the kind the merge needs, as the viewer could not merge it either', async () => {
     const c = await convert([MODULE, literal(X), V1_MERGE_LINE], (r) => { r.DATA.riskMatrix = {}; delete (r.DATA.lit as J).recon; });
     expect(data(c, 'v5-residual-analysis-overlay')).toEqual({ riskMatrix: X.riskMatrix, recon: X.recon });

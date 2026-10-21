@@ -1292,8 +1292,9 @@ async function main(out: string, scale: Scale, keepState: boolean, allowDirty: b
 			const hShared = sha256(shared);
 			const us = (await post(`/originals/${hShared}/uploads`, {})).json();
 			const ps = await http(`/originals/${hShared}/uploads/${us.uploadId}/1`, { method: 'PUT', body: shared });
+			const completed = await post(`/originals/${hShared}/uploads/${us.uploadId}/complete`, { parts: [ps.json()] });
 			const recorded = await post('/cases/case-guard-owner/originals', { assetId: 'own-1', sha256: hShared, size: shared.length, filename: 'own-1.pdf', mediaType: 'application/pdf' });
-			check(ps.status === 200 && (await post(`/originals/${hShared}/uploads/${us.uploadId}/complete`, { parts: [ps.json()] })).status === 200 && recorded.status === 200 && (await held(`orig/${hShared}`))?.sha256 === null, 'an original is stored through multipart and recorded by another case: R2 holds no SHA-256 for it');
+			check(ps.status === 200 && completed.status === 200 && recorded.status === 200 && (await held(`orig/${hShared}`))?.sha256 === null, 'an original is stored through multipart and recorded by another case: R2 holds no SHA-256 for it');
 			const mpCase = 'case-guard-mp';
 			const Vmp = versionOf('mp');
 			const idMp = await upload((await backupOf(mpCase, Vmp, 'mp')).bytes);

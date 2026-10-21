@@ -527,8 +527,8 @@ class ReadDocuments(ControlCase):
         # name read under an unknown (temporary) directory
         self.write('scripts/walk.mjs', "readFileSync(join(ROOT, 'docs', 'plan', `${id}.md`));\n")
         self.write('scripts/feat.mjs', "export const load = (dir = join(import.meta.dirname, '..', 'docs', 'feat')) => readdirSync(dir);\n")
-        self.write('scripts/scopes.mjs', "function a() { const p = join(ROOT, 'docs', 'a.json'); return readFileSync(p); }\n"
-                   "function b() { const p = join(ROOT, 'docs', 'b.md'); return readFileSync(p); }\n")
+        self.write('scripts/scopes.mjs', "function a() { const p = 'docs/a.json'; return readFileSync(p); }\n"
+                   "function b() { const p = 'docs/b.md'; return readFileSync(p); }\n")
         self.write('tests/copy.test.ts', "const text = readFileSync(join(tmp, 'guessed.md'), 'utf8');\n")
         self.write('scripts/check.py', "text = (ROOT / 'docs' / 'py.md').read_text()\n")
         self.write('scripts/check.sh', 'grep -q done docs/sh.md\n')

@@ -72,7 +72,7 @@ The ignored `.orchestration/` folder holds the artifacts named below. Ask the co
 | Local runtime, pilot harness | PASS: gate green at `9249654` (GRS-143), pilot 18/18 | `.orchestration/reports/GRS-143/report.md` |
 | Local runtime, parity repair | PASS at `78c0516` (GRS-141), parity 0 unregistered; the full gate there failed only at `verify:pilot:v5`, which GRS-143 repairs | `.orchestration/reports/GRS-141/report.md` |
 | Wave review | APPROVE WITH P2s, no P0 or P1, at wave head `2117c37` (`wave/preflight-parity`); not a gate run | `.orchestration/reports/WAVE-PREFLIGHT-REVIEW-CODEX/review.md` |
-| Dev gate | FAIL at `c89d405` at strict parity (two demo-merge subtitles). App code is unchanged at `8fc2058`, which has no gate receipt. The repair, GRS-141, GRS-143 and GRS-142, is in flight on `wave/preflight-parity` | `.orchestration/dev-gate/c89d4056d7fa17593e09f6b41b215041962c38d2` |
+| Dev gate | FAIL at `c89d405` at strict parity (two demo-merge subtitles). App code is unchanged at `8fc2058`, which has no gate receipt. The repair, GRS-141, GRS-143 and GRS-142, is in flight on `wave/preflight-parity` | `.orchestration/dev-gate/8ab9ef40ebe95ff4f8fc2665ffc85e4d941c1fd6` |
 | Test doubles | None built yet. GRS-138 will land the workerd gate with local D1 and R2 bindings, a test-mode identity and an email sink, each named as a double in its summary | UNRUN |
 | Real providers (Clerk, D1, R2, email, Cloudflare account) | UNRUN and HOLD while Cloudflare is pinned | Owners GRS-106 to GRS-111 and GRS-32 |
 | Hosted runtime acceptance | UNRUN | GRS-32 |

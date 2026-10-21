@@ -1,6 +1,6 @@
 # Dev gate FAIL at c89d405: overview and documents subtitles differ from v5 since the demo merges
 
-Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-141/dev-gate-fail-at-c89d405-overview-and-documents-subtitles-differ-from) is the execution authority.
+Planning snapshot, 20 October 2026. [Live issue](https://linear.app/vaper/issue/GRS-141/dev-gate-fail-at-8ab9ef4-overview-and-documents-subtitles-differ-from) is the execution authority.
 
 Found by `orch-bin/dev-gate c89d405` on 17 October 2026 (verdict file under `.orchestration/dev-gate/`). Build, check, test and the e2e suite PASS; strict parity FAILS with exactly two unregistered differences and `verify:pilot:v5` was skipped behind it.
 
@@ -11,7 +11,7 @@ Found by `orch-bin/dev-gate c89d405` on 17 October 2026 (verdict file under `.or
 | overview | `text.subtitle.2` | app-only | The app renders a second subtitle line that v5 does not have. |
 | documents | `text.subtitle` | value | The subtitle text differs from v5's. The current source builds it as `<count> documents · filter by bundle, sorted by type then date`. |
 
-Values are not quoted here because the parity run used the real v5 sample; see `.local/parity-out/dev-c89d405/views/{overview,documents}.json` on the workstation.
+Values are not quoted here because the parity run used the real v5 sample; see `.local/parity-out/dev-8ab9ef4/views/{overview,documents}.json` on the workstation.
 
 ## Where it came from
 

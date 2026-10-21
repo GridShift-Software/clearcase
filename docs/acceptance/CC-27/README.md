@@ -1,6 +1,6 @@
 # CC-27 acceptance evidence
 
-CC-27 is [GRS-35](https://linear.app/vaper/issue/GRS-35/set-up-pstack-and-verification-skills-for-agent-cli-access), agent tooling and the Linear plan sync. The receipts in `evidence-efb41fc/` were produced at `efb41fc50759a8a54c4b95bc547e490c3675330c` on branch `feature/grs-35-agent-tooling`, base `dev` at `6b86fc6`, on `puk` (CachyOS, bash 5.3, Python 3.14.7, Node 26.10, Bun 1.4.2, git 2.56). Later commits on the branch change only this directory. Run `git diff --stat efb41fc HEAD` to confirm that before accepting these receipts for the reviewed head. They contain no case material, and paths under the home directory appear as `~`.
+CC-27 is [GRS-35](https://linear.app/vaper/issue/GRS-35/set-up-pstack-and-verification-skills-for-agent-cli-access), agent tooling and the Linear plan sync. The receipts in `evidence-7f26ebe/` were produced at `efb41fc50759a8a54c4b95bc547e490c3675330c` on branch `feature/grs-35-agent-tooling`, base `dev` at `6b86fc6`, on `puk` (CachyOS, bash 5.3, Python 3.14.7, Node 26.10, Bun 1.4.2, git 2.56). Later commits on the branch change only this directory. Run `git diff --stat efb41fc HEAD` to confirm that before accepting these receipts for the reviewed head. They contain no case material, and paths under the home directory appear as `~`.
 
 ## Independent rerun (verification item 7)
 
@@ -26,7 +26,7 @@ It removes its throwaway worktree and temporary directories even when it stops e
 
 ## Results at efb41fc
 
-All 27 inventoried steps returned their expected exit code (`evidence-efb41fc/summary.tsv`), and `rerun.sh` exited 0. `evidence-efb41fc/revision.txt` shows the tested head with a clean worktree. `evidence-efb41fc/identity-audit.txt` lists all 37 receipts, 22 PASS, 6 FAIL and 9 SKIPPED, and finds 0 problems: every step has its row, its transcript and exactly its receipts, and every receipt's files exist. Every receipt that names a head names `efb41fc` with `dirty: false`, and each PASS receipt also names base `6b86fc6` and merge base `6b86fc6`. The five receipts without a head come from the steps run without git, and none is PASS.
+All 27 inventoried steps returned their expected exit code (`evidence-7f26ebe/summary.tsv`), and `rerun.sh` exited 0. `evidence-7f26ebe/revision.txt` shows the tested head with a clean worktree. `evidence-7f26ebe/identity-audit.txt` lists all 37 receipts, 22 PASS, 6 FAIL and 9 SKIPPED, and finds 0 problems: every step has its row, its transcript and exactly its receipts, and every receipt's files exist. Every receipt that names a head names `efb41fc` with `dirty: false`, and each PASS receipt also names base `6b86fc6` and merge base `6b86fc6`. The five receipts without a head come from the steps run without git, and none is PASS.
 
 | Item | Step | Expected, actual | Evidence |
 | --- | --- | --- | --- |
@@ -108,18 +108,18 @@ The coordinator can make Linear match the repository with `python3 scripts/plann
 
 ## Earlier evidence
 
-`evidence-efb41fc/` supersedes every step of eleven earlier sets, which were removed from the tree and remain in Git:
+`evidence-7f26ebe/` supersedes every step of eleven earlier sets, which were removed from the tree and remain in Git:
 
-- `1238238:docs/acceptance/CC-27/evidence-00d5f55/`, the round-7 set. The independent review at `1238238` found that a direct doctor did not resolve the revision again after its checks. Round 8 fixes it and compares each capture's bytes with those written (see above). Every step was rerun at `efb41fc`.
+- `1238238:docs/acceptance/CC-27/evidence-0962dde/`, the round-7 set. The independent review at `1238238` found that a direct doctor did not resolve the revision again after its checks. Round 8 fixes it and compares each capture's bytes with those written (see above). Every step was rerun at `efb41fc`.
 
-- `1f51b51:docs/acceptance/CC-27/evidence-73eda00/`, the round-6 set. The independent review at `1f51b51` found that `rerun.sh` could pass without a required step's evidence, that a receipt could name an input that changed or a capture that was lost during the run, that the doctor read only the first line of `bun --version`, and that the test helpers passed on a crashed validator. Round 7 fixes them (see above). Every step was rerun at `00d5f55`.
+- `1f51b51:docs/acceptance/CC-27/evidence-aec7466/`, the round-6 set. The independent review at `1f51b51` found that `rerun.sh` could pass without a required step's evidence, that a receipt could name an input that changed or a capture that was lost during the run, that the doctor read only the first line of `bun --version`, and that the test helpers passed on a crashed validator. Round 7 fixes them (see above). Every step was rerun at `00d5f55`.
 
-- `8454f3f:docs/acceptance/CC-27/evidence-586ca34/`, round 1, before the pstack provenance and the full-bundle pin.
-- `702bf9b:docs/acceptance/CC-27/evidence-3fe110d/`, round 2 before a fix: `bootstrap --relock --checkout` with a path that is not a pstack checkout would have dropped every pstack pin. `e2c3cc7` makes it refuse, with tests.
-- `8f09c6c:docs/acceptance/CC-27/evidence-cbf1a32/`, round 2 before review fixes. `verify pstack-upstream` compared the checkout's working tree, where an ignored file could pass as upstream content, and `bootstrap --relock --checkout` accepted a directory that is not a Git checkout. `b099a21` reads the revision's Git objects instead and refuses such a directory, with tests.
-- `9f8273f:docs/acceptance/CC-27/evidence-d5308fe/`, round 2 before a second review's fixes. A local replace ref could stand in for the pinned commit, the recorded revision was not checked to be a commit ID, and relock could remove pins without an explicit flag. `e058532` fixes these, with tests.
-- `0274c99:docs/acceptance/CC-27/evidence-e058532/`, the final round-2 set. Round 3 changed only documentation. It replaced the PR rule with the stacked-PR git flow and fixed two stale lines.
-- `aeccdba:docs/acceptance/CC-27/evidence-d13af9f/`, the round-3 set. The independent review at `0274c99` found that a missing git or an unresolvable `--base` still produced PASS receipts without a revision, and that a direct `doctor` wrote no receipt. Round 4 fixes both (see above). Every step was rerun at `c10b552`, and four steps were added for the review's reproductions.
-- `b40f6ed:docs/acceptance/CC-27/evidence-c10b552/`, the round-4 set. The independent review at `b40f6ed` found that a failed Git working-copy query still produced clean PASS receipts. Round 5 fixes it (see above). Every step was rerun at `8c3b8b7`.
-- `483978a:docs/acceptance/CC-27/evidence-e0abf92/`, the final round-5 set. Round 6 adopted the user's Bun toolchain in the plan and the doctor (see above). Every step was rerun at `73eda00`, and two Bun steps were added.
-- `832c7f5:docs/acceptance/CC-27/evidence-8c3b8b7/`, the first round-5 set. A worker-side check after it found that a changed file marked assume-unchanged or skip-worktree still gave a clean PASS, and that a nested repository with a file name that is not UTF-8 crashed the receipt. `185e6ed` fixes both, with tests. Every step was rerun at `e0abf92`.
+- `8454f3f:docs/acceptance/CC-27/evidence-52a2ec3/`, round 1, before the pstack provenance and the full-bundle pin.
+- `702bf9b:docs/acceptance/CC-27/evidence-68ba5b8/`, round 2 before a fix: `bootstrap --relock --checkout` with a path that is not a pstack checkout would have dropped every pstack pin. `e2c3cc7` makes it refuse, with tests.
+- `8f09c6c:docs/acceptance/CC-27/evidence-67fea56/`, round 2 before review fixes. `verify pstack-upstream` compared the checkout's working tree, where an ignored file could pass as upstream content, and `bootstrap --relock --checkout` accepted a directory that is not a Git checkout. `b099a21` reads the revision's Git objects instead and refuses such a directory, with tests.
+- `9f8273f:docs/acceptance/CC-27/evidence-e4e5f9a/`, round 2 before a second review's fixes. A local replace ref could stand in for the pinned commit, the recorded revision was not checked to be a commit ID, and relock could remove pins without an explicit flag. `e058532` fixes these, with tests.
+- `0274c99:docs/acceptance/CC-27/evidence-b0b83a3/`, the final round-2 set. Round 3 changed only documentation. It replaced the PR rule with the stacked-PR git flow and fixed two stale lines.
+- `aeccdba:docs/acceptance/CC-27/evidence-d2a8801/`, the round-3 set. The independent review at `0274c99` found that a missing git or an unresolvable `--base` still produced PASS receipts without a revision, and that a direct `doctor` wrote no receipt. Round 4 fixes both (see above). Every step was rerun at `c10b552`, and four steps were added for the review's reproductions.
+- `b40f6ed:docs/acceptance/CC-27/evidence-0735b85/`, the round-4 set. The independent review at `b40f6ed` found that a failed Git working-copy query still produced clean PASS receipts. Round 5 fixes it (see above). Every step was rerun at `8c3b8b7`.
+- `483978a:docs/acceptance/CC-27/evidence-fa40a1d/`, the final round-5 set. Round 6 adopted the user's Bun toolchain in the plan and the doctor (see above). Every step was rerun at `73eda00`, and two Bun steps were added.
+- `832c7f5:docs/acceptance/CC-27/evidence-75d5d1f/`, the first round-5 set. A worker-side check after it found that a changed file marked assume-unchanged or skip-worktree still gave a clean PASS, and that a nested repository with a file name that is not UTF-8 crashed the receipt. `185e6ed` fixes both, with tests. Every step was rerun at `e0abf92`.

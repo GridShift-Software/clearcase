@@ -25,7 +25,7 @@ Nothing under `src/`, `scripts/`, the parity register or the workspace instructi
 
 - [ ] `scripts/agent-tools/check-plan --linear-relations .orchestration/kickoff-live-linear-readback-20261017.json --require-linear-relations` reports `plan-graph` PASS and `linear-relations` PASS (0 description drifts, 0 dependency mismatches) at the fix head. `plan-format` may still be SKIPPED; that is <issue id="75c4dcbc-09d3-4db9-b156-0c1fb1ea6aa7" href="https://linear.app/vaper/issue/GRS-104/align-agent-tooling-with-the-canonical-pstack-plugin-and-delivery">GRS-104</issue>.
 - [ ] `python3 scripts/planning/generate.py --compare-linear` on the same capture reports 0 drift.
-- [ ] <issue id="7ee8f208-ad5b-4717-8513-dc512aff98d7" href="https://linear.app/vaper/issue/GRS-141/dev-gate-fail-at-c89d405-overview-and-documents-subtitles-differ-from">GRS-141</issue> and this issue have planning keys in `work-items.json` and generated briefs.
+- [ ] <issue id="7ee8f208-ad5b-4717-8513-dc512aff98d7" href="https://linear.app/vaper/issue/GRS-141/dev-gate-fail-at-8ab9ef4-overview-and-documents-subtitles-differ-from">GRS-141</issue> and this issue have planning keys in `work-items.json` and generated briefs.
 - [ ] Hand-edited edges and briefs are not reintroduced: the live capture is the authority for descriptions and relations; if the generator and the capture disagree on structure, the report names the disagreement instead of editing the capture.
 
 ## Verification and handoff

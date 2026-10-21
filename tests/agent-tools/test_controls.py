@@ -2060,6 +2060,14 @@ class GuardBinding(ControlCase):
         self.assertEqual(json.loads(base_aware.read_text())['guard']['trustedBase'], self.reviewed)
         self.prepare([{'id': 'L1', 'severity': 'low'}])
         self.assertIn('--base', self.approve('--guard-receipt', base_aware, code=1))
+        data = json.loads(base_aware.read_text())
+        for label, edit in (('the claim deleted', lambda guard: guard.pop('trustedBase')),
+                            ('the claim nulled', lambda guard: guard.update(trustedBase=None))):
+            with self.subTest(bypass=label):
+                edited = json.loads(json.dumps(data))
+                edit(edited['guard'])
+                base_aware.write_text(json.dumps(edited))
+                self.assertIn('--base', self.approve('--guard-receipt', base_aware, code=1))
         self.approve('--guard-receipt', self.guard_receipt)
 
     def test_a_manifest_for_other_findings_does_not_bind(self):

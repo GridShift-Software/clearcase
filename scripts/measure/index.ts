@@ -16,6 +16,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { gitEnv } from '../browser-lock.mjs';
 import { ALLOW_FLAG, allowStale, type BuildStamp, evidenceRecord, evidenceSuffix, freshLine, freshness, notCommitted, readStamp, refusal } from '../../tests/e2e/pilot/lib/fresh-build.ts';
 
 const RUNNERS: Record<string, string> = {
@@ -39,8 +40,8 @@ if (!runner) {
 const opt = (n: string) => { const j = args.findIndex((a) => a === `--${n}` || a.startsWith(`--${n}=`)); return j < 0 ? undefined : args[j]!.includes('=') ? args[j]!.slice(args[j]!.indexOf('=') + 1) : args[j + 1]; };
 const candidate = opt('candidate');
 const stampFile = path.join(repo, 'build', 'clearcase-build.json');
-const resolved = candidate ? spawnSync('git', ['-C', repo, 'rev-parse', '--verify', `${candidate}^{commit}`], { encoding: 'utf8' }).stdout?.trim() || null : null;
-const stamp: BuildStamp | null = candidate ? { revision: resolved, dirty: false } : existsSync(stampFile) ? readStamp(path.join(repo, 'build')) : { revision: spawnSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).stdout?.trim() || null, dirty: false };
+const resolved = candidate ? spawnSync('git', ['-C', repo, 'rev-parse', '--verify', `${candidate}^{commit}`], { encoding: 'utf8', env: gitEnv() }).stdout?.trim() || null : null;
+const stamp: BuildStamp | null = candidate ? { revision: resolved, dirty: false } : existsSync(stampFile) ? readStamp(path.join(repo, 'build')) : { revision: spawnSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8', env: gitEnv() }).stdout?.trim() || null, dirty: false };
 const fresh = freshness(repo, stamp, candidate || !existsSync(stampFile) ? {} : { buildDir: path.join(repo, 'build') });
 const allowed = allowStale(argv);
 const record = { ticket, runner, underTest: candidate ? `--candidate ${candidate}` : existsSync(stampFile) ? 'build/clearcase-build.json' : 'worktree (no build)', ...evidenceRecord(fresh, allowed, notCommitted('the measure runner', repo, [path.join(repo, runner)], { within: 'scripts' })) };

@@ -176,6 +176,10 @@ jobs:
           ldd "$bin/node"
           "$bin/node" --version
           echo "$bin" >> "$GITHUB_PATH"
+      # The identity probe's workspace (GRS-108) has its own pins and bun.lock, apart from the root install, and the test
+      # step below builds and serves it on workerd.
+      - name: install identity probe
+        run: (cd tests/hosting-probe/identity && bun install --frozen-lockfile)
       # Temporary files on tmpfs, as on workers' machines, where /tmp is tmpfs: on the VM's disk SQLite's
       # synchronous=FULL commits made the step about 40% slower. Six workers on four vCPUs, because the lock tests spend
       # most of their time asleep. docs/ci-runner.md has the measurements.

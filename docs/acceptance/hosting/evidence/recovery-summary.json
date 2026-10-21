@@ -1,10 +1,10 @@
 {
   "schema": "clearcase.recovery-probe/1",
-  "sourceSha": "6ad9e97efb1cc62d7d38bc244480f825c8fec579",
+  "sourceSha": "6bd0a77aa1fe80d71d2e1300e3d8f9143e6c09aa",
   "treeClean": true,
-  "startedAt": "2026-10-21T11:07:18.152Z",
-  "finishedAt": "2026-10-21T11:08:02.867Z",
-  "runDir": ".local/hosting-probe/recovery/2026-10-21T11-07-18-152Z",
+  "startedAt": "2026-10-21T13:45:11.956Z",
+  "finishedAt": "2026-10-21T13:46:06.518Z",
+  "runDir": ".local/hosting-probe/recovery/2026-10-21T13-45-11-956Z",
   "hosts": {
     "bun": "1.4.2",
     "node": "26.10.0",
@@ -19,7 +19,7 @@
     "workerd": "1.20261012.1",
     "wrangler": "4.151.1"
   },
-  "artifact": "sha256:5cf4ccb0edb88f87dbc75c58adef30443152c5be041c048581d83b8ce697d5ad",
+  "artifact": "sha256:20cac88bbb329260331f1787f2c203b401b6bfb4ecfc6593fba665002125fd67",
   "isolation": {
     "network": "own network namespace: interfaces [lo], 0 IPv4 routes, 0 IPv6 routes; host resolver sockets hidden",
     "env": [
@@ -49,7 +49,7 @@
         "the bundle imports no node:, bun: or CommonJS module"
       ],
       "measured": {
-        "workerBytes": 96541
+        "workerBytes": 97512
       }
     },
     "provision": {
@@ -81,6 +81,7 @@
       "asserted": [
         "a deployment whose recovery bucket has no identity object answers 503 missing-identity naming RECOVERY (fail-closed on a missing field)",
         "once its recovery bucket carries client B's identity, client B's deployment answers",
+        "a deployment without the probe clock has no rotation route: a time named in a request is not accepted, and nothing is removed",
         "client A's Worker bound to client B's recovery bucket answers 503 crossed-binding naming RECOVERY on recovery, case and deletion routes, and never names client B",
         "the crossed deployment wrote nothing to client A"
       ],
@@ -130,7 +131,7 @@
         "V1's package file is served with V1's SHA-256, and V2's is not served while V1 is published",
         "V2's objects stay in R2 with their SHA-256: a rollback deletes nothing",
         "the originals are the same objects, orig/<sha256>, under either version",
-        "a second rollback with the stale expectation answers 409 stale-or-unstored and changes nothing",
+        "a second rollback with the stale expectation answers 409 stale-or-unstored and changes nothing: no activation is logged and user work is as it was",
         "the next write after the rollback takes the next seq and revision: no gap, no reuse",
         "rolling forward to V2 serves the V2-only document again, with every row kept",
         "the activation log records each of the four publications"
@@ -155,6 +156,7 @@
         "a copy is held only in the recovery bucket; the live bucket keeps its own export",
         "one byte in the middle of one copy is flipped at rest",
         "staging the corrupted copy answers 422 copy-corrupted: R2 refused the write against the SHA-256 recorded at copy time",
+        "A1's second copy is staged into the live bucket ahead of a restore that is never finished: the packet holds A1's originals, read model and user work",
         "A2 gains two rows after its copy",
         "client A's whole database is dumped, the stand-in for a D1 Time Travel point, before any deletion"
       ],
@@ -188,7 +190,7 @@
         "every case route of A1 answers 410 case-deleted with no case bytes ()",
         "A1 holds no version, activation, original, revision or user-work row",
         "no row of A1, its versions or its exports is left in any of the 17 tables sqlite_master lists with such a column ()",
-        "A1's package files, lists, exports, bundle history and its own original are erased from the live bucket ()",
+        "A1's package files, lists, exports, bundle history, its own original and the packet of its aborted restore are erased from the live bucket ()",
         "the original A2 also records stays and A2 serves it verified; everything of A2 is as it was",
         "a repeated removal is a no-op that erases what may be left, and a new request on the removed case is refused",
         "the deletion keeps its actors and its request, approval, offer and removal times, in that order"
@@ -196,7 +198,7 @@
       "measured": {
         "refusedSteps": 12,
         "routesGone": 9,
-        "erasedObjects": 15,
+        "erasedObjects": 16,
         "residueRows": 0
       }
     },
@@ -218,7 +220,7 @@
         "the deletion record holds ids, roles and times only, no case content",
         "it is kept in the live bucket and in the recovery bucket, beside the copies it governs",
         "the rolled-back database holds A1 live again, with no deletion, and A2 as it was at the dump (its later row lost)",
-        "the running Worker's next request finds fewer removed cases in D1 than records in the ledger, reapplies the deletion, and answers 410 (410, {\"state\":\"removed\",\"active\":0,\"versions\":0})",
+        "the running Worker's next request for A1 finds its record in the buckets while D1 holds A1 live, reapplies the deletion, and answers 410 (410, {\"state\":\"removed\",\"active\":0,\"versions\":0})",
         "A2 is served from the rolled-back database, without the row written after the dump"
       ],
       "measured": {
@@ -244,6 +246,7 @@
         "a backup whose original entry changed between export and restore is refused by its CRC-32 before that original is written, and A2 is not activated ({\"open\":\"200\",\"step\":\"422 crc-mismatch\"})",
         "A2's copy is staged into the fresh live bucket, R2 checking its SHA-256 as it is written",
         "GRS-109's restore opens, copies and finishes it ({\"open\":\"200\",\"step\":\"200\",\"finish\":\"200\"})",
+        "the staged packet is deleted once its restore finishes with 200: the fresh bucket keeps the restored case's objects, not a second copy of the backup",
         "A2's state digest in the fresh deployment equals the source's at copy time: rows, read model, user work and every object",
         "every package file and the list of A2's published version hash to their recorded SHA-256 (GRS-12's check)",
         "every acknowledged original of A2, the shared one included, comes back byte for byte under its own key orig/<sha256>",
@@ -257,10 +260,10 @@
       "measured": {
         "restoredOriginals": 2,
         "lostRowsAfterCopy": 2,
-        "stageMs": 8,
-        "restoreMs": 67.8,
-        "checksMs": 75.3,
-        "totalMs": 945.8
+        "stageMs": 9.9,
+        "restoreMs": 79,
+        "checksMs": 84.7,
+        "totalMs": 1824.9
       }
     },
     "retention": {
@@ -280,6 +283,8 @@
         "a rotated copy can no longer be staged (A2's answers 404 no-such-copy; A1's is refused as deleted first)",
         "a firm admin requests the deletion of A2 and nobody approves it",
         "at + 400 days rotation removes nothing more, and the unapproved request is still only a request",
+        "at A1's removal + 400 days no object of A1 is left in either bucket, the staged packet of its aborted restore included, except its deletion record ()",
+        "a packet uploaded through GRS-109 names no case, so removal cannot find it: it survives rotation while younger than 30 days and ages out with the copies",
         "no automatic case purge: A2 is live, verified and complete with every row, 400 days on",
         "A2's bundle history is kept: rotation ages only recovery copies",
         "no client purge: the deployment, its identity and its live objects all stay",
@@ -289,7 +294,8 @@
         "rotations": 6,
         "copiesRemoved": 4,
         "copiesKept": 0,
-        "bundleVersionsKept": 1
+        "bundleVersionsKept": 1,
+        "packetsAged": 1
       }
     },
     "ledger-guards": {
@@ -309,6 +315,29 @@
       "measured": {
         "refusedRequests": 3
       }
+    },
+    "warm-isolate": {
+      "status": "PASS",
+      "commands": [
+        "POST /cases/<A2>/deletion/approve, …/offer {exportId}, GET /cases/<A2>/documents/<ref>",
+        "node ../storage/node_modules/wrangler/bin/wrangler.js r2 object put {recovery-a,recovery-copies-a}/deletion/<A2>.json --local (a valid record, D1 still says offered) --persist-to <run>/persist",
+        "every case route of A2 under the same running Worker",
+        "POST /cases/<A2>/deletion/remove {actor global-admin}, GET /cases/<A2>/deletion",
+        "node ../storage/node_modules/wrangler/bin/wrangler.js d1 execute DB --local --env client-a --command \"<every table with a case_id, version_id or export_id column>\" --persist-to <run>/persist"
+      ],
+      "asserted": [
+        "A2 is approved and its export offered, and this running Worker has served A2",
+        "A2's deletion record is written to both buckets while D1 still says offered",
+        "the same running Worker answers 410 case-deleted on every case route of A2, reads and writes alike, with no case bytes ()",
+        "the Global Admin's retried removal succeeds",
+        "D1 holds the record's removal time: the removal adopts the record and writes no new one",
+        "A2 holds no row in any of the 17 tables sqlite_master lists with such a column ()"
+      ],
+      "measured": {
+        "routesGone": 9,
+        "adoptedRemovals": 1,
+        "residueRows": 0
+      }
     }
   },
   "hold": [
@@ -323,7 +352,7 @@
   "failure": null,
   "evidence": true,
   "checker": {
-    "mutationsRefused": 1102,
+    "mutationsRefused": 1203,
     "accepted": null
   }
 }

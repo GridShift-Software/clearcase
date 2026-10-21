@@ -132,7 +132,7 @@ bun deploy/probes/secrets.ts run <name> [--keys K1,K2] [--to fd|env] -- <command
 
 ## One owner for shared deploy and config writes
 
-One future owner: GRS-114 (client provisioning), whose reservation already holds `deploy/client/**` with a serialized manifest handoff. It takes `deploy/probes/clients/` as `deploy/client/<client>/`, with the target manifest and the generated cf, Wrangler and Void configs, and it takes the trusted parent's `check`, `stage` and `prebuilt`. No other ticket writes those configs, the deploy scripts, or the repository's ignore rules for `.cloudflare/`, `.wrangler/` and `.void/`; they ask that owner for a handoff. Until GRS-114 starts, `deploy/probes/` stays reserved to GRS-107 and its fix rounds.
+One future owner: GRS-114 (client provisioning), whose reservation already holds `deploy/client/**` with a serialized manifest handoff. Today `deploy/client/` holds GRS-112's local-only `wrangler.toml` (every binding `remote = false`, no account), which the hosted gate serves. GRS-114 becomes the one writer of that directory: it takes `deploy/probes/clients/` as `deploy/client/<client>/`, with the target manifest and the generated cf, Wrangler and Void configs, and the trusted parent's `check`, `stage` and `prebuilt`. No other ticket writes those configs, the deploy scripts, or the repository's ignore rules for `.cloudflare/`, `.wrangler/` and `.void/`; they ask that owner for a handoff. Until GRS-114 starts, `deploy/probes/` stays reserved to GRS-107 and its fix rounds.
 
 ## What stays HOLD
 

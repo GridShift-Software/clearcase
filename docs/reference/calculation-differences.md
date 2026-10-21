@@ -68,4 +68,4 @@ The `prescSummary` KPIs are shown as imported and flagged when they disagree wit
 
 ## Time
 
-Only `now()` (`$lib/components/clock`) is read, on the server for the prescription as-of date (its South African calendar date); under `CLEARCASE_FIXED_NOW` the views are deterministic (e2e `Q10-FIXED-CLOCK`). No other figure depends on the clock.
+Only `now()` (`$lib/components/clock`) is read, on the server, for three figures, each counted on the South African calendar date (`saDate`), whatever the host's time zone: the prescription as-of date, the deadline countdown on the deadline tracker, and the Overview's open-deadlines tile (IDR-289). The ICS export also reads it in the browser, for the file's `DTSTAMP` only. Under `CLEARCASE_FIXED_NOW` the views are deterministic (e2e `Q10-FIXED-CLOCK`). No other figure depends on the clock.

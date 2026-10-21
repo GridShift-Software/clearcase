@@ -257,7 +257,8 @@ export function contradictionsOf(c: JsonObject, rowsByRef: RowsByRef): JsonObjec
   const item = (it: JsonObject): JsonObject => (Array.isArray(it.refs) && it.refs.length > 0 && fits('strs', it.refs)
     ? { ...it, refs: (it.refs as string[]).map((ref) => ({ ref, amount: '', filename: str(rowsByRef.get(ref)?.filename), url: str(rowsByRef.get(ref)?.url) })) }
     : it);
-  const out: JsonObject = { ...c, categories: mapObjs(c.categories, (cat) => ({ ...cat, items: mapObjs(cat.items, item) ?? cat.items })) ?? c.categories };
+  const out: JsonObject = { ...c };
+  if (Array.isArray(c.categories)) out.categories = mapObjs(c.categories, (cat) => (Array.isArray(cat.items) ? { ...cat, items: mapObjs(cat.items, item)! } : cat))!;
   if (Array.isArray(c.checks) && !c.checks.every((x) => isObject(x) && typeof x.n === 'number')) { out.checks = []; own(out, sourceName('checks'), c.checks); }
   return out;
 }

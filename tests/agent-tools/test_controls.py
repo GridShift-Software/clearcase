@@ -2763,6 +2763,55 @@ class FixRoundConfigurationAdditions(ControlCase):
         self.assertIn(f'symlink/submodule protected configuration refuses: {self.added}', self.guard('--base', 'dev', code=1))
 
 
+    def test_setup_role_revisits_runner_imports_in_shared_transitive_and_cyclic_graphs(self):
+        self.reset()
+        self.git('switch', '-q', 'dev')
+        self.write('tests/bootstrap.ts', 'export {};\n')
+        self.write('vitest.config.ts', self.config.replace('include:', "setupFiles: ['./tests/bootstrap.ts'], include:"))
+        self.dev = self.commit('setup entry present before review')
+        self.git('switch', '-q', '-C', 'feature/grs-104-tooling', self.dev)
+        self.write('tests/protected.test.ts', self.test)
+        self.base = self.commit('reviewed test with setup entry')
+        self.write('app.txt', 'fixed\n')
+        self.manifest()
+        self.fixed = self.commit('fix round')
+        for shape, imports in (
+                ('direct', {'bootstrap': ['added'], 'added': []}),
+                ('transitive', {'bootstrap': ['middle'], 'middle': ['added'], 'added': []}),
+                ('cyclic', {'bootstrap': ['middle'], 'middle': ['added'], 'added': ['middle']}),
+                ('shared', {'bootstrap': ['left', 'right'], 'left': ['added'], 'right': ['added'], 'added': []})):
+            with self.subTest(shape=shape):
+                files = {f'tests/{name}.ts': ''.join(f"import './{target}';\n" for target in targets) + 'export {};\n'
+                         for name, targets in imports.items()}
+                self.receive({self.added: "import '../bootstrap';\n" + self.config, **files})
+                for attempt in range(2):
+                    with self.subTest(attempt=attempt):
+                        out = self.guard('--base', 'dev', code=1)
+                        self.assertIn('protected dependency added/deleted: tests/added.ts', out)
+
+    def test_explicit_extension_configuration_import_export_and_require_forms_pass(self):
+        for extension in ('ts', 'mjs'):
+            module = f'./shared.{extension}'
+            for statement in (f"import '{module}';", f"export {{ default }} from '{module}';",
+                              f"export * from '{module}';", f"const shared = require('{module}');",
+                              f"const shared = import('{module}');", f"import shared = require('{module}');"):
+                with self.subTest(statement=statement):
+                    self.receive({self.added: statement + '\n' + self.config,
+                                  f'tests/deployment/shared.{extension}': self.config})
+                    self.assertIn(f'tests/deployment/shared.{extension}', self.guard('--base', 'dev'))
+
+    def test_module_import_classification_keeps_explicit_and_generic_setup_paths_protected(self):
+        for setting in ("setupFiles: ['./shared.ts']", "globalSetup: './shared.ts'", "bootstrap: './shared.ts'"):
+            for statement in ("import './shared.ts';", "export { default } from './shared.ts';",
+                              "const shared = require('./shared.ts');", "import shared = require('./shared.ts');"):
+                with self.subTest(setting=setting, statement=statement):
+                    config = self.config.replace('include:', setting + ', include:')
+                    self.receive({self.added: statement + '\n' + config,
+                                  'tests/deployment/shared.ts': 'export default {};\n'})
+                    out = self.guard('--base', 'dev', code=1)
+                    self.assertIn('protected dependency added/deleted: tests/deployment/shared.ts', out)
+
+
 class FixRoundRenames(ControlCase):
     """GRS-153 polish M1: a path set is compared with rename detection off. A renamed test is deleted at its old path
     and added at its new one, so a rename cannot hide the old file's assertions, and a base-side near-copy cannot

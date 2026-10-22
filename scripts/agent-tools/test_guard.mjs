@@ -7,9 +7,10 @@
 // code that does, and a new import into a protected test file may add no import-time effect.
 import ts from 'typescript';
 import { compile, parse } from 'svelte/compiler';
-import { readFileSync, realpathSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { builtinModules, createRequire } from 'node:module';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const SUPPORT_DIR = /^(?:tests?|__tests__|e2e|support|test-?utils?|test-?helpers?|fixtures?|__fixtures__|__mocks__|__snapshots__)$/;
@@ -946,14 +947,37 @@ function main() {
     && treeEntry(tip, file) === treeEntry(trusted, file)
     && forks.every(fork => treeEntry(fork, file) === treeEntry(base, file));
   // A path the base added, changed or deleted after the review is one whose copy at a base commit HEAD holds differs from
-  // every merge base's copy and from the fix base's. The fix base's copy is no reference for it (an addition's absence
-  // least of all, a rename's new path included): the base's copy HEAD received is, at each base commit HEAD holds. A
-  // received copy equal to the fix base's is nothing to protect. None without a trusted base.
-  const baseCopies = file => received.filter(revision => [...forks, base].every(other => treeEntry(other, file) !== treeEntry(revision, file)));
+  // the copy at every merge base of that commit with the fix base, and from the fix base's. The fix base's copy is no
+  // reference for it (an addition's absence least of all, a rename's new path included): the base's copy HEAD received
+  // is, at each base commit HEAD holds. A received copy equal to the fix base's is nothing to protect, and so is a received
+  // commit's copy of a path the base had not yet changed when that commit and the fix base parted. None without a trusted
+  // base.
+  const parted = new Map();
+  const forksOf = revision => {
+    if (!parted.has(revision)) parted.set(revision, git('merge-base', '--all', base, revision).split('\n').filter(Boolean));
+    return parted.get(revision);
+  };
+  const baseCopies = file => received.filter(revision => [...forksOf(revision), base].every(other => treeEntry(other, file) !== treeEntry(revision, file)));
   // the base's changes that HEAD received and then undid: the tip holds the fix base's copy (an absent path included), so it
   // shows no difference from the fix base, but it is not the base's copy. The branch reverted, deleted or masked them.
   const reverted = [...new Set([base, ...received].flatMap(revision => [...tracked(revision).keys()]))]
     .filter(file => treeEntry(tip, file) === treeEntry(base, file) && baseCopies(file).length);
+  // A path's references: the fix base's copy and each base copy above. Every site that judges HEAD against a reviewed copy
+  // (the named tests, the protected test files, the rest of the closure, the fixtures, the docs-only paths, the assertion
+  // counts and the modules a changed module loads) takes them all, so no site can judge a path the base changed after the
+  // review against the fix base alone.
+  const references = file => [base, ...baseCopies(file)];
+  // the base commits HEAD received that changed some path after the review, each a reference for the paths it changed
+  const changers = received.filter(revision => git('diff', '--no-renames', '--name-only', '-z', base, revision).split('\0')
+    .filter(Boolean).some(file => baseCopies(file).includes(revision)));
+  // the suffix of a refusal that judged HEAD against the base's copy
+  const against = reference => (reference === base ? '' : ` (against the base's copy at ${reference.slice(0, 12)}, which the base changed after the review)`);
+  // The paths HEAD holds otherwise than a reference: the fix diff less the base's changes HEAD holds as the base does,
+  // and the base's changes HEAD received and undid. Renames are off, so a renamed file is deleted at its old path and
+  // added at its new one, and the old path keeps its assertion count.
+  const diff = git('diff', '--no-renames', '--name-only', '-z', base, tip).split('\0').filter(Boolean);
+  const changed = diff.filter(file => !fromBase(file));
+  const touched = [...changed, ...reverted];
   const inherited = [];
   const proceed = () => {
     if (!command.length) return 0;
@@ -980,21 +1004,14 @@ function main() {
     }
     if (typeof declared.reason !== 'string' || !declared.reason.trim()) refuse('needs a reason');
     const own = path.relative(root, realpathSync(options['--findings'])).split(path.sep).join('/');
-    const changes = git('diff', '--raw', '--no-renames', '-z', base, tip).split('\0').filter(Boolean);
     const offending = [];
     const documents = [];
-    for (let i = 0; i < changes.length; i += 2) {
-      const [oldMode, newMode] = changes[i].slice(1).split(' ');
-      const file = changes[i + 1];
-      if (fromBase(file)) inherited.push(file);
-      else if (file === own) documents.push(file);
-      else if (isDocument(file) && [oldMode, newMode].every(mode => mode === '000000' || mode === '100644')) documents.push(file);
-      else offending.push(file);
-    }
-    // a base change the round undid leaves no difference from the fix base, but it is this round's change
-    for (const file of reverted) {
-      const modes = [base, ...baseCopies(file)].map(revision => tracked(revision).get(file)?.mode);
-      if (isDocument(file) && modes.every(mode => mode === undefined || mode === '100644')) documents.push(file);
+    inherited.push(...diff.filter(fromBase));
+    // a base change the round undid leaves no difference from the fix base, but it is this round's change; a document is a
+    // regular file, or absent, at the tip and at each of its references
+    for (const file of touched) {
+      if (file === own) documents.push(file);
+      else if (isDocument(file) && [tip, ...references(file)].every(revision => [undefined, '100644'].includes(tracked(revision).get(file)?.mode))) documents.push(file);
       else offending.push(file);
     }
     if (offending.length) {
@@ -1064,13 +1081,28 @@ function main() {
     visit(tree);
     return { tests, assertions };
   };
-  const before = new Map();
-  const after = new Map();
-  const load = (cache, revision, file) => {
+  const parsed = new Map();
+  const load = (revision, file) => {
     if (!supported(file)) throw Error(`unsupported protected test syntax: ${file}; JS/TS required`);
-    if (!cache.has(file)) cache.set(file, parse(file, source(revision, file)));
-    return cache.get(file);
+    if (!parsed.has(`${revision}:${file}`)) parsed.set(`${revision}:${file}`, parse(file, source(revision, file)));
+    return parsed.get(`${revision}:${file}`);
   };
+  // A closure entry is a tracked file's text, or what of a package.json steers the run: its test scripts, and the fields
+  // through which it steers resolution (a dependency or version edit does not).
+  const derive = {
+    '': text => text,
+    '#scripts': text => {
+      const scripts = JSON.parse(text).scripts ?? {};
+      return JSON.stringify(Object.keys(scripts).filter(name => TEST_SCRIPT.test(name)).sort().map(name => [name, scripts[name]]));
+    },
+    '#resolution': text => {
+      const manifest = JSON.parse(text);
+      return JSON.stringify(['name', 'type', 'main', 'module', 'browser', 'imports', 'exports'].map(key => manifest[key] ?? null));
+    },
+  };
+  // a closure entry's value at a revision, read from its origin's copy there (undefined where the revision lacks it)
+  const entryAt = (revision, key, origin) => (treeEntry(revision, origin) === undefined ? undefined
+    : derive[key.slice(origin.length)](source(revision, origin)));
   // Resolve imports against Git snapshots, never the worker's filesystem or module loader. Only test code is followed.
   const closure = (revision, starts) => {
     const modes = new Map([...tracked(revision)].map(([file, entry]) => [file, entry.mode]));
@@ -1261,18 +1293,12 @@ function main() {
     // the tracked file a derived entry (test scripts, resolution fields) is read from
     const origins = new Map();
     if (files.has('package.json')) {
-      const scripts = JSON.parse(source(revision, 'package.json')).scripts ?? {};
-      found.set('package.json#scripts', JSON.stringify(Object.keys(scripts).filter(name => TEST_SCRIPT.test(name)).sort().map(name => [name, scripts[name]])));
+      found.set('package.json#scripts', derive['#scripts'](source(revision, 'package.json')));
       origins.set('package.json#scripts', 'package.json');
     }
-    // A package.json steers resolution only through these fields; a dependency or version edit does not.
-    const steering = text => {
-      const manifest = JSON.parse(text);
-      return JSON.stringify(['name', 'type', 'main', 'module', 'browser', 'imports', 'exports'].map(key => manifest[key] ?? null));
-    };
     for (const [file, text] of resolutionInputs) {
       if (path.posix.basename(file) === 'package.json') {
-        found.set(`${file}#resolution`, steering(text));
+        found.set(`${file}#resolution`, derive['#resolution'](text));
         origins.set(`${file}#resolution`, file);
       } else if (!found.has(file)) found.set(file, text);
     }
@@ -1313,16 +1339,25 @@ function main() {
         || path.isAbsolute(entry.file) || entry.file.split('/').some(part => part === '..' || part === '.')) {
       throw Error('each protected test requires a repository-relative file and literal name');
     }
-    const old = load(before, base, entry.file).tests.get(entry.name) ?? [];
-    const current = load(after, head, entry.file).tests.get(entry.name) ?? [];
-    if (old.length !== 1 || old[0].inactive) throw Error(`baseline test absent, ambiguous or inactive: ${entry.file}: ${entry.name}`);
-    if (current.length !== 1) throw Error(`named test deleted, renamed or ambiguous: ${entry.file}: ${entry.name}`);
-    if (current[0].inactive) throw Error(`named test skipped/todo/isolated: ${entry.file}: ${entry.name}`);
-    if (old[0].body !== current[0].body) throw Error(`named test changed (assertions may be removed or loosened): ${entry.file}: ${entry.name}`);
+    // a named test stays as each reference holds it, so a base change to it after the review refuses until a new review
+    for (const reference of references(entry.file)) {
+      const old = (reference === base || exists(reference, entry.file) ? load(reference, entry.file).tests.get(entry.name) : undefined) ?? [];
+      const current = load(head, entry.file).tests.get(entry.name) ?? [];
+      if (old.length !== 1 || old[0].inactive) throw Error(`baseline test absent, ambiguous or inactive: ${entry.file}: ${entry.name}${against(reference)}`);
+      if (current.length !== 1) throw Error(`named test deleted, renamed or ambiguous: ${entry.file}: ${entry.name}`);
+      if (current[0].inactive) throw Error(`named test skipped/todo/isolated: ${entry.file}: ${entry.name}`);
+      if (old[0].body !== current[0].body) throw Error(`named test changed (assertions may be removed or loosened): ${entry.file}: ${entry.name}${against(reference)}`);
+    }
   }
   const starts = [...new Set(findings.tests.map(entry => entry.file))];
   const oldClosure = closure(base, starts);
   const currentClosure = closure(head, starts);
+  // the protected closure at each reference, from the named tests' files it holds
+  const snapshots = new Map([[base, oldClosure]]);
+  const snapshotAt = revision => {
+    if (!snapshots.has(revision)) snapshots.set(revision, closure(revision, starts.filter(file => tracked(revision).has(file))));
+    return snapshots.get(revision);
+  };
   const reasonFor = file => typeof reasons[file] === 'string' && reasons[file].trim();
   // the tracked file a specifier names, including one with an extension the resolver does not know (a Svelte
   // component), relative, through $lib or from the repository root (a leading /), without a ?query or #fragment
@@ -1549,31 +1584,33 @@ function main() {
     };
     return registration(statement);
   };
-  for (const file of starts) {
-    // the named tests stay as reviewed (above) whatever the base holds; the rest of their file may be the base's change
-    if (oldClosure.found.get(file) !== currentClosure.found.get(file) && fromBase(file)) {
+  // A protected test file is judged against each of its references in turn: the named tests stay as reviewed (above)
+  // whatever the base holds, and the rest of the file may be the base's change, or change after its last named test.
+  const judge = (file, reference) => {
+    const snapshot = snapshotAt(reference);
+    if (snapshot.found.get(file) !== currentClosure.found.get(file) && fromBase(file)) {
       inherited.push(file);
-      continue;
+      return;
     }
     const names = new Set(findings.tests.filter(entry => entry.file === file).map(entry => entry.name));
-    const reviewed = statements(file, oldClosure.found.get(file), names).list;
+    const reviewed = statements(file, snapshot.found.get(file), names).list;
     const { list: current, tree, checker } = statements(file, currentClosure.found.get(file), names);
     const seen = new Set(reviewed.map(statement => statement.text));
     const fixed = list => JSON.stringify(list.filter(statement => !statement.free).map(statement => statement.text));
     if (fixed(reviewed) !== fixed(current.filter(statement => !(statement.isImport && !seen.has(statement.text))))) {
-      throw Error(`protected test file changed outside its free tests (imports, helpers, mocks, hooks and the named tests stay as reviewed): ${file}`);
+      throw Error(`protected test file changed outside its free tests (imports, helpers, mocks, hooks and the named tests stay as reviewed): ${file}${against(reference)}`);
     }
     // Tests in a file run in order, so nothing may change up to the last named test: a free test placed, changed or
     // dropped before it could set or clear state the named test reads.
     const prefix = list => JSON.stringify(list.slice(0, list.findLastIndex(statement => statement.holdsNamed) + 1)
       .filter(statement => !statement.isImport).map(statement => statement.text));
     if (prefix(reviewed) !== prefix(current)) {
-      throw Error(`protected test file changed before its last named test (free tests may change only after it): ${file}`);
+      throw Error(`protected test file changed before its last named test (free tests may change only after it): ${file}${against(reference)}`);
     }
     const added = current.filter(statement => !seen.has(statement.text));
     const free = list => JSON.stringify(list.filter(statement => statement.free).map(statement => statement.text));
-    if (free(reviewed) === free(current) && !added.some(statement => statement.isImport)) continue;
-    if (!reasonFor(file)) throw Error(`protected dependency changed: ${file}; a free test change or a new import needs explicit assertion count reasons in assertionCountReasons[file]`);
+    if (free(reviewed) === free(current) && !added.some(statement => statement.isImport)) return;
+    if (!reasonFor(file)) throw Error(`protected dependency changed: ${file}${against(reference)}; a free test change or a new import needs explicit assertion count reasons in assertionCountReasons[file]`);
     // A new import runs its module, and every module that one loads, before the named tests. It may name a module the
     // reviewed test already loads, or an unchanged module under test that, followed through its imports, does nothing
     // while it is imported and never reaches the test framework. A side-effect import refuses.
@@ -1583,8 +1620,8 @@ function main() {
       return found ?? `package:${specifier}`;
     };
     const imported = new Set(reviewed.filter(statement => statement.isImport)
-      .map(statement => target(oldClosure.resolve, file, statement.node.moduleSpecifier.text)));
-    const loadedHere = oldClosure.loadedBy(file);
+      .map(statement => target(snapshot.resolve, file, statement.node.moduleSpecifier.text)));
+    const loadedHere = snapshot.loadedBy(file);
     const evaluated = new Set([...imported, ...loadedHere]);
     const quiet = (specifier, module, visited) => {
       if (visited.has(module) || evaluated.has(module)) return;
@@ -1622,46 +1659,54 @@ function main() {
       if (imported.has(module)) continue;
       if (isEntry(module)) throw Error(`new import ${specifier} in ${file} loads the test file ${module}`);
       if (loadedHere.has(module)) continue;
-      if (module.startsWith('package:') || isSupport(module) || !exists(base, module)
-          || oldClosure.ids.get(module) !== currentClosure.ids.get(module)) {
-        throw Error(`new import ${specifier} in ${file} must name a module the reviewed file imports, a protected helper or an unchanged module under test`);
+      if (module.startsWith('package:') || isSupport(module) || !exists(reference, module)
+          || snapshot.ids.get(module) !== currentClosure.ids.get(module)) {
+        throw Error(`new import ${specifier} in ${file} must name a module the reviewed file imports, a protected helper or an unchanged module under test${against(reference)}`);
       }
       quiet(specifier, module, new Set());
     }
-  }
+  };
+  for (const file of starts) for (const reference of references(file)) judge(file, reference);
   // Everything else in the closure (helpers, fixtures, resolver and runner configuration, setup files, test scripts)
-  // stays as reviewed. No reason excuses a change there.
-  for (const file of new Set([...oldClosure.found.keys(), ...currentClosure.found.keys()])) {
-    if (starts.includes(file)) continue;
-    const oldText = oldClosure.found.get(file);
-    const newText = currentClosure.found.get(file);
-    if (oldText === undefined || newText === undefined) throw Error(`protected dependency added/deleted: ${file}`);
-    if (tokens(oldText) === tokens(newText)) continue;
-    if (fromBase(currentClosure.origin(file))) {
+  // stays as each reference holds it: as reviewed, and as the base holds a path it changed after the review, whichever
+  // reference's closure protects that path. No reason excuses a change there.
+  const dependency = (file, origin, oldText, newText, reference) => {
+    if (oldText === undefined || newText === undefined) throw Error(`protected dependency added/deleted: ${file}${against(reference)}`);
+    if (tokens(oldText) === tokens(newText)) return;
+    if (fromBase(origin)) {
       inherited.push(file);
-      continue;
+      return;
     }
     if (JSON.stringify(controlFlow(file, oldText)) !== JSON.stringify(controlFlow(file, newText))) {
-      throw Error(`protected dependency control flow changed (return/conditional/wrapping): ${file}`);
+      throw Error(`protected dependency control flow changed (return/conditional/wrapping): ${file}${against(reference)}`);
     }
-    throw Error(`protected dependency changed: ${file}; a recorded reason cannot excuse a helper, fixture, configuration or setup change`);
+    throw Error(`protected dependency changed: ${file}${against(reference)}; a recorded reason cannot excuse a helper, fixture, configuration or setup change`);
+  };
+  for (const file of new Set([...oldClosure.found.keys(), ...currentClosure.found.keys()])) {
+    if (!starts.includes(file)) dependency(file, currentClosure.origin(file), oldClosure.found.get(file), currentClosure.found.get(file), base);
+  }
+  for (const reference of changers) {
+    const snapshot = snapshotAt(reference);
+    for (const file of new Set([...oldClosure.found.keys(), ...snapshot.found.keys(), ...currentClosure.found.keys()])) {
+      const origin = [currentClosure, snapshot, oldClosure].find(each => each.found.has(file)).origin(file);
+      if (starts.includes(file) || !baseCopies(origin).includes(reference)) continue;
+      dependency(file, origin, entryAt(reference, file, origin), entryAt(head, file, origin), reference);
+    }
   }
   for (const file of oldClosure.data) {
     if (currentClosure.ids.get(file) === oldClosure.ids.get(file)) continue;
     if (!currentClosure.ids.has(file) || !fromBase(file)) throw Error(`protected fixture changed or deleted: ${file}`);
     inherited.push(file);
   }
-  // A fixture the base added or changed after the review keeps the base's copy that HEAD received, not the fix base's; the
-  // branch may add its own.
-  for (const file of new Set([...oldClosure.data, ...currentClosure.data, ...reverted.filter(currentClosure.fixture)])) {
-    if (baseCopies(file).some(revision => treeEntry(revision, file) !== treeEntry(head, file))) {
-      throw Error(`protected fixture changed or deleted: ${file} (the base changed it after the review; HEAD does not hold the base's copy)`);
+  // A fixture the base added or changed after the review keeps the base's copy that HEAD received, not the fix base's,
+  // whichever reference's closure protects it; the branch may add its own.
+  for (const reference of changers) {
+    for (const file of new Set([...oldClosure.data, ...currentClosure.data, ...snapshotAt(reference).data, ...reverted.filter(currentClosure.fixture)])) {
+      if (baseCopies(file).includes(reference) && treeEntry(reference, file) !== treeEntry(head, file)) {
+        throw Error(`protected fixture changed or deleted: ${file}${against(reference)}; HEAD does not hold the base's copy`);
+      }
     }
   }
-  // A file the base changed and HEAD holds as the base does is not part of this branch's fix diff. Renames are off, so
-  // a renamed file is deleted at its old path and added at its new one, and the old path keeps its assertion count.
-  const diff = git('diff', '--no-renames', '--name-only', '-z', base, head).split('\0').filter(Boolean);
-  const changed = diff.filter(file => !fromBase(file));
   // A fix may change the module under test freely, but a matcher, spy or global installed from code the named test
   // loads changes what every test proves. Any changed module outside the protected closure and the runner can be
   // loaded that way, the module under test and the test-support files it loads alike, so none may reach the test
@@ -1721,7 +1766,7 @@ function main() {
     const tree = ts.createSourceFile(file, script, ts.ScriptTarget.Latest, true);
     return new Set(importsOf(tree, file, false).map(specifier => link(snapshot, file, specifier)).filter(Boolean));
   };
-  for (const file of changed) {
+  for (const file of touched) {
     if (compared.has(file) || CONFIG_FILE.test(file) || oldClosure.runner.has(file) || currentClosure.runner.has(file)
         || !exists(head, file)) continue;
     if (isEntry(file) && shares) throw Error(`changed test file ${file} runs in the named tests' process, because test files are not isolated (${shares}); the guard cannot bound it`);
@@ -1742,26 +1787,56 @@ function main() {
         }
       }
     }
-    const reviewed = loads(base, oldClosure, file);
-    for (const target of loads(head, currentClosure, file)) if (!reviewed.has(target)) loadsSupport(file, target);
+    // a load is new when one of the module's references does not make it
+    const reviewed = references(file).map(reference => loads(reference, snapshotAt(reference), file));
+    for (const target of loads(head, currentClosure, file)) if (reviewed.some(loaded => !loaded.has(target))) loadsSupport(file, target);
   }
+  // Git's merge of the fix base with a base copy: what an unchanged branch merging that base commit holds, through any
+  // number of merge bases. Its objects go to a scratch directory, never to the repository.
+  const merges = new Map();
+  const mergedWith = revision => {
+    if (!merges.has(revision)) {
+      const scratch = mkdtempSync(path.join(tmpdir(), 'test-guard-merge-'));
+      process.on('exit', () => rmSync(scratch, { recursive: true, force: true }));
+      const objects = { ...env, GIT_OBJECT_DIRECTORY: scratch,
+        GIT_ALTERNATE_OBJECT_DIRECTORIES: git('rev-parse', '--path-format=absolute', '--git-path', 'objects').trim() };
+      const show = (...words) => execFileSync('git', ['-C', root, ...words], { env: objects, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+      const result = spawnSync('git', ['-C', root, 'merge-tree', '--write-tree', '-z', '--name-only', '--no-messages', base, revision],
+        { env: objects, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
+      if (result.status !== 0 && result.status !== 1) {
+        throw Error(`git merge-tree ${base.slice(0, 12)} ${revision.slice(0, 12)} failed: ${(result.stderr || String(result.error)).trim()}`);
+      }
+      const [tree, ...conflicted] = result.stdout.split('\0').filter(Boolean);
+      merges.set(revision, { conflicted: new Set(conflicted),
+        copy: file => (show('ls-tree', '-z', tree, '--', file) ? show('show', `${tree}:${file}`) : undefined) });
+    }
+    return merges.get(revision);
+  };
   // a base change the branch undid is no difference from the fix base, but it loses the base's assertions
-  for (const file of [...changed, ...reverted]) {
+  for (const file of touched) {
     if (!(/(?:^|\/)(?:tests?|__tests__)\/|\.(?:test|spec)\./.test(file))) continue;
     if (!supported(file)) {
       if (/\.(?:py|sh)$/.test(file)) throw Error(`unsupported changed test syntax: ${file}; guard refuses to infer assertion counts`);
       continue;
     }
-    // a path the base changed after the review counts the fix base's assertions plus the ones the base added, from the
-    // base's copy HEAD received against the merge base's (0 where absent), whatever the branch did with the merge
+    // A path the base changed after the review counts at least the assertions of Git's merge of the fix base's copy with
+    // the base's copy HEAD received, whatever the branch did with the merge. Where the two copies conflict, the branch
+    // resolved them by hand: the floor is then the fix base's count plus the base copy's over the merge bases' (0 where
+    // absent). Every floor is at least the fix base's count.
     const copies = baseCopies(file);
     const counted = revision => (treeEntry(revision, file) === undefined ? 0 : parse(file, source(revision, file)).assertions);
-    const added = Math.max(0, ...copies.map(revision => counted(revision) - Math.min(...forks.map(counted))));
-    const reviewed = exists(base, file) ? load(before, base, file).assertions : 0;
-    const old = reviewed + added;
-    const current = exists(head, file) ? load(after, head, file).assertions : 0;
+    const reviewed = exists(base, file) ? load(base, file).assertions : 0;
+    const floors = copies.map(revision => {
+      const copy = counted(revision); // an unreadable base copy fails closed here, before the merge
+      const merge = mergedWith(revision);
+      if (merge.conflicted.has(file)) return reviewed + Math.max(0, copy - Math.min(...forksOf(revision).map(counted)));
+      const text = merge.copy(file);
+      return text === undefined ? 0 : parse(file, text).assertions;
+    });
+    const old = Math.max(reviewed, ...floors);
+    const current = exists(head, file) ? load(head, file).assertions : 0;
     if (current < old && !(typeof reasons[file] === 'string' && reasons[file].trim())) {
-      throw Error(`assertion count fell in ${file}: ${old} -> ${current}${copies.length ? ` (the fix base's ${reviewed} plus the ${added} the base added at ${copies.map(revision => revision.slice(0, 12)).join(', ')})` : ''}; record assertionCountReasons[file]`);
+      throw Error(`assertion count fell in ${file}: ${old} -> ${current}${copies.length ? ` (the fix base's ${reviewed}; ${floors.join(', ')} with the base's change at ${copies.map(revision => revision.slice(0, 12)).join(', ')} merged)` : ''}; record assertionCountReasons[file]`);
     }
   }
   if (diff.length > changed.length) {

@@ -478,6 +478,19 @@ const up = node => {
 const literal = expression => (expression && ts.isStringLiteralLike(expression) ? expression.text : undefined);
 // A pure key whose value cannot be established (a cycle or an unavailable export) is different from a runtime key.
 const UNRESOLVED_KEY = Symbol('unresolved fixed key');
+const MAX_KEY_CHOICES = 256; // exceeding this refuses; it never makes a fixed key look runtime
+const keyChoices = value => value instanceof Set ? value : [value];
+const joinKeys = (left, right) => {
+  if (left === undefined || right === undefined) return undefined;
+  if (left === UNRESOLVED_KEY || right === UNRESOLVED_KEY) return UNRESOLVED_KEY;
+  if (typeof left === 'string' && typeof right === 'string') return left + right;
+  const joined = new Set();
+  for (const a of keyChoices(left)) for (const b of keyChoices(right)) {
+    joined.add(a + b);
+    if (joined.size > MAX_KEY_CHOICES) return UNRESOLVED_KEY;
+  }
+  return joined.size === 1 ? [...joined][0] : joined;
+};
 // The name a key spells before the module runs. A declaration and export visited set bounds cycles, without an
 // arbitrary limit on literal trees or const chains. Undefined means the key depends on a runtime value.
 const keyName = (tree, checker, key, declaredKey, seen = new Set()) => {
@@ -492,16 +505,15 @@ const keyName = (tree, checker, key, declaredKey, seen = new Set()) => {
     let text = key.head.text;
     for (const span of key.templateSpans) {
       const part = keyName(tree, checker, span.expression, declaredKey, seen);
-      if (part === undefined || part === UNRESOLVED_KEY) return part;
-      text += part + span.literal.text;
+      text = joinKeys(joinKeys(text, part), span.literal.text);
+      if (text === undefined || text === UNRESOLVED_KEY) return text;
     }
     return text;
   }
   if (ts.isBinaryExpression(key) && key.operatorToken.kind === ts.SyntaxKind.PlusToken) {
     const left = keyName(tree, checker, key.left, declaredKey, seen);
-    if (left === undefined || left === UNRESOLVED_KEY) return left;
     const right = keyName(tree, checker, key.right, declaredKey, seen);
-    return right === undefined || right === UNRESOLVED_KEY ? right : left + right;
+    return joinKeys(left, right);
   }
   if (ts.isBinaryExpression(key)) {
     if (key.operatorToken.kind === ts.SyntaxKind.CommaToken) return keyName(tree, checker, key.right, declaredKey, seen);
@@ -514,7 +526,10 @@ const keyName = (tree, checker, key, declaredKey, seen = new Set()) => {
     if (key.condition.kind === ts.SyntaxKind.FalseKeyword) return keyName(tree, checker, key.whenFalse, declaredKey, seen);
     const yes = keyName(tree, checker, key.whenTrue, declaredKey, seen);
     const no = keyName(tree, checker, key.whenFalse, declaredKey, seen);
-    return yes === undefined || no === undefined ? undefined : yes === no ? yes : UNRESOLVED_KEY;
+    if (yes === undefined || no === undefined) return undefined;
+    if (yes === UNRESOLVED_KEY || no === UNRESOLVED_KEY) return UNRESOLVED_KEY;
+    const options = new Set([...keyChoices(yes), ...keyChoices(no)]);
+    return options.size > MAX_KEY_CHOICES ? UNRESOLVED_KEY : options.size === 1 ? [...options][0] : options;
   }
   if (ts.isArrayLiteralExpression(key)) {
     const parts = key.elements.map(element => ts.isSpreadElement(element) ? undefined : keyName(tree, checker, element, declaredKey, seen));
@@ -524,7 +539,7 @@ const keyName = (tree, checker, key, declaredKey, seen = new Set()) => {
     const members = [];
     let root = key;
     while (ts.isPropertyAccessExpression(root) || ts.isElementAccessExpression(root)) {
-      const member = ts.isPropertyAccessExpression(root) ? root.name.text : keyName(tree, checker, root.argumentExpression, declaredKey, seen);
+      const member = ts.isPropertyAccessExpression(root) ? root.name.text : finishKey(keyName(tree, checker, root.argumentExpression, declaredKey, seen));
       if (member === undefined || member === UNRESOLVED_KEY) return member;
       members.unshift(member);
       root = unwrap(root.expression);
@@ -557,6 +572,7 @@ const keyName = (tree, checker, key, declaredKey, seen = new Set()) => {
 // The keys by which a value of any origin reaches a shared constructor or prototype (x.constructor, x.__proto__,
 // x.__lookupGetter__). rootOf, destructured() and the pattern sweep in reachesFramework all decide it here.
 const isSpecialKey = key => typeof key === 'string' && /^(?:constructor|__\w+__)$/.test(key);
+const finishKey = key => key instanceof Set ? [...key].some(isSpecialKey) ? UNRESOLVED_KEY : undefined : key;
 const isExported = node => Boolean(node.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword));
 const loadBuiltin = createRequire(import.meta.url);
 // whether a builtin module has an export (one the guard's runtime does not know is assumed to)
@@ -598,7 +614,8 @@ const analysisOf = (file, text, exporter) => {
   const { tree, checker } = bind(file, text);
   const self = { tree, checker };
   cache.set(`${file}\0${text}`, self);
-  const fixedKey = (key, seen = new Set()) => keyName(tree, checker, key, keyOfDeclaration, seen);
+  const keyValue = (key, seen = new Set()) => keyName(tree, checker, key, keyOfDeclaration, seen);
+  const fixedKey = (key, seen = new Set()) => finishKey(keyValue(key, seen));
   const fromKey = (specifier, name, seen) => {
     if (!specifier || isBuiltin(specifier)) return UNRESOLVED_KEY;
     const target = exporter(file, specifier);
@@ -613,7 +630,7 @@ const analysisOf = (file, text, exporter) => {
     }
     if (members.length) return UNRESOLVED_KEY;
     return ts.isVariableDeclaration(declaration) && ts.isIdentifier(declaration.name) && declaration.initializer
-      && declaration.parent.flags & ts.NodeFlags.Const ? fixedKey(declaration.initializer, seen) : undefined;
+      && declaration.parent.flags & ts.NodeFlags.Const ? keyValue(declaration.initializer, seen) : undefined;
   };
   const exportKey = (name, seen = new Set()) => {
     const mark = `key\0${file}\0${name}`;
@@ -629,7 +646,7 @@ const analysisOf = (file, text, exporter) => {
             if (ts.isIdentifier(declaration.name) && declaration.name.text === first) return keyOfDeclaration(declaration, seen, members);
           }
         }
-        if (ts.isExportAssignment(statement) && first === 'default') return members.length ? UNRESOLVED_KEY : fixedKey(statement.expression, seen);
+        if (ts.isExportAssignment(statement) && first === 'default') return members.length ? UNRESOLVED_KEY : keyValue(statement.expression, seen);
         if (!ts.isExportDeclaration(statement) || statement.isTypeOnly) continue;
         if (!statement.exportClause) { stars.push(literal(statement.moduleSpecifier)); continue; }
         if (ts.isNamespaceExport(statement.exportClause)) {

@@ -541,8 +541,9 @@ and handlers, with a component that does not parse or compile failing closed) re
   with constant parts, a `+` tree of these, or any chain of `const` aliases, including an alias imported from an
   unchanged tracked module through named, default, namespace or bare-star exports. There is no configured
   expression-depth cap. A computed pattern key or element-read key whose static resolution cannot finish (an alias
-  cycle, an unavailable import or export, or a pure array, conditional or other expression the folder cannot reduce)
-  fails closed. A conditional with fixed branches can therefore refuse even when its condition is runtime. A `const`
+  cycle, an unavailable import or export, or a pure array or other expression the folder cannot reduce) fails closed.
+  Conditionals with fixed branches carry up to 256 possible strings through templates and `+`: a special possibility
+  refuses, safe possibilities pass, and more than 256 possibilities fail closed. A `const`
   initialized by a runtime call is a runtime key, not a fixed alias. For example, `{ ['constr' + 'uctor']: C }`
   refuses, as does a longer concatenation. A
   `getPrototypeOf` result remains rooted. A pattern that reads a plain string, `{ constructor: label } = { constructor:

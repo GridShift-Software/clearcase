@@ -2062,6 +2062,18 @@ class GuardResidual(GuardCase):
                  ', '.join(str(ord(char)) for char in 'constructor') + ")];")):
             self.route(label, {'src/api.ts': code + '\n' + self.weakened})
 
+    def test_fixed_branch_alternatives_refuse_only_when_they_can_name_a_special_key(self):
+        self.route('safe conditional keys',
+                   {'src/api.ts': "export function pick(flag: boolean) { return ({} as any)[flag ? 'runs' : 'jobs']; }\n" + self.weakened})
+        self.route('special conditional key',
+                   {'src/api.ts': "export function pick(flag: boolean) { const k = flag ? 'constructor' : 'other'; "
+                                  "const { [k]: C } = {} as any; C.is = () => true; }\n" + self.weakened},
+                   why='reaches the test framework')
+        self.route('special key completed after a conditional',
+                   {'src/api.ts': "export function pick(flag: boolean) { const k = 'cons' + (flag ? 'tructor' : 'x'); "
+                                  "return ({} as any)[k].is = () => true; }\n" + self.weakened},
+                   why='reaches the test framework')
+
     def test_export_star_as_a_namespace_forwards_a_capability(self):
         # M1: `export * as N from` is a name, so a capability behind it refuses, directly or under an `export *` chain
         self.route('a star over a module that namespaces a builtin module',

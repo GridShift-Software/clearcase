@@ -629,6 +629,15 @@ try {
 		return all({ said: notice === 'This entry was already deleted elsewhere (in another tab or window). Nothing else was changed.', noError: (await count(p, '[data-delete-error]')) === 0, listed: (await until(p, `![...document.querySelectorAll('#heads-table tr[data-row]')].some((t) => t.cells[1].textContent.trim() === 'Twice deleted')`)) === true, evidence: { notice } });
 	});
 
+	await scenario('CONFIRM-delete', 'heads_tab', 'GRS-175: one press of Delete deletes nothing: the submission stays on the page and in the store, and the inline confirmation takes focus (Confirm delete, Cancel)', async () => {
+		await A.c.form(`${at('heads_tab')}?/add`, { head: 'Confirm kept', sub: 'x', auth: '', ref: '' });
+		await p.goto(`${V}${route('heads_tab')}`, ready('heads_tab'));
+		await rowButton('#heads-table', 1, 'Confirm kept');
+		await p.click('[data-pick="1"]');
+		await sleep(1500);
+		const shown = await p.evaluate(`[...document.querySelectorAll('#heads-table tbody tr[data-row]')].some((t) => t.cells[1].textContent.trim() === 'Confirm kept')`);
+		return all({ shown, stored: rowsWhere('heads', 'head', 'Confirm kept').length === 1, focus: await p.evaluate(`document.activeElement?.hasAttribute('data-delete-confirm') ?? false`), cancel: (await count(p, '#heads-table [data-delete-cancel]')) === 1 });
+	});
 	await scenario('EXPORT-neutral', 'heads_tab', 'a package without view-content export names: Heads of Argument and Authorities export under their neutral names, each with the generic-name note beside its export button', async () => {
 		const neutral = await neutralCase(join(tmp, 'neutral'));
 		const imp = await A.c.importPkg(neutral.caseDir, neutral.pkgDir);

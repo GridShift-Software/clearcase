@@ -638,6 +638,28 @@ try {
 		await sleep(200);
 		return { pass: during.retry === true && during.discard === true && !after.conflict && after.court === 'SYN RETRY COURT' && after.stored === 'SYN RETRY COURT', evidence: { during, after } };
 	});
+	await S('CB-HEADER-CONFIRM', 'court_bundle_tab', 'GRS-175: one press of Clear all or Restore matter defaults replaces nothing: the stored header and its field stay, and an inline confirmation takes focus (Confirm, Cancel)', async () => {
+		await p.go(B, 'court_bundle_tab');
+		await p.type('#cbh_court', 'SYN CONFIRM COURT');
+		await p.click('#cb-save');
+		await idleBusy(p);
+		const saved = storedHeader()?.court ?? null;
+		const press = async (id) => {
+			await p.click(`#${id}`);
+			await sleep(1500);
+			return { stored: storedHeader()?.court ?? null, field: await val(p, 'cbh_court'), focus: await p.evaluate(`document.activeElement?.hasAttribute('data-delete-confirm') ?? false`), cancel: await p.evaluate(`!!document.querySelector('#cb-header [data-delete-cancel]')`) };
+		};
+		const clear = await press('cb-clear');
+		await p.go(B, 'court_bundle_tab');
+		const restore = await press('cb-restore');
+		// leave no stored header for the scenarios after this one
+		await p.go(B, 'court_bundle_tab');
+		await p.click('#cb-restore');
+		if (await p.evaluate(`!!document.querySelector('#cb-header [data-delete-confirm]')`)) await p.click('#cb-header [data-delete-confirm]');
+		await idleBusy(p);
+		const kept = (x) => x.stored === 'SYN CONFIRM COURT' && x.field === 'SYN CONFIRM COURT' && x.focus && x.cancel;
+		return { pass: saved === 'SYN CONFIRM COURT' && kept(clear) && kept(restore), evidence: { saved, clear, restore } };
+	});
 	await S('CL-RETRY-INFLIGHT', 'caselines_tab', 'review L1: Retry pressed during a link in flight is disabled and the path is linked once', async () => {
 		await p.go(C, 'caselines_tab');
 		const path = 'Synthetic/retry once.pdf';

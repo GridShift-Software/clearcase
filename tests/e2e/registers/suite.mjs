@@ -739,6 +739,16 @@ try {
 			checks: { marked: marked.altered && /altered on disk/.test(marked.note ?? '') && marked.others === 1, largeSaved: err === null && big?.fields.body === body } };
 	});
 
+	await scenario('SC26-delete-confirm', 'deadlines_tab', 'GRS-175: one press of Delete deletes nothing: the row stays on the page and in the store, and the inline confirmation takes focus (Confirm delete, Cancel)', async () => {
+		await clearView('deadlines_tab');
+		await add({ title: 'Synthetic kept deadline', date: '2026-11-02', note: '' });
+		const [r] = await rows();
+		const row = `#register-table tr[data-row-id="${r.id}"]`;
+		await p.click(`${row} [data-delete]`);
+		await sleep(1500);
+		const ev = { id: r.id, shown: (await rows()).some((x) => x.id === r.id), stored: stored('deadlines').some((x) => x.id === r.id), focus: await p.evaluate(`document.activeElement?.hasAttribute('data-delete-confirm') ?? false`), cancel: await p.evaluate(`!!document.querySelector(${J(`${row} [data-delete-cancel]`)})`) };
+		return { evidence: ev, checks: { shown: ev.shown, stored: ev.stored, focus: ev.focus, cancel: ev.cancel } };
+	});
 	await scenario('SC18-prodid', 'deadlines_tab', "the exported calendar's PRODID carries the case part from the package's view-content (read from the built synthetic package, raw text) (D18)", async () => {
 		const field = vc ? JSON.parse(new TextDecoder().decode(vc)).data?.deadlines_tab?.icsProductId : undefined;
 		const part = typeof field === 'string' ? field : null;

@@ -872,6 +872,19 @@ try {
 	});
 
 	// E10 (diff): compare two known texts as an explicit pair, with coverage
+	await scenario('E-FILINGS-CONFIRM', 'filings_tab', 'GRS-175: one press of Delete deletes nothing: the row stays on the page and in the store, and the inline confirmation takes focus (Confirm delete, Cancel)', async () => {
+		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
+		const n = (await regRows()).length;
+		await setFields(p, { fl_filing: 'Synthetic confirm row' });
+		await p.click('#register-add');
+		await p.waitFor(`document.querySelectorAll('#filing-register tbody tr[data-key]').length === ${n + 1} && !document.getElementById('register-status')`, 20000);
+		const key = (await regRows()).find((r) => r.filing === 'Synthetic confirm row')?.key;
+		const row = `#filing-register tr[data-key=${J(key)}]`;
+		await p.click(deleteOf(key));
+		await sleep(1500);
+		const ev = { key, shown: (await regRows()).some((r) => r.key === key), stored: storedFilings().some((r) => `row:${r.id}` === key), focus: await p.evaluate(`document.activeElement?.hasAttribute('data-delete-confirm') ?? false`), cancel: await p.evaluate(`!!document.querySelector(${J(`${row} [data-delete-cancel]`)})`) };
+		return { pass: ev.shown && ev.stored && ev.focus && ev.cancel, evidence: ev };
+	});
 	await scenario('E-DIFF', 'hoa_diff_tab', 'Document Diff: an explicitly chosen pair of known texts gives the literal word diff, states the compared coverage (BA-06, BA-08), survives reload; one document only asks for two; every document with an excerpt is offered', async () => {
 		const nav = await viaNav('hoa_diff_tab', 'Document Diff');
 		const options = await p.evaluate(`[...document.getElementById('diffA').options].map((o) => o.value).filter(Boolean)`);

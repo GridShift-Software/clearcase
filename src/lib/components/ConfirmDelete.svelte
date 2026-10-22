@@ -64,11 +64,14 @@
 
 <button bind:this={opener} class={['opener', cls]} hidden={asking} {type} {form} {formaction} {name} {value} {disabled} {...rest} onclick={ask}>{label}</button>
 {#if asking}
-	<span class="confirm" role="group" aria-label={question} data-confirming={target}>
+	<!-- Without JavaScript the server's answer renders the question, and the browser's autofocus focuses the question, not
+	     Confirm: the repeats of the key that pressed Delete still arrive once that page loads, and nothing can tell them
+	     from a new press there. Tab reaches Confirm. With JavaScript the attach focuses Confirm, which ignores repeats. -->
+	<!-- svelte-ignore a11y_autofocus -->
+	<span class="confirm" role="group" aria-label={question} data-confirming={target} tabindex="-1" autofocus>
 		<span class="question">{question}</span>
 		{#if !onconfirm}<input type="hidden" {form} name={CONFIRM} value={target} />{/if}
-		<!-- svelte-ignore a11y_autofocus -->
-		<button {type} class="danger" {form} {formaction} {name} {value} {disabled} autofocus data-delete-confirm onclick={onconfirm ? confirm : pressed} onkeydown={keys} {@attach (el) => el.focus()}>{confirmLabel}</button>
+		<button {type} class="danger" {form} {formaction} {name} {value} {disabled} data-delete-confirm onclick={onconfirm ? confirm : pressed} onkeydown={keys} {@attach (el) => el.focus()}>{confirmLabel}</button>
 		<button {type} {form} {formaction} name={onconfirm ? undefined : CANCEL} value={onconfirm ? undefined : target} data-delete-cancel onclick={cancel} onkeydown={keys}>Cancel</button>
 	</span>
 {/if}

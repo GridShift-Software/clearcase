@@ -5,8 +5,9 @@ export const SEED_DATASET = 'filings';
 export const FIELDS = ['filing', 'fdate', 'fparty', 'response', 'rdate', 'ref', 'status'] as const;
 export type FilingField = (typeof FIELDS)[number];
 export type FilingFields = Record<FilingField, string>;
-/** The fields a user types (v5 has no status input: S-filings_tab-4, copied). */
+/** The legacy v5 fields; the app also accepts a status for user work. */
 export const INPUTS = ['filing', 'fdate', 'fparty', 'response', 'rdate', 'ref'] as const;
+export const FORM_INPUTS = [...INPUTS, 'status'] as const;
 
 export interface FilingItem { ref: string; date: string; title: string; note: string; doc_type: string; text_status: string; url: string }
 export interface FilingGroup { key: string; note: string; items: FilingItem[] }
@@ -68,6 +69,11 @@ export const nextSeq = (rows: readonly UserRowLike[]) => rows.reduce((m, r) => (
 export function formFields(get: (k: string) => unknown): { values: Record<(typeof INPUTS)[number], string>; ok: boolean } {
 	const values = Object.fromEntries(INPUTS.map((k) => [k, str(get(k))])) as Record<(typeof INPUTS)[number], string>;
 	return { values, ok: values.filing !== '' };
+}
+export function formEntryFields(get: (k: string) => unknown) {
+	const { values, ok } = formFields(get);
+	const status = get('status');
+	return { values: { ...values, status: str(status) }, statusProvided: status !== null && status !== undefined, ok };
 }
 
 export type SaveFailure = 'busy' | 'empty-add' | 'empty-edit' | 'gone' | 'stale' | 'version' | 'lost';

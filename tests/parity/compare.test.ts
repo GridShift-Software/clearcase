@@ -78,6 +78,21 @@ describe('register coverage', () => {
 		expect(covering(e, 'chronology', { path: 'table.table_1.row.SY-1.date', v5: '—', app: 'n/a' })).toBeNull();
 		expect(covering(e, 'chronology', { path: 'table.table_1.row.SY-1.amount', v5: '—', app: 'undated' })).toBeNull();
 	});
+	test('a relation between the two values covers only the pair it names', () => {
+		const e: Entry[] = [{ ...register[0], id: 'IDR-903', field: 'text.x', when: { relation: 'app-is-v5-without-ellipsis' } }];
+		const at = (v5: string, app: string) => covering(e, 'chronology', { path: 'text.x', kind: 'value', v5, app });
+		expect(at('short text…', 'short text')).not.toBeNull();
+		expect(at('short text …', 'short text')).not.toBeNull();
+		expect(at('1,689…', '1689')).not.toBeNull();
+		expect(at('short text …', 'short tex')).toBeNull();
+		expect(at('short text …', '<absent>')).toBeNull();
+		expect(at('1,689…', '1688')).toBeNull();
+		expect(at('short text…', 'other text')).toBeNull();
+		expect(at('short text…', '<absent>')).toBeNull();
+		expect(at('short text', 'short text')).toBeNull();
+		expect(at('short text…', 'short text…')).toBeNull();
+		expect(at('<absent>', 'short text')).toBeNull();
+	});
 	test('a whole-view entry (field "*") covers only the view-level difference, never a value', () => {
 		const whole: Entry[] = [{ ...register[0], field: '*', when: undefined, type: 'not-yet-implemented', owner: 'GRS-14' }];
 		expect(covering(whole, 'chronology', { path: '*', kind: 'view-not-implemented', v5: 'view', app: ABSENT })).not.toBeNull();

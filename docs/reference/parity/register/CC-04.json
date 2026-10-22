@@ -500,6 +500,126 @@
       "approvedOn": "2026-10-21"
     },
     {
+      "id": "IDR-141",
+      "view": "filings_tab",
+      "field": "control.input:text:Status",
+      "type": "defect-fix",
+      "source": "S-filings_tab-4",
+      "reason": "v5 has no Status input for a user-added filing. ClearCase lets the user set and edit Status, then keeps it in the user-work store.",
+      "productVisible": true,
+      "author": "GRS-183 implementation (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null,
+      "when": {
+        "v5": "<absent>",
+        "app": "1"
+      }
+    },
+    {
+      "id": "IDR-147",
+      "view": "hoa_diff_tab",
+      "field": [
+        "control.input:search:Search Document A",
+        "control.input:search:Search Document B"
+      ],
+      "type": "defect-fix",
+      "source": "S-hoa_diff_tab-3",
+      "reason": "v5 has two long document selects with no search. ClearCase provides a separate ref and file-name search for each picker while comparison remains excerpt-only.",
+      "productVisible": true,
+      "author": "GRS-183 implementation (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null,
+      "when": {
+        "v5": "<absent>",
+        "app": "1"
+      }
+    },
+    {
+      "id": "IDR-148",
+      "view": "search",
+      "field": "list.select.any.count",
+      "type": "improvement",
+      "source": "GRS-183",
+      "reason": "Search shares the text-status filter correction: when no document has OCR status, the empty OCR option is omitted, so the list is one shorter and the later options move up. One entry per path, each pinned to its own v5 and app pair, so a changed, dropped or extra option is not covered.",
+      "productVisible": true,
+      "author": "GRS-183 implementation (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null,
+      "when": {
+        "v5": "5",
+        "app": "4"
+      }
+    },
+    {
+      "id": "IDR-149",
+      "view": "search",
+      "field": "list.select.any.item.2",
+      "type": "improvement",
+      "source": "GRS-183",
+      "reason": "Search shares the text-status filter correction: when no document has OCR status, the empty OCR option is omitted, so the list is one shorter and the later options move up. One entry per path, each pinned to its own v5 and app pair, so a changed, dropped or extra option is not covered.",
+      "productVisible": true,
+      "author": "GRS-183 implementation (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null,
+      "when": {
+        "v5": "ocr",
+        "app": "none"
+      }
+    },
+    {
+      "id": "IDR-500",
+      "view": "search",
+      "field": "list.select.any.item.3",
+      "type": "improvement",
+      "source": "GRS-183",
+      "reason": "Search shares the text-status filter correction: when no document has OCR status, the empty OCR option is omitted, so the list is one shorter and the later options move up. One entry per path, each pinned to its own v5 and app pair, so a changed, dropped or extra option is not covered.",
+      "productVisible": true,
+      "author": "GRS-183 implementation (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null,
+      "when": {
+        "v5": "none",
+        "app": "pending"
+      }
+    },
+    {
+      "id": "IDR-501",
+      "view": "search",
+      "field": "list.select.any.item.4",
+      "type": "improvement",
+      "source": "GRS-183",
+      "reason": "Search shares the text-status filter correction: when no document has OCR status, the empty OCR option is omitted, so the list is one shorter and the later options move up. One entry per path, each pinned to its own v5 and app pair, so a changed, dropped or extra option is not covered.",
+      "productVisible": true,
+      "author": "GRS-183 implementation (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null,
+      "when": {
+        "v5": "pending",
+        "app": "<absent>"
+      }
+    },
+    {
+      "id": "IDR-502",
+      "view": "search",
+      "field": [
+        "sweep.search_filters.s2.set",
+        "sweep.search_filters.s2.order"
+      ],
+      "type": "improvement",
+      "source": "GRS-183",
+      "reason": "Search shares the text-status filter correction: v5 finds no rows for its OCR option, and ClearCase omits that empty option, so the sweep finds no option to select (no-option). An OCR sweep that shows rows on either side is not covered.",
+      "productVisible": true,
+      "author": "GRS-183 implementation (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null,
+      "when": {
+        "v5": {
+          "re": "^0\\|[0-9a-f]+:[0-9a-f]+(\\|shown 0)?$"
+        },
+        "app": "no-option"
+      }
+    },
+    {
       "id": "IDR-135",
       "view": "documents",
       "field": [],
@@ -572,19 +692,6 @@
       "approvedOn": null
     },
     {
-      "id": "IDR-141",
-      "view": "filings_tab",
-      "field": [],
-      "type": "known-gap",
-      "source": "S-filings_tab-4",
-      "owner": "GRS-14",
-      "reason": "v5 gives user-added register rows no way to set Status, so only imported rows carry one. ClearCase copies this: the register form has no Status field and user rows keep an empty status; adding the field would need an app change. Evidence: src/lib/views/evidence/filings.ts:8.",
-      "productVisible": true,
-      "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": "Vaperizer2",
-      "approvedOn": "2026-10-21"
-    },
-    {
       "id": "IDR-142",
       "view": "search",
       "field": [],
@@ -626,14 +733,13 @@
       "id": "IDR-145",
       "view": "search",
       "field": [],
-      "type": "known-gap",
+      "type": "defect-fix",
       "source": "S-search-6",
-      "owner": "GRS-14",
-      "reason": "v5 always appends an ellipsis to the excerpt preview, even when the excerpt is shorter than the cut. ClearCase copies this for every non-empty excerpt; fixing it would need an app change. Evidence: src/lib/views/evidence/search.ts:72.",
+      "reason": "v5 appends an ellipsis even to a short search excerpt. ClearCase marks only an excerpt longer than the displayed text. Evidence: src/lib/views/evidence/search.ts:72.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": "Vaperizer2",
-      "approvedOn": "2026-10-21"
+      "approvedBy": null,
+      "approvedOn": null
     },
     {
       "id": "IDR-146",
@@ -643,19 +749,6 @@
       "source": "S-hoa_diff_tab-2",
       "owner": "GRS-14",
       "reason": "v5 diffs only the short indexed excerpt, so lines mode degenerates to replacing the whole single-line excerpt. ClearCase still compares only the excerpts, but states each side excerpt length and text status; full-text comparison needs a full-text rebuild. Parity sees the change: IDR-131. Evidence: src/lib/views/evidence/diff.ts:5.",
-      "productVisible": true,
-      "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": "Vaperizer2",
-      "approvedOn": "2026-10-21"
-    },
-    {
-      "id": "IDR-147",
-      "view": "hoa_diff_tab",
-      "field": [],
-      "type": "known-gap",
-      "source": "S-hoa_diff_tab-3",
-      "owner": "GRS-14",
-      "reason": "v5 offers two long plain selects with no search. ClearCase keeps two plain selects, now listing every document that has an excerpt, so they are longer and still have no search box; a searchable picker would need an app change. Evidence: src/routes/v/[vid]/evidence/hoa_diff_tab/+page.svelte:20.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
       "approvedBy": "Vaperizer2",

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 	import { navigating } from '$app/state';
 	import DegradedRows from '$lib/components/DegradedRows.svelte';
 	import PageHeader from '$lib/components/PageHeader.svelte';
@@ -8,6 +8,13 @@
 	let { data } = $props();
 	const r = $derived(data.result);
 	const cov = $derived(data.coverage);
+	let searchA = $state('');
+	let searchB = $state('');
+	let chosenA = $state(untrack(() => data.chosen.a));
+	let chosenB = $state(untrack(() => data.chosen.b));
+	$effect(() => { chosenA = data.chosen.a; chosenB = data.chosen.b; });
+	const shownA = $derived(data.candidates.filter((c) => c.ref === chosenA || c.label.toLowerCase().includes(searchA.trim().toLowerCase())));
+	const shownB = $derived(data.candidates.filter((c) => c.ref === chosenB || c.label.toLowerCase().includes(searchB.trim().toLowerCase())));
 	let ready = $state(false);
 	onMount(() => { ready = true; });
 </script>
@@ -17,8 +24,8 @@
 	<DegradedRows failed={data.failed} />
 	<form method="GET" class="card" aria-label="Choose two documents to compare" data-sveltekit-keepfocus data-sveltekit-noscroll>
 		<div class="row">
-			<div><label class="fld" for="diffA">Document A</label><select class="in" id="diffA" name="a" value={data.chosen.a}><option value="">— pick —</option>{#each data.candidates as c (c.ref)}<option value={c.ref}>{c.label}</option>{/each}</select></div>
-			<div><label class="fld" for="diffB">Document B</label><select class="in" id="diffB" name="b" value={data.chosen.b}><option value="">— pick —</option>{#each data.candidates as c (c.ref)}<option value={c.ref}>{c.label}</option>{/each}</select></div>
+			<div><label class="fld" for="diffSearchA">Search Document A</label><input class="in" id="diffSearchA" type="search" bind:value={searchA} autocomplete="off" /><label class="fld" for="diffA">Document A</label><select class="in" id="diffA" name="a" bind:value={chosenA}><option value="">— pick —</option>{#each shownA as c (c.ref)}<option value={c.ref}>{c.label}</option>{/each}</select></div>
+			<div><label class="fld" for="diffSearchB">Search Document B</label><input class="in" id="diffSearchB" type="search" bind:value={searchB} autocomplete="off" /><label class="fld" for="diffB">Document B</label><select class="in" id="diffB" name="b" bind:value={chosenB}><option value="">— pick —</option>{#each shownB as c (c.ref)}<option value={c.ref}>{c.label}</option>{/each}</select></div>
 			<div class="narrow"><label class="fld" for="diffmode">Mode</label><select class="in" id="diffmode" name="mode" value={data.chosen.mode}><option value="words">words</option><option value="lines">lines</option></select></div>
 			<div class="narrow"><button id="diff-run">Compare</button></div>
 		</div>

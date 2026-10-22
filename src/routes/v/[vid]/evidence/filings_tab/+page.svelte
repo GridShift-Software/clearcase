@@ -13,7 +13,7 @@
 	import { download, toCSV } from '$lib/components/csv';
 	import { docPath } from '$lib/local-case/model';
 	import { cleanName, dateCell, docLabel, statusLabel } from '$lib/views/evidence/common';
-	import { INPUTS, SAVE_FAILURES, entryNote, filingsCsvRows, registerCsvRows, rowVersion, saveFailure, type RegisterEntry, type SaveFailure } from '$lib/views/evidence/filings';
+	import { FORM_INPUTS, SAVE_FAILURES, entryNote, filingsCsvRows, registerCsvRows, rowVersion, saveFailure, type RegisterEntry, type SaveFailure } from '$lib/views/evidence/filings';
 	import TableScroll from '$lib/components/TableScroll.svelte';
 	type Values = Record<string, string>;
 	type Result = { op?: 'add' | 'save' | 'delete'; code?: string; values?: Values; editing?: string | null; version?: string | null; message?: string; target?: string; confirm?: string | null; draft?: { values: Values; editing: string | null; version: string | null; failed: string | null } } | null;
@@ -21,11 +21,11 @@
 	const vid = $derived(data.version.id);
 	const files = $derived(new Map(data.files));
 
-	const blank = (): Values => Object.fromEntries(INPUTS.map((k) => [k, '']));
+	const blank = (): Values => Object.fromEntries(FORM_INPUTS.map((k) => [k, '']));
 	const entryOf = (key: string | null | undefined): RegisterEntry | null => (key ? (data.entries.find((e) => e.key === key) ?? null) : null);
-	const fieldsOf = (e: RegisterEntry | null): Values => (e ? Object.fromEntries(INPUTS.map((k) => [k, e.fields[k]])) : blank());
+	const fieldsOf = (e: RegisterEntry | null): Values => (e ? Object.fromEntries(FORM_INPUTS.map((k) => [k, e.fields[k]])) : blank());
 	const versionOf = (e: RegisterEntry | null) => (e ? rowVersion(e.fields) : null);
-	const same = (x: Values, y: Values) => INPUTS.every((k) => (x[k] ?? '') === (y[k] ?? ''));
+	const same = (x: Values, y: Values) => FORM_INPUTS.every((k) => (x[k] ?? '') === (y[k] ?? ''));
 	type SaveError = { code: SaveFailure; message: string; retry: boolean };
 	const failure = (code: SaveFailure): SaveError => ({ code, ...SAVE_FAILURES[code] });
 	function initial(f: Result) {
@@ -203,6 +203,7 @@
 				<div><label class="fld" for="fl_response">Responding / replying affidavit</label><input class="in" id="fl_response" name="response" bind:value={values.response} /></div>
 				<div><label class="fld" for="fl_rdate">Response date</label><input class="in" id="fl_rdate" name="rdate" type="date" bind:value={values.rdate} /></div>
 				<div><label class="fld" for="fl_ref">Ref</label><input class="in" id="fl_ref" name="ref" bind:value={values.ref} /></div>
+				<div><label class="fld" for="fl_status">Status</label><input class="in" id="fl_status" name="status" bind:value={values.status} /></div>
 				<div class="submit">{#if editing}<button id="register-save">Save</button>{#if !saveError} <a href="?" id="register-cancel">Cancel</a>{/if}{:else}<button id="register-add">Add</button>{/if}</div>
 			</fieldset>
 			{#if busy}<p class="status" role="status" id="register-status">{busy.op === 'delete' ? 'Deleting the entry…' : busy.op === 'save' ? 'Saving the change…' : 'Adding the entry…'}</p>{/if}

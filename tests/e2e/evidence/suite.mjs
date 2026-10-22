@@ -1007,6 +1007,44 @@ try {
 		};
 		return { pass: Object.values(checks).every(Boolean), evidence: { checks, nav: nav.got, pair, reloaded, pick, general, optionsN: options.length } };
 	});
+	await scenario('GRS-183-FILING-STATUS', 'filings_tab', 'IDR-141: an added filing keeps its chosen status after reload', async () => {
+		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
+		await p.type('#fl_filing', 'Synthetic GRS-183 status filing');
+		await p.type('#fl_status', 'Filed');
+		await p.click('#register-add');
+		await p.waitFor(`[...document.querySelectorAll('#filing-register tbody tr[data-key]')].some((r) => r.textContent.includes('Synthetic GRS-183 status filing') && r.cells[6]?.textContent.trim() === 'Filed')`, 15000);
+		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
+		const status = await p.evaluate(`[...document.querySelectorAll('#filing-register tbody tr[data-key]')].find((r) => r.textContent.includes('Synthetic GRS-183 status filing'))?.cells[6]?.textContent.trim() ?? null`);
+		return { pass: status === 'Filed', evidence: { status } };
+	});
+
+	await scenario('GRS-183-CHRONO-EXCERPT', 'chronology', 'IDR-088: a short chronology excerpt has no truncation mark', async () => {
+		await p.goto(`${V}/chronology`, `document.querySelector('main#main')?.dataset.ready === 'chronology'`);
+		const excerpt = await p.evaluate(`document.querySelector('[data-ref="OD-269"] .excerpt')?.textContent ?? null`);
+		return { pass: excerpt === 'Bulk excerpt 69.', evidence: { excerpt } };
+	});
+
+	await scenario('GRS-183-CHRONO-SORT', 'chronology', 'IDR-089: the subtitle names the active amount sort', async () => {
+		await p.goto(`${V}/chronology`, `document.querySelector('main#main')?.dataset.ready === 'chronology'`);
+		await p.click('#sort-amount');
+		await p.waitFor(`document.querySelector('main .page-head .subtitle')?.textContent.trim().endsWith('sorted by amount') === true`, 5000);
+		const subtitle = await p.evaluate(`document.querySelector('main .page-head .subtitle')?.textContent.trim() ?? null`);
+		return { pass: subtitle?.endsWith('sorted by amount') === true, evidence: { subtitle } };
+	});
+
+	await scenario('GRS-183-DIFF-PICKERS', 'hoa_diff_tab', 'IDR-147: both document pickers can find a late document by search', async () => {
+		await p.goto(`${V}/evidence/hoa_diff_tab`, R('hoa_diff_tab'));
+		await p.type('#diffSearchA', 'OD-269');
+		const a = await p.evaluate(`[...document.querySelectorAll('#diffA option')].map((o) => o.value).filter(Boolean)`);
+		await p.evaluate(`(() => { const s = document.querySelector('#diffA'); s.value = 'OD-269'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+		await p.type('#diffSearchB', 'VDM-901');
+		const b = await p.evaluate(`[...document.querySelectorAll('#diffB option')].map((o) => o.value).filter(Boolean)`);
+		await p.evaluate(`(() => { const s = document.querySelector('#diffB'); s.value = 'VDM-901'; s.dispatchEvent(new Event('change', { bubbles: true })); })()`);
+		await p.click('#diff-run');
+		await p.waitFor(`document.querySelector('#diffOut h3')?.textContent.trim() === 'OD-269 vs VDM-901'`, 15000);
+		const heading = await p.evaluate(`document.querySelector('#diffOut h3')?.textContent.trim() ?? null`);
+		return { pass: J(a) === J(['OD-269']) && J(b) === J(['VDM-901']) && heading === 'OD-269 vs VDM-901', evidence: { a, b, heading } };
+	});
 	exitOk = true;
 } catch (e) {
 	scenarios.push({ id: 'HARNESS', view: 'none', title: 'evidence suite harness', pass: false, evidence: { error: String(e?.stack ?? e).slice(0, 4000) } });

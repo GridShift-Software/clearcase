@@ -11,8 +11,8 @@
 | `S-bundle4` | medium | defects.md | registered | IDR-047 (defect-fix), IDR-110 (defect-fix), IDR-111 (defect-fix), IDR-120 (defect-fix), IDR-121 (defect-fix), IDR-132 (defect-fix), IDR-133 (defect-fix), IDR-122 (defect-fix) |  |
 | `S-overview-3` | medium | defects.md | registered | IDR-047 (defect-fix) |  |
 | `S-documents-*` | medium | defects.md | registered | IDR-110 (defect-fix), IDR-111 (defect-fix), IDR-107 (improvement), IDR-135 (defect-fix) |  |
-| `S-chronology-*` | medium | defects.md | registered | IDR-055 (defect-fix), IDR-056 (defect-fix), IDR-087 (defect-fix), IDR-088 (known-gap), IDR-089 (known-gap), IDR-090 (known-gap), IDR-091 (known-gap) |  |
-| `S-search-*` | medium | defects.md | registered | IDR-077 (defect-fix), IDR-120 (defect-fix), IDR-121 (defect-fix), IDR-132 (defect-fix), IDR-133 (defect-fix), IDR-122 (defect-fix), IDR-123 (improvement), IDR-142 (known-gap), IDR-143 (defect-fix), IDR-144 (known-gap), IDR-145 (known-gap) |  |
+| `S-chronology-*` | medium | defects.md | registered | IDR-055 (defect-fix), IDR-056 (defect-fix), IDR-088 (defect-fix), IDR-090 (defect-fix), IDR-092 (defect-fix), IDR-093 (defect-fix), IDR-094 (defect-fix), IDR-095 (defect-fix), IDR-087 (defect-fix), IDR-089 (defect-fix), IDR-091 (known-gap) |  |
+| `S-search-*` | medium | defects.md | registered | IDR-077 (defect-fix), IDR-120 (defect-fix), IDR-121 (defect-fix), IDR-132 (defect-fix), IDR-133 (defect-fix), IDR-122 (defect-fix), IDR-123 (improvement), IDR-142 (known-gap), IDR-143 (defect-fix), IDR-144 (known-gap), IDR-145 (defect-fix) |  |
 | `S-index-keys` | medium | defects.md | registered | IDR-170 (defect-fix) |  |
 | `S-seed-copy` | medium | defects.md | registered | IDR-101 (improvement) |  |
 | `S-prescription-frozen` | medium | defects.md | registered | IDR-224 (improvement), IDR-238 (improvement), IDR-225 (improvement), IDR-226 (improvement), IDR-237 (improvement), IDR-229 (improvement), IDR-239 (data-correction-deferred-to-pipeline) | yes |
@@ -39,9 +39,9 @@
 | `S-timeline-4` | low | view-checklist.md | registered | IDR-181 (known-gap) |  |
 | `S-chronology-1` | medium | view-checklist.md | registered | IDR-055 (defect-fix), IDR-056 (defect-fix) |  |
 | `S-chronology-2` | low | view-checklist.md | registered | IDR-087 (defect-fix) |  |
-| `S-chronology-3` | low | view-checklist.md | registered | IDR-088 (known-gap) |  |
-| `S-chronology-4` | low | view-checklist.md | registered | IDR-089 (known-gap) |  |
-| `S-chronology-5` | low | view-checklist.md | registered | IDR-090 (known-gap) |  |
+| `S-chronology-3` | low | view-checklist.md | registered | IDR-088 (defect-fix) |  |
+| `S-chronology-4` | low | view-checklist.md | registered | IDR-089 (defect-fix) |  |
+| `S-chronology-5` | low | view-checklist.md | registered | IDR-090 (defect-fix), IDR-092 (defect-fix), IDR-093 (defect-fix), IDR-094 (defect-fix), IDR-095 (defect-fix) |  |
 | `S-chronology-6` | low | view-checklist.md | registered | IDR-091 (known-gap) |  |
 | `S-quantum_tab-1` | low | view-checklist.md | registered | IDR-240 (defect-fix) |  |
 | `S-quantum_tab-2` | low | view-checklist.md | registered | IDR-240 (defect-fix) |  |
@@ -54,16 +54,16 @@
 | `S-filings_tab-1` | medium | view-checklist.md | registered | IDR-138 (defect-fix) |  |
 | `S-filings_tab-2` | low | view-checklist.md | registered | IDR-139 (defect-fix) |  |
 | `S-filings_tab-3` | medium | view-checklist.md | registered | IDR-140 (defect-fix) |  |
-| `S-filings_tab-4` | low | view-checklist.md | registered | IDR-141 (known-gap) |  |
+| `S-filings_tab-4` | low | view-checklist.md | registered | IDR-141 (defect-fix) |  |
 | `S-search-1` | low | view-checklist.md | registered | IDR-142 (known-gap) |  |
 | `S-search-2` | medium | view-checklist.md | registered | IDR-077 (defect-fix), IDR-143 (defect-fix) |  |
 | `S-search-3` | low | view-checklist.md | registered | IDR-144 (known-gap) |  |
 | `S-search-4` | medium | view-checklist.md | registered | IDR-120 (defect-fix), IDR-121 (defect-fix), IDR-132 (defect-fix), IDR-133 (defect-fix), IDR-122 (defect-fix) |  |
 | `S-search-5` | low | view-checklist.md | registered | IDR-123 (improvement) |  |
-| `S-search-6` | low | view-checklist.md | registered | IDR-145 (known-gap) |  |
+| `S-search-6` | low | view-checklist.md | registered | IDR-145 (defect-fix) |  |
 | `S-hoa_diff_tab-1` | medium | view-checklist.md | registered | IDR-128 (defect-fix), IDR-129 (defect-fix) |  |
 | `S-hoa_diff_tab-2` | medium | view-checklist.md | registered | IDR-146 (known-gap) |  |
-| `S-hoa_diff_tab-3` | low | view-checklist.md | registered | IDR-147 (known-gap) |  |
+| `S-hoa_diff_tab-3` | low | view-checklist.md | registered | IDR-147 (defect-fix) |  |
 | `S-invoice_ledger_tab-1` | low | view-checklist.md | registered | IDR-217 (defect-fix) |  |
 | `S-disbursements_tab-1` | low | view-checklist.md | registered | IDR-282 (defect-fix), IDR-283 (defect-fix) |  |
 | `S-disbursements_tab-2` | medium | view-checklist.md | registered | IDR-286 (defect-fix) |  |

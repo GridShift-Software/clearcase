@@ -37,7 +37,7 @@
           "type": "object",
           "additionalProperties": false,
           "minProperties": 1,
-          "properties": { "v5": { "$ref": "#/$defs/valueCondition" }, "app": { "$ref": "#/$defs/valueCondition" } }
+          "properties": { "v5": { "$ref": "#/$defs/valueCondition" }, "app": { "$ref": "#/$defs/valueCondition" }, "relation": { "enum": ["app-is-v5-without-ellipsis"] } }
         },
         "type": { "enum": ["improvement", "defect-fix", "data-correction-deferred-to-pipeline", "not-yet-implemented", "known-gap"] },
         "source": { "type": "string", "pattern": "^(S-[A-Za-z0-9_]+(-[A-Za-z0-9_]+)*|BA-[0-9]+|GRS-[0-9]+)$" },

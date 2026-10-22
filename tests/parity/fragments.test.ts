@@ -68,7 +68,7 @@ describe('rules across files', () => {
 		expect(load(register([entry('IDR-004')], { 'CC-04': [whole('IDR-004', 'people')] })).problems).toEqual(['register/CC-04.json: IDR-004: duplicate id']);
 	});
 	test("an id outside the fragment owner's range is refused; its moved legacy ids are kept", () => {
-		expect(load(register([], { 'CC-04': [entry('IDR-151')] })).problems).toEqual(["register/CC-04.json: IDR-151: outside CC-04's id range IDR-100–IDR-149"]);
+		expect(load(register([], { 'CC-04': [entry('IDR-151')] })).problems).toEqual(["register/CC-04.json: IDR-151: outside CC-04's id range IDR-100–IDR-149, IDR-500–IDR-509"]);
 		expect(load(register([], { 'CC-04': [entry('IDR-099')] })).problems.join()).toMatch(/outside CC-04's id range/);
 		expect(load(register([], { 'CC-04': [entry('IDR-450')] })).problems.join()).toMatch(/outside CC-04's id range/);
 		expect(load(register([], { 'CC-05': [whole('IDR-004', 'people')] })).problems.join()).toMatch(/IDR-004: outside CC-05's id range/);

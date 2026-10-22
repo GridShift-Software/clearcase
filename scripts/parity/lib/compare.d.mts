@@ -4,7 +4,7 @@ export const ABSENT: '<absent>';
 export const TYPES: readonly ['improvement', 'defect-fix', 'data-correction-deferred-to-pipeline', 'not-yet-implemented', 'known-gap'];
 export type DiffType = (typeof TYPES)[number];
 export interface Difference { path: string; kind: 'value' | 'v5-only' | 'app-only' | 'order' | 'view-not-implemented' | 'extract-error'; v5: string; app: string; index?: number; v5Length?: number; appLength?: number }
-export interface Entry { id: string; view: string; field: string | string[]; when?: { v5?: string | { re: string }; app?: string | { re: string } }; type: DiffType; source?: string; owner?: string; reason: string; productVisible: boolean; author: string; approvedBy: string | null; approvedOn: string | null }
+export interface Entry { id: string; view: string; field: string | string[]; when?: { v5?: string | { re: string }; app?: string | { re: string }; relation?: 'app-is-v5-without-ellipsis' }; type: DiffType; source?: string; owner?: string; reason: string; productVisible: boolean; author: string; approvedBy: string | null; approvedOn: string | null }
 export interface Result { compared: number; matched: number; v5Values: number; appValues: number; diffs: Difference[] }
 export interface Classified extends Result { registered: (Difference & { register: string; type: DiffType; approved: boolean })[]; unregistered: Difference[] }
 export function flatten(s: Snapshot): Map<string, string>;

@@ -1,8 +1,10 @@
 <script lang="ts">
 	// An inline two-step destructive control (GRS-175): Delete hides itself and shows the question with Confirm and Cancel,
 	// and only Confirm acts. The page keeps the one target awaiting confirmation in `pending`. Inside a form, Confirm
-	// submits with the target in the `confirm` field; with `onconfirm`, Confirm calls it instead.
-	import { tick } from 'svelte';
+	// submits with the target in the `confirm` field; with `onconfirm`, Confirm calls it instead. Confirm unmounts when
+	// pressed, so focus returns to this control once a failed action leaves it enabled again, and to the page heading
+	// when the control itself goes (its row was deleted).
+	import { onMount, tick } from 'svelte';
 	import type { HTMLButtonAttributes } from 'svelte/elements';
 	import { CANCEL, CONFIRM } from './confirm-delete';
 
@@ -19,6 +21,9 @@
 	const type = $derived(onconfirm ? 'button' : 'submit');
 	const value = $derived(name ? target : undefined);
 	let opener = $state<HTMLButtonElement>();
+	let settling = $state(false);
+	let confirmed = false;
+	const lost = () => !document.activeElement || document.activeElement === document.body;
 
 	// without JavaScript these buttons submit: the server asks, or returns the draft on Cancel
 	function ask(e: MouseEvent) {
@@ -31,10 +36,23 @@
 		await tick();
 		opener?.focus();
 	}
+	function pressed() {
+		settling = confirmed = true;
+	}
 	function confirm() {
+		pressed();
 		pending = null;
 		onconfirm?.();
 	}
+	// the action ran and left the control enabled: it failed, or it only replaced content
+	$effect(() => {
+		if (!settling || asking || disabled) return;
+		settling = false;
+		void tick().then(() => { if (lost()) opener?.focus(); });
+	});
+	onMount(() => () => {
+		if (confirmed) setTimeout(() => { if (lost()) document.querySelector<HTMLElement>('[data-page-heading]')?.focus(); });
+	});
 	// a held key repeats keydown: the repeats must not press Confirm (or Cancel, which would land on Delete and ask again)
 	function keys(e: KeyboardEvent) {
 		if (e.repeat) { e.preventDefault(); return; }
@@ -50,7 +68,7 @@
 		<span class="question">{question}</span>
 		{#if !onconfirm}<input type="hidden" {form} name={CONFIRM} value={target} />{/if}
 		<!-- svelte-ignore a11y_autofocus -->
-		<button {type} class="danger" {form} {formaction} {name} {value} {disabled} autofocus data-delete-confirm onclick={onconfirm ? confirm : undefined} onkeydown={keys} {@attach (el) => el.focus()}>{confirmLabel}</button>
+		<button {type} class="danger" {form} {formaction} {name} {value} {disabled} autofocus data-delete-confirm onclick={onconfirm ? confirm : pressed} onkeydown={keys} {@attach (el) => el.focus()}>{confirmLabel}</button>
 		<button {type} {form} {formaction} name={onconfirm ? undefined : CANCEL} value={onconfirm ? undefined : target} data-delete-cancel onclick={cancel} onkeydown={keys}>Cancel</button>
 	</span>
 {/if}

@@ -1,0 +1,40 @@
+# Local workerd only (GRS-109): no account, no deploy. Every binding is local (remote = false) and every database id is
+# a placeholder no Cloudflare account holds. Bun builds dist/worker.js (`bun run --bun build`); Wrangler serves it as is.
+# One environment per deployment. Each client has its own D1 database and R2 bucket; the crossed environments are the
+# same Worker deployed for client A with one binding pointing at client B's resource, and must refuse every request.
+name = "clearcase-storage-probe"
+main = "dist/worker.js"
+no_bundle = true
+compatibility_date = "2026-10-12"
+send_metrics = false
+
+# PROBE_HOOKS lets a GET /cases/<case>/work with x-probe-hold: <token> stop inside its snapshot until the runner releases that token (at most 30 s), so the runner
+# can write there. It is bound only in client A's probe deployment, never in client B or a product deployment.
+[env.client-a]
+vars = { CLEARCASE_CLIENT_ID = "client-a", PROBE_HOOKS = "1" }
+d1_databases = [{ binding = "DB", database_name = "storage-a", database_id = "00000000-0000-4000-8000-0000000109a1", remote = false }]
+r2_buckets = [{ binding = "BUCKET", bucket_name = "storage-a", remote = false }]
+
+[env.client-b]
+vars = { CLEARCASE_CLIENT_ID = "client-b" }
+d1_databases = [{ binding = "DB", database_name = "storage-b", database_id = "00000000-0000-4000-8000-0000000109b1", remote = false }]
+r2_buckets = [{ binding = "BUCKET", bucket_name = "storage-b", remote = false }]
+
+# Client A's Worker bound to client B's database.
+[env.crossed-d1]
+vars = { CLEARCASE_CLIENT_ID = "client-a" }
+d1_databases = [{ binding = "DB", database_name = "storage-b", database_id = "00000000-0000-4000-8000-0000000109b1", remote = false }]
+r2_buckets = [{ binding = "BUCKET", bucket_name = "storage-a", remote = false }]
+
+# Client A's Worker bound to client B's bucket.
+[env.crossed-r2]
+vars = { CLEARCASE_CLIENT_ID = "client-a" }
+d1_databases = [{ binding = "DB", database_name = "storage-a", database_id = "00000000-0000-4000-8000-0000000109a1", remote = false }]
+r2_buckets = [{ binding = "BUCKET", bucket_name = "storage-b", remote = false }]
+
+# A fresh deployment for client A that a packet is restored into (P7); before its identity is provisioned it is the
+# missing-identity case.
+[env.restore-a]
+vars = { CLEARCASE_CLIENT_ID = "client-a" }
+d1_databases = [{ binding = "DB", database_name = "storage-a-restore", database_id = "00000000-0000-4000-8000-0000000109a2", remote = false }]
+r2_buckets = [{ binding = "BUCKET", bucket_name = "storage-a-restore", remote = false }]

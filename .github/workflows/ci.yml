@@ -126,21 +126,9 @@ jobs:
       - run: bun install --frozen-lockfile
       - name: check
         run: scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base origin/dev --name check --tool bun -- bun run --bun check
-      # Temporary files on tmpfs, as on workers' machines, where /tmp is tmpfs: on the VM's disk SQLite's
-      # synchronous=FULL commits made the step about 40% slower. Six workers on four vCPUs, because the lock tests spend
-      # most of their time asleep. docs/ci-runner.md has the measurements.
-      - name: test
-        run: |
-          tmp=$(mktemp -d /dev/shm/clearcase-ci-test.XXXXXX)
-          trap 'rm -rf "$tmp"' EXIT
-          TMPDIR=$tmp CLEARCASE_TEST_TMP=$tmp scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base origin/dev --name test --tool bun -- \
-            bun run --bun test --maxWorkers=6 --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/receipts/vitest.json"
-      # The credential-free hosted gate (GRS-138; docs/development.md, "Hosted checks"): the hosted-gate artifact of this
-      # checkout on local workerd, with local D1 and R2 under Miniflare and Chromium over loopback, in an offline network
-      # namespace. Node hosts Wrangler, so this step needs a real Node (24 LTS, ADR 0008's line; Wrangler needs 22 or
-      # later); workerd arrives with bun install. No Cloudflare account, binding or token reaches it: CI=1 and telemetry
-      # off, and the run's D1 and R2 state (.local/hosted) and scratch live on this step's tmpfs directory. Its evidence
-      # uploads with the receipts.
+      # A real Node (24 LTS, ADR 0008's line) is on PATH from here on: the hosted gate's Wrangler needs it, and so do
+      # the deployment probe's secrets tests in the test step, whose reader hands secrets only to a real Node (GRS-107).
+      # Under `bun run --bun`, the first `node` on PATH is still Bun's stand-in; the tests look past it.
       #
       # PC1 run 39260890102 downloaded Node 26.10.0 into the tool cache and then failed with exit code 127 on its binary,
       # before the gate ran. The Node step may now fail without ending the job; when it does, the next step prints what
@@ -188,6 +176,25 @@ jobs:
           ldd "$bin/node"
           "$bin/node" --version
           echo "$bin" >> "$GITHUB_PATH"
+      # The identity probe's workspace (GRS-108) has its own pins and bun.lock, apart from the root install, and the test
+      # step below builds and serves it on workerd.
+      - name: install identity probe
+        run: (cd tests/hosting-probe/identity && bun install --frozen-lockfile)
+      # Temporary files on tmpfs, as on workers' machines, where /tmp is tmpfs: on the VM's disk SQLite's
+      # synchronous=FULL commits made the step about 40% slower. Six workers on four vCPUs, because the lock tests spend
+      # most of their time asleep. docs/ci-runner.md has the measurements.
+      - name: test
+        run: |
+          tmp=$(mktemp -d /dev/shm/clearcase-ci-test.XXXXXX)
+          trap 'rm -rf "$tmp"' EXIT
+          TMPDIR=$tmp CLEARCASE_TEST_TMP=$tmp scripts/agent-tools/receipt --receipts "$RUNNER_TEMP/receipts" --base origin/dev --name test --tool bun -- \
+            bun run --bun test --maxWorkers=6 --reporter=default --reporter=json --outputFile.json="$RUNNER_TEMP/receipts/vitest.json"
+      # The credential-free hosted gate (GRS-138; docs/development.md, "Hosted checks"): the hosted-gate artifact of this
+      # checkout on local workerd, with local D1 and R2 under Miniflare and Chromium over loopback, in an offline network
+      # namespace. Node hosts Wrangler, so this step needs a real Node (24 LTS, ADR 0008's line; Wrangler needs 22 or
+      # later); workerd arrives with bun install. No Cloudflare account, binding or token reaches it: CI=1 and telemetry
+      # off, and the run's D1 and R2 state (.local/hosted) and scratch live on this step's tmpfs directory. Its evidence
+      # uploads with the receipts.
       - name: gate-hosted
         # The runner has no workspace browser lock: none is the deliberate, documented bypass (docs/development.md,
         # Browser admission). Unset, the hosted preflight refuses the run.

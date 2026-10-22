@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, tick, untrack } from 'svelte';
 	import { applyAction, enhance } from '$app/forms';
-	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { SubmitFunction } from '$app/forms';
 	import CitationLink from '$lib/components/CitationLink.svelte';
@@ -11,6 +11,7 @@
 	import TableScroll from '$lib/components/TableScroll.svelte';
 	import { now } from '$lib/components/clock';
 	import { download } from '$lib/components/csv';
+	import { RELOAD_UNAVAILABLE, reloader } from '$lib/components/reload.svelte';
 	import type { FieldDef } from './defs';
 	import { deadlineCalendar, registerCsv, unsavable, type Entry } from './logic';
 	import type { ShownRow } from './page.server';
@@ -38,6 +39,7 @@
 	let saveError = $state<{ message: string; retry: boolean; stale?: boolean; draft?: Draft } | null>(saved ? { message: saved.message!, retry: saved.retry === true } : null);
 	let deleteError = $state<{ rowId: string | null; message: string } | null>(untrack(() => (form?.op === 'delete' && form.message ? { rowId: form.rowId ?? null, message: form.message } : null)));
 	let busy = $state(false);
+	const rl = reloader();
 	let deleting = $state<string | null>(null);
 	// the row whose Delete awaits Confirm; without JavaScript the server's refusal names it
 	let confirming = $state<string | null>(untrack(() => (form?.op === 'delete' ? (form.confirm ?? null) : null)));
@@ -80,7 +82,7 @@
 			try {
 				const holds = editing === sent.rowId && reg.fields.every((f) => (values[f.k] ?? '') === (sent.values[f.k] ?? ''));
 				if (result.type === 'success') {
-					await invalidateAll();
+					await rl.reload();
 					if (holds) reset(sent.rowId ? {} : Object.fromEntries(reg.keepAfterAdd.map((k) => [k, sent.values[k]!])));
 				} else if (result.type === 'redirect') await applyAction(result);
 				else {
@@ -88,7 +90,7 @@
 						? { message: String(result.data?.message ?? 'The entry was not saved. Your input is kept; try again.'), retry: result.data?.retry === true, stale: result.status === 409 }
 						: { message: lost(sent.rowId ? 'The change' : 'The entry', result.status), retry: result.status !== 413 };
 					saveError = holds ? failed : { ...failed, retry: false, draft: sent };
-					if (result.status === 404 || result.status === 409) await invalidateAll();
+					if (result.status === 404 || result.status === 409) await rl.reload();
 				}
 			} finally { busy = false; }
 		};
@@ -106,7 +108,7 @@
 				if (result.type === 'success') {
 					if (deleteError && (deleteError.rowId === id || deleteError.rowId === null)) deleteError = null;
 					if (editing === id) reset();
-					await invalidateAll();
+					await rl.reload();
 				} else if (result.type === 'failure') deleteError = { rowId: id, message: String(result.data?.message ?? 'The deletion did not happen; try again.') };
 				else if (result.type === 'redirect') await applyAction(result);
 				else deleteError = { rowId: id, message: lost('The deletion', result.status).replace('may not have been saved', 'may not have happened').replace('was not saved', 'did not happen') };
@@ -206,6 +208,7 @@
 			{#if editing}<button type="button" id="register-cancel" onclick={cancelEdit} disabled={locked}>Cancel</button>{/if}
 		{/snippet}
 	</PageHeader>
+	{#if rl.lost}<p class="error" role="alert" id="reload-error">{RELOAD_UNAVAILABLE}</p>{/if}
 
 	<form id="register-form" class="entry" method="POST" action="?/save" enctype="multipart/form-data" use:enhance={submit} data-editing={editing ?? undefined} aria-busy={locked}>
 		{#if editing}<input type="hidden" name="rowId" value={editing} /><input type="hidden" name="version" value={version ?? ''} />{/if}

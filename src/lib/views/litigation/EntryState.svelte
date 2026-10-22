@@ -3,10 +3,12 @@
 	// note on an entry carried back without JavaScript. Retry and Discard sit outside the form, after it, so Add stays the
 	// form's default button.
 	import type { EntryForm } from './entry.svelte.ts';
+	import { RELOAD_UNAVAILABLE } from '$lib/components/reload.svelte';
 	let { entry, form, errorId }: { entry: EntryForm; form: string; errorId: string } = $props();
 </script>
 
 <p class="status" role="status" data-saving={entry.adding ? '1' : null}>{entry.adding ? 'Saving the entry…' : ''}</p>
+{#if entry.reloadLost}<p class="error" role="alert" id="reload-error">{RELOAD_UNAVAILABLE}</p>{/if}
 {#if entry.addError}
 	<div class="entry-error" data-save-error>
 		<p class="error" role="alert" id={errorId}>{entry.addError.message}</p>

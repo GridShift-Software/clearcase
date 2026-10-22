@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, untrack } from 'svelte';
 	import { enhance } from '$app/forms';
-	import { afterNavigate, beforeNavigate, goto, invalidateAll } from '$app/navigation';
+	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import type { SubmitFunction } from '$app/forms';
 	import { askFocus } from '$lib/components/ask-focus.svelte';
@@ -15,6 +15,7 @@
 	import { cleanName, dateCell, docLabel, statusLabel } from '$lib/views/evidence/common';
 	import { INPUTS, SAVE_FAILURES, entryNote, filingsCsvRows, registerCsvRows, rowVersion, saveFailure, type RegisterEntry, type SaveFailure } from '$lib/views/evidence/filings';
 	import TableScroll from '$lib/components/TableScroll.svelte';
+	import { RELOAD_UNAVAILABLE, reloader } from '$lib/components/reload.svelte';
 	type Values = Record<string, string>;
 	type Result = { op?: 'add' | 'save' | 'delete'; code?: string; values?: Values; editing?: string | null; version?: string | null; message?: string; target?: string; confirm?: string | null; draft?: { values: Values; editing: string | null; version: string | null; failed: string | null } } | null;
 	let { data, form } = $props();
@@ -49,6 +50,7 @@
 	let saveError = $state<SaveError | null>(init.saveError);
 	let deleteError = $state<{ key: string; message: string } | null>(init.deleteError);
 	let busy = $state<{ op: 'add' | 'save' | 'delete'; key: string | null } | null>(null);
+	const rl = reloader();
 	// the row whose Delete awaits Confirm; without JavaScript the server's refusal names it
 	let confirming = $state<string | null>(init.confirm);
 	let ask = $state<{ what: string; go: () => void } | null>(null);
@@ -123,14 +125,14 @@
 					if (result.type === 'redirect' && stayed(sent.at)) {
 						landing = editing === null;
 						go(result.location);
-					} else await invalidateAll();
+					} else await rl.reload();
 				} else {
 					const code = result.type === 'failure' ? (saveFailure(result.data?.code) ?? 'busy') : 'lost';
 					values = sent.values;
 					editing = code === 'gone' ? null : sent.key;
 					version = code === 'gone' ? null : sent.version;
 					saveError = failure(code);
-					if (result.type === 'failure' && (result.status === 404 || result.status === 409)) await invalidateAll();
+					if (result.type === 'failure' && (result.status === 404 || result.status === 409)) await rl.reload();
 				}
 			} finally { busy = null; }
 		};
@@ -142,13 +144,13 @@
 			try {
 				if (result.type === 'success') {
 					if (deleteError?.key === target) deleteError = null;
-					await invalidateAll();
+					await rl.reload();
 				} else if (result.type === 'failure') {
 					deleteError = { key: target, message: String(result.data?.message ?? 'The entry could not be deleted; try again.') };
-					if (result.status === 404) await invalidateAll();
+					if (result.status === 404) await rl.reload();
 				} else if (result.type === 'redirect') {
 					if (stayed(at)) go(result.location);
-					else await invalidateAll();
+					else await rl.reload();
 				} else deleteError = { key: target, message: 'The entry may not have been deleted: the app did not answer. Check the register, then try again.' };
 			} finally { busy = null; }
 		};
@@ -164,6 +166,7 @@
 	<PageHeader heading="Filings & Affidavits" section="Filings & Affidavits" caseName={data.version.titleName} subtitle={data.content.subtitle}>
 		{#snippet actions()}<button type="button" id="export-filings" onclick={exportFilings} disabled={!data.groups}>Export CSV</button>{#if data.exportNames.filings.note}<span class="export-note" data-export-note>{data.exportNames.filings.note}</span>{/if}{/snippet}
 	</PageHeader>
+	{#if rl.lost}<p class="error" role="alert" id="reload-error">{RELOAD_UNAVAILABLE}</p>{/if}
 	<p class="disclosure" id="classification-status" data-verification="unverified">Filing groups and document types are imported classifications; they have not been verified against the documents.</p>
 	{#if data.content.orientation}
 		<section class="card narr" aria-labelledby="orientation-heading"><h2 id="orientation-heading">Orientation</h2><Narrative text={data.content.orientation} resultsVersion={vid} known={[]} /></section>

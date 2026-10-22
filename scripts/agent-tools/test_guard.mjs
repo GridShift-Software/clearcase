@@ -945,14 +945,15 @@ function main() {
   const fromBase = file => merged && (treeEntry(tip, file) !== undefined || treeEntry(base, file) !== undefined)
     && treeEntry(tip, file) === treeEntry(trusted, file)
     && forks.every(fork => treeEntry(fork, file) === treeEntry(base, file));
-  // A path that the fix base and every merge base of it with the base lack is one the base added after the review (a
-  // rename's new path included). The fix base's absence is no reference for it: the base's copy HEAD received is, at
-  // each base commit HEAD holds. None without a trusted base.
-  const baseCopies = file => (treeEntry(base, file) !== undefined || forks.some(fork => treeEntry(fork, file) !== undefined) ? []
-    : received.filter(revision => treeEntry(revision, file) !== undefined));
-  // the base's additions that HEAD received and no longer holds: the branch deleted them, in a merge or after it
-  const dropped = [...new Set(received.flatMap(revision => [...tracked(revision).keys()]))]
-    .filter(file => treeEntry(tip, file) === undefined && baseCopies(file).length);
+  // A path the base added, changed or deleted after the review is one whose copy at a base commit HEAD holds differs from
+  // every merge base's copy and from the fix base's. The fix base's copy is no reference for it (an addition's absence
+  // least of all, a rename's new path included): the base's copy HEAD received is, at each base commit HEAD holds. A
+  // received copy equal to the fix base's is nothing to protect. None without a trusted base.
+  const baseCopies = file => received.filter(revision => [...forks, base].every(other => treeEntry(other, file) !== treeEntry(revision, file)));
+  // the base's changes that HEAD received and then undid: the tip holds the fix base's copy (an absent path included), so it
+  // shows no difference from the fix base, but it is not the base's copy. The branch reverted, deleted or masked them.
+  const reverted = [...new Set([base, ...received].flatMap(revision => [...tracked(revision).keys()]))]
+    .filter(file => treeEntry(tip, file) === treeEntry(base, file) && baseCopies(file).length);
   const inherited = [];
   const proceed = () => {
     if (!command.length) return 0;
@@ -990,9 +991,10 @@ function main() {
       else if (isDocument(file) && [oldMode, newMode].every(mode => mode === '000000' || mode === '100644')) documents.push(file);
       else offending.push(file);
     }
-    // a deleted base addition leaves no difference from the fix base, but it is this round's change
-    for (const file of dropped) {
-      if (isDocument(file) && baseCopies(file).every(revision => tracked(revision).get(file).mode === '100644')) documents.push(file);
+    // a base change the round undid leaves no difference from the fix base, but it is this round's change
+    for (const file of reverted) {
+      const modes = [base, ...baseCopies(file)].map(revision => tracked(revision).get(file)?.mode);
+      if (isDocument(file) && modes.every(mode => mode === undefined || mode === '100644')) documents.push(file);
       else offending.push(file);
     }
     if (offending.length) {
@@ -1649,10 +1651,11 @@ function main() {
     if (!currentClosure.ids.has(file) || !fromBase(file)) throw Error(`protected fixture changed or deleted: ${file}`);
     inherited.push(file);
   }
-  // A fixture the base added after the review keeps the base's copy that HEAD received; the branch may add its own.
-  for (const file of new Set([...currentClosure.data, ...dropped.filter(currentClosure.fixture)])) {
+  // A fixture the base added or changed after the review keeps the base's copy that HEAD received, not the fix base's; the
+  // branch may add its own.
+  for (const file of new Set([...oldClosure.data, ...currentClosure.data, ...reverted.filter(currentClosure.fixture)])) {
     if (baseCopies(file).some(revision => treeEntry(revision, file) !== treeEntry(head, file))) {
-      throw Error(`protected fixture changed or deleted: ${file} (the base added it after the review; HEAD does not hold the base's copy)`);
+      throw Error(`protected fixture changed or deleted: ${file} (the base changed it after the review; HEAD does not hold the base's copy)`);
     }
   }
   // A file the base changed and HEAD holds as the base does is not part of this branch's fix diff. Renames are off, so
@@ -1742,20 +1745,23 @@ function main() {
     const reviewed = loads(base, oldClosure, file);
     for (const target of loads(head, currentClosure, file)) if (!reviewed.has(target)) loadsSupport(file, target);
   }
-  // a deleted base addition is no difference from the fix base, but it loses the base's assertions
-  for (const file of [...changed, ...dropped]) {
+  // a base change the branch undid is no difference from the fix base, but it loses the base's assertions
+  for (const file of [...changed, ...reverted]) {
     if (!(/(?:^|\/)(?:tests?|__tests__)\/|\.(?:test|spec)\./.test(file))) continue;
     if (!supported(file)) {
       if (/\.(?:py|sh)$/.test(file)) throw Error(`unsupported changed test syntax: ${file}; guard refuses to infer assertion counts`);
       continue;
     }
-    // a path the base added after the review counts from the base's copy HEAD received, not from 0
+    // a path the base changed after the review counts the fix base's assertions plus the ones the base added, from the
+    // base's copy HEAD received against the merge base's (0 where absent), whatever the branch did with the merge
     const copies = baseCopies(file);
-    const old = exists(base, file) ? load(before, base, file).assertions
-      : Math.max(0, ...copies.map(revision => parse(file, source(revision, file)).assertions));
+    const counted = revision => (treeEntry(revision, file) === undefined ? 0 : parse(file, source(revision, file)).assertions);
+    const added = Math.max(0, ...copies.map(revision => counted(revision) - Math.min(...forks.map(counted))));
+    const reviewed = exists(base, file) ? load(before, base, file).assertions : 0;
+    const old = reviewed + added;
     const current = exists(head, file) ? load(after, head, file).assertions : 0;
     if (current < old && !(typeof reasons[file] === 'string' && reasons[file].trim())) {
-      throw Error(`assertion count fell in ${file}: ${old} -> ${current}${copies.length ? ` (the base's copy at ${copies.map(revision => revision.slice(0, 12)).join(', ')}; the fix base has no ${file})` : ''}; record assertionCountReasons[file]`);
+      throw Error(`assertion count fell in ${file}: ${old} -> ${current}${copies.length ? ` (the fix base's ${reviewed} plus the ${added} the base added at ${copies.map(revision => revision.slice(0, 12)).join(', ')})` : ''}; record assertionCountReasons[file]`);
     }
   }
   if (diff.length > changed.length) {

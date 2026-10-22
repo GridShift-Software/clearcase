@@ -12,7 +12,7 @@ const { join, resolve } = await import('node:path');
 const { Database } = await import('bun:sqlite');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { launch, sleep } = await import('../pilot/lib/cdp.mjs');
-const { asking, cancelIfAsked, confirmPressed, focusOf, holdEnter, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
+const { asking, cancelIfAsked, confirmPressed, describedBy, focusOf, holdEnter, holdEnterWithoutJs, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
 const { bunIdentity } = await import('../pilot/lib/server.mjs');
 const { outDir } = await import('../pilot/lib/record.mjs');
 const { appServer } = await import('../pilot/suite/context.mjs');
@@ -935,6 +935,11 @@ try {
 		const bare = await postAction(p, '?/delete', { delete: k });
 		const other = await postAction(p, '?/delete', { delete: k, confirm: o });
 		const refused = await both();
+		// without JavaScript the server's answer asks: a held Enter on Delete must not reach the Confirm of that page
+		const nojs = await holdEnterWithoutJs(p, `${V}/evidence/filings_tab`, `document.querySelector('main#main')?.dataset.ready === 'filings_tab'`, opener(k));
+		nojs.both = await both();
+		if (!nojs.both) throw new Error(`without JavaScript a held Enter on Delete deleted without a second press: ${J(nojs)}`);
+		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
 		const m = (await regRows()).length;
 		await p.click(opener(k));
 		await confirmPressed(p, `#filing-register tr[data-key=${J(k)}]`);
@@ -945,6 +950,9 @@ try {
 			asked: J(asked.asking) === J([k]) && asked.focus === 'confirm' && asked.both,
 			heldEnterOnConfirm: J(heldConfirm.asking) === J([k]) && heldConfirm.focus === 'confirm' && heldConfirm.both,
 			heldEnterOnCancel: heldCancel.both,
+			heldEnterOnCancelStaysClosed: heldCancel.asking.length === 0 && heldCancel.focus === 'opener',
+			noJsHeldEnterOnDelete: !nojs.hydrated && J(nojs.asked.asking) === J([k]) && !nojs.held.submitted && J(nojs.held.asking) === J([k]) && nojs.both,
+			noJsAskFocus: nojs.asked.focus === 'question' && nojs.tab === 'confirm',
 			cancelKeeps: cancelled.asking.length === 0 && cancelled.focus === 'opener' && cancelled.both,
 			escapeKeeps: escaped.asking.length === 0 && escaped.focus === 'opener' && escaped.both,
 			secondMoves: J(second.asking) === J([o]) && second.both,
@@ -953,23 +961,25 @@ try {
 			confirmDeletesThatRow: !after.k && after.o,
 			focusSettles: settled === 'H1',
 		};
-		return { pass: Object.values(checks).every(Boolean), evidence: { checks, settled, asked, heldConfirm, heldCancel, cancelled, escaped, second, reloaded, bare, other, after } };
+		return { pass: Object.values(checks).every(Boolean), evidence: { checks, settled, asked, heldConfirm, heldCancel, nojs, cancelled, escaped, second, reloaded, bare, other, after } };
 	});
-	await scenario('E-FILINGS-CONFIRM-FOCUS', 'filings_tab', "GRS-175 L1: a Confirm delete refused by a busy store leaves focus on that row's Delete, with the error shown and the row kept", async () => {
+	await scenario('E-FILINGS-CONFIRM-FOCUS', 'filings_tab', "GRS-175 L1: a Confirm delete refused by a busy store leaves focus on that row's Delete, with the error shown, the row kept and the error as the Delete's description", async () => {
 		await p.goto(`${V}/evidence/filings_tab`, R('filings_tab'));
 		const o = (await regRows()).find((r) => r.filing === 'Synthetic second confirm row')?.key;
 		const opener = `#filing-register tr[data-key=${J(o)}] [data-delete]`;
-		let focus = false, error = null;
+		let focus = false, error = null, message = null, described = null;
 		const release = holdStore();
 		try {
 			await p.click(opener);
 			await confirmPressed(p, `#filing-register tr[data-key=${J(o)}]`);
 			await p.waitFor(`!!document.getElementById('register-delete-error')`, 30000);
 			error = await p.evaluate(`document.getElementById('register-delete-error').textContent.trim()`);
+			message = await p.evaluate(`document.querySelector('#register-delete-error p')?.textContent.trim() ?? null`);
 			focus = await p.waitFor(`document.activeElement === document.querySelector(${J(opener)})`, 5000).catch(() => false);
+			described = await describedBy(p);
 		} finally { release(); }
-		const checks = { errorShown: !!error, rowKept: storedFilings().some((r) => `row:${r.id}` === o), focusOnDelete: focus === true };
-		return { pass: Object.values(checks).every(Boolean), evidence: { checks, error, now: await focusOf(p, opener) } };
+		const checks = { errorShown: !!error, rowKept: storedFilings().some((r) => `row:${r.id}` === o), focusOnDelete: focus === true, errorDescribesDelete: !!message && described === message };
+		return { pass: Object.values(checks).every(Boolean), evidence: { checks, error, message, described, now: await focusOf(p, opener) } };
 	});
 	await scenario('E-DIFF', 'hoa_diff_tab', 'Document Diff: an explicitly chosen pair of known texts gives the literal word diff, states the compared coverage (BA-06, BA-08), survives reload; one document only asks for two; every document with an excerpt is offered', async () => {
 		const nav = await viaNav('hoa_diff_tab', 'Document Diff');

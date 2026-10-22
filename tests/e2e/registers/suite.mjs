@@ -14,7 +14,7 @@ const { join, resolve } = await import('node:path');
 const { Database } = await import('bun:sqlite');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { launch, sleep } = await import('../pilot/lib/cdp.mjs');
-const { asking, cancelIfAsked, confirmPressed, focusOf, holdEnter, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
+const { asking, cancelIfAsked, confirmPressed, describedBy, focusOf, holdEnter, holdEnterWithoutJs, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
 const { INIT, openPage } = await import('../pilot/suite/browser.mjs');
 const { appServer, vpath } = await import('../pilot/suite/context.mjs');
 const { startServer } = await import('../pilot/lib/server.mjs');
@@ -789,14 +789,22 @@ try {
 		const bare = await postAction(p, '?/delete', { rowId: r.id });
 		const other = await postAction(p, '?/delete', { rowId: r.id, confirm: o.id });
 		const refused = await both();
+		// without JavaScript the server's answer asks: a held Enter on Delete must not reach the Confirm of that page
+		const nojs = await holdEnterWithoutJs(p, `${base()}/registers/deadlines_tab`, ready('deadlines_tab'), `${row(r)} [data-delete]`);
+		nojs.both = await both();
+		if (!nojs.both) throw new Error(`without JavaScript a held Enter on Delete deleted without a second press: ${J(nojs)}`);
+		await openView('deadlines_tab');
 		await del(r.id);
 		const settled = await p.waitFor(`document.activeElement && document.activeElement !== document.body ? document.activeElement.tagName : false`, 3000).catch(() => null);
 		const ids = { page: (await rows()).map((x) => x.id), db: stored('deadlines').map((x) => x.id) };
-		const ev = { settled, asked, heldConfirm, heldCancel, cancelled, escaped, second, reloaded, bare, other, refused, ids };
+		const ev = { settled, asked, heldConfirm, heldCancel, nojs, cancelled, escaped, second, reloaded, bare, other, refused, ids };
 		return { evidence: ev, checks: {
 			asked: J(asked.asking) === J([r.id]) && asked.focus === 'confirm' && asked.both,
 			heldEnterOnConfirm: J(heldConfirm.asking) === J([r.id]) && heldConfirm.focus === 'confirm' && heldConfirm.both,
 			heldEnterOnCancel: heldCancel.both,
+			heldEnterOnCancelStaysClosed: heldCancel.asking.length === 0 && heldCancel.focus === 'opener',
+			noJsHeldEnterOnDelete: !nojs.hydrated && J(nojs.asked.asking) === J([r.id]) && !nojs.held.submitted && J(nojs.held.asking) === J([r.id]) && nojs.both,
+			noJsAskFocus: nojs.asked.focus === 'question' && nojs.tab === 'confirm',
 			cancelKeeps: cancelled.asking.length === 0 && cancelled.focus === 'opener' && cancelled.both,
 			escapeKeeps: escaped.asking.length === 0 && escaped.focus === 'opener' && escaped.both,
 			secondMoves: J(second.asking) === J([o.id]) && second.both,
@@ -805,7 +813,7 @@ try {
 			confirmDeletesThatRow: J(ids.page) === J([o.id]) && J(ids.db) === J([o.id]),
 			focusSettles: settled === 'H1' } };
 	});
-	await scenario('SC28-delete-failed-focus', 'deadlines_tab', "GRS-175 L1: a Confirm delete that fails leaves focus on that row's Delete, with the error shown and the row kept", async () => {
+	await scenario('SC28-delete-failed-focus', 'deadlines_tab', "GRS-175 L1: a Confirm delete that fails leaves focus on that row's Delete, with the error shown, the row kept and the error as the Delete's description", async () => {
 		await openView('deadlines_tab');
 		const [r] = await rows();
 		const row = `#register-table tr[data-row-id="${r.id}"]`;
@@ -817,8 +825,8 @@ try {
 			await p.waitFor(`!!document.getElementById('register-delete-error')`, 30000);
 			focus = await p.waitFor(`document.activeElement === document.querySelector(${J(`${row} [data-delete]`)})`, 5000).catch(() => false);
 		} finally { release(); }
-		const ev = { focus, now: await focusOf(p, `${row} [data-delete]`), kept: stored('deadlines').some((x) => x.id === r.id), error: await p.evaluate(`document.getElementById('register-delete-error')?.textContent.trim() ?? null`) };
-		return { evidence: ev, checks: { errorShown: !!ev.error, rowKept: ev.kept, focusOnDelete: focus === true } };
+		const ev = { focus, now: await focusOf(p, `${row} [data-delete]`), kept: stored('deadlines').some((x) => x.id === r.id), error: await p.evaluate(`document.getElementById('register-delete-error')?.textContent.trim() ?? null`), message: await p.evaluate(`document.querySelector('#register-delete-error p')?.textContent.trim() ?? null`), described: await describedBy(p) };
+		return { evidence: ev, checks: { errorShown: !!ev.error, rowKept: ev.kept, focusOnDelete: focus === true, errorDescribesDelete: !!ev.message && ev.described === ev.message } };
 	});
 	await scenario('SC18-prodid', 'deadlines_tab', "the exported calendar's PRODID carries the case part from the package's view-content (read from the built synthetic package, raw text) (D18)", async () => {
 		const field = vc ? JSON.parse(new TextDecoder().decode(vc)).data?.deadlines_tab?.icsProductId : undefined;

@@ -11,7 +11,7 @@ const { join, resolve } = await import('node:path');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { recorder, outDir } = await import('../pilot/lib/record.mjs');
 const { launch, newPage, sleep } = await import('../pilot/lib/cdp.mjs');
-const { asking, cancelIfAsked, confirmPressed, focusOf, holdEnter, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
+const { asking, cancelIfAsked, confirmPressed, describedBy, focusOf, holdEnter, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
 const { buildCase, putOriginal, pdf, row, url } = await import('../pilot/lib/fixtures.ts');
 const { appServer } = await import('../pilot/suite/context.mjs');
 const { vpath } = await import('../pilot/lib/client.mjs');
@@ -723,6 +723,7 @@ try {
 			asked: J(asked.asking) === J(['clear']) && asked.focus === 'confirm' && asked.kept,
 			heldEnterOnClear: J(heldClear.asking) === J(['clear']) && heldClear.focus === 'confirm' && heldClear.kept,
 			heldEnterOnCancel: heldCancel.kept,
+			heldEnterOnCancelStaysClosed: heldCancel.asking.length === 0 && heldCancel.focus === 'opener',
 			heldEnterOnRestore: J(heldRestore.asking) === J(['restore']) && heldRestore.focus === 'confirm' && heldRestore.kept,
 			cancelKeeps: cancelled.asking.length === 0 && cancelled.focus === 'opener' && cancelled.kept,
 			escapeKeeps: escaped.asking.length === 0 && escaped.focus === 'opener' && escaped.kept,
@@ -735,12 +736,12 @@ try {
 		};
 		return { pass: Object.values(checks).every(Boolean), evidence: { checks, asked, heldClear, heldCancel, heldRestore, cancelled, escaped, second, reloaded, bare, other, cleared, clearFocus, restoreFocus } };
 	});
-	await S('CB-HEADER-CONFIRM-FOCUS', 'court_bundle_tab', 'GRS-175 L1: a Confirm clear and a Confirm restore that fail leave focus on their own control, with the error shown and the header kept', async () => {
+	await S('CB-HEADER-CONFIRM-FOCUS', 'court_bundle_tab', "GRS-175 L1: a Confirm clear and a Confirm restore that fail leave focus on their own control, with the error shown, the header kept and the error as the control's description", async () => {
 		await p.go(B, 'court_bundle_tab');
 		await p.type('#cbh_court', 'SYN FOCUS COURT');
 		await p.click('#cb-save');
 		await idleBusy(p);
-		const focus = {};
+		const focus = {}, message = {}, described = {};
 		for (const k of ['clear', 'restore']) {
 			const release = holdStore(A.dataDir);
 			try {
@@ -748,13 +749,16 @@ try {
 				await confirmPressed(p, '#cb-header');
 				await p.waitFor(`document.getElementById('cb-error-${k}')`, 30000);
 				focus[k] = await p.waitFor(`document.activeElement === document.getElementById('cb-${k}')`, 5000).catch(() => false);
+				message[k] = await p.evaluate(`document.getElementById('cb-error-${k}')?.firstChild?.textContent.trim() ?? null`);
+				described[k] = await describedBy(p);
 			} finally { release(); }
 			await idleBusy(p);
 		}
 		const kept = storedHeader()?.court === 'SYN FOCUS COURT';
 		// leave the page as CB-HEADER-CONFIRM-CASES does, with the header restored and no error pending a leave guard
 		for (const k of ['clear', 'restore']) { await p.click(`#cb-retry-${k}`); await idleBusy(p); }
-		return { pass: kept && focus.clear === true && focus.restore === true, evidence: { kept, focus } };
+		const errorDescribes = ['clear', 'restore'].every((k) => !!message[k] && described[k] === message[k]);
+		return { pass: kept && focus.clear === true && focus.restore === true && errorDescribes, evidence: { kept, focus, message, described } };
 	});
 	await S('CL-RETRY-INFLIGHT', 'caselines_tab', 'review L1: Retry pressed during a link in flight is disabled and the path is linked once', async () => {
 		await p.go(C, 'caselines_tab');

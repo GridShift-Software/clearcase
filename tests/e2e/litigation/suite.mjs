@@ -14,7 +14,7 @@ const { Database } = await import('bun:sqlite');
 const { proveOffline } = await import('../pilot/lib/netproof.mjs');
 const { outDir } = await import('../pilot/lib/record.mjs');
 const { CHROME, launch } = await import('../pilot/lib/cdp.mjs');
-const { asking, cancelIfAsked, confirmPressed, focusOf, holdEnter, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
+const { asking, cancelIfAsked, confirmPressed, describedBy, focusOf, holdEnter, holdEnterWithoutJs, postAction, pressEscape } = await import('../pilot/lib/confirm.mjs');
 const { bunIdentity } = await import('../pilot/lib/server.mjs');
 const { appServer } = await import('../pilot/suite/context.mjs');
 const { INIT, openPage, sleep } = await import('../pilot/suite/browser.mjs');
@@ -684,6 +684,11 @@ try {
 		const bare = await postAction(p, '?/delete', { rowId: dk });
 		const other = await postAction(p, '?/delete', { rowId: dk, confirm: dO });
 		const refused = await both();
+		// without JavaScript the server's answer asks: a held Enter on Delete must not reach the Confirm of that page
+		const nojs = await holdEnterWithoutJs(p, `${V}${route('heads_tab')}`, ready('heads_tab'), opener(k));
+		nojs.both = await both();
+		if (!nojs.both) throw new Error(`without JavaScript a held Enter on Delete deleted without a second press: ${J(nojs)}`);
+		await p.goto(`${V}${route('heads_tab')}`, ready('heads_tab'));
 		await p.click(opener(k));
 		await confirmPressed(p, `#heads-table tr[data-row=${J(k)}]`);
 		const gone = await until(p, `!document.querySelector(${J(`#heads-table tr[data-row=${J(k)}]`)})`);
@@ -693,6 +698,9 @@ try {
 			asked: J(asked.asking) === J([dk]) && asked.focus === 'confirm' && asked.both,
 			heldEnterOnConfirm: J(heldConfirm.asking) === J([dk]) && heldConfirm.focus === 'confirm' && heldConfirm.both,
 			heldEnterOnCancel: heldCancel.both,
+			heldEnterOnCancelStaysClosed: heldCancel.asking.length === 0 && heldCancel.focus === 'opener',
+			noJsHeldEnterOnDelete: !nojs.hydrated && J(nojs.asked.asking) === J([dk]) && !nojs.held.submitted && J(nojs.held.asking) === J([dk]) && nojs.both,
+			noJsAskFocus: nojs.asked.focus === 'question' && nojs.tab === 'confirm',
 			cancelKeeps: cancelled.asking.length === 0 && cancelled.focus === 'opener' && cancelled.both,
 			escapeKeeps: escaped.asking.length === 0 && escaped.focus === 'opener' && escaped.both,
 			secondMoves: J(second.asking) === J([dO]) && second.both,
@@ -700,22 +708,23 @@ try {
 			serverRefuses: bare.type === 'failure' && bare.status === 400 && other.type === 'failure' && other.status === 400 && refused,
 			confirmDeletesThatRow: gone === true && !after.k && after.o,
 			focusSettles: settled === 'H1',
-			evidence: { settled, dk, dO, asked, heldConfirm, heldCancel, cancelled, escaped, second, reloaded, bare, other, after },
+			evidence: { settled, dk, dO, asked, heldConfirm, heldCancel, nojs, cancelled, escaped, second, reloaded, bare, other, after },
 		});
 	});
-	await scenario('CONFIRM-delete-failed-focus', 'heads_tab', "GRS-175 L1: a Confirm delete refused by a busy store leaves focus on that submission's Delete, with the error shown and the submission kept", async () => {
+	await scenario('CONFIRM-delete-failed-focus', 'heads_tab', "GRS-175 L1: a Confirm delete refused by a busy store leaves focus on that submission's Delete, with the error shown, the submission kept and the error as the Delete's description", async () => {
 		await p.goto(`${V}${route('heads_tab')}`, ready('heads_tab'));
 		const o = rowsWhere('heads', 'head', 'Confirm second')[0].row_id;
 		const opener = `#heads-table tr[data-row=${J(o)}] [data-delete]`;
 		const lock = holdLock();
-		let err = '', focus = false;
+		let err = '', focus = false, described = null;
 		try {
 			await p.click(opener);
 			await confirmPressed(p, `#heads-table tr[data-row=${J(o)}]`);
 			err = await until(p, `document.querySelector(${J(`#heads-table tr[data-row=${J(o)}]`)})?.querySelector('[data-delete-error]')?.textContent.trim() ?? ''`, 25000);
 			focus = await until(p, `document.activeElement === document.querySelector(${J(opener)})`, 5000);
+			described = await describedBy(p);
 		} finally { lock.release(); }
-		return all({ errorShown: !!err, rowKept: rowsWhere('heads', 'head', 'Confirm second').length === 1, focusOnDelete: focus === true, evidence: { err, focus: await focusOf(p, opener) } });
+		return all({ errorShown: !!err, rowKept: rowsWhere('heads', 'head', 'Confirm second').length === 1, focusOnDelete: focus === true, errorDescribesDelete: !!err && described === err, evidence: { err, described, focus: await focusOf(p, opener) } });
 	});
 	await scenario('EXPORT-neutral', 'heads_tab', 'a package without view-content export names: Heads of Argument and Authorities export under their neutral names, each with the generic-name note beside its export button', async () => {
 		const neutral = await neutralCase(join(tmp, 'neutral'));

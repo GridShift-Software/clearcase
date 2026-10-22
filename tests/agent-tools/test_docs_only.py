@@ -453,6 +453,33 @@ class IntoTheWave(DocsOnlyFixRound):
         self.another_ticket()
         self.assertIn('src/direct.ts', self.guard(base='dev', branch=WAVE, code=1))
 
+    def test_an_octopus_join_with_a_runtime_parent_is_judged_whole(self):
+        self.fix_round()
+        self.git('switch', '-q', '-c', 'feature/grs-107-runtime', WAVE)
+        self.write('src/runtime.ts', 'export const runtime = 1;\n')
+        self.commit('a runtime change on another ticket')
+        self.git('switch', '-q', WAVE)
+        self.git('-c', 'user.name=Synthetic', '-c', 'user.email=test@example.invalid', 'merge', '-q', '--no-ff',
+                 '-m', 'Merge the docs fix and runtime ticket together', BRANCH, 'feature/grs-107-runtime')
+        self.assertEqual(len(self.git('rev-list', '--parents', '-n', '1', 'HEAD').split()), 4)
+        self.assertIn('src/runtime.ts', self.guard(base='dev', branch=WAVE, code=1))
+
+    def test_an_octopus_after_the_join_is_judged_whole(self):
+        self.fix_round()
+        self.git('switch', '-q', WAVE)
+        self.merge(BRANCH)
+        self.git('switch', '-q', '-c', 'feature/grs-107-runtime', WAVE)
+        self.write('src/runtime.ts', 'export const runtime = 1;\n')
+        self.commit('a runtime change on another ticket')
+        self.git('switch', '-q', '-c', 'feature/grs-108-docs', WAVE)
+        self.write('docs/other.md', '# Other guide\n')
+        self.commit('another ticket changes documentation')
+        self.git('switch', '-q', WAVE)
+        self.git('-c', 'user.name=Synthetic', '-c', 'user.email=test@example.invalid', 'merge', '-q', '--no-ff',
+                 '-m', 'Merge two later tickets together', 'feature/grs-107-runtime', 'feature/grs-108-docs')
+        self.assertEqual(len(self.git('rev-list', '--parents', '-n', '1', 'HEAD').split()), 4)
+        self.assertIn('src/runtime.ts', self.guard(base='dev', branch=WAVE, code=1))
+
     def test_a_commit_on_the_wave_after_the_round_s_merge_is_judged_whole(self):
         # L-M1 (re-check): the round merged into the wave, then a commit made on the wave itself changes the app and
         # loosens its test. The first-parent line holds a commit that is not a merge, so the whole range is judged.

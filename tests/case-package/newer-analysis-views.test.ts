@@ -78,6 +78,7 @@ describe('the newer export\'s code-embedded analysis in its views (GRS-149)', ()
 		expect(text(body)).toContain('Phase one');
 		expect(text(body)).toContain('Phase two');
 		expect(body).toContain(`href="${docPath(rv, 'OD-001')}"`);
+		expect(body).toContain(`href="${docPath(rv, 'SD-001')}"`);
 	});
 
 	it('the Risk Matrix shows the 2 risks with category, owner and documents', async () => {

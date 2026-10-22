@@ -24,4 +24,9 @@ describe('GRS-194 anchors and organogram rendering', () => {
 		const body = render(SupplementalAnalysis, { props: { resultsVersion: 'v5', known: [], anchors: null, graph: null } }).body;
 		expect(body).not.toContain('<section');
 	});
+	it('reveals bidi and zero-width characters in evidence text and relationship labels', () => {
+		const body = render(SupplementalAnalysis, { props: { resultsVersion: 'test', known: [], anchors: [{ ref: 'ZZ-404', issue: 'Issue\u202E', why: 'Reason\u200B', quote: 'Quote\u2066' }], graph: { nodes: [{ id: 'a', label: 'Org\u202E', role: 'Role\u200B' }], edges: [{ from: 'a', to: 'missing', label: 'Link\u2066' }] } } }).body;
+		for (const cp of ['202E', '200B', '2066']) expect(body).toContain(`⟨U+${cp}⟩`);
+		expect(body).not.toMatch(/[\u202E\u200B\u2066]/);
+	});
 });

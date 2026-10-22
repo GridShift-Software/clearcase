@@ -410,9 +410,11 @@ the path. Per kind of path:
 
 An unchanged branch merging any base change passes: an addition, a change, a deletion or a rename of a test, a runtime
 file or a fixture, and a change to a helper or the runner configuration. A protected fixture or helper the base deletes,
-and a setup/helper dependency the base adds, refuse, as before. A runner configuration, a module it imports or a derived
-package entry (test scripts or resolution fields) absent at review passes when the merged trusted base added its origin
-file and HEAD holds that origin's full blob and mode unchanged (GRS-195). Candidate additions, edits or deletions,
+and a setup/helper dependency the base adds, refuse, as before, including when the same origin is also imported by a new
+runner configuration. A runner configuration, a module it imports or a derived package entry (test scripts or resolution
+fields) absent at review passes when the merged trusted base added its origin file and HEAD holds that origin's full blob
+and mode unchanged (GRS-195). Protected test/setup membership takes precedence over runner membership for every origin;
+the rule is based on closure provenance, not filenames. Candidate additions, edits or deletions,
 symlinks, mode changes, copied or unmerged base files, and missing or implicit trust still refuse. Four kinds of path are unaffected: the branch's own
 new test or fixture, a path the reviewed commit had deleted (a merge base still holds it), a path the base added or
 changed after HEAD's last merge, and a later base change to a path HEAD already holds. A base commit HEAD received is no

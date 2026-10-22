@@ -903,7 +903,7 @@ try {
 		await p.waitFor(`document.querySelectorAll('#filing-register tbody tr[data-key]').length === ${n + 1} && !document.getElementById('register-status')`, 20000);
 		const key = (await regRows()).find((r) => r.filing === 'Synthetic no-JS target filing')?.key;
 		const row = `#filing-register tr[data-key=${J(key)}]`;
-		const round = await draftThroughDeleteWithoutJs(p, { url: `${V}/evidence/filings_tab`, ready: R('filings_tab'), draft: '#fl_filing', text: 'Synthetic unsaved filing', row, opener: `${row} [data-delete]` });
+		const round = await draftThroughDeleteWithoutJs(p, { url: `${V}/evidence/filings_tab`, ready: `document.querySelector('main#main')?.dataset.ready === 'filings_tab'`, draft: '#fl_filing', text: 'Synthetic unsaved filing', row, opener: `${row} [data-delete]` });
 		const checks = { askKeeps: round.askedBeforeCancel.value === 'Synthetic unsaved filing' && round.askedBeforeCancel.row && round.askedBeforeCancel.asking,
 			cancelKeeps: round.cancelled.value === 'Synthetic unsaved filing' && round.cancelled.row && !round.cancelled.asking,
 			confirmKeeps: round.askedBeforeConfirm.value === 'Synthetic unsaved filing' && round.confirmed.value === 'Synthetic unsaved filing' && !round.confirmed.row && !storedFilings().some((r) => `row:${r.id}` === key) };

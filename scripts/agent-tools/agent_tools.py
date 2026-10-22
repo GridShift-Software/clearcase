@@ -1463,13 +1463,14 @@ def guard_claims(root, args):
     """What a test-guard receipt binds for approval: the commit the diff is measured from and the manifest's own claims
     about the review that prompted the fix round. approve compares them with the ledger's recorded review."""
     base = commit_of(root, args.fix_base)[0] if args.fix_base else None
-    claims = dict.fromkeys(("manifestSha256", "reviewFindingsSha256", "unit", "tests", "testsExact", "noTests"))
+    claims = dict.fromkeys(("manifestSha256", "reviewFindingsSha256", "unit", "tests", "testsExact", "noTests", "protection", "protectionExact"))
     try:
         findings = Path(args.findings).expanduser().resolve()
         manifest = json_object(findings)
         claims.update(manifestSha256=sha256_file(findings), reviewFindingsSha256=manifest.get("reviewFindingsSha256"),
                       unit=manifest.get("unit"), tests=manifest.get("tests"),
-                      testsExact=each_string(manifest.get("tests"), seal), noTests=manifest.get("noTests"))
+                      testsExact=each_string(manifest.get("tests"), seal), noTests=manifest.get("noTests"),
+                      protection=manifest.get("protection"), protectionExact=each_string(manifest.get("protection"), seal))
     except (OSError, ValueError, TypeError):
         pass  # the guard itself refuses a missing or malformed manifest
     return {"guard": {"fixBase": base, **claims, "trustedBase": getattr(args, "trusted_base", None),
@@ -1833,6 +1834,28 @@ def fix_state(store, unit):
     return fix, (reviews[-1] if reviews else None)
 
 
+def file_protection_review(store, unit, protection, identity):
+    """The latest independently recorded review must bind the separate file-protection declaration at this HEAD.
+    It supplements the prompting review; it cannot replace its original SHA, findings or named tests."""
+    reviews = [event for event in ledger_events(store) if event["kind"] == "review" and event["payload"]["unit"] == unit]
+    if not reviews:
+        raise ValueError("file protection needs an independently recorded review")
+    record = reviews[-1]["payload"]
+    paths = [store / "blobs" / record[key] for key in ("reviewHash", "findingsHash")]
+    if any(sha256_file(path) != record[key] for path, key in zip(paths, ("reviewHash", "findingsHash"))):
+        raise ValueError("recorded file-protection review/findings content changed")
+    review = json_object(paths[0])
+    if (record["sha"] != identity["head"] or review.get("schema") != "clearcase-review/1"
+            or review.get("verdict") != "PASS" or review.get("fresh") is not True
+            or not isinstance(review.get("reviewer"), str) or not review["reviewer"].strip()
+            or not isinstance(review.get("implementer"), str) or not review["implementer"].strip()
+            or review["reviewer"] == review["implementer"]
+            or not isinstance(protection, dict)
+            or json.dumps(review.get("fileProtection"), sort_keys=True) != json.dumps(protection, sort_keys=True)):
+        raise ValueError("file protection differs from the latest independent PASS review's fileProtection at HEAD")
+    return paths
+
+
 def guard_binding(store, unit, supplied, identity):
     """(binding, evidence paths). A unit with a recorded fix attempt needs a PASS test-guard receipt at the approved
     HEAD whose fix base is the commit the prompting review recorded, whose manifest names that review's findings by
@@ -1846,7 +1869,7 @@ def guard_binding(store, unit, supplied, identity):
         raise ValueError("a fix attempt is recorded for this unit with no review-record before it")
     record = prompting["payload"]
     protected = json_object(store / "blobs" / record["findingsHash"]).get("protectedTests")
-    if not isinstance(protected, list):
+    if protected is not None and not isinstance(protected, list):
         raise ValueError("the review that prompted the fix lists no protectedTests (a list of {file, name}; empty "
                          "only when it names no test); the guard cannot be bound to it")
     binding = {"nothingToProtect": not protected, "reviewEvent": prompting["hash"], "fixEvent": fix["hash"], "fixBase": record["sha"]}
@@ -1871,13 +1894,25 @@ def guard_binding(store, unit, supplied, identity):
     if claims.get("reviewFindingsSha256") != record["findingsHash"] or claims.get("unit") != unit:
         raise ValueError("the guard manifest names other review findings than the ledger's review for this unit")
     declared = claims.get("noTests")
+    protection = (exact(claims, "protection", "guard")
+                  if claims.get("protection") is not None or claims.get("protectionExact") is not None else None)
+    extra_paths = []
+    if protection is not None:
+        if protected or declared is not None or claims.get("tests") != []:
+            raise ValueError("file protection cannot replace the prompting review's named tests or a noTests declaration")
+        extra_paths = file_protection_review(store, unit, protection, identity)
+        protected = []
+        binding["nothingToProtect"] = False
+    elif protected is None:
+        raise ValueError("the review that prompted the fix lists no protectedTests; the guard cannot be bound to it")
     if declared is not None and protected:
         raise ValueError(f"the guard manifest declares no tests, but the review that prompted the fix names {len(protected)} "
                          "protected test(s); a declaration cannot leave them out")
     if json.dumps(exact(claims, "tests", "guard"), sort_keys=True) != json.dumps(protected, sort_keys=True):
         raise ValueError("the guard manifest's tests differ from the review's protectedTests")
     return {**binding, "receipt": str(path), "manifestSha256": claims.get("manifestSha256"), "tests": protected,
-            **({"noTests": declared} if declared is not None else {})}, [path]
+            **({"noTests": declared} if declared is not None else {}),
+            **({"protection": protection} if protection is not None else {})}, [path, *extra_paths]
 
 
 def approval_evidence(args, identity, paths):
@@ -2265,6 +2300,12 @@ def cmd_fix_round_guard(args):
                                  f"{prompting['payload']['sha'][:12]} the ledger recorded for {unit}")
             if fix is not None and manifest.get("reviewFindingsSha256") != prompting["payload"]["findingsHash"]:
                 raise ValueError(f"reviewFindingsSha256 names other findings than the review the ledger recorded for {unit}")
+            if args.ledger and "protection" in manifest:
+                store = Path(args.ledger).expanduser().resolve()
+                file_protection_review(store, unit, manifest["protection"], identity)
+                named = json_object(store / "blobs" / prompting["payload"]["findingsHash"]).get("protectedTests") if prompting else None
+                if named not in (None, []):
+                    raise ValueError("file protection cannot replace the prompting review's protectedTests")
             if fix is not None and "noTests" in manifest:
                 store = Path(args.ledger).expanduser().resolve()
                 named = json_object(store / "blobs" / prompting["payload"]["findingsHash"]).get("protectedTests")

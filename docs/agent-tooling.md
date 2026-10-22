@@ -648,6 +648,71 @@ Unsupported named syntax or changed Python/shell test sources fail closed, and s
 module the resolver cannot bind, a `.svelte` component included; this draft does not claim semantic understanding of
 arbitrary test frameworks.
 
+### Custom probe file protection
+
+A custom probe need not pretend to be a framework test. An additive files mode uses `tests: []` and
+`protection: {kind: "files", files: [{file, revision}, ...], review: {file, sha256}}` in the existing
+`clearcase-fix-round/1` manifest. It is exclusive with named tests and `noTests`. The files list must be nonempty,
+unique and explicit: every entry names a canonical repository path and a full commit SHA. No directories, private
+paths, symlinks or submodules are accepted. Each snapshot must descend from the original `fixBase` and be an ancestor
+of the independently reviewed head. HEAD must retain its committed blob bytes **and mode** exactly. A reason cannot
+excuse a difference. The protection snapshot does not move the original runtime review anchor.
+
+`protection.review.file` names a separate committed regular JSON file, whose raw bytes hash to `review.sha256`.
+Its exact fields are:
+
+```json
+{
+  "schema": "clearcase-file-protection-review/1",
+  "unit": "GRS-26/implementation",
+  "fixBase": "<original full runtime review SHA>",
+  "reviewFindingsSha256": "<original findings SHA256>",
+  "reviewedHead": "<independently approved full snapshot SHA>",
+  "verdict": "PASS",
+  "fresh": true,
+  "reviewer": "<independent reviewer>",
+  "implementer": "<implementer, distinct from reviewer>",
+  "files": [{"file": "<repository path>", "revision": "<full snapshot SHA>"}]
+}
+```
+
+Replace the placeholders with the actual review and complete ordered files list. This document preserves the new
+review provenance separately from the original findings hash and history. Every declaration must equal its reviewed
+entry. The guard still runs ordinary configuration, dependency/reach and touched-test assertion-count checks against
+`fixBase..HEAD`; it does not execute the custom legs. Frozen files join the protected closure for reach checks, while
+the original assertion floor still applies to them. Other changed runtime files remain subject to the existing checks.
+
+With a ledger, the original prompting review and first fix dispatch still determine `fixBase`, findings hash and
+`protectedTests`. Files mode cannot replace a nonempty named-test list. Only this explicit mode permits absent or
+empty original `protectedTests`: the latest recorded independent PASS `clearcase-review/1` at exact HEAD must also
+hold a `fileProtection` field equal to the entire manifest `protection`, including its provenance path/hash and every
+snapshot. `fix-round-guard --ledger`, `approve` and `approval-check` enforce that equality. `guard.protection` and its
+lossless `protectionExact` twin bind the declaration into the receipt; approval retains it in its fingerprinted binding
+with `nothingToProtect: false`. Stale reviews, a shorter file list or a later weaker snapshot cannot authorize themselves
+by changing only the manifest. The coordinator must identify and use its actual store; do not reset its history.
+
+CI has no ledger: a hash checks integrity, not reviewer authority. Reviewers own the provenance, the completeness of
+the explicit inputs list, runtime changes and exact-head execution evidence. A worker can rewrite both the declaration
+and its claimed review in a candidate; CI cannot authenticate that claim. The existing trusted `review-record` caller
+boundary and unsigned-ledger limits still apply. This mode becomes usable for acceptance only after its implementation
+lands on the trusted PR base. A candidate running its own guard is diagnostic evidence only.
+
+For PRFIX-114f the proposed boundary is **all bytes** of both `tests/hosting-probe/storage/probe.ts` and
+`tests/hosting-probe/recovery/probe.ts` at independently approved `16589bdd02c2172359e49db34dc26b5e22f5530c`.
+The explicit input list also freezes, at that same commit:
+
+- `tests/hosting-probe/storage/generate.ts` and `tests/hosting-probe/storage/src/zip.ts`;
+- `tests/hosting-probe/storage/schema.sql`, `tests/hosting-probe/recovery/schema.sql`;
+- both probes' `package.json` and `wrangler.toml`, and `tests/hosting-probe/storage/bun.lock`;
+- `tests/e2e/pilot/offline.sh` and the root `tsconfig.json`.
+
+The generator makes synthetic fixtures; both entire probes freeze their inline race setup, helpers, assertions and
+leg ordering (`multipart-race`, `restore-removal-race`, `dead-intent`). Worker implementations and their runtime support
+remain the module under test, reviewed over `a3f80d1305294a8c685a87351281eef7928c7d9c..HEAD`. This list is a proposed
+review boundary, not an approval or evidence that the hosted legs ran. Binaries, installed package bytes and OS remain
+under the existing prerequisite/check trust. New inputs or corrected expectations require a new explicit independent
+review binding; they cannot be silently excused by a newer snapshot.
+
 ### Docs-only fix rounds
 
 A review that names no test (`protectedTests: []`) gives the guard nothing to protect by name, yet a fix round labelled
@@ -759,9 +824,9 @@ not from the worker's files: the review that prompted the fix is the unit's late
 `fixBase`, another findings hash or a shorter `tests` list refuses, and so does a receipt from `fix-round-guard --base`
 without `--ledger` (its `guard.trustedBase` is set, or its recorded command carries `--trusted-base`), since a worker
 chooses that base. A receipt bounded at a fix head (`guard.fixHead`, or `--fix-head` in its command) refuses too.
-When the recorded review lists no `protectedTests` field the approval refuses. An empty list records
+Outside the explicit files mode above, a review with no `protectedTests` field refuses approval. An empty list records
 `guard.nothingToProtect` and still needs the receipt: approval admits no recorded fix that `fix-round-guard --ledger`
-refuses, and that guard demands a manifest. The only manifest an empty list can have is a docs-only declaration
+refuses, and that guard demands a manifest. Outside files mode, an empty list needs a docs-only declaration
 ([Docs-only fix rounds](#docs-only-fix-rounds)), whose PASS receipt must name the recorded review's SHA and findings hash,
 so a recorded fix with no manifest refuses, whatever it changes. A declaration for a review that names tests
 refuses. The row keeps the binding (with `noTests` for a declaration) and the receipt joins the fingerprinted inputs, so

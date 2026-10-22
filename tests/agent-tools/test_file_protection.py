@@ -139,6 +139,19 @@ class FileProtection(controls.ControlCase):
         self.commit('substituted hash')
         self.refuse()
 
+    def test_nonancestor_and_noncommit_snapshot_ids_refuse_even_with_matching_review(self):
+        self.git('switch', '-q', '-c', 'outside', self.approved)
+        self.write('app.txt', 'unmerged independent line\n')
+        outside = self.commit('snapshot HEAD never received')
+        self.git('switch', '-q', '--detach', self.approved)
+        self.git('-c', 'user.name=Synthetic', '-c', 'user.email=test@example.invalid', 'tag', '-a', 'snapshot', '-m', 'annotated tag', self.approved)
+        for revision in [outside, self.git('rev-parse', 'snapshot'), self.git('rev-parse', f'{self.approved}^{{tree}}')]:
+            with self.subTest(revision=revision):
+                self.protection['files'] = [{'file': file, 'revision': revision} for file in [self.probe, self.fixture]]
+                self.provenance.update(files=self.protection['files'], reviewedHead=revision)
+                self.finish()
+                self.refuse()
+
     def test_file_mode_keeps_original_assertion_floor_and_ordinary_diff_checks(self):
         self.write('tests/other.test.ts', "test('other', () => { expect(1).toBe(1); });\n")
         self.base = self.commit('original range also contains other regression')
@@ -173,7 +186,8 @@ class FileProtection(controls.ControlCase):
         self.cli('receipt', '--name', 'tooling', '--', 'true')
         self.check = sorted(self.receipts.glob('*/receipt.json'))[-1]
         check = json.loads(self.check.read_text())
-        self.findings = self.document('final-findings.json', {'sha': self.head, 'unresolvedFindings': []})
+        self.findings = self.document('final-findings.json', {'sha': self.head, 'unresolvedFindings': [],
+            'updatedAt': '2026-10-22T17:59:00+00:00'})
         self.review = self.document('final-review.json', {'schema': 'clearcase-review/1', 'sha': self.head,
             'verdict': 'PASS', 'fresh': True, 'reviewer': 'independent', 'implementer': 'worker',
             'reviewedAt': '2026-10-22T18:00:00+00:00', 'unresolvedFindings': [],
@@ -203,6 +217,21 @@ class FileProtection(controls.ControlCase):
         self.bind_review({**self.protection, 'files': self.files[:1]})
         self.cli('fix-round-guard', '--base', self.base, '--ledger', self.receipts, code=1)
         self.approve(receipt, code=1)
+
+    def test_file_protection_cannot_displace_preexisting_named_test_binding(self):
+        prompt = json.loads(self.prompt.read_text())
+        prompt['protectedTests'] = [{'file': 'tests/real.test.ts', 'name': 'original named regression'}]
+        self.prompt.write_text(json.dumps(prompt))
+        self.prompt_hash = hashlib.sha256(self.prompt.read_bytes()).hexdigest()
+        self.provenance['reviewFindingsSha256'] = self.prompt_hash
+        self.manifest['reviewFindingsSha256'] = self.prompt_hash
+        self.finish()
+        self.record_prompt()
+        self.bind_review(self.protection)
+        self.assertIn('protectedTests', self.cli('fix-round-guard', '--base', self.base, '--ledger', self.receipts, code=1))
+        self.guard()
+        receipt = sorted(self.receipts.glob('*/receipt.json'))[-1]
+        self.assertIn('named tests', self.approve(receipt, code=1))
 
     def test_later_weak_snapshot_cannot_mint_approval_or_replace_original_review(self):
         self.finish()

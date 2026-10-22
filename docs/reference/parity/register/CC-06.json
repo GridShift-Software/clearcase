@@ -650,6 +650,70 @@
       "approvedOn": "2026-10-21"
     },
     {
+      "id": "IDR-453",
+      "view": "settlement_tab",
+      "field": "sweep.model.p10.k0.label",
+      "when": {
+        "v5": "Pessimistic (p-25)",
+        "app": "Pessimistic (p=0%)"
+      },
+      "type": "defect-fix",
+      "source": "S-settlement_tab-4",
+      "reason": "The synthetic 10% recovery case clamps the pessimistic scenario to 0%; its label now states 0% rather than implying a negative probability.",
+      "productVisible": true,
+      "author": "GRS-185 (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-454",
+      "view": "settlement_tab",
+      "field": "sweep.model.p95.k2.label",
+      "when": {
+        "v5": "Optimistic (p+15)",
+        "app": "Optimistic (p=100%)"
+      },
+      "type": "defect-fix",
+      "source": "S-settlement_tab-4",
+      "reason": "The synthetic 95% recovery case clamps the optimistic scenario to 100%; its label now states the actual probability.",
+      "productVisible": true,
+      "author": "GRS-185 (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-455",
+      "view": "settlement_tab",
+      "field": "control.input:text:Enforcement cost (R)",
+      "when": {
+        "v5": "1",
+        "app": "<absent>"
+      },
+      "type": "defect-fix",
+      "source": "S-settlement_tab-4",
+      "reason": "The old enforcement cost input label omitted its timing basis. The replacement names the cost as undiscounted.",
+      "productVisible": true,
+      "author": "GRS-185 (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
+      "id": "IDR-456",
+      "view": "settlement_tab",
+      "field": "control.input:text:Enforcement cost (undiscounted, R)",
+      "when": {
+        "v5": "<absent>",
+        "app": "1"
+      },
+      "type": "defect-fix",
+      "source": "S-settlement_tab-4",
+      "reason": "The input label states that enforcement cost is undiscounted. The model still subtracts it after discounting the claim, pending a model decision.",
+      "productVisible": true,
+      "author": "GRS-185 (GPT-6-Sol)",
+      "approvedBy": null,
+      "approvedOn": null
+    },
+    {
       "id": "IDR-239",
       "view": "prescription_tab",
       "field": [],
@@ -677,14 +741,13 @@
       "id": "IDR-241",
       "view": "quantum_tab",
       "field": [],
-      "type": "known-gap",
+      "type": "defect-fix",
       "source": "S-quantum_tab-3",
-      "owner": "GRS-16",
-      "reason": "v5's amount chart assumes non-negative amounts and writes negative heights. ClearCase draws no bar for a negative amount. The bar-width formula with its minimum is unchanged, so bars can still overlap with a very large series, the other half of the defect; closing it would need an app change. Evidence: tests/quantum/ledger.test.ts:55.",
+      "reason": "v5's amount chart writes negative heights and lets dense bars overlap. ClearCase draws no bar for a negative amount, and caps each dense bar below its available slot so a large series fits within the plot without overlap. Evidence: tests/quantum/ledger.test.ts:48.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": "Vaperizer2",
-      "approvedOn": "2026-10-21"
+      "approvedBy": null,
+      "approvedOn": null
     },
     {
       "id": "IDR-242",
@@ -778,11 +841,11 @@
       "type": "known-gap",
       "source": "S-settlement_tab-4",
       "owner": "GRS-16",
-      "reason": "v5's scenario labels do not reflect clamping of the probability, and costs are not discounted while recovery is. ClearCase copies both: fixed labels and undiscounted costs. Changing either would be an app change. Evidence: src/lib/views/quantum/settlement.ts:57.",
+      "reason": "v5's scenario labels ignore probability clamping, and its enforcement cost is undiscounted while recovery is discounted. ClearCase labels a clamped scenario with its actual probability; a scenario that is not clamped still reads p-25 or p+15. Enforcement costs stay undiscounted, now stated, pending the settlement cost-discounting model decision, which would change the arithmetic. Parity sees the change: IDR-453. Evidence: src/lib/views/quantum/settlement.ts:54.",
       "productVisible": true,
       "author": "GRS-67 dispositions (scripts/verify/register-dispositions.mjs)",
-      "approvedBy": "Vaperizer2",
-      "approvedOn": "2026-10-21"
+      "approvedBy": null,
+      "approvedOn": null
     }
   ]
 }

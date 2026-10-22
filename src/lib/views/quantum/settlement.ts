@@ -39,7 +39,7 @@ export function settleOutcome(i: SettleInputs): SettleOutcome {
 	const claim = parseClaim(i.claim);
 	if (!claim.ok) errors.claim = `Claim value: ${claim.error}`;
 	const cost = parseAmount(i.c);
-	if (!cost.ok) errors.c = `Enforcement cost: ${cost.error}`;
+	if (!cost.ok) errors.c = `Enforcement cost (undiscounted): ${cost.error}`;
 	const p = parseBounded(i.p, 'a probability', MAX_PROBABILITY, `A probability is 0 to ${MAX_PROBABILITY}`);
 	if (!p.ok) errors.p = p.error;
 	const y = parseBounded(i.y, 'a number of years', MAX_YEARS, `Years to recover are 0 to ${MAX_YEARS}`);
@@ -51,13 +51,15 @@ export function settleOutcome(i: SettleInputs): SettleOutcome {
 	try { s = settlement(claim.value, p.value.value, y.value.value, d.value.value, cost.value); } catch { return { errors: { result: TOO_LARGE }, kpis: null, floor: null }; }
 	if (![s.pessimistic.cents, s.base.cents, s.optimistic.cents, claim.value, cost.value].every(withinCap)) return { errors: { result: TOO_LARGE }, kpis: null, floor: null };
 	const pv = p.value.value;
+	const pessimisticClamped = s.pessimistic.probability !== pv - 25;
+	const optimisticClamped = s.optimistic.probability !== pv + 15;
 	return {
 		errors,
 		kpis: [
-			{ label: 'Pessimistic (p-25)', value: R(s.pessimistic.cents), sub: '' },
-			{ label: `Base (p=${pv}%)`, value: R(s.base.cents), sub: '' },
-			{ label: 'Optimistic (p+15)', value: R(s.optimistic.cents), sub: '' },
+			{ label: pessimisticClamped ? `Pessimistic (p=${s.pessimistic.probability}%)` : 'Pessimistic (p-25)', value: R(s.pessimistic.cents), sub: pessimisticClamped ? `Recovery probability ${s.pessimistic.probability}%` : '' },
+			{ label: `Base (p=${s.base.probability}%)`, value: R(s.base.cents), sub: '' },
+			{ label: optimisticClamped ? `Optimistic (p=${s.optimistic.probability}%)` : 'Optimistic (p+15)', value: R(s.optimistic.cents), sub: optimisticClamped ? `Recovery probability ${s.optimistic.probability}%` : '' },
 		],
-		floor: `a rational settlement sits around the base risk-adjusted present value of ${R(s.base.cents)} (claim ${R(claim.value)} discounted for a ${pv}% recovery probability over ${y.value.value} year(s) at ${d.value.value}%, net of ${R(cost.value)} costs). Below this, litigation is preferable; a premium above it reflects certainty and time saved.`,
+		floor: `a rational settlement sits around the base risk-adjusted present value of ${R(s.base.cents)} (claim ${R(claim.value)} discounted for a ${pv}% recovery probability over ${y.value.value} year(s) at ${d.value.value}%, net of ${R(cost.value)} costs). The ${R(cost.value)} undiscounted enforcement costs are subtracted after the claim is discounted. Below this, litigation is preferable; a premium above it reflects certainty and time saved.`,
 	};
 }

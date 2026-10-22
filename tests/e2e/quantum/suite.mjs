@@ -305,7 +305,7 @@ try {
 		await p.waitFor(`location.search.includes('p=95')`, 15000);
 		await p.waitFor(`[...document.querySelectorAll('#se_out .kpi .k')].some((e) => e.textContent.trim() === 'Base (p=95%)')`, 15000);
 		const changed = await k.kpis('#se_out');
-		return { pass: J(base.map((x) => x.value)) === J(['R 271 900.83', 'R 478 512.40', 'R 602 479.34']) && changed[2]?.value === 'R 726 446.28' && changed[2]?.label === 'Optimistic (p+15)', evidence: { base, changed } };
+		return { pass: J(base.map((x) => x.value)) === J(['R 271 900.83', 'R 478 512.40', 'R 602 479.34']) && changed[2]?.value === 'R 726 446.28' && changed[2]?.label === 'Optimistic (p=100%)', evidence: { base, changed } };
 	});
 
 	// ---- 9. imported narrative is distinguished from computed dates ---------------------------------------------------------

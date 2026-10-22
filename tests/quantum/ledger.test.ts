@@ -45,6 +45,20 @@ describe('reconciliation with the imported reference figures', () => {
 });
 
 describe('amount-due chart', () => {
+	it('fits a dense series inside the plot without overlapping bars', () => {
+		const rows = Array.from({ length: 1000 }, (_, i) => ({ date: `2081-01-${String(i + 1).padStart(4, '0')}`, ref: `SD-${i}`, amount: '100.00' }));
+		const c = chart(rows)!;
+		const right = c.width - 8;
+		for (let i = 0; i < c.bars.length; i++) {
+			const bar = c.bars[i]!;
+			const start = Number(bar.x);
+			const end = start + Number(bar.w);
+			expect(Number(bar.w)).toBeGreaterThan(0);
+			expect(start).toBeGreaterThanOrEqual(8);
+			expect(end).toBeLessThanOrEqual(right);
+			if (i + 1 < c.bars.length) expect(end).toBeLessThanOrEqual(Number(c.bars[i + 1]!.x));
+		}
+	});
 	it('scales bars to the peak and captions first, last and peak (v5 quantumChart)', () => {
 		const c = chart([{ date: '2081-01-31', ref: 'SD-901', amount: '50.00' }, { date: '2081-02-28', ref: 'SD-902', amount: '200.00' }])!;
 		expect(c.caption).toBe('2081-01-31 → 2081-02-28 · peak R 200.00');

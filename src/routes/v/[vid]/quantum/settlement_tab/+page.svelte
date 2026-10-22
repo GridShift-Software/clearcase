@@ -21,7 +21,7 @@
 		else vals = { ...next };
 		sent = null;
 	});
-	const missing = $derived(([['probability', 'Probability of full recovery'], ['years', 'Years to recover'], ['discount', 'Discount rate'], ['cost', 'Enforcement cost']] as const).filter(([k]) => data.defaults[k] === null).map(([, l]) => l));
+	const missing = $derived(([['probability', 'Probability of full recovery'], ['years', 'Years to recover'], ['discount', 'Discount rate'], ['cost', 'Enforcement cost (undiscounted)']] as const).filter(([k]) => data.defaults[k] === null).map(([, l]) => l));
 	const R = (c: string) => fmtR(centsText(BigInt(c)));
 	let ready = $state(false);
 	onMount(() => { ready = true; });
@@ -37,7 +37,7 @@
 				<div><label for="se_p">Probability of full recovery (%)</label><input id="se_p" name="p" bind:value={vals.p} inputmode="decimal" autocomplete="off" aria-invalid={out.errors.p ? 'true' : undefined} /><small class="q-hint">0 to {MAX_PROBABILITY}</small></div>
 				<div><label for="se_y">Years to recover</label><input id="se_y" name="y" bind:value={vals.y} inputmode="decimal" autocomplete="off" aria-invalid={out.errors.y ? 'true' : undefined} /><small class="q-hint">0 to {MAX_YEARS}</small></div>
 				<div><label for="se_d">Discount rate (% p.a.)</label><input id="se_d" name="d" bind:value={vals.d} inputmode="decimal" autocomplete="off" aria-invalid={out.errors.d ? 'true' : undefined} /><small class="q-hint">0 to {MAX_DISCOUNT}</small></div>
-				<div><label for="se_c">Enforcement cost (R)</label><input id="se_c" name="c" bind:value={vals.c} inputmode="decimal" autocomplete="off" aria-invalid={out.errors.c ? 'true' : undefined} /><small class="q-hint">up to 13 digits of rand and 2 decimals</small></div>
+				<div><label for="se_c">Enforcement cost (undiscounted, R)</label><input id="se_c" name="c" bind:value={vals.c} inputmode="decimal" autocomplete="off" aria-invalid={out.errors.c ? 'true' : undefined} /><small class="q-hint">up to 13 digits of rand and 2 decimals</small></div>
 				<div class="q-tight"><button id="se-model">Model</button></div>
 				<div class="q-tight"><a href={page.url.pathname} id="se-reset" data-sveltekit-replacestate data-sveltekit-noscroll onclick={() => { sent = null; vals = { ...defaults }; }}>Reset to defaults</a></div>
 			</div>
@@ -46,7 +46,7 @@
 		{#if missing.length}<p class="q-note" id="se-missing">This package gives no default for {missing.join(', ')}: enter your assessment.</p>{/if}
 		<div id="se_out">
 			{#if out.kpis}
-				<div class="q-kpis">{#each out.kpis as k (k.label)}<Kpi label={k.label} value={k.value} />{/each}</div>
+				<div class="q-kpis">{#each out.kpis as k (k.label)}<Kpi label={k.label} value={k.value} sub={k.sub} />{/each}</div>
 				<div class="q-floor"><b>Indicative settlement floor:</b> {out.floor}</div>
 				<p class="tag">Illustrative model, not advice — the probability and horizon are counsel's call, informed by the enforcement and legality tabs.</p>
 			{:else}

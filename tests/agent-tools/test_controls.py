@@ -3153,6 +3153,71 @@ class FixRoundDerivedKeys(ControlCase):
                 self.assertIn(f'protected among them: {key}', self.guard('--base', 'dev'))
 
 
+class FixRoundArrival(ControlCase):
+    """GRS-179: a wave cut before a fix round's manifest reached dev later receives it through a merge from dev. In a pull
+    request into that wave the manifest counts as added, and its range from its fixBase spans the wave's own reviewed
+    changes. PR #114 (wave/proofs): a runner configuration the wave changed, while the wave moved on after the pull
+    request was cut, and a runner configuration the wave added."""
+    original = TestWeakening.original
+    path = FixRoundManifest.path
+    manifest = FixRoundManifest.manifest
+    change = FixRoundMergedBase.change
+    merge = FixRoundMergedBase.merge
+    guard = FixRoundMergedBase.guard
+    config = FixRoundMergedBase.config
+    helper = FixRoundMergedBase.helper
+    test = FixRoundMergedBase.test
+    wave_config = "export default { test: { include: ['tests/**/*.test.ts', 'tests/probe/**/*.test.ts'] } };\n"
+
+    def setUp(self):
+        super().setUp()
+        self.write('vitest.config.ts', self.config)
+        self.write('support/helper.ts', self.helper)
+        self.write('tests/protected.test.ts', self.test)
+        self.cut = self.commit('runner configuration, helper and the protected test')
+        # the wave is cut here, before the fix round's manifest reaches dev
+        self.git('switch', '-q', '-c', 'wave/proofs')
+        self.git('switch', '-q', '-c', 'feature/grs-104-tooling', 'dev')
+        self.write('app.txt', 'reviewed\n')
+        self.base = self.commit('reviewed')
+        self.write('app.txt', 'fixed\n')
+        self.manifest()
+        self.commit('fix round')
+        self.git('switch', '-q', 'dev')
+        self.landed = self.merge('feature/grs-104-tooling')
+        # the trusted dev a pull request's checkout holds, as CI's fetch and base-guard's repository do
+        self.git('update-ref', 'refs/remotes/origin/dev', self.landed)
+
+    def wave(self, files, message='the wave collects its probe tests'):
+        """Commit on the wave, then return to the current branch."""
+        current = self.git('branch', '--show-current')
+        self.git('switch', '-q', 'wave/proofs')
+        self.change(files, message)
+        self.git('switch', '-q', current)
+
+    def pull_request(self):
+        """The pull request into the wave: cut from the wave, a polish commit, then dev merged in."""
+        self.git('switch', '-q', '-c', 'feature/grs-105-polish', 'wave/proofs')
+        self.change({'docs/polish.md': 'polish\n'}, 'polish')
+
+    def test_a_wave_that_changed_its_runner_configuration_and_moved_on_passes(self):
+        self.wave({'vitest.config.ts': self.wave_config})
+        self.pull_request()
+        self.wave({'docs/sync.md': 'the guard sync\n'}, 'the wave moves on after the pull request is cut')
+        head = self.merge()
+        self.guard('--base', 'wave/proofs')
+        receipt = self.last_receipt()
+        self.assertEqual((receipt['name'], receipt['result'], receipt['revision']['head']), ('test-guard', 'PASS', head))
+
+    def test_a_wave_that_added_a_runner_configuration_passes(self):
+        self.wave({'tests/probe/vitest.config.ts': self.config}, 'the wave adds the probe workspace')
+        self.pull_request()
+        head = self.merge()
+        self.guard('--base', 'wave/proofs')
+        receipt = self.last_receipt()
+        self.assertEqual((receipt['name'], receipt['result'], receipt['revision']['head']), ('test-guard', 'PASS', head))
+
+
 class RetainedPaths(ControlCase):
     """L1 and L2."""
     prepare = ApprovalLedger.prepare

@@ -74,7 +74,7 @@ const LEG_SHAPE: Record<LegName, [number, number]> = {
 	'restore-leftovers': [5, 9],
 	'ledger-guards': [4, 4],
 	'warm-isolate': [5, 6],
-	'interrupted-erasure': [8, 12],
+	'interrupted-erasure': [9, 14],
 };
 type Spec = null | boolean | number | string | RegExp | ((v: unknown) => boolean) | Spec[] | { [key: string]: Spec };
 const NONEMPTY = (v: unknown) => typeof v === 'string' && v.length > 0;
@@ -97,7 +97,7 @@ const MEASURES: Record<LegName, Record<string, Spec>> = {
 	'restore-leftovers': { stepped: 6, erasedByLedger: 3, agedOut: 3, kept: 3, residueRows: 0 },
 	'ledger-guards': { refusedRequests: 3 },
 	'warm-isolate': { routesGone: 9, repeatedRemovals: 1, residueRows: 0 },
-	'interrupted-erasure': { interruptedRemovals: 2, finishedByRoute: 1, finishedByNewIsolate: 1, objectsLeftAfterFinish: 0, residueRows: 0, failedErasuresIsolated: 1, otherCasesServed: 1 },
+	'interrupted-erasure': { interruptedRemovals: 2, finishedByRoute: 1, finishedByNewIsolate: 1, objectsLeftAfterFinish: 0, residueRows: 0, failedErasuresIsolated: 1, otherCasesServed: 1, staleErrorsAfterCopyBack: 0 },
 };
 const ENV_KEYS = ['CI', 'CLOUDFLARE_CF_FETCH_ENABLED', 'CLOUDFLARE_INCLUDE_PROCESS_ENV', 'CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV', 'HOME', 'PATH', 'WRANGLER_HIDE_BANNER', 'WRANGLER_LOG_PATH', 'WRANGLER_SEND_ERROR_REPORTS', 'WRANGLER_SEND_METRICS', 'XDG_CACHE_HOME', 'XDG_CONFIG_HOME'];
 
@@ -1000,7 +1000,7 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 		});
 
 		// ----- a removal that stops after its D1 commit: the next request, or a new isolate, finishes the erasure -----
-		await leg('interrupted-erasure', ['PUT /originals/<sha256>, POST /cases/<case>/originals, import and activate a version, POST …/registers/notes/add, PUT …/bundles/b-1, seal an export, POST …/exports (left building), POST …/deletion/{request,approve,offer} for cases A5 and A6', 'POST /cases/<A6>/deletion/remove with x-probe-fault: stop-after-d1, GET /cases/<A6>/deletion, GET /recovery/head/{live,copies}/<key>', serveCmd('client-a') + ' (a new isolate), GET /recovery/copies, GET /recovery/head/live/<key>', 'POST /cases/<A5>/deletion/remove with x-probe-fault: stop-after-d1', 'GET /cases/<A5>/documents/<ref> on the same running Worker, GET /recovery/head/live/<key>', wcmd('d1 execute DB --local --env client-a --command "SELECT state, erased_at, erase_plan FROM case_deletion"') + '; POST /cases/<A6>/deletion/remove (a repeat)', 'cases A7 and A8 as above, POST /cases/<A7>/deletion/remove with x-probe-fault: stop-after-d1, ' + serveCmd('client-a') + ' (a new isolate), GET /cases/<A8>/deletion and GET /cases/<A7>/documents/<ref> with x-probe-fault: fail-erase:<A7>, GET /recovery/head/live/<key>', 'GET /cases/<A7>/documents/<ref> without the fault, GET /recovery/head/live/<key>, ' + wcmd('d1 execute DB --local --env client-a --command "SELECT state, erased_at, erase_error FROM case_deletion"')], async (check, m) => {
+		await leg('interrupted-erasure', ['PUT /originals/<sha256>, POST /cases/<case>/originals, import and activate a version, POST …/registers/notes/add, PUT …/bundles/b-1, seal an export, POST …/exports (left building), POST …/deletion/{request,approve,offer} for cases A5 and A6', 'POST /cases/<A6>/deletion/remove with x-probe-fault: stop-after-d1, GET /cases/<A6>/deletion, GET /recovery/head/{live,copies}/<key>', serveCmd('client-a') + ' (a new isolate), GET /recovery/copies, GET /recovery/head/live/<key>', 'POST /cases/<A5>/deletion/remove with x-probe-fault: stop-after-d1', 'GET /cases/<A5>/documents/<ref> on the same running Worker, GET /recovery/head/live/<key>', wcmd('d1 execute DB --local --env client-a --command "SELECT state, erased_at, erase_plan FROM case_deletion"') + '; POST /cases/<A6>/deletion/remove (a repeat)', 'cases A7 and A8 as above, POST /cases/<A7>/deletion/remove with x-probe-fault: stop-after-d1, ' + serveCmd('client-a') + ' (a new isolate), GET /cases/<A8>/deletion and GET /cases/<A7>/documents/<ref> with x-probe-fault: fail-erase:<A7>, GET /recovery/head/live/<key>', 'GET /cases/<A7>/documents/<ref> without the fault, GET /recovery/head/live/<key>, ' + wcmd('d1 execute DB --local --env client-a --command "SELECT state, erased_at, erase_error FROM case_deletion"'), wcmd('r2 object delete recovery-copies-a/deletion/<A6>.json --local') + ', ' + serveCmd('client-a') + ' (a new isolate), GET /recovery/copies with x-probe-fault: fail-copyback:<A6>, GET /cases/<A6>/documents/<ref>, ' + serveCmd('client-a') + ' (a new isolate), GET /recovery/copies, GET /recovery/head/copies/<key>, ' + wcmd('d1 execute DB --local --env client-a --command "SELECT state, erased_at, erase_error FROM case_deletion"')], async (check, m) => {
 			const FA = { role: 'firm-admin', id: 'fa-1' };
 			const GA = { role: 'global-admin', id: 'ga-1' };
 			const seedCase = async (caseId: string, tag: string) => {
@@ -1061,7 +1061,18 @@ async function main(out: string, keepState: boolean, allowDirty: boolean): Promi
 			const healed = await http(`/cases/${a7.caseId}/documents/S-0001`);
 			const left7 = await remaining(a7);
 			check(code(healed, 410, 'case-deleted') && left7.length === 0 && typeof row(a7).erased_at === 'string' && errorOf(a7) === null, `the next request without the fault finishes A7's erasure: no object is left (${left7.join(', ')}), erased_at is set and the recorded failure is cleared`);
-			Object.assign(m, { interruptedRemovals: 2, finishedByRoute: left5.length === 0 ? 1 : 0, finishedByNewIsolate: left6.length === 0 ? 1 : 0, objectsLeftAfterFinish: left5.length + left6.length, residueRows: res[0]!.left.length + res[1]!.left.length, failedErasuresIsolated: other.status === 200 && left7.length === 0 ? 1 : 0, otherCasesServed: other.status === 200 ? 1 : 0 });
+			// A6 is erased. Its record's copy back into the bucket that lost it fails once: the row must not claim an unfinished erasure.
+			const erasedAt6 = row(a6).erased_at;
+			if (wrangler('r2', 'object', 'delete', `recovery-copies-a/deletion/${a6.caseId}.json`, '--local', '--env', 'client-a').code !== 0) throw new Error("removing A6's recovery copy of its deletion record");
+			await serve('client-a');
+			const lost = await http('/recovery/copies', { headers: { 'x-probe-fault': `fail-copyback:${a6.caseId}` } });
+			const refused6 = await http(`/cases/${a6.caseId}/documents/S-0001`);
+			check(lost.status === 200 && !(await held('copies', `deletion/${a6.caseId}.json`)) && code(refused6, 410, 'case-deleted') && row(a6).erased_at === erasedAt6 && errorOf(a6) === null, "A6 is erased and its record is missing from RECOVERY: the copy back fails on a new isolate's first request, yet A6 stays erased and refused, and its row records no erasure failure (erase_error is only for an erasure that is unfinished)");
+			await serve('client-a');
+			const repaired = await http('/recovery/copies');
+			const staleErrors = errorOf(a6) === null ? 0 : 1;
+			check(repaired.status === 200 && (await held('copies', `deletion/${a6.caseId}.json`)) && row(a6).erased_at === erasedAt6 && staleErrors === 0 && code(await http(`/cases/${a6.caseId}/documents/S-0001`), 410, 'case-deleted'), "the next new isolate copies the record back: RECOVERY holds it again, A6 is still erased since the same time and refused, and its row carries no stale erasure failure");
+			Object.assign(m, { interruptedRemovals: 2, finishedByRoute: left5.length === 0 ? 1 : 0, finishedByNewIsolate: left6.length === 0 ? 1 : 0, objectsLeftAfterFinish: left5.length + left6.length, residueRows: res[0]!.left.length + res[1]!.left.length, failedErasuresIsolated: other.status === 200 && left7.length === 0 ? 1 : 0, otherCasesServed: other.status === 200 ? 1 : 0, staleErrorsAfterCopyBack: staleErrors });
 		});
 	} catch (e) {
 		failure = e instanceof Error ? e.message : String(e);

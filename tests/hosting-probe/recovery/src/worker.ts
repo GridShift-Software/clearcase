@@ -35,11 +35,12 @@ type Row = Record<string, unknown>;
 /**
  * PROBE_CLOCK exists only in the probe's deployments: it lets a request name the rotation time. PROBE_FAULT likewise: a request
  * that sends x-probe-fault: stop-after-d1 makes an erasure stop right after its D1 commit, as a Worker that is evicted or dies
- * there would; x-probe-fault: fail-erase:<caseId> makes that case's erasure fail the same way on every try. Never bind either
- * in production.
+ * there would; x-probe-fault: fail-erase:<caseId> makes that case's erasure fail the same way on every try;
+ * x-probe-fault: fail-copyback:<caseId> makes the copy of that case's deletion record back into the bucket that lost it fail.
+ * Never bind either in production.
  */
 type RecoveryEnv = Env & { RECOVERY?: unknown; PROBE_CLOCK?: string; PROBE_FAULT?: string };
-type Ctx = { client: string; db: D1; bucket: R2; copies: R2; env: RecoveryEnv; fault: boolean; failErase: string | null };
+type Ctx = { client: string; db: D1; bucket: R2; copies: R2; env: RecoveryEnv; fault: boolean; failErase: string | null; failCopyBack: string | null };
 /** What R2's list and head return beyond platform.ts's shape: the time R2 stored the object, which is what rotation ages. */
 type Stored = R2Object & { uploaded: Date };
 
@@ -94,7 +95,7 @@ async function open(env: RecoveryEnv, request: Request): Promise<Ctx | Response>
 	if (!isBinding(env.RECOVERY, 'get', 'put', 'head', 'list', 'delete')) refuse(503, 'missing-binding', { binding: 'RECOVERY' });
 	// The probe's faults are read before anything runs, so that they reach the reconcile of a new isolate as well.
 	const fault = env.PROBE_FAULT === '1' ? request.headers.get('x-probe-fault') : null;
-	const ctx: Ctx = { client, db: env.DB as D1, bucket: env.BUCKET as R2, copies: env.RECOVERY as R2, env, fault: fault === 'stop-after-d1', failErase: fault?.startsWith('fail-erase:') ? fault.slice('fail-erase:'.length) : null };
+	const ctx: Ctx = { client, db: env.DB as D1, bucket: env.BUCKET as R2, copies: env.RECOVERY as R2, env, fault: fault === 'stop-after-d1', failErase: fault?.startsWith('fail-erase:') ? fault.slice('fail-erase:'.length) : null, failCopyBack: fault?.startsWith('fail-copyback:') ? fault.slice('fail-copyback:'.length) : null };
 	if (recoveryClient !== client) {
 		// The other client's identifier is never echoed, as in the storage gate.
 		const object = await ctx.copies.get('identity/client.json');
@@ -290,7 +291,14 @@ async function readLedger(ctx: Ctx): Promise<Map<string, DeletionRecord>> {
 			else out.set(record.caseId, { record, text, in: [binding] });
 		}
 	}
-	for (const r of out.values()) if (r.in.length < 2) await writeRecord(ctx, r.record).catch((e: unknown) => failed(ctx, r.record.caseId, e)); // one bucket lost it: copy it back
+	for (const r of out.values()) {
+		if (r.in.length >= 2) continue;
+		// one bucket lost it: copy it back
+		await (async () => {
+			if (ctx.failCopyBack === r.record.caseId) throw new Error('probe fault: the copy of the deletion record back into the bucket that lost it failed');
+			await writeRecord(ctx, r.record);
+		})().catch((e: unknown) => failed(ctx, r.record.caseId, e));
+	}
 	return new Map([...out].map(([k, v]) => [k, v.record]));
 }
 

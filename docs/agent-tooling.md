@@ -277,13 +277,10 @@ approval bindings, and the declaration carried from its ticket into the wave pul
 
 ## Fix-diff test protection
 
-A passing guard is not clearance: it bounds test-code changes and the capability routes in the reviewer-owned list at the end of
-this section (tracked in GRS-150), and nothing else. A fix-round worker should not rely on it for any of these, and the
-re-check reviewer checks each by hand: destructured `constructor`/`__proto__` of `{}` or `[]` then written; a bare
-`export * from` whose target exports a capability; CommonJS `module.exports`/`exports.x`; code generation including
-indirect eval; a capability through a function return or parameter, a getter, an object literal, a class field or
-`this`; a package's exports and Vite aliases; non-literal `import()`/`require` and `import.meta.glob`; `node:process`
-writes; a markup `<script>` under jsdom; and the `viewer.mjs` refusal, which stays fail-closed.
+A passing guard bounds test-code changes and the capability routes described below; it is not clearance for every
+runtime behavior. The re-check reviewer still owns code generation, values moved through functions or containers,
+package exports and aliases, non-literal loads, `node:process` writes, markup `<script>` under jsdom, and the
+`viewer.mjs` refusal. The detailed reviewer list is at the end of this section.
 
 `scripts/agent-tools/test-guard --fix-base REVIEWED_SHA --findings PATH` runs the guard,
 and so does `verify test-guard` with the same arguments. `receipt --name CHECK --fix-base REVIEWED_SHA
@@ -536,8 +533,8 @@ and handlers, with a component that does not parse or compile failing closed) re
   `let` or `var`, a destructuring, `await`, a conditional, logical, comma or assignment expression, a literal `require`
   or `import()`, or an import binding, which the guard follows into the module that exports it (`export const`,
   `export { x as y }`, `export default`, a re-export, `export *`), across modules, whether or not that module changed.
-  Destructuring is followed only when its initialiser is itself rooted at a capability: `const { constructor: C } = {}`
-  and a destructuring assignment to a `let` are not (reviewer-owned, below).
+  A `constructor` or `__proto__` key read by destructuring a plain object or array literal refuses, including a
+  computed literal key, nested binding, or assignment destructuring to a `let`. A `getPrototypeOf` result remains rooted.
   The global object may appear only as the object of a property read with a literal, non-framework name
   (`globalThis.performance`, `window['x']`, `Symbol.for('app.cache')` as the key), in `typeof`, `in` or an equality
   test, as a literal-named destructuring, or as a `const` initialiser. `Symbol.for` may only be called directly with a
@@ -545,7 +542,7 @@ and handlers, with a component that does not parse or compile failing closed) re
   extended, compared, read by name, or (a converter: `String`, `Number`, `Boolean`, `BigInt`) passed to a call. Each
   use of a `const` that holds one is checked the same way, where it appears. Moving one anywhere else refuses: an
   export under any name (`export { g as h }`, `export default`, a named or default re-export, `export * as ns`, a
-  TypeScript `export import`; a bare `export * from` is not refused, see below), an
+  TypeScript `export import`, or a bare `export * from` whose local target exports a capability), an
   argument, a return value, a property, an element, a field, a `let` or an assignment, a spread, a computed key. A
   TypeScript import alias of a value (`import P = O`) fails closed. A member of a capability (`Object.keys`,
   `fs.readFile`, `fs.promises`) is a plain value and may move;
@@ -572,25 +569,19 @@ A local function named `expect`, and literal reads of the global object (`global
 `const g = globalThis as {...}` then `g.__clearcase`), are fine. A changed module may load an unchanged module under
 test freely, since application code is trusted as reviewed.
 
-What the guard bounds at `66f2bb3` (GRS-148, landed as defence in depth, as GRS-104 was): a changed JS/TS/Svelte
+What the guard bounds after GRS-150 (defence in depth, as GRS-104 was): a changed JS/TS/Svelte
 module cannot name a framework, move or write a rooted capability (the global object, `Symbol`, a builtin, a Node or
 Bun builtin module, a constructor or prototype) through the shapes listed above, followed through `const`/`let`/`var`,
-destructuring of a rooted initialiser, `await`, conditionals, a literal `require`/`import()` and import bindings
-across modules. It is a best-effort net, not a sandbox. The routes below stay open. GRS-150 tracks them; until it
-lands, the re-check reviewer owns each one and must check it by hand in every changed module of the fix diff:
+destructuring, `await`, conditionals, a literal `require`/`import()` and import bindings across modules. A changed
+module also refuses a bare `export *` whose local target exports a capability, and assignments to CommonJS
+`module.exports` or `exports.x` (including literal computed keys). The guard does not follow exports from an
+unchanged CommonJS module, so an import of one still needs review. It is a best-effort net, not a sandbox.
+The routes below remain reviewer-owned; GRS-150 does not record their acceptance:
 
-- `const { constructor: C } = {} as any; C.is = () => true` (also `{ __proto__: p } = []`, and `({ constructor: C } = {})`
-  assigned to a `let`): a destructured `constructor`/`__proto__` of an unrooted `{}` or `[]` is a capability the guard
-  does not root (`destructured()` in `test_guard.mjs`). Look for destructuring of `constructor`, `prototype` or
-  `__proto__` followed by a member write.
-- a bare `export * from './m'` whose target exports a capability (`Object`, `globalThis`, `node:fs`, a prototype)
-  is not refused; only the importer that writes it is followed, and not when the writing module is unchanged. Open
-  every `export *` a fix adds or changes and read the target's exports.
-- CommonJS `module.exports = Object`, `exports.x = ...` and `export { default as P } from './c.cjs'` are not
-  followed from an unchanged module (`exportRoot`). A changed `.cjs` is checked. The repository has no tracked
-  `.cjs` or `.cts` file today; a new one is the signal.
-- code generation: `eval`, indirect eval (`(0, eval)(...)`), `Function`, a constructor chain. Search the diff for
+- **Route 4:** code generation: `eval`, indirect eval (`(0, eval)(...)`), `Function`, a constructor chain. Search the diff for
   the words.
+- **Route 6:** an unchanged CommonJS module's `module.exports`/`exports.x` or `export { default as P } from './c.cjs'`
+  is not followed by `exportRoot`. Check imports from one; the repository has no tracked `.cjs` or `.cts` file today.
 - a function's return value (`Object.getOwnPropertyDescriptor(...).get.call([])`) or parameter, a getter, an object or
   array literal's member, a class field and `this`: a capability reaching a write through one is not followed.
   Read any new function that returns or receives `Object`, `globalThis`, a prototype or a builtin module.
